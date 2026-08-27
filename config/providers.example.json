@@ -1,0 +1,61 @@
+{
+  "$schema": "./providers.schema.json",
+  "providers": [
+    {
+      "id": "local-vllm",
+      "adapter": "openai-compatible",
+      "baseUrlEnv": "SOAR_VLLM_BASE_URL",
+      "apiKeyEnv": "SOAR_VLLM_API_KEY",
+      "modelEnv": "SOAR_VLLM_MODEL",
+      "marginalPriceUsdPerMillionTokens": {
+        "input": 0,
+        "output": 0
+      },
+      "capabilities": [
+        "chat.completions",
+        "responses",
+        "reasoning",
+        "tool-calling"
+      ]
+    },
+    {
+      "id": "openrouter-cloud-primary",
+      "adapter": "openai-compatible",
+      "enabledEnv": "SOAR_OPENROUTER_ENABLED",
+      "baseUrlEnv": "SOAR_OPENROUTER_BASE_URL",
+      "apiKeyEnv": "SOAR_OPENROUTER_API_KEY",
+      "modelEnv": "SOAR_OPENROUTER_MODEL",
+      "marginalPriceUsdPerMillionTokens": {
+        "input": 0.06,
+        "output": 0.12,
+        "cacheRead": 0.012
+      },
+      "pricingVerifiedOn": "2026-08-27",
+      "pricingSource": "https://openrouter.ai/api/v1/model/deepseek/deepseek-v4-flash-0731",
+      "safeContextTokens": 1048576,
+      "maxOutputTokens": 131072,
+      "providerRouting": {
+        "sort": "price",
+        "allowFallbacks": true,
+        "maxPriceUsdPerMillionTokens": {
+          "input": 0.08,
+          "output": 0.18
+        }
+      },
+      "capabilities": [
+        "chat.completions",
+        "reasoning",
+        "reasoning-effort",
+        "tool-calling",
+        "parallel-tool-calling",
+        "structured-outputs"
+      ]
+    }
+  ],
+  "budget": {
+    "campaignUsdEnv": "SOAR_CAMPAIGN_BUDGET_USD",
+    "automaticStopUsdEnv": "SOAR_AUTOMATIC_STOP_USD",
+    "maxPaidEpisodeUsdEnv": "SOAR_MAX_PAID_EPISODE_USD",
+    "denyWhenProjectedCostExceedsRemainingBudget": true
+  }
+}

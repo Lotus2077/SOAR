@@ -1,0 +1,62 @@
+{
+  "name": "soar",
+  "version": "0.0.0",
+  "description": "A macOS-first local and cloud agentic task router.",
+  "author": "Lotus2077",
+  "private": true,
+  "type": "module",
+  "main": "./out/main/index.js",
+  "packageManager": "pnpm@10.12.4",
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:live-vllm": "SOAR_RUN_LIVE_VLLM=true vitest run tests/integration/live-vllm.test.ts --testTimeout=600000",
+    "test:e2e": "node scripts/run-electron-e2e.mjs",
+    "postinstall": "electron-builder install-app-deps",
+    "rebuild:native": "electron-rebuild -f -w better-sqlite3",
+    "package:mac": "pnpm build && node scripts/package-mac.mjs",
+    "check": "pnpm validate:readiness && pnpm typecheck && pnpm test && pnpm build",
+    "check:cloud-key": "node scripts/check-openrouter-key.mjs",
+    "validate:readiness": "node scripts/validate-readiness.mjs"
+  },
+  "dependencies": {
+    "@phosphor-icons/react": "^2.1.10",
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^17.4.2",
+    "openai": "^7.7.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "@playwright/test": "^1.62.1",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.6",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.4.0",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^5.2.0",
+    "electron": "^40.10.2",
+    "electron-builder": "^26.15.3",
+    "electron-vite": "^5.0.0",
+    "jsdom": "^30.0.1",
+    "typescript": "^7.0.2",
+    "vite": "^7.0.0",
+    "vitest": "^4.1.11"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "electron",
+      "esbuild"
+    ]
+  }
+}

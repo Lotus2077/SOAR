@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soar.local/schemas/providers.schema.json",
+  "title": "SOAR provider configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["providers", "budget"],
+  "properties": {
+    "providers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "adapter",
+          "baseUrlEnv",
+          "modelEnv",
+          "marginalPriceUsdPerMillionTokens",
+          "capabilities"
+        ],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "adapter": { "const": "openai-compatible" },
+          "enabledEnv": { "type": "string", "minLength": 1 },
+          "baseUrlEnv": { "type": "string", "minLength": 1 },
+          "apiKeyEnv": { "type": "string" },
+          "modelEnv": { "type": "string", "minLength": 1 },
+          "marginalPriceUsdPerMillionTokens": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["input", "output"],
+            "properties": {
+              "input": { "type": "number", "minimum": 0 },
+              "output": { "type": "number", "minimum": 0 },
+              "cacheRead": { "type": "number", "minimum": 0 }
+            }
+          },
+          "pricingVerifiedOn": { "type": "string", "format": "date" },
+          "pricingSource": { "type": "string", "format": "uri" },
+          "safeContextTokens": { "type": "integer", "minimum": 1 },
+          "maxOutputTokens": { "type": "integer", "minimum": 1 },
+          "providerRouting": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["sort", "allowFallbacks", "maxPriceUsdPerMillionTokens"],
+            "properties": {
+              "sort": { "enum": ["price", "throughput", "latency"] },
+              "allowFallbacks": { "type": "boolean" },
+              "maxPriceUsdPerMillionTokens": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["input", "output"],
+                "properties": {
+                  "input": { "type": "number", "exclusiveMinimum": 0 },
+                  "output": { "type": "number", "exclusiveMinimum": 0 }
+                }
+              }
+            }
+          },
+          "capabilities": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "budget": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "campaignUsdEnv",
+        "automaticStopUsdEnv",
+        "maxPaidEpisodeUsdEnv",
+        "denyWhenProjectedCostExceedsRemainingBudget"
+      ],
+      "properties": {
+        "campaignUsdEnv": { "type": "string" },
+        "automaticStopUsdEnv": { "type": "string" },
+        "maxPaidEpisodeUsdEnv": { "type": "string" },
+        "denyWhenProjectedCostExceedsRemainingBudget": { "type": "boolean" }
+      }
+    }
+  }
+}

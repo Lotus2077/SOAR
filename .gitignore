@@ -1,0 +1,19 @@
+.DS_Store
+node_modules/
+dist/
+out/
+coverage/
+playwright-report/
+test-results/
+
+# Secrets and machine-local configuration
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Runtime state and downloaded benchmark fixtures
+.soar/
+benchmarks/cache/
+benchmarks/runs/

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://soar.local/schemas/workload.schema.json",
+  "title": "SOAR benchmark workload",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "track",
+    "source",
+    "task",
+    "evaluator",
+    "tags"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "track": { "enum": ["research", "coding"] },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["dataset", "recordId", "url", "revision"],
+      "properties": {
+        "dataset": { "type": "string", "minLength": 1 },
+        "recordId": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "format": "uri" },
+        "provenanceUrl": { "type": "string", "format": "uri" },
+        "revision": { "type": "string", "minLength": 1 }
+      }
+    },
+    "task": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["delivery", "fixture"],
+      "properties": {
+        "delivery": { "type": "string", "minLength": 1 },
+        "fixture": { "type": "string", "minLength": 1 }
+      }
+    },
+    "evaluator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "commandOrProtocol"],
+      "properties": {
+        "kind": {
+          "enum": [
+            "exact-answer",
+            "deterministic-tests",
+            "citation-and-rubric",
+            "benchmark-harness"
+          ]
+        },
+        "commandOrProtocol": { "type": "string", "minLength": 1 }
+      }
+    },
+    "tags": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "notes": { "type": "string", "minLength": 1 }
+  }
+}

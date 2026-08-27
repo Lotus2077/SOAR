@@ -1,11 +1,14 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ProviderToolCall } from "../../src/main/providers/types";
-import { executeToolCall } from "../../src/main/tools/tool-gateway";
+import {
+  executeToolCall,
+  MAX_TOOL_OUTPUT_BYTES,
+} from "../../src/main/tools/tool-gateway";
 
 const temporaryDirectories: string[] = [];
 
@@ -55,6 +58,58 @@ describe("executeToolCall", () => {
     });
   });
 
+  it("dispatches list_files and search_text through the central registry", async () => {
+    const workspaceRoot = await createWorkspace();
+    await mkdir(path.join(workspaceRoot, "src"));
+    await writeFile(path.join(workspaceRoot, "src", "index.ts"), "line one\nexport const marker = 1;\n", "utf8");
+
+    const listed = await executeToolCall(
+      workspaceRoot,
+      toolCall("list_files", JSON.stringify({ relativePath: "src" })),
+    );
+    const searched = await executeToolCall(
+      workspaceRoot,
+      toolCall("search_text", JSON.stringify({ query: "marker" })),
+    );
+
+    expect(listed.isError).toBe(false);
+    expect(parsedContent(listed)).toMatchObject({
+      ok: true,
+      entries: [{ path: "src/index.ts", type: "file" }],
+      truncated: false,
+    });
+    expect(searched.isError).toBe(false);
+    expect(parsedContent(searched)).toMatchObject({
+      ok: true,
+      matches: [
+        {
+          path: "src/index.ts",
+          lineNumber: 2,
+          text: "export const marker = 1;",
+        },
+      ],
+      truncated: false,
+    });
+  });
+
+  it("passes cancellation through every registered tool", async () => {
+    const workspaceRoot = await createWorkspace();
+    const controller = new AbortController();
+    controller.abort();
+
+    const result = await executeToolCall(
+      workspaceRoot,
+      toolCall("list_files", "{}"),
+      controller.signal,
+    );
+
+    expect(result.isError).toBe(true);
+    expect(parsedContent(result)).toEqual({
+      ok: false,
+      error: { code: "CANCELLED", message: "Tool execution was cancelled." },
+    });
+  });
+
   it("returns INVALID_JSON for malformed serialized arguments", async () => {
     const workspaceRoot = await createWorkspace();
 
@@ -69,6 +124,36 @@ describe("executeToolCall", () => {
       error: {
         code: "INVALID_JSON",
         message: "Tool arguments were not valid JSON.",
+      },
+    });
+  });
+
+  it("fails closed when JSON escaping expands a tool result past the gateway cap", async () => {
+    const workspaceRoot = await createWorkspace();
+    await writeFile(
+      path.join(workspaceRoot, "escape-heavy.txt"),
+      "\\".repeat(Math.floor(MAX_TOOL_OUTPUT_BYTES / 2)),
+      "utf8",
+    );
+
+    const result = await executeToolCall(
+      workspaceRoot,
+      toolCall(
+        "read_text_file",
+        JSON.stringify({ relativePath: "escape-heavy.txt" }),
+      ),
+    );
+
+    expect(result.isError).toBe(true);
+    expect(Buffer.byteLength(result.content, "utf8")).toBeLessThan(
+      MAX_TOOL_OUTPUT_BYTES,
+    );
+    expect(parsedContent(result)).toEqual({
+      ok: false,
+      error: {
+        code: "OUTPUT_TOO_LARGE",
+        message:
+          `Tool output exceeded the ${MAX_TOOL_OUTPUT_BYTES}-byte gateway limit. Narrow the request.`,
       },
     });
   });

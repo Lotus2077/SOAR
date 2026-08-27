@@ -1,4 +1,6 @@
 import type {
+  AssistantCompletionState,
+  CitationCorrection,
   JsonValue,
   OptimizationProfile,
   SessionStatus,
@@ -21,9 +23,12 @@ export interface CanonicalMessage {
   status: "streaming" | "completed" | "failed";
   providerId?: string;
   model?: string;
+  stopReason?: string | null;
+  completionState?: AssistantCompletionState;
   toolCallId?: string;
   toolName?: string;
   toolCalls?: CanonicalToolCall[];
+  citationCorrections?: CitationCorrection[];
 }
 
 export interface RouteAssignment {
@@ -145,6 +150,9 @@ export function reduceSessionEvent(
     messages: state.messages.map((message) => ({
       ...message,
       toolCalls: message.toolCalls?.map((toolCall) => ({ ...toolCall })),
+      citationCorrections: message.citationCorrections?.map((correction) => ({
+        ...correction,
+      })),
     })),
     routes: state.routes.map((route) => ({ ...route })),
     usage: { ...state.usage },
@@ -201,7 +209,17 @@ export function reduceSessionEvent(
       if (event.payload.content !== undefined) {
         message.content = event.payload.content;
       }
-      message.status = "completed";
+      if (event.payload.stopReason !== undefined) {
+        message.stopReason = event.payload.stopReason;
+      }
+      message.completionState = event.payload.completionState ?? "complete";
+      if (event.payload.citationCorrections !== undefined) {
+        message.citationCorrections = event.payload.citationCorrections.map(
+          (correction) => ({ ...correction }),
+        );
+      }
+      message.status =
+        message.completionState === "complete" ? "completed" : "failed";
       break;
     }
     case "tool.call.requested": {

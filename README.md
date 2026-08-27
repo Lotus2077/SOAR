@@ -25,8 +25,14 @@ The first working slice is an Electron application with:
 - a narrow, typed preload bridge with renderer sandboxing;
 - an append-only SQLite session log and restart recovery;
 - streaming inference through the configured OpenAI-compatible vLLM endpoint;
-- one read-only `read_text_file` tool constrained to the selected workspace;
-- cancellation, usage and latency recording, and a deterministic `$0` route trace.
+- a central read-only repository tool registry with bounded `list_files`,
+  `search_text`, and `read_text_file` operations constrained to the selected
+  workspace;
+- cancellation, timeout, reasoning-token, usage, and latency recording with a
+  deterministic `$0` route/tool trace;
+- fail-closed completion handling for truncated, filtered, empty, malformed, or
+  tool-looping provider responses, including a no-thinking, tool-free final
+  synthesis round and evidence-backed path/line citation validation.
 
 OpenRouter is not reachable from this runtime path. Cloud routing is a later milestone.
 
@@ -57,6 +63,27 @@ The real-vLLM canary is opt-in and never contacts OpenRouter:
 ```sh
 pnpm test:live-vllm
 ```
+
+Run the three-task Local Repository Investigator proof against the real vLLM:
+
+```sh
+pnpm test:live-repository
+```
+
+The ignored proof artifact is written to
+`benchmarks/runs/local-repository-investigator-v1.json` with the complete
+session event, route, tool, citation, latency, and token trace.
+
+Inspect the four-workload benchmark canary readiness without making a paid
+model call:
+
+```sh
+pnpm benchmark:preflight
+```
+
+Exit code 2 means a required official-evaluator dependency is blocked; it is
+not recorded as a model failure. See the benchmark protocol for fixture setup,
+gold isolation, workspace preparation, evaluator pins, and result export.
 
 Build an ad-hoc-signed arm64 macOS archive for local use:
 

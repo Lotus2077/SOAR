@@ -3,6 +3,14 @@ import { open, realpath, stat, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { TextDecoder } from "node:util";
 
+import {
+  assertPathAllowed,
+  normalizeWorkspaceRelativePath,
+  throwIfAborted,
+  toPosixPath,
+  WorkspaceToolError,
+} from "./workspace-policy";
+
 export const DEFAULT_READ_TEXT_FILE_BYTE_CAP = 256 * 1024;
 
 export type ReadTextFileErrorCode =
@@ -10,11 +18,13 @@ export type ReadTextFileErrorCode =
   | "ABSOLUTE_PATH"
   | "PATH_TRAVERSAL"
   | "PATH_OUTSIDE_WORKSPACE"
+  | "PATH_IGNORED"
   | "WORKSPACE_NOT_FOUND"
   | "FILE_NOT_FOUND"
   | "NOT_A_FILE"
   | "FILE_TOO_LARGE"
   | "BINARY_FILE"
+  | "CANCELLED"
   | "READ_FAILED";
 
 export class ReadTextFileError extends Error {
@@ -31,6 +41,7 @@ export interface ReadTextFileInput {
   workspaceRoot: string;
   relativePath: string;
   byteCap?: number;
+  signal?: AbortSignal;
 }
 
 export interface ReadTextFileResult {
@@ -57,22 +68,8 @@ function validateInput(input: ReadTextFileInput): number {
     throw new ReadTextFileError("INVALID_ARGUMENT", "workspaceRoot must be a non-empty string.");
   }
 
-  if (typeof input.relativePath !== "string" || input.relativePath.trim() === "") {
-    throw new ReadTextFileError("INVALID_ARGUMENT", "relativePath must be a non-empty string.");
-  }
-
-  if (input.relativePath.includes("\0")) {
-    throw new ReadTextFileError("INVALID_ARGUMENT", "relativePath cannot contain a null byte.");
-  }
-
-  if (path.posix.isAbsolute(input.relativePath) || path.win32.isAbsolute(input.relativePath)) {
-    throw new ReadTextFileError("ABSOLUTE_PATH", "Only workspace-relative paths are allowed.");
-  }
-
-  const pathSegments = input.relativePath.split(/[\\/]+/u);
-  if (pathSegments.includes("..")) {
-    throw new ReadTextFileError("PATH_TRAVERSAL", "Parent-directory traversal is not allowed.");
-  }
+  normalizeWorkspaceRelativePath(input.relativePath, false);
+  assertPathAllowed(normalizeWorkspaceRelativePath(input.relativePath, false), "file");
 
   const byteCap = input.byteCap ?? DEFAULT_READ_TEXT_FILE_BYTE_CAP;
   if (!Number.isSafeInteger(byteCap) || byteCap <= 0) {
@@ -113,7 +110,7 @@ async function resolveWorkspaceRoot(workspaceRoot: string): Promise<string> {
     }
     return canonicalRoot;
   } catch (error) {
-    if (error instanceof ReadTextFileError) {
+    if (error instanceof ReadTextFileError || error instanceof WorkspaceToolError) {
       throw error;
     }
     if (isNodeError(error) && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
@@ -151,9 +148,14 @@ async function resolveTarget(canonicalRoot: string, relativePath: string): Promi
   return canonicalTarget;
 }
 
-async function readBoundedFile(canonicalTarget: string, byteCap: number): Promise<Buffer> {
+async function readBoundedFile(
+  canonicalTarget: string,
+  byteCap: number,
+  signal?: AbortSignal,
+): Promise<Buffer> {
   let handle: FileHandle | undefined;
   try {
+    throwIfAborted(signal);
     handle = await open(canonicalTarget, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW);
     const fileStats = await handle.stat();
     if (!fileStats.isFile()) {
@@ -168,6 +170,7 @@ async function readBoundedFile(canonicalTarget: string, byteCap: number): Promis
     const chunks: Buffer[] = [];
     let bytesRead = 0;
     while (bytesRead <= byteCap) {
+      throwIfAborted(signal);
       const chunkLength = Math.min(64 * 1024, byteCap - bytesRead + 1);
       const chunk = Buffer.allocUnsafe(chunkLength);
       const result = await handle.read(chunk, 0, chunk.length, bytesRead);
@@ -183,7 +186,7 @@ async function readBoundedFile(canonicalTarget: string, byteCap: number): Promis
     }
     return Buffer.concat(chunks, bytesRead);
   } catch (error) {
-    if (error instanceof ReadTextFileError) {
+    if (error instanceof ReadTextFileError || error instanceof WorkspaceToolError) {
       throw error;
     }
     if (isNodeError(error) && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
@@ -209,9 +212,13 @@ async function readBoundedFile(canonicalTarget: string, byteCap: number): Promis
  */
 export async function readTextFile(input: ReadTextFileInput): Promise<ReadTextFileResult> {
   const byteCap = validateInput(input);
+  throwIfAborted(input.signal);
   const canonicalRoot = await resolveWorkspaceRoot(input.workspaceRoot);
   const canonicalTarget = await resolveTarget(canonicalRoot, input.relativePath);
-  const buffer = await readBoundedFile(canonicalTarget, byteCap);
+  const canonicalRelative = toPosixPath(path.relative(canonicalRoot, canonicalTarget));
+  assertPathAllowed(canonicalRelative, "file");
+  const buffer = await readBoundedFile(canonicalTarget, byteCap, input.signal);
+  throwIfAborted(input.signal);
 
   return {
     text: decodeUtf8Text(buffer),

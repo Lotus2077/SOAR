@@ -50,3 +50,70 @@ Each episode records:
 Primary metrics are task success, cost per successful episode, end-to-end p50/p95, false-accept rate, escalation rate, and regret versus the best fixed provider on the evaluated sample.
 
 LiveDRBench's ten preview cases have structured gold and should be the first research smoke set. DeepResearch Bench uses model-judged RACE and FACT evaluation; FACT also needs web-content extraction credentials. If those dependencies are not configured, run deterministic citation checks plus RACE and label the result `SOAR-pilot`, not an official FACT-comparable score.
+
+## Executable harness
+
+The first executable canary is defined in [`canary.json`](canary.json):
+
+- `research-ldr-023` and `research-ldr-031` use the pinned LiveDRBench preview artifact and evaluator;
+- `coding-flask-5014` and `coding-pytest-7432` use the pinned SWE-bench Verified artifact and official Docker evaluator.
+
+All command responses are JSON, so CI and a future app screen can consume the same output.
+
+```bash
+# Setup downloads are revision-pinned and artifacts are rejected unless their
+# SHA-256 matches benchmarks/sources.json.
+pnpm benchmark fetch --id research-ldr-023 --id coding-flask-5014
+
+# Reads the local Parquet cache and splits each row into an allow-listed agent
+# fixture and a private evaluator oracle. This performs no network request.
+pnpm benchmark prepare \
+  --id research-ldr-023 --id research-ldr-031 \
+  --id coding-flask-5014 --id coding-pytest-7432
+
+# Fetch only a coding repository's exact base_commit (no tags, later history,
+# gold PR, or remote retained), or make a prompt-only research workspace. The
+# workspace must be outside benchmarks/cache.
+pnpm benchmark workspace --id coding-flask-5014 \
+  --workspace /private/tmp/soar-workspaces/coding-flask-5014
+
+# Fetch an evaluator and detach it at its immutable revision.
+pnpm benchmark setup-evaluator --id coding-flask-5014
+
+# Machine-readable readiness for all four canaries. Exit 2 means blocked, not a
+# failed task. On Apple Silicon, official SWE-bench evaluation remains blocked.
+pnpm benchmark:preflight
+
+# Evaluate an existing agent answer/patch and preserve its complete route/tool
+# trace next to the deterministic result record.
+pnpm benchmark evaluate --id research-ldr-023 \
+  --submission /path/to/answer.json \
+  --trace /path/to/route-tool-trace.jsonl \
+  --run-id local-canary-001 --policy local_only
+```
+
+For LiveDRBench, `answer.json` may be the single JSON value requested by the
+task prompt or the benchmark's official keyed `[{"key": ..., "preds": ...}]`
+schema. The harness validates and normalizes either form before any judge call.
+For SWE-bench, the submission file is the unified diff produced by the agent.
+`evaluate` is not offline: LiveDRBench uses its configured paid judge, and the
+official SWE-bench Docker harness may pull evaluator images.
+
+Prepared data is split under `benchmarks/cache/prepared/<id>/agent` and
+`benchmarks/cache/prepared/<id>/evaluator`. Only the former may be copied into
+an agent workspace. Agent workspaces that contain, or sit inside,
+`benchmarks/cache` are rejected. Official evaluators receive the private oracle
+only after inference is complete. Exported records under
+`benchmarks/runs/<run-id>/<workload-id>` contain dataset and evaluator revisions,
+artifact, submission, and trace hashes, status, score, and evaluator evidence;
+the result record never
+copies the evaluator oracle, gold answer, hidden patch, or private evaluator log.
+The trace sidecar is the agent's own route/tool stream preserved byte-for-byte.
+
+Parquet loading requires Python plus `pyarrow` (the tested local version is
+15.0.2). LiveDRBench's official grader additionally requires its pinned checkout,
+dependencies, and a separately authorized `OPENAI_API_KEY`; the harness does not
+silently substitute a free heuristic score. Official SWE-bench evaluation
+requires its pinned checkout and Python dependencies, a running Docker daemon,
+and a native x86-64 Linux worker. Darwin/arm64 is intentionally reported as
+`blocked`; emulation results are not labeled official.

@@ -9,6 +9,7 @@
     "noEmit": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true
@@ -20,6 +21,8 @@
     "src/main/**/*.ts",
     "src/preload/**/*.ts",
     "src/shared/**/*.ts",
+    "src/benchmark/**/*.ts",
+    "scripts/**/*.ts",
     "tests/**/*.ts"
   ]
 }

@@ -14,10 +14,12 @@
       "evaluatorOnlyFields": ["ground_truths", "misc"],
       "artifact": {
         "path": "preview/test-00000-of-00001.parquet",
+        "url": "https://huggingface.co/datasets/microsoft/LiveDRBench/resolve/cad63dd0403b11e8a80001e2339f64ac93acec5a/preview/test-00000-of-00001.parquet",
         "sha256": "4b6a342e41858204d9ab6a7e56af055ac4c612bfe5eba003d8b00e6b62350ead"
       },
       "evaluator": {
         "repository": "microsoft/LiveDRBench",
+        "url": "https://github.com/microsoft/LiveDRBench.git",
         "revision": "6ff85b67b35fa303907f6f275417622338acd1f6"
       }
     },
@@ -54,7 +56,17 @@
         "environment_setup_commit",
         "log_parser",
         "provenance PR URL"
-      ]
+      ],
+      "artifact": {
+        "path": "data/test-00000-of-00001.parquet",
+        "url": "https://huggingface.co/datasets/SWE-bench/SWE-bench_Verified/resolve/78f471bf655a3137b2e8a75af1501690ec009ec3/data/test-00000-of-00001.parquet",
+        "sha256": "030cfd7f2a704c4c0226e7f104c725a3b41230b1d3517f9c915ad7ea5be3fa25"
+      },
+      "evaluator": {
+        "repository": "SWE-bench/SWE-bench",
+        "url": "https://github.com/SWE-bench/SWE-bench.git",
+        "revision": "7a21e05772954cc81471ae19d56f436cecf43c54"
+      }
     }
   ]
 }

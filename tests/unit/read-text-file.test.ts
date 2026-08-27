@@ -132,6 +132,30 @@ describe("readTextFile", () => {
     ).resolves.toEqual({ text: "1234", bytes: 4, truncated: false });
   });
 
+  it("rejects sensitive files directly and through an in-workspace symlink", async () => {
+    const workspaceRoot = await createTemporaryDirectory("soar-read-text-");
+    await writeFile(path.join(workspaceRoot, ".env.local"), "TOKEN=secret", "utf8");
+    await symlink(".env.local", path.join(workspaceRoot, "alias.txt"));
+
+    await expect(
+      readTextFile({ workspaceRoot, relativePath: ".env.local" }),
+    ).rejects.toMatchObject({ code: "PATH_IGNORED" });
+    await expect(
+      readTextFile({ workspaceRoot, relativePath: "alias.txt" }),
+    ).rejects.toMatchObject({ code: "PATH_IGNORED" });
+  });
+
+  it("honors cancellation", async () => {
+    const workspaceRoot = await createTemporaryDirectory("soar-read-text-");
+    await writeFile(path.join(workspaceRoot, "file.txt"), "text", "utf8");
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      readTextFile({ workspaceRoot, relativePath: "file.txt", signal: controller.signal }),
+    ).rejects.toMatchObject({ code: "CANCELLED" });
+  });
+
   it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1])("rejects invalid byte cap %s", async (byteCap) => {
     const workspaceRoot = await createTemporaryDirectory("soar-read-text-");
     await expect(readTextFile({ workspaceRoot, relativePath: "file.txt", byteCap })).rejects.toMatchObject({

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildProviderContext } from "../../src/shared/context-builder";
+import {
+  buildFinalizationContext,
+  buildProviderContext,
+} from "../../src/shared/context-builder";
 import type { StoredSessionEvent } from "../../src/shared/session-events";
 
 const events: StoredSessionEvent[] = [
@@ -125,5 +128,27 @@ describe("buildProviderContext", () => {
     expect(
       buildProviderContext(events, { includeIncompleteAssistant: true }).at(-1),
     ).toEqual({ role: "assistant", content: "partial" });
+  });
+
+  it("flattens tool history into an inert text-only finalization packet", () => {
+    const context = buildFinalizationContext(events, {
+      systemPrompt: "Write the final answer without tools.",
+    });
+
+    expect(context).toHaveLength(2);
+    expect(context[0]).toEqual({
+      role: "system",
+      content: "Write the final answer without tools.",
+    });
+    expect(context[1]).toMatchObject({ role: "user" });
+    expect(context[1]?.content).toContain("--- TASK OBJECTIVE ---\n\nRead the file");
+    expect(context[1]?.content).toContain("tool: read_text_file");
+    expect(context[1]?.content).toContain(
+      'arguments: {"a":{"x":null,"y":true},"z":1}',
+    );
+    expect(context[1]?.content).toContain("status: completed\nresult:\ncontents");
+    expect(context.some((message) => message.role === "tool")).toBe(false);
+    expect(context.some((message) => "tool_calls" in message)).toBe(false);
+    expect(context[1]?.content).not.toContain("partial");
   });
 });

@@ -11,6 +11,21 @@ export const SessionStatusSchema = z.enum([
 
 export type SessionStatus = z.infer<typeof SessionStatusSchema>;
 
+export const AssistantCompletionStateSchema = z.enum(["complete", "incomplete"]);
+
+export type AssistantCompletionState = z.infer<
+  typeof AssistantCompletionStateSchema
+>;
+
+export const CitationCorrectionSchema = z
+  .object({
+    from: z.string().min(1),
+    to: z.string().min(1),
+  })
+  .strict();
+
+export type CitationCorrection = z.infer<typeof CitationCorrectionSchema>;
+
 export const OptimizationProfileSchema = z.enum([
   "quality",
   "balanced",
@@ -139,7 +154,9 @@ const assistantMessageCompletedSchema = z
       .object({
         messageId: requiredId,
         content: z.string().optional(),
-        stopReason: z.string().trim().min(1).optional(),
+        stopReason: z.string().trim().min(1).nullable().optional(),
+        completionState: AssistantCompletionStateSchema.optional(),
+        citationCorrections: z.array(CitationCorrectionSchema).optional(),
       })
       .strict(),
   })

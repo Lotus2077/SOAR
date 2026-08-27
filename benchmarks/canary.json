@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "workloads": [
+    {
+      "id": "research-ldr-023",
+      "adapter": "livedrbench",
+      "purpose": "Structured paper and corpus discovery"
+    },
+    {
+      "id": "research-ldr-031",
+      "adapter": "livedrbench",
+      "purpose": "Structured dataset discovery"
+    },
+    {
+      "id": "coding-flask-5014",
+      "adapter": "swebench",
+      "purpose": "Small repository patch with deterministic tests"
+    },
+    {
+      "id": "coding-pytest-7432",
+      "adapter": "swebench",
+      "purpose": "Small repository patch with deterministic tests"
+    }
+  ]
+}

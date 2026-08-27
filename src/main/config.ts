@@ -24,8 +24,8 @@ const environmentSchema = z.object({
   SOAR_FAKE_DELAY_MS: z.coerce.number().int().min(0).max(5_000).default(12),
   SOAR_DB_PATH: z.string().optional(),
   SOAR_TEST_WORKSPACE: z.string().optional(),
-  SOAR_MAX_INFERENCE_ROUNDS: z.coerce.number().int().min(1).max(12).default(4),
-  SOAR_MAX_TOOL_CALLS: z.coerce.number().int().min(1).max(32).default(8),
+  SOAR_MAX_INFERENCE_ROUNDS: z.coerce.number().int().min(1).max(32).default(24),
+  SOAR_MAX_TOOL_CALLS: z.coerce.number().int().min(1).max(32).default(24),
   SOAR_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(128).max(65_536).default(8_192),
   SOAR_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(900_000).default(300_000),
 });

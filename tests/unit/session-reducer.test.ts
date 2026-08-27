@@ -147,6 +147,8 @@ describe("session reducer", () => {
     expect(first.messages.find((message) => message.id === "assistant-1"))
       .toMatchObject({
         status: "completed",
+        stopReason: "tool_calls",
+        completionState: "complete",
         toolCalls: [
           {
             id: "call-1",
@@ -156,6 +158,56 @@ describe("session reducer", () => {
           },
         ],
       });
+  });
+
+  it("preserves an incomplete provider finish state and marks its message failed", () => {
+    const sessionId = "session-1";
+    const state = replaySession([
+      stored(sessionId, 1, {
+        type: "session.created",
+        payload: {
+          title: "Task",
+          objective: "Return a complete answer.",
+          workspaceRoot: "/tmp/workspace",
+          profile: "balanced",
+        },
+      }),
+      stored(sessionId, 2, { type: "session.started", payload: {} }),
+      stored(sessionId, 3, {
+        type: "assistant.message.started",
+        payload: {
+          messageId: "assistant-1",
+          providerId: "local-vllm",
+          model: "RM-01 VLM",
+        },
+      }),
+      stored(sessionId, 4, {
+        type: "assistant.message.completed",
+        payload: {
+          messageId: "assistant-1",
+          content: "Partial answer",
+          stopReason: "length",
+          completionState: "incomplete",
+        },
+      }),
+      stored(sessionId, 5, {
+        type: "session.failed",
+        payload: { error: "Provider output was incomplete." },
+      }),
+    ]);
+
+    expect(state).toMatchObject({
+      status: "failed",
+      error: "Provider output was incomplete.",
+      messages: [
+        {
+          content: "Partial answer",
+          status: "failed",
+          stopReason: "length",
+          completionState: "incomplete",
+        },
+      ],
+    });
   });
 
   it("rejects gaps and cross-session events", () => {

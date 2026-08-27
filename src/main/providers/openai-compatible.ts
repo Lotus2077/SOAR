@@ -1,36 +1,16 @@
 import OpenAI from "openai";
-import type {
-  ChatCompletionMessageParam,
-  ChatCompletionTool,
-} from "openai/resources/chat/completions";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
 import type { SoarConfig } from "../config";
+import { MODEL_TOOL_DEFINITIONS } from "../tools/tool-registry";
 import {
   ProviderAbortedError,
   type CompleteInput,
   type InferenceProvider,
+  type ProviderAbortKind,
   type ProviderResult,
   type ProviderToolCall,
 } from "./types";
-
-const readTextFileTool: ChatCompletionTool = {
-  type: "function",
-  function: {
-    name: "read_text_file",
-    description: "Read one UTF-8 text file inside the user-selected workspace.",
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      required: ["relativePath"],
-      properties: {
-        relativePath: {
-          type: "string",
-          description: "Path relative to the selected workspace root.",
-        },
-      },
-    },
-  },
-};
 
 interface ToolCallAccumulator {
   id: string;
@@ -57,7 +37,12 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     });
   }
 
-  async complete({ messages, signal, onDelta }: CompleteInput): Promise<ProviderResult> {
+  async complete({
+    messages,
+    signal,
+    allowTools = true,
+    onDelta,
+  }: CompleteInput): Promise<ProviderResult> {
     const startedAt = performance.now();
     let firstTokenAt: number | undefined;
     let content = "";
@@ -67,16 +52,42 @@ export class OpenAICompatibleProvider implements InferenceProvider {
 
     const timeoutController = new AbortController();
     const timeout = setTimeout(() => timeoutController.abort(), this.timeoutMs);
+    let firstAbortKind: ProviderAbortKind | undefined = signal.aborted
+      ? "cancelled"
+      : undefined;
+    const markCancelled = (): void => {
+      firstAbortKind ??= "cancelled";
+    };
+    const markTimedOut = (): void => {
+      firstAbortKind ??= "timeout";
+    };
+    signal.addEventListener("abort", markCancelled, { once: true });
+    timeoutController.signal.addEventListener("abort", markTimedOut, { once: true });
     const combinedSignal = AbortSignal.any([signal, timeoutController.signal]);
+    const abortError = (): ProviderAbortedError => {
+      const timedOut = firstAbortKind === "timeout";
+      return new ProviderAbortedError(
+        timedOut ? "Inference timed out" : "Inference cancelled",
+        content,
+        timedOut ? "timeout" : "cancelled",
+      );
+    };
 
     try {
       const stream = await this.client.chat.completions.create(
         {
           model: this.model,
           messages: messages as ChatCompletionMessageParam[],
-          tools: [readTextFileTool],
-          tool_choice: "auto",
-          parallel_tool_calls: false,
+          ...(allowTools
+            ? {
+                tools: MODEL_TOOL_DEFINITIONS,
+                tool_choice: "auto" as const,
+                parallel_tool_calls: false,
+              }
+            : {
+                tool_choice: "none" as const,
+                reasoning_effort: "none" as const,
+              }),
           stream: true,
           stream_options: { include_usage: true },
           max_completion_tokens: this.maxOutputTokens,
@@ -85,7 +96,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       );
 
       for await (const chunk of stream) {
-        if (combinedSignal.aborted) throw new ProviderAbortedError("Inference aborted", content);
+        if (combinedSignal.aborted) throw abortError();
         const choice = chunk.choices[0];
         if (choice?.finish_reason) finishReason = choice.finish_reason;
 
@@ -107,30 +118,32 @@ export class OpenAICompatibleProvider implements InferenceProvider {
         }
 
         if (chunk.usage) {
+          const reasoningTokens =
+            chunk.usage.completion_tokens_details?.reasoning_tokens ?? 0;
           usage = {
             inputTokens: chunk.usage.prompt_tokens,
-            outputTokens: chunk.usage.completion_tokens,
+            outputTokens: Math.max(
+              0,
+              chunk.usage.completion_tokens - reasoningTokens,
+            ),
             totalTokens: chunk.usage.total_tokens,
+            reasoningTokens,
           };
         }
       }
 
       if (combinedSignal.aborted) {
-        throw new ProviderAbortedError(
-          timeoutController.signal.aborted ? "Inference timed out" : "Inference cancelled",
-          content,
-        );
+        throw abortError();
       }
     } catch (error) {
       if (combinedSignal.aborted) {
-        throw new ProviderAbortedError(
-          timeoutController.signal.aborted ? "Inference timed out" : "Inference cancelled",
-          content,
-        );
+        throw abortError();
       }
       throw error;
     } finally {
       clearTimeout(timeout);
+      signal.removeEventListener("abort", markCancelled);
+      timeoutController.signal.removeEventListener("abort", markTimedOut);
     }
 
     const normalizedToolCalls: ProviderToolCall[] = [...toolCalls.entries()]

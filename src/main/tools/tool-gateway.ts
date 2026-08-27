@@ -1,13 +1,11 @@
 import { z } from "zod";
 
 import type { ProviderToolCall } from "../providers/types";
-import { ReadTextFileError, readTextFile } from "./read-text-file";
+import { ReadTextFileError } from "./read-text-file";
+import { getRegisteredTool } from "./tool-registry";
+import { WorkspaceToolError } from "./workspace-policy";
 
-const readTextFileArgumentsSchema = z
-  .object({
-    relativePath: z.string().trim().min(1).max(4_096),
-  })
-  .strict();
+export const MAX_TOOL_OUTPUT_BYTES = 256 * 1024;
 
 export interface ToolExecutionResult {
   content: string;
@@ -16,7 +14,7 @@ export interface ToolExecutionResult {
 }
 
 function serializeError(error: unknown): string {
-  if (error instanceof ReadTextFileError) {
+  if (error instanceof ReadTextFileError || error instanceof WorkspaceToolError) {
     return JSON.stringify({ ok: false, error: { code: error.code, message: error.message } });
   }
   if (error instanceof z.ZodError) {
@@ -40,21 +38,37 @@ function serializeError(error: unknown): string {
 export async function executeToolCall(
   workspaceRoot: string,
   toolCall: ProviderToolCall,
+  signal?: AbortSignal,
 ): Promise<ToolExecutionResult> {
   const startedAt = performance.now();
 
   try {
-    if (toolCall.function.name !== "read_text_file") {
-      throw new ReadTextFileError(
+    const tool = getRegisteredTool(toolCall.function.name);
+    if (!tool) {
+      throw new WorkspaceToolError(
         "INVALID_ARGUMENT",
         `Tool ${toolCall.function.name || "<unnamed>"} is not available.`,
       );
     }
 
-    const args = readTextFileArgumentsSchema.parse(JSON.parse(toolCall.function.arguments));
-    const result = await readTextFile({ workspaceRoot, relativePath: args.relativePath });
+    const rawArguments = JSON.parse(toolCall.function.arguments) as unknown;
+    const result = await tool.invoke({ workspaceRoot, signal }, rawArguments);
+    const content = JSON.stringify({ ok: true, ...result });
+    if (Buffer.byteLength(content, "utf8") > MAX_TOOL_OUTPUT_BYTES) {
+      return {
+        content: JSON.stringify({
+          ok: false,
+          error: {
+            code: "OUTPUT_TOO_LARGE",
+            message: `Tool output exceeded the ${MAX_TOOL_OUTPUT_BYTES}-byte gateway limit. Narrow the request.`,
+          },
+        }),
+        isError: true,
+        durationMs: performance.now() - startedAt,
+      };
+    }
     return {
-      content: JSON.stringify({ ok: true, ...result }),
+      content,
       isError: false,
       durationMs: performance.now() - startedAt,
     };

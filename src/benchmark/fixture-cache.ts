@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { spawn } from "node:child_process";
 import {
   chmod,
   copyFile,
@@ -13,6 +12,7 @@ import {
 import path from "node:path";
 
 import { parseRecordId, resolveWorkload } from "./catalog.ts";
+import { runBoundedProcess } from "./process.ts";
 import type {
   PreparedAgentFixture,
   PreparedEvaluatorOracle,
@@ -23,6 +23,8 @@ import type {
 
 const PRIVATE_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
+const FIXTURE_READER_TIMEOUT_MS = 2 * 60 * 1_000;
+const FIXTURE_READER_MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 
 function isWithin(parent: string, child: string): boolean {
   const relative = path.relative(path.resolve(parent), path.resolve(child));
@@ -130,41 +132,32 @@ async function runJsonProcess(
   args: string[],
   cwd: string,
 ): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(executable, args, {
-      cwd,
-      env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    const stdout: Buffer[] = [];
-    const stderr: Buffer[] = [];
-    child.stdout.on("data", (chunk: Buffer) => stdout.push(chunk));
-    child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk));
-    child.once("error", reject);
-    child.once("close", (code) => {
-      if (code !== 0) {
-        reject(
-          new Error(
-            `Fixture reader exited ${code}: ${Buffer.concat(stderr).toString("utf8").trim()}`,
-          ),
-        );
-        return;
-      }
-      try {
-        const value: unknown = JSON.parse(Buffer.concat(stdout).toString("utf8"));
-        if (value === null || typeof value !== "object" || Array.isArray(value)) {
-          throw new Error("fixture reader returned a non-object");
-        }
-        resolve(value as Record<string, unknown>);
-      } catch (error) {
-        reject(
-          new Error(
-            `Fixture reader returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
-          ),
-        );
-      }
-    });
+  const result = await runBoundedProcess({
+    executable,
+    args,
+    cwd,
+    env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+    timeoutMs: FIXTURE_READER_TIMEOUT_MS,
+    maxOutputBytes: FIXTURE_READER_MAX_OUTPUT_BYTES,
   });
+  if (result.exitCode !== 0) {
+    throw new Error(
+      result.timedOut
+        ? `Fixture reader timed out after ${FIXTURE_READER_TIMEOUT_MS}ms`
+        : `Fixture reader exited ${result.exitCode}: ${result.stderr.trim()}`,
+    );
+  }
+  try {
+    const value: unknown = JSON.parse(result.stdout);
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("fixture reader returned a non-object");
+    }
+    return value as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(
+      `Fixture reader returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 async function loadJsonRows(filePath: string): Promise<Record<string, unknown>[]> {

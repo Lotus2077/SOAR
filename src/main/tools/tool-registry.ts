@@ -159,12 +159,14 @@ export type RegisteredToolName = keyof typeof registry;
 
 export const TOOL_REGISTRY: Readonly<typeof registry> = Object.freeze(registry);
 
-export const MODEL_TOOL_DEFINITIONS: ChatCompletionTool[] = Object.freeze(
+export const MODEL_TOOL_DEFINITIONS: readonly ChatCompletionTool[] = Object.freeze(
   Object.values(registry).map((tool) => tool.definition),
-) as ChatCompletionTool[];
+);
+
+function isRegisteredToolName(name: string): name is RegisteredToolName {
+  return Object.prototype.hasOwnProperty.call(registry, name);
+}
 
 export function getRegisteredTool(name: string): RegisteredTool | undefined {
-  return Object.prototype.hasOwnProperty.call(registry, name)
-    ? registry[name as RegisteredToolName]
-    : undefined;
+  return isRegisteredToolName(name) ? registry[name] : undefined;
 }

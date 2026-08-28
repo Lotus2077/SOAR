@@ -1,10 +1,8 @@
 import type { CanonicalMessage, CanonicalToolCall } from "../../shared/session-reducer";
+import type { CitationCorrection as SessionCitationCorrection } from "../../shared/session-events";
 import { normalizeWorkspaceRelativePath } from "../tools/workspace-policy";
 
-export interface CitationCorrection {
-  from: string;
-  to: string;
-}
+export type CitationCorrection = SessionCitationCorrection;
 
 export type UnresolvedCitationReason =
   | "path_not_in_evidence"
@@ -46,6 +44,10 @@ function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : undefined;
+}
+
+function isPositiveSafeInteger(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 }
 
 function parseSuccessfulOutput(toolCall: CanonicalToolCall): Record<string, unknown> | undefined {
@@ -105,8 +107,8 @@ function addToolEvidence(evidence: Map<string, PathEvidence>, toolCall: Canonica
     for (const rawMatch of output.matches) {
       const match = asRecord(rawMatch);
       const lineNumber = match?.lineNumber;
-      if (!Number.isSafeInteger(lineNumber) || (lineNumber as number) <= 0) continue;
-      evidenceFor(evidence, match?.path)?.lines.add(lineNumber as number);
+      if (!isPositiveSafeInteger(lineNumber)) continue;
+      evidenceFor(evidence, match?.path)?.lines.add(lineNumber);
     }
     return;
   }
@@ -213,8 +215,11 @@ export function normalizeAnswerCitations(
       continue;
     }
 
-    const canonicalPath = candidates[0] as string;
-    const pathEvidence = evidence.get(canonicalPath) as PathEvidence;
+    const canonicalPath = candidates[0];
+    const pathEvidence = canonicalPath ? evidence.get(canonicalPath) : undefined;
+    if (!canonicalPath || !pathEvidence) {
+      throw new Error("Citation evidence lookup became inconsistent");
+    }
     if (!supportsLine(pathEvidence, citation.line)) {
       unresolved.push({
         citation: citation.citation,

@@ -1,6 +1,15 @@
 # SOAR
 
-SOAR is a macOS-first agentic task router. Its first product surface is an Electron desktop app for long-running research and repository-to-patch sessions. It keeps one canonical session record while assigning individual phases to a local vLLM model or a paid cloud model.
+SOAR is a macOS-first agentic task router. Its first product surface is an
+Electron desktop app for long-running research and repository-to-patch
+sessions. It keeps one canonical session record; the project is designed to
+assign individual phases to a local vLLM model or a paid cloud model as the
+routing runtime matures.
+
+> [!IMPORTANT]
+> SOAR is an experimental, pre-release project. The checked-in runtime is a
+> local-only repository investigator. Cloud execution, write tools, and learned
+> routing are design targets, not shipping features yet.
 
 The MVP optimizes a constrained trade-off rather than promising an impossible per-task optimum:
 
@@ -12,8 +21,9 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
 
 - Product tracks: research-to-artifact and repository-to-tested-patch.
 - App target: Electron on macOS.
-- Providers: one OpenAI-compatible vLLM endpoint and pinned OpenRouter DeepSeek V4 Flash 0731.
-- Routing: a provisional phase plan with model affinity, plus event-driven rerouting.
+- Runtime provider: one OpenAI-compatible local vLLM endpoint.
+- Benchmark target: pinned OpenRouter DeepSeek V4 Flash 0731, not enabled in the app.
+- Routing runtime: deterministic local assignment; hybrid phase/lease routing is documented design work.
 - Evaluation ceiling: USD 100, with an automatic stop at USD 90.
 - Paid benchmark calls: not started.
 
@@ -36,21 +46,34 @@ The first working slice is an Electron application with:
 
 OpenRouter is not reachable from this runtime path. Cloud routing is a later milestone.
 
+## Quick start
+
+Prerequisites:
+
+- macOS for the desktop application and Electron end-to-end test;
+- Node.js 22.22.2 or newer and pnpm 10.12.4;
+- an OpenAI-compatible vLLM endpoint for real inference.
+
+```sh
+git clone https://github.com/Lotus2077/SOAR.git
+cd SOAR
+pnpm install --frozen-lockfile
+cp .env.example .env.local
+pnpm dev
+```
+
+Set `SOAR_VLLM_BASE_URL` and `SOAR_VLLM_MODEL` in `.env.local`. The base URL
+must end in `/v1`. Tests use deterministic providers and do not require a live
+model unless their command is explicitly prefixed with `test:live-`.
+
 ### UI design reference
 
 The desktop shell adapts general layout, typography, color, and interaction patterns from the MIT-licensed [Hermes Agent](https://github.com/NousResearch/hermes-agent) desktop app. SOAR keeps its own product identity, copy, data model, and runtime. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and the pinned source revision.
 
 ### Development
 
-Install dependencies and configure the machine-local `.env.local` file:
-
-```sh
-pnpm install
-pnpm dev
-```
-
-The vLLM base URL must end in `/v1`. For a non-loopback plaintext endpoint, set
-`SOAR_ALLOW_INSECURE_VLLM_HTTP=true` in `.env.local`.
+For a non-loopback plaintext endpoint, set `SOAR_ALLOW_INSECURE_VLLM_HTTP=true`
+in `.env.local`. Never commit that file or a live credential.
 
 Run the complete local check suite:
 
@@ -97,3 +120,14 @@ signature verification happen outside the Desktop folder so macOS FileProvider
 metadata cannot invalidate the application bundle before it is archived.
 
 Start with [MVP readiness](docs/MVP_READINESS.md), [routing policy](docs/ROUTING_POLICY.md), and the [benchmark protocol](benchmarks/README.md).
+
+## Contributing
+
+Start with [CONTRIBUTING.md](CONTRIBUTING.md) and
+[the architecture guide](docs/ARCHITECTURE.md). Bug reports and focused pull
+requests are welcome. Please keep provider calls opt-in, preserve the append-only
+event contract, and include tests for behavior changes.
+
+Security issues should follow [SECURITY.md](SECURITY.md). The project is MIT
+licensed; additional UI and asset reuse notices are recorded in
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

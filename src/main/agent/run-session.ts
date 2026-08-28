@@ -4,7 +4,11 @@ import {
   buildFinalizationContext,
   buildProviderContext,
 } from "../../shared/context-builder";
-import type { JsonValue, SessionEventData } from "../../shared/session-events";
+import {
+  isTerminalSessionStatus,
+  type JsonValue,
+  type SessionEventData,
+} from "../../shared/session-events";
 import type { SoarConfig } from "../config";
 import { EventStore } from "../event-store";
 import {
@@ -272,13 +276,13 @@ export class SessionRunner {
           round < this.limits.inferenceRounds - 1 &&
           totalToolCalls < this.limits.toolCalls;
         const state = this.store.getProjectedState(sessionId);
-        const context = (allowTools
+        const context: ProviderMessage[] = allowTools
           ? buildProviderContext(state, {
               systemPrompt: systemPrompt(this.limits),
             })
           : buildFinalizationContext(state, {
               systemPrompt: finalizationPrompt(),
-            })) as ProviderMessage[];
+            });
         const result = await this.provider.complete({
           messages: context,
           signal: controller.signal,
@@ -441,7 +445,7 @@ export class SessionRunner {
       );
 
       const status = this.store.requireSession(sessionId).status;
-      if (!(["completed", "failed", "cancelled"] as const).includes(status as never)) {
+      if (!isTerminalSessionStatus(status)) {
         this.appendMany(sessionId, terminalEvents);
       }
     }

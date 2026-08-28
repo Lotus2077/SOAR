@@ -1,5 +1,4 @@
 import OpenAI from "openai";
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 
 import type { SoarConfig } from "../config";
 import { MODEL_TOOL_DEFINITIONS } from "../tools/tool-registry";
@@ -77,10 +76,10 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       const stream = await this.client.chat.completions.create(
         {
           model: this.model,
-          messages: messages as ChatCompletionMessageParam[],
+          messages,
           ...(allowTools
             ? {
-                tools: MODEL_TOOL_DEFINITIONS,
+                tools: [...MODEL_TOOL_DEFINITIONS],
                 tool_choice: "auto" as const,
                 parallel_tool_calls: false,
               }

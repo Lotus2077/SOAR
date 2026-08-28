@@ -3,10 +3,23 @@
   "version": "0.0.0",
   "description": "A macOS-first local and cloud agentic task router.",
   "author": "Lotus2077",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lotus2077/SOAR.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Lotus2077/SOAR/issues"
+  },
+  "homepage": "https://github.com/Lotus2077/SOAR#readme",
   "private": true,
   "type": "module",
   "main": "./out/main/index.js",
   "packageManager": "pnpm@10.12.4",
+  "engines": {
+    "node": ">=22.22.2",
+    "pnpm": ">=10.12.4 <11"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",

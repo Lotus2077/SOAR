@@ -1,16 +1,14 @@
 import { z } from "zod";
 
-export const sessionStatuses = [
-  "created",
-  "running",
-  "completed",
-  "failed",
-  "cancelled",
-  "interrupted",
-] as const;
+import {
+  SESSION_STATUSES,
+  SessionStatusSchema,
+  type SessionStatus,
+} from "./session-events";
 
-export const sessionStatusSchema = z.enum(sessionStatuses);
-export type SessionStatus = z.infer<typeof sessionStatusSchema>;
+export const sessionStatuses = SESSION_STATUSES;
+export const sessionStatusSchema = SessionStatusSchema;
+export type { SessionStatus };
 
 export const createSessionInputSchema = z
   .object({

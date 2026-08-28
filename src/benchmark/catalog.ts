@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import type {
+  BenchmarkTrack,
   SourceCatalog,
   SourceSuite,
   WorkloadManifest,
@@ -16,6 +17,12 @@ function assertObject(value: unknown, label: string): asserts value is Record<st
 function assertString(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string" || value.length === 0) {
     throw new Error(`${label} must be a non-empty string`);
+  }
+}
+
+function assertTrack(value: unknown, label: string): asserts value is BenchmarkTrack {
+  if (value !== "research" && value !== "coding") {
+    throw new Error(`${label} must be research or coding`);
   }
 }
 
@@ -47,16 +54,24 @@ export async function loadWorkloads(
     )
   ).flat();
 
-  return values.map((value, index) => {
+  const workloads = values.map((value, index) => {
     assertObject(value, `workload ${index + 1}`);
     assertString(value.id, `workload ${index + 1}.id`);
-    assertString(value.track, `${value.id}.track`);
+    assertTrack(value.track, `${value.id}.track`);
     assertObject(value.source, `${value.id}.source`);
     assertString(value.source.dataset, `${value.id}.source.dataset`);
     assertString(value.source.recordId, `${value.id}.source.recordId`);
     assertString(value.source.revision, `${value.id}.source.revision`);
     return value as unknown as WorkloadManifest;
   });
+  const seen = new Set<string>();
+  for (const workload of workloads) {
+    if (seen.has(workload.id)) {
+      throw new Error(`Duplicate benchmark workload id: ${workload.id}`);
+    }
+    seen.add(workload.id);
+  }
+  return workloads;
 }
 
 export async function loadSourceCatalog(projectRoot: string): Promise<SourceCatalog> {
@@ -124,6 +139,11 @@ export async function resolveWorkload(
   if (!suite) {
     throw new Error(
       `${workload.id}: no source suite matches ${workload.source.dataset}@${workload.source.revision}`,
+    );
+  }
+  if (suite.track !== workload.track) {
+    throw new Error(
+      `${workload.id}: source suite track ${suite.track} does not match workload track ${workload.track}`,
     );
   }
   return { workload, suite };

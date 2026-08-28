@@ -32,7 +32,22 @@ async function readOracle(
     "evaluator",
     "oracle.json",
   );
-  return JSON.parse(await readFile(oraclePath, "utf8")) as PreparedEvaluatorOracle;
+  const oracle = JSON.parse(
+    await readFile(oraclePath, "utf8"),
+  ) as PreparedEvaluatorOracle;
+  const { workload } = await resolveWorkload(projectRoot, workloadId);
+  if (
+    oracle.schemaVersion !== 1 ||
+    oracle.workloadId !== workload.id ||
+    oracle.source?.dataset !== workload.source.dataset ||
+    oracle.source?.revision !== workload.source.revision ||
+    oracle.source?.recordId !== workload.source.recordId
+  ) {
+    throw new Error(
+      `${workload.id}: prepared evaluator oracle does not match the pinned workload source; prepare the fixture again`,
+    );
+  }
+  return oracle;
 }
 
 function blockedOutcome(preflight: Awaited<ReturnType<typeof preflightWorkload>>): EvaluationOutcome {

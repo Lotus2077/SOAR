@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   loadCanaryWorkloadIds,
+  loadWorkloads,
   resolveWorkload,
 } from "../../src/benchmark/catalog.ts";
 import {
@@ -208,6 +209,31 @@ describe("benchmark canary catalog", () => {
       "coding-pytest-7432",
     ]);
   });
+
+  it("rejects duplicate workload ids before resolution becomes order-dependent", async () => {
+    const { projectRoot } = await createSyntheticProject();
+    const researchPath = path.join(projectRoot, "benchmarks", "research.jsonl");
+    await writeFile(
+      path.join(projectRoot, "benchmarks", "coding.jsonl"),
+      await readFile(researchPath, "utf8"),
+    );
+    await expect(loadWorkloads(projectRoot)).rejects.toThrow(
+      "Duplicate benchmark workload id: synthetic-research-1",
+    );
+  });
+
+  it("rejects a source suite whose track does not match its workload", async () => {
+    const { projectRoot } = await createSyntheticProject();
+    const sourcesPath = path.join(projectRoot, "benchmarks", "sources.json");
+    const sources = JSON.parse(await readFile(sourcesPath, "utf8")) as {
+      suites: Array<{ track: string }>;
+    };
+    sources.suites[0]!.track = "coding";
+    await writeFile(sourcesPath, `${JSON.stringify(sources)}\n`);
+    await expect(
+      resolveWorkload(projectRoot, "synthetic-research-1"),
+    ).rejects.toThrow("source suite track coding does not match workload track research");
+  });
 });
 
 describe("benchmark evaluation and export", () => {
@@ -291,6 +317,30 @@ describe("benchmark evaluation and export", () => {
         evaluation,
       }),
     ).resolves.toMatchObject({ record: { runId: retryRunId } });
+  });
+
+  it("rejects a stale evaluator oracle before scoring", async () => {
+    const { projectRoot, sourcePath } = await createSyntheticProject();
+    const prepared = await prepareFixture({
+      projectRoot,
+      workloadId: "synthetic-research-1",
+      sourcePath,
+    });
+    const oracle = JSON.parse(
+      await readFile(prepared.evaluatorOraclePath, "utf8"),
+    ) as { source: { revision: string } };
+    oracle.source.revision = "stale-revision";
+    await writeFile(prepared.evaluatorOraclePath, `${JSON.stringify(oracle)}\n`);
+    const submissionPath = path.join(projectRoot, "submission.json");
+    await writeFile(submissionPath, '{"answer":"public","citations":2}\n');
+
+    await expect(
+      evaluateWorkload({
+        projectRoot,
+        workloadId: "synthetic-research-1",
+        submissionPath,
+      }),
+    ).rejects.toThrow("prepared evaluator oracle does not match the pinned workload source");
   });
 });
 

@@ -1,0 +1,46 @@
+name: Feature request
+description: Propose a focused improvement to SOAR
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user or contributor problem needs to be solved?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe the behavior and the smallest useful scope, not only an implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include current workarounds and important trade-offs.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Desktop UI
+        - Agent runtime
+        - Provider or routing
+        - Repository tools
+        - Persistence or event contracts
+        - Benchmark harness
+        - Documentation or contributor experience
+    validations:
+      required: true
+  - type: checkboxes
+    id: boundaries
+    attributes:
+      label: Boundary changes
+      options:
+        - label: This may change persisted events or migrations.
+        - label: This may add filesystem, network, paid, or external side effects.
+        - label: This may affect benchmark comparability or gold isolation.

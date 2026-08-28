@@ -60,11 +60,12 @@ export async function preflightWorkload(options: {
     (await executableOnPath("python3", environment));
   const { workload, suite } = await resolveWorkload(options.projectRoot, options.workloadId);
   const oraclePath = preparedOraclePath(options.projectRoot, workload.id);
+  const fixturePrepared = await exists(oraclePath);
   const checks: BenchmarkPreflight["checks"] = [
     {
       id: "prepared-fixture",
-      ok: await exists(oraclePath),
-      detail: (await exists(oraclePath))
+      ok: fixturePrepared,
+      detail: fixturePrepared
         ? "Pinned source row is prepared and evaluator-only data is isolated."
         : `Prepare the fixture first: pnpm benchmark prepare --id ${workload.id}`,
     },
@@ -109,17 +110,18 @@ export async function preflightWorkload(options: {
     });
     let dependenciesOk = false;
     let dependenciesDetail = "Python is required before evaluator dependencies can be checked.";
-    if (python && (await exists(evaluatorRoot))) {
+    const evaluatorSourceRoot = path.join(evaluatorRoot, "src");
+    if (python && (await exists(evaluatorSourceRoot))) {
       const result = await runBoundedProcess({
         executable: python,
         args: [
           "-c",
           "from evals import datasets_flights, entities, priorart, scifacts; import datasets, openai, tqdm",
         ],
-        cwd: path.join(evaluatorRoot, "src"),
+        cwd: evaluatorSourceRoot,
         env: {
           ...environment,
-          PYTHONPATH: [path.join(evaluatorRoot, "src"), environment.PYTHONPATH]
+          PYTHONPATH: [evaluatorSourceRoot, environment.PYTHONPATH]
             .filter((value): value is string => Boolean(value))
             .join(path.delimiter),
         },
@@ -129,6 +131,8 @@ export async function preflightWorkload(options: {
       dependenciesDetail = dependenciesOk
         ? "Pinned LiveDRBench evaluator dependencies import successfully."
         : `Pinned evaluator dependencies are missing: ${result.stderr.trim().split(/\r?\n/u).at(-1) ?? "Python import failed"}`;
+    } else if (python) {
+      dependenciesDetail = `Pinned evaluator source is missing: ${evaluatorSourceRoot}`;
     }
     checks.push({
       id: "evaluator-dependencies",

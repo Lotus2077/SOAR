@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a reproducible problem in the SOAR app or harness
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Do not paste credentials, private repository content, or sensitive traces.
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and the behavior you expected.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Provide the smallest deterministic sequence that reproduces the issue.
+      placeholder: |
+        1. Start SOAR with ...
+        2. Select ...
+        3. Run ...
+    validations:
+      required: true
+  - type: input
+    id: revision
+    attributes:
+      label: SOAR revision
+      description: Commit SHA or release identifier.
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: macOS/Linux version, CPU architecture, Node.js, pnpm, and provider type.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted logs or screenshots
+      description: Remove tokens, endpoints, private paths, repository content, and benchmark gold.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues for this problem.
+          required: true
+        - label: I removed secrets and private data from this report.
+          required: true

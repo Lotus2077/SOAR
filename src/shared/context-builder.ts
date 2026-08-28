@@ -36,6 +36,18 @@ export interface BuildFinalizationContextOptions {
   systemPrompt: string;
 }
 
+function isEventStream(
+  source: SessionState | readonly StoredSessionEvent[],
+): source is readonly StoredSessionEvent[] {
+  return Array.isArray(source);
+}
+
+function resolveSessionState(
+  source: SessionState | readonly StoredSessionEvent[],
+): SessionState {
+  return isEventStream(source) ? replaySession(source) : source;
+}
+
 function stableJson(value: JsonValue): string {
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value);
@@ -91,9 +103,7 @@ export function buildProviderContext(
   source: SessionState | readonly StoredSessionEvent[],
   options: BuildProviderContextOptions = {},
 ): ProviderContextMessage[] {
-  const state = Array.isArray(source)
-    ? replaySession(source)
-    : (source as SessionState);
+  const state = resolveSessionState(source);
   const messages: ProviderContextMessage[] = [];
 
   if (options.systemPrompt) {
@@ -126,9 +136,7 @@ export function buildFinalizationContext(
   source: SessionState | readonly StoredSessionEvent[],
   options: BuildFinalizationContextOptions,
 ): ProviderContextMessage[] {
-  const state = Array.isArray(source)
-    ? replaySession(source)
-    : (source as SessionState);
+  const state = resolveSessionState(source);
   const transcript: string[] = [];
   let userIndex = 0;
   let assistantNoteIndex = 0;

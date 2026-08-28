@@ -1,10 +1,11 @@
-import type {
-  AssistantCompletionState,
-  CitationCorrection,
-  JsonValue,
-  OptimizationProfile,
-  SessionStatus,
-  StoredSessionEvent,
+import {
+  isTerminalSessionStatus,
+  type AssistantCompletionState,
+  type CitationCorrection,
+  type JsonValue,
+  type OptimizationProfile,
+  type SessionStatus,
+  type StoredSessionEvent,
 } from "./session-events";
 
 export interface CanonicalToolCall {
@@ -87,7 +88,7 @@ function assertNextSequence(
 }
 
 function ensureActive(state: SessionState, event: StoredSessionEvent): void {
-  if (["completed", "failed", "cancelled"].includes(state.status)) {
+  if (isTerminalSessionStatus(state.status)) {
     throw new Error(
       `Cannot apply ${event.type} after session entered terminal status ${state.status}`,
     );
@@ -319,9 +320,9 @@ export function replaySession(events: readonly StoredSessionEvent[]): SessionSta
     throw new Error("Cannot replay an empty session event stream");
   }
 
-  let state: SessionState | undefined;
-  for (const event of events) {
-    state = reduceSessionEvent(state, event);
+  let state = reduceSessionEvent(undefined, events[0]);
+  for (let index = 1; index < events.length; index += 1) {
+    state = reduceSessionEvent(state, events[index]);
   }
-  return state as SessionState;
+  return state;
 }

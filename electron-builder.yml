@@ -6,6 +6,8 @@ files:
   - out/**
   - package.json
 extraResources:
+  - from: LICENSE
+    to: LICENSE
   - from: THIRD_PARTY_NOTICES.md
     to: THIRD_PARTY_NOTICES.md
 asarUnpack:

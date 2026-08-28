@@ -1,9 +1,12 @@
-import { readFile, readdir } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
+import { promisify } from "node:util";
 
 const root = process.cwd();
 const errors = [];
+const execFileAsync = promisify(execFile);
 
 async function readJson(relativePath) {
   return JSON.parse(await readFile(path.join(root, relativePath), "utf8"));
@@ -52,23 +55,16 @@ function validateWorkloads(records, expectedTrack, minimum) {
   }
 }
 
-async function listFiles(directory) {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const files = [];
-
-  for (const entry of entries) {
-    if ([".git", "node_modules", "benchmarks/cache", "benchmarks/runs"].includes(entry.name)) {
-      continue;
-    }
-
-    const absolute = path.join(directory, entry.name);
-    const relative = path.relative(root, absolute);
-    if (/^\.env\.(?!example$)/.test(relative)) continue;
-    if (entry.isDirectory()) files.push(...(await listFiles(absolute)));
-    if (entry.isFile()) files.push(absolute);
-  }
-
-  return files;
+async function listRepositoryFiles() {
+  const { stdout } = await execFileAsync(
+    "git",
+    ["ls-files", "--cached", "--others", "--exclude-standard", "-z"],
+    { cwd: root, encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+  );
+  return stdout
+    .split("\0")
+    .filter(Boolean)
+    .map((relative) => path.join(root, relative));
 }
 
 const [research, coding, providers, sources] = await Promise.all([
@@ -121,15 +117,36 @@ requireValue(Number(env.SOAR_CAMPAIGN_BUDGET_USD) === 100, "campaign ceiling mus
 requireValue(Number(env.SOAR_AUTOMATIC_STOP_USD) === 90, "automatic stop must be USD 90");
 requireValue(Number(env.SOAR_MAX_PAID_EPISODE_USD) === 0.75, "paid episode cap must be USD 0.75");
 
-const credentialPrefix = ["sk", "or", "v1"].join("-");
-const credentialPattern = new RegExp(`${credentialPrefix}-[A-Za-z0-9_-]{20,}`);
-const files = await listFiles(root);
+const secretPatterns = [
+  {
+    name: "OpenAI-style API credential",
+    pattern: /sk-(?:or-v1-)?[A-Za-z0-9_-]{20,}/u,
+  },
+  {
+    name: "GitHub classic token",
+    pattern: /gh[pousr]_[A-Za-z0-9]{36,}/u,
+  },
+  {
+    name: "GitHub fine-grained token",
+    pattern: /github_pat_[A-Za-z0-9_]{20,}/u,
+  },
+  {
+    name: "AWS access key",
+    pattern: /(?:AKIA|ASIA)[A-Z0-9]{16}/u,
+  },
+  {
+    name: "private key",
+    pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/u,
+  },
+];
+const files = await listRepositoryFiles();
 
 for (const file of files) {
-  if (file === new URL(import.meta.url).pathname) continue;
   const content = await readFile(file, "utf8").catch(() => "");
   const relative = path.relative(root, file);
-  requireValue(!credentialPattern.test(content), `${relative}: contains an OpenRouter credential`);
+  for (const secret of secretPatterns) {
+    requireValue(!secret.pattern.test(content), `${relative}: contains a possible ${secret.name}`);
+  }
 }
 
 if (errors.length > 0) {
@@ -137,6 +154,6 @@ if (errors.length > 0) {
   process.exitCode = 1;
 } else {
   process.stdout.write(
-    `SOAR readiness valid: ${research.length} research workloads, ${coding.length} coding workloads, no tracked live secret.\n`,
+    `SOAR readiness valid: ${research.length} research workloads, ${coding.length} coding workloads, no tracked or unignored live secret.\n`,
   );
 }

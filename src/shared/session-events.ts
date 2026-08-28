@@ -1,15 +1,21 @@
 import { z } from "zod";
 
-export const SessionStatusSchema = z.enum([
+export const SESSION_STATUSES = [
   "created",
   "running",
   "completed",
   "failed",
   "cancelled",
   "interrupted",
-]);
+] as const;
+
+export const SessionStatusSchema = z.enum(SESSION_STATUSES);
 
 export type SessionStatus = z.infer<typeof SessionStatusSchema>;
+
+export function isTerminalSessionStatus(status: SessionStatus): boolean {
+  return status === "completed" || status === "failed" || status === "cancelled";
+}
 
 export const AssistantCompletionStateSchema = z.enum(["complete", "incomplete"]);
 

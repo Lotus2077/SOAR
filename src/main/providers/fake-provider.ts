@@ -7,7 +7,34 @@ import type {
 import { ProviderAbortedError } from "./types";
 
 function extractLastToolResult(messages: ProviderMessage[]): string | undefined {
-  return [...messages].reverse().find((message) => message.role === "tool")?.content ?? undefined;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "tool") return message.content ?? undefined;
+  }
+  return undefined;
+}
+
+function waitForDelay(
+  delayMs: number,
+  signal: AbortSignal,
+  partialContent: string,
+): Promise<void> {
+  if (signal.aborted) {
+    return Promise.reject(new ProviderAbortedError("Fake inference cancelled", partialContent));
+  }
+
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = (): void => {
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", onAbort);
+      reject(new ProviderAbortedError("Fake inference cancelled", partialContent));
+    };
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 async function emitChunks(
@@ -17,18 +44,7 @@ async function emitChunks(
 ): Promise<string> {
   let content = "";
   for (const chunk of chunks) {
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(resolve, delayMs);
-      input.signal.addEventListener(
-        "abort",
-        () => {
-          clearTimeout(timeout);
-          reject(new ProviderAbortedError("Fake inference cancelled", content));
-        },
-        { once: true },
-      );
-    });
-    if (input.signal.aborted) throw new ProviderAbortedError("Fake inference cancelled", content);
+    await waitForDelay(delayMs, input.signal, content);
     content += chunk;
     input.onDelta(chunk);
   }

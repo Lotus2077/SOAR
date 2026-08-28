@@ -149,7 +149,9 @@ class HistorySensitiveProvider implements InferenceProvider {
     this.toolModes.push(input.allowTools ?? true);
 
     const nativeToolHistory = input.messages.some(
-      (message) => message.role === "tool" || Boolean(message.tool_calls?.length),
+      (message) =>
+        message.role === "tool" ||
+        ("tool_calls" in message && Boolean(message.tool_calls?.length)),
     );
     if (this.contexts.length === 1 || nativeToolHistory) {
       return {
@@ -735,7 +737,9 @@ describe("SessionRunner", () => {
     ]);
     expect(
       provider.contexts[1]?.some(
-        (message) => message.role === "tool" || Boolean(message.tool_calls?.length),
+        (message) =>
+          message.role === "tool" ||
+          ("tool_calls" in message && Boolean(message.tool_calls?.length)),
       ),
     ).toBe(false);
     expect(provider.contexts[1]?.[0]?.content).toContain(

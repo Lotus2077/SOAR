@@ -1,11 +1,9 @@
-export interface ProviderToolCall {
-  id: string;
-  type: "function";
-  function: {
-    name: string;
-    arguments: string;
-  };
-}
+import type {
+  ProviderContextMessage,
+  ProviderToolCall as ContextProviderToolCall,
+} from "../../shared/context-builder";
+
+export type ProviderToolCall = ContextProviderToolCall;
 
 export interface ProviderUsage {
   inputTokens: number;
@@ -25,12 +23,7 @@ export interface ProviderResult {
   durationMs: number;
 }
 
-export interface ProviderMessage {
-  role: "system" | "user" | "assistant" | "tool";
-  content: string | null;
-  tool_call_id?: string;
-  tool_calls?: ProviderToolCall[];
-}
+export type ProviderMessage = ProviderContextMessage;
 
 export interface CompleteInput {
   messages: ProviderMessage[];

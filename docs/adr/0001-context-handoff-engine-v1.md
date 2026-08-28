@@ -18,8 +18,9 @@ conversation grew. It is unsuitable as the handoff boundary for future routing,
 especially if a later lease moves from a zero-cost local model to a paid cloud
 model.
 
-The ignored Local Repository Investigator report is the historical comparison
-baseline, not proof that this decision has met its acceptance gates:
+The ignored Local Repository Investigator report is a non-comparable historical
+diagnostic, not a baseline and not proof that this decision has met its
+acceptance gates:
 
 | Task | Input tokens | Provider calls | Tool calls | Recorded latency | Citations |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -28,10 +29,11 @@ baseline, not proof that this decision has met its acceptance gates:
 | `cancelSession` references | 108,680 | 9 | 8 | 94,934 ms | 15 |
 | **Total** | **934,311** | **49** | **46** | **434,373 ms (~7m14s)** | **98** |
 
-The report identifies its workspace as `f221798+working-tree`. A direct rerun
-must pin and record its repository revision because code movement makes old line
-numbers stale. Citation counts are diagnostics, not quotas; task-specific
-correctness and citation coverage on a pinned fixture define parity.
+The report identifies its workspace as `f221798+working-tree`, has no fixture
+content hash, and predates the current validator contract. It cannot support a
+direct percentage-reduction claim. Citation counts are diagnostics, not quotas;
+task-specific correctness and citation coverage on a pinned fixture define the
+current standalone acceptance gate.
 
 ## Decision
 
@@ -97,6 +99,22 @@ schema: "soar.context-packet.v1"
 mode: "working" | "finalization"
 objective: string
 userConstraints: string[]
+requirements:
+  requiredSuccessfulTools: ("list_files" | "search_text" | "read_text_file")[]
+  minimumVerifiedPathLineCitations: non-negative integer
+progress:
+  successfulToolCallCounts: {
+    list_files: non-negative integer
+    search_text: non-negative integer
+    read_text_file: non-negative integer
+  }
+  successfulRequiredTools: string[]
+  missingRequiredTools: string[]
+  nextRequiredTool?: string
+  verifiedPathLineCitationCount: non-negative integer
+  remainingVerifiedPathLineCitations: non-negative integer
+  readyForFinalization: boolean
+  completionAccepted: boolean
 policy:
   compilerVersion: "context-compiler-v1"
   systemPromptSha256: lowercase SHA-256
@@ -120,6 +138,9 @@ evidence: (
       argumentsExcerpt: string
       workspaceRelativePath?: string
       content: string
+      packetExcerptTruncated: boolean
+      sourceResultTruncated?: boolean
+      sourceResultCount?: non-negative integer
       citations?: string[]
       citationSnippets?: { citation, text }[]
     }
@@ -142,6 +163,10 @@ policy includes only the system-prompt SHA-256.
 The compiler exposes lowercase SHA-256 hashes for the packet, each rendered
 message, and the complete message array, plus character and UTF-8 byte counts.
 Those values are telemetry; `packetId` is not a v1 packet field.
+
+`requirements` copies the persisted completion contract. `progress` is derived
+from replayed tool results and accepted completion checks; it is not a model
+claim or a second mutable task plan.
 
 ## Evidence extraction and trust
 
@@ -176,6 +201,12 @@ packet even when the evidence body's main excerpt is truncated. This is context
 grounding, not final-answer citation validation; the existing citation-integrity
 check remains authoritative.
 
+Structured tool projections also keep compact source metadata. The mandatory
+`packetExcerptTruncated` flag describes only packet admission. Optional
+`sourceResultTruncated` and `sourceResultCount` preserve what the tool reported
+about the underlying observation. A shortened packet excerpt therefore does not
+justify repeating an otherwise complete tool call.
+
 ## Exact deduplication
 
 Deduplication is deterministic and deliberately conservative:
@@ -193,6 +224,49 @@ The v1 packet does not include source event sequences, multiple-observation
 lists, artifact hashes, or validator provenance. Those require an additive
 future schema rather than being inferred during compilation.
 
+## Persisted completion and no-progress guards
+
+`session.created` may persist `completionObligations` containing an ordered
+required-tool sequence and a minimum verified `path:line` citation count. Tool
+names may repeat when distinct observations are required. Sessions without this
+field default to no required tools and zero citations. The reducer derives only
+the successful ordered prefix; an out-of-order success does not advance the
+contract.
+
+While a required tool step is missing, `SessionRunner` supplies only that tool in
+`CompleteInput.allowedToolNames`, and the OpenAI-compatible adapter sends only
+its schema. The same selection is included in provider-overhead estimation. A
+model cannot satisfy the contract by substituting another tool; a repeated name
+advances only when it is the next declared step and its observation succeeds.
+
+Every otherwise-complete no-tool candidate under an active contract passes
+through citation normalization and produces a strict
+`completion.obligations.checked` event. The event records the successful and
+missing tool sequences, sorted unique verified citations, unresolved-citation
+count, remaining rounds, and one outcome:
+
+- `accepted` completes the session;
+- `retry` keeps the candidate as an incomplete assistant message and compiles
+  the next request at `obligation_retry_boundary`; or
+- `exhausted` fails closed when no actionable round remains.
+
+The final answer must write citations as one contiguous token such as
+`src/main/index.ts:42`. A visually separated file and line is not a verified
+citation.
+
+Runtime no-progress detection complements packet deduplication. It requires the
+same tool, the same semantic observation scope, and byte-identical successful
+content. Scope preserves distinct file paths, search queries, search paths, and
+list roots. For complete `search_text` and `list_files` results, scope ignores
+only bounding arguments such as maximum matches, items, or depth; incomplete
+results retain those bounds. A qualifying repeat is persisted as a failed result
+with code `DUPLICATE_OBSERVATION`, and the next checkpoint uses
+`no_progress_boundary`. After two duplicate observations, the runner disables
+tools and compiles a final synthesis at `no_progress_finalization_boundary`.
+This guard preserves the first successful evidence and the failed repeats in
+canonical history. Forced finalization does not waive completion obligations;
+an unsupported synthesis is exhausted and fails closed.
+
 ## Budget, admission, and truncation
 
 `CompileContextOptions` supplies `maxInputTokens` and may override:
@@ -203,7 +277,7 @@ future schema rather than being inferred during compilation.
 - `maxReferencesPerEvidence` (default `64`).
 
 Application configuration exposes `SOAR_CONTEXT_MAX_INPUT_TOKENS` (default
-`8,192`) and `SOAR_CONTEXT_SAFETY_MARGIN` (default `0.2`). The effective budget
+`16,384`) and `SOAR_CONTEXT_SAFETY_MARGIN` (default `0.2`). The effective budget
 is:
 
 ```text
@@ -253,10 +327,11 @@ JSON-element-aware; citation support is carried separately in bounded
 
 ## Prompt-injection boundary
 
-The rendered system message states that only `objective` and `userConstraints`
-contain user instructions. Assistant notes, tool results, paths, citations, and
-arguments remain escaped values inside one canonical JSON record and are labeled
-inert and untrusted.
+The rendered system message states that only `objective`, `userConstraints`,
+and application-owned `requirements` define active task instructions. Derived
+progress, assistant notes, tool results, paths, citations, and arguments remain
+escaped values inside one canonical JSON record and are labeled inert and
+untrusted.
 
 This framing is defense in depth, not an authorization boundary. Tool schemas,
 the central gateway, selected-workspace policy, cancellation, and permission
@@ -277,8 +352,13 @@ appends `context.compiled` before the corresponding provider call. Its checkpoin
 ID is `<sessionId>:context:<one-based-round>`, and its reason is exactly:
 
 - `session_start` for round zero;
-- `tool_result_boundary` for a later tool-enabled round; or
-- `finalization_boundary` for the tool-disabled final round.
+- `tool_result_boundary` after a productive tool result;
+- `obligation_retry_boundary` after a candidate answer misses its completion
+  contract;
+- `no_progress_boundary` after a duplicate observation;
+- `finalization_boundary` for the normal tool-disabled final round; or
+- `no_progress_finalization_boundary` when two duplicate observations end tool
+  use early.
 
 The same deterministic local route lease remains assigned throughout the
 session.
@@ -294,10 +374,10 @@ capability/budget/deadline change, or provider failure/health change.
 `context.compiled` event. Its implemented payload is:
 
 ```text
-checkpointId: non-empty string
-compilerVersion: non-empty string
-reason: non-empty string
-mode: non-empty string
+checkpointId: <sessionId>:context:<one-based-round>
+compilerVersion: "context-compiler-v1"
+reason: one of the six checkpoint reasons above
+mode: "working" | "finalization"
 providerId: non-empty string
 model: non-empty string
 maxTokens: positive safe integer
@@ -322,7 +402,10 @@ safety-margin share minus `reservedInputTokens`, and must be non-negative.
 The reducer appends these payloads, together with event sequence and timestamp,
 to `SessionState.contextCompilations`. Projected state written before this field
 existed is read compatibly as an empty list. Terminal-state rules still apply:
-context telemetry cannot be appended after completion, failure, or cancellation.
+context telemetry cannot be appended after completion, failure, cancellation,
+or interruption. For `agentic-execution-v1`, each streaming assistant receives
+exactly one checkpoint before it can complete, and the checkpoint must match the
+active route and assistant provider/model.
 
 The full compiler return value also includes in-memory omission/truncation
 details, character and UTF-8 byte counts, effective budget, safety-margin tokens,
@@ -348,11 +431,22 @@ tokenizer-error classification, and persisted omission detail are future work.
 The change is additive:
 
 1. Existing session events retain their meaning.
-2. `context.compiled` adds a strict new event and reducer projection.
-3. Legacy projected state without `contextCompilations` defaults to an empty
+2. New app sessions persist `session.created.taskTrack` as
+   `repository-investigator-v1`; the field remains optional so legacy history
+   replays without rewriting.
+3. `session.created.completionObligations` is optional; absent obligations
+   replay as an empty tool sequence and zero required citations.
+4. Active obligations require `session.created.executionPolicy` with schema
+   `agentic-execution-v1`, fixed inference/tool-call ceilings, and enough
+   capacity for the sequential tools plus final synthesis. No-obligation legacy
+   sessions may omit it.
+5. `context.compiled` adds a strict event and reducer projection.
+6. `completion.obligations.checked` adds a strict replayable acceptance record;
+   legacy sessions have no checks.
+7. Legacy projected state without `contextCompilations` defaults to an empty
    list.
-4. Existing databases require no destructive rewrite.
-5. `buildProviderContext` and `buildFinalizationContext` remain available as
+8. Existing databases require no destructive rewrite.
+9. `buildProviderContext` and `buildFinalizationContext` remain available as
    compatibility helpers while bounded packets are verified.
 
 Removing the legacy builders requires replay, interruption-recovery, and live
@@ -365,49 +459,118 @@ latest-observation exact deduplication, completed and failed tool state,
 breadth-before-depth admission, excerpts and omissions, citation-support
 coupling, CJK/emoji byte estimation, reserved provider overhead, hostile-text
 JSON framing, fail-closed mandatory budget, hash changes, SHA-256 compatibility,
-strict event validation, legacy projection defaults, and terminal-state rules.
+compact source metadata, ordered completion progress, strict event validation,
+legacy projection defaults, and terminal-state rules. Runner integration covers
+next-required-tool filtering, citation retry and acceptance, and two-strike
+duplicate-observation finalization.
 
 These tests establish contract behavior. They do not establish repository-task
-quality, the 60% episode reduction, real-provider latency, or routing optimality.
+quality, a comparable episode reduction, real-provider latency, or routing
+optimality.
 
 ## Pending live acceptance gate
 
-Rerun the same three Local Repository Investigator tasks against one clean,
-pinned revision with the same local model, inference limits, and evaluator
-contract. Compare the result with the recorded historical baseline of 934,311
-input tokens, 49 provider calls, 46 tool calls, and 434,373 ms.
+Run the three Local Repository Investigator tasks against a temporary workspace
+copied from one clean, declared Git HEAD. The harness creates a deterministic
+`git archive`, excludes its own evaluator source from the agent-visible copy,
+and records the archive SHA-256. Evaluation reads the copied fixture, not the
+developer worktree.
+
+The task objectives disclose evaluator-owned paths, source substrings, required
+relationships, and output-record shapes to the agent. The gate therefore proves
+guided bounded execution, evidence verification, and accepted-answer context
+retention. It does not claim blind repository discovery or benchmark answer
+quality.
+
+The evaluator does not use production `search_text` as the symbol gold oracle.
+It independently scans every regular UTF-8 file in the extracted archive,
+records one occurrence per matching line, fails closed on its file/byte bounds,
+and records the method, scope, occurrence set, and SHA-256. This avoids a shared
+search bug making both expected and observed results omit the same reference.
+
+The 934,311-token report and the later 101,321-token failed attempt are retained
+only as historical diagnostics. They lack parity with the current fixture and
+validator contract, so the old 60% threshold is not part of this acceptance
+gate and no before/after reduction is claimed.
 
 All of the following are required before claiming the gate passed:
 
-- 3/3 tasks complete with no tool error or incomplete finish state;
-- the candidate is a clean, pinned Git HEAD and declares that exact revision;
-- the configured and declared model is the baseline `RM-01 VLM`, with the same
-  20-round/24-tool limits;
-- at least 60% fewer total input tokens: **373,724 tokens or fewer** against the
-  934,311-token baseline;
+- 3/3 tasks complete with no unexpected tool error or incomplete provider
+  transport finish state;
+- any `DUPLICATE_OBSERVATION` events remain within the enforced two-event
+  per-session bound and are reported separately from tool failures;
+- the report uses the current schema version and records the persisted
+  `repository-investigator-v1` task track, completion obligations, and checks;
+- the candidate declares the exact clean Git HEAD, the evaluator is absent from
+  the copied fixture, and the fixture archive SHA-256 is recorded;
+- the configured, declared, and response-served model is `RM-01 VLM`; before
+  task execution, `/v1/models` must advertise it exactly once. The report stores
+  only a normalized API-base hash, bounded `id`/`owned_by`/`max_model_len`
+  metadata, and the response hash—not the endpoint, key, model root, or raw
+  response;
+- the context policy is exactly 16,384 maximum input tokens with a 0.2 safety
+  margin;
+- architecture is bounded to 12 provider calls and 10 tool calls,
+  cancellation to 10 and 8, and symbol references to 13 and 11; the episode is
+  therefore bounded to 35 provider calls, 29 tool calls, and a derived maximum
+  of 573,440 reported input tokens;
 - every provider call has one `context.compiled` checkpoint and reports positive
-  actual input usage no greater than the configured input ceiling;
-- 3/3 citation parity, defined by the same citation-integrity and task-specific
-  coverage validators on the pinned fixture;
-- for the symbol task, the occurrence set remains exact and search truncation is
-  reported honestly;
+  actual input usage no greater than 16,384 tokens;
+- every usage record reports zero cost,
+  `costProvenance: "local_zero_cost_policy"`, and
+  `servedModel: "RM-01 VLM"`;
+- architecture and cancellation each emit a strict authoritative claim
+  manifest. Every claim must contain evaluator-owned relational phrases and
+  distinct, completion-guard-verified citations to exact required files and
+  lines containing the required source snippets;
+- the symbol task emits an evaluator-owned structural call-path manifest,
+  includes substantive prose outside its machine-readable records stating the
+  renderer -> preload -> IPC -> `SessionRunner` -> `AbortController` ->
+  provider/tool-signal relationships in evaluator-owned order, and has a
+  successful complete `read_text_file` observation for every required evidence
+  path containing all required snippets. After all five reads, five exact
+  file-scoped searches must reproduce every non-`cancelSession` evidence
+  snippet so its exact line remains available to final synthesis. These gates
+  prove structural evidence and ordered relationship coverage; they do not
+  claim semantic grading of unrestricted prose beyond those relationships;
+- the symbol task performs the required full-workspace exact search, whose tool
+  result has no missing, duplicate, or extra occurrence and reports
+  `truncated: false` with no unreadable or oversized source file; both that
+  result and the strict final audit must reproduce the independent oracle's
+  exact sorted set. The exactly-once requirement applies only to
+  `SOAR_SYMBOL_AUDIT.occurrences`; prose and claim citations may repeat those
+  path-and-line tokens;
+- each accepted-answer provider input is selected by the unique accepted
+  completion-check round and hash-bound to its persisted `context.compiled`
+  checkpoint. Completed tool evidence in that exact packet must retain every
+  completion-guard-verified answer citation, every evaluator-required claim
+  snippet with distinct citation witnesses, and, for the symbol task, every
+  independent-oracle occurrence. The report stores only bounded counts and
+  hashes, not messages, packet contents, snippets, or source lines;
 - route, tool, `context.compiled`, usage, and evaluator traces remain complete
   and exportable; and
-- provider cost remains $0.
+- the revision-addressed schema-v5 `.accepted.json` artifact is written only
+  with `passed: true` after every gate succeeds. A failed run writes a separate
+  `.failed.json` diagnostic. Same-revision and ambiguous legacy artifacts are
+  quarantined before preflight. Once a full revision is declared, model,
+  repository, configuration, fixture, database, or provider setup failures also
+  write a self-identifying preflight diagnostic.
 
 An exact citation count or match to stale `f221798+working-tree` line numbers is
-not required. If the fixture, model, limits, or evaluator changes, report both
-results and do not present them as a direct before/after comparison.
+not required. If the fixture, model, limits, or evaluator changes, treat the
+result as a different standalone run rather than a direct comparison.
 
 No item in this section is passed merely because the compiler or this ADR exists.
 
 ## Future handoff extensions
 
 The current packet is provider-neutral but is used only by the local route. A
-later version may add phase/next-action state, per-evidence source sequences,
-content-addressed artifacts, validator results, unresolved questions, side-effect
-records, trust promotion, and richer rejection telemetry. Those fields need an
-explicit schema version and replay tests; they are not implicit v1 behavior.
+later version may add a richer phase plan or model-suggested next action beyond
+the current deterministic required-tool progress, per-evidence source sequences,
+content-addressed artifacts, validator results, unresolved questions,
+side-effect records, trust promotion, and richer rejection telemetry. Those
+fields need an explicit schema version and replay tests; they are not implicit
+v1 behavior.
 
 A future local-to-cloud shadow check may validate a packet for secrets, absolute
 paths, hidden reasoning, and unapproved artifact bodies without calling a cloud

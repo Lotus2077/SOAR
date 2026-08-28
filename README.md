@@ -40,16 +40,28 @@ The first working slice is an Electron application with:
   workspace;
 - cancellation, timeout, reasoning-token, usage, and latency recording with a
   deterministic `$0` route/tool trace;
-- deterministic, provider-neutral context packets with an 8,192-token default
+- deterministic, provider-neutral context packets with a 16,384-token default
   ceiling, a conservative UTF-8-byte estimate, a 20% safety margin, reserved
   provider overhead, latest-observation exact deduplication, bounded excerpts,
   citation-support snippets, and one persisted compilation checkpoint per
   provider call;
+- persisted completion obligations that order required repository tools, expose
+  only the next required tool to the provider, require a minimum number of
+  verified `path:line` citations, and record acceptance or retry checks;
+- a versioned persisted execution policy that fixes inference/tool-call limits
+  before the run and binds each provider round to its route and single
+  pre-inference context checkpoint during replay;
 - fail-closed completion handling for truncated, filtered, empty, malformed, or
-  tool-looping provider responses, including a no-thinking, tool-free final
-  synthesis round and evidence-backed path/line citation validation.
+  tool-looping provider responses, including evidence-backed citation
+  validation and a tool-free final synthesis after two duplicate observations.
 
 OpenRouter is not reachable from this runtime path. Cloud routing is a later milestone.
+New desktop tasks explicitly select the versioned `repository-investigator-v1`
+track. The main process maps that validated track to ordered `list_files`,
+`search_text`, and `read_text_file` obligations plus at least one verified
+`path:line` citation, and persists the track in canonical session history; the
+renderer cannot supply arbitrary completion rules. Legacy sessions remain
+readable without a track field.
 
 ## Quick start
 
@@ -74,6 +86,11 @@ limits can be tuned with `SOAR_CONTEXT_MAX_INPUT_TOKENS` and
 `SOAR_CONTEXT_SAFETY_MARGIN`; mandatory task intent fails closed if it cannot
 fit the configured envelope.
 
+`SOAR_VLLM_COST_POLICY=local_zero_cost` is an explicit accounting declaration
+for a self-hosted endpoint, not a measurement of electricity or infrastructure
+cost. The public provider catalog points to the same environment field so cost
+provenance cannot silently differ between configuration surfaces.
+
 ### UI design reference
 
 The desktop shell adapts general layout, typography, color, and interaction patterns from the MIT-licensed [Hermes Agent](https://github.com/NousResearch/hermes-agent) desktop app. SOAR keeps its own product identity, copy, data model, and runtime. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for attribution and the pinned source revision.
@@ -95,7 +112,8 @@ The real-vLLM canary is opt-in and never contacts OpenRouter:
 pnpm test:live-vllm
 ```
 
-Run the three-task Local Repository Investigator proof against the real vLLM:
+Run the three-task guided Repository Investigator evidence contract against the
+configured vLLM:
 
 ```sh
 SOAR_PROOF_REVISION="$(git rev-parse HEAD)" \
@@ -103,20 +121,67 @@ SOAR_PROOF_MODEL="RM-01 VLM" \
 pnpm test:live-repository
 ```
 
-The proof requires a clean Git worktree, the exact declared HEAD, the baseline
-`RM-01 VLM` model, and the same 20-round/24-tool limits. Every provider call must
-report positive actual input usage within the configured ceiling.
+The proof requires a clean Git worktree and the exact declared HEAD. It copies
+that revision into a temporary `git archive` workspace, excludes the evaluator
+source from the agent-visible fixture, and records the archive SHA-256. It pins
+`RM-01 VLM`, a 16,384-token context cap with a 0.2 safety margin, per-task
+provider/tool-call limits, and episode limits of 35 provider calls and 29 tool
+calls. Every provider call must report positive input usage within the cap,
+`servedModel: "RM-01 VLM"`, zero cost, and
+`costProvenance: "local_zero_cost_policy"`.
 
-The ignored proof artifact is written to
-`benchmarks/runs/local-repository-investigator-v1.json` with the complete
-session event, route, tool, context-compilation, citation, latency, and token
-trace. The test also enforces the Context Packet v1 acceptance ceiling against
-the recorded baseline of 934,311 input tokens, 49 provider calls, and 46 tool
-calls; see [ADR 0001](docs/adr/0001-context-handoff-engine-v1.md). The live
-post-change acceptance result remains pending until such a qualifying report is
-produced; the existence of the harness is not proof that the gate passed. A
-failed run writes `local-repository-investigator-v1.failed.json` with
-`passed: false` and never overwrites the canonical accepted artifact.
+The task objectives deliberately disclose evaluator-owned paths, source
+substrings, required relationships, and output-record shapes. This is a guided
+execution, evidence-verification, and accepted-answer context-retention proof;
+it is not blind repository discovery or a repository-quality benchmark. Before
+the tasks, the harness calls the configured `/v1/models`, requires exactly one
+advertisement for `RM-01 VLM`, and records only a hash of the normalized API
+base plus bounded model metadata and a response hash. The raw endpoint, API key,
+model root, and raw response are not serialized.
+
+The evaluator derives the exact symbol matching-line set with its own bounded
+UTF-8 filesystem scan rather than SOAR's production `search_text`, and records
+the oracle method, scope, count, and hash. Architecture and cancellation use an
+authoritative claim manifest: each required claim must state evaluator-owned
+relational phrases and cite evaluator-owned exact files and source snippets.
+The symbol task adds a structural call-path manifest, requires substantive prose
+outside its machine-readable records to state the renderer -> preload -> IPC ->
+`SessionRunner` -> `AbortController` -> provider/tool-signal relationships in
+order, and requires successful complete `read_text_file` observations of all
+five call-path evidence files. Five exact file-scoped supporting searches must
+then refresh every non-`cancelSession` evidence snippet before synthesis. The
+exactly-once rule applies only to `SOAR_SYMBOL_AUDIT.occurrences`; prose and
+claim citations may repeat those tokens. This is deterministic structural
+evidence coverage; unrestricted prose beyond those explicit relationships is
+not presented as semantically graded.
+
+For each accepted answer, the harness binds the captured provider input to the
+unique accepted completion-check round and its persisted packet/message hashes.
+Every completion-guard-verified answer citation and every evaluator-required
+claim snippet must remain in completed tool evidence in that exact packet; the
+symbol packet must also retain every independent-oracle occurrence. Only
+bounded counts and hashes are published, never packet or source content.
+
+An accepted schema-v5 artifact is written only after every gate passes, at
+`benchmarks/runs/local-repository-investigator-v1.schema5.<HEAD>.accepted.json`.
+A failed run instead writes the distinct
+`local-repository-investigator-v1.schema5.<HEAD>.failed.json` diagnostic with
+`passed: false`. Before serialization, repository and temporary fixture roots
+are replaced with stable labels so an attachable report does not expose
+machine-local absolute paths. Before a run, same-revision reports and the
+ambiguous legacy `local-repository-investigator-v1.json` names are moved into the ignored
+`benchmarks/runs/quarantine/` directory, so a stale artifact cannot stand in for
+the current result. Once a full revision is declared, model, repository,
+configuration, fixture, database, or provider setup failures also publish a
+self-identifying preflight diagnostic instead of leaving a stale accepted file.
+
+The older 934,311-input-token, 49-provider-call, 46-tool-call report is retained
+only as a non-comparable historical reference: it identifies a dirty working
+tree, has no fixture hash, and used a different task validator. The earlier 60%
+reduction target therefore is not claimed by this proof. See
+[ADR 0001](docs/adr/0001-context-handoff-engine-v1.md) for the current
+acceptance contract. Treat a revision as accepted only when its clean live run
+produces the matching revision-addressed artifact above.
 
 Inspect the four-workload benchmark canary readiness without making a paid
 model call:

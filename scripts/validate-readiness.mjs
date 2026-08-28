@@ -4,6 +4,8 @@ import path from "node:path";
 import process from "node:process";
 import { promisify } from "node:util";
 
+import { validateJsonSchema } from "./json-schema-contract.mjs";
+
 const root = process.cwd();
 const errors = [];
 const execFileAsync = promisify(execFile);
@@ -67,12 +69,45 @@ async function listRepositoryFiles() {
     .map((relative) => path.join(root, relative));
 }
 
-const [research, coding, providers, sources] = await Promise.all([
-  readJsonLines("benchmarks/research.jsonl"),
-  readJsonLines("benchmarks/coding.jsonl"),
-  readJson("config/providers.example.json"),
-  readJson("benchmarks/sources.json"),
-]);
+const [research, coding, providers, providerSchema, workloadSchema, sources] =
+  await Promise.all([
+    readJsonLines("benchmarks/research.jsonl"),
+    readJsonLines("benchmarks/coding.jsonl"),
+    readJson("config/providers.example.json"),
+    readJson("config/providers.schema.json"),
+    readJson("benchmarks/workload.schema.json"),
+    readJson("benchmarks/sources.json"),
+  ]);
+
+const draft202012 = "https://json-schema.org/draft/2020-12/schema";
+requireValue(
+  providerSchema.$schema === draft202012,
+  "provider configuration schema must declare JSON Schema Draft 2020-12",
+);
+requireValue(
+  workloadSchema.$schema === draft202012,
+  "workload schema must declare JSON Schema Draft 2020-12",
+);
+
+for (const error of validateJsonSchema(providers, providerSchema, {
+  label: "config/providers.example.json",
+})) {
+  errors.push(error);
+}
+for (const [index, record] of research.entries()) {
+  for (const error of validateJsonSchema(record, workloadSchema, {
+    label: `benchmarks/research.jsonl:${index + 1}`,
+  })) {
+    errors.push(error);
+  }
+}
+for (const [index, record] of coding.entries()) {
+  for (const error of validateJsonSchema(record, workloadSchema, {
+    label: `benchmarks/coding.jsonl:${index + 1}`,
+  })) {
+    errors.push(error);
+  }
+}
 
 validateWorkloads(research, "research", 20);
 validateWorkloads(coding, "coding", 20);
@@ -91,6 +126,11 @@ for (const record of [...research, ...coding]) {
 }
 
 const cloud = providers.providers.find((provider) => provider.id === "openrouter-cloud-primary");
+const local = providers.providers.find((provider) => provider.id === "local-vllm");
+requireValue(
+  local?.costPolicyEnv === "SOAR_VLLM_COST_POLICY",
+  "local provider must resolve its explicit cost policy from the environment",
+);
 requireValue(cloud?.modelEnv === "SOAR_OPENROUTER_MODEL", "cloud provider must resolve its model from the environment");
 requireValue(cloud?.enabledEnv === "SOAR_OPENROUTER_ENABLED", "cloud provider must have an explicit enable gate");
 requireValue(cloud?.marginalPriceUsdPerMillionTokens?.input === 0.06, "cloud input price snapshot must be USD 0.06/M");
@@ -113,6 +153,11 @@ const env = Object.fromEntries(
 requireValue(env.SOAR_OPENROUTER_MODEL === "deepseek/deepseek-v4-flash-0731", "unexpected OpenRouter model slug");
 requireValue(env.SOAR_OPENROUTER_ENABLED === "false", "example configuration must keep paid calls disabled");
 requireValue(/^https?:\/\/.+\/v1$/.test(env.SOAR_VLLM_BASE_URL), "vLLM base URL must use HTTP(S) and end in /v1");
+requireValue(
+  local?.costPolicyEnv !== undefined &&
+    env[local.costPolicyEnv] === "local_zero_cost",
+  "vLLM zero-cost accounting must be an explicit local_zero_cost declaration",
+);
 requireValue(Number(env.SOAR_CAMPAIGN_BUDGET_USD) === 100, "campaign ceiling must be USD 100");
 requireValue(Number(env.SOAR_AUTOMATIC_STOP_USD) === 90, "automatic stop must be USD 90");
 requireValue(Number(env.SOAR_MAX_PAID_EPISODE_USD) === 0.75, "paid episode cap must be USD 0.75");

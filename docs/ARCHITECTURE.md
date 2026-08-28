@@ -27,20 +27,25 @@ requires the user to select a canonical workspace before a session can use it.
 ## Session lifecycle
 
 1. IPC validates a task and selected workspace.
-2. `EventStore` creates the session and appends its objective as canonical
-   events in SQLite.
+2. `EventStore` creates the session and appends its objective, versioned task
+   track, ordered completion obligations, and versioned inference/tool-call
+   policy as canonical events in SQLite. Legacy sessions may lack a task track;
+   new app sessions persist `repository-investigator-v1` explicitly.
 3. `SessionRunner` persists the start and route assignment before inference.
 4. Before every provider call, the runner compiles observable state into a
    token-bounded `soar.context-packet.v1` and persists `context.compiled`.
 5. The provider receives exactly two context messages: application-owned system
    policy and one canonical JSON packet. Working and finalization modes apply
-   different tool policies to the same packet shape.
+   different tool policies to the same packet shape. While ordered tool
+   obligations remain, the adapter exposes only the next required tool.
 6. Tool requests pass through the central registry and workspace policy; request
    and result events are persisted around execution.
-7. Usage, latency, reasoning tokens, completion state, citations, and terminal
-   state are appended to the same history.
+7. Usage, latency, reasoning tokens, completion state, verified citations,
+   completion-obligation checks, and terminal state are appended to the same
+   history.
 8. Snapshots are reduced from the event stream for the renderer. Running sessions
-   found after restart become interrupted rather than falsely completed.
+   found after restart become terminally interrupted rather than falsely
+   completed; continuing requires a new run.
 
 Provider-native hidden reasoning, KV caches, and session state are not shared or
 persisted. A future provider switch must use an explicit handoff built from
@@ -58,8 +63,15 @@ and admits bounded excerpts using a breadth-before-depth policy. Every admitted
 citation carries a bounded supporting snippet even when the main evidence body
 is truncated.
 
+The packet copies persisted `requirements` and derives replayable `progress`,
+including the successful required-tool prefix, next missing tool, verified
+citation count, and whether an accepted completion check already exists. Tool
+evidence separately records `packetExcerptTruncated`, the tool-reported
+`sourceResultTruncated`, and `sourceResultCount`; a shortened packet excerpt is
+therefore not mistaken for an incomplete source observation.
+
 The `utf8-bytes-v1` estimate charges one token per UTF-8 byte of the canonical
-rendered messages. The default configured ceiling is 8,192 tokens with a 20%
+rendered messages. The default configured ceiling is 16,384 tokens with a 20%
 safety margin. The active provider adapter also reserves request overhead outside
 the messages; the OpenAI-compatible adapter accounts for chat-template framing
 and mode-specific fields such as tool schemas before evidence admission.
@@ -71,11 +83,18 @@ provider reserve, effective budget, selection counts, and packet/message
 SHA-256; the reducer exposes these manifests as
 `SessionState.contextCompilations`. Compilation occurs once per stateless
 provider call, but does not reconsider the local route. Checkpoint reasons are
-`session_start`, `tool_result_boundary`, and `finalization_boundary`.
+`session_start`, `tool_result_boundary`, `obligation_retry_boundary`,
+`no_progress_boundary`, `finalization_boundary`, and
+`no_progress_finalization_boundary`.
 
 `usage.recorded.reported` distinguishes actual provider token telemetry from a
 missing usage report represented by zero. A qualifying live proof requires
 positive reported input usage for every provider call.
+
+The public provider catalog names `SOAR_VLLM_COST_POLICY` through
+`costPolicyEnv`, and runtime configuration accepts only `local_zero_cost` for
+the current local adapter. This is explicit accounting provenance, not measured
+infrastructure cost.
 
 Repository text and tool output remain escaped values in the packet's untrusted
 evidence section. They do not become system instructions or action authority.
@@ -86,9 +105,40 @@ The tool gateway and workspace policy remain the enforcement boundary.
 A provider response is not success merely because the HTTP request succeeded.
 The runner fails closed on empty, truncated, filtered, malformed, or incomplete
 tool-call responses. Repository answers pass through citation normalization and
-integrity checks. When the investigation reaches its reserved final round, the
-same bounded packet shape is compiled in finalization mode and the request is
-tool-free.
+integrity checks.
+
+An active completion contract is persisted with `session.created`: an ordered
+sequence of required successful tool steps, including repeated tool names when
+the task needs distinct observations, and a minimum verified `path:line`
+citation count. It requires `agentic-execution-v1`, which freezes the inference
+and tool-call ceilings and must contain enough rounds for each sequential tool
+plus final synthesis. The runner refuses a policy that differs from its active
+limits and passes only the next required tool through
+`CompleteInput.allowedToolNames`. A no-tool candidate is normalized against
+successful evidence and recorded in `completion.obligations.checked` as
+`accepted`, `retry`, or `exhausted`. An unmet candidate remains an incomplete
+assistant message; a retry compiles a new packet at
+`obligation_retry_boundary`, and only an accepted check can complete the
+session.
+
+Replay recomputes success from a complete repository observation: registered
+tool name, strict executable arguments, safe request/output paths,
+gateway-schema-conformant result fields, and—for search—query-consistent match
+text. It does not cryptographically attest the gateway or re-read the workspace.
+It also
+binds every assistant ordinal to the persisted round budget. Under the versioned
+policy, an assistant must match the active route, receive exactly one context
+checkpoint while streaming, and cannot complete before that checkpoint.
+
+The runner also compares successful results within the same semantic observation
+scope. Different file paths, search queries, search paths, or list roots remain
+distinct. For complete search and list results, only bounding arguments such as
+maximum matches, items, or depth are ignored. A same-scope, byte-identical repeat
+is persisted as a failed `DUPLICATE_OBSERVATION`, so it remains auditable without
+being promoted as new evidence. After two such observations, tools are disabled
+and the next checkpoint uses `no_progress_finalization_boundary` for a bounded
+final synthesis. The normal reserved final round remains tool-free as well.
+Finalization never waives active completion obligations.
 
 ## Filesystem tools
 
@@ -116,7 +166,12 @@ optional field with a safe default, introducing a new event, or defining an
 explicit migration with compatibility tests.
 
 Projected sessions created before context telemetry existed default
-`contextCompilations` to an empty list; existing event rows require no rewrite.
+`contextCompilations` to an empty list. `session.created.taskTrack` is optional
+only for compatibility with legacy history. Sessions without completion
+obligations default to an empty tool sequence and zero required citations and
+may omit the new execution policy. Active completion obligations require the
+versioned policy at the event-validation boundary; existing no-obligation rows
+require no rewrite.
 
 ## Benchmark isolation
 

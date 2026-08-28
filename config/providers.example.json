@@ -7,6 +7,7 @@
       "baseUrlEnv": "SOAR_VLLM_BASE_URL",
       "apiKeyEnv": "SOAR_VLLM_API_KEY",
       "modelEnv": "SOAR_VLLM_MODEL",
+      "costPolicyEnv": "SOAR_VLLM_COST_POLICY",
       "marginalPriceUsdPerMillionTokens": {
         "input": 0,
         "output": 0

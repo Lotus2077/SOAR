@@ -39,7 +39,8 @@ The first working slice is an Electron application with:
   `search_text`, and `read_text_file` operations constrained to the selected
   workspace;
 - cancellation, timeout, reasoning-token, usage, and latency recording with a
-  deterministic `$0` route/tool trace;
+  deterministic `$0` route/tool trace; local requests explicitly disable
+  hidden reasoning so tool calls and visible answers receive the output budget;
 - deterministic, provider-neutral context packets with a 16,384-token default
   ceiling, a conservative UTF-8-byte estimate, a 20% safety margin, reserved
   provider overhead, latest-observation exact deduplication, bounded excerpts,
@@ -125,8 +126,9 @@ The proof requires a clean Git worktree and the exact declared HEAD. It copies
 that revision into a temporary `git archive` workspace, excludes the evaluator
 source from the agent-visible fixture, and records the archive SHA-256. It pins
 `RM-01 VLM`, a 16,384-token context cap with a 0.2 safety margin, per-task
-provider/tool-call limits, and episode limits of 35 provider calls and 29 tool
-calls. Every provider call must report positive input usage within the cap,
+provider/tool-call limits, and episode limits of 36 provider calls and 30 tool
+calls, with a derived maximum of 589,824 reported input tokens. Every provider
+call must report positive input usage within the cap,
 `servedModel: "RM-01 VLM"`, zero cost, and
 `costProvenance: "local_zero_cost_policy"`.
 
@@ -144,6 +146,9 @@ UTF-8 filesystem scan rather than SOAR's production `search_text`, and records
 the oracle method, scope, count, and hash. Architecture and cancellation use an
 authoritative claim manifest: each required claim must state evaluator-owned
 relational phrases and cite evaluator-owned exact files and source snippets.
+Cancellation requires its nine manifest evidence rows as nine ordered,
+case-sensitive, file-scoped `search_text` calls before synthesis; the evaluator
+rejects a missing, extra, reordered, broad, or mismatched search.
 The symbol task adds a structural call-path manifest, requires substantive prose
 outside its machine-readable records to state the renderer -> preload -> IPC ->
 `SessionRunner` -> `AbortController` -> provider/tool-signal relationships in

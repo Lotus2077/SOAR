@@ -27,23 +27,23 @@ function toolResultFromContextPacket(message: ProviderMessage): string | undefin
     const packet = JSON.parse(
       message.content.slice(CONTEXT_PACKET_PREFIX.length),
     ) as ContextPacketShape;
-    const toolEvidence = [...(packet.evidence ?? [])]
-      .reverse()
-      .find(
-        (entry): entry is ContextPacketToolEvidence =>
-          entry.kind === "tool_evidence" &&
-          "content" in entry &&
-          typeof entry.content === "string",
-      );
-    if (!toolEvidence) return undefined;
-    if (toolEvidence.citationSnippets?.length) {
+    const toolEvidence = [...(packet.evidence ?? [])].reverse().filter(
+      (entry): entry is ContextPacketToolEvidence =>
+        entry.kind === "tool_evidence" &&
+        "content" in entry &&
+        typeof entry.content === "string",
+    );
+    const groundedEvidence = toolEvidence.find(
+      (entry) => (entry.citationSnippets?.length ?? 0) > 0,
+    );
+    if (groundedEvidence?.citationSnippets?.length) {
       return JSON.stringify({
-        text: toolEvidence.citationSnippets
+        text: groundedEvidence.citationSnippets
           .map((snippet) => snippet.text)
           .join("\n"),
       });
     }
-    return toolEvidence.content;
+    return toolEvidence[0]?.content;
   } catch {
     return undefined;
   }

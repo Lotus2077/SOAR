@@ -173,13 +173,12 @@ describe("compileContextPacket", () => {
       status: "failed",
       content: "failed output must not be admitted",
     });
-    expect(result.packet.evidence[0]?.citations).toBeUndefined();
     expect(result.packet.evidence[1]).toMatchObject({
       kind: "assistant_note",
       ordinal: 4,
       content: "The route is selected in src/main/agent/run-session.ts:42.",
-      citations: ["src/main/agent/run-session.ts:42"],
     });
+    expect(result.packet.evidence[1]?.citationSnippets).toBeUndefined();
     expect(result.packet.evidence[2]).toMatchObject({
       kind: "tool_evidence",
       ordinal: 5,
@@ -189,7 +188,11 @@ describe("compileContextPacket", () => {
       packetExcerptTruncated: true,
       sourceResultCount: 1,
       sourceResultTruncated: false,
-      citations: ["src/main/agent/run-session.ts:42"],
+      citationSnippets: [
+        expect.objectContaining({
+          citation: "src/main/agent/run-session.ts:42",
+        }),
+      ],
     });
     expect(result.packet.evidence[2]?.content).toBe(
       "Exact returned matches are represented by citationSnippets.",
@@ -266,7 +269,6 @@ describe("compileContextPacket", () => {
     for (const evidence of first.packet.evidence) {
       expect(evidence.content.length).toBeLessThanOrEqual(750);
       for (const snippet of evidence.citationSnippets ?? []) {
-        expect(evidence.citations).toContain(snippet.citation);
         expect(snippet.text).toContain(snippet.citation);
       }
     }
@@ -354,7 +356,6 @@ describe("compileContextPacket", () => {
     const evidence = result.packet.evidence[0];
     expect(evidence).toMatchObject({
       kind: "tool_evidence",
-      citations: ["src/needle.ts:73"],
       citationSnippets: [
         {
           citation: "src/needle.ts:73",
@@ -363,14 +364,11 @@ describe("compileContextPacket", () => {
       ],
     });
     expect(evidence?.content.length).toBeLessThan(8_000);
-    for (const citation of evidence?.citations ?? []) {
-      expect(
-        evidence?.citationSnippets?.some(
-          (snippet) =>
-            snippet.citation === citation && snippet.text.trim().length > 0,
-        ),
-      ).toBe(true);
-    }
+    expect(
+      evidence?.citationSnippets?.every(
+        (snippet) => snippet.citation.length > 0 && snippet.text.trim().length > 0,
+      ),
+    ).toBe(true);
   });
 
   it("admits compact excerpts from multiple unique items before expanding one", () => {
@@ -463,9 +461,6 @@ describe("compileContextPacket", () => {
     expect(result.telemetry.omittedItemCount).toBe(0);
     const searchEvidence = result.packet.evidence[2];
     expect(searchEvidence?.citationSnippets?.length).toBeGreaterThanOrEqual(1);
-    expect(searchEvidence?.citations).toEqual(
-      searchEvidence?.citationSnippets?.map((snippet) => snippet.citation),
-    );
   });
 
   it("marks a complete 16-match search as successful progress and points to the next tool", () => {
@@ -603,11 +598,6 @@ describe("compileContextPacket", () => {
       packetExcerptTruncated: true,
       sourceResultTruncated: false,
       sourceResultCount: 3,
-      citations: [
-        "src/cancel.ts:1",
-        "src/cancel.ts:2",
-        "src/cancel.ts:3",
-      ],
       citationSnippets: [
         { citation: "src/cancel.ts:1", text: "first line" },
         {
@@ -687,19 +677,502 @@ describe("compileContextPacket", () => {
       sourceResultTruncated: false,
       packetExcerptTruncated: true,
     });
-    expect(readEvidence?.citations).toEqual(
+    expect(
+      readEvidence?.citationSnippets?.map((snippet) => snippet.citation),
+    ).toEqual(
       expect.arrayContaining([
         "src/large.ts:399",
-        "src/large.ts:400",
         "src/large.ts:401",
       ]),
     );
-    expect(
-      readEvidence?.citationSnippets?.find(
-        (snippet) => snippet.citation === "src/large.ts:400",
-      )?.text,
-    ).toContain("cancelSession");
+    const retainedMiddleLine = result.packet.evidence
+      .flatMap((evidence) => evidence.citationSnippets ?? [])
+      .filter((snippet) => snippet.citation === "src/large.ts:400");
+    expect(retainedMiddleLine).toHaveLength(1);
+    expect(retainedMiddleLine[0]?.text).toContain("cancelSession");
     expect(readEvidence?.content).not.toContain("fixtureLine1");
+  });
+
+  it("keeps the highest-fidelity source and packet witnesses", () => {
+    const state = session([
+      completedAssistant("assistant-read-fidelity", "", [
+        {
+          id: "read-fidelity",
+          name: "read_text_file",
+          arguments: { relativePath: "src/fidelity.ts" },
+          status: "completed",
+          content: JSON.stringify({
+            ok: true,
+            text:
+              "export const needle = true;\n" +
+              "export const needlePacket = true;\n",
+            truncated: false,
+          }),
+        },
+      ]),
+      completedAssistant("assistant-search-fidelity", "", [
+        {
+          id: "search-fidelity",
+          name: "search_text",
+          arguments: { query: "needle", relativePath: "src/fidelity.ts" },
+          status: "completed",
+          content: JSON.stringify({
+            ok: true,
+            matches: [
+              {
+                path: "src/fidelity.ts",
+                lineNumber: 1,
+                text: "…needle…",
+                textTruncated: true,
+              },
+              {
+                path: "src/fidelity.ts",
+                lineNumber: 2,
+                text: `needlePacket ${"x".repeat(500)}`,
+                textTruncated: false,
+              },
+            ],
+            count: 2,
+            truncated: false,
+          }),
+        },
+      ]),
+    ]);
+
+    const result = compileContextPacket(state, {
+      mode: "finalization",
+      systemPrompt: "Keep the highest-fidelity citation support.",
+      maxInputTokens: 8_192,
+      safetyMargin: 0,
+    });
+    const retained = result.packet.evidence
+      .flatMap((evidence) => evidence.citationSnippets ?? [])
+      .filter((snippet) => snippet.citation.startsWith("src/fidelity.ts:"));
+
+    expect(retained).toEqual([
+      {
+        citation: "src/fidelity.ts:1",
+        text: "export const needle = true;",
+      },
+      {
+        citation: "src/fidelity.ts:2",
+        text: "export const needlePacket = true;",
+      },
+    ]);
+  });
+
+  it("keeps grounded tool evidence over a higher-fidelity assistant note", () => {
+    const state = session([
+      completedAssistant("assistant-grounded-search", "", [
+        {
+          id: "grounded-search",
+          name: "search_text",
+          arguments: { query: "needle", relativePath: "src/trust.ts" },
+          status: "completed",
+          content: JSON.stringify({
+            ok: true,
+            matches: [
+              {
+                path: "src/trust.ts",
+                lineNumber: 1,
+                text: "…needle…",
+                textTruncated: true,
+              },
+            ],
+            count: 1,
+            truncated: false,
+          }),
+        },
+      ]),
+      completedAssistant(
+        "assistant-untrusted-note",
+        "A polished but untrusted claim at src/trust.ts:1.",
+      ),
+    ]);
+
+    const result = compileContextPacket(state, {
+      mode: "finalization",
+      systemPrompt: "Prefer grounded evidence over assistant notes.",
+      maxInputTokens: 8_192,
+      safetyMargin: 0,
+    });
+    const retained = result.packet.evidence
+      .flatMap((evidence) => evidence.citationSnippets ?? [])
+      .filter((snippet) => snippet.citation === "src/trust.ts:1");
+
+    expect(retained).toEqual([
+      {
+        citation: "src/trust.ts:1",
+        text: "…needle…",
+        sourceTextTruncated: true,
+      },
+    ]);
+  });
+
+  it("does not evict a read that owns a higher-fidelity search citation", () => {
+    const lines = Array.from(
+      { length: 30 },
+      (_unused, index) => `export const needle${index + 1} = ${index + 1};`,
+    );
+    const state = session([
+      completedAssistant("assistant-overlap-search", "", [
+        {
+          id: "overlap-search",
+          name: "search_text",
+          arguments: {
+            query: "needle",
+            relativePath: "src/overlap.ts",
+            maxMatches: 500,
+          },
+          status: "completed",
+          content: JSON.stringify({
+            ok: true,
+            matches: lines.map((text, index) => ({
+              path: "src/overlap.ts",
+              lineNumber: index + 1,
+              text: index === 0 ? "…needle1…" : text,
+              textTruncated: index === 0,
+            })),
+            count: lines.length,
+            truncated: false,
+          }),
+        },
+      ]),
+      completedAssistant("assistant-overlap-read", "", [
+        {
+          id: "overlap-read",
+          name: "read_text_file",
+          arguments: { relativePath: "src/overlap.ts" },
+          status: "completed",
+          content: JSON.stringify({
+            ok: true,
+            text: `${lines.join("\n")}\n`,
+            truncated: false,
+          }),
+        },
+      ]),
+    ]);
+
+    const result = compileContextPacket(state, {
+      mode: "finalization",
+      systemPrompt: "Preserve the best grounded witness.",
+      maxInputTokens: 5_000,
+      safetyMargin: 0.2,
+      reservedInputTokens: 512,
+    });
+    const read = result.packet.evidence.find(
+      (evidence) =>
+        evidence.kind === "tool_evidence" &&
+        evidence.toolName === "read_text_file",
+    );
+    const search = result.packet.evidence.find(
+      (evidence) =>
+        evidence.kind === "tool_evidence" &&
+        evidence.toolName === "search_text",
+    );
+    const retained = result.packet.evidence
+      .flatMap((evidence) => evidence.citationSnippets ?? [])
+      .filter((snippet) => snippet.citation === "src/overlap.ts:1");
+
+    expect(read).toBeDefined();
+    expect(search?.citationSnippets?.length ?? 0).toBeLessThan(lines.length);
+    expect(retained).toEqual([
+      {
+        citation: "src/overlap.ts:1",
+        text: lines[0],
+      },
+    ]);
+  });
+
+  it("does not let one search evict a read that owns another search's witness", () => {
+    const broadMatches = Array.from({ length: 35 }, (_unused, index) => ({
+      path: index === 0 ? "src/multi-search.ts" : `src/broad-${index}.ts`,
+      lineNumber: 1,
+      text: `export const broadNeedle${index + 1} = true;`,
+      textTruncated: false,
+    }));
+    const readLines = [
+      broadMatches[0]!.text,
+      ...Array.from({ length: 98 }, () => ""),
+      "export const preciseNeedle = true;",
+    ];
+    const state = session([
+      completedAssistant("assistant-broad-search", "", [
+        {
+          id: "broad-search",
+          name: "search_text",
+          arguments: { query: "broadNeedle", maxMatches: 500 },
+          status: "completed",
+          content: JSON.stringify({
+            ok: true,
+            matches: broadMatches,
+            count: broadMatches.length,
+            truncated: false,
+          }),
+        },
+      ]),
+      completedAssistant("assistant-precise-search", "", [
+        {
+          id: "precise-search",
+          name: "search_text",
+          arguments: {
+            query: "preciseNeedle",
+            relativePath: "src/multi-search.ts",
+          },
+          status: "completed",
+          content: JSON.stringify({
+            ok: true,
+            matches: [
+              {
+                path: "src/multi-search.ts",
+                lineNumber: 100,
+                text: "…preciseNeedle…",
+                textTruncated: true,
+              },
+            ],
+            count: 1,
+            truncated: false,
+          }),
+        },
+      ]),
+      completedAssistant("assistant-multi-search-read", "", [
+        {
+          id: "multi-search-read",
+          name: "read_text_file",
+          arguments: { relativePath: "src/multi-search.ts" },
+          status: "completed",
+          content: JSON.stringify({
+            ok: true,
+            text: `${readLines.join("\n")}\n`,
+            truncated: false,
+          }),
+        },
+      ]),
+    ]);
+
+    const result = compileContextPacket(state, {
+      mode: "finalization",
+      systemPrompt: "Preserve globally preferred citation witnesses.",
+      maxInputTokens: 5_000,
+      safetyMargin: 0.2,
+      reservedInputTokens: 512,
+    });
+    const read = result.packet.evidence.find(
+      (evidence) =>
+        evidence.kind === "tool_evidence" &&
+        evidence.toolName === "read_text_file",
+    );
+    const retainedPrecise = result.packet.evidence
+      .flatMap((evidence) => evidence.citationSnippets ?? [])
+      .filter(
+        (snippet) => snippet.citation === "src/multi-search.ts:100",
+      );
+
+    expect(read).toBeDefined();
+    expect(retainedPrecise).toEqual([
+      {
+        citation: "src/multi-search.ts:100",
+        text: "export const preciseNeedle = true;",
+      },
+    ]);
+  });
+
+  it("retries breadth omissions after citation compaction frees space", () => {
+    const notes = (duplicate: boolean): CanonicalMessage[] => [
+      completedAssistant(
+        "assistant-retry-unique",
+        `Unique evidence at src/unique.ts:1. ${"u".repeat(180)}`,
+      ),
+      ...Array.from({ length: 3 }, (_unused, index) =>
+        completedAssistant(
+          `assistant-retry-duplicate-${index}`,
+          `Evidence ${index} at src/${duplicate ? "shared" : `distinct-${index}`}.ts:2. ${"d".repeat(180)}`,
+        ),
+      ),
+    ];
+    const options = {
+      mode: "finalization" as const,
+      systemPrompt: "Retain as much unique evidence breadth as fits.",
+      maxInputTokens: 3_400,
+      safetyMargin: 0,
+      maxEvidenceCharacters: 512,
+    };
+
+    const compacted = compileContextPacket(session(notes(true)), options);
+    const distinct = compileContextPacket(session(notes(false)), options);
+
+    expect(compacted.packet.evidence).toHaveLength(4);
+    expect(compacted.packet.evidence.map((evidence) => evidence.ordinal)).toEqual([
+      1, 2, 3, 4,
+    ]);
+    expect(distinct.packet.evidence.length).toBeLessThan(4);
+  });
+
+  it("retries breadth to a fixed point after later ownership changes", () => {
+    const state = session([
+      completedAssistant("assistant-owner-search", "", [
+        {
+          id: "owner-search",
+          name: "search_text",
+          arguments: { query: "shared" },
+          status: "completed",
+          content: JSON.stringify({
+            ok: true,
+            matches: [
+              {
+                path: "src/shared-a.ts",
+                lineNumber: 1,
+                text: "shared alpha",
+                textTruncated: false,
+              },
+              {
+                path: "src/shared-b.ts",
+                lineNumber: 1,
+                text: "shared beta",
+                textTruncated: false,
+              },
+              {
+                path: "src/shared-c.ts",
+                lineNumber: 1,
+                text: "shared gamma",
+                textTruncated: false,
+              },
+              {
+                path: "src/shared-d.ts",
+                lineNumber: 1,
+                text: "shared delta",
+                textTruncated: false,
+              },
+            ],
+            count: 4,
+            truncated: false,
+          }),
+        },
+      ]),
+      completedAssistant(
+        "assistant-fixed-point-unique",
+        `Unique evidence at src/fixed-point.ts:1. ${"u".repeat(180)}`,
+      ),
+      completedAssistant(
+        "assistant-shared-a",
+        `Assistant note at src/shared-a.ts:1. ${"a".repeat(180)}`,
+      ),
+      completedAssistant(
+        "assistant-shared-b",
+        `Assistant note at src/shared-b.ts:1. ${"b".repeat(180)}`,
+      ),
+      completedAssistant(
+        "assistant-shared-c",
+        `Assistant note at src/shared-c.ts:1. ${"c".repeat(180)}`,
+      ),
+      completedAssistant(
+        "assistant-shared-d",
+        `Assistant note at src/shared-d.ts:1. ${"d".repeat(180)}`,
+      ),
+    ]);
+
+    const result = compileContextPacket(state, {
+      mode: "finalization",
+      systemPrompt: "Retry compacted breadth until admission is stable.",
+      maxInputTokens: 3_400,
+      safetyMargin: 0,
+      maxEvidenceCharacters: 512,
+    });
+
+    expect(result.packet.evidence.map((evidence) => evidence.ordinal)).toEqual([
+      1, 2, 3, 4, 5, 6,
+    ]);
+    expect(result.telemetry.omittedItemCount).toBe(0);
+  });
+
+  it("secures complete targeted search pairs before expanding covered reads", () => {
+    const matchPaths = Array.from(
+      { length: 5 },
+      (_unused, index) => `src/covered-${index + 1}.ts`,
+    );
+    const matches = Array.from({ length: 30 }, (_unused, index) => ({
+      path: matchPaths[index % matchPaths.length]!,
+      lineNumber: index + 1,
+      text: `export const needle${index + 1} = ${index + 1};`,
+      textTruncated: false,
+    }));
+    const messages: CanonicalMessage[] = [
+      completedAssistant("assistant-complete-search", "", [
+        {
+          id: "complete-search",
+          name: "search_text",
+          arguments: {
+            query: "needle",
+            relativePath: ".",
+            maxMatches: 500,
+          },
+          status: "completed",
+          content: JSON.stringify({
+            ok: true,
+            matches,
+            count: matches.length,
+            truncated: false,
+          }),
+        },
+      ]),
+      ...matchPaths.map((relativePath, index) =>
+        completedAssistant(`assistant-covered-read-${index}`, "", [
+          {
+            id: `covered-read-${index}`,
+            name: "read_text_file",
+            arguments: { relativePath },
+            status: "completed",
+            content: JSON.stringify({
+              ok: true,
+              text: `${Array.from({ length: 30 }, (_unused, lineIndex) => {
+                const match = matches.find(
+                  (candidate) =>
+                    candidate.path === relativePath &&
+                    candidate.lineNumber === lineIndex + 1,
+                );
+                return match?.text ?? "";
+              }).join("\n")}\n`,
+              truncated: false,
+            }),
+          },
+        ]),
+      ),
+    ];
+
+    const result = compileContextPacket(session(messages), {
+      mode: "finalization",
+      systemPrompt: "Preserve complete targeted evidence before generic content.",
+      maxInputTokens: 7_000,
+      safetyMargin: 0.2,
+      reservedInputTokens: 512,
+    });
+    const searchEvidence = result.packet.evidence.find(
+      (evidence) =>
+        evidence.kind === "tool_evidence" &&
+        evidence.toolName === "search_text",
+    );
+
+    expect(result.telemetry.estimatedTokens).toBeLessThanOrEqual(
+      result.telemetry.effectiveInputTokenBudget,
+    );
+    expect(searchEvidence?.citationSnippets).toHaveLength(matches.length);
+    expect(
+      new Set(
+        result.packet.evidence.flatMap((evidence) =>
+          (evidence.citationSnippets ?? []).map(
+            (snippet) => snippet.citation,
+          ),
+        ),
+      ).size,
+    ).toBe(
+      result.packet.evidence.reduce(
+        (count, evidence) => count + (evidence.citationSnippets?.length ?? 0),
+        0,
+      ),
+    );
+    expect(JSON.stringify(result.packet.evidence)).not.toContain(
+      '"citations":',
+    );
   });
 
   it("preserves source and packet truncation for long search-match excerpts", () => {

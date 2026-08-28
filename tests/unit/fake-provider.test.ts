@@ -14,6 +14,42 @@ function toolResultMessages(text = "probe") {
 }
 
 describe("FakeProvider", () => {
+  it("uses the newest grounded packet evidence after cross-evidence compaction", async () => {
+    const packet = {
+      evidence: [
+        {
+          kind: "tool_evidence",
+          content: "Exact returned matches are represented by citationSnippets.",
+          citationSnippets: [
+            {
+              citation: "SOAR_PROBE.txt:1",
+              text: "SOAR-E2E-PROBE-91D7",
+            },
+          ],
+        },
+        {
+          kind: "tool_evidence",
+          content: "Complete file lines are represented by citationSnippets.",
+        },
+      ],
+    };
+    const result = await new FakeProvider({ delayMs: 0 }).complete({
+      messages: [
+        {
+          role: "user",
+          content: `SOAR_CONTEXT_PACKET_V1\n${JSON.stringify(packet)}`,
+        },
+      ],
+      signal: new AbortController().signal,
+      allowTools: false,
+      onDelta: vi.fn(),
+    });
+
+    expect(result.content).toBe(
+      "The workspace marker at SOAR_PROBE.txt:1 is SOAR-E2E-PROBE-91D7.",
+    );
+  });
+
   it("removes abort listeners after each completed delay", async () => {
     const signal = new AbortController().signal;
     const addListener = vi.spyOn(signal, "addEventListener");

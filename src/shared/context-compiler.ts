@@ -73,6 +73,7 @@ export interface AssistantNoteEvidence {
   kind: "assistant_note";
   ordinal: number;
   content: string;
+  /** @deprecated V1 readers may accept this field; the compiler no longer emits it. */
   citations?: string[];
   citationSnippets?: ContextCitationSnippet[];
 }
@@ -91,6 +92,7 @@ export interface ToolEvidence {
   sourceResultTruncated?: boolean;
   /** Tool-reported result count, or line count for a complete file read. */
   sourceResultCount?: number;
+  /** @deprecated V1 readers may accept this field; the compiler no longer emits it. */
   citations?: string[];
   citationSnippets?: ContextCitationSnippet[];
 }
@@ -931,6 +933,83 @@ function prioritizeReadEvidence(candidates: RawCandidate[]): void {
   }
 }
 
+/**
+ * Return candidate-local filtered copies that store each grounded
+ * citation-support pair once. Best-witness selection prefers grounded tool
+ * evidence over assistant notes, then untruncated source support, an
+ * untruncated packet excerpt, targeted search evidence, and finally recency.
+ * Originals remain unchanged so later admission and eviction decisions can
+ * reason about the complete observable reference sets.
+ */
+function deduplicateCitationSupportPairs(
+  candidates: readonly RawCandidate[],
+): RawCandidate[] {
+  const citationOwner = new Map<
+    string,
+    {
+      ordinal: number;
+      packetFidelity: number;
+      preference: number;
+      sourceFidelity: number;
+      toolTrust: number;
+    }
+  >();
+  const preferenceFor = (candidate: RawCandidate): number =>
+    candidate.kind === "tool_evidence" && candidate.toolName === "search_text"
+      ? 2
+      : candidate.kind === "tool_evidence"
+        ? 1
+        : 0;
+
+  for (const candidate of candidates) {
+    const toolTrust = candidate.kind === "tool_evidence" ? 1 : 0;
+    const preference = preferenceFor(candidate);
+    for (const snippet of candidate.citationSnippets) {
+      const sourceFidelity = snippet.sourceTextTruncated === true ? 0 : 1;
+      const packetFidelity = snippet.packetTextTruncated === true ? 0 : 1;
+      const owner = citationOwner.get(snippet.citation);
+      if (
+        owner === undefined ||
+        toolTrust > owner.toolTrust ||
+        (toolTrust === owner.toolTrust &&
+          sourceFidelity > owner.sourceFidelity) ||
+        (toolTrust === owner.toolTrust &&
+          sourceFidelity === owner.sourceFidelity &&
+          packetFidelity > owner.packetFidelity) ||
+        (toolTrust === owner.toolTrust &&
+          sourceFidelity === owner.sourceFidelity &&
+          packetFidelity === owner.packetFidelity &&
+          preference > owner.preference) ||
+        (toolTrust === owner.toolTrust &&
+          sourceFidelity === owner.sourceFidelity &&
+          packetFidelity === owner.packetFidelity &&
+          preference === owner.preference &&
+          candidate.ordinal > owner.ordinal)
+      ) {
+        citationOwner.set(snippet.citation, {
+          ordinal: candidate.ordinal,
+          packetFidelity,
+          preference,
+          sourceFidelity,
+          toolTrust,
+        });
+      }
+    }
+  }
+
+  return candidates.map((candidate) => {
+    const citationSnippets = candidate.citationSnippets.filter(
+      (snippet) =>
+        citationOwner.get(snippet.citation)?.ordinal === candidate.ordinal,
+    );
+    return {
+      ...candidate,
+      citationSnippets,
+      references: citationSnippets.map((snippet) => snippet.citation),
+    };
+  });
+}
+
 function deduplicateCandidates(raw: readonly RawCandidate[]): {
   unique: RawCandidate[];
   omissions: ContextOmission[];
@@ -974,7 +1053,6 @@ function prepareCandidate(
   const content = truncateText(candidate.content, contentLimit);
   const argumentsExcerpt = truncateText(candidate.argumentsJson, argumentLimit);
   const citationSnippets = candidate.citationSnippets.slice(0, referenceLimit);
-  const citations = citationSnippets.map((snippet) => snippet.citation);
   const reasons = new Set<ContextTruncationReason>();
   if (
     content.length < candidate.content.length ||
@@ -982,7 +1060,7 @@ function prepareCandidate(
   ) {
     reasons.add(budgetTruncated ? "budget" : "item_limit");
   }
-  if (citations.length < candidate.sourceReferenceCount) {
+  if (citationSnippets.length < candidate.sourceReferenceCount) {
     reasons.add("reference_limit");
   }
   if (candidate.sourceProjectionApplied) reasons.add("projection");
@@ -990,13 +1068,12 @@ function prepareCandidate(
     candidate.sourceProjectionApplied ||
     content.length < candidate.content.length ||
     argumentsExcerpt.length < candidate.argumentsJson.length ||
-    citations.length < candidate.sourceReferenceCount ||
+    citationSnippets.length < candidate.sourceReferenceCount ||
     citationSnippets.some((snippet) => snippet.packetTextTruncated === true);
 
   const common = {
     ordinal: candidate.ordinal,
     content,
-    ...(citations.length > 0 ? { citations } : {}),
     ...(citationSnippets.length > 0 ? { citationSnippets } : {}),
   };
   const evidence: ContextEvidence =
@@ -1025,7 +1102,7 @@ function prepareCandidate(
     evidence,
     contentCharacters: content.length,
     argumentCharacters: argumentsExcerpt.length,
-    referenceCount: citations.length,
+    referenceCount: citationSnippets.length,
     reasons: [...reasons].sort(),
   };
 }
@@ -1318,52 +1395,219 @@ export function compileContextPacket(
     }
   }
 
+  const originalByOrdinal = new Map(
+    unique.map((candidate) => [candidate.ordinal, candidate]),
+  );
+  const admittedOriginals = new Map(
+    selectedEvidence().map((entry) => [entry.raw.ordinal, entry.raw]),
+  );
+  const compactedSelection = (
+    candidates: readonly RawCandidate[],
+  ): PreparedCandidate[] =>
+    deduplicateCitationSupportPairs(candidates).map((candidate) =>
+      prepareCandidate(
+        candidate,
+        compactContentLimit,
+        compactArgumentLimit,
+        compactReferenceLimit,
+        true,
+      ),
+    );
+  const replaceSelection = (selection: readonly PreparedCandidate[]): void => {
+    includedByOrdinal.clear();
+    for (const entry of selection) {
+      includedByOrdinal.set(entry.raw.ordinal, entry);
+    }
+  };
+
+  // Resolve citation ownership only across admitted evidence, then retry every
+  // item that initially missed breadth admission. Deduplication can free enough
+  // space for unique evidence, and candidate originals remain untouched for
+  // later best-witness and eviction checks.
+  replaceSelection(compactedSelection([...admittedOriginals.values()]));
+  let admittedDuringRetry: boolean;
+  do {
+    admittedDuringRetry = false;
+    for (const candidate of recentFirst) {
+      if (admittedOriginals.has(candidate.ordinal)) continue;
+      const proposedOriginals = [...admittedOriginals.values(), candidate].sort(
+        (left, right) => left.ordinal - right.ordinal,
+      );
+      const proposedSelection = compactedSelection(proposedOriginals);
+      if (fits(proposedSelection)) {
+        admittedOriginals.set(candidate.ordinal, candidate);
+        replaceSelection(proposedSelection);
+        admittedDuringRetry = true;
+      }
+    }
+  } while (admittedDuringRetry);
+
+  const admittedRecentFirst = selectedEvidence()
+    .map((entry) => entry.raw)
+    .reverse();
   const toolFirstDepth = [
-    ...recentFirst.filter((candidate) => candidate.kind === "tool_evidence"),
-    ...recentFirst.filter((candidate) => candidate.kind === "assistant_note"),
+    ...admittedRecentFirst.filter(
+      (candidate) => candidate.kind === "tool_evidence",
+    ),
+    ...admittedRecentFirst.filter(
+      (candidate) => candidate.kind === "assistant_note",
+    ),
+  ];
+  const citationFirstDepth = [
+    ...admittedRecentFirst.filter(
+      (candidate) =>
+        candidate.kind === "tool_evidence" &&
+        candidate.toolName === "search_text",
+    ),
+    ...admittedRecentFirst.filter(
+      (candidate) =>
+        candidate.kind === "tool_evidence" &&
+        candidate.toolName !== "search_text",
+    ),
+    ...admittedRecentFirst.filter(
+      (candidate) => candidate.kind === "assistant_note",
+    ),
   ];
 
-  // Depth pass: spend the remaining budget on tool evidence first, then recent
-  // assistant notes, without evicting
-  // any breadth entry. Expand citation-support pairs before content so a search
-  // result can retain more matches only after every admitted item has one small
-  // grounded slot.
-  for (const candidate of toolFirstDepth) {
+  // Citation-depth pass: expand grounded citation-support pairs across every
+  // admitted tool result before any candidate receives additional content.
+  // Targeted search matches are denser than complete-file projections, so they
+  // lead this pass; recency remains the deterministic tie-breaker within each
+  // evidence class.
+  for (const candidate of citationFirstDepth) {
     const compact = includedByOrdinal.get(candidate.ordinal);
     if (!compact) continue;
 
     let referenceExpanded = compact;
-    let referenceLow = compact.referenceCount + 1;
-    let referenceHigh = Math.min(
+    const referenceHigh = Math.min(
       maxReferencesPerEvidence,
       candidate.references.length,
     );
-    while (referenceLow <= referenceHigh) {
-      const referenceMidpoint = Math.floor(
-        (referenceLow + referenceHigh) / 2,
+    const fullyReferenced = prepareCandidate(
+      candidate,
+      compactContentLimit,
+      compactArgumentLimit,
+      referenceHigh,
+      true,
+    );
+    includedByOrdinal.set(candidate.ordinal, fullyReferenced);
+    let securedCompleteSearch = fits(selectedEvidence());
+    if (securedCompleteSearch) {
+      referenceExpanded = fullyReferenced;
+    } else {
+      includedByOrdinal.set(candidate.ordinal, compact);
+    }
+
+    // A complete targeted search is a denser representation of the same exact
+    // lines than complete-file projections. If its full result does not fit,
+    // it may replace admitted reads whose paths it directly covers. Breadth is
+    // otherwise preserved, and evictions are rolled back unless the complete
+    // search can be secured.
+    if (
+      !securedCompleteSearch &&
+      candidate.kind === "tool_evidence" &&
+      candidate.toolName === "search_text" &&
+      candidate.toolStatus === "completed" &&
+      candidate.sourceResultTruncated === false
+    ) {
+      const originalSearch =
+        originalByOrdinal.get(candidate.ordinal) ?? candidate;
+      const admittedSearchOriginalReferences = new Set(
+        selectedEvidence().flatMap((entry) => {
+          if (
+            entry.raw.kind !== "tool_evidence" ||
+            entry.raw.toolName !== "search_text" ||
+            entry.raw.toolStatus !== "completed"
+          ) {
+            return [];
+          }
+          return (
+            originalByOrdinal.get(entry.raw.ordinal) ?? entry.raw
+          ).references;
+        }),
       );
-      const expanded = prepareCandidate(
-        candidate,
-        compactContentLimit,
-        compactArgumentLimit,
-        referenceMidpoint,
-        true,
+      const searchedPaths = new Set(
+        originalSearch.citationSnippets
+          .map((snippet) => parsedCitation(snippet.citation)?.path)
+          .filter((path): path is string => path !== undefined)
+          .map(normalizedPacketPath),
       );
-      includedByOrdinal.set(candidate.ordinal, expanded);
-      if (fits(selectedEvidence())) {
-        referenceExpanded = expanded;
-        referenceLow = referenceMidpoint + 1;
-      } else {
-        referenceHigh = referenceMidpoint - 1;
+      const replaceableReads = selectedEvidence()
+        .filter(
+          (entry) =>
+            entry.raw.kind === "tool_evidence" &&
+            entry.raw.toolName === "read_text_file" &&
+            entry.raw.toolStatus === "completed" &&
+            // A read may own a higher-fidelity duplicate that was originally
+            // observed by a different admitted search. Preserve that globally
+            // preferred witness; read-only lines may yield to the complete
+            // targeted search.
+            !entry.raw.references.some((citation) =>
+              admittedSearchOriginalReferences.has(citation),
+            ) &&
+            entry.raw.workspaceRelativePath !== undefined &&
+            searchedPaths.has(
+              normalizedPacketPath(entry.raw.workspaceRelativePath),
+            ),
+        )
+        .sort((left, right) => left.raw.ordinal - right.raw.ordinal);
+      const evictedReads: PreparedCandidate[] = [];
+      for (const read of replaceableReads) {
+        includedByOrdinal.delete(read.raw.ordinal);
+        evictedReads.push(read);
+        includedByOrdinal.set(candidate.ordinal, fullyReferenced);
+        if (fits(selectedEvidence())) {
+          referenceExpanded = fullyReferenced;
+          securedCompleteSearch = true;
+          break;
+        }
+        includedByOrdinal.set(candidate.ordinal, compact);
+      }
+      if (!securedCompleteSearch) {
+        for (const read of evictedReads) {
+          includedByOrdinal.set(read.raw.ordinal, read);
+        }
+      }
+    }
+
+    if (!securedCompleteSearch) {
+      let referenceLow = compact.referenceCount + 1;
+      let referenceUpperBound = referenceHigh;
+      while (referenceLow <= referenceUpperBound) {
+        const referenceMidpoint = Math.floor(
+          (referenceLow + referenceUpperBound) / 2,
+        );
+        const expanded = prepareCandidate(
+          candidate,
+          compactContentLimit,
+          compactArgumentLimit,
+          referenceMidpoint,
+          true,
+        );
+        includedByOrdinal.set(candidate.ordinal, expanded);
+        if (fits(selectedEvidence())) {
+          referenceExpanded = expanded;
+          referenceLow = referenceMidpoint + 1;
+        } else {
+          referenceUpperBound = referenceMidpoint - 1;
+        }
       }
     }
     includedByOrdinal.set(candidate.ordinal, referenceExpanded);
+  }
+
+  // Content-depth pass: only after citation allocation is stable, spend the
+  // remaining budget on tool content first and then assistant notes. Do not
+  // change a candidate's reference count in this pass.
+  for (const candidate of toolFirstDepth) {
+    const referenceExpanded = includedByOrdinal.get(candidate.ordinal);
+    if (!referenceExpanded) continue;
 
     const fullyPrepared = prepareCandidate(
       candidate,
       maxContentCharacters,
       argumentLimit,
-      maxReferencesPerEvidence,
+      referenceExpanded.referenceCount,
       false,
     );
     includedByOrdinal.set(candidate.ordinal, fullyPrepared);

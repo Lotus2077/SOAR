@@ -127,7 +127,7 @@ evidence: (
       kind: "assistant_note"
       ordinal: positive integer
       content: string
-      citations?: string[]
+      citations?: string[] # deprecated reader compatibility; not emitted
       citationSnippets?: { citation, text }[]
     }
   | {
@@ -141,7 +141,7 @@ evidence: (
       packetExcerptTruncated: boolean
       sourceResultTruncated?: boolean
       sourceResultCount?: non-negative integer
-      citations?: string[]
+      citations?: string[] # deprecated reader compatibility; not emitted
       citationSnippets?: { citation, text }[]
     }
 )[]
@@ -193,13 +193,21 @@ replace, the tool gateway's workspace policy.
 Citation candidates are collected from `path:line` text and structured objects
 containing `path`, a positive integer `lineNumber`, and string `text`. References
 are sorted, limited to 512 characters each, and capped at 64 per evidence item by
-default. Every admitted citation has a same-item `citationSnippets` entry: plain
+default. Each admitted reference is encoded once as a `citationSnippets` entry;
+the deprecated parallel `citations` array remains accepted by the TypeScript v1
+interface but is not emitted. Plain
 text preserves the exact source line, bounded around the citation with visible
 ellipses when necessary; structured search output preserves the exact bounded
 match text. Supporting snippets are capped at 384 characters and remain in the
 packet even when the evidence body's main excerpt is truncated. This is context
 grounding, not final-answer citation validation; the existing citation-integrity
 check remains authoritative.
+
+Citation-support pairs are globally deduplicated after breadth admission.
+Best-witness selection prefers grounded tool evidence over assistant notes,
+then an untruncated source, an untruncated packet excerpt, targeted search
+evidence, and recency, in that order. Among grounded tool witnesses, a
+higher-fidelity witness is never discarded for tool preference.
 
 Structured tool projections also keep compact source metadata. The mandatory
 `packetExcerptTruncated` flag describes only packet admission. Optional
@@ -305,15 +313,25 @@ user constraints. If that base exceeds the effective budget, compilation throws
 `ContextBudgetError` with code `CONTEXT_BUDGET_TOO_SMALL`; mandatory intent is
 never silently cropped.
 
-Evidence admission uses two deterministic passes. A breadth pass offers each
-unique item a compact excerpt of up to 64 content characters and 96 argument
-characters plus at most one citation-support pair, newest first. This preserves
-more distinct observations before one large result consumes the evidence lane.
-A depth pass, again newest first, expands citation-support pairs and then content
-toward their per-item caps. Binary searches find the largest deterministic
-expansions that fit without evicting the compact breadth entries. Final packet
-evidence is restored to source order. Items that cannot fit even in the breadth
-pass are omitted.
+Evidence admission uses deterministic breadth and depth phases. A breadth pass
+offers each unique item a compact excerpt of up to 64 content characters and 96
+argument characters plus at most one citation-support pair, newest first. After
+non-destructive citation compaction, the compiler retries initially omitted
+items to a deterministic fixed point so later ownership changes can admit
+earlier rejections. This preserves more distinct observations before one large
+result consumes the evidence lane.
+A citation-depth phase expands grounded pairs across admitted tool evidence
+before a separate content-depth phase expands bodies. Complete targeted searches
+may replace compact complete-read projections for paths they directly cover when
+replacement is required to retain the complete search. Because citation
+ownership is global across admitted evidence, a read is evictable only when
+none of its preferred citation-support pairs overlap the original references
+of any admitted search. This protects a higher-fidelity witness shared with a
+different search while allowing read-only lines to yield to a complete targeted
+search. Otherwise breadth entries remain secured. Search and content ordering
+preserve recency within their evidence class, and final packet evidence is
+restored to source order. Items that cannot fit after the fixed-point retry are
+omitted.
 
 The per-item argument cap is the smaller of 2,048 characters and one quarter of
 `maxEvidenceCharacters`; the remaining item allowance is available to content.
@@ -511,9 +529,9 @@ All of the following are required before claiming the gate passed:
 - the context policy is exactly 16,384 maximum input tokens with a 0.2 safety
   margin;
 - architecture is bounded to 12 provider calls and 10 tool calls,
-  cancellation to 10 and 8, and symbol references to 13 and 11; the episode is
-  therefore bounded to 35 provider calls, 29 tool calls, and a derived maximum
-  of 573,440 reported input tokens;
+  cancellation to 11 and 9, and symbol references to 13 and 11; the episode is
+  therefore bounded to 36 provider calls, 30 tool calls, and a derived maximum
+  of 589,824 reported input tokens;
 - every provider call has one `context.compiled` checkpoint and reports positive
   actual input usage no greater than 16,384 tokens;
 - every usage record reports zero cost,
@@ -523,6 +541,11 @@ All of the following are required before claiming the gate passed:
   manifest. Every claim must contain evaluator-owned relational phrases and
   distinct, completion-guard-verified citations to exact required files and
   lines containing the required source snippets;
+- cancellation must perform exactly nine ordered, case-sensitive,
+  file-scoped `search_text` calls, one for every evaluator evidence row with
+  `query` equal to its required source substring and `relativePath` equal to its
+  required path; no broad, missing, extra, reordered, or mismatched search is
+  accepted;
 - the symbol task emits an evaluator-owned structural call-path manifest,
   includes substantive prose outside its machine-readable records stating the
   renderer -> preload -> IPC -> `SessionRunner` -> `AbortController` ->

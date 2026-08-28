@@ -61,7 +61,14 @@ completed assistant notes and terminal tool results, retains failed tool output
 as explicitly failed state without citations, keeps the latest exact duplicate,
 and admits bounded excerpts using a breadth-before-depth policy. Every admitted
 citation carries a bounded supporting snippet even when the main evidence body
-is truncated.
+is truncated. Citation-support pairs are stored once across admitted evidence,
+with grounded-tool trust, source fidelity, packet fidelity, targeted-search
+preference, and recency applied in that order; the compiler does not emit a
+redundant citations array. Compaction is non-destructive and retries initial
+breadth omissions to a deterministic fixed point. A read that owns a globally
+preferred citation-support pair overlapping any admitted search cannot be
+evicted by another search; read-only lines may yield to a complete targeted
+search when required by the packet budget.
 
 The packet copies persisted `requirements` and derives replayable `progress`,
 including the successful required-tool prefix, next missing tool, verified

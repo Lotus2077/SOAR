@@ -57,6 +57,7 @@ function workingRequestReserveTokens(
       tools: selectedToolDefinitions(allowedToolNames),
       tool_choice: "auto",
       parallel_tool_calls: false,
+      reasoning_effort: "none",
     })
   );
 }
@@ -137,6 +138,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
         {
           model: this.model,
           messages,
+          reasoning_effort: "none" as const,
           ...(toolsEnabled
             ? {
                 tools: [...tools],
@@ -145,7 +147,6 @@ export class OpenAICompatibleProvider implements InferenceProvider {
               }
             : {
                 tool_choice: "none" as const,
-                reasoning_effort: "none" as const,
               }),
           stream: true,
           stream_options: { include_usage: true },

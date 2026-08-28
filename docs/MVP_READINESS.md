@@ -44,8 +44,11 @@ machine configuration.
 
 Development requires an OpenAI-compatible base URL ending in `/v1`. Reasoning
 tokens can consume the provider's output allowance without producing visible
-content, so the runtime records reasoning separately and rejects empty,
-truncated, filtered, malformed, or tool-looping completion states.
+content, so every local request sets `reasoning_effort: "none"`; its serialized
+request overhead is included in the context reserve. The runtime still records
+any reported reasoning separately and rejects empty, truncated, filtered,
+malformed, or tool-looping completion states rather than assuming the provider
+honored that request.
 
 The cloud benchmark design currently pins
 `deepseek/deepseek-v4-flash-0731` through OpenRouter. That pin is evaluation

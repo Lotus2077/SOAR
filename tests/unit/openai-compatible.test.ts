@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { SoarConfig } from "../../src/main/config";
 import { OpenAICompatibleProvider } from "../../src/main/providers/openai-compatible";
 import { ProviderAbortedError } from "../../src/main/providers/types";
+import { MODEL_TOOL_DEFINITIONS } from "../../src/main/tools/tool-registry";
 
 interface FakeServerContext {
   body: Record<string, unknown>;
@@ -113,8 +114,21 @@ afterEach(async () => {
 describe("OpenAICompatibleProvider", () => {
   it("reserves conservative input space for adapter and tool-owned request fields", () => {
     const provider = createProvider("http://127.0.0.1:1/v1");
+    const encoder = new TextEncoder();
+    const expectedWorkingReserve =
+      512 +
+      encoder.encode("local-test-model").length +
+      encoder.encode(
+        JSON.stringify({
+          tools: MODEL_TOOL_DEFINITIONS,
+          tool_choice: "auto",
+          parallel_tool_calls: false,
+          reasoning_effort: "none",
+        }),
+      ).length;
 
     expect(provider.estimateInputTokenReserve(false)).toBeGreaterThanOrEqual(512);
+    expect(provider.estimateInputTokenReserve(true)).toBe(expectedWorkingReserve);
     expect(provider.estimateInputTokenReserve(true)).toBeGreaterThan(
       provider.estimateInputTokenReserve(false),
     );
@@ -163,6 +177,7 @@ describe("OpenAICompatibleProvider", () => {
     expect(server.requests[0]).toMatchObject({
       tool_choice: "auto",
       parallel_tool_calls: false,
+      reasoning_effort: "none",
     });
   });
 
@@ -220,6 +235,7 @@ describe("OpenAICompatibleProvider", () => {
       max_completion_tokens: 512,
       tool_choice: "auto",
       parallel_tool_calls: false,
+      reasoning_effort: "none",
     });
     const requestedTools = server.requests[0]?.tools as Array<{
       type: string;

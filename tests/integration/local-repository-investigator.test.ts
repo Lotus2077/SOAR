@@ -45,6 +45,12 @@ const citationPattern =
   /(^|[^A-Za-z0-9_./@+\\-])((?:[A-Za-z0-9_@+.-]+[\\/])*[A-Za-z0-9_@+.-]+):([1-9][0-9]*)(?![0-9])/gmu;
 const execFileAsync = promisify(execFile);
 const proofContextPolicy = { maxInputTokens: 16_384, safetyMargin: 0.2 } as const;
+// This shared ceiling contains the current cancellation objective while
+// leaving enough room for the larger symbol evidence set. The real envelope
+// and final-retention tests below remain the authoritative capacity gates.
+const proofObjectiveMaxUtf8Bytes = 2_800;
+const symbolObjectiveMaxUtf8Bytes = 2_300;
+const finalPacketDriftToleranceBytes = 250;
 const proofModel = "RM-01 VLM";
 const proofSchemaVersion = 5;
 const proofRunType =
@@ -1115,50 +1121,60 @@ function claimCoverageInstruction(
   );
 }
 
-function compactSymbolContractValue(value: string): string {
-  return value
-    .replaceAll("controller.signal", "&")
-    .replaceAll(symbol, "~")
-    .replaceAll("IPC_CHANNELS.~", "@")
-    .replaceAll("sessionId", "$")
-    .replaceAll("active inference", "*")
-    .replaceAll("preload bridge", "B")
-    .replaceAll("toolCall", "X")
-    .replaceAll("the ", "_")
-    .replaceAll("signal", "?")
-    .replaceAll("SessionRunner", "^")
-    .replaceAll("AbortController", "%");
+function symbolClaimCoverageTemplate(): string {
+  return `${claimCoverageMarker}{"claims":[{"id":"","summary":"","citations":[]}]}`;
+}
+
+function symbolAuditTemplate(): string {
+  return `${symbolAuditMarker}{"query":"${symbol}","truncated":false,"occurrences":[]}`;
 }
 
 function symbolReferenceObjective(): string {
   const paths = requiredClaimEvidencePaths(symbolCallPathClaims);
-  const compactPaths = paths.map((path) => path.replace(/^src\//u, "v"));
   const supportingSearches = requiredSupportingSearches(symbolCallPathClaims);
-  const supportingSearchOrder = new Map(
-    supportingSearches.map((search, index) => [
-      `${search.path}\u0000${search.query}`,
-      index + 1,
-    ]),
+  const claimPhrases = symbolCallPathClaims.map(
+    (requirement) => requirement.summaryPhrases,
   );
-  const contract = symbolCallPathClaims
-    .map(
-      (requirement) =>
-        `${requirement.id}>${requirement.summaryPhrases.map(compactSymbolContractValue).join("+")}>${requirement.evidence
-          .map((evidence) => {
-            const searchOrder = supportingSearchOrder.get(
-              `${evidence.path}\u0000${evidence.lineIncludes}`,
-            );
-            return `${paths.indexOf(evidence.path)}${searchOrder === undefined ? "" : `S${searchOrder}`}:${compactSymbolContractValue(evidence.lineIncludes)}`;
-          })
-          .join("+")}`,
-    )
-    .join("|");
-  return (
-    `P=${compactPaths.join("|")};C=${contract};` +
-    `C:id>text>P#[S#]:e;V:v=src/;E:~=cancelSession,^=SessionRunner,%=AbortController,&=controller.signal,@=IPC_CHANNELS.~,$=sessionId,*=active inference,B=preload bridge,X=toolCall,_=the ,?=signal. ` +
-    `S0=search_text(~,".",true,500,20);read/verify V(P) 1x;then S1..S${supportingSearches.length} order,once/tag:search_text(query=E(e),relativePath=V(P#),caseSensitive=true,maxMatches=20). ` +
-    `A>=120c,C order.${claimCoverageMarker}JSON once:only {claims:[{id,summary,citations}/C]};exact phrases;unique verified path:line/e.${symbolAuditMarker}JSON last/once:only {query:${symbol},truncated:false,occurrences:exact S0}. Reuse elsewhere OK.`
+  const claimEvidence = symbolCallPathClaims.map(
+    (requirement) => requirement.evidence,
   );
+
+  return [
+    `Find exact case-sensitive ${JSON.stringify(symbol)} refs; explain UI-to-runtime path. Exactly 11 ordered calls, one/round; no others.`,
+    `1. search_text(${JSON.stringify({
+      query: symbol,
+      relativePath: ".",
+      caseSensitive: true,
+      maxMatches: 500,
+      maxDepth: 20,
+    })})`,
+    `2-6. read_text_file once/path, in order: ${JSON.stringify(paths)}. All complete/untruncated with claims below before call 7.`,
+    `7-10. search_text in order with relativePath=${JSON.stringify(paths[0])},caseSensitive=true,maxMatches=20:`,
+    ...supportingSearches
+      .slice(0, 4)
+      .map(
+        (requirement, index) =>
+          `${index + 7}. ${JSON.stringify(requirement.query)}`,
+      ),
+    `11. search_text(${JSON.stringify({
+      query: supportingSearches[4]?.query,
+      relativePath: supportingSearches[4]?.path,
+      caseSensitive: true,
+      maxMatches: 20,
+    })})`,
+    "Searches: complete/untruncated. Claims:",
+    "Next four: quoted claim, then global-call-1 substring verified by shown full read; extra uses named support.",
+    `renderer-cancel (read call 5): ${JSON.stringify(claimPhrases[0]?.[0])}; ${JSON.stringify(claimEvidence[0]?.[0]?.lineIncludes)}.`,
+    `preload-bridge (read call 4): ${JSON.stringify(claimPhrases[1]?.[0])}; ${JSON.stringify(claimEvidence[1]?.[0]?.lineIncludes)}.`,
+    `ipc-dispatch (read call 3): ${JSON.stringify(claimPhrases[2]?.[0])}; ${JSON.stringify(claimEvidence[2]?.[0]?.lineIncludes)}; ${JSON.stringify(claimEvidence[2]?.[1]?.lineIncludes)}.`,
+    `runner-abort (read call 2): ${JSON.stringify(claimPhrases[3]?.[0])}; ${JSON.stringify(claimEvidence[3]?.[0]?.lineIncludes)}; also supporting call 7.`,
+    `signal-propagation: ${JSON.stringify(claimPhrases[4]?.[0])}; ${JSON.stringify(claimPhrases[4]?.[1])}; supporting calls 9,10,8.`,
+    `integration-test: ${JSON.stringify(claimPhrases[5]?.[0])}; supporting call 11.`,
+    "Write >=120 prose characters; six phrases in order; one distinct verified relative path:line per listed substring.",
+    "Then these filled adjacent unfenced one-line records; nothing after; no extra keys; sort unique global-call-1 occurrences:",
+    symbolClaimCoverageTemplate(),
+    symbolAuditTemplate(),
+  ].join("\n");
 }
 
 const symbolRequiredToolSequence: CompletionObligationToolName[] = [
@@ -1230,6 +1246,19 @@ function hasExactKeys(
   );
 }
 
+function hasExactArguments(
+  value: unknown,
+  expected: Readonly<Record<string, string | number | boolean>>,
+): boolean {
+  return (
+    isRecord(value) &&
+    hasExactKeys(value, Object.keys(expected)) &&
+    Object.entries(expected).every(
+      ([key, expectedValue]) => value[key] === expectedValue,
+    )
+  );
+}
+
 function markerPayload(
   result: string,
   marker: string,
@@ -1258,6 +1287,51 @@ function markerPayload(
       ],
     };
   }
+}
+
+function finalRecordSuffixFailures(result: string): string[] {
+  const lines = result.replace(/[\r\n]+$/u, "").split(/\r\n|\r|\n/u);
+  const claimLine = lines.at(-2);
+  const auditLine = lines.at(-1);
+  const failures: string[] = [];
+  if (
+    claimLine?.startsWith(claimCoverageMarker) !== true ||
+    auditLine?.startsWith(symbolAuditMarker) !== true
+  ) {
+    failures.push(
+        `the final two adjacent lines must be ${claimCoverageMarker.slice(0, -1)} then ${symbolAuditMarker.slice(0, -1)}, with no trailing text`,
+    );
+  }
+
+  let openFence: { character: "`" | "~"; length: number } | undefined;
+  const markerIndexes = new Set([lines.length - 2, lines.length - 1]);
+  for (const [index, line] of lines.entries()) {
+    if (markerIndexes.has(index) && openFence !== undefined) {
+      failures.push("the final claim and audit records must be outside Markdown fences");
+      break;
+    }
+    const trimmed = line.trim();
+    if (openFence === undefined) {
+      const opening = /^[ \t]{0,3}(`{3,}|~{3,})/u.exec(line)?.[1];
+      if (opening !== undefined) {
+        openFence = {
+          character: opening[0] as "`" | "~",
+          length: opening.length,
+        };
+      }
+      continue;
+    }
+    const activeFence = openFence;
+    if (
+      trimmed.length >= activeFence.length &&
+      [...trimmed].every(
+        (character) => character === activeFence.character,
+      )
+    ) {
+      openFence = undefined;
+    }
+  }
+  return failures;
 }
 
 function callPathProseFailures(result: string): string[] {
@@ -1755,6 +1829,59 @@ function claimEvidenceReadFailures(
   return failures;
 }
 
+function orderedClaimEvidenceReadFailures(
+  executions: readonly SuccessfulToolExecution[],
+  requirements: readonly ClaimCoverageRequirement[],
+): string[] {
+  const failures: string[] = [];
+  const expectedPaths = requiredClaimEvidencePaths(requirements);
+  const evidenceByPath = claimEvidenceByPath(requirements);
+  const reads = executions.filter(
+    (execution) =>
+      execution.request.payload.name === "read_text_file" &&
+      execution.completion.payload.name === "read_text_file",
+  );
+  if (reads.length !== expectedPaths.length) {
+    failures.push(
+      `expected exactly ${expectedPaths.length} successful evidence reads; got ${reads.length}`,
+    );
+  }
+
+  for (const [index, expectedPath] of expectedPaths.entries()) {
+    const execution = reads[index];
+    if (execution === undefined) {
+      failures.push(`missing evidence read ${index + 1} for ${expectedPath}`);
+      continue;
+    }
+    const arguments_ = execution.request.payload.arguments;
+    if (!hasExactArguments(arguments_, { relativePath: expectedPath })) {
+      failures.push(
+        `evidence read ${index + 1} must use exactly relativePath=${JSON.stringify(expectedPath)}`,
+      );
+      continue;
+    }
+    const requiredSnippets = evidenceByPath.get(expectedPath) ?? new Set();
+    const observation = parseSuccessfulRepositoryToolObservation(
+      execution.request.payload.name,
+      arguments_,
+      execution.completion.payload.content,
+    );
+    const observationText = observation?.text;
+    if (
+      observation?.truncated !== false ||
+      typeof observationText !== "string" ||
+      ![...requiredSnippets].every((snippet) =>
+        observationText.includes(snippet),
+      )
+    ) {
+      failures.push(
+        `evidence read ${index + 1} must be complete and contain every required string for ${expectedPath}`,
+      );
+    }
+  }
+  return failures;
+}
+
 function claimEvidenceSupportingSearchFailures(
   executions: readonly SuccessfulToolExecution[],
   requirements: readonly ClaimCoverageRequirement[],
@@ -1785,13 +1912,12 @@ function claimEvidenceSupportingSearchFailures(
       return (
         execution.request.payload.name === "search_text" &&
         execution.completion.payload.name === "search_text" &&
-        isRecord(arguments_) &&
-        arguments_.query === requiredSearch.query &&
-        arguments_.caseSensitive === true &&
-        workspaceRelativePathForTool(
-          execution.request.payload.name,
-          arguments_,
-        ) === requiredSearch.path
+        hasExactArguments(arguments_, {
+          query: requiredSearch.query,
+          relativePath: requiredSearch.path,
+          caseSensitive: true,
+          maxMatches: 20,
+        })
       );
     });
     const qualifyingSearches = matchingRequests.filter((execution) => {
@@ -1838,6 +1964,7 @@ function claimEvidenceSupportingSearchFailures(
     ...orderedEvidenceSearchFailures(
       orderedPostReadSearches,
       requiredSearches,
+      { requireExactSupportArguments: true },
     ).map((failure) => `supporting search order: ${failure}`),
   );
   return failures;
@@ -1846,6 +1973,7 @@ function claimEvidenceSupportingSearchFailures(
 function orderedEvidenceSearchFailures(
   executions: readonly SuccessfulToolExecution[],
   requirements: readonly SupportingSearchRequirement[],
+  options: { requireExactSupportArguments?: boolean } = {},
 ): string[] {
   const failures: string[] = [];
   if (executions.length !== requirements.length) {
@@ -1863,16 +1991,25 @@ function orderedEvidenceSearchFailures(
       continue;
     }
     const arguments_ = execution.request.payload.arguments;
-    const hasExactRequest =
+    const hasExpectedRequest =
       execution.request.payload.name === "search_text" &&
       execution.completion.payload.name === "search_text" &&
-      isRecord(arguments_) &&
-      arguments_.query === requirement.query &&
-      arguments_.relativePath === requirement.path &&
-      arguments_.caseSensitive === true;
-    if (!hasExactRequest) {
+      (options.requireExactSupportArguments === true
+        ? hasExactArguments(arguments_, {
+            query: requirement.query,
+            relativePath: requirement.path,
+            caseSensitive: true,
+            maxMatches: 20,
+          })
+        : isRecord(arguments_) &&
+          arguments_.query === requirement.query &&
+          arguments_.relativePath === requirement.path &&
+          arguments_.caseSensitive === true);
+    if (!hasExpectedRequest) {
       failures.push(
-        `evidence search ${index + 1} must be a case-sensitive search_text call for ${requirement.path} containing ${JSON.stringify(requirement.query)}`,
+        options.requireExactSupportArguments === true
+          ? `evidence search ${index + 1} must use exactly query, relativePath, caseSensitive=true, and maxMatches=20 for ${requirement.path} containing ${JSON.stringify(requirement.query)}`
+          : `evidence search ${index + 1} must be a case-sensitive search_text call for ${requirement.path} containing ${JSON.stringify(requirement.query)}`,
       );
       continue;
     }
@@ -1906,27 +2043,41 @@ function completeSymbolSearchFailures(
   expectedOccurrences: readonly string[],
 ): string[] {
   const failures: string[] = [];
-  const candidates = executions.filter((execution) => {
+  const symbolSearches = executions.filter((execution) => {
     const arguments_ = execution.request.payload.arguments;
     return (
       execution.request.payload.name === "search_text" &&
       execution.completion.payload.name === "search_text" &&
       isRecord(arguments_) &&
-      arguments_.query === symbol &&
-      (arguments_.relativePath === undefined || arguments_.relativePath === ".") &&
-      (arguments_.caseSensitive === undefined || arguments_.caseSensitive === true) &&
-      arguments_.maxMatches === 500 &&
-      arguments_.maxDepth === 20
+      arguments_.query === symbol
     );
   });
-  if (candidates.length === 0) {
-    return [
-      `no successful full-workspace search_text call used query=${symbol}, maxMatches=500, and maxDepth=20`,
-    ];
+  if (symbolSearches.length !== 1) {
+    failures.push(
+      `expected exactly one successful global ${symbol} search_text call; got ${symbolSearches.length}`,
+    );
+  }
+
+  const exactGlobalSearches = symbolSearches.filter((execution) =>
+    hasExactArguments(execution.request.payload.arguments, {
+      query: symbol,
+      relativePath: ".",
+      caseSensitive: true,
+      maxMatches: 500,
+      maxDepth: 20,
+    }),
+  );
+  if (exactGlobalSearches.length !== 1) {
+    failures.push(
+      `the global ${symbol} search must use exactly query, relativePath=".", caseSensitive=true, maxMatches=500, and maxDepth=20`,
+    );
+  }
+  if (symbolSearches.length !== 1 || exactGlobalSearches.length !== 1) {
+    return failures;
   }
 
   const expected = [...expectedOccurrences].sort();
-  const qualifying = candidates.some((execution) => {
+  const qualifying = exactGlobalSearches.some((execution) => {
     let output: unknown;
     try {
       output = JSON.parse(execution.completion.payload.content) as unknown;
@@ -2133,10 +2284,16 @@ describe("Local Repository Investigator evaluator contract", () => {
     );
   });
 
-  it("keeps the symbol evidence contract compact and its final marker unambiguous", () => {
+  it("keeps guided objectives explicit within the shared proof-envelope budget", () => {
     const task = tasks.find((candidate) => candidate.id === "symbol-references");
+    const cancellationTask = tasks.find(
+      (candidate) => candidate.id === "cancellation",
+    );
     if (task?.claimCoverage === undefined) {
       throw new Error("symbol-references task must define claim coverage");
+    }
+    if (cancellationTask === undefined) {
+      throw new Error("cancellation task must be defined");
     }
     const requiredReadPaths = requiredClaimEvidencePaths(task.claimCoverage);
     const supportingSearches = requiredSupportingSearches(task.claimCoverage);
@@ -2207,37 +2364,124 @@ describe("Local Repository Investigator evaluator contract", () => {
       tasks.reduce((total, candidate) => total + candidate.maximumProviderCalls, 0) *
         proofContextPolicy.maxInputTokens,
     ).toBe(589_824);
-    expect(new TextEncoder().encode(task.objective).length).toBeLessThanOrEqual(
-      1_250,
-    );
-    const objectiveScheduleBindings = supportingSearches.map(
-      ({ path, query }, index) =>
-        `${requiredReadPaths.indexOf(path)}S${index + 1}:${compactSymbolContractValue(query)}`,
-    );
-    expect(objectiveScheduleBindings).toEqual([
-      "0S1:controller.abort()",
-      "0S2:executeToolCall(session.workspaceRoot, X, ?)",
-      "0S3:?: &",
-      "0S4:this.runTool($, X, &)",
-      "4S5:cancels an * once",
-    ]);
-    for (const binding of objectiveScheduleBindings) {
-      expect(task.objective.split(binding)).toHaveLength(2);
+    expect(proofObjectiveMaxUtf8Bytes).toBe(2_800);
+    for (const boundedTask of [cancellationTask, task]) {
+      expect(
+        new TextEncoder().encode(boundedTask.objective).length,
+        `${boundedTask.id} objective UTF-8 bytes`,
+      ).toBeLessThanOrEqual(proofObjectiveMaxUtf8Bytes);
     }
-    expect(task.objective.match(/[>+]\d+S\d+:/gu)).toHaveLength(
-      supportingSearches.length,
+    expect(
+      new TextEncoder().encode(task.objective).length,
+      "symbol-references objective UTF-8 bytes",
+    ).toBeLessThanOrEqual(symbolObjectiveMaxUtf8Bytes);
+
+    const objectiveSupportingSearchPairs = supportingSearches.map(
+      ({ path: relativePath, query }) => ({ query, relativePath }),
     );
-    expect(task.objective).toContain(
-      `then S1..S${supportingSearches.length} order,once/tag:search_text(query=E(e),relativePath=V(P#),caseSensitive=true,maxMatches=20)`,
+    expect(objectiveSupportingSearchPairs).toEqual([
+      {
+        query: "controller.abort()",
+        relativePath: "src/main/agent/run-session.ts",
+      },
+      {
+        query: "executeToolCall(session.workspaceRoot, toolCall, signal)",
+        relativePath: "src/main/agent/run-session.ts",
+      },
+      {
+        query: "signal: controller.signal",
+        relativePath: "src/main/agent/run-session.ts",
+      },
+      {
+        query: "this.runTool(sessionId, toolCall, controller.signal)",
+        relativePath: "src/main/agent/run-session.ts",
+      },
+      {
+        query: "cancels an active inference once",
+        relativePath: "tests/integration/run-session.test.ts",
+      },
+    ]);
+    const objectiveLines = task.objective.split("\n");
+    expect(objectiveLines).toContain(
+      `1. search_text(${JSON.stringify({
+        query: symbol,
+        relativePath: ".",
+        caseSensitive: true,
+        maxMatches: 500,
+        maxDepth: 20,
+      })})`,
     );
+    expect(objectiveLines).toContain(
+      `2-6. read_text_file once/path, in order: ${JSON.stringify(requiredReadPaths)}. All complete/untruncated with claims below before call 7.`,
+    );
+    expect(objectiveLines).toContain(
+      "Next four: quoted claim, then global-call-1 substring verified by shown full read; extra uses named support.",
+    );
+    expect(
+      new Set(
+        objectiveSupportingSearchPairs
+          .slice(0, 4)
+          .map((pair) => pair.relativePath),
+      ),
+    ).toEqual(new Set(["src/main/agent/run-session.ts"]));
+    expect(objectiveLines).toContain(
+      '7-10. search_text in order with relativePath="src/main/agent/run-session.ts",caseSensitive=true,maxMatches=20:',
+    );
+    const supportingQueryInstructions = objectiveSupportingSearchPairs
+      .slice(0, 4)
+      .map((pair, index) => `${index + 7}. ${JSON.stringify(pair.query)}`);
+    let previousQueryIndex = -1;
+    for (const instruction of supportingQueryInstructions) {
+      expect(
+        objectiveLines.filter((line) => line === instruction),
+      ).toHaveLength(1);
+      const instructionIndex = objectiveLines.indexOf(instruction);
+      expect(instructionIndex).toBeGreaterThan(previousQueryIndex);
+      previousQueryIndex = instructionIndex;
+    }
+    expect(objectiveLines).toContain(
+      `11. search_text(${JSON.stringify({
+        query: objectiveSupportingSearchPairs[4]?.query,
+        relativePath: objectiveSupportingSearchPairs[4]?.relativePath,
+        caseSensitive: true,
+        maxMatches: 20,
+      })})`,
+    );
+    expect(objectiveLines).toEqual(
+      expect.arrayContaining([
+        `renderer-cancel (read call 5): ${JSON.stringify(symbolCallPathClaims[0]?.summaryPhrases[0])}; ${JSON.stringify(symbolCallPathClaims[0]?.evidence[0]?.lineIncludes)}.`,
+        `preload-bridge (read call 4): ${JSON.stringify(symbolCallPathClaims[1]?.summaryPhrases[0])}; ${JSON.stringify(symbolCallPathClaims[1]?.evidence[0]?.lineIncludes)}.`,
+        `ipc-dispatch (read call 3): ${JSON.stringify(symbolCallPathClaims[2]?.summaryPhrases[0])}; ${JSON.stringify(symbolCallPathClaims[2]?.evidence[0]?.lineIncludes)}; ${JSON.stringify(symbolCallPathClaims[2]?.evidence[1]?.lineIncludes)}.`,
+        `runner-abort (read call 2): ${JSON.stringify(symbolCallPathClaims[3]?.summaryPhrases[0])}; ${JSON.stringify(symbolCallPathClaims[3]?.evidence[0]?.lineIncludes)}; also supporting call 7.`,
+        `signal-propagation: ${JSON.stringify(symbolCallPathClaims[4]?.summaryPhrases[0])}; ${JSON.stringify(symbolCallPathClaims[4]?.summaryPhrases[1])}; supporting calls 9,10,8.`,
+        `integration-test: ${JSON.stringify(symbolCallPathClaims[5]?.summaryPhrases[0])}; supporting call 11.`,
+      ]),
+    );
+    expect(task.objective).not.toContain("undefined");
+    expect(task.objective).not.toContain("P#[S#]");
+    expect(task.objective).not.toContain("S1..");
+    expect(task.objective).not.toContain("E(e)");
+    expect(task.objective).not.toContain("X/Y");
+    expect(task.objective).not.toMatch(/\b\d+\/\d+:/u);
+    for (const requirement of symbolCallPathClaims.slice(0, 4)) {
+      for (const evidence of requirement.evidence) {
+        expect(task.objective.split(evidence.lineIncludes)).toHaveLength(2);
+      }
+    }
+
+    expect(
+      objectiveLines.filter((line) => line.startsWith(claimCoverageMarker)),
+    ).toEqual([symbolClaimCoverageTemplate()]);
+    expect(
+      objectiveLines.filter((line) => line.startsWith(symbolAuditMarker)),
+    ).toEqual([symbolAuditTemplate()]);
     expect(task.objective.split(claimCoverageMarker)).toHaveLength(2);
     expect(task.objective.split(symbolAuditMarker)).toHaveLength(2);
-    expect(task.objective).toContain(
-      `${claimCoverageMarker}JSON once`,
-    );
-    expect(task.objective).toContain(
-      "Reuse elsewhere OK",
-    );
+    expect(objectiveLines.slice(-2)).toEqual([
+      symbolClaimCoverageTemplate(),
+      symbolAuditTemplate(),
+    ]);
+    expect(task.objective).toContain("nothing after");
   });
 
   it("pins cancellation to one ordered exact search per evaluator evidence row", () => {
@@ -2608,11 +2852,12 @@ describe("Local Repository Investigator evaluator contract", () => {
     }
   });
 
-  it("retains the complete real symbol schedule in the accepted 16,384-token packet", async () => {
+  it("retains the real symbol schedule with 250-byte objective drift at 16,384 tokens", async () => {
     const task = tasks.find((candidate) => candidate.id === "symbol-references");
     if (task?.claimCoverage === undefined) {
       throw new Error("symbol-references task must define claim coverage");
     }
+    const claimCoverage = task.claimCoverage;
     const revision = (
       await execFileAsync("git", ["rev-parse", "--verify", "HEAD"], {
         cwd: projectRoot,
@@ -2629,7 +2874,7 @@ describe("Local Repository Investigator evaluator contract", () => {
 
       const fileLines = new Map<string, string[]>();
       const evidenceCitations = new Map<string, string>();
-      for (const requirement of task.claimCoverage) {
+      for (const requirement of claimCoverage) {
         for (const evidence of requirement.evidence) {
           let lines = fileLines.get(evidence.path);
           if (lines === undefined) {
@@ -2653,14 +2898,14 @@ describe("Local Repository Investigator evaluator contract", () => {
         }
       }
       const requiredEvidenceCount = requiredClaimCitationCount(
-        task.claimCoverage,
+        claimCoverage,
       );
       expect(evidenceCitations.size).toBe(requiredEvidenceCount);
       expect(new Set(evidenceCitations.values()).size).toBe(
         requiredEvidenceCount,
       );
 
-      const coverageClaims = task.claimCoverage.map((requirement) => ({
+      const coverageClaims = claimCoverage.map((requirement) => ({
         id: requirement.id,
         summary: requirement.summaryPhrases.join("; "),
         citations: requirement.evidence.map((evidence) => {
@@ -2694,13 +2939,13 @@ describe("Local Repository Investigator evaluator contract", () => {
             maxDepth: 20,
           },
         },
-        ...requiredClaimEvidencePaths(task.claimCoverage).map(
+        ...requiredClaimEvidencePaths(claimCoverage).map(
           (relativePath) => ({
             name: "read_text_file",
             arguments: { relativePath },
           }),
         ),
-        ...requiredSupportingSearches(task.claimCoverage).map(
+        ...requiredSupportingSearches(claimCoverage).map(
           ({ path: relativePath, query }) => ({
             name: "search_text",
             arguments: {
@@ -2716,6 +2961,10 @@ describe("Local Repository Investigator evaluator contract", () => {
         task.requiredTools,
       );
 
+      const runRetentionScenario = async (
+        objective: string,
+        sessionId: string,
+      ): Promise<void> => {
       const reserveProvider = new OpenAICompatibleProvider({
         baseUrl: "http://127.0.0.1:1/v1",
         apiKey: "non-live-symbol-retention",
@@ -2779,9 +3028,9 @@ describe("Local Repository Investigator evaluator contract", () => {
       try {
         const store = new EventStore(database);
         const session = store.createSession({
-          id: "deterministic-real-symbol-retention",
+          id: sessionId,
           title: task.title,
-          objective: task.objective,
+          objective,
           workspaceRoot: fixture.workspaceRoot,
           profile: "economy",
           taskTrack: "repository-investigator-v1",
@@ -2832,12 +3081,15 @@ describe("Local Repository Investigator evaluator contract", () => {
           ),
         ).toEqual([]);
         expect(
-          claimEvidenceReadFailures(executions, task.claimCoverage),
+          claimEvidenceReadFailures(executions, claimCoverage),
+        ).toEqual([]);
+        expect(
+          orderedClaimEvidenceReadFailures(executions, claimCoverage),
         ).toEqual([]);
         expect(
           claimEvidenceSupportingSearchFailures(
             executions,
-            task.claimCoverage,
+            claimCoverage,
           ),
         ).toEqual([]);
 
@@ -2866,13 +3118,67 @@ describe("Local Repository Investigator evaluator contract", () => {
         expect(acceptedContext.payload.maxTokens).toBe(
           proofContextPolicy.maxInputTokens,
         );
+        const acceptedPacket = JSON.parse(
+          contextPacketJson(acceptedInput!.messages),
+        ) as ContextPacket;
+        const acceptedToolEvidence = acceptedPacket.evidence.filter(
+          (evidence) => evidence.kind === "tool_evidence",
+        );
+        expect(acceptedToolEvidence.length).toBeLessThanOrEqual(
+          task.maximumToolCalls,
+        );
+        expect(acceptedToolEvidence.length).toBeGreaterThanOrEqual(6);
+        expect(
+          acceptedToolEvidence.every(
+            (evidence) =>
+              typeof evidence.content === "string" &&
+              typeof evidence.argumentsExcerpt === "string",
+          ),
+        ).toBe(true);
+        expect(
+          acceptedToolEvidence
+            .filter((evidence) => evidence.toolName === "read_text_file")
+            .map((evidence) => evidence.argumentsExcerpt),
+        ).toEqual(Array.from({ length: 5 }, () => "{}"));
+        const expectedSearchArguments = [
+          {
+            maxDepth: 20,
+            maxMatches: 500,
+            query: symbol,
+          },
+          ...requiredSupportingSearches(claimCoverage).map(
+            (requirement) => ({
+              maxMatches: 20,
+              query: requirement.query,
+            }),
+          ),
+        ];
+        const retainedSearchArguments = acceptedToolEvidence
+          .filter((evidence) => evidence.toolName === "search_text")
+          .map((evidence) => JSON.parse(evidence.argumentsExcerpt));
+        expect(retainedSearchArguments[0]).toEqual(expectedSearchArguments[0]);
+        expect(
+          retainedSearchArguments.every((arguments_) =>
+            expectedSearchArguments.some(
+              (expected) =>
+                JSON.stringify(arguments_) === JSON.stringify(expected),
+            ),
+          ),
+        ).toBe(true);
+        expect(
+          new Set(
+            retainedSearchArguments.map((arguments_) =>
+              JSON.stringify(arguments_),
+            ),
+          ).size,
+        ).toBe(retainedSearchArguments.length);
 
         const retention = finalPacketRetentionAudit({
           input: acceptedInput!,
           acceptedRound,
           expectedContextPacketSha256: acceptedContext.payload.packetSha256,
           expectedContextMessagesSha256: acceptedContext.payload.messagesSha256,
-          requirements: task.claimCoverage,
+          requirements: claimCoverage,
           verifiedAnswerCitations:
             acceptedCheck.payload.verifiedPathLineCitations,
           expectedSymbolOccurrences: symbolOracle.occurrences,
@@ -2882,6 +3188,7 @@ describe("Local Repository Investigator evaluator contract", () => {
           packetMode: "finalization",
           allowTools: false,
           requireToolCall: false,
+          toolEvidenceItems: acceptedToolEvidence.length,
           requiredClaimEvidence: requiredEvidenceCount,
           retainedClaimEvidence: requiredEvidenceCount,
           requiredSymbolOccurrences: symbolOracle.occurrences.length,
@@ -2893,6 +3200,29 @@ describe("Local Repository Investigator evaluator contract", () => {
       } finally {
         database.close();
       }
+      };
+      await runRetentionScenario(
+        task.objective,
+        "deterministic-real-symbol-retention",
+      );
+      const finalRecordInstruction =
+        "Then these filled adjacent unfenced one-line records";
+      const inertCapacityPadding = `<!--${"x".repeat(242)}-->\n`;
+      const paddedObjective = task.objective.replace(
+        finalRecordInstruction,
+        `${inertCapacityPadding}${finalRecordInstruction}`,
+      );
+      expect(new TextEncoder().encode(inertCapacityPadding)).toHaveLength(
+        finalPacketDriftToleranceBytes,
+      );
+      expect(
+        new TextEncoder().encode(paddedObjective).length -
+          new TextEncoder().encode(task.objective).length,
+      ).toBe(finalPacketDriftToleranceBytes);
+      await runRetentionScenario(
+        paddedObjective,
+        "deterministic-real-symbol-retention-padded",
+      );
     } finally {
       await rm(fixture.temporaryRoot, { recursive: true, force: true });
     }
@@ -2938,10 +3268,55 @@ describe("Local Repository Investigator evaluator contract", () => {
     );
   });
 
+  it("requires claim coverage and symbol audit as the final adjacent records", () => {
+    const claim = `${claimCoverageMarker}{"claims":[]}`;
+    const audit = `${symbolAuditMarker}{"query":"${symbol}","truncated":false,"occurrences":[]}`;
+
+    expect(
+      finalRecordSuffixFailures(`Substantive call-path prose.\n${claim}\n${audit}`),
+    ).toEqual([]);
+    expect(
+      finalRecordSuffixFailures(`Substantive call-path prose.\n${audit}\n${claim}`),
+    ).toEqual([expect.stringContaining("final two adjacent lines")]);
+    expect(
+      finalRecordSuffixFailures(
+        `Substantive call-path prose.\n${claim}\n${audit}\nTrailing prose.`,
+      ),
+    ).toEqual([expect.stringContaining("no trailing text")]);
+    expect(
+      finalRecordSuffixFailures(
+        `Substantive call-path prose.\n${claim}\nIntervening prose.\n${audit}`,
+      ),
+    ).toEqual([expect.stringContaining("final two adjacent lines")]);
+    expect(
+      finalRecordSuffixFailures(
+        [
+          "```text",
+          "Earlier fenced example.",
+          "```",
+          "Substantive call-path prose.",
+          claim,
+          audit,
+        ].join("\n"),
+      ),
+    ).toEqual([]);
+    expect(
+      finalRecordSuffixFailures(
+        ["Substantive call-path prose.", "~~~json", claim, audit].join(
+          "\n",
+        ),
+      ),
+    ).toEqual([expect.stringContaining("outside Markdown fences")]);
+  });
+
   it("requires the successful search tool trace to return the exact untruncated set", () => {
     const expected = ["src/a.ts:2", "tests/a.test.ts:7"];
     const makeExecution = (
-      options: { truncated: boolean; occurrences: string[] },
+      options: {
+        truncated: boolean;
+        occurrences: string[];
+        arguments?: Record<string, string | number | boolean>;
+      },
     ): SuccessfulToolExecution => ({
       request: {
         id: "event-request",
@@ -2952,13 +3327,13 @@ describe("Local Repository Investigator evaluator contract", () => {
         payload: {
           toolCallId: "call",
           name: "search_text",
-          arguments: {
-            query: symbol,
-            relativePath: ".",
-            caseSensitive: true,
-            maxMatches: 500,
-            maxDepth: 20,
-          },
+          arguments: options.arguments ?? {
+              query: symbol,
+              relativePath: ".",
+              caseSensitive: true,
+              maxMatches: 500,
+              maxDepth: 20,
+            },
           messageId: "message",
         },
       },
@@ -3008,6 +3383,40 @@ describe("Local Repository Investigator evaluator contract", () => {
     ).toEqual([
       expect.stringContaining("complete, untruncated fixture occurrence set"),
     ]);
+    const invalidGlobalArguments: Array<
+      Record<string, string | number | boolean>
+    > = [
+      {
+        query: symbol,
+        relativePath: ".",
+        caseSensitive: true,
+        maxMatches: 500,
+      },
+      {
+        query: symbol,
+        relativePath: ".",
+        caseSensitive: true,
+        maxMatches: 500,
+        maxDepth: 20,
+        extra: true,
+      },
+    ];
+    for (const arguments_ of invalidGlobalArguments) {
+      expect(
+        completeSymbolSearchFailures(
+          [
+            makeExecution({
+              truncated: false,
+              occurrences: expected,
+              arguments: arguments_,
+            }),
+          ],
+          expected,
+        ),
+      ).toEqual([
+        expect.stringContaining("must use exactly query, relativePath"),
+      ]);
+    }
   });
 
   it("requires substantive call-path prose outside machine-readable records", () => {
@@ -3138,6 +3547,48 @@ describe("Local Repository Investigator evaluator contract", () => {
         requirements,
       ),
     ).toEqual([]);
+
+    const orderedReads = [
+      makeReadExecution(
+        "renderer-ordered",
+        "src/App.tsx",
+        "await window.soar.cancelSession(snapshot.id);\n",
+        20,
+      ),
+      makeReadExecution(
+        "runner-ordered",
+        "src/runner.ts",
+        "controller.abort()\nsignal: controller.signal\n",
+        22,
+      ),
+    ];
+    expect(
+      orderedClaimEvidenceReadFailures(orderedReads, requirements),
+    ).toEqual([]);
+    expect(
+      orderedClaimEvidenceReadFailures(
+        [...orderedReads].reverse(),
+        requirements,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("evidence read 1"),
+        expect.stringContaining("evidence read 2"),
+      ]),
+    );
+    const extraArgumentRead = structuredClone(orderedReads[0]!);
+    extraArgumentRead.request.payload.arguments = {
+      relativePath: "src/App.tsx",
+      startLine: 1,
+    };
+    expect(
+      orderedClaimEvidenceReadFailures(
+        [extraArgumentRead, orderedReads[1]!],
+        requirements,
+      ),
+    ).toEqual([
+      expect.stringContaining("must use exactly relativePath"),
+    ]);
   });
 
   it("requires exact supporting searches after every complete evidence read", () => {
@@ -3200,6 +3651,7 @@ describe("Local Repository Investigator evaluator contract", () => {
       id: string,
       requirement: SupportingSearchRequirement,
       completionSequence: number,
+      argumentsOverride?: Record<string, string | number | boolean>,
     ): SuccessfulToolExecution => ({
       request: {
         id: `request-${id}`,
@@ -3210,13 +3662,12 @@ describe("Local Repository Investigator evaluator contract", () => {
         payload: {
           toolCallId: id,
           name: "search_text",
-          arguments: {
-            query: requirement.query,
-            relativePath: requirement.path,
-            caseSensitive: true,
-            maxMatches: 100,
-            maxDepth: 12,
-          },
+          arguments: argumentsOverride ?? {
+              query: requirement.query,
+              relativePath: requirement.path,
+              caseSensitive: true,
+              maxMatches: 20,
+            },
           messageId: "message",
         },
       },
@@ -3303,6 +3754,41 @@ describe("Local Repository Investigator evaluator contract", () => {
       claimEvidenceSupportingSearchFailures(
         [
           ...reads,
+          makeSearchExecution(
+            "support-extra-argument",
+            supportingSearches[0]!,
+            21,
+            {
+              query: supportingSearches[0]!.query,
+              relativePath: supportingSearches[0]!.path,
+              caseSensitive: true,
+              maxMatches: 20,
+              maxDepth: 12,
+            },
+          ),
+          makeSearchExecution(
+            "support-missing-max-matches",
+            supportingSearches[1]!,
+            22,
+            {
+              query: supportingSearches[1]!.query,
+              relativePath: supportingSearches[1]!.path,
+              caseSensitive: true,
+            },
+          ),
+        ],
+        requirements,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("src/runner.ts"),
+        expect.stringContaining("exactly query, relativePath"),
+      ]),
+    );
+    expect(
+      claimEvidenceSupportingSearchFailures(
+        [
+          ...reads,
           makeSearchExecution("support-reversed-1", supportingSearches[1]!, 21),
           makeSearchExecution("support-reversed-2", supportingSearches[0]!, 22),
         ],
@@ -3319,7 +3805,9 @@ describe("Local Repository Investigator evaluator contract", () => {
       makeSearchExecution(`ordered-${index}`, requirement, 30 + index),
     );
     expect(
-      orderedEvidenceSearchFailures(orderedSearches, supportingSearches),
+      orderedEvidenceSearchFailures(orderedSearches, supportingSearches, {
+        requireExactSupportArguments: true,
+      }),
     ).toEqual([]);
     expect(
       orderedEvidenceSearchFailures(
@@ -4154,6 +4642,10 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
                 successfulExecutions,
                 task.claimCoverage,
               ).map((failure) => `${task.id}: ${failure}`),
+              ...orderedClaimEvidenceReadFailures(
+                successfulExecutions,
+                task.claimCoverage,
+              ).map((failure) => `${task.id}: ${failure}`),
             );
           }
 
@@ -4179,6 +4671,9 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
 
           if (task.requiresExactSymbolAudit === true) {
             failures.push(
+              ...finalRecordSuffixFailures(result).map(
+                (failure) => `${task.id}: ${failure}`,
+              ),
               ...completeSymbolSearchFailures(
                 successfulExecutions,
                 expectedSymbolOccurrences,
@@ -4385,7 +4880,7 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
           comparison,
           acceptance: {
             taskValidatorContract:
-              "relational-claim-ordered-evidence-read-and-post-read-search-coverage-with-exact-symbol-occurrences-v4",
+              "relational-claim-ordered-evidence-read-post-read-exact-arguments-final-record-suffix-and-exact-symbol-occurrences-v5",
             maximumProviderCalls,
             maximumToolCalls,
             maximumInputTokensPerCall:

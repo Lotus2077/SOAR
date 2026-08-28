@@ -14,12 +14,12 @@ function toolResultMessages(text = "probe") {
 }
 
 describe("FakeProvider", () => {
-  it("uses the newest grounded packet evidence after cross-evidence compaction", async () => {
+  it("uses citation-only grounded packet evidence after finalization compaction", async () => {
     const packet = {
       evidence: [
         {
           kind: "tool_evidence",
-          content: "Exact returned matches are represented by citationSnippets.",
+          content: "",
           citationSnippets: [
             {
               citation: "SOAR_PROBE.txt:1",

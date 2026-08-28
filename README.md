@@ -44,8 +44,10 @@ The first working slice is an Electron application with:
 - deterministic, provider-neutral context packets with a 16,384-token default
   ceiling, a conservative UTF-8-byte estimate, a 20% safety margin, reserved
   provider overhead, latest-observation exact deduplication, bounded excerpts,
-  citation-support snippets, and one persisted compilation checkpoint per
-  provider call;
+  citation-support snippets, finalization-only empty labels, valid `{}` read
+  arguments, and removal of separately encoded search paths after strict
+  validation, plus one persisted compilation
+  checkpoint per provider call;
 - persisted completion obligations that order required repository tools, expose
   only the next required tool to the provider and require its invocation at the
   transport layer, enforce a minimum number of verified `path:line` citations,
@@ -154,9 +156,15 @@ The symbol task adds a structural call-path manifest, requires substantive prose
 outside its machine-readable records to state the renderer -> preload -> IPC ->
 `SessionRunner` -> `AbortController` -> provider/tool-signal relationships in
 order, and requires successful complete `read_text_file` observations of all
-five call-path evidence files. Five exact file-scoped supporting searches must
+five call-path evidence files in the disclosed order, each with exactly its
+single `relativePath` argument. Five exact file-scoped supporting searches must
 then refresh every non-`cancelSession` evidence snippet in evaluator-owned
-order before synthesis. The
+order before synthesis. The persisted trace must contain exactly the disclosed
+raw argument keys and values for the global symbol search and all five support
+searches. Context Packet v1 may omit explicit default-valued fields from its
+normalized argument excerpt because the registered tool defaults recover them.
+The claim-coverage and symbol-audit records must be the final two adjacent,
+unfenced output lines, in that order, with no trailing text. The
 exactly-once rule applies only to `SOAR_SYMBOL_AUDIT.occurrences`; prose and
 claim citations may repeat those tokens. This is deterministic structural
 evidence coverage; unrestricted prose beyond those explicit relationships is
@@ -168,9 +176,14 @@ Every completion-guard-verified answer citation and every evaluator-required
 claim snippet must remain in completed tool evidence in that exact packet; the
 symbol packet must also retain every independent-oracle occurrence. Only
 bounded counts and hashes are published, never packet or source content.
+The deterministic retention gate repeats the exact symbol schedule after
+inserting 250 UTF-8 bytes of inert objective padding before the final-record
+instruction; both runs must retain the complete evidence sets.
 
 An accepted schema-v5 artifact is written only after every gate passes, at
 `benchmarks/runs/local-repository-investigator-v1.schema5.<HEAD>.accepted.json`.
+It identifies the strengthened exact-argument and final-record-suffix evaluator
+as task-validator contract v5.
 A failed run instead writes the distinct
 `local-repository-investigator-v1.schema5.<HEAD>.failed.json` diagnostic with
 `passed: false`. Before serialization, repository and temporary fixture roots

@@ -629,6 +629,7 @@ describe("SessionRunner", () => {
     ]);
     const packet = parseContextPacket(provider.contexts[1] ?? []);
     expect(packet.schema).toBe("soar.context-packet.v1");
+    expect(packet.mode).toBe("working");
     expect(packet.objective).toBe("Read SOAR_PROBE.txt and report its marker.");
     const toolEvidence = packet.evidence.find(
       (entry) => entry.kind === "tool_evidence",
@@ -1559,13 +1560,18 @@ describe("SessionRunner", () => {
         kind: "tool_evidence",
         toolName: "read_text_file",
         workspaceRelativePath: "SOAR_PROBE.txt",
-        argumentsExcerpt: '{"relativePath":"SOAR_PROBE.txt"}',
-        content: "Complete file lines are represented by citationSnippets.",
         citationSnippets: [
           { citation: "SOAR_PROBE.txt:1", text: "probe" },
         ],
       }),
     );
+    const finalToolEvidence = packet.evidence.find(
+      (entry) => entry.kind === "tool_evidence",
+    );
+    expect(finalToolEvidence).toMatchObject({
+      argumentsExcerpt: "{}",
+      content: "",
+    });
     const events = store.getEvents(session.id);
     expect(events.filter((event) => event.type === "tool.call.requested")).toHaveLength(1);
     expect(events.filter((event) => event.type === "tool.call.completed")).toHaveLength(1);

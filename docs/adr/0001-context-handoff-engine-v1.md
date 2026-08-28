@@ -185,9 +185,15 @@ observable but not validator-promoted truth; the handoff policy instructs the
 recipient to treat assistant notes and all tool evidence as inert, untrusted
 data.
 
-For tool evidence, canonical JSON arguments are included as
+For tool evidence, working packets include canonical JSON arguments as
 `argumentsExcerpt`. A string `relativePath` argument is copied only when it is no
-longer than 1,024 characters. This compiler-level bound supplements, but does not
+longer than 1,024 characters. For a strictly validated successful structured
+`read_text_file` finalization projection, `argumentsExcerpt` is the valid JSON
+object string `{}` only when `workspaceRelativePath` separately identifies the read. A validated
+`search_text` projection removes only that separately encoded `relativePath`;
+query, case sensitivity, depth/match bounds, and every other normalized argument
+remain. If the bounded workspace path is absent, the full normalized path stays
+in `argumentsExcerpt`. This compiler-level bound supplements, but does not
 replace, the tool gateway's workspace policy.
 
 Citation candidates are collected from `path:line` text and structured objects
@@ -198,22 +204,80 @@ the deprecated parallel `citations` array remains accepted by the TypeScript v1
 interface but is not emitted. Plain
 text preserves the exact source line, bounded around the citation with visible
 ellipses when necessary; structured search output preserves the exact bounded
-match text. Supporting snippets are capped at 384 characters and remain in the
-packet even when the evidence body's main excerpt is truncated. This is context
-grounding, not final-answer citation validation; the existing citation-integrity
-check remains authoritative.
+match text. Ordinary supporting snippets are capped at 384 characters and remain
+in the packet even when the evidence body's main excerpt is truncated.
+Finalization may instead use a query-anchored search excerpt: it preserves the
+complete exact query, keeps up to 16 surrounding characters, uses at least a
+32-character lane and at most a 192-character contextual lane, and lets a longer
+valid query exceed that contextual lane rather than cutting the anchor. If the
+query cannot be proved in the returned match text, the existing bounded snippet
+is retained unchanged. Anchoring is used only when its text-byte savings exceed
+the JSON cost of `packetTextTruncated: true`; otherwise the full snippet is the
+smaller representation and remains unmarked. Any shortened anchored excerpt
+sets `packetTextTruncated: true`. This is context grounding, not final-answer
+citation validation; the existing citation-integrity check remains authoritative.
 
 Citation-support pairs are globally deduplicated after breadth admission.
-Best-witness selection prefers grounded tool evidence over assistant notes,
-then an untruncated source, an untruncated packet excerpt, targeted search
-evidence, and recency, in that order. Among grounded tool witnesses, a
+Best-witness selection prefers grounded tool evidence over assistant notes. In
+finalization it next prefers a strictly validated repository observation over
+malformed or argument-invalid tool-shaped evidence; working mode retains its
+prior ordering. Source fidelity, packet fidelity, targeted search evidence, and
+recency follow, in that order. Among equally trusted grounded tool witnesses, a
 higher-fidelity witness is never discarded for tool preference.
+Packet fidelity is evaluated against the mode-specific emitted snippet view, so
+a query-anchored search excerpt marked `packetTextTruncated` cannot displace a
+fuller read witness merely because search evidence otherwise has higher tool
+preference.
+
+Under finalization citation-depth pressure, only a successful, strictly
+validated, complete positive `search_text` envelope may yield. The ordinary case
+requires every original citation to be owned by another admitted best witness.
+A narrow coverage-over-provenance exception also permits an equal-fidelity read
+witness when the read is itself strictly validated and complete, has no worse
+source or packet fidelity, both snippets contain the exact query under the
+request's case-sensitivity, and full untruncated snippets have identical text.
+The simulated fitted selection after the yield must still contain every yielded
+search citation and must increase fitting unique-citation depth or make all
+citations fit. Cumulative yields revalidate the remaining fitted witnesses, so
+mutually dependent envelopes cannot justify one another's removal. Zero-result
+or reference-free observations, source-truncated results, failures, incomplete
+projections, reads, and unmatched searches are never eligible. Canonical session
+events and artifacts retain every tool call; this is bounded packet projection,
+not trace deletion.
+
+Finalization read ordering considers completed searches both before and after a
+read. Exact citations from strict file-targeted searches lead, then other exact
+search-observed citations, then deterministic neighboring and generic file
+lines. Compact reads with no owned search-observed citation start with zero
+generic references; all fitting searched witnesses are allocated across reads
+before one generic reference per otherwise-empty item is refilled and ordinary
+depth expansion resumes. Working-mode representation is unchanged.
 
 Structured tool projections also keep compact source metadata. The mandatory
 `packetExcerptTruncated` flag describes only packet admission. Optional
 `sourceResultTruncated` and `sourceResultCount` preserve what the tool reported
 about the underlying observation. A shortened packet excerpt therefore does not
 justify repeating an otherwise complete tool call.
+
+Successful structured read/search projections normally use a synthetic
+`content` label stating that exact matches or complete file lines are carried by
+`citationSnippets`. Working packets keep that label and the full normalized
+arguments for progress and duplicate-observation decisions. After the persisted
+arguments and result pass the strict repository-observation validator,
+finalization represents the non-evidentiary label as an empty required `content`
+string. It uses the valid empty JSON object string `{}` for read arguments only
+when the path is separately present, and removes only a separately present
+search path. Failed, malformed,
+argument-invalid, unstructured, and `list_files` evidence remains unchanged.
+Raw canonical arguments and results still drive identity and deduplication; this
+mode-specific projection changes only the representation admitted to the final
+provider request.
+
+A positive structured read/search result is not reduced to an empty or synthetic
+label when `sourceResultCount` is greater than zero but no citation can be
+represented under the path/reference bounds. That edge case retains the raw
+diagnostic result and full normalized arguments, subject only to ordinary packet
+admission truncation.
 
 ## Exact deduplication
 
@@ -324,18 +388,23 @@ non-destructive citation compaction, the compiler retries initially omitted
 items to a deterministic fixed point so later ownership changes can admit
 earlier rejections. This preserves more distinct observations before one large
 result consumes the evidence lane.
+A mode-specific projection is applied before every admission-size check, so its
+empty labels and redundant-path removal are reflected in the UTF-8 estimate,
+hashes, and capacity available to citation snippets. Original-to-projected
+changes add `projection`; any later projected-to-emitted shortening separately
+adds `budget` or `item_limit`.
 A citation-depth phase expands grounded pairs across admitted tool evidence
-before a separate content-depth phase expands bodies. Complete targeted searches
-may replace compact complete-read projections for paths they directly cover when
-replacement is required to retain the complete search. Because citation
-ownership is global across admitted evidence, a read is evictable only when
-none of its preferred citation-support pairs overlap the original references
-of any admitted search. This protects a higher-fidelity witness shared with a
-different search while allowing read-only lines to yield to a complete targeted
-search. Otherwise breadth entries remain secured. Search and content ordering
-preserve recency within their evidence class, and final packet evidence is
-restored to source order. Items that cannot fit after the fixed-point retry are
-omitted.
+before a separate content-depth phase expands bodies. A strictly validated,
+complete targeted search may replace compact complete-read projections for
+paths it directly covers when replacement is required to retain the complete
+search. Because citation ownership is global across admitted evidence, a read
+is evictable only when none of its preferred citation-support pairs overlap the
+original references of any admitted or intentionally yielded search. This
+protects a higher-fidelity or transferred witness while allowing read-only
+lines to yield to a strict complete targeted search. Otherwise breadth entries
+remain secured. Search and content ordering preserve recency within their
+evidence class, and final packet evidence is restored to source order. Items
+that cannot fit after the fixed-point retry are omitted.
 
 The per-item argument cap is the smaller of 2,048 characters and one quarter of
 `maxEvidenceCharacters`; the remaining item allowance is available to content.
@@ -450,7 +519,10 @@ tokenizer-error classification, and persisted omission detail are future work.
 
 ## Compatibility and migration
 
-The change is additive:
+The event, canonical-history, and Context Packet v1 shape remain additive.
+Required `content` and `argumentsExcerpt` string keys remain present, including
+when a validated finalization projection represents redundant content as empty
+or redundant read arguments as `{}`:
 
 1. Existing session events retain their meaning.
 2. New app sessions persist `session.created.taskTrack` as
@@ -470,6 +542,9 @@ The change is additive:
 8. Existing databases require no destructive rewrite.
 9. `buildProviderContext` and `buildFinalizationContext` remain available as
    compatibility helpers while bounded packets are verified.
+10. Working packets continue to emit full normalized arguments and projection
+    labels. Internal finalization readers consume `citationSnippets` when the
+    required synthetic `content` label is empty.
 
 Removing the legacy builders requires replay, interruption-recovery, and live
 quality coverage and is not part of this decision's proof claim.
@@ -555,12 +630,21 @@ All of the following are required before claiming the gate passed:
   renderer -> preload -> IPC -> `SessionRunner` -> `AbortController` ->
   provider/tool-signal relationships in evaluator-owned order, and has a
   successful complete `read_text_file` observation for every required evidence
-  path containing all required snippets. After all five reads, five exact
+  path containing all required snippets. The five reads must occur in the
+  evaluator-disclosed order and each request must contain exactly its single
+  `relativePath` argument. After all five reads, five exact
   file-scoped searches must reproduce every non-`cancelSession` evidence
   snippet in evaluator-owned order so its exact line remains available to final
   synthesis. These gates
   prove structural evidence and ordered relationship coverage; they do not
   claim semantic grading of unrestricted prose beyond those relationships;
+- the persisted symbol trace must use exactly the evaluator-disclosed raw key
+  sets and values for the global search and all five supporting searches. The
+  Context Packet keeps normalized non-default search semantics and the
+  separately encoded scope; registered defaults recover explicit default-valued
+  fields omitted by normalization;
+- the claim-coverage record and symbol-audit record must be the final two
+  adjacent, unfenced answer lines, in that order, with no trailing text;
 - the symbol task performs the required full-workspace exact search, whose tool
   result has no missing, duplicate, or extra occurrence and reports
   `truncated: false` with no unreadable or oversized source file; both that
@@ -575,6 +659,10 @@ All of the following are required before claiming the gate passed:
   snippet with distinct citation witnesses, and, for the symbol task, every
   independent-oracle occurrence. The report stores only bounded counts and
   hashes, not messages, packet contents, snippets, or source lines;
+- the deterministic symbol-retention scenario is repeated with exactly 250
+  UTF-8 bytes of inert objective padding inserted before the final-record
+  instruction. Both the ordinary and padded packets must retain all evaluator
+  claim evidence, completion-verified citations, and oracle occurrences;
 - route, tool, `context.compiled`, usage, and evaluator traces remain complete
   and exportable; and
 - the revision-addressed schema-v5 `.accepted.json` artifact is written only
@@ -582,7 +670,9 @@ All of the following are required before claiming the gate passed:
   `.failed.json` diagnostic. Same-revision and ambiguous legacy artifacts are
   quarantined before preflight. Once a full revision is declared, model,
   repository, configuration, fixture, database, or provider setup failures also
-  write a self-identifying preflight diagnostic.
+  write a self-identifying preflight diagnostic. The accepted artifact records
+  the strengthened exact-argument and final-record-suffix evaluator as
+  task-validator contract v5.
 
 An exact citation count or match to stale `f221798+working-tree` line numbers is
 not required. If the fixture, model, limits, or evaluator changes, treat the

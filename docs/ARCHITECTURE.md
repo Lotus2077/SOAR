@@ -63,13 +63,14 @@ as explicitly failed state without citations, keeps the latest exact duplicate,
 and admits bounded excerpts using a breadth-before-depth policy. Every admitted
 citation carries a bounded supporting snippet even when the main evidence body
 is truncated. Citation-support pairs are stored once across admitted evidence,
-with grounded-tool trust, source fidelity, packet fidelity, targeted-search
-preference, and recency applied in that order; the compiler does not emit a
-redundant citations array. Compaction is non-destructive and retries initial
-breadth omissions to a deterministic fixed point. A read that owns a globally
-preferred citation-support pair overlapping any admitted search cannot be
-evicted by another search; read-only lines may yield to a complete targeted
-search when required by the packet budget.
+with grounded-tool trust, finalization-only strict repository-observation
+trust, source fidelity, packet fidelity, targeted-search preference, and
+recency applied in that order; the compiler does not emit a redundant citations
+array. Compaction is non-destructive and retries initial breadth omissions to a
+deterministic fixed point. A read that owns a globally preferred
+citation-support pair overlapping any admitted or intentionally yielded search
+cannot be evicted by another search; read-only lines may yield to a complete,
+strictly validated targeted search when required by the packet budget.
 
 The packet copies persisted `requirements` and derives replayable `progress`,
 including the successful required-tool prefix, next missing tool, verified
@@ -77,6 +78,41 @@ citation count, and whether an accepted completion check already exists. Tool
 evidence separately records `packetExcerptTruncated`, the tool-reported
 `sourceResultTruncated`, and `sourceResultCount`; a shortened packet excerpt is
 therefore not mistaken for an incomplete source observation.
+
+Working packets retain full normalized tool arguments and structured
+read/search projection labels for progress and duplicate-observation decisions.
+Finalization packets preserve every admitted citation snippet and source field
+while emptying those synthetic labels. After strict observation validation they
+replace read arguments with the valid empty JSON object `{}` only when
+`workspaceRelativePath` encodes the path, and
+remove only that redundant path from search arguments while retaining all other
+search semantics. Required string keys remain present. This projection is
+applied before admission sizing; failed, malformed, argument-invalid,
+unstructured, and `list_files` evidence is unchanged.
+Finalization search snippets use a 32-192 character contextual lane around the
+exact query, preserve longer queries in full, and mark packet shortening. The
+anchored form is used only when its text-byte savings exceed the truncation
+flag's JSON overhead. If an anchor is not provable, the existing snippet is
+retained. Positive
+read/search results with no representable citation keep their raw diagnostic
+result instead of becoming empty or synthetic-only evidence.
+Citation ownership uses this mode-specific emitted view, preserving a fuller
+read witness over a shortened search excerpt.
+Under finalization citation-depth pressure, only a complete, strictly validated
+positive search envelope can yield. Every citation must already have a better
+owner, or a narrow equal-fidelity exception must provide a strict complete read
+witness with consistent query presence; when both snippets are full and
+untruncated, their text must also be equal. The simulated fitted selection must
+retain every yielded citation and improve unique citation coverage; grouped
+yields are revalidated against the remaining witnesses, and a final invariant
+checks that no later allocation or eviction removed their support.
+Reads, unmatched searches, zero-result/reference-free evidence,
+source-truncated results, failures, and incomplete projections never yield.
+Final reads allocate exact file-targeted and other search-observed citations
+across all reads before generic context, including searches performed after the
+read. Canonical events and artifacts remain the complete tool-call trace; the
+bounded packet is an evidence projection and may omit a provenance envelope only
+under these coverage-preserving conditions.
 
 The `utf8-bytes-v1` estimate charges one token per UTF-8 byte of the canonical
 rendered messages. The default configured ceiling is 16,384 tokens with a 20%

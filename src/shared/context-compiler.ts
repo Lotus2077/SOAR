@@ -13,6 +13,7 @@ import {
 } from "./session-reducer";
 import {
   normalizeToolArguments,
+  parseSuccessfulRepositoryToolObservation,
   workspaceRelativePathForTool,
 } from "./tool-observation";
 
@@ -83,8 +84,10 @@ export interface ToolEvidence {
   ordinal: number;
   toolName: string;
   status: "completed" | "failed";
+  /** Canonical tool arguments; compact final reads use the valid JSON object `{}`. */
   argumentsExcerpt: string;
   workspaceRelativePath?: string;
+  /** Bounded tool output; structured finalization projections use an empty label. */
   content: string;
   /** The packet contains fewer source characters or structured elements. */
   packetExcerptTruncated: boolean;
@@ -222,6 +225,10 @@ const DEFAULT_MAX_EVIDENCE_CHARACTERS = 8_000;
 const DEFAULT_MAX_REFERENCES_PER_EVIDENCE = 64;
 const MAX_REFERENCE_CHARACTERS = 512;
 const MAX_CITATION_SNIPPET_CHARACTERS = 384;
+const MAX_FINALIZATION_SEARCH_SNIPPET_CHARACTERS = 192;
+const MIN_FINALIZATION_SEARCH_SNIPPET_CHARACTERS = 32;
+const FINALIZATION_SEARCH_CONTEXT_CHARACTERS = 16;
+const PACKET_TEXT_TRUNCATED_JSON_OVERHEAD_BYTES = 27;
 const COMPACT_REFERENCE_LIMIT = 1;
 const MAX_WORKSPACE_PATH_CHARACTERS = 1_024;
 const MIN_BUDGETED_CONTENT_CHARACTERS = 64;
@@ -259,7 +266,9 @@ interface RawCandidate {
   originalContentCharacters: number;
   references: string[];
   citationSnippets: ContextCitationSnippet[];
+  finalizationCitationSnippets?: ContextCitationSnippet[];
   sourceProjectionApplied: boolean;
+  strictSuccessfulRepositoryObservation: boolean;
   sourceCharacters: number;
 }
 
@@ -595,10 +604,145 @@ function citationSnippetsForContent(content: string): ContextCitationSnippet[] {
 interface ToolContentProjection {
   content: string;
   citationSnippets: ContextCitationSnippet[];
+  finalizationCitationSnippets?: ContextCitationSnippet[];
   sourceResultTruncated?: boolean;
   sourceResultCount?: number;
   sourceReferenceCount: number;
   sourceProjectionApplied: boolean;
+}
+
+interface SearchProjectionAnchor {
+  query: string;
+  caseSensitive: boolean;
+}
+
+function searchProjectionAnchor(
+  arguments_: JsonValue,
+): SearchProjectionAnchor | undefined {
+  if (!isRecord(arguments_) || typeof arguments_.query !== "string") {
+    return undefined;
+  }
+  return {
+    query: arguments_.query,
+    caseSensitive:
+      typeof arguments_.caseSensitive === "boolean"
+        ? arguments_.caseSensitive
+        : true,
+  };
+}
+
+function searchMatchRange(
+  text: string,
+  anchor: SearchProjectionAnchor,
+): { start: number; end: number } | undefined {
+  if (anchor.caseSensitive) {
+    const start = text.indexOf(anchor.query);
+    return start < 0 ? undefined : { start, end: start + anchor.query.length };
+  }
+
+  const foldedText = text.toLocaleLowerCase("en-US");
+  const foldedQuery = anchor.query.toLocaleLowerCase("en-US");
+  let foldedByCodePoint = "";
+  let originalBoundary = 0;
+  const foldedBoundaryToOriginal = new Map<number, number>([[0, 0]]);
+  for (const codePoint of text) {
+    foldedByCodePoint += codePoint.toLocaleLowerCase("en-US");
+    originalBoundary += codePoint.length;
+    foldedBoundaryToOriginal.set(foldedByCodePoint.length, originalBoundary);
+  }
+  if (foldedByCodePoint !== foldedText) return undefined;
+
+  const foldedStart = foldedText.indexOf(foldedQuery);
+  if (foldedStart < 0) return undefined;
+  const start = foldedBoundaryToOriginal.get(foldedStart);
+  const end = foldedBoundaryToOriginal.get(foldedStart + foldedQuery.length);
+  return start === undefined || end === undefined ? undefined : { start, end };
+}
+
+function queryAnchoredSupportingText(
+  text: string,
+  anchor: SearchProjectionAnchor,
+): { text: string; truncated: boolean } | undefined {
+  const marker = "…";
+  const match = searchMatchRange(text, anchor);
+  if (match === undefined) return undefined;
+  const matchedCharacters = match.end - match.start;
+  const maxCharacters = Math.max(
+    Math.max(anchor.query.length, matchedCharacters) + marker.length * 2,
+    Math.min(
+      MAX_FINALIZATION_SEARCH_SNIPPET_CHARACTERS,
+      Math.max(
+        MIN_FINALIZATION_SEARCH_SNIPPET_CHARACTERS,
+        Math.max(anchor.query.length, matchedCharacters) +
+          FINALIZATION_SEARCH_CONTEXT_CHARACTERS +
+          marker.length * 2,
+      ),
+    ),
+  );
+  if (text.length <= maxCharacters) {
+    return { text, truncated: false };
+  }
+
+  const needle = anchor.caseSensitive
+    ? anchor.query
+    : anchor.query.toLocaleLowerCase("en-US");
+  const available = maxCharacters - marker.length * 2;
+  const surroundingCharacters = available - matchedCharacters;
+  let start = Math.max(
+    0,
+    match.start - Math.floor(surroundingCharacters / 2),
+  );
+  start = Math.min(start, match.start);
+  start = Math.max(start, match.end - available);
+  start = Math.min(start, Math.max(0, text.length - available));
+  let end = Math.min(text.length, start + available);
+  const first = text.charCodeAt(start);
+  if (first >= 0xdc00 && first <= 0xdfff) start += 1;
+  const last = text.charCodeAt(end - 1);
+  if (last >= 0xd800 && last <= 0xdbff) end -= 1;
+  const excerpt = text.slice(start, end);
+  const shortened = `${start > 0 ? marker : ""}${excerpt}${
+    end < text.length ? marker : ""
+  }`;
+  const shortenedHaystack = anchor.caseSensitive
+    ? shortened
+    : shortened.toLocaleLowerCase("en-US");
+  if (!shortenedHaystack.includes(needle)) return undefined;
+  if (
+    utf8Bytes(text) - utf8Bytes(shortened) <=
+    PACKET_TEXT_TRUNCATED_JSON_OVERHEAD_BYTES
+  ) {
+    return { text, truncated: false };
+  }
+  return {
+    text: shortened,
+    truncated: true,
+  };
+}
+
+function addQueryAnchoredCitationSnippet(
+  snippets: Map<string, ContextCitationSnippet>,
+  citation: string,
+  text: string,
+  anchor: SearchProjectionAnchor,
+  sourceTextTruncated = false,
+): boolean {
+  if (
+    snippets.has(citation) ||
+    citation.length === 0 ||
+    citation.length > MAX_REFERENCE_CHARACTERS
+  ) {
+    return false;
+  }
+  const bounded = queryAnchoredSupportingText(text, anchor);
+  if (bounded === undefined) return false;
+  snippets.set(citation, {
+    citation,
+    text: bounded.text,
+    ...(sourceTextTruncated ? { sourceTextTruncated: true } : {}),
+    ...(bounded.truncated ? { packetTextTruncated: true } : {}),
+  });
+  return true;
 }
 
 function parseSuccessfulToolResult(content: string): Record<string, unknown> | undefined {
@@ -612,9 +756,11 @@ function parseSuccessfulToolResult(content: string): Record<string, unknown> | u
 
 function searchTextProjection(
   result: Record<string, unknown>,
+  anchor: SearchProjectionAnchor | undefined,
 ): ToolContentProjection | undefined {
   if (!Array.isArray(result.matches)) return undefined;
   const snippets = new Map<string, ContextCitationSnippet>();
+  const finalizationSnippets = new Map<string, ContextCitationSnippet>();
   for (const rawMatch of result.matches) {
     if (
       !isRecord(rawMatch) ||
@@ -625,12 +771,28 @@ function searchTextProjection(
     ) {
       continue;
     }
+    const citation = `${rawMatch.path}:${rawMatch.lineNumber as number}`;
     addCitationSnippet(
       snippets,
-      `${rawMatch.path}:${rawMatch.lineNumber as number}`,
+      citation,
       rawMatch.text,
       rawMatch.textTruncated === true,
     );
+    if (anchor !== undefined) {
+      const anchored = addQueryAnchoredCitationSnippet(
+        finalizationSnippets,
+        citation,
+        rawMatch.text,
+        anchor,
+        rawMatch.textTruncated === true,
+      );
+      if (!anchored) {
+        const fallback = snippets.get(citation);
+        if (fallback !== undefined) {
+          finalizationSnippets.set(citation, fallback);
+        }
+      }
+    }
   }
   const declaredCount =
     Number.isSafeInteger(result.count) && (result.count as number) >= 0
@@ -639,6 +801,9 @@ function searchTextProjection(
   return {
     content: "Exact returned matches are represented by citationSnippets.",
     citationSnippets: [...snippets.values()],
+    ...(anchor === undefined
+      ? {}
+      : { finalizationCitationSnippets: [...finalizationSnippets.values()] }),
     ...(typeof result.truncated === "boolean"
       ? { sourceResultTruncated: result.truncated }
       : {}),
@@ -705,6 +870,7 @@ function toolContentProjection(
   status: "requested" | "completed" | "failed",
   content: string,
   relativePath: string | undefined,
+  normalizedArguments: JsonValue,
 ): ToolContentProjection {
   if (status === "completed") {
     const result = parseSuccessfulToolResult(content);
@@ -712,7 +878,10 @@ function toolContentProjection(
       result === undefined
         ? undefined
         : toolName === "search_text"
-          ? searchTextProjection(result)
+          ? searchTextProjection(
+              result,
+              searchProjectionAnchor(normalizedArguments),
+            )
           : toolName === "read_text_file"
             ? readTextFileProjection(result, relativePath)
             : toolName === "list_files"
@@ -779,6 +948,7 @@ function noteCandidate(message: CanonicalMessage, ordinal: number): RawCandidate
     references: citationSnippets.map((snippet) => snippet.citation),
     citationSnippets,
     sourceProjectionApplied: false,
+    strictSuccessfulRepositoryObservation: false,
     sourceCharacters: 0,
   };
   candidate.sourceCharacters = sourceCharacters(candidate);
@@ -801,7 +971,22 @@ function toolCandidate(
     toolCall.status,
     rawContent,
     relativePath,
+    normalizedArguments,
   );
+  const preserveRawPositiveResult =
+    toolCall.status === "completed" &&
+    (toolCall.name === "read_text_file" || toolCall.name === "search_text") &&
+    projection.sourceProjectionApplied &&
+    (projection.sourceResultCount ?? 0) > 0 &&
+    projection.citationSnippets.length === 0;
+  const packetProjection: ToolContentProjection = preserveRawPositiveResult
+    ? {
+        ...projection,
+        content: rawContent,
+        sourceReferenceCount: 0,
+        sourceProjectionApplied: false,
+      }
+    : projection;
   const candidate: RawCandidate = {
     ordinal,
     kind: "tool_evidence",
@@ -812,26 +997,40 @@ function toolCandidate(
       arguments: normalizedArguments,
       content: rawContent,
     }),
-    content: projection.content,
+    content: packetProjection.content,
     argumentsJson,
     toolName: toolCall.name,
     toolStatus:
       toolCall.status === "failed" ? "failed" : "completed",
     workspaceRelativePath: relativePath,
-    sourceResultTruncated: projection.sourceResultTruncated,
-    sourceResultCount: projection.sourceResultCount,
-    sourceReferenceCount: projection.sourceReferenceCount,
+    sourceResultTruncated: packetProjection.sourceResultTruncated,
+    sourceResultCount: packetProjection.sourceResultCount,
+    sourceReferenceCount: packetProjection.sourceReferenceCount,
     originalContentCharacters: rawContent.length,
-    references: projection.citationSnippets.map((snippet) => snippet.citation),
-    citationSnippets: projection.citationSnippets,
-    sourceProjectionApplied: projection.sourceProjectionApplied,
+    references: packetProjection.citationSnippets.map(
+      (snippet) => snippet.citation,
+    ),
+    citationSnippets: packetProjection.citationSnippets,
+    finalizationCitationSnippets:
+      packetProjection.finalizationCitationSnippets,
+    sourceProjectionApplied: packetProjection.sourceProjectionApplied,
+    strictSuccessfulRepositoryObservation:
+      toolCall.status === "completed" &&
+      parseSuccessfulRepositoryToolObservation(
+        toolCall.name,
+        toolCall.arguments,
+        rawContent,
+      ) !== undefined,
     sourceCharacters: 0,
   };
   candidate.sourceCharacters = sourceCharacters(candidate);
   return candidate;
 }
 
-function collectCandidates(state: SessionState): RawCandidate[] {
+function collectCandidates(
+  state: SessionState,
+  mode: ContextCompilationMode,
+): RawCandidate[] {
   const candidates: RawCandidate[] = [];
   let ordinal = 0;
 
@@ -848,7 +1047,7 @@ function collectCandidates(state: SessionState): RawCandidate[] {
       candidates.push(toolCandidate(toolCall, ordinal));
     }
   }
-  prioritizeReadEvidence(candidates);
+  prioritizeReadEvidence(candidates, mode);
   return candidates;
 }
 
@@ -878,10 +1077,15 @@ function normalizedPacketPath(value: string): string {
 
 /**
  * A complete read may contain thousands of citeable lines. Preserve the lines
- * that earlier search evidence identified, followed by a small deterministic
- * context window, before admitting generic file lines.
+ * that search evidence identified, followed by a small deterministic context
+ * window, before admitting generic file lines. Working packets preserve the
+ * causal earlier-search rule; finalization packets may use any strict, complete
+ * repository search in the finished trace.
  */
-function prioritizeReadEvidence(candidates: RawCandidate[]): void {
+function prioritizeReadEvidence(
+  candidates: RawCandidate[],
+  mode: ContextCompilationMode,
+): void {
   for (let index = 0; index < candidates.length; index += 1) {
     const candidate = candidates[index];
     if (
@@ -893,11 +1097,19 @@ function prioritizeReadEvidence(candidates: RawCandidate[]): void {
     }
     const readPath = normalizedPacketPath(candidate.workspaceRelativePath);
     const searchedLines = new Set<number>();
-    for (const earlier of candidates.slice(0, index)) {
-      if (earlier.toolName !== "search_text" || earlier.toolStatus !== "completed") {
+    const searchCandidates =
+      mode === "working" ? candidates.slice(0, index) : candidates;
+    for (const observation of searchCandidates) {
+      if (
+        observation.toolName !== "search_text" ||
+        observation.toolStatus !== "completed" ||
+        (mode === "finalization" &&
+          (!observation.strictSuccessfulRepositoryObservation ||
+            observation.sourceResultTruncated !== false))
+      ) {
         continue;
       }
-      for (const citation of earlier.references) {
+      for (const citation of observation.references) {
         const parsed = parsedCitation(citation);
         if (parsed && normalizedPacketPath(parsed.path) === readPath) {
           searchedLines.add(parsed.line);
@@ -933,23 +1145,73 @@ function prioritizeReadEvidence(candidates: RawCandidate[]): void {
   }
 }
 
-/**
- * Return candidate-local filtered copies that store each grounded
- * citation-support pair once. Best-witness selection prefers grounded tool
- * evidence over assistant notes, then untruncated source support, an
- * untruncated packet excerpt, targeted search evidence, and finally recency.
- * Originals remain unchanged so later admission and eviction decisions can
- * reason about the complete observable reference sets.
- */
-function deduplicateCitationSupportPairs(
+function prioritizeFinalizationSearchObservedReadCitations(
+  candidate: RawCandidate,
+  searchObservedCitations: ReadonlySet<string>,
+  targetedSearchCitations: ReadonlySet<string>,
+): RawCandidate {
+  if (
+    candidate.kind !== "tool_evidence" ||
+    candidate.toolName !== "read_text_file" ||
+    searchObservedCitations.size === 0
+  ) {
+    return candidate;
+  }
+  const prioritized = [
+    ...candidate.citationSnippets.filter((snippet) =>
+      targetedSearchCitations.has(snippet.citation),
+    ),
+    ...candidate.citationSnippets.filter((snippet) =>
+      searchObservedCitations.has(snippet.citation) &&
+      !targetedSearchCitations.has(snippet.citation),
+    ),
+    ...candidate.citationSnippets.filter(
+      (snippet) => !searchObservedCitations.has(snippet.citation),
+    ),
+  ];
+  return {
+    ...candidate,
+    citationSnippets: prioritized,
+    references: prioritized.map((snippet) => snippet.citation),
+  };
+}
+
+function usesCompactStructuredFinalization(
+  candidate: RawCandidate,
+  mode: ContextCompilationMode,
+): boolean {
+  return (
+    mode === "finalization" &&
+    candidate.kind === "tool_evidence" &&
+    candidate.toolStatus === "completed" &&
+    candidate.sourceProjectionApplied &&
+    candidate.strictSuccessfulRepositoryObservation &&
+    (candidate.toolName === "read_text_file" ||
+      candidate.toolName === "search_text")
+  );
+}
+
+function effectiveCitationSnippets(
+  candidate: RawCandidate,
+  mode: ContextCompilationMode,
+): readonly ContextCitationSnippet[] {
+  return usesCompactStructuredFinalization(candidate, mode) &&
+    candidate.toolName === "search_text"
+    ? candidate.finalizationCitationSnippets ?? candidate.citationSnippets
+    : candidate.citationSnippets;
+}
+
+function citationOwners(
   candidates: readonly RawCandidate[],
-): RawCandidate[] {
+  mode: ContextCompilationMode,
+): Map<string, number> {
   const citationOwner = new Map<
     string,
     {
       ordinal: number;
       packetFidelity: number;
       preference: number;
+      repositoryTrust: number;
       sourceFidelity: number;
       toolTrust: number;
     }
@@ -963,8 +1225,14 @@ function deduplicateCitationSupportPairs(
 
   for (const candidate of candidates) {
     const toolTrust = candidate.kind === "tool_evidence" ? 1 : 0;
+    const repositoryTrust =
+      mode === "finalization" &&
+      candidate.kind === "tool_evidence" &&
+      candidate.strictSuccessfulRepositoryObservation
+        ? 1
+        : 0;
     const preference = preferenceFor(candidate);
-    for (const snippet of candidate.citationSnippets) {
+    for (const snippet of effectiveCitationSnippets(candidate, mode)) {
       const sourceFidelity = snippet.sourceTextTruncated === true ? 0 : 1;
       const packetFidelity = snippet.packetTextTruncated === true ? 0 : 1;
       const owner = citationOwner.get(snippet.citation);
@@ -972,15 +1240,21 @@ function deduplicateCitationSupportPairs(
         owner === undefined ||
         toolTrust > owner.toolTrust ||
         (toolTrust === owner.toolTrust &&
+          repositoryTrust > owner.repositoryTrust) ||
+        (toolTrust === owner.toolTrust &&
+          repositoryTrust === owner.repositoryTrust &&
           sourceFidelity > owner.sourceFidelity) ||
         (toolTrust === owner.toolTrust &&
+          repositoryTrust === owner.repositoryTrust &&
           sourceFidelity === owner.sourceFidelity &&
           packetFidelity > owner.packetFidelity) ||
         (toolTrust === owner.toolTrust &&
+          repositoryTrust === owner.repositoryTrust &&
           sourceFidelity === owner.sourceFidelity &&
           packetFidelity === owner.packetFidelity &&
           preference > owner.preference) ||
         (toolTrust === owner.toolTrust &&
+          repositoryTrust === owner.repositoryTrust &&
           sourceFidelity === owner.sourceFidelity &&
           packetFidelity === owner.packetFidelity &&
           preference === owner.preference &&
@@ -990,6 +1264,7 @@ function deduplicateCitationSupportPairs(
           ordinal: candidate.ordinal,
           packetFidelity,
           preference,
+          repositoryTrust,
           sourceFidelity,
           toolTrust,
         });
@@ -997,17 +1272,147 @@ function deduplicateCitationSupportPairs(
     }
   }
 
+  return new Map(
+    [...citationOwner].map(([citation, owner]) => [citation, owner.ordinal]),
+  );
+}
+
+/**
+ * Return candidate-local filtered copies that store each grounded
+ * citation-support pair once. Best-witness selection prefers grounded tool
+ * evidence over assistant notes, then (during finalization) schema-valid
+ * repository observations, untruncated source support, an untruncated packet
+ * excerpt, targeted search evidence, and finally recency. Originals remain
+ * unchanged so later admission and eviction decisions can reason about the
+ * complete observable reference sets.
+ */
+function deduplicateCitationSupportPairs(
+  candidates: readonly RawCandidate[],
+  mode: ContextCompilationMode,
+): RawCandidate[] {
+  const citationOwner = citationOwners(candidates, mode);
+
   return candidates.map((candidate) => {
     const citationSnippets = candidate.citationSnippets.filter(
       (snippet) =>
-        citationOwner.get(snippet.citation)?.ordinal === candidate.ordinal,
+        citationOwner.get(snippet.citation) === candidate.ordinal,
+    );
+    const retainedCitations = new Set(
+      citationSnippets.map((snippet) => snippet.citation),
     );
     return {
       ...candidate,
       citationSnippets,
+      ...(candidate.finalizationCitationSnippets === undefined
+        ? {}
+        : {
+            finalizationCitationSnippets:
+              candidate.finalizationCitationSnippets.filter((snippet) =>
+                retainedCitations.has(snippet.citation),
+              ),
+          }),
       references: citationSnippets.map((snippet) => snippet.citation),
     };
   });
+}
+
+/**
+ * Find complete successful positive evidence envelopes that can yield under
+ * finalization citation-depth pressure. Every representable original citation
+ * must either be owned by another admitted item, or (for a search) have an
+ * admitted read witness with equal-or-higher source and packet fidelity. Results
+ * without references, failures, and incomplete projections are ineligible.
+ */
+function redundantPositiveEvidenceOrdinals(
+  candidates: readonly RawCandidate[],
+  mode: ContextCompilationMode,
+): number[] {
+  if (mode !== "finalization") return [];
+  const owners = citationOwners(candidates, mode);
+  const admittedReadSnippets = candidates.flatMap((candidate) =>
+    candidate.kind === "tool_evidence" &&
+    candidate.toolName === "read_text_file" &&
+    candidate.toolStatus === "completed" &&
+    candidate.strictSuccessfulRepositoryObservation &&
+    candidate.sourceResultTruncated === false
+      ? effectiveCitationSnippets(candidate, mode)
+      : [],
+  );
+  const readWitnessesByCitation = new Map<
+    string,
+    ContextCitationSnippet[]
+  >();
+  for (const snippet of admittedReadSnippets) {
+    const witnesses = readWitnessesByCitation.get(snippet.citation) ?? [];
+    witnesses.push(snippet);
+    readWitnessesByCitation.set(snippet.citation, witnesses);
+  }
+  return candidates
+    .filter((candidate) => {
+      if (
+        candidate.kind !== "tool_evidence" ||
+        candidate.toolName !== "search_text" ||
+        candidate.toolStatus !== "completed" ||
+        !candidate.strictSuccessfulRepositoryObservation ||
+        candidate.sourceResultTruncated !== false ||
+        candidate.sourceReferenceCount <= 0 ||
+        (candidate.sourceResultCount ?? 0) <= 0
+      ) {
+        return false;
+      }
+      const citations = new Set(
+        effectiveCitationSnippets(candidate, mode).map(
+          (snippet) => snippet.citation,
+        ),
+      );
+      const ownsNoCitation = [...citations].every(
+        (citation) => owners.get(citation) !== candidate.ordinal,
+      );
+      let searchAnchor: SearchProjectionAnchor | undefined;
+      if (candidate.toolName === "search_text") {
+        try {
+          searchAnchor = searchProjectionAnchor(
+            JSON.parse(candidate.argumentsJson) as JsonValue,
+          );
+        } catch {
+          searchAnchor = undefined;
+        }
+      }
+      const hasEqualOrHigherFidelityReadCoverage =
+        candidate.toolName === "search_text" &&
+        searchAnchor !== undefined &&
+        effectiveCitationSnippets(candidate, mode).every((searchSnippet) =>
+          (readWitnessesByCitation.get(searchSnippet.citation) ?? []).some(
+            (readSnippet) =>
+              (readSnippet.sourceTextTruncated === true ? 0 : 1) >=
+                (searchSnippet.sourceTextTruncated === true ? 0 : 1) &&
+              (readSnippet.packetTextTruncated === true ? 0 : 1) >=
+                (searchSnippet.packetTextTruncated === true ? 0 : 1) &&
+              (searchAnchor.caseSensitive
+                ? searchSnippet.text.includes(searchAnchor.query)
+                : searchSnippet.text
+                    .toLocaleLowerCase("en-US")
+                    .includes(searchAnchor.query.toLocaleLowerCase("en-US"))) &&
+              (searchAnchor.caseSensitive
+                ? readSnippet.text.includes(searchAnchor.query)
+                : readSnippet.text
+                    .toLocaleLowerCase("en-US")
+                    .includes(searchAnchor.query.toLocaleLowerCase("en-US"))) &&
+              ((readSnippet.sourceTextTruncated !== true &&
+                readSnippet.packetTextTruncated !== true &&
+                searchSnippet.sourceTextTruncated !== true &&
+                searchSnippet.packetTextTruncated !== true)
+                ? readSnippet.text === searchSnippet.text
+                : true),
+          ),
+        );
+      return (
+        citations.size === candidate.sourceReferenceCount &&
+        (ownsNoCitation || hasEqualOrHigherFidelityReadCoverage)
+      );
+    })
+    .map((candidate) => candidate.ordinal)
+    .sort((left, right) => left - right);
 }
 
 function deduplicateCandidates(raw: readonly RawCandidate[]): {
@@ -1045,18 +1450,57 @@ function deduplicateCandidates(raw: readonly RawCandidate[]): {
 
 function prepareCandidate(
   candidate: RawCandidate,
+  mode: ContextCompilationMode,
   contentLimit: number,
   argumentLimit: number,
   referenceLimit: number,
   budgetTruncated: boolean,
 ): PreparedCandidate {
-  const content = truncateText(candidate.content, contentLimit);
-  const argumentsExcerpt = truncateText(candidate.argumentsJson, argumentLimit);
-  const citationSnippets = candidate.citationSnippets.slice(0, referenceLimit);
+  const compactStructuredFinalization = usesCompactStructuredFinalization(
+    candidate,
+    mode,
+  );
+  const projectedContent = compactStructuredFinalization ? "" : candidate.content;
+  let projectedArgumentsJson = candidate.argumentsJson;
+  if (
+    compactStructuredFinalization &&
+    candidate.toolName === "read_text_file" &&
+    candidate.workspaceRelativePath !== undefined
+  ) {
+    projectedArgumentsJson = "{}";
+  } else if (
+    compactStructuredFinalization &&
+    candidate.toolName === "search_text" &&
+    candidate.workspaceRelativePath !== undefined
+  ) {
+    try {
+      const argumentsRecord = JSON.parse(candidate.argumentsJson) as unknown;
+      if (isRecord(argumentsRecord)) {
+        const { relativePath: _redundantPath, ...remainingArguments } =
+          argumentsRecord;
+        projectedArgumentsJson = stableJson(remainingArguments);
+      }
+    } catch {
+      // Canonical arguments are valid JSON; retaining them is the fail-safe.
+    }
+  }
+  const content = truncateText(projectedContent, contentLimit);
+  const argumentsExcerpt = truncateText(projectedArgumentsJson, argumentLimit);
+  const projectedCitationSnippets =
+    compactStructuredFinalization && candidate.toolName === "search_text"
+      ? candidate.finalizationCitationSnippets ?? candidate.citationSnippets
+      : candidate.citationSnippets;
+  const citationSnippets = projectedCitationSnippets.slice(0, referenceLimit);
   const reasons = new Set<ContextTruncationReason>();
   if (
-    content.length < candidate.content.length ||
-    argumentsExcerpt.length < candidate.argumentsJson.length
+    projectedContent !== candidate.content ||
+    projectedArgumentsJson !== candidate.argumentsJson
+  ) {
+    reasons.add("projection");
+  }
+  if (
+    content.length < projectedContent.length ||
+    argumentsExcerpt.length < projectedArgumentsJson.length
   ) {
     reasons.add(budgetTruncated ? "budget" : "item_limit");
   }
@@ -1066,8 +1510,10 @@ function prepareCandidate(
   if (candidate.sourceProjectionApplied) reasons.add("projection");
   const packetExcerptTruncated =
     candidate.sourceProjectionApplied ||
-    content.length < candidate.content.length ||
-    argumentsExcerpt.length < candidate.argumentsJson.length ||
+    projectedContent !== candidate.content ||
+    projectedArgumentsJson !== candidate.argumentsJson ||
+    content.length < projectedContent.length ||
+    argumentsExcerpt.length < projectedArgumentsJson.length ||
     citationSnippets.length < candidate.sourceReferenceCount ||
     citationSnippets.some((snippet) => snippet.packetTextTruncated === true);
 
@@ -1321,8 +1767,66 @@ export function compileContextPacket(
     reservedInputTokens,
   };
 
-  const raw = collectCandidates(state);
+  const raw = collectCandidates(state, options.mode);
   const { unique, omissions: duplicateOmissions } = deduplicateCandidates(raw);
+  const searchObservedCitations = new Set(
+    unique.flatMap((candidate) =>
+      candidate.kind === "tool_evidence" &&
+      candidate.toolName === "search_text" &&
+      candidate.toolStatus === "completed" &&
+      candidate.strictSuccessfulRepositoryObservation &&
+      candidate.sourceResultTruncated === false
+        ? candidate.references
+        : [],
+    ),
+  );
+  const strictlySearchedPaths = new Set(
+    unique.flatMap((candidate) =>
+      candidate.kind === "tool_evidence" &&
+      candidate.toolName === "search_text" &&
+      candidate.toolStatus === "completed" &&
+      candidate.strictSuccessfulRepositoryObservation &&
+      candidate.sourceResultTruncated === false
+        ? candidate.references.flatMap((citation) => {
+            const parsed = parsedCitation(citation);
+            return parsed === undefined
+              ? []
+              : [normalizedPacketPath(parsed.path)];
+          })
+        : [],
+    ),
+  );
+  const targetedSearchCitationsByPath = new Map<string, Set<string>>();
+  for (const candidate of unique) {
+    if (
+      candidate.kind !== "tool_evidence" ||
+      candidate.toolName !== "search_text" ||
+      candidate.toolStatus !== "completed" ||
+      !candidate.strictSuccessfulRepositoryObservation ||
+      candidate.sourceResultTruncated !== false ||
+      candidate.workspaceRelativePath === undefined
+    ) {
+      continue;
+    }
+    const path = normalizedPacketPath(candidate.workspaceRelativePath);
+    const citations = targetedSearchCitationsByPath.get(path) ?? new Set();
+    for (const citation of candidate.references) citations.add(citation);
+    targetedSearchCitationsByPath.set(path, citations);
+  }
+  const admissionCandidates =
+    options.mode === "finalization"
+      ? unique.map((candidate) =>
+          prioritizeFinalizationSearchObservedReadCitations(
+            candidate,
+            searchObservedCitations,
+            candidate.workspaceRelativePath === undefined
+              ? new Set()
+              : (targetedSearchCitationsByPath.get(
+                  normalizedPacketPath(candidate.workspaceRelativePath),
+                ) ?? new Set()),
+          ),
+        )
+      : unique;
   const included: PreparedCandidate[] = [];
   const base = renderCompilation(
     state,
@@ -1352,7 +1856,7 @@ export function compileContextPacket(
     maxEvidenceCharacters - argumentLimit,
   );
 
-  const recentFirst = [...unique].reverse();
+  const recentFirst = [...admissionCandidates].reverse();
   const includedByOrdinal = new Map<number, PreparedCandidate>();
   const selectedEvidence = (): PreparedCandidate[] =>
     [...includedByOrdinal.values()].sort(
@@ -1377,6 +1881,30 @@ export function compileContextPacket(
     maxReferencesPerEvidence,
     COMPACT_REFERENCE_LIMIT,
   );
+  const compactReferenceLimitFor = (candidate: RawCandidate): number =>
+    options.mode === "finalization" &&
+    candidate.kind === "tool_evidence" &&
+    candidate.toolName === "read_text_file" &&
+    candidate.workspaceRelativePath !== undefined &&
+    strictlySearchedPaths.has(
+      normalizedPacketPath(candidate.workspaceRelativePath),
+    ) &&
+    !candidate.references.some((citation) =>
+      searchObservedCitations.has(citation),
+    )
+      ? 0
+      : compactReferenceLimit;
+  const searchObservedPrefixLength = (candidate: RawCandidate): number => {
+    const firstGenericReference = candidate.references.findIndex(
+      (citation) => !searchObservedCitations.has(citation),
+    );
+    return Math.min(
+      maxReferencesPerEvidence,
+      firstGenericReference < 0
+        ? candidate.references.length
+        : firstGenericReference,
+    );
+  };
 
   // Breadth pass: offer every unique item a small, citation-preserving slot,
   // newest first. This prevents one large observation from consuming all of the
@@ -1384,9 +1912,10 @@ export function compileContextPacket(
   for (const candidate of recentFirst) {
     const compact = prepareCandidate(
       candidate,
+      options.mode,
       compactContentLimit,
       compactArgumentLimit,
-      compactReferenceLimit,
+      compactReferenceLimitFor(candidate),
       true,
     );
     includedByOrdinal.set(candidate.ordinal, compact);
@@ -1396,7 +1925,7 @@ export function compileContextPacket(
   }
 
   const originalByOrdinal = new Map(
-    unique.map((candidate) => [candidate.ordinal, candidate]),
+    admissionCandidates.map((candidate) => [candidate.ordinal, candidate]),
   );
   const admittedOriginals = new Map(
     selectedEvidence().map((entry) => [entry.raw.ordinal, entry.raw]),
@@ -1404,15 +1933,95 @@ export function compileContextPacket(
   const compactedSelection = (
     candidates: readonly RawCandidate[],
   ): PreparedCandidate[] =>
-    deduplicateCitationSupportPairs(candidates).map((candidate) =>
+    deduplicateCitationSupportPairs(candidates, options.mode).map((candidate) =>
       prepareCandidate(
         candidate,
+        options.mode,
         compactContentLimit,
         compactArgumentLimit,
-        compactReferenceLimit,
+        compactReferenceLimitFor(candidate),
         true,
       ),
     );
+  const fullyReferencedSelection = (
+    candidates: readonly RawCandidate[],
+  ): PreparedCandidate[] =>
+    deduplicateCitationSupportPairs(candidates, options.mode).map((candidate) =>
+      prepareCandidate(
+        candidate,
+        options.mode,
+        compactContentLimit,
+        compactArgumentLimit,
+        Math.min(maxReferencesPerEvidence, candidate.references.length),
+        true,
+      ),
+    );
+  const fittingReferenceSelection = (
+    candidates: readonly RawCandidate[],
+  ): PreparedCandidate[] => {
+    const compacted = compactedSelection(candidates);
+    const localByOrdinal = new Map(
+      compacted.map((entry) => [entry.raw.ordinal, entry]),
+    );
+    const recent = [...compacted].reverse().map((entry) => entry.raw);
+    const citationFirst = [
+      ...recent.filter(
+        (candidate) =>
+          candidate.kind === "tool_evidence" &&
+          candidate.toolName === "search_text",
+      ),
+      ...recent.filter(
+        (candidate) =>
+          candidate.kind === "tool_evidence" &&
+          candidate.toolName !== "search_text",
+      ),
+      ...recent.filter((candidate) => candidate.kind === "assistant_note"),
+    ];
+    const localSelection = (): PreparedCandidate[] =>
+      [...localByOrdinal.values()].sort(
+        (left, right) => left.raw.ordinal - right.raw.ordinal,
+      );
+
+    const expandReferences = (
+      candidate: RawCandidate,
+      referenceHigh: number,
+    ): void => {
+      const compact = localByOrdinal.get(candidate.ordinal);
+      if (!compact || referenceHigh <= compact.referenceCount) return;
+      let best = compact;
+      let low = compact.referenceCount + 1;
+      let high = referenceHigh;
+      while (low <= high) {
+        const referenceCount = Math.floor((low + high) / 2);
+        const expanded = prepareCandidate(
+          candidate,
+          options.mode,
+          compactContentLimit,
+          compactArgumentLimit,
+          referenceCount,
+          true,
+        );
+        localByOrdinal.set(candidate.ordinal, expanded);
+        if (!fits(localSelection())) {
+          high = referenceCount - 1;
+        } else {
+          best = expanded;
+          low = referenceCount + 1;
+        }
+      }
+      localByOrdinal.set(candidate.ordinal, best);
+    };
+    for (const candidate of citationFirst) {
+      expandReferences(candidate, searchObservedPrefixLength(candidate));
+    }
+    for (const candidate of citationFirst) {
+      expandReferences(
+        candidate,
+        Math.min(maxReferencesPerEvidence, candidate.references.length),
+      );
+    }
+    return localSelection();
+  };
   const replaceSelection = (selection: readonly PreparedCandidate[]): void => {
     includedByOrdinal.clear();
     for (const entry of selection) {
@@ -1425,22 +2034,130 @@ export function compileContextPacket(
   // space for unique evidence, and candidate originals remain untouched for
   // later best-witness and eviction checks.
   replaceSelection(compactedSelection([...admittedOriginals.values()]));
-  let admittedDuringRetry: boolean;
-  do {
-    admittedDuringRetry = false;
-    for (const candidate of recentFirst) {
-      if (admittedOriginals.has(candidate.ordinal)) continue;
-      const proposedOriginals = [...admittedOriginals.values(), candidate].sort(
+  const intentionallyYieldedOrdinals = new Set<number>();
+  const allIntentionallyYieldedCitations = (): Set<string> =>
+    new Set(
+      [...intentionallyYieldedOrdinals].flatMap((ordinal) => {
+        const candidate = originalByOrdinal.get(ordinal);
+        return candidate === undefined
+          ? []
+          : effectiveCitationSnippets(candidate, options.mode).map(
+              (snippet) => snippet.citation,
+            );
+      }),
+    );
+  const retryBreadthAdmission = (): void => {
+    let admittedDuringRetry: boolean;
+    do {
+      admittedDuringRetry = false;
+      for (const candidate of recentFirst) {
+        if (
+          admittedOriginals.has(candidate.ordinal) ||
+          intentionallyYieldedOrdinals.has(candidate.ordinal)
+        ) {
+          continue;
+        }
+        const proposedOriginals = [
+          ...admittedOriginals.values(),
+          candidate,
+        ].sort((left, right) => left.ordinal - right.ordinal);
+        const proposedSelection = compactedSelection(proposedOriginals);
+        if (fits(proposedSelection)) {
+          admittedOriginals.set(candidate.ordinal, candidate);
+          replaceSelection(proposedSelection);
+          admittedDuringRetry = true;
+        }
+      }
+    } while (admittedDuringRetry);
+  };
+  retryBreadthAdmission();
+
+  // Under finalization citation-depth pressure, a strict complete search may
+  // yield only when every citation has another best owner or an equal-fidelity,
+  // query-consistent strict read witness. Canonical events remain the complete
+  // trace; this affects only the bounded provider packet. Simulate the fitted
+  // result before committing a yield, require every yielded citation to remain,
+  // and stop when all citations fit or no safe yield can improve depth.
+  if (options.mode === "finalization") {
+    while (
+      !fits(fullyReferencedSelection([...admittedOriginals.values()]))
+    ) {
+      const admitted = [...admittedOriginals.values()].sort(
         (left, right) => left.ordinal - right.ordinal,
       );
-      const proposedSelection = compactedSelection(proposedOriginals);
-      if (fits(proposedSelection)) {
-        admittedOriginals.set(candidate.ordinal, candidate);
-        replaceSelection(proposedSelection);
-        admittedDuringRetry = true;
+      const currentFittingSelection = fittingReferenceSelection(admitted);
+      const currentReferenceCount = currentFittingSelection.reduce(
+        (total, entry) => total + entry.referenceCount,
+        0,
+      );
+      const currentlyRepresentableCitations = new Set(
+        admitted.flatMap((candidate) =>
+          effectiveCitationSnippets(candidate, options.mode).map(
+            (snippet) => snippet.citation,
+          ),
+        ),
+      );
+      const redundantOrdinals = redundantPositiveEvidenceOrdinals(
+        admitted,
+        options.mode,
+      );
+      let redundantPrefix: number[] | undefined;
+      for (let length = 1; length <= redundantOrdinals.length; length += 1) {
+        const prefix = redundantOrdinals.slice(0, length);
+        const prefixSet = new Set(prefix);
+        const proposed = admitted.filter(
+          (candidate) => !prefixSet.has(candidate.ordinal),
+        );
+        const proposedCitations = new Set(
+          proposed.flatMap((candidate) =>
+            effectiveCitationSnippets(candidate, options.mode).map(
+              (snippet) => snippet.citation,
+            ),
+          ),
+        );
+        const proposedFittingSelection = fittingReferenceSelection(proposed);
+        const proposedFittedCitations = new Set(
+          proposedFittingSelection.flatMap((entry) =>
+            entry.evidence.citationSnippets?.map(
+              (snippet) => snippet.citation,
+            ) ?? [],
+          ),
+        );
+        const yieldedSearchCitations = new Set(
+          admitted
+            .filter((candidate) => prefixSet.has(candidate.ordinal))
+            .flatMap((candidate) =>
+              effectiveCitationSnippets(candidate, options.mode).map(
+                (snippet) => snippet.citation,
+              ),
+            ),
+        );
+        const proposedReferenceCount = proposedFittingSelection.reduce(
+          (total, entry) => total + entry.referenceCount,
+          0,
+        );
+        if (
+          [...currentlyRepresentableCitations].every((citation) =>
+            proposedCitations.has(citation),
+          ) &&
+          [...yieldedSearchCitations].every((citation) =>
+            proposedFittedCitations.has(citation),
+          ) &&
+          (fits(fullyReferencedSelection(proposed)) ||
+            proposedReferenceCount > currentReferenceCount)
+        ) {
+          redundantPrefix = prefix;
+          break;
+        }
       }
+      if (redundantPrefix === undefined) break;
+      for (const ordinal of redundantPrefix) {
+        admittedOriginals.delete(ordinal);
+        intentionallyYieldedOrdinals.add(ordinal);
+      }
+      replaceSelection(compactedSelection([...admittedOriginals.values()]));
     }
-  } while (admittedDuringRetry);
+  }
 
   const admittedRecentFirst = selectedEvidence()
     .map((entry) => entry.raw)
@@ -1469,6 +2186,68 @@ export function compileContextPacket(
     ),
   ];
 
+  // Secure citations that were observed by repository searches across every
+  // admitted best witness before spending depth on generic neighboring/file
+  // lines. Finalization can transfer ownership of a shortened search match to
+  // a fuller read, so the read view is ordered with exact searched citations
+  // first. This pass preserves that cross-item priority after ownership moves.
+  for (const candidate of citationFirstDepth) {
+    const compact = includedByOrdinal.get(candidate.ordinal);
+    if (!compact) continue;
+    const searchObservedHigh = searchObservedPrefixLength(candidate);
+    if (searchObservedHigh <= compact.referenceCount) continue;
+
+    let best = compact;
+    let low = compact.referenceCount + 1;
+    let high = searchObservedHigh;
+    while (low <= high) {
+      const midpoint = Math.floor((low + high) / 2);
+      const expanded = prepareCandidate(
+        candidate,
+        options.mode,
+        compactContentLimit,
+        compactArgumentLimit,
+        midpoint,
+        true,
+      );
+      includedByOrdinal.set(candidate.ordinal, expanded);
+      if (fits(selectedEvidence())) {
+        best = expanded;
+        low = midpoint + 1;
+      } else {
+        high = midpoint - 1;
+      }
+    }
+    includedByOrdinal.set(candidate.ordinal, best);
+  }
+
+  // Refill one generic citation per otherwise-empty admitted item only after
+  // every fitting search-observed citation has been secured across items.
+  // This preserves breadth without allowing incidental file context to crowd
+  // out exact searched witnesses.
+  for (const candidate of citationFirstDepth) {
+    const current = includedByOrdinal.get(candidate.ordinal);
+    if (
+      !current ||
+      current.referenceCount > 0 ||
+      candidate.references.length === 0
+    ) {
+      continue;
+    }
+    const genericBreadth = prepareCandidate(
+      candidate,
+      options.mode,
+      compactContentLimit,
+      compactArgumentLimit,
+      1,
+      true,
+    );
+    includedByOrdinal.set(candidate.ordinal, genericBreadth);
+    if (!fits(selectedEvidence())) {
+      includedByOrdinal.set(candidate.ordinal, current);
+    }
+  }
+
   // Citation-depth pass: expand grounded citation-support pairs across every
   // admitted tool result before any candidate receives additional content.
   // Targeted search matches are denser than complete-file projections, so they
@@ -1485,6 +2264,7 @@ export function compileContextPacket(
     );
     const fullyReferenced = prepareCandidate(
       candidate,
+      options.mode,
       compactContentLimit,
       compactArgumentLimit,
       referenceHigh,
@@ -1498,26 +2278,29 @@ export function compileContextPacket(
       includedByOrdinal.set(candidate.ordinal, compact);
     }
 
-    // A complete targeted search is a denser representation of the same exact
-    // lines than complete-file projections. If its full result does not fit,
-    // it may replace admitted reads whose paths it directly covers. Breadth is
-    // otherwise preserved, and evictions are rolled back unless the complete
-    // search can be secured.
+    // A strict, complete targeted search is a denser representation of the same
+    // exact lines than complete-file projections. If its full result does not
+    // fit, it may replace directly covered reads that do not witness another
+    // admitted or intentionally yielded search. Roll back every eviction unless
+    // the complete search can be secured.
     if (
       !securedCompleteSearch &&
       candidate.kind === "tool_evidence" &&
       candidate.toolName === "search_text" &&
       candidate.toolStatus === "completed" &&
+      candidate.strictSuccessfulRepositoryObservation &&
       candidate.sourceResultTruncated === false
     ) {
       const originalSearch =
         originalByOrdinal.get(candidate.ordinal) ?? candidate;
-      const admittedSearchOriginalReferences = new Set(
-        selectedEvidence().flatMap((entry) => {
+      const protectedSearchOriginalReferences = new Set([
+        ...selectedEvidence().flatMap((entry) => {
           if (
             entry.raw.kind !== "tool_evidence" ||
             entry.raw.toolName !== "search_text" ||
-            entry.raw.toolStatus !== "completed"
+            entry.raw.toolStatus !== "completed" ||
+            !entry.raw.strictSuccessfulRepositoryObservation ||
+            entry.raw.sourceResultTruncated !== false
           ) {
             return [];
           }
@@ -1525,7 +2308,8 @@ export function compileContextPacket(
             originalByOrdinal.get(entry.raw.ordinal) ?? entry.raw
           ).references;
         }),
-      );
+        ...allIntentionallyYieldedCitations(),
+      ]);
       const searchedPaths = new Set(
         originalSearch.citationSnippets
           .map((snippet) => parsedCitation(snippet.citation)?.path)
@@ -1543,7 +2327,7 @@ export function compileContextPacket(
             // preferred witness; read-only lines may yield to the complete
             // targeted search.
             !entry.raw.references.some((citation) =>
-              admittedSearchOriginalReferences.has(citation),
+              protectedSearchOriginalReferences.has(citation),
             ) &&
             entry.raw.workspaceRelativePath !== undefined &&
             searchedPaths.has(
@@ -1579,6 +2363,7 @@ export function compileContextPacket(
         );
         const expanded = prepareCandidate(
           candidate,
+          options.mode,
           compactContentLimit,
           compactArgumentLimit,
           referenceMidpoint,
@@ -1596,6 +2381,21 @@ export function compileContextPacket(
     includedByOrdinal.set(candidate.ordinal, referenceExpanded);
   }
 
+  const missingYieldedCitations = [...allIntentionallyYieldedCitations()].filter(
+    (citation) =>
+      !selectedEvidence().some((entry) =>
+        entry.evidence.citationSnippets?.some(
+          (snippet) => snippet.citation === citation,
+        ),
+      ),
+  );
+  if (missingYieldedCitations.length > 0) {
+    throw new Error(
+      `Context compiler invariant violated: ${missingYieldedCitations.length} ` +
+        "citation(s) from yielded evidence are missing.",
+    );
+  }
+
   // Content-depth pass: only after citation allocation is stable, spend the
   // remaining budget on tool content first and then assistant notes. Do not
   // change a candidate's reference count in this pass.
@@ -1605,6 +2405,7 @@ export function compileContextPacket(
 
     const fullyPrepared = prepareCandidate(
       candidate,
+      options.mode,
       maxContentCharacters,
       argumentLimit,
       referenceExpanded.referenceCount,
@@ -1621,6 +2422,7 @@ export function compileContextPacket(
       const midpoint = Math.floor((low + high) / 2);
       const expanded = prepareCandidate(
         candidate,
+        options.mode,
         midpoint,
         compactArgumentLimit,
         referenceExpanded.referenceCount,

@@ -40,6 +40,11 @@ The first working slice is an Electron application with:
   workspace;
 - cancellation, timeout, reasoning-token, usage, and latency recording with a
   deterministic `$0` route/tool trace;
+- deterministic, provider-neutral context packets with an 8,192-token default
+  ceiling, a conservative UTF-8-byte estimate, a 20% safety margin, reserved
+  provider overhead, latest-observation exact deduplication, bounded excerpts,
+  citation-support snippets, and one persisted compilation checkpoint per
+  provider call;
 - fail-closed completion handling for truncated, filtered, empty, malformed, or
   tool-looping provider responses, including a no-thinking, tool-free final
   synthesis round and evidence-backed path/line citation validation.
@@ -64,7 +69,10 @@ pnpm dev
 
 Set `SOAR_VLLM_BASE_URL` and `SOAR_VLLM_MODEL` in `.env.local`. The base URL
 must end in `/v1`. Tests use deterministic providers and do not require a live
-model unless their command is explicitly prefixed with `test:live-`.
+model unless their command is explicitly prefixed with `test:live-`. Context
+limits can be tuned with `SOAR_CONTEXT_MAX_INPUT_TOKENS` and
+`SOAR_CONTEXT_SAFETY_MARGIN`; mandatory task intent fails closed if it cannot
+fit the configured envelope.
 
 ### UI design reference
 
@@ -90,12 +98,25 @@ pnpm test:live-vllm
 Run the three-task Local Repository Investigator proof against the real vLLM:
 
 ```sh
+SOAR_PROOF_REVISION="$(git rev-parse HEAD)" \
+SOAR_PROOF_MODEL="RM-01 VLM" \
 pnpm test:live-repository
 ```
 
+The proof requires a clean Git worktree, the exact declared HEAD, the baseline
+`RM-01 VLM` model, and the same 20-round/24-tool limits. Every provider call must
+report positive actual input usage within the configured ceiling.
+
 The ignored proof artifact is written to
 `benchmarks/runs/local-repository-investigator-v1.json` with the complete
-session event, route, tool, citation, latency, and token trace.
+session event, route, tool, context-compilation, citation, latency, and token
+trace. The test also enforces the Context Packet v1 acceptance ceiling against
+the recorded baseline of 934,311 input tokens, 49 provider calls, and 46 tool
+calls; see [ADR 0001](docs/adr/0001-context-handoff-engine-v1.md). The live
+post-change acceptance result remains pending until such a qualifying report is
+produced; the existence of the harness is not proof that the gate passed. A
+failed run writes `local-repository-investigator-v1.failed.json` with
+`passed: false` and never overwrites the canonical accepted artifact.
 
 Inspect the four-workload benchmark canary readiness without making a paid
 model call:

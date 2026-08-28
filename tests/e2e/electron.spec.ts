@@ -58,10 +58,15 @@ test("runs a local tool loop and restores it after restart", async () => {
     })),
   ).resolves.toEqual({ process: "undefined", require: "undefined" });
 
+  await page.getByRole("button", { name: "Open run details" }).click();
+  await expect(page.getByRole("dialog", { name: "Run details" })).toBeVisible();
+  await expect(page.getByText("Context Compiled", { exact: true })).toHaveCount(2);
+  await expect(
+    page.getByText(/packet \+ .* reserved \/ 8192 token cap \/ .* evidence \/ .* omitted/u).first(),
+  ).toBeVisible();
+
   const traceScreenshotPath = process.env.SOAR_E2E_TRACE_SCREENSHOT;
   if (traceScreenshotPath) {
-    await page.getByRole("button", { name: "Open run details" }).click();
-    await expect(page.getByRole("dialog", { name: "Run details" })).toBeVisible();
     await page.waitForTimeout(220);
     await expect(
       page.evaluate(() => {
@@ -82,10 +87,10 @@ test("runs a local tool loop and restores it after restart", async () => {
       }),
     ).resolves.toBe(true);
     await page.screenshot({ path: traceScreenshotPath, fullPage: true });
-    await page.getByRole("button", { name: "Close run details" }).click();
-    await expect(page.getByRole("dialog", { name: "Run details" })).toBeHidden();
-    await page.waitForTimeout(220);
   }
+  await page.getByRole("button", { name: "Close run details" }).click();
+  await expect(page.getByRole("dialog", { name: "Run details" })).toBeHidden();
+  await page.waitForTimeout(220);
 
   const screenshotPath = process.env.SOAR_E2E_SCREENSHOT;
   if (screenshotPath) await page.screenshot({ path: screenshotPath, fullPage: true });

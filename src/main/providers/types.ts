@@ -35,6 +35,8 @@ export interface CompleteInput {
 export interface InferenceProvider {
   readonly id: string;
   readonly model: string;
+  /** Conservative allowance for adapter-owned request fields outside messages. */
+  estimateInputTokenReserve?(allowTools: boolean): number;
   complete(input: CompleteInput): Promise<ProviderResult>;
 }
 

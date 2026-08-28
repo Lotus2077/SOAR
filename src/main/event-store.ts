@@ -162,7 +162,23 @@ function toSessionRecord(row: SessionRow): SessionRecord {
 }
 
 function parseState(row: SessionRow): SessionState {
-  const state = JSON.parse(row.state_json) as SessionState;
+  const parsed = JSON.parse(row.state_json) as SessionState & {
+    contextCompilations?: SessionState["contextCompilations"];
+  };
+  if (
+    parsed.contextCompilations !== undefined &&
+    !Array.isArray(parsed.contextCompilations)
+  ) {
+    throw new Error(
+      `Session projection ${row.id} has invalid context compilation telemetry`,
+    );
+  }
+  const state: SessionState = {
+    ...parsed,
+    // Projections written before context compilation telemetry was introduced
+    // remain readable and are upgraded on the next append.
+    contextCompilations: parsed.contextCompilations ?? [],
+  };
   if (state.id !== row.id || state.lastSequence !== row.last_sequence) {
     throw new Error(`Session projection ${row.id} is inconsistent`);
   }

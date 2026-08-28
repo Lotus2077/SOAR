@@ -13,6 +13,10 @@ machine configuration.
 - one OpenAI-compatible local provider with streaming, cancellation, timeouts,
   token usage, and honest incomplete-response handling;
 - bounded, read-only repository tools for listing, literal search, and text reads;
+- provider-neutral, token-bounded context packets with deterministic evidence
+  deduplication, breadth-first admission, explicit failed-tool state,
+  citation-support snippets, fail-closed mandatory intent, packet/message hashes,
+  and persisted per-inference compilation telemetry;
 - path-and-line citation validation plus a tool-free finalization pass;
 - executable research and coding benchmark manifests, fixture isolation,
   preflight checks, evaluator adapters, and machine-readable result export;
@@ -37,6 +41,14 @@ The cloud benchmark design currently pins
 `deepseek/deepseek-v4-flash-0731` through OpenRouter. That pin is evaluation
 configuration, not an enabled application runtime. Pricing and availability are
 external facts and must be revalidated before any paid campaign.
+
+Context Packet v1 conservatively estimates one token per UTF-8 byte, reserves a
+configurable safety margin, and subtracts adapter-estimated provider request
+overhead before admitting evidence. `usage.recorded` remains the source for
+actual provider token usage, while its `reported` flag distinguishes real
+telemetry from a missing report represented by zero. The packet compiler changes
+provider request construction, not route selection. The local route is still
+assigned once and retained across the session.
 
 ## Security boundaries
 

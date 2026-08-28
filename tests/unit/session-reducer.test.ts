@@ -4,9 +4,10 @@ import {
   reduceSessionEvent,
   replaySession,
 } from "../../src/shared/session-reducer";
-import type {
-  SessionEventData,
-  StoredSessionEvent,
+import {
+  parseSessionEventData,
+  type SessionEventData,
+  type StoredSessionEvent,
 } from "../../src/shared/session-events";
 
 function stored(
@@ -107,6 +108,32 @@ describe("session reducer", () => {
         },
       }),
       stored(sessionId, 12, {
+        type: "context.compiled",
+        payload: {
+          checkpointId: "checkpoint-1",
+          compilerVersion: "context-compiler-v1",
+          reason: "phase-boundary",
+          mode: "bounded",
+          providerId: "local-vllm",
+          model: "RM-01 VLM",
+          maxTokens: 16_000,
+          estimatedTokens: 4_096,
+          estimator: "utf8-bytes-v1",
+          reservedInputTokens: 1_000,
+          effectiveInputTokenBudget: 13_400,
+          sourceMessageCount: 5,
+          messageCount: 3,
+          evidenceCount: 1,
+          deduplicatedEvidenceCount: 1,
+          omittedEvidenceCount: 0,
+          packetSha256:
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          messagesSha256:
+            "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+          safetyMargin: 0.1,
+        },
+      }),
+      stored(sessionId, 13, {
         type: "usage.recorded",
         payload: {
           inputTokens: 100,
@@ -117,7 +144,7 @@ describe("session reducer", () => {
           ttftMs: 120,
         },
       }),
-      stored(sessionId, 13, {
+      stored(sessionId, 14, {
         type: "session.completed",
         payload: {},
       }),
@@ -134,7 +161,7 @@ describe("session reducer", () => {
       id: sessionId,
       status: "completed",
       result: "The note greets the workspace.",
-      lastSequence: 13,
+      lastSequence: 14,
       usage: {
         inputTokens: 100,
         outputTokens: 20,
@@ -143,6 +170,33 @@ describe("session reducer", () => {
         latencyMs: 650,
         ttftMs: 120,
       },
+      contextCompilations: [
+        {
+          checkpointId: "checkpoint-1",
+          compilerVersion: "context-compiler-v1",
+          reason: "phase-boundary",
+          mode: "bounded",
+          providerId: "local-vllm",
+          model: "RM-01 VLM",
+          maxTokens: 16_000,
+          estimatedTokens: 4_096,
+          estimator: "utf8-bytes-v1",
+          reservedInputTokens: 1_000,
+          effectiveInputTokenBudget: 13_400,
+          sourceMessageCount: 5,
+          messageCount: 3,
+          evidenceCount: 1,
+          deduplicatedEvidenceCount: 1,
+          omittedEvidenceCount: 0,
+          packetSha256:
+            "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+          messagesSha256:
+            "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+          safetyMargin: 0.1,
+          sequence: 12,
+          createdAt: "2026-08-27T00:00:12.000Z",
+        },
+      ],
     });
     expect(first.messages.find((message) => message.id === "assistant-1"))
       .toMatchObject({
@@ -266,5 +320,129 @@ describe("session reducer", () => {
     expect(state.status).toBe("interrupted");
     expect(state.messages.at(-1)?.status).toBe("failed");
     expect(state.error).toBe("App restarted");
+  });
+
+  it("strictly validates context compilation telemetry and safe ranges", () => {
+    const valid = {
+      type: "context.compiled",
+      payload: {
+        checkpointId: "checkpoint-1",
+        compilerVersion: "context-compiler-v1",
+        reason: "provider-switch",
+        mode: "bounded",
+        providerId: "local-vllm",
+        model: "RM-01 VLM",
+        maxTokens: 8_000,
+        estimatedTokens: 2_000,
+        estimator: "utf8-bytes-v1",
+        reservedInputTokens: 500,
+        effectiveInputTokenBudget: 6_300,
+        sourceMessageCount: 12,
+        messageCount: 6,
+        evidenceCount: 3,
+        deduplicatedEvidenceCount: 2,
+        omittedEvidenceCount: 1,
+        packetSha256:
+          "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+        messagesSha256:
+          "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+        safetyMargin: 0.15,
+      },
+    };
+
+    expect(parseSessionEventData(valid)).toEqual(valid);
+    expect(() =>
+      parseSessionEventData({
+        ...valid,
+        payload: { ...valid.payload, estimatedTokens: 6_301 },
+      }),
+    ).toThrow(/estimatedTokens must not exceed effectiveInputTokenBudget/);
+    expect(() =>
+      parseSessionEventData({
+        ...valid,
+        payload: { ...valid.payload, effectiveInputTokenBudget: 6_301 },
+      }),
+    ).toThrow(/effectiveInputTokenBudget must equal/);
+    expect(() =>
+      parseSessionEventData({
+        ...valid,
+        payload: { ...valid.payload, messageCount: Number.MAX_SAFE_INTEGER + 1 },
+      }),
+    ).toThrow();
+    expect(() =>
+      parseSessionEventData({
+        ...valid,
+        payload: { ...valid.payload, safetyMargin: 1 },
+      }),
+    ).toThrow();
+    expect(() =>
+      parseSessionEventData({
+        ...valid,
+        payload: { ...valid.payload, estimator: "characters-v0" },
+      }),
+    ).toThrow();
+    expect(() =>
+      parseSessionEventData({
+        ...valid,
+        payload: { ...valid.payload, messagesSha256: "not-a-sha256" },
+      }),
+    ).toThrow();
+    expect(() =>
+      parseSessionEventData({
+        ...valid,
+        payload: { ...valid.payload, unexpected: true },
+      }),
+    ).toThrow();
+  });
+
+  it("rejects context compilation telemetry after a terminal event", () => {
+    const sessionId = "session-1";
+    const state = replaySession([
+      stored(sessionId, 1, {
+        type: "session.created",
+        payload: {
+          title: "Task",
+          objective: "Do the task",
+          workspaceRoot: "/tmp/workspace",
+          profile: "balanced",
+        },
+      }),
+      stored(sessionId, 2, {
+        type: "session.completed",
+        payload: { result: "Done" },
+      }),
+    ]);
+
+    expect(() =>
+      reduceSessionEvent(
+        state,
+        stored(sessionId, 3, {
+          type: "context.compiled",
+          payload: {
+            checkpointId: "checkpoint-late",
+            compilerVersion: "context-compiler-v1",
+            reason: "finalization",
+            mode: "bounded",
+            providerId: "local-vllm",
+            model: "RM-01 VLM",
+            maxTokens: 8_000,
+            estimatedTokens: 2_000,
+            estimator: "utf8-bytes-v1",
+            reservedInputTokens: 500,
+            effectiveInputTokenBudget: 6_300,
+            sourceMessageCount: 1,
+            messageCount: 1,
+            evidenceCount: 0,
+            deduplicatedEvidenceCount: 0,
+            omittedEvidenceCount: 0,
+            packetSha256:
+              "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+            messagesSha256:
+              "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+            safetyMargin: 0.15,
+          },
+        }),
+      ),
+    ).toThrow(/after session entered terminal status completed/);
   });
 });

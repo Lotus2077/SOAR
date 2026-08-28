@@ -104,6 +104,15 @@ afterEach(async () => {
 });
 
 describe("OpenAICompatibleProvider", () => {
+  it("reserves conservative input space for adapter and tool-owned request fields", () => {
+    const provider = createProvider("http://127.0.0.1:1/v1");
+
+    expect(provider.estimateInputTokenReserve(false)).toBeGreaterThanOrEqual(512);
+    expect(provider.estimateInputTokenReserve(true)).toBeGreaterThan(
+      provider.estimateInputTokenReserve(false),
+    );
+  });
+
   it("assembles fragmented streamed text and reports usage and latency", async () => {
     const server = await startFakeOpenAiServer(async ({ response }) => {
       await new Promise((resolve) => setTimeout(resolve, 20));

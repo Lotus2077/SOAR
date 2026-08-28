@@ -17,6 +17,26 @@ interface ToolCallAccumulator {
   arguments: string;
 }
 
+const PROVIDER_TEMPLATE_RESERVE_TOKENS = 512;
+
+function conservativeTokenReserve(value: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(value)).length;
+}
+
+const WORKING_REQUEST_RESERVE_TOKENS =
+  PROVIDER_TEMPLATE_RESERVE_TOKENS +
+  conservativeTokenReserve({
+    tools: MODEL_TOOL_DEFINITIONS,
+    tool_choice: "auto",
+    parallel_tool_calls: false,
+  });
+const FINALIZATION_REQUEST_RESERVE_TOKENS =
+  PROVIDER_TEMPLATE_RESERVE_TOKENS +
+  conservativeTokenReserve({
+    tool_choice: "none",
+    reasoning_effort: "none",
+  });
+
 export class OpenAICompatibleProvider implements InferenceProvider {
   readonly id = "local-vllm";
   readonly model: string;
@@ -34,6 +54,13 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       timeout: config.timeoutMs,
       maxRetries: 0,
     });
+  }
+
+  estimateInputTokenReserve(allowTools: boolean): number {
+    const requestReserve = allowTools
+      ? WORKING_REQUEST_RESERVE_TOKENS
+      : FINALIZATION_REQUEST_RESERVE_TOKENS;
+    return requestReserve + new TextEncoder().encode(this.model).length;
   }
 
   async complete({

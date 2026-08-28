@@ -51,6 +51,7 @@ function config(): SoarConfig {
       timeoutMs: 30_000,
     },
     limits: { inferenceRounds: 4, toolCalls: 8 },
+    context: { maxInputTokens: 8_192, safetyMargin: 0.2 },
   };
 }
 

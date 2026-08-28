@@ -50,6 +50,30 @@ export interface SessionUsage {
   ttftMs?: number;
 }
 
+export interface ContextCompilation {
+  checkpointId: string;
+  compilerVersion: string;
+  reason: string;
+  mode: string;
+  providerId: string;
+  model: string;
+  maxTokens: number;
+  estimatedTokens: number;
+  estimator: "utf8-bytes-v1";
+  reservedInputTokens: number;
+  effectiveInputTokenBudget: number;
+  sourceMessageCount: number;
+  messageCount: number;
+  evidenceCount: number;
+  deduplicatedEvidenceCount: number;
+  omittedEvidenceCount: number;
+  packetSha256: string;
+  messagesSha256: string;
+  safetyMargin: number;
+  sequence: number;
+  createdAt: string;
+}
+
 export interface SessionState {
   id: string;
   title: string;
@@ -62,6 +86,7 @@ export interface SessionState {
   lastSequence: number;
   messages: CanonicalMessage[];
   routes: RouteAssignment[];
+  contextCompilations: ContextCompilation[];
   usage: SessionUsage;
   result?: string;
   error?: string;
@@ -110,6 +135,7 @@ export function createInitialSessionState(
     lastSequence: event.sequence,
     messages: [],
     routes: [],
+    contextCompilations: [],
     usage: {
       inputTokens: 0,
       outputTokens: 0,
@@ -156,6 +182,11 @@ export function reduceSessionEvent(
       })),
     })),
     routes: state.routes.map((route) => ({ ...route })),
+    // Persisted projections created before context telemetry was introduced do
+    // not have this field. Defaulting here keeps those snapshots replayable.
+    contextCompilations: (state.contextCompilations ?? []).map(
+      (compilation) => ({ ...compilation }),
+    ),
     usage: { ...state.usage },
     updatedAt: event.createdAt,
     lastSequence: event.sequence,
@@ -275,6 +306,13 @@ export function reduceSessionEvent(
       });
       break;
     }
+    case "context.compiled":
+      next.contextCompilations.push({
+        ...event.payload,
+        sequence: event.sequence,
+        createdAt: event.createdAt,
+      });
+      break;
     case "usage.recorded":
       next.usage.inputTokens += event.payload.inputTokens;
       next.usage.outputTokens += event.payload.outputTokens;

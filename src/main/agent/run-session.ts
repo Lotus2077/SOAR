@@ -1,9 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  buildFinalizationContext,
-  buildProviderContext,
-} from "../../shared/context-builder";
+import { compileContextPacket } from "../../shared/context-compiler";
 import {
   isTerminalSessionStatus,
   type JsonValue,
@@ -33,6 +30,7 @@ export interface SessionRunnerOptions {
   store: EventStore;
   provider: InferenceProvider;
   limits: SoarConfig["limits"];
+  context?: SoarConfig["context"];
   onUpdate?: (update: RuntimeUpdate) => void;
 }
 
@@ -180,6 +178,7 @@ export class SessionRunner {
   private readonly store: EventStore;
   private readonly provider: InferenceProvider;
   private readonly limits: SoarConfig["limits"];
+  private readonly context: SoarConfig["context"];
   private readonly onUpdate?: (update: RuntimeUpdate) => void;
   private readonly controllers = new Map<string, AbortController>();
   private readonly promises = new Map<string, Promise<void>>();
@@ -188,6 +187,10 @@ export class SessionRunner {
     this.store = options.store;
     this.provider = options.provider;
     this.limits = options.limits;
+    this.context = options.context ?? {
+      maxInputTokens: 8_192,
+      safetyMargin: 0.2,
+    };
     this.onUpdate = options.onUpdate;
   }
 
@@ -260,29 +263,70 @@ export class SessionRunner {
       for (let round = 0; round < this.limits.inferenceRounds; round += 1) {
         if (controller.signal.aborted) throw new ProviderAbortedError("Inference cancelled", "");
 
-        currentMessageId = randomUUID();
+        currentMessageId = undefined;
         currentPartial = "";
         completedCurrentMessage = false;
-        this.append(sessionId, {
-          type: "assistant.message.started",
-          payload: {
-            messageId: currentMessageId,
-            providerId: route.providerId,
-            model: route.model,
-          },
-        });
-
         const allowTools =
           round < this.limits.inferenceRounds - 1 &&
           totalToolCalls < this.limits.toolCalls;
         const state = this.store.getProjectedState(sessionId);
-        const context: ProviderMessage[] = allowTools
-          ? buildProviderContext(state, {
-              systemPrompt: systemPrompt(this.limits),
-            })
-          : buildFinalizationContext(state, {
-              systemPrompt: finalizationPrompt(),
-            });
+        const mode = allowTools ? "working" : "finalization";
+        const reservedInputTokens =
+          this.provider.estimateInputTokenReserve?.(allowTools) ?? 0;
+        const compiledContext = compileContextPacket(state, {
+          mode,
+          systemPrompt: allowTools
+            ? systemPrompt(this.limits)
+            : finalizationPrompt(),
+          maxInputTokens: this.context.maxInputTokens,
+          safetyMargin: this.context.safetyMargin,
+          reservedInputTokens,
+        });
+        const context: ProviderMessage[] = compiledContext.messages;
+        currentMessageId = randomUUID();
+        this.appendMany(sessionId, [
+          {
+            type: "assistant.message.started",
+            payload: {
+              messageId: currentMessageId,
+              providerId: route.providerId,
+              model: route.model,
+            },
+          },
+          {
+            type: "context.compiled",
+            payload: {
+              checkpointId: `${sessionId}:context:${round + 1}`,
+              compilerVersion: compiledContext.telemetry.compilerVersion,
+              reason:
+                round === 0
+                  ? "session_start"
+                  : allowTools
+                    ? "tool_result_boundary"
+                    : "finalization_boundary",
+              mode,
+              providerId: route.providerId,
+              model: route.model,
+              maxTokens: compiledContext.telemetry.maxTokens,
+              estimatedTokens: compiledContext.telemetry.estimatedTokens,
+              estimator: compiledContext.telemetry.estimator,
+              reservedInputTokens:
+                compiledContext.telemetry.reservedInputTokens,
+              effectiveInputTokenBudget:
+                compiledContext.telemetry.effectiveInputTokenBudget,
+              sourceMessageCount: compiledContext.telemetry.sourceMessageCount,
+              messageCount: compiledContext.telemetry.messageCount,
+              evidenceCount: compiledContext.telemetry.evidenceCount,
+              deduplicatedEvidenceCount:
+                compiledContext.telemetry.deduplicatedEvidenceCount,
+              omittedEvidenceCount:
+                compiledContext.telemetry.omittedEvidenceCount,
+              packetSha256: compiledContext.telemetry.packetSha256,
+              messagesSha256: compiledContext.telemetry.messagesHash,
+              safetyMargin: compiledContext.telemetry.safetyMargin,
+            },
+          },
+        ]);
         const result = await this.provider.complete({
           messages: context,
           signal: controller.signal,
@@ -351,6 +395,7 @@ export class SessionRunner {
             inputTokens: result.usage?.inputTokens ?? 0,
             outputTokens: result.usage?.outputTokens ?? 0,
             reasoningTokens: result.usage?.reasoningTokens ?? 0,
+            reported: result.usage !== undefined,
             costUsd: 0,
             latencyMs: result.durationMs,
             ...(result.timeToFirstTokenMs === undefined

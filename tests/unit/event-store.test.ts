@@ -154,4 +154,30 @@ describe("EventStore", () => {
         .run("session-1"),
     ).toThrow(/append-only/);
   });
+
+  it("loads and upgrades projections written before context telemetry", () => {
+    const { database, store } = createStore();
+    const session = store.createSession({
+      id: "legacy-session",
+      title: "Legacy task",
+      objective: "Continue from an older projection",
+      workspaceRoot: "/tmp/workspace",
+    });
+    const legacyState = JSON.parse(
+      JSON.stringify(store.getProjectedState(session.id)),
+    ) as Record<string, unknown>;
+    delete legacyState.contextCompilations;
+    database
+      .prepare("UPDATE sessions SET state_json = ? WHERE id = ?")
+      .run(JSON.stringify(legacyState), session.id);
+
+    expect(store.getProjectedState(session.id).contextCompilations).toEqual([]);
+
+    store.append(session.id, { type: "session.started", payload: {} });
+    expect(store.getProjectedState(session.id)).toMatchObject({
+      status: "running",
+      contextCompilations: [],
+    });
+    expect(store.getProjectedState(session.id)).toEqual(store.replay(session.id));
+  });
 });

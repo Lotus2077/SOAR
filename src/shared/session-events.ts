@@ -51,6 +51,7 @@ export const SessionEventTypeSchema = z.enum([
   "assistant.message.completed",
   "tool.call.requested",
   "tool.call.completed",
+  "context.compiled",
   "usage.recorded",
   "session.completed",
   "session.failed",
@@ -80,6 +81,8 @@ export const JsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
 const requiredId = z.string().trim().min(1);
 const nonNegativeInteger = z.number().int().nonnegative();
 const nonNegativeNumber = z.number().finite().nonnegative();
+const safeNonNegativeInteger = z.number().int().nonnegative().safe();
+const safePositiveInteger = z.number().int().positive().safe();
 
 const sessionCreatedSchema = z
   .object({
@@ -197,6 +200,60 @@ const toolCallCompletedSchema = z
   })
   .strict();
 
+const contextCompiledSchema = z
+  .object({
+    type: z.literal("context.compiled"),
+    payload: z
+      .object({
+        checkpointId: requiredId,
+        compilerVersion: requiredId,
+        reason: requiredId,
+        mode: requiredId,
+        providerId: requiredId,
+        model: requiredId,
+        maxTokens: safePositiveInteger,
+        estimatedTokens: safeNonNegativeInteger,
+        estimator: z.literal("utf8-bytes-v1"),
+        reservedInputTokens: safeNonNegativeInteger,
+        effectiveInputTokenBudget: safeNonNegativeInteger,
+        sourceMessageCount: safeNonNegativeInteger,
+        messageCount: safeNonNegativeInteger,
+        evidenceCount: safeNonNegativeInteger,
+        deduplicatedEvidenceCount: safeNonNegativeInteger,
+        omittedEvidenceCount: safeNonNegativeInteger,
+        packetSha256: z.string().regex(/^[a-f0-9]{64}$/),
+        messagesSha256: z.string().regex(/^[a-f0-9]{64}$/),
+        safetyMargin: z.number().finite().min(0).lt(1),
+      })
+      .strict()
+      .superRefine((payload, context) => {
+        const expectedEffectiveBudget =
+          payload.maxTokens -
+          Math.ceil(payload.maxTokens * payload.safetyMargin) -
+          payload.reservedInputTokens;
+        if (
+          expectedEffectiveBudget < 0 ||
+          payload.effectiveInputTokenBudget !== expectedEffectiveBudget
+        ) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "effectiveInputTokenBudget must equal maxTokens minus the safety margin and reservedInputTokens",
+            path: ["effectiveInputTokenBudget"],
+          });
+        }
+        if (payload.estimatedTokens > payload.effectiveInputTokenBudget) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "estimatedTokens must not exceed effectiveInputTokenBudget",
+            path: ["estimatedTokens"],
+          });
+        }
+      }),
+  })
+  .strict();
+
 const usageRecordedSchema = z
   .object({
     type: z.literal("usage.recorded"),
@@ -205,6 +262,7 @@ const usageRecordedSchema = z
         inputTokens: nonNegativeInteger,
         outputTokens: nonNegativeInteger,
         reasoningTokens: nonNegativeInteger.default(0),
+        reported: z.boolean().optional(),
         costUsd: nonNegativeNumber,
         latencyMs: nonNegativeNumber.optional(),
         ttftMs: nonNegativeNumber.optional(),
@@ -267,6 +325,7 @@ export const SessionEventDataSchema = z.discriminatedUnion("type", [
   assistantMessageCompletedSchema,
   toolCallRequestedSchema,
   toolCallCompletedSchema,
+  contextCompiledSchema,
   usageRecordedSchema,
   sessionCompletedSchema,
   sessionFailedSchema,

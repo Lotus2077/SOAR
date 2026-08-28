@@ -90,6 +90,7 @@ async function bootstrap(): Promise<void> {
     store,
     provider,
     limits: config.limits,
+    context: config.context,
     onUpdate: (update) => publish(store, update),
   });
 

@@ -6,10 +6,48 @@ import type {
 } from "./types";
 import { ProviderAbortedError } from "./types";
 
+const CONTEXT_PACKET_PREFIX = "SOAR_CONTEXT_PACKET_V1\n";
+
+interface ContextPacketToolEvidence {
+  kind: "tool_evidence";
+  content: string;
+}
+
+interface ContextPacketShape {
+  evidence?: Array<ContextPacketToolEvidence | { kind?: string }>;
+}
+
+function toolResultFromContextPacket(message: ProviderMessage): string | undefined {
+  if (message.role !== "user" || !message.content.startsWith(CONTEXT_PACKET_PREFIX)) {
+    return undefined;
+  }
+
+  try {
+    const packet = JSON.parse(
+      message.content.slice(CONTEXT_PACKET_PREFIX.length),
+    ) as ContextPacketShape;
+    const toolEvidence = [...(packet.evidence ?? [])]
+      .reverse()
+      .find(
+        (entry): entry is ContextPacketToolEvidence =>
+          entry.kind === "tool_evidence" &&
+          "content" in entry &&
+          typeof entry.content === "string",
+      );
+    return toolEvidence?.content;
+  } catch {
+    return undefined;
+  }
+}
+
 function extractLastToolResult(messages: ProviderMessage[]): string | undefined {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = messages[index];
     if (message?.role === "tool") return message.content ?? undefined;
+    if (message) {
+      const packetToolResult = toolResultFromContextPacket(message);
+      if (packetToolResult !== undefined) return packetToolResult;
+    }
   }
   return undefined;
 }

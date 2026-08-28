@@ -75,6 +75,10 @@ describe("loadConfig", () => {
       model: "user-data-model",
     });
     expect(config.databasePath).toBe("/tmp/user-data.sqlite");
+    expect(config.context).toEqual({
+      maxInputTokens: 8_192,
+      safetyMargin: 0.2,
+    });
   });
 
   it("keeps explicit process environment values authoritative", async () => {
@@ -135,5 +139,34 @@ describe("loadConfig", () => {
       baseUrl: "https://explicit-file.example/v1",
       model: "explicit-file-model",
     });
+  });
+
+  it("loads and validates the provider-neutral context budget", async () => {
+    const roots = await createConfigRoots();
+    const config = loadConfig({
+      ...roots,
+      environment: {
+        SOAR_VLLM_BASE_URL: "https://context.example/v1",
+        SOAR_VLLM_MODEL: "context-model",
+        SOAR_CONTEXT_MAX_INPUT_TOKENS: "16384",
+        SOAR_CONTEXT_SAFETY_MARGIN: "0.25",
+      },
+    });
+
+    expect(config.context).toEqual({
+      maxInputTokens: 16_384,
+      safetyMargin: 0.25,
+    });
+
+    expect(() =>
+      loadConfig({
+        ...roots,
+        environment: {
+          SOAR_VLLM_BASE_URL: "https://context.example/v1",
+          SOAR_VLLM_MODEL: "context-model",
+          SOAR_CONTEXT_MAX_INPUT_TOKENS: "1024",
+        },
+      }),
+    ).toThrow();
   });
 });

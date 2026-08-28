@@ -18,7 +18,7 @@ const environmentSchema = z.object({
     })
     .default("http://localhost:8000/v1"),
   SOAR_VLLM_API_KEY: z.string().optional(),
-  SOAR_VLLM_MODEL: z.string().trim().min(1).default("RM-01 VLM"),
+  SOAR_VLLM_MODEL: z.string().trim().min(1).max(256).default("RM-01 VLM"),
   SOAR_ALLOW_INSECURE_VLLM_HTTP: booleanString,
   SOAR_PROVIDER_MODE: z.enum(["local", "fake"]).default("local"),
   SOAR_FAKE_DELAY_MS: z.coerce.number().int().min(0).max(5_000).default(12),
@@ -28,6 +28,13 @@ const environmentSchema = z.object({
   SOAR_MAX_TOOL_CALLS: z.coerce.number().int().min(1).max(32).default(24),
   SOAR_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(128).max(65_536).default(8_192),
   SOAR_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(900_000).default(300_000),
+  SOAR_CONTEXT_MAX_INPUT_TOKENS: z.coerce
+    .number()
+    .int()
+    .min(2_048)
+    .max(1_048_576)
+    .default(8_192),
+  SOAR_CONTEXT_SAFETY_MARGIN: z.coerce.number().min(0.05).max(0.5).default(0.2),
 });
 
 export interface SoarConfig {
@@ -45,6 +52,10 @@ export interface SoarConfig {
   limits: {
     inferenceRounds: number;
     toolCalls: number;
+  };
+  context: {
+    maxInputTokens: number;
+    safetyMargin: number;
   };
 }
 
@@ -105,6 +116,10 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
     limits: {
       inferenceRounds: env.SOAR_MAX_INFERENCE_ROUNDS,
       toolCalls: env.SOAR_MAX_TOOL_CALLS,
+    },
+    context: {
+      maxInputTokens: env.SOAR_CONTEXT_MAX_INPUT_TOKENS,
+      safetyMargin: env.SOAR_CONTEXT_SAFETY_MARGIN,
     },
   };
 }

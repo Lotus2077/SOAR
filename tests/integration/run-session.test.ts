@@ -19,6 +19,7 @@ import {
   type ProviderMessage,
   type ProviderResult,
 } from "../../src/main/providers/types";
+import type { ContextPacket } from "../../src/shared/context-compiler";
 
 const databases: SoarDatabase[] = [];
 const temporaryDirectories: string[] = [];
@@ -39,6 +40,16 @@ function limits(
   overrides: Partial<SoarConfig["limits"]> = {},
 ): SoarConfig["limits"] {
   return { inferenceRounds: 4, toolCalls: 8, ...overrides };
+}
+
+function parseContextPacket(messages: ProviderMessage[]): ContextPacket {
+  const packetMessage = messages.find((message) => message.role === "user");
+  const prefix = "SOAR_CONTEXT_PACKET_V1\n";
+  const content = packetMessage?.content;
+  if (typeof content !== "string" || !content.startsWith(prefix)) {
+    throw new Error("Expected a SOAR context packet user message.");
+  }
+  return JSON.parse(content.slice(prefix.length)) as ContextPacket;
 }
 
 class RecordingFakeProvider implements InferenceProvider {
@@ -218,6 +229,23 @@ class FixedResultProvider implements InferenceProvider {
   }
 }
 
+class NeverCalledProvider implements InferenceProvider {
+  readonly id = "never-called-local";
+  readonly model = "never-called-test-model";
+  calls = 0;
+
+  constructor(private readonly reserve = 0) {}
+
+  estimateInputTokenReserve(_allowTools: boolean): number {
+    return this.reserve;
+  }
+
+  async complete(_input: CompleteInput): Promise<ProviderResult> {
+    this.calls += 1;
+    throw new Error("Provider must not be called when context compilation fails.");
+  }
+}
+
 class EvidenceThenAnswerProvider implements InferenceProvider {
   readonly id = "citation-local";
   readonly model = "citation-test-model";
@@ -313,6 +341,9 @@ describe("SessionRunner", () => {
     const events = store.getEvents(session.id);
     const routes = events.filter((event) => event.type === "route.assigned");
     const usage = events.filter((event) => event.type === "usage.recorded");
+    const contextCompilations = events.filter(
+      (event) => event.type === "context.compiled",
+    );
     expect(routes).toHaveLength(1);
     expect(routes[0]?.payload).toMatchObject({
       providerId: "local-vllm",
@@ -322,6 +353,43 @@ describe("SessionRunner", () => {
     });
     expect(usage).toHaveLength(2);
     expect(usage.every((event) => event.payload.costUsd === 0)).toBe(true);
+    expect(contextCompilations).toHaveLength(2);
+    expect(contextCompilations.map((event) => event.payload.reason)).toEqual([
+      "session_start",
+      "tool_result_boundary",
+    ]);
+    expect(
+      contextCompilations.map((event) => event.payload.sourceMessageCount),
+    ).toEqual([1, 3]);
+    expect(
+      contextCompilations.map((event) => ({
+        estimator: event.payload.estimator,
+        reservedInputTokens: event.payload.reservedInputTokens,
+        effectiveInputTokenBudget: event.payload.effectiveInputTokenBudget,
+      })),
+    ).toEqual([
+      {
+        estimator: "utf8-bytes-v1",
+        reservedInputTokens: 0,
+        effectiveInputTokenBudget: 6_553,
+      },
+      {
+        estimator: "utf8-bytes-v1",
+        reservedInputTokens: 0,
+        effectiveInputTokenBudget: 6_553,
+      },
+    ]);
+    expect(
+      contextCompilations.every(
+        (event) => event.payload.estimatedTokens <= event.payload.maxTokens,
+      ),
+    ).toBe(true);
+    expect(
+      contextCompilations.every((event) => /^[a-f0-9]{64}$/u.test(event.payload.packetSha256)),
+    ).toBe(true);
+    expect(
+      contextCompilations.every((event) => /^[a-f0-9]{64}$/u.test(event.payload.messagesSha256)),
+    ).toBe(true);
 
     expect(provider.contexts).toHaveLength(2);
     expect(provider.contexts[0]?.map((message) => message.role)).toEqual([
@@ -331,25 +399,20 @@ describe("SessionRunner", () => {
     expect(provider.contexts[1]?.map((message) => message.role)).toEqual([
       "system",
       "user",
-      "assistant",
-      "tool",
     ]);
-    expect(provider.contexts[1]?.[2]).toMatchObject({
-      role: "assistant",
-      content: null,
-      tool_calls: [
-        {
-          id: "read-probe",
-          function: {
-            name: "read_text_file",
-            arguments: '{"relativePath":"SOAR_PROBE.txt"}',
-          },
-        },
-      ],
+    const packet = parseContextPacket(provider.contexts[1] ?? []);
+    expect(packet.schema).toBe("soar.context-packet.v1");
+    expect(packet.objective).toBe("Read SOAR_PROBE.txt and report its marker.");
+    const toolEvidence = packet.evidence.find(
+      (entry) => entry.kind === "tool_evidence",
+    );
+    expect(toolEvidence).toMatchObject({
+      kind: "tool_evidence",
+      toolName: "read_text_file",
+      workspaceRelativePath: "SOAR_PROBE.txt",
+      argumentsExcerpt: '{"relativePath":"SOAR_PROBE.txt"}',
     });
-    const toolContext = provider.contexts[1]?.[3];
-    expect(toolContext).toMatchObject({ role: "tool", tool_call_id: "read-probe" });
-    expect(JSON.parse(toolContext?.content ?? "{}")).toMatchObject({
+    expect(JSON.parse(toolEvidence?.content ?? "{}")).toMatchObject({
       ok: true,
       text: "vertical-slice\n",
       bytes: 15,
@@ -621,6 +684,44 @@ describe("SessionRunner", () => {
     expect(store.replay(session.id)).toEqual(store.getProjectedState(session.id));
   });
 
+  it("marks token usage unavailable instead of presenting missing telemetry as reported zero", async () => {
+    const workspaceRoot = await createWorkspace();
+    const store = createStore();
+    const session = store.createSession({
+      id: "missing-provider-usage",
+      title: "Missing usage",
+      objective: "Return a visible answer.",
+      workspaceRoot,
+    });
+    const runner = new SessionRunner({
+      store,
+      provider: new FixedResultProvider({
+        content: "A visible answer without usage metadata.",
+        toolCalls: [],
+        finishReason: "stop",
+        durationMs: 1,
+      }),
+      limits: limits(),
+    });
+
+    await runner.startSession(session.id);
+
+    expect(store.requireSession(session.id)).toMatchObject({
+      status: "completed",
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+    });
+    expect(
+      store.getEvents(session.id).find((event) => event.type === "usage.recorded")
+        ?.payload,
+    ).toMatchObject({
+      inputTokens: 0,
+      outputTokens: 0,
+      reasoningTokens: 0,
+      reported: false,
+    });
+  });
+
   it("retains partial visible text when content filtering makes a response incomplete", async () => {
     const workspaceRoot = await createWorkspace();
     const store = createStore();
@@ -745,17 +846,54 @@ describe("SessionRunner", () => {
     expect(provider.contexts[1]?.[0]?.content).toContain(
       "Never request, invoke, or emit a tool call.",
     );
-    expect(provider.contexts[1]?.[1]?.content).toContain("tool: read_text_file");
-    expect(provider.contexts[1]?.[1]?.content).toContain(
-      "workspace_relative_path: SOAR_PROBE.txt",
+    const packet = parseContextPacket(provider.contexts[1] ?? []);
+    expect(packet.mode).toBe("finalization");
+    expect(packet.evidence).toContainEqual(
+      expect.objectContaining({
+        kind: "tool_evidence",
+        toolName: "read_text_file",
+        workspaceRelativePath: "SOAR_PROBE.txt",
+        argumentsExcerpt: '{"relativePath":"SOAR_PROBE.txt"}',
+        content: expect.stringContaining('"text":"probe\\n"'),
+      }),
     );
-    expect(provider.contexts[1]?.[1]?.content).toContain(
-      'arguments: {"relativePath":"SOAR_PROBE.txt"}',
-    );
-    expect(provider.contexts[1]?.[1]?.content).toContain('"text":"probe\\n"');
     const events = store.getEvents(session.id);
     expect(events.filter((event) => event.type === "tool.call.requested")).toHaveLength(1);
     expect(events.filter((event) => event.type === "tool.call.completed")).toHaveLength(1);
+    expect(
+      events
+        .filter((event) => event.type === "context.compiled")
+        .map((event) => event.payload.mode),
+    ).toEqual(["working", "finalization"]);
+  });
+
+  it("fails closed before inference when the context budget cannot fit the task envelope", async () => {
+    const workspaceRoot = await createWorkspace();
+    const store = createStore();
+    const provider = new NeverCalledProvider(4_096);
+    const session = store.createSession({
+      id: "context-budget-too-small",
+      title: "Budget guard",
+      objective: "Return a useful answer.",
+      workspaceRoot,
+    });
+    const runner = new SessionRunner({
+      store,
+      provider,
+      limits: limits(),
+      context: { maxInputTokens: 4_096, safetyMargin: 0.2 },
+    });
+
+    await runner.startSession(session.id);
+
+    expect(provider.calls).toBe(0);
+    expect(store.requireSession(session.id)).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining("reserved provider-overhead tokens"),
+    });
+    const events = store.getEvents(session.id);
+    expect(events.filter((event) => event.type === "context.compiled")).toHaveLength(0);
+    expect(events.filter((event) => event.type === "usage.recorded")).toHaveLength(0);
   });
 
   it("fails closed when a provider still calls a tool from the finalizer", async () => {

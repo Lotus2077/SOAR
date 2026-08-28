@@ -289,6 +289,20 @@ function routeReasonLabel(reason: string): string {
 function eventDetail(event: SoarSessionEvent): string {
   const payload = asPayload(event.payload);
   const type = event.type.toLowerCase();
+  if (type === "context.compiled") {
+    const number = (key: string) =>
+      typeof payload[key] === "number" && Number.isFinite(payload[key])
+        ? (payload[key] as number)
+        : 0;
+    const estimated = number("estimatedTokens");
+    const reserved = number("reservedInputTokens");
+    const maximum = number("maxTokens");
+    const evidence = number("evidenceCount");
+    const omitted = number("omittedEvidenceCount");
+    return shortText(
+      `${estimated} packet + ${reserved} reserved / ${maximum} token cap / ${evidence} evidence / ${omitted} omitted`,
+    );
+  }
   if (type.includes("route") || type.includes("model")) {
     const provider = firstText(payload, ["providerId", "provider", "providerName"]);
     const model = firstText(payload, ["model", "modelName"]);
@@ -924,6 +938,7 @@ function Composer({
 function traceIcon(type: string): ReactNode {
   const normalized = type.toLowerCase();
   if (normalized.includes("tool")) return <Wrench />;
+  if (normalized.includes("context")) return <Code />;
   if (normalized.includes("route") || normalized.includes("model")) return <Cpu />;
   if (normalized.includes("fail") || normalized.includes("error")) return <XCircle />;
   if (normalized.includes("complete")) return <CheckCircle />;

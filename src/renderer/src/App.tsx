@@ -289,6 +289,24 @@ function routeReasonLabel(reason: string): string {
 function eventDetail(event: SoarSessionEvent): string {
   const payload = asPayload(event.payload);
   const type = event.type.toLowerCase();
+  if (type === "completion.obligations.checked") {
+    const outcome = firstText(payload, ["outcome"]);
+    const missing = Array.isArray(payload.missingRequiredTools)
+      ? payload.missingRequiredTools.filter(
+          (value): value is string => typeof value === "string",
+        )
+      : [];
+    const verified = Array.isArray(payload.verifiedPathLineCitations)
+      ? payload.verifiedPathLineCitations.length
+      : 0;
+    return shortText(
+      [
+        outcome || "checked",
+        `${verified} verified citation${verified === 1 ? "" : "s"}`,
+        missing.length > 0 ? `next: ${missing[0]}` : "tools complete",
+      ].join(" / "),
+    );
+  }
   if (type === "context.compiled") {
     const number = (key: string) =>
       typeof payload[key] === "number" && Number.isFinite(payload[key])
@@ -345,7 +363,19 @@ function persistedAssistantDraft(snapshot: SoarSessionSnapshot | null): string {
     .find(([messageId]) => !completed.has(messageId))?.[1] || "";
 }
 
-function transcriptFrom(snapshot: SoarSessionSnapshot | null): TranscriptItem[] {
+export function latestAssistantStartEventId(
+  snapshot: SoarSessionSnapshot | null,
+): string | null {
+  if (!snapshot) return null;
+  return (
+    [...(snapshot.events || [])]
+      .filter((event) => event.type === "assistant.message.started")
+      .sort((left, right) => (right.sequence || 0) - (left.sequence || 0))[0]
+      ?.id ?? null
+  );
+}
+
+export function transcriptFrom(snapshot: SoarSessionSnapshot | null): TranscriptItem[] {
   if (!snapshot) return [];
   const sorted = [...(snapshot.events || [])].sort(
     (a, b) => (a.sequence || 0) - (b.sequence || 0),
@@ -454,6 +484,13 @@ function transcriptFrom(snapshot: SoarSessionSnapshot | null): TranscriptItem[] 
     const isDelta = type.includes("delta") || type.includes("stream");
     if (isAssistant && !isDelta && text) {
       const messageId = firstText(payload, ["messageId"]);
+      if (
+        type === "assistant.message.completed" &&
+        payload.completionState === "incomplete"
+      ) {
+        if (messageId) completedMessages.add(messageId);
+        continue;
+      }
       const resolvedText =
         type === "assistant.message.completed" && messageId
           ? firstText(payload, ["content"]) || drafts.get(messageId) || text
@@ -511,7 +548,7 @@ function statusCopy(status: string): { title: string; body: string } | null {
   if (status === "interrupted") {
     return {
       title: "Run interrupted",
-      body: "The saved session can continue from its last durable event.",
+      body: "The saved activity trace was preserved. Start a new run to continue the task.",
     };
   }
   return null;
@@ -945,7 +982,13 @@ function traceIcon(type: string): ReactNode {
   return <CaretRight />;
 }
 
-interface RunSummary {
+type RunCostProvenance =
+  | "provider_reported"
+  | "local_zero_cost_policy"
+  | "unreported"
+  | "mixed";
+
+export interface RunSummary {
   events: SoarSessionEvent[];
   model: string | null;
   reason: string;
@@ -953,9 +996,26 @@ interface RunSummary {
   cost: string | null;
   inputTokens: number;
   outputTokens: number;
+  reported: boolean | null;
+  costProvenance: RunCostProvenance | null;
 }
 
-function summarizeRun(snapshot: SoarSessionSnapshot | null): RunSummary {
+function usageCostProvenance(value: unknown): Exclude<RunCostProvenance, "mixed"> {
+  return value === "provider_reported" || value === "local_zero_cost_policy"
+    ? value
+    : "unreported";
+}
+
+function mergeCostProvenance(
+  aggregate: RunCostProvenance | null,
+  current: Exclude<RunCostProvenance, "mixed">,
+): RunCostProvenance {
+  if (aggregate === null) return current;
+  if (aggregate === "unreported" || current === "unreported") return "unreported";
+  return aggregate === current ? aggregate : "mixed";
+}
+
+export function summarizeRun(snapshot: SoarSessionSnapshot | null): RunSummary {
   const events = [...(snapshot?.events || [])].sort(
     (a, b) => (a.sequence || 0) - (b.sequence || 0),
   );
@@ -981,9 +1041,22 @@ function summarizeRun(snapshot: SoarSessionSnapshot | null): RunSummary {
         cost: total.cost + number("costUsd"),
         latency: total.latency + number("latencyMs"),
         records: total.records + 1,
+        reported: total.reported && payload.reported === true,
+        costProvenance: mergeCostProvenance(
+          total.costProvenance,
+          usageCostProvenance(payload.costProvenance),
+        ),
       };
     },
-    { input: 0, output: 0, cost: 0, latency: 0, records: 0 },
+    {
+      input: 0,
+      output: 0,
+      cost: 0,
+      latency: 0,
+      records: 0,
+      reported: true,
+      costProvenance: null as RunCostProvenance | null,
+    },
   );
   const endTime = terminalStatuses.has(status) ? snapshot?.updatedAt : undefined;
   const duration = usage.latency > 0
@@ -997,13 +1070,22 @@ function summarizeRun(snapshot: SoarSessionSnapshot | null): RunSummary {
     model,
     reason,
     duration,
-    cost: usage.records === 0 ? null : usage.cost === 0 ? "$0.00" : `$${usage.cost.toFixed(4)}`,
+    cost:
+      usage.records === 0
+        ? null
+        : usage.costProvenance === "unreported"
+          ? "Unknown"
+          : usage.cost === 0
+            ? "$0.00"
+            : `$${usage.cost.toFixed(4)}`,
     inputTokens: usage.input,
     outputTokens: usage.output,
+    reported: usage.records === 0 ? null : usage.reported,
+    costProvenance: usage.records === 0 ? null : usage.costProvenance,
   };
 }
 
-function TracePanel({
+export function TracePanel({
   snapshot,
   open,
   onClose,
@@ -1069,7 +1151,13 @@ function TracePanel({
             <div>
               <Code />
               <span>Tokens</span>
-              <strong>{summary.inputTokens + summary.outputTokens}</strong>
+              <strong>
+                {summary.reported === null
+                  ? "—"
+                  : summary.reported
+                    ? summary.inputTokens + summary.outputTokens
+                    : "Unknown"}
+              </strong>
             </div>
             <div>
               <Coins />
@@ -1213,14 +1301,14 @@ export function App() {
       if (update.kind === "snapshot" && update.snapshot) {
         upsertSummary(update.snapshot);
         if (update.sessionId === selectedIdRef.current) {
-          const latestEvent = [...(update.snapshot.events || [])].sort(
-            (a, b) => (b.sequence || 0) - (a.sequence || 0),
-          )[0];
+          const latestAssistantStartId = latestAssistantStartEventId(
+            update.snapshot,
+          );
           if (
-            latestEvent?.type === "assistant.message.started" &&
-            latestAssistantStartRef.current !== latestEvent.id
+            latestAssistantStartId !== null &&
+            latestAssistantStartRef.current !== latestAssistantStartId
           ) {
-            latestAssistantStartRef.current = latestEvent.id;
+            latestAssistantStartRef.current = latestAssistantStartId;
             setStreamedText("");
           }
           setSnapshot(update.snapshot);
@@ -1284,6 +1372,7 @@ export function App() {
       const created = await window.soar.createSession({
         task: task.trim(),
         workspaceRoot: workspace.path,
+        taskTrack: "repository-investigator-v1",
       });
       upsertSummary(created);
       selectedIdRef.current = created.id;

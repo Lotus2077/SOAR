@@ -84,6 +84,56 @@ describe("EventStore", () => {
     ]);
   });
 
+  it("persists structured completion obligations in canonical session history", () => {
+    const { store } = createStore();
+    const session = store.createSession({
+      id: "obligated-session",
+      title: "Investigate",
+      objective: "Search and read before citing the result.",
+      workspaceRoot: "/tmp/workspace",
+      taskTrack: "repository-investigator-v1",
+      completionObligations: {
+        requiredSuccessfulTools: ["search_text", "read_text_file"],
+        minimumVerifiedPathLineCitations: 2,
+      },
+      executionPolicy: {
+        schemaVersion: "agentic-execution-v1",
+        inferenceRounds: 4,
+        toolCalls: 4,
+      },
+    });
+
+    expect(store.getEvents(session.id)[0]).toMatchObject({
+      type: "session.created",
+      payload: {
+        taskTrack: "repository-investigator-v1",
+        completionObligations: {
+          requiredSuccessfulTools: ["search_text", "read_text_file"],
+          minimumVerifiedPathLineCitations: 2,
+        },
+        executionPolicy: {
+          schemaVersion: "agentic-execution-v1",
+          inferenceRounds: 4,
+          toolCalls: 4,
+        },
+      },
+    });
+    expect(store.getProjectedState(session.id)).toMatchObject({
+      taskTrack: "repository-investigator-v1",
+      completionObligations: {
+        requiredSuccessfulTools: ["search_text", "read_text_file"],
+        minimumVerifiedPathLineCitations: 2,
+      },
+      completionChecks: [],
+      executionPolicy: {
+        schemaVersion: "agentic-execution-v1",
+        inferenceRounds: 4,
+        toolCalls: 4,
+      },
+    });
+    expect(store.getProjectedState(session.id)).toEqual(store.replay(session.id));
+  });
+
   it("rejects stale expected sequences without writing", () => {
     const { store } = createStore();
     store.createSession({
@@ -155,7 +205,7 @@ describe("EventStore", () => {
     ).toThrow(/append-only/);
   });
 
-  it("loads and upgrades projections written before context telemetry", () => {
+  it("loads and upgrades projections written before additive telemetry", () => {
     const { database, store } = createStore();
     const session = store.createSession({
       id: "legacy-session",
@@ -167,16 +217,31 @@ describe("EventStore", () => {
       JSON.stringify(store.getProjectedState(session.id)),
     ) as Record<string, unknown>;
     delete legacyState.contextCompilations;
+    delete legacyState.taskTrack;
+    delete legacyState.completionObligations;
+    delete legacyState.completionChecks;
     database
       .prepare("UPDATE sessions SET state_json = ? WHERE id = ?")
       .run(JSON.stringify(legacyState), session.id);
 
-    expect(store.getProjectedState(session.id).contextCompilations).toEqual([]);
+    expect(store.getProjectedState(session.id)).toMatchObject({
+      contextCompilations: [],
+      completionObligations: {
+        requiredSuccessfulTools: [],
+        minimumVerifiedPathLineCitations: 0,
+      },
+      completionChecks: [],
+    });
 
     store.append(session.id, { type: "session.started", payload: {} });
     expect(store.getProjectedState(session.id)).toMatchObject({
       status: "running",
       contextCompilations: [],
+      completionObligations: {
+        requiredSuccessfulTools: [],
+        minimumVerifiedPathLineCitations: 0,
+      },
+      completionChecks: [],
     });
     expect(store.getProjectedState(session.id)).toEqual(store.replay(session.id));
   });

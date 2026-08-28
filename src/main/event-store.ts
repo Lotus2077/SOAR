@@ -1,8 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { SoarDatabase } from "./database";
 import {
+  AgenticExecutionPolicySchema,
+  AppTaskTrackSchema,
+  CompletionObligationsSchema,
   parseSessionEventData,
   parseStoredSessionEvent,
+  type AgenticExecutionPolicy,
+  type AppTaskTrack,
+  type CompletionObligations,
   type OptimizationProfile,
   type SessionEventData,
   type SessionStatus,
@@ -78,6 +84,9 @@ export interface CreateSessionInput {
   objective: string;
   workspaceRoot: string;
   profile?: OptimizationProfile;
+  taskTrack?: AppTaskTrack;
+  completionObligations?: CompletionObligations;
+  executionPolicy?: AgenticExecutionPolicy;
   createdAt?: string;
 }
 
@@ -162,8 +171,13 @@ function toSessionRecord(row: SessionRow): SessionRecord {
 }
 
 function parseState(row: SessionRow): SessionState {
-  const parsed = JSON.parse(row.state_json) as SessionState & {
+  const parsed = JSON.parse(row.state_json) as Omit<
+    SessionState,
+    "contextCompilations" | "completionObligations" | "completionChecks"
+  > & {
     contextCompilations?: SessionState["contextCompilations"];
+    completionObligations?: SessionState["completionObligations"];
+    completionChecks?: SessionState["completionChecks"];
   };
   if (
     parsed.contextCompilations !== undefined &&
@@ -173,11 +187,45 @@ function parseState(row: SessionRow): SessionState {
       `Session projection ${row.id} has invalid context compilation telemetry`,
     );
   }
+  if (
+    parsed.completionChecks !== undefined &&
+    !Array.isArray(parsed.completionChecks)
+  ) {
+    throw new Error(
+      `Session projection ${row.id} has invalid completion obligation checks`,
+    );
+  }
+  const completionObligations = CompletionObligationsSchema.parse(
+    parsed.completionObligations ?? {
+      requiredSuccessfulTools: [],
+      minimumVerifiedPathLineCitations: 0,
+    },
+  );
+  const executionPolicy =
+    parsed.executionPolicy === undefined
+      ? undefined
+      : AgenticExecutionPolicySchema.parse(parsed.executionPolicy);
+  const taskTrack =
+    parsed.taskTrack === undefined
+      ? undefined
+      : AppTaskTrackSchema.parse(parsed.taskTrack);
   const state: SessionState = {
     ...parsed,
     // Projections written before context compilation telemetry was introduced
     // remain readable and are upgraded on the next append.
     contextCompilations: parsed.contextCompilations ?? [],
+    completionObligations: {
+      requiredSuccessfulTools: [
+        ...completionObligations.requiredSuccessfulTools,
+      ],
+      minimumVerifiedPathLineCitations:
+        completionObligations.minimumVerifiedPathLineCitations,
+    },
+    completionChecks: parsed.completionChecks ?? [],
+    ...(taskTrack === undefined ? {} : { taskTrack }),
+    ...(executionPolicy === undefined
+      ? {}
+      : { executionPolicy: { ...executionPolicy } }),
   };
   if (state.id !== row.id || state.lastSequence !== row.last_sequence) {
     throw new Error(`Session projection ${row.id} is inconsistent`);
@@ -202,6 +250,15 @@ export class EventStore {
               objective: input.objective,
               workspaceRoot: input.workspaceRoot,
               profile: input.profile ?? "balanced",
+              ...(input.taskTrack === undefined
+                ? {}
+                : { taskTrack: input.taskTrack }),
+              ...(input.completionObligations === undefined
+                ? {}
+                : { completionObligations: input.completionObligations }),
+              ...(input.executionPolicy === undefined
+                ? {}
+                : { executionPolicy: input.executionPolicy }),
             },
           },
           createdAt,

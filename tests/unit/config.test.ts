@@ -73,10 +73,11 @@ describe("loadConfig", () => {
     expect(config.vllm).toMatchObject({
       baseUrl: "https://user-data.example/v1",
       model: "user-data-model",
+      costPolicy: "local_zero_cost",
     });
     expect(config.databasePath).toBe("/tmp/user-data.sqlite");
     expect(config.context).toEqual({
-      maxInputTokens: 8_192,
+      maxInputTokens: 16_384,
       safetyMargin: 0.2,
     });
   });
@@ -168,5 +169,56 @@ describe("loadConfig", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("rejects an unknown local cost-accounting policy", async () => {
+    const roots = await createConfigRoots();
+    expect(() =>
+      loadConfig({
+        ...roots,
+        environment: {
+          SOAR_VLLM_BASE_URL: "https://context.example/v1",
+          SOAR_VLLM_MODEL: "context-model",
+          SOAR_VLLM_COST_POLICY: "trust-me-zero",
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("requires an HTTP(S) vLLM API base at the exact /v1 path", async () => {
+    const roots = await createConfigRoots();
+    const baseEnvironment = {
+      SOAR_VLLM_MODEL: "endpoint-contract-model",
+    };
+
+    expect(() =>
+      loadConfig({
+        ...roots,
+        environment: {
+          ...baseEnvironment,
+          SOAR_VLLM_BASE_URL: "ftp://example.invalid/v1",
+        },
+      }),
+    ).toThrow(/must use HTTP or HTTPS/);
+
+    expect(() =>
+      loadConfig({
+        ...roots,
+        environment: {
+          ...baseEnvironment,
+          SOAR_VLLM_BASE_URL: "https://example.invalid/v1/models",
+        },
+      }),
+    ).toThrow(/must be the exact \/v1 API base/);
+
+    expect(
+      loadConfig({
+        ...roots,
+        environment: {
+          ...baseEnvironment,
+          SOAR_VLLM_BASE_URL: "https://example.invalid/v1",
+        },
+      }).vllm.baseUrl,
+    ).toBe("https://example.invalid/v1");
   });
 });

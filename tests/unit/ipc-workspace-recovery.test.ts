@@ -34,7 +34,10 @@ import type { SoarConfig } from "../../src/main/config";
 import { createSoarDatabase, type SoarDatabase } from "../../src/main/database";
 import { EventStore } from "../../src/main/event-store";
 import { registerIpcHandlers } from "../../src/main/ipc";
-import { IPC_CHANNELS } from "../../src/shared/contracts";
+import {
+  createSessionInputSchema,
+  IPC_CHANNELS,
+} from "../../src/shared/contracts";
 
 const temporaryDirectories: string[] = [];
 const databases: SoarDatabase[] = [];
@@ -47,6 +50,7 @@ function config(): SoarConfig {
       baseUrl: "http://localhost:8000/v1",
       apiKey: "local-vllm",
       model: "test-model",
+      costPolicy: "local_zero_cost",
       maxOutputTokens: 1_024,
       timeoutMs: 30_000,
     },
@@ -110,17 +114,49 @@ describe("persisted workspace authorization", () => {
       config: config(),
     });
 
-    const snapshot = await handler(IPC_CHANNELS.createSession)(undefined, {
+    const snapshot = (await handler(IPC_CHANNELS.createSession)(undefined, {
       task: "Run a second task without opening the picker",
       workspaceRoot,
-    });
+      taskTrack: "repository-investigator-v1",
+    })) as { id: string };
 
     expect(snapshot).toMatchObject({
       workspaceRoot: canonicalWorkspaceRoot,
       status: "created",
+      taskTrack: "repository-investigator-v1",
     });
     expect(reopenedStore.listSessions()).toHaveLength(2);
+    expect(
+      reopenedStore.getProjectedState(snapshot.id).completionObligations,
+    ).toEqual({
+      requiredSuccessfulTools: [
+        "list_files",
+        "search_text",
+        "read_text_file",
+      ],
+      minimumVerifiedPathLineCitations: 1,
+    });
+    expect(reopenedStore.getProjectedState(snapshot.id).taskTrack).toBe(
+      "repository-investigator-v1",
+    );
+    expect(
+      reopenedStore.getProjectedState(snapshot.id).executionPolicy,
+    ).toEqual({
+      schemaVersion: "agentic-execution-v1",
+      inferenceRounds: 4,
+      toolCalls: 8,
+    });
     expect(electron.dialog.showOpenDialog).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported app task tracks", () => {
+    expect(() =>
+      createSessionInputSchema.parse({
+        task: "Inspect the repository",
+        workspaceRoot: "/tmp/workspace",
+        taskTrack: "untrusted-custom-track",
+      }),
+    ).toThrow();
   });
 
   it("does not trust a persisted path that now resolves through a symlink", async () => {
@@ -146,6 +182,7 @@ describe("persisted workspace authorization", () => {
       handler(IPC_CHANNELS.createSession)(undefined, {
         task: "Attempt silent reuse",
         workspaceRoot: historicalAlias,
+        taskTrack: "repository-investigator-v1",
       }) as Promise<unknown>,
     ).rejects.toThrow("Choose this workspace in SOAR before starting a task.");
     expect(store.listSessions()).toHaveLength(1);

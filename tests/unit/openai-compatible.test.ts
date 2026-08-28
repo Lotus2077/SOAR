@@ -9,12 +9,14 @@ import { ProviderAbortedError } from "../../src/main/providers/types";
 
 interface FakeServerContext {
   body: Record<string, unknown>;
+  requestUrl: string;
   response: ServerResponse;
 }
 
 interface FakeServer {
   baseUrl: string;
   requests: Record<string, unknown>[];
+  requestUrls: string[];
   close(): Promise<void>;
 }
 
@@ -37,11 +39,14 @@ async function startFakeOpenAiServer(
   respond: (context: FakeServerContext) => Promise<void> | void,
 ): Promise<FakeServer> {
   const requests: Record<string, unknown>[] = [];
+  const requestUrls: string[] = [];
   const server: Server = createServer(async (request, response) => {
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
     const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
     requests.push(body);
+    const requestUrl = request.url ?? "";
+    requestUrls.push(requestUrl);
 
     response.writeHead(200, {
       "Cache-Control": "no-cache",
@@ -49,7 +54,7 @@ async function startFakeOpenAiServer(
       "Content-Type": "text/event-stream",
     });
 
-    await respond({ body, response });
+    await respond({ body, requestUrl, response });
   });
 
   await new Promise<void>((resolve, reject) => {
@@ -64,6 +69,7 @@ async function startFakeOpenAiServer(
   const fakeServer: FakeServer = {
     baseUrl: `http://127.0.0.1:${port}/v1`,
     requests,
+    requestUrls,
     close: async () => {
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) => {
@@ -81,6 +87,7 @@ function createProvider(baseUrl: string, timeoutMs = 2_000): OpenAICompatiblePro
     baseUrl,
     maxOutputTokens: 512,
     model: "local-test-model",
+    costPolicy: "local_zero_cost",
     timeoutMs,
   };
   return new OpenAICompatibleProvider(config);
@@ -111,6 +118,52 @@ describe("OpenAICompatibleProvider", () => {
     expect(provider.estimateInputTokenReserve(true)).toBeGreaterThan(
       provider.estimateInputTokenReserve(false),
     );
+    expect(
+      provider.estimateInputTokenReserve(true, ["read_text_file"]),
+    ).toBeLessThan(provider.estimateInputTokenReserve(true));
+  });
+
+  it("posts inference requests to the /v1/chat/completions resource", async () => {
+    const server = await startFakeOpenAiServer(({ response }) => {
+      writeSse(response, completionChunk({ content: "Endpoint contract" }));
+      writeSse(response, completionChunk({}, "stop"));
+      response.end("data: [DONE]\n\n");
+    });
+
+    await createProvider(server.baseUrl).complete({
+      messages: [{ role: "user", content: "Verify the endpoint" }],
+      signal: new AbortController().signal,
+      onDelta: () => undefined,
+    });
+
+    expect(server.requestUrls).toEqual(["/v1/chat/completions"]);
+  });
+
+  it("exposes only the scheduler-selected tool subset", async () => {
+    const server = await startFakeOpenAiServer(({ response }) => {
+      writeSse(response, completionChunk({ content: "I will inspect the file." }));
+      writeSse(response, completionChunk({}, "stop"));
+      response.end("data: [DONE]\n\n");
+    });
+
+    await createProvider(server.baseUrl).complete({
+      messages: [{ role: "user", content: "Read the implementation" }],
+      signal: new AbortController().signal,
+      allowTools: true,
+      allowedToolNames: ["read_text_file"],
+      onDelta: () => undefined,
+    });
+
+    const requestedTools = server.requests[0]?.tools as Array<{
+      function: { name: string };
+    }>;
+    expect(requestedTools.map((tool) => tool.function.name)).toEqual([
+      "read_text_file",
+    ]);
+    expect(server.requests[0]).toMatchObject({
+      tool_choice: "auto",
+      parallel_tool_calls: false,
+    });
   });
 
   it("assembles fragmented streamed text and reports usage and latency", async () => {
@@ -145,6 +198,7 @@ describe("OpenAICompatibleProvider", () => {
     expect(result).toMatchObject({
       content: "Hello",
       finishReason: "stop",
+      servedModel: "local-test-model",
       toolCalls: [],
       usage: {
         inputTokens: 12,
@@ -266,6 +320,46 @@ describe("OpenAICompatibleProvider", () => {
     expect(deltas).toEqual([]);
     expect(result.timeToFirstTokenMs).toEqual(expect.any(Number));
     expect(result.durationMs).toBeGreaterThanOrEqual(result.timeToFirstTokenMs ?? 0);
+  });
+
+  it("assigns unique fallback ids when consecutive provider responses omit tool-call ids", async () => {
+    const server = await startFakeOpenAiServer(({ response }) => {
+      writeSse(
+        response,
+        completionChunk(
+          {
+            tool_calls: [
+              {
+                index: 0,
+                type: "function",
+                function: {
+                  name: "read_text_file",
+                  arguments: '{"relativePath":"notes.txt"}',
+                },
+              },
+            ],
+          },
+          "tool_calls",
+        ),
+      );
+      response.end("data: [DONE]\n\n");
+    });
+    const provider = createProvider(server.baseUrl);
+    const input = {
+      messages: [{ role: "user" as const, content: "Read the notes" }],
+      signal: new AbortController().signal,
+      onDelta: () => undefined,
+    };
+
+    const first = await provider.complete(input);
+    const second = await provider.complete(input);
+    const firstId = first.toolCalls[0]?.id;
+    const secondId = second.toolCalls[0]?.id;
+
+    expect(firstId).toMatch(/^tool-call-[0-9a-f-]{36}-0$/u);
+    expect(secondId).toMatch(/^tool-call-[0-9a-f-]{36}-0$/u);
+    expect(secondId).not.toBe(firstId);
+    expect(server.requests).toHaveLength(2);
   });
 
   it("forces tool choice none when the runner reserves a final answer round", async () => {

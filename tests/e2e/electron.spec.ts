@@ -60,9 +60,9 @@ test("runs a local tool loop and restores it after restart", async () => {
 
   await page.getByRole("button", { name: "Open run details" }).click();
   await expect(page.getByRole("dialog", { name: "Run details" })).toBeVisible();
-  await expect(page.getByText("Context Compiled", { exact: true })).toHaveCount(2);
+  await expect(page.getByText("Context Compiled", { exact: true })).toHaveCount(4);
   await expect(
-    page.getByText(/packet \+ .* reserved \/ 8192 token cap \/ .* evidence \/ .* omitted/u).first(),
+    page.getByText(/packet \+ .* reserved \/ 16384 token cap \/ .* evidence \/ .* omitted/u).first(),
   ).toBeVisible();
 
   const traceScreenshotPath = process.env.SOAR_E2E_TRACE_SCREENSHOT;

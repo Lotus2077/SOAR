@@ -26,10 +26,45 @@ describe("FakeProvider", () => {
       onDelta: (delta) => deltas.push(delta),
     });
 
-    expect(result.content).toBe("The workspace marker is probe.");
+    expect(result.content).toBe(
+      "The workspace marker at SOAR_PROBE.txt:1 is probe.",
+    );
     expect(deltas.join("")).toBe(result.content);
     expect(addListener).toHaveBeenCalledTimes(3);
     expect(removeListener).toHaveBeenCalledTimes(3);
+  });
+
+  it("honors the scheduler-selected Repository Investigator tool", async () => {
+    const result = await new FakeProvider({ delayMs: 0 }).complete({
+      messages: [],
+      signal: new AbortController().signal,
+      allowTools: true,
+      allowedToolNames: ["search_text"],
+      onDelta: vi.fn(),
+    });
+
+    expect(result.toolCalls).toEqual([
+      {
+        id: "fake-search_text",
+        type: "function",
+        function: {
+          name: "search_text",
+          arguments: JSON.stringify({ query: "SOAR" }),
+        },
+      },
+    ]);
+  });
+
+  it("does not emit a fallback tool call when tools are disabled", async () => {
+    const result = await new FakeProvider({ delayMs: 0 }).complete({
+      messages: [],
+      signal: new AbortController().signal,
+      allowTools: false,
+      onDelta: vi.fn(),
+    });
+
+    expect(result.toolCalls).toEqual([]);
+    expect(result.finishReason).toBe("stop");
   });
 
   it("rejects an already-aborted completion without streaming output", async () => {

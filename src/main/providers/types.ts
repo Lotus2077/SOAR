@@ -2,6 +2,7 @@ import type {
   ProviderContextMessage,
   ProviderToolCall as ContextProviderToolCall,
 } from "../../shared/context-builder";
+import type { RegisteredToolName } from "../tools/tool-registry";
 
 export type ProviderToolCall = ContextProviderToolCall;
 
@@ -19,6 +20,10 @@ export interface ProviderResult {
   toolCalls: ProviderToolCall[];
   finishReason: string | null;
   usage?: ProviderUsage;
+  /** Model identifier observed in the provider response, not only requested. */
+  servedModel?: string;
+  /** Provider-reported request cost when the transport supplies it. */
+  costUsd?: number;
   timeToFirstTokenMs?: number;
   durationMs: number;
 }
@@ -29,14 +34,21 @@ export interface CompleteInput {
   messages: ProviderMessage[];
   signal: AbortSignal;
   allowTools?: boolean;
+  /** When supplied, expose only this deterministic subset of workspace tools. */
+  allowedToolNames?: RegisteredToolName[];
   onDelta(delta: string): void;
 }
 
 export interface InferenceProvider {
   readonly id: string;
   readonly model: string;
+  /** Explicit provenance for zero cost when the provider does not report money. */
+  readonly costPolicy?: "local_zero_cost";
   /** Conservative allowance for adapter-owned request fields outside messages. */
-  estimateInputTokenReserve?(allowTools: boolean): number;
+  estimateInputTokenReserve?(
+    allowTools: boolean,
+    allowedToolNames?: RegisteredToolName[],
+  ): number;
   complete(input: CompleteInput): Promise<ProviderResult>;
 }
 

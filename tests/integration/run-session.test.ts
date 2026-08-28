@@ -42,6 +42,17 @@ function limits(
   return { inferenceRounds: 4, toolCalls: 8, ...overrides };
 }
 
+function executionPolicy(
+  overrides: Partial<SoarConfig["limits"]> = {},
+) {
+  const configured = limits(overrides);
+  return {
+    schemaVersion: "agentic-execution-v1" as const,
+    inferenceRounds: configured.inferenceRounds,
+    toolCalls: configured.toolCalls,
+  };
+}
+
 function parseContextPacket(messages: ProviderMessage[]): ContextPacket {
   const packetMessage = messages.find((message) => message.role === "user");
   const prefix = "SOAR_CONTEXT_PACKET_V1\n";
@@ -56,6 +67,7 @@ class RecordingFakeProvider implements InferenceProvider {
   private readonly delegate = new FakeProvider();
   readonly id = this.delegate.id;
   readonly model = this.delegate.model;
+  readonly costPolicy = this.delegate.costPolicy;
   readonly contexts: ProviderMessage[][] = [];
 
   async complete(input: CompleteInput): Promise<ProviderResult> {
@@ -284,6 +296,192 @@ class EvidenceThenAnswerProvider implements InferenceProvider {
   }
 }
 
+interface RecordedProviderPolicy {
+  allowTools: boolean | undefined;
+  allowedToolNames: string[] | undefined;
+  systemPrompt: string | undefined;
+}
+
+function recordProviderPolicy(input: CompleteInput): RecordedProviderPolicy {
+  return {
+    allowTools: input.allowTools,
+    allowedToolNames:
+      input.allowedToolNames === undefined
+        ? undefined
+        : [...input.allowedToolNames],
+    systemPrompt:
+      typeof input.messages[0]?.content === "string"
+        ? input.messages[0].content
+        : undefined,
+  };
+}
+
+function toolCallResult(
+  id: string,
+  name: "list_files" | "search_text" | "read_text_file",
+  arguments_: object,
+): ProviderResult {
+  return {
+    content: "",
+    toolCalls: [
+      {
+        id,
+        type: "function",
+        function: {
+          name,
+          arguments: JSON.stringify(arguments_),
+        },
+      },
+    ],
+    finishReason: "tool_calls",
+    usage: { inputTokens: 5, outputTokens: 2, totalTokens: 7 },
+    durationMs: 1,
+  };
+}
+
+function answerResult(input: CompleteInput, content: string): ProviderResult {
+  input.onDelta(content);
+  return {
+    content,
+    toolCalls: [],
+    finishReason: "stop",
+    usage: { inputTokens: 8, outputTokens: 5, totalTokens: 13 },
+    durationMs: 1,
+  };
+}
+
+class OrderedObligationProvider implements InferenceProvider {
+  readonly id = "ordered-obligation-local";
+  readonly model = "ordered-obligation-test-model";
+  readonly policies: RecordedProviderPolicy[] = [];
+
+  async complete(input: CompleteInput): Promise<ProviderResult> {
+    this.policies.push(recordProviderPolicy(input));
+    switch (this.policies.length) {
+      case 1:
+        return toolCallResult("list-workspace", "list_files", {
+          relativePath: ".",
+          recursive: true,
+          maxItems: 20,
+        });
+      case 2:
+        return toolCallResult("search-marker", "search_text", {
+          query: "marker",
+          relativePath: "src",
+        });
+      case 3:
+        return toolCallResult("read-marker", "read_text_file", {
+          relativePath: "src/fixture.ts",
+        });
+      default:
+        return answerResult(
+          input,
+          "The marker is defined at src/fixture.ts:1 and used at src/fixture.ts:2.",
+        );
+    }
+  }
+}
+
+class ObligationRetryProvider implements InferenceProvider {
+  readonly id = "obligation-retry-local";
+  readonly model = "obligation-retry-test-model";
+  readonly policies: RecordedProviderPolicy[] = [];
+
+  async complete(input: CompleteInput): Promise<ProviderResult> {
+    this.policies.push(recordProviderPolicy(input));
+    switch (this.policies.length) {
+      case 1:
+        return toolCallResult("read-retry-source", "read_text_file", {
+          relativePath: "src/retry.ts",
+        });
+      case 2:
+        return answerResult(input, "The answer is supported, but has no citations yet.");
+      default:
+        return answerResult(
+          input,
+          "The evidence is at src/retry.ts:1 and src/retry.ts:2.",
+        );
+    }
+  }
+}
+
+class PrematureRequiredToolProvider implements InferenceProvider {
+  readonly id = "premature-required-tool-local";
+  readonly model = "premature-required-tool-test-model";
+  readonly policies: RecordedProviderPolicy[] = [];
+
+  async complete(input: CompleteInput): Promise<ProviderResult> {
+    this.policies.push(recordProviderPolicy(input));
+    if (this.policies.length === 1) {
+      return answerResult(input, "I stopped before using the required tool.");
+    }
+    if (this.policies.length === 2) {
+      return toolCallResult("list-after-retry", "list_files", {
+        relativePath: ".",
+        recursive: false,
+      });
+    }
+    return answerResult(input, "The required workspace listing is complete.");
+  }
+}
+
+class DuplicateObservationProvider implements InferenceProvider {
+  readonly id = "duplicate-observation-local";
+  readonly model = "duplicate-observation-test-model";
+  readonly policies: RecordedProviderPolicy[] = [];
+
+  async complete(input: CompleteInput): Promise<ProviderResult> {
+    this.policies.push(recordProviderPolicy(input));
+    if (this.policies.length <= 3) {
+      return toolCallResult(
+        `duplicate-read-${this.policies.length}`,
+        "read_text_file",
+        { relativePath: "SOAR_PROBE.txt" },
+      );
+    }
+    return answerResult(input, "Final synthesis from the persisted probe evidence.");
+  }
+}
+
+class DistinctSameContentProvider implements InferenceProvider {
+  readonly id = "distinct-same-content-local";
+  readonly model = "distinct-same-content-test-model";
+  private calls = 0;
+
+  async complete(input: CompleteInput): Promise<ProviderResult> {
+    this.calls += 1;
+    if (this.calls <= 2) {
+      return toolCallResult(
+        `same-content-${this.calls}`,
+        "read_text_file",
+        { relativePath: `file-${this.calls}.txt` },
+      );
+    }
+    return answerResult(input, "Both distinct files were inspected.");
+  }
+}
+
+class EquivalentPathDuplicateProvider implements InferenceProvider {
+  readonly id = "equivalent-path-duplicate-local";
+  readonly model = "equivalent-path-duplicate-test-model";
+  private calls = 0;
+
+  async complete(input: CompleteInput): Promise<ProviderResult> {
+    this.calls += 1;
+    if (this.calls <= 2) {
+      return toolCallResult(
+        `equivalent-path-${this.calls}`,
+        "read_text_file",
+        {
+          relativePath:
+            this.calls === 1 ? "SOAR_PROBE.txt" : "./SOAR_PROBE.txt",
+        },
+      );
+    }
+    return answerResult(input, "The equivalent path was read once.");
+  }
+}
+
 afterEach(async () => {
   for (const database of databases.splice(0)) {
     database.close();
@@ -322,7 +520,9 @@ describe("SessionRunner", () => {
     await runner.startSession(session.id);
 
     expect(runner.isRunning(session.id)).toBe(false);
-    expect(streamed.join("")).toBe("The workspace marker is vertical-slice.");
+    expect(streamed.join("")).toBe(
+      "The workspace marker at SOAR_PROBE.txt:1 is vertical-slice.",
+    );
     expect(persistedUpdates.length).toBeGreaterThan(0);
 
     const record = store.requireSession(session.id);
@@ -335,7 +535,7 @@ describe("SessionRunner", () => {
       totalOutputTokens: 28,
       totalReasoningTokens: 0,
       totalCostUsd: 0,
-      result: "The workspace marker is vertical-slice.",
+      result: "The workspace marker at SOAR_PROBE.txt:1 is vertical-slice.",
     });
 
     const events = store.getEvents(session.id);
@@ -353,6 +553,13 @@ describe("SessionRunner", () => {
     });
     expect(usage).toHaveLength(2);
     expect(usage.every((event) => event.payload.costUsd === 0)).toBe(true);
+    expect(
+      usage.every(
+        (event) =>
+          event.payload.costProvenance === "local_zero_cost_policy" &&
+          event.payload.reported === true,
+      ),
+    ).toBe(true);
     expect(contextCompilations).toHaveLength(2);
     expect(contextCompilations.map((event) => event.payload.reason)).toEqual([
       "session_start",
@@ -371,12 +578,12 @@ describe("SessionRunner", () => {
       {
         estimator: "utf8-bytes-v1",
         reservedInputTokens: 0,
-        effectiveInputTokenBudget: 6_553,
+        effectiveInputTokenBudget: 13_107,
       },
       {
         estimator: "utf8-bytes-v1",
         reservedInputTokens: 0,
-        effectiveInputTokenBudget: 6_553,
+        effectiveInputTokenBudget: 13_107,
       },
     ]);
     expect(
@@ -411,12 +618,12 @@ describe("SessionRunner", () => {
       toolName: "read_text_file",
       workspaceRelativePath: "SOAR_PROBE.txt",
       argumentsExcerpt: '{"relativePath":"SOAR_PROBE.txt"}',
-    });
-    expect(JSON.parse(toolEvidence?.content ?? "{}")).toMatchObject({
-      ok: true,
-      text: "vertical-slice\n",
-      bytes: 15,
-      truncated: false,
+      content: "Complete file lines are represented by citationSnippets.",
+      sourceResultCount: 1,
+      sourceResultTruncated: false,
+      citationSnippets: [
+        { citation: "SOAR_PROBE.txt:1", text: "vertical-slice" },
+      ],
     });
 
     expect(store.replay(session.id)).toEqual(store.getProjectedState(session.id));
@@ -500,6 +707,450 @@ describe("SessionRunner", () => {
     expect(
       store.getEvents(session.id).some((event) => event.type === "session.completed"),
     ).toBe(false);
+  });
+
+  it("schedules persisted required tools in order and accepts two verified citations", async () => {
+    const workspaceRoot = await createWorkspace();
+    await mkdir(path.join(workspaceRoot, "src"), { recursive: true });
+    await writeFile(
+      path.join(workspaceRoot, "src/fixture.ts"),
+      "export const marker = 1;\nexport const useMarker = marker;\n",
+      "utf8",
+    );
+    const store = createStore();
+    const provider = new OrderedObligationProvider();
+    const session = store.createSession({
+      id: "ordered-completion-obligations",
+      title: "Ordered completion obligations",
+      objective: "Inspect the marker and return two verified citations.",
+      workspaceRoot,
+      completionObligations: {
+        requiredSuccessfulTools: [
+          "list_files",
+          "search_text",
+          "read_text_file",
+        ],
+        minimumVerifiedPathLineCitations: 2,
+      },
+      executionPolicy: executionPolicy({ inferenceRounds: 6 }),
+    });
+    const runner = new SessionRunner({
+      store,
+      provider,
+      limits: limits({ inferenceRounds: 6 }),
+    });
+
+    await runner.startSession(session.id);
+
+    expect(
+      provider.policies.map(({ allowTools, allowedToolNames }) => ({
+        allowTools,
+        allowedToolNames,
+      })),
+    ).toEqual([
+      { allowTools: true, allowedToolNames: ["list_files"] },
+      { allowTools: true, allowedToolNames: ["search_text"] },
+      { allowTools: true, allowedToolNames: ["read_text_file"] },
+      { allowTools: true, allowedToolNames: undefined },
+    ]);
+
+    const events = store.getEvents(session.id);
+    expect(
+      events
+        .filter((event) => event.type === "tool.call.requested")
+        .map((event) => event.payload.name),
+    ).toEqual(["list_files", "search_text", "read_text_file"]);
+    const checks = events.filter(
+      (event) => event.type === "completion.obligations.checked",
+    );
+    expect(checks).toHaveLength(1);
+    expect(checks[0]?.payload).toMatchObject({
+      round: 4,
+      successfulRequiredTools: [
+        "list_files",
+        "search_text",
+        "read_text_file",
+      ],
+      missingRequiredTools: [],
+      verifiedPathLineCitations: [
+        "src/fixture.ts:1",
+        "src/fixture.ts:2",
+      ],
+      unresolvedCitationCount: 0,
+      outcome: "accepted",
+    });
+    expect(store.requireSession(session.id)).toMatchObject({
+      status: "completed",
+      result:
+        "The marker is defined at src/fixture.ts:1 and used at src/fixture.ts:2.",
+    });
+    expect(store.getProjectedState(session.id).completionObligations).toEqual({
+      requiredSuccessfulTools: [
+        "list_files",
+        "search_text",
+        "read_text_file",
+      ],
+      minimumVerifiedPathLineCitations: 2,
+    });
+  });
+
+  it("persists an unmet citation candidate as incomplete and retries at an obligation boundary", async () => {
+    const workspaceRoot = await createWorkspace();
+    await mkdir(path.join(workspaceRoot, "src"), { recursive: true });
+    await writeFile(
+      path.join(workspaceRoot, "src/retry.ts"),
+      "export const first = true;\nexport const second = first;\n",
+      "utf8",
+    );
+    const store = createStore();
+    const provider = new ObligationRetryProvider();
+    const session = store.createSession({
+      id: "completion-obligation-retry",
+      title: "Completion obligation retry",
+      objective: "Return two verified citations after reading the source.",
+      workspaceRoot,
+      completionObligations: {
+        requiredSuccessfulTools: ["read_text_file"],
+        minimumVerifiedPathLineCitations: 2,
+      },
+      executionPolicy: executionPolicy({ inferenceRounds: 5 }),
+    });
+    const runner = new SessionRunner({
+      store,
+      provider,
+      limits: limits({ inferenceRounds: 5 }),
+    });
+
+    await runner.startSession(session.id);
+
+    const events = store.getEvents(session.id);
+    expect(
+      events
+        .filter((event) => event.type === "context.compiled")
+        .map((event) => event.payload.reason),
+    ).toEqual([
+      "session_start",
+      "tool_result_boundary",
+      "obligation_retry_boundary",
+    ]);
+    expect(
+      events
+        .filter((event) => event.type === "completion.obligations.checked")
+        .map((event) => ({
+          outcome: event.payload.outcome,
+          citations: event.payload.verifiedPathLineCitations,
+        })),
+    ).toEqual([
+      { outcome: "retry", citations: [] },
+      {
+        outcome: "accepted",
+        citations: ["src/retry.ts:1", "src/retry.ts:2"],
+      },
+    ]);
+    expect(
+      events.find(
+        (event) =>
+          event.type === "assistant.message.completed" &&
+          event.payload.content ===
+            "The answer is supported, but has no citations yet.",
+      )?.payload,
+    ).toMatchObject({
+      stopReason: "stop",
+      completionState: "incomplete",
+    });
+    expect(
+      store
+        .getProjectedState(session.id)
+        .messages.find(
+          (message) =>
+            message.content ===
+            "The answer is supported, but has no citations yet.",
+        ),
+    ).toMatchObject({ status: "failed", completionState: "incomplete" });
+    expect(store.requireSession(session.id)).toMatchObject({
+      status: "completed",
+      result: "The evidence is at src/retry.ts:1 and src/retry.ts:2.",
+    });
+    expect(
+      events.some((event) => event.type === "session.failed"),
+    ).toBe(false);
+  });
+
+  it("preserves an obligation-retry checkpoint when tool capacity already forced finalization", async () => {
+    const workspaceRoot = await createWorkspace();
+    await mkdir(path.join(workspaceRoot, "src"), { recursive: true });
+    await writeFile(
+      path.join(workspaceRoot, "src/retry.ts"),
+      "export const first = true;\nexport const second = first;\n",
+      "utf8",
+    );
+    const store = createStore();
+    const session = store.createSession({
+      id: "tool-cap-obligation-retry",
+      title: "Tool-cap obligation retry",
+      objective: "Return two verified citations after one required read.",
+      workspaceRoot,
+      completionObligations: {
+        requiredSuccessfulTools: ["read_text_file"],
+        minimumVerifiedPathLineCitations: 2,
+      },
+      executionPolicy: executionPolicy({ inferenceRounds: 5, toolCalls: 1 }),
+    });
+    const runner = new SessionRunner({
+      store,
+      provider: new ObligationRetryProvider(),
+      limits: limits({ inferenceRounds: 5, toolCalls: 1 }),
+    });
+
+    await runner.startSession(session.id);
+
+    const contextEvents = store
+      .getEvents(session.id)
+      .filter((event) => event.type === "context.compiled");
+    expect(
+      contextEvents.map((event) => ({
+        reason: event.payload.reason,
+        mode: event.payload.mode,
+      })),
+    ).toEqual([
+      { reason: "session_start", mode: "working" },
+      { reason: "finalization_boundary", mode: "finalization" },
+      { reason: "obligation_retry_boundary", mode: "finalization" },
+    ]);
+    expect(store.requireSession(session.id)).toMatchObject({
+      status: "completed",
+      result: "The evidence is at src/retry.ts:1 and src/retry.ts:2.",
+    });
+  });
+
+  it("does not accept a tool-free answer while a required tool is still missing", async () => {
+    const workspaceRoot = await createWorkspace();
+    await writeFile(path.join(workspaceRoot, "marker.txt"), "marker\n", "utf8");
+    const store = createStore();
+    const provider = new PrematureRequiredToolProvider();
+    const session = store.createSession({
+      id: "premature-required-tool",
+      title: "Premature required tool",
+      objective: "List the workspace before answering.",
+      workspaceRoot,
+      completionObligations: {
+        requiredSuccessfulTools: ["list_files"],
+        minimumVerifiedPathLineCitations: 0,
+      },
+      executionPolicy: executionPolicy({ inferenceRounds: 4 }),
+    });
+    const runner = new SessionRunner({
+      store,
+      provider,
+      limits: limits({ inferenceRounds: 4 }),
+    });
+
+    await runner.startSession(session.id);
+
+    expect(provider.policies.map((policy) => policy.allowedToolNames)).toEqual([
+      ["list_files"],
+      ["list_files"],
+      undefined,
+    ]);
+    const events = store.getEvents(session.id);
+    expect(
+      events
+        .filter((event) => event.type === "completion.obligations.checked")
+        .map((event) => ({
+          outcome: event.payload.outcome,
+          missing: event.payload.missingRequiredTools,
+        })),
+    ).toEqual([
+      { outcome: "retry", missing: ["list_files"] },
+      { outcome: "accepted", missing: [] },
+    ]);
+    expect(store.requireSession(session.id)).toMatchObject({
+      status: "completed",
+      result: "The required workspace listing is complete.",
+    });
+  });
+
+  it("exhausts immediately when the remaining rounds cannot run every missing tool and a final answer", async () => {
+    const workspaceRoot = await createWorkspace();
+    await writeFile(path.join(workspaceRoot, "marker.txt"), "marker\n", "utf8");
+    const store = createStore();
+    const provider = new PrematureRequiredToolProvider();
+    const session = store.createSession({
+      id: "infeasible-required-tools",
+      title: "Infeasible required tools",
+      objective: "List and search the workspace before answering.",
+      workspaceRoot,
+      completionObligations: {
+        requiredSuccessfulTools: ["list_files", "search_text"],
+        minimumVerifiedPathLineCitations: 0,
+      },
+      executionPolicy: executionPolicy({ inferenceRounds: 3, toolCalls: 2 }),
+    });
+    const runner = new SessionRunner({
+      store,
+      provider,
+      limits: limits({ inferenceRounds: 3, toolCalls: 2 }),
+    });
+
+    await runner.startSession(session.id);
+
+    expect(provider.policies).toHaveLength(1);
+    expect(
+      store
+        .getEvents(session.id)
+        .find((event) => event.type === "completion.obligations.checked")
+        ?.payload,
+    ).toMatchObject({
+      outcome: "exhausted",
+      remainingRounds: 0,
+      missingRequiredTools: ["list_files", "search_text"],
+    });
+    expect(store.requireSession(session.id)).toMatchObject({
+      status: "failed",
+      error: expect.stringContaining(
+        "missing successful tools: list_files, search_text",
+      ),
+    });
+  });
+
+  it("marks duplicate observations failed and finalizes after two no-progress results", async () => {
+    const workspaceRoot = await createWorkspace();
+    await writeFile(path.join(workspaceRoot, "SOAR_PROBE.txt"), "probe\n", "utf8");
+    const store = createStore();
+    const provider = new DuplicateObservationProvider();
+    const session = store.createSession({
+      id: "duplicate-observation-finalization",
+      title: "Duplicate observation finalization",
+      objective: "Read the probe without looping forever.",
+      workspaceRoot,
+    });
+    const runner = new SessionRunner({
+      store,
+      provider,
+      limits: limits({ inferenceRounds: 6 }),
+    });
+
+    await runner.startSession(session.id);
+
+    expect(provider.policies.map((policy) => policy.allowTools)).toEqual([
+      true,
+      true,
+      true,
+      false,
+    ]);
+    expect(provider.policies[3]?.systemPrompt).toContain(
+      "SOAR ended tool use after 2 duplicate observations.",
+    );
+
+    const events = store.getEvents(session.id);
+    const toolCompletions = events.filter(
+      (event) => event.type === "tool.call.completed",
+    );
+    expect(toolCompletions).toHaveLength(3);
+    expect(toolCompletions.map((event) => event.payload.isError)).toEqual([
+      false,
+      true,
+      true,
+    ]);
+    for (const duplicate of toolCompletions.slice(1)) {
+      expect(JSON.parse(duplicate.payload.content)).toMatchObject({
+        ok: false,
+        error: {
+          code: "DUPLICATE_OBSERVATION",
+          duplicateOfToolCallId: "duplicate-read-1",
+        },
+      });
+    }
+    expect(
+      events
+        .filter((event) => event.type === "context.compiled")
+        .map((event) => event.payload.reason),
+    ).toEqual([
+      "session_start",
+      "tool_result_boundary",
+      "no_progress_boundary",
+      "no_progress_finalization_boundary",
+    ]);
+    expect(
+      store
+        .getProjectedState(session.id)
+        .messages.flatMap((message) => message.toolCalls ?? [])
+        .map((toolCall) => toolCall.status),
+    ).toEqual(["completed", "failed", "failed"]);
+    expect(store.requireSession(session.id)).toMatchObject({
+      status: "completed",
+      result: "Final synthesis from the persisted probe evidence.",
+    });
+  });
+
+  it("does not conflate identical result bytes from different semantic paths", async () => {
+    const workspaceRoot = await createWorkspace();
+    await Promise.all([
+      writeFile(path.join(workspaceRoot, "file-1.txt"), "same\n", "utf8"),
+      writeFile(path.join(workspaceRoot, "file-2.txt"), "same\n", "utf8"),
+    ]);
+    const store = createStore();
+    const session = store.createSession({
+      id: "distinct-same-content",
+      title: "Distinct same-content observations",
+      objective: "Inspect two distinct files with identical content.",
+      workspaceRoot,
+    });
+    const runner = new SessionRunner({
+      store,
+      provider: new DistinctSameContentProvider(),
+      limits: limits(),
+    });
+
+    await runner.startSession(session.id);
+
+    const toolCompletions = store
+      .getEvents(session.id)
+      .filter((event) => event.type === "tool.call.completed");
+    expect(toolCompletions).toHaveLength(2);
+    expect(toolCompletions.every((event) => !event.payload.isError)).toBe(true);
+    expect(store.requireSession(session.id)).toMatchObject({
+      status: "completed",
+      result: "Both distinct files were inspected.",
+    });
+  });
+
+  it("treats equivalent workspace path spellings as duplicate observations", async () => {
+    const workspaceRoot = await createWorkspace();
+    await writeFile(path.join(workspaceRoot, "SOAR_PROBE.txt"), "probe\n", "utf8");
+    const store = createStore();
+    const session = store.createSession({
+      id: "equivalent-path-observation",
+      title: "Equivalent path observation",
+      objective: "Avoid repeating the same file read through a lexical path alias.",
+      workspaceRoot,
+    });
+    const runner = new SessionRunner({
+      store,
+      provider: new EquivalentPathDuplicateProvider(),
+      limits: limits(),
+    });
+
+    await runner.startSession(session.id);
+
+    const toolCompletions = store
+      .getEvents(session.id)
+      .filter((event) => event.type === "tool.call.completed");
+    expect(toolCompletions.map((event) => event.payload.isError)).toEqual([
+      false,
+      true,
+    ]);
+    expect(JSON.parse(toolCompletions[1]?.payload.content ?? "{}")).toMatchObject({
+      ok: false,
+      error: {
+        code: "DUPLICATE_OBSERVATION",
+        duplicateOfToolCallId: "equivalent-path-1",
+      },
+    });
+    expect(store.requireSession(session.id)).toMatchObject({
+      status: "completed",
+      result: "The equivalent path was read once.",
+    });
   });
 
   it("cancels an active inference once while preserving streamed partial output", async () => {
@@ -854,7 +1505,10 @@ describe("SessionRunner", () => {
         toolName: "read_text_file",
         workspaceRelativePath: "SOAR_PROBE.txt",
         argumentsExcerpt: '{"relativePath":"SOAR_PROBE.txt"}',
-        content: expect.stringContaining('"text":"probe\\n"'),
+        content: "Complete file lines are represented by citationSnippets.",
+        citationSnippets: [
+          { citation: "SOAR_PROBE.txt:1", text: "probe" },
+        ],
       }),
     );
     const events = store.getEvents(session.id);
@@ -928,7 +1582,7 @@ describe("SessionRunner", () => {
     });
   });
 
-  it("does not execute a provider burst that exceeds the tool-call limit", async () => {
+  it("rejects a provider burst before persisting or executing tool requests", async () => {
     const workspaceRoot = await createWorkspace();
     await writeFile(path.join(workspaceRoot, "SOAR_PROBE.txt"), "probe\n", "utf8");
     const store = createStore();
@@ -947,12 +1601,52 @@ describe("SessionRunner", () => {
     await runner.startSession(session.id);
 
     const events = store.getEvents(session.id);
-    expect(events.filter((event) => event.type === "tool.call.requested")).toHaveLength(2);
+    expect(events.filter((event) => event.type === "tool.call.requested")).toHaveLength(0);
     expect(events.filter((event) => event.type === "tool.call.completed")).toHaveLength(0);
     expect(store.requireSession(session.id)).toMatchObject({
       status: "failed",
-      error: "Tool-call limit of 1 was exceeded.",
+      error:
+        "The provider returned multiple tool calls, but SOAR permits exactly one sequential tool call per inference round.",
       totalCostUsd: 0,
+    });
+  });
+
+  it("uses session_start for a one-round finalization checkpoint", async () => {
+    const workspaceRoot = await createWorkspace();
+    const store = createStore();
+    const session = store.createSession({
+      id: "one-round-finalization",
+      title: "One round",
+      objective: "Return one final answer without tools.",
+      workspaceRoot,
+      executionPolicy: executionPolicy({ inferenceRounds: 1 }),
+    });
+    const runner = new SessionRunner({
+      store,
+      provider: new FixedResultProvider({
+        content: "One-round final answer.",
+        toolCalls: [],
+        finishReason: "stop",
+        usage: { inputTokens: 4, outputTokens: 4, totalTokens: 8 },
+        durationMs: 1,
+      }),
+      limits: limits({ inferenceRounds: 1 }),
+    });
+
+    await runner.startSession(session.id);
+
+    expect(
+      store
+        .getEvents(session.id)
+        .filter((event) => event.type === "context.compiled")
+        .map((event) => ({
+          reason: event.payload.reason,
+          mode: event.payload.mode,
+        })),
+    ).toEqual([{ reason: "session_start", mode: "finalization" }]);
+    expect(store.requireSession(session.id)).toMatchObject({
+      status: "completed",
+      result: "One-round final answer.",
     });
   });
 });

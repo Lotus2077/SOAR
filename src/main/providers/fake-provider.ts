@@ -11,6 +11,7 @@ const CONTEXT_PACKET_PREFIX = "SOAR_CONTEXT_PACKET_V1\n";
 interface ContextPacketToolEvidence {
   kind: "tool_evidence";
   content: string;
+  citationSnippets?: Array<{ citation: string; text: string }>;
 }
 
 interface ContextPacketShape {
@@ -34,7 +35,15 @@ function toolResultFromContextPacket(message: ProviderMessage): string | undefin
           "content" in entry &&
           typeof entry.content === "string",
       );
-    return toolEvidence?.content;
+    if (!toolEvidence) return undefined;
+    if (toolEvidence.citationSnippets?.length) {
+      return JSON.stringify({
+        text: toolEvidence.citationSnippets
+          .map((snippet) => snippet.text)
+          .join("\n"),
+      });
+    }
+    return toolEvidence.content;
   } catch {
     return undefined;
   }
@@ -92,6 +101,7 @@ async function emitChunks(
 export class FakeProvider implements InferenceProvider {
   readonly id = "local-vllm";
   readonly model = "RM-01 VLM (deterministic test double)";
+  readonly costPolicy = "local_zero_cost" as const;
   private readonly delayMs: number;
 
   constructor(options: { delayMs?: number } = {}) {
@@ -101,17 +111,29 @@ export class FakeProvider implements InferenceProvider {
   async complete(input: CompleteInput): Promise<ProviderResult> {
     const startedAt = performance.now();
     const toolResult = extractLastToolResult(input.messages);
+    const toolsPermitted = input.allowTools !== false;
+    const requiredTool =
+      toolsPermitted ? input.allowedToolNames?.[0] : undefined;
+    const useLegacyDefaultTool =
+      toolsPermitted && input.allowedToolNames === undefined && !toolResult;
 
-    if (!toolResult) {
+    if (requiredTool || useLegacyDefaultTool) {
+      const toolName = requiredTool ?? "read_text_file";
+      const arguments_ =
+        toolName === "list_files"
+          ? {}
+          : toolName === "search_text"
+            ? { query: "SOAR" }
+            : { relativePath: "SOAR_PROBE.txt" };
       return {
         content: "",
         toolCalls: [
           {
-            id: "read-probe",
+            id: `fake-${toolName}`,
             type: "function",
             function: {
-              name: "read_text_file",
-              arguments: JSON.stringify({ relativePath: "SOAR_PROBE.txt" }),
+              name: toolName,
+              arguments: JSON.stringify(arguments_),
             },
           },
         ],
@@ -122,15 +144,33 @@ export class FakeProvider implements InferenceProvider {
       };
     }
 
-    const parsed = JSON.parse(toolResult) as { text?: string };
-    const chunks = ["The workspace marker is ", parsed.text?.trim() || "missing", "."];
-    const content = await emitChunks(chunks, input, this.delayMs);
+    const parsed = toolResult
+      ? (JSON.parse(toolResult) as { text?: string })
+      : {};
+    const chunks = [
+      "The workspace marker at SOAR_PROBE.txt:1 is ",
+      parsed.text?.trim() || "missing",
+      ".",
+    ];
+    let firstTokenAt: number | undefined;
+    const content = await emitChunks(
+      chunks,
+      {
+        ...input,
+        onDelta: (delta) => {
+          firstTokenAt ??= performance.now();
+          input.onDelta(delta);
+        },
+      },
+      this.delayMs,
+    );
     return {
       content,
       toolCalls: [],
       finishReason: "stop",
       usage: { inputTokens: 48, outputTokens: 16, totalTokens: 64 },
-      timeToFirstTokenMs: 12,
+      timeToFirstTokenMs:
+        firstTokenAt === undefined ? undefined : firstTokenAt - startedAt,
       durationMs: performance.now() - startedAt,
     };
   }

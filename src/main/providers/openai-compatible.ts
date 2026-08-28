@@ -1,7 +1,12 @@
+import { randomUUID } from "node:crypto";
+
 import OpenAI from "openai";
 
 import type { SoarConfig } from "../config";
-import { MODEL_TOOL_DEFINITIONS } from "../tools/tool-registry";
+import {
+  MODEL_TOOL_DEFINITIONS,
+  type RegisteredToolName,
+} from "../tools/tool-registry";
 import {
   ProviderAbortedError,
   type CompleteInput,
@@ -23,13 +28,6 @@ function conservativeTokenReserve(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).length;
 }
 
-const WORKING_REQUEST_RESERVE_TOKENS =
-  PROVIDER_TEMPLATE_RESERVE_TOKENS +
-  conservativeTokenReserve({
-    tools: MODEL_TOOL_DEFINITIONS,
-    tool_choice: "auto",
-    parallel_tool_calls: false,
-  });
 const FINALIZATION_REQUEST_RESERVE_TOKENS =
   PROVIDER_TEMPLATE_RESERVE_TOKENS +
   conservativeTokenReserve({
@@ -37,8 +35,35 @@ const FINALIZATION_REQUEST_RESERVE_TOKENS =
     reasoning_effort: "none",
   });
 
+function selectedToolDefinitions(
+  allowedToolNames?: readonly RegisteredToolName[],
+): typeof MODEL_TOOL_DEFINITIONS {
+  if (allowedToolNames === undefined) return MODEL_TOOL_DEFINITIONS;
+  const allowed = new Set<string>(allowedToolNames);
+  return Object.freeze(
+    MODEL_TOOL_DEFINITIONS.filter((definition) =>
+      definition.type === "function" &&
+      allowed.has(definition.function.name),
+    ),
+  );
+}
+
+function workingRequestReserveTokens(
+  allowedToolNames?: readonly RegisteredToolName[],
+): number {
+  return (
+    PROVIDER_TEMPLATE_RESERVE_TOKENS +
+    conservativeTokenReserve({
+      tools: selectedToolDefinitions(allowedToolNames),
+      tool_choice: "auto",
+      parallel_tool_calls: false,
+    })
+  );
+}
+
 export class OpenAICompatibleProvider implements InferenceProvider {
   readonly id = "local-vllm";
+  readonly costPolicy: "local_zero_cost";
   readonly model: string;
   private readonly client: OpenAI;
   private readonly maxOutputTokens: number;
@@ -46,6 +71,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
 
   constructor(config: SoarConfig["vllm"]) {
     this.model = config.model;
+    this.costPolicy = config.costPolicy;
     this.maxOutputTokens = config.maxOutputTokens;
     this.timeoutMs = config.timeoutMs;
     this.client = new OpenAI({
@@ -56,9 +82,12 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     });
   }
 
-  estimateInputTokenReserve(allowTools: boolean): number {
+  estimateInputTokenReserve(
+    allowTools: boolean,
+    allowedToolNames?: RegisteredToolName[],
+  ): number {
     const requestReserve = allowTools
-      ? WORKING_REQUEST_RESERVE_TOKENS
+      ? workingRequestReserveTokens(allowedToolNames)
       : FINALIZATION_REQUEST_RESERVE_TOKENS;
     return requestReserve + new TextEncoder().encode(this.model).length;
   }
@@ -67,6 +96,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     messages,
     signal,
     allowTools = true,
+    allowedToolNames,
     onDelta,
   }: CompleteInput): Promise<ProviderResult> {
     const startedAt = performance.now();
@@ -74,6 +104,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     let content = "";
     let finishReason: string | null = null;
     let usage: ProviderResult["usage"];
+    let servedModel: string | undefined;
     const toolCalls = new Map<number, ToolCallAccumulator>();
 
     const timeoutController = new AbortController();
@@ -100,13 +131,15 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     };
 
     try {
+      const tools = selectedToolDefinitions(allowedToolNames);
+      const toolsEnabled = allowTools && tools.length > 0;
       const stream = await this.client.chat.completions.create(
         {
           model: this.model,
           messages,
-          ...(allowTools
+          ...(toolsEnabled
             ? {
-                tools: [...MODEL_TOOL_DEFINITIONS],
+                tools: [...tools],
                 tool_choice: "auto" as const,
                 parallel_tool_calls: false,
               }
@@ -123,6 +156,14 @@ export class OpenAICompatibleProvider implements InferenceProvider {
 
       for await (const chunk of stream) {
         if (combinedSignal.aborted) throw abortError();
+        if (chunk.model) {
+          if (servedModel !== undefined && servedModel !== chunk.model) {
+            throw new Error(
+              `Provider changed served model within one response (${servedModel} -> ${chunk.model}).`,
+            );
+          }
+          servedModel = chunk.model;
+        }
         const choice = chunk.choices[0];
         if (choice?.finish_reason) finishReason = choice.finish_reason;
 
@@ -172,10 +213,11 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       timeoutController.signal.removeEventListener("abort", markTimedOut);
     }
 
+    const fallbackToolCallRequestId = randomUUID();
     const normalizedToolCalls: ProviderToolCall[] = [...toolCalls.entries()]
       .sort(([left], [right]) => left - right)
       .map(([index, call]) => ({
-        id: call.id || `tool-call-${index}`,
+        id: call.id || `tool-call-${fallbackToolCallRequestId}-${index}`,
         type: "function",
         function: {
           name: call.name,
@@ -188,6 +230,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       toolCalls: normalizedToolCalls,
       finishReason,
       usage,
+      ...(servedModel === undefined ? {} : { servedModel }),
       timeToFirstTokenMs: firstTokenAt === undefined ? undefined : firstTokenAt - startedAt,
       durationMs: performance.now() - startedAt,
     };

@@ -1,19 +1,24 @@
 import { z } from "zod";
 
 import {
+  APP_TASK_TRACKS,
+  AppTaskTrackSchema,
   SESSION_STATUSES,
   SessionStatusSchema,
+  type AppTaskTrack,
   type SessionStatus,
 } from "./session-events";
 
 export const sessionStatuses = SESSION_STATUSES;
 export const sessionStatusSchema = SessionStatusSchema;
-export type { SessionStatus };
+export { APP_TASK_TRACKS, AppTaskTrackSchema };
+export type { AppTaskTrack, SessionStatus };
 
 export const createSessionInputSchema = z
   .object({
     task: z.string().trim().min(1).max(100_000),
     workspaceRoot: z.string().trim().min(1).max(4_096),
+    taskTrack: AppTaskTrackSchema,
   })
   .strict();
 
@@ -42,6 +47,8 @@ export interface SessionSummary {
 
 export interface SessionSnapshot extends SessionSummary {
   workspaceRoot: string;
+  /** Absent only for sessions created before task tracks were persisted. */
+  taskTrack?: AppTaskTrack;
   events: SessionEventView[];
 }
 

@@ -13,8 +13,19 @@ export const SessionStatusSchema = z.enum(SESSION_STATUSES);
 
 export type SessionStatus = z.infer<typeof SessionStatusSchema>;
 
+export const APP_TASK_TRACKS = ["repository-investigator-v1"] as const;
+
+export const AppTaskTrackSchema = z.enum(APP_TASK_TRACKS);
+
+export type AppTaskTrack = z.infer<typeof AppTaskTrackSchema>;
+
 export function isTerminalSessionStatus(status: SessionStatus): boolean {
-  return status === "completed" || status === "failed" || status === "cancelled";
+  return (
+    status === "completed" ||
+    status === "failed" ||
+    status === "cancelled" ||
+    status === "interrupted"
+  );
 }
 
 export const AssistantCompletionStateSchema = z.enum(["complete", "incomplete"]);
@@ -31,6 +42,97 @@ export const CitationCorrectionSchema = z
   .strict();
 
 export type CitationCorrection = z.infer<typeof CitationCorrectionSchema>;
+
+export const COMPLETION_OBLIGATION_TOOL_NAMES = [
+  "list_files",
+  "search_text",
+  "read_text_file",
+] as const;
+
+export const CompletionObligationToolNameSchema = z.enum(
+  COMPLETION_OBLIGATION_TOOL_NAMES,
+);
+
+export type CompletionObligationToolName = z.infer<
+  typeof CompletionObligationToolNameSchema
+>;
+
+const maximumAgenticPolicySteps = 32;
+
+const orderedRequiredToolsSchema = z
+  .array(CompletionObligationToolNameSchema)
+  .max(maximumAgenticPolicySteps);
+
+const maximumVerifiedPathLineCitations = 100;
+
+export const CompletionObligationsSchema = z
+  .object({
+    requiredSuccessfulTools: orderedRequiredToolsSchema,
+    minimumVerifiedPathLineCitations: z
+      .number()
+      .int()
+      .nonnegative()
+      .safe()
+      .max(maximumVerifiedPathLineCitations),
+  })
+  .strict();
+
+export type CompletionObligations = z.infer<
+  typeof CompletionObligationsSchema
+>;
+
+export const AgenticExecutionPolicySchema = z
+  .object({
+    schemaVersion: z.literal("agentic-execution-v1"),
+    inferenceRounds: z
+      .number()
+      .int()
+      .min(1)
+      .max(maximumAgenticPolicySteps)
+      .safe(),
+    toolCalls: z
+      .number()
+      .int()
+      .min(1)
+      .max(maximumAgenticPolicySteps)
+      .safe(),
+  })
+  .strict();
+
+export type AgenticExecutionPolicy = z.infer<
+  typeof AgenticExecutionPolicySchema
+>;
+
+export const CompletionObligationOutcomeSchema = z.enum([
+  "accepted",
+  "retry",
+  "exhausted",
+]);
+
+export type CompletionObligationOutcome = z.infer<
+  typeof CompletionObligationOutcomeSchema
+>;
+
+export const CONTEXT_COMPILATION_MODES = ["working", "finalization"] as const;
+export const ContextCompilationModeSchema = z.enum(CONTEXT_COMPILATION_MODES);
+export type ContextCompilationMode = z.infer<
+  typeof ContextCompilationModeSchema
+>;
+
+export const CONTEXT_COMPILATION_REASONS = [
+  "session_start",
+  "tool_result_boundary",
+  "obligation_retry_boundary",
+  "no_progress_boundary",
+  "finalization_boundary",
+  "no_progress_finalization_boundary",
+] as const;
+export const ContextCompilationReasonSchema = z.enum(
+  CONTEXT_COMPILATION_REASONS,
+);
+export type ContextCompilationReason = z.infer<
+  typeof ContextCompilationReasonSchema
+>;
 
 export const OptimizationProfileSchema = z.enum([
   "quality",
@@ -52,6 +154,7 @@ export const SessionEventTypeSchema = z.enum([
   "tool.call.requested",
   "tool.call.completed",
   "context.compiled",
+  "completion.obligations.checked",
   "usage.recorded",
   "session.completed",
   "session.failed",
@@ -93,8 +196,51 @@ const sessionCreatedSchema = z
         objective: z.string().trim().min(1),
         workspaceRoot: z.string().trim().min(1),
         profile: OptimizationProfileSchema.default("balanced"),
+        taskTrack: AppTaskTrackSchema.optional(),
+        completionObligations: CompletionObligationsSchema.optional(),
+        executionPolicy: AgenticExecutionPolicySchema.optional(),
       })
-      .strict(),
+      .strict()
+      .superRefine((payload, context) => {
+        const obligations = payload.completionObligations;
+        const active =
+          obligations !== undefined &&
+          (obligations.requiredSuccessfulTools.length > 0 ||
+            obligations.minimumVerifiedPathLineCitations > 0);
+        if (active && payload.executionPolicy === undefined) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "active completion obligations require agentic-execution-v1 policy",
+            path: ["executionPolicy"],
+          });
+        }
+        if (active && payload.executionPolicy !== undefined) {
+          const minimumToolRounds = Math.max(
+            obligations?.requiredSuccessfulTools.length ?? 0,
+            (obligations?.minimumVerifiedPathLineCitations ?? 0) > 0 ? 1 : 0,
+          );
+          if (payload.executionPolicy.toolCalls < minimumToolRounds) {
+            context.addIssue({
+              code: "custom",
+              message:
+                "execution policy needs enough tool calls for the completion obligations",
+              path: ["executionPolicy", "toolCalls"],
+            });
+          }
+          if (
+            payload.executionPolicy.inferenceRounds <
+            minimumToolRounds + 1
+          ) {
+            context.addIssue({
+              code: "custom",
+              message:
+                "execution policy needs one inference round per required tool plus final synthesis",
+              path: ["executionPolicy", "inferenceRounds"],
+            });
+          }
+        }
+      }),
   })
   .strict();
 
@@ -206,9 +352,9 @@ const contextCompiledSchema = z
     payload: z
       .object({
         checkpointId: requiredId,
-        compilerVersion: requiredId,
-        reason: requiredId,
-        mode: requiredId,
+        compilerVersion: z.literal("context-compiler-v1"),
+        reason: ContextCompilationReasonSchema,
+        mode: ContextCompilationModeSchema,
         providerId: requiredId,
         model: requiredId,
         maxTokens: safePositiveInteger,
@@ -254,6 +400,82 @@ const contextCompiledSchema = z
   })
   .strict();
 
+const verifiedPathLineCitationSchema = z
+  .string()
+  .min(3)
+  .max(4_096)
+  .regex(/^[^\r\n]+:[1-9][0-9]*$/u);
+
+const canonicalVerifiedCitationListSchema = z
+  .array(verifiedPathLineCitationSchema)
+  .max(maximumVerifiedPathLineCitations)
+  .superRefine((citations, context) => {
+    for (let index = 1; index < citations.length; index += 1) {
+      const previous = citations[index - 1];
+      const current = citations[index];
+      if (previous !== undefined && current !== undefined && previous >= current) {
+        context.addIssue({
+          code: "custom",
+          message: "verified path-line citations must be sorted and unique",
+          path: [index],
+        });
+      }
+    }
+  });
+
+export const CompletionObligationCheckPayloadSchema = z
+  .object({
+    checkId: requiredId,
+    messageId: requiredId,
+    round: safePositiveInteger,
+    remainingRounds: safeNonNegativeInteger,
+    successfulRequiredTools: orderedRequiredToolsSchema,
+    missingRequiredTools: orderedRequiredToolsSchema,
+    verifiedPathLineCitations: canonicalVerifiedCitationListSchema,
+    unresolvedCitationCount: safeNonNegativeInteger,
+    outcome: CompletionObligationOutcomeSchema,
+  })
+  .strict()
+  .superRefine((payload, context) => {
+    if (
+      payload.outcome === "accepted" &&
+      (payload.missingRequiredTools.length > 0 ||
+        payload.unresolvedCitationCount > 0)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "accepted obligation checks cannot have missing tools or unresolved citations",
+        path: ["outcome"],
+      });
+    }
+    if (payload.outcome === "retry" && payload.remainingRounds === 0) {
+      context.addIssue({
+        code: "custom",
+        message: "retry obligation checks require at least one remaining round",
+        path: ["remainingRounds"],
+      });
+    }
+    if (payload.outcome === "exhausted" && payload.remainingRounds !== 0) {
+      context.addIssue({
+        code: "custom",
+        message: "exhausted obligation checks cannot have remaining rounds",
+        path: ["remainingRounds"],
+      });
+    }
+  });
+
+export type CompletionObligationCheckPayload = z.infer<
+  typeof CompletionObligationCheckPayloadSchema
+>;
+
+const completionObligationsCheckedSchema = z
+  .object({
+    type: z.literal("completion.obligations.checked"),
+    payload: CompletionObligationCheckPayloadSchema,
+  })
+  .strict();
+
 const usageRecordedSchema = z
   .object({
     type: z.literal("usage.recorded"),
@@ -264,6 +486,10 @@ const usageRecordedSchema = z
         reasoningTokens: nonNegativeInteger.default(0),
         reported: z.boolean().optional(),
         costUsd: nonNegativeNumber,
+        costProvenance: z
+          .enum(["provider_reported", "local_zero_cost_policy", "unreported"])
+          .optional(),
+        servedModel: requiredId.optional(),
         latencyMs: nonNegativeNumber.optional(),
         ttftMs: nonNegativeNumber.optional(),
       })
@@ -326,6 +552,7 @@ export const SessionEventDataSchema = z.discriminatedUnion("type", [
   toolCallRequestedSchema,
   toolCallCompletedSchema,
   contextCompiledSchema,
+  completionObligationsCheckedSchema,
   usageRecordedSchema,
   sessionCompletedSchema,
   sessionFailedSchema,

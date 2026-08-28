@@ -9,16 +9,32 @@ const booleanString = z
   .default("false")
   .transform((value) => value === "true");
 
+const vllmBaseUrlSchema = z.string().url().superRefine((value, context) => {
+  const url = new URL(value);
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    context.addIssue({
+      code: "custom",
+      message: "SOAR_VLLM_BASE_URL must use HTTP or HTTPS",
+    });
+  }
+  if (url.pathname !== "/v1" || url.search !== "" || url.hash !== "") {
+    context.addIssue({
+      code: "custom",
+      message:
+        "SOAR_VLLM_BASE_URL must be the exact /v1 API base without a resource path, query, or fragment",
+    });
+  }
+});
+
 const environmentSchema = z.object({
-  SOAR_VLLM_BASE_URL: z
-    .string()
-    .url()
-    .refine((value) => value.endsWith("/v1"), {
-      message: "SOAR_VLLM_BASE_URL must end in /v1",
-    })
-    .default("http://localhost:8000/v1"),
+  SOAR_VLLM_BASE_URL: vllmBaseUrlSchema.default(
+    "http://localhost:8000/v1",
+  ),
   SOAR_VLLM_API_KEY: z.string().optional(),
   SOAR_VLLM_MODEL: z.string().trim().min(1).max(256).default("RM-01 VLM"),
+  SOAR_VLLM_COST_POLICY: z
+    .enum(["local_zero_cost"])
+    .default("local_zero_cost"),
   SOAR_ALLOW_INSECURE_VLLM_HTTP: booleanString,
   SOAR_PROVIDER_MODE: z.enum(["local", "fake"]).default("local"),
   SOAR_FAKE_DELAY_MS: z.coerce.number().int().min(0).max(5_000).default(12),
@@ -33,7 +49,7 @@ const environmentSchema = z.object({
     .int()
     .min(2_048)
     .max(1_048_576)
-    .default(8_192),
+    .default(16_384),
   SOAR_CONTEXT_SAFETY_MARGIN: z.coerce.number().min(0.05).max(0.5).default(0.2),
 });
 
@@ -44,6 +60,7 @@ export interface SoarConfig {
     baseUrl: string;
     apiKey: string;
     model: string;
+    costPolicy: "local_zero_cost";
     maxOutputTokens: number;
     timeoutMs: number;
   };
@@ -108,6 +125,7 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
       baseUrl: env.SOAR_VLLM_BASE_URL,
       apiKey: env.SOAR_VLLM_API_KEY || "local-vllm",
       model: env.SOAR_VLLM_MODEL,
+      costPolicy: env.SOAR_VLLM_COST_POLICY,
       maxOutputTokens: env.SOAR_MAX_OUTPUT_TOKENS,
       timeoutMs: env.SOAR_REQUEST_TIMEOUT_MS,
     },

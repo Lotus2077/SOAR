@@ -36,6 +36,14 @@ const events: StoredSessionEvent[] = [
     sessionId: "session-1",
     sequence: 3,
     createdAt: "2026-08-27T00:00:03.000Z",
+    type: "session.started",
+    payload: {},
+  },
+  {
+    id: "event-4",
+    sessionId: "session-1",
+    sequence: 4,
+    createdAt: "2026-08-27T00:00:04.000Z",
     type: "assistant.message.started",
     payload: {
       messageId: "assistant-1",
@@ -44,10 +52,10 @@ const events: StoredSessionEvent[] = [
     },
   },
   {
-    id: "event-4",
+    id: "event-5",
     sessionId: "session-1",
-    sequence: 4,
-    createdAt: "2026-08-27T00:00:04.000Z",
+    sequence: 5,
+    createdAt: "2026-08-27T00:00:05.000Z",
     type: "tool.call.requested",
     payload: {
       toolCallId: "call-1",
@@ -57,18 +65,18 @@ const events: StoredSessionEvent[] = [
     },
   },
   {
-    id: "event-5",
-    sessionId: "session-1",
-    sequence: 5,
-    createdAt: "2026-08-27T00:00:05.000Z",
-    type: "assistant.message.completed",
-    payload: { messageId: "assistant-1" },
-  },
-  {
     id: "event-6",
     sessionId: "session-1",
     sequence: 6,
     createdAt: "2026-08-27T00:00:06.000Z",
+    type: "assistant.message.completed",
+    payload: { messageId: "assistant-1", stopReason: "tool_calls" },
+  },
+  {
+    id: "event-7",
+    sessionId: "session-1",
+    sequence: 7,
+    createdAt: "2026-08-27T00:00:07.000Z",
     type: "tool.call.completed",
     payload: {
       toolCallId: "call-1",
@@ -78,10 +86,10 @@ const events: StoredSessionEvent[] = [
     },
   },
   {
-    id: "event-7",
+    id: "event-8",
     sessionId: "session-1",
-    sequence: 7,
-    createdAt: "2026-08-27T00:00:07.000Z",
+    sequence: 8,
+    createdAt: "2026-08-27T00:00:08.000Z",
     type: "assistant.message.started",
     payload: {
       messageId: "assistant-incomplete",
@@ -90,10 +98,10 @@ const events: StoredSessionEvent[] = [
     },
   },
   {
-    id: "event-8",
+    id: "event-9",
     sessionId: "session-1",
-    sequence: 8,
-    createdAt: "2026-08-27T00:00:08.000Z",
+    sequence: 9,
+    createdAt: "2026-08-27T00:00:09.000Z",
     type: "assistant.message.delta",
     payload: { messageId: "assistant-incomplete", delta: "partial" },
   },

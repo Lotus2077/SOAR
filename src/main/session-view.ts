@@ -28,9 +28,11 @@ function toEventView(event: StoredSessionEvent): SessionEventView {
 
 export function toSessionSnapshot(store: EventStore, sessionId: string): SessionSnapshot {
   const session = store.requireSession(sessionId);
+  const state = store.getProjectedState(sessionId);
   return {
     ...toSessionSummary(session),
     workspaceRoot: session.workspaceRoot,
+    ...(state.taskTrack === undefined ? {} : { taskTrack: state.taskTrack }),
     events: store.getEvents(sessionId).map(toEventView),
   };
 }

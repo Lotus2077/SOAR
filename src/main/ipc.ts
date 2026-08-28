@@ -7,8 +7,10 @@ import {
   IPC_CHANNELS,
   createSessionInputSchema,
   sessionIdSchema,
+  type AppTaskTrack,
   type WorkspaceSelection,
 } from "../shared/contracts";
+import type { CompletionObligations } from "../shared/session-events";
 import type { SoarConfig } from "./config";
 import { EventStore } from "./event-store";
 import { SessionRunner } from "./agent/run-session";
@@ -18,6 +20,31 @@ export interface RegisterIpcOptions {
   store: EventStore;
   runner: SessionRunner;
   config: SoarConfig;
+}
+
+const TASK_TRACK_COMPLETION_POLICIES: Record<
+  AppTaskTrack,
+  CompletionObligations
+> = {
+  "repository-investigator-v1": {
+    requiredSuccessfulTools: [
+      "list_files",
+      "search_text",
+      "read_text_file",
+    ],
+    minimumVerifiedPathLineCitations: 1,
+  },
+};
+
+function completionObligationsForTaskTrack(
+  taskTrack: AppTaskTrack,
+): CompletionObligations {
+  const policy = TASK_TRACK_COMPLETION_POLICIES[taskTrack];
+  return {
+    requiredSuccessfulTools: [...policy.requiredSuccessfulTools],
+    minimumVerifiedPathLineCitations:
+      policy.minimumVerifiedPathLineCitations,
+  };
 }
 
 async function canonicalDirectory(candidate: string): Promise<string> {
@@ -95,6 +122,15 @@ export async function registerIpcHandlers({
       objective: input.task,
       workspaceRoot,
       profile: "balanced",
+      taskTrack: input.taskTrack,
+      completionObligations: completionObligationsForTaskTrack(
+        input.taskTrack,
+      ),
+      executionPolicy: {
+        schemaVersion: "agentic-execution-v1",
+        inferenceRounds: config.limits.inferenceRounds,
+        toolCalls: config.limits.toolCalls,
+      },
     });
     return toSessionSnapshot(store, session.id);
   });

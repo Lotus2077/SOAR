@@ -37,7 +37,15 @@ describe.skipIf(!runLive)("live local vLLM canary", () => {
     expect(final.result).toContain("SOAR-LOCAL-TOOL-PROBE-6F4A2C");
     expect(events.some((event) => event.type === "tool.call.completed")).toBe(true);
     expect(events.some((event) => event.type === "route.assigned")).toBe(true);
-    expect(events.filter((event) => event.type === "usage.recorded")).not.toHaveLength(0);
+    const usage = events.filter((event) => event.type === "usage.recorded");
+    expect(usage).not.toHaveLength(0);
+    expect(
+      usage.every(
+        (event) =>
+          event.payload.costUsd === 0 &&
+          event.payload.costProvenance === "local_zero_cost_policy",
+      ),
+    ).toBe(true);
     expect(final.totalCostUsd).toBe(0);
     expect(deltas.join("")).toContain("SOAR-LOCAL-TOOL-PROBE-6F4A2C");
     database.close();

@@ -104,9 +104,13 @@ function systemPrompt(
   limits: SoarConfig["limits"],
   progress: CompletionProgress,
 ): string {
+  const nextRequiredStep = progress.successfulRequiredTools.length + 1;
+  const requiredToolCount =
+    progress.successfulRequiredTools.length +
+    progress.missingRequiredTools.length;
   const obligationPolicy = progress.active
     ? progress.nextRequiredTool
-      ? `The persisted task contract requires successful tool steps in exact order. The next required step is ${progress.nextRequiredTool}; call only that tool now. Repeated tool names are distinct required steps, so use materially different arguments when the next step repeats a tool.`
+      ? `Required contract step ${nextRequiredStep} of ${requiredToolCount}: ${progress.nextRequiredTool}. This is not a restart; call only that tool now. If the task specifies arguments for step ${nextRequiredStep}, use them. Otherwise choose materially new arguments consistent with the objective, never arguments from an earlier repeated step.`
       : `All persisted required tools have succeeded. Before finishing, provide at least ${progress.minimumVerifiedPathLineCitations} unique exact citations in the single-token form path/to/file.ext:123. Use additional tools only for genuinely new evidence.`
     : "No structured completion obligations are active for this session.";
   const noProgressPolicy =

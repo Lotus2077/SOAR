@@ -372,6 +372,11 @@ class OrderedObligationProvider implements InferenceProvider {
           relativePath: "src",
         });
       case 3:
+        return toolCallResult("search-marker-use", "search_text", {
+          query: "useMarker",
+          relativePath: "src",
+        });
+      case 4:
         return toolCallResult("read-marker", "read_text_file", {
           relativePath: "src/fixture.ts",
         });
@@ -749,6 +754,7 @@ describe("SessionRunner", () => {
         requiredSuccessfulTools: [
           "list_files",
           "search_text",
+          "search_text",
           "read_text_file",
         ],
         minimumVerifiedPathLineCitations: 2,
@@ -784,6 +790,11 @@ describe("SessionRunner", () => {
       },
       {
         allowTools: true,
+        allowedToolNames: ["search_text"],
+        requireToolCall: true,
+      },
+      {
+        allowTools: true,
         allowedToolNames: ["read_text_file"],
         requireToolCall: true,
       },
@@ -793,21 +804,40 @@ describe("SessionRunner", () => {
         requireToolCall: undefined,
       },
     ]);
+    expect(
+      provider.policies.slice(0, 4).map(({ systemPrompt }) =>
+        systemPrompt?.match(/Required contract step \d+ of \d+: \w+/u)?.[0],
+      ),
+    ).toEqual([
+      "Required contract step 1 of 4: list_files",
+      "Required contract step 2 of 4: search_text",
+      "Required contract step 3 of 4: search_text",
+      "Required contract step 4 of 4: read_text_file",
+    ]);
+    expect(provider.policies[2]?.systemPrompt).toContain(
+      "If the task specifies arguments for step 3, use them",
+    );
 
     const events = store.getEvents(session.id);
     expect(
       events
         .filter((event) => event.type === "tool.call.requested")
         .map((event) => event.payload.name),
-    ).toEqual(["list_files", "search_text", "read_text_file"]);
+    ).toEqual([
+      "list_files",
+      "search_text",
+      "search_text",
+      "read_text_file",
+    ]);
     const checks = events.filter(
       (event) => event.type === "completion.obligations.checked",
     );
     expect(checks).toHaveLength(1);
     expect(checks[0]?.payload).toMatchObject({
-      round: 4,
+      round: 5,
       successfulRequiredTools: [
         "list_files",
+        "search_text",
         "search_text",
         "read_text_file",
       ],
@@ -827,6 +857,7 @@ describe("SessionRunner", () => {
     expect(store.getProjectedState(session.id).completionObligations).toEqual({
       requiredSuccessfulTools: [
         "list_files",
+        "search_text",
         "search_text",
         "read_text_file",
       ],

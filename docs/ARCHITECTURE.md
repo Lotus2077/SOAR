@@ -159,7 +159,11 @@ and tool-call ceilings and must contain enough rounds for each sequential tool
 plus final synthesis. The runner refuses a policy that differs from its active
 limits and passes only the next required tool through
 `CompleteInput.allowedToolNames`, with `CompleteInput.requireToolCall` set for
-that round. The OpenAI-compatible adapter maps the signal to
+that round. The caller prompt also states the one-based step ordinal and total,
+so repeated tool names do not look like a restarted schedule. This is a
+navigation cue, not an exact-argument contract: v1 obligations persist tool
+names and citation minimums, while task-specific evaluators must still verify
+planned arguments. The OpenAI-compatible adapter maps the signal to
 `tool_choice: "required"`; unconstrained working rounds remain `"auto"`, and
 finalization uses `"none"`. A provider that returns no tool call on a required
 round fails immediately as a transport-protocol violation. A later no-tool

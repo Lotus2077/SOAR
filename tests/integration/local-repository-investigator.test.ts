@@ -1148,7 +1148,7 @@ function symbolReferenceObjective(): string {
       maxMatches: 500,
       maxDepth: 20,
     })})`,
-    `2-6. read_text_file once/path, in order: ${JSON.stringify(paths)}. All complete/untruncated with claims below before call 7.`,
+    `2-6 read_text_file: ${paths.map((path, index) => `${index + 2}=${JSON.stringify(path)}`).join(";")}. Complete/untruncated; claims below; before 7.`,
     `7-10. search_text in order with relativePath=${JSON.stringify(paths[0])},caseSensitive=true,maxMatches=20:`,
     ...supportingSearches
       .slice(0, 4)
@@ -2412,7 +2412,7 @@ describe("Local Repository Investigator evaluator contract", () => {
       })})`,
     );
     expect(objectiveLines).toContain(
-      `2-6. read_text_file once/path, in order: ${JSON.stringify(requiredReadPaths)}. All complete/untruncated with claims below before call 7.`,
+      `2-6 read_text_file: ${requiredReadPaths.map((path, index) => `${index + 2}=${JSON.stringify(path)}`).join(";")}. Complete/untruncated; claims below; before 7.`,
     );
     expect(objectiveLines).toContain(
       "Next four: quoted claim, then global-call-1 substring verified by shown full read; extra uses named support.",

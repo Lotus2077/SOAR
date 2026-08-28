@@ -120,10 +120,10 @@ describe("OpenAICompatibleProvider", () => {
       encoder.encode("local-test-model").length +
       encoder.encode(
         JSON.stringify({
+          reasoning_effort: "none",
           tools: MODEL_TOOL_DEFINITIONS,
           tool_choice: "auto",
           parallel_tool_calls: false,
-          reasoning_effort: "none",
         }),
       ).length;
 
@@ -135,6 +135,32 @@ describe("OpenAICompatibleProvider", () => {
     expect(
       provider.estimateInputTokenReserve(true, ["read_text_file"]),
     ).toBeLessThan(provider.estimateInputTokenReserve(true));
+    const selectedTool = MODEL_TOOL_DEFINITIONS.filter(
+      (definition) =>
+        definition.type === "function" &&
+        definition.function.name === "read_text_file",
+    );
+    const expectedRequiredReserve =
+      512 +
+      encoder.encode("local-test-model").length +
+      encoder.encode(
+        JSON.stringify({
+          reasoning_effort: "none",
+          tools: selectedTool,
+          tool_choice: "required",
+          parallel_tool_calls: false,
+        }),
+      ).length;
+    expect(
+      provider.estimateInputTokenReserve(
+        true,
+        ["read_text_file"],
+        true,
+      ),
+    ).toBe(expectedRequiredReserve);
+    expect(() => provider.estimateInputTokenReserve(true, undefined, true)).toThrow(
+      /exactly one enabled scheduler-selected tool/u,
+    );
   });
 
   it("posts inference requests to the /v1/chat/completions resource", async () => {
@@ -165,6 +191,7 @@ describe("OpenAICompatibleProvider", () => {
       signal: new AbortController().signal,
       allowTools: true,
       allowedToolNames: ["read_text_file"],
+      requireToolCall: true,
       onDelta: () => undefined,
     });
 
@@ -174,6 +201,28 @@ describe("OpenAICompatibleProvider", () => {
     expect(requestedTools.map((tool) => tool.function.name)).toEqual([
       "read_text_file",
     ]);
+    expect(server.requests[0]).toMatchObject({
+      tool_choice: "required",
+      parallel_tool_calls: false,
+      reasoning_effort: "none",
+    });
+  });
+
+  it("keeps tool choice auto when no required step is active", async () => {
+    const server = await startFakeOpenAiServer(({ response }) => {
+      writeSse(response, completionChunk({ content: "No tool needed." }));
+      writeSse(response, completionChunk({}, "stop"));
+      response.end("data: [DONE]\n\n");
+    });
+
+    await createProvider(server.baseUrl).complete({
+      messages: [{ role: "user", content: "Choose whether to inspect." }],
+      signal: new AbortController().signal,
+      allowTools: true,
+      allowedToolNames: ["read_text_file"],
+      onDelta: () => undefined,
+    });
+
     expect(server.requests[0]).toMatchObject({
       tool_choice: "auto",
       parallel_tool_calls: false,

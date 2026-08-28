@@ -28,13 +28,6 @@ function conservativeTokenReserve(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).length;
 }
 
-const FINALIZATION_REQUEST_RESERVE_TOKENS =
-  PROVIDER_TEMPLATE_RESERVE_TOKENS +
-  conservativeTokenReserve({
-    tool_choice: "none",
-    reasoning_effort: "none",
-  });
-
 function selectedToolDefinitions(
   allowedToolNames?: readonly RegisteredToolName[],
 ): typeof MODEL_TOOL_DEFINITIONS {
@@ -48,17 +41,45 @@ function selectedToolDefinitions(
   );
 }
 
-function workingRequestReserveTokens(
+function providerRequestFields(
+  allowTools: boolean,
   allowedToolNames?: readonly RegisteredToolName[],
+  requireToolCall = false,
+) {
+  const tools = selectedToolDefinitions(allowedToolNames);
+  const toolsEnabled = allowTools && tools.length > 0;
+  if (
+    requireToolCall &&
+    (!toolsEnabled || allowedToolNames?.length !== 1 || tools.length !== 1)
+  ) {
+    throw new RangeError(
+      "requireToolCall needs exactly one enabled scheduler-selected tool definition.",
+    );
+  }
+  if (!toolsEnabled) {
+    return {
+      reasoning_effort: "none" as const,
+      tool_choice: "none" as const,
+    };
+  }
+  return {
+    reasoning_effort: "none" as const,
+    tools: [...tools],
+    tool_choice: requireToolCall ? ("required" as const) : ("auto" as const),
+    parallel_tool_calls: false,
+  };
+}
+
+function requestReserveTokens(
+  allowTools: boolean,
+  allowedToolNames?: readonly RegisteredToolName[],
+  requireToolCall = false,
 ): number {
   return (
     PROVIDER_TEMPLATE_RESERVE_TOKENS +
-    conservativeTokenReserve({
-      tools: selectedToolDefinitions(allowedToolNames),
-      tool_choice: "auto",
-      parallel_tool_calls: false,
-      reasoning_effort: "none",
-    })
+    conservativeTokenReserve(
+      providerRequestFields(allowTools, allowedToolNames, requireToolCall),
+    )
   );
 }
 
@@ -86,11 +107,12 @@ export class OpenAICompatibleProvider implements InferenceProvider {
   estimateInputTokenReserve(
     allowTools: boolean,
     allowedToolNames?: RegisteredToolName[],
+    requireToolCall = false,
   ): number {
-    const requestReserve = allowTools
-      ? workingRequestReserveTokens(allowedToolNames)
-      : FINALIZATION_REQUEST_RESERVE_TOKENS;
-    return requestReserve + new TextEncoder().encode(this.model).length;
+    return (
+      requestReserveTokens(allowTools, allowedToolNames, requireToolCall) +
+      new TextEncoder().encode(this.model).length
+    );
   }
 
   async complete({
@@ -98,6 +120,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     signal,
     allowTools = true,
     allowedToolNames,
+    requireToolCall = false,
     onDelta,
   }: CompleteInput): Promise<ProviderResult> {
     const startedAt = performance.now();
@@ -132,22 +155,16 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     };
 
     try {
-      const tools = selectedToolDefinitions(allowedToolNames);
-      const toolsEnabled = allowTools && tools.length > 0;
+      const requestFields = providerRequestFields(
+        allowTools,
+        allowedToolNames,
+        requireToolCall,
+      );
       const stream = await this.client.chat.completions.create(
         {
           model: this.model,
           messages,
-          reasoning_effort: "none" as const,
-          ...(toolsEnabled
-            ? {
-                tools: [...tools],
-                tool_choice: "auto" as const,
-                parallel_tool_calls: false,
-              }
-            : {
-                tool_choice: "none" as const,
-              }),
+          ...requestFields,
           stream: true,
           stream_options: { include_usage: true },
           max_completion_tokens: this.maxOutputTokens,

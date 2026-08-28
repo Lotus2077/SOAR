@@ -299,6 +299,7 @@ class EvidenceThenAnswerProvider implements InferenceProvider {
 interface RecordedProviderPolicy {
   allowTools: boolean | undefined;
   allowedToolNames: string[] | undefined;
+  requireToolCall: boolean | undefined;
   systemPrompt: string | undefined;
 }
 
@@ -309,6 +310,7 @@ function recordProviderPolicy(input: CompleteInput): RecordedProviderPolicy {
       input.allowedToolNames === undefined
         ? undefined
         : [...input.allowedToolNames],
+    requireToolCall: input.requireToolCall,
     systemPrompt:
       typeof input.messages[0]?.content === "string"
         ? input.messages[0].content
@@ -422,6 +424,24 @@ class PrematureRequiredToolProvider implements InferenceProvider {
       });
     }
     return answerResult(input, "The required workspace listing is complete.");
+  }
+}
+
+class FailedRequiredToolsProvider implements InferenceProvider {
+  readonly id = "failed-required-tools-local";
+  readonly model = "failed-required-tools-test-model";
+  readonly policies: RecordedProviderPolicy[] = [];
+
+  async complete(input: CompleteInput): Promise<ProviderResult> {
+    this.policies.push(recordProviderPolicy(input));
+    if (this.policies.length <= 2) {
+      return toolCallResult(
+        `failed-required-tool-${this.policies.length}`,
+        "list_files",
+        { relativePath: "../outside" },
+      );
+    }
+    return answerResult(input, "Required tool execution did not succeed.");
   }
 }
 
@@ -743,15 +763,34 @@ describe("SessionRunner", () => {
     await runner.startSession(session.id);
 
     expect(
-      provider.policies.map(({ allowTools, allowedToolNames }) => ({
-        allowTools,
-        allowedToolNames,
-      })),
+      provider.policies.map(
+        ({ allowTools, allowedToolNames, requireToolCall }) => ({
+          allowTools,
+          allowedToolNames,
+          requireToolCall,
+        }),
+      ),
     ).toEqual([
-      { allowTools: true, allowedToolNames: ["list_files"] },
-      { allowTools: true, allowedToolNames: ["search_text"] },
-      { allowTools: true, allowedToolNames: ["read_text_file"] },
-      { allowTools: true, allowedToolNames: undefined },
+      {
+        allowTools: true,
+        allowedToolNames: ["list_files"],
+        requireToolCall: true,
+      },
+      {
+        allowTools: true,
+        allowedToolNames: ["search_text"],
+        requireToolCall: true,
+      },
+      {
+        allowTools: true,
+        allowedToolNames: ["read_text_file"],
+        requireToolCall: true,
+      },
+      {
+        allowTools: true,
+        allowedToolNames: undefined,
+        requireToolCall: undefined,
+      },
     ]);
 
     const events = store.getEvents(session.id);
@@ -896,9 +935,10 @@ describe("SessionRunner", () => {
       },
       executionPolicy: executionPolicy({ inferenceRounds: 5, toolCalls: 1 }),
     });
+    const provider = new ObligationRetryProvider();
     const runner = new SessionRunner({
       store,
-      provider: new ObligationRetryProvider(),
+      provider,
       limits: limits({ inferenceRounds: 5, toolCalls: 1 }),
     });
 
@@ -917,13 +957,23 @@ describe("SessionRunner", () => {
       { reason: "finalization_boundary", mode: "finalization" },
       { reason: "obligation_retry_boundary", mode: "finalization" },
     ]);
+    expect(
+      provider.policies.map(({ allowTools, requireToolCall }) => ({
+        allowTools,
+        requireToolCall,
+      })),
+    ).toEqual([
+      { allowTools: true, requireToolCall: true },
+      { allowTools: false, requireToolCall: undefined },
+      { allowTools: false, requireToolCall: undefined },
+    ]);
     expect(store.requireSession(session.id)).toMatchObject({
       status: "completed",
       result: "The evidence is at src/retry.ts:1 and src/retry.ts:2.",
     });
   });
 
-  it("does not accept a tool-free answer while a required tool is still missing", async () => {
+  it("fails once when a provider omits a scheduler-required tool call", async () => {
     const workspaceRoot = await createWorkspace();
     await writeFile(path.join(workspaceRoot, "marker.txt"), "marker\n", "utf8");
     const store = createStore();
@@ -947,26 +997,26 @@ describe("SessionRunner", () => {
 
     await runner.startSession(session.id);
 
-    expect(provider.policies.map((policy) => policy.allowedToolNames)).toEqual([
-      ["list_files"],
-      ["list_files"],
-      undefined,
-    ]);
+    expect(provider.policies).toHaveLength(1);
+    expect(provider.policies[0]).toMatchObject({
+      allowTools: true,
+      allowedToolNames: ["list_files"],
+      requireToolCall: true,
+    });
     const events = store.getEvents(session.id);
     expect(
       events
-        .filter((event) => event.type === "completion.obligations.checked")
-        .map((event) => ({
-          outcome: event.payload.outcome,
-          missing: event.payload.missingRequiredTools,
-        })),
-    ).toEqual([
-      { outcome: "retry", missing: ["list_files"] },
-      { outcome: "accepted", missing: [] },
-    ]);
+        .filter((event) => event.type === "context.compiled")
+        .map((event) => event.payload.reason),
+    ).toEqual(["session_start"]);
+    expect(
+      events.some((event) => event.type === "completion.obligations.checked"),
+    ).toBe(false);
     expect(store.requireSession(session.id)).toMatchObject({
-      status: "completed",
-      result: "The required workspace listing is complete.",
+      status: "failed",
+      error: expect.stringContaining(
+        "violated the required-tool protocol",
+      ),
     });
   });
 
@@ -974,7 +1024,7 @@ describe("SessionRunner", () => {
     const workspaceRoot = await createWorkspace();
     await writeFile(path.join(workspaceRoot, "marker.txt"), "marker\n", "utf8");
     const store = createStore();
-    const provider = new PrematureRequiredToolProvider();
+    const provider = new FailedRequiredToolsProvider();
     const session = store.createSession({
       id: "infeasible-required-tools",
       title: "Infeasible required tools",
@@ -994,7 +1044,7 @@ describe("SessionRunner", () => {
 
     await runner.startSession(session.id);
 
-    expect(provider.policies).toHaveLength(1);
+    expect(provider.policies).toHaveLength(3);
     expect(
       store
         .getEvents(session.id)
@@ -1281,6 +1331,11 @@ describe("SessionRunner", () => {
       title: "Reasoning-only response",
       objective: "Return a visible answer.",
       workspaceRoot,
+      completionObligations: {
+        requiredSuccessfulTools: ["list_files"],
+        minimumVerifiedPathLineCitations: 0,
+      },
+      executionPolicy: executionPolicy(),
     });
     const runner = new SessionRunner({
       store,

@@ -37,7 +37,8 @@ requires the user to select a canonical workspace before a session can use it.
 5. The provider receives exactly two context messages: application-owned system
    policy and one canonical JSON packet. Working and finalization modes apply
    different tool policies to the same packet shape. While ordered tool
-   obligations remain, the adapter exposes only the next required tool.
+   obligations remain, the adapter exposes only the next required tool and
+   requires a tool call at the transport layer.
 6. Tool requests pass through the central registry and workspace policy; request
    and result events are persisted around execution.
 7. Usage, latency, reasoning tokens, completion state, verified citations,
@@ -121,7 +122,12 @@ citation count. It requires `agentic-execution-v1`, which freezes the inference
 and tool-call ceilings and must contain enough rounds for each sequential tool
 plus final synthesis. The runner refuses a policy that differs from its active
 limits and passes only the next required tool through
-`CompleteInput.allowedToolNames`. A no-tool candidate is normalized against
+`CompleteInput.allowedToolNames`, with `CompleteInput.requireToolCall` set for
+that round. The OpenAI-compatible adapter maps the signal to
+`tool_choice: "required"`; unconstrained working rounds remain `"auto"`, and
+finalization uses `"none"`. A provider that returns no tool call on a required
+round fails immediately as a transport-protocol violation. A later no-tool
+candidate is normalized against
 successful evidence and recorded in `completion.obligations.checked` as
 `accepted`, `retry`, or `exhausted`. An unmet candidate remains an incomplete
 assistant message; a retry compiles a new packet at

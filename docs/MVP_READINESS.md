@@ -85,7 +85,8 @@ substantive prose outside the evaluator records to state, in order, the renderer
 -> preload -> IPC -> `SessionRunner` -> `AbortController` -> provider/tool-signal
 relationships. Successful complete reads must cover all five evidence files and
 snippets, followed by five exact file-scoped searches that refresh every
-non-`cancelSession` evidence snippet before synthesis. Its symbol gold comes
+non-`cancelSession` evidence snippet in evaluator-owned order before synthesis.
+Its symbol gold comes
 from a separate bounded UTF-8 filesystem scanner rather than the production
 search implementation; the method, scope, occurrence set, and hash are
 recorded. The final symbol audit must equal that set and report

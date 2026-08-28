@@ -18,12 +18,21 @@ describe.skipIf(!runLive)("live local vLLM canary", () => {
       objective:
         "Use read_text_file to read SOAR_PROBE.txt. Return the exact marker from the file and no invented value.",
       workspaceRoot: new URL("../fixtures/workspace", import.meta.url).pathname,
+      completionObligations: {
+        requiredSuccessfulTools: ["read_text_file"],
+        minimumVerifiedPathLineCitations: 0,
+      },
+      executionPolicy: {
+        schemaVersion: "agentic-execution-v1",
+        inferenceRounds: 2,
+        toolCalls: 1,
+      },
     });
     const deltas: string[] = [];
     const runner = new SessionRunner({
       store,
       provider: new OpenAICompatibleProvider(config.vllm),
-      limits: config.limits,
+      limits: { inferenceRounds: 2, toolCalls: 1 },
       onUpdate: (update) => {
         if (update.kind === "stream") deltas.push(update.delta);
       },

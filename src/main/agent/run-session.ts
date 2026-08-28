@@ -440,6 +440,8 @@ export class SessionRunner {
           allowTools && progress.nextRequiredTool
             ? [progress.nextRequiredTool]
             : undefined;
+        const requireToolCall =
+          allowedToolNames === undefined ? undefined : true;
         const mode = allowTools ? "working" : "finalization";
         const checkpointReason =
           round === 0
@@ -454,6 +456,7 @@ export class SessionRunner {
           this.provider.estimateInputTokenReserve?.(
             allowTools,
             allowedToolNames,
+            requireToolCall,
           ) ?? 0;
         const compiledContext = compileContextPacket(state, {
           mode,
@@ -509,6 +512,7 @@ export class SessionRunner {
           signal: controller.signal,
           allowTools,
           allowedToolNames,
+          ...(requireToolCall === undefined ? {} : { requireToolCall }),
           onDelta: (delta) => {
             if (controller.signal.aborted) return;
             currentPartial += delta;
@@ -523,6 +527,16 @@ export class SessionRunner {
             error:
               "The provider returned a tool call after tools were disabled for the reserved final-answer round.",
           };
+        } else if (requireToolCall && result.toolCalls.length === 0) {
+          const underlyingAssessment = assessCompletion(result);
+          assessment =
+            underlyingAssessment.state === "incomplete"
+              ? underlyingAssessment
+              : {
+                  state: "incomplete",
+                  error:
+                    "The provider violated the required-tool protocol: no tool call was returned for the scheduler-selected progress step.",
+                };
         } else if (result.toolCalls.length > 1) {
           assessment = {
             state: "incomplete",

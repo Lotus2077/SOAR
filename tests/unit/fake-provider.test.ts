@@ -76,6 +76,7 @@ describe("FakeProvider", () => {
       signal: new AbortController().signal,
       allowTools: true,
       allowedToolNames: ["search_text"],
+      requireToolCall: true,
       onDelta: vi.fn(),
     });
 

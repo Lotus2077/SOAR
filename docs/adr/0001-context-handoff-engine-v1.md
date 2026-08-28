@@ -242,9 +242,13 @@ the successful ordered prefix; an out-of-order success does not advance the
 contract.
 
 While a required tool step is missing, `SessionRunner` supplies only that tool in
-`CompleteInput.allowedToolNames`, and the OpenAI-compatible adapter sends only
-its schema. The same selection is included in provider-overhead estimation. A
-model cannot satisfy the contract by substituting another tool; a repeated name
+`CompleteInput.allowedToolNames` and sets `CompleteInput.requireToolCall`. The
+OpenAI-compatible adapter sends only that schema with `tool_choice: "required"`;
+unconstrained working requests use `"auto"`, and finalization uses `"none"`.
+The same selection and choice are included in provider-overhead estimation. A
+provider response with no tool call on a required round fails immediately as an
+incomplete transport response, without an identical obligation retry. A model
+cannot satisfy the contract by substituting another tool; a repeated name
 advances only when it is the next declared step and its observation succeeds.
 
 Every otherwise-complete no-tool candidate under an active contract passes
@@ -553,7 +557,8 @@ All of the following are required before claiming the gate passed:
   successful complete `read_text_file` observation for every required evidence
   path containing all required snippets. After all five reads, five exact
   file-scoped searches must reproduce every non-`cancelSession` evidence
-  snippet so its exact line remains available to final synthesis. These gates
+  snippet in evaluator-owned order so its exact line remains available to final
+  synthesis. These gates
   prove structural evidence and ordered relationship coverage; they do not
   claim semantic grading of unrestricted prose beyond those relationships;
 - the symbol task performs the required full-workspace exact search, whose tool

@@ -113,7 +113,17 @@ export class FakeProvider implements InferenceProvider {
     const toolResult = extractLastToolResult(input.messages);
     const toolsPermitted = input.allowTools !== false;
     const requiredTool =
-      toolsPermitted ? input.allowedToolNames?.[0] : undefined;
+      toolsPermitted && input.requireToolCall
+        ? input.allowedToolNames?.[0]
+        : undefined;
+    if (
+      input.requireToolCall &&
+      (requiredTool === undefined || input.allowedToolNames?.length !== 1)
+    ) {
+      throw new RangeError(
+        "requireToolCall needs exactly one enabled scheduler-selected tool in the fake provider.",
+      );
+    }
     const useLegacyDefaultTool =
       toolsPermitted && input.allowedToolNames === undefined && !toolResult;
 

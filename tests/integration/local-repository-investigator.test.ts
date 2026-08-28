@@ -147,6 +147,7 @@ interface CapturedProviderInput {
   messages: CompleteInput["messages"];
   allowTools: boolean | undefined;
   allowedToolNames: CompleteInput["allowedToolNames"];
+  requireToolCall: boolean | undefined;
 }
 
 interface FinalPacketRetentionAudit {
@@ -154,6 +155,7 @@ interface FinalPacketRetentionAudit {
   packetMode: ContextPacket["mode"];
   allowTools: boolean | undefined;
   allowedToolNames: string[] | null;
+  requireToolCall: boolean;
   toolEvidenceItems: number;
   toolCitationSnippets: number;
   requiredVerifiedAnswerCitations: number;
@@ -199,15 +201,18 @@ class ContextEnvelopeProbeProvider implements InferenceProvider {
   calls = 0;
   readonly allowTools: boolean[] = [];
   readonly allowedToolNames: Array<CompleteInput["allowedToolNames"]> = [];
+  readonly requireToolCall: Array<CompleteInput["requireToolCall"]> = [];
   readonly contexts: Array<CompleteInput["messages"]> = [];
 
   estimateInputTokenReserve(
     allowTools: boolean,
     allowedToolNames?: CompleteInput["allowedToolNames"],
+    requireToolCall?: boolean,
   ): number {
     return this.reserveProvider.estimateInputTokenReserve(
       allowTools,
       allowedToolNames,
+      requireToolCall,
     );
   }
 
@@ -215,9 +220,10 @@ class ContextEnvelopeProbeProvider implements InferenceProvider {
     this.calls += 1;
     this.allowTools.push(input.allowTools ?? true);
     this.allowedToolNames.push(input.allowedToolNames);
+    this.requireToolCall.push(input.requireToolCall);
     this.contexts.push(structuredClone(input.messages));
     const requiredTool = input.allowedToolNames?.[0];
-    if (input.allowTools && requiredTool !== undefined) {
+    if (input.allowTools && input.requireToolCall && requiredTool !== undefined) {
       const arguments_ =
         requiredTool === "list_files"
           ? { relativePath: ".", recursive: false, maxItems: 5 }
@@ -278,11 +284,13 @@ class CapturingInferenceProvider implements InferenceProvider {
   estimateInputTokenReserve(
     allowTools: boolean,
     allowedToolNames?: CompleteInput["allowedToolNames"],
+    requireToolCall?: boolean,
   ): number {
     return (
       this.delegate.estimateInputTokenReserve?.(
         allowTools,
         allowedToolNames,
+        requireToolCall,
       ) ?? 0
     );
   }
@@ -295,6 +303,7 @@ class CapturingInferenceProvider implements InferenceProvider {
         input.allowedToolNames === undefined
           ? undefined
           : [...input.allowedToolNames],
+      requireToolCall: input.requireToolCall,
     });
     return this.delegate.complete(input);
   }
@@ -1106,45 +1115,49 @@ function claimCoverageInstruction(
   );
 }
 
+function compactSymbolContractValue(value: string): string {
+  return value
+    .replaceAll("controller.signal", "&")
+    .replaceAll(symbol, "~")
+    .replaceAll("IPC_CHANNELS.~", "@")
+    .replaceAll("sessionId", "$")
+    .replaceAll("active inference", "*")
+    .replaceAll("preload bridge", "B")
+    .replaceAll("toolCall", "X")
+    .replaceAll("the ", "_")
+    .replaceAll("signal", "?")
+    .replaceAll("SessionRunner", "^")
+    .replaceAll("AbortController", "%");
+}
+
 function symbolReferenceObjective(): string {
   const paths = requiredClaimEvidencePaths(symbolCallPathClaims);
   const compactPaths = paths.map((path) => path.replace(/^src\//u, "v"));
-  const supportingSearches = new Set(
-    requiredSupportingSearches(symbolCallPathClaims).map(
-      (search) => `${search.path}\u0000${search.query}`,
-    ),
+  const supportingSearches = requiredSupportingSearches(symbolCallPathClaims);
+  const supportingSearchOrder = new Map(
+    supportingSearches.map((search, index) => [
+      `${search.path}\u0000${search.query}`,
+      index + 1,
+    ]),
   );
-  const compact = (value: string): string =>
-    value
-      .replaceAll("controller.signal", "&")
-      .replaceAll(symbol, "~")
-      .replaceAll("IPC_CHANNELS.~", "@")
-      .replaceAll("sessionId", "$")
-      .replaceAll("active inference", "*")
-      .replaceAll("preload bridge", "p")
-      .replaceAll("toolCall", "x")
-      .replaceAll("the ", "_")
-      .replaceAll("signal", "?")
-      .replaceAll("SessionRunner", "^")
-      .replaceAll("AbortController", "%");
   const contract = symbolCallPathClaims
     .map(
       (requirement) =>
-        `${requirement.id}>${requirement.summaryPhrases.map(compact).join("+")}>${requirement.evidence
+        `${requirement.id}>${requirement.summaryPhrases.map(compactSymbolContractValue).join("+")}>${requirement.evidence
           .map((evidence) => {
-            const needsSupportingSearch = supportingSearches.has(
+            const searchOrder = supportingSearchOrder.get(
               `${evidence.path}\u0000${evidence.lineIncludes}`,
             );
-            return `${paths.indexOf(evidence.path)}${needsSupportingSearch ? "s" : ""}:${compact(evidence.lineIncludes)}`;
+            return `${paths.indexOf(evidence.path)}${searchOrder === undefined ? "" : `S${searchOrder}`}:${compactSymbolContractValue(evidence.lineIncludes)}`;
           })
           .join("+")}`,
     )
     .join("|");
   return (
     `P=${compactPaths.join("|")};C=${contract};` +
-    `C:id>text>P#[s]:e;s=${supportingSearches.size} searches;expand v=src/,~=cancelSession,^=SessionRunner,%=AbortController,&=controller.signal,@=IPC_CHANNELS.~,$=sessionId,*=active inference,p=preload bridge,x=toolCall,_=the ,?=signal. ` +
-    "S0=search_text(~,\".\",true,500,20);read/verify P once each;after all reads search_text(line,P,true) once/s. " +
-    `A>=120c,C phrases exact/order.${claimCoverageMarker}JSON once: only root={claims:[...]}; one {id,summary,citations}-only/C; summary phrases; unique verified path:line/e.${symbolAuditMarker}JSON last/once: only root={query:${symbol},truncated:false,occurrences:exact S0}. Reuse elsewhere OK.`
+    `C:id>text>P#[S#]:e;V:v=src/;E:~=cancelSession,^=SessionRunner,%=AbortController,&=controller.signal,@=IPC_CHANNELS.~,$=sessionId,*=active inference,B=preload bridge,X=toolCall,_=the ,?=signal. ` +
+    `S0=search_text(~,".",true,500,20);read/verify V(P) 1x;then S1..S${supportingSearches.length} order,once/tag:search_text(query=E(e),relativePath=V(P#),caseSensitive=true,maxMatches=20). ` +
+    `A>=120c,C order.${claimCoverageMarker}JSON once:only {claims:[{id,summary,citations}/C]};exact phrases;unique verified path:line/e.${symbolAuditMarker}JSON last/once:only {query:${symbol},truncated:false,occurrences:exact S0}. Reuse elsewhere OK.`
   );
 }
 
@@ -1412,6 +1425,7 @@ function finalPacketRetentionAudit(options: {
         options.input.allowedToolNames === undefined
           ? null
           : [...options.input.allowedToolNames],
+      requireToolCall: options.input.requireToolCall ?? false,
       toolEvidenceItems: toolEvidence.length,
       toolCitationSnippets: toolSnippets.length,
       requiredVerifiedAnswerCitations:
@@ -1746,6 +1760,7 @@ function claimEvidenceSupportingSearchFailures(
   requirements: readonly ClaimCoverageRequirement[],
 ): string[] {
   const failures: string[] = [];
+  const requiredSearches = requiredSupportingSearches(requirements);
   const readCompletionSequences = [
     ...claimEvidenceByPath(requirements),
   ].flatMap(([requiredPath, requiredSnippets]) => {
@@ -1764,7 +1779,7 @@ function claimEvidenceSupportingSearchFailures(
   }
   const latestRequiredReadSequence = Math.max(...readCompletionSequences);
 
-  for (const requiredSearch of requiredSupportingSearches(requirements)) {
+  for (const requiredSearch of requiredSearches) {
     const matchingRequests = executions.filter((execution) => {
       const arguments_ = execution.request.payload.arguments;
       return (
@@ -1808,6 +1823,23 @@ function claimEvidenceSupportingSearchFailures(
       );
     }
   }
+
+  const orderedPostReadSearches = executions
+    .filter(
+      (execution) =>
+        execution.request.payload.name === "search_text" &&
+        execution.completion.payload.name === "search_text" &&
+        execution.completion.sequence > latestRequiredReadSequence,
+    )
+    .sort(
+      (left, right) => left.completion.sequence - right.completion.sequence,
+    );
+  failures.push(
+    ...orderedEvidenceSearchFailures(
+      orderedPostReadSearches,
+      requiredSearches,
+    ).map((failure) => `supporting search order: ${failure}`),
+  );
   return failures;
 }
 
@@ -2110,6 +2142,28 @@ describe("Local Repository Investigator evaluator contract", () => {
     const supportingSearches = requiredSupportingSearches(task.claimCoverage);
     expect(requiredReadPaths).toHaveLength(5);
     expect(supportingSearches).toHaveLength(5);
+    expect(supportingSearches).toEqual([
+      {
+        path: "src/main/agent/run-session.ts",
+        query: "controller.abort()",
+      },
+      {
+        path: "src/main/agent/run-session.ts",
+        query: "executeToolCall(session.workspaceRoot, toolCall, signal)",
+      },
+      {
+        path: "src/main/agent/run-session.ts",
+        query: "signal: controller.signal",
+      },
+      {
+        path: "src/main/agent/run-session.ts",
+        query: "this.runTool(sessionId, toolCall, controller.signal)",
+      },
+      {
+        path: "tests/integration/run-session.test.ts",
+        query: "cancels an active inference once",
+      },
+    ]);
     expect(task.maximumToolCalls).toBe(
       1 + requiredReadPaths.length + supportingSearches.length,
     );
@@ -2156,11 +2210,25 @@ describe("Local Repository Investigator evaluator contract", () => {
     expect(new TextEncoder().encode(task.objective).length).toBeLessThanOrEqual(
       1_250,
     );
-    expect(task.objective.match(/[>+]\d+s:/gu)).toHaveLength(
+    const objectiveScheduleBindings = supportingSearches.map(
+      ({ path, query }, index) =>
+        `${requiredReadPaths.indexOf(path)}S${index + 1}:${compactSymbolContractValue(query)}`,
+    );
+    expect(objectiveScheduleBindings).toEqual([
+      "0S1:controller.abort()",
+      "0S2:executeToolCall(session.workspaceRoot, X, ?)",
+      "0S3:?: &",
+      "0S4:this.runTool($, X, &)",
+      "4S5:cancels an * once",
+    ]);
+    for (const binding of objectiveScheduleBindings) {
+      expect(task.objective.split(binding)).toHaveLength(2);
+    }
+    expect(task.objective.match(/[>+]\d+S\d+:/gu)).toHaveLength(
       supportingSearches.length,
     );
     expect(task.objective).toContain(
-      `s=${supportingSearches.length} searches`,
+      `then S1..S${supportingSearches.length} order,once/tag:search_text(query=E(e),relativePath=V(P#),caseSensitive=true,maxMatches=20)`,
     );
     expect(task.objective.split(claimCoverageMarker)).toHaveLength(2);
     expect(task.objective.split(symbolAuditMarker)).toHaveLength(2);
@@ -2269,6 +2337,10 @@ describe("Local Repository Investigator evaluator contract", () => {
             ...task.requiredTools.map((tool) => [tool]),
             ...Array.from({ length: finalizationRounds }, () => undefined),
           ]);
+          expect(provider.requireToolCall, task.id).toEqual([
+            ...task.requiredTools.map(() => true),
+            ...Array.from({ length: finalizationRounds }, () => undefined),
+          ]);
           if (task.id !== "architecture") {
             expect(inferenceRounds).toBe(task.maximumProviderCalls);
             expect(toolCalls).toBe(task.maximumToolCalls);
@@ -2312,9 +2384,11 @@ describe("Local Repository Investigator evaluator contract", () => {
               : ["exhausted"],
           );
           const firstContext = contextEvents[0];
-          const firstReserve = provider.estimateInputTokenReserve(true, [
-            task.requiredTools[0]!,
-          ]);
+          const firstReserve = provider.estimateInputTokenReserve(
+            true,
+            [task.requiredTools[0]!],
+            true,
+          );
           const firstEffectiveBudget =
             proofContextPolicy.maxInputTokens -
             Math.ceil(
@@ -2330,8 +2404,8 @@ describe("Local Repository Investigator evaluator contract", () => {
             effectiveInputTokenBudget: firstEffectiveBudget,
           });
           if (task.id === "symbol-references") {
-            expect(firstReserve).toBe(1_459);
-            expect(firstEffectiveBudget).toBe(11_648);
+            expect(firstReserve).toBe(1_463);
+            expect(firstEffectiveBudget).toBe(11_644);
           }
           expect(
             firstContext?.payload.estimatedTokens ?? Number.POSITIVE_INFINITY,
@@ -2412,6 +2486,7 @@ describe("Local Repository Investigator evaluator contract", () => {
                 messages: finalMessages,
                 allowTools: false,
                 allowedToolNames: undefined,
+                requireToolCall: undefined,
               },
               acceptedRound: inferenceRounds,
               expectedContextPacketSha256: sha256Hex(
@@ -2459,6 +2534,7 @@ describe("Local Repository Investigator evaluator contract", () => {
                   messages: finalMessages,
                   allowTools: false,
                   allowedToolNames: undefined,
+                  requireToolCall: undefined,
                 },
                 acceptedRound: inferenceRounds,
                 expectedContextPacketSha256: sha256Hex(
@@ -2479,6 +2555,7 @@ describe("Local Repository Investigator evaluator contract", () => {
                   messages: finalMessages,
                   allowTools: false,
                   allowedToolNames: undefined,
+                  requireToolCall: undefined,
                 },
                 acceptedRound: inferenceRounds,
                 expectedContextPacketSha256: sha256Hex(
@@ -2652,10 +2729,15 @@ describe("Local Repository Investigator evaluator contract", () => {
         id: "scripted-symbol-retention",
         model: proofModel,
         costPolicy: "local_zero_cost",
-        estimateInputTokenReserve: (allowTools, allowedToolNames) =>
+        estimateInputTokenReserve: (
+          allowTools,
+          allowedToolNames,
+          requireToolCall,
+        ) =>
           reserveProvider.estimateInputTokenReserve(
             allowTools,
             allowedToolNames,
+            requireToolCall,
           ),
         complete: async (input) => {
           const scheduled = scheduledToolCalls[scriptedRound];
@@ -2739,6 +2821,11 @@ describe("Local Repository Investigator evaluator contract", () => {
             .map((input) => input.allowedToolNames),
         ).toEqual(task.requiredTools.map((tool) => [tool]));
         expect(
+          provider.inputs
+            .slice(0, task.maximumToolCalls)
+            .map((input) => input.requireToolCall),
+        ).toEqual(task.requiredTools.map(() => true));
+        expect(
           completeSymbolSearchFailures(
             executions,
             symbolOracle.occurrences,
@@ -2794,6 +2881,7 @@ describe("Local Repository Investigator evaluator contract", () => {
         expect(retention.audit).toMatchObject({
           packetMode: "finalization",
           allowTools: false,
+          requireToolCall: false,
           requiredClaimEvidence: requiredEvidenceCount,
           retainedClaimEvidence: requiredEvidenceCount,
           requiredSymbolOccurrences: symbolOracle.occurrences.length,
@@ -3194,9 +3282,12 @@ describe("Local Repository Investigator evaluator contract", () => {
         ],
         requirements,
       ),
-    ).toEqual([
-      expect.stringContaining("src/runner.ts"),
-    ]);
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("src/runner.ts"),
+        expect.stringContaining("supporting search order"),
+      ]),
+    );
     expect(
       claimEvidenceSupportingSearchFailures(
         [
@@ -3208,6 +3299,21 @@ describe("Local Repository Investigator evaluator contract", () => {
         requirements,
       ),
     ).toEqual([]);
+    expect(
+      claimEvidenceSupportingSearchFailures(
+        [
+          ...reads,
+          makeSearchExecution("support-reversed-1", supportingSearches[1]!, 21),
+          makeSearchExecution("support-reversed-2", supportingSearches[0]!, 22),
+        ],
+        requirements,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("supporting search order: evidence search 1"),
+        expect.stringContaining("supporting search order: evidence search 2"),
+      ]),
+    );
 
     const orderedSearches = supportingSearches.map((requirement, index) =>
       makeSearchExecution(`ordered-${index}`, requirement, 30 + index),

@@ -47,8 +47,9 @@ The first working slice is an Electron application with:
   citation-support snippets, and one persisted compilation checkpoint per
   provider call;
 - persisted completion obligations that order required repository tools, expose
-  only the next required tool to the provider, require a minimum number of
-  verified `path:line` citations, and record acceptance or retry checks;
+  only the next required tool to the provider and require its invocation at the
+  transport layer, enforce a minimum number of verified `path:line` citations,
+  and record acceptance or retry checks;
 - a versioned persisted execution policy that fixes inference/tool-call limits
   before the run and binds each provider round to its route and single
   pre-inference context checkpoint during replay;
@@ -154,7 +155,8 @@ outside its machine-readable records to state the renderer -> preload -> IPC ->
 `SessionRunner` -> `AbortController` -> provider/tool-signal relationships in
 order, and requires successful complete `read_text_file` observations of all
 five call-path evidence files. Five exact file-scoped supporting searches must
-then refresh every non-`cancelSession` evidence snippet before synthesis. The
+then refresh every non-`cancelSession` evidence snippet in evaluator-owned
+order before synthesis. The
 exactly-once rule applies only to `SOAR_SYMBOL_AUDIT.occurrences`; prose and
 claim citations may repeat those tokens. This is deterministic structural
 evidence coverage; unrestricted prose beyond those explicit relationships is

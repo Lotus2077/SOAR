@@ -36,6 +36,8 @@ export interface CompleteInput {
   allowTools?: boolean;
   /** When supplied, expose only this deterministic subset of workspace tools. */
   allowedToolNames?: RegisteredToolName[];
+  /** Require the sole scheduler-selected tool instead of returning text. */
+  requireToolCall?: boolean;
   onDelta(delta: string): void;
 }
 
@@ -48,6 +50,7 @@ export interface InferenceProvider {
   estimateInputTokenReserve?(
     allowTools: boolean,
     allowedToolNames?: RegisteredToolName[],
+    requireToolCall?: boolean,
   ): number;
   complete(input: CompleteInput): Promise<ProviderResult>;
 }

@@ -1657,3 +1657,64 @@ References: [capacity implementation entry](#bl-20260830-0253-pr5-advertised-mod
 [release verifier](../scripts/verify-release-head.ts),
 [contributor gate](../CONTRIBUTING.md), and
 [readiness boundary](MVP_READINESS.md).
+
+### BL-20260830-0303-pr5-remote-retention-timeout-correction -- 2026-08-30 -- Replacement CI exposed a proof-test timing boundary
+
+Status: `In progress`
+
+Scope or hypothesis: Treat replacement GitHub Actions run `33269767743` as
+authoritative after the corrected assertions began executing on Linux, and
+distinguish a deterministic proof failure from an under-provisioned test timeout.
+
+Decisions:
+
+- Do not weaken, skip, split, or reduce the real-revision retention assertions.
+  Preserve both the exact current objective and the 250-byte drift scenario in
+  one proof test.
+- Raise only that integration test's timeout from Vitest's default 5 seconds to
+  15 seconds. Do not change the global test timeout or any production runtime
+  limit.
+- Use a bound above the observed 5.726-second Linux execution while keeping a
+  finite failure deadline. A timeout is test-runner scheduling allowance, not a
+  context-capacity concession.
+- Require another clean committed-HEAD gate, macOS Electron E2E, push, and fresh
+  Linux/macOS CI cycle before replacing the failed remote status.
+
+Changes: Added a 15,000-millisecond per-test timeout to the deterministic
+real-symbol retention and objective-drift integration test. No context,
+provider, tool, evaluator, or production behavior changed.
+
+Evidence:
+
+- GitHub Actions run `33269767743` reached the corrected test and reported its
+  duration as 5,726 milliseconds before Vitest raised
+  `Test timed out in 5000ms` at the test declaration.
+- All other reported assertions passed: 53 test files and 624 tests passed, two
+  files/four live tests skipped. The job stopped before the build, and macOS
+  Electron E2E was skipped because the Linux check failed.
+- The earlier exact Node 22 focused run completed the whole provider/proof pair
+  in 3.00 seconds, while local full runs also passed. The remote duration shows
+  that the previous default depended on machine load rather than proof logic.
+
+Failures or blockers: The pushed revision remains failed and is not remotely
+verified. The narrow timeout change and this entry are uncommitted; all local
+and remote gates must be repeated.
+
+Limitations and non-claims: A 15-second bound reduces scheduler sensitivity but
+does not prove the test can never regress in runtime; its actual durations must
+remain visible in CI. This correction does not improve application performance,
+model quality, context compaction, atomic large-search retention, routing, or
+provider capacity. The failed run provides no macOS result.
+
+Paid exposure: `$0`. Diagnosis used GitHub Actions logs and local source only.
+No provider, inference, model-list, OpenRouter, retry, fallback, or canary
+request occurred.
+
+Next gate: Run the affected test under exact Node 22 and within the full local
+suite, obtain independent review of the narrow timeout, commit, run the clean
+committed-HEAD and macOS Electron gates, push, and require a new green GitHub
+Actions run.
+
+References: [failed replacement run](https://github.com/Lotus2077/SOAR/actions/runs/33269767743),
+[retention test](../tests/integration/local-repository-investigator.test.ts),
+and [preceding local verification](#bl-20260830-0258-pr5-correction-committed-local-verification----2026-08-30----corrected-pr-5-candidate-passed-clean-committed-head-and-electron-gates).

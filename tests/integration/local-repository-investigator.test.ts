@@ -3727,7 +3727,7 @@ describe("Local Repository Investigator evaluator contract", () => {
     } finally {
       await rm(fixture.temporaryRoot, { recursive: true, force: true });
     }
-  });
+  }, 15_000);
 
   it("requires the successful search tool trace to return the exact untruncated set", () => {
     const expected = ["src/a.ts:2", "tests/a.test.ts:7"];

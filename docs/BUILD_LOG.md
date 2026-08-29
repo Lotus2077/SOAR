@@ -1842,3 +1842,94 @@ References: [green GitHub Actions run](https://github.com/Lotus2077/SOAR/actions
 [green macOS job](https://github.com/Lotus2077/SOAR/actions/runs/33270128877/job/99147148566),
 [timeout correction](#bl-20260830-0303-pr5-remote-retention-timeout-correction----2026-08-30----replacement-ci-exposed-a-proof-test-timing-boundary),
 and [local verification](#bl-20260830-0307-pr5-timeout-correction-local-verification----2026-08-30----timeout-corrected-candidate-passed-exact-commit-local-gates).
+
+### BL-20260830-0420-pr5-ci-lineage-correction -- 2026-08-30 -- Correction: PR 5 closure includes the failed 9dd724b candidate
+
+Status: `Verified`
+
+Scope or hypothesis: Correct the lineage presentation associated with
+`BL-20260830-0312-pr5-correction-remote-verification` by explicitly mapping each
+PR 5 closing candidate to its CI outcome. The earlier entry's final green result
+is accurate, but the closure is incomplete if presented as an uninterrupted
+green sequence.
+
+Decisions:
+
+- Bind commit `9dd724bdd67a1eeaa6f657d8f0c3e2427adc72d` to failed GitHub
+  Actions run `33269767743`. Its exact-SHA remote CI failed. The `Verified`
+  status inside that documentation commit refers to local verification of
+  predecessor `31049bb`, not remote verification of `9dd724b` itself.
+- Bind commit `713dabae44e80b3aedeaf43dfa6756c674320c03` to successful
+  replacement run `33270128877`, and commit
+  `6759b47966e57a2e3276ae7f8c8958b94617c9f8` to successful log-tail run
+  `33270368072`.
+- Preserve the failed candidate as first-class evidence. Later green revisions
+  supersede its branch status but do not erase or convert its result.
+- Adopt a bounded non-recursive closure rule for future log-only tails: a commit
+  that changes only `docs/BUILD_LOG.md` must still receive the required
+  exact-SHA CI checks. The entry may durably record its own ledger decision in
+  that commit, as this correction does. If the later checks succeed without
+  revealing a new failure or material observation, their immutable status is
+  supporting publication evidence, not a distinct ledger-triggering change, so
+  it closes the tail without another log-only entry. A failed, skipped,
+  cancelled, or materially informative tail run always requires a new
+  append-only entry.
+- The non-recursive rule is not a CI waiver. It does not cover commits that also
+  change runtime, tests, configuration, or other documentation, nor a later
+  log-only commit that introduces a new product, architecture,
+  persisted-contract, provider, cost, permission, evaluation, failure, or
+  milestone decision that has not already been recorded in that same entry.
+
+Changes: Appended this lineage and governance correction only. No runtime,
+test, provider, tool, evaluator, context, or routing behavior changed.
+
+Evidence:
+
+- Commit `9dd724bdd67a1eeaa6f657d8f0c3e2427adc72d` changed only
+  `docs/BUILD_LOG.md`, but run `33269767743` failed its Linux Node 22 job after
+  the retention proof took 5.726 seconds against Vitest's 5-second default
+  timeout. The dependent macOS Electron job was skipped.
+- Commit `78fb129d0f8f622e3d66ec698fb54ea93f4f2ee6` introduced the narrow
+  15-second timeout for that proof without weakening its assertions.
+- Run `33270128877` passed both Linux Node 22 and macOS Electron for exact commit
+  `713dabae44e80b3aedeaf43dfa6756c674320c03`.
+- Run `33270368072` passed both required jobs for exact commit
+  `6759b47966e57a2e3276ae7f8c8958b94617c9f8`, which changed only
+  `docs/BUILD_LOG.md`: Linux job `99147659808` and macOS Electron job
+  `99147789193`.
+- Before this correction was appended, `main` was clean at `6759b47`, matched
+  `origin/main`, and therefore had a green current exact-SHA CI result despite
+  the failed intermediate candidate.
+
+Failures or blockers: The missing explicit commit-to-run mapping in the prior
+closure summary is corrected by this entry. This entry is not yet committed,
+and no future CI result for its eventual commit is claimed here. If that
+exact-SHA CI does not pass, the branch must not be described as green and the
+negative result must be appended.
+
+Limitations and non-claims: This is an evidence-lineage and governance
+correction, not new product verification. It does not repeat a live proof or
+canary and does not prove real-provider quality, real-repository review quality,
+dynamic multi-provider routing, cloud execution, cost/latency advantage,
+notarization, or a signed release channel. The non-recursive rule relies on
+required CI remaining attached durably to the exact log-tail SHA. This entry ID
+preserves the ledger's already-committed monotonic local-wall-clock sequence; it
+does not resolve the pre-existing mismatch between that sequence and the
+written UTC ID rule.
+
+Paid exposure: `$0`. Inspection used local Git history and existing GitHub
+Actions results only. No provider, inference, model-list, OpenRouter, retry,
+fallback, or canary request occurred.
+
+Next gate: Commit this append-only correction, validate the ledger, run
+`pnpm check:release-head` and macOS Electron E2E via `pnpm test:e2e` on the clean
+committed HEAD, push, and require both Linux Node 22 and macOS Electron checks
+on the exact new SHA. If both pass without a new material observation, close
+the log tail under the non-recursive rule; otherwise append the resulting
+failure or correction.
+
+References: [affected remote-verification entry](#bl-20260830-0312-pr5-correction-remote-verification----2026-08-30----corrected-pr-5-revision-passed-linux-and-macos-github-actions),
+[failed run](https://github.com/Lotus2077/SOAR/actions/runs/33269767743),
+[first replacement green run](https://github.com/Lotus2077/SOAR/actions/runs/33270128877),
+[green log-tail run](https://github.com/Lotus2077/SOAR/actions/runs/33270368072),
+and [timeout correction](#bl-20260830-0303-pr5-remote-retention-timeout-correction----2026-08-30----replacement-ci-exposed-a-proof-test-timing-boundary).

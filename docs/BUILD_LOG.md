@@ -924,3 +924,61 @@ References: [prior correction](#bl-20260830-0025-pr4-ci-portability-correction--
 [second failed GitHub Actions run](https://github.com/Lotus2077/SOAR/actions/runs/33263014476),
 [Node 22 TypeScript documentation](https://nodejs.org/docs/latest-v22.x/api/typescript.html),
 [`tsx` developer API](https://github.com/privatenumber/tsx/blob/master/docs/dev-api/index.md).
+
+### BL-20260830-0035-pr4-remote-verification -- 2026-08-30 -- PR 4 replacement remote proof verified
+
+Status: `Verified`
+
+Scope or hypothesis: Close the two CI corrections after proving the PR 4
+concurrency harness, full quality gate, and Electron application on the pushed
+minimum-runtime-compatible revision.
+
+Decisions:
+
+- Treat GitHub Actions run `33263277828`, not the earlier local-only evidence,
+  as PR 4's definitive portability proof.
+- Keep failed runs `33262781416` and `33263014476` in the historical record;
+  this entry closes their stated next gates without rewriting them.
+- Preserve Node `>=22.22.2` support and the explicit `tsx` developer-API
+  bootstrap rather than hiding the test-loader incompatibility by raising the
+  engine floor.
+
+Changes: No new runtime change is introduced by this entry. It records the
+verified state of worker-bootstrap commit
+`fb9dd1be9cd56787d172c7b4ab311238857c9912`.
+
+Evidence:
+
+- Exact local Node `v22.22.2` focused concurrency proof: 1/1 passed in 504 ms.
+- Local Node `v26.7.0` focused concurrency proof: 1/1 passed in 349 ms.
+- Full local `pnpm check`: readiness, 16-entry log validation, typecheck, 44
+  test files passed and 1 skipped with 540 tests passed and 3 skipped, and the
+  production Electron build passed.
+- GitHub Actions run `33263277828` passed its Node `v22.22.2` Linux `check` job
+  in 50 seconds and its macOS `electron-e2e` job in 50 seconds; the latter ran
+  both Electron end-to-end tests.
+- The checkout and `origin/main` both resolved to the verified commit before
+  this append-only entry was added.
+
+Failures or blockers: The first pushed harness used extensionless worker
+imports; the second let Node strip-only mode parse syntax requiring a transform.
+Both failures are preserved in the two preceding correction entries and are
+closed by the explicit `.mjs`/`tsImport` bootstrap. No current PR 4 verification
+blocker remains.
+
+Limitations and non-claims: PR 4 remains fake-only. This proof does not enable a
+production cloud provider, demonstrate review quality, compare models, prove
+cost or latency savings, or complete the PR 5 application slice.
+
+Paid exposure: $0. All proof used local or GitHub-hosted test runtimes,
+deterministic providers, SQLite, and Electron; no inference, provider endpoint,
+credential, OpenRouter, or paid API call occurred.
+
+Next gate: Begin PR 5 planning and implementation: a local Review Current
+Changes app flow, strict `ReviewResultV1` validation and provenance, and a
+zero-paid live local-vLLM canary. Production Hybrid stays disabled.
+
+References: [first correction](#bl-20260830-0025-pr4-ci-portability-correction----2026-08-30----correction-pr-4-linux-worker-proof-was-not-green),
+[second correction](#bl-20260830-0031-pr4-node22-worker-correction----2026-08-30----correction-node-22-strip-only-mode-bypassed-the-worker-hook),
+[green GitHub Actions run](https://github.com/Lotus2077/SOAR/actions/runs/33263277828),
+[ADR 0004](adr/0004-checkpoint-router-budget-runner-v0.md).

@@ -492,3 +492,63 @@ contracts without adding a provider call.
 References: [ADR 0002](adr/0002-agentic-execution-v2-event-state-machine.md),
 [Hybrid Lease Router v0 plan](plans/HYBRID_LEASE_ROUTER_V0.md),
 [architecture](ARCHITECTURE.md).
+
+### BL-20260829-1236-pr2-provider-foundation -- 2026-08-29 -- PR 2 provider foundation verified
+
+Status: `Verified`
+
+Scope or hypothesis: Parameterize the OpenAI-compatible transport and establish
+a fail-closed provider registry without constructing a production cloud
+provider or credential path.
+
+Decisions:
+
+- Bind provider identity, exact model, locality, enabled state, sorted
+  capabilities, limits, and explicit accounting in validated descriptors.
+- Check paid pricing only at selection/admission using an explicit replayable
+  as-of time; parsing persisted descriptors remains timeless.
+- Make transport fields capability-aware, reject unsupported tools before I/O,
+  reject served-model substitution, and refuse structured-JSON advertisement
+  until PR 5 implements and proves the exact response mechanism.
+- Expose provider instances only through registry admission; metadata-only
+  lookup cannot bypass enabled, capability, or paid-pricing checks.
+- Rename the old two-provider JSON as a non-runtime readiness snapshot so it
+  cannot be mistaken for the main-process runtime catalog.
+
+Changes: Added provider descriptors, registry, local/fake runtime catalog,
+main-process credential-store interface with a fake test implementation, and a
+parameterized OpenAI-compatible provider. Production bootstrap now receives the
+single selected local/fake described provider from the catalog. Cloud
+construction and production secret retrieval do not exist.
+
+Evidence:
+
+- The final whole-tree `pnpm check` and `pnpm test:e2e` evidence is recorded in
+  the preceding PR 1 integration entry and includes these changes.
+- Provider registry/credential focused suite: 8/8 passed.
+- OpenAI transport plus Repository Investigator integration: 29 passed and 1
+  live-provider test skipped in the final pre-integration run.
+- Readiness validation found 22 research and 20 coding workloads and no tracked
+  or unignored live secret.
+
+Failures or blockers: Independent review found that metered pricing could be
+stale or future-dated, declared capabilities did not govern request fields, the
+readiness JSON looked like a second runtime contract, and registry `get` exposed
+an unchecked provider instance. Each issue was fixed before this entry. No
+production Keychain implementation, health snapshot, or cloud provider exists.
+
+Limitations and non-claims: The shipping runner still receives one provider and
+retains one local route. This does not implement hybrid selection, cloud
+quality, cost savings, latency improvement, Keychain, provider health, or
+structured review output. The configured local endpoint's structured-JSON
+capability remains unproven and deliberately unadvertised.
+
+Paid exposure: $0. No vLLM or cloud inference call was made in PR 2 validation;
+network-shaped tests used temporary local loopback servers only.
+
+Next gate: PR 3 immutable change acquisition, followed by PR 4 registry-driven
+fake-provider routing and operational budget admission.
+
+References: [provider registry architecture](ARCHITECTURE.md),
+[MVP readiness](MVP_READINESS.md),
+[Hybrid Lease Router v0 plan](plans/HYBRID_LEASE_ROUTER_V0.md).

@@ -1,5 +1,5 @@
 {
-  "$schema": "./providers.schema.json",
+  "$schema": "./providers.readiness.schema.json",
   "providers": [
     {
       "id": "local-vllm",
@@ -37,7 +37,7 @@
       "maxOutputTokens": 131072,
       "providerRouting": {
         "sort": "price",
-        "allowFallbacks": true,
+        "allowFallbacks": false,
         "maxPriceUsdPerMillionTokens": {
           "input": 0.08,
           "output": 0.18

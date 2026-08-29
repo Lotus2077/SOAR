@@ -3,8 +3,11 @@ import type { AddressInfo } from "node:net";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { SoarConfig } from "../../src/main/config";
 import { OpenAICompatibleProvider } from "../../src/main/providers/openai-compatible";
+import {
+  parseProviderDescriptor,
+  type ProviderCapability,
+} from "../../src/main/providers/provider-descriptor";
 import { ProviderAbortedError } from "../../src/main/providers/types";
 import { MODEL_TOOL_DEFINITIONS } from "../../src/main/tools/tool-registry";
 
@@ -82,16 +85,33 @@ async function startFakeOpenAiServer(
   return fakeServer;
 }
 
-function createProvider(baseUrl: string, timeoutMs = 2_000): OpenAICompatibleProvider {
-  const config: SoarConfig["vllm"] = {
+function createProvider(
+  baseUrl: string,
+  timeoutMs = 2_000,
+  capabilities: ProviderCapability[] = [
+    "chat_completions",
+    "reasoning_effort",
+    "streaming",
+    "tool_calling",
+  ],
+): OpenAICompatibleProvider {
+  return new OpenAICompatibleProvider({
     apiKey: "test-key",
     baseUrl,
-    maxOutputTokens: 512,
-    model: "local-test-model",
-    costPolicy: "local_zero_cost",
     timeoutMs,
-  };
-  return new OpenAICompatibleProvider(config);
+    descriptor: parseProviderDescriptor({
+      id: "unit-local",
+      adapter: "openai-compatible",
+      locality: "local",
+      model: "local-test-model",
+      enabled: true,
+      capabilities,
+      contextWindowTokens: 4_096,
+      maxOutputTokens: 512,
+      requestReserveTokens: 512,
+      accounting: { kind: "local_zero_cost" },
+    }),
+  });
 }
 
 function completionChunk(
@@ -112,6 +132,51 @@ afterEach(async () => {
 });
 
 describe("OpenAICompatibleProvider", () => {
+  it("makes request fields capability-aware and rejects unsupported behavior before I/O", async () => {
+    const minimalCapabilities: ProviderCapability[] = [
+      "chat_completions",
+      "streaming",
+    ];
+    const server = await startFakeOpenAiServer(({ response }) => {
+      writeSse(response, completionChunk({ content: "minimal" }));
+      writeSse(response, completionChunk({}, "stop"));
+      response.end("data: [DONE]\n\n");
+    });
+    const provider = createProvider(server.baseUrl, 2_000, minimalCapabilities);
+
+    await provider.complete({
+      messages: [{ role: "user", content: "No optional capabilities" }],
+      signal: new AbortController().signal,
+      allowTools: false,
+      onDelta: () => undefined,
+    });
+
+    expect(server.requests[0]).not.toHaveProperty("reasoning_effort");
+    expect(server.requests[0]).not.toHaveProperty("tool_choice");
+    expect(server.requests[0]).not.toHaveProperty("tools");
+    await expect(
+      provider.complete({
+        messages: [{ role: "user", content: "Use a tool" }],
+        signal: new AbortController().signal,
+        allowTools: true,
+        onDelta: () => undefined,
+      }),
+    ).rejects.toThrow(/does not advertise tool_calling/u);
+    expect(server.requests).toHaveLength(1);
+  });
+
+  it("rejects unimplemented structured JSON capability advertisement", () => {
+    expect(() =>
+      createProvider("http://127.0.0.1:1/v1", 2_000, [
+        "chat_completions",
+        "reasoning_effort",
+        "streaming",
+        "structured_json_schema",
+        "tool_calling",
+      ]),
+    ).toThrow(/cannot be advertised/u);
+  });
+
   it("reserves conservative input space for adapter and tool-owned request fields", () => {
     const provider = createProvider("http://127.0.0.1:1/v1");
     const encoder = new TextEncoder();
@@ -447,6 +512,24 @@ describe("OpenAICompatibleProvider", () => {
     expect(server.requests[0]).toHaveProperty("tool_choice", "none");
     expect(server.requests[0]).toHaveProperty("reasoning_effort", "none");
     expect(server.requests[0]).not.toHaveProperty("parallel_tool_calls");
+  });
+
+  it("fails closed when the served model differs from the descriptor", async () => {
+    const server = await startFakeOpenAiServer(({ response }) => {
+      writeSse(response, {
+        ...completionChunk({ content: "wrong model" }),
+        model: "provider-substitute-model",
+      });
+      response.end("data: [DONE]\n\n");
+    });
+
+    await expect(
+      createProvider(server.baseUrl).complete({
+        messages: [{ role: "user", content: "Do not substitute models" }],
+        signal: new AbortController().signal,
+        onDelta: () => undefined,
+      }),
+    ).rejects.toThrow(/served unexpected model/u);
   });
 
   it("surfaces cancellation with the text received before abort", async () => {

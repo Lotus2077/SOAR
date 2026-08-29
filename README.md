@@ -23,15 +23,17 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
 - App target: Electron on macOS.
 - Runtime provider: one OpenAI-compatible local vLLM endpoint.
 - Benchmark target: pinned OpenRouter DeepSeek V4 Flash 0731, not enabled in the app.
-- Routing runtime: deterministic local assignment; hybrid phase/lease routing is documented design work.
+- Routing runtime: deterministic local assignment; validated provider and v2
+  replay foundations exist, but hybrid phase/lease execution does not.
 - Evaluation ceiling: USD 100, with an automatic stop at USD 90.
 - Paid benchmark calls: not started.
 
 ## Planning and project history
 
 - [Hybrid Lease Router v0 and Review Current Changes v1](docs/plans/HYBRID_LEASE_ROUTER_V0.md)
-  is proposed planning work. It is not implemented and requires explicit
-  approval before runtime work begins.
+  is approved for its $0 PR 1 through PR 5 sequence. PR 1 and PR 2 foundations
+  are implemented in this revision; PR 6 and every paid call remain separately
+  approval-gated.
 - [Build and change log](docs/BUILD_LOG.md) is the append-only project evidence
   ledger for crucial decisions, implementation milestones, failures, proofs,
   costs, limitations, and next gates.
@@ -101,8 +103,10 @@ fit the configured envelope.
 
 `SOAR_VLLM_COST_POLICY=local_zero_cost` is an explicit accounting declaration
 for a self-hosted endpoint, not a measurement of electricity or infrastructure
-cost. The public provider catalog points to the same environment field so cost
-provenance cannot silently differ between configuration surfaces.
+cost. The non-runtime readiness snapshot in
+`config/providers.readiness.example.json` points to the same environment field.
+It documents benchmark assumptions only; the shipping app builds its validated
+runtime registry in the Electron main process.
 
 ### UI design reference
 

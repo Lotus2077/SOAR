@@ -2,15 +2,19 @@ import { randomUUID } from "node:crypto";
 
 import OpenAI from "openai";
 
-import type { SoarConfig } from "../config";
 import {
   MODEL_TOOL_DEFINITIONS,
   type RegisteredToolName,
 } from "../tools/tool-registry";
 import {
+  hasProviderCapabilities,
+  parseProviderDescriptor,
+  type ProviderDescriptor,
+} from "./provider-descriptor";
+import {
   ProviderAbortedError,
   type CompleteInput,
-  type InferenceProvider,
+  type DescribedInferenceProvider,
   type ProviderAbortKind,
   type ProviderResult,
   type ProviderToolCall,
@@ -22,7 +26,14 @@ interface ToolCallAccumulator {
   arguments: string;
 }
 
-const PROVIDER_TEMPLATE_RESERVE_TOKENS = 512;
+export const OPENAI_COMPATIBLE_BASE_REQUEST_RESERVE_TOKENS = 512;
+
+export interface OpenAICompatibleProviderOptions {
+  baseUrl: string;
+  apiKey: string;
+  timeoutMs: number;
+  descriptor: ProviderDescriptor;
+}
 
 function conservativeTokenReserve(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).length;
@@ -42,12 +53,21 @@ function selectedToolDefinitions(
 }
 
 function providerRequestFields(
+  descriptor: ProviderDescriptor,
   allowTools: boolean,
   allowedToolNames?: readonly RegisteredToolName[],
   requireToolCall = false,
 ) {
   const tools = selectedToolDefinitions(allowedToolNames);
   const toolsEnabled = allowTools && tools.length > 0;
+  const supportsToolCalling = hasProviderCapabilities(descriptor, [
+    "tool_calling",
+  ]);
+  if (toolsEnabled && !supportsToolCalling) {
+    throw new Error(
+      `provider ${descriptor.id} does not advertise tool_calling`,
+    );
+  }
   if (
     requireToolCall &&
     (!toolsEnabled || allowedToolNames?.length !== 1 || tools.length !== 1)
@@ -56,14 +76,18 @@ function providerRequestFields(
       "requireToolCall needs exactly one enabled scheduler-selected tool definition.",
     );
   }
+  const reasoningFields = hasProviderCapabilities(descriptor, [
+    "reasoning_effort",
+  ])
+    ? { reasoning_effort: "none" as const }
+    : {};
   if (!toolsEnabled) {
-    return {
-      reasoning_effort: "none" as const,
-      tool_choice: "none" as const,
-    };
+    return supportsToolCalling
+      ? { ...reasoningFields, tool_choice: "none" as const }
+      : reasoningFields;
   }
   return {
-    reasoning_effort: "none" as const,
+    ...reasoningFields,
     tools: [...tools],
     tool_choice: requireToolCall ? ("required" as const) : ("auto" as const),
     parallel_tool_calls: false,
@@ -71,30 +95,50 @@ function providerRequestFields(
 }
 
 function requestReserveTokens(
+  descriptor: ProviderDescriptor,
+  baseReserveTokens: number,
   allowTools: boolean,
   allowedToolNames?: readonly RegisteredToolName[],
   requireToolCall = false,
 ): number {
   return (
-    PROVIDER_TEMPLATE_RESERVE_TOKENS +
+    baseReserveTokens +
     conservativeTokenReserve(
-      providerRequestFields(allowTools, allowedToolNames, requireToolCall),
+      providerRequestFields(
+        descriptor,
+        allowTools,
+        allowedToolNames,
+        requireToolCall,
+      ),
     )
   );
 }
 
-export class OpenAICompatibleProvider implements InferenceProvider {
-  readonly id = "local-vllm";
-  readonly costPolicy: "local_zero_cost";
+export class OpenAICompatibleProvider implements DescribedInferenceProvider {
+  readonly descriptor: ProviderDescriptor;
+  readonly id: string;
   readonly model: string;
+  readonly costPolicy?: "local_zero_cost";
   private readonly client: OpenAI;
   private readonly maxOutputTokens: number;
   private readonly timeoutMs: number;
 
-  constructor(config: SoarConfig["vllm"]) {
-    this.model = config.model;
-    this.costPolicy = config.costPolicy;
-    this.maxOutputTokens = config.maxOutputTokens;
+  constructor(config: OpenAICompatibleProviderOptions) {
+    this.descriptor = parseProviderDescriptor(config.descriptor);
+    if (
+      hasProviderCapabilities(this.descriptor, ["structured_json_schema"])
+    ) {
+      throw new Error(
+        "structured_json_schema cannot be advertised before the adapter implements and proves it",
+      );
+    }
+    this.id = this.descriptor.id;
+    this.model = this.descriptor.model;
+    this.costPolicy =
+      this.descriptor.accounting.kind === "local_zero_cost"
+        ? "local_zero_cost"
+        : undefined;
+    this.maxOutputTokens = this.descriptor.maxOutputTokens;
     this.timeoutMs = config.timeoutMs;
     this.client = new OpenAI({
       apiKey: config.apiKey,
@@ -110,7 +154,13 @@ export class OpenAICompatibleProvider implements InferenceProvider {
     requireToolCall = false,
   ): number {
     return (
-      requestReserveTokens(allowTools, allowedToolNames, requireToolCall) +
+      requestReserveTokens(
+        this.descriptor,
+        this.descriptor.requestReserveTokens,
+        allowTools,
+        allowedToolNames,
+        requireToolCall,
+      ) +
       new TextEncoder().encode(this.model).length
     );
   }
@@ -156,6 +206,7 @@ export class OpenAICompatibleProvider implements InferenceProvider {
 
     try {
       const requestFields = providerRequestFields(
+        this.descriptor,
         allowTools,
         allowedToolNames,
         requireToolCall,
@@ -175,6 +226,11 @@ export class OpenAICompatibleProvider implements InferenceProvider {
       for await (const chunk of stream) {
         if (combinedSignal.aborted) throw abortError();
         if (chunk.model) {
+          if (chunk.model !== this.model) {
+            throw new Error(
+              `Provider served unexpected model (${chunk.model}; requested ${this.model}).`,
+            );
+          }
           if (servedModel !== undefined && servedModel !== chunk.model) {
             throw new Error(
               `Provider changed served model within one response (${servedModel} -> ${chunk.model}).`,

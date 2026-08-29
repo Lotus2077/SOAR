@@ -73,8 +73,8 @@ const [research, coding, providers, providerSchema, workloadSchema, sources] =
   await Promise.all([
     readJsonLines("benchmarks/research.jsonl"),
     readJsonLines("benchmarks/coding.jsonl"),
-    readJson("config/providers.example.json"),
-    readJson("config/providers.schema.json"),
+    readJson("config/providers.readiness.example.json"),
+    readJson("config/providers.readiness.schema.json"),
     readJson("benchmarks/workload.schema.json"),
     readJson("benchmarks/sources.json"),
   ]);
@@ -82,7 +82,7 @@ const [research, coding, providers, providerSchema, workloadSchema, sources] =
 const draft202012 = "https://json-schema.org/draft/2020-12/schema";
 requireValue(
   providerSchema.$schema === draft202012,
-  "provider configuration schema must declare JSON Schema Draft 2020-12",
+  "provider readiness snapshot schema must declare JSON Schema Draft 2020-12",
 );
 requireValue(
   workloadSchema.$schema === draft202012,
@@ -90,7 +90,7 @@ requireValue(
 );
 
 for (const error of validateJsonSchema(providers, providerSchema, {
-  label: "config/providers.example.json",
+  label: "config/providers.readiness.example.json",
 })) {
   errors.push(error);
 }
@@ -136,6 +136,7 @@ requireValue(cloud?.enabledEnv === "SOAR_OPENROUTER_ENABLED", "cloud provider mu
 requireValue(cloud?.marginalPriceUsdPerMillionTokens?.input === 0.06, "cloud input price snapshot must be USD 0.06/M");
 requireValue(cloud?.marginalPriceUsdPerMillionTokens?.output === 0.12, "cloud output price snapshot must be USD 0.12/M");
 requireValue(cloud?.providerRouting?.sort === "price", "cloud provider routing must prefer price");
+requireValue(cloud?.providerRouting?.allowFallbacks === false, "cloud provider-managed fallback must remain disabled");
 requireValue(cloud?.providerRouting?.maxPriceUsdPerMillionTokens?.input === 0.08, "unexpected cloud input price ceiling");
 requireValue(cloud?.providerRouting?.maxPriceUsdPerMillionTokens?.output === 0.18, "unexpected cloud output price ceiling");
 

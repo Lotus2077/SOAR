@@ -46,7 +46,8 @@ requires the user to select a canonical workspace before a session can use it.
    history.
 8. Snapshots are reduced from the event stream for the renderer. Running sessions
    found after restart become terminally interrupted rather than falsely
-   completed; continuing requires a new run.
+   completed, except a persisted cancelled v2 attempt closes as cancelled;
+   continuing requires a new run.
 
 Provider-native hidden reasoning, KV caches, and session state are not shared or
 persisted. A future provider switch must use an explicit handoff built from
@@ -140,14 +141,35 @@ provider call, but does not reconsider the local route. Checkpoint reasons are
 missing usage report represented by zero. A qualifying live proof requires
 positive reported input usage for every provider call.
 
-The public provider catalog names `SOAR_VLLM_COST_POLICY` through
-`costPolicyEnv`, and runtime configuration accepts only `local_zero_cost` for
-the current local adapter. This is explicit accounting provenance, not measured
-infrastructure cost.
-
 Repository text and tool output remain escaped values in the packet's untrusted
 evidence section. They do not become system instructions or action authority.
 The tool gateway and workspace policy remain the enforcement boundary.
+
+## Provider registry foundation
+
+The Electron main process builds a validated runtime catalog around described
+providers. A descriptor binds provider ID, locality, exact model, enabled
+state, sorted capabilities, context/output/reserve limits, and explicit
+accounting. The registry rejects duplicate identities, implementation/descriptor
+mismatches, disabled or incapable selections, implicit zero-cost claims, and
+paid pricing that is missing, future-dated, or at least 24 hours old when a
+caller supplies an explicit replayable selection-time value.
+
+The OpenAI-compatible transport derives its identity and request allowances
+from that descriptor. Optional request fields are emitted only for advertised
+capabilities, unsupported tool behavior fails before network I/O, structured
+JSON advertisement is rejected until its later adapter proof, and a served
+model mismatch fails the attempt. The current production catalog still
+constructs exactly one local provider; the deterministic fake is test/development
+only. The credential-store interface currently has only a fake implementation,
+so there is no production cloud credential or provider path.
+
+The non-runtime provider snapshot at
+`config/providers.readiness.example.json` names `SOAR_VLLM_COST_POLICY` through
+`costPolicyEnv`. It documents readiness and benchmark assumptions; it is not
+the runtime registry contract. Runtime configuration accepts only
+`local_zero_cost` for the current local adapter. This is explicit accounting
+provenance, not measured infrastructure cost.
 
 ## Completion integrity
 
@@ -222,6 +244,21 @@ they must not mutate history or infer success from missing evidence.
 Changing an existing event's meaning risks corrupting replay. Prefer adding an
 optional field with a safe default, introducing a new event, or defining an
 explicit migration with compatibility tests.
+
+Database startup uses an append-only, checksummed migration ledger. Before an
+unversioned nonempty database can be adopted, its complete normalized schema
+must match the frozen `4233edd` baseline and pass integrity and foreign-key
+checks. Schema version 2 adds constrained append-only budget-ledger storage,
+but no runtime reservation or settlement API exists yet.
+
+Strict `agentic-execution-v2`, routing-decision, and inference-attempt contracts
+are additive foundations for the hybrid runner. V2 replay cross-checks route,
+lease, decision, context, message, model, reservation, usage, and terminal
+attempt identity; startup recovery explicitly closes each supported crash
+window. Canonical state is reconstructed from append-only events before every
+append rather than trusting mutable projection JSON. The shipping runner still
+creates v1 local-only sessions and emits none of these v2 events. See
+[ADR 0002](adr/0002-agentic-execution-v2-event-state-machine.md).
 
 Projected sessions created before context telemetry existed default
 `contextCompilations` to an empty list. `session.created.taskTrack` is optional

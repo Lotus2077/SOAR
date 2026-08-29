@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://soar.local/schemas/providers.schema.json",
-  "title": "SOAR provider configuration",
+  "$id": "https://soar.local/schemas/providers.readiness.schema.json",
+  "title": "SOAR non-runtime provider readiness snapshot",
   "type": "object",
   "additionalProperties": false,
   "required": ["providers", "budget"],

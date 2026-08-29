@@ -21,6 +21,8 @@ import { loadConfig } from "../../src/main/config";
 import { createSoarDatabase } from "../../src/main/database";
 import { EventStore } from "../../src/main/event-store";
 import { OpenAICompatibleProvider } from "../../src/main/providers/openai-compatible";
+import { parseProviderDescriptor } from "../../src/main/providers/provider-descriptor";
+import { createLocalVllmProvider } from "../../src/main/providers/runtime-catalog";
 import type {
   CompleteInput,
   InferenceProvider,
@@ -58,6 +60,26 @@ const proofRunType =
   "guided-live-model-evidence-with-evaluator-records-v7";
 const proofTaskValidatorContract =
   "architecture-schedule-evaluator-derived-claim-evidence-ordered-read-post-read-exact-arguments-and-exact-global-search-symbol-occurrences-v7";
+
+function localProbeDescriptor(model: string, maxOutputTokens: number) {
+  return parseProviderDescriptor({
+    id: "local-vllm",
+    adapter: "openai-compatible",
+    locality: "local",
+    model,
+    enabled: true,
+    capabilities: [
+      "chat_completions",
+      "reasoning_effort",
+      "streaming",
+      "tool_calling",
+    ],
+    contextWindowTokens: 4_096,
+    maxOutputTokens,
+    requestReserveTokens: 512,
+    accounting: { kind: "local_zero_cost" },
+  });
+}
 const proofClaimCoverageProvenance =
   "exact-tool-observed-lines-and-completion-verified-citations-v1";
 const proofSymbolAuditProvenance =
@@ -246,10 +268,8 @@ class ContextEnvelopeProbeProvider implements InferenceProvider {
   private readonly reserveProvider = new OpenAICompatibleProvider({
     baseUrl: "http://127.0.0.1:1/v1",
     apiKey: "non-live-budget-probe",
-    model: proofModel,
-    costPolicy: "local_zero_cost",
-    maxOutputTokens: 128,
     timeoutMs: 1_000,
+    descriptor: localProbeDescriptor(proofModel, 128),
   });
   readonly id = this.reserveProvider.id;
   readonly model = this.reserveProvider.model;
@@ -3314,10 +3334,8 @@ describe("Local Repository Investigator evaluator contract", () => {
       const reserveProvider = new OpenAICompatibleProvider({
         baseUrl: "http://127.0.0.1:1/v1",
         apiKey: "non-live-symbol-retention",
-        model: proofModel,
-        costPolicy: "local_zero_cost",
-        maxOutputTokens: 128,
         timeoutMs: 1_000,
+        descriptor: localProbeDescriptor(proofModel, 128),
       });
       let scriptedRound = 0;
       const scriptedProvider: InferenceProvider = {
@@ -4684,7 +4702,7 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
           database = createSoarDatabase();
           const store = new EventStore(database);
           const provider = new CapturingInferenceProvider(
-            new OpenAICompatibleProvider(config.vllm),
+            createLocalVllmProvider(config),
           );
           return {
             expectedModel,

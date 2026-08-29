@@ -10,8 +10,13 @@ machine configuration.
   bridge;
 - append-only SQLite session events, restart recovery, and deterministic session
   reconstruction;
+- a checksummed database migration ledger, exact frozen-baseline adoption check,
+  and dormant append-only integer-micro-USD budget storage with no mutation API;
 - one OpenAI-compatible local provider with streaming, cancellation, timeouts,
   token usage, and honest incomplete-response handling;
+- validated provider descriptors plus a main-process runtime catalog and
+  registry; the catalog currently constructs only the selected local or
+  deterministic fake provider;
 - bounded, read-only repository tools for listing, literal search, and text reads;
 - provider-neutral, token-bounded context packets with deterministic evidence
   deduplication, breadth-first admission, explicit failed-tool state,
@@ -26,18 +31,23 @@ machine configuration.
   tool use after two no-progress observations;
 - executable research and coding benchmark manifests, fixture isolation,
   preflight checks, evaluator adapters, and machine-readable result export;
-- deterministic unit, integration, and Electron end-to-end tests.
+- deterministic unit, integration, and Electron end-to-end tests;
+- strict additive v2 routing-decision and inference-attempt schemas, replay
+  invariants, and crash-window recovery; these are foundations and the current
+  app runner still emits v1 local-only sessions.
 
 ## Not implemented
 
 - production cloud-provider execution or macOS Keychain retrieval;
 - hybrid routing, provider-health leases, or learned scheduling;
-- one-to-one terminal telemetry for failed, cancelled, and timed-out provider
-  attempts; successful calls record usage provenance, but replay does not yet
-  enforce exactly one usage record per inference checkpoint, so failure-rate and
-  attempt-cost metrics are not ready to drive a router;
+- runtime emission of v2 attempt telemetry, operational budget reservation and
+  settlement, or registry-driven provider switching; the dormant contracts do
+  not yet produce router metrics;
+- immutable change acquisition, the Review Current Changes result contract, or
+  its app workflow;
 - browser, shell, file-write, patch, or external-message tools;
-- a stable public data migration policy or signed release channel;
+- a signed release channel or general downgrade support for databases that
+  contain v2 events;
 - official bulk SWE-bench evaluation on a native x86-64 Linux worker.
 
 ## Provider contract

@@ -1,10 +1,11 @@
 import type {
   CompleteInput,
-  InferenceProvider,
+  DescribedInferenceProvider,
   ProviderMessage,
   ProviderResult,
 } from "./types";
 import { ProviderAbortedError } from "./types";
+import { parseProviderDescriptor } from "./provider-descriptor";
 
 const CONTEXT_PACKET_PREFIX = "SOAR_CONTEXT_PACKET_V1\n";
 
@@ -98,10 +99,22 @@ async function emitChunks(
   return content;
 }
 
-export class FakeProvider implements InferenceProvider {
+export class FakeProvider implements DescribedInferenceProvider {
   readonly id = "local-vllm";
   readonly model = "RM-01 VLM (deterministic test double)";
   readonly costPolicy = "local_zero_cost" as const;
+  readonly descriptor = parseProviderDescriptor({
+    id: this.id,
+    adapter: "openai-compatible",
+    locality: "local",
+    model: this.model,
+    enabled: true,
+    capabilities: ["chat_completions", "streaming", "tool_calling"],
+    contextWindowTokens: 32_768,
+    maxOutputTokens: 8_192,
+    requestReserveTokens: 512,
+    accounting: { kind: "local_zero_cost" },
+  });
   private readonly delayMs: number;
 
   constructor(options: { delayMs?: number } = {}) {

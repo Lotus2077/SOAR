@@ -7,9 +7,8 @@ import { loadConfig } from "./config";
 import { createSoarDatabase, type SoarDatabase } from "./database";
 import { EventStore } from "./event-store";
 import { registerIpcHandlers } from "./ipc";
-import { FakeProvider } from "./providers/fake-provider";
-import { OpenAICompatibleProvider } from "./providers/openai-compatible";
 import type { InferenceProvider } from "./providers/types";
+import { createRuntimeProviderCatalog } from "./providers/runtime-catalog";
 import { recoverRunningSessions } from "./recovery";
 import { toSessionSnapshot } from "./session-view";
 import { IPC_CHANNELS, type SessionUpdate } from "../shared/contracts";
@@ -82,10 +81,8 @@ async function bootstrap(): Promise<void> {
   const store = new EventStore(database);
   recoverRunningSessions(store);
 
-  const provider: InferenceProvider =
-    config.providerMode === "fake"
-      ? new FakeProvider({ delayMs: config.fakeDelayMs })
-      : new OpenAICompatibleProvider(config.vllm);
+  const providerCatalog = createRuntimeProviderCatalog(config);
+  const provider: InferenceProvider = providerCatalog.selected;
   const runner = new SessionRunner({
     store,
     provider,

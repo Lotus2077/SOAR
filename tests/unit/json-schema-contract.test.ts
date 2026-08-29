@@ -14,19 +14,19 @@ async function readJson(relativePath: string): Promise<unknown> {
 describe("checked-in JSON Schema contracts", () => {
   it("accepts the public provider example including its schema pointer", async () => {
     const [example, schema] = await Promise.all([
-      readJson("config/providers.example.json"),
-      readJson("config/providers.schema.json"),
+      readJson("config/providers.readiness.example.json"),
+      readJson("config/providers.readiness.schema.json"),
     ]);
 
     expect(
       validateJsonSchema(example, schema, {
-        label: "config/providers.example.json",
+        label: "config/providers.readiness.example.json",
       }),
     ).toEqual([]);
   });
 
   it("rejects unknown provider fields and missing zero-cost provenance", async () => {
-    const schema = await readJson("config/providers.schema.json");
+    const schema = await readJson("config/providers.readiness.schema.json");
     const invalid = {
       providers: [
         {

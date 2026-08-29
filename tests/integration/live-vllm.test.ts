@@ -4,7 +4,7 @@ import { SessionRunner } from "../../src/main/agent/run-session";
 import { loadConfig } from "../../src/main/config";
 import { createSoarDatabase } from "../../src/main/database";
 import { EventStore } from "../../src/main/event-store";
-import { OpenAICompatibleProvider } from "../../src/main/providers/openai-compatible";
+import { createLocalVllmProvider } from "../../src/main/providers/runtime-catalog";
 
 const runLive = process.env.SOAR_RUN_LIVE_VLLM === "true";
 
@@ -31,7 +31,7 @@ describe.skipIf(!runLive)("live local vLLM canary", () => {
     const deltas: string[] = [];
     const runner = new SessionRunner({
       store,
-      provider: new OpenAICompatibleProvider(config.vllm),
+      provider: createLocalVllmProvider(config),
       limits: { inferenceRounds: 2, toolCalls: 1 },
       onUpdate: (update) => {
         if (update.kind === "stream") deltas.push(update.delta);

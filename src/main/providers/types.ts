@@ -3,6 +3,7 @@ import type {
   ProviderToolCall as ContextProviderToolCall,
 } from "../../shared/context-builder";
 import type { RegisteredToolName } from "../tools/tool-registry";
+import type { ProviderDescriptor } from "./provider-descriptor";
 
 export type ProviderToolCall = ContextProviderToolCall;
 
@@ -53,6 +54,10 @@ export interface InferenceProvider {
     requireToolCall?: boolean,
   ): number;
   complete(input: CompleteInput): Promise<ProviderResult>;
+}
+
+export interface DescribedInferenceProvider extends InferenceProvider {
+  readonly descriptor: ProviderDescriptor;
 }
 
 export type ProviderAbortKind = "cancelled" | "timeout";

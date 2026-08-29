@@ -1,8 +1,9 @@
 import { z } from "zod";
 
 import type { ProviderToolCall } from "../providers/types";
+import { InspectGitChangesError } from "./inspect-git-changes";
 import { ReadTextFileError } from "./read-text-file";
-import { getRegisteredTool } from "./tool-registry";
+import { getHostTool, getRegisteredTool, type HostToolName } from "./tool-registry";
 import { WorkspaceToolError } from "./workspace-policy";
 
 export const MAX_TOOL_OUTPUT_BYTES = 256 * 1024;
@@ -14,7 +15,11 @@ export interface ToolExecutionResult {
 }
 
 function serializeError(error: unknown): string {
-  if (error instanceof ReadTextFileError || error instanceof WorkspaceToolError) {
+  if (
+    error instanceof ReadTextFileError ||
+    error instanceof WorkspaceToolError ||
+    error instanceof InspectGitChangesError
+  ) {
     return JSON.stringify({ ok: false, error: { code: error.code, message: error.message } });
   }
   if (error instanceof z.ZodError) {
@@ -35,23 +40,25 @@ function serializeError(error: unknown): string {
   });
 }
 
-export async function executeToolCall(
+async function executeRegisteredTool(
   workspaceRoot: string,
-  toolCall: ProviderToolCall,
+  toolName: string,
+  rawArguments: unknown,
+  audience: "repository_agent_v1" | "host_change_acquisition_v1",
   signal?: AbortSignal,
 ): Promise<ToolExecutionResult> {
   const startedAt = performance.now();
-
   try {
-    const tool = getRegisteredTool(toolCall.function.name);
-    if (!tool) {
+    const tool =
+      audience === "repository_agent_v1"
+        ? getRegisteredTool(toolName)
+        : getHostTool(toolName);
+    if (!tool || tool.audience !== audience) {
       throw new WorkspaceToolError(
         "INVALID_ARGUMENT",
-        `Tool ${toolCall.function.name || "<unnamed>"} is not available.`,
+        `Tool ${toolName || "<unnamed>"} is not available.`,
       );
     }
-
-    const rawArguments = JSON.parse(toolCall.function.arguments) as unknown;
     const result = await tool.invoke({ workspaceRoot, signal }, rawArguments);
     const content = JSON.stringify({ ok: true, ...result });
     if (Buffer.byteLength(content, "utf8") > MAX_TOOL_OUTPUT_BYTES) {
@@ -67,11 +74,7 @@ export async function executeToolCall(
         durationMs: performance.now() - startedAt,
       };
     }
-    return {
-      content,
-      isError: false,
-      durationMs: performance.now() - startedAt,
-    };
+    return { content, isError: false, durationMs: performance.now() - startedAt };
   } catch (error) {
     return {
       content: serializeError(error),
@@ -79,4 +82,42 @@ export async function executeToolCall(
       durationMs: performance.now() - startedAt,
     };
   }
+}
+
+export async function executeToolCall(
+  workspaceRoot: string,
+  toolCall: ProviderToolCall,
+  signal?: AbortSignal,
+): Promise<ToolExecutionResult> {
+  try {
+    const rawArguments = JSON.parse(toolCall.function.arguments) as unknown;
+    return executeRegisteredTool(
+      workspaceRoot,
+      toolCall.function.name,
+      rawArguments,
+      "repository_agent_v1",
+      signal,
+    );
+  } catch (error) {
+    return {
+      content: serializeError(error),
+      isError: true,
+      durationMs: 0,
+    };
+  }
+}
+
+export function executeHostToolCall(
+  workspaceRoot: string,
+  toolName: HostToolName,
+  rawArguments: unknown,
+  signal?: AbortSignal,
+): Promise<ToolExecutionResult> {
+  return executeRegisteredTool(
+    workspaceRoot,
+    toolName,
+    rawArguments,
+    "host_change_acquisition_v1",
+    signal,
+  );
 }

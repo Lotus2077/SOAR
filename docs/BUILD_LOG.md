@@ -552,3 +552,105 @@ fake-provider routing and operational budget admission.
 References: [provider registry architecture](ARCHITECTURE.md),
 [MVP readiness](MVP_READINESS.md),
 [Hybrid Lease Router v0 plan](plans/HYBRID_LEASE_ROUTER_V0.md).
+
+### BL-20260829-1505-pr3-immutable-change-acquisition -- 2026-08-29 -- PR 3 immutable change acquisition verified
+
+Status: `Verified`
+
+Scope or hypothesis: Establish a host-authoritative, immutable, bounded view of
+the current Git change and freeze the `$0` review-risk calibration before any
+model-facing review workflow or hybrid router can consume it.
+
+Decisions:
+
+- Keep `inspect_git_changes` in a separate host-only registry. Providers,
+  renderer IPC, and the shipping session runner cannot invoke it in PR 3.
+- Bind the base commit, exact Git discovery streams, manifest, admitted sides,
+  hunks, omissions, evidence sets, and host-derived coverage with strict
+  content identities; incomplete acquisition can support only an explicitly
+  incomplete result and cannot pass freshness revalidation.
+- Run stage, visibility, status, raw, and numstat discovery against one secure
+  temporary index copy, preserving the canonical index and its timestamp.
+  Split indexes, hidden index flags, unsafe filters/protocol overrides,
+  unmerged state, drift, and inconsistent views fail closed.
+- Normalize every staged-plus-unstaged reversal into one honest
+  base-to-working entry with `staged_unstaged_overlap`; do not pretend the
+  unrepresented intermediate index body was reviewed.
+- Freeze `review-risk-v1` at the approved weights and threshold. Count changed
+  lines from identity-verified admitted host hunks both live and in calibration;
+  Git numstat remains discovery evidence, not a competing routing definition.
+- Keep the 12 curator attention labels unchanged, including the deliberate
+  `cal-010` disagreement. Regeneration may update acquisition identities but
+  must not tune labels or introduce held-out gold.
+
+Changes: Added strict `ChangeSnapshotV1`, hunk, evidence-set, evidence-reference,
+and `ReviewCoverageV1` contracts; bounded Git parsers/process/content/hunk
+acquisition; host-only gateway registration; verified risk extraction; frozen
+calibration schemas, generator, materializer, and 12 real public changes; the
+pinned `diff@9.0.0` dependency and notice; readiness/architecture/ADR truth
+updates; and adversarial tests for process, filesystem, identity, projection,
+and calibration boundaries.
+
+Evidence:
+
+- Final `pnpm check`: readiness and 12-entry ledger validation passed; 425
+  tests passed, 3 skipped; typecheck and production Electron build passed.
+- Final focused PR 3 suite: 12 files, 163 tests passed, 1 opt-in case skipped.
+- Final full `pnpm test`: 38 files passed and 1 skipped; 425 tests passed and 3
+  skipped.
+- Final `pnpm typecheck` and production `pnpm build`: passed.
+- Final `pnpm test:e2e`: 2/2 macOS Electron tests passed, covering restart
+  restoration and active cancellation.
+- `$0` opt-in materialization using explicit full-history SOAR, Flask, and
+  pytest clones: 6/6 test cases passed and all 12 revisions matched parent and
+  commit metadata, patch application, snapshot-hunk source facts, snapshot
+  identities, risk facts, and risk results.
+- Frozen calibration SHA-256:
+  `fed7fe79fa14c9fdb54263af827545202191edbb366597e93f16bc6b0c69fe0c`;
+  protocol SHA-256:
+  `91899b2de172e1d1e23079c5b18e4cb46dc87ef211560cfd8997f8a76694a890`.
+  The protocol pin matches, with 5 low-risk and 7 high-risk changes and only
+  the declared `cal-010-pytest-source-line-memoization` label disagreement.
+- Readiness validation found 22 research and 20 coding workloads and no tracked
+  or unignored live secret. Independent final contract review reported no
+  remaining P0-P2 implementation or truth-document finding.
+
+Failures or blockers: Intermediate green tests exposed real missing cases:
+Git could refresh the canonical index; an epoch-dated temporary index hid valid
+changes on Apple Git; `git diff --no-refresh` is unsupported there; nullable
+path sentinels, set-based reconciliation, and duplicate records could collapse
+rename identities; staged add/delete/rename reversals could throw or collide;
+visibility flags, restored-mtime rewrites, rename configuration, non-owner
+execute bits, result-size path metadata, identity-field overhead, derived
+projection bounds, safe-integer omitted counts, rename-side risk/coverage, and
+forged observation/body evidence were initially under-specified. A bare-CR
+fixture also proved live hunk counts (300) could flip classification relative to
+Git numstat (6). Each counterexample is now a regression. The readiness scanner
+initially mistook `flask-*` text for an API key and was made boundary-aware.
+Initial generator IPC, loopback-test, and Electron attempts were sandbox-blocked;
+authorized local reruns passed. Earlier generated calibration hashes were
+superseded after the acquisition and line-source contracts stabilized.
+
+Limitations and non-claims: PR 3 has no app action, renderer IPC, provider tool,
+session workflow, `ReviewResultV1`, canonical tool-event provenance, or dynamic
+router consumer. It does not prove review quality, defect recall, cost savings,
+latency improvement, or routing optimality; no held-out identities or gold are
+present. Split indexes remain unsupported, incomplete snapshots deliberately
+cannot revalidate as complete, inspection is POSIX-only, and an external actor
+that concurrently rewrites repository configuration can still exploit the
+documented config-preflight TOCTOU gap. Long metadata-heavy changes may evict
+trailing manifest entries and remain explicitly incomplete.
+
+Paid exposure: $0. No vLLM or cloud inference, credential access, clone, fetch,
+or other network request was made; calibration used pre-existing local Git
+objects and deterministic host code only.
+
+Next gate: PR 4's pure checkpoint router, atomic micro-USD budget ledger, and
+two-fake-provider runner. Production cloud construction, real credentials, and
+paid calls remain forbidden.
+
+References: [ADR 0003](adr/0003-immutable-change-acquisition-v1.md),
+[change-review calibration protocol](../benchmarks/change-review/README.md),
+[architecture](ARCHITECTURE.md),
+[MVP readiness](MVP_READINESS.md),
+[Hybrid Lease Router v0 plan](plans/HYBRID_LEASE_ROUTER_V0.md).

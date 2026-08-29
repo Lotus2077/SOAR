@@ -1,0 +1,1306 @@
+{
+  "schemaVersion": "change-review-calibration-set-v1",
+  "setId": "change-review-calibration-v1",
+  "status": "frozen",
+  "frozenAt": "2026-08-29T13:48:00Z",
+  "selectionProtocol": "real_public_changes_balanced_by_curator_review_attention_v1",
+  "labelSemantics": "review_attention_only_not_defect_correctness_or_quality_gold",
+  "changes": [
+    {
+      "schemaVersion": "change-review-calibration-change-v1",
+      "id": "cal-001-soar-plan-approval",
+      "source": {
+        "repository": "https://github.com/Lotus2077/SOAR.git",
+        "baseRevision": "c73af96afba0e84a8d978cc2be62f0659069037c",
+        "changeRevision": "4b9419b19bcc6bbe25c858ae48f176cfa33a6a65",
+        "changeUrl": "https://github.com/Lotus2077/SOAR/commit/4b9419b19bcc6bbe25c858ae48f176cfa33a6a65",
+        "committedAt": "2026-08-29T19:47:33+08:00",
+        "subject": "docs: approve plan 2 for zero-cost work"
+      },
+      "fixtureMode": "pinned_git_patch_to_index",
+      "materialization": {
+        "protocol": "git-patch-to-index-v1",
+        "steps": [
+          "clone_public_repository",
+          "verify_base_and_change_objects",
+          "checkout_base_revision_detached",
+          "generate_binary_full_index_patch_base_to_change",
+          "apply_patch_to_index",
+          "run_host_change_acquisition",
+          "verify_snapshot_identity_and_feature_facts"
+        ],
+        "patchApplication": "git_diff_binary_full_index_then_git_apply_index_v1"
+      },
+      "acquisition": {
+        "status": "verified_change_snapshot_v1",
+        "inspectorContractVersion": "inspect-git-changes-v1",
+        "acquisitionComplete": true,
+        "incompleteReasons": [],
+        "snapshotId": "3c327a17b3b76c8e72570be5d18ff4ae09cd9b28a9cac92fe5b582e13876c1d3",
+        "indexSha256": "519b152160167029d98f7750857fa49d66ccff94d32b0c01726017ae5b204f30",
+        "discoverySha256": "15e1d5a0cb503fcd565bb1d664b6456955825c7cc7e352a62546e329bbbc90d2",
+        "sourceDiffProtocol": "host_change_snapshot_admitted_hunks_v1",
+        "sourceDiff": [
+          {
+            "oldPath": "docs/BUILD_LOG.md",
+            "newPath": "docs/BUILD_LOG.md",
+            "changeKind": "modified",
+            "additions": 37,
+            "deletions": 0
+          },
+          {
+            "oldPath": "docs/plans/HYBRID_LEASE_ROUTER_V0.md",
+            "newPath": "docs/plans/HYBRID_LEASE_ROUTER_V0.md",
+            "changeKind": "modified",
+            "additions": 5,
+            "deletions": 1
+          }
+        ],
+        "verifiedFeatureFacts": {
+          "changedPathCount": 2,
+          "changedLineCount": 43,
+          "surfaces": [],
+          "sensitivePaths": [],
+          "runtimePaths": [],
+          "relevantTestPaths": []
+        },
+        "verifiedScore": 0,
+        "verifiedClassification": "low_risk"
+      },
+      "label": {
+        "reviewAttention": "routine",
+        "provenance": "curator_scope_judgment_v1",
+        "rationale": "Two-file approval-ledger update with no runtime path."
+      }
+    },
+    {
+      "schemaVersion": "change-review-calibration-change-v1",
+      "id": "cal-002-soar-repeat-step-guard",
+      "source": {
+        "repository": "https://github.com/Lotus2077/SOAR.git",
+        "baseRevision": "0db9f5e7c4ca2c46e47658c1573b21618525fd14",
+        "changeRevision": "aee5c176a362589c449929ae0d2898786ff08c82",
+        "changeUrl": "https://github.com/Lotus2077/SOAR/commit/aee5c176a362589c449929ae0d2898786ff08c82",
+        "committedAt": "2026-08-29T07:44:40+08:00",
+        "subject": "fix: identify repeated contract steps"
+      },
+      "fixtureMode": "pinned_git_patch_to_index",
+      "materialization": {
+        "protocol": "git-patch-to-index-v1",
+        "steps": [
+          "clone_public_repository",
+          "verify_base_and_change_objects",
+          "checkout_base_revision_detached",
+          "generate_binary_full_index_patch_base_to_change",
+          "apply_patch_to_index",
+          "run_host_change_acquisition",
+          "verify_snapshot_identity_and_feature_facts"
+        ],
+        "patchApplication": "git_diff_binary_full_index_then_git_apply_index_v1"
+      },
+      "acquisition": {
+        "status": "verified_change_snapshot_v1",
+        "inspectorContractVersion": "inspect-git-changes-v1",
+        "acquisitionComplete": true,
+        "incompleteReasons": [],
+        "snapshotId": "633a9d9f255d5dfe611073319adcecf896d17ff8da11cbef9d70b76bb6d7ce02",
+        "indexSha256": "dd5f6efbc5a42c08a4e552893114d62191cb88ba0760f3e0c39666cfabff7701",
+        "discoverySha256": "c71b55b8e907bb387bf035debcfd17c1f3ee0bb996bb73911cf5f9955fc79293",
+        "sourceDiffProtocol": "host_change_snapshot_admitted_hunks_v1",
+        "sourceDiff": [
+          {
+            "oldPath": "docs/ARCHITECTURE.md",
+            "newPath": "docs/ARCHITECTURE.md",
+            "changeKind": "modified",
+            "additions": 5,
+            "deletions": 1
+          },
+          {
+            "oldPath": "src/main/agent/run-session.ts",
+            "newPath": "src/main/agent/run-session.ts",
+            "changeKind": "modified",
+            "additions": 5,
+            "deletions": 1
+          },
+          {
+            "oldPath": "tests/integration/local-repository-investigator.test.ts",
+            "newPath": "tests/integration/local-repository-investigator.test.ts",
+            "changeKind": "modified",
+            "additions": 2,
+            "deletions": 2
+          },
+          {
+            "oldPath": "tests/integration/run-session.test.ts",
+            "newPath": "tests/integration/run-session.test.ts",
+            "changeKind": "modified",
+            "additions": 33,
+            "deletions": 2
+          }
+        ],
+        "verifiedFeatureFacts": {
+          "changedPathCount": 4,
+          "changedLineCount": 51,
+          "surfaces": [
+            "main",
+            "test"
+          ],
+          "sensitivePaths": [
+            "src/main/agent/run-session.ts"
+          ],
+          "runtimePaths": [
+            "src/main/agent/run-session.ts"
+          ],
+          "relevantTestPaths": [
+            "tests/integration/local-repository-investigator.test.ts",
+            "tests/integration/run-session.test.ts"
+          ]
+        },
+        "verifiedScore": 2,
+        "verifiedClassification": "low_risk"
+      },
+      "label": {
+        "reviewAttention": "routine",
+        "provenance": "curator_scope_judgment_v1",
+        "rationale": "Small runner guard accompanied by focused integration tests."
+      }
+    },
+    {
+      "schemaVersion": "change-review-calibration-change-v1",
+      "id": "cal-003-soar-scheduled-rounds",
+      "source": {
+        "repository": "https://github.com/Lotus2077/SOAR.git",
+        "baseRevision": "d0154f927a670db75f2b38a4b01a6b117a9964d4",
+        "changeRevision": "33562c65e07741eaf0ccf6fc9e334e1137e990e0",
+        "changeUrl": "https://github.com/Lotus2077/SOAR/commit/33562c65e07741eaf0ccf6fc9e334e1137e990e0",
+        "committedAt": "2026-08-29T06:08:11+08:00",
+        "subject": "fix: enforce scheduled tool rounds"
+      },
+      "fixtureMode": "pinned_git_patch_to_index",
+      "materialization": {
+        "protocol": "git-patch-to-index-v1",
+        "steps": [
+          "clone_public_repository",
+          "verify_base_and_change_objects",
+          "checkout_base_revision_detached",
+          "generate_binary_full_index_patch_base_to_change",
+          "apply_patch_to_index",
+          "run_host_change_acquisition",
+          "verify_snapshot_identity_and_feature_facts"
+        ],
+        "patchApplication": "git_diff_binary_full_index_then_git_apply_index_v1"
+      },
+      "acquisition": {
+        "status": "verified_change_snapshot_v1",
+        "inspectorContractVersion": "inspect-git-changes-v1",
+        "acquisitionComplete": true,
+        "incompleteReasons": [],
+        "snapshotId": "33c663dfb7b51c788f8a98d7d067ba74f2f2018b83beb8e56f81912183c93a99",
+        "indexSha256": "cd6bf11ff48c1fdbf07b6261797b4c4c35709f9da1e4cc74c47184af001b9e37",
+        "discoverySha256": "7e5532aceb802a1332cf97613d67a9c82a75f81531b95e04eeeba53a2cdc4e50",
+        "sourceDiffProtocol": "host_change_snapshot_admitted_hunks_v1",
+        "sourceDiff": [
+          {
+            "oldPath": "README.md",
+            "newPath": "README.md",
+            "changeKind": "modified",
+            "additions": 5,
+            "deletions": 3
+          },
+          {
+            "oldPath": "docs/ARCHITECTURE.md",
+            "newPath": "docs/ARCHITECTURE.md",
+            "changeKind": "modified",
+            "additions": 8,
+            "deletions": 2
+          },
+          {
+            "oldPath": "docs/MVP_READINESS.md",
+            "newPath": "docs/MVP_READINESS.md",
+            "changeKind": "modified",
+            "additions": 2,
+            "deletions": 1
+          },
+          {
+            "oldPath": "docs/adr/0001-context-handoff-engine-v1.md",
+            "newPath": "docs/adr/0001-context-handoff-engine-v1.md",
+            "changeKind": "modified",
+            "additions": 9,
+            "deletions": 4
+          },
+          {
+            "oldPath": "src/main/agent/run-session.ts",
+            "newPath": "src/main/agent/run-session.ts",
+            "changeKind": "modified",
+            "additions": 14,
+            "deletions": 0
+          },
+          {
+            "oldPath": "src/main/providers/fake-provider.ts",
+            "newPath": "src/main/providers/fake-provider.ts",
+            "changeKind": "modified",
+            "additions": 11,
+            "deletions": 1
+          },
+          {
+            "oldPath": "src/main/providers/openai-compatible.ts",
+            "newPath": "src/main/providers/openai-compatible.ts",
+            "changeKind": "modified",
+            "additions": 47,
+            "deletions": 30
+          },
+          {
+            "oldPath": "src/main/providers/types.ts",
+            "newPath": "src/main/providers/types.ts",
+            "changeKind": "modified",
+            "additions": 3,
+            "deletions": 0
+          },
+          {
+            "oldPath": "tests/integration/live-vllm.test.ts",
+            "newPath": "tests/integration/live-vllm.test.ts",
+            "changeKind": "modified",
+            "additions": 10,
+            "deletions": 1
+          },
+          {
+            "oldPath": "tests/integration/local-repository-investigator.test.ts",
+            "newPath": "tests/integration/local-repository-investigator.test.ts",
+            "changeKind": "modified",
+            "additions": 142,
+            "deletions": 36
+          },
+          {
+            "oldPath": "tests/integration/run-session.test.ts",
+            "newPath": "tests/integration/run-session.test.ts",
+            "changeKind": "modified",
+            "additions": 83,
+            "deletions": 28
+          },
+          {
+            "oldPath": "tests/unit/fake-provider.test.ts",
+            "newPath": "tests/unit/fake-provider.test.ts",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 0
+          },
+          {
+            "oldPath": "tests/unit/openai-compatible.test.ts",
+            "newPath": "tests/unit/openai-compatible.test.ts",
+            "changeKind": "modified",
+            "additions": 50,
+            "deletions": 1
+          }
+        ],
+        "verifiedFeatureFacts": {
+          "changedPathCount": 13,
+          "changedLineCount": 492,
+          "surfaces": [
+            "main",
+            "test"
+          ],
+          "sensitivePaths": [
+            "src/main/agent/run-session.ts",
+            "src/main/providers/fake-provider.ts",
+            "src/main/providers/openai-compatible.ts",
+            "src/main/providers/types.ts"
+          ],
+          "runtimePaths": [
+            "src/main/agent/run-session.ts",
+            "src/main/providers/fake-provider.ts",
+            "src/main/providers/openai-compatible.ts",
+            "src/main/providers/types.ts"
+          ],
+          "relevantTestPaths": [
+            "tests/integration/live-vllm.test.ts",
+            "tests/integration/local-repository-investigator.test.ts",
+            "tests/integration/run-session.test.ts",
+            "tests/unit/fake-provider.test.ts",
+            "tests/unit/openai-compatible.test.ts"
+          ]
+        },
+        "verifiedScore": 4,
+        "verifiedClassification": "high_risk"
+      },
+      "label": {
+        "reviewAttention": "heightened",
+        "provenance": "curator_scope_judgment_v1",
+        "rationale": "Thirteen-file agent-loop and scheduling change spanning runtime and tests."
+      }
+    },
+    {
+      "schemaVersion": "change-review-calibration-change-v1",
+      "id": "cal-004-flask-query-route",
+      "source": {
+        "repository": "https://github.com/pallets/flask.git",
+        "baseRevision": "3596b1ab61cea85edb8970e83ff61daa073facf8",
+        "changeRevision": "89992954ec71b594b1b911f98977cdc8ad46a057",
+        "changeUrl": "https://github.com/pallets/flask/commit/89992954ec71b594b1b911f98977cdc8ad46a057",
+        "committedAt": "2026-08-11T13:15:18-07:00",
+        "subject": "add app.query route decorator"
+      },
+      "fixtureMode": "pinned_git_patch_to_index",
+      "materialization": {
+        "protocol": "git-patch-to-index-v1",
+        "steps": [
+          "clone_public_repository",
+          "verify_base_and_change_objects",
+          "checkout_base_revision_detached",
+          "generate_binary_full_index_patch_base_to_change",
+          "apply_patch_to_index",
+          "run_host_change_acquisition",
+          "verify_snapshot_identity_and_feature_facts"
+        ],
+        "patchApplication": "git_diff_binary_full_index_then_git_apply_index_v1"
+      },
+      "acquisition": {
+        "status": "verified_change_snapshot_v1",
+        "inspectorContractVersion": "inspect-git-changes-v1",
+        "acquisitionComplete": true,
+        "incompleteReasons": [],
+        "snapshotId": "aacbac595398ba1c5857d9a1524db66c10b2171ee0b29d11d44863d972e48edf",
+        "indexSha256": "0a1c64fcbf88b6ffc46037626d08cb88daa540a9c8a7288e7fe22cce9263eb39",
+        "discoverySha256": "d39aaa275c4bc29371d715e219d751fc965a5d398169fdee2fd8a40baf364dd1",
+        "sourceDiffProtocol": "host_change_snapshot_admitted_hunks_v1",
+        "sourceDiff": [
+          {
+            "oldPath": "CHANGES.rst",
+            "newPath": "CHANGES.rst",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 0
+          },
+          {
+            "oldPath": "src/flask/sansio/scaffold.py",
+            "newPath": "src/flask/sansio/scaffold.py",
+            "changeKind": "modified",
+            "additions": 8,
+            "deletions": 0
+          },
+          {
+            "oldPath": "tests/test_basic.py",
+            "newPath": "tests/test_basic.py",
+            "changeKind": "modified",
+            "additions": 5,
+            "deletions": 2
+          }
+        ],
+        "verifiedFeatureFacts": {
+          "changedPathCount": 3,
+          "changedLineCount": 16,
+          "surfaces": [
+            "test"
+          ],
+          "sensitivePaths": [],
+          "runtimePaths": [
+            "src/flask/sansio/scaffold.py"
+          ],
+          "relevantTestPaths": []
+        },
+        "verifiedScore": 2,
+        "verifiedClassification": "low_risk"
+      },
+      "label": {
+        "reviewAttention": "routine",
+        "provenance": "curator_scope_judgment_v1",
+        "rationale": "Focused route-decorator addition with documentation and a targeted test."
+      }
+    },
+    {
+      "schemaVersion": "change-review-calibration-change-v1",
+      "id": "cal-005-flask-ipv6-server-name",
+      "source": {
+        "repository": "https://github.com/pallets/flask.git",
+        "baseRevision": "de8429ffda8cfb54db175529e2bae72a24e1fa7e",
+        "changeRevision": "7203feabf723edae0286ae5dc64fec8ac4c91735",
+        "changeUrl": "https://github.com/pallets/flask/commit/7203feabf723edae0286ae5dc64fec8ac4c91735",
+        "committedAt": "2026-08-11T12:44:45-07:00",
+        "subject": "Fix IPv6 server name parsing"
+      },
+      "fixtureMode": "pinned_git_patch_to_index",
+      "materialization": {
+        "protocol": "git-patch-to-index-v1",
+        "steps": [
+          "clone_public_repository",
+          "verify_base_and_change_objects",
+          "checkout_base_revision_detached",
+          "generate_binary_full_index_patch_base_to_change",
+          "apply_patch_to_index",
+          "run_host_change_acquisition",
+          "verify_snapshot_identity_and_feature_facts"
+        ],
+        "patchApplication": "git_diff_binary_full_index_then_git_apply_index_v1"
+      },
+      "acquisition": {
+        "status": "verified_change_snapshot_v1",
+        "inspectorContractVersion": "inspect-git-changes-v1",
+        "acquisitionComplete": true,
+        "incompleteReasons": [],
+        "snapshotId": "7c05a28568432c8e7c4ca31633c7c4812701167fe481fbcd5983e0bf4d55a04d",
+        "indexSha256": "210004089343c8914929d9e46a9fe3a357beb8f77c9c5998e5125cb15005f2bd",
+        "discoverySha256": "f9056d6d43a2ccbfbf0154f86eec359cc13023b788254fc21a594e11ec31cc33",
+        "sourceDiffProtocol": "host_change_snapshot_admitted_hunks_v1",
+        "sourceDiff": [
+          {
+            "oldPath": "src/flask/app.py",
+            "newPath": "src/flask/app.py",
+            "changeKind": "modified",
+            "additions": 7,
+            "deletions": 4
+          },
+          {
+            "oldPath": "tests/test_basic.py",
+            "newPath": "tests/test_basic.py",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 0
+          }
+        ],
+        "verifiedFeatureFacts": {
+          "changedPathCount": 2,
+          "changedLineCount": 12,
+          "surfaces": [
+            "test"
+          ],
+          "sensitivePaths": [],
+          "runtimePaths": [
+            "src/flask/app.py"
+          ],
+          "relevantTestPaths": []
+        },
+        "verifiedScore": 2,
+        "verifiedClassification": "low_risk"
+      },
+      "label": {
+        "reviewAttention": "routine",
+        "provenance": "curator_scope_judgment_v1",
+        "rationale": "Two-file IPv6 parsing correction paired with its regression test."
+      }
+    },
+    {
+      "schemaVersion": "change-review-calibration-change-v1",
+      "id": "cal-006-flask-teardown-callbacks",
+      "source": {
+        "repository": "https://github.com/pallets/flask.git",
+        "baseRevision": "7b0088693ece1bd3a9238a6fdf56ed8df7a4d43b",
+        "changeRevision": "fbb6f0bc4c60a0bada0e03c3480d0ccf30a3c1df",
+        "changeUrl": "https://github.com/pallets/flask/commit/fbb6f0bc4c60a0bada0e03c3480d0ccf30a3c1df",
+        "committedAt": "2026-02-19T19:41:50-08:00",
+        "subject": "all teardown callbacks are called despite errors"
+      },
+      "fixtureMode": "pinned_git_patch_to_index",
+      "materialization": {
+        "protocol": "git-patch-to-index-v1",
+        "steps": [
+          "clone_public_repository",
+          "verify_base_and_change_objects",
+          "checkout_base_revision_detached",
+          "generate_binary_full_index_patch_base_to_change",
+          "apply_patch_to_index",
+          "run_host_change_acquisition",
+          "verify_snapshot_identity_and_feature_facts"
+        ],
+        "patchApplication": "git_diff_binary_full_index_then_git_apply_index_v1"
+      },
+      "acquisition": {
+        "status": "verified_change_snapshot_v1",
+        "inspectorContractVersion": "inspect-git-changes-v1",
+        "acquisitionComplete": true,
+        "incompleteReasons": [],
+        "snapshotId": "9e472be862ab0f310a64bebe69ff900abadbc8e0e40ea74734d02e82d3880568",
+        "indexSha256": "0b4fe8300e1364901923a4511e9fb1dae988fcc32afbd8578128a852caab46f9",
+        "discoverySha256": "7d229632db13d1d48c1400b881026bc2d09ba54eaf45b5a4595ddc74fd5acd5c",
+        "sourceDiffProtocol": "host_change_snapshot_admitted_hunks_v1",
+        "sourceDiff": [
+          {
+            "oldPath": "CHANGES.rst",
+            "newPath": "CHANGES.rst",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 0
+          },
+          {
+            "oldPath": "docs/appcontext.rst",
+            "newPath": "docs/appcontext.rst",
+            "changeKind": "modified",
+            "additions": 2,
+            "deletions": 1
+          },
+          {
+            "oldPath": "src/flask/app.py",
+            "newPath": "src/flask/app.py",
+            "changeKind": "modified",
+            "additions": 23,
+            "deletions": 4
+          },
+          {
+            "oldPath": "src/flask/ctx.py",
+            "newPath": "src/flask/ctx.py",
+            "changeKind": "modified",
+            "additions": 16,
+            "deletions": 5
+          },
+          {
+            "oldPath": "src/flask/helpers.py",
+            "newPath": "src/flask/helpers.py",
+            "changeKind": "modified",
+            "additions": 32,
+            "deletions": 0
+          },
+          {
+            "oldPath": "tests/test_appctx.py",
+            "newPath": "tests/test_appctx.py",
+            "changeKind": "modified",
+            "additions": 55,
+            "deletions": 0
+          },
+          {
+            "oldPath": "tests/test_basic.py",
+            "newPath": "tests/test_basic.py",
+            "changeKind": "modified",
+            "additions": 26,
+            "deletions": 24
+          },
+          {
+            "oldPath": "tests/test_blueprints.py",
+            "newPath": "tests/test_blueprints.py",
+            "changeKind": "modified",
+            "additions": 10,
+            "deletions": 10
+          },
+          {
+            "oldPath": "tests/test_helpers.py",
+            "newPath": "tests/test_helpers.py",
+            "changeKind": "modified",
+            "additions": 29,
+            "deletions": 35
+          },
+          {
+            "oldPath": "tests/test_testing.py",
+            "newPath": "tests/test_testing.py",
+            "changeKind": "modified",
+            "additions": 0,
+            "deletions": 1
+          }
+        ],
+        "verifiedFeatureFacts": {
+          "changedPathCount": 10,
+          "changedLineCount": 274,
+          "surfaces": [
+            "test"
+          ],
+          "sensitivePaths": [],
+          "runtimePaths": [
+            "src/flask/app.py",
+            "src/flask/ctx.py",
+            "src/flask/helpers.py"
+          ],
+          "relevantTestPaths": []
+        },
+        "verifiedScore": 3,
+        "verifiedClassification": "high_risk"
+      },
+      "label": {
+        "reviewAttention": "heightened",
+        "provenance": "curator_scope_judgment_v1",
+        "rationale": "Ten-file lifecycle-semantics change across core context code and multiple tests."
+      }
+    },
+    {
+      "schemaVersion": "change-review-calibration-change-v1",
+      "id": "cal-007-flask-jinja-name",
+      "source": {
+        "repository": "https://github.com/pallets/flask.git",
+        "baseRevision": "38b4c1e19b50494cfcdc9332899e09b7fed34979",
+        "changeRevision": "d8259eb11900285af9b80b0fa47f841174c054e3",
+        "changeUrl": "https://github.com/pallets/flask/commit/d8259eb11900285af9b80b0fa47f841174c054e3",
+        "committedAt": "2025-08-19T10:43:16-07:00",
+        "subject": "use Jinja name consistently"
+      },
+      "fixtureMode": "pinned_git_patch_to_index",
+      "materialization": {
+        "protocol": "git-patch-to-index-v1",
+        "steps": [
+          "clone_public_repository",
+          "verify_base_and_change_objects",
+          "checkout_base_revision_detached",
+          "generate_binary_full_index_patch_base_to_change",
+          "apply_patch_to_index",
+          "run_host_change_acquisition",
+          "verify_snapshot_identity_and_feature_facts"
+        ],
+        "patchApplication": "git_diff_binary_full_index_then_git_apply_index_v1"
+      },
+      "acquisition": {
+        "status": "verified_change_snapshot_v1",
+        "inspectorContractVersion": "inspect-git-changes-v1",
+        "acquisitionComplete": true,
+        "incompleteReasons": [],
+        "snapshotId": "193bf5f4aa818fd2e901fd49c50b288f7a7d966c21278cb09953c3b9a6088e4c",
+        "indexSha256": "98fb7b5210dbc87b5526535eb60b8da01736a112f843b5df464d2b169b58f181",
+        "discoverySha256": "2bd15f5da86c96a3e694dfae8ac83aea2d079189826da80063fdcffa14e6d7c7",
+        "sourceDiffProtocol": "host_change_snapshot_admitted_hunks_v1",
+        "sourceDiff": [
+          {
+            "oldPath": "CHANGES.rst",
+            "newPath": "CHANGES.rst",
+            "changeKind": "modified",
+            "additions": 2,
+            "deletions": 2
+          },
+          {
+            "oldPath": "docs/design.rst",
+            "newPath": "docs/design.rst",
+            "changeKind": "modified",
+            "additions": 8,
+            "deletions": 8
+          },
+          {
+            "oldPath": "docs/patterns/streaming.rst",
+            "newPath": "docs/patterns/streaming.rst",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 1
+          },
+          {
+            "oldPath": "docs/patterns/wtforms.rst",
+            "newPath": "docs/patterns/wtforms.rst",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 1
+          },
+          {
+            "oldPath": "docs/quickstart.rst",
+            "newPath": "docs/quickstart.rst",
+            "changeKind": "modified",
+            "additions": 3,
+            "deletions": 3
+          },
+          {
+            "oldPath": "docs/templating.rst",
+            "newPath": "docs/templating.rst",
+            "changeKind": "modified",
+            "additions": 11,
+            "deletions": 11
+          },
+          {
+            "oldPath": "docs/web-security.rst",
+            "newPath": "docs/web-security.rst",
+            "changeKind": "modified",
+            "additions": 3,
+            "deletions": 3
+          },
+          {
+            "oldPath": "src/flask/sansio/app.py",
+            "newPath": "src/flask/sansio/app.py",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 1
+          },
+          {
+            "oldPath": "src/flask/templating.py",
+            "newPath": "src/flask/templating.py",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 1
+          }
+        ],
+        "verifiedFeatureFacts": {
+          "changedPathCount": 9,
+          "changedLineCount": 62,
+          "surfaces": [],
+          "sensitivePaths": [],
+          "runtimePaths": [
+            "src/flask/sansio/app.py",
+            "src/flask/templating.py"
+          ],
+          "relevantTestPaths": []
+        },
+        "verifiedScore": 3,
+        "verifiedClassification": "high_risk"
+      },
+      "label": {
+        "reviewAttention": "heightened",
+        "provenance": "curator_scope_judgment_v1",
+        "rationale": "Nine-file terminology change touching template runtime and user-facing documentation."
+      }
+    },
+    {
+      "schemaVersion": "change-review-calibration-change-v1",
+      "id": "cal-008-flask-drop-eol-python",
+      "source": {
+        "repository": "https://github.com/pallets/flask.git",
+        "baseRevision": "e7e53807766ef1470bce546716a675ded4b08597",
+        "changeRevision": "52df9eed45d0b19c588662ed8492d8fbaa0e7098",
+        "changeUrl": "https://github.com/pallets/flask/commit/52df9eed45d0b19c588662ed8492d8fbaa0e7098",
+        "committedAt": "2025-05-13T08:31:54-07:00",
+        "subject": "drop end of life python versions"
+      },
+      "fixtureMode": "pinned_git_patch_to_index",
+      "materialization": {
+        "protocol": "git-patch-to-index-v1",
+        "steps": [
+          "clone_public_repository",
+          "verify_base_and_change_objects",
+          "checkout_base_revision_detached",
+          "generate_binary_full_index_patch_base_to_change",
+          "apply_patch_to_index",
+          "run_host_change_acquisition",
+          "verify_snapshot_identity_and_feature_facts"
+        ],
+        "patchApplication": "git_diff_binary_full_index_then_git_apply_index_v1"
+      },
+      "acquisition": {
+        "status": "verified_change_snapshot_v1",
+        "inspectorContractVersion": "inspect-git-changes-v1",
+        "acquisitionComplete": true,
+        "incompleteReasons": [],
+        "snapshotId": "2a72c03857bd717dfc92c97f06ee62e9707ef73b150fc82b5c6283edb030540f",
+        "indexSha256": "b8cf9997b7d85250806a07cdae0a22c9f75e8152611956286b7d26b6b04e1105",
+        "discoverySha256": "312e3689750812adce7b3c1bbf88f140997e2b019510e418d9bb4ba6e2ad1913",
+        "sourceDiffProtocol": "host_change_snapshot_admitted_hunks_v1",
+        "sourceDiff": [
+          {
+            "oldPath": ".github/workflows/tests.yaml",
+            "newPath": ".github/workflows/tests.yaml",
+            "changeKind": "modified",
+            "additions": 0,
+            "deletions": 1
+          },
+          {
+            "oldPath": "CHANGES.rst",
+            "newPath": "CHANGES.rst",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 0
+          },
+          {
+            "oldPath": "docs/extensiondev.rst",
+            "newPath": "docs/extensiondev.rst",
+            "changeKind": "modified",
+            "additions": 4,
+            "deletions": 2
+          },
+          {
+            "oldPath": "docs/installation.rst",
+            "newPath": "docs/installation.rst",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 1
+          },
+          {
+            "oldPath": "pyproject.toml",
+            "newPath": "pyproject.toml",
+            "changeKind": "modified",
+            "additions": 8,
+            "deletions": 6
+          },
+          {
+            "oldPath": "src/flask/cli.py",
+            "newPath": "src/flask/cli.py",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 9
+          },
+          {
+            "oldPath": "src/flask/json/provider.py",
+            "newPath": "src/flask/json/provider.py",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 1
+          },
+          {
+            "oldPath": "src/flask/sansio/app.py",
+            "newPath": "src/flask/sansio/app.py",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 1
+          },
+          {
+            "oldPath": "src/flask/typing.py",
+            "newPath": "src/flask/typing.py",
+            "changeKind": "modified",
+            "additions": 27,
+            "deletions": 33
+          },
+          {
+            "oldPath": "tests/test_cli.py",
+            "newPath": "tests/test_cli.py",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 1
+          },
+          {
+            "oldPath": "uv.lock",
+            "newPath": "uv.lock",
+            "changeKind": "modified",
+            "additions": 33,
+            "deletions": 229
+          }
+        ],
+        "verifiedFeatureFacts": {
+          "changedPathCount": 11,
+          "changedLineCount": 362,
+          "surfaces": [
+            "test"
+          ],
+          "sensitivePaths": [],
+          "runtimePaths": [
+            "src/flask/cli.py",
+            "src/flask/json/provider.py",
+            "src/flask/sansio/app.py",
+            "src/flask/typing.py"
+          ],
+          "relevantTestPaths": []
+        },
+        "verifiedScore": 4,
+        "verifiedClassification": "high_risk"
+      },
+      "label": {
+        "reviewAttention": "heightened",
+        "provenance": "curator_scope_judgment_v1",
+        "rationale": "Compatibility-boundary change across eleven packaging, runtime, CI, and test files."
+      }
+    },
+    {
+      "schemaVersion": "change-review-calibration-change-v1",
+      "id": "cal-009-flask-development-dependencies",
+      "source": {
+        "repository": "https://github.com/pallets/flask.git",
+        "baseRevision": "b78b5a210bde49e7e04b62a2a4f453ca10e0048c",
+        "changeRevision": "11c45eeba3b5bcf06b84f4e864862f1019a3faa3",
+        "changeUrl": "https://github.com/pallets/flask/commit/11c45eeba3b5bcf06b84f4e864862f1019a3faa3",
+        "committedAt": "2025-05-11T05:58:48-07:00",
+        "subject": "update dev dependencies"
+      },
+      "fixtureMode": "pinned_git_patch_to_index",
+      "materialization": {
+        "protocol": "git-patch-to-index-v1",
+        "steps": [
+          "clone_public_repository",
+          "verify_base_and_change_objects",
+          "checkout_base_revision_detached",
+          "generate_binary_full_index_patch_base_to_change",
+          "apply_patch_to_index",
+          "run_host_change_acquisition",
+          "verify_snapshot_identity_and_feature_facts"
+        ],
+        "patchApplication": "git_diff_binary_full_index_then_git_apply_index_v1"
+      },
+      "acquisition": {
+        "status": "verified_change_snapshot_v1",
+        "inspectorContractVersion": "inspect-git-changes-v1",
+        "acquisitionComplete": true,
+        "incompleteReasons": [],
+        "snapshotId": "f8fdf8aa8a0246bca266dae1e27c83af4e0eccca2c78a447ad041069333ffb15",
+        "indexSha256": "1db1827348d6a60c199622319bed1dc10ef945aecb56ce9995575be708e886f8",
+        "discoverySha256": "3c9a9f5aac430d0b0ef241dae6eb9e761f376a1313aea07bac0edb93ba95ddaa",
+        "sourceDiffProtocol": "host_change_snapshot_admitted_hunks_v1",
+        "sourceDiff": [
+          {
+            "oldPath": ".github/workflows/pre-commit.yaml",
+            "newPath": ".github/workflows/pre-commit.yaml",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 1
+          },
+          {
+            "oldPath": ".github/workflows/publish.yaml",
+            "newPath": ".github/workflows/publish.yaml",
+            "changeKind": "modified",
+            "additions": 3,
+            "deletions": 3
+          },
+          {
+            "oldPath": ".github/workflows/tests.yaml",
+            "newPath": ".github/workflows/tests.yaml",
+            "changeKind": "modified",
+            "additions": 2,
+            "deletions": 2
+          },
+          {
+            "oldPath": ".pre-commit-config.yaml",
+            "newPath": ".pre-commit-config.yaml",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 1
+          },
+          {
+            "oldPath": "requirements/build.txt",
+            "newPath": "requirements/build.txt",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 1
+          },
+          {
+            "oldPath": "requirements/dev.txt",
+            "newPath": "requirements/dev.txt",
+            "changeKind": "modified",
+            "additions": 12,
+            "deletions": 12
+          },
+          {
+            "oldPath": "requirements/docs.txt",
+            "newPath": "requirements/docs.txt",
+            "changeKind": "modified",
+            "additions": 5,
+            "deletions": 5
+          },
+          {
+            "oldPath": "requirements/tests.txt",
+            "newPath": "requirements/tests.txt",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 1
+          },
+          {
+            "oldPath": "requirements/typing.txt",
+            "newPath": "requirements/typing.txt",
+            "changeKind": "modified",
+            "additions": 5,
+            "deletions": 5
+          },
+          {
+            "oldPath": "src/flask/app.py",
+            "newPath": "src/flask/app.py",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 1
+          },
+          {
+            "oldPath": "tox.ini",
+            "newPath": "tox.ini",
+            "changeKind": "modified",
+            "additions": 2,
+            "deletions": 2
+          }
+        ],
+        "verifiedFeatureFacts": {
+          "changedPathCount": 11,
+          "changedLineCount": 68,
+          "surfaces": [],
+          "sensitivePaths": [],
+          "runtimePaths": [
+            "src/flask/app.py"
+          ],
+          "relevantTestPaths": []
+        },
+        "verifiedScore": 3,
+        "verifiedClassification": "high_risk"
+      },
+      "label": {
+        "reviewAttention": "heightened",
+        "provenance": "curator_scope_judgment_v1",
+        "rationale": "Eleven-file dependency and CI update that also changes an application runtime path."
+      }
+    },
+    {
+      "schemaVersion": "change-review-calibration-change-v1",
+      "id": "cal-010-pytest-source-line-memoization",
+      "source": {
+        "repository": "https://github.com/pytest-dev/pytest.git",
+        "baseRevision": "d6f66d42df86624ed128b84ce57df3d173fe1b95",
+        "changeRevision": "122512401b8dc6747569d204da3704d28a593265",
+        "changeUrl": "https://github.com/pytest-dev/pytest/commit/122512401b8dc6747569d204da3704d28a593265",
+        "committedAt": "2026-08-18T17:39:12+02:00",
+        "subject": "Memoize the statement line numbers of a parsed module"
+      },
+      "fixtureMode": "pinned_git_patch_to_index",
+      "materialization": {
+        "protocol": "git-patch-to-index-v1",
+        "steps": [
+          "clone_public_repository",
+          "verify_base_and_change_objects",
+          "checkout_base_revision_detached",
+          "generate_binary_full_index_patch_base_to_change",
+          "apply_patch_to_index",
+          "run_host_change_acquisition",
+          "verify_snapshot_identity_and_feature_facts"
+        ],
+        "patchApplication": "git_diff_binary_full_index_then_git_apply_index_v1"
+      },
+      "acquisition": {
+        "status": "verified_change_snapshot_v1",
+        "inspectorContractVersion": "inspect-git-changes-v1",
+        "acquisitionComplete": true,
+        "incompleteReasons": [],
+        "snapshotId": "67a3047b17fb34e15c0f786fde0d185a32f43eaaeabe7d48809674776c60b1de",
+        "indexSha256": "9024bae14fc9121eecb6496aaa2d7eb5b53a1e2b9a3babbe2f1a37f82f0f0b71",
+        "discoverySha256": "f9c2542768953accaff264257240ec3bbaef22180c95f76fccf9051834329880",
+        "sourceDiffProtocol": "host_change_snapshot_admitted_hunks_v1",
+        "sourceDiff": [
+          {
+            "oldPath": null,
+            "newPath": "changelog/10745.improvement.1.rst",
+            "changeKind": "added",
+            "additions": 3,
+            "deletions": 0
+          },
+          {
+            "oldPath": "src/_pytest/_code/source.py",
+            "newPath": "src/_pytest/_code/source.py",
+            "changeKind": "modified",
+            "additions": 20,
+            "deletions": 2
+          },
+          {
+            "oldPath": "testing/code/test_source.py",
+            "newPath": "testing/code/test_source.py",
+            "changeKind": "modified",
+            "additions": 18,
+            "deletions": 0
+          }
+        ],
+        "verifiedFeatureFacts": {
+          "changedPathCount": 3,
+          "changedLineCount": 43,
+          "surfaces": [],
+          "sensitivePaths": [],
+          "runtimePaths": [
+            "src/_pytest/_code/source.py"
+          ],
+          "relevantTestPaths": []
+        },
+        "verifiedScore": 2,
+        "verifiedClassification": "low_risk"
+      },
+      "label": {
+        "reviewAttention": "heightened",
+        "provenance": "curator_scope_judgment_v1",
+        "rationale": "Parser-source memoization changes cache semantics despite its compact three-file scope."
+      }
+    },
+    {
+      "schemaVersion": "change-review-calibration-change-v1",
+      "id": "cal-011-pytest-invalid-config-usage-error",
+      "source": {
+        "repository": "https://github.com/pytest-dev/pytest.git",
+        "baseRevision": "e6904a0e02252e2f1edaa0fb22c645116df7f5fd",
+        "changeRevision": "13dd9d24529339b537b7070baebd127c373bdd7d",
+        "changeUrl": "https://github.com/pytest-dev/pytest/commit/13dd9d24529339b537b7070baebd127c373bdd7d",
+        "committedAt": "2026-08-01T07:22:26+02:00",
+        "subject": "Raise UsageError from getini for invalid configuration values"
+      },
+      "fixtureMode": "pinned_git_patch_to_index",
+      "materialization": {
+        "protocol": "git-patch-to-index-v1",
+        "steps": [
+          "clone_public_repository",
+          "verify_base_and_change_objects",
+          "checkout_base_revision_detached",
+          "generate_binary_full_index_patch_base_to_change",
+          "apply_patch_to_index",
+          "run_host_change_acquisition",
+          "verify_snapshot_identity_and_feature_facts"
+        ],
+        "patchApplication": "git_diff_binary_full_index_then_git_apply_index_v1"
+      },
+      "acquisition": {
+        "status": "verified_change_snapshot_v1",
+        "inspectorContractVersion": "inspect-git-changes-v1",
+        "acquisitionComplete": true,
+        "incompleteReasons": [],
+        "snapshotId": "74a13089be7d1e74bc7ad58a76cb41d0fffffc35d82f4f09ac89cba9d8803730",
+        "indexSha256": "32ced052ea366fd0855ca988aab2ec57685f4d01346723dfc6746e97d808593a",
+        "discoverySha256": "e173c8460cfd5807f6adaa67292dbc5d3f622d146e88e1f88654b251903fae2a",
+        "sourceDiffProtocol": "host_change_snapshot_admitted_hunks_v1",
+        "sourceDiff": [
+          {
+            "oldPath": "changelog/XXXXX.improvement.rst",
+            "newPath": "changelog/14791.improvement.rst",
+            "changeKind": "renamed",
+            "additions": 2,
+            "deletions": 0
+          },
+          {
+            "oldPath": "src/_pytest/assertion/__init__.py",
+            "newPath": "src/_pytest/assertion/__init__.py",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 5
+          },
+          {
+            "oldPath": "src/_pytest/config/__init__.py",
+            "newPath": "src/_pytest/config/__init__.py",
+            "changeKind": "modified",
+            "additions": 23,
+            "deletions": 13
+          },
+          {
+            "oldPath": "src/_pytest/junitxml.py",
+            "newPath": "src/_pytest/junitxml.py",
+            "changeKind": "modified",
+            "additions": 3,
+            "deletions": 10
+          },
+          {
+            "oldPath": "src/_pytest/mark/__init__.py",
+            "newPath": "src/_pytest/mark/__init__.py",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 4
+          },
+          {
+            "oldPath": "src/_pytest/terminal.py",
+            "newPath": "src/_pytest/terminal.py",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 5
+          },
+          {
+            "oldPath": "src/_pytest/tmpdir.py",
+            "newPath": "src/_pytest/tmpdir.py",
+            "changeKind": "modified",
+            "additions": 1,
+            "deletions": 5
+          },
+          {
+            "oldPath": "testing/test_config.py",
+            "newPath": "testing/test_config.py",
+            "changeKind": "modified",
+            "additions": 24,
+            "deletions": 22
+          }
+        ],
+        "verifiedFeatureFacts": {
+          "changedPathCount": 8,
+          "changedLineCount": 120,
+          "surfaces": [],
+          "sensitivePaths": [],
+          "runtimePaths": [
+            "src/_pytest/assertion/__init__.py",
+            "src/_pytest/config/__init__.py",
+            "src/_pytest/junitxml.py",
+            "src/_pytest/mark/__init__.py",
+            "src/_pytest/terminal.py",
+            "src/_pytest/tmpdir.py"
+          ],
+          "relevantTestPaths": []
+        },
+        "verifiedScore": 3,
+        "verifiedClassification": "high_risk"
+      },
+      "label": {
+        "reviewAttention": "heightened",
+        "provenance": "curator_scope_judgment_v1",
+        "rationale": "Eight-file configuration error-semantics change across multiple core subsystems."
+      }
+    },
+    {
+      "schemaVersion": "change-review-calibration-change-v1",
+      "id": "cal-012-pytest-truncation-budget",
+      "source": {
+        "repository": "https://github.com/pytest-dev/pytest.git",
+        "baseRevision": "971943170245c247273172a47c21abd380a801bd",
+        "changeRevision": "fbdae4e7ef2bbb87a7e4b75f6bf445528c0c7157",
+        "changeUrl": "https://github.com/pytest-dev/pytest/commit/fbdae4e7ef2bbb87a7e4b75f6bf445528c0c7157",
+        "committedAt": "2026-07-27T21:36:00+02:00",
+        "subject": "[perf] Cap all comparison formatting by the truncation budget"
+      },
+      "fixtureMode": "pinned_git_patch_to_index",
+      "materialization": {
+        "protocol": "git-patch-to-index-v1",
+        "steps": [
+          "clone_public_repository",
+          "verify_base_and_change_objects",
+          "checkout_base_revision_detached",
+          "generate_binary_full_index_patch_base_to_change",
+          "apply_patch_to_index",
+          "run_host_change_acquisition",
+          "verify_snapshot_identity_and_feature_facts"
+        ],
+        "patchApplication": "git_diff_binary_full_index_then_git_apply_index_v1"
+      },
+      "acquisition": {
+        "status": "verified_change_snapshot_v1",
+        "inspectorContractVersion": "inspect-git-changes-v1",
+        "acquisitionComplete": true,
+        "incompleteReasons": [],
+        "snapshotId": "b50f3a1263fa82189147def69684941e8d7dfce3c5d33453dc53c09cde6ac0cc",
+        "indexSha256": "4c694cdb578a1d384f72c72fee9fd4ee5c7291a17b4cb4486ea5b5f33a61e2c6",
+        "discoverySha256": "bb2c96d3fe0324d45a16dac402ce5cf54886b430905c51d2ae502d101889d843",
+        "sourceDiffProtocol": "host_change_snapshot_admitted_hunks_v1",
+        "sourceDiff": [
+          {
+            "oldPath": "src/_pytest/assertion/__init__.py",
+            "newPath": "src/_pytest/assertion/__init__.py",
+            "changeKind": "modified",
+            "additions": 25,
+            "deletions": 17
+          },
+          {
+            "oldPath": "src/_pytest/assertion/_compare_any.py",
+            "newPath": "src/_pytest/assertion/_compare_any.py",
+            "changeKind": "modified",
+            "additions": 8,
+            "deletions": 3
+          },
+          {
+            "oldPath": "src/_pytest/assertion/_compare_mapping.py",
+            "newPath": "src/_pytest/assertion/_compare_mapping.py",
+            "changeKind": "modified",
+            "additions": 8,
+            "deletions": 7
+          },
+          {
+            "oldPath": "src/_pytest/assertion/_compare_sequence.py",
+            "newPath": "src/_pytest/assertion/_compare_sequence.py",
+            "changeKind": "modified",
+            "additions": 14,
+            "deletions": 8
+          },
+          {
+            "oldPath": "src/_pytest/assertion/_typing.py",
+            "newPath": "src/_pytest/assertion/_typing.py",
+            "changeKind": "modified",
+            "additions": 4,
+            "deletions": 0
+          },
+          {
+            "oldPath": "src/_pytest/assertion/compare_text.py",
+            "newPath": "src/_pytest/assertion/compare_text.py",
+            "changeKind": "modified",
+            "additions": 38,
+            "deletions": 8
+          },
+          {
+            "oldPath": "src/_pytest/assertion/util.py",
+            "newPath": "src/_pytest/assertion/util.py",
+            "changeKind": "modified",
+            "additions": 5,
+            "deletions": 3
+          },
+          {
+            "oldPath": "testing/test_assertion.py",
+            "newPath": "testing/test_assertion.py",
+            "changeKind": "modified",
+            "additions": 6,
+            "deletions": 6
+          }
+        ],
+        "verifiedFeatureFacts": {
+          "changedPathCount": 8,
+          "changedLineCount": 160,
+          "surfaces": [],
+          "sensitivePaths": [],
+          "runtimePaths": [
+            "src/_pytest/assertion/__init__.py",
+            "src/_pytest/assertion/_compare_any.py",
+            "src/_pytest/assertion/_compare_mapping.py",
+            "src/_pytest/assertion/_compare_sequence.py",
+            "src/_pytest/assertion/_typing.py",
+            "src/_pytest/assertion/compare_text.py",
+            "src/_pytest/assertion/util.py"
+          ],
+          "relevantTestPaths": []
+        },
+        "verifiedScore": 3,
+        "verifiedClassification": "high_risk"
+      },
+      "label": {
+        "reviewAttention": "heightened",
+        "provenance": "curator_scope_judgment_v1",
+        "rationale": "Eight-file assertion-formatting budget change affecting several core comparison paths."
+      }
+    }
+  ]
+}

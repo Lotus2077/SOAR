@@ -1,14 +1,20 @@
+import { execFile } from "node:child_process";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { ProviderToolCall } from "../../src/main/providers/types";
 import {
   executeToolCall,
+  executeHostToolCall,
   MAX_TOOL_OUTPUT_BYTES,
 } from "../../src/main/tools/tool-gateway";
+import { MODEL_TOOL_DEFINITIONS } from "../../src/main/tools/tool-registry";
+
+const execFileAsync = promisify(execFile);
 
 const temporaryDirectories: string[] = [];
 
@@ -195,6 +201,53 @@ describe("executeToolCall", () => {
         code: "INVALID_ARGUMENT",
         message: "Tool run_shell is not available.",
       },
+    });
+  });
+
+  it("keeps change acquisition host-only while dispatching it through the same gateway", async () => {
+    const workspaceRoot = await createWorkspace();
+    await execFileAsync("/usr/bin/git", ["init", "--quiet"], { cwd: workspaceRoot });
+    await execFileAsync("/usr/bin/git", ["config", "user.name", "SOAR Test"], {
+      cwd: workspaceRoot,
+    });
+    await execFileAsync(
+      "/usr/bin/git",
+      ["config", "user.email", "soar@example.invalid"],
+      { cwd: workspaceRoot },
+    );
+    await writeFile(path.join(workspaceRoot, "tracked.txt"), "base\n");
+    await execFileAsync("/usr/bin/git", ["add", "tracked.txt"], { cwd: workspaceRoot });
+    await execFileAsync("/usr/bin/git", ["commit", "--quiet", "-m", "base"], {
+      cwd: workspaceRoot,
+    });
+
+    expect(
+      MODEL_TOOL_DEFINITIONS.flatMap((definition) =>
+        definition.type === "function" ? [definition.function.name] : [],
+      ),
+    ).not.toContain("inspect_git_changes");
+    const modelAttempt = await executeToolCall(
+      workspaceRoot,
+      toolCall(
+        "inspect_git_changes",
+        JSON.stringify({ schemaVersion: "inspect-git-changes-v1" }),
+      ),
+    );
+    expect(modelAttempt.isError).toBe(true);
+    expect(parsedContent(modelAttempt)).toMatchObject({
+      error: { code: "INVALID_ARGUMENT" },
+    });
+
+    const hostResult = await executeHostToolCall(
+      workspaceRoot,
+      "inspect_git_changes",
+      { schemaVersion: "inspect-git-changes-v1" },
+    );
+    expect(hostResult.isError).toBe(false);
+    expect(parsedContent(hostResult)).toMatchObject({
+      ok: true,
+      schemaVersion: "inspect-git-changes-result-v1",
+      snapshot: { manifest: [] },
     });
   });
 });

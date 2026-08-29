@@ -222,8 +222,9 @@ Finalization never waives active completion obligations.
 
 ## Filesystem tools
 
-All tools are registered in `src/main/tools/tool-registry.ts` and executed by
-`tool-gateway.ts`. The current registry is read-only:
+Model-visible repository tools are registered in the
+`repository_agent_v1` registry in `src/main/tools/tool-registry.ts` and
+executed by `tool-gateway.ts`. That registry is read-only:
 
 - `list_files`: bounded directory discovery;
 - `search_text`: bounded literal search with path and line evidence;
@@ -233,6 +234,124 @@ The workspace policy canonicalizes roots, rejects absolute paths and traversal,
 prevents symlink escapes, limits output and match counts, and observes
 cancellation. New filesystem capabilities belong behind the same gateway and
 need adversarial tests for boundary behavior.
+
+The same module has a separate `host_change_acquisition_v1` registry for
+application-owned operations. Its only member is `inspect_git_changes`.
+It is deliberately absent from `MODEL_TOOL_DEFINITIONS`, and the model-call
+gateway rejects a provider attempt to name it. No renderer IPC or app entry
+point calls it in the current revision. The separation establishes the host
+authority needed by Review Current Changes without yet creating that product
+workflow.
+
+## Immutable change acquisition
+
+`inspect_git_changes` turns the selected Git worktree's current
+base-to-working state into a bounded `ChangeSnapshotV1`. It requires the
+selected workspace to be the canonical worktree root and a committed `HEAD`;
+an unborn repository, non-root selection, unmerged index, unsupported file
+mode, or inconsistent Git view fails closed. It covers staged, unstaged,
+renamed, deleted, and bounded untracked text changes. It does not change the
+canonical index or working tree: discovery runs against an application-owned
+temporary index copy and verifies that the real index's physical identity is
+unchanged.
+
+The snapshot binds:
+
+- the captured base commit OID;
+- a SHA-256 identity for canonical `ls-files --stage -z` records, falling back
+  to the exact emitted bytes when an unsafe path cannot enter the decoded
+  contract;
+- `discoverySha256`, which binds hashes of the exact NUL-delimited index,
+  index-visibility, porcelain-status, raw-diff, and numstat bytes plus the base
+  commit, including discovery state that cannot enter the safe decoded
+  manifest;
+- a sorted manifest of change kind, staged/unstaged state, old and new paths,
+  mode, byte size, admitted-content hash, omission codes, and bounded textual
+  hunks; and
+- explicit omitted-path and omitted-hunk counts.
+
+Each hunk and the whole snapshot have SHA-256 identities over canonical,
+ID-free JSON preimages. The result's side-aware evidence map is exactly derived
+from those hunks. Host validation recomputes hunk and snapshot identities and
+the exact evidence-map projection rather than trusting caller-supplied fields.
+
+The acquisition is bounded to 200 changed paths, 256 KiB per admitted file
+side, 4 MiB total admitted source, 200 hunks, a 192 KiB gateway result, and a
+20-second overall deadline. Each Git subprocess has a 5-second deadline, 4 MiB
+stdout and 64 KiB stderr limits, and cancellation terminates its POSIX process
+group before a bounded kill grace. Working files are opened with no-follow
+semantics and checked before, during, and after the read. The inspector captures
+Git discovery twice, rechecks admitted working-file fingerprints and hashes,
+and rejects observed index, metadata, or content drift.
+
+The status, raw, and numstat parsers reconcile multiplicity-preserving nullable
+old/new path identities; rename sides and duplicate records cannot collapse
+into an ordinary path. Valid staged/index changes that are reversed, deleted,
+or recreated in the worktree are normalized to one final base-to-working
+manifest entry. Every such staged-plus-unstaged entry carries the explicit
+`staged_unstaged_overlap` omission because the intermediate index body is not
+part of the v1 evidence contract.
+
+Binary, symlink, submodule, sensitive/ignored, unreadable, oversized, unsafe,
+or truncated content receives an omission code rather than fabricated text. A
+path with both staged and unstaged changes is also explicitly incomplete:
+version 1 binds base and final-working sides, not a separately admitted index
+content side. Symlinks are never followed for content. Submodule worktrees are
+never entered; conservatively, any gitlink in the index marks the manifest
+incomplete because nested dirtiness was not inspected. `verifyChangeSnapshot`
+refuses freshness for any snapshot with an omission, then otherwise reruns
+acquisition and requires the same snapshot ID. An incomplete snapshot can
+support an explicit incomplete result, but cannot support an unqualified clean
+conclusion.
+
+Git runs through a fixed semantic-operation API, an absolute executable,
+argument arrays, `shell: false`, and a minimal environment that does not inherit
+caller Git, SSH, proxy, transport, or credential settings. Global and system
+configuration, replacement objects, optional locks, prompting, pagers, lazy
+fetch, external diff, text conversion, fsmonitor, hooks, submodule recursion,
+and user-selected protocols are disabled. Fixed overrides require file-mode and
+stat checking (`core.fileMode=true`, `core.ignoreStat=false`,
+`core.trustctime=true`, and `core.checkStat=default`). Stage, visibility,
+status, raw, and numstat discovery share one private `0600` temporary index in a
+private `0700` directory; the copy retains the canonical index timestamp so
+Git's racy-clean decision is stable without refreshing the real index. The copy
+is removed after success, error, or cancellation. Split indexes and nonbaseline
+assume-unchanged/skip-worktree visibility flags fail closed. Object reads are
+restricted to full OIDs already observed by the runner. A partial clone with an
+unavailable object therefore fails rather than fetching it. Repository diff
+drivers do not create admitted hunks; the pinned host `diff` library compares
+captured blobs with bounded no-follow workspace reads.
+
+Git may still consult repository/worktree configuration while computing status
+or diff. The runner rejects effective repository configuration declaring clean
+or process filters and protocol overrides immediately before each such
+operation. Git provides no lock spanning that preflight and the following
+process, so an external actor with concurrent control of repository config can
+change it between the two. SOAR serializes its own sensitive Git operations but
+does not close this external configuration TOCTOU window. Until a stronger
+isolation boundary exists, the selected repository must not be concurrently
+hostile.
+
+`ReviewEvidenceSetV1` binds a snapshot to retained hunk hashes, complete changed
+bodies, and bounded repository observations with its own canonical SHA-256 ID.
+Structured change, metadata, and repository references are admitted only after
+the snapshot/evidence identities and referenced side, path, line, hunk, or
+observation match. `ReviewCoverageV1` is host-derived from those verified
+records plus explicit final-packet-retention and snapshot-revalidation facts.
+Replay validation derives the entire coverage record again; a model-authored
+or otherwise forged `complete` field cannot promote an incomplete review.
+Complete-body evidence is admitted only for the required one-sided bodies of
+added, deleted, or untracked files; modified, renamed, and type-changed files
+require a matching full-read repository observation. Coverage and risk inspect
+both old and new rename paths, including test classification.
+
+The PR 3 observation schema and evidence-set canonicalizer validate shape and
+identity, but do not prove that a repository observation originated in a
+successful gateway event. Binding observations to canonical tool events is a
+PR 5 host-workflow responsibility and remains intentionally unimplemented.
+These contracts have no current app/model consumer. The normative decision and
+trust limits are recorded in
+[ADR 0003](adr/0003-immutable-change-acquisition-v1.md).
 
 ## Persistence contracts
 
@@ -290,9 +409,39 @@ independent oracle; the oracle alone cannot create it.
 Those harness checks do not grade general answer quality, make the runtime a
 generic exact-argument scheduler, or demonstrate dynamic provider routing.
 
+The separate `change-review-eval-v1` routing calibration is frozen from 12
+real parent-to-commit changes: 3 SOAR, 6 Flask, and 3 pytest revisions. Every
+record pins the public source and a complete host-acquired snapshot/index
+identity. Its `host_change_snapshot_admitted_hunks_v1` source facts project
+per-file additions and deletions from those exact host-admitted hunks; Git
+numstat is discovery/reconciliation evidence and does not separately define
+routing line counts. The mechanical `review-risk-v1` policy assigns one point
+each for at least 8 changed files and at least 300 changed lines, and two points
+each for crossing three code surfaces, changing runtime code without a
+relevant changed test, and touching a sensitive path. Complete evidence scoring
+below 3 is low risk; any incomplete acquisition is classified incomplete
+instead of scored. Rename facts use both old and new paths, so moving code
+across a surface boundary cannot erase the old-side runtime or sensitivity
+signal.
+
+The frozen set contains 5 low-risk and 7 high-risk changes. Its derived
+attention agrees with the independent curator label on 11 of 12 changes; the
+retained `cal-010-pytest-source-line-memoization` disagreement is visible
+rather than tuned away. Those labels express review attention only, not defect
+correctness or quality gold. Default tests verify the checked-in schemas,
+hashes, arithmetic, split, disagreement, and absence of held-out identities
+without network or model use. Opt-in materialization against explicit local
+clones can reconstruct all 12 snapshots. The held-out fixture identities and
+gold required for a quality comparison do not exist in this repository, so the
+calibration proves neither routing benefit nor review quality.
+
 ## Current and future routing
 
-The checked-in runtime has one deterministic local route. The intended hybrid
+The checked-in app runtime has one deterministic local route. PR 3 adds
+host-only immutable change acquisition and a frozen mechanical risk policy, but
+neither is connected to a session, provider, or app action. PR 4 is the next
+gate: a pure checkpoint router, operational budget ledger, and two-fake-provider
+runner, still with no paid or production cloud call. The intended hybrid
 design creates a provisional plan, keeps a provider lease across productive tool
 loops, and reconsiders it only at phase, failure, budget, deadline, capability,
 or health boundaries. See [ROUTING_POLICY.md](ROUTING_POLICY.md). Adding cloud

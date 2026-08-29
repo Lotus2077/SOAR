@@ -24,7 +24,8 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
 - Runtime provider: one OpenAI-compatible local vLLM endpoint.
 - Benchmark target: pinned OpenRouter DeepSeek V4 Flash 0731, not enabled in the app.
 - Routing runtime: deterministic local assignment; validated provider and v2
-  replay foundations exist, but hybrid phase/lease execution does not.
+  replay foundations plus host-only immutable change acquisition exist, but
+  hybrid phase/lease execution does not.
 - Evaluation ceiling: USD 100, with an automatic stop at USD 90.
 - Paid benchmark calls: not started.
 
@@ -32,11 +33,67 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
 
 - [Hybrid Lease Router v0 and Review Current Changes v1](docs/plans/HYBRID_LEASE_ROUTER_V0.md)
   is approved for its $0 PR 1 through PR 5 sequence. PR 1 and PR 2 foundations
-  are implemented in this revision; PR 6 and every paid call remain separately
+  plus PR 3's host-only change-acquisition/calibration foundation are
+  implemented in this revision; PR 6 and every paid call remain separately
   approval-gated.
 - [Build and change log](docs/BUILD_LOG.md) is the append-only project evidence
   ledger for crucial decisions, implementation milestones, failures, proofs,
   costs, limitations, and next gates.
+
+## Host-only change-review foundation
+
+The main process now has a bounded `inspect_git_changes` operation that can
+capture staged, unstaged, renamed, deleted, and bounded untracked changes as a
+content-addressed `ChangeSnapshotV1`. It records the base commit, index and full
+Git-discovery digests (including index visibility flags), sorted file metadata,
+admitted-content hashes, bounded text hunks, and explicit omission counts/codes.
+It then rechecks discovery and working-file identity so observed drift fails
+closed. Binary, symlink, submodule, policy-excluded, unavailable, oversized, or
+truncated content cannot be silently treated as complete. A path changed in
+both the index and worktree is normalized to one base-to-working record and is
+always explicitly incomplete because v1 does not separately admit the index
+content side.
+
+This is application-owned infrastructure, not a new provider tool. The
+operation is absent from model tool definitions and has no renderer IPC, app
+button, session workflow, or provider call. The existing app remains the
+local-only Repository Investigator described below.
+
+Change hunks, snapshots, and evidence sets have strict canonical SHA-256
+identities. Coverage is re-derived by the host from verified evidence,
+final-packet retention, and fresh snapshot revalidation; a supplied `complete`
+flag is not trusted. The current evidence-set primitive validates repository
+observation shape and identity, but PR 5 must still prove that each observation
+came from a successful canonical tool event before a review can be accepted.
+
+Git inspection uses fixed non-shell operations, bounded process output and
+deadlines, no-follow file reads, no lazy fetch, no submodule recursion, and an
+isolated environment that disables external diff/textconv, hooks, prompts,
+pagers, and caller transport configuration. The discovery bundle runs against
+one securely copied temporary index, preserving the canonical index's bytes,
+inode, and timestamps; split indexes and hidden assume-unchanged/skip-worktree
+entries fail closed. A partial clone with missing objects fails instead of
+fetching. Repository clean/process filters and protocol overrides are rejected
+before sensitive status/diff calls. Git offers no lock covering that check and
+the next process, so a concurrently hostile writer of repository config remains
+an explicit TOCTOU trust limitation.
+
+The accompanying frozen `change-review-eval-v1` calibration contains 12 real
+public changes: 3 SOAR, 6 Flask, and 3 pytest. The mechanical policy produces 5
+low-risk and 7 high-risk records and deliberately retains one disagreement
+with the independent review-attention labels. Default tests verify the frozen
+files offline; its changed-line feature is the exact additions/deletions
+projection from admitted host hunks, not an independent Git-numstat count. An
+opt-in `$0` test can rematerialize all 12 from explicit local clones. The labels
+are not defect gold, and no held-out fixture identities or gold are checked in.
+This work therefore does not prove review quality, dynamic routing, cost
+savings, or latency gains.
+
+See [ADR 0003](docs/adr/0003-immutable-change-acquisition-v1.md) and the
+[calibration protocol](benchmarks/change-review/README.md). PR 4 is the next
+gate: a pure router, budget ledger, and two-fake-provider runner with no real
+credential or paid call. PR 5 later adds the local Review Current Changes app
+workflow and structured review acceptance.
 
 ## Local-only desktop slice
 

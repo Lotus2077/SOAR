@@ -5,6 +5,7 @@ import process from "node:process";
 import { promisify } from "node:util";
 
 import { validateJsonSchema } from "./json-schema-contract.mjs";
+import { secretPatterns } from "./secret-patterns.mjs";
 
 const root = process.cwd();
 const errors = [];
@@ -163,28 +164,6 @@ requireValue(Number(env.SOAR_CAMPAIGN_BUDGET_USD) === 100, "campaign ceiling mus
 requireValue(Number(env.SOAR_AUTOMATIC_STOP_USD) === 90, "automatic stop must be USD 90");
 requireValue(Number(env.SOAR_MAX_PAID_EPISODE_USD) === 0.75, "paid episode cap must be USD 0.75");
 
-const secretPatterns = [
-  {
-    name: "OpenAI-style API credential",
-    pattern: /sk-(?:or-v1-)?[A-Za-z0-9_-]{20,}/u,
-  },
-  {
-    name: "GitHub classic token",
-    pattern: /gh[pousr]_[A-Za-z0-9]{36,}/u,
-  },
-  {
-    name: "GitHub fine-grained token",
-    pattern: /github_pat_[A-Za-z0-9_]{20,}/u,
-  },
-  {
-    name: "AWS access key",
-    pattern: /(?:AKIA|ASIA)[A-Z0-9]{16}/u,
-  },
-  {
-    name: "private key",
-    pattern: /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/u,
-  },
-];
 const files = await listRepositoryFiles();
 
 for (const file of files) {

@@ -18,6 +18,17 @@ machine configuration.
   registry; the catalog currently constructs only the selected local or
   deterministic fake provider;
 - bounded, read-only repository tools for listing, literal search, and text reads;
+- a separate host-only `inspect_git_changes` gateway that acquires deterministic
+  staged, unstaged, rename, delete, and bounded untracked change manifests
+  without exposing the operation to provider tool schemas, renderer IPC, or an
+  app action;
+- strict, content-addressed `ChangeSnapshotV1`, `ReviewEvidenceSetV1`, evidence
+  reference, and host-derived `ReviewCoverageV1` contracts with exact identity
+  revalidation and fail-closed omission/coverage semantics;
+- a frozen `change-review-eval-v1` protocol and 12 real public calibration
+  changes from SOAR, Flask, and pytest, materialized through the bounded host
+  acquisition path; the mechanical policy classifies 5 low risk and 7 high
+  risk and retains one curator-label disagreement;
 - provider-neutral, token-bounded context packets with deterministic evidence
   deduplication, breadth-first admission, explicit failed-tool state,
   compact source-result metadata, citation-support snippets, fail-closed
@@ -43,8 +54,13 @@ machine configuration.
 - runtime emission of v2 attempt telemetry, operational budget reservation and
   settlement, or registry-driven provider switching; the dormant contracts do
   not yet produce router metrics;
-- immutable change acquisition, the Review Current Changes result contract, or
-  its app workflow;
+- app/model use of immutable change acquisition, the `ReviewResultV1`
+  completion contract, or the Review Current Changes workflow;
+- canonical-event provenance validation for repository observations; PR 3 can
+  bind observation-shaped records into an evidence-set identity, while PR 5
+  must prove each observation came from a successful gateway event;
+- the pure hybrid checkpoint router, operational budget admission, or even the
+  two-fake-provider runner planned for PR 4;
 - browser, shell, file-write, patch, or external-message tools;
 - a signed release channel or general downgrade support for databases that
   contain v2 events;
@@ -145,6 +161,23 @@ sharing.
   test fixture, or error message;
 - repository tools remain inside a user-selected canonical workspace and reject
   traversal, symlink escapes, and oversized output;
+- host change acquisition uses fixed, non-shell Git operations with an isolated
+  environment, disables lazy fetch, external diff/textconv execution, hooks,
+  prompts, pagers, fsmonitor, submodule recursion, and caller transport
+  settings, and restricts object reads to already-observed full OIDs;
+- status and diff discovery share a secure application-owned temporary index;
+  the canonical index is fingerprinted and not refreshed or rewritten, while
+  split indexes and assume-unchanged/skip-worktree visibility flags fail closed;
+- missing partial-clone objects fail rather than fetch; symlink contents and
+  submodule worktrees are not inspected, and any gitlink conservatively makes
+  review coverage incomplete;
+- a path changed in both the index and worktree is represented but explicitly
+  incomplete—including add/delete and rename reversal states—because version 1
+  does not admit a separate index-content side;
+- effective repository clean/process filters and protocol overrides are
+  rejected before status/diff. Git cannot atomically lock that config check to
+  the following operation, so a concurrent external repository-config writer
+  remains a documented TOCTOU trust limitation;
 - repository content and retrieved benchmark material are untrusted input;
 - destructive actions, publishing, credential access, and external side effects
   require new tools and an explicit permission design before they can ship.
@@ -158,3 +191,22 @@ artifacts. See
 [CONTRIBUTING.md](../CONTRIBUTING.md),
 [ARCHITECTURE.md](ARCHITECTURE.md), and the
 [benchmark protocol](../benchmarks/README.md).
+
+## PR 3 verification boundary
+
+The default change-review calibration test is offline and `$0`: it validates
+the checked-in strict schemas, manifest hash, risk arithmetic, 5/7 split, single
+label disagreement, and structural absence of held-out identities or gold. It
+does not reacquire the 12 historical revisions in ordinary CI. An opt-in local
+materialization test accepts explicit SOAR, Flask, and pytest clone paths and
+reconstructs all 12 changes without a provider call or implicit network fetch.
+Frozen per-file additions and deletions are projected from those same acquired
+snapshot hunks used by live risk; Git numstat remains a bound discovery view,
+not a second routing-line-count definition.
+
+The frozen curator labels represent review attention, not defect correctness.
+No held-out quality corpus, model-facing review workflow, provider call,
+dynamic routing result, quality improvement, cost saving, or latency benefit is
+proved by PR 3. The next implementation gate is PR 4's pure router, budget
+ledger, and two-fake-provider runner; PR 5 later owns the app workflow,
+repository-observation event provenance, and structured local review result.

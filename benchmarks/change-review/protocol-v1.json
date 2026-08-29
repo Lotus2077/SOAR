@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "change-review-eval-v1",
+  "protocolId": "change-review-eval-v1",
+  "status": "frozen",
+  "frozenAt": "2026-08-29T13:48:00Z",
+  "riskPolicy": {
+    "policyId": "review-risk-v1",
+    "changedLineProtocol": "host_change_snapshot_admitted_hunks_v1",
+    "threshold": 3,
+    "lowRiskPredicate": "complete_evidence_and_score_less_than_3",
+    "incompletePredicate": "incomplete_oversized_binary_submodule_or_unreadable_evidence",
+    "signals": [
+      {
+        "id": "changed_files_ge_8",
+        "weight": 1
+      },
+      {
+        "id": "changed_lines_ge_300",
+        "weight": 1
+      },
+      {
+        "id": "crosses_three_surfaces",
+        "weight": 2
+      },
+      {
+        "id": "runtime_without_relevant_test",
+        "weight": 2
+      },
+      {
+        "id": "touches_sensitive_path",
+        "weight": 2
+      }
+    ]
+  },
+  "calibration": {
+    "setId": "change-review-calibration-v1",
+    "status": "verified_change_snapshots_v1",
+    "manifestPath": "benchmarks/change-review/calibration-v1.json",
+    "manifestSha256": "fed7fe79fa14c9fdb54263af827545202191edbb366597e93f16bc6b0c69fe0c",
+    "fixtureCount": 12,
+    "labelsAreRoutingCalibrationOnly": true
+  },
+  "acquisitionProfile": {
+    "requestSchemaVersion": "inspect-git-changes-v1",
+    "resultSchemaVersion": "inspect-git-changes-result-v1",
+    "diffEngine": "diff@9.0.0",
+    "maxChangedPaths": 200,
+    "maxSourceBytesPerSide": 262144,
+    "maxTotalSourceBytes": 4194304,
+    "maxHunks": 200,
+    "maxResultBytes": 196608
+  },
+  "heldOut": {
+    "storageBoundary": "sealed_outside_agent_workspace",
+    "fixtureIdentitiesIncluded": false,
+    "goldIncluded": false,
+    "minimumFixtures": 24,
+    "minimumClean": 8,
+    "minimumFaulty": 16,
+    "minimumP0P1Defects": 20,
+    "minimumP2P3Defects": 8
+  },
+  "comparisonPolicies": [
+    "local_only_v1",
+    "cloud_synthesis_all_eval",
+    "hybrid_v0"
+  ],
+  "evidenceIsolation": "same_immutable_host_collected_packet_tool_free_synthesis_only_provider_differs",
+  "evaluator": {
+    "evaluatorVersion": "change-review-evaluator-v1",
+    "successfulReview": "valid_grounded_result_accepted_against_unchanged_snapshot",
+    "highSeverityRecall": "unique_matched_p0_p1_divided_by_all_p0_p1",
+    "allSeverityRecall": "unique_matched_p0_p1_p2_p3_divided_by_all_p0_p1_p2_p3",
+    "findingPrecision": "unique_matched_valid_findings_divided_by_all_findings_duplicates_are_false_positive",
+    "falseAccept": "clean_conclusion_while_any_p0_p1_gold_remains_unmatched",
+    "weightedQuality": "0.5_high_severity_recall_plus_0.3_all_severity_recall_plus_0.2_finding_precision",
+    "adjudication": "two_humans_blinded_to_policy_and_provider_resolve_semantic_matches"
+  },
+  "reporting": {
+    "proportionIntervals": "wilson_95_percent",
+    "costLatencyIntervals": "bootstrap_95_percent",
+    "invalidBlockedFlakyRetriedRunsSeparated": true,
+    "localInfrastructureReportedSeparately": true
+  }
+}

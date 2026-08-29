@@ -1777,3 +1777,68 @@ Node 22 plus macOS Electron GitHub Actions run.
 References: [timeout correction](#bl-20260830-0303-pr5-remote-retention-timeout-correction----2026-08-30----replacement-ci-exposed-a-proof-test-timing-boundary),
 [release verifier](../scripts/verify-release-head.ts), and
 [failed replacement run](https://github.com/Lotus2077/SOAR/actions/runs/33269767743).
+
+### BL-20260830-0312-pr5-correction-remote-verification -- 2026-08-30 -- Corrected PR 5 revision passed Linux and macOS GitHub Actions
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the complete PR 5 correction on the pushed source
+revision after both the context-capacity assertion failure and the subsequent
+Linux test-timeout failure were corrected and preserved in the ledger.
+
+Decisions:
+
+- Bind remote verification to GitHub Actions run `33270128877` and commit
+  `713dabae44e80b3aedeaf43dfa6756c674320c03` only.
+- Require both the Linux Node 22 `check` job and its dependent macOS
+  `electron-e2e` job to succeed; one green job is not sufficient.
+- Preserve failed runs `33267686671` and `33269767743` as historical evidence.
+  This successful run supersedes their release status but does not erase the
+  defects they revealed.
+- Add this remote evidence append-only, then require the resulting log-only
+  commit to pass the same local release gate and a fresh GitHub Actions run.
+
+Changes: No production or test behavior is changed by this entry. It records
+remote verification of the pushed timeout-corrected PR 5 source revision.
+
+Evidence:
+
+- GitHub Actions run `33270128877` completed with conclusion `success` for exact
+  head SHA `713dabae44e80b3aedeaf43dfa6756c674320c03`.
+- Linux Node 22 job `99147015114` passed in 1 minute 4 seconds. It validated the
+  27-entry log append-only against `9dd724b`, revalidated 22 research and 20
+  coding workloads with no tracked or unignored live secret, passed TypeScript,
+  passed 54 test files and 625 tests with two files/four opt-in live tests
+  skipped, and built all three Electron bundles.
+- Dependent macOS job `99147148566` passed in 1 minute 35 seconds. Its Electron
+  run passed 3/3 workflows in 32.4 seconds: local tool-loop restart restoration,
+  active-inference cancellation, and Review Current Changes with stale
+  Markdown-copy refusal.
+- The formerly timed-out retention test completed inside the Linux check; the
+  full step passed rather than timing out or skipping the assertion.
+
+Failures or blockers: No source-revision local or remote blocker remains for
+PR 5. This new log entry is uncommitted and therefore still needs exact-commit
+local and remote verification before the branch can be declared fully green.
+
+Limitations and non-claims: CI is deterministic and does not run the live
+Repository Investigator proof or structured-schema canary. The remote result
+does not prove real-provider quality, endpoint truthfulness, real-repository
+review quality, unbounded evidence retention, atomic large-search retention,
+dynamic multi-provider routing, cost/latency advantage, notarization, or a
+signed release channel.
+
+Paid exposure: `$0` under the approved scope. GitHub-hosted CI ran deterministic
+tests and Electron only; all live-provider opt-ins remained off. No provider,
+inference, model-list, OpenRouter, retry, fallback, or canary request occurred.
+
+Next gate: Commit this remote-verification entry, run `check:release-head` on
+that exact clean commit, push it, and require its Linux Node 22 and macOS
+Electron jobs to remain green. After that, PR 5 is closed and PR 6 remains
+unapproved.
+
+References: [green GitHub Actions run](https://github.com/Lotus2077/SOAR/actions/runs/33270128877),
+[green Linux job](https://github.com/Lotus2077/SOAR/actions/runs/33270128877/job/99147015114),
+[green macOS job](https://github.com/Lotus2077/SOAR/actions/runs/33270128877/job/99147148566),
+[timeout correction](#bl-20260830-0303-pr5-remote-retention-timeout-correction----2026-08-30----replacement-ci-exposed-a-proof-test-timing-boundary),
+and [local verification](#bl-20260830-0307-pr5-timeout-correction-local-verification----2026-08-30----timeout-corrected-candidate-passed-exact-commit-local-gates).

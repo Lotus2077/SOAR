@@ -392,3 +392,40 @@ Paid exposure: $0.
 Next gate: User approval or a logged revision of the plan.
 
 References: [Hybrid Lease Router v0 plan](plans/HYBRID_LEASE_ROUTER_V0.md).
+
+### BL-20260829-1146-plan2-approved -- 2026-08-29 -- Plan 2 approved for $0 work
+
+Status: `Approved`
+
+Scope or hypothesis: Authorize the zero-paid foundation and local app sequence
+in Hybrid Lease Router v0 plan 2 without authorizing the live cloud canary or
+any paid provider use.
+
+Decisions:
+
+- Approve PR 1 through PR 5 exactly as scoped in plan 2.
+- Preserve the separate approval gate for PR 6.
+- Keep the paid exposure for the authorized sequence at $0.
+
+Changes: Marked plan 2 approved for PR 1 through PR 5. No runtime, database,
+event, provider, tool, renderer, credential, or routing behavior changed in this
+approval checkpoint.
+
+Evidence: The project owner explicitly wrote “Approve plan 2 for PRs 1–5 ($0
+only).” in the project task on 2026-08-29. The reviewed proposed plan is Git
+revision `c73af96afba0e84a8d978cc2be62f0659069037c`.
+
+Failures or blockers: PR 6 remains blocked on a second explicit approval and its
+documented provider, pricing, credential-limit, egress, and budget evidence.
+
+Limitations and non-claims: Approval is authority to implement the scoped $0
+work. It is not implementation, verification, release, provider availability,
+or evidence of routing quality, cost savings, or latency improvement.
+
+Paid exposure: $0; no provider call was made for approval.
+
+Next gate: Implement and independently validate PR 1 and PR 2 without enabling
+a production cloud provider.
+
+References: [Hybrid Lease Router v0 plan](plans/HYBRID_LEASE_ROUTER_V0.md),
+proposed-plan commit `c73af96`.

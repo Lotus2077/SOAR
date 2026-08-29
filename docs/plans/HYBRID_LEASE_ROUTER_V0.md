@@ -1,9 +1,11 @@
 # Hybrid Lease Router v0 and Review Current Changes v1
 
-Status: **Proposed -- implementation requires explicit approval**
+Status: **Approved for PR 1 through PR 5 ($0 only); PR 6 remains unapproved**
 
 - Plan version: `hybrid-lease-router-v0-plan-2`
 - Created: 2026-08-29
+- Approved: 2026-08-29 by the project owner in the project task
+- Proposed-plan revision: `c73af96afba0e84a8d978cc2be62f0659069037c`
 - Baseline revision: `4233eddf64b0f8e1ee290c9b067efb1494eadbff`
 - Project log: [BUILD_LOG.md](../BUILD_LOG.md)
 
@@ -28,6 +30,8 @@ issue, pull request, or project task. The approval is then recorded by:
 Approval of plan 2 authorizes only the zero-paid PR 1 through PR 5 sequence.
 PR 6 still requires a second, explicit paid-canary approval after provider,
 pricing, credential-limit, and egress evidence is attached to the build log.
+That first approval was granted on 2026-08-29 and is recorded as
+`BL-20260829-1146-plan2-approved`. It does not authorize a paid call.
 
 Any material scope or persisted-contract change after approval requires:
 

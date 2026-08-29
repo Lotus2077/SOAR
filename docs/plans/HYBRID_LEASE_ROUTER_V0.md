@@ -239,7 +239,8 @@ interface AgenticExecutionPolicyV2 {
 - `change-review-v1` hybrid sessions require v2.
 - New monetary admission fields use integer micro-USD. Existing legacy USD
   projections remain readable and are not silently reinterpreted.
-- The default per-review paid cap is proposed as 250,000 micro-USD ($0.25).
+- The approved default per-review paid cap is 250,000 micro-USD ($0.25), but no
+  runtime enforcement or paid-call authority exists until its later gates land.
 - `session.started` v2 persists `startedAt` and the derived `deadlineAt`.
   `maxEpisodeDurationMs` is measured from that persisted start; no attempt may
   start at or after the deadline. `attemptTimeoutMs` bounds each provider call,
@@ -354,7 +355,8 @@ may not be used to tune features, weights, or the threshold.
 Add a strict `routing.decision.recorded` payload with:
 
 - decision ID, policy version, boundary, phase, action, and reason code;
-- sorted candidate provider IDs and the selected provider/model;
+- sorted candidate provider IDs and the selected provider/model, plus the
+  rejected proposed provider/model when a denial retains local synthesis;
 - prior and selected lease IDs when applicable;
 - `riskPolicyId`, total score, the canonical sorted signal/value list, and an
   explicit incomplete reason when risk cannot be scored;
@@ -367,7 +369,9 @@ Add a strict `routing.decision.recorded` payload with:
   micro-USD-per-million rates, provider-fee ceiling, rounding policy,
   projected cost, and remaining episode/campaign micro-USD amounts;
 - exact checkpoint, packet, and serialized-message hashes when paid admission
-  runs.
+  runs. An admitted provider uses the selected-attempt fields; a rejected cloud
+  proposal uses separate proposal checkpoint/hash fields so its egress and
+  billing evidence cannot be mistaken for the retained local attempt.
 
 Reason codes include local policy, local investigation, low-risk local review,
 cloud admitted, disabled provider, missing credential, unhealthy provider,
@@ -388,11 +392,14 @@ reducer requires all of them:
 | `route.assigned` | `decisionId`, `leaseId`, `phase` |
 | `context.compiled` | active-lease `decisionId`, `leaseId`, `messageId`, `attemptId` |
 | `assistant.message.started` | `decisionId`, `leaseId`, `checkpointId`, `attemptId` |
-| `assistant.message.completed` | `attemptId`, structured `reviewResult` for an accepted review |
+| `assistant.message.completed` | `attemptId`; after PR 5 adds `change-review-v1`, its exact structured `reviewResult` for an accepted review |
 
 The normative Zod schemas, conditional invariants, and event-order state
-machine are checked into an ADR at the start of PR 1 and must match this table;
-implementation cannot merge by relying on prose-only payloads.
+machine are checked into an ADR at the start of PR 1. PR 1 must enforce the
+attempt link; PR 5 must add and enforce the strict `ReviewResultV1` payload
+before the app can accept a change review. Implementation cannot merge by
+relying on prose-only payloads. This sequencing clarification does not relax
+the accepted-review contract.
 
 #### P0.5 Attempt lifecycle
 

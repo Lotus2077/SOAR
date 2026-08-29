@@ -19,6 +19,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
       - name: Install pnpm
         uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
       - name: Set up Node.js
@@ -28,6 +30,12 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Verify build log is append-only
+        if: github.event_name == 'pull_request'
+        run: pnpm validate:build-log -- --base-ref "${{ github.event.pull_request.base.sha }}"
+      - name: Verify pushed build log is append-only
+        if: github.event_name == 'push' && github.event.before != '0000000000000000000000000000000000000000'
+        run: pnpm validate:build-log -- --base-ref "${{ github.event.before }}"
       - name: Validate, type-check, test, and build
         run: pnpm check
 

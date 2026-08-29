@@ -173,11 +173,17 @@ function toSessionRecord(row: SessionRow): SessionRecord {
 function parseState(row: SessionRow): SessionState {
   const parsed = JSON.parse(row.state_json) as Omit<
     SessionState,
-    "contextCompilations" | "completionObligations" | "completionChecks"
+    | "contextCompilations"
+    | "completionObligations"
+    | "completionChecks"
+    | "routingDecisions"
+    | "inferenceAttempts"
   > & {
     contextCompilations?: SessionState["contextCompilations"];
     completionObligations?: SessionState["completionObligations"];
     completionChecks?: SessionState["completionChecks"];
+    routingDecisions?: SessionState["routingDecisions"];
+    inferenceAttempts?: SessionState["inferenceAttempts"];
   };
   if (
     parsed.contextCompilations !== undefined &&
@@ -186,6 +192,18 @@ function parseState(row: SessionRow): SessionState {
     throw new Error(
       `Session projection ${row.id} has invalid context compilation telemetry`,
     );
+  }
+  if (
+    parsed.routingDecisions !== undefined &&
+    !Array.isArray(parsed.routingDecisions)
+  ) {
+    throw new Error(`Session projection ${row.id} has invalid routing decisions`);
+  }
+  if (
+    parsed.inferenceAttempts !== undefined &&
+    !Array.isArray(parsed.inferenceAttempts)
+  ) {
+    throw new Error(`Session projection ${row.id} has invalid inference attempts`);
   }
   if (
     parsed.completionChecks !== undefined &&
@@ -214,6 +232,8 @@ function parseState(row: SessionRow): SessionState {
     // Projections written before context compilation telemetry was introduced
     // remain readable and are upgraded on the next append.
     contextCompilations: parsed.contextCompilations ?? [],
+    routingDecisions: parsed.routingDecisions ?? [],
+    inferenceAttempts: parsed.inferenceAttempts ?? [],
     completionObligations: {
       requiredSuccessfulTools: [
         ...completionObligations.requiredSuccessfulTools,
@@ -402,7 +422,15 @@ export class EventStore {
       let row = this.database
         .prepare("SELECT * FROM sessions WHERE id = ?")
         .get(sessionId) as SessionRow | undefined;
-      const actualSequence = row?.last_sequence ?? 0;
+      const projectionSequence = row?.last_sequence ?? 0;
+      const canonicalEvents = row ? this.getEvents(sessionId) : [];
+      if (row && canonicalEvents.length === 0) {
+        throw new Error(
+          `Session projection ${sessionId} has no canonical event history`,
+        );
+      }
+      let state = row ? replaySession(canonicalEvents) : undefined;
+      const actualSequence = state?.lastSequence ?? 0;
 
       if (
         expectedSequence !== undefined &&
@@ -421,7 +449,6 @@ export class EventStore {
         throw new SessionNotFoundError(sessionId);
       }
 
-      let state = row ? parseState(row) : undefined;
       const stored: StoredSessionEvent[] = [];
       let sequence = actualSequence;
 
@@ -463,7 +490,7 @@ export class EventStore {
       if (!state) {
         throw new Error("Event append did not produce a session state");
       }
-      const update = this.updateSessionProjection(state, actualSequence);
+      const update = this.updateSessionProjection(state, projectionSequence);
       if (update.changes !== 1) {
         const latest = this.getSession(sessionId)?.lastSequence ?? 0;
         throw new SequenceConflictError(

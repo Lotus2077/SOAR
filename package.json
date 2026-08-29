@@ -34,9 +34,10 @@
     "postinstall": "electron-builder install-app-deps",
     "rebuild:native": "electron-rebuild -f -w better-sqlite3",
     "package:mac": "pnpm build && node scripts/package-mac.mjs",
-    "check": "pnpm validate:readiness && pnpm typecheck && pnpm test && pnpm build",
+    "check": "pnpm validate:readiness && pnpm validate:build-log && pnpm typecheck && pnpm test && pnpm build",
     "check:cloud-key": "node scripts/check-openrouter-key.mjs",
-    "validate:readiness": "node scripts/validate-readiness.mjs"
+    "validate:readiness": "node scripts/validate-readiness.mjs",
+    "validate:build-log": "node --experimental-strip-types scripts/validate-build-log.ts"
   },
   "dependencies": {
     "@phosphor-icons/react": "^2.1.10",

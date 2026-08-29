@@ -81,7 +81,7 @@ export type CompletionObligations = z.infer<
   typeof CompletionObligationsSchema
 >;
 
-export const AgenticExecutionPolicySchema = z
+export const AgenticExecutionPolicyV1Schema = z
   .object({
     schemaVersion: z.literal("agentic-execution-v1"),
     inferenceRounds: z
@@ -98,6 +98,73 @@ export const AgenticExecutionPolicySchema = z
       .safe(),
   })
   .strict();
+
+export const ROUTING_POLICY_IDS = ["local_only_v1", "hybrid_v0"] as const;
+export const RoutingPolicyIdSchema = z.enum(ROUTING_POLICY_IDS);
+export type RoutingPolicyId = z.infer<typeof RoutingPolicyIdSchema>;
+
+export const EGRESS_CONSENTS = [
+  "none",
+  "session_cloud_synthesis_v1",
+] as const;
+export const EgressConsentSchema = z.enum(EGRESS_CONSENTS);
+export type EgressConsent = z.infer<typeof EgressConsentSchema>;
+
+export const AgenticExecutionPolicyV2Schema = z
+  .object({
+    schemaVersion: z.literal("agentic-execution-v2"),
+    inferenceRounds: z
+      .number()
+      .int()
+      .min(1)
+      .max(maximumAgenticPolicySteps)
+      .safe(),
+    toolCalls: z
+      .number()
+      .int()
+      .min(1)
+      .max(maximumAgenticPolicySteps)
+      .safe(),
+    routingPolicy: RoutingPolicyIdSchema,
+    maxProviderChanges: z.literal(2),
+    maxPaidAttempts: z.literal(1),
+    maxPaidEpisodeMicrousd: z.number().int().nonnegative().safe(),
+    maxEpisodeDurationMs: z.number().int().positive().safe(),
+    attemptTimeoutMs: z.number().int().positive().safe(),
+    egressConsent: EgressConsentSchema,
+  })
+  .strict()
+  .superRefine((policy, context) => {
+    if (policy.attemptTimeoutMs > policy.maxEpisodeDurationMs) {
+      context.addIssue({
+        code: "custom",
+        message: "attemptTimeoutMs must not exceed maxEpisodeDurationMs",
+        path: ["attemptTimeoutMs"],
+      });
+    }
+    if (
+      policy.routingPolicy === "local_only_v1" &&
+      policy.egressConsent !== "none"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "local_only_v1 requires egressConsent none",
+        path: ["egressConsent"],
+      });
+    }
+  });
+
+export const AgenticExecutionPolicySchema = z.discriminatedUnion(
+  "schemaVersion",
+  [AgenticExecutionPolicyV1Schema, AgenticExecutionPolicyV2Schema],
+);
+
+export type AgenticExecutionPolicyV1 = z.infer<
+  typeof AgenticExecutionPolicyV1Schema
+>;
+export type AgenticExecutionPolicyV2 = z.infer<
+  typeof AgenticExecutionPolicyV2Schema
+>;
 
 export type AgenticExecutionPolicy = z.infer<
   typeof AgenticExecutionPolicySchema
@@ -147,6 +214,7 @@ export const SessionEventTypeSchema = z.enum([
   "session.created",
   "session.started",
   "user.message",
+  "routing.decision.recorded",
   "route.assigned",
   "assistant.message.started",
   "assistant.message.delta",
@@ -154,6 +222,8 @@ export const SessionEventTypeSchema = z.enum([
   "tool.call.requested",
   "tool.call.completed",
   "context.compiled",
+  "inference.attempt.started",
+  "inference.attempt.finished",
   "completion.obligations.checked",
   "usage.recorded",
   "session.completed",
@@ -186,6 +256,921 @@ const nonNegativeInteger = z.number().int().nonnegative();
 const nonNegativeNumber = z.number().finite().nonnegative();
 const safeNonNegativeInteger = z.number().int().nonnegative().safe();
 const safePositiveInteger = z.number().int().positive().safe();
+const boundedV2Id = requiredId.max(256);
+const boundedCode = z.string().trim().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/u);
+const sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
+
+export const ROUTING_BOUNDARIES = [
+  "session_start",
+  "evidence_complete",
+  "provider_failure",
+] as const;
+export const RoutingBoundarySchema = z.enum(ROUTING_BOUNDARIES);
+export type RoutingBoundary = z.infer<typeof RoutingBoundarySchema>;
+
+export const ROUTING_PHASES = ["investigation", "synthesis"] as const;
+export const RoutingPhaseSchema = z.enum(ROUTING_PHASES);
+export type RoutingPhase = z.infer<typeof RoutingPhaseSchema>;
+
+export const ROUTING_DECISION_ACTIONS = [
+  "assign_new_lease",
+  "retain_lease",
+] as const;
+export const RoutingDecisionActionSchema = z.enum(ROUTING_DECISION_ACTIONS);
+export type RoutingDecisionAction = z.infer<
+  typeof RoutingDecisionActionSchema
+>;
+
+export const ROUTING_REASON_CODES = [
+  "local_policy",
+  "local_investigation",
+  "low_risk_local_review",
+  "cloud_admitted",
+  "disabled_provider",
+  "missing_credential",
+  "unhealthy_provider",
+  "capability_mismatch",
+  "egress_denial",
+  "budget_denial",
+  "deadline_denial",
+  "cloud_failure",
+  "local_fallback",
+] as const;
+export const RoutingReasonCodeSchema = z.enum(ROUTING_REASON_CODES);
+export type RoutingReasonCode = z.infer<typeof RoutingReasonCodeSchema>;
+
+const CLOUD_PROPOSAL_DENIAL_REASON_CODES = [
+  "disabled_provider",
+  "missing_credential",
+  "unhealthy_provider",
+  "capability_mismatch",
+  "egress_denial",
+  "budget_denial",
+  "deadline_denial",
+] as const satisfies readonly RoutingReasonCode[];
+
+export function isCloudProposalDenialReason(
+  reasonCode: RoutingReasonCode,
+): boolean {
+  return CLOUD_PROPOSAL_DENIAL_REASON_CODES.some(
+    (candidate) => candidate === reasonCode,
+  );
+}
+
+export const ROUTING_ADMISSION_STATUSES = [
+  "passed",
+  "denied",
+  "not_applicable",
+] as const;
+export const RoutingAdmissionStatusSchema = z.enum(
+  ROUTING_ADMISSION_STATUSES,
+);
+
+export const ROUTING_ADMISSION_REASON_CODES = [
+  "capability_ok",
+  "credential_ok",
+  "health_ok",
+  "egress_ok",
+  "deadline_ok",
+  "budget_ok",
+  "not_applicable",
+  "capability_mismatch",
+  "missing_credential",
+  "unhealthy_provider",
+  "egress_denial",
+  "deadline_denial",
+  "budget_denial",
+] as const;
+export const RoutingAdmissionReasonCodeSchema = z.enum(
+  ROUTING_ADMISSION_REASON_CODES,
+);
+
+export const RoutingAdmissionCheckSchema = z
+  .object({
+    status: RoutingAdmissionStatusSchema,
+    reasonCode: RoutingAdmissionReasonCodeSchema,
+  })
+  .strict()
+  .superRefine((check, context) => {
+    if (
+      (check.status === "not_applicable") !==
+      (check.reasonCode === "not_applicable")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "not_applicable status and reason must be used together",
+      });
+    }
+    if (check.status === "passed" && !check.reasonCode.endsWith("_ok")) {
+      context.addIssue({
+        code: "custom",
+        message: "passed admission checks require an *_ok reason",
+        path: ["reasonCode"],
+      });
+    }
+    if (
+      check.status === "denied" &&
+      (check.reasonCode.endsWith("_ok") ||
+        check.reasonCode === "not_applicable")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "denied admission checks require a denial reason",
+        path: ["reasonCode"],
+      });
+    }
+  });
+
+const routingAdmissionExpectations = {
+  capability: {
+    passed: "capability_ok",
+    denied: "capability_mismatch",
+  },
+  credential: {
+    passed: "credential_ok",
+    denied: "missing_credential",
+  },
+  health: { passed: "health_ok", denied: "unhealthy_provider" },
+  egress: { passed: "egress_ok", denied: "egress_denial" },
+  deadline: { passed: "deadline_ok", denied: "deadline_denial" },
+  budget: { passed: "budget_ok", denied: "budget_denial" },
+} as const;
+
+export const RoutingAdmissionSchema = z
+  .object({
+    capability: RoutingAdmissionCheckSchema,
+    credential: RoutingAdmissionCheckSchema,
+    health: RoutingAdmissionCheckSchema,
+    egress: RoutingAdmissionCheckSchema,
+    deadline: RoutingAdmissionCheckSchema,
+    budget: RoutingAdmissionCheckSchema,
+  })
+  .strict()
+  .superRefine((admission, context) => {
+    for (const name of Object.keys(
+      routingAdmissionExpectations,
+    ) as Array<keyof typeof routingAdmissionExpectations>) {
+      const check = admission[name];
+      if (check.status === "not_applicable") continue;
+      const expected = routingAdmissionExpectations[name][check.status];
+      if (check.reasonCode !== expected) {
+        context.addIssue({
+          code: "custom",
+          message: `${name} ${check.status} requires reason ${expected}`,
+          path: [name, "reasonCode"],
+        });
+      }
+    }
+  });
+
+const routingRiskSignalNameSchema = z.enum([
+  "changed_file_count",
+  "changed_line_count",
+  "changed_surface_count",
+  "runtime_without_relevant_test",
+  "sensitive_subsystem",
+]);
+
+const routingRiskSignalSchema = z
+  .object({
+    name: routingRiskSignalNameSchema,
+    value: z.union([z.boolean(), safeNonNegativeInteger]),
+    weight: z.number().int().min(0).max(10).safe(),
+    contribution: z.number().int().min(0).max(10).safe(),
+  })
+  .strict();
+
+const routingRiskSignalsSchema = z
+  .array(routingRiskSignalSchema)
+  .max(16)
+  .superRefine((signals, context) => {
+    for (let index = 1; index < signals.length; index += 1) {
+      const previous = signals[index - 1];
+      const current = signals[index];
+      if (previous !== undefined && current !== undefined && previous.name >= current.name) {
+        context.addIssue({
+          code: "custom",
+          message: "risk signals must be sorted by name and unique",
+          path: [index, "name"],
+        });
+      }
+    }
+  });
+
+const routingTriggerFactSchema = z
+  .object({
+    key: boundedCode,
+    value: z.union([
+      z.boolean(),
+      z.number().finite().safe(),
+      z.string().max(256),
+    ]),
+  })
+  .strict();
+
+const routingTriggerFactsSchema = z
+  .array(routingTriggerFactSchema)
+  .max(32)
+  .superRefine((facts, context) => {
+    for (let index = 1; index < facts.length; index += 1) {
+      const previous = facts[index - 1];
+      const current = facts[index];
+      if (previous !== undefined && current !== undefined && previous.key >= current.key) {
+        context.addIssue({
+          code: "custom",
+          message: "trigger facts must be sorted by key and unique",
+          path: [index, "key"],
+        });
+      }
+    }
+  });
+
+const sortedProviderIdsSchema = z
+  .array(boundedV2Id)
+  .min(1)
+  .max(32)
+  .superRefine((providerIds, context) => {
+    for (let index = 1; index < providerIds.length; index += 1) {
+      const previous = providerIds[index - 1];
+      const current = providerIds[index];
+      if (previous !== undefined && current !== undefined && previous >= current) {
+        context.addIssue({
+          code: "custom",
+          message: "candidate provider IDs must be sorted and unique",
+          path: [index],
+        });
+      }
+    }
+  });
+
+export const RoutingDecisionPayloadSchema = z
+  .object({
+    decisionId: boundedV2Id,
+    policyVersion: z.literal("hybrid-lease-router-v0"),
+    boundary: RoutingBoundarySchema,
+    phase: RoutingPhaseSchema,
+    action: RoutingDecisionActionSchema,
+    reasonCode: RoutingReasonCodeSchema,
+    candidateProviderIds: sortedProviderIdsSchema,
+    selectedProviderId: boundedV2Id,
+    selectedModel: boundedV2Id,
+    proposedProviderId: boundedV2Id.optional(),
+    proposedModel: boundedV2Id.optional(),
+    priorLeaseId: boundedV2Id.optional(),
+    selectedLeaseId: boundedV2Id,
+    riskPolicyId: boundedCode.optional(),
+    riskScore: safeNonNegativeInteger.optional(),
+    riskSignals: routingRiskSignalsSchema,
+    riskIncompleteReason: z.string().trim().min(1).max(512).optional(),
+    triggerFacts: routingTriggerFactsSchema,
+    admission: RoutingAdmissionSchema,
+    healthSnapshotId: boundedV2Id.optional(),
+    pricingSnapshotId: boundedV2Id.optional(),
+    campaignId: boundedV2Id.optional(),
+    budgetReservationId: boundedV2Id.optional(),
+    credentialMetadataId: boundedV2Id.optional(),
+    billing: z
+      .object({
+        billableInputTokens: safeNonNegativeInteger,
+        billableCacheReadTokens: safeNonNegativeInteger,
+        requestedMaxOutputTokens: safePositiveInteger,
+        inputMicrousdPerMillionTokens: safeNonNegativeInteger,
+        outputMicrousdPerMillionTokens: safeNonNegativeInteger,
+        cacheReadMicrousdPerMillionTokens: safeNonNegativeInteger.optional(),
+        providerFeeCeilingMicrousd: safeNonNegativeInteger,
+        roundingPolicy: z.literal("ceil_each_component_v1"),
+        projectedCostMicrousd: safeNonNegativeInteger,
+        remainingEpisodeMicrousd: safeNonNegativeInteger,
+        remainingCampaignMicrousd: safeNonNegativeInteger,
+      })
+      .strict()
+      .superRefine((billing, context) => {
+        if (
+          billing.cacheReadMicrousdPerMillionTokens === undefined &&
+          billing.billableCacheReadTokens !== 0
+        ) {
+          context.addIssue({
+            code: "custom",
+            message: "cache-read tokens require a cache-read rate",
+            path: ["billableCacheReadTokens"],
+          });
+        }
+        const million = 1_000_000n;
+        const ceilComponent = (tokens: number, rate: number): bigint => {
+          const product = BigInt(tokens) * BigInt(rate);
+          return (product + million - 1n) / million;
+        };
+        const expectedProjection =
+          ceilComponent(
+            billing.billableInputTokens,
+            billing.inputMicrousdPerMillionTokens,
+          ) +
+          ceilComponent(
+            billing.requestedMaxOutputTokens,
+            billing.outputMicrousdPerMillionTokens,
+          ) +
+          ceilComponent(
+            billing.billableCacheReadTokens,
+            billing.cacheReadMicrousdPerMillionTokens ?? 0,
+          ) +
+          BigInt(billing.providerFeeCeilingMicrousd);
+        if (expectedProjection > BigInt(Number.MAX_SAFE_INTEGER)) {
+          context.addIssue({
+            code: "custom",
+            message: "projected cost exceeds the safe integer range",
+            path: ["projectedCostMicrousd"],
+          });
+        } else if (
+          billing.projectedCostMicrousd !== Number(expectedProjection)
+        ) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "projected cost must equal ceil_each_component_v1 worst-case cost",
+            path: ["projectedCostMicrousd"],
+          });
+        }
+      })
+      .optional(),
+    checkpointId: boundedV2Id.optional(),
+    packetSha256: sha256.optional(),
+    messagesSha256: sha256.optional(),
+    proposalCheckpointId: boundedV2Id.optional(),
+    proposalPacketSha256: sha256.optional(),
+    proposalMessagesSha256: sha256.optional(),
+  })
+  .strict()
+  .superRefine((decision, context) => {
+    if (!decision.candidateProviderIds.includes(decision.selectedProviderId)) {
+      context.addIssue({
+        code: "custom",
+        message: "selected provider must be one of the sorted candidates",
+        path: ["selectedProviderId"],
+      });
+    }
+    if (
+      decision.proposedProviderId !== undefined &&
+      !decision.candidateProviderIds.includes(decision.proposedProviderId)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "proposed provider must be one of the sorted candidates",
+        path: ["proposedProviderId"],
+      });
+    }
+    if (
+      decision.action === "retain_lease" &&
+      (decision.priorLeaseId === undefined ||
+        decision.priorLeaseId !== decision.selectedLeaseId)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "retain_lease requires matching prior and selected lease IDs",
+        path: ["selectedLeaseId"],
+      });
+    }
+    if (
+      decision.action === "assign_new_lease" &&
+      decision.priorLeaseId === decision.selectedLeaseId
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "assign_new_lease cannot reuse the prior lease ID",
+        path: ["selectedLeaseId"],
+      });
+    }
+    if (
+      (decision.boundary === "session_start") !==
+      (decision.phase === "investigation")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "only session_start decisions use the investigation phase",
+        path: ["phase"],
+      });
+    }
+    const hasRiskPolicy = decision.riskPolicyId !== undefined;
+    const hasRiskScore = decision.riskScore !== undefined;
+    const hasIncompleteRisk = decision.riskIncompleteReason !== undefined;
+    if (!hasRiskPolicy && (hasRiskScore || hasIncompleteRisk || decision.riskSignals.length > 0)) {
+      context.addIssue({
+        code: "custom",
+        message: "risk data requires a riskPolicyId",
+        path: ["riskPolicyId"],
+      });
+    }
+    if (hasRiskPolicy && hasRiskScore === hasIncompleteRisk) {
+      context.addIssue({
+        code: "custom",
+        message: "risk policy requires exactly one of riskScore or riskIncompleteReason",
+        path: ["riskScore"],
+      });
+    }
+    if (hasRiskPolicy && decision.boundary !== "evidence_complete") {
+      context.addIssue({
+        code: "custom",
+        message: "risk data is allowed only at evidence_complete",
+        path: ["riskPolicyId"],
+      });
+    }
+    if (
+      hasRiskScore &&
+      decision.riskSignals.reduce((sum, signal) => sum + signal.contribution, 0) !==
+        decision.riskScore
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "riskScore must equal the sum of signal contributions",
+        path: ["riskScore"],
+      });
+    }
+    if (decision.reasonCode === "cloud_admitted") {
+      if (decision.action !== "assign_new_lease") {
+        context.addIssue({
+          code: "custom",
+          message: "cloud admission must assign a new lease",
+          path: ["action"],
+        });
+      }
+      if (decision.boundary !== "evidence_complete") {
+        context.addIssue({
+          code: "custom",
+          message: "cloud admission is allowed only at evidence_complete",
+          path: ["boundary"],
+        });
+      }
+      const cloudChecks = Object.entries(decision.admission);
+      for (const [name, check] of cloudChecks) {
+        if (check.status !== "passed") {
+          context.addIssue({
+            code: "custom",
+            message: "cloud admission requires every admission check to pass",
+            path: ["admission", name, "status"],
+          });
+        }
+      }
+      const requiredCloudFields: Array<[keyof typeof decision, unknown]> = [
+        ["healthSnapshotId", decision.healthSnapshotId],
+        ["pricingSnapshotId", decision.pricingSnapshotId],
+        ["campaignId", decision.campaignId],
+        ["budgetReservationId", decision.budgetReservationId],
+        ["credentialMetadataId", decision.credentialMetadataId],
+        ["billing", decision.billing],
+        ["checkpointId", decision.checkpointId],
+        ["packetSha256", decision.packetSha256],
+        ["messagesSha256", decision.messagesSha256],
+      ];
+      for (const [field, value] of requiredCloudFields) {
+        if (value === undefined) {
+          context.addIssue({
+            code: "custom",
+            message: `cloud admission requires ${String(field)}`,
+            path: [field],
+          });
+        }
+      }
+      const forbiddenProposalFields: Array<[
+        keyof typeof decision,
+        unknown,
+      ]> = [
+        ["proposedProviderId", decision.proposedProviderId],
+        ["proposedModel", decision.proposedModel],
+        ["proposalCheckpointId", decision.proposalCheckpointId],
+        ["proposalPacketSha256", decision.proposalPacketSha256],
+        ["proposalMessagesSha256", decision.proposalMessagesSha256],
+      ];
+      for (const [field, value] of forbiddenProposalFields) {
+        if (value !== undefined) {
+          context.addIssue({
+            code: "custom",
+            message: `cloud admission cannot include ${String(field)}`,
+            path: [field],
+          });
+        }
+      }
+    }
+    const isCloudProposalDenial = isCloudProposalDenialReason(
+      decision.reasonCode,
+    );
+    if (isCloudProposalDenial) {
+      if (
+        decision.boundary !== "evidence_complete" ||
+        decision.action !== "retain_lease"
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "a denied cloud proposal must retain the evidence_complete lease",
+          path: ["boundary"],
+        });
+      }
+      if (
+        decision.proposedProviderId === undefined ||
+        decision.proposedModel === undefined
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "a denied cloud proposal requires proposedProviderId and proposedModel",
+          path: ["proposedProviderId"],
+        });
+      }
+      if (decision.proposedProviderId === decision.selectedProviderId) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "a denied cloud proposal cannot select its proposed provider",
+          path: ["proposedProviderId"],
+        });
+      }
+      if (decision.budgetReservationId !== undefined) {
+        context.addIssue({
+          code: "custom",
+          message: "a denied cloud proposal cannot reserve paid budget",
+          path: ["budgetReservationId"],
+        });
+      }
+      const proposalPacketFields = [
+        decision.proposalCheckpointId,
+        decision.proposalPacketSha256,
+        decision.proposalMessagesSha256,
+      ];
+      const proposalPacketFieldCount = proposalPacketFields.filter(
+        (value) => value !== undefined,
+      ).length;
+      if (
+        proposalPacketFieldCount !== 0 &&
+        proposalPacketFieldCount !== proposalPacketFields.length
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "proposal checkpoint, packet hash, and message hash must be persisted together",
+          path: ["proposalCheckpointId"],
+        });
+      }
+      if (
+        decision.admission.credential.status !== "not_applicable" &&
+        decision.credentialMetadataId === undefined
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "a completed credential admission check requires credentialMetadataId",
+          path: ["credentialMetadataId"],
+        });
+      }
+      if (
+        decision.admission.health.status !== "not_applicable" &&
+        decision.healthSnapshotId === undefined
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "a completed health admission check requires healthSnapshotId",
+          path: ["healthSnapshotId"],
+        });
+      }
+      if (
+        decision.admission.egress.status !== "not_applicable" &&
+        proposalPacketFieldCount !== proposalPacketFields.length
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "a completed egress admission check requires the exact proposal packet hashes",
+          path: ["proposalCheckpointId"],
+        });
+      }
+      if (decision.billing !== undefined) {
+        if (
+          decision.pricingSnapshotId === undefined ||
+          decision.campaignId === undefined ||
+          proposalPacketFieldCount !== proposalPacketFields.length
+        ) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "denied proposal billing requires pricing, campaign, and exact proposal packet evidence",
+            path: ["billing"],
+          });
+        }
+      }
+      if (decision.reasonCode === "budget_denial") {
+        if (decision.billing === undefined) {
+          context.addIssue({
+            code: "custom",
+            message: "budget_denial requires an exact billing projection",
+            path: ["billing"],
+          });
+        } else if (
+          decision.billing.projectedCostMicrousd <=
+            decision.billing.remainingEpisodeMicrousd &&
+          decision.billing.projectedCostMicrousd <=
+            decision.billing.remainingCampaignMicrousd
+        ) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "budget_denial requires projected cost to exceed a remaining budget",
+            path: ["billing", "projectedCostMicrousd"],
+          });
+        }
+      }
+    }
+    if (
+      decision.billing !== undefined &&
+      decision.admission.budget.status === "passed" &&
+      (decision.billing.projectedCostMicrousd >
+        decision.billing.remainingEpisodeMicrousd ||
+        decision.billing.projectedCostMicrousd >
+          decision.billing.remainingCampaignMicrousd)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "a passed budget check cannot exceed a remaining budget",
+        path: ["billing", "projectedCostMicrousd"],
+      });
+    }
+    if (
+      decision.reasonCode !== "cloud_admitted" &&
+      !isCloudProposalDenial
+    ) {
+      const forbiddenPaidFields: Array<[keyof typeof decision, unknown]> = [
+        ["pricingSnapshotId", decision.pricingSnapshotId],
+        ["campaignId", decision.campaignId],
+        ["budgetReservationId", decision.budgetReservationId],
+        ["credentialMetadataId", decision.credentialMetadataId],
+        ["billing", decision.billing],
+        ["checkpointId", decision.checkpointId],
+        ["packetSha256", decision.packetSha256],
+        ["messagesSha256", decision.messagesSha256],
+        ["proposedProviderId", decision.proposedProviderId],
+        ["proposedModel", decision.proposedModel],
+        ["proposalCheckpointId", decision.proposalCheckpointId],
+        ["proposalPacketSha256", decision.proposalPacketSha256],
+        ["proposalMessagesSha256", decision.proposalMessagesSha256],
+      ];
+      for (const [field, value] of forbiddenPaidFields) {
+        if (value !== undefined) {
+          context.addIssue({
+            code: "custom",
+            message: `${String(field)} is reserved for cloud admission or proposal decisions`,
+            path: [field],
+          });
+        }
+      }
+    }
+    if (isCloudProposalDenial) {
+      const forbiddenSelectedCloudFields: Array<[
+        keyof typeof decision,
+        unknown,
+      ]> = [
+        ["checkpointId", decision.checkpointId],
+        ["packetSha256", decision.packetSha256],
+        ["messagesSha256", decision.messagesSha256],
+      ];
+      for (const [field, value] of forbiddenSelectedCloudFields) {
+        if (value !== undefined) {
+          context.addIssue({
+            code: "custom",
+            message: `${String(field)} is reserved for the admitted selected attempt`,
+            path: [field],
+          });
+        }
+      }
+    }
+    const denialCheckByReason = {
+      disabled_provider: undefined,
+      missing_credential: "credential",
+      unhealthy_provider: "health",
+      capability_mismatch: "capability",
+      egress_denial: "egress",
+      budget_denial: "budget",
+      deadline_denial: "deadline",
+    } as const;
+    if (decision.reasonCode in denialCheckByReason) {
+      const checkName =
+        denialCheckByReason[
+          decision.reasonCode as keyof typeof denialCheckByReason
+        ];
+      if (
+        checkName !== undefined &&
+        decision.admission[checkName].status !== "denied"
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: `${decision.reasonCode} requires a denied ${checkName} admission check`,
+          path: ["admission", checkName, "status"],
+        });
+      }
+    }
+  });
+
+export type RoutingDecisionPayload = z.infer<
+  typeof RoutingDecisionPayloadSchema
+>;
+
+export const INFERENCE_ATTEMPT_OUTCOMES = [
+  "succeeded",
+  "provider_error",
+  "protocol_error",
+  "cancelled",
+  "timeout",
+  "interrupted",
+] as const;
+export const InferenceAttemptOutcomeSchema = z.enum(
+  INFERENCE_ATTEMPT_OUTCOMES,
+);
+export type InferenceAttemptOutcome = z.infer<
+  typeof InferenceAttemptOutcomeSchema
+>;
+
+export const REQUEST_DISPOSITIONS = ["not_sent", "sent", "unknown"] as const;
+export const RequestDispositionSchema = z.enum(REQUEST_DISPOSITIONS);
+export type RequestDisposition = z.infer<typeof RequestDispositionSchema>;
+
+const allowedToolNamesSchema = z
+  .array(boundedCode)
+  .max(64)
+  .superRefine((names, context) => {
+    for (let index = 1; index < names.length; index += 1) {
+      const previous = names[index - 1];
+      const current = names[index];
+      if (previous !== undefined && current !== undefined && previous >= current) {
+        context.addIssue({
+          code: "custom",
+          message: "allowed tool names must be sorted and unique",
+          path: [index],
+        });
+      }
+    }
+  });
+
+export const InferenceAttemptStartedPayloadSchema = z
+  .object({
+    attemptId: boundedV2Id,
+    round: safePositiveInteger,
+    checkpointId: boundedV2Id,
+    messageId: boundedV2Id,
+    decisionId: boundedV2Id,
+    leaseId: boundedV2Id,
+    providerId: boundedV2Id,
+    requestedModel: boundedV2Id,
+    phase: RoutingPhaseSchema,
+    requestedMaxOutputTokens: safePositiveInteger,
+    allowTools: z.boolean(),
+    allowedToolNames: allowedToolNamesSchema.optional(),
+    requireToolCall: z.boolean(),
+    budgetReservationId: boundedV2Id.optional(),
+  })
+  .strict()
+  .superRefine((attempt, context) => {
+    if (!attempt.allowTools) {
+      if (attempt.allowedToolNames !== undefined) {
+        context.addIssue({
+          code: "custom",
+          message: "tool-free attempts cannot include allowedToolNames",
+          path: ["allowedToolNames"],
+        });
+      }
+      if (attempt.requireToolCall) {
+        context.addIssue({
+          code: "custom",
+          message: "tool-free attempts cannot require a tool call",
+          path: ["requireToolCall"],
+        });
+      }
+    } else if ((attempt.allowedToolNames?.length ?? 0) === 0) {
+      context.addIssue({
+        code: "custom",
+        message: "tool-enabled attempts require a non-empty allowedToolNames list",
+        path: ["allowedToolNames"],
+      });
+    }
+    if (attempt.phase === "synthesis" && attempt.allowTools) {
+      context.addIssue({
+        code: "custom",
+        message: "synthesis attempts are tool-free",
+        path: ["allowTools"],
+      });
+    }
+  });
+
+export type InferenceAttemptStartedPayload = z.infer<
+  typeof InferenceAttemptStartedPayloadSchema
+>;
+
+export const InferenceAttemptFinishedPayloadSchema = z
+  .object({
+    attemptId: boundedV2Id,
+    checkpointId: boundedV2Id,
+    outcome: InferenceAttemptOutcomeSchema,
+    requestDisposition: RequestDispositionSchema,
+    finishReason: z.string().trim().min(1).max(256).nullable().optional(),
+    servedModel: boundedV2Id.optional(),
+    usage: z
+      .object({
+        inputTokens: safeNonNegativeInteger,
+        outputTokens: safeNonNegativeInteger,
+        reasoningTokens: safeNonNegativeInteger,
+        cacheReadTokens: safeNonNegativeInteger.optional(),
+        reported: z.boolean(),
+      })
+      .strict(),
+    cost: z
+      .object({
+        amountMicrousd: safeNonNegativeInteger,
+        provenance: z.enum([
+          "local_zero_cost_policy",
+          "provider_reported",
+          "host_pricing_snapshot",
+          "reserved_unknown",
+        ]),
+        reservationId: boundedV2Id.optional(),
+      })
+      .strict(),
+    latencyMs: nonNegativeNumber,
+    ttftMs: nonNegativeNumber.optional(),
+    errorCode: boundedCode.optional(),
+  })
+  .strict()
+  .superRefine((attempt, context) => {
+    if (attempt.ttftMs !== undefined && attempt.ttftMs > attempt.latencyMs) {
+      context.addIssue({
+        code: "custom",
+        message: "ttftMs must not exceed latencyMs",
+        path: ["ttftMs"],
+      });
+    }
+    if (attempt.outcome === "succeeded") {
+      if (attempt.requestDisposition !== "sent") {
+        context.addIssue({
+          code: "custom",
+          message: "successful attempts require requestDisposition sent",
+          path: ["requestDisposition"],
+        });
+      }
+      if (attempt.servedModel === undefined) {
+        context.addIssue({
+          code: "custom",
+          message: "successful attempts require servedModel",
+          path: ["servedModel"],
+        });
+      }
+      if (attempt.errorCode !== undefined) {
+        context.addIssue({
+          code: "custom",
+          message: "successful attempts cannot include errorCode",
+          path: ["errorCode"],
+        });
+      }
+    } else if (attempt.errorCode === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "unsuccessful attempts require errorCode",
+        path: ["errorCode"],
+      });
+    }
+    if (
+      attempt.requestDisposition === "not_sent" &&
+      (attempt.usage.inputTokens !== 0 ||
+        attempt.usage.outputTokens !== 0 ||
+        attempt.usage.reasoningTokens !== 0 ||
+        (attempt.usage.cacheReadTokens ?? 0) !== 0 ||
+        attempt.cost.amountMicrousd !== 0)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "not_sent attempts must record zero usage and cost",
+        path: ["requestDisposition"],
+      });
+    }
+    if (
+      attempt.cost.provenance === "local_zero_cost_policy" &&
+      attempt.cost.amountMicrousd !== 0
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "local zero-cost policy must record zero micro-USD",
+        path: ["cost", "amountMicrousd"],
+      });
+    }
+    if (
+      attempt.cost.provenance === "reserved_unknown" &&
+      (attempt.cost.reservationId === undefined ||
+        attempt.requestDisposition === "not_sent")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "reserved_unknown requires a sent or unknown reserved request",
+        path: ["cost", "reservationId"],
+      });
+    }
+  });
+
+export type InferenceAttemptFinishedPayload = z.infer<
+  typeof InferenceAttemptFinishedPayloadSchema
+>;
 
 const sessionCreatedSchema = z
   .object({
@@ -237,7 +1222,7 @@ const sessionCreatedSchema = z
               message:
                 "execution policy needs one inference round per required tool plus final synthesis",
               path: ["executionPolicy", "inferenceRounds"],
-            });
+              });
           }
         }
       }),
@@ -247,7 +1232,32 @@ const sessionCreatedSchema = z
 const sessionStartedSchema = z
   .object({
     type: z.literal("session.started"),
-    payload: z.object({}).strict(),
+    payload: z
+      .object({
+        startedAt: z.string().datetime({ offset: true }).optional(),
+        deadlineAt: z.string().datetime({ offset: true }).optional(),
+      })
+      .strict()
+      .superRefine((payload, context) => {
+        if ((payload.startedAt === undefined) !== (payload.deadlineAt === undefined)) {
+          context.addIssue({
+            code: "custom",
+            message: "startedAt and deadlineAt must be provided together",
+          });
+          return;
+        }
+        if (
+          payload.startedAt !== undefined &&
+          payload.deadlineAt !== undefined &&
+          Date.parse(payload.deadlineAt) <= Date.parse(payload.startedAt)
+        ) {
+          context.addIssue({
+            code: "custom",
+            message: "deadlineAt must be later than startedAt",
+            path: ["deadlineAt"],
+          });
+        }
+      }),
   })
   .strict();
 
@@ -263,6 +1273,13 @@ const userMessageSchema = z
   })
   .strict();
 
+const routingDecisionRecordedSchema = z
+  .object({
+    type: z.literal("routing.decision.recorded"),
+    payload: RoutingDecisionPayloadSchema,
+  })
+  .strict();
+
 const routeAssignedSchema = z
   .object({
     type: z.literal("route.assigned"),
@@ -272,6 +1289,8 @@ const routeAssignedSchema = z
         model: requiredId,
         reason: z.string().trim().min(1),
         leaseId: requiredId.optional(),
+        decisionId: requiredId.optional(),
+        phase: RoutingPhaseSchema.optional(),
       })
       .strict(),
   })
@@ -285,6 +1304,10 @@ const assistantMessageStartedSchema = z
         messageId: requiredId,
         providerId: requiredId,
         model: requiredId,
+        decisionId: requiredId.optional(),
+        leaseId: requiredId.optional(),
+        checkpointId: requiredId.optional(),
+        attemptId: requiredId.optional(),
       })
       .strict(),
   })
@@ -312,6 +1335,7 @@ const assistantMessageCompletedSchema = z
         stopReason: z.string().trim().min(1).nullable().optional(),
         completionState: AssistantCompletionStateSchema.optional(),
         citationCorrections: z.array(CitationCorrectionSchema).optional(),
+        attemptId: requiredId.optional(),
       })
       .strict(),
   })
@@ -370,6 +1394,10 @@ const contextCompiledSchema = z
         packetSha256: z.string().regex(/^[a-f0-9]{64}$/),
         messagesSha256: z.string().regex(/^[a-f0-9]{64}$/),
         safetyMargin: z.number().finite().min(0).lt(1),
+        decisionId: requiredId.optional(),
+        leaseId: requiredId.optional(),
+        messageId: requiredId.optional(),
+        attemptId: requiredId.optional(),
       })
       .strict()
       .superRefine((payload, context) => {
@@ -397,6 +1425,20 @@ const contextCompiledSchema = z
           });
         }
       }),
+  })
+  .strict();
+
+const inferenceAttemptStartedSchema = z
+  .object({
+    type: z.literal("inference.attempt.started"),
+    payload: InferenceAttemptStartedPayloadSchema,
+  })
+  .strict();
+
+const inferenceAttemptFinishedSchema = z
+  .object({
+    type: z.literal("inference.attempt.finished"),
+    payload: InferenceAttemptFinishedPayloadSchema,
   })
   .strict();
 
@@ -545,6 +1587,7 @@ export const SessionEventDataSchema = z.discriminatedUnion("type", [
   sessionCreatedSchema,
   sessionStartedSchema,
   userMessageSchema,
+  routingDecisionRecordedSchema,
   routeAssignedSchema,
   assistantMessageStartedSchema,
   assistantMessageDeltaSchema,
@@ -552,6 +1595,8 @@ export const SessionEventDataSchema = z.discriminatedUnion("type", [
   toolCallRequestedSchema,
   toolCallCompletedSchema,
   contextCompiledSchema,
+  inferenceAttemptStartedSchema,
+  inferenceAttemptFinishedSchema,
   completionObligationsCheckedSchema,
   usageRecordedSchema,
   sessionCompletedSchema,

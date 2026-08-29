@@ -429,3 +429,66 @@ a production cloud provider.
 
 References: [Hybrid Lease Router v0 plan](plans/HYBRID_LEASE_ROUTER_V0.md),
 proposed-plan commit `c73af96`.
+
+### BL-20260829-1236-pr1-replay-foundation -- 2026-08-29 -- PR 1 migration and replay foundation verified
+
+Status: `Verified`
+
+Scope or hypothesis: Establish additive database, event, attempt, recovery, and
+project-ledger contracts that can fail closed before any hybrid runner or paid
+provider exists.
+
+Decisions:
+
+- Keep shipping sessions on `agentic-execution-v1`; make every v2 contract
+  additive and dormant until the later runner integration.
+- Admit an unversioned nonempty database only when its complete normalized
+  schema matches the frozen `4233edd` baseline and integrity checks pass.
+- Reconstruct append authority from canonical events, persist separate rejected
+  cloud-proposal evidence, require exact full-reservation accounting for
+  `reserved_unknown`, and reject non-monotonic v2 timestamps.
+- Treat the budget ledger as constrained storage only; expose no reservation or
+  settlement API in this milestone.
+- Clarify the approved plan sequencing: PR 1 persists the attempt link, while
+  PR 5 must add strict `ReviewResultV1` before an accepted change review exists.
+
+Changes: Added a checksummed append-only migration ledger, frozen legacy-schema
+preflight, dormant integer-micro-USD budget tables, strict v2 routing/attempt
+schemas and state machine, crash-window recovery, canonical replay-on-append,
+ADR 0002, and a CI-enforced append-only build-log validator with material-change
+entry requirements.
+
+Evidence:
+
+- Final `pnpm check`: readiness and ledger validation passed; 271 tests passed,
+  2 skipped; typecheck and production Electron build passed.
+- Final `pnpm test:e2e`: 2/2 desktop tests passed, covering restart restoration
+  and active cancellation.
+- Focused v2 replay/recovery/event-store review suite: 50/50 passed.
+- Focused migration/governance suite: 12/12 passed; a concurrency stress check
+  opened the same database 20 times without duplicating migrations.
+- Independent event, database, integration, and truth-document reviews reported
+  no remaining P0/P1 after their counterexamples were added as regressions.
+
+Failures or blockers: Green intermediate suites initially missed cost
+understatement, denied-proposal evidence, denial consent/policy parity, several
+restart windows, malformed legacy-schema adoption, and direct-push ledger
+enforcement. Those findings were fixed and the entire gate rerun. PR 3 change
+acquisition and every runtime hybrid transition remain unimplemented.
+
+Limitations and non-claims: This verifies persisted foundation contracts, not a
+working router. The app still emits v1 local-only history. Budget mutation is
+dormant; old binaries need not read v2 events; canonical replay on append is
+linear in session history; exact legacy adoption intentionally rejects
+semantically equivalent hand-authored schemas; repository-host branch
+protection remains external configuration.
+
+Paid exposure: $0. No remote provider or inference endpoint was called; tests
+used deterministic providers, temporary loopback servers, SQLite, and Electron.
+
+Next gate: Implement PR 3 immutable change acquisition and calibration
+contracts without adding a provider call.
+
+References: [ADR 0002](adr/0002-agentic-execution-v2-event-state-machine.md),
+[Hybrid Lease Router v0 plan](plans/HYBRID_LEASE_ROUTER_V0.md),
+[architecture](ARCHITECTURE.md).

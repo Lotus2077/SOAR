@@ -220,6 +220,10 @@ describe("EventStore", () => {
     delete legacyState.taskTrack;
     delete legacyState.completionObligations;
     delete legacyState.completionChecks;
+    delete legacyState.routingDecisions;
+    delete legacyState.inferenceAttempts;
+    legacyState.title = "Forged projection title";
+    legacyState.status = "completed";
     database
       .prepare("UPDATE sessions SET state_json = ? WHERE id = ?")
       .run(JSON.stringify(legacyState), session.id);
@@ -231,10 +235,13 @@ describe("EventStore", () => {
         minimumVerifiedPathLineCitations: 0,
       },
       completionChecks: [],
+      routingDecisions: [],
+      inferenceAttempts: [],
     });
 
     store.append(session.id, { type: "session.started", payload: {} });
     expect(store.getProjectedState(session.id)).toMatchObject({
+      title: "Legacy task",
       status: "running",
       contextCompilations: [],
       completionObligations: {
@@ -242,6 +249,8 @@ describe("EventStore", () => {
         minimumVerifiedPathLineCitations: 0,
       },
       completionChecks: [],
+      routingDecisions: [],
+      inferenceAttempts: [],
     });
     expect(store.getProjectedState(session.id)).toEqual(store.replay(session.id));
   });

@@ -1,6 +1,8 @@
 import {
+  isCloudProposalDenialReason,
   isTerminalSessionStatus,
   type AgenticExecutionPolicy,
+  type AgenticExecutionPolicyV2,
   type AppTaskTrack,
   type AssistantCompletionState,
   type CitationCorrection,
@@ -11,6 +13,11 @@ import {
   type ContextCompilationReason,
   type JsonValue,
   type OptimizationProfile,
+  type InferenceAttemptFinishedPayload,
+  type InferenceAttemptStartedPayload,
+  type RoutingDecisionPayload,
+  type RoutingPhase,
+  type SessionEventType,
   type SessionStatus,
   type StoredSessionEvent,
 } from "./session-events";
@@ -39,6 +46,10 @@ export interface CanonicalMessage {
   toolName?: string;
   toolCalls?: CanonicalToolCall[];
   citationCorrections?: CitationCorrection[];
+  decisionId?: string;
+  leaseId?: string;
+  checkpointId?: string;
+  attemptId?: string;
 }
 
 export interface RouteAssignment {
@@ -46,6 +57,8 @@ export interface RouteAssignment {
   model: string;
   reason: string;
   leaseId?: string;
+  decisionId?: string;
+  phase?: RoutingPhase;
   sequence: number;
   createdAt: string;
 }
@@ -79,6 +92,10 @@ export interface ContextCompilation {
   packetSha256: string;
   messagesSha256: string;
   safetyMargin: number;
+  decisionId?: string;
+  leaseId?: string;
+  messageId?: string;
+  attemptId?: string;
   sequence: number;
   createdAt: string;
 }
@@ -87,6 +104,24 @@ export interface CompletionObligationCheck
   extends CompletionObligationCheckPayload {
   sequence: number;
   createdAt: string;
+}
+
+export interface RoutingDecisionRecord extends RoutingDecisionPayload {
+  sequence: number;
+  createdAt: string;
+}
+
+export interface InferenceAttemptFinishRecord
+  extends InferenceAttemptFinishedPayload {
+  sequence: number;
+  createdAt: string;
+}
+
+export interface InferenceAttemptRecord
+  extends InferenceAttemptStartedPayload {
+  sequence: number;
+  createdAt: string;
+  finished?: InferenceAttemptFinishRecord;
 }
 
 export interface SessionState {
@@ -104,12 +139,18 @@ export interface SessionState {
   messages: CanonicalMessage[];
   routes: RouteAssignment[];
   contextCompilations: ContextCompilation[];
+  routingDecisions: RoutingDecisionRecord[];
+  inferenceAttempts: InferenceAttemptRecord[];
   executionPolicy?: AgenticExecutionPolicy;
   completionObligations: CompletionObligations;
   completionChecks: CompletionObligationCheck[];
   usage: SessionUsage;
   result?: string;
   error?: string;
+  /** Present only for v2 sessions; used to enforce the persisted event grammar. */
+  lastV2EventType?: SessionEventType;
+  startedAt?: string;
+  deadlineAt?: string;
 }
 
 const EMPTY_COMPLETION_OBLIGATIONS: CompletionObligations = {
@@ -201,6 +242,196 @@ function allToolCalls(state: SessionState): CanonicalToolCall[] {
   return state.messages.flatMap((message) => message.toolCalls ?? []);
 }
 
+function v2Policy(state: SessionState): AgenticExecutionPolicyV2 | undefined {
+  return state.executionPolicy?.schemaVersion === "agentic-execution-v2"
+    ? state.executionPolicy
+    : undefined;
+}
+
+function openInferenceAttempts(state: SessionState): InferenceAttemptRecord[] {
+  return state.inferenceAttempts.filter((attempt) => attempt.finished === undefined);
+}
+
+function openInferenceAttempt(
+  state: SessionState,
+): InferenceAttemptRecord | undefined {
+  const open = openInferenceAttempts(state);
+  if (open.length > 1) {
+    throw new Error("V2 replay contains more than one open inference attempt");
+  }
+  return open[0];
+}
+
+function findInferenceAttempt(
+  state: SessionState,
+  attemptId: string,
+): InferenceAttemptRecord {
+  const attempt = state.inferenceAttempts.find(
+    (candidate) => candidate.attemptId === attemptId,
+  );
+  if (!attempt) {
+    throw new Error(`Event references unknown inference attempt ${attemptId}`);
+  }
+  return attempt;
+}
+
+function assertV2StartGrammar(
+  state: SessionState,
+  event: StoredSessionEvent,
+): void {
+  if (!v2Policy(state)) return;
+  const lastType = state.lastV2EventType;
+  const openAttempt = openInferenceAttempt(state);
+  if (
+    openAttempt &&
+    event.type !== "assistant.message.delta" &&
+    event.type !== "assistant.message.completed" &&
+    event.type !== "inference.attempt.finished"
+  ) {
+    throw new Error(
+      `Open inference attempt ${openAttempt.attemptId} must finish before ${event.type}`,
+    );
+  }
+  if (lastType === "routing.decision.recorded") {
+    const decision = state.routingDecisions.at(-1);
+    const expected =
+      decision?.action === "assign_new_lease"
+        ? "route.assigned"
+        : "assistant.message.started";
+    if (event.type !== expected) {
+      throw new Error(
+        `V2 routing decision ${decision?.decisionId ?? "unknown"} must be followed by ${expected}`,
+      );
+    }
+  }
+  if (lastType === "route.assigned" && event.type !== "assistant.message.started") {
+    throw new Error("V2 route assignment must be followed by assistant.message.started");
+  }
+  if (
+    lastType === "assistant.message.started" &&
+    event.type !== "context.compiled"
+  ) {
+    throw new Error("V2 assistant start must be followed by context.compiled");
+  }
+  if (lastType === "tool.call.requested" && event.type !== "tool.call.completed") {
+    throw new Error("V2 tool request must be followed by tool.call.completed");
+  }
+  if (lastType === "inference.attempt.finished") {
+    const latest = state.inferenceAttempts.at(-1);
+    const outcome = latest?.finished?.outcome;
+    if (outcome === "cancelled" && event.type !== "session.cancelled") {
+      throw new Error("A cancelled v2 attempt must be followed by session.cancelled");
+    }
+    if (outcome === "interrupted" && event.type !== "session.interrupted") {
+      throw new Error(
+        "An interrupted v2 attempt must be followed by session.interrupted",
+      );
+    }
+    const message = latest
+      ? state.messages.find((candidate) => candidate.id === latest.messageId)
+      : undefined;
+    if (
+      outcome === "succeeded" &&
+      (latest?.requireToolCall || message?.stopReason === "tool_calls") &&
+      event.type !== "tool.call.requested" &&
+      event.type !== "session.interrupted"
+    ) {
+      throw new Error(
+        `Successful v2 attempt ${latest?.attemptId ?? "unknown"} requires its tool request next`,
+      );
+    }
+  }
+  if (
+    lastType === "context.compiled" &&
+    event.type !== "inference.attempt.started"
+  ) {
+    throw new Error("V2 context checkpoint must be followed by inference.attempt.started");
+  }
+  if (
+    lastType === "assistant.message.completed" &&
+    event.type !== "inference.attempt.finished"
+  ) {
+    throw new Error(
+      "V2 assistant completion must be followed by inference.attempt.finished",
+    );
+  }
+}
+
+function assertV2TerminalReady(
+  state: SessionState,
+  terminalType: StoredSessionEvent["type"],
+): void {
+  if (!v2Policy(state)) return;
+  const open = openInferenceAttempt(state);
+  if (open) {
+    throw new Error(
+      `${terminalType} cannot terminate v2 session with open attempt ${open.attemptId}`,
+    );
+  }
+  if (
+    state.contextCompilations.length !== state.inferenceAttempts.length ||
+    state.inferenceAttempts.some((attempt) => attempt.finished === undefined)
+  ) {
+    throw new Error(
+      `${terminalType} requires exactly one terminal attempt for every v2 checkpoint`,
+    );
+  }
+  if (state.messages.some((message) => message.status === "streaming")) {
+    throw new Error(`${terminalType} cannot terminate with a streaming message`);
+  }
+  if (allToolCalls(state).some((toolCall) => toolCall.status === "requested")) {
+    throw new Error(`${terminalType} cannot terminate with a pending tool call`);
+  }
+  if (terminalType === "session.completed") {
+    const latest = state.inferenceAttempts.at(-1);
+    if (!latest || latest.finished?.outcome !== "succeeded") {
+      throw new Error("session.completed requires a successful final v2 attempt");
+    }
+  }
+}
+
+function cloneRoutingDecision(
+  decision: RoutingDecisionRecord,
+): RoutingDecisionRecord {
+  return {
+    ...decision,
+    candidateProviderIds: [...decision.candidateProviderIds],
+    riskSignals: decision.riskSignals.map((signal) => ({ ...signal })),
+    triggerFacts: decision.triggerFacts.map((fact) => ({ ...fact })),
+    admission: {
+      capability: { ...decision.admission.capability },
+      credential: { ...decision.admission.credential },
+      health: { ...decision.admission.health },
+      egress: { ...decision.admission.egress },
+      deadline: { ...decision.admission.deadline },
+      budget: { ...decision.admission.budget },
+    },
+    ...(decision.billing === undefined
+      ? {}
+      : { billing: { ...decision.billing } }),
+  };
+}
+
+function cloneInferenceAttempt(
+  attempt: InferenceAttemptRecord,
+): InferenceAttemptRecord {
+  return {
+    ...attempt,
+    ...(attempt.allowedToolNames === undefined
+      ? {}
+      : { allowedToolNames: [...attempt.allowedToolNames] }),
+    ...(attempt.finished === undefined
+      ? {}
+      : {
+          finished: {
+            ...attempt.finished,
+            usage: { ...attempt.finished.usage },
+            cost: { ...attempt.finished.cost },
+          },
+        }),
+  };
+}
+
 function equalStrings(
   left: readonly string[],
   right: readonly string[],
@@ -254,6 +485,7 @@ function ensureActive(state: SessionState, event: StoredSessionEvent): void {
 
 function ensureRunning(state: SessionState, event: StoredSessionEvent): void {
   const runningOnlyEvent =
+    event.type === "routing.decision.recorded" ||
     event.type === "route.assigned" ||
     event.type === "assistant.message.started" ||
     event.type === "assistant.message.delta" ||
@@ -261,6 +493,8 @@ function ensureRunning(state: SessionState, event: StoredSessionEvent): void {
     event.type === "tool.call.requested" ||
     event.type === "tool.call.completed" ||
     event.type === "context.compiled" ||
+    event.type === "inference.attempt.started" ||
+    event.type === "inference.attempt.finished" ||
     event.type === "completion.obligations.checked" ||
     event.type === "usage.recorded";
   if (runningOnlyEvent && state.status !== "running") {
@@ -307,6 +541,8 @@ export function createInitialSessionState(
     messages: [],
     routes: [],
     contextCompilations: [],
+    routingDecisions: [],
+    inferenceAttempts: [],
     ...(event.payload.executionPolicy === undefined
       ? {}
       : { executionPolicy: { ...event.payload.executionPolicy } }),
@@ -321,6 +557,9 @@ export function createInitialSessionState(
       costUsd: 0,
       latencyMs: 0,
     },
+    ...(event.payload.executionPolicy?.schemaVersion === "agentic-execution-v2"
+      ? { lastV2EventType: event.type }
+      : {}),
   };
 }
 
@@ -348,9 +587,18 @@ export function reduceSessionEvent(
     );
   }
   assertNextSequence(state, event);
+  if (
+    v2Policy(state) &&
+    Date.parse(event.createdAt) < Date.parse(state.updatedAt)
+  ) {
+    throw new Error(
+      `agentic-execution-v2 event createdAt must be nondecreasing; ${event.createdAt} precedes ${state.updatedAt}`,
+    );
+  }
   ensureActive(state, event);
   ensureCheckedTransition(state, event);
   ensureRunning(state, event);
+  assertV2StartGrammar(state, event);
 
   const next: SessionState = {
     ...state,
@@ -366,6 +614,10 @@ export function reduceSessionEvent(
     // not have this field. Defaulting here keeps those snapshots replayable.
     contextCompilations: (state.contextCompilations ?? []).map(
       (compilation) => ({ ...compilation }),
+    ),
+    routingDecisions: (state.routingDecisions ?? []).map(cloneRoutingDecision),
+    inferenceAttempts: (state.inferenceAttempts ?? []).map(
+      cloneInferenceAttempt,
     ),
     completionObligations: cloneCompletionObligations(
       state.completionObligations ?? EMPTY_COMPLETION_OBLIGATIONS,
@@ -390,6 +642,37 @@ export function reduceSessionEvent(
           `Session ${event.sessionId} cannot start from status ${next.status}`,
         );
       }
+      if (v2Policy(next)) {
+        if (
+          event.payload.startedAt === undefined ||
+          event.payload.deadlineAt === undefined
+        ) {
+          throw new Error(
+            "agentic-execution-v2 session.started requires startedAt and deadlineAt",
+          );
+        }
+        if (event.payload.startedAt !== event.createdAt) {
+          throw new Error(
+            "agentic-execution-v2 startedAt must equal the persisted event timestamp",
+          );
+        }
+        const expectedDeadline = new Date(
+          Date.parse(event.payload.startedAt) +
+            (v2Policy(next)?.maxEpisodeDurationMs ?? 0),
+        ).toISOString();
+        if (event.payload.deadlineAt !== expectedDeadline) {
+          throw new Error(
+            `agentic-execution-v2 deadlineAt must equal ${expectedDeadline}`,
+          );
+        }
+        next.startedAt = event.payload.startedAt;
+        next.deadlineAt = event.payload.deadlineAt;
+      } else if (
+        event.payload.startedAt !== undefined ||
+        event.payload.deadlineAt !== undefined
+      ) {
+        throw new Error("v1 session.started cannot persist v2 deadline fields");
+      }
       next.status = "running";
       next.error = undefined;
       break;
@@ -402,7 +685,219 @@ export function reduceSessionEvent(
         status: "completed",
       });
       break;
+    case "routing.decision.recorded": {
+      const policy = v2Policy(next);
+      if (!policy) {
+        throw new Error("routing.decision.recorded requires agentic-execution-v2");
+      }
+      if (
+        next.routingDecisions.some(
+          (decision) => decision.decisionId === event.payload.decisionId,
+        )
+      ) {
+        throw new Error(`Duplicate routing decision ${event.payload.decisionId}`);
+      }
+      if (
+        next.routingDecisions.some(
+          (decision) => decision.boundary === event.payload.boundary,
+        )
+      ) {
+        throw new Error(
+          `Duplicate v2 routing boundary ${event.payload.boundary}`,
+        );
+      }
+      if (
+        event.payload.budgetReservationId !== undefined &&
+        next.routingDecisions.some(
+          (decision) =>
+            decision.budgetReservationId === event.payload.budgetReservationId,
+        )
+      ) {
+        throw new Error(
+          `Duplicate budget reservation ${event.payload.budgetReservationId}`,
+        );
+      }
+      if (event.payload.reasonCode === "cloud_admitted") {
+        if (
+          policy.routingPolicy !== "hybrid_v0" ||
+          policy.egressConsent !== "session_cloud_synthesis_v1"
+        ) {
+          throw new Error(
+            "cloud_admitted requires hybrid_v0 and session cloud-synthesis consent",
+          );
+        }
+        if (
+          event.payload.billing === undefined ||
+          event.payload.billing.projectedCostMicrousd >
+            policy.maxPaidEpisodeMicrousd
+        ) {
+          throw new Error(
+            "cloud_admitted projected cost exceeds the persisted episode cap",
+          );
+        }
+      }
+      if (isCloudProposalDenialReason(event.payload.reasonCode)) {
+        if (policy.routingPolicy !== "hybrid_v0") {
+          throw new Error(
+            "a denied cloud proposal requires the hybrid_v0 routing policy",
+          );
+        }
+        if (
+          event.payload.admission.egress.status === "passed" &&
+          policy.egressConsent !== "session_cloud_synthesis_v1"
+        ) {
+          throw new Error(
+            "a denied cloud proposal cannot record passed egress without session cloud-synthesis consent",
+          );
+        }
+      }
+      if (next.messages.some((message) => message.status === "streaming")) {
+        throw new Error("Cannot route while an assistant message is streaming");
+      }
+      if (openInferenceAttempt(next)) {
+        throw new Error("Cannot route while an inference attempt is open");
+      }
+      if (
+        allToolCalls(next).some((toolCall) => toolCall.status === "requested")
+      ) {
+        throw new Error("Cannot route while a tool call is pending");
+      }
+
+      const activeRoute = next.routes.at(-1);
+      if (event.payload.boundary === "session_start") {
+        if (
+          next.routingDecisions.length !== 0 ||
+          next.routes.length !== 0 ||
+          next.messages.some((message) => message.role === "assistant")
+        ) {
+          throw new Error("session_start must be the first v2 routing decision");
+        }
+        if (
+          event.payload.action !== "assign_new_lease" ||
+          event.payload.priorLeaseId !== undefined
+        ) {
+          throw new Error("session_start must assign a new lease without a prior lease");
+        }
+      } else {
+        if (!activeRoute?.leaseId) {
+          throw new Error(`${event.payload.boundary} requires an active v2 lease`);
+        }
+        if (event.payload.priorLeaseId !== activeRoute.leaseId) {
+          throw new Error(
+            `Routing decision ${event.payload.decisionId} prior lease does not match the active lease`,
+          );
+        }
+      }
+
+      if (event.payload.action === "retain_lease") {
+        if (
+          !activeRoute ||
+          event.payload.selectedProviderId !== activeRoute.providerId ||
+          event.payload.selectedModel !== activeRoute.model
+        ) {
+          throw new Error(
+            `Retained routing decision ${event.payload.decisionId} does not match the active provider route`,
+          );
+        }
+      }
+
+      if (event.payload.boundary === "evidence_complete") {
+        if (next.inferenceAttempts.every((attempt) => attempt.finished === undefined)) {
+          throw new Error("evidence_complete requires at least one finished inference attempt");
+        }
+      }
+
+      if (event.payload.boundary === "provider_failure") {
+        const priorAttempt = next.inferenceAttempts.at(-1);
+        const priorDecision = priorAttempt
+          ? next.routingDecisions.find(
+              (decision) => decision.decisionId === priorAttempt.decisionId,
+            )
+          : undefined;
+        if (
+          next.lastV2EventType !== "inference.attempt.finished" ||
+          priorAttempt?.finished === undefined ||
+          priorAttempt.finished.outcome === "succeeded" ||
+          priorAttempt.finished.outcome === "cancelled" ||
+          priorAttempt.finished.outcome === "interrupted" ||
+          priorDecision?.reasonCode !== "cloud_admitted" ||
+          priorAttempt.budgetReservationId === undefined ||
+          priorAttempt.budgetReservationId !==
+            priorDecision.budgetReservationId
+        ) {
+          throw new Error(
+            "provider_failure must immediately follow a failed admitted-cloud attempt",
+          );
+        }
+        if (event.payload.reasonCode !== "local_fallback") {
+          throw new Error("provider_failure boundary must select local_fallback");
+        }
+      }
+
+      next.routingDecisions.push({
+        ...event.payload,
+        candidateProviderIds: [...event.payload.candidateProviderIds],
+        riskSignals: event.payload.riskSignals.map((signal) => ({ ...signal })),
+        triggerFacts: event.payload.triggerFacts.map((fact) => ({ ...fact })),
+        admission: {
+          capability: { ...event.payload.admission.capability },
+          credential: { ...event.payload.admission.credential },
+          health: { ...event.payload.admission.health },
+          egress: { ...event.payload.admission.egress },
+          deadline: { ...event.payload.admission.deadline },
+          budget: { ...event.payload.admission.budget },
+        },
+        ...(event.payload.billing === undefined
+          ? {}
+          : { billing: { ...event.payload.billing } }),
+        sequence: event.sequence,
+        createdAt: event.createdAt,
+      });
+      break;
+    }
     case "route.assigned":
+      if (v2Policy(next)) {
+        if (
+          event.payload.decisionId === undefined ||
+          event.payload.leaseId === undefined ||
+          event.payload.phase === undefined
+        ) {
+          throw new Error(
+            "agentic-execution-v2 route.assigned requires decisionId, leaseId, and phase",
+          );
+        }
+        const decision = next.routingDecisions.at(-1);
+        if (
+          !decision ||
+          decision.sequence !== event.sequence - 1 ||
+          decision.action !== "assign_new_lease" ||
+          decision.decisionId !== event.payload.decisionId ||
+          decision.selectedLeaseId !== event.payload.leaseId ||
+          decision.selectedProviderId !== event.payload.providerId ||
+          decision.selectedModel !== event.payload.model ||
+          decision.phase !== event.payload.phase
+        ) {
+          throw new Error("V2 route assignment does not match its routing decision");
+        }
+        if (
+          next.routes.some((route) => route.leaseId === event.payload.leaseId)
+        ) {
+          throw new Error(`Duplicate route lease ${event.payload.leaseId}`);
+        }
+        const previousRoute = next.routes.at(-1);
+        const providerChanges = next.routes.reduce(
+          (count, route, index, routes) =>
+            index > 0 && routes[index - 1]?.providerId !== route.providerId
+              ? count + 1
+              : count,
+          previousRoute && previousRoute.providerId !== event.payload.providerId
+            ? 1
+            : 0,
+        );
+        if (providerChanges > (v2Policy(next)?.maxProviderChanges ?? 0)) {
+          throw new Error("V2 route exceeds the persisted provider-change limit");
+        }
+      }
       next.routes.push({
         ...event.payload,
         sequence: event.sequence,
@@ -411,6 +906,91 @@ export function reduceSessionEvent(
       break;
     case "assistant.message.started":
       assertUniqueMessageId(next, event.payload.messageId);
+      if (v2Policy(next)) {
+        if (
+          event.payload.decisionId === undefined ||
+          event.payload.leaseId === undefined ||
+          event.payload.checkpointId === undefined ||
+          event.payload.attemptId === undefined
+        ) {
+          throw new Error(
+            "agentic-execution-v2 assistant.message.started requires decision, lease, checkpoint, and attempt links",
+          );
+        }
+        if (openInferenceAttempt(next)) {
+          throw new Error("Cannot start an assistant message while an inference attempt is open");
+        }
+        if (
+          next.inferenceAttempts.some(
+            (attempt) => attempt.attemptId === event.payload.attemptId,
+          )
+        ) {
+          throw new Error(`Duplicate inference attempt ${event.payload.attemptId}`);
+        }
+        const route = next.routes.at(-1);
+        if (
+          !route ||
+          route.leaseId !== event.payload.leaseId
+        ) {
+          throw new Error(
+            `Assistant message ${event.payload.messageId} does not match the active v2 lease`,
+          );
+        }
+        const decision = next.routingDecisions.find(
+          (candidate) => candidate.decisionId === event.payload.decisionId,
+        );
+        if (!decision || decision.selectedLeaseId !== event.payload.leaseId) {
+          throw new Error(
+            `Assistant message ${event.payload.messageId} references an invalid routing decision`,
+          );
+        }
+        if (
+          decision.selectedProviderId !== event.payload.providerId ||
+          decision.selectedModel !== event.payload.model ||
+          next.routingDecisions.at(-1)?.decisionId !== decision.decisionId
+        ) {
+          throw new Error(
+            `Assistant message ${event.payload.messageId} does not match the active v2 routing decision`,
+          );
+        }
+        const expectedCheckpointId = `${event.sessionId}:context:${
+          next.contextCompilations.length + 1
+        }`;
+        if (event.payload.checkpointId !== expectedCheckpointId) {
+          throw new Error(
+            `Assistant message ${event.payload.messageId} expected checkpoint ${expectedCheckpointId}`,
+          );
+        }
+        if (
+          decision.checkpointId !== undefined &&
+          decision.checkpointId !== event.payload.checkpointId
+        ) {
+          throw new Error(
+            `Assistant message ${event.payload.messageId} checkpoint does not match its routing decision`,
+          );
+        }
+        const boundaryStart =
+          next.lastV2EventType === "routing.decision.recorded" ||
+          next.lastV2EventType === "route.assigned";
+        const obligationRetry =
+          next.lastV2EventType === "completion.obligations.checked" &&
+          next.completionChecks.at(-1)?.outcome === "retry";
+        if (
+          !boundaryStart &&
+          next.lastV2EventType !== "tool.call.completed" &&
+          !obligationRetry
+        ) {
+          throw new Error(
+            "A retained-lease routine round must immediately follow tool completion or an obligation retry",
+          );
+        }
+        if (!boundaryStart) {
+          const latestDecision = next.routingDecisions.at(-1);
+          if (latestDecision?.decisionId !== event.payload.decisionId) {
+            throw new Error("Routine round must retain the active lease's decision");
+          }
+        }
+      }
       if (next.executionPolicy) {
         const route = next.routes.at(-1);
         if (
@@ -453,6 +1033,18 @@ export function reduceSessionEvent(
         status: "streaming",
         providerId: event.payload.providerId,
         model: event.payload.model,
+        ...(event.payload.decisionId === undefined
+          ? {}
+          : { decisionId: event.payload.decisionId }),
+        ...(event.payload.leaseId === undefined
+          ? {}
+          : { leaseId: event.payload.leaseId }),
+        ...(event.payload.checkpointId === undefined
+          ? {}
+          : { checkpointId: event.payload.checkpointId }),
+        ...(event.payload.attemptId === undefined
+          ? {}
+          : { attemptId: event.payload.attemptId }),
         toolCalls: [],
       });
       break;
@@ -469,6 +1061,14 @@ export function reduceSessionEvent(
         event.type,
         event.payload.messageId,
       );
+      if (v2Policy(next)) {
+        const attempt = openInferenceAttempt(next);
+        if (!attempt || attempt.messageId !== message.id) {
+          throw new Error(
+            `Assistant delta for ${message.id} requires its open v2 inference attempt`,
+          );
+        }
+      }
       message.content += event.payload.delta;
       break;
     }
@@ -490,6 +1090,23 @@ export function reduceSessionEvent(
           `Assistant message ${message.id} cannot complete without exactly one context checkpoint`,
         );
       }
+      if (v2Policy(next)) {
+        if (event.payload.attemptId === undefined) {
+          throw new Error(
+            "agentic-execution-v2 assistant completion requires attemptId",
+          );
+        }
+        const attempt = openInferenceAttempt(next);
+        if (
+          !attempt ||
+          attempt.attemptId !== event.payload.attemptId ||
+          attempt.messageId !== message.id
+        ) {
+          throw new Error(
+            `Assistant completion ${message.id} does not match the open v2 attempt`,
+          );
+        }
+      }
       if (event.payload.content !== undefined) {
         message.content = event.payload.content;
       }
@@ -501,6 +1118,9 @@ export function reduceSessionEvent(
         message.citationCorrections = event.payload.citationCorrections.map(
           (correction) => ({ ...correction }),
         );
+      }
+      if (event.payload.attemptId !== undefined) {
+        message.attemptId = event.payload.attemptId;
       }
       message.status =
         message.completionState === "complete" ? "completed" : "failed";
@@ -530,6 +1150,27 @@ export function reduceSessionEvent(
         );
       }
       ensureCurrentAssistantCheckpoint(next, event.type, message.id);
+      if (v2Policy(next)) {
+        const attempt = next.inferenceAttempts.at(-1);
+        if (
+          !attempt?.finished ||
+          attempt.finished.outcome !== "succeeded" ||
+          attempt.messageId !== message.id ||
+          next.lastV2EventType !== "inference.attempt.finished"
+        ) {
+          throw new Error(
+            `Tool call ${event.payload.toolCallId} requires the immediately preceding successful v2 attempt`,
+          );
+        }
+        if (
+          !attempt.allowTools ||
+          !attempt.allowedToolNames?.includes(event.payload.name)
+        ) {
+          throw new Error(
+            `Tool call ${event.payload.toolCallId} is not allowed by inference attempt ${attempt.attemptId}`,
+          );
+        }
+      }
       if (
         next.executionPolicy &&
         (message.status !== "completed" || message.stopReason !== "tool_calls")
@@ -693,6 +1334,54 @@ export function reduceSessionEvent(
           `Context checkpoint ${event.payload.checkpointId} does not match the active assistant`,
         );
       }
+      if (v2Policy(next)) {
+        if (
+          event.payload.decisionId === undefined ||
+          event.payload.leaseId === undefined ||
+          event.payload.messageId === undefined ||
+          event.payload.attemptId === undefined
+        ) {
+          throw new Error(
+            "agentic-execution-v2 context.compiled requires decision, lease, message, and attempt links",
+          );
+        }
+        if (
+          assistant.id !== event.payload.messageId ||
+          assistant.decisionId !== event.payload.decisionId ||
+          assistant.leaseId !== event.payload.leaseId ||
+          assistant.checkpointId !== event.payload.checkpointId ||
+          assistant.attemptId !== event.payload.attemptId ||
+          route.leaseId !== event.payload.leaseId
+        ) {
+          throw new Error(
+            `Context checkpoint ${event.payload.checkpointId} does not match its v2 decision, lease, message, and attempt links`,
+          );
+        }
+        const decision = next.routingDecisions.find(
+          (candidate) => candidate.decisionId === event.payload.decisionId,
+        );
+        if (!decision) {
+          throw new Error(
+            `Context checkpoint ${event.payload.checkpointId} references an unknown routing decision`,
+          );
+        }
+        if (
+          decision.reasonCode === "cloud_admitted" &&
+          ((decision.checkpointId !== undefined &&
+            decision.checkpointId !== event.payload.checkpointId) ||
+            (decision.packetSha256 !== undefined &&
+              decision.packetSha256 !== event.payload.packetSha256) ||
+            (decision.messagesSha256 !== undefined &&
+              decision.messagesSha256 !== event.payload.messagesSha256) ||
+            (decision.billing !== undefined &&
+              decision.billing.billableInputTokens !==
+                event.payload.estimatedTokens))
+        ) {
+          throw new Error(
+            `Context checkpoint ${event.payload.checkpointId} does not match its persisted routing admission packet`,
+          );
+        }
+      }
       if (next.executionPolicy) {
         const assistantCount = next.messages.filter(
           (message) => message.role === "assistant",
@@ -742,7 +1431,264 @@ export function reduceSessionEvent(
       });
       break;
     }
+    case "inference.attempt.started": {
+      const policy = v2Policy(next);
+      if (!policy) {
+        throw new Error("inference.attempt.started requires agentic-execution-v2");
+      }
+      if (openInferenceAttempt(next)) {
+        throw new Error("Cannot start a second inference attempt while one is open");
+      }
+      if (
+        next.inferenceAttempts.some(
+          (attempt) => attempt.attemptId === event.payload.attemptId,
+        )
+      ) {
+        throw new Error(`Duplicate inference attempt ${event.payload.attemptId}`);
+      }
+      const checkpoint = next.contextCompilations.at(-1);
+      const message = [...next.messages]
+        .reverse()
+        .find((candidate) => candidate.role === "assistant");
+      const route = next.routes.at(-1);
+      const decision = next.routingDecisions.find(
+        (candidate) => candidate.decisionId === event.payload.decisionId,
+      );
+      if (
+        !checkpoint ||
+        checkpoint.sequence !== event.sequence - 1 ||
+        checkpoint.checkpointId !== event.payload.checkpointId ||
+        checkpoint.messageId !== event.payload.messageId ||
+        checkpoint.attemptId !== event.payload.attemptId ||
+        checkpoint.decisionId !== event.payload.decisionId ||
+        checkpoint.leaseId !== event.payload.leaseId
+      ) {
+        throw new Error(
+          `Inference attempt ${event.payload.attemptId} does not match the immediately preceding checkpoint`,
+        );
+      }
+      if (
+        !message ||
+        message.status !== "streaming" ||
+        message.id !== event.payload.messageId ||
+        message.attemptId !== event.payload.attemptId ||
+        message.checkpointId !== event.payload.checkpointId ||
+        message.decisionId !== event.payload.decisionId ||
+        message.leaseId !== event.payload.leaseId
+      ) {
+        throw new Error(
+          `Inference attempt ${event.payload.attemptId} does not match the active assistant`,
+        );
+      }
+      if (
+        !route ||
+        route.leaseId !== event.payload.leaseId ||
+        route.providerId !== event.payload.providerId ||
+        route.model !== event.payload.requestedModel
+      ) {
+        throw new Error(
+          `Inference attempt ${event.payload.attemptId} does not match the active route`,
+        );
+      }
+      if (
+        !decision ||
+        decision.selectedLeaseId !== event.payload.leaseId ||
+        decision.selectedProviderId !== event.payload.providerId ||
+        decision.selectedModel !== event.payload.requestedModel ||
+        decision.phase !== event.payload.phase
+      ) {
+        throw new Error(
+          `Inference attempt ${event.payload.attemptId} does not match its routing decision`,
+        );
+      }
+      if (
+        decision.reasonCode === "cloud_admitted" &&
+        decision.billing !== undefined &&
+        decision.billing.requestedMaxOutputTokens !==
+          event.payload.requestedMaxOutputTokens
+      ) {
+        throw new Error(
+          `Inference attempt ${event.payload.attemptId} output allowance does not match its routing decision`,
+        );
+      }
+      const round = next.messages.filter(
+        (candidate) => candidate.role === "assistant",
+      ).length;
+      if (event.payload.round !== round) {
+        throw new Error(
+          `Inference attempt ${event.payload.attemptId} round must equal assistant ordinal ${round}`,
+        );
+      }
+      if (
+        next.deadlineAt === undefined ||
+        Date.parse(event.createdAt) >= Date.parse(next.deadlineAt)
+      ) {
+        throw new Error(
+          `Inference attempt ${event.payload.attemptId} cannot start at or after the episode deadline`,
+        );
+      }
+      const paidAttemptCount = next.inferenceAttempts.filter(
+        (attempt) => attempt.budgetReservationId !== undefined,
+      ).length;
+      if (
+        event.payload.budgetReservationId !== undefined &&
+        paidAttemptCount >= policy.maxPaidAttempts
+      ) {
+        throw new Error("V2 session exceeds the persisted paid-attempt limit");
+      }
+      if (
+        decision.budgetReservationId !== event.payload.budgetReservationId
+      ) {
+        throw new Error(
+          `Inference attempt ${event.payload.attemptId} budget reservation does not match its routing decision`,
+        );
+      }
+      next.inferenceAttempts.push({
+        ...event.payload,
+        ...(event.payload.allowedToolNames === undefined
+          ? {}
+          : { allowedToolNames: [...event.payload.allowedToolNames] }),
+        sequence: event.sequence,
+        createdAt: event.createdAt,
+      });
+      break;
+    }
+    case "inference.attempt.finished": {
+      if (!v2Policy(next)) {
+        throw new Error("inference.attempt.finished requires agentic-execution-v2");
+      }
+      const attempt = findInferenceAttempt(next, event.payload.attemptId);
+      if (attempt.finished !== undefined) {
+        throw new Error(`Inference attempt ${event.payload.attemptId} already finished`);
+      }
+      const openAttempt = openInferenceAttempt(next);
+      if (openAttempt?.attemptId !== attempt.attemptId) {
+        throw new Error(
+          `Inference attempt ${event.payload.attemptId} is not the open attempt`,
+        );
+      }
+      if (event.payload.checkpointId !== attempt.checkpointId) {
+        throw new Error(
+          `Inference attempt ${event.payload.attemptId} finish checkpoint does not match its start`,
+        );
+      }
+      if (
+        event.payload.servedModel !== undefined &&
+        event.payload.servedModel !== attempt.requestedModel
+      ) {
+        throw new Error(
+          `Inference attempt ${event.payload.attemptId} served model does not match its requested model`,
+        );
+      }
+      if (
+        (attempt.budgetReservationId === undefined) !==
+          (event.payload.cost.reservationId === undefined) ||
+        (attempt.budgetReservationId !== undefined &&
+          event.payload.cost.reservationId !== attempt.budgetReservationId)
+      ) {
+        throw new Error(
+          `Inference attempt ${event.payload.attemptId} cost reservation does not match its start`,
+        );
+      }
+      if (attempt.budgetReservationId === undefined) {
+        if (
+          event.payload.cost.amountMicrousd !== 0 ||
+          event.payload.cost.provenance !== "local_zero_cost_policy"
+        ) {
+          throw new Error(
+            `Unreserved inference attempt ${event.payload.attemptId} must use local zero-cost accounting`,
+          );
+        }
+      } else if (
+        event.payload.cost.provenance === "local_zero_cost_policy"
+      ) {
+        throw new Error(
+          `Reserved inference attempt ${event.payload.attemptId} cannot use local zero-cost accounting`,
+        );
+      }
+      if (event.payload.cost.provenance === "reserved_unknown") {
+        const decision = next.routingDecisions.find(
+          (candidate) => candidate.decisionId === attempt.decisionId,
+        );
+        if (
+          decision?.reasonCode !== "cloud_admitted" ||
+          decision.billing === undefined ||
+          decision.budgetReservationId === undefined ||
+          event.payload.cost.reservationId !==
+            decision.budgetReservationId ||
+          event.payload.cost.amountMicrousd !==
+            decision.billing.projectedCostMicrousd
+        ) {
+          throw new Error(
+            `reserved_unknown cost for inference attempt ${event.payload.attemptId} must equal its originating full reservation`,
+          );
+        }
+      }
+      const message = findMessage(next, attempt.messageId);
+      if (message.role !== "assistant" || message.attemptId !== attempt.attemptId) {
+        throw new Error(
+          `Inference attempt ${event.payload.attemptId} does not match its assistant message`,
+        );
+      }
+      if (event.payload.outcome === "succeeded") {
+        if (message.status === "streaming") {
+          throw new Error(
+            `Successful inference attempt ${attempt.attemptId} requires a completed assistant message`,
+          );
+        }
+        if (event.payload.finishReason !== message.stopReason) {
+          throw new Error(
+            `Successful inference attempt ${attempt.attemptId} finish reason does not match its assistant message`,
+          );
+        }
+        if (attempt.requireToolCall && message.stopReason !== "tool_calls") {
+          throw new Error(
+            `Inference attempt ${attempt.attemptId} required a tool call but the assistant did not request one`,
+          );
+        }
+        if (!attempt.allowTools && message.stopReason === "tool_calls") {
+          throw new Error(
+            `Tool-free inference attempt ${attempt.attemptId} cannot finish with tool_calls`,
+          );
+        }
+      } else {
+        message.status = "failed";
+        message.completionState = "incomplete";
+        if (event.payload.finishReason !== undefined) {
+          message.stopReason = event.payload.finishReason;
+        }
+      }
+      attempt.finished = {
+        ...event.payload,
+        usage: { ...event.payload.usage },
+        cost: { ...event.payload.cost },
+        sequence: event.sequence,
+        createdAt: event.createdAt,
+      };
+      next.usage.inputTokens += event.payload.usage.inputTokens;
+      next.usage.outputTokens += event.payload.usage.outputTokens;
+      next.usage.reasoningTokens += event.payload.usage.reasoningTokens;
+      next.usage.costUsd += event.payload.cost.amountMicrousd / 1_000_000;
+      next.usage.latencyMs += event.payload.latencyMs;
+      if (event.payload.ttftMs !== undefined) {
+        next.usage.ttftMs = event.payload.ttftMs;
+      }
+      break;
+    }
     case "completion.obligations.checked": {
+      if (v2Policy(next)) {
+        const attempt = next.inferenceAttempts.at(-1);
+        if (
+          !attempt?.finished ||
+          attempt.finished.outcome !== "succeeded" ||
+          attempt.messageId !== event.payload.messageId ||
+          next.lastV2EventType !== "inference.attempt.finished"
+        ) {
+          throw new Error(
+            `Completion obligation check ${event.payload.checkId} requires the immediately preceding successful v2 attempt`,
+          );
+        }
+      }
       if (!hasCompletionObligations(next.completionObligations)) {
         throw new Error(
           `Session ${event.sessionId} has no active completion obligations`,
@@ -922,6 +1868,11 @@ export function reduceSessionEvent(
       break;
     }
     case "usage.recorded":
+      if (v2Policy(next)) {
+        throw new Error(
+          "usage.recorded is a v1-only source; v2 usage derives from finished attempts",
+        );
+      }
       ensureCurrentAssistantCheckpoint(next, event.type);
       if (
         next.executionPolicy &&
@@ -943,6 +1894,22 @@ export function reduceSessionEvent(
       }
       break;
     case "session.completed":
+      assertV2TerminalReady(next, event.type);
+      if (v2Policy(next)) {
+        const finalMessage = [...next.messages]
+          .reverse()
+          .find((message) => message.role === "assistant");
+        if (
+          !finalMessage ||
+          finalMessage.status !== "completed" ||
+          (event.payload.result !== undefined &&
+            event.payload.result !== finalMessage.content)
+        ) {
+          throw new Error(
+            `Session ${event.sessionId} v2 completion result must match its successful final assistant message`,
+          );
+        }
+      }
       if (hasCompletionObligations(next.completionObligations)) {
         const finalMessage = [...next.messages]
           .reverse()
@@ -976,14 +1943,17 @@ export function reduceSessionEvent(
           .find((message) => message.role === "assistant")?.content;
       break;
     case "session.failed":
+      assertV2TerminalReady(next, event.type);
       next.status = "failed";
       next.error = event.payload.error;
       break;
     case "session.cancelled":
+      assertV2TerminalReady(next, event.type);
       next.status = "cancelled";
       next.error = event.payload.reason;
       break;
     case "session.interrupted":
+      assertV2TerminalReady(next, event.type);
       next.status = "interrupted";
       next.error = event.payload.reason;
       for (const message of next.messages) {
@@ -992,6 +1962,10 @@ export function reduceSessionEvent(
         }
       }
       break;
+  }
+
+  if (v2Policy(next)) {
+    next.lastV2EventType = event.type;
   }
 
   return next;

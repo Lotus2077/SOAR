@@ -26,6 +26,8 @@ function session(messages: CanonicalMessage[]): SessionState {
     messages,
     routes: [],
     contextCompilations: [],
+    routingDecisions: [],
+    inferenceAttempts: [],
     completionObligations: {
       requiredSuccessfulTools: [],
       minimumVerifiedPathLineCitations: 0,

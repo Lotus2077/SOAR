@@ -19,6 +19,7 @@ export function createLocalVllmDescriptor(config: SoarConfig): ProviderDescripto
       "chat_completions",
       "reasoning_effort",
       "streaming",
+      "structured_json_schema",
       "tool_calling",
     ],
     contextWindowTokens:

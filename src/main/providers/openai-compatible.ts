@@ -3,9 +3,13 @@ import { randomUUID } from "node:crypto";
 import OpenAI from "openai";
 
 import {
-  MODEL_TOOL_DEFINITIONS,
+  selectModelToolDefinitions,
   type RegisteredToolName,
 } from "../tools/tool-registry";
+import {
+  REVIEW_RESULT_V1_STRUCTURED_OUTPUT_CONTRACT,
+  reviewResultV1ResponseFormat,
+} from "../../shared/review-result-contract";
 import {
   hasProviderCapabilities,
   parseProviderDescriptor,
@@ -16,8 +20,10 @@ import {
   type CompleteInput,
   type DescribedInferenceProvider,
   type ProviderAbortKind,
+  type ProviderModelAvailabilityResult,
   type ProviderResult,
   type ProviderToolCall,
+  type StructuredOutputContract,
 } from "./types";
 
 interface ToolCallAccumulator {
@@ -27,6 +33,8 @@ interface ToolCallAccumulator {
 }
 
 export const OPENAI_COMPATIBLE_BASE_REQUEST_RESERVE_TOKENS = 512;
+export const OPENAI_COMPATIBLE_MODEL_LIST_TIMEOUT_MS = 30_000;
+export const OPENAI_COMPATIBLE_MODEL_LIST_MAX_BYTES = 1024 * 1024;
 
 export interface OpenAICompatibleProviderOptions {
   baseUrl: string;
@@ -39,17 +47,63 @@ function conservativeTokenReserve(value: unknown): number {
   return new TextEncoder().encode(JSON.stringify(value)).length;
 }
 
+function modelAvailabilityResult(
+  descriptor: ProviderDescriptor,
+  status: ProviderModelAvailabilityResult["status"],
+  code: ProviderModelAvailabilityResult["code"],
+): ProviderModelAvailabilityResult {
+  return Object.freeze({
+    providerId: descriptor.id,
+    model: descriptor.model,
+    locality: descriptor.locality,
+    status,
+    code,
+  });
+}
+
+async function readBoundedResponseBody(
+  response: Response,
+): Promise<string | undefined> {
+  const contentLength = response.headers.get("content-length");
+  if (contentLength !== null) {
+    const declaredLength = Number(contentLength);
+    if (
+      !Number.isSafeInteger(declaredLength) ||
+      declaredLength < 0 ||
+      declaredLength > OPENAI_COMPATIBLE_MODEL_LIST_MAX_BYTES
+    ) {
+      await response.body?.cancel();
+      return undefined;
+    }
+  }
+  if (response.body === null) return "";
+
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  const reader = response.body.getReader();
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    totalBytes += chunk.value.byteLength;
+    if (totalBytes > OPENAI_COMPATIBLE_MODEL_LIST_MAX_BYTES) {
+      await reader.cancel();
+      return undefined;
+    }
+    chunks.push(chunk.value);
+  }
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+}
+
 function selectedToolDefinitions(
   allowedToolNames?: readonly RegisteredToolName[],
-): typeof MODEL_TOOL_DEFINITIONS {
-  if (allowedToolNames === undefined) return MODEL_TOOL_DEFINITIONS;
-  const allowed = new Set<string>(allowedToolNames);
-  return Object.freeze(
-    MODEL_TOOL_DEFINITIONS.filter((definition) =>
-      definition.type === "function" &&
-      allowed.has(definition.function.name),
-    ),
-  );
+): ReturnType<typeof selectModelToolDefinitions> {
+  return selectModelToolDefinitions(allowedToolNames);
 }
 
 function providerRequestFields(
@@ -57,7 +111,32 @@ function providerRequestFields(
   allowTools: boolean,
   allowedToolNames?: readonly RegisteredToolName[],
   requireToolCall = false,
+  structuredOutputContract?: StructuredOutputContract,
 ) {
+  if (
+    structuredOutputContract !== undefined &&
+    structuredOutputContract !== REVIEW_RESULT_V1_STRUCTURED_OUTPUT_CONTRACT
+  ) {
+    throw new RangeError(
+      `unsupported structured output contract: ${String(structuredOutputContract)}`,
+    );
+  }
+  if (
+    structuredOutputContract !== undefined &&
+    (allowTools || allowedToolNames !== undefined || requireToolCall)
+  ) {
+    throw new RangeError(
+      "structured output is mutually exclusive with provider tools",
+    );
+  }
+  if (
+    structuredOutputContract !== undefined &&
+    !hasProviderCapabilities(descriptor, ["structured_json_schema"])
+  ) {
+    throw new Error(
+      `provider ${descriptor.id} does not advertise structured_json_schema`,
+    );
+  }
   const tools = selectedToolDefinitions(allowedToolNames);
   const toolsEnabled = allowTools && tools.length > 0;
   const supportsToolCalling = hasProviderCapabilities(descriptor, [
@@ -81,6 +160,12 @@ function providerRequestFields(
   ])
     ? { reasoning_effort: "none" as const }
     : {};
+  if (structuredOutputContract !== undefined) {
+    return {
+      ...reasoningFields,
+      response_format: reviewResultV1ResponseFormat(),
+    };
+  }
   if (!toolsEnabled) {
     return supportsToolCalling
       ? { ...reasoningFields, tool_choice: "none" as const }
@@ -100,6 +185,7 @@ function requestReserveTokens(
   allowTools: boolean,
   allowedToolNames?: readonly RegisteredToolName[],
   requireToolCall = false,
+  structuredOutputContract?: StructuredOutputContract,
 ): number {
   return (
     baseReserveTokens +
@@ -109,6 +195,7 @@ function requestReserveTokens(
         allowTools,
         allowedToolNames,
         requireToolCall,
+        structuredOutputContract,
       ),
     )
   );
@@ -122,16 +209,11 @@ export class OpenAICompatibleProvider implements DescribedInferenceProvider {
   private readonly client: OpenAI;
   private readonly maxOutputTokens: number;
   private readonly timeoutMs: number;
+  private readonly baseUrl: string;
+  private readonly apiKey: string;
 
   constructor(config: OpenAICompatibleProviderOptions) {
     this.descriptor = parseProviderDescriptor(config.descriptor);
-    if (
-      hasProviderCapabilities(this.descriptor, ["structured_json_schema"])
-    ) {
-      throw new Error(
-        "structured_json_schema cannot be advertised before the adapter implements and proves it",
-      );
-    }
     this.id = this.descriptor.id;
     this.model = this.descriptor.model;
     this.costPolicy =
@@ -140,6 +222,8 @@ export class OpenAICompatibleProvider implements DescribedInferenceProvider {
         : undefined;
     this.maxOutputTokens = this.descriptor.maxOutputTokens;
     this.timeoutMs = config.timeoutMs;
+    this.baseUrl = config.baseUrl.replace(/\/+$/u, "");
+    this.apiKey = config.apiKey;
     this.client = new OpenAI({
       apiKey: config.apiKey,
       baseURL: config.baseUrl,
@@ -152,6 +236,7 @@ export class OpenAICompatibleProvider implements DescribedInferenceProvider {
     allowTools: boolean,
     allowedToolNames?: RegisteredToolName[],
     requireToolCall = false,
+    structuredOutputContract?: StructuredOutputContract,
   ): number {
     return (
       requestReserveTokens(
@@ -160,9 +245,128 @@ export class OpenAICompatibleProvider implements DescribedInferenceProvider {
         allowTools,
         allowedToolNames,
         requireToolCall,
+        structuredOutputContract,
       ) +
       new TextEncoder().encode(this.model).length
     );
+  }
+
+  async checkConfiguredModelAvailability(
+    signal?: AbortSignal,
+  ): Promise<ProviderModelAvailabilityResult> {
+    const timeoutController = new AbortController();
+    const timeout = setTimeout(
+      () => timeoutController.abort(),
+      OPENAI_COMPATIBLE_MODEL_LIST_TIMEOUT_MS,
+    );
+    const combinedSignal =
+      signal === undefined
+        ? timeoutController.signal
+        : AbortSignal.any([signal, timeoutController.signal]);
+    try {
+      const response = await fetch(`${this.baseUrl}/models`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        redirect: "error",
+        signal: combinedSignal,
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        return modelAvailabilityResult(
+          this.descriptor,
+          "unhealthy",
+          "http_error",
+        );
+      }
+      let body: string | undefined;
+      try {
+        body = await readBoundedResponseBody(response);
+      } catch {
+        return modelAvailabilityResult(
+          this.descriptor,
+          "unhealthy",
+          "malformed_response",
+        );
+      }
+      if (body === undefined) {
+        return modelAvailabilityResult(
+          this.descriptor,
+          "unhealthy",
+          "response_too_large",
+        );
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(body);
+      } catch {
+        return modelAvailabilityResult(
+          this.descriptor,
+          "unhealthy",
+          "malformed_response",
+        );
+      }
+      if (
+        parsed === null ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed) ||
+        (parsed as { object?: unknown }).object !== "list" ||
+        !Array.isArray((parsed as { data?: unknown }).data)
+      ) {
+        return modelAvailabilityResult(
+          this.descriptor,
+          "unhealthy",
+          "malformed_response",
+        );
+      }
+      const data = (parsed as { data: unknown[] }).data;
+      if (
+        data.some(
+          (entry) =>
+            entry === null ||
+            typeof entry !== "object" ||
+            Array.isArray(entry) ||
+            typeof (entry as { id?: unknown }).id !== "string",
+        )
+      ) {
+        return modelAvailabilityResult(
+          this.descriptor,
+          "unhealthy",
+          "malformed_response",
+        );
+      }
+      const matches = data.filter(
+        (entry) =>
+          (entry as { id: string }).id === this.descriptor.model,
+      ).length;
+      return matches === 1
+        ? modelAvailabilityResult(
+            this.descriptor,
+            "healthy",
+            "configured_model_available",
+          )
+        : modelAvailabilityResult(
+            this.descriptor,
+            "unhealthy",
+            matches === 0
+              ? "configured_model_missing"
+              : "configured_model_duplicated",
+          );
+    } catch {
+      return modelAvailabilityResult(
+        this.descriptor,
+        "unhealthy",
+        signal?.aborted
+          ? "cancelled"
+          : timeoutController.signal.aborted
+            ? "timeout"
+            : "network_error",
+      );
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async complete({
@@ -172,6 +376,7 @@ export class OpenAICompatibleProvider implements DescribedInferenceProvider {
     allowTools = true,
     allowedToolNames,
     requireToolCall = false,
+    structuredOutputContract,
     onDelta,
   }: CompleteInput): Promise<ProviderResult> {
     if (
@@ -220,6 +425,7 @@ export class OpenAICompatibleProvider implements DescribedInferenceProvider {
         allowTools,
         allowedToolNames,
         requireToolCall,
+        structuredOutputContract,
       );
       const stream = await this.client.chat.completions.create(
         {

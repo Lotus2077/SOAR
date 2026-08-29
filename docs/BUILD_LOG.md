@@ -1066,3 +1066,297 @@ References: [Hybrid Lease Router v0 plan](plans/HYBRID_LEASE_ROUTER_V0.md),
 [ADR 0004](adr/0004-checkpoint-router-budget-runner-v0.md),
 [vLLM OpenAI-compatible server](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html),
 [`tsx` worker correction proof](https://github.com/Lotus2077/SOAR/actions/runs/33263277828).
+
+### BL-20260830-0157-pr5-local-review-verified -- 2026-08-30 -- PR 5 local Review Current Changes slice verified before push
+
+Status: `Verified`
+
+Scope or hypothesis: Complete the approved `$0` PR 5 as an app-created,
+local-only Review Current Changes vertical slice. Prove the exact structured
+result contract against the configured vLLM once, while keeping production
+Hybrid, OpenRouter, credentials, and paid inference unreachable.
+
+Decisions:
+
+- Schedule only at meaningful boundaries rather than on every session event.
+  The review coordinator fixes a local lease at session start and records the
+  evidence-complete checkpoint before same-provider synthesis; ordinary tool
+  progress does not invoke a general scheduler.
+- Keep tool authority on the app host. The provider receives only the explicitly
+  selected `inspect_git_changes` or `read_text_file` schema, proposes a call,
+  and receives the bounded host result. The final exact-schema synthesis is
+  tool-free.
+- Treat the canonical append-only event history as the sole acceptance source.
+  Rebuild provenance, snapshot/evidence identities, coverage, checkpoint links,
+  raw-versus-attached structured output, semantic acceptance, and the terminal
+  completion check before any model result crosses IPC.
+- Fail closed on incomplete lifecycle state. A result is displayable only after
+  completed-session replay; invalid terminal state is `not_available`, while an
+  identity-matching but incomplete review remains visible with omissions and
+  cannot be copied.
+- Send review evidence to the configured vLLM endpoint and say so in the UI and
+  documentation. Here `local` means the self-hosted zero-paid route, not that
+  the endpoint necessarily runs on the same Mac or that transport has no cost.
+- Project review state through an explicit allowlist. Review event payloads and
+  coverage expose only bounded route/attempt/usage facts and aggregate counts,
+  not raw tool bodies, raw structured output, or per-file coverage. The accepted
+  result retains its contract-required evidence-reference identities, and
+  review streaming deltas are replaced by redacted snapshots.
+- Revalidate the workspace after synthesis, before display, before copy, on
+  window focus, and when a hidden app becomes visible. Use monotonically ordered
+  requests so a stale asynchronous response cannot restore copy access.
+- Report end-to-end wall time separately from summed provider-call time, and
+  include reasoning tokens in displayed total tokens. Continue to distinguish
+  reported, policy-derived zero, reserved-unknown, and unreported cost.
+- Preserve the one-shot live rule. The schema canary makes one bounded
+  `/models` request and one structured inference with no retry or fallback.
+  After the run, add `--disableConsoleIntercept` so future canaries expose their
+  bounded attestation; do not repeat this canary merely to recover telemetry
+  hidden by the original Vitest reporter.
+
+Changes: Added the strict `ReviewResultV1` Zod and standard JSON Schema
+contracts, parameterized OpenAI-compatible structured output and bounded model
+discovery, canonical review-event provenance, the no-truncation review context
+compiler, host semantic acceptance, and the production local-only review
+coordinator. Added the review task track, v2 events/reducer/recovery links,
+review-specific IPC, approved-workspace revalidation, renderer-safe event and
+coverage projections, and the dedicated Electron setup/result/timeline UI.
+Added deterministic adapter, contract, replay, crash-window, cancellation,
+privacy, Markdown-injection, freshness-race, metrics, integration, and Electron
+tests plus the opt-in live schema canary. Updated public architecture,
+readiness, and plan documentation without enabling PR 6.
+
+Evidence:
+
+- Consolidated PR 5 focused suite passed 87/87 tests across 12 files after the
+  loopback test server was permitted outside the restricted sandbox.
+- Full local `pnpm check` passed readiness and the then-18-entry build-log
+  validator, TypeScript, 52 test files with 610 tests passed and 2 files/4 tests
+  skipped, and all three production Electron bundles.
+- `pnpm test:e2e` passed 3/3 macOS Electron workflows: Repository Investigator
+  restart restore, active-inference cancellation, and local review with stale
+  Markdown-copy refusal.
+- The first and only `pnpm test:live-review-schema` run passed 1/1 in 5.86
+  seconds of test time. Its assertions prove exactly one configured-model
+  availability check found one `RM-01 VLM`, exactly one tool-free structured
+  inference ended with `finish_reason: stop`, reported positive token usage,
+  streamed the same raw content returned by the provider, and passed complete
+  host acceptance against the exact empty-snapshot `ReviewResultV1` fixture.
+- A safe configuration read confirmed provider mode `local`, an exact `/v1`
+  API base, model `RM-01 VLM`, `local_zero_cost`, an 8,192 output-token limit,
+  and a 300,000-ms request timeout without printing the credential.
+- Three independent reviews covered host acceptance/replay, cancellation and
+  crash windows, renderer privacy/Markdown safety, freshness races, and metric
+  attribution. Their regressions are included in the passing suites.
+
+Failures or blockers: The independent reviews found and corrected several real
+honesty and replay gaps before this verification: accepted incomplete output
+could be labeled fresh and copyable; remote-capable vLLM transport was described
+too locally; model-authored Markdown could create links/images; renderer
+coverage exposed per-file identities; review event projection was not
+default-deny; interrupted or forged accepted output could survive replay; raw
+and attached results were not re-compared; cancellation normalization and the
+last-evidence synthesis boundary could disagree; a renderer callback exception
+could unwind canonical execution; model discovery happened before persisted
+start intent; a replaced workspace symlink could inherit approval; returning to
+the app did not refresh freshness; and provider-call time was mislabeled as
+end-to-end latency while reasoning tokens were omitted. Earlier deterministic
+test execution also produced 17 `listen EPERM` failures because the restricted
+sandbox denied the loopback fixture server; the identical 12-file suite passed
+87/87 when that local bind was permitted. The live canary passed, but Vitest's
+original console interception suppressed the detailed usage/duration
+attestation, so this entry records only asserted facts and test-process timing.
+No current deterministic, Electron, or configured schema-capability blocker
+remains before push.
+
+Limitations and non-claims: The live canary uses a synthetic empty change
+snapshot and proves response-format compatibility, not model review quality or
+an end-to-end real-repository review. Electron E2E uses the deterministic fake
+provider. The app cannot edit files, apply patches, run tests or shell commands,
+review arbitrary historical ranges, or dynamically route to a second provider.
+Binary, submodule, mixed index/worktree, oversized, unavailable, and otherwise
+omitted evidence remains explicitly incomplete. There is no held-out quality,
+cost-savings, or latency comparison; no production cloud provider, Keychain,
+egress gate, or paid route exists. A zero token-fee declaration does not measure
+GPU electricity, hosting, networking, or operator cost. This is a pre-push
+local verification entry, not remote CI, a signed release, or PR 6 approval.
+
+Paid exposure: `$0`. Deterministic validation used local fixtures and GitHub-
+independent tooling. The sole live inference used the configured self-hosted
+provider under `local_zero_cost`; it made no OpenRouter request and selected no
+paid route. Infrastructure and electricity costs are unmeasured.
+
+Next gate: Re-run the non-live gate after this append-only documentation change,
+commit and push PR 5, require green Node 22 Linux and macOS Electron GitHub
+Actions, and append a separate remote-verification entry. PR 6 and every paid
+call remain unapproved.
+
+References: [approved plan](plans/HYBRID_LEASE_ROUTER_V0.md),
+[architecture](ARCHITECTURE.md), [readiness boundary](MVP_READINESS.md),
+[ADR 0003](adr/0003-immutable-change-acquisition-v1.md), and
+[ADR 0004](adr/0004-checkpoint-router-budget-runner-v0.md).
+
+### BL-20260830-0212-pr5-precommit-audit-corrections -- 2026-08-30 -- Final independent audit corrected four release-significant boundaries
+
+Status: `Implemented`
+
+Scope or hypothesis: Resolve every P1 found by the independent final working-
+tree audit after the initial PR 5 local verification entry, and correct the
+macOS distributable's pre-existing Electron/Chromium license collision before
+commit. Preserve the one-shot live-canary rule and make no additional provider
+call.
+
+Decisions:
+
+- Make the synthesis prompt use the host contract's exact conclusion
+  precedence: any admitted P0/P1 finding is `blocking_findings` even when
+  coverage or the model's omissions are incomplete; absent P0/P1, incomplete
+  evidence is `incomplete`; only complete coverage without blockers may be
+  `no_blocking_findings`.
+- Stop treating an arbitrary remote OpenAI-compatible URL as independently
+  known to be free. A non-loopback vLLM base now requires the raw configuration
+  to explicitly contain `SOAR_VLLM_COST_POLICY=local_zero_cost`. UI, IPC, and
+  public docs call `$0` a declared token fee, state that external billing and
+  infrastructure cost are not verified, and distinguish the configured adapter
+  from a separately configured paid provider.
+- Reject vLLM URLs containing username/password userinfo. Provider/server
+  `Error.message` is never persisted by the review coordinator; stable
+  host-authored codes own durable failure text instead.
+- Keep only an explicitly configured API key—not the fallback `local-vllm`
+  literal—and the exact vLLM base URL as main-process-only sensitive values.
+  Recursively reject a completed provider result that echoes either exact value
+  before parsing or persistence. Persist no failed/aborted provider partial at
+  all because an abort may split a secret before exact matching is possible.
+- Treat exact-value filtering as defense in depth, not proof against a malicious
+  endpoint that transforms or encodes a secret. The configured endpoint remains
+  an operator trust boundary.
+- Package SOAR's, Electron's, and Chromium's legal resources under distinct
+  names. Make the packaging script fail if any required resource is missing or
+  empty in either the built app or the extracted archive. State plainly that
+  the hand-maintained third-party notice is not an exhaustive generated SBOM.
+
+Changes: Updated the local-review prompt and added an incomplete-coverage P1
+workflow fixture. Added explicit remote cost-policy admission, IPv4/IPv6
+loopback and URL-userinfo handling, conditional sensitive-key retention, stable
+review failure codes, sensitive-result rejection, and unconditional failed-
+partial omission. Updated the availability contract, IPC/UI labels, and public
+cost/reachability documentation. Added distinct Electron and Chromium
+`extraResources`, package-time legal-resource verification, and a static
+packaging-license contract test.
+
+Evidence:
+
+- The combined affected config, IPC, renderer, coordinator, and packaging suite
+  passed 31/31 tests across five files; TypeScript and `git diff --check` passed.
+- Adversarial coordinator tests prove an opaque non-`sk-` credential and
+  credentialed URL echoed in `Error.message`, a valid structured result echoing
+  exact sensitive values, and an arbitrary aborted partial are absent from both
+  raw canonical events and renderer snapshots.
+- The real-Git bounded-coverage regression completes an accepted P1 review as
+  `blocking_findings`, projects it as identity-matching incomplete, and keeps
+  Markdown copy disabled.
+- `pnpm package:mac` rebuilt and ad-hoc signed the arm64 app, checked all four
+  legal resources in the built and extracted app, and produced
+  `dist/SOAR-mac-arm64.zip`. Archive inspection found `LICENSE` (1,062 bytes),
+  `LICENSE.electron.txt` (1,096 bytes), `LICENSES.chromium.html` (15,715,960
+  bytes), and `THIRD_PARTY_NOTICES.md` (31,968 bytes). The ignored archive's
+  SHA-256 was
+  `d8d0b44103b45ff6750c4ba2efd8fba80f3692a2ca85b9342d8caa56f48bd5c5`.
+- The readiness validator still reports 22 research workloads, 20 coding
+  workloads, and no tracked or unignored live secret.
+
+Failures or blockers: The final audit found four issues after the initial local
+verification: prompt/host conclusion precedence could fail a valid P1 found
+under incomplete coverage; remote endpoint billing was silently inferred from
+a default label; opaque provider errors/results/abort partials could violate the
+durable credential boundary; and the distributable omitted distinct
+Electron/Chromium license resources. All four now have regressions. The complete
+post-correction local suite and Electron E2E have not yet run at this entry, so
+PR 5 is not ready to push here.
+
+Limitations and non-claims: Exact-value filtering cannot recognize encoded,
+hashed, split-across-successful-fields, or otherwise transformed exfiltration
+from a malicious endpoint. Users must trust the configured vLLM operator and
+its billing declaration. The rebuilt app is ad-hoc signed and not notarized.
+`THIRD_PARTY_NOTICES.md` remains hand-maintained; automating a complete direct
+and transitive runtime-license inventory is still release follow-up. This entry
+does not rerun or widen the synthetic schema-canary result and does not prove
+real-repository review quality, dynamic routing, external cost, or release
+readiness.
+
+Paid exposure: `$0` selected under the operator-attested local token-cost
+policy. These corrections and their package/test evidence made no inference or
+provider request and did not access OpenRouter or a separately configured paid
+service. Local build, signing, electricity, and infrastructure costs are not
+measured as token spend.
+
+Next gate: Run the complete non-live `pnpm check` and all Electron E2E on this
+corrected tree, append their exact results, then commit/push and require green
+remote CI. PR 6 and every paid call remain unapproved.
+
+References: [preceding PR 5 local verification](#bl-20260830-0157-pr5-local-review-verified----2026-08-30----pr-5-local-review-current-changes-slice-verified-before-push),
+[architecture](ARCHITECTURE.md), [readiness boundary](MVP_READINESS.md), and
+[approved plan](plans/HYBRID_LEASE_ROUTER_V0.md).
+
+### BL-20260830-0214-pr5-final-local-verification -- 2026-08-30 -- Corrected PR 5 tree passed every local gate
+
+Status: `Verified`
+
+Scope or hypothesis: Close the pre-commit audit-correction gate on the exact
+working tree that will be committed, without repeating the one-shot live schema
+canary or contacting any provider.
+
+Decisions:
+
+- Treat this post-correction result, rather than the earlier pre-audit local
+  gate, as the definitive local PR 5 verification.
+- Preserve the earlier canary as a narrowly scoped provider/schema fact. The
+  subsequent changes affect prompt precedence, configuration admission,
+  sensitive-output persistence, UI truthfulness, and packaging—not the exact
+  JSON Schema request that passed—and do not authorize a second live call.
+- Require remote Linux/Node 22 and macOS Electron CI before declaring the pushed
+  revision verified. A local pass is necessary but not a remote portability
+  claim.
+
+Changes: No source change is introduced by this entry. It records verification
+after `BL-20260830-0212-pr5-precommit-audit-corrections` and all preceding PR 5
+implementation changes.
+
+Evidence:
+
+- Final `pnpm check` passed readiness, the then-20-entry build-log validator,
+  TypeScript, 53 test files with 615 tests passed and 2 files/4 tests skipped,
+  and the production Electron main/preload/renderer build.
+- Final `pnpm test:e2e` passed 3/3 macOS workflows in 7.7 seconds: Repository
+  Investigator restart restoration, active-inference cancellation, and Review
+  Current Changes with stale Markdown-copy refusal.
+- The immediately preceding signed package proof verified all four legal
+  resources in the built and extracted archive; its exact hash and sizes are in
+  the correction entry.
+- The first and only local structured-schema canary remains the passing 1/1
+  2026-08-30 run recorded in `BL-20260830-0157-pr5-local-review-verified`.
+
+Failures or blockers: No local PR 5 blocker remains. Remote GitHub Actions has
+not yet run on the corrected commit, so pushed portability is still pending.
+
+Limitations and non-claims: The structured live result is still a synthetic
+empty-snapshot schema compatibility proof, not a real-repository review-quality
+result. Electron E2E uses a deterministic fake provider. The app remains
+same-provider and read-only, with no patch/test/shell tools, production Hybrid,
+OpenRouter construction, Keychain flow, held-out evaluation, notarization, or
+signed release channel. Remote endpoint billing is operator-attested, not
+independently verified. Exact-value filtering cannot prove safety against a
+malicious endpoint that transforms sensitive values. A complete generated
+direct/transitive dependency-license inventory remains release follow-up.
+
+Paid exposure: `$0` selected under the declared local token-cost policy. This
+post-correction gate used only local deterministic tests, Electron, filesystem,
+Git, and build tooling; it made no inference or provider request.
+
+Next gate: Commit and push the complete PR 5 tree, require green GitHub Actions,
+then append a distinct remote-verification entry. PR 6, OpenRouter, and every
+paid call remain unapproved.
+
+References: [audit corrections](#bl-20260830-0212-pr5-precommit-audit-corrections----2026-08-30----final-independent-audit-corrected-four-release-significant-boundaries),
+[initial local canary entry](#bl-20260830-0157-pr5-local-review-verified----2026-08-30----pr-5-local-review-current-changes-slice-verified-before-push),
+[architecture](ARCHITECTURE.md), and [readiness boundary](MVP_READINESS.md).

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import process from "node:process";
@@ -48,6 +48,22 @@ async function verifyApp(appPath) {
     "--verbose=4",
     appPath,
   ]);
+
+  for (const resourceName of [
+    "LICENSE",
+    "LICENSE.electron.txt",
+    "LICENSES.chromium.html",
+    "THIRD_PARTY_NOTICES.md",
+  ]) {
+    const metadata = await stat(
+      join(appPath, "Contents", "Resources", resourceName),
+    );
+    if (!metadata.isFile() || metadata.size === 0) {
+      throw new Error(
+        `Packaged legal resource is missing or empty: ${resourceName}`,
+      );
+    }
+  }
 }
 
 async function main() {

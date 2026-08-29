@@ -23,6 +23,12 @@ import {
 } from "./session-events";
 import { normalizeCitationsFromEvidence } from "./citation-evidence";
 import { parseSuccessfulRepositoryToolObservation } from "./tool-observation";
+import {
+  InspectGitChangesRequestV1Schema,
+  InspectGitChangesResultV1Schema,
+  type ReviewCoverageV1,
+} from "./change-review-contracts";
+import type { ReviewResultV1 } from "./review-result-contract";
 
 export interface CanonicalToolCall {
   id: string;
@@ -46,6 +52,15 @@ export interface CanonicalMessage {
   toolName?: string;
   toolCalls?: CanonicalToolCall[];
   citationCorrections?: CitationCorrection[];
+  reviewParseStatus?:
+    | "accepted"
+    | "invalid_json"
+    | "schema_invalid"
+    | "semantic_invalid"
+    | "snapshot_stale"
+    | "not_received";
+  reviewResult?: ReviewResultV1;
+  reviewCoverage?: ReviewCoverageV1;
   decisionId?: string;
   leaseId?: string;
   checkpointId?: string;
@@ -96,6 +111,11 @@ export interface ContextCompilation {
   leaseId?: string;
   messageId?: string;
   attemptId?: string;
+  reviewSnapshotId?: string;
+  reviewEvidenceSetId?: string;
+  reviewProvenanceSha256?: string;
+  structuredOutputContract?: "change-review-result-v1";
+  structuredOutputSchemaSha256?: string;
   sequence: number;
   createdAt: string;
 }
@@ -190,6 +210,35 @@ function equalToolSequences(
 export function hasSuccessfulToolResult(
   toolCall: CanonicalToolCall,
 ): boolean {
+  if (
+    toolCall.name === "inspect_git_changes" &&
+    toolCall.status === "completed" &&
+    toolCall.content !== undefined &&
+    InspectGitChangesRequestV1Schema.safeParse(toolCall.arguments).success
+  ) {
+    try {
+      const envelope = JSON.parse(toolCall.content) as unknown;
+      if (
+        envelope === null ||
+        typeof envelope !== "object" ||
+        Array.isArray(envelope)
+      ) {
+        return false;
+      }
+      const record = envelope as Record<string, unknown>;
+      if (
+        record.ok !== true ||
+        JSON.stringify(Object.keys(record).sort()) !==
+          JSON.stringify(["evidenceMap", "ok", "schemaVersion", "snapshot"])
+      ) {
+        return false;
+      }
+      const { ok: _ok, ...result } = record;
+      return InspectGitChangesResultV1Schema.safeParse(result).success;
+    } catch {
+      return false;
+    }
+  }
   return (
     toolCall.status === "completed" &&
     parseSuccessfulRepositoryToolObservation(
@@ -406,6 +455,21 @@ function assertV2TerminalReady(
     const latest = state.inferenceAttempts.at(-1);
     if (!latest || latest.finished?.outcome !== "succeeded") {
       throw new Error("session.completed requires a successful final v2 attempt");
+    }
+    if (state.taskTrack === "change-review-v1") {
+      const message = state.messages.find(
+        (candidate) => candidate.id === latest.messageId,
+      );
+      if (
+        latest.structuredOutputContract !== "change-review-result-v1" ||
+        message?.reviewParseStatus !== "accepted" ||
+        message.reviewResult === undefined ||
+        message.reviewCoverage === undefined
+      ) {
+        throw new Error(
+          "change-review-v1 completion requires one host-accepted structured review",
+        );
+      }
     }
   }
 }
@@ -657,6 +721,12 @@ export function reduceSessionEvent(
       citationCorrections: message.citationCorrections?.map((correction) => ({
         ...correction,
       })),
+      ...(message.reviewResult === undefined
+        ? {}
+        : { reviewResult: structuredClone(message.reviewResult) }),
+      ...(message.reviewCoverage === undefined
+        ? {}
+        : { reviewCoverage: structuredClone(message.reviewCoverage) }),
     })),
     routes: state.routes.map((route) => ({ ...route })),
     // Persisted projections created before context telemetry was introduced do
@@ -1209,6 +1279,53 @@ export function reduceSessionEvent(
             `Assistant completion ${message.id} does not match the open v2 attempt`,
           );
         }
+        const structuredReviewAttempt =
+          attempt.structuredOutputContract === "change-review-result-v1";
+        if (
+          structuredReviewAttempt !==
+          (event.payload.reviewParseStatus !== undefined)
+        ) {
+          throw new Error(
+            `Structured review attempt ${attempt.attemptId} must persist exactly one review parse status`,
+          );
+        }
+        if (event.payload.reviewParseStatus !== undefined) {
+          if (next.taskTrack !== "change-review-v1") {
+            throw new Error(
+              "Structured review completion is restricted to change-review-v1 sessions",
+            );
+          }
+          const checkpoint = next.contextCompilations.find(
+            (candidate) => candidate.checkpointId === attempt.checkpointId,
+          );
+          if (
+            checkpoint?.compilerVersion !== "review-context-compiler-v1" ||
+            checkpoint.structuredOutputContract !==
+              attempt.structuredOutputContract ||
+            checkpoint.structuredOutputSchemaSha256 !==
+              attempt.structuredOutputSchemaSha256
+          ) {
+            throw new Error(
+              `Structured review attempt ${attempt.attemptId} is not bound to its review context and schema`,
+            );
+          }
+          if (event.payload.reviewParseStatus === "accepted") {
+            if (
+              event.payload.reviewResult?.snapshotId !==
+                checkpoint.reviewSnapshotId ||
+              event.payload.reviewResult?.evidenceSetId !==
+                checkpoint.reviewEvidenceSetId ||
+              event.payload.reviewCoverage?.snapshotId !==
+                checkpoint.reviewSnapshotId ||
+              event.payload.reviewCoverage?.evidenceSetId !==
+                checkpoint.reviewEvidenceSetId
+            ) {
+              throw new Error(
+                `Accepted review attempt ${attempt.attemptId} does not match its immutable packet identities`,
+              );
+            }
+          }
+        }
       }
       if (event.payload.content !== undefined) {
         message.content = event.payload.content;
@@ -1221,6 +1338,15 @@ export function reduceSessionEvent(
         message.citationCorrections = event.payload.citationCorrections.map(
           (correction) => ({ ...correction }),
         );
+      }
+      if (event.payload.reviewParseStatus !== undefined) {
+        message.reviewParseStatus = event.payload.reviewParseStatus;
+      }
+      if (event.payload.reviewResult !== undefined) {
+        message.reviewResult = structuredClone(event.payload.reviewResult);
+      }
+      if (event.payload.reviewCoverage !== undefined) {
+        message.reviewCoverage = structuredClone(event.payload.reviewCoverage);
       }
       if (event.payload.attemptId !== undefined) {
         message.attemptId = event.payload.attemptId;
@@ -1530,6 +1656,14 @@ export function reduceSessionEvent(
           `Context checkpoint reason session_start is reserved for the first checkpoint`,
         );
       }
+      if (
+        event.payload.compilerVersion === "review-context-compiler-v1" &&
+        next.taskTrack !== "change-review-v1"
+      ) {
+        throw new Error(
+          "review-context-compiler-v1 is restricted to change-review-v1 sessions",
+        );
+      }
       next.contextCompilations.push({
         ...event.payload,
         sequence: event.sequence,
@@ -1541,6 +1675,15 @@ export function reduceSessionEvent(
       const policy = v2Policy(next);
       if (!policy) {
         throw new Error("inference.attempt.started requires agentic-execution-v2");
+      }
+      if (
+        event.payload.structuredOutputContract ===
+          "change-review-result-v1" &&
+        next.taskTrack !== "change-review-v1"
+      ) {
+        throw new Error(
+          "change-review-result-v1 attempts are restricted to change-review-v1 sessions",
+        );
       }
       if (openInferenceAttempt(next)) {
         throw new Error("Cannot start a second inference attempt while one is open");
@@ -1914,10 +2057,14 @@ export function reduceSessionEvent(
           `Completion obligation check ${event.payload.checkId} does not match replayed tool progress`,
         );
       }
-      const citationIntegrity = normalizeCitationsFromEvidence(
-        message.content,
-        next.messages,
-      );
+      const structuredReview =
+        next.taskTrack === "change-review-v1" &&
+        message.reviewParseStatus === "accepted" &&
+        message.reviewResult !== undefined &&
+        message.reviewCoverage !== undefined;
+      const citationIntegrity = structuredReview
+        ? { content: message.content, verifiedCitations: [], unresolved: [] }
+        : normalizeCitationsFromEvidence(message.content, next.messages);
       const replayedVerifiedCitations =
         citationIntegrity.unresolved.length === 0
           ? citationIntegrity.verifiedCitations

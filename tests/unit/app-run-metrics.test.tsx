@@ -30,7 +30,7 @@ function snapshotWithUsage(
   };
 }
 
-function metric(label: "Tokens" | "Cost"): HTMLElement {
+function metric(label: "End-to-end" | "Total tokens" | "Cost"): HTMLElement {
   const container = screen.getByText(label).parentElement;
   if (container === null) throw new Error(`Missing ${label} metric container`);
   return container;
@@ -57,9 +57,9 @@ describe("run metrics provenance", () => {
 
     render(<TracePanel snapshot={snapshot} open={false} onClose={() => undefined} />);
 
-    expect(metric("Tokens")).toHaveTextContent("TokensUnknown");
+    expect(metric("Total tokens")).toHaveTextContent("Total tokensUnknown");
     expect(metric("Cost")).toHaveTextContent("CostUnknown");
-    expect(metric("Tokens")).not.toHaveTextContent("Tokens0");
+    expect(metric("Total tokens")).not.toHaveTextContent("Total tokens0");
     expect(metric("Cost")).not.toHaveTextContent("$0.00");
   });
 
@@ -83,7 +83,7 @@ describe("run metrics provenance", () => {
 
     render(<TracePanel snapshot={snapshot} open={false} onClose={() => undefined} />);
 
-    expect(metric("Tokens")).toHaveTextContent("Tokens5");
+    expect(metric("Total tokens")).toHaveTextContent("Total tokens5");
     expect(metric("Cost")).toHaveTextContent("Cost$0.00");
   });
 
@@ -112,5 +112,97 @@ describe("run metrics provenance", () => {
       cost: "Unknown",
       costProvenance: "unreported",
     });
+  });
+
+  it("uses v2 finished-attempt usage, route reason, and locality without double counting legacy telemetry", () => {
+    const snapshot: SessionSnapshot = {
+      id: "00000000-0000-4000-8000-000000000011",
+      title: "Review current changes",
+      workspaceRoot: "/tmp/workspace",
+      taskTrack: "change-review-v1",
+      status: "completed",
+      createdAt: "2026-08-30T00:00:00.000Z",
+      updatedAt: "2026-08-30T00:00:01.000Z",
+      events: [
+        {
+          id: "route",
+          sequence: 1,
+          type: "routing.decision.recorded",
+          createdAt: "2026-08-30T00:00:00.100Z",
+          payload: {
+            selectedProviderId: "local-vllm",
+            selectedModel: "local-review-model",
+            reasonCode: "low_risk_local_review",
+            routerInputSnapshot: {
+              providers: [
+                {
+                  providerId: "local-vllm",
+                  model: "local-review-model",
+                  locality: "local",
+                },
+              ],
+            },
+          },
+        },
+        {
+          id: "finished",
+          sequence: 2,
+          type: "inference.attempt.finished",
+          createdAt: "2026-08-30T00:00:00.900Z",
+          payload: {
+            outcome: "succeeded",
+            servedModel: "local-review-model",
+            usage: {
+              inputTokens: 11,
+              outputTokens: 4,
+              reasoningTokens: 2,
+              reported: true,
+            },
+            cost: {
+              amountMicrousd: 0,
+              provenance: "local_zero_cost_policy",
+            },
+            latencyMs: 800,
+          },
+        },
+        {
+          id: "legacy-duplicate",
+          sequence: 3,
+          type: "usage.recorded",
+          createdAt: "2026-08-30T00:00:01.000Z",
+          payload: {
+            inputTokens: 11,
+            outputTokens: 4,
+            reported: true,
+            costUsd: 0,
+            costProvenance: "local_zero_cost_policy",
+            latencyMs: 800,
+          },
+        },
+      ],
+    };
+
+    expect(summarizeRun(snapshot)).toMatchObject({
+      model: "local-review-model",
+      provider: "local-vllm",
+      locality: "local",
+      reason: "low_risk_local_review",
+      inputTokens: 11,
+      outputTokens: 4,
+      reasoningTokens: 2,
+      totalTokens: 17,
+      duration: "1s",
+      providerDuration: "800ms",
+      cost: "$0.00",
+    });
+
+    render(<TracePanel snapshot={snapshot} open={false} onClose={() => undefined} />);
+
+    expect(metric("End-to-end")).toHaveTextContent(
+      "End-to-end1sProvider time 800ms",
+    );
+    expect(metric("Total tokens")).toHaveTextContent("Total tokens17");
+    expect(screen.queryByText("Latency")).not.toBeInTheDocument();
+    expect(screen.queryByText("Tokens")).not.toBeInTheDocument();
   });
 });

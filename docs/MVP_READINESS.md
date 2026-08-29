@@ -13,19 +13,36 @@ machine configuration.
 - a checksummed database migration ledger, exact frozen-baseline adoption check,
   and operational append-only integer-micro-USD budget storage whose supported
   paid-attempt mutations run through the atomic unit of work;
-- one OpenAI-compatible local provider with streaming, cancellation, timeouts,
-  token usage, and honest incomplete-response handling;
+- one OpenAI-compatible, operator-attested local provider with streaming,
+  cancellation, timeouts, token usage, structured `ReviewResultV1` JSON Schema
+  output, and honest incomplete-response handling. Its configured vLLM endpoint
+  may run on this Mac or another machine. For a non-loopback endpoint, the
+  operator must explicitly set `SOAR_VLLM_COST_POLICY=local_zero_cost` after
+  confirming that the endpoint charges no token fee;
 - validated provider descriptors plus a main-process runtime catalog and
   registry; the catalog currently constructs only the selected local or
   deterministic fake provider;
 - bounded, read-only repository tools for listing, literal search, and text reads;
 - a separate host-only `inspect_git_changes` gateway that acquires deterministic
   staged, unstaged, rename, delete, and bounded untracked change manifests
-  without exposing the operation to provider tool schemas, renderer IPC, or an
-  app action;
+  without exposing arbitrary host invocation through renderer IPC. It is absent
+  from the default model tool surface and is exposed only as the one required
+  inspection tool in the dedicated review coordinator;
 - strict, content-addressed `ChangeSnapshotV1`, `ReviewEvidenceSetV1`, evidence
   reference, and host-derived `ReviewCoverageV1` contracts with exact identity
   revalidation and fail-closed omission/coverage semantics;
+- an app-created `change-review-v1`, `agentic-execution-v2`, `local_only_v1`
+  Review Current Changes path. It keeps inspection, bounded full reads, and one
+  tool-free synthesis on the same selected provider and records zero selected
+  metered-provider exposure under that operator attestation;
+- canonical-event review provenance reconstruction, a no-truncation review
+  packet, exact raw-versus-attached result verification, host semantic
+  acceptance, and post-synthesis snapshot revalidation;
+- a renderer-safe review projection with allow-listed/redacted session events,
+  no streaming raw deltas, aggregate-only coverage metadata, freshness
+  reinspection, withheld drifted/unavailable/invalid results, and visible but
+  non-copyable incomplete results. The accepted structured result may still
+  expose bounded evidence references for its findings;
 - a frozen `change-review-eval-v1` protocol and 12 real public calibration
   changes from SOAR, Flask, and pytest, materialized through the bounded host
   acquisition path; the mechanical policy classifies 5 low risk and 7 high
@@ -50,21 +67,30 @@ machine configuration.
   integer-micro-USD budget ledger, atomic attempt unit of work, paged recovery,
   event/ledger reconciliation, and an explicit two-fake-provider v2 runner that
   covers admission, denial, timeout, cancellation, overrun, and one local
-  fallback at zero paid cost. The production app runner still emits v1
-  local-only sessions.
+  fallback at zero paid cost. Production constructs no separately configured
+  metered cloud provider: Repository Investigator emits v1 local-only sessions
+  and Review Current Changes emits v2 local-only sessions.
 
 ## Not implemented
 
 - production cloud-provider execution or macOS Keychain retrieval;
 - production hybrid routing, production provider-health/price acquisition, or
   learned scheduling;
-- app-created v2 sessions or production registry-driven provider switching;
-- app/model use of immutable change acquisition, the `ReviewResultV1`
-  completion contract, or the Review Current Changes workflow;
-- canonical-event provenance validation for repository observations; PR 3 can
-  bind observation-shaped records into an evidence-set identity, while PR 5
-  must prove each observation came from a successful gateway event;
+- any production provider switch: the review v2 path is deliberately
+  same-provider and Local only, while Hybrid is visibly disabled and reports
+  that no separate metered provider is configured;
+- PR 6's exact-message egress admission, Keychain flow, health/pricing evidence,
+  and paid OpenRouter canary. PR 6 remains unapproved and the selected paid
+  exposure for PR 1 through PR 5 is `$0` under the configured endpoint's
+  operator attestation;
+- complete release validation or current Repository Investigator live proof;
+  the one-shot synthetic empty-snapshot structured-review schema canary and
+  deterministic/Electron PR 5 gates passed on 2026-08-30, but the live canary
+  proves only schema compatibility—not a post-fix real-repository flow—and does
+  not substitute for those broader checks;
 - browser, shell, file-write, patch, or external-message tools;
+- test execution, patch application, commit/push, arbitrary historical-range
+  review, or unbounded/binary/submodule evidence review;
 - a signed release channel or general downgrade support for databases that
   contain v2 events;
 - official bulk SWE-bench evaluation on a native x86-64 Linux worker.
@@ -79,6 +105,17 @@ any reported reasoning separately and rejects empty, truncated, filtered,
 malformed, or tool-looping completion states rather than assuming the provider
 honored that request.
 
+The configured URL may point to a vLLM server on another machine. Review
+evidence is transported to that endpoint, so the Local-only label is an
+execution-policy statement, not a claim that evidence never leaves the Mac.
+For a non-loopback endpoint, the operator must explicitly set
+`SOAR_VLLM_COST_POLICY=local_zero_cost`; SOAR treats this as an attestation that
+the endpoint charges no token fee. It does not independently identify the
+service behind an arbitrary URL, inspect external billing, or measure
+infrastructure cost. Review synthesis uses the exact OpenAI-compatible JSON
+Schema response format with tools disabled; arbitrary structured contracts and
+a free-form JSON-suffix fallback are not supported.
+
 The cloud benchmark design currently pins
 `deepseek/deepseek-v4-flash-0731` through OpenRouter. That pin is evaluation
 configuration, not an enabled application runtime. Pricing and availability are
@@ -89,10 +126,22 @@ configurable safety margin, and subtracts adapter-estimated provider request
 overhead before admitting evidence. `usage.recorded` remains the source for
 actual provider token usage, while its `reported` flag distinguishes real
 telemetry from a missing report represented by zero. The packet compiler changes
-provider request construction, not route selection. The local route is still
-assigned once and retained across the session.
+provider request construction, not route selection. Repository Investigator
+retains its single local route; Review Current Changes records a v2 local lease
+and keeps that same selected provider through synthesis.
 
 ## Live proof status
+
+The PR 5 local Review Current Changes implementation has deterministic adapter,
+event/replay, Git, coordinator, IPC, projection, and Electron test coverage.
+The one-shot `pnpm test:live-review-schema` run passed against the configured
+`RM-01 VLM` on 2026-08-30, as recorded in the build log. It proves exact-schema
+compatibility on a synthetic empty snapshot, not a post-fix real-repository
+flow or real-review quality. The final full-suite/release gate and current
+Repository Investigator live proof remain separate. The app constructs no
+separate OpenRouter or metered provider, and no such PR 5 route was selected.
+The canary's `$0` cost provenance relies on the operator's configured-endpoint
+attestation and is not independent billing evidence.
 
 The prior Local Repository Investigator reports are diagnostics, not accepted
 proof. The 934,311-token reference came from `f221798+working-tree`, did not
@@ -195,7 +244,7 @@ artifacts. See
 [ARCHITECTURE.md](ARCHITECTURE.md), and the
 [benchmark protocol](../benchmarks/README.md).
 
-## PR 3 and PR 4 verification boundaries
+## PR 3 through PR 5 verification boundaries
 
 The default change-review calibration test is offline and `$0`: it validates
 the checked-in strict schemas, manifest hash, risk arithmetic, 5/7 split, single
@@ -212,6 +261,11 @@ No held-out quality corpus, model-facing review workflow, quality improvement,
 cost saving, or latency benefit is proved by PR 3. PR 4 adds deterministic
 routing and accounting mechanics only through nominally branded fake providers.
 Its fake cloud lease is not a production cloud path and is never rendered as a
-user review. PR 5 next owns the app workflow, repository-observation event
-provenance, strict structured local review result, and zero-paid live local
-schema canary.
+user review. PR 5 implements the app-created local-only workflow,
+repository-observation event provenance, no-truncation evidence packet, strict
+same-provider structured result, freshness/copy rules, and renderer redaction.
+It does not prove review quality or dynamic routing and is not a claim that the
+final release validation or Repository Investigator live proof passed. The
+local structured-schema canary did pass once on 2026-08-30, but only against a
+synthetic empty snapshot; it is not post-fix real-repository or release proof.
+PR 6 remains unapproved and separately gates the paid OpenRouter canary.

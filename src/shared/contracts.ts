@@ -8,6 +8,7 @@ import {
   type AppTaskTrack,
   type SessionStatus,
 } from "./session-events";
+import type { ReviewResultV1 } from "./review-result-contract";
 
 export const sessionStatuses = SESSION_STATUSES;
 export const sessionStatusSchema = SessionStatusSchema;
@@ -18,7 +19,13 @@ export const createSessionInputSchema = z
   .object({
     task: z.string().trim().min(1).max(100_000),
     workspaceRoot: z.string().trim().min(1).max(4_096),
-    taskTrack: AppTaskTrackSchema,
+    taskTrack: z.literal("repository-investigator-v1"),
+  })
+  .strict();
+
+export const createChangeReviewSessionInputSchema = z
+  .object({
+    workspaceRoot: z.string().trim().min(1).max(4_096),
   })
   .strict();
 
@@ -52,6 +59,74 @@ export interface SessionSnapshot extends SessionSummary {
   events: SessionEventView[];
 }
 
+export type ReviewFreshness =
+  | "pending"
+  | "not_available"
+  | "fresh_complete"
+  | "identity_same_unverifiable"
+  | "drifted"
+  | "unavailable";
+
+export interface ReviewAvailability {
+  local: {
+    enabled: boolean;
+    label: string;
+    providerId?: string;
+    model?: string;
+    reason?: string;
+    declaredTokenFeeMicrousd: 0;
+    costAccountingSummary: "The configured vLLM route declares a $0 token fee; endpoint billing and infrastructure costs are not independently verified.";
+    evidenceTransportSummary: "Review evidence is sent to the configured vLLM endpoint.";
+  };
+  hybrid: {
+    enabled: false;
+    reason: "Cloud setup is not available in this build.";
+    separatelyConfiguredPaidProviderReachable: false;
+    reachabilitySummary: "No separately configured paid provider is available in this build.";
+    consent: "none";
+  };
+}
+
+export interface ReviewPhaseView {
+  id: "inspection" | "checkpoint" | "synthesis" | "fallback";
+  status: "pending" | "active" | "complete" | "failed" | "cancelled";
+  label: string;
+}
+
+export interface ReviewCoverageView {
+  schemaVersion: "review-coverage-view-v1";
+  status: "complete" | "incomplete";
+  counts: {
+    changedPaths: number;
+    admittedPaths: number;
+    omittedPaths: number;
+    changedHunks: number;
+    admittedHunks: number;
+    omittedHunks: number;
+  };
+  changedTestCount: number;
+  runtimeCodeChangedWithoutChangedTest: boolean;
+  snapshotRevalidated: boolean;
+  omissionCodes: string[];
+}
+
+export interface ChangeReviewView {
+  sessionId: string;
+  status: SessionStatus;
+  freshness: ReviewFreshness;
+  phases: ReviewPhaseView[];
+  route?: {
+    providerId: string;
+    model: string;
+    locality: "local" | "cloud";
+    reasonCode: string;
+  };
+  reviewResult?: ReviewResultV1;
+  coverage?: ReviewCoverageView;
+  baseRevision?: string;
+  acceptanceNote?: string;
+}
+
 export type SessionUpdate =
   | {
       sessionId: string;
@@ -71,6 +146,11 @@ export interface SoarRendererApi {
   getSession(id: string): Promise<SessionSnapshot>;
   startSession(id: string): Promise<void>;
   cancelSession(id: string): Promise<void>;
+  getReviewAvailability(): Promise<ReviewAvailability>;
+  createChangeReviewSession(
+    input: z.input<typeof createChangeReviewSessionInputSchema>,
+  ): Promise<SessionSnapshot>;
+  getChangeReviewView(id: string): Promise<ChangeReviewView>;
   subscribeSessionEvents(listener: (update: SessionUpdate) => void): () => void;
 }
 
@@ -81,5 +161,8 @@ export const IPC_CHANNELS = {
   getSession: "soar:get-session",
   startSession: "soar:start-session",
   cancelSession: "soar:cancel-session",
+  getReviewAvailability: "soar:get-review-availability",
+  createChangeReviewSession: "soar:create-change-review-session",
+  getChangeReviewView: "soar:get-change-review-view",
   sessionUpdate: "soar:session-update",
 } as const;

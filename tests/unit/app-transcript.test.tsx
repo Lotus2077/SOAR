@@ -114,4 +114,46 @@ describe("app transcript", () => {
 
     expect(latestAssistantStartEventId(snapshot)).toBe("assistant-start-2");
   });
+
+  it("never promotes raw change-review structured output into transcript prose", () => {
+    const rawReview = JSON.stringify({
+      schemaVersion: "change-review-result-v1",
+      snapshotId: "a".repeat(64),
+      summary: "Model-authored structured review",
+      conclusion: "no_blocking_findings",
+      evidenceSetId: "b".repeat(64),
+      omissions: [],
+      findings: [],
+    });
+    const snapshot: SessionSnapshot = {
+      id: "00000000-0000-4000-8000-000000000003",
+      title: "Review current changes",
+      workspaceRoot: "/tmp/workspace",
+      taskTrack: "change-review-v1",
+      status: "completed",
+      createdAt: "2026-08-30T00:00:00.000Z",
+      updatedAt: "2026-08-30T00:00:02.000Z",
+      events: [
+        {
+          id: "raw-review",
+          sequence: 1,
+          type: "assistant.message.completed",
+          createdAt: "2026-08-30T00:00:01.000Z",
+          payload: {
+            messageId: "review-message",
+            content: rawReview,
+            completionState: "complete",
+            reviewResult: JSON.parse(rawReview),
+          },
+        },
+      ],
+    };
+
+    const transcript = transcriptFrom(snapshot);
+    expect(transcript).toEqual([
+      expect.objectContaining({ kind: "user", text: "Review current changes" }),
+    ]);
+    expect(JSON.stringify(transcript)).not.toContain("change-review-result-v1");
+    expect(JSON.stringify(transcript)).not.toContain("Model-authored structured review");
+  });
 });

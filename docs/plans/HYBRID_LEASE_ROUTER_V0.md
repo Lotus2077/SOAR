@@ -33,6 +33,27 @@ pricing, credential-limit, and egress evidence is attached to the build log.
 That first approval was granted on 2026-08-29 and is recorded as
 `BL-20260829-1146-plan2-approved`. It does not authorize a paid call.
 
+### Current implementation status
+
+The approved PR 1 through PR 5 implementation is now present, including the
+app-created local-only Review Current Changes slice. PR 5 creates a v2
+`change-review-v1` session, keeps acquisition and structured synthesis on the
+same configured vLLM provider, and exposes no separately configured metered-
+provider path. The configured endpoint may be on this Mac or another machine;
+the UI discloses that review evidence is sent to that endpoint. A non-loopback
+endpoint requires the operator to set
+`SOAR_VLLM_COST_POLICY=local_zero_cost` explicitly, attesting that it has no
+per-token fee. Selected metered-provider exposure remains `$0` under that
+attestation; SOAR does not independently verify the endpoint's external billing
+or infrastructure cost.
+
+The deterministic gates, Electron workflows, and one-shot synthetic empty-
+snapshot structured-output canary passed on 2026-08-30 and are recorded in the
+append-only build log. The canary demonstrates schema compatibility only, not a
+post-fix real-repository flow. This is not a `Released` claim or complete
+release proof. PR 6 remains unapproved, and its paid OpenRouter canary still
+requires the separate approval and evidence in this section.
+
 Any material scope or persisted-contract change after approval requires:
 
 1. a new build-log entry explaining why;
@@ -114,8 +135,9 @@ At baseline revision `4233edd`:
 - the current example configuration has a $0.75 paid-episode cap; changing the
   runtime default to the proposed $0.25 cap is future implementation, not an
   already-active limit;
-- cloud credentials are not loaded by the app and OpenRouter is unreachable
-  from the runtime;
+- no separate OpenRouter provider configuration or credential is loaded by the
+  app; the generic configured vLLM endpoint remains an operator trust boundary
+  and could incur external charges if it is classified incorrectly;
 - the accepted schema-v5 Repository Investigator proof completed three guided
   tasks with 32 provider calls, 29 tool calls, 82,640 input tokens, zero paid
   cost, and exact retained evidence. It proves guided execution and context
@@ -187,7 +209,7 @@ At baseline revision `4233edd`:
 - As an evaluator, I want immutable fixture, packet, model, policy, and result
   identities so comparisons remain reproducible.
 
-## Product flow
+## Planned hybrid product flow
 
 1. The user chooses a Git workspace.
 2. The app offers **Local only** by default and **Hybrid** as an explicit opt-in.
@@ -208,6 +230,32 @@ At baseline revision `4233edd`:
    synthesis attempt. User cancellation never reroutes.
 8. The app displays the review, evidence coverage, route timeline, denial or
    fallback reason, token/cost provenance, and latency.
+
+### Implemented PR 5 local-only subset
+
+- The app exposes Review Current Changes and creates only Local-only v2 review
+  sessions; Hybrid is disabled with the explicit statement that no separately
+  configured metered cloud provider or Hybrid route is present. The configured
+  vLLM endpoint remains subject to the operator's cost-policy attestation.
+- The local provider must propose the fixed `inspect_git_changes` call, after
+  which the host executes acquisition and schedules bounded full reads for the
+  admitted changed files that require them.
+- The host reconstructs evidence and provenance from successful canonical
+  attempt/tool events. The final review packet must retain the complete admitted
+  evidence body set; omitted/truncated packet evidence cannot be promoted to a
+  complete review.
+- The same provider receives one tool-free synthesis request with the exact
+  `ReviewResultV1` JSON Schema. Raw and attached result equality, identities,
+  grounding, conclusion, coverage, completion check, and checkpoint provenance
+  are re-proved before renderer exposure.
+- The host reacquires the snapshot after synthesis and on each display/copy
+  request. Drifted, unavailable, or terminally invalid results are withheld.
+  Identity-matching incomplete coverage and model-declared omissions are shown
+  as incomplete but cannot be copied.
+- Review events use an allow-listed redacted renderer projection. Coverage sent
+  to the renderer is aggregate-only and excludes changed paths, per-file
+  coverage, and snapshot/evidence IDs. The accepted structured result may still
+  include bounded evidence references for its findings.
 
 ## Requirements
 
@@ -282,11 +330,22 @@ interface ProviderDescriptor {
   and cost admission.
 - Duplicate IDs, invalid limits, stale/missing paid pricing, missing required
   capabilities, or an implicit zero-cost declaration fail closed.
+- The current PR 5 adapter requires an operator to set
+  `SOAR_VLLM_COST_POLICY=local_zero_cost` explicitly for a non-loopback endpoint.
+  This attests that the configured endpoint has no per-token fee; it is not an
+  independent check of external billing, service, hardware, or infrastructure
+  cost.
 - `change-review-v1` requires the OpenAI-compatible JSON Schema response
-  mechanism and the exact `ReviewResultV1` schema. The descriptor advertises
-  this capability only after deterministic adapter tests and a zero-paid live
-  local canary succeed. There is no free-form JSON-suffix fallback; if the
-  configured local vLLM/model cannot satisfy the schema, PR 5 is blocked.
+  mechanism and the exact `ReviewResultV1` schema. The PR 5 implementation
+  advertises this capability after deterministic adapter contract tests; that
+  advertisement is not evidence that an arbitrary configured endpoint/model
+  honors it. The operator-attested zero-token-fee live schema canary passed once
+  against the configured `RM-01 VLM` on 2026-08-30 using a synthetic empty
+  snapshot; another endpoint/model must prove the contract independently. The
+  canary proves neither a post-fix real-repository flow nor the endpoint's
+  external billing status. There is no free-form JSON-suffix fallback; a
+  configured vLLM/model that cannot satisfy the schema cannot produce an
+  accepted review.
 - The shipping app resolves the cloud secret lazily from a main-process-only
   credential store backed by macOS Keychain. Environment injection is limited
   to tests and explicit headless development.
@@ -392,14 +451,13 @@ reducer requires all of them:
 | `route.assigned` | `decisionId`, `leaseId`, `phase` |
 | `context.compiled` | active-lease `decisionId`, `leaseId`, `messageId`, `attemptId` |
 | `assistant.message.started` | `decisionId`, `leaseId`, `checkpointId`, `attemptId` |
-| `assistant.message.completed` | `attemptId`; after PR 5 adds `change-review-v1`, its exact structured `reviewResult` for an accepted review |
+| `assistant.message.completed` | `attemptId`; for `change-review-v1`, the exact structured `reviewResult`, host-derived coverage, and parse status for an accepted review |
 
 The normative Zod schemas, conditional invariants, and event-order state
-machine are checked into an ADR at the start of PR 1. PR 1 must enforce the
-attempt link; PR 5 must add and enforce the strict `ReviewResultV1` payload
-before the app can accept a change review. Implementation cannot merge by
-relying on prose-only payloads. This sequencing clarification does not relax
-the accepted-review contract.
+machine are checked into an ADR at the start of PR 1. PR 1 enforces the attempt
+link; the implemented PR 5 path enforces the strict `ReviewResultV1` payload
+before the app accepts a change review. Implementation cannot rely on prose-only payloads.
+This sequencing clarification does not relax the accepted-review contract.
 
 #### P0.5 Attempt lifecycle
 
@@ -713,12 +771,25 @@ retention status, snapshot revalidation status, and bounded omission codes.
 5. the final provider packet retained the complete evidence set; and
 6. the change snapshot still matches before acceptance and display.
 
+The canonical `ReviewCoverageV1` remains in main-process history. The renderer
+receives only a separate aggregate coverage projection with counts, status,
+changed-test count, runtime-without-test signal, revalidation state, and
+omission codes. It receives no per-file coverage, changed paths, or
+snapshot/evidence IDs from that coverage record. The accepted structured result
+may still include bounded evidence references for its findings. Raw provider
+output, rejected results, tool bodies, workspace paths, endpoints, and validator
+diagnostics are also excluded from the allow-listed review event projection.
+
 #### P0.10 App experience
 
 - Add a dedicated **Review Current Changes** entry point.
-- Default to Local only; Hybrid requires explicit selection and displays the
-  maximum paid amount and egress summary before creation.
-- Persist the selection, policy version, cap, and consent in session history.
+- PR 5 defaults to Local only and displays Hybrid as unavailable because no
+  separately configured metered provider or Hybrid route is present. The
+  configured vLLM endpoint remains operator-attested. PR 6 must add explicit
+  Hybrid selection plus the maximum paid amount and egress summary before
+  creation.
+- Persist the active local selection, policy version, zero egress consent, and
+  configured cap in session history; future Hybrid consent remains PR 6 work.
 - Show a phase timeline: local inspection, routing checkpoint, local/cloud
   synthesis, and optional fallback.
 - Show provider/model, reason code in plain language, evidence coverage,
@@ -892,7 +963,7 @@ route event.
 - Parameterized OpenAI-compatible provider identity, capabilities, limits, and
   accounting.
 - Credential-store interface with fake/test implementation.
-- No production cloud provider construction.
+- No separately configured production metered/cloud provider construction.
 
 PR 1 and PR 2 may proceed in parallel only after plan approval.
 
@@ -924,13 +995,21 @@ Depends on PR 1 through PR 3.
 
 ### PR 5 -- local Review Current Changes app slice ($0)
 
-- `change-review-v1` track and model-facing use of the bounded change tool.
-- Change-evidence validation and review completion contract.
-- Standard JSON Schema response support plus a zero-paid live local vLLM canary
-  proving the configured endpoint/model can produce `ReviewResultV1`; this PR
-  is blocked if that capability is absent.
-- App entry point, Local/Hybrid controls, consent/cap UI, phase timeline, and
-  route detail states.
+- Implemented `change-review-v1` app-created local-only v2 sessions and explicit
+  model-facing use of the bounded host change tool.
+- Implemented canonical-event provenance, no-truncation review evidence,
+  change-evidence/coverage validation, exact structured completion, freshness
+  revalidation, incomplete/copy behavior, and aggregate/redacted renderer
+  projection.
+- Implemented standard JSON Schema request support and the opt-in,
+  operator-attested zero-token-fee live vLLM schema-canary command. Its one-shot
+  `RM-01 VLM` run passed on 2026-08-30 against a synthetic empty snapshot; this
+  proves schema compatibility only, not a post-fix real-repository flow, final
+  release-suite, review quality, or external-billing status. An endpoint that
+  cannot produce accepted `ReviewResultV1` output remains unusable for review.
+- Implemented the app entry point, Local-only state, disabled Hybrid disclosure,
+  phase timeline, aggregate coverage, and route detail states. Paid consent and
+  credential controls remain PR 6 work.
 - Fake cloud exists only in tests. Production Hybrid remains visibly disabled
   with an honest “cloud setup is not available in this build” state until PR 6;
   it can never show fake output as a user review.
@@ -971,7 +1050,7 @@ PR 0 proposed plan/ledger -- explicit approval gate
                                                        |
                                                        +-- PR 5 review app
                                                                |
-                                                               +-- PR 6 live canary
+                                                               +-- PR 6 paid OpenRouter canary
                                                                        |
                                                                        +-- PR 7 evaluation
 ```
@@ -987,7 +1066,7 @@ PR 0 proposed plan/ledger -- explicit approval gate
 | Safe route boundary | Route change while streaming, during an open attempt, or with a pending tool is rejected |
 | Router determinism | Identical state and policy produce byte-equivalent proposals and decisions |
 | Lease stability | Productive routine tool rounds create no new decision or route |
-| Local policy | Local only makes zero cloud calls under every trigger |
+| Local policy | Local only makes zero calls to a separately configured metered/cloud provider under every trigger; the configured vLLM endpoint remains operator-attested |
 | Paid attempts | Hybrid makes at most one paid attempt; only cloud failure may create one local fallback |
 | Cloud tools | Cloud finalization has `allowTools: false`, no enabled tool names, and no tool definitions |
 | Context identity | Admission and request use identical packet/message hashes and provider-specific limits |
@@ -1004,8 +1083,8 @@ PR 0 proposed plan/ledger -- explicit approval gate
 | Review schema | Malformed, duplicate, oversized, inconsistent, or ungrounded structured results are protocol errors and never rendered as accepted reviews |
 | Clean coverage | Host-derived coverage proves every required changed file/hunk/read/test record and packet retention before accepting `no_blocking_findings` |
 | UX | Empty diff, local success, cloud admit/deny/fail, cancel, restart/replay, and copy review pass Electron E2E |
-| Regression | `pnpm check`, `pnpm test:e2e`, live vLLM canary, and clean-revision local Repository Investigator v7 proof |
-| Live hybrid | At most two provider changes and three leases including fallback, one paid attempt, complete accounting, no endpoint/key/root leak |
+| Remaining regression release gate | Re-run `pnpm check` and `pnpm test:e2e` at the final revision, plus current operator-attested live Repository Investigator v7 proof; the PR 5 schema canary passed once on a synthetic empty snapshot on 2026-08-30 and is not post-fix real-repository or release proof |
+| PR 6 paid OpenRouter canary | At most two provider changes and three leases including fallback, one paid attempt, complete accounting, no endpoint/key/root leak |
 | Project ledger | Unique complete entries, immutable committed history, correction entries, and concurrent-PR collision behavior pass validation |
 | Artifact honesty | Model output, evaluator records, route evidence, cost provenance, failures, and limitations remain separately attributed |
 
@@ -1019,8 +1098,9 @@ PR 0 proposed plan/ledger -- explicit approval gate
   egress, or budget admission.
 - Zero cloud tool exposure or workspace mutations.
 - No concurrent budget oversubscription in stress tests.
-- Local-only deterministic, Electron, live-vLLM, and accepted repository-proof
-  regressions remain green.
+- Before release, Local-only deterministic, Electron, live-vLLM, and accepted
+  repository-proof regressions must be green; this plan does not assert their
+  current result.
 - Every accepted finding validates against the unchanged change snapshot.
 
 ### Product-quality gate
@@ -1082,14 +1162,15 @@ Approval of this plan adopts these defaults:
 14. **Authorization scope:** first approval permits only PR 1 through PR 5 and
     $0 provider spend; PR 6 requires a separately logged paid-canary approval.
 
-## Open questions that do not block PR 1 or PR 2
+## Remaining open questions
 
 - The exact secret detector and denied-path set need an engineering/security
   spike before PR 6.
-- The app copy and detailed layout for egress consent and fallback need a design
-  review before PR 5.
+- The app now has the PR 5 Local-only review states. Detailed egress-consent,
+  credential, cloud-denial, and fallback copy still needs review before PR 6.
 - A native x86-64 Linux worker is still required before official bulk coding
-  benchmark claims; it does not block the change-review routing canary.
+  benchmark claims; it does not block the separately approved paid OpenRouter
+  canary.
 - Research-artifact review needs browser/retrieval tools and its own plan after
   this coding-focused slice.
 

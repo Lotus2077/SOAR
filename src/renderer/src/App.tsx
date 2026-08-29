@@ -7,8 +7,12 @@ import {
   Coins,
   Copy,
   Cpu,
+  Files,
   FolderOpen,
+  GitDiff,
+  HardDrives,
   List,
+  LockKey,
   MagnifyingGlass,
   SidebarSimple,
   Sparkle,
@@ -34,6 +38,87 @@ import {
 } from "react";
 
 type Payload = Record<string, unknown>;
+
+type ReviewFreshness =
+  | "pending"
+  | "not_available"
+  | "fresh_complete"
+  | "identity_same_unverifiable"
+  | "drifted"
+  | "unavailable";
+
+interface ReviewAvailability {
+  local: {
+    enabled: boolean;
+    label: string;
+    providerId?: string;
+    model?: string;
+    reason?: string;
+    declaredTokenFeeMicrousd: 0;
+    costAccountingSummary: "The configured vLLM route declares a $0 token fee; endpoint billing and infrastructure costs are not independently verified.";
+    evidenceTransportSummary: "Review evidence is sent to the configured vLLM endpoint.";
+  };
+  hybrid: {
+    enabled: false;
+    reason: "Cloud setup is not available in this build.";
+    separatelyConfiguredPaidProviderReachable: false;
+    reachabilitySummary: "No separately configured paid provider is available in this build.";
+    consent: "none";
+  };
+}
+
+interface ReviewPhaseView {
+  id: "inspection" | "checkpoint" | "synthesis" | "fallback";
+  status: "pending" | "active" | "complete" | "failed" | "cancelled";
+  label: string;
+}
+
+interface ChangeReviewView {
+  sessionId: string;
+  status: string;
+  freshness: ReviewFreshness;
+  phases: ReviewPhaseView[];
+  route?: {
+    providerId: string;
+    model: string;
+    locality: "local" | "cloud";
+    reasonCode: string;
+  };
+  reviewResult?: unknown;
+  coverage?: unknown;
+  baseRevision?: string;
+  acceptanceNote?: string;
+}
+
+interface ReviewRendererApi {
+  getReviewAvailability(): Promise<ReviewAvailability>;
+  createChangeReviewSession(input: {
+    workspaceRoot: string;
+  }): Promise<SoarSessionSnapshot>;
+  getChangeReviewView(id: string): Promise<ChangeReviewView>;
+}
+
+const defaultReviewAvailability: ReviewAvailability = {
+  local: {
+    enabled: false,
+    label: "Local model",
+    reason: "Checking local review support...",
+    declaredTokenFeeMicrousd: 0,
+    costAccountingSummary:
+      "The configured vLLM route declares a $0 token fee; endpoint billing and infrastructure costs are not independently verified.",
+    evidenceTransportSummary:
+      "Review evidence is sent to the configured vLLM endpoint.",
+  },
+  hybrid: {
+    enabled: false,
+    reason: "Cloud setup is not available in this build.",
+    separatelyConfiguredPaidProviderReachable: false,
+    reachabilitySummary:
+      "No separately configured paid provider is available in this build.",
+    consent: "none",
+  },
+};
+
 type TranscriptItem =
   | { kind: "user"; id: string; text: string; time?: string }
   | { kind: "assistant"; id: string; text: string; time?: string }
@@ -228,6 +313,20 @@ function shortText(value: string, max = 160): string {
   return clean.length > max ? `${clean.slice(0, max - 1)}...` : clean;
 }
 
+function isRawStructuredReview(payload: Payload, text: string): boolean {
+  if (
+    asPayload(payload.reviewResult).schemaVersion === "change-review-result-v1" ||
+    payload.structuredOutputContract === "change-review-result-v1"
+  ) {
+    return true;
+  }
+  const compact = text.replace(/\s+/g, "");
+  return (
+    compact.startsWith("{") &&
+    compact.includes('"schemaVersion":"change-review-result-v1"')
+  );
+}
+
 function normalizeStatus(status?: string): string {
   const value = status?.toLowerCase().trim() || "idle";
   return value === "canceled" ? "cancelled" : value;
@@ -283,6 +382,21 @@ function typeLabel(type: string): string {
 
 function routeReasonLabel(reason: string): string {
   if (reason === "MVP_LOCAL_PROOF") return "Local-only lease for the MVP proof";
+  const labels: Record<string, string> = {
+    local_investigation: "Local inspection collects change evidence",
+    low_risk_local_review: "The local model can complete this review",
+    cloud_admitted: "Cloud synthesis passed every admission check",
+    local_fallback: "Cloud synthesis did not finish, so the review stayed local",
+    disabled_provider: "Cloud routing is disabled",
+    missing_credential: "Cloud routing has no configured credential",
+    unhealthy_provider: "The cloud provider is not healthy",
+    pricing_denial: "Cloud pricing could not be verified",
+    capability_mismatch: "The proposed model lacks a required capability",
+    egress_denial: "Evidence egress was not approved",
+    budget_denial: "The paid route exceeds its fixed budget",
+    deadline_denial: "The paid route cannot finish inside the deadline",
+  };
+  if (labels[reason]) return labels[reason];
   return typeLabel(reason);
 }
 
@@ -322,10 +436,27 @@ function eventDetail(event: SoarSessionEvent): string {
     );
   }
   if (type.includes("route") || type.includes("model")) {
-    const provider = firstText(payload, ["providerId", "provider", "providerName"]);
-    const model = firstText(payload, ["model", "modelName"]);
-    const reason = firstText(payload, ["reason", "decisionReason"]);
+    const provider = firstText(payload, [
+      "selectedProviderId",
+      "providerId",
+      "provider",
+      "providerName",
+    ]);
+    const model = firstText(payload, ["selectedModel", "model", "modelName"]);
+    const reason = firstText(payload, ["reasonCode", "reason", "decisionReason"]);
     return shortText([provider, model, reason].filter(Boolean).join(" / "));
+  }
+  if (type === "inference.attempt.finished") {
+    const outcome = firstText(payload, ["outcome"]);
+    const model = firstText(payload, ["servedModel"]);
+    const usage = asPayload(payload.usage);
+    const input = typeof usage.inputTokens === "number" ? usage.inputTokens : 0;
+    const output = typeof usage.outputTokens === "number" ? usage.outputTokens : 0;
+    return shortText(
+      [outcome, model, `${input + output} token${input + output === 1 ? "" : "s"}`]
+        .filter(Boolean)
+        .join(" / "),
+    );
   }
   if (type.includes("tool")) {
     const name = firstText(payload, ["toolName", "tool", "name"]);
@@ -482,6 +613,15 @@ export function transcriptFrom(snapshot: SoarSessionSnapshot | null): Transcript
       type.includes("response") ||
       type.includes("complete");
     const isDelta = type.includes("delta") || type.includes("stream");
+    if (
+      snapshot.taskTrack === "change-review-v1" &&
+      isAssistant &&
+      isRawStructuredReview(payload, text)
+    ) {
+      const messageId = firstText(payload, ["messageId"]);
+      if (messageId) completedMessages.add(messageId);
+      continue;
+    }
     if (isAssistant && !isDelta && text) {
       const messageId = firstText(payload, ["messageId"]);
       if (
@@ -595,6 +735,7 @@ interface SessionSidebarProps {
   runtimeActive: boolean;
   onSelect: (id: string) => void;
   onNew: () => void;
+  onReview: () => void;
   onClose: () => void;
 }
 
@@ -607,6 +748,7 @@ function SessionSidebar({
   runtimeActive,
   onSelect,
   onNew,
+  onReview,
   onClose,
 }: SessionSidebarProps) {
   const [query, setQuery] = useState("");
@@ -645,6 +787,14 @@ function SessionSidebar({
         <Sparkle />
         <span>New task</span>
         <kbd>⌘ N</kbd>
+      </button>
+      <button
+        className="new-task-button review-changes-entry"
+        data-testid="review-current-changes"
+        onClick={onReview}
+      >
+        <GitDiff />
+        <span>Review Current Changes</span>
       </button>
 
       <label className="session-search">
@@ -739,11 +889,13 @@ function Transcript({
   streamedText,
   loading,
   onPromptSelect,
+  onReview,
 }: {
   snapshot: SoarSessionSnapshot | null;
   streamedText: string;
   loading: boolean;
   onPromptSelect: (prompt: string) => void;
+  onReview: () => void;
 }) {
   const items = useMemo(() => transcriptFrom(snapshot), [snapshot]);
   const persistedDraft = useMemo(() => persistedAssistantDraft(snapshot), [snapshot]);
@@ -787,6 +939,11 @@ function Transcript({
         <div className="empty-watermark" aria-hidden="true">S</div>
         <h1 className="soar-wordmark">SOAR</h1>
         <p>Choose a workspace, then ask SOAR to inspect a specific text file.</p>
+        <button type="button" className="empty-review-action" onClick={onReview}>
+          <GitDiff />
+          Review Current Changes
+          <CaretRight />
+        </button>
         <div className="starter-prompts" aria-label="Starter tasks">
           {[
             "Read README.md and summarize its purpose",
@@ -972,6 +1129,593 @@ function Composer({
   );
 }
 
+function reviewApi(): ReviewRendererApi | null {
+  const candidate = window.soar as unknown as Partial<ReviewRendererApi>;
+  return typeof candidate.getReviewAvailability === "function" &&
+    typeof candidate.createChangeReviewSession === "function" &&
+    typeof candidate.getChangeReviewView === "function"
+    ? (candidate as ReviewRendererApi)
+    : null;
+}
+
+interface ReviewFindingView {
+  findingId: string;
+  severity: "P0" | "P1" | "P2" | "P3";
+  title: string;
+  impact: string;
+  suggestedCorrection: string;
+  suggestedTest: string;
+  evidence: Payload[];
+}
+
+interface ReviewResultView {
+  summary: string;
+  conclusion:
+    | "blocking_findings"
+    | "no_blocking_findings"
+    | "incomplete";
+  findings: ReviewFindingView[];
+  omissions: Array<{ code: string; description: string }>;
+}
+
+function reviewResultProjection(value: unknown): ReviewResultView | null {
+  const payload = asPayload(value);
+  if (payload.schemaVersion !== "change-review-result-v1") return null;
+  const summary = firstText(payload, ["summary"]);
+  if (!summary || !Array.isArray(payload.findings) || !Array.isArray(payload.omissions)) {
+    return null;
+  }
+  const conclusion = firstText(payload, ["conclusion"]);
+  if (
+    conclusion !== "blocking_findings" &&
+    conclusion !== "no_blocking_findings" &&
+    conclusion !== "incomplete"
+  ) {
+    return null;
+  }
+  const findings: ReviewFindingView[] = [];
+  const findingIds = new Set<string>();
+  for (const candidate of payload.findings) {
+    const finding = asPayload(candidate);
+    const findingId = firstText(finding, ["findingId"]);
+    const severity = firstText(finding, ["severity"]);
+    const title = firstText(finding, ["title"]);
+    const impact = firstText(finding, ["impact"]);
+    const suggestedCorrection = firstText(finding, ["suggestedCorrection"]);
+    const suggestedTest = firstText(finding, ["suggestedTest"]);
+    if (
+      !findingId ||
+      findingIds.has(findingId) ||
+      (severity !== "P0" &&
+        severity !== "P1" &&
+        severity !== "P2" &&
+        severity !== "P3") ||
+      !title ||
+      !impact ||
+      !suggestedCorrection ||
+      !suggestedTest ||
+      !Array.isArray(finding.evidence) ||
+      finding.evidence.length === 0
+    ) {
+      return null;
+    }
+    const evidence = finding.evidence.map(asPayload);
+    if (evidence.some((item) => Object.keys(item).length === 0)) return null;
+    findingIds.add(findingId);
+    findings.push({
+      findingId,
+      severity,
+      title,
+      impact,
+      suggestedCorrection,
+      suggestedTest,
+      evidence,
+    });
+  }
+  const omissions: Array<{ code: string; description: string }> = [];
+  const omissionCodes = new Set<string>();
+  for (const candidate of payload.omissions) {
+    const omission = asPayload(candidate);
+    const code = firstText(omission, ["code"]);
+    const description = firstText(omission, ["description"]);
+    if (!code || !description || omissionCodes.has(code)) return null;
+    omissionCodes.add(code);
+    omissions.push({ code, description });
+  }
+  return {
+    summary,
+    conclusion,
+    findings,
+    omissions,
+  };
+}
+
+function evidenceLabel(evidence: Payload, baseRevision?: string): string {
+  const path = firstText(evidence, ["path"]);
+  const side = firstText(evidence, ["side"]);
+  const kind = firstText(evidence, ["kind"]);
+  const line =
+    typeof evidence.line === "number" && Number.isSafeInteger(evidence.line)
+      ? evidence.line
+      : null;
+  const location = path
+    ? `${path}${side === "base" ? `@${baseRevision || "base"}` : ""}${line === null ? "" : `:${line}`}`
+    : "Verified evidence";
+  return [location, side, kind]
+    .filter(Boolean)
+    .join(" · ");
+}
+
+function freshnessCopy(freshness: ReviewFreshness): {
+  label: string;
+  detail: string;
+} {
+  const copy: Record<ReviewFreshness, { label: string; detail: string }> = {
+    pending: {
+      label: "Checking workspace",
+      detail: "SOAR is comparing the current repository with the reviewed snapshot.",
+    },
+    not_available: {
+      label: "No accepted review",
+      detail: "This run ended without a review that passed the host acceptance checks.",
+    },
+    fresh_complete: {
+      label: "Fresh and complete",
+      detail: "The accepted review still matches the current change snapshot.",
+    },
+    identity_same_unverifiable: {
+      label: "Review incomplete",
+      detail: "The snapshot identity matches, but host coverage or the accepted result is incomplete. The review is shown with its omissions; copying is disabled.",
+    },
+    drifted: {
+      label: "Workspace changed",
+      detail: "The current changes no longer match this review. Start a new review before using the findings.",
+    },
+    unavailable: {
+      label: "Freshness unavailable",
+      detail: "SOAR could not revalidate the reviewed snapshot. Findings and copy are withheld.",
+    },
+  };
+  return copy[freshness];
+}
+
+function markdownLiteral(value: string): string {
+  const escapePunctuation = (text: string) =>
+    text.replace(/[!-/:-@[-`{-~]/gu, "\\$&");
+  let escaped = "";
+  let cursor = 0;
+  for (const match of value.matchAll(/\bhttps?(?=:\/\/)|\bwww(?=\.)|@/giu)) {
+    const end = match.index + match[0].length;
+    escaped += `${escapePunctuation(value.slice(cursor, end))}<!-- -->`;
+    cursor = end;
+  }
+  return escaped + escapePunctuation(value.slice(cursor));
+}
+
+function markdownCode(value: string): string {
+  const longestBacktickRun = [...value.matchAll(/`+/gu)].reduce(
+    (longest, match) => Math.max(longest, match[0].length),
+    0,
+  );
+  const delimiter = "`".repeat(longestBacktickRun + 1);
+  const needsPadding =
+    value.startsWith("`") ||
+    value.endsWith("`") ||
+    value.startsWith(" ") ||
+    value.endsWith(" ");
+  const padding = needsPadding ? " " : "";
+  return `${delimiter}${padding}${value}${padding}${delimiter}`;
+}
+
+export function reviewMarkdown(view: ChangeReviewView): string | null {
+  if (view.freshness !== "fresh_complete") return null;
+  const result = reviewResultProjection(view.reviewResult);
+  if (!result) return null;
+  const conclusion =
+    result.conclusion === "blocking_findings"
+      ? "Blocking findings"
+      : result.conclusion === "no_blocking_findings"
+        ? "No blocking findings found in the inspected evidence"
+        : "Incomplete review";
+  const lines = [
+    "# Review current changes",
+    "",
+    markdownLiteral(result.summary),
+    "",
+    `**Conclusion:** ${conclusion}`,
+  ];
+  if (result.findings.length > 0) {
+    lines.push("", "## Findings");
+    result.findings.forEach((finding) => {
+      lines.push(
+        "",
+        `### [${markdownLiteral(finding.severity)}] ${markdownLiteral(finding.title)}`,
+        "",
+        `**Impact:** ${markdownLiteral(finding.impact)}`,
+        "",
+        `**Suggested correction:** ${markdownLiteral(finding.suggestedCorrection)}`,
+        "",
+        `**Suggested test:** ${markdownLiteral(finding.suggestedTest)}`,
+        "",
+        "**Evidence:**",
+        ...finding.evidence.map(
+          (evidence) =>
+            `- ${markdownCode(evidenceLabel(evidence, view.baseRevision))}`,
+        ),
+      );
+    });
+  }
+  if (result.omissions.length > 0) {
+    lines.push("", "## Omissions");
+    result.omissions.forEach((omission) => {
+      lines.push(
+        `- **${markdownLiteral(omission.code)}:** ${markdownLiteral(omission.description)}`,
+      );
+    });
+  }
+  const coverage = asPayload(view.coverage);
+  const counts = asPayload(coverage.counts);
+  if (coverage.schemaVersion === "review-coverage-view-v1") {
+    lines.push(
+      "",
+      "## Coverage",
+      "",
+      `- Status: ${firstText(coverage, ["status"]) || "unknown"}`,
+      `- Changed paths: ${typeof counts.changedPaths === "number" ? counts.changedPaths : "unknown"}`,
+      `- Admitted paths: ${typeof counts.admittedPaths === "number" ? counts.admittedPaths : "unknown"}`,
+      `- Changed hunks: ${typeof counts.changedHunks === "number" ? counts.changedHunks : "unknown"}`,
+      `- Admitted hunks: ${typeof counts.admittedHunks === "number" ? counts.admittedHunks : "unknown"}`,
+    );
+  }
+  return lines.join("\n").trim();
+}
+
+export function ReviewSetup({
+  workspace,
+  availability,
+  loading,
+  busy,
+  onChooseWorkspace,
+  onStart,
+}: {
+  workspace: { path: string; name: string } | null;
+  availability: ReviewAvailability;
+  loading: boolean;
+  busy: boolean;
+  onChooseWorkspace: () => void;
+  onStart: () => void;
+}) {
+  const localDetail = availability.local.model
+    ? `${availability.local.label} · ${availability.local.model}`
+    : availability.local.reason || availability.local.label;
+  const declaredTokenFee = `$${
+    availability.local.declaredTokenFeeMicrousd / 1_000_000
+  }`;
+  return (
+    <section className="review-setup" aria-labelledby="review-setup-title">
+      <header className="review-setup-heading">
+        <span className="review-kicker">Repository review</span>
+        <h1 id="review-setup-title">Review current changes</h1>
+        <p>Inspect the working tree and return evidence-linked findings without modifying files.</p>
+      </header>
+
+      <div className="review-setup-fields">
+        <div className="review-setting-row review-repository-row">
+          <span className="review-setting-icon"><FolderOpen /></span>
+          <span className="review-setting-copy">
+            <strong>Repository</strong>
+            <small>{workspace?.path || "Choose the repository to inspect"}</small>
+          </span>
+          <button type="button" className="review-text-button" onClick={onChooseWorkspace}>
+            {workspace ? "Change" : "Choose"}
+          </button>
+        </div>
+
+        <fieldset className="review-mode-fieldset">
+          <legend>Route</legend>
+          <label className={`review-mode-row is-selected ${availability.local.enabled ? "" : "is-unavailable"}`}>
+            <input type="radio" name="review-route" checked readOnly disabled={!availability.local.enabled} />
+            <span className="review-setting-icon"><HardDrives /></span>
+            <span className="review-setting-copy">
+              <strong>Local</strong>
+              <small>{loading ? "Checking local review support..." : localDetail}</small>
+            </span>
+            <span className="review-mode-state">Selected</span>
+          </label>
+          <label className="review-mode-row is-disabled" aria-disabled="true">
+            <input type="radio" name="review-route" disabled />
+            <span className="review-setting-icon"><Cpu /></span>
+            <span className="review-setting-copy">
+              <strong>Hybrid</strong>
+              <small>{availability.hybrid.reason}</small>
+            </span>
+            <span className="review-mode-state">Unavailable</span>
+          </label>
+        </fieldset>
+
+        <div className="review-policy-grid">
+          <div>
+            <Coins />
+            <span><small>Declared token fee</small><strong>{declaredTokenFee}</strong></span>
+          </div>
+          <div>
+            <LockKey />
+            <span><small>Paid cloud consent</small><strong>Off</strong></span>
+          </div>
+        </div>
+        <div className="review-egress-note">
+          <Files />
+          <span>
+            <strong>Evidence transport</strong>
+            {availability.local.evidenceTransportSummary}{" "}
+            {availability.local.costAccountingSummary}{" "}
+            {availability.hybrid.reachabilitySummary}
+          </span>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        className="review-start-button"
+        data-testid="start-local-review"
+        onClick={onStart}
+        disabled={busy || loading || !workspace || !availability.local.enabled}
+      >
+        <GitDiff />
+        {busy ? "Starting local review..." : "Start local review"}
+      </button>
+    </section>
+  );
+}
+
+function ReviewTimeline({ phases }: { phases: ReviewPhaseView[] }) {
+  return (
+    <ol className="review-timeline" aria-label="Review phases">
+      {phases.map((phase) => (
+        <li className={`phase-${phase.status}`} key={phase.id}>
+          <span className="review-phase-mark" aria-hidden="true">
+            {phase.status === "complete" ? (
+              <CheckCircle weight="fill" />
+            ) : phase.status === "failed" ? (
+              <XCircle weight="fill" />
+            ) : phase.status === "cancelled" ? (
+              <Stop weight="fill" />
+            ) : phase.status === "active" ? (
+              <Sparkle weight="fill" />
+            ) : (
+              <Clock />
+            )}
+          </span>
+          <span>{phase.label}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function CoverageSummary({ coverage }: { coverage: unknown }) {
+  const payload = asPayload(coverage);
+  if (payload.schemaVersion !== "review-coverage-view-v1") return null;
+  const counts = asPayload(payload.counts);
+  const number = (key: string) =>
+    typeof counts[key] === "number" && Number.isFinite(counts[key])
+      ? (counts[key] as number)
+      : null;
+  const status = firstText(payload, ["status"]);
+  const omissionCodes = Array.isArray(payload.omissionCodes)
+    ? payload.omissionCodes.filter((item): item is string => typeof item === "string")
+    : [];
+  return (
+    <section className="review-coverage" aria-labelledby="review-coverage-title">
+      <header>
+        <div>
+          <span className="review-section-kicker">Host-verified evidence</span>
+          <h2 id="review-coverage-title">Coverage</h2>
+        </div>
+        <span className={`coverage-status coverage-${status || "unknown"}`}>
+          {status || "Unknown"}
+        </span>
+      </header>
+      <div className="coverage-metrics">
+        <span><strong>{number("admittedPaths") ?? "—"}</strong> / {number("changedPaths") ?? "—"}<small>paths admitted</small></span>
+        <span><strong>{number("admittedHunks") ?? "—"}</strong> / {number("changedHunks") ?? "—"}<small>hunks retained</small></span>
+        <span><strong>{typeof payload.changedTestCount === "number" ? payload.changedTestCount : "—"}</strong><small>changed tests</small></span>
+      </div>
+      {payload.runtimeCodeChangedWithoutChangedTest === true ? (
+        <p className="coverage-warning"><WarningCircle weight="fill" /> Runtime code changed without a changed test.</p>
+      ) : null}
+      {omissionCodes.length > 0 ? (
+        <p className="coverage-omissions">Incomplete: {omissionCodes.map(typeLabel).join(", ")}</p>
+      ) : null}
+    </section>
+  );
+}
+
+export function ChangeReviewWorkspace({
+  snapshot,
+  view,
+  loading,
+  stopping,
+  onStop,
+}: {
+  snapshot: SoarSessionSnapshot;
+  view: ChangeReviewView | null;
+  loading: boolean;
+  stopping: boolean;
+  onStop: () => void;
+}) {
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const status = normalizeStatus(view?.status || snapshot.status);
+  const running = status === "running" || status === "queued" || status === "created";
+  const freshness = view?.freshness ?? "pending";
+  const freshnessMessage = freshnessCopy(freshness);
+  const result = freshness === "fresh_complete" || freshness === "identity_same_unverifiable"
+    ? reviewResultProjection(view?.reviewResult)
+    : null;
+  const markdown = view ? reviewMarkdown(view) : null;
+  const conclusion = result?.conclusion;
+  const coveragePayload = asPayload(view?.coverage);
+  const coverageCounts = asPayload(coveragePayload.counts);
+  const emptySnapshot =
+    result !== null && coverageCounts.changedPaths === 0;
+
+  useEffect(() => {
+    setCopyState("idle");
+  }, [snapshot.id, view?.freshness, view?.reviewResult]);
+
+  const copyReview = async () => {
+    if (!markdown) return;
+    try {
+      const api = reviewApi();
+      if (!api) throw new Error("Review freshness cannot be checked.");
+      // Copy is a new use of the artifact, so ask main to revalidate the
+      // workspace again instead of trusting the view that was rendered earlier.
+      const refreshed = await api.getChangeReviewView(snapshot.id);
+      const refreshedMarkdown = reviewMarkdown(refreshed);
+      if (!refreshedMarkdown) {
+        throw new Error("The review is no longer fresh enough to copy.");
+      }
+      await navigator.clipboard.writeText(refreshedMarkdown);
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
+    }
+  };
+
+  return (
+    <div className="review-workspace">
+      <header className="review-workspace-header">
+        <div>
+          <span className="review-kicker">Review current changes</span>
+          <h1>{workspaceName(snapshot.workspaceRoot)}</h1>
+        </div>
+        {running ? (
+          <button
+            type="button"
+            className="review-stop-button"
+            data-testid="stop-review"
+            onClick={onStop}
+            disabled={stopping}
+          >
+            <Stop weight="fill" />
+            {stopping ? "Stopping" : "Stop"}
+          </button>
+        ) : markdown ? (
+          <button type="button" className="review-copy-button" onClick={() => void copyReview()}>
+            <Copy />
+            {copyState === "copied" ? "Copied" : copyState === "failed" ? "Copy failed" : "Copy Markdown"}
+          </button>
+        ) : null}
+      </header>
+
+      <ReviewTimeline phases={view?.phases || []} />
+
+      <div className="review-scroll-region">
+        {view?.route ? (
+          <div className="review-route-line">
+            <Cpu />
+            <span><strong>{view.route.model}</strong>{view.route.providerId} · {typeLabel(view.route.locality)}</span>
+            <small>{routeReasonLabel(view.route.reasonCode)}</small>
+          </div>
+        ) : null}
+
+        {running || loading ? (
+          <section className="review-progress" aria-live="polite">
+            <span className="review-progress-mark"><Sparkle weight="fill" /></span>
+            <div>
+              <strong>{loading ? "Loading review state" : "Inspecting your changes"}</strong>
+              <p>SOAR is collecting bounded repository evidence before local synthesis.</p>
+            </div>
+          </section>
+        ) : (
+          <>
+            <section
+              className={`review-freshness freshness-${freshness}`}
+              data-testid="review-freshness"
+            >
+              {freshness === "fresh_complete" ? <CheckCircle weight="fill" /> : <WarningCircle weight="fill" />}
+              <span><strong>{freshnessMessage.label}</strong>{freshnessMessage.detail}</span>
+            </section>
+
+            {result ? (
+              <>
+                <section className="review-result-summary" data-testid="review-result">
+                  <span className="review-section-kicker">Accepted structured result</span>
+                  <h2>
+                    {emptySnapshot
+                      ? "No changes to review"
+                      : conclusion === "blocking_findings"
+                      ? `${result.findings.length} finding${result.findings.length === 1 ? " needs" : "s need"} attention`
+                      : conclusion === "no_blocking_findings"
+                        ? "No blocking findings found in the inspected evidence"
+                        : "Review incomplete"}
+                  </h2>
+                  <p>{result.summary}</p>
+                  {view?.acceptanceNote ? <small>{view.acceptanceNote}</small> : null}
+                </section>
+
+                {result.findings.length > 0 ? (
+                  <section className="review-findings" aria-labelledby="review-findings-title">
+                    <header>
+                      <span className="review-section-kicker">Evidence-linked</span>
+                      <h2 id="review-findings-title">Findings</h2>
+                    </header>
+                    <div className="review-finding-list">
+                      {result.findings.map((finding) => (
+                        <article className={`review-finding severity-${finding.severity.toLowerCase()}`} key={finding.findingId}>
+                          <header>
+                            <span>{finding.severity}</span>
+                            <h3>{finding.title}</h3>
+                          </header>
+                          <dl>
+                            <div><dt>Impact</dt><dd>{finding.impact}</dd></div>
+                            <div><dt>Correction</dt><dd>{finding.suggestedCorrection}</dd></div>
+                            <div><dt>Test</dt><dd>{finding.suggestedTest}</dd></div>
+                          </dl>
+                          <ul className="finding-evidence">
+                            {finding.evidence.map((evidence, index) => (
+                              <li key={`${finding.findingId}-evidence-${index}`}>
+                                <Code />
+                                {evidenceLabel(evidence, view?.baseRevision)}
+                              </li>
+                            ))}
+                          </ul>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
+                <CoverageSummary coverage={view?.coverage} />
+
+                {result.omissions.length > 0 ? (
+                  <section className="review-omissions">
+                    <h2>Review omissions</h2>
+                    {result.omissions.map((omission) => (
+                      <p key={omission.code}><strong>{typeLabel(omission.code)}</strong>{omission.description}</p>
+                    ))}
+                  </section>
+                ) : null}
+              </>
+            ) : (
+              <section className="review-result-withheld">
+                <WarningCircle weight="fill" />
+                <div>
+                  <strong>{status === "failed" || status === "error" ? "Review could not finish" : "Review result withheld"}</strong>
+                  <p>{view?.acceptanceNote || "SOAR does not display or copy findings until the reviewed snapshot is fully revalidated."}</p>
+                </div>
+              </section>
+            )}
+          </>
+        )}
+      </div>
+      <span className="sr-only" role="status">
+        {copyState === "copied" ? "Review copied as Markdown" : copyState === "failed" ? "Review could not be copied" : ""}
+      </span>
+    </div>
+  );
+}
+
 function traceIcon(type: string): ReactNode {
   const normalized = type.toLowerCase();
   if (normalized.includes("tool")) return <Wrench />;
@@ -985,25 +1729,38 @@ function traceIcon(type: string): ReactNode {
 type RunCostProvenance =
   | "provider_reported"
   | "local_zero_cost_policy"
+  | "host_pricing_snapshot"
+  | "reserved_unknown"
   | "unreported"
   | "mixed";
 
 export interface RunSummary {
   events: SoarSessionEvent[];
   model: string | null;
+  provider: string | null;
+  locality: "local" | "cloud" | null;
   reason: string;
   duration: string;
+  providerDuration: string | null;
   cost: string | null;
   inputTokens: number;
   outputTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
   reported: boolean | null;
   costProvenance: RunCostProvenance | null;
 }
 
 function usageCostProvenance(value: unknown): Exclude<RunCostProvenance, "mixed"> {
-  return value === "provider_reported" || value === "local_zero_cost_policy"
-    ? value
-    : "unreported";
+  if (
+    value === "provider_reported" ||
+    value === "local_zero_cost_policy" ||
+    value === "host_pricing_snapshot" ||
+    value === "reserved_unknown"
+  ) {
+    return value;
+  }
+  return "unreported";
 }
 
 function mergeCostProvenance(
@@ -1012,7 +1769,16 @@ function mergeCostProvenance(
 ): RunCostProvenance {
   if (aggregate === null) return current;
   if (aggregate === "unreported" || current === "unreported") return "unreported";
+  if (aggregate === "reserved_unknown" || current === "reserved_unknown") {
+    return "reserved_unknown";
+  }
   return aggregate === current ? aggregate : "mixed";
+}
+
+function formatProviderDuration(durationMs: number): string {
+  return durationMs < 1_000
+    ? `${Math.round(durationMs)}ms`
+    : `${(durationMs / 1_000).toFixed(1)}s`;
 }
 
 export function summarizeRun(snapshot: SoarSessionSnapshot | null): RunSummary {
@@ -1020,66 +1786,140 @@ export function summarizeRun(snapshot: SoarSessionSnapshot | null): RunSummary {
     (a, b) => (a.sequence || 0) - (b.sequence || 0),
   );
   const status = normalizeStatus(snapshot?.status);
-  const routeEvent = [...events]
+  const decisionEvent = [...events]
     .reverse()
-    .find((event) => /route|model|provider/i.test(event.type));
+    .find((event) => event.type === "routing.decision.recorded");
+  const assignedEvent = [...events]
+    .reverse()
+    .find((event) => event.type === "route.assigned");
+  const routeEvent = decisionEvent ?? assignedEvent;
   const routePayload = asPayload(routeEvent?.payload);
-  const model = firstText(routePayload, ["model", "modelName"]) || null;
+  const model =
+    firstText(routePayload, ["selectedModel", "model", "modelName"]) || null;
+  const provider =
+    firstText(routePayload, [
+      "selectedProviderId",
+      "providerId",
+      "provider",
+      "providerName",
+    ]) || null;
+  const directLocality = firstText(routePayload, ["locality"]);
+  const routerInput = asPayload(routePayload.routerInputSnapshot);
+  const providers = Array.isArray(routerInput.providers)
+    ? routerInput.providers.map(asPayload)
+    : [];
+  const selectedProvider = providers.find(
+    (candidate) => firstText(candidate, ["providerId"]) === provider,
+  );
+  const derivedLocality =
+    directLocality || (selectedProvider ? firstText(selectedProvider, ["locality"]) : "");
+  const locality =
+    derivedLocality === "local" || derivedLocality === "cloud"
+      ? derivedLocality
+      : null;
   const reason =
-    firstText(routePayload, ["reason", "decisionReason"]) || "Routing begins when the run starts";
-  const usage = events.reduce(
+    firstText(routePayload, ["reasonCode", "reason", "decisionReason"]) ||
+    "Routing begins when the run starts";
+  const attemptEvents = events.filter(
+    (event) => event.type === "inference.attempt.finished",
+  );
+  // v2 persists authoritative usage on the finished attempt. If it exists,
+  // ignore legacy usage.recorded events so replay cannot count one call twice.
+  const usageEvents =
+    attemptEvents.length > 0
+      ? attemptEvents
+      : events.filter((event) => event.type === "usage.recorded");
+  const usage = usageEvents.reduce(
     (total, event) => {
-      if (event.type !== "usage.recorded") return total;
       const payload = asPayload(event.payload);
+      const usagePayload =
+        event.type === "inference.attempt.finished"
+          ? asPayload(payload.usage)
+          : payload;
+      const costPayload =
+        event.type === "inference.attempt.finished"
+          ? asPayload(payload.cost)
+          : payload;
       const number = (key: string) =>
-        typeof payload[key] === "number" && Number.isFinite(payload[key])
-          ? (payload[key] as number)
+        typeof usagePayload[key] === "number" && Number.isFinite(usagePayload[key])
+          ? (usagePayload[key] as number)
           : 0;
+      const cost =
+        event.type === "inference.attempt.finished"
+          ? typeof costPayload.amountMicrousd === "number" &&
+            Number.isFinite(costPayload.amountMicrousd)
+            ? costPayload.amountMicrousd / 1_000_000
+            : 0
+          : typeof payload.costUsd === "number" && Number.isFinite(payload.costUsd)
+            ? payload.costUsd
+            : 0;
+      const latencyReported =
+        typeof payload.latencyMs === "number" &&
+        Number.isFinite(payload.latencyMs) &&
+        payload.latencyMs >= 0;
+      const latency = latencyReported ? (payload.latencyMs as number) : 0;
+      const provenance = usageCostProvenance(
+        event.type === "inference.attempt.finished"
+          ? costPayload.provenance
+          : payload.costProvenance,
+      );
       return {
         input: total.input + number("inputTokens"),
         output: total.output + number("outputTokens"),
-        cost: total.cost + number("costUsd"),
-        latency: total.latency + number("latencyMs"),
+        reasoning: total.reasoning + number("reasoningTokens"),
+        cost: total.cost + cost,
+        latency: total.latency + latency,
+        latencyReported: total.latencyReported && latencyReported,
         records: total.records + 1,
-        reported: total.reported && payload.reported === true,
+        reported: total.reported && usagePayload.reported === true,
         costProvenance: mergeCostProvenance(
           total.costProvenance,
-          usageCostProvenance(payload.costProvenance),
+          provenance,
         ),
       };
     },
     {
       input: 0,
       output: 0,
+      reasoning: 0,
       cost: 0,
       latency: 0,
+      latencyReported: true,
       records: 0,
       reported: true,
       costProvenance: null as RunCostProvenance | null,
     },
   );
   const endTime = terminalStatuses.has(status) ? snapshot?.updatedAt : undefined;
-  const duration = usage.latency > 0
-    ? usage.latency < 1_000
-      ? `${Math.round(usage.latency)}ms`
-      : `${(usage.latency / 1_000).toFixed(1)}s`
-    : formatDuration(snapshot?.createdAt, endTime);
+  const duration = formatDuration(snapshot?.createdAt, endTime);
+  const providerDuration =
+    usage.records === 0
+      ? null
+      : usage.latencyReported
+        ? formatProviderDuration(usage.latency)
+        : "Unknown";
 
   return {
     events,
     model,
+    provider,
+    locality,
     reason,
     duration,
+    providerDuration,
     cost:
       usage.records === 0
         ? null
-        : usage.costProvenance === "unreported"
+        : usage.costProvenance === "unreported" ||
+            usage.costProvenance === "reserved_unknown"
           ? "Unknown"
           : usage.cost === 0
             ? "$0.00"
             : `$${usage.cost.toFixed(4)}`,
     inputTokens: usage.input,
     outputTokens: usage.output,
+    reasoningTokens: usage.reasoning,
+    totalTokens: usage.input + usage.output + usage.reasoning,
     reported: usage.records === 0 ? null : usage.reported,
     costProvenance: usage.records === 0 ? null : usage.costProvenance,
   };
@@ -1135,7 +1975,13 @@ export function TracePanel({
             <div className="route-model">
               <span className="route-model-icon"><Cpu weight="fill" /></span>
               <span>
-                <small>{summary.model ? "Selected model" : "Routing"}</small>
+                <small>
+                  {summary.locality
+                    ? `${typeLabel(summary.locality)} route${summary.provider ? ` · ${summary.provider}` : ""}`
+                    : summary.model
+                      ? "Selected model"
+                      : "Routing"}
+                </small>
                 <strong>{summary.model || "Route pending"}</strong>
               </span>
             </div>
@@ -1145,17 +1991,20 @@ export function TracePanel({
           <div className="metric-grid">
             <div>
               <Clock />
-              <span>Latency</span>
+              <span>End-to-end</span>
               <strong>{summary.duration}</strong>
+              <small>
+                Provider time {summary.providerDuration || "—"}
+              </small>
             </div>
             <div>
               <Code />
-              <span>Tokens</span>
+              <span>Total tokens</span>
               <strong>
                 {summary.reported === null
                   ? "—"
                   : summary.reported
-                    ? summary.inputTokens + summary.outputTokens
+                    ? summary.totalTokens
                     : "Unknown"}
               </strong>
             </div>
@@ -1208,7 +2057,9 @@ function StatusBar({ snapshot }: { snapshot: SoarSessionSnapshot | null }) {
   const status = normalizeStatus(snapshot?.status);
   const statusLabel = !snapshot
     ? "Runtime checked when a task starts"
-    : status === "running" || status === "queued"
+    : status === "created" && snapshot.taskTrack === "change-review-v1"
+      ? "Preparing local review"
+      : status === "running" || status === "queued"
       ? "Agent working"
       : status === "completed"
         ? "Run completed"
@@ -1229,7 +2080,7 @@ function StatusBar({ snapshot }: { snapshot: SoarSessionSnapshot | null }) {
       <span className="statusbar-session">
         <span data-testid="route-model">{summary.model || (snapshot ? "Route pending" : "No active run")}</span>
         <span aria-hidden="true">·</span>
-        <span>{summary.model ? "Local" : "Idle"}</span>
+        <span>{summary.locality ? typeLabel(summary.locality) : summary.model ? "Local" : "Idle"}</span>
         <span aria-hidden="true">·</span>
         <span data-testid="route-cost">{summary.cost || "—"}</span>
       </span>
@@ -1248,15 +2099,90 @@ export function App() {
   const [loadingSession, setLoadingSession] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [surface, setSurface] = useState<"task" | "review_setup">("task");
+  const [reviewAvailability, setReviewAvailability] = useState<ReviewAvailability>(
+    defaultReviewAvailability,
+  );
+  const [reviewAvailabilityLoading, setReviewAvailabilityLoading] = useState(false);
+  const [reviewView, setReviewView] = useState<ChangeReviewView | null>(null);
+  const [reviewViewLoading, setReviewViewLoading] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false);
   const compactLayout = useMediaQuery("(max-width: 880px)");
   const selectedIdRef = useRef<string | null>(null);
   const latestAssistantStartRef = useRef<string | null>(null);
+  const reviewRequestOrdinalRef = useRef(0);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
+
+  useEffect(() => {
+    if (snapshot?.taskTrack !== "change-review-v1") {
+      reviewRequestOrdinalRef.current += 1;
+      setReviewView(null);
+      setReviewViewLoading(false);
+      return;
+    }
+    const api = reviewApi();
+    if (!api) {
+      reviewRequestOrdinalRef.current += 1;
+      setReviewView(null);
+      setReviewViewLoading(false);
+      setError("Review Current Changes is not available in this app build.");
+      return;
+    }
+    let disposed = false;
+    const refresh = () => {
+      const requestOrdinal = ++reviewRequestOrdinalRef.current;
+      setReviewViewLoading(true);
+      void api
+        .getChangeReviewView(snapshot.id)
+        .then((value) => {
+          if (
+            !disposed &&
+            requestOrdinal === reviewRequestOrdinalRef.current
+          ) {
+            setReviewView(value);
+          }
+        })
+        .catch((reason: unknown) => {
+          if (
+            !disposed &&
+            requestOrdinal === reviewRequestOrdinalRef.current
+          ) {
+            setReviewView(null);
+            setError(
+              reason instanceof Error
+                ? reason.message
+                : "The review state could not load.",
+            );
+          }
+        })
+        .finally(() => {
+          if (
+            !disposed &&
+            requestOrdinal === reviewRequestOrdinalRef.current
+          ) {
+            setReviewViewLoading(false);
+          }
+        });
+    };
+    const refreshOnFocus = () => refresh();
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+
+    refresh();
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      disposed = true;
+      reviewRequestOrdinalRef.current += 1;
+      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [snapshot?.id, snapshot?.taskTrack, snapshot?.updatedAt]);
 
   const upsertSummary = useCallback((incoming: SoarSessionSnapshot) => {
     setSessions((current) => {
@@ -1389,6 +2315,60 @@ export function App() {
     }
   }, [busy, task, upsertSummary, workspace]);
 
+  const openReviewSetup = useCallback(() => {
+    selectedIdRef.current = null;
+    setSelectedId(null);
+    setSnapshot(null);
+    setReviewView(null);
+    setStreamedText("");
+    latestAssistantStartRef.current = null;
+    setSurface("review_setup");
+    setError(null);
+    setSidebarOpen(false);
+
+    const api = reviewApi();
+    if (!api) {
+      setReviewAvailability(defaultReviewAvailability);
+      setError("Review Current Changes is not available in this app build.");
+      return;
+    }
+    setReviewAvailabilityLoading(true);
+    void api
+      .getReviewAvailability()
+      .then(setReviewAvailability)
+      .catch((reason: unknown) => {
+        setReviewAvailability(defaultReviewAvailability);
+        setError(reason instanceof Error ? reason.message : "Local review support could not be checked.");
+      })
+      .finally(() => setReviewAvailabilityLoading(false));
+  }, []);
+
+  const startChangeReview = useCallback(async () => {
+    if (!workspace || busy || !reviewAvailability.local.enabled) return;
+    const api = reviewApi();
+    if (!api) {
+      setError("Review Current Changes is not available in this app build.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await api.createChangeReviewSession({
+        workspaceRoot: workspace.path,
+      });
+      upsertSummary(created);
+      selectedIdRef.current = created.id;
+      setSelectedId(created.id);
+      setSnapshot(created);
+      setReviewView(null);
+      setSurface("task");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The local review could not start.");
+    } finally {
+      setBusy(false);
+    }
+  }, [busy, reviewAvailability.local.enabled, upsertSummary, workspace]);
+
   const cancelSession = useCallback(async () => {
     if (!snapshot || busy) return;
     setBusy(true);
@@ -1410,6 +2390,8 @@ export function App() {
     setStreamedText("");
     latestAssistantStartRef.current = null;
     setError(null);
+    setSurface("task");
+    setReviewView(null);
     setSidebarOpen(false);
   }, []);
 
@@ -1418,6 +2400,7 @@ export function App() {
     setSelectedId(id);
     setSidebarOpen(false);
     setError(null);
+    setSurface("task");
   }, []);
 
   useEffect(() => {
@@ -1442,7 +2425,11 @@ export function App() {
   }, [compactLayout]);
 
   const status = normalizeStatus(snapshot?.status);
-  const running = status === "running" || status === "queued";
+  const reviewSession = snapshot?.taskTrack === "change-review-v1";
+  const running =
+    status === "running" ||
+    status === "queued" ||
+    (reviewSession && status === "created");
   return (
     <div className="app-shell">
       <SessionSidebar
@@ -1454,11 +2441,12 @@ export function App() {
         runtimeActive={running}
         onSelect={selectSession}
         onNew={newTask}
+        onReview={openReviewSetup}
         onClose={() => setSidebarOpen(false)}
       />
 
       <main className="main-workspace">
-        <header className={`task-header ${snapshot ? "has-session" : "is-empty"}`}>
+        <header className={`task-header ${snapshot || surface === "review_setup" ? "has-session" : "is-empty"}`}>
           <button
             className="icon-button session-menu-button"
             onClick={() => setSidebarOpen(true)}
@@ -1472,6 +2460,8 @@ export function App() {
                 <strong>{snapshot.title || "Untitled task"}</strong>
                 <span>{workspaceName(snapshot.workspaceRoot)}</span>
               </>
+            ) : surface === "review_setup" ? (
+              <strong>Review current changes</strong>
             ) : null}
           </div>
           <div className="task-header-actions">
@@ -1496,22 +2486,44 @@ export function App() {
         ) : null}
 
         <section className="conversation-panel">
-          <Transcript
-            snapshot={snapshot}
-            streamedText={streamedText}
-            loading={loadingSession}
-            onPromptSelect={setTask}
-          />
-          <Composer
-            task={task}
-            workspace={workspace}
-            busy={busy}
-            running={running}
-            onTaskChange={setTask}
-            onChooseWorkspace={chooseWorkspace}
-            onSubmit={startNewSession}
-            onCancel={cancelSession}
-          />
+          {surface === "review_setup" ? (
+            <ReviewSetup
+              workspace={workspace}
+              availability={reviewAvailability}
+              loading={reviewAvailabilityLoading}
+              busy={busy}
+              onChooseWorkspace={chooseWorkspace}
+              onStart={startChangeReview}
+            />
+          ) : reviewSession && snapshot ? (
+            <ChangeReviewWorkspace
+              snapshot={snapshot}
+              view={reviewView}
+              loading={loadingSession || reviewViewLoading}
+              stopping={busy}
+              onStop={cancelSession}
+            />
+          ) : (
+            <>
+              <Transcript
+                snapshot={snapshot}
+                streamedText={streamedText}
+                loading={loadingSession}
+                onPromptSelect={setTask}
+                onReview={openReviewSetup}
+              />
+              <Composer
+                task={task}
+                workspace={workspace}
+                busy={busy}
+                running={running}
+                onTaskChange={setTask}
+                onChooseWorkspace={chooseWorkspace}
+                onSubmit={startNewSession}
+                onCancel={cancelSession}
+              />
+            </>
+          )}
         </section>
         <StatusBar snapshot={snapshot} />
       </main>

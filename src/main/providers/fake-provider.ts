@@ -2,12 +2,24 @@ import type {
   CompleteInput,
   DescribedInferenceProvider,
   ProviderMessage,
+  ProviderModelAvailabilityResult,
   ProviderResult,
 } from "./types";
 import { ProviderAbortedError } from "./types";
 import { parseProviderDescriptor } from "./provider-descriptor";
+import { deriveReviewCoverageV1 } from "../change-acquisition-contracts";
+import {
+  REVIEW_RESULT_V1_STRUCTURED_OUTPUT_CONTRACT,
+  ReviewResultV1Schema,
+} from "../../shared/review-result-contract";
+import {
+  ReviewSynthesisPacketV1Schema,
+  type ReviewSynthesisPacketV1,
+} from "../../shared/review-synthesis-packet";
 
 const CONTEXT_PACKET_PREFIX = "SOAR_CONTEXT_PACKET_V1\n";
+const REVIEW_SYNTHESIS_PACKET_PREFIX =
+  "SOAR_REVIEW_SYNTHESIS_PACKET_V1\n";
 
 interface ContextPacketToolEvidence {
   kind: "tool_evidence";
@@ -62,6 +74,59 @@ function extractLastToolResult(messages: ProviderMessage[]): string | undefined 
   return undefined;
 }
 
+function extractReviewSynthesisPacket(
+  messages: ProviderMessage[],
+): ReviewSynthesisPacketV1 {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (
+      message?.role !== "user" ||
+      !message.content.startsWith(REVIEW_SYNTHESIS_PACKET_PREFIX)
+    ) {
+      continue;
+    }
+    return ReviewSynthesisPacketV1Schema.parse(
+      JSON.parse(message.content.slice(REVIEW_SYNTHESIS_PACKET_PREFIX.length)),
+    );
+  }
+  throw new TypeError(
+    "The fake change-review provider requires one review synthesis packet.",
+  );
+}
+
+function deterministicReviewResult(packet: ReviewSynthesisPacketV1): string {
+  const coverage = deriveReviewCoverageV1({
+    snapshot: packet.snapshot,
+    evidenceSet: packet.evidenceSet,
+    packetRetainedEvidenceSet: true,
+    // The fake models a stable deterministic fixture. The production host owns
+    // the real post-inference snapshot revalidation and can still reject it.
+    snapshotRevalidated: true,
+  });
+  const complete = coverage.status === "complete";
+  return JSON.stringify(
+    ReviewResultV1Schema.parse({
+      schemaVersion: REVIEW_RESULT_V1_STRUCTURED_OUTPUT_CONTRACT,
+      snapshotId: packet.snapshot.snapshotId,
+      summary: complete
+        ? "No blocking findings were produced from the admitted deterministic test evidence."
+        : "The deterministic test review is incomplete because the admitted evidence does not satisfy every coverage gate.",
+      conclusion: complete ? "no_blocking_findings" : "incomplete",
+      evidenceSetId: packet.evidenceSet.evidenceSetId,
+      omissions: complete
+        ? []
+        : [
+            {
+              code: "fake_incomplete_evidence",
+              description:
+                "One or more host-derived evidence coverage gates are incomplete.",
+            },
+          ],
+      findings: [],
+    }),
+  );
+}
+
 function waitForDelay(
   delayMs: number,
   signal: AbortSignal,
@@ -109,20 +174,66 @@ export class FakeProvider implements DescribedInferenceProvider {
     locality: "local",
     model: this.model,
     enabled: true,
-    capabilities: ["chat_completions", "streaming", "tool_calling"],
+    capabilities: [
+      "chat_completions",
+      "streaming",
+      "structured_json_schema",
+      "tool_calling",
+    ],
     contextWindowTokens: 32_768,
     maxOutputTokens: 8_192,
     requestReserveTokens: 512,
     accounting: { kind: "local_zero_cost" },
   });
   private readonly delayMs: number;
+  private toolCallSequence = 0;
 
   constructor(options: { delayMs?: number } = {}) {
     this.delayMs = options.delayMs ?? 12;
   }
 
+  async checkConfiguredModelAvailability(
+    signal?: AbortSignal,
+  ): Promise<ProviderModelAvailabilityResult> {
+    return {
+      providerId: this.id,
+      model: this.model,
+      locality: "local",
+      status: signal?.aborted ? "unhealthy" : "healthy",
+      code: signal?.aborted ? "cancelled" : "configured_model_available",
+    };
+  }
+
   async complete(input: CompleteInput): Promise<ProviderResult> {
     const startedAt = performance.now();
+    if (
+      input.structuredOutputContract ===
+      REVIEW_RESULT_V1_STRUCTURED_OUTPUT_CONTRACT
+    ) {
+      if (
+        input.allowTools !== false ||
+        input.allowedToolNames !== undefined ||
+        input.requireToolCall === true
+      ) {
+        throw new RangeError(
+          "structured output is mutually exclusive with provider tools",
+        );
+      }
+      if (input.signal.aborted) {
+        throw new ProviderAbortedError("Fake inference cancelled", "");
+      }
+      const packet = extractReviewSynthesisPacket(input.messages);
+      const content = deterministicReviewResult(packet);
+      return {
+        content,
+        toolCalls: [],
+        finishReason: "stop",
+        usage: { inputTokens: 96, outputTokens: 48, totalTokens: 144 },
+        servedModel: this.model,
+        timeToFirstTokenMs: 1,
+        durationMs: performance.now() - startedAt,
+      };
+    }
     const toolResult = extractLastToolResult(input.messages);
     const toolsPermitted = input.allowTools !== false;
     const requiredTool =
@@ -147,12 +258,15 @@ export class FakeProvider implements DescribedInferenceProvider {
           ? {}
           : toolName === "search_text"
             ? { query: "SOAR" }
-            : { relativePath: "SOAR_PROBE.txt" };
+            : toolName === "inspect_git_changes"
+              ? { schemaVersion: "inspect-git-changes-v1" }
+              : { relativePath: "SOAR_PROBE.txt" };
+      this.toolCallSequence += 1;
       return {
         content: "",
         toolCalls: [
           {
-            id: `fake-${toolName}`,
+            id: `fake-${toolName}-${this.toolCallSequence}`,
             type: "function",
             function: {
               name: toolName,
@@ -162,6 +276,7 @@ export class FakeProvider implements DescribedInferenceProvider {
         ],
         finishReason: "tool_calls",
         usage: { inputTokens: 24, outputTokens: 12, totalTokens: 36 },
+        servedModel: this.model,
         timeToFirstTokenMs: 1,
         durationMs: performance.now() - startedAt,
       };
@@ -192,6 +307,7 @@ export class FakeProvider implements DescribedInferenceProvider {
       toolCalls: [],
       finishReason: "stop",
       usage: { inputTokens: 48, outputTokens: 16, totalTokens: 64 },
+      servedModel: this.model,
       timeToFirstTokenMs:
         firstTokenAt === undefined ? undefined : firstTokenAt - startedAt,
       durationMs: performance.now() - startedAt,

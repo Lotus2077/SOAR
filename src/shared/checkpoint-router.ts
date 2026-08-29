@@ -47,6 +47,13 @@ export const SYNTHESIS_CAPABILITIES = [
   "streaming",
 ] as const satisfies readonly CheckpointProviderCapability[];
 
+/** PR 5 review synthesis is stricter than PR 4's fake-only generic synthesis. */
+export const CHANGE_REVIEW_SYNTHESIS_CAPABILITIES = [
+  "chat_completions",
+  "streaming",
+  "structured_json_schema",
+] as const satisfies readonly CheckpointProviderCapability[];
+
 const boundedId = z.string().trim().min(1).max(256);
 const boundedCode = z
   .string()
@@ -377,6 +384,9 @@ const commonProposalShape = {
   providers: z.array(CheckpointProviderV0Schema).min(1).max(32),
   localProviderId: boundedId,
   cloudProviderId: boundedId.optional(),
+  structuredOutputContract: z
+    .literal("change-review-result-v1")
+    .optional(),
   state: RouterStateViewV0Schema,
 } as const;
 
@@ -527,7 +537,14 @@ export const AttemptPlanV0Schema = z
     requestedMaxOutputTokens: safePositiveInteger,
     allowTools: z.boolean(),
     allowedToolNames: z
-      .array(z.enum(["list_files", "read_text_file", "search_text"]))
+      .array(
+        z.enum([
+          "inspect_git_changes",
+          "list_files",
+          "read_text_file",
+          "search_text",
+        ]),
+      )
       .optional(),
     requireToolCall: z.boolean(),
     budgetReservationId: boundedId.optional(),
@@ -744,7 +761,9 @@ export function proposeCheckpointRouteV0(
   let allowTools = false;
   let requireToolCall = false;
   let requiredCapabilities: readonly CheckpointProviderCapability[] =
-    SYNTHESIS_CAPABILITIES;
+    input.structuredOutputContract === "change-review-result-v1"
+      ? CHANGE_REVIEW_SYNTHESIS_CAPABILITIES
+      : SYNTHESIS_CAPABILITIES;
 
   if (input.boundary === "session_start") {
     phase = "investigation";
@@ -1024,6 +1043,9 @@ function proposalInputFromResolution(
       ? {}
       : { cloudProviderId: input.cloudProviderId }),
     state: input.state,
+    ...(input.structuredOutputContract === undefined
+      ? {}
+      : { structuredOutputContract: input.structuredOutputContract }),
   };
   return input.boundary === "evidence_complete"
     ? { ...common, boundary: input.boundary, risk: input.risk }
@@ -1302,7 +1324,7 @@ function cloudDecision(options: {
     const localCanRetain =
       remainingMs >= 1 &&
       local.enabled &&
-      hasCapabilities(local, SYNTHESIS_CAPABILITIES) &&
+      hasCapabilities(local, proposal.requiredCapabilities) &&
       healthIsUsable(localHealth, local, input.asOf);
     if (!localCanRetain) {
       return terminal(

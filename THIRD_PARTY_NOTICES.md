@@ -1,5 +1,12 @@
 # Third-party notices
 
+This is a hand-maintained attribution file, not an exhaustive generated SBOM or
+dependency-license inventory. The macOS packaging contract places Electron's
+upstream `LICENSE` at `LICENSE.electron.txt` and its Chromium notices at
+`LICENSES.chromium.html`, alongside SOAR's own `LICENSE`, so those resources
+cannot overwrite one another. Automating a complete direct and transitive
+runtime-license inventory remains release follow-up work.
+
 ## Markdown rendering stack
 
 SOAR bundles `react-markdown` 10.1.0 and `remark-gfm` 4.0.1,

@@ -44,6 +44,7 @@ describe("loadConfig", () => {
         [
           "SOAR_VLLM_BASE_URL=https://user-data.example/v1",
           "SOAR_VLLM_MODEL=user-data-model",
+          "SOAR_VLLM_COST_POLICY=local_zero_cost",
           "SOAR_DB_PATH=/tmp/user-data.sqlite",
         ].join("\n"),
       ),
@@ -75,6 +76,7 @@ describe("loadConfig", () => {
       model: "user-data-model",
       costPolicy: "local_zero_cost",
     });
+    expect(config.vllm).not.toHaveProperty("sensitiveApiKey");
     expect(config.databasePath).toBe("/tmp/user-data.sqlite");
     expect(config.context).toEqual({
       maxInputTokens: 16_384,
@@ -94,7 +96,9 @@ describe("loadConfig", () => {
 
     const environment = {
       SOAR_VLLM_BASE_URL: "https://explicit.example/v1",
+      SOAR_VLLM_API_KEY: "opaque-explicit-provider-key",
       SOAR_VLLM_MODEL: "explicit-model",
+      SOAR_VLLM_COST_POLICY: "local_zero_cost",
     };
     const config = loadConfig({
       ...roots,
@@ -103,11 +107,15 @@ describe("loadConfig", () => {
 
     expect(config.vllm).toMatchObject({
       baseUrl: "https://explicit.example/v1",
+      apiKey: "opaque-explicit-provider-key",
+      sensitiveApiKey: "opaque-explicit-provider-key",
       model: "explicit-model",
     });
     expect(environment).toEqual({
       SOAR_VLLM_BASE_URL: "https://explicit.example/v1",
+      SOAR_VLLM_API_KEY: "opaque-explicit-provider-key",
       SOAR_VLLM_MODEL: "explicit-model",
+      SOAR_VLLM_COST_POLICY: "local_zero_cost",
     });
   });
 
@@ -120,6 +128,7 @@ describe("loadConfig", () => {
         [
           "SOAR_VLLM_BASE_URL=https://explicit-file.example/v1",
           "SOAR_VLLM_MODEL=explicit-file-model",
+          "SOAR_VLLM_COST_POLICY=local_zero_cost",
         ].join("\n"),
       ),
       writeFile(
@@ -149,6 +158,7 @@ describe("loadConfig", () => {
       environment: {
         SOAR_VLLM_BASE_URL: "https://context.example/v1",
         SOAR_VLLM_MODEL: "context-model",
+        SOAR_VLLM_COST_POLICY: "local_zero_cost",
         SOAR_CONTEXT_MAX_INPUT_TOKENS: "16384",
         SOAR_CONTEXT_SAFETY_MARGIN: "0.25",
       },
@@ -165,6 +175,7 @@ describe("loadConfig", () => {
         environment: {
           SOAR_VLLM_BASE_URL: "https://context.example/v1",
           SOAR_VLLM_MODEL: "context-model",
+          SOAR_VLLM_COST_POLICY: "local_zero_cost",
           SOAR_CONTEXT_MAX_INPUT_TOKENS: "1024",
         },
       }),
@@ -211,14 +222,56 @@ describe("loadConfig", () => {
       }),
     ).toThrow(/must be the exact \/v1 API base/);
 
-    expect(
+    expect(() =>
+      loadConfig({
+        ...roots,
+        environment: {
+          ...baseEnvironment,
+          SOAR_VLLM_BASE_URL:
+            "https://endpoint-user:opaque-endpoint-password@example.invalid/v1",
+        },
+      }),
+    ).toThrow(/must not include credentials/);
+
+    expect(() =>
       loadConfig({
         ...roots,
         environment: {
           ...baseEnvironment,
           SOAR_VLLM_BASE_URL: "https://example.invalid/v1",
         },
+      }),
+    ).toThrow(/explicit SOAR_VLLM_COST_POLICY=local_zero_cost/u);
+
+    expect(
+      loadConfig({
+        ...roots,
+        environment: {
+          ...baseEnvironment,
+          SOAR_VLLM_BASE_URL: "https://example.invalid/v1",
+          SOAR_VLLM_COST_POLICY: "local_zero_cost",
+        },
       }).vllm.baseUrl,
     ).toBe("https://example.invalid/v1");
+
+    expect(
+      loadConfig({
+        ...roots,
+        environment: {
+          ...baseEnvironment,
+          SOAR_VLLM_BASE_URL: "http://127.0.0.1:8000/v1",
+        },
+      }).vllm.costPolicy,
+    ).toBe("local_zero_cost");
+
+    expect(
+      loadConfig({
+        ...roots,
+        environment: {
+          ...baseEnvironment,
+          SOAR_VLLM_BASE_URL: "http://[::1]:8000/v1",
+        },
+      }).vllm.costPolicy,
+    ).toBe("local_zero_cost");
   });
 });

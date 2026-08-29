@@ -3,13 +3,22 @@ import type { AddressInfo } from "node:net";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { OpenAICompatibleProvider } from "../../src/main/providers/openai-compatible";
+import {
+  OPENAI_COMPATIBLE_MODEL_LIST_MAX_BYTES,
+  OPENAI_COMPATIBLE_MODEL_LIST_TIMEOUT_MS,
+  OpenAICompatibleProvider,
+} from "../../src/main/providers/openai-compatible";
 import {
   parseProviderDescriptor,
   type ProviderCapability,
 } from "../../src/main/providers/provider-descriptor";
 import { ProviderAbortedError } from "../../src/main/providers/types";
+import type { StructuredOutputContract } from "../../src/main/providers/types";
 import { MODEL_TOOL_DEFINITIONS } from "../../src/main/tools/tool-registry";
+import {
+  REVIEW_RESULT_V1_STRUCTURED_OUTPUT_CONTRACT,
+  reviewResultV1ResponseFormat,
+} from "../../src/shared/review-result-contract";
 
 interface FakeServerContext {
   body: Record<string, unknown>;
@@ -21,6 +30,7 @@ interface FakeServer {
   baseUrl: string;
   requests: Record<string, unknown>[];
   requestUrls: string[];
+  requestMethods: string[];
   close(): Promise<void>;
 }
 
@@ -44,13 +54,19 @@ async function startFakeOpenAiServer(
 ): Promise<FakeServer> {
   const requests: Record<string, unknown>[] = [];
   const requestUrls: string[] = [];
+  const requestMethods: string[] = [];
   const server: Server = createServer(async (request, response) => {
     const chunks: Buffer[] = [];
     for await (const chunk of request) chunks.push(Buffer.from(chunk));
-    const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>;
+    const rawBody = Buffer.concat(chunks).toString("utf8");
+    const body = (rawBody.length === 0 ? {} : JSON.parse(rawBody)) as Record<
+      string,
+      unknown
+    >;
     requests.push(body);
     const requestUrl = request.url ?? "";
     requestUrls.push(requestUrl);
+    requestMethods.push(request.method ?? "");
 
     response.writeHead(200, {
       "Cache-Control": "no-cache",
@@ -74,6 +90,7 @@ async function startFakeOpenAiServer(
     baseUrl: `http://127.0.0.1:${port}/v1`,
     requests,
     requestUrls,
+    requestMethods,
     close: async () => {
       server.closeAllConnections();
       await new Promise<void>((resolve, reject) => {
@@ -165,16 +182,16 @@ describe("OpenAICompatibleProvider", () => {
     expect(server.requests).toHaveLength(1);
   });
 
-  it("rejects unimplemented structured JSON capability advertisement", () => {
-    expect(() =>
+  it("constructs a provider that advertises the implemented structured JSON capability", () => {
+    expect(
       createProvider("http://127.0.0.1:1/v1", 2_000, [
         "chat_completions",
         "reasoning_effort",
         "streaming",
         "structured_json_schema",
         "tool_calling",
-      ]),
-    ).toThrow(/cannot be advertised/u);
+      ]).descriptor.capabilities,
+    ).toContain("structured_json_schema");
   });
 
   it("reserves conservative input space for adapter and tool-owned request fields", () => {
@@ -244,6 +261,115 @@ describe("OpenAICompatibleProvider", () => {
     expect(server.requestUrls).toEqual(["/v1/chat/completions"]);
   });
 
+  it("maps the sole structured contract to the exact JSON Schema request and preserves raw streamed content", async () => {
+    const rawChunks = ["{\n  \"schemaVersion\":", " \"change-review-result-v1\"\n}"];
+    const server = await startFakeOpenAiServer(({ response }) => {
+      for (const content of rawChunks) {
+        writeSse(response, completionChunk({ content }));
+      }
+      writeSse(response, completionChunk({}, "stop"));
+      response.end("data: [DONE]\n\n");
+    });
+    const provider = createProvider(server.baseUrl, 2_000, [
+      "chat_completions",
+      "reasoning_effort",
+      "streaming",
+      "structured_json_schema",
+      "tool_calling",
+    ]);
+    const deltas: string[] = [];
+
+    const structuredReserve = provider.estimateInputTokenReserve(
+      false,
+      undefined,
+      false,
+      REVIEW_RESULT_V1_STRUCTURED_OUTPUT_CONTRACT,
+    );
+    const expectedReserve =
+      512 +
+      new TextEncoder().encode("local-test-model").length +
+      new TextEncoder().encode(
+        JSON.stringify({
+          reasoning_effort: "none",
+          response_format: reviewResultV1ResponseFormat(),
+        }),
+      ).length;
+    expect(structuredReserve).toBe(expectedReserve);
+    expect(structuredReserve).toBeGreaterThan(
+      provider.estimateInputTokenReserve(false),
+    );
+
+    const response = await provider.complete({
+      messages: [{ role: "user", content: "Return the structured review." }],
+      signal: new AbortController().signal,
+      allowTools: false,
+      structuredOutputContract: REVIEW_RESULT_V1_STRUCTURED_OUTPUT_CONTRACT,
+      onDelta: (delta) => deltas.push(delta),
+    });
+
+    expect(deltas).toEqual(rawChunks);
+    expect(response.content).toBe(rawChunks.join(""));
+    expect(server.requests[0]).toMatchObject({
+      reasoning_effort: "none",
+      response_format: reviewResultV1ResponseFormat(),
+    });
+    expect(server.requests[0]).not.toHaveProperty("tools");
+    expect(server.requests[0]).not.toHaveProperty("tool_choice");
+    expect(server.requests[0]).not.toHaveProperty("parallel_tool_calls");
+  });
+
+  it("rejects missing structured capability and every structured/tools combination before I/O", async () => {
+    const server = await startFakeOpenAiServer(({ response }) => {
+      response.end("data: [DONE]\n\n");
+    });
+    const unsupported = createProvider(server.baseUrl, 2_000, [
+      "chat_completions",
+      "streaming",
+    ]);
+    await expect(
+      unsupported.complete({
+        messages: [{ role: "user", content: "Structured" }],
+        signal: new AbortController().signal,
+        allowTools: false,
+        structuredOutputContract: REVIEW_RESULT_V1_STRUCTURED_OUTPUT_CONTRACT,
+        onDelta: () => undefined,
+      }),
+    ).rejects.toThrow(/does not advertise structured_json_schema/u);
+
+    const supported = createProvider(server.baseUrl, 2_000, [
+      "chat_completions",
+      "streaming",
+      "structured_json_schema",
+      "tool_calling",
+    ]);
+    await expect(
+      supported.complete({
+        messages: [{ role: "user", content: "Structured with tools" }],
+        signal: new AbortController().signal,
+        allowTools: true,
+        structuredOutputContract: REVIEW_RESULT_V1_STRUCTURED_OUTPUT_CONTRACT,
+        onDelta: () => undefined,
+      }),
+    ).rejects.toThrow(/mutually exclusive/u);
+    expect(() =>
+      supported.estimateInputTokenReserve(
+        false,
+        ["read_text_file"],
+        false,
+        REVIEW_RESULT_V1_STRUCTURED_OUTPUT_CONTRACT,
+      ),
+    ).toThrow(/mutually exclusive/u);
+    expect(() =>
+      supported.estimateInputTokenReserve(
+        false,
+        undefined,
+        false,
+        "unknown-review-contract" as StructuredOutputContract,
+      ),
+    ).toThrow(/unsupported structured output contract/u);
+    expect(server.requests).toHaveLength(0);
+  });
+
   it("uses the exact per-attempt output allowance and rejects invalid caps before I/O", async () => {
     const server = await startFakeOpenAiServer(({ response }) => {
       writeSse(response, completionChunk({ content: "Bounded" }));
@@ -297,6 +423,134 @@ describe("OpenAICompatibleProvider", () => {
       tool_choice: "required",
       parallel_tool_calls: false,
       reasoning_effort: "none",
+    });
+  });
+
+  it("exposes inspect_git_changes only through an explicit selected subset", async () => {
+    const server = await startFakeOpenAiServer(({ response }) => {
+      writeSse(response, completionChunk({ content: "Inspecting." }));
+      writeSse(response, completionChunk({}, "stop"));
+      response.end("data: [DONE]\n\n");
+    });
+    const provider = createProvider(server.baseUrl);
+
+    await provider.complete({
+      messages: [{ role: "user", content: "Inspect this change." }],
+      signal: new AbortController().signal,
+      allowTools: true,
+      allowedToolNames: ["inspect_git_changes"],
+      requireToolCall: true,
+      onDelta: () => undefined,
+    });
+    const definitions = server.requests[0]?.tools as Array<{
+      function: { name: string; parameters: Record<string, unknown> };
+    }>;
+    expect(definitions).toEqual([
+      expect.objectContaining({
+        function: expect.objectContaining({
+          name: "inspect_git_changes",
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            required: ["schemaVersion"],
+            properties: {
+              schemaVersion: {
+                type: "string",
+                const: "inspect-git-changes-v1",
+              },
+            },
+          },
+        }),
+      }),
+    ]);
+    expect(
+      MODEL_TOOL_DEFINITIONS.flatMap((tool) =>
+        tool.type === "function" ? [tool.function.name] : [],
+      ),
+    ).not.toContain("inspect_git_changes");
+  });
+
+  it("performs one bounded non-inference /models health check for the exact configured model", async () => {
+    const server = await startFakeOpenAiServer(({ response }) => {
+      response.end(
+        JSON.stringify({
+          object: "list",
+          data: [
+            { id: "another-model", object: "model" },
+            { id: "local-test-model", object: "model" },
+          ],
+        }),
+      );
+    });
+    const provider = createProvider(server.baseUrl);
+    const descriptorBefore = provider.descriptor;
+
+    await expect(provider.checkConfiguredModelAvailability()).resolves.toEqual({
+      providerId: "unit-local",
+      model: "local-test-model",
+      locality: "local",
+      status: "healthy",
+      code: "configured_model_available",
+    });
+    expect(server.requestUrls).toEqual(["/v1/models"]);
+    expect(server.requestMethods).toEqual(["GET"]);
+    expect(server.requests).toEqual([{}]);
+    expect(provider.descriptor).toBe(descriptorBefore);
+    expect(OPENAI_COMPATIBLE_MODEL_LIST_TIMEOUT_MS).toBe(30_000);
+    expect(OPENAI_COMPATIBLE_MODEL_LIST_MAX_BYTES).toBe(1024 * 1024);
+  });
+
+  it("fails model-list health closed on missing, duplicate, and oversized responses", async () => {
+    const missing = await startFakeOpenAiServer(({ response }) => {
+      response.end(JSON.stringify({ object: "list", data: [] }));
+    });
+    await expect(
+      createProvider(missing.baseUrl).checkConfiguredModelAvailability(),
+    ).resolves.toMatchObject({
+      status: "unhealthy",
+      code: "configured_model_missing",
+    });
+
+    const duplicated = await startFakeOpenAiServer(({ response }) => {
+      response.end(
+        JSON.stringify({
+          object: "list",
+          data: [{ id: "local-test-model" }, { id: "local-test-model" }],
+        }),
+      );
+    });
+    await expect(
+      createProvider(duplicated.baseUrl).checkConfiguredModelAvailability(),
+    ).resolves.toMatchObject({
+      status: "unhealthy",
+      code: "configured_model_duplicated",
+    });
+
+    const wrongDiscriminator = await startFakeOpenAiServer(({ response }) => {
+      response.end(
+        JSON.stringify({
+          object: "error",
+          data: [{ id: "local-test-model" }],
+        }),
+      );
+    });
+    await expect(
+      createProvider(
+        wrongDiscriminator.baseUrl,
+      ).checkConfiguredModelAvailability(),
+    ).resolves.toMatchObject({
+      status: "unhealthy",
+      code: "malformed_response",
+    });
+
+    const oversized = await startFakeOpenAiServer(({ response }) => {
+      response.end("x".repeat(OPENAI_COMPATIBLE_MODEL_LIST_MAX_BYTES + 1));
+    });
+    await expect(
+      createProvider(oversized.baseUrl).checkConfiguredModelAvailability(),
+    ).resolves.toMatchObject({
+      status: "unhealthy",
+      code: "response_too_large",
     });
   });
 

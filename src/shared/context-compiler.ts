@@ -1665,6 +1665,7 @@ function progressFor(
     list_files: 0,
     search_text: 0,
     read_text_file: 0,
+    inspect_git_changes: 0,
   };
   for (const message of state.messages) {
     if (message.role !== "assistant" || message.status !== "completed") continue;

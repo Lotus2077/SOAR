@@ -576,6 +576,7 @@ describe("compileContextPacket", () => {
         list_files: 0,
         search_text: 2,
         read_text_file: 0,
+        inspect_git_changes: 0,
       },
       successfulRequiredTools: ["search_text"],
       missingRequiredTools: ["read_text_file"],

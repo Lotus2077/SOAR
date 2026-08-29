@@ -2,10 +2,15 @@ import type {
   ProviderContextMessage,
   ProviderToolCall as ContextProviderToolCall,
 } from "../../shared/context-builder";
+import type {
+  REVIEW_RESULT_V1_STRUCTURED_OUTPUT_CONTRACT,
+} from "../../shared/review-result-contract";
 import type { RegisteredToolName } from "../tools/tool-registry";
 import type { ProviderDescriptor } from "./provider-descriptor";
 
 export type ProviderToolCall = ContextProviderToolCall;
+export type StructuredOutputContract =
+  typeof REVIEW_RESULT_V1_STRUCTURED_OUTPUT_CONTRACT;
 
 export interface ProviderUsage {
   inputTokens: number;
@@ -31,6 +36,23 @@ export interface ProviderResult {
   durationMs: number;
 }
 
+export interface ProviderModelAvailabilityResult {
+  providerId: string;
+  model: string;
+  locality: "local" | "cloud";
+  status: "healthy" | "unhealthy";
+  code:
+    | "configured_model_available"
+    | "configured_model_missing"
+    | "configured_model_duplicated"
+    | "http_error"
+    | "response_too_large"
+    | "malformed_response"
+    | "cancelled"
+    | "timeout"
+    | "network_error";
+}
+
 export type ProviderMessage = ProviderContextMessage;
 
 export interface CompleteInput {
@@ -43,6 +65,8 @@ export interface CompleteInput {
   allowedToolNames?: RegisteredToolName[];
   /** Require the sole scheduler-selected tool instead of returning text. */
   requireToolCall?: boolean;
+  /** Select one fixed, host-owned structured-output contract. */
+  structuredOutputContract?: StructuredOutputContract;
   onDelta(delta: string): void;
 }
 
@@ -56,7 +80,12 @@ export interface InferenceProvider {
     allowTools: boolean,
     allowedToolNames?: RegisteredToolName[],
     requireToolCall?: boolean,
+    structuredOutputContract?: StructuredOutputContract,
   ): number;
+  /** Bounded model-list discovery only; it must never perform inference. */
+  checkConfiguredModelAvailability?(
+    signal?: AbortSignal,
+  ): Promise<ProviderModelAvailabilityResult>;
   complete(input: CompleteInput): Promise<ProviderResult>;
 }
 

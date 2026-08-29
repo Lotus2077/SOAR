@@ -5,8 +5,10 @@ import { dialog, ipcMain } from "electron";
 
 import {
   IPC_CHANNELS,
+  createChangeReviewSessionInputSchema,
   createSessionInputSchema,
   sessionIdSchema,
+  type ReviewAvailability,
   type AppTaskTrack,
   type WorkspaceSelection,
 } from "../shared/contracts";
@@ -15,6 +17,7 @@ import type { SoarConfig } from "./config";
 import { EventStore } from "./event-store";
 import { SessionRunner } from "./agent/run-session";
 import { toSessionSnapshot, toSessionSummary } from "./session-view";
+import { toChangeReviewView } from "./change-review-view";
 
 export interface RegisterIpcOptions {
   store: EventStore;
@@ -34,7 +37,15 @@ const TASK_TRACK_COMPLETION_POLICIES: Record<
     ],
     minimumVerifiedPathLineCitations: 1,
   },
+  "change-review-v1": {
+    requiredSuccessfulTools: ["inspect_git_changes"],
+    minimumVerifiedPathLineCitations: 0,
+  },
 };
+
+const HYBRID_UNAVAILABLE = "Cloud setup is not available in this build." as const;
+const REVIEW_OBJECTIVE =
+  "Review the current Git working-tree changes. Identify concrete defects or bounded risks, cite only host-verified evidence, and state any incomplete coverage.";
 
 function completionObligationsForTaskTrack(
   taskTrack: AppTaskTrack,
@@ -152,6 +163,106 @@ export async function registerIpcHandlers({
   ipcMain.handle(IPC_CHANNELS.cancelSession, (_event, rawId: unknown) => {
     const sessionId = sessionIdSchema.parse(rawId);
     runner.cancelSession(sessionId);
+  });
+
+  ipcMain.handle(IPC_CHANNELS.getReviewAvailability, (): ReviewAvailability => {
+    const descriptor = runner.getLocalReviewProviderDescriptor();
+    const limitsReady =
+      config.limits.inferenceRounds >= 2 && config.limits.toolCalls >= 1;
+    return {
+      local: descriptor && limitsReady
+        ? {
+            enabled: true,
+            label: "Local model",
+            providerId: descriptor.id,
+            model: descriptor.model,
+            declaredTokenFeeMicrousd: 0,
+            costAccountingSummary:
+              "The configured vLLM route declares a $0 token fee; endpoint billing and infrastructure costs are not independently verified.",
+            evidenceTransportSummary:
+              "Review evidence is sent to the configured vLLM endpoint.",
+          }
+        : {
+            enabled: false,
+            label: "Local model",
+            reason: descriptor
+              ? "The configured execution limits cannot complete a review."
+              : "The configured local provider does not support structured change reviews.",
+            declaredTokenFeeMicrousd: 0,
+            costAccountingSummary:
+              "The configured vLLM route declares a $0 token fee; endpoint billing and infrastructure costs are not independently verified.",
+            evidenceTransportSummary:
+              "Review evidence is sent to the configured vLLM endpoint.",
+          },
+      hybrid: {
+        enabled: false,
+        reason: HYBRID_UNAVAILABLE,
+        separatelyConfiguredPaidProviderReachable: false,
+        reachabilitySummary:
+          "No separately configured paid provider is available in this build.",
+        consent: "none",
+      },
+    };
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.createChangeReviewSession,
+    async (_event, rawInput: unknown) => {
+      const input = createChangeReviewSessionInputSchema.parse(rawInput);
+      const workspaceRoot = await canonicalDirectory(input.workspaceRoot);
+      if (!approvedWorkspaces.has(workspaceRoot)) {
+        throw new Error("Choose this workspace in SOAR before starting a review.");
+      }
+      if (
+        runner.getLocalReviewProviderDescriptor() === undefined ||
+        config.limits.inferenceRounds < 2 ||
+        config.limits.toolCalls < 1
+      ) {
+        throw new Error(
+          "The configured local provider cannot run structured change reviews.",
+        );
+      }
+      const session = store.createSession({
+        title: "Review current changes",
+        objective: REVIEW_OBJECTIVE,
+        workspaceRoot,
+        profile: "balanced",
+        taskTrack: "change-review-v1",
+        completionObligations: completionObligationsForTaskTrack(
+          "change-review-v1",
+        ),
+        executionPolicy: {
+          schemaVersion: "agentic-execution-v2",
+          inferenceRounds: config.limits.inferenceRounds,
+          toolCalls: config.limits.toolCalls,
+          routingPolicy: "local_only_v1",
+          maxProviderChanges: 2,
+          maxPaidAttempts: 1,
+          maxPaidEpisodeMicrousd: 250_000,
+          maxEpisodeDurationMs: 900_000,
+          attemptTimeoutMs: Math.min(config.vllm.timeoutMs, 900_000),
+          egressConsent: "none",
+        },
+      });
+      void runner.startSession(session.id);
+      return toSessionSnapshot(store, session.id);
+    },
+  );
+
+  ipcMain.handle(IPC_CHANNELS.getChangeReviewView, async (_event, rawId: unknown) => {
+    const sessionId = sessionIdSchema.parse(rawId);
+    const session = store.requireSession(sessionId);
+    const recordedRoot = path.resolve(session.workspaceRoot);
+    const canonicalRoot = await canonicalDirectory(recordedRoot);
+    if (
+      canonicalRoot !== recordedRoot ||
+      !approvedWorkspaces.has(canonicalRoot)
+    ) {
+      throw new Error(
+        "Choose this workspace in SOAR before reading its review state.",
+      );
+    }
+    return toChangeReviewView(store, sessionId);
   });
 
   return () => {

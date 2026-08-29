@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+import { ReviewCoverageV1Schema } from "./change-review-contracts";
+import {
+  REVIEW_RESULT_V1_JSON_SCHEMA_SHA256,
+  ReviewResultV1Schema,
+} from "./review-result-contract";
+
 export const SESSION_STATUSES = [
   "created",
   "running",
@@ -13,7 +19,10 @@ export const SessionStatusSchema = z.enum(SESSION_STATUSES);
 
 export type SessionStatus = z.infer<typeof SessionStatusSchema>;
 
-export const APP_TASK_TRACKS = ["repository-investigator-v1"] as const;
+export const APP_TASK_TRACKS = [
+  "repository-investigator-v1",
+  "change-review-v1",
+] as const;
 
 export const AppTaskTrackSchema = z.enum(APP_TASK_TRACKS);
 
@@ -47,6 +56,7 @@ export const COMPLETION_OBLIGATION_TOOL_NAMES = [
   "list_files",
   "search_text",
   "read_text_file",
+  "inspect_git_changes",
 ] as const;
 
 export const CompletionObligationToolNameSchema = z.enum(
@@ -1467,6 +1477,12 @@ export const InferenceAttemptStartedPayloadSchema = z
     allowTools: z.boolean(),
     allowedToolNames: allowedToolNamesSchema.optional(),
     requireToolCall: z.boolean(),
+    structuredOutputContract: z
+      .literal("change-review-result-v1")
+      .optional(),
+    structuredOutputSchemaSha256: z
+      .literal(REVIEW_RESULT_V1_JSON_SCHEMA_SHA256)
+      .optional(),
     budgetReservationId: boundedV2Id.optional(),
   })
   .strict()
@@ -1498,6 +1514,28 @@ export const InferenceAttemptStartedPayloadSchema = z
         code: "custom",
         message: "synthesis attempts are tool-free",
         path: ["allowTools"],
+      });
+    }
+    const hasStructuredContract =
+      attempt.structuredOutputContract !== undefined;
+    const hasStructuredHash =
+      attempt.structuredOutputSchemaSha256 !== undefined;
+    if (hasStructuredContract !== hasStructuredHash) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "structured output contract and schema hash must be persisted together",
+        path: ["structuredOutputContract"],
+      });
+    }
+    if (
+      hasStructuredContract &&
+      (attempt.phase !== "synthesis" || attempt.allowTools)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "structured output is limited to tool-free synthesis attempts",
+        path: ["structuredOutputContract"],
       });
     }
   });
@@ -1668,7 +1706,34 @@ const sessionCreatedSchema = z
               message:
                 "execution policy needs one inference round per required tool plus final synthesis",
               path: ["executionPolicy", "inferenceRounds"],
-              });
+            });
+          }
+        }
+        if (payload.taskTrack === "change-review-v1") {
+          if (
+            payload.executionPolicy?.schemaVersion !==
+              "agentic-execution-v2" ||
+            payload.executionPolicy.routingPolicy !== "local_only_v1" ||
+            payload.executionPolicy.egressConsent !== "none"
+          ) {
+            context.addIssue({
+              code: "custom",
+              message:
+                "change-review-v1 requires a local-only v2 policy with no egress consent",
+              path: ["executionPolicy"],
+            });
+          }
+          if (
+            JSON.stringify(obligations?.requiredSuccessfulTools) !==
+              JSON.stringify(["inspect_git_changes"]) ||
+            obligations?.minimumVerifiedPathLineCitations !== 0
+          ) {
+            context.addIssue({
+              code: "custom",
+              message:
+                "change-review-v1 starts with the host-enforced inspect_git_changes obligation",
+              path: ["completionObligations"],
+            });
           }
         }
       }),
@@ -1781,9 +1846,45 @@ const assistantMessageCompletedSchema = z
         stopReason: z.string().trim().min(1).nullable().optional(),
         completionState: AssistantCompletionStateSchema.optional(),
         citationCorrections: z.array(CitationCorrectionSchema).optional(),
+        reviewParseStatus: z
+          .enum([
+            "accepted",
+            "invalid_json",
+            "schema_invalid",
+            "semantic_invalid",
+            "snapshot_stale",
+            "not_received",
+          ])
+          .optional(),
+        reviewResult: ReviewResultV1Schema.optional(),
+        reviewCoverage: ReviewCoverageV1Schema.optional(),
         attemptId: requiredId.optional(),
       })
-      .strict(),
+      .strict()
+      .superRefine((payload, context) => {
+        const accepted = payload.reviewParseStatus === "accepted";
+        const hasResult = payload.reviewResult !== undefined;
+        const hasCoverage = payload.reviewCoverage !== undefined;
+        if (hasResult !== hasCoverage || accepted !== (hasResult && hasCoverage)) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "accepted review completion requires both the review result and host-derived coverage",
+            path: ["reviewParseStatus"],
+          });
+        }
+        if (
+          payload.reviewParseStatus !== undefined &&
+          payload.completionState !== (accepted ? "complete" : "incomplete")
+        ) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "review parse status must agree with the assistant completion state",
+            path: ["completionState"],
+          });
+        }
+      }),
   })
   .strict();
 
@@ -1822,7 +1923,10 @@ const contextCompiledSchema = z
     payload: z
       .object({
         checkpointId: requiredId,
-        compilerVersion: z.literal("context-compiler-v1"),
+        compilerVersion: z.enum([
+          "context-compiler-v1",
+          "review-context-compiler-v1",
+        ]),
         reason: ContextCompilationReasonSchema,
         mode: ContextCompilationModeSchema,
         providerId: requiredId,
@@ -1844,6 +1948,18 @@ const contextCompiledSchema = z
         leaseId: requiredId.optional(),
         messageId: requiredId.optional(),
         attemptId: requiredId.optional(),
+        reviewSnapshotId: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
+        reviewEvidenceSetId: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
+        reviewProvenanceSha256: z
+          .string()
+          .regex(/^[a-f0-9]{64}$/u)
+          .optional(),
+        structuredOutputContract: z
+          .literal("change-review-result-v1")
+          .optional(),
+        structuredOutputSchemaSha256: z
+          .literal(REVIEW_RESULT_V1_JSON_SCHEMA_SHA256)
+          .optional(),
       })
       .strict()
       .superRefine((payload, context) => {
@@ -1868,6 +1984,38 @@ const contextCompiledSchema = z
             message:
               "estimatedTokens must not exceed effectiveInputTokenBudget",
             path: ["estimatedTokens"],
+          });
+        }
+        const reviewFields = [
+          payload.reviewSnapshotId,
+          payload.reviewEvidenceSetId,
+          payload.reviewProvenanceSha256,
+          payload.structuredOutputContract,
+          payload.structuredOutputSchemaSha256,
+        ];
+        const presentReviewFields = reviewFields.filter(
+          (value) => value !== undefined,
+        ).length;
+        if (
+          payload.compilerVersion === "review-context-compiler-v1" &&
+          presentReviewFields !== reviewFields.length
+        ) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "review context checkpoints require snapshot, evidence, provenance, and schema identities",
+            path: ["compilerVersion"],
+          });
+        }
+        if (
+          payload.compilerVersion === "context-compiler-v1" &&
+          presentReviewFields !== 0
+        ) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "generic context checkpoints cannot carry review packet identities",
+            path: ["compilerVersion"],
           });
         }
       }),

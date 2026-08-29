@@ -8,8 +8,9 @@ routing runtime matures.
 
 > [!IMPORTANT]
 > SOAR is an experimental, pre-release project. The checked-in runtime is a
-> local-only repository investigator. Cloud execution, write tools, and learned
-> routing are design targets, not shipping features yet.
+> local-only repository investigator plus a local-only **Review Current
+> Changes** slice. Cloud execution, write tools, and learned routing are design
+> targets, not shipping features yet.
 
 The MVP optimizes a constrained trade-off rather than promising an impossible per-task optimum:
 
@@ -19,28 +20,44 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
 
 ## Current readiness
 
-- Product tracks: research-to-artifact and repository-to-tested-patch.
+- App tracks: Repository Investigator and Review Current Changes.
 - App target: Electron on macOS.
-- Runtime provider: one OpenAI-compatible local vLLM endpoint.
+- Runtime provider: one configured OpenAI-compatible vLLM endpoint classified
+  as local by operator attestation. For a non-loopback endpoint, the operator
+  must explicitly set `SOAR_VLLM_COST_POLICY=local_zero_cost`; that value means
+  the operator declares no per-token fee for this endpoint. SOAR does not
+  independently verify the endpoint's external billing or infrastructure cost.
+  The endpoint may run on this Mac or another machine, so “local” is not a
+  loopback-placement or privacy guarantee.
 - Benchmark target: pinned OpenRouter DeepSeek V4 Flash 0731, not enabled in the app.
-- Routing runtime: the production app still uses deterministic v1 local
-  assignment. An explicit fake-only v2 path now proves checkpoint routing,
-  atomic budget admission/settlement, one fake cloud synthesis, and one local
-  fallback without enabling a production cloud provider.
+- Routing runtime: Repository Investigator retains its deterministic v1 local
+  assignment. Review Current Changes creates an app-owned v2
+  `local_only_v1` session and keeps inspection and synthesis on the same
+  configured provider. A separate fake-only v2 path proves hybrid mechanics
+  without enabling a production cloud provider.
 - Evaluation ceiling: USD 100, with an automatic stop at USD 90.
-- Paid benchmark calls: not started.
+- Selected paid exposure for the implemented PR 1 through PR 5 slice: USD 0
+  under the operator's local-zero-cost attestation. The app constructs no
+  separately configured metered or OpenRouter provider, and paid benchmark
+  calls have not started. This is not proof that an incorrectly classified
+  configured endpoint cannot bill its operator.
 
 ## Planning and project history
 
 - [Hybrid Lease Router v0 and Review Current Changes v1](docs/plans/HYBRID_LEASE_ROUTER_V0.md)
-  is approved for its $0 PR 1 through PR 5 sequence. PR 1 through PR 4 are
-  implemented in this revision; PR 5's local Review Current Changes workflow
-  is the next gate. PR 6 and every paid call remain separately approval-gated.
+  is approved for its $0 PR 1 through PR 5 sequence. The PR 1 through PR 5
+  implementation is present in this revision, including the local review app
+  slice. Its deterministic gates, Electron workflows, and one-shot synthetic
+  empty-snapshot structured-schema canary passed on 2026-08-30; the append-only
+  build log records the exact scope and non-claims. The live canary demonstrates
+  schema compatibility only, not a post-fix real-repository flow or full release
+  validation. PR 6, its paid OpenRouter canary, and every paid call remain
+  separately unapproved and approval-gated.
 - [Build and change log](docs/BUILD_LOG.md) is the append-only project evidence
   ledger for crucial decisions, implementation milestones, failures, proofs,
   costs, limitations, and next gates.
 
-## Host-only change-review foundation
+## Local Review Current Changes slice
 
 The main process now has a bounded `inspect_git_changes` operation that can
 capture staged, unstaged, renamed, deleted, and bounded untracked changes as a
@@ -54,17 +71,23 @@ both the index and worktree is normalized to one base-to-working record and is
 always explicitly incomplete because v1 does not separately admit the index
 content side.
 
-This is application-owned infrastructure, not a new provider tool. The
-operation is absent from model tool definitions and has no renderer IPC, app
-button, session workflow, or provider call. The existing app remains the
-local-only Repository Investigator described below.
+This remains an application-owned operation rather than a general repository
+tool. It is absent from the default model tool surface, but the local review
+coordinator explicitly exposes only its schema for the required inspection
+round and executes it through the host gateway. The app now has a dedicated
+Review Current Changes entry point that creates a `change-review-v1`,
+`agentic-execution-v2`, `local_only_v1` session with no egress consent and zero
+selected metered-provider exposure. Its `$0` attempt records rely on the
+operator's `local_zero_cost` attestation for the configured vLLM endpoint.
 
 Change hunks, snapshots, and evidence sets have strict canonical SHA-256
 identities. Coverage is re-derived by the host from verified evidence,
 final-packet retention, and fresh snapshot revalidation; a supplied `complete`
-flag is not trusted. The current evidence-set primitive validates repository
-observation shape and identity, but PR 5 must still prove that each observation
-came from a successful canonical tool event before a review can be accepted.
+flag is not trusted. The review coordinator re-derives every inspection,
+full-read, and search observation from matching successful canonical
+request/result and inference events before constructing the evidence set. The
+final review packet must keep the complete admitted evidence body set; it is not
+allowed to truncate that set and still call the review complete.
 
 Git inspection uses fixed non-shell operations, bounded process output and
 deadlines, no-follow file reads, no lazy fetch, no submodule recursion, and an
@@ -89,11 +112,26 @@ are not defect gold, and no held-out fixture identities or gold are checked in.
 This work therefore does not prove review quality, dynamic routing, cost
 savings, or latency gains.
 
-See [ADR 0003](docs/adr/0003-immutable-change-acquisition-v1.md) and the
-[calibration protocol](benchmarks/change-review/README.md). PR 4 connects this
-risk input to the fake-only routing proof described below. PR 5 is the next
-gate: the local Review Current Changes app workflow and structured review
-acceptance.
+After evidence collection, the same selected provider receives one tool-free
+structured synthesis request using the exact `ReviewResultV1` JSON Schema. The
+host accepts only complete, non-truncated output whose snapshot/evidence
+identities, finding references, coverage, conclusion, attempt, checkpoint, and
+canonical event provenance all verify. The workspace is inspected again before
+acceptance and again before display or copy. Drift or unavailable reinspection
+withholds findings; incomplete host coverage or a model-declared omission is
+shown explicitly as unverifiable and cannot be copied.
+
+The accepted structured result may include bounded evidence references for its
+findings. Its separate aggregate coverage view—counts, status, test signal, and
+omission codes—does not include changed paths or snapshot/evidence-set IDs.
+Review session events use an allow-listed redacted projection that excludes raw
+provider output and raw review event payloads, and streaming text deltas are
+replaced by snapshots. See
+[ADR 0003](docs/adr/0003-immutable-change-acquisition-v1.md) and the
+[calibration protocol](benchmarks/change-review/README.md). These contracts and
+deterministic tests alone do not prove review quality, latency advantage,
+dynamic routing, or release readiness. The separate live canary described below
+proves only exact-schema compatibility for its synthetic fixture.
 
 ## Fake-only hybrid mechanics
 
@@ -106,10 +144,13 @@ and packet facts reached by that decision. A paid attempt reservation and its
 canonical start events share one immediate SQLite transaction, and
 settlement/recovery closes the ledger and event history together.
 
-The proof uses nominally branded deterministic providers. Production still
-constructs one local provider and creates v1 sessions. There is no production
-cloud credential, OpenRouter path, user-selectable Hybrid execution, or claim
-that the fake result measures quality, cost savings, or latency improvement.
+The proof uses nominally branded deterministic providers. Production constructs
+one configured, operator-attested local provider: Repository Investigator
+creates v1 sessions and Review Current Changes creates local-only v2 sessions.
+There is no separately configured production metered provider, OpenRouter
+credential path, user-selectable Hybrid execution, or claim that the fake
+result measures quality, cost savings, or latency improvement. The generic
+configured endpoint remains an operator trust boundary, not a billing oracle.
 See [ADR 0004](docs/adr/0004-checkpoint-router-budget-runner-v0.md).
 
 ## Local-only desktop slice
@@ -123,6 +164,11 @@ The first working slice is an Electron application with:
 - a central read-only repository tool registry with bounded `list_files`,
   `search_text`, and `read_text_file` operations constrained to the selected
   workspace;
+- a dedicated Review Current Changes action whose host-owned v2 coordinator
+  requires one model-proposed `inspect_git_changes` call, schedules bounded full
+  reads for admitted modified files, and requests one same-provider,
+  tool-disabled, exact-schema synthesis after preserving the complete evidence
+  set;
 - cancellation, timeout, reasoning-token, usage, and latency recording with a
   deterministic `$0` route/tool trace; local requests explicitly disable
   hidden reasoning so tool calls and visible answers receive the output budget;
@@ -144,13 +190,16 @@ The first working slice is an Electron application with:
   tool-looping provider responses, including evidence-backed citation
   validation and a tool-free final synthesis after two duplicate observations.
 
-OpenRouter is not reachable from this runtime path. Cloud routing is a later milestone.
-New desktop tasks explicitly select the versioned `repository-investigator-v1`
-track. The main process maps that validated track to ordered `list_files`,
-`search_text`, and `read_text_file` obligations plus at least one verified
-`path:line` citation, and persists the track in canonical session history; the
-renderer cannot supply arbitrary completion rules. Legacy sessions remain
-readable without a track field.
+Neither production runtime path constructs the separately configured OpenRouter
+provider or exposes Hybrid session creation. The Review UI reports that no
+separate paid route is configured. The configured vLLM adapter is still a
+generic OpenAI-compatible network path: its `local_zero_cost` classification is
+operator-attested and does not independently prove that the endpoint cannot
+bill. Cloud routing is a later, separately approved milestone. New desktop tasks
+select either the versioned `repository-investigator-v1` or `change-review-v1`
+track. The main process owns each track's policy and obligations; the renderer
+cannot supply arbitrary completion rules. Legacy sessions remain readable
+without a track field.
 
 ## Quick start
 
@@ -169,15 +218,20 @@ pnpm dev
 ```
 
 Set `SOAR_VLLM_BASE_URL` and `SOAR_VLLM_MODEL` in `.env.local`. The base URL
-must end in `/v1`. Tests use deterministic providers and do not require a live
-model unless their command is explicitly prefixed with `test:live-`. Context
-limits can be tuned with `SOAR_CONTEXT_MAX_INPUT_TOKENS` and
+must end in `/v1`; it may identify a vLLM server on another machine. Review
+evidence is sent to that configured endpoint, so do not interpret “local only”
+as “never leaves this Mac.” Tests use deterministic providers and do not
+require a live model unless their command is explicitly prefixed with
+`test:live-`. Context limits can be tuned with `SOAR_CONTEXT_MAX_INPUT_TOKENS` and
 `SOAR_CONTEXT_SAFETY_MARGIN`; mandatory task intent fails closed if it cannot
 fit the configured envelope.
 
-`SOAR_VLLM_COST_POLICY=local_zero_cost` is an explicit accounting declaration
-for a self-hosted endpoint, not a measurement of electricity or infrastructure
-cost. The non-runtime readiness snapshot in
+For every non-loopback endpoint, explicitly set
+`SOAR_VLLM_COST_POLICY=local_zero_cost` only after confirming that the endpoint
+charges no token fee. SOAR treats that value as the operator's attestation; it
+does not identify the service behind an arbitrary URL, inspect an external
+billing account, or measure electricity, hosting, networking, or other
+infrastructure cost. The non-runtime readiness snapshot in
 `config/providers.readiness.example.json` points to the same environment field.
 It documents benchmark assumptions only; the shipping app builds its validated
 runtime registry in the Electron main process.
@@ -197,11 +251,28 @@ Run the complete local check suite:
 pnpm check
 ```
 
-The real-vLLM canary is opt-in and never contacts OpenRouter:
+The real-vLLM canary is opt-in and uses only the configured vLLM adapter; it
+does not construct the separate OpenRouter provider:
 
 ```sh
 pnpm test:live-vllm
 ```
+
+The separate structured Review Current Changes schema canary is also opt-in and
+uses the same configured vLLM endpoint without constructing a separate metered
+provider:
+
+```sh
+pnpm test:live-review-schema
+```
+
+The structured review canary passed once against the configured `RM-01 VLM` on
+2026-08-30. It demonstrates exact-schema compatibility on a synthetic empty
+snapshot only, not a post-fix real-repository review flow. The broader live
+Repository Investigator proofs and final release suite are separate gates and
+are not claimed current here. Both live commands trust the operator's
+`local_zero_cost` attestation; neither command independently proves that the
+configured endpoint cannot produce an external bill.
 
 Run the three-task guided Repository Investigator evidence contract against the
 configured vLLM:
@@ -220,7 +291,9 @@ provider/tool-call limits, and episode limits of 34 provider calls and 29 tool
 calls, with a derived maximum of 557,056 reported input tokens. Every provider
 call must report positive input usage within the cap,
 `servedModel: "RM-01 VLM"`, zero cost, and
-`costProvenance: "local_zero_cost_policy"`.
+`costProvenance: "local_zero_cost_policy"`. That provenance records the
+operator-attested policy; it is not independent evidence about external
+billing.
 
 The task objectives deliberately disclose evaluator-owned paths, source
 substrings, required relationships, and exact tool schedules. This is a guided

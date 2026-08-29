@@ -30,6 +30,7 @@ declare global {
 
   interface SoarSessionSnapshot extends SoarSessionSummary {
     workspaceRoot: string;
+    taskTrack?: "repository-investigator-v1" | "change-review-v1";
     events: SoarSessionEvent[];
   }
 

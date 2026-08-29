@@ -15,8 +15,10 @@ Sandboxed preload bridge
 Electron main process
     +-- SessionRunner -> bounded context compiler -> provider adapter
     |                -> bounded tool gateway -> selected workspace
+    +-- LocalChangeReviewCoordinator -> host change acquisition
+    |                               -> review context compiler -> provider
     +-- EventStore -> SQLite
-    +-- session snapshots / streamed deltas -> renderer
+    +-- redacted session/review projections -> renderer
 ```
 
 The renderer has no Node.js integration and cannot access credentials or the
@@ -30,7 +32,9 @@ requires the user to select a canonical workspace before a session can use it.
 2. `EventStore` creates the session and appends its objective, versioned task
    track, ordered completion obligations, and versioned inference/tool-call
    policy as canonical events in SQLite. Legacy sessions may lack a task track;
-   new app sessions persist `repository-investigator-v1` explicitly.
+   new app sessions persist either `repository-investigator-v1` or
+   `change-review-v1` explicitly. The latter always uses
+   `agentic-execution-v2`, `local_only_v1`, and no egress consent.
 3. `SessionRunner` persists the start and route assignment before inference.
 4. Before every provider call, the runner compiles observable state into a
    token-bounded `soar.context-packet.v1` and persists `context.compiled`.
@@ -51,9 +55,63 @@ requires the user to select a canonical workspace before a session can use it.
 
 Provider-native hidden reasoning, KV caches, and session state are not shared or
 persisted. A future provider switch must use an explicit handoff built from
-observable state and bounded evidence. Content-addressed artifacts and validator
-provenance are future packet extensions. The normative bounded-context contract
-is [ADR 0001](adr/0001-context-handoff-engine-v1.md).
+observable state and bounded evidence. Review Current Changes already uses
+content-addressed change/evidence records and canonical-event provenance, but
+the general Repository Investigator packet does not. The normative bounded-
+context contract is [ADR 0001](adr/0001-context-handoff-engine-v1.md).
+
+## Local change-review lifecycle
+
+Review Current Changes is a separate app-created v2 path, not a reinterpretation
+of the v1 Repository Investigator loop. The main process fixes its policy to
+`local_only_v1`, selects the one configured OpenAI-compatible provider, checks
+that provider's model-list health, and persists a `session_start` decision and
+local lease. The configured vLLM endpoint may be on this Mac or another
+machine. For a non-loopback endpoint, project policy requires the operator to
+set `SOAR_VLLM_COST_POLICY=local_zero_cost` explicitly. The UI therefore says
+that evidence is sent to the configured vLLM endpoint; “local” means the
+operator-attested route, not necessarily loopback execution. The attestation
+declares zero per-token fees but does not independently verify external billing
+or infrastructure cost.
+
+The first provider attempt is required to propose exactly one
+`inspect_git_changes` call with the fixed versioned argument. That schema is
+exposed only for this review attempt; the host executes the application-owned
+operation. For each admitted modified, renamed, or type-changed working file
+within the frozen tool/round budget, the coordinator then requires an exact
+bounded `read_text_file` call. Every assistant, inference attempt, tool request,
+tool result, route, lease, and context checkpoint is persisted before the next
+boundary.
+
+Before synthesis, the host rebuilds the snapshot, evidence set, evidence
+bodies, and tool provenance from matching successful canonical events. The
+review compiler admits the complete retained evidence-body set or fails; it
+does not silently truncate review evidence and continue with a complete claim.
+The same selected provider then receives one finalization request with tools
+disabled and the exact `ReviewResultV1` JSON Schema. Empty, truncated,
+filtered, tool-calling, malformed, identity-mismatched, ungrounded, or
+semantically inconsistent output is not accepted.
+
+The host reacquires the change snapshot after synthesis before accepting the
+result. Renderer projection later replays and re-proves the final completion
+check, attempt, schema, raw-versus-attached result equality, checkpoint
+identities, event provenance, derived coverage, and semantic acceptance before
+performing another bounded freshness inspection. A changed snapshot or failed
+reinspection withholds findings. An identity-matching review with incomplete
+host coverage, or an accepted model-declared omission, remains explicitly
+incomplete and visible but copying is disabled. Terminal results that cannot be
+re-proved are `not_available`, not successful empty reviews.
+
+Review session snapshots use an event-type allowlist and replace raw provider,
+tool, path, endpoint, and diagnostic payloads with bounded status facts.
+Streaming deltas for review sessions are replaced by redacted snapshots. The
+dedicated review projection includes the accepted structured result plus an
+aggregate coverage record (counts, status, changed-test count, runtime-without-
+test signal, revalidation flag, and omission codes). That coverage record
+excludes per-file coverage, changed paths, and snapshot/evidence IDs; the
+accepted structured result may still include bounded evidence references for
+its findings. The renderer snapshot also excludes raw model output and rejected
+validator diagnostics.
 
 ## Context compilation
 
@@ -157,19 +215,26 @@ caller supplies an explicit replayable selection-time value.
 
 The OpenAI-compatible transport derives its identity and request allowances
 from that descriptor. Optional request fields are emitted only for advertised
-capabilities, unsupported tool behavior fails before network I/O, structured
-JSON advertisement is rejected until its later adapter proof, and a served
-model mismatch fails the attempt. The current production catalog still
-constructs exactly one local provider; the deterministic fake is test/development
-only. The credential-store interface currently has only a fake implementation,
-so there is no production cloud credential or provider path.
+capabilities, unsupported tool behavior fails before network I/O, and a served
+model mismatch fails the attempt. The adapter supports the one exact
+`ReviewResultV1` JSON Schema contract only when tools are disabled and the
+descriptor advertises `structured_json_schema`; arbitrary structured contracts
+and prose-suffix repair are rejected. The current production catalog constructs
+exactly one configured, operator-attested local provider; the deterministic
+fake is test/development only. The credential-store interface currently has
+only a fake implementation, so there is no separately configured production
+metered provider or OpenRouter credential path. Because the local adapter takes
+a generic OpenAI-compatible URL, that statement does not prove that a
+misclassified configured endpoint cannot itself bill the operator.
 
 The non-runtime provider snapshot at
 `config/providers.readiness.example.json` names `SOAR_VLLM_COST_POLICY` through
 `costPolicyEnv`. It documents readiness and benchmark assumptions; it is not
 the runtime registry contract. Runtime configuration accepts only
-`local_zero_cost` for the current local adapter. This is explicit accounting
-provenance, not measured infrastructure cost.
+`local_zero_cost` for the current local adapter. For a non-loopback endpoint,
+the operator must set it explicitly after confirming that the endpoint charges
+no token fee. This is operator-attested accounting provenance, not independent
+billing verification or measured infrastructure cost.
 
 ## Completion integrity
 
@@ -237,11 +302,12 @@ need adversarial tests for boundary behavior.
 
 The same module has a separate `host_change_acquisition_v1` registry for
 application-owned operations. Its only member is `inspect_git_changes`.
-It is deliberately absent from `MODEL_TOOL_DEFINITIONS`, and the model-call
-gateway rejects a provider attempt to name it. No renderer IPC or app entry
-point calls it in the current revision. The separation establishes the host
-authority needed by Review Current Changes without yet creating that product
-workflow.
+It remains absent from the default `MODEL_TOOL_DEFINITIONS`; Repository
+Investigator cannot call it. Review Current Changes has a separate explicit
+model-only definition and may expose it only when the main-process coordinator
+selects that exact required tool. The provider proposes the call, while the
+host registry remains the execution authority. There is no general renderer
+IPC that accepts arbitrary inspection arguments.
 
 ## Immutable change acquisition
 
@@ -345,12 +411,13 @@ added, deleted, or untracked files; modified, renamed, and type-changed files
 require a matching full-read repository observation. Coverage and risk inspect
 both old and new rename paths, including test classification.
 
-The PR 3 observation schema and evidence-set canonicalizer validate shape and
-identity, but do not prove that a repository observation originated in a
-successful gateway event. Binding observations to canonical tool events is a
-PR 5 host-workflow responsibility and remains intentionally unimplemented.
-These contracts have no current app/model consumer. The normative decision and
-trust limits are recorded in
+The local review workflow now binds every admitted repository observation to a
+matching successful canonical attempt, model-proposed tool request, and host
+tool result. It rejects missing, duplicate, mismatched, truncated, malformed,
+or unauthorized provenance before synthesis and persists the provenance hash in
+the review checkpoint. The standalone schemas still do not claim that shape
+validation alone proves event origin. The normative decision and trust limits
+are recorded in
 [ADR 0003](adr/0003-immutable-change-acquisition-v1.md).
 
 ## Persistence contracts
@@ -367,16 +434,19 @@ explicit migration with compatibility tests.
 Database startup uses an append-only, checksummed migration ledger. Before an
 unversioned nonempty database can be adopted, its complete normalized schema
 must match the frozen `4233edd` baseline and pass integrity and foreign-key
-checks. Schema version 2 adds constrained append-only budget-ledger storage,
-but no runtime reservation or settlement API exists yet.
+checks. Schema version 2 adds constrained append-only budget-ledger storage.
+The fake-only hybrid runner exercises atomic reservation and settlement; the
+production local review path makes no metered-provider reservation and records
+zero selected paid exposure under the operator's `local_zero_cost` attestation.
 
 Strict `agentic-execution-v2`, routing-decision, and inference-attempt contracts
 are additive foundations for the hybrid runner. V2 replay cross-checks route,
 lease, decision, context, message, model, reservation, usage, and terminal
 attempt identity; startup recovery explicitly closes each supported crash
 window. Canonical state is reconstructed from append-only events before every
-append rather than trusting mutable projection JSON. The shipping runner still
-creates v1 local-only sessions and emits none of these v2 events. See
+append rather than trusting mutable projection JSON. Repository Investigator
+still creates v1 sessions, while Review Current Changes creates local-only v2
+history with the same replay invariants. See
 [ADR 0002](adr/0002-agentic-execution-v2-event-state-machine.md).
 
 Projected sessions created before context telemetry existed default
@@ -437,10 +507,13 @@ calibration proves neither routing benefit nor review quality.
 
 ## Current and future routing
 
-The checked-in production app runtime still has one deterministic v1 local
-route. PR 3's host-only immutable change acquisition is not yet connected to a
-session or app action. PR 4 adds a separate, explicit fake-only v2 coordinator
-that proves the intended mechanics without constructing a production cloud
+The production app has two local-only paths. Repository Investigator retains
+one deterministic v1 route. Review Current Changes creates a v2
+`change-review-v1` session, persists its session-start decision and lease, and
+retains the same configured provider through inspection, evidence reads, and
+structured synthesis. Host immutable change acquisition is connected only to
+that dedicated review workflow. PR 4's separate fake-only v2 coordinator still
+proves future hybrid mechanics without constructing a production cloud
 provider.
 
 `checkpoint-router-v0` is a pure proposal/resolution pair. It consumes replayed
@@ -461,8 +534,17 @@ charges unknown dispatch, records overruns in full, and reconciles ledger rows
 against canonical events at startup and before later admission. See
 [ADR 0004](adr/0004-checkpoint-router-budget-runner-v0.md).
 
-Production cloud routing still requires the PR 5 app/result workflow followed
-by PR 6 credential isolation, exact-message egress admission, live health and
-pricing evidence, and separately approved paid proof. Configuration alone does
-not enable it. Compiling context before each stateless provider request is not a
-routing decision and does not end the current lease.
+Production cloud routing still requires PR 6 credential isolation,
+exact-message egress admission, live health and pricing evidence, and a
+separately approved paid OpenRouter canary. PR 6 remains unapproved; the app
+reports that no separate metered provider or Hybrid route is configured, and
+the implemented PR 1 through PR 5 slice has selected paid exposure of `$0`
+under the local endpoint attestation. The generic vLLM URL is still an operator
+trust boundary; SOAR does not independently prove that it cannot bill.
+Configuration alone does not enable the separately configured PR 6 cloud route.
+Compiling context before each stateless provider request is not a routing
+decision and does not end the current lease. The current documentation records
+a passing one-shot synthetic empty-snapshot structured-output canary on
+2026-08-30. That is schema-compatibility evidence only, not a post-fix real-
+repository flow, complete release suite, or current Repository Investigator
+live proof.

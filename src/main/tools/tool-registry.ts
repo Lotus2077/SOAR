@@ -178,7 +178,28 @@ const hostRegistry = {
   },
 } satisfies Record<string, RegisteredHostTool>;
 
-export type RegisteredToolName = keyof typeof registry;
+const explicitModelOnlyDefinitions = {
+  inspect_git_changes: {
+    type: "function",
+    function: {
+      name: "inspect_git_changes",
+      description:
+        "Capture one immutable, bounded snapshot of the current Git changes. This tool is available only in the change-review investigation track.",
+      parameters: {
+        type: "object",
+        additionalProperties: false,
+        required: ["schemaVersion"],
+        properties: {
+          schemaVersion: { type: "string", const: "inspect-git-changes-v1" },
+        },
+      },
+    },
+  },
+} as const satisfies Record<string, ChatCompletionTool>;
+
+export type RepositoryToolName = keyof typeof registry;
+export type ExplicitModelOnlyToolName = keyof typeof explicitModelOnlyDefinitions;
+export type RegisteredToolName = RepositoryToolName | ExplicitModelOnlyToolName;
 export type HostToolName = keyof typeof hostRegistry;
 
 export const TOOL_REGISTRY: Readonly<typeof registry> = Object.freeze(registry);
@@ -188,12 +209,35 @@ export const MODEL_TOOL_DEFINITIONS: readonly ChatCompletionTool[] = Object.free
   Object.values(registry).map((tool) => tool.definition),
 );
 
-function isRegisteredToolName(name: string): name is RegisteredToolName {
+const ALL_MODEL_TOOL_DEFINITIONS: readonly ChatCompletionTool[] = Object.freeze([
+  ...MODEL_TOOL_DEFINITIONS,
+  ...Object.values(explicitModelOnlyDefinitions),
+]);
+
+/**
+ * The default provider surface remains repository-only. Host acquisition is
+ * exposed to a model only when a change-review caller explicitly names it.
+ */
+export function selectModelToolDefinitions(
+  allowedToolNames?: readonly RegisteredToolName[],
+): readonly ChatCompletionTool[] {
+  if (allowedToolNames === undefined) return MODEL_TOOL_DEFINITIONS;
+  const allowed = new Set<string>(allowedToolNames);
+  return Object.freeze(
+    ALL_MODEL_TOOL_DEFINITIONS.filter(
+      (definition) =>
+        definition.type === "function" &&
+        allowed.has(definition.function.name),
+    ),
+  );
+}
+
+function isRepositoryToolName(name: string): name is RepositoryToolName {
   return Object.prototype.hasOwnProperty.call(registry, name);
 }
 
 export function getRegisteredTool(name: string): RegisteredTool | undefined {
-  return isRegisteredToolName(name) ? registry[name] : undefined;
+  return isRepositoryToolName(name) ? registry[name] : undefined;
 }
 
 function isHostToolName(name: string): name is HostToolName {

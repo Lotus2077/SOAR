@@ -9,8 +9,8 @@ import { EventStore } from "./event-store";
 import { registerIpcHandlers } from "./ipc";
 import { createRuntimeProviderCatalog } from "./providers/runtime-catalog";
 import { recoverRunningSessions } from "./recovery";
-import { toSessionSnapshot } from "./session-view";
-import { IPC_CHANNELS, type SessionUpdate } from "../shared/contracts";
+import { toRendererSessionUpdate } from "./session-view";
+import { IPC_CHANNELS } from "../shared/contracts";
 
 let database: SoarDatabase | undefined;
 let unregisterIpc: (() => void) | undefined;
@@ -55,14 +55,7 @@ function createWindow(): BrowserWindow {
 }
 
 function publish(store: EventStore, update: RuntimeUpdate): void {
-  const payload: SessionUpdate =
-    update.kind === "stream"
-      ? update
-      : {
-          sessionId: update.sessionId,
-          kind: "snapshot",
-          snapshot: toSessionSnapshot(store, update.sessionId),
-        };
+  const payload = toRendererSessionUpdate(store, update);
 
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.sessionUpdate, payload);
@@ -87,6 +80,12 @@ async function bootstrap(): Promise<void> {
     defaultLocalProviderId: providerCatalog.defaultLocalProviderId,
     limits: config.limits,
     context: config.context,
+    localReviewSensitiveValues: [
+      ...(config.vllm.sensitiveApiKey === undefined
+        ? []
+        : [config.vllm.sensitiveApiKey]),
+      config.vllm.baseUrl,
+    ],
     onUpdate: (update) => publish(store, update),
   });
 

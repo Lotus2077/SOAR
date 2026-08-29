@@ -32,9 +32,14 @@ import {
   normalizeAnswerCitations,
 } from "./citation-integrity";
 import {
+  runLocalChangeReviewV1,
+  type LocalChangeReviewRuntimeV1,
+} from "./run-local-change-review";
+import {
   runSessionV2,
   type FakeOnlyHybridRuntimeV0,
 } from "./run-session-v2";
+import type { ProviderDescriptor } from "../providers/provider-descriptor";
 
 export type RuntimeUpdate =
   | { sessionId: string; kind: "persisted" }
@@ -48,6 +53,10 @@ export interface SessionRunnerOptions {
   context?: SoarConfig["context"];
   /** PR 4 opt-in only. Production bootstrap intentionally omits this. */
   hybridRuntime?: FakeOnlyHybridRuntimeV0;
+  /** Deterministic seams for the production local-only review coordinator. */
+  localReviewRuntime?: LocalChangeReviewRuntimeV1;
+  /** Main-process-only exact values that a review provider must never echo. */
+  localReviewSensitiveValues?: readonly string[];
   onUpdate?: (update: RuntimeUpdate) => void;
 }
 
@@ -347,6 +356,8 @@ export class SessionRunner {
   private readonly limits: SoarConfig["limits"];
   private readonly context: SoarConfig["context"];
   private readonly hybridRuntime?: FakeOnlyHybridRuntimeV0;
+  private readonly localReviewRuntime?: LocalChangeReviewRuntimeV1;
+  private readonly localReviewSensitiveValues: readonly string[];
   private readonly onUpdate?: (update: RuntimeUpdate) => void;
   private readonly controllers = new Map<string, AbortController>();
   private readonly promises = new Map<string, Promise<void>>();
@@ -374,11 +385,37 @@ export class SessionRunner {
       safetyMargin: 0.2,
     };
     this.hybridRuntime = options.hybridRuntime;
+    this.localReviewRuntime = options.localReviewRuntime;
+    this.localReviewSensitiveValues = Object.freeze(
+      [...new Set(options.localReviewSensitiveValues ?? [])].filter(
+        (value) => value.length > 0,
+      ),
+    );
     this.onUpdate = options.onUpdate;
   }
 
   isRunning(sessionId: string): boolean {
     return this.controllers.has(sessionId);
+  }
+
+  getLocalReviewProviderDescriptor(): ProviderDescriptor | undefined {
+    try {
+      const registration = this.providerRegistry.require(
+        this.defaultLocalProviderId,
+        [
+          "chat_completions",
+          "streaming",
+          "structured_json_schema",
+          "tool_calling",
+        ],
+      );
+      return registration.descriptor.locality === "local" &&
+        registration.descriptor.accounting.kind === "local_zero_cost"
+        ? registration.descriptor
+        : undefined;
+    } catch {
+      return undefined;
+    }
   }
 
   startSession(sessionId: string): Promise<void> {
@@ -441,8 +478,25 @@ export class SessionRunner {
   }
 
   private async run(sessionId: string, controller: AbortController): Promise<void> {
-    const policy = this.store.getProjectedState(sessionId).executionPolicy;
+    const state = this.store.getProjectedState(sessionId);
+    const policy = state.executionPolicy;
     if (policy?.schemaVersion === "agentic-execution-v2") {
+      if (state.taskTrack === "change-review-v1") {
+        await runLocalChangeReviewV1({
+          sessionId,
+          store: this.store,
+          providerRegistry: this.providerRegistry,
+          defaultLocalProviderId: this.defaultLocalProviderId,
+          context: this.context,
+          controller,
+          sensitiveValues: this.localReviewSensitiveValues,
+          ...(this.localReviewRuntime === undefined
+            ? {}
+            : { runtime: this.localReviewRuntime }),
+          ...(this.onUpdate === undefined ? {} : { onUpdate: this.onUpdate }),
+        });
+        return;
+      }
       if (this.hybridRuntime === undefined) {
         this.append(sessionId, {
           type: "session.failed",

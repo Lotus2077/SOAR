@@ -62,6 +62,10 @@ function config(): SoarConfig {
 const runner = {
   startSession: vi.fn(),
   cancelSession: vi.fn(),
+  getLocalReviewProviderDescriptor: vi.fn().mockReturnValue({
+    id: "local-vllm",
+    model: "local-review-model",
+  }),
 } as unknown as SessionRunner;
 
 async function createTemporaryRoot(): Promise<string> {
@@ -81,6 +85,8 @@ afterEach(async () => {
   electron.dialog.showOpenDialog.mockReset();
   electron.ipcMain.handle.mockClear();
   electron.ipcMain.removeHandler.mockClear();
+  vi.mocked(runner.startSession).mockClear();
+  vi.mocked(runner.cancelSession).mockClear();
   for (const database of databases.splice(0)) database.close();
   await Promise.all(
     temporaryDirectories
@@ -157,6 +163,75 @@ describe("persisted workspace authorization", () => {
         taskTrack: "untrusted-custom-track",
       }),
     ).toThrow();
+    expect(() =>
+      createSessionInputSchema.parse({
+        task: "Bypass the review-specific policy",
+        workspaceRoot: "/tmp/workspace",
+        taskTrack: "change-review-v1",
+      }),
+    ).toThrow();
+  });
+
+  it("creates only the fixed local review policy through review-specific IPC", async () => {
+    const root = await createTemporaryRoot();
+    const workspaceRoot = path.join(root, "workspace");
+    await mkdir(workspaceRoot);
+    const canonicalWorkspaceRoot = await realpath(workspaceRoot);
+    const database = createSoarDatabase();
+    databases.push(database);
+    const store = new EventStore(database);
+    store.createSession({
+      title: "Workspace approval",
+      objective: "Remember this selected workspace",
+      workspaceRoot: canonicalWorkspaceRoot,
+    });
+    await registerIpcHandlers({ store, runner, config: config() });
+
+    expect(handler(IPC_CHANNELS.getReviewAvailability)(undefined)).toEqual({
+      local: {
+        enabled: true,
+        label: "Local model",
+        providerId: "local-vllm",
+        model: "local-review-model",
+        declaredTokenFeeMicrousd: 0,
+        costAccountingSummary:
+          "The configured vLLM route declares a $0 token fee; endpoint billing and infrastructure costs are not independently verified.",
+        evidenceTransportSummary:
+          "Review evidence is sent to the configured vLLM endpoint.",
+      },
+      hybrid: {
+        enabled: false,
+        reason: "Cloud setup is not available in this build.",
+        separatelyConfiguredPaidProviderReachable: false,
+        reachabilitySummary:
+          "No separately configured paid provider is available in this build.",
+        consent: "none",
+      },
+    });
+
+    const snapshot = (await handler(
+      IPC_CHANNELS.createChangeReviewSession,
+    )(undefined, { workspaceRoot })) as { id: string };
+    const state = store.getProjectedState(snapshot.id);
+    expect(state.taskTrack).toBe("change-review-v1");
+    expect(state.completionObligations).toEqual({
+      requiredSuccessfulTools: ["inspect_git_changes"],
+      minimumVerifiedPathLineCitations: 0,
+    });
+    expect(state.executionPolicy).toEqual({
+      schemaVersion: "agentic-execution-v2",
+      inferenceRounds: 4,
+      toolCalls: 8,
+      routingPolicy: "local_only_v1",
+      maxProviderChanges: 2,
+      maxPaidAttempts: 1,
+      maxPaidEpisodeMicrousd: 250_000,
+      maxEpisodeDurationMs: 900_000,
+      attemptTimeoutMs: 30_000,
+      egressConsent: "none",
+    });
+    expect(runner.startSession).toHaveBeenCalledOnce();
+    expect(runner.startSession).toHaveBeenCalledWith(snapshot.id);
   });
 
   it("does not trust a persisted path that now resolves through a symlink", async () => {
@@ -171,7 +246,7 @@ describe("persisted workspace authorization", () => {
     const store = new EventStore(database);
     // This simulates a stale or externally modified historical record. Normal
     // IPC creation always persists the canonical target instead.
-    store.createSession({
+    const stale = store.createSession({
       title: "Stale session",
       objective: "Do not grant from an alias",
       workspaceRoot: historicalAlias,
@@ -186,5 +261,10 @@ describe("persisted workspace authorization", () => {
       }) as Promise<unknown>,
     ).rejects.toThrow("Choose this workspace in SOAR before starting a task.");
     expect(store.listSessions()).toHaveLength(1);
+    await expect(
+      handler(IPC_CHANNELS.getChangeReviewView)(undefined, stale.id) as Promise<unknown>,
+    ).rejects.toThrow(
+      "Choose this workspace in SOAR before reading its review state.",
+    );
   });
 });

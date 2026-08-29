@@ -187,7 +187,7 @@ describe("ProviderRegistry", () => {
     });
     expect(
       catalog.registry.listDescriptors()[0]?.capabilities,
-    ).not.toContain("structured_json_schema");
+    ).toContain("structured_json_schema");
   });
 
   it("rejects duplicate ids and mismatched implementation identity", () => {

@@ -9,6 +9,11 @@ import { createSoarDatabase, type SoarDatabase } from "../../src/main/database";
 import { EventStore } from "../../src/main/event-store";
 import { recoverRunningSessions } from "../../src/main/recovery";
 import { parseSessionEventData } from "../../src/shared/session-events";
+import {
+  REVIEW_FIXTURE_SESSION_ID,
+  REVIEW_FIXTURE_SYNTHESIS_MESSAGE_ID,
+  completedReviewFixtureEvents,
+} from "../helpers/review-event-fixture";
 
 const databases: SoarDatabase[] = [];
 
@@ -94,6 +99,64 @@ describe("recoverRunningSessions", () => {
     });
     expect(store.requireSession("created-session").status).toBe("created");
     expect(recoverRunningSessions(store)).toEqual([]);
+  });
+
+  it("interrupts the accepted-review crash window without promoting it to completion", () => {
+    const store = createStore();
+    const fixture = completedReviewFixtureEvents({ terminal: "running" });
+    const created = fixture[0];
+    if (created?.type !== "session.created") {
+      throw new Error("Expected a review session creation fixture.");
+    }
+    store.createSession({
+      id: REVIEW_FIXTURE_SESSION_ID,
+      title: created.payload.title,
+      objective: created.payload.objective,
+      workspaceRoot: created.payload.workspaceRoot,
+      profile: created.payload.profile,
+      taskTrack: created.payload.taskTrack,
+      completionObligations: created.payload.completionObligations,
+      executionPolicy: created.payload.executionPolicy,
+      createdAt: created.createdAt,
+    });
+    const suffix = fixture.slice(1);
+    for (const event of suffix) {
+      store.append(
+        REVIEW_FIXTURE_SESSION_ID,
+        parseSessionEventData({ type: event.type, payload: event.payload }),
+        {
+          expectedSequence: store.requireSession(REVIEW_FIXTURE_SESSION_ID)
+            .lastSequence,
+          eventId: event.id,
+          createdAt: event.createdAt,
+        },
+      );
+    }
+
+    const beforeRecovery = store.replay(REVIEW_FIXTURE_SESSION_ID);
+    expect(beforeRecovery.status).toBe("running");
+    expect(
+      beforeRecovery.messages.find(
+        (message) => message.id === REVIEW_FIXTURE_SYNTHESIS_MESSAGE_ID,
+      )?.reviewParseStatus,
+    ).toBe("accepted");
+    expect(beforeRecovery.completionChecks).toEqual([]);
+
+    const recovered = recoverRunningSessions(store, {
+      reason: "Restart after accepted output but before final completion",
+      createdAt: "2026-08-30T00:01:01.000Z",
+    });
+    const afterRecovery = store.replay(REVIEW_FIXTURE_SESSION_ID);
+
+    expect(recovered).toHaveLength(1);
+    expect(afterRecovery.status).toBe("interrupted");
+    expect(afterRecovery.result).toBeUndefined();
+    expect(afterRecovery.completionChecks).toEqual([]);
+    expect(
+      afterRecovery.messages.find(
+        (message) => message.id === REVIEW_FIXTURE_SYNTHESIS_MESSAGE_ID,
+      )?.reviewParseStatus,
+    ).toBe("accepted");
   });
 
   it("fails startup after recovery when the ledger has an orphan reservation", () => {

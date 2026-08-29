@@ -17,6 +17,13 @@ const vllmBaseUrlSchema = z.string().url().superRefine((value, context) => {
       message: "SOAR_VLLM_BASE_URL must use HTTP or HTTPS",
     });
   }
+  if (url.username !== "" || url.password !== "") {
+    context.addIssue({
+      code: "custom",
+      message:
+        "SOAR_VLLM_BASE_URL must not include credentials; use SOAR_VLLM_API_KEY instead",
+    });
+  }
   if (url.pathname !== "/v1" || url.search !== "" || url.hash !== "") {
     context.addIssue({
       code: "custom",
@@ -59,6 +66,8 @@ export interface SoarConfig {
   vllm: {
     baseUrl: string;
     apiKey: string;
+    /** Explicit operator credential, retained only for main-process redaction. */
+    sensitiveApiKey?: string;
     model: string;
     costPolicy: "local_zero_cost";
     maxOutputTokens: number;
@@ -108,9 +117,21 @@ function loadEnvironmentFiles(options: LoadConfigOptions): NodeJS.ProcessEnv {
 }
 
 export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
-  const env = environmentSchema.parse(loadEnvironmentFiles(options));
+  const rawEnvironment = loadEnvironmentFiles(options);
+  const env = environmentSchema.parse(rawEnvironment);
   const url = new URL(env.SOAR_VLLM_BASE_URL);
-  const isLoopback = ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+  const isLoopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(
+    url.hostname,
+  );
+
+  if (
+    !isLoopback &&
+    rawEnvironment.SOAR_VLLM_COST_POLICY !== "local_zero_cost"
+  ) {
+    throw new Error(
+      "Remote vLLM requires an explicit SOAR_VLLM_COST_POLICY=local_zero_cost operator declaration; SOAR cannot independently verify endpoint billing.",
+    );
+  }
 
   if (url.protocol === "http:" && !isLoopback && !env.SOAR_ALLOW_INSECURE_VLLM_HTTP) {
     throw new Error(
@@ -124,6 +145,9 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
     vllm: {
       baseUrl: env.SOAR_VLLM_BASE_URL,
       apiKey: env.SOAR_VLLM_API_KEY || "local-vllm",
+      ...(env.SOAR_VLLM_API_KEY
+        ? { sensitiveApiKey: env.SOAR_VLLM_API_KEY }
+        : {}),
       model: env.SOAR_VLLM_MODEL,
       costPolicy: env.SOAR_VLLM_COST_POLICY,
       maxOutputTokens: env.SOAR_MAX_OUTPUT_TOKENS,

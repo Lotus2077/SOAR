@@ -12,6 +12,9 @@ const IPC_CHANNELS = {
   getSession: "soar:get-session",
   startSession: "soar:start-session",
   cancelSession: "soar:cancel-session",
+  getReviewAvailability: "soar:get-review-availability",
+  createChangeReviewSession: "soar:create-change-review-session",
+  getChangeReviewView: "soar:get-change-review-view",
   sessionUpdate: "soar:session-update",
 } as const;
 
@@ -22,6 +25,12 @@ const api: SoarRendererApi = {
   getSession: (id) => ipcRenderer.invoke(IPC_CHANNELS.getSession, id),
   startSession: (id) => ipcRenderer.invoke(IPC_CHANNELS.startSession, id),
   cancelSession: (id) => ipcRenderer.invoke(IPC_CHANNELS.cancelSession, id),
+  getReviewAvailability: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getReviewAvailability),
+  createChangeReviewSession: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.createChangeReviewSession, input),
+  getChangeReviewView: (id) =>
+    ipcRenderer.invoke(IPC_CHANNELS.getChangeReviewView, id),
   subscribeSessionEvents: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, update: SessionUpdate): void => {
       listener(update);

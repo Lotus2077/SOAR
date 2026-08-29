@@ -1741,4 +1741,31 @@ describe("SessionRunner", () => {
       result: "One-round final answer.",
     });
   });
+
+  it("preserves prose, exact phrases, and enumerated records in the finalizer contract", async () => {
+    const workspaceRoot = await createWorkspace();
+    const store = createStore();
+    const provider = new RecordingFakeProvider();
+    const session = store.createSession({
+      id: "structured-finalization-contract",
+      title: "Structured finalization contract",
+      objective:
+        'Explain the result in prose, then emit a record containing the exact phrases "first phrase" and "second phrase" and the entries ["one", "two"].',
+      workspaceRoot,
+      executionPolicy: executionPolicy({ inferenceRounds: 1 }),
+    });
+    const runner = new SessionRunner({
+      store,
+      provider,
+      limits: limits({ inferenceRounds: 1 }),
+    });
+
+    await runner.startSession(session.id);
+
+    expect(provider.contexts).toHaveLength(1);
+    const finalizerPrompt = provider.contexts[0]?.[0]?.content;
+    expect(finalizerPrompt).toContain(
+      "Honor the objective exactly: include required prose/records; copy phrases verbatim/in order and every required list entry without merging or omission.",
+    );
+  });
 });

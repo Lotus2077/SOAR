@@ -964,7 +964,7 @@ describe("compileContextPacket", () => {
     expect(snippet?.text.length).toBeLessThanOrEqual(32);
   });
 
-  it("keeps a fuller read witness when finalization shortens the search witness", () => {
+  it("keeps search membership beside a fuller finalization read witness", () => {
     const line = `${"left".repeat(15)}needle${"right".repeat(15)}`;
     const state = session([
       completedAssistant("assistant-overlap-search-anchor", "", [
@@ -1020,7 +1020,11 @@ describe("compileContextPacket", () => {
 
     expect(owner(working, "search_text")?.text).toBe(line);
     expect(owner(working, "read_text_file")).toBeUndefined();
-    expect(owner(finalization, "search_text")).toBeUndefined();
+    expect(owner(finalization, "search_text")).toMatchObject({
+      citation: "src/overlap-anchor.ts:1",
+      packetTextTruncated: true,
+    });
+    expect(owner(finalization, "search_text")?.text).toContain("needle");
     expect(owner(finalization, "read_text_file")).toEqual({
       citation: "src/overlap-anchor.ts:1",
       text: line,
@@ -2417,7 +2421,7 @@ describe("compileContextPacket", () => {
     expect(result.telemetry.omittedItemCount).toBe(0);
   });
 
-  it("secures complete targeted search pairs before expanding covered reads", () => {
+  it("preserves complete root-search membership beside fuller read witnesses", () => {
     const matchPaths = Array.from(
       { length: 5 },
       (_unused, index) => `src/covered-${index + 1}.ts`,
@@ -2425,7 +2429,10 @@ describe("compileContextPacket", () => {
     const matches = Array.from({ length: 30 }, (_unused, index) => ({
       path: matchPaths[index % matchPaths.length]!,
       lineNumber: index + 1,
-      text: `export const needle${index + 1} = ${index + 1};`,
+      text:
+        index < 2
+          ? `export const ${"descriptivePrefix".repeat(2)}needle${index + 1}${"descriptiveSuffix".repeat(2)} = ${index + 1};`
+          : `export const needle${index + 1} = ${index + 1};`,
       textTruncated: false,
     }));
     const messages: CanonicalMessage[] = [
@@ -2467,7 +2474,7 @@ describe("compileContextPacket", () => {
     const result = compileContextPacket(session(messages), {
       mode: "finalization",
       systemPrompt: "Preserve complete targeted evidence before generic content.",
-      maxInputTokens: 7_000,
+      maxInputTokens: 20_000,
       safetyMargin: 0.2,
       reservedInputTokens: 512,
     });
@@ -2483,21 +2490,35 @@ describe("compileContextPacket", () => {
     expect(searchEvidence).toMatchObject({
       argumentsExcerpt: '{"maxMatches":500,"query":"needle"}',
       content: "",
+      sourceResultCount: matches.length,
+      sourceResultTruncated: false,
     });
     expect(searchEvidence?.citationSnippets).toHaveLength(matches.length);
+    expect(
+      searchEvidence?.citationSnippets?.map((snippet) => snippet.citation),
+    ).toEqual(matches.map((match) => `${match.path}:${match.lineNumber}`));
+    const fullerReadCitations = result.packet.evidence
+      .filter(
+        (evidence) =>
+          evidence.kind === "tool_evidence" &&
+          evidence.toolName === "read_text_file",
+      )
+      .flatMap((evidence) => evidence.citationSnippets ?? [])
+      .filter((snippet) =>
+        matches
+          .slice(0, 2)
+          .some(
+            (match) =>
+              snippet.citation === `${match.path}:${match.lineNumber}` &&
+              snippet.text === match.text,
+          ),
+      );
+    expect(fullerReadCitations).toHaveLength(2);
     const retainedCitations = result.packet.evidence.flatMap((evidence) =>
       (evidence.citationSnippets ?? []).map((snippet) => snippet.citation),
     );
-    expect(
-      new Set(
-        retainedCitations,
-      ).size,
-    ).toBe(
-      result.packet.evidence.reduce(
-        (count, evidence) => count + (evidence.citationSnippets?.length ?? 0),
-        0,
-      ),
-    );
+    expect(new Set(retainedCitations).size).toBe(matches.length);
+    expect(retainedCitations).toHaveLength(matches.length + 2);
     expect(JSON.stringify(result.packet.evidence)).not.toContain(
       '"citations":',
     );

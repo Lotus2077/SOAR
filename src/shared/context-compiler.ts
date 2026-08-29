@@ -1201,6 +1201,35 @@ function effectiveCitationSnippets(
     : candidate.citationSnippets;
 }
 
+/**
+ * A complete repository search is an evidence set, not just a collection of
+ * interchangeable line witnesses. Deduplication must not reassign its local
+ * citation membership to another envelope: a consumer must be able to
+ * distinguish "returned by this search" from "present somewhere else in the
+ * packet." Later budgeting may still excerpt an envelope, so consumers that
+ * require complete membership must validate its declared count. A complete
+ * read may retain a fuller duplicate line because the two envelopes prove
+ * different facts.
+ */
+function preservesCompleteSearchMembership(
+  candidate: RawCandidate,
+  mode: ContextCompilationMode,
+): boolean {
+  return (
+    mode === "finalization" &&
+    candidate.kind === "tool_evidence" &&
+    candidate.toolName === "search_text" &&
+    candidate.toolStatus === "completed" &&
+    candidate.strictSuccessfulRepositoryObservation &&
+    candidate.sourceResultTruncated === false &&
+    candidate.sourceReferenceCount > 0 &&
+    candidate.sourceResultCount === candidate.sourceReferenceCount &&
+    candidate.citationSnippets.length === candidate.sourceReferenceCount &&
+    (candidate.finalizationCitationSnippets?.length ?? 0) ===
+      candidate.sourceReferenceCount
+  );
+}
+
 function citationOwners(
   candidates: readonly RawCandidate[],
   mode: ContextCompilationMode,
@@ -1278,13 +1307,15 @@ function citationOwners(
 }
 
 /**
- * Return candidate-local filtered copies that store each grounded
- * citation-support pair once. Best-witness selection prefers grounded tool
- * evidence over assistant notes, then (during finalization) schema-valid
- * repository observations, untruncated source support, an untruncated packet
- * excerpt, targeted search evidence, and finally recency. Originals remain
- * unchanged so later admission and eviction decisions can reason about the
- * complete observable reference sets.
+ * Return candidate-local filtered copies that normally store each grounded
+ * citation-support pair once. Complete repository searches retain their local
+ * membership through this deduplication step even when a read owns a fuller
+ * duplicate witness. Otherwise,
+ * best-witness selection prefers grounded tool evidence over assistant notes,
+ * then (during finalization) schema-valid repository observations, untruncated
+ * source support, an untruncated packet excerpt, targeted search evidence, and
+ * finally recency. Originals remain unchanged so later admission and eviction
+ * decisions can reason about the complete observable reference sets.
  */
 function deduplicateCitationSupportPairs(
   candidates: readonly RawCandidate[],
@@ -1293,8 +1324,13 @@ function deduplicateCitationSupportPairs(
   const citationOwner = citationOwners(candidates, mode);
 
   return candidates.map((candidate) => {
+    const preserveSearchMembership = preservesCompleteSearchMembership(
+      candidate,
+      mode,
+    );
     const citationSnippets = candidate.citationSnippets.filter(
       (snippet) =>
+        preserveSearchMembership ||
         citationOwner.get(snippet.citation) === candidate.ordinal,
     );
     const retainedCitations = new Set(

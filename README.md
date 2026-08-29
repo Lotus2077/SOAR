@@ -129,8 +129,8 @@ The proof requires a clean Git worktree and the exact declared HEAD. It copies
 that revision into a temporary `git archive` workspace, excludes the evaluator
 source from the agent-visible fixture, and records the archive SHA-256. It pins
 `RM-01 VLM`, a 16,384-token context cap with a 0.2 safety margin, per-task
-provider/tool-call limits, and episode limits of 36 provider calls and 30 tool
-calls, with a derived maximum of 589,824 reported input tokens. Every provider
+provider/tool-call limits, and episode limits of 34 provider calls and 29 tool
+calls, with a derived maximum of 557,056 reported input tokens. Every provider
 call must report positive input usage within the cap,
 `servedModel: "RM-01 VLM"`, zero cost, and
 `costProvenance: "local_zero_cost_policy"`.
@@ -149,6 +149,11 @@ UTF-8 filesystem scan rather than SOAR's production `search_text`, and records
 the oracle method, scope, count, and hash. Architecture and cancellation use an
 authoritative claim manifest: each required claim must state evaluator-owned
 relational phrases and cite evaluator-owned exact files and source snippets.
+Architecture must perform exactly one bounded non-recursive root `list_files`,
+one exact `read_text_file` of `src/main/index.ts`, and seven ordered,
+case-sensitive, file-scoped `search_text` calls—one for each disclosed claim
+evidence row—before synthesis. The evaluator rejects a missing, extra,
+reordered, broad, or argument-mismatched architecture call.
 Cancellation requires its nine manifest evidence rows as nine ordered,
 case-sensitive, file-scoped `search_text` calls before synthesis; the evaluator
 rejects a missing, extra, reordered, broad, or mismatched search.
@@ -174,16 +179,24 @@ For each accepted answer, the harness binds the captured provider input to the
 unique accepted completion-check round and its persisted packet/message hashes.
 Every completion-guard-verified answer citation and every evaluator-required
 claim snippet must remain in completed tool evidence in that exact packet; the
-symbol packet must also retain every independent-oracle occurrence. Only
-bounded counts and hashes are published, never packet or source content.
+symbol packet must also retain every independent-oracle occurrence. In the v6
+proof, the fully admitted global-symbol-search envelope keeps its own compact
+citation membership even when a read also keeps fuller support for an
+overlapping line. The audit identifies that one global-search
+envelope by its exact scope and arguments, sorts its citations and the oracle
+independently, and compares the exact sets—not the union of all tool citations.
+The final `SOAR_SYMBOL_AUDIT.occurrences` record remains lexicographically
+sorted. Only bounded counts and hashes are published, never packet or source
+content.
 The deterministic retention gate repeats the exact symbol schedule after
 inserting 250 UTF-8 bytes of inert objective padding before the final-record
 instruction; both runs must retain the complete evidence sets.
 
 An accepted schema-v5 artifact is written only after every gate passes, at
 `benchmarks/runs/local-repository-investigator-v1.schema5.<HEAD>.accepted.json`.
-It identifies the strengthened exact-argument and final-record-suffix evaluator
-as task-validator contract v5.
+Artifact schema v5 is unchanged. The artifact identifies the strengthened
+architecture schedule, exact-argument, and final-record-suffix evaluator as
+task-validator contract v6.
 A failed run instead writes the distinct
 `local-repository-investigator-v1.schema5.<HEAD>.failed.json` diagnostic with
 `passed: false`. Before serialization, repository and temporary fixture roots

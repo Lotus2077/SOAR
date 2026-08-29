@@ -98,6 +98,11 @@ read/search results with no representable citation keep their raw diagnostic
 result instead of becoming empty or synthetic-only evidence.
 Citation ownership uses this mode-specific emitted view, preserving a fuller
 read witness over a shortened search excerpt.
+Ownership does not erase provenance membership during deduplication: a complete
+search keeps its local compact snippets even when an overlapping read also owns
+fuller support. Later reference budgeting may still excerpt an envelope;
+consumers that require complete membership must compare retained citations with
+the declared result count or an independent oracle.
 Under finalization citation-depth pressure, only a complete, strictly validated
 positive search envelope can yield. Every citation must already have a better
 owner, or a narrow equal-fidelity exception must provide a strict complete read
@@ -233,6 +238,18 @@ gold. Fixture preparation separates agent-visible inputs from private evaluator
 oracles. Agent workspaces must live outside `benchmarks/cache`; hashes and pinned
 revisions make result records reproducible. Official evaluators run only after
 inference and generated caches and traces remain ignored by Git.
+
+The guided Local Repository Investigator proof additionally applies
+task-specific exact-call validators. Its architecture task requires one bounded
+non-recursive root listing, one exact `src/main/index.ts` read, and seven ordered
+file-scoped evidence searches. The artifact stays on schema v5 while this
+strengthened evaluator is task-validator contract v6. Its symbol-retention
+audit identifies the exact global-search envelope, sorts that envelope's
+citations and the independent oracle separately, and compares the exact sets,
+never the union of all tool citations. The final
+`SOAR_SYMBOL_AUDIT.occurrences` record remains lexicographically sorted. Those
+harness checks do not make the runtime a generic exact-argument scheduler and do
+not demonstrate dynamic provider routing.
 
 ## Current and future routing
 

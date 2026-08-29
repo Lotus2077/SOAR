@@ -607,10 +607,10 @@ All of the following are required before claiming the gate passed:
   response;
 - the context policy is exactly 16,384 maximum input tokens with a 0.2 safety
   margin;
-- architecture is bounded to 12 provider calls and 10 tool calls,
+- architecture is bounded to 10 provider calls and 9 tool calls,
   cancellation to 11 and 9, and symbol references to 13 and 11; the episode is
-  therefore bounded to 36 provider calls, 30 tool calls, and a derived maximum
-  of 589,824 reported input tokens;
+  therefore bounded to 34 provider calls, 29 tool calls, and a derived maximum
+  of 557,056 reported input tokens;
 - every provider call has one `context.compiled` checkpoint and reports positive
   actual input usage no greater than 16,384 tokens;
 - every usage record reports zero cost,
@@ -620,6 +620,11 @@ All of the following are required before claiming the gate passed:
   manifest. Every claim must contain evaluator-owned relational phrases and
   distinct, completion-guard-verified citations to exact required files and
   lines containing the required source snippets;
+- architecture must perform exactly one bounded, non-recursive root
+  `list_files`, one exact `read_text_file` of `src/main/index.ts`, and seven
+  ordered, case-sensitive, file-scoped `search_text` calls, one per evaluator
+  evidence row; missing, extra, reordered, broad, or argument-mismatched calls
+  are rejected;
 - cancellation must perform exactly nine ordered, case-sensitive,
   file-scoped `search_text` calls, one for every evaluator evidence row with
   `query` equal to its required source substring and `relativePath` equal to its
@@ -648,10 +653,19 @@ All of the following are required before claiming the gate passed:
 - the symbol task performs the required full-workspace exact search, whose tool
   result has no missing, duplicate, or extra occurrence and reports
   `truncated: false` with no unreadable or oversized source file; both that
-  result and the strict final audit must reproduce the independent oracle's
-  exact sorted set. The exactly-once requirement applies only to
+  result's citation membership and the strict final audit must reproduce the
+  independent oracle's exact set. The search result retains its native
+  deterministic path-traversal and numeric-line order; the final
+  `SOAR_SYMBOL_AUDIT.occurrences` record is lexicographically sorted. The
+  exactly-once requirement applies only to
   `SOAR_SYMBOL_AUDIT.occurrences`; prose and claim citations may repeat those
   path-and-line tokens;
+- the fully admitted global-symbol-search envelope in the accepted packet
+  retains its own compact citation membership even when an overlapping read
+  also keeps fuller support. The v6 symbol-retention audit identifies that
+  exact envelope by its scope and arguments, sorts
+  its citations and the oracle separately, and compares the exact sets—not the
+  union of all tool citations;
 - each accepted-answer provider input is selected by the unique accepted
   completion-check round and hash-bound to its persisted `context.compiled`
   checkpoint. Completed tool evidence in that exact packet must retain every
@@ -671,14 +685,18 @@ All of the following are required before claiming the gate passed:
   quarantined before preflight. Once a full revision is declared, model,
   repository, configuration, fixture, database, or provider setup failures also
   write a self-identifying preflight diagnostic. The accepted artifact records
-  the strengthened exact-argument and final-record-suffix evaluator as
-  task-validator contract v5.
+  the strengthened architecture schedule, exact-argument, and
+  final-record-suffix evaluator as task-validator contract v6. Artifact schema
+  v5 is unchanged.
 
 An exact citation count or match to stale `f221798+working-tree` line numbers is
 not required. If the fixture, model, limits, or evaluator changes, treat the
 result as a different standalone run rather than a direct comparison.
 
 No item in this section is passed merely because the compiler or this ADR exists.
+These exact schedules are task-specific guided-proof validators, not a generic
+runtime exact-argument scheduler, and this local-only proof does not establish
+dynamic provider routing.
 
 ## Future handoff extensions
 

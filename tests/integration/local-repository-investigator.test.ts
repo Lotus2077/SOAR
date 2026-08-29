@@ -29,6 +29,7 @@ import type {
 import {
   sha256Hex,
   type ContextPacket,
+  type ToolEvidence,
 } from "../../src/shared/context-compiler";
 import type {
   CompletionObligationToolName,
@@ -49,7 +50,7 @@ const proofContextPolicy = { maxInputTokens: 16_384, safetyMargin: 0.2 } as cons
 // leaving enough room for the larger symbol evidence set. The real envelope
 // and final-retention tests below remain the authoritative capacity gates.
 const proofObjectiveMaxUtf8Bytes = 2_800;
-const symbolObjectiveMaxUtf8Bytes = 2_300;
+const symbolObjectiveMaxUtf8Bytes = 2_050;
 const finalPacketDriftToleranceBytes = 250;
 const proofModel = "RM-01 VLM";
 const proofSchemaVersion = 5;
@@ -95,6 +96,16 @@ interface SupportingSearchRequirement {
   query: string;
 }
 
+interface ArchitectureDiscoverySchedule {
+  listArguments: Readonly<{
+    relativePath: string;
+    recursive: boolean;
+    maxDepth: number;
+    maxItems: number;
+  }>;
+  readArguments: Readonly<{ relativePath: string }>;
+}
+
 interface ProofTask {
   id: string;
   title: string;
@@ -105,6 +116,7 @@ interface ProofTask {
   maximumToolCalls: number;
   claimCoverage?: ClaimCoverageRequirement[];
   orderedEvidenceSearches?: SupportingSearchRequirement[];
+  architectureDiscoverySchedule?: ArchitectureDiscoverySchedule;
   requiresClaimEvidenceReads?: boolean;
   requiresClaimEvidenceSearches?: boolean;
   requiresCallPathProse?: boolean;
@@ -785,6 +797,18 @@ function redactProofArtifactPaths(
 }
 
 const symbol = `${"cancel"}${"Session"}`;
+const symbolGlobalSearchArguments = {
+  query: symbol,
+  relativePath: ".",
+  caseSensitive: true,
+  maxMatches: 500,
+  maxDepth: 20,
+} as const;
+const symbolGlobalPacketArguments = {
+  query: symbol,
+  maxMatches: 500,
+  maxDepth: 20,
+} as const;
 
 const architectureClaims: ClaimCoverageRequirement[] = [
   {
@@ -853,6 +877,32 @@ const architectureClaims: ClaimCoverageRequirement[] = [
       },
     ],
   },
+];
+
+const architectureEvidenceSearches: SupportingSearchRequirement[] =
+  architectureClaims.flatMap((requirement) =>
+    requirement.evidence.map((evidence) => ({
+      path: evidence.path,
+      query: evidence.lineIncludes,
+    })),
+  );
+
+const architectureDiscoverySchedule: ArchitectureDiscoverySchedule = {
+  listArguments: {
+    relativePath: ".",
+    recursive: false,
+    maxDepth: 1,
+    maxItems: 200,
+  },
+  readArguments: { relativePath: "src/main/index.ts" },
+};
+
+const architectureRequiredToolSequence: CompletionObligationToolName[] = [
+  "list_files",
+  "read_text_file",
+  ...architectureEvidenceSearches.map(
+    (): CompletionObligationToolName => "search_text",
+  ),
 ];
 
 const cancellationClaims: ClaimCoverageRequirement[] = [
@@ -1121,6 +1171,30 @@ function claimCoverageInstruction(
   );
 }
 
+function architectureObjective(): string {
+  const scheduledCalls = [
+    `1. list_files(${JSON.stringify(architectureDiscoverySchedule.listArguments)})`,
+    `2. read_text_file(${JSON.stringify(architectureDiscoverySchedule.readArguments)})`,
+    ...architectureEvidenceSearches.map(
+      ({ path: relativePath, query }, index) =>
+        `${index + 3}. search_text(${JSON.stringify({
+          query,
+          relativePath,
+          caseSensitive: true,
+          maxMatches: 20,
+        })})`,
+    ),
+  ];
+  return (
+    [
+      "Summarize the Electron repository architecture: runtime entry, session execution, renderer, persistence/replay, shared event contract, and integration tests.",
+      `Execute exactly these ${scheduledCalls.length} tool calls, one per round, in order; call no other tool:`,
+      ...scheduledCalls,
+      "Every call must succeed. The list, read, and searches must be complete/untruncated. Explain the architecture and cite only tool-verified relative path:line evidence.",
+    ].join("\n") + claimCoverageInstruction(architectureClaims)
+  );
+}
+
 function symbolClaimCoverageTemplate(): string {
   return `${claimCoverageMarker}{"claims":[{"id":"","summary":"","citations":[]}]}`;
 }
@@ -1140,38 +1214,32 @@ function symbolReferenceObjective(): string {
   );
 
   return [
-    `Find exact case-sensitive ${JSON.stringify(symbol)} refs; explain UI-to-runtime path. Exactly 11 ordered calls, one/round; no others.`,
-    `1. search_text(${JSON.stringify({
-      query: symbol,
-      relativePath: ".",
-      caseSensitive: true,
-      maxMatches: 500,
-      maxDepth: 20,
-    })})`,
-    `2-6 read_text_file: ${paths.map((path, index) => `${index + 2}=${JSON.stringify(path)}`).join(";")}. Complete/untruncated; claims below; before 7.`,
-    `7-10. search_text in order with relativePath=${JSON.stringify(paths[0])},caseSensitive=true,maxMatches=20:`,
+    `Find case-sensitive ${JSON.stringify(symbol)} refs; trace UI-runtime. Calls 1-11 only:`,
+    `1 search_text ${JSON.stringify(symbolGlobalSearchArguments)}`,
+    `2-6 read_text_file, complete before 7: ${paths.map((path, index) => `${index + 2}=${JSON.stringify(path)}`).join(";")}`,
+    `7-10 ordered search_text: relativePath=${JSON.stringify(paths[0])},caseSensitive=true,maxMatches=20; queries:`,
     ...supportingSearches
       .slice(0, 4)
       .map(
         (requirement, index) =>
-          `${index + 7}. ${JSON.stringify(requirement.query)}`,
+          `${index + 7} ${JSON.stringify(requirement.query)}`,
       ),
-    `11. search_text(${JSON.stringify({
+    `11 search_text ${JSON.stringify({
       query: supportingSearches[4]?.query,
       relativePath: supportingSearches[4]?.path,
       caseSensitive: true,
       maxMatches: 20,
-    })})`,
-    "Searches: complete/untruncated. Claims:",
-    "Next four: quoted claim, then global-call-1 substring verified by shown full read; extra uses named support.",
-    `renderer-cancel (read call 5): ${JSON.stringify(claimPhrases[0]?.[0])}; ${JSON.stringify(claimEvidence[0]?.[0]?.lineIncludes)}.`,
-    `preload-bridge (read call 4): ${JSON.stringify(claimPhrases[1]?.[0])}; ${JSON.stringify(claimEvidence[1]?.[0]?.lineIncludes)}.`,
-    `ipc-dispatch (read call 3): ${JSON.stringify(claimPhrases[2]?.[0])}; ${JSON.stringify(claimEvidence[2]?.[0]?.lineIncludes)}; ${JSON.stringify(claimEvidence[2]?.[1]?.lineIncludes)}.`,
-    `runner-abort (read call 2): ${JSON.stringify(claimPhrases[3]?.[0])}; ${JSON.stringify(claimEvidence[3]?.[0]?.lineIncludes)}; also supporting call 7.`,
-    `signal-propagation: ${JSON.stringify(claimPhrases[4]?.[0])}; ${JSON.stringify(claimPhrases[4]?.[1])}; supporting calls 9,10,8.`,
-    `integration-test: ${JSON.stringify(claimPhrases[5]?.[0])}; supporting call 11.`,
-    "Write >=120 prose characters; six phrases in order; one distinct verified relative path:line per listed substring.",
-    "Then these filled adjacent unfenced one-line records; nothing after; no extra keys; sort unique global-call-1 occurrences:",
+    })}`,
+    "Searches complete. Claims:",
+    "First 4: phrase + global-1 substring from cited read. Others: named search.",
+    `renderer-cancel/R5: ${JSON.stringify(claimPhrases[0]?.[0])}; ${JSON.stringify(claimEvidence[0]?.[0]?.lineIncludes)}`,
+    `preload-bridge/R4: ${JSON.stringify(claimPhrases[1]?.[0])}; ${JSON.stringify(claimEvidence[1]?.[0]?.lineIncludes)}`,
+    `ipc-dispatch/R3: ${JSON.stringify(claimPhrases[2]?.[0])}; ${JSON.stringify(claimEvidence[2]?.[0]?.lineIncludes)}; ${JSON.stringify(claimEvidence[2]?.[1]?.lineIncludes)}`,
+    `runner-abort/R2: ${JSON.stringify(claimPhrases[3]?.[0])}; ${JSON.stringify(claimEvidence[3]?.[0]?.lineIncludes)}; S7`,
+    `signal-propagation: ${JSON.stringify(claimPhrases[4]?.[0])}; ${JSON.stringify(claimPhrases[4]?.[1])}; S9,10,8`,
+    `integration-test: ${JSON.stringify(claimPhrases[5]?.[0])}; S11`,
+    "Before records: >=120 prose chars; phrases verbatim/in order; distinct citation/substr; prose required.",
+    "Finish with adjacent unfenced lines; no extra text/keys. Audit=all unique global-1 path:line strings lexicographically sorted, not search order:",
     symbolClaimCoverageTemplate(),
     symbolAuditTemplate(),
   ].join("\n");
@@ -1191,15 +1259,15 @@ const tasks: ProofTask[] = [
   {
     id: "architecture",
     title: "Summarize repository architecture",
-    objective:
-      "Map the architecture with list_files, then verify entry points by search/read. Explain runtime, persistence, and tests; cite every substantive claim with a tool-verified relative path:line." +
-      claimCoverageInstruction(architectureClaims),
-    requiredTools: ["list_files", "search_text", "read_text_file"],
+    objective: architectureObjective(),
+    requiredTools: architectureRequiredToolSequence,
     minimumVerifiedPathLineCitations:
       requiredClaimCitationCount(architectureClaims),
-    maximumProviderCalls: 12,
-    maximumToolCalls: 10,
+    maximumProviderCalls: 10,
+    maximumToolCalls: 9,
     claimCoverage: architectureClaims,
+    orderedEvidenceSearches: architectureEvidenceSearches,
+    architectureDiscoverySchedule,
   },
   {
     id: "cancellation",
@@ -1382,6 +1450,17 @@ function citationPath(citation: string): string | undefined {
   return citation.slice(0, separator);
 }
 
+function argumentsExcerptMatches(
+  argumentsExcerpt: string,
+  expected: Readonly<Record<string, string | number | boolean>>,
+): boolean {
+  try {
+    return hasExactArguments(JSON.parse(argumentsExcerpt), expected);
+  } catch {
+    return false;
+  }
+}
+
 function finalPacketRetentionAudit(options: {
   input: CapturedProviderInput;
   acceptedRound: number;
@@ -1390,6 +1469,9 @@ function finalPacketRetentionAudit(options: {
   requirements: readonly ClaimCoverageRequirement[];
   verifiedAnswerCitations?: readonly string[];
   expectedSymbolOccurrences?: readonly string[];
+  expectedSymbolSearchArguments?: Readonly<
+    Record<string, string | number | boolean>
+  >;
 }): { audit: FinalPacketRetentionAudit; failures: string[] } {
   const packetJson = contextPacketJson(options.input.messages);
   const packet = JSON.parse(packetJson) as ContextPacket;
@@ -1398,7 +1480,7 @@ function finalPacketRetentionAudit(options: {
     options.input.messages,
   );
   const toolEvidence = packet.evidence.filter(
-    (evidence) =>
+    (evidence): evidence is ToolEvidence =>
       evidence.kind === "tool_evidence" && evidence.status === "completed",
   );
   const toolSnippets = toolEvidence.flatMap(
@@ -1448,6 +1530,7 @@ function finalPacketRetentionAudit(options: {
   const toolCitations = new Set(
     toolSnippets.map((snippet) => snippet.citation),
   );
+  const failures: string[] = [];
   const requiredVerifiedAnswerCitations = [
     ...new Set(options.verifiedAnswerCitations ?? []),
   ].sort();
@@ -1458,10 +1541,63 @@ function finalPacketRetentionAudit(options: {
   const requiredSymbolOccurrences = [
     ...new Set(options.expectedSymbolOccurrences ?? []),
   ].sort();
-  const retainedSymbolOccurrences = requiredSymbolOccurrences.filter(
-    (occurrence) => toolCitations.has(occurrence),
-  );
-  const failures: string[] = [];
+  const expectedSymbolSearchArguments =
+    options.expectedSymbolSearchArguments;
+  let retainedSymbolOccurrences: string[];
+  if (
+    requiredSymbolOccurrences.length > 0 &&
+    expectedSymbolSearchArguments !== undefined
+  ) {
+    const matchingSearchEvidence = toolEvidence.filter(
+      (evidence) =>
+        evidence.toolName === "search_text" &&
+        evidence.workspaceRelativePath === "." &&
+        argumentsExcerptMatches(
+          evidence.argumentsExcerpt,
+          expectedSymbolSearchArguments,
+        ),
+    );
+    if (matchingSearchEvidence.length !== 1) {
+      failures.push(
+        `accepted provider input must retain exactly one completed global search envelope with the expected arguments; got ${matchingSearchEvidence.length}`,
+      );
+    }
+    const globalSearchEvidence = matchingSearchEvidence[0];
+    retainedSymbolOccurrences =
+      globalSearchEvidence?.citationSnippets
+        ?.map((snippet) => snippet.citation)
+        .sort() ?? [];
+    if (globalSearchEvidence !== undefined) {
+      if (globalSearchEvidence.sourceResultTruncated !== false) {
+        failures.push(
+          "accepted provider input global search envelope must attest sourceResultTruncated=false",
+        );
+      }
+      if (
+        globalSearchEvidence.sourceResultCount !==
+        requiredSymbolOccurrences.length
+      ) {
+        failures.push(
+          `accepted provider input global search envelope declared ${globalSearchEvidence.sourceResultCount ?? "no"}/${requiredSymbolOccurrences.length} independent-oracle symbol occurrences`,
+        );
+      }
+    }
+    if (
+      retainedSymbolOccurrences.length !== requiredSymbolOccurrences.length ||
+      retainedSymbolOccurrences.some(
+        (occurrence, index) =>
+          occurrence !== requiredSymbolOccurrences[index],
+      )
+    ) {
+      failures.push(
+        `accepted provider input global search envelope retained ${retainedSymbolOccurrences.length}/${requiredSymbolOccurrences.length} exact independent-oracle symbol occurrences`,
+      );
+    }
+  } else {
+    retainedSymbolOccurrences = requiredSymbolOccurrences.filter(
+      (occurrence) => toolCitations.has(occurrence),
+    );
+  }
   if (packet.schema !== "soar.context-packet.v1") {
     failures.push("accepted provider input did not contain the v1 canonical context packet");
   }
@@ -1484,7 +1620,10 @@ function finalPacketRetentionAudit(options: {
       `accepted provider input retained ${retainedVerifiedAnswerCitations.length}/${requiredVerifiedAnswerCitations.length} completion-guard-verified answer citations`,
     );
   }
-  if (retainedSymbolOccurrences.length !== requiredSymbolOccurrences.length) {
+  if (
+    expectedSymbolSearchArguments === undefined &&
+    retainedSymbolOccurrences.length !== requiredSymbolOccurrences.length
+  ) {
     failures.push(
       `accepted provider input retained ${retainedSymbolOccurrences.length}/${requiredSymbolOccurrences.length} independent-oracle symbol occurrences`,
     );
@@ -1970,20 +2109,107 @@ function claimEvidenceSupportingSearchFailures(
   return failures;
 }
 
+function architectureDiscoveryScheduleFailures(
+  executions: readonly SuccessfulToolExecution[],
+  schedule: ArchitectureDiscoverySchedule,
+  evidenceSearches: readonly SupportingSearchRequirement[],
+): string[] {
+  const failures: string[] = [];
+  const expectedToolSequence: CompletionObligationToolName[] = [
+    "list_files",
+    "read_text_file",
+    ...evidenceSearches.map(
+      (): CompletionObligationToolName => "search_text",
+    ),
+  ];
+  const observedToolSequence = executions.map(
+    (execution) => execution.completion.payload.name,
+  );
+  if (
+    observedToolSequence.length !== expectedToolSequence.length ||
+    observedToolSequence.some(
+      (toolName, index) => toolName !== expectedToolSequence[index],
+    )
+  ) {
+    failures.push(
+      `architecture discovery must contain exactly the successful ordered tool sequence ${expectedToolSequence.join(" -> ")}; got ${observedToolSequence.join(" -> ")}`,
+    );
+  }
+
+  const listExecutions = executions.filter(
+    (execution) =>
+      execution.request.payload.name === "list_files" &&
+      execution.completion.payload.name === "list_files",
+  );
+  if (
+    listExecutions.length !== 1 ||
+    !hasExactArguments(
+      listExecutions[0]?.request.payload.arguments,
+      schedule.listArguments,
+    ) ||
+    parseSuccessfulRepositoryToolObservation(
+      "list_files",
+      listExecutions[0]?.request.payload.arguments ?? {},
+      listExecutions[0]?.completion.payload.content,
+    )?.truncated !== false
+  ) {
+    failures.push(
+      `architecture discovery must contain exactly one successful complete list_files call with arguments ${JSON.stringify(schedule.listArguments)}`,
+    );
+  }
+
+  const readExecutions = executions.filter(
+    (execution) =>
+      execution.request.payload.name === "read_text_file" &&
+      execution.completion.payload.name === "read_text_file",
+  );
+  const readObservation = parseSuccessfulRepositoryToolObservation(
+    "read_text_file",
+    readExecutions[0]?.request.payload.arguments ?? {},
+    readExecutions[0]?.completion.payload.content,
+  );
+  if (
+    readExecutions.length !== 1 ||
+    !hasExactArguments(
+      readExecutions[0]?.request.payload.arguments,
+      schedule.readArguments,
+    ) ||
+    readObservation?.truncated !== false ||
+    typeof readObservation.text !== "string" ||
+    !readObservation.text.includes("app.whenReady().then(bootstrap)")
+  ) {
+    failures.push(
+      `architecture discovery must contain exactly one successful complete read_text_file call with arguments ${JSON.stringify(schedule.readArguments)} and the desktop-entry evidence`,
+    );
+  }
+
+  failures.push(
+    ...orderedEvidenceSearchFailures(executions, evidenceSearches, {
+      requireExactSupportArguments: true,
+    }).map((failure) => `architecture evidence schedule: ${failure}`),
+  );
+  return failures;
+}
+
 function orderedEvidenceSearchFailures(
   executions: readonly SuccessfulToolExecution[],
   requirements: readonly SupportingSearchRequirement[],
   options: { requireExactSupportArguments?: boolean } = {},
 ): string[] {
   const failures: string[] = [];
-  if (executions.length !== requirements.length) {
+  const successfulSearches = executions.filter(
+    (execution) =>
+      execution.request.payload.name === "search_text" &&
+      execution.completion.payload.name === "search_text",
+  );
+  if (successfulSearches.length !== requirements.length) {
     failures.push(
-      `expected exactly ${requirements.length} successful evidence searches; got ${executions.length}`,
+      `expected exactly ${requirements.length} successful evidence searches; got ${successfulSearches.length}`,
     );
   }
 
   for (const [index, requirement] of requirements.entries()) {
-    const execution = executions[index];
+    const execution = successfulSearches[index];
     if (execution === undefined) {
       failures.push(
         `missing evidence search ${index + 1} for ${requirement.path} containing ${JSON.stringify(requirement.query)}`,
@@ -2356,14 +2582,14 @@ describe("Local Repository Investigator evaluator contract", () => {
     ).toBe(false);
     expect(
       tasks.reduce((total, candidate) => total + candidate.maximumProviderCalls, 0),
-    ).toBe(36);
+    ).toBe(34);
     expect(
       tasks.reduce((total, candidate) => total + candidate.maximumToolCalls, 0),
-    ).toBe(30);
+    ).toBe(29);
     expect(
       tasks.reduce((total, candidate) => total + candidate.maximumProviderCalls, 0) *
         proofContextPolicy.maxInputTokens,
-    ).toBe(589_824);
+    ).toBe(557_056);
     expect(proofObjectiveMaxUtf8Bytes).toBe(2_800);
     for (const boundedTask of [cancellationTask, task]) {
       expect(
@@ -2403,19 +2629,13 @@ describe("Local Repository Investigator evaluator contract", () => {
     ]);
     const objectiveLines = task.objective.split("\n");
     expect(objectiveLines).toContain(
-      `1. search_text(${JSON.stringify({
-        query: symbol,
-        relativePath: ".",
-        caseSensitive: true,
-        maxMatches: 500,
-        maxDepth: 20,
-      })})`,
+      `1 search_text ${JSON.stringify(symbolGlobalSearchArguments)}`,
     );
     expect(objectiveLines).toContain(
-      `2-6 read_text_file: ${requiredReadPaths.map((path, index) => `${index + 2}=${JSON.stringify(path)}`).join(";")}. Complete/untruncated; claims below; before 7.`,
+      `2-6 read_text_file, complete before 7: ${requiredReadPaths.map((path, index) => `${index + 2}=${JSON.stringify(path)}`).join(";")}`,
     );
     expect(objectiveLines).toContain(
-      "Next four: quoted claim, then global-call-1 substring verified by shown full read; extra uses named support.",
+      "First 4: phrase + global-1 substring from cited read. Others: named search.",
     );
     expect(
       new Set(
@@ -2425,11 +2645,11 @@ describe("Local Repository Investigator evaluator contract", () => {
       ),
     ).toEqual(new Set(["src/main/agent/run-session.ts"]));
     expect(objectiveLines).toContain(
-      '7-10. search_text in order with relativePath="src/main/agent/run-session.ts",caseSensitive=true,maxMatches=20:',
+      '7-10 ordered search_text: relativePath="src/main/agent/run-session.ts",caseSensitive=true,maxMatches=20; queries:',
     );
     const supportingQueryInstructions = objectiveSupportingSearchPairs
       .slice(0, 4)
-      .map((pair, index) => `${index + 7}. ${JSON.stringify(pair.query)}`);
+      .map((pair, index) => `${index + 7} ${JSON.stringify(pair.query)}`);
     let previousQueryIndex = -1;
     for (const instruction of supportingQueryInstructions) {
       expect(
@@ -2440,21 +2660,21 @@ describe("Local Repository Investigator evaluator contract", () => {
       previousQueryIndex = instructionIndex;
     }
     expect(objectiveLines).toContain(
-      `11. search_text(${JSON.stringify({
+      `11 search_text ${JSON.stringify({
         query: objectiveSupportingSearchPairs[4]?.query,
         relativePath: objectiveSupportingSearchPairs[4]?.relativePath,
         caseSensitive: true,
         maxMatches: 20,
-      })})`,
+      })}`,
     );
     expect(objectiveLines).toEqual(
       expect.arrayContaining([
-        `renderer-cancel (read call 5): ${JSON.stringify(symbolCallPathClaims[0]?.summaryPhrases[0])}; ${JSON.stringify(symbolCallPathClaims[0]?.evidence[0]?.lineIncludes)}.`,
-        `preload-bridge (read call 4): ${JSON.stringify(symbolCallPathClaims[1]?.summaryPhrases[0])}; ${JSON.stringify(symbolCallPathClaims[1]?.evidence[0]?.lineIncludes)}.`,
-        `ipc-dispatch (read call 3): ${JSON.stringify(symbolCallPathClaims[2]?.summaryPhrases[0])}; ${JSON.stringify(symbolCallPathClaims[2]?.evidence[0]?.lineIncludes)}; ${JSON.stringify(symbolCallPathClaims[2]?.evidence[1]?.lineIncludes)}.`,
-        `runner-abort (read call 2): ${JSON.stringify(symbolCallPathClaims[3]?.summaryPhrases[0])}; ${JSON.stringify(symbolCallPathClaims[3]?.evidence[0]?.lineIncludes)}; also supporting call 7.`,
-        `signal-propagation: ${JSON.stringify(symbolCallPathClaims[4]?.summaryPhrases[0])}; ${JSON.stringify(symbolCallPathClaims[4]?.summaryPhrases[1])}; supporting calls 9,10,8.`,
-        `integration-test: ${JSON.stringify(symbolCallPathClaims[5]?.summaryPhrases[0])}; supporting call 11.`,
+        `renderer-cancel/R5: ${JSON.stringify(symbolCallPathClaims[0]?.summaryPhrases[0])}; ${JSON.stringify(symbolCallPathClaims[0]?.evidence[0]?.lineIncludes)}`,
+        `preload-bridge/R4: ${JSON.stringify(symbolCallPathClaims[1]?.summaryPhrases[0])}; ${JSON.stringify(symbolCallPathClaims[1]?.evidence[0]?.lineIncludes)}`,
+        `ipc-dispatch/R3: ${JSON.stringify(symbolCallPathClaims[2]?.summaryPhrases[0])}; ${JSON.stringify(symbolCallPathClaims[2]?.evidence[0]?.lineIncludes)}; ${JSON.stringify(symbolCallPathClaims[2]?.evidence[1]?.lineIncludes)}`,
+        `runner-abort/R2: ${JSON.stringify(symbolCallPathClaims[3]?.summaryPhrases[0])}; ${JSON.stringify(symbolCallPathClaims[3]?.evidence[0]?.lineIncludes)}; S7`,
+        `signal-propagation: ${JSON.stringify(symbolCallPathClaims[4]?.summaryPhrases[0])}; ${JSON.stringify(symbolCallPathClaims[4]?.summaryPhrases[1])}; S9,10,8`,
+        `integration-test: ${JSON.stringify(symbolCallPathClaims[5]?.summaryPhrases[0])}; S11`,
       ]),
     );
     expect(task.objective).not.toContain("undefined");
@@ -2481,7 +2701,221 @@ describe("Local Repository Investigator evaluator contract", () => {
       symbolClaimCoverageTemplate(),
       symbolAuditTemplate(),
     ]);
-    expect(task.objective).toContain("nothing after");
+    expect(objectiveLines).toContain(
+      "Before records: >=120 prose chars; phrases verbatim/in order; distinct citation/substr; prose required.",
+    );
+    expect(objectiveLines).toContain(
+      "Finish with adjacent unfenced lines; no extra text/keys. Audit=all unique global-1 path:line strings lexicographically sorted, not search order:",
+    );
+    expect(task.objective).toContain("no extra text/keys");
+  });
+
+  it("pins architecture to one bounded list, one entry read, and seven exact evidence searches", () => {
+    const task = tasks.find((candidate) => candidate.id === "architecture");
+    if (
+      task?.architectureDiscoverySchedule === undefined ||
+      task.orderedEvidenceSearches === undefined
+    ) {
+      throw new Error("architecture task must define its discovery schedule");
+    }
+    expect(task.architectureDiscoverySchedule).toEqual(
+      architectureDiscoverySchedule,
+    );
+    expect(task.orderedEvidenceSearches).toEqual(
+      architectureClaims.flatMap((requirement) =>
+        requirement.evidence.map((evidence) => ({
+          path: evidence.path,
+          query: evidence.lineIncludes,
+        })),
+      ),
+    );
+    expect(task.orderedEvidenceSearches).toHaveLength(7);
+    expect(task.requiredTools).toEqual(architectureRequiredToolSequence);
+    expect(task.requiredTools).toEqual([
+      "list_files",
+      "read_text_file",
+      ...Array.from({ length: 7 }, () => "search_text" as const),
+    ]);
+    expect(task.requiredTools).toHaveLength(9);
+    expect(task.maximumToolCalls).toBe(9);
+    expect(task.maximumProviderCalls).toBe(10);
+    expect(new TextEncoder().encode(task.objective).length).toBeLessThanOrEqual(
+      proofObjectiveMaxUtf8Bytes,
+    );
+
+    const objectiveLines = task.objective.split("\n");
+    expect(objectiveLines).toContain(
+      `1. list_files(${JSON.stringify(architectureDiscoverySchedule.listArguments)})`,
+    );
+    expect(objectiveLines).toContain(
+      `2. read_text_file(${JSON.stringify(architectureDiscoverySchedule.readArguments)})`,
+    );
+    for (const [index, requirement] of architectureEvidenceSearches.entries()) {
+      expect(objectiveLines).toContain(
+        `${index + 3}. search_text(${JSON.stringify({
+          query: requirement.query,
+          relativePath: requirement.path,
+          caseSensitive: true,
+          maxMatches: 20,
+        })})`,
+      );
+    }
+    expect(task.objective).toContain(
+      "Execute exactly these 9 tool calls, one per round, in order; call no other tool",
+    );
+
+    const makeExecution = (
+      id: string,
+      name: CompletionObligationToolName,
+      arguments_: Record<string, string | number | boolean>,
+      content: string,
+      sequence: number,
+    ): SuccessfulToolExecution => ({
+      request: {
+        id: `request-${id}`,
+        sessionId: "architecture-contract",
+        sequence: sequence * 2 - 1,
+        createdAt: "2026-08-29T00:00:00.000Z",
+        type: "tool.call.requested",
+        payload: {
+          toolCallId: id,
+          name,
+          arguments: arguments_,
+          messageId: "message",
+        },
+      },
+      completion: {
+        id: `completion-${id}`,
+        sessionId: "architecture-contract",
+        sequence: sequence * 2,
+        createdAt: "2026-08-29T00:00:01.000Z",
+        type: "tool.call.completed",
+        payload: {
+          toolCallId: id,
+          name,
+          content,
+          isError: false,
+        },
+      },
+    });
+    const indexText = "app.whenReady().then(bootstrap);\n";
+    const exactExecutions: SuccessfulToolExecution[] = [
+      makeExecution(
+        "list",
+        "list_files",
+        { ...architectureDiscoverySchedule.listArguments },
+        JSON.stringify({
+          ok: true,
+          entries: [{ path: "src", type: "directory" }],
+          count: 1,
+          skipped: { ignored: 0, unreadable: 0 },
+          truncated: false,
+          outputBytes: 1,
+        }),
+        1,
+      ),
+      makeExecution(
+        "read",
+        "read_text_file",
+        { ...architectureDiscoverySchedule.readArguments },
+        JSON.stringify({
+          ok: true,
+          text: indexText,
+          bytes: new TextEncoder().encode(indexText).length,
+          truncated: false,
+        }),
+        2,
+      ),
+      ...architectureEvidenceSearches.map((requirement, index) =>
+        makeExecution(
+          `search-${index}`,
+          "search_text",
+          {
+            query: requirement.query,
+            relativePath: requirement.path,
+            caseSensitive: true,
+            maxMatches: 20,
+          },
+          JSON.stringify({
+            ok: true,
+            truncated: false,
+            count: 1,
+            matches: [
+              {
+                path: requirement.path,
+                lineNumber: 1,
+                text: requirement.query,
+                textTruncated: false,
+              },
+            ],
+            filesSearched: 1,
+            bytesScanned: new TextEncoder().encode(requirement.query).length,
+            skipped: {
+              binary: 0,
+              ignored: 0,
+              symlink: 0,
+              tooLarge: 0,
+              unreadable: 0,
+            },
+            outputBytes: 1,
+          }),
+          index + 3,
+        ),
+      ),
+    ];
+    expect(
+      architectureDiscoveryScheduleFailures(
+        exactExecutions,
+        task.architectureDiscoverySchedule,
+        task.orderedEvidenceSearches,
+      ),
+    ).toEqual([]);
+    expect(
+      orderedEvidenceSearchFailures(
+        exactExecutions,
+        task.orderedEvidenceSearches,
+        { requireExactSupportArguments: true },
+      ),
+    ).toEqual([]);
+
+    const extraSearchArgument = structuredClone(exactExecutions);
+    const firstArchitectureSearch = architectureEvidenceSearches[0]!;
+    extraSearchArgument[2]!.request.payload.arguments = {
+      query: firstArchitectureSearch.query,
+      relativePath: firstArchitectureSearch.path,
+      caseSensitive: true,
+      maxMatches: 20,
+      maxDepth: 12,
+    };
+    expect(
+      architectureDiscoveryScheduleFailures(
+        extraSearchArgument,
+        task.architectureDiscoverySchedule,
+        task.orderedEvidenceSearches,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("must use exactly query, relativePath"),
+      ]),
+    );
+
+    const duplicateRead = [
+      ...exactExecutions.slice(0, 2),
+      exactExecutions[1]!,
+      ...exactExecutions.slice(2),
+    ];
+    expect(
+      architectureDiscoveryScheduleFailures(
+        duplicateRead,
+        task.architectureDiscoverySchedule,
+        task.orderedEvidenceSearches,
+      ),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("exactly the successful ordered tool sequence"),
+        expect.stringContaining("exactly one successful complete read_text_file"),
+      ]),
+    );
   });
 
   it("pins cancellation to one ordered exact search per evaluator evidence row", () => {
@@ -2931,13 +3365,7 @@ describe("Local Repository Investigator evaluator contract", () => {
       const scheduledToolCalls = [
         {
           name: "search_text",
-          arguments: {
-            query: symbol,
-            relativePath: ".",
-            caseSensitive: true,
-            maxMatches: 500,
-            maxDepth: 20,
-          },
+          arguments: { ...symbolGlobalSearchArguments },
         },
         ...requiredClaimEvidencePaths(claimCoverage).map(
           (relativePath) => ({
@@ -3141,11 +3569,7 @@ describe("Local Repository Investigator evaluator contract", () => {
             .map((evidence) => evidence.argumentsExcerpt),
         ).toEqual(Array.from({ length: 5 }, () => "{}"));
         const expectedSearchArguments = [
-          {
-            maxDepth: 20,
-            maxMatches: 500,
-            query: symbol,
-          },
+          symbolGlobalPacketArguments,
           ...requiredSupportingSearches(claimCoverage).map(
             (requirement) => ({
               maxMatches: 20,
@@ -3160,8 +3584,7 @@ describe("Local Repository Investigator evaluator contract", () => {
         expect(
           retainedSearchArguments.every((arguments_) =>
             expectedSearchArguments.some(
-              (expected) =>
-                JSON.stringify(arguments_) === JSON.stringify(expected),
+              (expected) => hasExactArguments(arguments_, expected),
             ),
           ),
         ).toBe(true);
@@ -3182,6 +3605,7 @@ describe("Local Repository Investigator evaluator contract", () => {
           verifiedAnswerCitations:
             acceptedCheck.payload.verifiedPathLineCitations,
           expectedSymbolOccurrences: symbolOracle.occurrences,
+          expectedSymbolSearchArguments: symbolGlobalPacketArguments,
         });
         expect(retention.failures).toEqual([]);
         expect(retention.audit).toMatchObject({
@@ -3197,6 +3621,81 @@ describe("Local Repository Investigator evaluator contract", () => {
         expect(retention.audit.retainedVerifiedAnswerCitations).toBe(
           retention.audit.requiredVerifiedAnswerCitations,
         );
+
+        const defectiveMessages = structuredClone(acceptedInput!.messages);
+        const defectivePacket = JSON.parse(
+          contextPacketJson(defectiveMessages),
+        ) as ContextPacket;
+        const globalSearchEvidence = defectivePacket.evidence.find(
+          (evidence) =>
+            evidence.kind === "tool_evidence" &&
+            evidence.toolName === "search_text" &&
+            evidence.workspaceRelativePath === "." &&
+            argumentsExcerptMatches(
+              evidence.argumentsExcerpt,
+              symbolGlobalPacketArguments,
+            ),
+        );
+        const readCitations = new Set(
+          defectivePacket.evidence
+            .filter(
+              (evidence) =>
+                evidence.kind === "tool_evidence" &&
+                evidence.toolName === "read_text_file",
+            )
+            .flatMap((evidence) => evidence.citationSnippets ?? [])
+            .map((snippet) => snippet.citation),
+        );
+        const citationPresentInSearchAndRead =
+          globalSearchEvidence?.citationSnippets?.find((snippet) =>
+            readCitations.has(snippet.citation),
+          )?.citation;
+        if (
+          globalSearchEvidence === undefined ||
+          citationPresentInSearchAndRead === undefined
+        ) {
+          throw new Error(
+            "The retention fixture must contain overlapping global-search and read evidence",
+          );
+        }
+        globalSearchEvidence.citationSnippets =
+          globalSearchEvidence.citationSnippets?.filter(
+            (snippet) =>
+              snippet.citation !== citationPresentInSearchAndRead,
+          );
+        expect(
+          defectivePacket.evidence.some((evidence) =>
+            evidence.citationSnippets?.some(
+              (snippet) =>
+                snippet.citation === citationPresentInSearchAndRead,
+            ),
+          ),
+        ).toBe(true);
+        const defectivePacketMessage = defectiveMessages.find(
+          (message) => message.role === "user",
+        );
+        if (defectivePacketMessage === undefined) {
+          throw new Error("The finalization input must contain a packet message");
+        }
+        defectivePacketMessage.content =
+          `SOAR_CONTEXT_PACKET_V1\n${JSON.stringify(defectivePacket)}`;
+        const defectiveRetention = finalPacketRetentionAudit({
+          input: { ...acceptedInput!, messages: defectiveMessages },
+          acceptedRound,
+          expectedContextPacketSha256: sha256Hex(
+            contextPacketJson(defectiveMessages),
+          ),
+          expectedContextMessagesSha256:
+            capturedMessagesSha256(defectiveMessages),
+          requirements: [],
+          expectedSymbolOccurrences: symbolOracle.occurrences,
+          expectedSymbolSearchArguments: symbolGlobalPacketArguments,
+        });
+        expect(defectiveRetention.failures).toEqual([
+          expect.stringContaining(
+            `global search envelope retained ${symbolOracle.occurrences.length - 1}/${symbolOracle.occurrences.length} exact independent-oracle symbol occurrences`,
+          ),
+        ]);
       } finally {
         database.close();
       }
@@ -3206,7 +3705,7 @@ describe("Local Repository Investigator evaluator contract", () => {
         "deterministic-real-symbol-retention",
       );
       const finalRecordInstruction =
-        "Then these filled adjacent unfenced one-line records";
+        "Finish with adjacent unfenced lines";
       const inertCapacityPadding = `<!--${"x".repeat(242)}-->\n`;
       const paddedObjective = task.objective.replace(
         finalRecordInstruction,
@@ -4379,6 +4878,10 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
                     task.requiresExactSymbolAudit === true
                       ? expectedSymbolOccurrences
                       : [],
+                  expectedSymbolSearchArguments:
+                    task.requiresExactSymbolAudit === true
+                      ? symbolGlobalPacketArguments
+                      : undefined,
                 });
                 finalRetentionAudit = retention.audit;
                 failures.push(
@@ -4624,7 +5127,18 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
             );
           }
 
-          if (task.orderedEvidenceSearches !== undefined) {
+          if (
+            task.architectureDiscoverySchedule !== undefined &&
+            task.orderedEvidenceSearches !== undefined
+          ) {
+            failures.push(
+              ...architectureDiscoveryScheduleFailures(
+                successfulExecutions,
+                task.architectureDiscoverySchedule,
+                task.orderedEvidenceSearches,
+              ).map((failure) => `${task.id}: ${failure}`),
+            );
+          } else if (task.orderedEvidenceSearches !== undefined) {
             failures.push(
               ...orderedEvidenceSearchFailures(
                 successfulExecutions,
@@ -4869,6 +5383,8 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
                   : [],
               requiredOrderedEvidenceSearches:
                 task.orderedEvidenceSearches ?? [],
+              requiredArchitectureDiscoverySchedule:
+                task.architectureDiscoverySchedule ?? null,
               requiredOrderedCallPathRelationships:
                 task.requiresCallPathProse === true
                   ? [...symbolCallPathProseRelationships]
@@ -4880,7 +5396,7 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
           comparison,
           acceptance: {
             taskValidatorContract:
-              "relational-claim-ordered-evidence-read-post-read-exact-arguments-final-record-suffix-and-exact-symbol-occurrences-v5",
+              "architecture-schedule-relational-claim-ordered-evidence-read-post-read-exact-arguments-final-record-suffix-and-exact-global-search-symbol-occurrences-v6",
             maximumProviderCalls,
             maximumToolCalls,
             maximumInputTokensPerCall:

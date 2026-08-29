@@ -80,7 +80,11 @@ execution, evidence-retention, and replay proof—not a blind test of repository
 discovery skill or general answer quality.
 It requires architecture and cancellation claims to state evaluator-owned
 relational phrases and cite verified lines from evaluator-owned exact files and
-source snippets. The symbol task has its own call-path manifest and requires
+source snippets. Architecture must first perform exactly one bounded,
+non-recursive root listing, one exact read of `src/main/index.ts`, and seven
+ordered, case-sensitive, file-scoped evidence searches in evaluator-owned
+order; missing, extra, reordered, broad, or argument-mismatched calls fail the
+task. The symbol task has its own call-path manifest and requires
 substantive prose outside the evaluator records to state, in order, the renderer
 -> preload -> IPC -> `SessionRunner` -> `AbortController` -> provider/tool-signal
 relationships. Successful complete reads must cover all five evidence files and
@@ -91,16 +95,26 @@ from a separate bounded UTF-8 filesystem scanner rather than the production
 search implementation; the method, scope, occurrence set, and hash are
 recorded. The final symbol audit must equal that set and report
 `truncated: false`; only `SOAR_SYMBOL_AUDIT.occurrences` has an exactly-once
-requirement. Provider and tool calls are bounded, each session attests the
+requirement. The episode is bounded to 34 provider calls, 29 tool calls, and
+557,056 reported input tokens. Each session attests the
 persisted `repository-investigator-v1` track, and every provider call attests
 the served model and local-zero-cost policy. Preflight hashes the normalized API
 base and records only bounded `/models` metadata after requiring the configured
 model to be advertised. The accepted-answer provider input is bound to the
 unique accepted completion round and persisted packet/message hashes; all
 verified answer citations, required claim snippets, and exact symbol-oracle
-occurrences must survive in its completed tool evidence. This is structural
-evidence coverage, not semantic grading of unrestricted prose beyond the
-explicit relationships.
+occurrences must survive in its completed tool evidence. The fully admitted
+global-symbol-search envelope retains its own compact citation membership even
+when an overlapping read keeps fuller support. Contract v6 identifies that
+exact envelope, sorts its citations and the
+independent oracle separately, and compares the exact sets rather than accepting
+the union of citations from all tools. The final
+`SOAR_SYMBOL_AUDIT.occurrences` record remains lexicographically sorted. This is
+structural evidence coverage, not semantic grading of unrestricted prose beyond
+the explicit relationships. Artifact schema v5 remains unchanged; this
+strengthened task evaluator is contract v6. The exact schedules are
+task-specific guided proof checks, not a generic runtime exact-argument
+scheduler or evidence of dynamic provider routing.
 
 Only a revision-addressed `.accepted.json` report containing `passed: true` is
 an accepted result. Legacy ambiguous filenames and same-revision stale reports

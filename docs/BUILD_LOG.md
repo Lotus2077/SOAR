@@ -1718,3 +1718,62 @@ Actions run.
 References: [failed replacement run](https://github.com/Lotus2077/SOAR/actions/runs/33269767743),
 [retention test](../tests/integration/local-repository-investigator.test.ts),
 and [preceding local verification](#bl-20260830-0258-pr5-correction-committed-local-verification----2026-08-30----corrected-pr-5-candidate-passed-clean-committed-head-and-electron-gates).
+
+### BL-20260830-0307-pr5-timeout-correction-local-verification -- 2026-08-30 -- Timeout-corrected candidate passed exact-commit local gates
+
+Status: `Verified`
+
+Scope or hypothesis: Verify that the per-test timeout correction survives both
+the remote job's exact Node major and the full clean committed-revision gate,
+without changing the proof assertions or dispatching a live request.
+
+Decisions:
+
+- Bind this local claim to commit
+  `78fb129d0f8f622e3d66ec698fb54ea93f4f2ee6` and the release wrapper's unchanged
+  clean HEAD.
+- Require the full exact Node 22 test suite in addition to the isolated timed-out
+  test so local concurrency can exercise the new deadline.
+- Preserve replacement remote CI as the only resolution for the failed Linux
+  run; local timing results cannot mark the pushed state green.
+
+Changes: No production or test change is introduced by this entry. It records
+verification of the one-test timeout already committed in `78fb129`.
+
+Evidence:
+
+- The isolated retention proof passed under cached Node 22.22.2 in 2.21 seconds
+  of test time, with one selected test passed and 16 unselected tests skipped.
+- The complete deterministic suite under cached Node 22.22.2 passed 54 test
+  files and 625 tests with two files/four opt-in live tests skipped.
+- `pnpm check:release-head` retained clean commit
+  `78fb129d0f8f622e3d66ec698fb54ea93f4f2ee6`, validated 26 log entries and all
+  42 workload manifests with no tracked or unignored live secret, passed
+  TypeScript and the same 625 deterministic tests, and built Electron main,
+  preload, and renderer bundles.
+- `pnpm test:e2e` passed 3/3 macOS workflows in 7.7 seconds.
+- Independent review confirmed the executable correction is one per-test
+  timeout argument, leaving both retention scenarios, every assertion, global
+  Vitest configuration, and all production limits unchanged.
+
+Failures or blockers: No local blocker remains for this correction. This entry
+must still be committed and the exact final revision rechecked before push.
+GitHub Actions run `33269767743` remains failed until a new pushed revision
+passes both jobs.
+
+Limitations and non-claims: Local Node 22 runs on macOS, not the GitHub Linux
+runner. Timing is load-dependent; the finite 15-second test deadline remains an
+operational bound rather than a performance guarantee. No live proof or canary
+was repeated. The prior product and evaluation non-claims remain unchanged.
+
+Paid exposure: `$0`. Verification used cached local runtimes, deterministic
+tests, Git, TypeScript, and Electron build/E2E only. No provider, inference,
+model-list, OpenRouter, retry, fallback, or canary request occurred.
+
+Next gate: Commit this entry, rerun the clean committed-HEAD and macOS Electron
+gates on the resulting final revision, push it, and require a fresh green Linux
+Node 22 plus macOS Electron GitHub Actions run.
+
+References: [timeout correction](#bl-20260830-0303-pr5-remote-retention-timeout-correction----2026-08-30----replacement-ci-exposed-a-proof-test-timing-boundary),
+[release verifier](../scripts/verify-release-head.ts), and
+[failed replacement run](https://github.com/Lotus2077/SOAR/actions/runs/33269767743).

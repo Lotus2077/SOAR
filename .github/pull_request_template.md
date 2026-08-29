@@ -13,6 +13,7 @@
 ## Risk and contract checklist
 
 - [ ] Tests cover the changed behavior
+- [ ] Material decisions, failures, costs, and milestone changes are appended to `docs/BUILD_LOG.md` (or not applicable, with reason)
 - [ ] No secrets, local endpoints, databases, gold data, caches, or generated artifacts are committed
 - [ ] Persisted event/schema compatibility is preserved or documented
 - [ ] Filesystem, renderer/main, provider, cost, and benchmark-isolation boundaries were considered

@@ -48,6 +48,16 @@ boundary or persisted event.
 5. Keep network-dependent, paid, and real-model tests opt-in.
 6. Update the architecture, readiness, routing, or benchmark docs when their
    contracts change.
+7. Add an entry to [docs/BUILD_LOG.md](docs/BUILD_LOG.md) for a material
+   product, architecture, persisted-contract, provider, cost, security,
+   evaluation, failure, or milestone change. Append corrections; do not rewrite
+   an earlier decision or negative result. Use the collision-resistant ID and
+   concurrent-PR rules in that ledger, rebase before merge, and retain both
+   entries when resolving a tail conflict.
+
+An approval-gated plan is not authorized by a merge or by silence. Follow the
+approval record and scope defined by that plan before beginning gated runtime
+or paid-provider work.
 
 Use existing naming and formatting conventions. `.editorconfig` defines the
 portable whitespace baseline. Avoid unrelated mass formatting in a functional
@@ -89,6 +99,7 @@ missing prerequisite, not a model result.
 - include screenshots for renderer changes;
 - call out event/schema, security-boundary, cost, or benchmark-comparability
   changes explicitly;
+- include the required build-log entry for every material change;
 - exclude `.env.local`, databases, caches, run traces, gold data, and generated
   build output.
 

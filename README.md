@@ -27,6 +27,15 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
 - Evaluation ceiling: USD 100, with an automatic stop at USD 90.
 - Paid benchmark calls: not started.
 
+## Planning and project history
+
+- [Hybrid Lease Router v0 and Review Current Changes v1](docs/plans/HYBRID_LEASE_ROUTER_V0.md)
+  is proposed planning work. It is not implemented and requires explicit
+  approval before runtime work begins.
+- [Build and change log](docs/BUILD_LOG.md) is the append-only project evidence
+  ledger for crucial decisions, implementation milestones, failures, proofs,
+  costs, limitations, and next gates.
+
 ## Local-only desktop slice
 
 The first working slice is an Electron application with:
@@ -246,9 +255,11 @@ Start with [MVP readiness](docs/MVP_READINESS.md), [routing policy](docs/ROUTING
 ## Contributing
 
 Start with [CONTRIBUTING.md](CONTRIBUTING.md) and
-[the architecture guide](docs/ARCHITECTURE.md). Bug reports and focused pull
-requests are welcome. Please keep provider calls opt-in, preserve the append-only
-event contract, and include tests for behavior changes.
+[the architecture guide](docs/ARCHITECTURE.md). Automated contributors must
+also follow [AGENTS.md](AGENTS.md). Bug reports and focused pull requests are
+welcome. Please keep provider calls opt-in, preserve the append-only event
+contract, append material project decisions to the build log, and include tests
+for behavior changes.
 
 Security issues should follow [SECURITY.md](SECURITY.md). The project is MIT
 licensed; additional UI and asset reuse notices are recorded in

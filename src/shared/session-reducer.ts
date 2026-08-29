@@ -248,6 +248,26 @@ function v2Policy(state: SessionState): AgenticExecutionPolicyV2 | undefined {
     : undefined;
 }
 
+function successfulInvestigationAttemptCount(state: SessionState): number {
+  return state.inferenceAttempts.filter(
+    (attempt) =>
+      attempt.phase === "investigation" &&
+      attempt.finished?.outcome === "succeeded",
+  ).length;
+}
+
+function hasCompleteRoutingEvidence(state: SessionState): boolean {
+  if (successfulInvestigationAttemptCount(state) < 1) return false;
+  const required = state.completionObligations.requiredSuccessfulTools;
+  if (required.length > 0) {
+    return (
+      completedRequiredToolPrefix(state.messages, required).length ===
+      required.length
+    );
+  }
+  return allToolCalls(state).some(hasSuccessfulToolResult);
+}
+
 function openInferenceAttempts(state: SessionState): InferenceAttemptRecord[] {
   return state.inferenceAttempts.filter((attempt) => attempt.finished === undefined);
 }
@@ -393,6 +413,7 @@ function assertV2TerminalReady(
 function cloneRoutingDecision(
   decision: RoutingDecisionRecord,
 ): RoutingDecisionRecord {
+  const routerInputSnapshot = decision.routerInputSnapshot;
   return {
     ...decision,
     candidateProviderIds: [...decision.candidateProviderIds],
@@ -402,10 +423,38 @@ function cloneRoutingDecision(
       capability: { ...decision.admission.capability },
       credential: { ...decision.admission.credential },
       health: { ...decision.admission.health },
+      ...(decision.admission.pricing === undefined
+        ? {}
+        : { pricing: { ...decision.admission.pricing } }),
       egress: { ...decision.admission.egress },
       deadline: { ...decision.admission.deadline },
       budget: { ...decision.admission.budget },
     },
+    ...(routerInputSnapshot === undefined
+      ? {}
+      : {
+          routerInputSnapshot: {
+            ...routerInputSnapshot,
+            providers: routerInputSnapshot.providers.map((provider) => ({
+              ...provider,
+              capabilities: [...provider.capabilities],
+            })),
+            requiredCapabilities: [
+              ...routerInputSnapshot.requiredCapabilities,
+            ],
+            deadline: { ...routerInputSnapshot.deadline },
+            healthSnapshots: routerInputSnapshot.healthSnapshots.map(
+              (snapshot) => ({ ...snapshot }),
+            ),
+            ...(routerInputSnapshot.pricingSnapshot === undefined
+              ? {}
+              : {
+                  pricingSnapshot: {
+                    ...routerInputSnapshot.pricingSnapshot,
+                  },
+                }),
+          },
+        }),
     ...(decision.billing === undefined
       ? {}
       : { billing: { ...decision.billing } }),
@@ -802,8 +851,30 @@ export function reduceSessionEvent(
       }
 
       if (event.payload.boundary === "evidence_complete") {
-        if (next.inferenceAttempts.every((attempt) => attempt.finished === undefined)) {
-          throw new Error("evidence_complete requires at least one finished inference attempt");
+        const successfulInvestigationCount =
+          successfulInvestigationAttemptCount(next);
+        if (!hasCompleteRoutingEvidence(next)) {
+          throw new Error(
+            "evidence_complete requires successful investigation and completed evidence obligations",
+          );
+        }
+        if (event.payload.routerInputSnapshot !== undefined) {
+          const evidenceReadyFact = event.payload.triggerFacts.find(
+            (fact) => fact.key === "router_evidence_ready",
+          );
+          const successfulCountFact = event.payload.triggerFacts.find(
+            (fact) =>
+              fact.key ===
+              "router_successful_investigation_attempt_count",
+          );
+          if (
+            evidenceReadyFact?.value !== true ||
+            successfulCountFact?.value !== successfulInvestigationCount
+          ) {
+            throw new Error(
+              "evidence_complete trigger facts do not match canonical investigation evidence",
+            );
+          }
         }
       }
 
@@ -843,10 +914,42 @@ export function reduceSessionEvent(
           capability: { ...event.payload.admission.capability },
           credential: { ...event.payload.admission.credential },
           health: { ...event.payload.admission.health },
+          ...(event.payload.admission.pricing === undefined
+            ? {}
+            : { pricing: { ...event.payload.admission.pricing } }),
           egress: { ...event.payload.admission.egress },
           deadline: { ...event.payload.admission.deadline },
           budget: { ...event.payload.admission.budget },
         },
+        ...(event.payload.routerInputSnapshot === undefined
+          ? {}
+          : {
+              routerInputSnapshot: {
+                ...event.payload.routerInputSnapshot,
+                providers: event.payload.routerInputSnapshot.providers.map(
+                  (provider) => ({
+                    ...provider,
+                    capabilities: [...provider.capabilities],
+                  }),
+                ),
+                requiredCapabilities: [
+                  ...event.payload.routerInputSnapshot.requiredCapabilities,
+                ],
+                deadline: { ...event.payload.routerInputSnapshot.deadline },
+                healthSnapshots:
+                  event.payload.routerInputSnapshot.healthSnapshots.map(
+                    (snapshot) => ({ ...snapshot }),
+                  ),
+                ...(event.payload.routerInputSnapshot.pricingSnapshot ===
+                undefined
+                  ? {}
+                  : {
+                      pricingSnapshot: {
+                        ...event.payload.routerInputSnapshot.pricingSnapshot,
+                      },
+                    }),
+              },
+            }),
         ...(event.payload.billing === undefined
           ? {}
           : { billing: { ...event.payload.billing } }),
@@ -1365,7 +1468,10 @@ export function reduceSessionEvent(
             `Context checkpoint ${event.payload.checkpointId} references an unknown routing decision`,
           );
         }
+        const billableInputTokens =
+          event.payload.estimatedTokens + event.payload.reservedInputTokens;
         if (
+          !Number.isSafeInteger(billableInputTokens) ||
           decision.reasonCode === "cloud_admitted" &&
           ((decision.checkpointId !== undefined &&
             decision.checkpointId !== event.payload.checkpointId) ||
@@ -1375,7 +1481,7 @@ export function reduceSessionEvent(
               decision.messagesSha256 !== event.payload.messagesSha256) ||
             (decision.billing !== undefined &&
               decision.billing.billableInputTokens !==
-                event.payload.estimatedTokens))
+                billableInputTokens))
         ) {
           throw new Error(
             `Context checkpoint ${event.payload.checkpointId} does not match its persisted routing admission packet`,

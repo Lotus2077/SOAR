@@ -42,7 +42,7 @@ export function createLocalVllmProvider(
 
 export interface RuntimeProviderCatalog {
   registry: ProviderRegistry;
-  selected: DescribedInferenceProvider;
+  defaultLocalProviderId: string;
 }
 
 /**
@@ -59,5 +59,5 @@ export function createRuntimeProviderCatalog(
   const registry = new ProviderRegistry([
     { descriptor: selected.descriptor, provider: selected },
   ]);
-  return { registry, selected };
+  return { registry, defaultLocalProviderId: selected.id };
 }

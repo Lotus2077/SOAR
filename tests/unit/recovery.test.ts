@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 
+import { AttemptUnitOfWork } from "../../src/main/attempt-unit-of-work";
+import {
+  BUDGET_CACHE_ASSUMPTION,
+  BudgetLedger,
+} from "../../src/main/budget-ledger";
 import { createSoarDatabase, type SoarDatabase } from "../../src/main/database";
 import { EventStore } from "../../src/main/event-store";
 import { recoverRunningSessions } from "../../src/main/recovery";
@@ -91,8 +96,108 @@ describe("recoverRunningSessions", () => {
     expect(recoverRunningSessions(store)).toEqual([]);
   });
 
+  it("fails startup after recovery when the ledger has an orphan reservation", () => {
+    const store = createStore();
+    const sessionId = "orphan-budget-session";
+    store.createSession({
+      id: sessionId,
+      title: "Orphan budget",
+      objective: "Prove startup reconciliation.",
+      workspaceRoot: "/tmp/workspace",
+      executionPolicy: {
+        schemaVersion: "agentic-execution-v2",
+        inferenceRounds: 2,
+        toolCalls: 1,
+        routingPolicy: "hybrid_v0",
+        maxProviderChanges: 2,
+        maxPaidAttempts: 1,
+        maxPaidEpisodeMicrousd: 250,
+        maxEpisodeDurationMs: 120_000,
+        attemptTimeoutMs: 30_000,
+        egressConsent: "session_cloud_synthesis_v1",
+      },
+      createdAt: "2026-08-29T00:00:00.000Z",
+    });
+    const ledger = new BudgetLedger(store);
+    ledger.createCampaign({
+      id: "orphan-campaign",
+      providerId: "fake-cloud",
+      credentialMetadataId: "orphan-credential",
+      openingExposureMicrousd: 0,
+      automaticStopMicrousd: 1_000,
+      hardCeilingMicrousd: 1_000,
+      createdAt: "2026-08-29T00:00:00.000Z",
+    });
+    ledger.runImmediate((transaction) =>
+      transaction.reserve({
+        campaignId: "orphan-campaign",
+        reservationId: "orphan-reservation",
+        sessionId,
+        attemptId: "orphan-attempt",
+        providerId: "fake-cloud",
+        pricingSnapshotId: "orphan-pricing",
+        episodeCapMicrousd: 250,
+        projection: {
+          billableInputTokens: 100,
+          billableCacheReadTokens: 0,
+          requestedMaxOutputTokens: 100,
+          inputMicrousdPerMillionTokens: 1_000_000,
+          outputMicrousdPerMillionTokens: 1_000_000,
+          providerFeeCeilingMicrousd: 50,
+          cacheAssumption: BUDGET_CACHE_ASSUMPTION,
+        },
+        createdAt: "2026-08-29T00:00:01.000Z",
+      }),
+    );
+
+    expect(() => recoverRunningSessions(store)).toThrow(
+      /orphan-reservation: ledger reservation has no canonical attempt/,
+    );
+  });
+
+  it("recovers every running session across the store page boundary", () => {
+    const store = createStore();
+    const sessionCount = 1_001;
+    for (let index = 0; index < sessionCount; index += 1) {
+      const id = `paged-running-${index.toString().padStart(4, "0")}`;
+      store.createSession({
+        id,
+        title: "Paged recovery",
+        objective: "Recover every running session.",
+        workspaceRoot: "/tmp/workspace",
+        createdAt: "2026-08-29T00:00:01.000Z",
+      });
+      store.append(
+        id,
+        { type: "session.started", payload: {} },
+        {
+          expectedSequence: 2,
+          createdAt: "2026-08-29T00:00:02.000Z",
+        },
+      );
+    }
+
+    const recovered = recoverRunningSessions(store, {
+      reason: "Paged startup recovery",
+      createdAt: "2026-08-29T00:00:03.000Z",
+    });
+
+    expect(recovered).toHaveLength(sessionCount);
+    expect(store.listSessions({ status: "running", limit: 1_000 })).toEqual([]);
+    expect(recoverRunningSessions(store)).toEqual([]);
+  });
+
   it("recovers every v2 crash window with an explicit terminal record", () => {
     const store = createStore();
+    const recoveryUnitOfWork = new AttemptUnitOfWork(new BudgetLedger(store));
+    const commitRecoveryFinish = recoveryUnitOfWork.commitRecoveryFinish.bind(
+      recoveryUnitOfWork,
+    );
+    let atomicRecoveryCalls = 0;
+    recoveryUnitOfWork.commitRecoveryFinish = (input) => {
+      atomicRecoveryCalls += 1;
+      return commitRecoveryFinish(input);
+    };
     const sessionId = "running-v2-session";
     const startedAt = "2026-08-29T00:00:03.000Z";
     const decisionId = `${sessionId}:decision:1`;
@@ -249,9 +354,11 @@ describe("recoverRunningSessions", () => {
     const recovered = recoverRunningSessions(store, {
       reason: "Desktop process restarted",
       createdAt: "2026-08-29T00:00:10.000Z",
+      attemptUnitOfWork: recoveryUnitOfWork,
     });
 
     expect(recovered).toHaveLength(1);
+    expect(atomicRecoveryCalls).toBe(1);
     expect(recovered[0].attemptEvent).toMatchObject({
       sequence: 9,
       type: "inference.attempt.finished",

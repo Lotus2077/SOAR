@@ -16,7 +16,10 @@ import { promisify, TextDecoder } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
-import { SessionRunner } from "../../src/main/agent/run-session";
+import {
+  SessionRunner as RegistrySessionRunner,
+  type SessionRunnerOptions,
+} from "../../src/main/agent/run-session";
 import { loadConfig } from "../../src/main/config";
 import { createSoarDatabase } from "../../src/main/database";
 import { EventStore } from "../../src/main/event-store";
@@ -41,6 +44,22 @@ import {
   parseSuccessfulRepositoryToolObservation,
   workspaceRelativePathForTool,
 } from "../../src/shared/tool-observation";
+import { createTestProviderRegistry } from "../helpers/provider-registry";
+
+class SessionRunner extends RegistrySessionRunner {
+  constructor(
+    options: Omit<
+      SessionRunnerOptions,
+      "providerRegistry" | "defaultLocalProviderId"
+    > & { provider: InferenceProvider },
+  ) {
+    const { provider, ...runnerOptions } = options;
+    super({
+      ...runnerOptions,
+      ...createTestProviderRegistry(provider),
+    });
+  }
+}
 
 const runLive = process.env.SOAR_RUN_LIVE_REPOSITORY === "true";
 const projectRoot = path.resolve(new URL("../..", import.meta.url).pathname);

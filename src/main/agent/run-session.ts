@@ -16,6 +16,7 @@ import {
 } from "../../shared/session-reducer";
 import type { SoarConfig } from "../config";
 import { EventStore } from "../event-store";
+import { ProviderRegistry } from "../providers/provider-registry";
 import {
   ProviderAbortedError,
   type InferenceProvider,
@@ -30,6 +31,10 @@ import {
   formatCitationIntegrityError,
   normalizeAnswerCitations,
 } from "./citation-integrity";
+import {
+  runSessionV2,
+  type FakeOnlyHybridRuntimeV0,
+} from "./run-session-v2";
 
 export type RuntimeUpdate =
   | { sessionId: string; kind: "persisted" }
@@ -37,9 +42,12 @@ export type RuntimeUpdate =
 
 export interface SessionRunnerOptions {
   store: EventStore;
-  provider: InferenceProvider;
+  providerRegistry: ProviderRegistry;
+  defaultLocalProviderId: string;
   limits: SoarConfig["limits"];
   context?: SoarConfig["context"];
+  /** PR 4 opt-in only. Production bootstrap intentionally omits this. */
+  hybridRuntime?: FakeOnlyHybridRuntimeV0;
   onUpdate?: (update: RuntimeUpdate) => void;
 }
 
@@ -333,21 +341,39 @@ function actionableRemainingRoundCount(options: {
 
 export class SessionRunner {
   private readonly store: EventStore;
+  private readonly providerRegistry: ProviderRegistry;
+  private readonly defaultLocalProviderId: string;
   private readonly provider: InferenceProvider;
   private readonly limits: SoarConfig["limits"];
   private readonly context: SoarConfig["context"];
+  private readonly hybridRuntime?: FakeOnlyHybridRuntimeV0;
   private readonly onUpdate?: (update: RuntimeUpdate) => void;
   private readonly controllers = new Map<string, AbortController>();
   private readonly promises = new Map<string, Promise<void>>();
 
   constructor(options: SessionRunnerOptions) {
     this.store = options.store;
-    this.provider = options.provider;
+    this.providerRegistry = options.providerRegistry;
+    this.defaultLocalProviderId = options.defaultLocalProviderId;
+    const defaultRegistration = this.providerRegistry.require(
+      this.defaultLocalProviderId,
+      ["chat_completions", "streaming", "tool_calling"],
+    );
+    if (
+      defaultRegistration.descriptor.locality !== "local" ||
+      defaultRegistration.descriptor.accounting.kind !== "local_zero_cost"
+    ) {
+      throw new Error(
+        `Default provider ${this.defaultLocalProviderId} must be an admitted local zero-cost provider.`,
+      );
+    }
+    this.provider = defaultRegistration.provider;
     this.limits = options.limits;
     this.context = options.context ?? {
       maxInputTokens: 16_384,
       safetyMargin: 0.2,
     };
+    this.hybridRuntime = options.hybridRuntime;
     this.onUpdate = options.onUpdate;
   }
 
@@ -415,6 +441,34 @@ export class SessionRunner {
   }
 
   private async run(sessionId: string, controller: AbortController): Promise<void> {
+    const policy = this.store.getProjectedState(sessionId).executionPolicy;
+    if (policy?.schemaVersion === "agentic-execution-v2") {
+      if (this.hybridRuntime === undefined) {
+        this.append(sessionId, {
+          type: "session.failed",
+          payload: {
+            error:
+              "This build has no explicit fake-only v2 runtime. No provider request was dispatched.",
+          },
+        });
+        return;
+      }
+      await runSessionV2({
+        sessionId,
+        store: this.store,
+        providerRegistry: this.providerRegistry,
+        defaultLocalProviderId: this.defaultLocalProviderId,
+        context: this.context,
+        runtime: this.hybridRuntime,
+        controller,
+        ...(this.onUpdate === undefined ? {} : { onUpdate: this.onUpdate }),
+      });
+      return;
+    }
+    await this.runV1(sessionId, controller);
+  }
+
+  private async runV1(sessionId: string, controller: AbortController): Promise<void> {
     const route = assignLocalRoute(this.provider);
     let currentMessageId: string | undefined;
     let currentPartial = "";

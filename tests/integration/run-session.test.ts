@@ -4,7 +4,10 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { SessionRunner } from "../../src/main/agent/run-session";
+import {
+  SessionRunner as RegistrySessionRunner,
+  type SessionRunnerOptions,
+} from "../../src/main/agent/run-session";
 import type { SoarConfig } from "../../src/main/config";
 import {
   createSoarDatabase,
@@ -20,6 +23,7 @@ import {
   type ProviderResult,
 } from "../../src/main/providers/types";
 import type { ContextPacket } from "../../src/shared/context-compiler";
+import { createTestProviderRegistry } from "../helpers/provider-registry";
 
 const databases: SoarDatabase[] = [];
 const temporaryDirectories: string[] = [];
@@ -40,6 +44,21 @@ function limits(
   overrides: Partial<SoarConfig["limits"]> = {},
 ): SoarConfig["limits"] {
   return { inferenceRounds: 4, toolCalls: 8, ...overrides };
+}
+
+class SessionRunner extends RegistrySessionRunner {
+  constructor(
+    options: Omit<
+      SessionRunnerOptions,
+      "providerRegistry" | "defaultLocalProviderId"
+    > & { provider: InferenceProvider },
+  ) {
+    const { provider, ...runnerOptions } = options;
+    super({
+      ...runnerOptions,
+      ...createTestProviderRegistry(provider),
+    });
+  }
 }
 
 function executionPolicy(

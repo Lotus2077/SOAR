@@ -654,3 +654,72 @@ References: [ADR 0003](adr/0003-immutable-change-acquisition-v1.md),
 [architecture](ARCHITECTURE.md),
 [MVP readiness](MVP_READINESS.md),
 [Hybrid Lease Router v0 plan](plans/HYBRID_LEASE_ROUTER_V0.md).
+
+### BL-20260829-1523-pr4-implementation-start -- 2026-08-29 -- PR 4 implementation architecture fixed
+
+Status: `In progress`
+
+Scope or hypothesis: Implement PR 4's deterministic checkpoint router,
+operational append-only budget ledger, and two-fake-provider v2 runner while
+preserving the shipping v1 local-only app and making no real provider call.
+
+Decisions:
+
+- Split routing into a pure proposal step and a pure resolution step. IDs,
+  observation time, provider facts, risk facts, admission facts, and packet
+  identities are explicit inputs; the router performs no I/O, clock read,
+  random generation, registry lookup, database access, or inference.
+- Add a distinct pricing admission result instead of misreporting stale or
+  missing pricing as health or budget failure. Persist a bounded immutable
+  router-input snapshot sufficient to replay why the decision was made, while
+  excluding endpoints, credential values, workspace roots, and source content.
+- Join paid reservation or terminal ledger rows and their canonical session
+  event batches inside one outer SQLite `BEGIN IMMEDIATE` on the same database
+  connection. Provider dispatch may occur only after that transaction commits.
+- Calculate authoritative exposure and worst-case projection with integer
+  micro-USD and `BigInt` intermediates. Exact-cap admission succeeds; one
+  micro-USD over is denied. A definitely unsent request releases its
+  reservation; sent or unknown requests without trustworthy cost consume the
+  full reservation; a trustworthy overrun is recorded rather than clamped.
+- Inject the provider registry into `SessionRunner`, but isolate v2 coordination
+  from the existing v1 loop. Production continues to construct one local
+  provider and IPC continues to create v1 sessions; metered cloud providers
+  exist only as deterministic test doubles in PR 4.
+- Require a full persisted per-attempt timeout window to remain before starting
+  a local fallback. A cloud cancellation, interruption, successful result,
+  local failure, or second failure never creates another fallback.
+
+Changes: Three parallel implementation lanes began after independent read-only
+preflight: pure routing/risk adaptation, budget/atomic unit of work, and v2
+runner/provider integration. This entry records the fixed integration contract;
+it does not claim that any lane is complete.
+
+Evidence: Three independent source-level preflight passes agreed on the same
+transaction boundary, v1/v2 split, PR 3 risk adapter, exact-message dispatch,
+and fake-only test boundary. The checkout started clean at
+`4d21595df70697dd2c96f191c44d3114e5115b4f` with GitHub Actions run
+`33259524881` green for the preceding PR 3 revision.
+
+Failures or blockers: Existing PR 1 contracts had no explicit pricing admission
+dimension or embedded immutable router inputs; `EventStore` and recovery had no
+ledger-aware unit of work; the provider request did not carry the persisted
+output allowance; and generic provider errors did not prove request
+disposition. These are active PR 4 implementation gaps, not completed fixes.
+
+Limitations and non-claims: No working hybrid runner, budget reservation,
+dynamic routing result, quality comparison, cost saving, latency improvement,
+production cloud provider, credential path, egress gate, or Review Current
+Changes app flow is claimed by this entry. The implementation is dirty and
+unverified while the three lanes are in progress.
+
+Paid exposure: $0. Preflight read source and ran no provider, endpoint, network,
+or credential operation. PR 4 validation is restricted to deterministic local
+test doubles.
+
+Next gate: Integrate the three lanes, run adversarial router/ledger/recovery and
+fake-provider tests, independently audit the result, update ADR/current-state
+documentation, then append a separate verified or failed entry.
+
+References: [Hybrid Lease Router v0 plan](plans/HYBRID_LEASE_ROUTER_V0.md),
+[ADR 0002](adr/0002-agentic-execution-v2-event-state-machine.md),
+[ADR 0003](adr/0003-immutable-change-acquisition-v1.md).

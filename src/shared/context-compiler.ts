@@ -437,6 +437,25 @@ export function sha256Hex(value: string): string {
   return hash.map((part) => part.toString(16).padStart(8, "0")).join("");
 }
 
+/** Canonical identity used by persisted checkpoints and provider dispatch. */
+export function providerMessagesSha256(
+  messages: readonly ProviderContextMessage[],
+): string {
+  return sha256Hex(stableJson(messages));
+}
+
+export function assertProviderMessagesSha256(
+  messages: readonly ProviderContextMessage[],
+  expectedSha256: string,
+): void {
+  const actualSha256 = providerMessagesSha256(messages);
+  if (actualSha256 !== expectedSha256) {
+    throw new Error(
+      `Provider messages changed after context compilation (${expectedSha256} -> ${actualSha256}).`,
+    );
+  }
+}
+
 function safeHead(value: string, length: number): string {
   let end = Math.max(0, Math.min(length, value.length));
   const last = value.charCodeAt(end - 1);
@@ -2543,7 +2562,7 @@ export function compileContextPacket(
       packetHash: packetSha256,
       packetSha256,
       messageHashes,
-      messagesHash: sha256Hex(rendered.messageJson),
+      messagesHash: providerMessagesSha256(rendered.messages),
     },
   };
 }

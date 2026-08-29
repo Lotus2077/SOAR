@@ -168,11 +168,21 @@ export class OpenAICompatibleProvider implements DescribedInferenceProvider {
   async complete({
     messages,
     signal,
+    requestedMaxOutputTokens = this.maxOutputTokens,
     allowTools = true,
     allowedToolNames,
     requireToolCall = false,
     onDelta,
   }: CompleteInput): Promise<ProviderResult> {
+    if (
+      !Number.isSafeInteger(requestedMaxOutputTokens) ||
+      requestedMaxOutputTokens <= 0 ||
+      requestedMaxOutputTokens > this.maxOutputTokens
+    ) {
+      throw new RangeError(
+        `requestedMaxOutputTokens must be a positive safe integer no greater than ${this.maxOutputTokens}`,
+      );
+    }
     const startedAt = performance.now();
     let firstTokenAt: number | undefined;
     let content = "";
@@ -218,7 +228,7 @@ export class OpenAICompatibleProvider implements DescribedInferenceProvider {
           ...requestFields,
           stream: true,
           stream_options: { include_usage: true },
-          max_completion_tokens: this.maxOutputTokens,
+          max_completion_tokens: requestedMaxOutputTokens,
         },
         { signal: combinedSignal },
       );
@@ -263,6 +273,12 @@ export class OpenAICompatibleProvider implements DescribedInferenceProvider {
             chunk.usage.completion_tokens_details?.reasoning_tokens ?? 0;
           usage = {
             inputTokens: chunk.usage.prompt_tokens,
+            ...(chunk.usage.prompt_tokens_details?.cached_tokens === undefined
+              ? {}
+              : {
+                  cacheReadTokens:
+                    chunk.usage.prompt_tokens_details.cached_tokens,
+                }),
             outputTokens: Math.max(
               0,
               chunk.usage.completion_tokens - reasoningTokens,

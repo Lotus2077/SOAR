@@ -23,19 +23,19 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
 - App target: Electron on macOS.
 - Runtime provider: one OpenAI-compatible local vLLM endpoint.
 - Benchmark target: pinned OpenRouter DeepSeek V4 Flash 0731, not enabled in the app.
-- Routing runtime: deterministic local assignment; validated provider and v2
-  replay foundations plus host-only immutable change acquisition exist, but
-  hybrid phase/lease execution does not.
+- Routing runtime: the production app still uses deterministic v1 local
+  assignment. An explicit fake-only v2 path now proves checkpoint routing,
+  atomic budget admission/settlement, one fake cloud synthesis, and one local
+  fallback without enabling a production cloud provider.
 - Evaluation ceiling: USD 100, with an automatic stop at USD 90.
 - Paid benchmark calls: not started.
 
 ## Planning and project history
 
 - [Hybrid Lease Router v0 and Review Current Changes v1](docs/plans/HYBRID_LEASE_ROUTER_V0.md)
-  is approved for its $0 PR 1 through PR 5 sequence. PR 1 and PR 2 foundations
-  plus PR 3's host-only change-acquisition/calibration foundation are
-  implemented in this revision; PR 6 and every paid call remain separately
-  approval-gated.
+  is approved for its $0 PR 1 through PR 5 sequence. PR 1 through PR 4 are
+  implemented in this revision; PR 5's local Review Current Changes workflow
+  is the next gate. PR 6 and every paid call remain separately approval-gated.
 - [Build and change log](docs/BUILD_LOG.md) is the append-only project evidence
   ledger for crucial decisions, implementation milestones, failures, proofs,
   costs, limitations, and next gates.
@@ -90,10 +90,27 @@ This work therefore does not prove review quality, dynamic routing, cost
 savings, or latency gains.
 
 See [ADR 0003](docs/adr/0003-immutable-change-acquisition-v1.md) and the
-[calibration protocol](benchmarks/change-review/README.md). PR 4 is the next
-gate: a pure router, budget ledger, and two-fake-provider runner with no real
-credential or paid call. PR 5 later adds the local Review Current Changes app
-workflow and structured review acceptance.
+[calibration protocol](benchmarks/change-review/README.md). PR 4 connects this
+risk input to the fake-only routing proof described below. PR 5 is the next
+gate: the local Review Current Changes app workflow and structured review
+acceptance.
+
+## Fake-only hybrid mechanics
+
+The additive v2 coordinator proves the mechanical local-investigation to
+fake-cloud-synthesis path without changing the production app entry point. Its
+pure router runs only at session start, evidence completion, and eligible cloud
+failure; routine tool rounds retain their lease. Every current decision stores
+bounded provider and deadline facts plus the applicable health, pricing, risk,
+and packet facts reached by that decision. A paid attempt reservation and its
+canonical start events share one immediate SQLite transaction, and
+settlement/recovery closes the ledger and event history together.
+
+The proof uses nominally branded deterministic providers. Production still
+constructs one local provider and creates v1 sessions. There is no production
+cloud credential, OpenRouter path, user-selectable Hybrid execution, or claim
+that the fake result measures quality, cost savings, or latency improvement.
+See [ADR 0004](docs/adr/0004-checkpoint-router-budget-runner-v0.md).
 
 ## Local-only desktop slice
 

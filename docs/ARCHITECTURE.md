@@ -437,15 +437,32 @@ calibration proves neither routing benefit nor review quality.
 
 ## Current and future routing
 
-The checked-in app runtime has one deterministic local route. PR 3 adds
-host-only immutable change acquisition and a frozen mechanical risk policy, but
-neither is connected to a session, provider, or app action. PR 4 is the next
-gate: a pure checkpoint router, operational budget ledger, and two-fake-provider
-runner, still with no paid or production cloud call. The intended hybrid
-design creates a provisional plan, keeps a provider lease across productive tool
-loops, and reconsiders it only at phase, failure, budget, deadline, capability,
-or health boundaries. See [ROUTING_POLICY.md](ROUTING_POLICY.md). Adding cloud
-routing requires cost admission, credential isolation, provider-health evidence,
-and same-harness evaluator proof; configuration alone does not enable it.
-Compiling context before each stateless provider request is not a routing
-decision and does not end the current lease.
+The checked-in production app runtime still has one deterministic v1 local
+route. PR 3's host-only immutable change acquisition is not yet connected to a
+session or app action. PR 4 adds a separate, explicit fake-only v2 coordinator
+that proves the intended mechanics without constructing a production cloud
+provider.
+
+`checkpoint-router-v0` is a pure proposal/resolution pair. It consumes replayed
+state plus explicit provider, risk, health, pricing, deadline, egress, packet,
+and locked-budget facts. It reads no environment, clock, database, registry, or
+network. It assigns local investigation at session start, chooses local or
+fake-cloud synthesis after complete evidence, and may assign one local fallback
+after an eligible cloud failure. Productive tool rounds retain the current
+lease and do not call the router.
+
+Every PR 4 decision persists a bounded immutable input snapshot. The exact
+provider registration and provider-specific request reserve used to compile a
+cloud packet are bound before admission; the same registration, packet hashes,
+and requested output allowance are dispatched after the reservation/event
+transaction commits. The append-only micro-USD ledger pessimistically reserves
+the request, atomically settles it with attempt-finish events, conservatively
+charges unknown dispatch, records overruns in full, and reconciles ledger rows
+against canonical events at startup and before later admission. See
+[ADR 0004](adr/0004-checkpoint-router-budget-runner-v0.md).
+
+Production cloud routing still requires the PR 5 app/result workflow followed
+by PR 6 credential isolation, exact-message egress admission, live health and
+pricing evidence, and separately approved paid proof. Configuration alone does
+not enable it. Compiling context before each stateless provider request is not a
+routing decision and does not end the current lease.

@@ -178,7 +178,7 @@ function cloudDecisionPayload(
     budgetReservationId: "reservation-1",
     credentialMetadataId: "credential-1",
     billing: {
-      billableInputTokens: 100,
+      billableInputTokens: 200,
       billableCacheReadTokens: 0,
       requestedMaxOutputTokens: 512,
       inputMicrousdPerMillionTokens: 1,
@@ -1054,6 +1054,38 @@ describe("agentic-execution-v2 replay state machine", () => {
 
     expect(() => reduceSessionEvent(retained, route(13))).toThrow(
       /must be followed by assistant\.message\.started/,
+    );
+  });
+
+  it("rejects evidence_complete when the investigation produced only failed evidence", () => {
+    const failedEvidence = evidenceReadyPrefix();
+    const completion = failedEvidence.at(-1);
+    if (completion?.type !== "tool.call.completed") {
+      throw new Error("expected a tool completion fixture");
+    }
+    completion.payload.isError = true;
+
+    const investigated = replaySession(failedEvidence);
+    expect(() =>
+      reduceSessionEvent(
+        investigated,
+        stored(12, {
+          type: "routing.decision.recorded",
+          payload: initialDecisionPayload({
+            decisionId: `${sessionId}:decision:failed-evidence`,
+            boundary: "evidence_complete",
+            phase: "synthesis",
+            action: "retain_lease",
+            reasonCode: "low_risk_local_review",
+            priorLeaseId: initialLeaseId,
+            riskPolicyId: "review-risk-v1",
+            riskScore: 0,
+            riskSignals: [],
+          }),
+        }),
+      ),
+    ).toThrow(
+      /evidence_complete requires successful investigation and completed evidence obligations/u,
     );
   });
 

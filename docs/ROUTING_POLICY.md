@@ -4,6 +4,12 @@
 
 SOAR will plan globally and assign provisionally. It will not run a full model-selection decision after every session event, and it will not bind the entire episode to providers before execution.
 
+Current implementation boundary: `checkpoint-router-v0` implements only
+`session_start`, `evidence_complete`, and eligible `provider_failure`
+checkpoints in an explicit two-fake-provider v2 runtime. The production app is
+still v1 local-only. The broader invalidation triggers and profiles below are
+product policy, not shipped scheduler behavior.
+
 Every event is persisted and passes cheap deterministic guards for permissions, budget, deadline, context size, and provider health. A full routing decision runs only at the start, at meaningful phase boundaries, or when evidence invalidates the current assignment.
 
 Each work node receives a model lease. A valid lease keeps the same model across a progressing tool or edit loop, preserving context affinity and avoiding unnecessary switching. A lease is reconsidered when:

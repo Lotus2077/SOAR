@@ -11,7 +11,8 @@ machine configuration.
 - append-only SQLite session events, restart recovery, and deterministic session
   reconstruction;
 - a checksummed database migration ledger, exact frozen-baseline adoption check,
-  and dormant append-only integer-micro-USD budget storage with no mutation API;
+  and operational append-only integer-micro-USD budget storage whose supported
+  paid-attempt mutations run through the atomic unit of work;
 - one OpenAI-compatible local provider with streaming, cancellation, timeouts,
   token usage, and honest incomplete-response handling;
 - validated provider descriptors plus a main-process runtime catalog and
@@ -44,23 +45,25 @@ machine configuration.
   preflight checks, evaluator adapters, and machine-readable result export;
 - deterministic unit, integration, and Electron end-to-end tests;
 - strict additive v2 routing-decision and inference-attempt schemas, replay
-  invariants, and crash-window recovery; these are foundations and the current
-  app runner still emits v1 local-only sessions.
+  invariants, and crash-window recovery;
+- a pure checkpoint router, immutable router-input snapshots, operational
+  integer-micro-USD budget ledger, atomic attempt unit of work, paged recovery,
+  event/ledger reconciliation, and an explicit two-fake-provider v2 runner that
+  covers admission, denial, timeout, cancellation, overrun, and one local
+  fallback at zero paid cost. The production app runner still emits v1
+  local-only sessions.
 
 ## Not implemented
 
 - production cloud-provider execution or macOS Keychain retrieval;
-- hybrid routing, provider-health leases, or learned scheduling;
-- runtime emission of v2 attempt telemetry, operational budget reservation and
-  settlement, or registry-driven provider switching; the dormant contracts do
-  not yet produce router metrics;
+- production hybrid routing, production provider-health/price acquisition, or
+  learned scheduling;
+- app-created v2 sessions or production registry-driven provider switching;
 - app/model use of immutable change acquisition, the `ReviewResultV1`
   completion contract, or the Review Current Changes workflow;
 - canonical-event provenance validation for repository observations; PR 3 can
   bind observation-shaped records into an evidence-set identity, while PR 5
   must prove each observation came from a successful gateway event;
-- the pure hybrid checkpoint router, operational budget admission, or even the
-  two-fake-provider runner planned for PR 4;
 - browser, shell, file-write, patch, or external-message tools;
 - a signed release channel or general downgrade support for databases that
   contain v2 events;
@@ -192,7 +195,7 @@ artifacts. See
 [ARCHITECTURE.md](ARCHITECTURE.md), and the
 [benchmark protocol](../benchmarks/README.md).
 
-## PR 3 verification boundary
+## PR 3 and PR 4 verification boundaries
 
 The default change-review calibration test is offline and `$0`: it validates
 the checked-in strict schemas, manifest hash, risk arithmetic, 5/7 split, single
@@ -205,8 +208,10 @@ snapshot hunks used by live risk; Git numstat remains a bound discovery view,
 not a second routing-line-count definition.
 
 The frozen curator labels represent review attention, not defect correctness.
-No held-out quality corpus, model-facing review workflow, provider call,
-dynamic routing result, quality improvement, cost saving, or latency benefit is
-proved by PR 3. The next implementation gate is PR 4's pure router, budget
-ledger, and two-fake-provider runner; PR 5 later owns the app workflow,
-repository-observation event provenance, and structured local review result.
+No held-out quality corpus, model-facing review workflow, quality improvement,
+cost saving, or latency benefit is proved by PR 3. PR 4 adds deterministic
+routing and accounting mechanics only through nominally branded fake providers.
+Its fake cloud lease is not a production cloud path and is never rendered as a
+user review. PR 5 next owns the app workflow, repository-observation event
+provenance, strict structured local review result, and zero-paid live local
+schema canary.

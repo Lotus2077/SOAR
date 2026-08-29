@@ -9,6 +9,8 @@ export type ProviderToolCall = ContextProviderToolCall;
 
 export interface ProviderUsage {
   inputTokens: number;
+  /** Input tokens served from a provider cache when the transport reports them. */
+  cacheReadTokens?: number;
   /** Visible completion tokens, excluding reasoning tokens when reported separately. */
   outputTokens: number;
   totalTokens: number;
@@ -34,6 +36,8 @@ export type ProviderMessage = ProviderContextMessage;
 export interface CompleteInput {
   messages: ProviderMessage[];
   signal: AbortSignal;
+  /** Exact persisted output allowance for this attempt. V1 callers may omit it. */
+  requestedMaxOutputTokens?: number;
   allowTools?: boolean;
   /** When supplied, expose only this deterministic subset of workspace tools. */
   allowedToolNames?: RegisteredToolName[];

@@ -7,7 +7,6 @@ import { loadConfig } from "./config";
 import { createSoarDatabase, type SoarDatabase } from "./database";
 import { EventStore } from "./event-store";
 import { registerIpcHandlers } from "./ipc";
-import type { InferenceProvider } from "./providers/types";
 import { createRuntimeProviderCatalog } from "./providers/runtime-catalog";
 import { recoverRunningSessions } from "./recovery";
 import { toSessionSnapshot } from "./session-view";
@@ -82,10 +81,10 @@ async function bootstrap(): Promise<void> {
   recoverRunningSessions(store);
 
   const providerCatalog = createRuntimeProviderCatalog(config);
-  const provider: InferenceProvider = providerCatalog.selected;
   const runner = new SessionRunner({
     store,
-    provider,
+    providerRegistry: providerCatalog.registry,
+    defaultLocalProviderId: providerCatalog.defaultLocalProviderId,
     limits: config.limits,
     context: config.context,
     onUpdate: (update) => publish(store, update),

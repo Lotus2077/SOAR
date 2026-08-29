@@ -244,6 +244,33 @@ describe("OpenAICompatibleProvider", () => {
     expect(server.requestUrls).toEqual(["/v1/chat/completions"]);
   });
 
+  it("uses the exact per-attempt output allowance and rejects invalid caps before I/O", async () => {
+    const server = await startFakeOpenAiServer(({ response }) => {
+      writeSse(response, completionChunk({ content: "Bounded" }));
+      writeSse(response, completionChunk({}, "stop"));
+      response.end("data: [DONE]\n\n");
+    });
+    const provider = createProvider(server.baseUrl);
+
+    await provider.complete({
+      messages: [{ role: "user", content: "Use the persisted cap" }],
+      signal: new AbortController().signal,
+      requestedMaxOutputTokens: 257,
+      onDelta: () => undefined,
+    });
+    expect(server.requests[0]?.max_completion_tokens).toBe(257);
+
+    await expect(
+      provider.complete({
+        messages: [{ role: "user", content: "Exceed the descriptor" }],
+        signal: new AbortController().signal,
+        requestedMaxOutputTokens: 513,
+        onDelta: () => undefined,
+      }),
+    ).rejects.toThrow(/no greater than 512/u);
+    expect(server.requests).toHaveLength(1);
+  });
+
   it("exposes only the scheduler-selected tool subset", async () => {
     const server = await startFakeOpenAiServer(({ response }) => {
       writeSse(response, completionChunk({ content: "I will inspect the file." }));
@@ -311,6 +338,7 @@ describe("OpenAICompatibleProvider", () => {
           prompt_tokens: 12,
           completion_tokens: 2,
           total_tokens: 14,
+          prompt_tokens_details: { cached_tokens: 3 },
           completion_tokens_details: { reasoning_tokens: 1 },
         },
       });
@@ -331,6 +359,7 @@ describe("OpenAICompatibleProvider", () => {
       toolCalls: [],
       usage: {
         inputTokens: 12,
+        cacheReadTokens: 3,
         outputTokens: 1,
         totalTokens: 14,
         reasoningTokens: 1,

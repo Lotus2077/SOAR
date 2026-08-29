@@ -5,6 +5,7 @@ import { loadConfig } from "../../src/main/config";
 import { createSoarDatabase } from "../../src/main/database";
 import { EventStore } from "../../src/main/event-store";
 import { createLocalVllmProvider } from "../../src/main/providers/runtime-catalog";
+import { createTestProviderRegistry } from "../helpers/provider-registry";
 
 const runLive = process.env.SOAR_RUN_LIVE_VLLM === "true";
 
@@ -29,9 +30,10 @@ describe.skipIf(!runLive)("live local vLLM canary", () => {
       },
     });
     const deltas: string[] = [];
+    const provider = createLocalVllmProvider(config);
     const runner = new SessionRunner({
       store,
-      provider: createLocalVllmProvider(config),
+      ...createTestProviderRegistry(provider),
       limits: { inferenceRounds: 2, toolCalls: 1 },
       onUpdate: (update) => {
         if (update.kind === "stream") deltas.push(update.delta);

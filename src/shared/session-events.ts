@@ -289,6 +289,7 @@ export const ROUTING_REASON_CODES = [
   "disabled_provider",
   "missing_credential",
   "unhealthy_provider",
+  "pricing_denial",
   "capability_mismatch",
   "egress_denial",
   "budget_denial",
@@ -303,6 +304,7 @@ const CLOUD_PROPOSAL_DENIAL_REASON_CODES = [
   "disabled_provider",
   "missing_credential",
   "unhealthy_provider",
+  "pricing_denial",
   "capability_mismatch",
   "egress_denial",
   "budget_denial",
@@ -330,6 +332,7 @@ export const ROUTING_ADMISSION_REASON_CODES = [
   "capability_ok",
   "credential_ok",
   "health_ok",
+  "pricing_ok",
   "egress_ok",
   "deadline_ok",
   "budget_ok",
@@ -337,6 +340,7 @@ export const ROUTING_ADMISSION_REASON_CODES = [
   "capability_mismatch",
   "missing_credential",
   "unhealthy_provider",
+  "pricing_denial",
   "egress_denial",
   "deadline_denial",
   "budget_denial",
@@ -391,6 +395,7 @@ const routingAdmissionExpectations = {
     denied: "missing_credential",
   },
   health: { passed: "health_ok", denied: "unhealthy_provider" },
+  pricing: { passed: "pricing_ok", denied: "pricing_denial" },
   egress: { passed: "egress_ok", denied: "egress_denial" },
   deadline: { passed: "deadline_ok", denied: "deadline_denial" },
   budget: { passed: "budget_ok", denied: "budget_denial" },
@@ -401,6 +406,9 @@ export const RoutingAdmissionSchema = z
     capability: RoutingAdmissionCheckSchema,
     credential: RoutingAdmissionCheckSchema,
     health: RoutingAdmissionCheckSchema,
+    // Added by checkpoint-router-v0. Optional input preserves replay of the
+    // already-persisted PR 1 v2 fixtures; every PR 4 router decision emits it.
+    pricing: RoutingAdmissionCheckSchema.optional(),
     egress: RoutingAdmissionCheckSchema,
     deadline: RoutingAdmissionCheckSchema,
     budget: RoutingAdmissionCheckSchema,
@@ -411,7 +419,7 @@ export const RoutingAdmissionSchema = z
       routingAdmissionExpectations,
     ) as Array<keyof typeof routingAdmissionExpectations>) {
       const check = admission[name];
-      if (check.status === "not_applicable") continue;
+      if (check === undefined || check.status === "not_applicable") continue;
       const expected = routingAdmissionExpectations[name][check.status];
       if (check.reasonCode !== expected) {
         context.addIssue({
@@ -422,6 +430,8 @@ export const RoutingAdmissionSchema = z
       }
     }
   });
+
+export type RoutingAdmission = z.infer<typeof RoutingAdmissionSchema>;
 
 const routingRiskSignalNameSchema = z.enum([
   "changed_file_count",
@@ -503,6 +513,237 @@ const sortedProviderIdsSchema = z
     }
   });
 
+const routerProviderCapabilitiesSchema = z
+  .array(boundedCode)
+  .min(1)
+  .max(32)
+  .superRefine((capabilities, context) => {
+    for (let index = 1; index < capabilities.length; index += 1) {
+      const previous = capabilities[index - 1];
+      const current = capabilities[index];
+      if (
+        previous !== undefined &&
+        current !== undefined &&
+        previous >= current
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "router provider capabilities must be sorted and unique",
+          path: [index],
+        });
+      }
+    }
+  });
+
+export const RouterProviderInputSnapshotV0Schema = z
+  .object({
+    providerId: boundedV2Id,
+    model: boundedV2Id,
+    locality: z.enum(["local", "cloud"]),
+    enabled: z.boolean(),
+    capabilities: routerProviderCapabilitiesSchema,
+    accountingKind: z.enum(["local_zero_cost", "metered"]),
+    contextWindowTokens: safePositiveInteger,
+    maxOutputTokens: safePositiveInteger,
+    requestReserveTokens: safeNonNegativeInteger,
+  })
+  .strict()
+  .superRefine((provider, context) => {
+    if (
+      (provider.locality === "local") !==
+      (provider.accountingKind === "local_zero_cost")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "router provider locality must match its explicit accounting kind",
+        path: ["accountingKind"],
+      });
+    }
+    if (
+      provider.maxOutputTokens + provider.requestReserveTokens >=
+      provider.contextWindowTokens
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "router provider context must exceed output and request reserves",
+        path: ["contextWindowTokens"],
+      });
+    }
+  });
+
+export type RouterProviderInputSnapshotV0 = z.infer<
+  typeof RouterProviderInputSnapshotV0Schema
+>;
+
+export const ProviderHealthSnapshotV0Schema = z
+  .object({
+    snapshotId: boundedV2Id,
+    providerId: boundedV2Id,
+    model: boundedV2Id,
+    checkedAt: z.string().datetime({ offset: true }),
+    expiresAt: z.string().datetime({ offset: true }),
+    status: z.enum(["healthy", "unhealthy", "unavailable"]),
+    resultCode: boundedCode,
+  })
+  .strict();
+
+export type ProviderHealthSnapshotV0 = z.infer<
+  typeof ProviderHealthSnapshotV0Schema
+>;
+
+export const ProviderPricingSnapshotV0Schema = z
+  .object({
+    snapshotId: boundedV2Id,
+    providerId: boundedV2Id,
+    model: boundedV2Id,
+    verifiedAt: z.string().datetime({ offset: true }),
+    expiresAt: z.string().datetime({ offset: true }),
+    status: z.enum(["available", "unavailable"]),
+    inputMicrousdPerMillionTokens: safeNonNegativeInteger,
+    outputMicrousdPerMillionTokens: safeNonNegativeInteger,
+    cacheReadMicrousdPerMillionTokens: safeNonNegativeInteger,
+    pricingSourceSha256: sha256,
+  })
+  .strict()
+  .superRefine((pricing, context) => {
+    if (
+      pricing.status === "available" &&
+      (pricing.inputMicrousdPerMillionTokens === 0 ||
+        pricing.outputMicrousdPerMillionTokens === 0)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "available paid pricing requires positive input and output rates",
+        path: ["status"],
+      });
+    }
+    if (
+      pricing.cacheReadMicrousdPerMillionTokens >
+      pricing.inputMicrousdPerMillionTokens
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "no_cache_credit requires the cache-read rate not to exceed the input rate",
+        path: ["cacheReadMicrousdPerMillionTokens"],
+      });
+    }
+  });
+
+export type ProviderPricingSnapshotV0 = z.infer<
+  typeof ProviderPricingSnapshotV0Schema
+>;
+
+export const RouterInputSnapshotV0Schema = z
+  .object({
+    schemaVersion: z.literal("checkpoint-router-input-v0"),
+    boundary: RoutingBoundarySchema,
+    asOf: z.string().datetime({ offset: true }),
+    providers: z
+      .array(RouterProviderInputSnapshotV0Schema)
+      .min(1)
+      .max(32),
+    targetProviderId: boundedV2Id,
+    targetModel: boundedV2Id,
+    requiredCapabilities: routerProviderCapabilitiesSchema,
+    deadline: z
+      .object({
+        deadlineAt: z.string().datetime({ offset: true }),
+        remainingMs: safeNonNegativeInteger,
+        attemptTimeoutMs: safePositiveInteger,
+        requiredRemainingMs: safePositiveInteger,
+        sufficient: z.boolean(),
+      })
+      .strict(),
+    healthSnapshots: z.array(ProviderHealthSnapshotV0Schema).max(2),
+    pricingSnapshot: ProviderPricingSnapshotV0Schema.optional(),
+  })
+  .strict()
+  .superRefine((snapshot, context) => {
+    for (let index = 1; index < snapshot.providers.length; index += 1) {
+      const previous = snapshot.providers[index - 1];
+      const current = snapshot.providers[index];
+      if (
+        previous !== undefined &&
+        current !== undefined &&
+        previous.providerId >= current.providerId
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "router providers must be sorted by providerId and unique",
+          path: ["providers", index, "providerId"],
+        });
+      }
+    }
+    for (let index = 1; index < snapshot.healthSnapshots.length; index += 1) {
+      const previous = snapshot.healthSnapshots[index - 1];
+      const current = snapshot.healthSnapshots[index];
+      if (
+        previous !== undefined &&
+        current !== undefined &&
+        previous.providerId >= current.providerId
+      ) {
+        context.addIssue({
+          code: "custom",
+          message: "router health snapshots must be sorted and provider-unique",
+          path: ["healthSnapshots", index, "providerId"],
+        });
+      }
+    }
+    const target = snapshot.providers.find(
+      (provider) => provider.providerId === snapshot.targetProviderId,
+    );
+    if (target === undefined || target.model !== snapshot.targetModel) {
+      context.addIssue({
+        code: "custom",
+        message: "router target must match one persisted provider snapshot",
+        path: ["targetProviderId"],
+      });
+    }
+    const remainingMs = Math.max(
+      0,
+      Date.parse(snapshot.deadline.deadlineAt) - Date.parse(snapshot.asOf),
+    );
+    if (
+      !Number.isSafeInteger(remainingMs) ||
+      snapshot.deadline.remainingMs !== remainingMs
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "router deadline remainingMs must be derived from asOf",
+        path: ["deadline", "remainingMs"],
+      });
+    }
+    if (
+      snapshot.deadline.sufficient !==
+      (remainingMs >= snapshot.deadline.requiredRemainingMs)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "router deadline sufficiency must match its persisted required window",
+        path: ["deadline", "sufficient"],
+      });
+    }
+    if (
+      snapshot.deadline.requiredRemainingMs >
+      snapshot.deadline.attemptTimeoutMs
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "router required deadline window cannot exceed the attempt timeout",
+        path: ["deadline", "requiredRemainingMs"],
+      });
+    }
+  });
+
+export type RouterInputSnapshotV0 = z.infer<
+  typeof RouterInputSnapshotV0Schema
+>;
+
 export const RoutingDecisionPayloadSchema = z
   .object({
     decisionId: boundedV2Id,
@@ -524,6 +765,9 @@ export const RoutingDecisionPayloadSchema = z
     riskIncompleteReason: z.string().trim().min(1).max(512).optional(),
     triggerFacts: routingTriggerFactsSchema,
     admission: RoutingAdmissionSchema,
+    // Optional only for replay compatibility with PR 1 events. Every decision
+    // produced by checkpoint-router-v0 carries this bounded immutable input.
+    routerInputSnapshot: RouterInputSnapshotV0Schema.optional(),
     healthSnapshotId: boundedV2Id.optional(),
     pricingSnapshotId: boundedV2Id.optional(),
     campaignId: boundedV2Id.optional(),
@@ -553,6 +797,17 @@ export const RoutingDecisionPayloadSchema = z
             code: "custom",
             message: "cache-read tokens require a cache-read rate",
             path: ["billableCacheReadTokens"],
+          });
+        }
+        if (
+          (billing.cacheReadMicrousdPerMillionTokens ?? 0) >
+          billing.inputMicrousdPerMillionTokens
+        ) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "no_cache_credit requires the cache-read rate not to exceed the input rate",
+            path: ["cacheReadMicrousdPerMillionTokens"],
           });
         }
         const million = 1_000_000n;
@@ -649,6 +904,126 @@ export const RoutingDecisionPayloadSchema = z
         path: ["phase"],
       });
     }
+    if (decision.routerInputSnapshot !== undefined) {
+      const snapshot = decision.routerInputSnapshot;
+      if (snapshot.boundary !== decision.boundary) {
+        context.addIssue({
+          code: "custom",
+          message: "router input boundary must match the routing decision",
+          path: ["routerInputSnapshot", "boundary"],
+        });
+      }
+      const snapshotProviderIds = snapshot.providers.map(
+        (provider) => provider.providerId,
+      );
+      if (
+        JSON.stringify(snapshotProviderIds) !==
+        JSON.stringify(decision.candidateProviderIds)
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "routing candidates must exactly match the persisted provider inputs",
+          path: ["candidateProviderIds"],
+        });
+      }
+      const selectedProviderSnapshot = snapshot.providers.find(
+        (provider) => provider.providerId === decision.selectedProviderId,
+      );
+      const selectedMustBeCloud = decision.reasonCode === "cloud_admitted";
+      if (
+        selectedProviderSnapshot === undefined ||
+        selectedProviderSnapshot.model !== decision.selectedModel ||
+        selectedProviderSnapshot.locality !==
+          (selectedMustBeCloud ? "cloud" : "local") ||
+        selectedProviderSnapshot.accountingKind !==
+          (selectedMustBeCloud ? "metered" : "local_zero_cost")
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "selected provider locality and accounting must match the routing reason",
+          path: ["selectedProviderId"],
+        });
+      }
+      if (decision.proposedProviderId !== undefined) {
+        const proposedProviderSnapshot = snapshot.providers.find(
+          (provider) => provider.providerId === decision.proposedProviderId,
+        );
+        if (
+          proposedProviderSnapshot === undefined ||
+          proposedProviderSnapshot.model !== decision.proposedModel ||
+          proposedProviderSnapshot.locality !== "cloud" ||
+          proposedProviderSnapshot.accountingKind !== "metered"
+        ) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "a proposed cloud provider must be persisted as metered cloud input",
+            path: ["proposedProviderId"],
+          });
+        }
+      }
+      const referencedHealth = snapshot.healthSnapshots.find(
+        (health) => health.snapshotId === decision.healthSnapshotId,
+      );
+      if (
+        decision.healthSnapshotId !== undefined &&
+        (referencedHealth === undefined ||
+          referencedHealth.providerId !== snapshot.targetProviderId ||
+          referencedHealth.model !== snapshot.targetModel)
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "health snapshot must match the persisted router target provider and model",
+          path: ["healthSnapshotId"],
+        });
+      }
+      const referencedPricing = snapshot.pricingSnapshot;
+      if (
+        decision.pricingSnapshotId !== undefined &&
+        (decision.pricingSnapshotId !== referencedPricing?.snapshotId ||
+          referencedPricing.providerId !== snapshot.targetProviderId ||
+          referencedPricing.model !== snapshot.targetModel)
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "pricing snapshot must match the persisted router target provider and model",
+          path: ["pricingSnapshotId"],
+        });
+      }
+      if (
+        decision.billing !== undefined &&
+        (referencedPricing === undefined ||
+          decision.billing.inputMicrousdPerMillionTokens !==
+            referencedPricing.inputMicrousdPerMillionTokens ||
+          decision.billing.outputMicrousdPerMillionTokens !==
+            referencedPricing.outputMicrousdPerMillionTokens ||
+          (decision.billing.cacheReadMicrousdPerMillionTokens ?? 0) !==
+            referencedPricing.cacheReadMicrousdPerMillionTokens)
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "billing component rates must match the persisted pricing snapshot",
+          path: ["billing"],
+        });
+      }
+      const deadlineStatus = decision.admission.deadline.status;
+      if (
+        deadlineStatus !== "not_applicable" &&
+        (deadlineStatus === "passed") !== snapshot.deadline.sufficient
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "deadline admission must match the persisted deadline calculation",
+          path: ["admission", "deadline", "status"],
+        });
+      }
+    }
     const hasRiskPolicy = decision.riskPolicyId !== undefined;
     const hasRiskScore = decision.riskScore !== undefined;
     const hasIncompleteRisk = decision.riskIncompleteReason !== undefined;
@@ -709,6 +1084,17 @@ export const RoutingDecisionPayloadSchema = z
           });
         }
       }
+      if (
+        decision.routerInputSnapshot !== undefined &&
+        decision.admission.pricing?.status !== "passed"
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "checkpoint-router-v0 cloud admission requires passed pricing",
+          path: ["admission", "pricing", "status"],
+        });
+      }
       const requiredCloudFields: Array<[keyof typeof decision, unknown]> = [
         ["healthSnapshotId", decision.healthSnapshotId],
         ["pricingSnapshotId", decision.pricingSnapshotId],
@@ -752,6 +1138,20 @@ export const RoutingDecisionPayloadSchema = z
     const isCloudProposalDenial = isCloudProposalDenialReason(
       decision.reasonCode,
     );
+    if (
+      decision.routerInputSnapshot !== undefined &&
+      !isCloudProposalDenial &&
+      (decision.routerInputSnapshot.targetProviderId !==
+        decision.selectedProviderId ||
+        decision.routerInputSnapshot.targetModel !== decision.selectedModel)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "router target must match the selected provider for an executed decision",
+        path: ["routerInputSnapshot", "targetProviderId"],
+      });
+    }
     if (isCloudProposalDenial) {
       if (
         decision.boundary !== "evidence_complete" ||
@@ -781,6 +1181,19 @@ export const RoutingDecisionPayloadSchema = z
           message:
             "a denied cloud proposal cannot select its proposed provider",
           path: ["proposedProviderId"],
+        });
+      }
+      if (
+        decision.routerInputSnapshot !== undefined &&
+        (decision.routerInputSnapshot.targetProviderId !==
+          decision.proposedProviderId ||
+          decision.routerInputSnapshot.targetModel !== decision.proposedModel)
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "denied cloud proposal must persist its proposed provider as the router target",
+          path: ["routerInputSnapshot", "targetProviderId"],
         });
       }
       if (decision.budgetReservationId !== undefined) {
@@ -831,6 +1244,18 @@ export const RoutingDecisionPayloadSchema = z
         });
       }
       if (
+        decision.admission.pricing !== undefined &&
+        decision.admission.pricing.status !== "not_applicable" &&
+        decision.pricingSnapshotId === undefined
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "a completed pricing admission check requires pricingSnapshotId",
+          path: ["pricingSnapshotId"],
+        });
+      }
+      if (
         decision.admission.egress.status !== "not_applicable" &&
         proposalPacketFieldCount !== proposalPacketFields.length
       ) {
@@ -856,6 +1281,25 @@ export const RoutingDecisionPayloadSchema = z
         }
       }
       if (decision.reasonCode === "budget_denial") {
+        const budgetDenialReason = decision.triggerFacts.find(
+          (fact) => fact.key === "budget_denial_reason",
+        )?.value;
+        if (
+          decision.routerInputSnapshot !== undefined &&
+          ![
+            "campaign_overrun",
+            "episode_cap",
+            "campaign_automatic_stop",
+            "campaign_hard_ceiling",
+          ].includes(String(budgetDenialReason))
+        ) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "checkpoint-router-v0 budget denial requires its exact locked ledger reason",
+            path: ["triggerFacts"],
+          });
+        }
         if (decision.billing === undefined) {
           context.addIssue({
             code: "custom",
@@ -863,6 +1307,7 @@ export const RoutingDecisionPayloadSchema = z
             path: ["billing"],
           });
         } else if (
+          budgetDenialReason !== "campaign_overrun" &&
           decision.billing.projectedCostMicrousd <=
             decision.billing.remainingEpisodeMicrousd &&
           decision.billing.projectedCostMicrousd <=
@@ -871,7 +1316,7 @@ export const RoutingDecisionPayloadSchema = z
           context.addIssue({
             code: "custom",
             message:
-              "budget_denial requires projected cost to exceed a remaining budget",
+              "budget_denial requires projected cost to exceed a remaining budget unless a prior campaign overrun disabled admission",
             path: ["billing", "projectedCostMicrousd"],
           });
         }
@@ -943,6 +1388,7 @@ export const RoutingDecisionPayloadSchema = z
       disabled_provider: undefined,
       missing_credential: "credential",
       unhealthy_provider: "health",
+      pricing_denial: "pricing",
       capability_mismatch: "capability",
       egress_denial: "egress",
       budget_denial: "budget",
@@ -955,7 +1401,7 @@ export const RoutingDecisionPayloadSchema = z
         ];
       if (
         checkName !== undefined &&
-        decision.admission[checkName].status !== "denied"
+        decision.admission[checkName]?.status !== "denied"
       ) {
         context.addIssue({
           code: "custom",

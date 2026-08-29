@@ -172,7 +172,10 @@ describe("ProviderRegistry", () => {
     };
     const catalog = createRuntimeProviderCatalog(config);
 
-    expect(catalog.selected).toMatchObject({
+    expect(catalog.defaultLocalProviderId).toBe("local-vllm");
+    expect(
+      catalog.registry.require(catalog.defaultLocalProviderId).provider,
+    ).toMatchObject({
       id: "local-vllm",
       model: "configured-local-model",
       costPolicy: "local_zero_cost",

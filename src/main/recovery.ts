@@ -1,3 +1,7 @@
+import { randomUUID } from "node:crypto";
+
+import { AttemptUnitOfWork } from "./attempt-unit-of-work";
+import { BudgetLedger } from "./budget-ledger";
 import {
   EventStore,
   SequenceConflictError,
@@ -9,6 +13,8 @@ import type { InferenceAttemptRecord } from "../shared/session-reducer";
 export interface RecoveryOptions {
   reason?: string;
   createdAt?: string;
+  /** Test seam; production creates the ledger-aware unit on this EventStore. */
+  attemptUnitOfWork?: AttemptUnitOfWork;
 }
 
 export interface RecoveredSession {
@@ -69,11 +75,19 @@ export function recoverRunningSessions(
   store: EventStore,
   options: RecoveryOptions = {},
 ): RecoveredSession[] {
-  const running = store.listSessions({ status: "running", limit: 1_000 });
   const recovered: RecoveredSession[] = [];
+  const budgetLedger = new BudgetLedger(store);
+  const attemptUnitOfWork =
+    options.attemptUnitOfWork ??
+    new AttemptUnitOfWork(budgetLedger);
 
-  for (const session of running) {
-    try {
+  while (true) {
+    const running = store.listSessions({ status: "running", limit: 1_000 });
+    if (running.length === 0) break;
+
+    let removedFromRunning = 0;
+    for (const session of running) {
+      try {
       const state = store.replay(session.id);
       const openAttempts = state.inferenceAttempts.filter(
         (attempt) => attempt.finished === undefined,
@@ -139,27 +153,53 @@ export function recoverRunningSessions(
               payload: { reason: recoveryReason },
           },
       ] as const;
-      const appended = store.appendMany(session.id, recoveryEvents, {
-          expectedSequence: session.lastSequence,
-          createdAt: recoveredAt,
-        });
+      const appended =
+        attempt === undefined
+          ? store.appendMany(session.id, recoveryEvents, {
+              expectedSequence: session.lastSequence,
+              createdAt: recoveredAt,
+            })
+          : attemptUnitOfWork.commitRecoveryFinish({
+              sessionId: session.id,
+              expectedSequence: session.lastSequence,
+              createdAt: recoveredAt,
+              eventIds: recoveryEvents.map(() => randomUUID()),
+              events: recoveryEvents,
+              ...(attempt.budgetReservationId === undefined
+                ? {}
+                : { terminalLedgerEntryId: randomUUID() }),
+            }).events;
       const event = appended.at(-1);
       if (!event) throw new Error("Startup recovery did not append a terminal event");
-      recovered.push({
-        session: store.requireSession(session.id),
-        event,
-        ...(attempt === undefined ? {} : { attemptEvent: appended[0] }),
-        ...(pendingToolCall === undefined
-          ? {}
-          : { toolEvent: appended.at(-2) }),
-      });
-    } catch (error) {
-      // A concurrently updated session no longer needs this startup recovery pass.
-      if (!(error instanceof SequenceConflictError)) {
-        throw error;
+        recovered.push({
+          session: store.requireSession(session.id),
+          event,
+          ...(attempt === undefined ? {} : { attemptEvent: appended[0] }),
+          ...(pendingToolCall === undefined
+            ? {}
+            : { toolEvent: appended.at(-2) }),
+        });
+        removedFromRunning += 1;
+      } catch (error) {
+        if (!(error instanceof SequenceConflictError)) {
+          throw error;
+        }
+        // A concurrent terminal update also counts as progress. A conflict that
+        // leaves the session running would otherwise make the paged recovery
+        // loop spin forever, so fail closed and surface it to startup.
+        if (store.requireSession(session.id).status !== "running") {
+          removedFromRunning += 1;
+        } else {
+          throw error;
+        }
       }
+    }
+
+    if (removedFromRunning === 0) {
+      throw new Error("Startup recovery made no progress");
     }
   }
 
+  budgetLedger.assertEventReconciled();
   return recovered;
 }

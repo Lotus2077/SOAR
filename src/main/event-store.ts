@@ -56,6 +56,15 @@ interface ProjectionUpdateResult {
   changes: number;
 }
 
+type SynchronousResult<T> = T extends PromiseLike<unknown> ? never : T;
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    (typeof value === "object" && value !== null) ||
+    typeof value === "function"
+  ) && "then" in value && typeof value.then === "function";
+}
+
 export interface SessionRecord {
   id: string;
   title: string;
@@ -99,6 +108,19 @@ export interface AppendOptions {
 export interface AppendManyOptions {
   expectedSequence?: number;
   createdAt?: string;
+  /**
+   * Optional preallocated event-envelope IDs. Atomic multi-store units of work
+   * use these so every durable identity exists before the transaction begins.
+   */
+  eventIds?: readonly string[];
+  /**
+   * Deterministic crash seam for atomic persistence tests. The callback runs
+   * after each event insert but before the session projection commits.
+   */
+  afterEachPersistedForTest?: (
+    zeroBasedIndex: number,
+    event: StoredSessionEvent,
+  ) => void;
 }
 
 export interface ListSessionsOptions {
@@ -317,14 +339,49 @@ export class EventStore {
     events: readonly SessionEventData[],
     options: AppendManyOptions = {},
   ): StoredSessionEvent[] {
+    if (
+      options.eventIds !== undefined &&
+      options.eventIds.length !== events.length
+    ) {
+      throw new RangeError("eventIds must contain exactly one ID per event");
+    }
     return this.appendInternal(
       sessionId,
-      events.map((event) => ({
+      events.map((event, index) => ({
         event,
+        eventId: options.eventIds?.[index],
         createdAt: options.createdAt,
       })),
       options.expectedSequence,
+      options.afterEachPersistedForTest,
     );
+  }
+
+  /**
+   * Main-process persistence seam for a unit of work that must join session
+   * events to another table on this exact SQLite connection. The callback is
+   * synchronous and runs under BEGIN IMMEDIATE; append/appendMany calls made
+   * inside it use better-sqlite3's nested savepoint support.
+   */
+  runImmediatePersistenceTransaction<T>(
+    operation: (database: SoarDatabase) => SynchronousResult<T>,
+  ): SynchronousResult<T> {
+    if (this.database.inTransaction) {
+      throw new Error(
+        "Immediate persistence transactions cannot start inside another transaction",
+      );
+    }
+    return this.database
+      .transaction(() => {
+        const result = operation(this.database);
+        if (isPromiseLike(result)) {
+          throw new TypeError(
+            "Immediate persistence transactions require a synchronous callback",
+          );
+        }
+        return result;
+      })
+      .immediate();
   }
 
   getSession(sessionId: string): SessionRecord | undefined {
@@ -404,6 +461,10 @@ export class EventStore {
       createdAt?: string;
     }[],
     expectedSequence?: number,
+    afterEachPersistedForTest?: (
+      zeroBasedIndex: number,
+      event: StoredSessionEvent,
+    ) => void,
   ): StoredSessionEvent[] {
     if (!sessionId.trim()) {
       throw new Error("sessionId is required");
@@ -452,7 +513,7 @@ export class EventStore {
       const stored: StoredSessionEvent[] = [];
       let sequence = actualSequence;
 
-      for (const item of normalized) {
+      for (const [index, item] of normalized.entries()) {
         sequence += 1;
         const candidate = parseStoredSessionEvent({
           id: item.eventId,
@@ -485,6 +546,14 @@ export class EventStore {
             candidate.createdAt,
           );
         stored.push(candidate);
+        if (afterEachPersistedForTest !== undefined) {
+          const callbackResult = afterEachPersistedForTest(index, candidate);
+          if (isPromiseLike(callbackResult)) {
+            throw new TypeError(
+              "Event persistence fault callbacks must be synchronous",
+            );
+          }
+        }
       }
 
       if (!state) {

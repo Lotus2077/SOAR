@@ -622,12 +622,12 @@ describe("SessionRunner", () => {
       {
         estimator: "utf8-bytes-v1",
         reservedInputTokens: 0,
-        effectiveInputTokenBudget: 13_107,
+        effectiveInputTokenBudget: 14_745,
       },
       {
         estimator: "utf8-bytes-v1",
         reservedInputTokens: 0,
-        effectiveInputTokenBudget: 13_107,
+        effectiveInputTokenBudget: 14_745,
       },
     ]);
     expect(

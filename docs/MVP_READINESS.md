@@ -143,6 +143,16 @@ separate OpenRouter or metered provider, and no such PR 5 route was selected.
 The canary's `$0` cost provenance relies on the operator's configured-endpoint
 attestation and is not independent billing evidence.
 
+Review Current Changes invokes configured-model health admission before its
+provider attempt. That admission fails closed unless the unique selected
+`/models` entry supplies a positive safe-integer `max_model_len` at least as
+large as the configured maximum input plus maximum output allowances. The
+default floor is 26,624 tokens (18,432 input + 8,192 output). Missing, invalid,
+or insufficient capacity is unhealthy for that review admission. The live
+Repository Investigator proof independently applies the same inequality in
+preflight. The adapter's generic completion method does not implicitly perform
+this capacity check.
+
 The prior Local Repository Investigator reports are diagnostics, not accepted
 proof. The 934,311-token reference came from `f221798+working-tree`, did not
 identify a content-hashed fixture, and predates the current claim-coverage and
@@ -171,13 +181,19 @@ from a separate bounded UTF-8 filesystem scanner rather than the production
 search implementation; the method, scope, occurrence set, and hash are
 recorded. The host derives the symbol evaluator record only from the successful
 complete global-search observation, then independently cross-checks it against
-the oracle; it never derives a passing record from oracle data alone. The
-episode is bounded to 34 provider calls, 29 tool calls, and
-557,056 reported input tokens. Each session attests the
+the oracle; it never derives a passing record from oracle data alone. The proof
+retains the conservative `utf8-bytes-v1` estimator, a 20% safety margin, and a
+per-call provider-overhead reserve within an 18,432 maximum-input-token policy.
+The episode is bounded to 34 provider calls, 29 tool calls, and
+626,688 reported input tokens. Each session attests the
 persisted `repository-investigator-v1` track, and every provider call attests
 the served model and local-zero-cost policy. Preflight hashes the normalized API
 base and records only bounded `/models` metadata after requiring the configured
-model to be advertised. The accepted-answer provider input is bound to the
+model to be advertised and applying the same 26,624-token minimum-capacity
+check. One configured-endpoint availability response on 2026-08-30 advertised
+`max_model_len` of 262,144 for `RM-01 VLM`; this was a one-time `$0` response,
+not proof of universal provider support or empirically verified capacity. The
+accepted-answer provider input is bound to the
 unique accepted completion round and persisted packet/message hashes; all
 verified answer citations, required claim snippets, and exact symbol-oracle
 occurrences must survive in its completed tool evidence. The fully admitted

@@ -353,7 +353,7 @@ an unsupported synthesis is exhausted and fails closed.
 - `maxReferencesPerEvidence` (default `64`).
 
 Application configuration exposes `SOAR_CONTEXT_MAX_INPUT_TOKENS` (default
-`16,384`) and `SOAR_CONTEXT_SAFETY_MARGIN` (default `0.2`). The effective budget
+`18,432`) and `SOAR_CONTEXT_SAFETY_MARGIN` (default `0.2`). The effective budget
 is:
 
 ```text
@@ -375,6 +375,18 @@ reserve zero. The selected reserve is included in packet policy and compiler
 telemetry. Actual input usage remains in `usage.recorded`; its `reported` flag
 distinguishes provider telemetry from a missing value represented numerically as
 zero.
+
+Review Current Changes invokes OpenAI-compatible configured-model health
+admission before its provider attempt. That admission requires the unique
+selected `/models` entry to supply a positive safe-integer `max_model_len`
+greater than or equal to the configured maximum input plus maximum output
+allowances. A missing, invalid, or smaller value fails closed as unhealthy for
+that review workflow. The default floor is 26,624 tokens (18,432 input + 8,192
+output). The live Repository Investigator proof separately applies the same
+inequality in preflight. The provider's generic completion method does not
+implicitly invoke this check. The admission uses endpoint-advertised metadata;
+it does not empirically verify capacity or establish a universal provider
+guarantee.
 
 The base packet contains the complete system boundary, objective, and distinct
 user constraints. If that base exceeds the effective budget, compilation throws
@@ -606,15 +618,19 @@ All of the following are required before claiming the gate passed:
   task execution, `/v1/models` must advertise it exactly once. The report stores
   only a normalized API-base hash, bounded `id`/`owned_by`/`max_model_len`
   metadata, and the response hash—not the endpoint, key, model root, or raw
-  response;
-- the context policy is exactly 16,384 maximum input tokens with a 0.2 safety
+  response. The selected entry must advertise a positive safe-integer
+  `max_model_len` of at least 26,624 (18,432 configured input + 8,192 maximum
+  output). One configured-endpoint availability response on 2026-08-30
+  advertised 262,144; this was a one-time `$0` response, not proof of universal
+  provider support or empirically verified capacity;
+- the context policy is exactly 18,432 maximum input tokens with a 0.2 safety
   margin;
 - architecture is bounded to 10 provider calls and 9 tool calls,
   cancellation to 11 and 9, and symbol references to 13 and 11; the episode is
   therefore bounded to 34 provider calls, 29 tool calls, and a derived maximum
-  of 557,056 reported input tokens;
+  of 626,688 reported input tokens;
 - every provider call has one `context.compiled` checkpoint and reports positive
-  actual input usage no greater than 16,384 tokens;
+  actual input usage no greater than 18,432 tokens;
 - every usage record reports zero cost,
   `costProvenance: "local_zero_cost_policy"`, and
   `servedModel: "RM-01 VLM"`;

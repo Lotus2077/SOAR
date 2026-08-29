@@ -79,7 +79,7 @@ describe("loadConfig", () => {
     expect(config.vllm).not.toHaveProperty("sensitiveApiKey");
     expect(config.databasePath).toBe("/tmp/user-data.sqlite");
     expect(config.context).toEqual({
-      maxInputTokens: 16_384,
+      maxInputTokens: 18_432,
       safetyMargin: 0.2,
     });
   });

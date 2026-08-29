@@ -73,7 +73,23 @@ pnpm check
 
 `pnpm check` validates workload manifests and secret hygiene, type-checks both
 process environments, runs the deterministic test suite, and creates a
-production build. On macOS, also run:
+production build.
+
+After committing a release candidate, or before citing an integration test that
+builds its fixture from `git archive HEAD`, run the committed-head gate:
+
+```sh
+pnpm check:release-head
+```
+
+This release-only wrapper refuses staged, unstaged, and untracked non-ignored
+files, runs `pnpm check` exactly once, and confirms that the same clean commit
+still exists afterward. It forces all live-provider opt-in flags off for the
+child gate, while ignored build artifacts are allowed. Ordinary development
+should continue to use `pnpm check`; it does not call the release-head wrapper
+and the two commands do not recurse.
+
+On macOS, also run:
 
 ```sh
 pnpm test:e2e

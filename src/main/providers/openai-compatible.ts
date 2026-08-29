@@ -36,6 +36,63 @@ export const OPENAI_COMPATIBLE_BASE_REQUEST_RESERVE_TOKENS = 512;
 export const OPENAI_COMPATIBLE_MODEL_LIST_TIMEOUT_MS = 30_000;
 export const OPENAI_COMPATIBLE_MODEL_LIST_MAX_BYTES = 1024 * 1024;
 
+export interface AdvertisedModelCapacity {
+  advertisedMaxModelLen: number | null | undefined;
+  configuredMaxInputTokens: number;
+  maximumRequestedOutputTokens: number;
+}
+
+/**
+ * vLLM advertises a total context limit. SOAR admits it only when that limit
+ * covers both the full configured input allowance and the largest completion
+ * the transport may request.
+ */
+export function assertAdvertisedModelCapacity(
+  capacity: AdvertisedModelCapacity,
+): void {
+  if (
+    !Number.isSafeInteger(capacity.configuredMaxInputTokens) ||
+    capacity.configuredMaxInputTokens <= 0
+  ) {
+    throw new RangeError(
+      "configuredMaxInputTokens must be a positive safe integer.",
+    );
+  }
+  if (
+    !Number.isSafeInteger(capacity.maximumRequestedOutputTokens) ||
+    capacity.maximumRequestedOutputTokens <= 0
+  ) {
+    throw new RangeError(
+      "maximumRequestedOutputTokens must be a positive safe integer.",
+    );
+  }
+  const requiredMaxModelLen =
+    capacity.configuredMaxInputTokens +
+    capacity.maximumRequestedOutputTokens;
+  if (!Number.isSafeInteger(requiredMaxModelLen)) {
+    throw new RangeError(
+      "The configured input and maximum output token allowances overflow the safe-integer range.",
+    );
+  }
+  if (
+    capacity.advertisedMaxModelLen === null ||
+    capacity.advertisedMaxModelLen === undefined ||
+    !Number.isSafeInteger(capacity.advertisedMaxModelLen) ||
+    capacity.advertisedMaxModelLen <= 0
+  ) {
+    throw new RangeError(
+      "The configured model must advertise a positive safe-integer max_model_len.",
+    );
+  }
+  if (capacity.advertisedMaxModelLen < requiredMaxModelLen) {
+    throw new RangeError(
+      `The configured model advertises max_model_len ${capacity.advertisedMaxModelLen}, ` +
+        `but SOAR requires at least ${requiredMaxModelLen} ` +
+        `(${capacity.configuredMaxInputTokens} input + ${capacity.maximumRequestedOutputTokens} output) tokens.`,
+    );
+  }
+}
+
 export interface OpenAICompatibleProviderOptions {
   baseUrl: string;
   apiKey: string;
@@ -340,20 +397,51 @@ export class OpenAICompatibleProvider implements DescribedInferenceProvider {
       const matches = data.filter(
         (entry) =>
           (entry as { id: string }).id === this.descriptor.model,
-      ).length;
-      return matches === 1
-        ? modelAvailabilityResult(
-            this.descriptor,
-            "healthy",
-            "configured_model_available",
-          )
-        : modelAvailabilityResult(
-            this.descriptor,
-            "unhealthy",
-            matches === 0
-              ? "configured_model_missing"
-              : "configured_model_duplicated",
-          );
+      );
+      if (matches.length !== 1) {
+        return modelAvailabilityResult(
+          this.descriptor,
+          "unhealthy",
+          matches.length === 0
+            ? "configured_model_missing"
+            : "configured_model_duplicated",
+        );
+      }
+      const advertisedMaxModelLen = (
+        matches[0] as { max_model_len?: unknown }
+      ).max_model_len;
+      if (
+        typeof advertisedMaxModelLen !== "number" ||
+        !Number.isSafeInteger(advertisedMaxModelLen) ||
+        advertisedMaxModelLen <= 0
+      ) {
+        return modelAvailabilityResult(
+          this.descriptor,
+          "unhealthy",
+          "configured_model_capacity_unknown",
+        );
+      }
+      try {
+        assertAdvertisedModelCapacity({
+          advertisedMaxModelLen,
+          configuredMaxInputTokens:
+            this.descriptor.contextWindowTokens -
+            this.descriptor.maxOutputTokens,
+          maximumRequestedOutputTokens:
+            this.descriptor.maxOutputTokens,
+        });
+      } catch {
+        return modelAvailabilityResult(
+          this.descriptor,
+          "unhealthy",
+          "configured_model_capacity_insufficient",
+        );
+      }
+      return modelAvailabilityResult(
+        this.descriptor,
+        "healthy",
+        "configured_model_available",
+      );
     } catch {
       return modelAvailabilityResult(
         this.descriptor,

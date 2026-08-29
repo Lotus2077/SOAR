@@ -381,7 +381,7 @@ export class SessionRunner {
     this.provider = defaultRegistration.provider;
     this.limits = options.limits;
     this.context = options.context ?? {
-      maxInputTokens: 16_384,
+      maxInputTokens: 18_432,
       safetyMargin: 0.2,
     };
     this.hybridRuntime = options.hybridRuntime;

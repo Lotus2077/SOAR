@@ -45,6 +45,8 @@ export interface ProviderModelAvailabilityResult {
     | "configured_model_available"
     | "configured_model_missing"
     | "configured_model_duplicated"
+    | "configured_model_capacity_unknown"
+    | "configured_model_capacity_insufficient"
     | "http_error"
     | "response_too_large"
     | "malformed_response"

@@ -56,7 +56,7 @@ const environmentSchema = z.object({
     .int()
     .min(2_048)
     .max(1_048_576)
-    .default(16_384),
+    .default(18_432),
   SOAR_CONTEXT_SAFETY_MARGIN: z.coerce.number().min(0.05).max(0.5).default(0.2),
 });
 

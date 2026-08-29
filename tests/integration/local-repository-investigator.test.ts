@@ -23,7 +23,10 @@ import {
 import { loadConfig } from "../../src/main/config";
 import { createSoarDatabase } from "../../src/main/database";
 import { EventStore } from "../../src/main/event-store";
-import { OpenAICompatibleProvider } from "../../src/main/providers/openai-compatible";
+import {
+  assertAdvertisedModelCapacity,
+  OpenAICompatibleProvider,
+} from "../../src/main/providers/openai-compatible";
 import { parseProviderDescriptor } from "../../src/main/providers/provider-descriptor";
 import { createLocalVllmProvider } from "../../src/main/providers/runtime-catalog";
 import type {
@@ -66,7 +69,7 @@ const projectRoot = path.resolve(new URL("../..", import.meta.url).pathname);
 const citationPattern =
   /(^|[^A-Za-z0-9_./@+\\-])((?:[A-Za-z0-9_@+.-]+[\\/])*[A-Za-z0-9_@+.-]+):([1-9][0-9]*)(?![0-9])/gmu;
 const execFileAsync = promisify(execFile);
-const proofContextPolicy = { maxInputTokens: 16_384, safetyMargin: 0.2 } as const;
+const proofContextPolicy = { maxInputTokens: 18_432, safetyMargin: 0.2 } as const;
 // This shared ceiling contains the current cancellation objective while
 // leaving enough room for the larger symbol evidence set. The real envelope
 // and final-retention tests below remain the authoritative capacity gates.
@@ -2418,7 +2421,7 @@ describe("Local Repository Investigator evaluator contract", () => {
         {
           id: proofModel,
           owned_by: "vllm",
-          max_model_len: 16_384,
+          max_model_len: 26_624,
           root: "/private/models/RM-01",
         },
       ],
@@ -2437,12 +2440,26 @@ describe("Local Repository Investigator evaluator contract", () => {
       model: {
         id: proofModel,
         ownedBy: "vllm",
-        maxModelLen: 16_384,
+        maxModelLen: 26_624,
       },
     });
     expect(serialized).not.toContain("endpoint-secret");
     expect(serialized).not.toContain("127.0.0.1");
     expect(serialized).not.toContain("/private/models/RM-01");
+    expect(() =>
+      assertAdvertisedModelCapacity({
+        advertisedMaxModelLen: attestation.model.maxModelLen,
+        configuredMaxInputTokens: proofContextPolicy.maxInputTokens,
+        maximumRequestedOutputTokens: 8_192,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      assertAdvertisedModelCapacity({
+        advertisedMaxModelLen: 26_623,
+        configuredMaxInputTokens: proofContextPolicy.maxInputTokens,
+        maximumRequestedOutputTokens: 8_192,
+      }),
+    ).toThrow(/requires at least 26624 .*18432 input \+ 8192 output/u);
   });
 
   it("redacts machine-local roots from attachable proof data", () => {
@@ -2575,7 +2592,7 @@ describe("Local Repository Investigator evaluator contract", () => {
     expect(
       tasks.reduce((total, candidate) => total + candidate.maximumProviderCalls, 0) *
         proofContextPolicy.maxInputTokens,
-    ).toBe(557_056);
+    ).toBe(626_688);
     expect(proofSchemaVersion).toBe(5);
     expect(proofRunType).toMatch(/v7$/u);
     expect(proofTaskValidatorContract).toMatch(/v7$/u);
@@ -3058,7 +3075,7 @@ describe("Local Repository Investigator evaluator contract", () => {
           });
           if (task.id === "symbol-references") {
             expect(firstReserve).toBe(1_463);
-            expect(firstEffectiveBudget).toBe(11_644);
+            expect(firstEffectiveBudget).toBe(13_282);
           }
           expect(
             firstContext?.payload.estimatedTokens ?? Number.POSITIVE_INFINITY,
@@ -3075,12 +3092,12 @@ describe("Local Repository Investigator evaluator contract", () => {
             mode: "finalization",
             maxTokens: proofContextPolicy.maxInputTokens,
             reservedInputTokens: 569,
-            effectiveInputTokenBudget: 12_538,
+            effectiveInputTokenBudget: 14_176,
           });
           expect(
             finalContext?.payload.estimatedTokens ?? Number.POSITIVE_INFINITY,
             `${task.id} finalization estimate`,
-          ).toBeLessThanOrEqual(12_538);
+          ).toBeLessThanOrEqual(14_176);
           if (task.id === "symbol-references") {
             const finalMessages = provider.contexts.at(-1) ?? [];
             const finalPacket = parseContextPacket(finalMessages);
@@ -3261,7 +3278,7 @@ describe("Local Repository Investigator evaluator contract", () => {
     }
   });
 
-  it("retains the real symbol schedule with 250-byte objective drift at 16,384 tokens", async () => {
+  it("retains the real symbol schedule with 250-byte objective drift at 18,432 tokens", async () => {
     const task = tasks.find((candidate) => candidate.id === "symbol-references");
     if (task?.claimCoverage === undefined) {
       throw new Error("symbol-references task must define claim coverage");
@@ -4712,6 +4729,12 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
             apiKey: config.vllm.apiKey,
             expectedModel,
             timeoutMs: config.vllm.timeoutMs,
+          });
+          assertAdvertisedModelCapacity({
+            advertisedMaxModelLen:
+              endpointAttestation.model.maxModelLen,
+            configuredMaxInputTokens: config.context.maxInputTokens,
+            maximumRequestedOutputTokens: config.vllm.maxOutputTokens,
           });
 
           fixture = await createPinnedRepositoryFixture(

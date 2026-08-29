@@ -1360,3 +1360,228 @@ paid call remain unapproved.
 References: [audit corrections](#bl-20260830-0212-pr5-precommit-audit-corrections----2026-08-30----final-independent-audit-corrected-four-release-significant-boundaries),
 [initial local canary entry](#bl-20260830-0157-pr5-local-review-verified----2026-08-30----pr-5-local-review-current-changes-slice-verified-before-push),
 [architecture](ARCHITECTURE.md), and [readiness boundary](MVP_READINESS.md).
+
+### BL-20260830-0237-pr5-remote-ci-capacity-correction -- 2026-08-30 -- Remote CI invalidated the pre-commit PR 5 verification
+
+Status: `In progress`
+
+Scope or hypothesis: Treat failed GitHub Actions run `33267686671` as the
+authoritative PR 5 gate, explain why the preceding local verification missed
+the failure, and correct the declared Repository Investigator context envelope
+without weakening exact evidence retention or making another inference call.
+
+Decisions:
+
+- Preserve the exact complete-search and 250-byte objective-drift assertions.
+  Do not exclude new source references, pin an older revision, accept a partial
+  evidence envelope, or silently change the `utf8-bytes-v1` estimator.
+- Raise the generic configured and proof input ceiling from 16,384 to 18,432
+  tokens while retaining the 20% safety margin and provider-owned request
+  reserve. The configured model's zero-cost `/v1/models` discovery response on
+  2026-08-30 advertised a 262,144-token maximum, so the corrected local default
+  remains below the currently declared endpoint capacity. This observation is
+  specific to that response and is not a guarantee for another provider.
+- Keep ordinary development checks usable on a dirty tree, but add a distinct
+  clean committed-HEAD release gate. A test that intentionally archives `HEAD`
+  cannot substantiate a claim about uncommitted source.
+- Defer compact exact-search membership and an explicit atomic-search
+  completion obligation to a separately designed change. Raising the bounded
+  envelope corrects this approved PR 5 proof; it does not make exact search
+  retention unbounded.
+
+Changes: Implementation is underway. The intended correction updates the
+runtime/proof default, exact assertions, derived episode cap, public current
+contract, and a clean committed-HEAD verification command. Historical entries
+and failed remote evidence remain unchanged.
+
+Evidence:
+
+- GitHub Actions run `33267686671` failed the Linux Node 22 `check` job because
+  the accepted final packet retained 22 of 42 exact cancellation-symbol
+  occurrences; macOS Electron E2E was consequently skipped.
+- The exact committed test failed locally on Node 20, 22, 24, and 26. Comparing
+  code and fixtures isolated the cause to the PR 5 revision adding eight real
+  symbol occurrences, increasing the independent oracle from 34 to 42; the
+  provider reserve and tool schemas were unchanged.
+- The earlier local full check ran before commit. Its fixture used
+  `git archive HEAD`, so it exercised base commit `50ba9f2` rather than the
+  uncommitted PR 5 files later recorded in `7ba9c80`.
+- At the old policy, the effective packet budget was 12,538 estimated tokens
+  after safety and the 569-token finalization reserve. The complete current
+  packet and its 250-byte drift variant exceeded that envelope; the compiler's
+  bounded projection therefore retained only a prefix.
+- One read-only `/v1/models` request returned the configured model exactly once
+  and advertised `max_model_len` 262,144. It made no inference request and
+  exposed no credential.
+
+Failures or blockers: The pushed PR 5 revision is not verified. The context-cap
+correction, committed-HEAD guard, complete non-live suite, Electron E2E, and a
+replacement green GitHub Actions run are still pending.
+
+Limitations and non-claims: The discovery response is operator-provided
+metadata, not independent proof of every usable prompt length. A larger bounded
+default does not solve arbitrary repository growth, compact large result sets,
+or give the current completion contract a way to designate one search result
+as atomic. It does not prove model answer quality, dynamic routing, cost or
+latency advantage, real-repository review quality, or release readiness.
+
+Paid exposure: `$0`. Diagnosis used deterministic local tests and GitHub-hosted
+CI. The only endpoint access was one model-metadata GET under the configured
+zero-token-fee policy; no inference, OpenRouter request, paid route, retry, or
+fallback occurred. Infrastructure and electricity remain unmeasured.
+
+Next gate: Finish the narrow correction, commit it, run the clean committed-HEAD
+gate plus Electron E2E, push, and require replacement Linux Node 22 and macOS
+Electron jobs to pass. Append a separate verification entry only after those
+facts exist. PR 6 and every paid call remain unapproved.
+
+References: [failed GitHub Actions run](https://github.com/Lotus2077/SOAR/actions/runs/33267686671),
+[preceding local verification](#bl-20260830-0214-pr5-final-local-verification----2026-08-30----corrected-pr-5-tree-passed-every-local-gate),
+[context handoff ADR](adr/0001-context-handoff-engine-v1.md), and
+[approved plan](plans/HYBRID_LEASE_ROUTER_V0.md).
+
+### BL-20260830-0246-pr5-release-gate-live-opt-in-correction -- 2026-08-30 -- Release-head verification made deterministically provider-free
+
+Status: `Implemented`
+
+Scope or hypothesis: Independently audit the new clean committed-HEAD wrapper
+before treating it as evidence, with particular attention to whether ordinary
+release verification could accidentally contact a configured provider.
+
+Decisions:
+
+- Treat inherited live-test opt-in flags as a release-blocking defect. A command
+  described as deterministic and `$0` must not change behavior because the
+  invoking shell happens to contain an earlier live-test opt-in.
+- Force every current live-provider opt-in to the string `false` in the child
+  environment used by `check:release-head`, while preserving unrelated
+  environment values.
+- Keep the individual live scripts explicitly opt-in and separate. The release
+  wrapper is not an authorization boundary for repeating a canary or contacting
+  a provider.
+- Preserve the wrapper's narrow contract: reject any staged, unstaged, or
+  untracked non-ignored change before running `pnpm check` once, then require the
+  same clean commit afterward.
+
+Changes: Added an explicit deterministic child-environment constructor to the
+release-head verifier, set `SOAR_RUN_LIVE_VLLM`,
+`SOAR_RUN_LIVE_REVIEW_SCHEMA`, and `SOAR_RUN_LIVE_REPOSITORY` to `false`, added
+a regression proving those values are overridden without mutating the parent,
+and documented the behavior for contributors.
+
+Evidence:
+
+- The independent security reviewer identified the inherited-environment path
+  as P1 because the full Vitest command includes live test files whose own
+  guards read these opt-ins.
+- The focused release-head verifier suite passed 8/8 tests after the correction,
+  including clean, dirty, changed-HEAD, failing-child, ignored-artifact, and
+  live-opt-in cases.
+- TypeScript validation passed after the correction.
+- Invoking `pnpm check:release-head` on the current deliberately dirty tree
+  failed before running the child check with the stable clean-HEAD error, which
+  proves the precondition is active but is not yet committed-revision evidence.
+
+Failures or blockers: The complete non-live suite has not yet been rerun after
+this security correction. The correction is uncommitted, so the clean
+committed-HEAD gate, Electron E2E on that commit, and replacement GitHub Actions
+run remain pending.
+
+Limitations and non-claims: This environment hardening covers the three live
+opt-ins currently defined by the repository; future live scripts must be added
+to the explicit deny list and its regression. It does not sandbox arbitrary test
+code or independently prove that a configured endpoint is free. It does not
+change the context compiler, solve unbounded repository growth, add atomic
+large-search retention, or prove routing quality.
+
+Paid exposure: `$0`. The correction and evidence used only local Git, unit
+tests, and TypeScript validation. No inference, provider, OpenRouter, retry, or
+fallback request occurred, and the one-shot structured-schema canary was not
+repeated.
+
+Next gate: Run the complete deterministic check, review the final diff and
+secret scan, commit the correction, run `pnpm check:release-head` and macOS
+Electron E2E against that exact commit, then push and require green Linux
+Node 22 and macOS Electron jobs.
+
+References: [release verifier](../scripts/verify-release-head.ts),
+[release verifier tests](../tests/unit/release-head-verifier.test.ts),
+[contributor gate](../CONTRIBUTING.md), and
+[capacity correction](#bl-20260830-0237-pr5-remote-ci-capacity-correction----2026-08-30----remote-ci-invalidated-the-pre-commit-pr-5-verification).
+
+### BL-20260830-0253-pr5-advertised-model-capacity-correction -- 2026-08-30 -- Provider admission now reserves both input and output capacity
+
+Status: `Implemented`
+
+Scope or hypothesis: Audit whether the raised 18,432-token input allowance is
+actually compatible with the context length advertised by the selected model
+before either ordinary review inference or the live Repository Investigator
+proof can begin.
+
+Decisions:
+
+- Define the fail-closed admission inequality as
+  `advertised max_model_len >= configured maximum input + maximum requested output`.
+  With the current defaults and proof policy, the minimum is
+  `18,432 + 8,192 = 26,624` tokens.
+- Treat missing, non-integer, non-positive, or undersized selected-model
+  capacity metadata as unhealthy. Distinguish unknown metadata from known but
+  insufficient capacity in the durable health result code.
+- Apply one shared capacity validator to production model-list health and the
+  live proof preflight. The proof must reject an inadequate endpoint before
+  building a repository fixture or dispatching inference.
+- Preserve exact-boundary admission: a model advertising exactly 26,624 tokens
+  is sufficient for the configured maximums; 26,623 is not.
+- Correct the wording in the preceding capacity entry: the authenticated
+  model-list request printed or persisted no credential. When configured, the
+  selected endpoint necessarily received the Authorization header; the earlier
+  phrase "exposed no credential" was too broad.
+
+Changes: Added a reusable advertised-capacity validator, two explicit unhealthy
+model-availability codes, production model-list enforcement, live-proof
+preflight enforcement, and unit/integration boundary regressions. Updated the
+proof fixture's model metadata from the input-only value to the sufficient
+combined-context value.
+
+Evidence:
+
+- The production provider already sends the per-attempt output allowance as
+  `max_completion_tokens`; its descriptor already separates maximum input and
+  maximum output allowances, so the required total is deterministic.
+- Focused provider and Repository Investigator tests passed 37 tests with the
+  opt-in live proof skipped. They cover missing capacity, 4,095 against a 4,096
+  requirement, exact 4,096 equality, 26,623 against the proof's 26,624
+  requirement, and exact 26,624 equality.
+- TypeScript validation and `git diff --check` passed after the correction.
+- The first sandboxed provider-test attempt could not bind its loopback fixture
+  server and failed 19 cases with `EPERM`; an authorized local-loopback rerun
+  passed. This was a test-environment restriction, not a provider response.
+
+Failures or blockers: The complete deterministic suite has not yet been rerun
+after this capacity correction. The tree remains uncommitted, so the clean
+committed-HEAD gate, Electron E2E on that exact revision, and replacement remote
+CI remain pending.
+
+Limitations and non-claims: Production OpenAI-compatible health now requires
+the selected model entry to expose vLLM-style `max_model_len`; a future cloud
+adapter whose model-list schema omits that field will need an independently
+verified capability source rather than weakening this local fail-closed rule.
+Metadata is still an endpoint assertion, not an independent load test. This
+does not solve unbounded evidence growth, atomic large-search retention, model
+quality, dynamic routing, or provider cost verification.
+
+Paid exposure: `$0`. Implementation and evidence used local source, fixture
+servers, deterministic tests, and TypeScript only. No provider, inference,
+OpenRouter, retry, or fallback request occurred, and the structured-schema
+canary was not repeated.
+
+Next gate: Finish the normative documentation and independent diff audit, run
+the complete deterministic check, commit the candidate, then run the clean
+committed-HEAD gate and macOS Electron E2E before pushing for Linux Node 22 and
+macOS Electron CI.
+
+References: [OpenAI-compatible provider](../src/main/providers/openai-compatible.ts),
+[provider health contract](../src/main/providers/types.ts),
+[provider boundary tests](../tests/unit/openai-compatible.test.ts),
+[Repository Investigator proof](../tests/integration/local-repository-investigator.test.ts),
+and [preceding capacity correction](#bl-20260830-0237-pr5-remote-ci-capacity-correction----2026-08-30----remote-ci-invalidated-the-pre-commit-pr-5-verification).

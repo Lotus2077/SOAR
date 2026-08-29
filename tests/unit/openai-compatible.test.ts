@@ -470,20 +470,25 @@ describe("OpenAICompatibleProvider", () => {
     ).not.toContain("inspect_git_changes");
   });
 
-  it("performs one bounded non-inference /models health check for the exact configured model", async () => {
+  it("accepts one bounded model-list result at the exact context-capacity boundary", async () => {
     const server = await startFakeOpenAiServer(({ response }) => {
       response.end(
         JSON.stringify({
           object: "list",
           data: [
             { id: "another-model", object: "model" },
-            { id: "local-test-model", object: "model" },
+            {
+              id: "local-test-model",
+              object: "model",
+              max_model_len: 4_096,
+            },
           ],
         }),
       );
     });
     const provider = createProvider(server.baseUrl);
     const descriptorBefore = provider.descriptor;
+    expect(provider.descriptor.contextWindowTokens).toBe(4_096);
 
     await expect(provider.checkConfiguredModelAvailability()).resolves.toEqual({
       providerId: "unit-local",
@@ -499,6 +504,40 @@ describe("OpenAICompatibleProvider", () => {
     expect(OPENAI_COMPATIBLE_MODEL_LIST_TIMEOUT_MS).toBe(30_000);
     expect(OPENAI_COMPATIBLE_MODEL_LIST_MAX_BYTES).toBe(1024 * 1024);
   });
+
+  it.each([
+    {
+      label: "unknown",
+      model: { id: "local-test-model", object: "model" },
+      code: "configured_model_capacity_unknown",
+    },
+    {
+      label: "one token below the required total",
+      model: {
+        id: "local-test-model",
+        object: "model",
+        max_model_len: 4_095,
+      },
+      code: "configured_model_capacity_insufficient",
+    },
+  ] as const)(
+    "fails model availability closed when capacity is $label",
+    async ({ model, code }) => {
+      const server = await startFakeOpenAiServer(({ response }) => {
+        response.end(JSON.stringify({ object: "list", data: [model] }));
+      });
+
+      await expect(
+        createProvider(server.baseUrl).checkConfiguredModelAvailability(),
+      ).resolves.toEqual({
+        providerId: "unit-local",
+        model: "local-test-model",
+        locality: "local",
+        status: "unhealthy",
+        code,
+      });
+    },
+  );
 
   it("fails model-list health closed on missing, duplicate, and oversized responses", async () => {
     const missing = await startFakeOpenAiServer(({ response }) => {

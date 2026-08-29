@@ -179,7 +179,7 @@ bounded packet is an evidence projection and may omit a provenance envelope only
 under these coverage-preserving conditions.
 
 The `utf8-bytes-v1` estimate charges one token per UTF-8 byte of the canonical
-rendered messages. The default configured ceiling is 16,384 tokens with a 20%
+rendered messages. The default configured ceiling is 18,432 tokens with a 20%
 safety margin. The active provider adapter also reserves request overhead outside
 the messages; the OpenAI-compatible adapter accounts for chat-template framing
 and mode-specific fields such as tool schemas before evidence admission.
@@ -216,8 +216,18 @@ caller supplies an explicit replayable selection-time value.
 The OpenAI-compatible transport derives its identity and request allowances
 from that descriptor. Optional request fields are emitted only for advertised
 capabilities, unsupported tool behavior fails before network I/O, and a served
-model mismatch fails the attempt. The adapter supports the one exact
-`ReviewResultV1` JSON Schema contract only when tools are disabled and the
+model mismatch fails the attempt. Review Current Changes invokes the adapter's
+configured-model health check before its provider attempt. That health admission
+fails closed unless the unique selected `/models` entry supplies a positive
+safe-integer `max_model_len` at least as large as the configured maximum input
+plus maximum output allowances. Missing, invalid, or insufficient capacity is
+unhealthy and blocks that review admission. With the current defaults, the
+floor is 26,624 tokens (18,432 input + 8,192 output). The live Repository
+Investigator proof separately applies the same inequality in preflight. The
+adapter's generic completion method does not implicitly perform this check. An
+advertised value is bounded endpoint metadata, not empirical capacity
+verification or a universal provider guarantee. The adapter supports the one
+exact `ReviewResultV1` JSON Schema contract only when tools are disabled and the
 descriptor advertises `structured_json_schema`; arbitrary structured contracts
 and prose-suffix repair are rejected. The current production catalog constructs
 exactly one configured, operator-attested local provider; the deterministic

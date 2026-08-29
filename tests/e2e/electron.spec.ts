@@ -38,6 +38,7 @@ async function launchApp(
       SOAR_VLLM_BASE_URL: "http://127.0.0.1:1/v1",
       SOAR_VLLM_MODEL: "RM-01 VLM",
       SOAR_ALLOW_INSECURE_VLLM_HTTP: "false",
+      SOAR_CONTEXT_MAX_INPUT_TOKENS: "18432",
       SOAR_DB_PATH: path.join(testRoot, "soar-e2e.sqlite"),
       SOAR_TEST_WORKSPACE: workspaceRoot,
     },
@@ -75,7 +76,7 @@ test("runs a local tool loop and restores it after restart", async () => {
   await expect(page.getByRole("dialog", { name: "Run details" })).toBeVisible();
   await expect(page.getByText("Context Compiled", { exact: true })).toHaveCount(4);
   await expect(
-    page.getByText(/packet \+ .* reserved \/ 16384 token cap \/ .* evidence \/ .* omitted/u).first(),
+    page.getByText(/packet \+ .* reserved \/ 18432 token cap \/ .* evidence \/ .* omitted/u).first(),
   ).toBeVisible();
 
   const traceScreenshotPath = process.env.SOAR_E2E_TRACE_SCREENSHOT;

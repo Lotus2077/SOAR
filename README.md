@@ -172,7 +172,7 @@ The first working slice is an Electron application with:
 - cancellation, timeout, reasoning-token, usage, and latency recording with a
   deterministic `$0` route/tool trace; local requests explicitly disable
   hidden reasoning so tool calls and visible answers receive the output budget;
-- deterministic, provider-neutral context packets with a 16,384-token default
+- deterministic, provider-neutral context packets with an 18,432-token default
   ceiling, a conservative UTF-8-byte estimate, a 20% safety margin, reserved
   provider overhead, latest-observation exact deduplication, bounded excerpts,
   citation-support snippets, finalization-only empty labels, valid `{}` read
@@ -267,8 +267,18 @@ pnpm test:live-review-schema
 ```
 
 The structured review canary passed once against the configured `RM-01 VLM` on
-2026-08-30. It demonstrates exact-schema compatibility on a synthetic empty
-snapshot only, not a post-fix real-repository review flow. The broader live
+2026-08-30. Review Current Changes health admission, including this opt-in
+canary, invokes a configured-model availability check. For that check, the
+selected unique `/v1/models` entry must supply a positive safe-integer
+`max_model_len` at least as large as the configured maximum input plus maximum
+output allowances; missing, invalid, or insufficient capacity rejects the
+review admission. The current defaults require at least 26,624 tokens (18,432
+input + 8,192 output). The one-time `$0` availability response that day
+advertised 262,144. That is endpoint-supplied metadata for that response, not
+proof of universal provider support or empirically verified capacity. The
+capacity check is not implicit in every OpenAI-compatible completion call. The
+canary demonstrates exact-schema compatibility on a synthetic empty snapshot
+only, not a post-fix real-repository review flow. The broader live
 Repository Investigator proofs and final release suite are separate gates and
 are not claimed current here. Both live commands trust the operator's
 `local_zero_cost` attestation; neither command independently proves that the
@@ -286,9 +296,9 @@ pnpm test:live-repository
 The proof requires a clean Git worktree and the exact declared HEAD. It copies
 that revision into a temporary `git archive` workspace, excludes the evaluator
 source from the agent-visible fixture, and records the archive SHA-256. It pins
-`RM-01 VLM`, a 16,384-token context cap with a 0.2 safety margin, per-task
+`RM-01 VLM`, an 18,432-token context cap with a 0.2 safety margin, per-task
 provider/tool-call limits, and episode limits of 34 provider calls and 29 tool
-calls, with a derived maximum of 557,056 reported input tokens. Every provider
+calls, with a derived maximum of 626,688 reported input tokens. Every provider
 call must report positive input usage within the cap,
 `servedModel: "RM-01 VLM"`, zero cost, and
 `costProvenance: "local_zero_cost_policy"`. That provenance records the
@@ -302,10 +312,11 @@ it is not blind repository discovery or a repository-quality benchmark. The
 persisted model result remains separately model-attributed. Deterministic
 `evaluatorRecords` are an additive host-generated audit and are never presented
 as model-authored. Before the tasks, the harness calls the configured
-`/v1/models`, requires exactly one advertisement for `RM-01 VLM`, and records
-only a hash of the normalized API base plus bounded model metadata and a
-response hash. The raw endpoint, API key, model root, and raw response are not
-serialized.
+`/v1/models`, requires exactly one advertisement for `RM-01 VLM`, and applies
+the same fail-closed capacity check against the proof's 18,432-token input and
+8,192-token output allowances. It records only a hash of the normalized API
+base plus bounded model metadata and a response hash. The raw endpoint, API key,
+model root, and raw response are not serialized.
 
 The evaluator derives the independent expected symbol matching-line set with
 its own bounded UTF-8 filesystem scan rather than SOAR's production

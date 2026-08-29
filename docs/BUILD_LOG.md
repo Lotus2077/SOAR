@@ -819,3 +819,54 @@ call remain separately approval-gated.
 References: [ADR 0004](adr/0004-checkpoint-router-budget-runner-v0.md),
 [Hybrid Lease Router v0 plan](plans/HYBRID_LEASE_ROUTER_V0.md),
 [architecture](ARCHITECTURE.md), [MVP readiness](MVP_READINESS.md).
+
+### BL-20260830-0025-pr4-ci-portability-correction -- 2026-08-30 -- Correction: PR 4 Linux worker proof was not green
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct the remote-CI claim in
+`BL-20260829-1620-pr4-fake-hybrid-mechanics` and make the concurrent budget
+admission proof portable to GitHub's Linux Node ESM worker runtime.
+
+Decisions:
+
+- Preserve the earlier append-only entry and supersede only its implication
+  that the pushed revision had complete remote proof.
+- Give the TypeScript worker fixture explicit `.ts` specifiers because it is
+  loaded directly by Node with the `tsx` import hook rather than through
+  Vitest's normal module transform.
+- Reject all worker lifecycle promises from one guarded startup failure path,
+  attach rejection observers immediately, and use a 15-second test deadline so
+  loader failures surface directly without producing unrelated unhandled
+  rejection noise or a misleading five-second timeout.
+
+Changes: Updated the budget reservation worker's three source imports and the
+concurrency harness's ready/result/exit failure propagation. No production
+runtime or routing behavior changed.
+
+Evidence: GitHub Actions run `33262781416` failed on Linux with
+`ERR_MODULE_NOT_FOUND` for the extensionless `src/main/budget-ledger` import in
+`budget-reservation-worker.ts`; all four worker rejections then appeared as
+unhandled while the test timed out waiting for `ready`. After the correction,
+`pnpm exec vitest run tests/unit/budget-ledger-concurrency.test.ts
+--testTimeout=15000` passed 1/1 locally in 418 ms.
+
+Failures or blockers: The replacement commit has not yet passed the full local
+gate or remote GitHub Actions. Therefore PR 4 is not remotely verified at this
+entry.
+
+Limitations and non-claims: A local macOS pass cannot prove Linux portability.
+This correction does not add production routing, cloud access, review quality,
+cost savings, or PR 5 behavior.
+
+Paid exposure: $0. Diagnosis and validation used local source, the existing
+GitHub Actions log, SQLite, and deterministic worker threads; no inference,
+provider, endpoint, credential, or paid service was invoked.
+
+Next gate: Run the complete local gate, commit and push the correction, require
+a green replacement GitHub Actions run, then append a separate verification
+entry before beginning PR 5.
+
+References: [affected PR 4 entry](#bl-20260829-1620-pr4-fake-hybrid-mechanics----2026-08-29----pr-4-fake-only-hybrid-mechanics-verified),
+[failed GitHub Actions run](https://github.com/Lotus2077/SOAR/actions/runs/33262781416),
+[ADR 0004](adr/0004-checkpoint-router-budget-runner-v0.md).

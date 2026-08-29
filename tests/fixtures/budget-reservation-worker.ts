@@ -3,9 +3,9 @@ import { parentPort, workerData } from "node:worker_threads";
 import {
   BudgetLedger,
   type ReserveBudgetInput,
-} from "../../src/main/budget-ledger";
-import { createSoarDatabase } from "../../src/main/database";
-import { EventStore } from "../../src/main/event-store";
+} from "../../src/main/budget-ledger.ts";
+import { createSoarDatabase } from "../../src/main/database.ts";
+import { EventStore } from "../../src/main/event-store.ts";
 
 interface ReservationWorkerData {
   databasePath: string;

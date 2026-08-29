@@ -93,21 +93,52 @@ function startReservationWorker(
   workers.push(worker);
 
   let markReady!: () => void;
+  let rejectReady!: (error: Error) => void;
   let resolveResult!: (resolution: BudgetReservationResolution) => void;
   let rejectResult!: (error: Error) => void;
-  const ready = new Promise<void>((resolve) => {
+  let markExited!: () => void;
+  let rejectExited!: (error: Error) => void;
+  const ready = new Promise<void>((resolve, reject) => {
     markReady = resolve;
+    rejectReady = reject;
   });
   const result = new Promise<BudgetReservationResolution>((resolve, reject) => {
     resolveResult = resolve;
     rejectResult = reject;
   });
   const exited = new Promise<void>((resolve, reject) => {
-    worker.once("error", reject);
-    worker.once("exit", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`budget worker exited ${code}`));
-    });
+    markExited = resolve;
+    rejectExited = reject;
+  });
+  // A worker can fail before its first message. Attach handlers to every
+  // deferred promise immediately so one root failure cannot become an
+  // unrelated unhandled-rejection warning while the test awaits another.
+  void ready.catch(() => undefined);
+  void result.catch(() => undefined);
+  void exited.catch(() => undefined);
+
+  let failureReported = false;
+  let sawReady = false;
+  let sawTerminalMessage = false;
+  const reportFailure = (error: Error): void => {
+    if (failureReported) return;
+    failureReported = true;
+    rejectReady(error);
+    rejectResult(error);
+    rejectExited(error);
+  };
+  worker.once("error", reportFailure);
+  worker.once("exit", (code) => {
+    if (failureReported) return;
+    if (code !== 0) {
+      reportFailure(new Error(`budget worker exited ${code}`));
+    } else if (!sawReady) {
+      reportFailure(new Error("budget worker exited before becoming ready"));
+    } else if (!sawTerminalMessage) {
+      reportFailure(new Error("budget worker exited before a terminal result"));
+    } else {
+      markExited();
+    }
   });
   worker.on("message", (message: unknown) => {
     if (
@@ -116,6 +147,7 @@ function startReservationWorker(
       "type" in message &&
       message.type === "ready"
     ) {
+      sawReady = true;
       markReady();
       return;
     }
@@ -125,6 +157,7 @@ function startReservationWorker(
       "type" in message &&
       message.type === "result"
     ) {
+      sawTerminalMessage = true;
       resolveResult((message as WorkerResultMessage).resolution);
       return;
     }
@@ -134,9 +167,9 @@ function startReservationWorker(
       "message" in message
         ? String(message.message)
         : "unknown worker failure";
-    rejectResult(new Error(detail));
+    sawTerminalMessage = true;
+    reportFailure(new Error(detail));
   });
-  worker.on("error", rejectResult);
   return { ready, result, exited, worker };
 }
 
@@ -205,5 +238,5 @@ describe("BudgetLedger concurrent admission", () => {
         sessionId: "concurrent-session-1",
       }),
     ).toMatchObject({ campaignExposureMicrousd: 250 });
-  });
+  }, 15_000);
 });

@@ -723,3 +723,99 @@ documentation, then append a separate verified or failed entry.
 References: [Hybrid Lease Router v0 plan](plans/HYBRID_LEASE_ROUTER_V0.md),
 [ADR 0002](adr/0002-agentic-execution-v2-event-state-machine.md),
 [ADR 0003](adr/0003-immutable-change-acquisition-v1.md).
+
+### BL-20260829-1620-pr4-fake-hybrid-mechanics -- 2026-08-29 -- PR 4 fake-only hybrid mechanics verified
+
+Status: `Verified`
+
+Scope or hypothesis: Prove the deterministic routing, provider-binding,
+deadline, and atomic accounting mechanics for one local investigation, one
+optional fake-cloud synthesis, and one eligible local fallback without enabling
+a production cloud provider or making a paid call.
+
+Decisions:
+
+- Run the pure router only at `session_start`, `evidence_complete`, and
+  `provider_failure`; productive tool rounds retain their lease.
+- Require a successful local investigation and completed successful evidence
+  before `evidence_complete`, and persist the exact applicable provider, risk,
+  health, pricing, deadline, packet, and locked-budget inputs.
+- Bind every current-write router snapshot's `asOf` to the atomic event-batch
+  timestamp. Bind the exact admitted provider registration and its
+  provider-specific request reserve before compilation, then dispatch that same
+  registration and packet only after commit.
+- Reserve and settle integer micro-USD in the same `BEGIN IMMEDIATE` units as
+  their canonical attempt events. Reconcile ledger rows against canonical
+  route/attempt history after paged startup recovery and before later paid
+  admission.
+- Treat paid overrun as authoritative ahead of late cancellation, conservatively
+  charge sent/unknown requests, use locked pricing rather than mutable runtime
+  state, and make the user-owned controller—not an adapter's generic abort
+  label—the source of cancellation intent.
+- Keep production IPC on v1 and production provider construction local-only.
+  PR 4's v2 path requires nominally branded deterministic fake providers.
+
+Changes: Added `checkpoint-router-v0`, the PR 3 risk adapter, immutable router
+input snapshots, operational budget ledger and reconciliation, atomic attempt
+unit of work, paged ledger-aware recovery, provider-registry-driven fake-only v2
+coordination, exact per-attempt output limits and request reserves, fake-provider
+fixtures, ADR 0004, and adversarial unit/integration coverage. Provider dispatch
+is bounded by the persisted episode deadline even when an asynchronous provider
+ignores abort.
+
+Evidence:
+
+- Implementation commit
+  `8c37f9ab5f99969ad514c3da5307a87ed0fc9dc4`; the worktree was clean immediately
+  after that commit and before this append-only verification entry.
+- Final `pnpm check`: readiness and 13-entry build-log validation passed;
+  typecheck passed; 44 test files passed and 1 opt-in file skipped, with 540
+  tests passed and 3 skipped; production Electron build passed.
+- Final `pnpm test:e2e`: 2/2 macOS Electron tests passed, covering restart
+  restoration and active cancellation.
+- Final focused event-store, atomic-unit, and v2 integration re-audit: 77/77
+  passed; the complete v2 integration file passed 38/38.
+- Fault injection rolls back after the budget mutation, after every one of five
+  local-start event inserts, after every one of five admitted paid-start event
+  inserts, after each finish-event insert, and after the complete batch.
+- Recovery closes 1,001 running sessions across the storage page boundary and
+  then requires complete ledger/event reconciliation.
+- Independent final review found no remaining P0-P2 after its timeout
+  classification, timestamp-binding, per-event crash-proof, and truth-document
+  findings were fixed and rerun.
+
+Failures or blockers: Intermediate green suites missed stale retained-local
+health precedence, campaign-overrun denial, incomplete evidence, forged
+locality/snapshot/rate bindings, request-reserve undercount and double count,
+cached/reasoning-token charging, async/leaked transaction handles, raw orphan
+ledger writes, paged recovery, mutable finish pricing, fractional-micro
+rounding, incoherent usage totals, late-cancellation overrun, broken post-dispatch
+clock/ID sources, non-cooperative providers, and timeout mislabeled as user
+cancellation. Each became a regression. The first final `pnpm check` attempt
+was invalid because the sandbox denied temporary loopback binding (`EPERM`),
+causing 12 transport-test failures; the authorized rerun passed. No current
+implementation blocker remains for PR 4.
+
+Limitations and non-claims: Production still creates v1 local-only sessions;
+the fake-cloud output is never a user review. The exported low-level ledger
+transaction seam can deliberately create an orphan, but startup or the next
+supported paid admission detects and blocks it; compile-time unforgeable
+mutation authority remains debt. Reconciliation currently scans historical
+attempt starts and replays paid-session histories. Timeout bounds asynchronous
+providers but cannot preempt code that synchronously blocks the JavaScript event
+loop. This does not prove real-provider routing, egress safety, review quality,
+cost savings, latency improvement, optimal scheduling, packaging, or release
+readiness.
+
+Paid exposure: $0. Validation used deterministic local test doubles, SQLite,
+temporary loopback servers, and Electron. It made no real inference, external
+provider, credential, vLLM, or OpenRouter request.
+
+Next gate: PR 5's `$0` local Review Current Changes app slice, strict
+`ReviewResultV1` acceptance/provenance, and zero-paid live local vLLM structured
+output canary. Production Hybrid remains visibly disabled; PR 6 and every paid
+call remain separately approval-gated.
+
+References: [ADR 0004](adr/0004-checkpoint-router-budget-runner-v0.md),
+[Hybrid Lease Router v0 plan](plans/HYBRID_LEASE_ROUTER_V0.md),
+[architecture](ARCHITECTURE.md), [MVP readiness](MVP_READINESS.md).

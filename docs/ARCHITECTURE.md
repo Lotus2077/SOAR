@@ -243,13 +243,15 @@ The guided Local Repository Investigator proof additionally applies
 task-specific exact-call validators. Its architecture task requires one bounded
 non-recursive root listing, one exact `src/main/index.ts` read, and seven ordered
 file-scoped evidence searches. The artifact stays on schema v5 while this
-strengthened evaluator is task-validator contract v6. Its symbol-retention
-audit identifies the exact global-search envelope, sorts that envelope's
-citations and the independent oracle separately, and compares the exact sets,
-never the union of all tool citations. The final
-`SOAR_SYMBOL_AUDIT.occurrences` record remains lexicographically sorted. Those
-harness checks do not make the runtime a generic exact-argument scheduler and do
-not demonstrate dynamic provider routing.
+strengthened evaluator is task-validator contract v7. The persisted model result
+remains model-attributed. Additive evaluator records are explicitly host-derived
+and not model-authored. Claim manifests provide IDs, summaries, and evidence
+requirements; claim citations must occur both in successful parsed tool events
+and in the accepted completion check. The symbol record instead originates in
+the exact global-search observation and is then cross-checked with the
+independent oracle; the oracle alone cannot create it.
+Those harness checks do not grade general answer quality, make the runtime a
+generic exact-argument scheduler, or demonstrate dynamic provider routing.
 
 ## Current and future routing
 

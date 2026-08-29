@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   mkdir,
   mkdtemp,
@@ -55,11 +55,19 @@ const finalPacketDriftToleranceBytes = 250;
 const proofModel = "RM-01 VLM";
 const proofSchemaVersion = 5;
 const proofRunType =
-  "guided-evaluator-disclosed-repository-evidence-contract-v1";
+  "guided-live-model-evidence-with-evaluator-records-v7";
+const proofTaskValidatorContract =
+  "architecture-schedule-evaluator-derived-claim-evidence-ordered-read-post-read-exact-arguments-and-exact-global-search-symbol-occurrences-v7";
+const proofClaimCoverageProvenance =
+  "exact-tool-observed-lines-and-completion-verified-citations-v1";
+const proofSymbolAuditProvenance =
+  "exact-successful-global-search-cross-checked-by-independent-oracle-v1";
+const proofEvaluatorRecordProvenance = {
+  claimCoverage: proofClaimCoverageProvenance,
+  symbolAudit: proofSymbolAuditProvenance,
+} as const;
 const proofMethodologyDisclosure =
-  "Evaluator-owned paths, source substrings, required relationships, and output-record shapes are agent-visible. This run proves bounded execution, evidence verification, and accepted-answer context retention; it is not blind repository discovery or a quality benchmark.";
-const claimCoverageMarker = "SOAR_CLAIM_COVERAGE=";
-const symbolAuditMarker = "SOAR_SYMBOL_AUDIT=";
+  "Evaluator-owned paths and source substrings are agent-visible. The persisted session model result is copied separately before artifact path redaction; evaluator records are not appended to it. The runtime may normalize citation paths before persistence, and the result is not graded for semantic quality or serialization. Evaluator manifests supply claim IDs, summaries, and evidence requirements; the host binds claims to distinct citations present in both successful parsed tool observations and the accepted completion check. Symbol occurrences come only from the exact successful global search and are independently cross-checked against the filesystem oracle. This run proves bounded execution, evidence verification, and accepted-answer context retention; it is not blind repository discovery or a quality benchmark.";
 const evaluatorExcludedPaths = [
   "tests/integration/local-repository-investigator.test.ts",
 ] as const;
@@ -119,8 +127,7 @@ interface ProofTask {
   architectureDiscoverySchedule?: ArchitectureDiscoverySchedule;
   requiresClaimEvidenceReads?: boolean;
   requiresClaimEvidenceSearches?: boolean;
-  requiresCallPathProse?: boolean;
-  requiresExactSymbolAudit?: boolean;
+  requiresExactSymbolEvidence?: boolean;
 }
 
 interface RepositoryProofIdentity {
@@ -159,6 +166,37 @@ type ToolCallRequestedEvent = Extract<
 interface SuccessfulToolExecution {
   request: ToolCallRequestedEvent;
   completion: ToolCallCompletedEvent;
+}
+
+interface EvaluatorClaimRecord {
+  id: string;
+  summary: string;
+  citations: string[];
+}
+
+interface EvaluatorRecords {
+  attribution: {
+    author: "soar-evaluator";
+    modelAuthored: false;
+    modelAnswerQualityGraded: false;
+  };
+  provenance:
+    | "host-derived-records-with-field-specific-provenance-v1";
+  claimCoverage: {
+    provenance: typeof proofClaimCoverageProvenance;
+    claims: EvaluatorClaimRecord[];
+  };
+  symbolAudit: null | {
+    query: typeof symbol;
+    truncated: boolean | null;
+    occurrences: string[];
+    provenance: typeof proofSymbolAuditProvenance;
+  };
+}
+
+interface EvaluatorRecordBuildResult {
+  records: EvaluatorRecords;
+  failures: string[];
 }
 
 interface CapturedProviderInput {
@@ -740,14 +778,19 @@ async function writeProofArtifact(
   report: unknown,
   pathRedactions: readonly ProofPathRedaction[] = [],
 ): Promise<void> {
-  const temporaryPath = `${artifactPath}.tmp`;
+  const temporaryPath =
+    `${artifactPath}.${process.pid}.${randomUUID()}.tmp`;
   const publicReport = redactProofArtifactPaths(report, pathRedactions);
-  await writeFile(
-    temporaryPath,
-    `${JSON.stringify(publicReport, null, 2)}\n`,
-    "utf8",
-  );
-  await rename(temporaryPath, artifactPath);
+  try {
+    await writeFile(
+      temporaryPath,
+      `${JSON.stringify(publicReport, null, 2)}\n`,
+      "utf8",
+    );
+    await rename(temporaryPath, artifactPath);
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
 }
 
 interface ProofPathRedaction {
@@ -794,6 +837,107 @@ function redactProofArtifactPaths(
     );
   }
   return value;
+}
+
+interface ProofCleanupStep {
+  label: string;
+  run: () => Promise<void> | void;
+}
+
+type ProofArtifactWriter = (
+  artifactPath: string,
+  report: unknown,
+  pathRedactions?: readonly ProofPathRedaction[],
+) => Promise<void>;
+
+async function removeProofPublicationCandidate(
+  acceptedPath: string,
+): Promise<void> {
+  await rm(acceptedPath, { force: true });
+  await rm(`${acceptedPath}.tmp`, { force: true });
+}
+
+async function publishAcceptedProofArtifactAfterCleanup(options: {
+  acceptedPath: string;
+  diagnosticPath: string;
+  report: Record<string, unknown>;
+  redactions: readonly ProofPathRedaction[];
+  cleanupSteps: readonly ProofCleanupStep[];
+  writeArtifact?: ProofArtifactWriter;
+}): Promise<void> {
+  const writeArtifact = options.writeArtifact ?? writeProofArtifact;
+  const cleanupFailures: string[] = [];
+  for (const step of options.cleanupSteps) {
+    try {
+      await step.run();
+    } catch (error) {
+      cleanupFailures.push(
+        `${step.label} failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+
+  if (cleanupFailures.length > 0) {
+    await removeProofPublicationCandidate(options.acceptedPath);
+    const cleanupDiagnostic = {
+      ...options.report,
+      artifactKind: "failed-live-proof-diagnostic",
+      passed: false,
+      failures: cleanupFailures,
+      phase: "cleanup",
+    } as const;
+    try {
+      await writeArtifact(
+        options.diagnosticPath,
+        cleanupDiagnostic,
+        options.redactions,
+      );
+    } catch (diagnosticError) {
+      throw new AggregateError(
+        [new Error(cleanupFailures.join("\n")), diagnosticError],
+        "Live proof cleanup failed and its diagnostic could not be written.",
+      );
+    }
+    throw new Error(
+      `Local Repository Investigator proof cleanup failed. Diagnostic artifact: ${options.diagnosticPath}\n- ${cleanupFailures.join("\n- ")}`,
+    );
+  }
+
+  try {
+    await writeArtifact(
+      options.acceptedPath,
+      options.report,
+      options.redactions,
+    );
+  } catch (error) {
+    await removeProofPublicationCandidate(options.acceptedPath);
+    const publicationDiagnostic = {
+      ...options.report,
+      artifactKind: "failed-live-proof-diagnostic",
+      passed: false,
+      failures: [
+        `accepted-artifact publication failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      ],
+      phase: "publication",
+    } as const;
+    try {
+      await writeArtifact(
+        options.diagnosticPath,
+        publicationDiagnostic,
+        options.redactions,
+      );
+    } catch (diagnosticError) {
+      throw new AggregateError(
+        [error, diagnosticError],
+        "Live proof publication failed and its diagnostic could not be written.",
+      );
+    }
+    throw error;
+  }
 }
 
 const symbol = `${"cancel"}${"Session"}`;
@@ -1008,8 +1152,7 @@ function cancellationObjective(): string {
   return (
     `Trace ${symbol} from UI/IPC through inference and tool signals to its tests. ` +
     `S=${JSON.stringify(schedule)}; execute exactly one search_text per S row in order with query=S[i][0], relativePath=S[i][1], caseSensitive=true, and bounded maxMatches. Do not call another tool or perform a broad search. ` +
-    "Then explain the flow and cite only tool-verified relative path:line references." +
-    claimCoverageInstruction(cancellationClaims)
+    "Then explain the flow in any readable format and cite the matching tool-verified relative path:line from every scheduled search. No machine-readable evaluator record is required."
   );
 }
 
@@ -1100,15 +1243,6 @@ const symbolCallPathClaims: ClaimCoverageRequirement[] = [
   },
 ];
 
-const symbolCallPathProseRelationships = [
-  "the renderer calls cancelSession through the preload bridge",
-  "the preload bridge invokes cancelSession over IPC",
-  "IPC dispatches cancelSession to SessionRunner",
-  "SessionRunner uses AbortController to abort the active session",
-  "the AbortController signal reaches the provider request",
-  "the AbortController signal reaches tool execution",
-] as const;
-
 function requiredClaimCitationCount(
   requirements: readonly ClaimCoverageRequirement[],
 ): number {
@@ -1150,27 +1284,6 @@ function requiredSupportingSearches(
     );
 }
 
-function claimCoverageInstruction(
-  requirements: readonly ClaimCoverageRequirement[],
-): string {
-  const paths = requiredClaimEvidencePaths(requirements);
-  const contract = requirements.map((requirement) => [
-    requirement.id,
-    requirement.summaryPhrases.length === 1
-      ? requirement.summaryPhrases[0]
-      : requirement.summaryPhrases,
-    requirement.evidence.map((evidence) => [
-      paths.indexOf(evidence.path),
-      evidence.lineIncludes,
-    ]),
-  ]);
-  return (
-    ` P=${JSON.stringify(paths)};C=${JSON.stringify(contract)}; ` +
-    "C=[id,exact summary phrase(s),[[P index,required line substring]]]. " +
-    `Emit one ${claimCoverageMarker}{"claims":[...]} line: one object/C row, keys only id,summary,citations; summary has its phrase(s); one distinct verified path:line/evidence, cited line contains its substring, never reuse.`
-  );
-}
-
 function architectureObjective(): string {
   const scheduledCalls = [
     `1. list_files(${JSON.stringify(architectureDiscoverySchedule.listArguments)})`,
@@ -1185,22 +1298,12 @@ function architectureObjective(): string {
         })})`,
     ),
   ];
-  return (
-    [
-      "Summarize the Electron repository architecture: runtime entry, session execution, renderer, persistence/replay, shared event contract, and integration tests.",
-      `Execute exactly these ${scheduledCalls.length} tool calls, one per round, in order; call no other tool:`,
-      ...scheduledCalls,
-      "Every call must succeed. The list, read, and searches must be complete/untruncated. Explain the architecture and cite only tool-verified relative path:line evidence.",
-    ].join("\n") + claimCoverageInstruction(architectureClaims)
-  );
-}
-
-function symbolClaimCoverageTemplate(): string {
-  return `${claimCoverageMarker}{"claims":[{"id":"","summary":"","citations":[]}]}`;
-}
-
-function symbolAuditTemplate(): string {
-  return `${symbolAuditMarker}{"query":"${symbol}","truncated":false,"occurrences":[]}`;
+  return [
+    "Summarize the Electron repository architecture: runtime entry, session execution, renderer, persistence/replay, shared event contract, and integration tests.",
+    `Execute exactly these ${scheduledCalls.length} tool calls, one per round, in order; call no other tool:`,
+    ...scheduledCalls,
+    "Every call must succeed. The list, read, and searches must be complete/untruncated. Explain the architecture in any readable format and cite the matching tool-verified relative path:line from every scheduled evidence search. No machine-readable evaluator record is required.",
+  ].join("\n");
 }
 
 function symbolReferenceObjective(): string {
@@ -1230,18 +1333,14 @@ function symbolReferenceObjective(): string {
       caseSensitive: true,
       maxMatches: 20,
     })}`,
-    "Searches complete. Claims:",
-    "First 4: phrase + global-1 substring from cited read. Others: named search.",
+    "After all calls, explain the UI-runtime path in any readable format. Cite one distinct tool-verified relative path:line for every evidence substring below. SOAR authors evaluator records separately; do not emit audit JSON.",
+    "Evidence contract:",
     `renderer-cancel/R5: ${JSON.stringify(claimPhrases[0]?.[0])}; ${JSON.stringify(claimEvidence[0]?.[0]?.lineIncludes)}`,
     `preload-bridge/R4: ${JSON.stringify(claimPhrases[1]?.[0])}; ${JSON.stringify(claimEvidence[1]?.[0]?.lineIncludes)}`,
     `ipc-dispatch/R3: ${JSON.stringify(claimPhrases[2]?.[0])}; ${JSON.stringify(claimEvidence[2]?.[0]?.lineIncludes)}; ${JSON.stringify(claimEvidence[2]?.[1]?.lineIncludes)}`,
     `runner-abort/R2: ${JSON.stringify(claimPhrases[3]?.[0])}; ${JSON.stringify(claimEvidence[3]?.[0]?.lineIncludes)}; S7`,
     `signal-propagation: ${JSON.stringify(claimPhrases[4]?.[0])}; ${JSON.stringify(claimPhrases[4]?.[1])}; S9,10,8`,
     `integration-test: ${JSON.stringify(claimPhrases[5]?.[0])}; S11`,
-    "Before records: >=120 prose chars; phrases verbatim/in order; distinct citation/substr; prose required.",
-    "Finish with adjacent unfenced lines; no extra text/keys. Audit=all unique global-1 path:line strings lexicographically sorted, not search order:",
-    symbolClaimCoverageTemplate(),
-    symbolAuditTemplate(),
   ].join("\n");
 }
 
@@ -1293,8 +1392,7 @@ const tasks: ProofTask[] = [
     claimCoverage: symbolCallPathClaims,
     requiresClaimEvidenceReads: true,
     requiresClaimEvidenceSearches: true,
-    requiresCallPathProse: true,
-    requiresExactSymbolAudit: true,
+    requiresExactSymbolEvidence: true,
   },
 ];
 
@@ -1325,121 +1423,6 @@ function hasExactArguments(
       ([key, expectedValue]) => value[key] === expectedValue,
     )
   );
-}
-
-function markerPayload(
-  result: string,
-  marker: string,
-): { payload?: unknown; failures: string[] } {
-  const lines = result
-    .split(/\r\n|\r|\n/u)
-    .filter((line) => line.startsWith(marker));
-  if (lines.length !== 1) {
-    return {
-      failures: [
-        `expected exactly one single-line ${marker} record; got ${lines.length}`,
-      ],
-    };
-  }
-  try {
-    return {
-      payload: JSON.parse((lines[0] ?? "").slice(marker.length)) as unknown,
-      failures: [],
-    };
-  } catch (error) {
-    return {
-      failures: [
-        `${marker} payload is not valid single-line JSON: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      ],
-    };
-  }
-}
-
-function finalRecordSuffixFailures(result: string): string[] {
-  const lines = result.replace(/[\r\n]+$/u, "").split(/\r\n|\r|\n/u);
-  const claimLine = lines.at(-2);
-  const auditLine = lines.at(-1);
-  const failures: string[] = [];
-  if (
-    claimLine?.startsWith(claimCoverageMarker) !== true ||
-    auditLine?.startsWith(symbolAuditMarker) !== true
-  ) {
-    failures.push(
-        `the final two adjacent lines must be ${claimCoverageMarker.slice(0, -1)} then ${symbolAuditMarker.slice(0, -1)}, with no trailing text`,
-    );
-  }
-
-  let openFence: { character: "`" | "~"; length: number } | undefined;
-  const markerIndexes = new Set([lines.length - 2, lines.length - 1]);
-  for (const [index, line] of lines.entries()) {
-    if (markerIndexes.has(index) && openFence !== undefined) {
-      failures.push("the final claim and audit records must be outside Markdown fences");
-      break;
-    }
-    const trimmed = line.trim();
-    if (openFence === undefined) {
-      const opening = /^[ \t]{0,3}(`{3,}|~{3,})/u.exec(line)?.[1];
-      if (opening !== undefined) {
-        openFence = {
-          character: opening[0] as "`" | "~",
-          length: opening.length,
-        };
-      }
-      continue;
-    }
-    const activeFence = openFence;
-    if (
-      trimmed.length >= activeFence.length &&
-      [...trimmed].every(
-        (character) => character === activeFence.character,
-      )
-    ) {
-      openFence = undefined;
-    }
-  }
-  return failures;
-}
-
-function callPathProseFailures(result: string): string[] {
-  const prose = result
-    .split(/\r\n|\r|\n/u)
-    .filter(
-      (line) =>
-        !line.startsWith(claimCoverageMarker) &&
-        !line.startsWith(symbolAuditMarker),
-    )
-    .join("\n")
-    .trim();
-  const failures: string[] = [];
-  if (prose.length < 120) {
-    failures.push(
-      "symbol call-path answer must include substantive prose outside evaluator records",
-    );
-  }
-  const normalized = prose.toLowerCase();
-  let relationshipCursor = 0;
-  const missingOrOutOfOrderRelationships: string[] = [];
-  for (const relationship of symbolCallPathProseRelationships) {
-    const normalizedRelationship = relationship.toLowerCase();
-    const relationshipIndex = normalized.indexOf(
-      normalizedRelationship,
-      relationshipCursor,
-    );
-    if (relationshipIndex === -1) {
-      missingOrOutOfOrderRelationships.push(relationship);
-      continue;
-    }
-    relationshipCursor = relationshipIndex + normalizedRelationship.length;
-  }
-  if (missingOrOutOfOrderRelationships.length > 0) {
-    failures.push(
-      "symbol call-path prose must state the evaluator-owned relationships in order; " +
-        `missing or out of order: ${missingOrOutOfOrderRelationships.join("; ")}`,
-    );
-  }
-  return failures;
 }
 
 function citationPath(citation: string): string | undefined {
@@ -1672,209 +1655,149 @@ function finalPacketRetentionAudit(options: {
   };
 }
 
-async function claimCoverageFailures(options: {
-  workspaceRoot: string;
-  result: string;
-  requirements: readonly ClaimCoverageRequirement[];
-  verifiedCitations: readonly string[];
-}): Promise<string[]> {
-  const parsed = markerPayload(options.result, claimCoverageMarker);
-  const failures = [...parsed.failures];
-  if (!isRecord(parsed.payload) || !hasExactKeys(parsed.payload, ["claims"])) {
-    if (parsed.failures.length === 0) {
-      failures.push("claim coverage must be a strict object containing only claims");
-    }
-    return failures;
-  }
-  if (!Array.isArray(parsed.payload.claims)) {
-    failures.push("claim coverage claims must be an array");
-    return failures;
-  }
+interface ObservedToolLine {
+  citation: string;
+  path: string;
+  text: string;
+  completionSequence: number;
+}
 
-  const claims = parsed.payload.claims;
-  const requiredIds = options.requirements.map((requirement) => requirement.id);
-  const observedIds = claims.map((claim) =>
-    isRecord(claim) && typeof claim.id === "string" ? claim.id : "<invalid>",
-  );
-  if (
-    observedIds.length !== requiredIds.length ||
-    new Set(observedIds).size !== observedIds.length ||
-    [...observedIds].sort().some(
-      (id, index) => id !== [...requiredIds].sort()[index],
-    )
-  ) {
-    failures.push(
-      `claim coverage ids must equal ${requiredIds.join(", ")} exactly once; got ${observedIds.join(", ")}`,
+function observedToolLines(
+  executions: readonly SuccessfulToolExecution[],
+): ObservedToolLine[] {
+  const observed: ObservedToolLine[] = [];
+  for (const execution of executions) {
+    const toolName = execution.request.payload.name;
+    if (execution.completion.payload.name !== toolName) continue;
+    const observation = parseSuccessfulRepositoryToolObservation(
+      toolName,
+      execution.request.payload.arguments,
+      execution.completion.payload.content,
     );
-  }
+    if (observation?.truncated !== false) continue;
 
-  const verified = new Set(options.verifiedCitations);
-  const coverageCitations: string[] = [];
-  const fileLines = new Map<string, string[]>();
-  const lineFor = async (citation: string): Promise<string | undefined> => {
-    const relativePath = citationPath(citation);
-    if (relativePath === undefined) return undefined;
-    const separator = citation.lastIndexOf(":");
-    const lineNumber = Number(citation.slice(separator + 1));
-    let lines = fileLines.get(relativePath);
-    if (lines === undefined) {
-      try {
-        const contents = await readFile(
-          path.join(options.workspaceRoot, ...relativePath.split("/")),
-          "utf8",
-        );
-        lines = contents.split(/\r\n|\r|\n/u);
-        fileLines.set(relativePath, lines);
-      } catch {
-        return undefined;
-      }
-    }
-    return lines[lineNumber - 1];
-  };
-  const usedEvidenceCitations = new Set<string>();
-  for (const requirement of options.requirements) {
-    const claim = claims.find(
-      (candidate) => isRecord(candidate) && candidate.id === requirement.id,
-    );
-    if (!isRecord(claim)) continue;
-    if (!hasExactKeys(claim, ["id", "summary", "citations"])) {
-      failures.push(
-        `${requirement.id}: claim object must contain only id, summary, and citations`,
-      );
-      continue;
-    }
-    if (typeof claim.summary !== "string" || claim.summary.trim().length < 12) {
-      failures.push(`${requirement.id}: summary must be a substantive non-empty claim`);
-    } else {
-      const normalizedSummary = claim.summary.toLowerCase();
-      const missingPhrases = requirement.summaryPhrases.filter(
-        (phrase) => !normalizedSummary.includes(phrase.toLowerCase()),
-      );
-      if (missingPhrases.length > 0) {
-        failures.push(
-          `${requirement.id}: summary is missing required relational phrases ${missingPhrases.join("; ")}`,
-        );
-      }
-    }
-    if (
-      !Array.isArray(claim.citations) ||
-      claim.citations.length === 0 ||
-      !claim.citations.every((citation) => typeof citation === "string")
-    ) {
-      failures.push(`${requirement.id}: citations must be a non-empty string array`);
-      continue;
-    }
-    const citations = claim.citations as string[];
-    if (citations.length < requirement.evidence.length) {
-      failures.push(
-        `${requirement.id}: expected at least ${requirement.evidence.length} evidence citations; got ${citations.length}`,
-      );
-    }
-    if (new Set(citations).size !== citations.length) {
-      failures.push(`${requirement.id}: citations contain duplicates`);
-    }
-    const allowedPaths = new Set(
-      requirement.evidence.map((evidence) => evidence.path),
-    );
-    for (const citation of citations) {
-      coverageCitations.push(citation);
-      if (!verified.has(citation)) {
-        failures.push(
-          `${requirement.id}: citation was not verified by the completion guard: ${citation}`,
-        );
-      }
-      const relativePath = citationPath(citation);
-      if (relativePath === undefined || !allowedPaths.has(relativePath)) {
-        failures.push(
-          `${requirement.id}: citation is outside its exact evidence path set: ${citation}`,
-        );
-      }
-    }
-    for (const evidence of requirement.evidence) {
-      let supportingCitation: string | undefined;
-      for (const citation of citations) {
+    if (toolName === "search_text" && Array.isArray(observation.matches)) {
+      for (const match of observation.matches) {
         if (
-          usedEvidenceCitations.has(citation) ||
-          citationPath(citation) !== evidence.path
+          !isRecord(match) ||
+          typeof match.path !== "string" ||
+          !Number.isSafeInteger(match.lineNumber) ||
+          (match.lineNumber as number) < 1 ||
+          typeof match.text !== "string"
         ) {
           continue;
         }
-        const line = await lineFor(citation);
-        if (line?.includes(evidence.lineIncludes)) {
-          supportingCitation = citation;
-          break;
-        }
+        observed.push({
+          citation: `${match.path}:${String(match.lineNumber)}`,
+          path: match.path,
+          text: match.text,
+          completionSequence: execution.completion.sequence,
+        });
       }
-      if (supportingCitation === undefined) {
-        failures.push(
-          `${requirement.id}: no distinct citation proves ${evidence.path} containing ${JSON.stringify(evidence.lineIncludes)}`,
-        );
-      } else {
-        usedEvidenceCitations.add(supportingCitation);
+      continue;
+    }
+
+    if (toolName === "read_text_file" && typeof observation.text === "string") {
+      const relativePath = workspaceRelativePathForTool(
+        toolName,
+        execution.request.payload.arguments,
+      );
+      if (relativePath === undefined) continue;
+      for (const [lineIndex, text] of observation.text
+        .split(/\r\n|\r|\n/u)
+        .entries()) {
+        observed.push({
+          citation: `${relativePath}:${lineIndex + 1}`,
+          path: relativePath,
+          text,
+          completionSequence: execution.completion.sequence,
+        });
       }
     }
   }
-  if (new Set(coverageCitations).size !== coverageCitations.length) {
-    failures.push("claim coverage must use a distinct citation for each supported claim");
-  }
-  return failures;
+  return observed.sort(
+    (left, right) =>
+      left.completionSequence - right.completionSequence ||
+      left.citation.localeCompare(right.citation) ||
+      left.text.localeCompare(right.text),
+  );
 }
 
-function symbolAuditFailures(options: {
-  result: string;
-  expectedOccurrences: readonly string[];
+function buildEvaluatorRecords(options: {
+  executions: readonly SuccessfulToolExecution[];
+  requirements: readonly ClaimCoverageRequirement[];
   verifiedCitations: readonly string[];
-}): string[] {
-  const parsed = markerPayload(options.result, symbolAuditMarker);
-  const failures = [...parsed.failures];
-  if (
-    !isRecord(parsed.payload) ||
-    !hasExactKeys(parsed.payload, ["query", "truncated", "occurrences"])
-  ) {
-    if (parsed.failures.length === 0) {
-      failures.push(
-        "symbol audit must be a strict object containing query, truncated, and occurrences",
-      );
-    }
-    return failures;
-  }
-  if (parsed.payload.query !== symbol) {
-    failures.push(`symbol audit query must be ${symbol}`);
-  }
-  if (parsed.payload.truncated !== false) {
-    failures.push("symbol audit must report truncated=false for the complete fixture search");
-  }
-  if (
-    !Array.isArray(parsed.payload.occurrences) ||
-    !parsed.payload.occurrences.every(
-      (occurrence) => typeof occurrence === "string",
-    )
-  ) {
-    failures.push("symbol audit occurrences must be a string array");
-    return failures;
-  }
-  const occurrences = parsed.payload.occurrences as string[];
-  if (new Set(occurrences).size !== occurrences.length) {
-    failures.push("symbol audit occurrences contain duplicates");
-  }
-  const expected = [...options.expectedOccurrences].sort();
-  if (
-    occurrences.length !== expected.length ||
-    occurrences.some((occurrence, index) => occurrence !== expected[index])
-  ) {
-    failures.push(
-      `symbol audit occurrences must exactly equal the sorted fixture set (${expected.length} entries)`,
-    );
-  }
+  includeSymbolAudit: boolean;
+  expectedSymbolOccurrences?: readonly string[];
+}): EvaluatorRecordBuildResult {
+  const failures: string[] = [];
   const verified = new Set(options.verifiedCitations);
-  for (const occurrence of occurrences) {
-    if (!verified.has(occurrence)) {
+  const observedLines = observedToolLines(options.executions);
+  const usedCitations = new Set<string>();
+  const claims = options.requirements.map((requirement) => {
+    const citations: string[] = [];
+    for (const evidence of requirement.evidence) {
+      const supportingLine = observedLines.find(
+        (line) =>
+          line.path === evidence.path &&
+          line.text.includes(evidence.lineIncludes) &&
+          verified.has(line.citation) &&
+          !usedCitations.has(line.citation),
+      );
+      if (supportingLine === undefined) {
+        failures.push(
+          `${requirement.id}: no distinct completion-verified citation from a successful parsed tool observation proves ${evidence.path} containing ${JSON.stringify(evidence.lineIncludes)}`,
+        );
+        continue;
+      }
+      usedCitations.add(supportingLine.citation);
+      citations.push(supportingLine.citation);
+    }
+    return {
+      id: requirement.id,
+      summary: requirement.summaryPhrases.join("; "),
+      citations,
+    };
+  });
+
+  let symbolAudit: EvaluatorRecords["symbolAudit"] = null;
+  if (options.includeSymbolAudit) {
+    const expected = options.expectedSymbolOccurrences;
+    if (expected === undefined) {
       failures.push(
-        `symbol audit occurrence was not verified by the completion guard: ${occurrence}`,
+        "symbol evaluator record requires an independent-oracle occurrence set",
       );
     }
+    const exactSearch = exactGlobalSymbolObservation(
+      options.executions,
+      expected ?? [],
+    );
+    failures.push(...exactSearch.failures);
+    symbolAudit = {
+      query: symbol,
+      truncated: exactSearch.truncated,
+      occurrences: exactSearch.occurrences,
+      provenance: proofSymbolAuditProvenance,
+    };
   }
-  return failures;
+
+  return {
+    records: {
+      attribution: {
+        author: "soar-evaluator",
+        modelAuthored: false,
+        modelAnswerQualityGraded: false,
+      },
+      provenance:
+        "host-derived-records-with-field-specific-provenance-v1",
+      claimCoverage: {
+        provenance: proofClaimCoverageProvenance,
+        claims,
+      },
+      symbolAudit,
+    },
+    failures,
+  };
 }
 
 function successfulToolExecutions(
@@ -1895,7 +1818,13 @@ function successfulToolExecutions(
     )
     .flatMap((completion) => {
       const request = requests.get(completion.payload.toolCallId);
-      return request === undefined ? [] : [{ request, completion }];
+      if (
+        request === undefined ||
+        request.payload.name !== completion.payload.name
+      ) {
+        return [];
+      }
+      return [{ request, completion }];
     });
 }
 
@@ -2264,10 +2193,14 @@ function orderedEvidenceSearchFailures(
   return failures;
 }
 
-function completeSymbolSearchFailures(
+function exactGlobalSymbolObservation(
   executions: readonly SuccessfulToolExecution[],
   expectedOccurrences: readonly string[],
-): string[] {
+): {
+  occurrences: string[];
+  truncated: boolean | null;
+  failures: string[];
+} {
   const failures: string[] = [];
   const symbolSearches = executions.filter((execution) => {
     const arguments_ = execution.request.payload.arguments;
@@ -2285,64 +2218,78 @@ function completeSymbolSearchFailures(
   }
 
   const exactGlobalSearches = symbolSearches.filter((execution) =>
-    hasExactArguments(execution.request.payload.arguments, {
-      query: symbol,
-      relativePath: ".",
-      caseSensitive: true,
-      maxMatches: 500,
-      maxDepth: 20,
-    }),
+    hasExactArguments(
+      execution.request.payload.arguments,
+      symbolGlobalSearchArguments,
+    ),
   );
   if (exactGlobalSearches.length !== 1) {
     failures.push(
       `the global ${symbol} search must use exactly query, relativePath=".", caseSensitive=true, maxMatches=500, and maxDepth=20`,
     );
   }
-  if (symbolSearches.length !== 1 || exactGlobalSearches.length !== 1) {
-    return failures;
+  if (exactGlobalSearches.length !== 1) {
+    return { occurrences: [], truncated: null, failures };
   }
 
   const expected = [...expectedOccurrences].sort();
-  const qualifying = exactGlobalSearches.some((execution) => {
-    let output: unknown;
-    try {
-      output = JSON.parse(execution.completion.payload.content) as unknown;
-    } catch {
-      return false;
-    }
-    if (
-      !isRecord(output) ||
-      output.ok !== true ||
-      output.truncated !== false ||
-      !Array.isArray(output.matches) ||
-      output.count !== output.matches.length ||
-      !isRecord(output.skipped) ||
-      output.skipped.tooLarge !== 0 ||
-      output.skipped.unreadable !== 0
-    ) {
-      return false;
-    }
-    const occurrences = output.matches.map((match) =>
+  const execution = exactGlobalSearches[0]!;
+  const output = parseSuccessfulRepositoryToolObservation(
+    execution.request.payload.name,
+    execution.request.payload.arguments,
+    execution.completion.payload.content,
+  );
+  if (
+    output === undefined ||
+    !Array.isArray(output.matches) ||
+    !isRecord(output.skipped)
+  ) {
+    failures.push(
+      "the exact global symbol search did not produce a schema-valid parsed tool observation",
+    );
+    return { occurrences: [], truncated: null, failures };
+  }
+  const occurrences = output.matches
+    .map((match) =>
       isRecord(match) &&
       typeof match.path === "string" &&
       Number.isSafeInteger(match.lineNumber)
         ? `${match.path}:${String(match.lineNumber)}`
         : "<invalid>",
-    );
-    return (
-      new Set(occurrences).size === occurrences.length &&
-      occurrences.length === expected.length &&
-      [...occurrences]
-        .sort()
-        .every((occurrence, index) => occurrence === expected[index])
-    );
-  });
-  if (!qualifying) {
+    )
+    .sort();
+  const isComplete =
+    output.truncated === false &&
+    output.skipped.tooLarge === 0 &&
+    output.skipped.unreadable === 0;
+  if (!isComplete) {
     failures.push(
       "no successful exact-symbol search returned the complete, untruncated fixture occurrence set without unreadable or oversized files",
     );
   }
-  return failures;
+  if (new Set(occurrences).size !== occurrences.length) {
+    failures.push("the exact global symbol search returned duplicate occurrences");
+  }
+  if (
+    occurrences.length !== expected.length ||
+    occurrences.some((occurrence, index) => occurrence !== expected[index])
+  ) {
+    failures.push(
+      `the exact global symbol search returned ${occurrences.length} occurrences that do not equal the independently scanned fixture set of ${expected.length}`,
+    );
+  }
+  return {
+    occurrences,
+    truncated: output.truncated,
+    failures,
+  };
+}
+
+function completeSymbolSearchFailures(
+  executions: readonly SuccessfulToolExecution[],
+  expectedOccurrences: readonly string[],
+): string[] {
+  return exactGlobalSymbolObservation(executions, expectedOccurrences).failures;
 }
 
 function citationsIn(result: string): Set<string> {
@@ -2590,6 +2537,9 @@ describe("Local Repository Investigator evaluator contract", () => {
       tasks.reduce((total, candidate) => total + candidate.maximumProviderCalls, 0) *
         proofContextPolicy.maxInputTokens,
     ).toBe(557_056);
+    expect(proofSchemaVersion).toBe(5);
+    expect(proofRunType).toMatch(/v7$/u);
+    expect(proofTaskValidatorContract).toMatch(/v7$/u);
     expect(proofObjectiveMaxUtf8Bytes).toBe(2_800);
     for (const boundedTask of [cancellationTask, task]) {
       expect(
@@ -2634,9 +2584,7 @@ describe("Local Repository Investigator evaluator contract", () => {
     expect(objectiveLines).toContain(
       `2-6 read_text_file, complete before 7: ${requiredReadPaths.map((path, index) => `${index + 2}=${JSON.stringify(path)}`).join(";")}`,
     );
-    expect(objectiveLines).toContain(
-      "First 4: phrase + global-1 substring from cited read. Others: named search.",
-    );
+    expect(objectiveLines).toContain("Evidence contract:");
     expect(
       new Set(
         objectiveSupportingSearchPairs
@@ -2689,25 +2637,13 @@ describe("Local Repository Investigator evaluator contract", () => {
       }
     }
 
-    expect(
-      objectiveLines.filter((line) => line.startsWith(claimCoverageMarker)),
-    ).toEqual([symbolClaimCoverageTemplate()]);
-    expect(
-      objectiveLines.filter((line) => line.startsWith(symbolAuditMarker)),
-    ).toEqual([symbolAuditTemplate()]);
-    expect(task.objective.split(claimCoverageMarker)).toHaveLength(2);
-    expect(task.objective.split(symbolAuditMarker)).toHaveLength(2);
-    expect(objectiveLines.slice(-2)).toEqual([
-      symbolClaimCoverageTemplate(),
-      symbolAuditTemplate(),
-    ]);
-    expect(objectiveLines).toContain(
-      "Before records: >=120 prose chars; phrases verbatim/in order; distinct citation/substr; prose required.",
+    expect(task.objective).toContain(
+      "SOAR authors evaluator records separately; do not emit audit JSON",
     );
-    expect(objectiveLines).toContain(
-      "Finish with adjacent unfenced lines; no extra text/keys. Audit=all unique global-1 path:line strings lexicographically sorted, not search order:",
-    );
-    expect(task.objective).toContain("no extra text/keys");
+    expect(task.objective).not.toContain("SOAR_CLAIM_COVERAGE");
+    expect(task.objective).not.toContain("SOAR_SYMBOL_AUDIT");
+    expect(task.objective).not.toContain("Finish with adjacent unfenced lines");
+    expect(task.objective).not.toContain("phrases verbatim/in order");
   });
 
   it("pins architecture to one bounded list, one entry read, and seven exact evidence searches", () => {
@@ -3339,28 +3275,10 @@ describe("Local Repository Investigator evaluator contract", () => {
         requiredEvidenceCount,
       );
 
-      const coverageClaims = claimCoverage.map((requirement) => ({
-        id: requirement.id,
-        summary: requirement.summaryPhrases.join("; "),
-        citations: requirement.evidence.map((evidence) => {
-          const citation = evidenceCitations.get(
-            `${evidence.path}\u0000${evidence.lineIncludes}`,
-          );
-          if (citation === undefined) {
-            throw new Error(`No fixture citation was derived for ${requirement.id}`);
-          }
-          return citation;
-        }),
-      }));
       const finalAnswer =
-        `${symbolCallPathProseRelationships.join(". Then ")}. ` +
-        `The evidence is ${[...evidenceCitations.values()].join(", ")}.\n` +
-        `${claimCoverageMarker}${JSON.stringify({ claims: coverageClaims })}\n` +
-        `${symbolAuditMarker}${JSON.stringify({
-          query: symbol,
-          truncated: false,
-          occurrences: symbolOracle.occurrences,
-        })}`;
+        `Provider-authored evidence note: ${[
+          ...evidenceCitations.values(),
+        ].join(", ")}.`;
 
       const scheduledToolCalls = [
         {
@@ -3529,6 +3447,36 @@ describe("Local Repository Investigator evaluator contract", () => {
         );
         expect(acceptedChecks).toHaveLength(1);
         const acceptedCheck = acceptedChecks[0]!;
+        const evaluatorRecordBuild = buildEvaluatorRecords({
+          executions,
+          requirements: claimCoverage,
+          verifiedCitations:
+            acceptedCheck.payload.verifiedPathLineCitations,
+          includeSymbolAudit: true,
+          expectedSymbolOccurrences: symbolOracle.occurrences,
+        });
+        expect(evaluatorRecordBuild.failures).toEqual([]);
+        expect(evaluatorRecordBuild.records).toMatchObject({
+          attribution: {
+            author: "soar-evaluator",
+            modelAuthored: false,
+            modelAnswerQualityGraded: false,
+          },
+          claimCoverage: {
+            claims: claimCoverage.map((requirement) => ({
+              id: requirement.id,
+              summary: requirement.summaryPhrases.join("; "),
+            })),
+          },
+          symbolAudit: {
+            query: symbol,
+            truncated: false,
+            occurrences: symbolOracle.occurrences,
+          },
+        });
+        expect(record.result).toBe(finalAnswer);
+        expect(record.result).not.toContain("SOAR_CLAIM_COVERAGE");
+        expect(record.result).not.toContain("SOAR_SYMBOL_AUDIT");
         const acceptedRound = acceptedCheck.payload.round;
         const acceptedInput = provider.inputs[acceptedRound - 1];
         const contextEvents = events.filter(
@@ -3704,12 +3652,12 @@ describe("Local Repository Investigator evaluator contract", () => {
         task.objective,
         "deterministic-real-symbol-retention",
       );
-      const finalRecordInstruction =
-        "Finish with adjacent unfenced lines";
+      const evaluatorRecordInstruction =
+        "SOAR authors evaluator records separately; do not emit audit JSON";
       const inertCapacityPadding = `<!--${"x".repeat(242)}-->\n`;
       const paddedObjective = task.objective.replace(
-        finalRecordInstruction,
-        `${inertCapacityPadding}${finalRecordInstruction}`,
+        evaluatorRecordInstruction,
+        `${inertCapacityPadding}${evaluatorRecordInstruction}`,
       );
       expect(new TextEncoder().encode(inertCapacityPadding)).toHaveLength(
         finalPacketDriftToleranceBytes,
@@ -3725,87 +3673,6 @@ describe("Local Repository Investigator evaluator contract", () => {
     } finally {
       await rm(fixture.temporaryRoot, { recursive: true, force: true });
     }
-  });
-
-  it("requires exact, sorted, unique symbol occurrences and a false truncation flag", () => {
-    const expected = ["src/a.ts:2", "tests/a.test.ts:7"];
-    const accepted =
-      `${symbolAuditMarker}` +
-      JSON.stringify({
-        query: symbol,
-        truncated: false,
-        occurrences: expected,
-      });
-    expect(
-      symbolAuditFailures({
-        result: accepted,
-        expectedOccurrences: expected,
-        verifiedCitations: expected,
-      }),
-    ).toEqual([]);
-
-    const rejected =
-      `${symbolAuditMarker}` +
-      JSON.stringify({
-        query: symbol,
-        truncated: true,
-        occurrences: [expected[0], expected[0], "src/extra.ts:1"],
-      });
-    expect(
-      symbolAuditFailures({
-        result: rejected,
-        expectedOccurrences: expected,
-        verifiedCitations: expected,
-      }),
-    ).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("truncated=false"),
-        expect.stringContaining("duplicates"),
-        expect.stringContaining("exactly equal"),
-        expect.stringContaining("not verified"),
-      ]),
-    );
-  });
-
-  it("requires claim coverage and symbol audit as the final adjacent records", () => {
-    const claim = `${claimCoverageMarker}{"claims":[]}`;
-    const audit = `${symbolAuditMarker}{"query":"${symbol}","truncated":false,"occurrences":[]}`;
-
-    expect(
-      finalRecordSuffixFailures(`Substantive call-path prose.\n${claim}\n${audit}`),
-    ).toEqual([]);
-    expect(
-      finalRecordSuffixFailures(`Substantive call-path prose.\n${audit}\n${claim}`),
-    ).toEqual([expect.stringContaining("final two adjacent lines")]);
-    expect(
-      finalRecordSuffixFailures(
-        `Substantive call-path prose.\n${claim}\n${audit}\nTrailing prose.`,
-      ),
-    ).toEqual([expect.stringContaining("no trailing text")]);
-    expect(
-      finalRecordSuffixFailures(
-        `Substantive call-path prose.\n${claim}\nIntervening prose.\n${audit}`,
-      ),
-    ).toEqual([expect.stringContaining("final two adjacent lines")]);
-    expect(
-      finalRecordSuffixFailures(
-        [
-          "```text",
-          "Earlier fenced example.",
-          "```",
-          "Substantive call-path prose.",
-          claim,
-          audit,
-        ].join("\n"),
-      ),
-    ).toEqual([]);
-    expect(
-      finalRecordSuffixFailures(
-        ["Substantive call-path prose.", "~~~json", claim, audit].join(
-          "\n",
-        ),
-      ),
-    ).toEqual([expect.stringContaining("outside Markdown fences")]);
   });
 
   it("requires the successful search tool trace to return the exact untruncated set", () => {
@@ -3854,21 +3721,35 @@ describe("Local Repository Investigator evaluator contract", () => {
               return {
                 path: occurrence.slice(0, separator),
                 lineNumber: Number(occurrence.slice(separator + 1)),
+                text: `${symbol} reference`,
+                textTruncated: false,
               };
             }),
-            skipped: { tooLarge: 0, unreadable: 0 },
+            filesSearched: 2,
+            bytesScanned: 128,
+            skipped: {
+              binary: 0,
+              ignored: 0,
+              symlink: 0,
+              tooLarge: 0,
+              unreadable: 0,
+            },
+            outputBytes: 128,
           }),
           isError: false,
         },
       },
     });
 
-    expect(
-      completeSymbolSearchFailures(
-        [makeExecution({ truncated: false, occurrences: expected })],
-        expected,
-      ),
-    ).toEqual([]);
+    const accepted = exactGlobalSymbolObservation(
+      [makeExecution({ truncated: false, occurrences: expected })],
+      expected,
+    );
+    expect(accepted).toEqual({
+      occurrences: expected,
+      truncated: false,
+      failures: [],
+    });
     expect(
       completeSymbolSearchFailures(
         [
@@ -3879,8 +3760,34 @@ describe("Local Repository Investigator evaluator contract", () => {
         ],
         expected,
       ),
-    ).toEqual([
-      expect.stringContaining("complete, untruncated fixture occurrence set"),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("complete, untruncated fixture occurrence set"),
+        expect.stringContaining("duplicate occurrences"),
+        expect.stringContaining("independently scanned fixture set"),
+      ]),
+    );
+
+    const oracleMismatch = exactGlobalSymbolObservation(
+      [makeExecution({ truncated: false, occurrences: expected })],
+      ["src/oracle-only.ts:1"],
+    );
+    expect(oracleMismatch.occurrences).toEqual(expected);
+    expect(oracleMismatch.failures).toEqual([
+      expect.stringContaining("independently scanned fixture set"),
+    ]);
+    const evaluatorOracleMismatch = buildEvaluatorRecords({
+      executions: [makeExecution({ truncated: false, occurrences: expected })],
+      requirements: [],
+      verifiedCitations: [],
+      includeSymbolAudit: true,
+      expectedSymbolOccurrences: ["src/oracle-only.ts:1"],
+    });
+    expect(evaluatorOracleMismatch.records.symbolAudit?.occurrences).toEqual(
+      expected,
+    );
+    expect(evaluatorOracleMismatch.failures).toEqual([
+      expect.stringContaining("independently scanned fixture set"),
     ]);
     const invalidGlobalArguments: Array<
       Record<string, string | number | boolean>
@@ -3916,36 +3823,6 @@ describe("Local Repository Investigator evaluator contract", () => {
         expect.stringContaining("must use exactly query, relativePath"),
       ]);
     }
-  });
-
-  it("requires substantive call-path prose outside machine-readable records", () => {
-    const markerOnly =
-      `${claimCoverageMarker}{"claims":[]}\n` +
-      `${symbolAuditMarker}{"query":"${symbol}","truncated":false,"occurrences":[]}`;
-    expect(callPathProseFailures(markerOnly)).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("substantive prose"),
-        expect.stringContaining("evaluator-owned relationships in order"),
-      ]),
-    );
-
-    const keywordSalad =
-      "cancelSession renderer preload IPC SessionRunner AbortController provider tool signal " +
-      "appear in this deliberately long paragraph, but listing the nouns does not establish " +
-      "which component calls which downstream component or how cancellation propagates.";
-    expect(callPathProseFailures(keywordSalad)).toEqual([
-      expect.stringContaining("evaluator-owned relationships in order"),
-    ]);
-
-    const reversedRelationships = [...symbolCallPathProseRelationships]
-      .reverse()
-      .join(". ");
-    expect(callPathProseFailures(reversedRelationships)).toEqual([
-      expect.stringContaining("missing or out of order"),
-    ]);
-
-    const prose = symbolCallPathProseRelationships.join(". Then ");
-    expect(callPathProseFailures(prose)).toEqual([]);
   });
 
   it("requires successful complete reads of every call-path evidence file", () => {
@@ -4332,10 +4209,7 @@ describe("Local Repository Investigator evaluator contract", () => {
     );
   });
 
-  it("binds every claim to exact verified lines that prove its required structure", async () => {
-    const workspaceRoot = await mkdtemp(
-      path.join(tmpdir(), "soar-claim-coverage-test-"),
-    );
+  it("derives evaluator claims only from exact observed and completion-verified lines", () => {
     const requirements: ClaimCoverageRequirement[] = [
       {
         id: "runtime",
@@ -4352,88 +4226,174 @@ describe("Local Repository Investigator evaluator contract", () => {
         ],
       },
     ];
-    const accepted =
-      `${claimCoverageMarker}` +
-      JSON.stringify({
+    const readText = "line one\nline two\nconst ownsExecution = true;\n";
+    const readExecution: SuccessfulToolExecution = {
+      request: {
+        id: "request-read",
+        sessionId: "session",
+        sequence: 1,
+        createdAt: "2026-08-29T00:00:00.000Z",
+        type: "tool.call.requested",
+        payload: {
+          toolCallId: "read",
+          name: "read_text_file",
+          arguments: { relativePath: "src/main/index.ts" },
+          messageId: "message",
+        },
+      },
+      completion: {
+        id: "completion-read",
+        sessionId: "session",
+        sequence: 2,
+        createdAt: "2026-08-29T00:00:01.000Z",
+        type: "tool.call.completed",
+        payload: {
+          toolCallId: "read",
+          name: "read_text_file",
+          content: JSON.stringify({
+            ok: true,
+            text: readText,
+            bytes: new TextEncoder().encode(readText).length,
+            truncated: false,
+          }),
+          isError: false,
+        },
+      },
+    };
+    const searchExecution: SuccessfulToolExecution = {
+      request: {
+        id: "request-search",
+        sessionId: "session",
+        sequence: 3,
+        createdAt: "2026-08-29T00:00:02.000Z",
+        type: "tool.call.requested",
+        payload: {
+          toolCallId: "search",
+          name: "search_text",
+          arguments: {
+            query: "checksExecution",
+            relativePath: "tests/run.test.ts",
+            caseSensitive: true,
+            maxMatches: 20,
+          },
+          messageId: "message",
+        },
+      },
+      completion: {
+        id: "completion-search",
+        sessionId: "session",
+        sequence: 4,
+        createdAt: "2026-08-29T00:00:03.000Z",
+        type: "tool.call.completed",
+        payload: {
+          toolCallId: "search",
+          name: "search_text",
+          content: JSON.stringify({
+            ok: true,
+            truncated: false,
+            count: 1,
+            matches: [
+              {
+                path: "tests/run.test.ts",
+                lineNumber: 8,
+                text: "checksExecution();",
+                textTruncated: false,
+              },
+            ],
+            filesSearched: 1,
+            bytesScanned: 64,
+            skipped: {
+              binary: 0,
+              ignored: 0,
+              symlink: 0,
+              tooLarge: 0,
+              unreadable: 0,
+            },
+            outputBytes: 64,
+          }),
+          isError: false,
+        },
+      },
+    };
+    const executions = [readExecution, searchExecution];
+    const verifiedCitations = ["src/main/index.ts:3", "tests/run.test.ts:8"];
+    const accepted = buildEvaluatorRecords({
+      executions,
+      requirements,
+      verifiedCitations,
+      includeSymbolAudit: false,
+    });
+    expect(accepted.failures).toEqual([]);
+    expect(accepted.records).toEqual({
+      attribution: {
+        author: "soar-evaluator",
+        modelAuthored: false,
+        modelAnswerQualityGraded: false,
+      },
+      provenance:
+        "host-derived-records-with-field-specific-provenance-v1",
+      claimCoverage: {
+        provenance:
+          "exact-tool-observed-lines-and-completion-verified-citations-v1",
         claims: [
           {
             id: "runtime",
-            summary: "The main process owns execution.",
+            summary: "the main process owns execution",
             citations: ["src/main/index.ts:3"],
           },
           {
             id: "tests",
-            summary: "The integration test checks execution.",
+            summary: "the integration test checks execution",
             citations: ["tests/run.test.ts:8"],
           },
         ],
-      });
-    try {
-      await mkdir(path.join(workspaceRoot, "src", "main"), {
-        recursive: true,
-      });
-      await mkdir(path.join(workspaceRoot, "tests"), { recursive: true });
-      await writeFile(
-        path.join(workspaceRoot, "src", "main", "index.ts"),
-        "line one\nline two\nconst ownsExecution = true;\n",
-        "utf8",
-      );
-      await writeFile(
-        path.join(workspaceRoot, "tests", "run.test.ts"),
-        "1\n2\n3\n4\n5\n6\n7\nchecksExecution();\n",
-        "utf8",
-      );
-      expect(
-        await claimCoverageFailures({
-          workspaceRoot,
-          result: accepted,
-          requirements,
-          verifiedCitations: ["src/main/index.ts:3", "tests/run.test.ts:8"],
-        }),
-      ).toEqual([]);
+      },
+      symbolAudit: null,
+    });
 
-      const keywordSalad = accepted.replace(
-        "The main process owns execution.",
-        "Main process execution ownership words appear without the required relationship.",
-      );
-      expect(
-        await claimCoverageFailures({
-          workspaceRoot,
-          result: keywordSalad,
-          requirements,
-          verifiedCitations: ["src/main/index.ts:3", "tests/run.test.ts:8"],
-        }),
-      ).toEqual([
-        expect.stringContaining("missing required relational phrases"),
-      ]);
+    const unverified = buildEvaluatorRecords({
+      executions,
+      requirements,
+      verifiedCitations: ["src/main/index.ts:3"],
+      includeSymbolAudit: false,
+    });
+    expect(unverified.failures).toEqual([
+      expect.stringContaining("tests: no distinct completion-verified citation"),
+    ]);
+    expect(unverified.records.claimCoverage.claims[1]?.citations).toEqual([]);
 
-      const rejected = accepted.replace(
-        "tests/run.test.ts:8",
-        "src/main/index.ts:3",
-      );
-      expect(
-        await claimCoverageFailures({
-          workspaceRoot,
-          result: rejected,
-          requirements,
-          verifiedCitations: ["src/main/index.ts:3"],
-        }),
-      ).toEqual(
-        expect.arrayContaining([
-          expect.stringContaining("exact evidence path set"),
-          expect.stringContaining("distinct citation"),
-          expect.stringContaining("no distinct citation proves"),
-        ]),
-      );
-    } finally {
-      await rm(workspaceRoot, { recursive: true, force: true });
-    }
+    const mismatchedCompletion = structuredClone(searchExecution);
+    mismatchedCompletion.completion.payload.name = "read_text_file";
+    const mismatched = buildEvaluatorRecords({
+      executions: [readExecution, mismatchedCompletion],
+      requirements,
+      verifiedCitations,
+      includeSymbolAudit: false,
+    });
+    expect(mismatched.failures).toEqual([
+      expect.stringContaining("tests: no distinct completion-verified citation"),
+    ]);
+
+    const collision = buildEvaluatorRecords({
+      executions: [readExecution],
+      requirements: [
+        requirements[0]!,
+        { ...requirements[0]!, id: "duplicate-runtime" },
+      ],
+      verifiedCitations: ["src/main/index.ts:3"],
+      includeSymbolAudit: false,
+    });
+    expect(collision.failures).toEqual([
+      expect.stringContaining(
+        "duplicate-runtime: no distinct completion-verified citation",
+      ),
+    ]);
   });
 
-  it("extracts citations from JSON markers as well as prose", () => {
+  it("extracts citations from provider-authored prose", () => {
     expect(
       citationsIn(
-        `${claimCoverageMarker}{"claims":[{"citations":["src/main/index.ts:3"]}]}\nSee tests/run.test.ts:8.`,
+        "See src/main/index.ts:3 and tests/run.test.ts:8.",
       ),
     ).toEqual(new Set(["src/main/index.ts:3", "tests/run.test.ts:8"]));
   });
@@ -4487,6 +4447,106 @@ describe("Local Repository Investigator evaluator contract", () => {
       expect(second).toEqual(first);
     } finally {
       await rm(workspaceRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("publishes no accepted artifact when cleanup or accepted publication fails", async () => {
+    const temporaryRoot = await mkdtemp(
+      path.join(tmpdir(), "soar-proof-publication-test-"),
+    );
+    const report = {
+      schemaVersion: proofSchemaVersion,
+      artifactKind: "accepted-live-proof",
+      passed: true,
+      failures: [],
+    } as const;
+    try {
+      const cleanupAcceptedPath = path.join(
+        temporaryRoot,
+        "cleanup.accepted.json",
+      );
+      const cleanupDiagnosticPath = path.join(
+        temporaryRoot,
+        "cleanup.failed.json",
+      );
+      let laterCleanupRan = false;
+      await expect(
+        publishAcceptedProofArtifactAfterCleanup({
+          acceptedPath: cleanupAcceptedPath,
+          diagnosticPath: cleanupDiagnosticPath,
+          report,
+          redactions: [],
+          cleanupSteps: [
+            {
+              label: "database cleanup",
+              run: () => {
+                throw new Error("close failed");
+              },
+            },
+            {
+              label: "fixture cleanup",
+              run: () => {
+                laterCleanupRan = true;
+              },
+            },
+          ],
+        }),
+      ).rejects.toThrow("proof cleanup failed");
+      expect(laterCleanupRan).toBe(true);
+      await expect(stat(cleanupAcceptedPath)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      expect(
+        JSON.parse(await readFile(cleanupDiagnosticPath, "utf8")),
+      ).toMatchObject({
+        artifactKind: "failed-live-proof-diagnostic",
+        passed: false,
+        phase: "cleanup",
+        failures: ["database cleanup failed: close failed"],
+      });
+
+      const publicationAcceptedPath = path.join(
+        temporaryRoot,
+        "publication.accepted.json",
+      );
+      const publicationDiagnosticPath = path.join(
+        temporaryRoot,
+        "publication.failed.json",
+      );
+      const failingAcceptedWriter: ProofArtifactWriter = async (
+        artifactPath,
+        artifactReport,
+        redactions = [],
+      ) => {
+        if (artifactPath === publicationAcceptedPath) {
+          await writeFile(artifactPath, "partial accepted artifact", "utf8");
+          throw new Error("rename failed");
+        }
+        await writeProofArtifact(artifactPath, artifactReport, redactions);
+      };
+      await expect(
+        publishAcceptedProofArtifactAfterCleanup({
+          acceptedPath: publicationAcceptedPath,
+          diagnosticPath: publicationDiagnosticPath,
+          report,
+          redactions: [],
+          cleanupSteps: [],
+          writeArtifact: failingAcceptedWriter,
+        }),
+      ).rejects.toThrow("rename failed");
+      await expect(stat(publicationAcceptedPath)).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      expect(
+        JSON.parse(await readFile(publicationDiagnosticPath, "utf8")),
+      ).toMatchObject({
+        artifactKind: "failed-live-proof-diagnostic",
+        passed: false,
+        phase: "publication",
+        failures: ["accepted-artifact publication failed: rename failed"],
+      });
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
     }
   });
 
@@ -4650,6 +4710,9 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
               evaluatorContractAgentVisible: true,
               blindDiscoveryClaimed: false,
               qualityBenchmarkClaimed: false,
+              modelAnswerQualityGraded: false,
+              evaluatorRecordsModelAuthored: false,
+              evaluatorRecordProvenance: proofEvaluatorRecordProvenance,
             },
             phase: "preflight",
             createdAt: new Date().toISOString(),
@@ -4747,6 +4810,7 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
       let contextCheckpoints = 0;
       let toolCalls = 0;
       let diagnosticWritten = false;
+      let acceptedReport: Record<string, unknown> | undefined;
 
       try {
         const symbolOracle = await buildIndependentSymbolOracle(
@@ -4840,8 +4904,12 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
               "DUPLICATE_OBSERVATION",
           );
           const finalCompletionCheck = completionChecks.at(-1);
+          const acceptedCompletionCheck =
+            acceptedCompletionChecks.length === 1
+              ? acceptedCompletionChecks[0]
+              : undefined;
           const verifiedCitations =
-            finalCompletionCheck?.payload.verifiedPathLineCitations ?? [];
+            acceptedCompletionCheck?.payload.verifiedPathLineCitations ?? [];
           let finalRetentionAudit: FinalPacketRetentionAudit | null = null;
           if (acceptedCompletionChecks.length !== 1) {
             failures.push(
@@ -4875,11 +4943,11 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
                   verifiedAnswerCitations:
                     acceptedCheck.payload.verifiedPathLineCitations,
                   expectedSymbolOccurrences:
-                    task.requiresExactSymbolAudit === true
+                    task.requiresExactSymbolEvidence === true
                       ? expectedSymbolOccurrences
                       : [],
                   expectedSymbolSearchArguments:
-                    task.requiresExactSymbolAudit === true
+                    task.requiresExactSymbolEvidence === true
                       ? symbolGlobalPacketArguments
                       : undefined,
                 });
@@ -4898,6 +4966,21 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
               }
             }
           }
+          const evaluatorRecordBuild = buildEvaluatorRecords({
+            executions: successfulExecutions,
+            requirements: task.claimCoverage ?? [],
+            verifiedCitations,
+            includeSymbolAudit: task.requiresExactSymbolEvidence === true,
+            expectedSymbolOccurrences:
+              task.requiresExactSymbolEvidence === true
+                ? expectedSymbolOccurrences
+                : undefined,
+          });
+          failures.push(
+            ...evaluatorRecordBuild.failures.map(
+              (failure) => `${task.id}: ${failure}`,
+            ),
+          );
           actualUsage.push(
             ...usageEvents.map((event) => ({
               sessionId: session.id,
@@ -4922,6 +5005,18 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
             },
             record,
             result,
+            modelResult: result,
+            modelResultAttribution: {
+              source: "persisted-session-model-result",
+              model: proofModel,
+              copiedFromPersistedResultBeforeArtifactRedaction:
+                record.result === result,
+              runtimeCitationNormalizationPossible: true,
+              evaluatorRecordsIncluded: false,
+              artifactPathRedactionApplied: true,
+              qualityGraded: false,
+            },
+            evaluatorRecords: evaluatorRecordBuild.records,
             citations: [...citations].sort(),
             completionChecks,
             taskTrack:
@@ -5116,17 +5211,6 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
             `${task.id}: successful required tools did not follow the persisted order ${task.requiredTools.join(" -> ")}`,
           );
 
-          if (task.claimCoverage !== undefined) {
-            failures.push(
-              ...(await claimCoverageFailures({
-                workspaceRoot: fixture.workspaceRoot,
-                result,
-                requirements: task.claimCoverage,
-                verifiedCitations,
-              })).map((failure) => `${task.id}: ${failure}`),
-            );
-          }
-
           if (
             task.architectureDiscoverySchedule !== undefined &&
             task.orderedEvidenceSearches !== undefined
@@ -5175,30 +5259,6 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
             );
           }
 
-          if (task.requiresCallPathProse === true) {
-            failures.push(
-              ...callPathProseFailures(result).map(
-                (failure) => `${task.id}: ${failure}`,
-              ),
-            );
-          }
-
-          if (task.requiresExactSymbolAudit === true) {
-            failures.push(
-              ...finalRecordSuffixFailures(result).map(
-                (failure) => `${task.id}: ${failure}`,
-              ),
-              ...completeSymbolSearchFailures(
-                successfulExecutions,
-                expectedSymbolOccurrences,
-              ).map((failure) => `${task.id}: ${failure}`),
-              ...symbolAuditFailures({
-                result,
-                expectedOccurrences: expectedSymbolOccurrences,
-                verifiedCitations,
-              }).map((failure) => `${task.id}: ${failure}`),
-            );
-          }
         }
 
         const totals = store.listSessions({ limit: tasks.length }).reduce(
@@ -5332,6 +5392,9 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
             evaluatorContractAgentVisible: true,
             blindDiscoveryClaimed: false,
             qualityBenchmarkClaimed: false,
+            modelAnswerQualityGraded: false,
+            evaluatorRecordsModelAuthored: false,
+            evaluatorRecordProvenance: proofEvaluatorRecordProvenance,
           },
           createdAt: new Date().toISOString(),
           provider: {
@@ -5367,7 +5430,7 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
           evaluator: {
             symbolOracle,
             claimContractScope:
-              "Evaluator-owned structural path, source-snippet, relational-summary, citation-evidence, ordered evidence-search, required-read, post-read supporting-search, and ordered call-path relationship coverage; unrestricted prose is not otherwise semantically graded.",
+              "Evaluator manifests supply structural claim IDs, summaries, and evidence requirements. The host binds each claim to distinct exact source citations present in both successful parsed tool observations and the accepted completion check. Symbol records are derived only from the exact successful global search and independently cross-checked against the filesystem oracle. Persisted model-answer semantics and formatting are not graded; the runtime may normalize citation paths before persistence.",
             claimContract: tasks.map((task) => ({
               id: task.id,
               minimumVerifiedPathLineCitations:
@@ -5385,18 +5448,13 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
                 task.orderedEvidenceSearches ?? [],
               requiredArchitectureDiscoverySchedule:
                 task.architectureDiscoverySchedule ?? null,
-              requiredOrderedCallPathRelationships:
-                task.requiresCallPathProse === true
-                  ? [...symbolCallPathProseRelationships]
-                  : [],
-              requiresExactSymbolAudit:
-                task.requiresExactSymbolAudit ?? false,
+              requiresExactSymbolEvidence:
+                task.requiresExactSymbolEvidence ?? false,
             })),
           },
           comparison,
           acceptance: {
-            taskValidatorContract:
-              "architecture-schedule-relational-claim-ordered-evidence-read-post-read-exact-arguments-final-record-suffix-and-exact-global-search-symbol-occurrences-v6",
+            taskValidatorContract: proofTaskValidatorContract,
             maximumProviderCalls,
             maximumToolCalls,
             maximumInputTokensPerCall:
@@ -5443,17 +5501,12 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
           );
         }
 
-        const acceptedReport = {
+        acceptedReport = {
           ...reportBase,
           artifactKind: "accepted-live-proof",
           passed: true,
           failures: [],
         } as const;
-        await writeProofArtifact(
-          acceptedOutputPath,
-          acceptedReport,
-          proofArtifactRedactions(fixture),
-        );
       } catch (error) {
         if (!diagnosticWritten) {
           const failureMessage =
@@ -5471,6 +5524,9 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
               evaluatorContractAgentVisible: true,
               blindDiscoveryClaimed: false,
               qualityBenchmarkClaimed: false,
+              modelAnswerQualityGraded: false,
+              evaluatorRecordsModelAuthored: false,
+              evaluatorRecordProvenance: proofEvaluatorRecordProvenance,
             },
             createdAt: new Date().toISOString(),
             provider: {
@@ -5522,9 +5578,47 @@ describe.skipIf(!runLive)("Local Repository Investigator v1", () => {
         }
         throw error;
       } finally {
-        database.close();
-        await rm(fixture.temporaryRoot, { recursive: true, force: true });
+        if (acceptedReport === undefined) {
+          try {
+            database.close();
+          } catch {
+            // The original proof failure and its diagnostic remain authoritative.
+          }
+          try {
+            await rm(fixture.temporaryRoot, {
+              recursive: true,
+              force: true,
+            });
+          } catch {
+            // The original proof failure and its diagnostic remain authoritative.
+          }
+        }
       }
+
+      if (acceptedReport === undefined) {
+        throw new Error(
+          "The live proof reached publication without an accepted report.",
+        );
+      }
+      await publishAcceptedProofArtifactAfterCleanup({
+        acceptedPath: acceptedOutputPath,
+        diagnosticPath: diagnosticOutputPath,
+        report: acceptedReport,
+        redactions: proofArtifactRedactions(fixture),
+        cleanupSteps: [
+          {
+            label: "database cleanup",
+            run: () => {
+              database.close();
+            },
+          },
+          {
+            label: "fixture cleanup",
+            run: async () =>
+              rm(fixture.temporaryRoot, { recursive: true, force: true }),
+          },
+        ],
+      });
     },
     20 * 60_000,
   );

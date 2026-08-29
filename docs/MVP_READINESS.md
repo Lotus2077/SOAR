@@ -72,30 +72,29 @@ exact-symbol validators. The later 101,321-token failed attempt also predates
 the current schema-v5 isolated-fixture contract. Neither supports a direct 60%
 before/after claim.
 
-The pending live proof now runs against a temporary archive of the declared
+The live proof runs against a temporary archive of the declared
 clean HEAD with the evaluator implementation excluded and the archive SHA-256
 recorded. Its agent-visible objectives deliberately disclose the required
-paths, source substrings, and relational phrases. It is therefore a guided
-execution, evidence-retention, and replay proof—not a blind test of repository
-discovery skill or general answer quality.
-It requires architecture and cancellation claims to state evaluator-owned
-relational phrases and cite verified lines from evaluator-owned exact files and
-source snippets. Architecture must first perform exactly one bounded,
+paths, source substrings, relationships, and exact tool schedules. It is
+therefore a guided execution, evidence-retention, and replay proof—not a blind
+test of repository discovery skill or general answer quality. The persisted
+model result remains model-attributed; additive `evaluatorRecords` are derived
+by the host and explicitly marked as not model-authored.
+Architecture must first perform exactly one bounded,
 non-recursive root listing, one exact read of `src/main/index.ts`, and seven
 ordered, case-sensitive, file-scoped evidence searches in evaluator-owned
 order; missing, extra, reordered, broad, or argument-mismatched calls fail the
-task. The symbol task has its own call-path manifest and requires
-substantive prose outside the evaluator records to state, in order, the renderer
--> preload -> IPC -> `SessionRunner` -> `AbortController` -> provider/tool-signal
-relationships. Successful complete reads must cover all five evidence files and
-snippets, followed by five exact file-scoped searches that refresh every
+task. Cancellation likewise requires its nine ordered searches. The symbol task
+has its own call-path manifest. Successful complete reads must cover all five
+evidence files and snippets, followed by five exact file-scoped searches that refresh every
 non-`cancelSession` evidence snippet in evaluator-owned order before synthesis.
 Its symbol gold comes
 from a separate bounded UTF-8 filesystem scanner rather than the production
 search implementation; the method, scope, occurrence set, and hash are
-recorded. The final symbol audit must equal that set and report
-`truncated: false`; only `SOAR_SYMBOL_AUDIT.occurrences` has an exactly-once
-requirement. The episode is bounded to 34 provider calls, 29 tool calls, and
+recorded. The host derives the symbol evaluator record only from the successful
+complete global-search observation, then independently cross-checks it against
+the oracle; it never derives a passing record from oracle data alone. The
+episode is bounded to 34 provider calls, 29 tool calls, and
 557,056 reported input tokens. Each session attests the
 persisted `repository-investigator-v1` track, and every provider call attests
 the served model and local-zero-cost policy. Preflight hashes the normalized API
@@ -105,14 +104,17 @@ unique accepted completion round and persisted packet/message hashes; all
 verified answer citations, required claim snippets, and exact symbol-oracle
 occurrences must survive in its completed tool evidence. The fully admitted
 global-symbol-search envelope retains its own compact citation membership even
-when an overlapping read keeps fuller support. Contract v6 identifies that
+when an overlapping read keeps fuller support. Contract v7 identifies that
 exact envelope, sorts its citations and the
 independent oracle separately, and compares the exact sets rather than accepting
-the union of citations from all tools. The final
-`SOAR_SYMBOL_AUDIT.occurrences` record remains lexicographically sorted. This is
-structural evidence coverage, not semantic grading of unrestricted prose beyond
-the explicit relationships. Artifact schema v5 remains unchanged; this
-strengthened task evaluator is contract v6. The exact schedules are
+the union of citations from all tools. Evaluator manifests supply deterministic
+claim IDs, summaries, and required evidence; the host binds those claims to
+distinct citations present in both successful parsed tool observations and the
+accepted completion check. This is structural evidence coverage; the model
+answer is checked for completion and citation integrity, not general semantic
+quality. Artifact schema v5 remains unchanged; this strengthened task evaluator
+is contract v7.
+The exact schedules are
 task-specific guided proof checks, not a generic runtime exact-argument
 scheduler or evidence of dynamic provider routing.
 
@@ -121,7 +123,9 @@ an accepted result. Legacy ambiguous filenames and same-revision stale reports
 are quarantined before preflight. Once a full revision is declared, setup
 failures write a distinct self-identifying preflight diagnostic. Attachable
 reports replace repository and isolated-fixture absolute roots with stable
-labels before serialization.
+labels before serialization. Reports still contain objectives, model results,
+and workspace-derived event/tool trace content and must be inspected before
+sharing.
 
 ## Security boundaries
 

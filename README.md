@@ -136,19 +136,24 @@ call must report positive input usage within the cap,
 `costProvenance: "local_zero_cost_policy"`.
 
 The task objectives deliberately disclose evaluator-owned paths, source
-substrings, required relationships, and output-record shapes. This is a guided
+substrings, required relationships, and exact tool schedules. This is a guided
 execution, evidence-verification, and accepted-answer context-retention proof;
-it is not blind repository discovery or a repository-quality benchmark. Before
-the tasks, the harness calls the configured `/v1/models`, requires exactly one
-advertisement for `RM-01 VLM`, and records only a hash of the normalized API
-base plus bounded model metadata and a response hash. The raw endpoint, API key,
-model root, and raw response are not serialized.
+it is not blind repository discovery or a repository-quality benchmark. The
+persisted model result remains separately model-attributed. Deterministic
+`evaluatorRecords` are an additive host-generated audit and are never presented
+as model-authored. Before the tasks, the harness calls the configured
+`/v1/models`, requires exactly one advertisement for `RM-01 VLM`, and records
+only a hash of the normalized API base plus bounded model metadata and a
+response hash. The raw endpoint, API key, model root, and raw response are not
+serialized.
 
-The evaluator derives the exact symbol matching-line set with its own bounded
-UTF-8 filesystem scan rather than SOAR's production `search_text`, and records
-the oracle method, scope, count, and hash. Architecture and cancellation use an
-authoritative claim manifest: each required claim must state evaluator-owned
-relational phrases and cite evaluator-owned exact files and source snippets.
+The evaluator derives the independent expected symbol matching-line set with
+its own bounded UTF-8 filesystem scan rather than SOAR's production
+`search_text`, and records the oracle method, scope, count, and hash. All three
+tasks use authoritative claim manifests that supply claim IDs, summaries, and
+required source evidence. After a successful run, the harness binds each claim
+to distinct citations found both in successful parsed tool observations and in
+the accepted completion check's verified citations.
 Architecture must perform exactly one bounded non-recursive root `list_files`,
 one exact `read_text_file` of `src/main/index.ts`, and seven ordered,
 case-sensitive, file-scoped `search_text` calls—one for each disclosed claim
@@ -157,51 +162,49 @@ reordered, broad, or argument-mismatched architecture call.
 Cancellation requires its nine manifest evidence rows as nine ordered,
 case-sensitive, file-scoped `search_text` calls before synthesis; the evaluator
 rejects a missing, extra, reordered, broad, or mismatched search.
-The symbol task adds a structural call-path manifest, requires substantive prose
-outside its machine-readable records to state the renderer -> preload -> IPC ->
-`SessionRunner` -> `AbortController` -> provider/tool-signal relationships in
-order, and requires successful complete `read_text_file` observations of all
-five call-path evidence files in the disclosed order, each with exactly its
-single `relativePath` argument. Five exact file-scoped supporting searches must
-then refresh every non-`cancelSession` evidence snippet in evaluator-owned
-order before synthesis. The persisted trace must contain exactly the disclosed
-raw argument keys and values for the global symbol search and all five support
-searches. Context Packet v1 may omit explicit default-valued fields from its
-normalized argument excerpt because the registered tool defaults recover them.
-The claim-coverage and symbol-audit records must be the final two adjacent,
-unfenced output lines, in that order, with no trailing text. The
-exactly-once rule applies only to `SOAR_SYMBOL_AUDIT.occurrences`; prose and
-claim citations may repeat those tokens. This is deterministic structural
-evidence coverage; unrestricted prose beyond those explicit relationships is
-not presented as semantically graded.
+The symbol task adds a structural call-path manifest and requires successful
+complete `read_text_file` observations of all five call-path evidence files in
+the disclosed order, each with exactly its single `relativePath` argument. Five
+exact file-scoped supporting searches must then refresh every
+non-`cancelSession` evidence snippet in evaluator-owned order before synthesis.
+The persisted trace must contain exactly the disclosed raw argument keys and
+values for the global symbol search and all five support searches. Context
+Packet v1 may omit explicit default-valued fields from its normalized argument
+excerpt because the registered tool defaults recover them. The host derives the
+symbol occurrence record from the successful, complete global-search result and
+only then cross-checks that record against the independent oracle; oracle data
+alone can never manufacture a passing record. The model result is still checked
+for normal completion and citation integrity, but this proof does not grade its
+general semantic quality.
 
 For each accepted answer, the harness binds the captured provider input to the
 unique accepted completion-check round and its persisted packet/message hashes.
 Every completion-guard-verified answer citation and every evaluator-required
 claim snippet must remain in completed tool evidence in that exact packet; the
-symbol packet must also retain every independent-oracle occurrence. In the v6
+symbol packet must also retain every independent-oracle occurrence. In the v7
 proof, the fully admitted global-symbol-search envelope keeps its own compact
 citation membership even when a read also keeps fuller support for an
 overlapping line. The audit identifies that one global-search
 envelope by its exact scope and arguments, sorts its citations and the oracle
 independently, and compares the exact sets—not the union of all tool citations.
-The final `SOAR_SYMBOL_AUDIT.occurrences` record remains lexicographically
-sorted. Only bounded counts and hashes are published, never packet or source
-content.
+That accepted-packet retention audit publishes only bounded counts and hashes,
+never the packet or source content it checked.
 The deterministic retention gate repeats the exact symbol schedule after
-inserting 250 UTF-8 bytes of inert objective padding before the final-record
+inserting 250 UTF-8 bytes of inert objective padding before the finalization
 instruction; both runs must retain the complete evidence sets.
 
 An accepted schema-v5 artifact is written only after every gate passes, at
 `benchmarks/runs/local-repository-investigator-v1.schema5.<HEAD>.accepted.json`.
 Artifact schema v5 is unchanged. The artifact identifies the strengthened
-architecture schedule, exact-argument, and final-record-suffix evaluator as
-task-validator contract v6.
+architecture schedule, exact-argument, and tool-derived evaluator-record checks
+as task-validator contract v7.
 A failed run instead writes the distinct
 `local-repository-investigator-v1.schema5.<HEAD>.failed.json` diagnostic with
 `passed: false`. Before serialization, repository and temporary fixture roots
 are replaced with stable labels so an attachable report does not expose
-machine-local absolute paths. Before a run, same-revision reports and the
+machine-local absolute paths. The artifact still contains objectives, model
+results, and event/tool trace content derived from the workspace, so inspect it
+before sharing. Before a run, same-revision reports and the
 ambiguous legacy `local-repository-investigator-v1.json` names are moved into the ignored
 `benchmarks/runs/quarantine/` directory, so a stale artifact cannot stand in for
 the current result. Once a full revision is declared, model, repository,

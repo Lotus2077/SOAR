@@ -84,9 +84,8 @@ function startReservationWorker(
   worker: Worker;
 } {
   const worker = new Worker(
-    new URL("../fixtures/budget-reservation-worker.ts", import.meta.url),
+    new URL("../fixtures/budget-reservation-worker.mjs", import.meta.url),
     {
-      execArgv: ["--import", "tsx"],
       workerData: { databasePath, startSignal, input },
     },
   );

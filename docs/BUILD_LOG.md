@@ -870,3 +870,57 @@ entry before beginning PR 5.
 References: [affected PR 4 entry](#bl-20260829-1620-pr4-fake-hybrid-mechanics----2026-08-29----pr-4-fake-only-hybrid-mechanics-verified),
 [failed GitHub Actions run](https://github.com/Lotus2077/SOAR/actions/runs/33262781416),
 [ADR 0004](adr/0004-checkpoint-router-budget-runner-v0.md).
+
+### BL-20260830-0031-pr4-node22-worker-correction -- 2026-08-30 -- Correction: Node 22 strip-only mode bypassed the worker hook
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct the incomplete portability fix recorded in
+`BL-20260830-0025-pr4-ci-portability-correction` and make the worker entrypoint
+execute through an explicit full-TypeScript transform on the minimum supported
+Node version.
+
+Decisions:
+
+- Reproduce the remote environment with the exact free Node `v22.22.2` runtime
+  before making a second push.
+- Enter the worker through a plain `.mjs` bootstrap, then load the TypeScript
+  implementation with the documented `tsx/esm/api` `tsImport` function. This
+  avoids both direct Node strip-only parsing and reliance on preload-hook order
+  for a worker entrypoint.
+- Retain explicit `.ts` imports inside the TypeScript worker; direct ESM
+  resolution still requires them once the scoped transformer handles the
+  module graph.
+
+Changes: Added `budget-reservation-worker.mjs` as the worker bootstrap and
+pointed the concurrency test at it. Removed the ineffective worker `execArgv`
+preload attempt. Production code remains unchanged.
+
+Evidence: Replacement GitHub Actions run `33263014476` advanced past module
+resolution but failed 1/543 tests with `TypeScript parameter property is not
+supported in strip-only mode` under Node `v22.22.2`. The same failure reproduced
+locally with `npx --yes node@22.22.2 node_modules/vitest/vitest.mjs run
+tests/unit/budget-ledger-concurrency.test.ts --testTimeout=15000`. After the
+bootstrap change, that exact command passed 1/1 in 504 ms, and the normal local
+Node `v26.7.0` focused command passed 1/1 in 349 ms.
+
+Failures or blockers: The full local gate and a new remote GitHub Actions run
+are still pending. PR 4 therefore remains without a green pushed Node 22 proof
+at this entry.
+
+Limitations and non-claims: Exact-version focused validation proves the loader
+path, not the complete suite or remote Linux environment. The npm-delivered
+Node runtime was used only as a test runtime and was not added as a dependency.
+No production provider or routing behavior changed.
+
+Paid exposure: $0. The exact Node runtime download and all tests were free;
+there was no inference, provider endpoint, credential, or paid API use.
+
+Next gate: Run the full local quality gate, commit and push this second
+correction, and require its GitHub Actions run to pass before appending PR 4's
+replacement verification entry or beginning PR 5.
+
+References: [prior correction](#bl-20260830-0025-pr4-ci-portability-correction----2026-08-30----correction-pr-4-linux-worker-proof-was-not-green),
+[second failed GitHub Actions run](https://github.com/Lotus2077/SOAR/actions/runs/33263014476),
+[Node 22 TypeScript documentation](https://nodejs.org/docs/latest-v22.x/api/typescript.html),
+[`tsx` developer API](https://github.com/privatenumber/tsx/blob/master/docs/dev-api/index.md).

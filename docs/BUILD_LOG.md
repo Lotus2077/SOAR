@@ -1585,3 +1585,75 @@ References: [OpenAI-compatible provider](../src/main/providers/openai-compatible
 [provider boundary tests](../tests/unit/openai-compatible.test.ts),
 [Repository Investigator proof](../tests/integration/local-repository-investigator.test.ts),
 and [preceding capacity correction](#bl-20260830-0237-pr5-remote-ci-capacity-correction----2026-08-30----remote-ci-invalidated-the-pre-commit-pr-5-verification).
+
+### BL-20260830-0258-pr5-correction-committed-local-verification -- 2026-08-30 -- Corrected PR 5 candidate passed clean committed-HEAD and Electron gates
+
+Status: `Verified`
+
+Scope or hypothesis: Verify that the complete PR 5 capacity correction works
+from the exact committed source revision rather than an uncommitted tree, while
+preventing every live-provider opt-in and repeating no canary.
+
+Decisions:
+
+- Bind the local release claim to commit
+  `31049bb9a907d1cc36388f8cd9783de1eccdcb86` and the release wrapper's observed
+  unchanged clean HEAD.
+- Treat macOS Electron E2E as a separate required gate because the deterministic
+  release wrapper builds Electron but does not launch the application.
+- Retain the exact Node 22 affected-suite run as additional portability evidence,
+  not as a substitute for replacement Linux CI on the pushed revision.
+- Keep remote verification pending until GitHub Actions reports both Linux
+  Node 22 and macOS Electron jobs green.
+
+Changes: No runtime source change is introduced by this entry. It records the
+first exact-commit local verification after the 18,432-token envelope,
+advertised-capacity guard, deterministic release wrapper, and both independent
+audit corrections were committed.
+
+Evidence:
+
+- `pnpm check:release-head` resolved and retained commit
+  `31049bb9a907d1cc36388f8cd9783de1eccdcb86`, validated 24 build-log entries,
+  revalidated 22 research and 20 coding workloads with no tracked or unignored
+  live secret, passed TypeScript, passed 54 test files and 625 tests with two
+  files/four opt-in live tests skipped, and built Electron main, preload, and
+  renderer bundles.
+- The release wrapper forced all three live-provider opt-ins to `false`; no
+  live test ran and no endpoint request was dispatched.
+- `pnpm test:e2e` passed 3/3 macOS workflows in 7.8 seconds: local tool-loop
+  restart restoration, active-inference cancellation, and Review Current
+  Changes with stale Markdown-copy refusal.
+- Before commit, the affected OpenAI-compatible provider and Repository
+  Investigator suites passed 37 tests with one opt-in live proof skipped under
+  the cached exact Node 22.22.2 runtime.
+- Independent correction, security, and final-diff reviews reported no remaining
+  P0-P2 finding after the capacity-scope documentation was narrowed to the paths
+  that actually invoke admission.
+
+Failures or blockers: No local blocker remains for this candidate. The new log
+entry itself is not yet committed, so the exact final revision still needs the
+same committed-HEAD and Electron gates. Replacement GitHub Actions has not run.
+
+Limitations and non-claims: The live Repository Investigator proof was not
+rerun; its prior failure remains useful historical evidence and the corrected
+capacity is deterministic until separately authorized live proof. The single
+structured-schema canary remains synthetic and was not repeated. Electron E2E
+uses a deterministic fake provider. This does not prove real-repository answer
+quality, unbounded evidence retention, atomic large-search preservation,
+dynamic routing, cloud construction, cost/latency advantage, notarization, or a
+signed release channel.
+
+Paid exposure: `$0`. Verification used local deterministic tests, Git,
+TypeScript, Electron build/E2E, and a cached Node 22 runtime. No provider,
+inference, OpenRouter, retry, fallback, or model-list request occurred.
+
+Next gate: Commit this verification entry, rerun the clean committed-HEAD and
+macOS Electron gates on that final revision, push it, and require replacement
+Linux Node 22 and macOS Electron GitHub Actions jobs to pass before recording
+remote verification.
+
+References: [capacity implementation entry](#bl-20260830-0253-pr5-advertised-model-capacity-correction----2026-08-30----provider-admission-now-reserves-both-input-and-output-capacity),
+[release verifier](../scripts/verify-release-head.ts),
+[contributor gate](../CONTRIBUTING.md), and
+[readiness boundary](MVP_READINESS.md).

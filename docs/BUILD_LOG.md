@@ -982,3 +982,87 @@ References: [first correction](#bl-20260830-0025-pr4-ci-portability-correction--
 [second correction](#bl-20260830-0031-pr4-node22-worker-correction----2026-08-30----correction-node-22-strip-only-mode-bypassed-the-worker-hook),
 [green GitHub Actions run](https://github.com/Lotus2077/SOAR/actions/runs/33263277828),
 [ADR 0004](adr/0004-checkpoint-router-budget-runner-v0.md).
+
+### BL-20260830-0043-pr5-implementation-start -- 2026-08-30 -- PR 5 local review architecture fixed before implementation
+
+Status: `In progress`
+
+Scope or hypothesis: Implement the approved `$0` PR 5 as a real local Review
+Current Changes application slice with strict structured results and immutable
+evidence, without weakening PR 4's fake-only Hybrid boundary or making any
+cloud call.
+
+Decisions:
+
+- Add one strict, bounded `ReviewResultV1` structural contract and one canonical
+  standard JSON Schema. Host semantic acceptance separately enforces snapshot
+  and evidence-set identity, admitted references, unique findings/references,
+  conclusion precedence, coverage, and freshness. Existing
+  `change_metadata` references count as change-origin evidence for mode-only or
+  content-identical rename findings.
+- Let callers select only the fixed `change-review-result-v1` structured-output
+  contract. The OpenAI-compatible adapter owns the exact response-format body,
+  forbids tools in the structured round, counts the complete schema envelope in
+  its request reserve, and preserves raw output separately from the accepted
+  parsed result. The schema ID and SHA-256 are persisted with the attempt.
+- Derive `ReviewEvidenceSetV1` only from canonical successful
+  `tool.call.requested`/`tool.call.completed` event pairs. Host event-envelope
+  IDs identify observations; result hashes, snapshot/hunk identities, tool
+  admission, untruncated search lines, and full-file content hashes are
+  rechecked before provenance is frozen.
+- Use a dedicated `review-context-compiler-v1` synthesis packet containing the
+  exact snapshot, evidence, observation IDs, evidence set, and provenance hash.
+  It never truncates after the evidence-set identity is chosen: the entire
+  packet fits the provider budget or the workflow fails closed.
+- Add a narrowly admitted production local-only v2 review coordinator. Do not
+  remove or generalize the nominal fake-provider guard on PR 4's Hybrid runner.
+  `inspect_git_changes` is model-visible only inside the local review track;
+  generic Repository Investigator and every tool-free synthesis route remain
+  unable to use it.
+- Add review-specific IPC so the renderer submits only an approved workspace.
+  Main fixes and persists `change-review-v1`, `local_only_v1`, no egress
+  consent, and the inert 250,000-micro-USD future cap. Production Hybrid is
+  visibly disabled with “Cloud setup is not available in this build” and is
+  impossible to request through renderer-controlled fields.
+- Render only host-accepted structured review data. Do not stream raw JSON into
+  the UI. Recheck workspace freshness in main before display or copy; distinguish
+  fresh complete, identity-same but incomplete, drifted, and unavailable.
+- Run deterministic adapter/workflow/UI gates before one no-retry live local
+  vLLM canary. `/v1` is the configured API base and `/v1/models` is bounded
+  discovery only. No OpenRouter or production cloud provider is permitted.
+
+Changes: Three independent read-only preflight lanes mapped the contract and
+provenance boundary, Electron UX/IPC surface, and local-vLLM capability gate.
+No PR 5 source change or provider request has been made at this entry.
+
+Evidence: The checkout and `origin/main` were clean and equal at
+`8f6a9e734ce9f475bb1dd355b856faf9f9156906`. GitHub Actions runs
+`33263277828` and `33263400097` were green. Source inspection confirmed the
+current intentional blockers: no final review-result schema, structured output
+is rejected by the adapter, `inspect_git_changes` is host-only, production v2
+is fake-only, and the app can create only repository-investigator v1 sessions.
+
+Failures or blockers: The configured local endpoint/model has not yet proved
+the exact JSON Schema response. Under the approved plan, inability to return one
+strict grounded `ReviewResultV1` blocks PR 5; prompt-only JSON, fenced/suffix
+extraction, `json_object`, regex, OpenRouter fallback, or an internal live retry
+will not be substituted.
+
+Limitations and non-claims: This entry is a build contract, not working review
+software. It claims no app flow, accepted review, model quality, live endpoint
+compatibility, Hybrid route, cloud safety, cost saving, latency improvement,
+packaging, or release readiness.
+
+Paid exposure: $0. Preflight read local source and existing public technical
+documentation only. It made no inference, endpoint, credential, OpenRouter, or
+paid API request.
+
+Next gate: Implement deterministic result/provider/provenance/packet contracts,
+then the local-only coordinator and safe app projection, run all local tests and
+Electron E2E, and only then execute the single zero-paid live local canary.
+
+References: [Hybrid Lease Router v0 plan](plans/HYBRID_LEASE_ROUTER_V0.md),
+[ADR 0003](adr/0003-immutable-change-acquisition-v1.md),
+[ADR 0004](adr/0004-checkpoint-router-budget-runner-v0.md),
+[vLLM OpenAI-compatible server](https://docs.vllm.ai/en/stable/serving/openai_compatible_server.html),
+[`tsx` worker correction proof](https://github.com/Lotus2077/SOAR/actions/runs/33263277828).

@@ -2615,3 +2615,270 @@ References: [approved readiness plan](plans/HELD_OUT_CORPUS_EVALUATOR_READINESS_
 [frozen protocol](../benchmarks/change-review/protocol-v1.json),
 [calibration boundary](../benchmarks/change-review/README.md#held-out-boundary),
 and [MVP readiness](MVP_READINESS.md).
+
+### BL-20260830-1454-build-log-utc-reset -- 2026-08-30 -- Correction: resume UTC build-log IDs after the legacy local-clock sequence
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct the pre-existing mismatch between the ledger's
+written UTC-ID rule and its already-committed local-wall-clock ID sequence
+without rewriting immutable entries or inventing a future UTC timestamp. The
+immediately preceding approval entry encoded Asia/Shanghai wall time as though
+it were UTC, so the honest current UTC minute appeared to move backward under
+the validator.
+
+Decisions:
+
+Timestamp sequence reset after: `BL-20260830-2050-heldout-readiness-approved`.
+
+- Preserve every earlier ID byte-for-byte as an immutable identifier. In
+  particular, do not rename the immediately preceding entry or the earlier
+  `BL-20260830-0420-pr5-ci-lineage-correction` that first documented the
+  local-wall-clock/UTC mismatch.
+- Permit exactly one machine-readable timestamp-basis reset. It is valid only
+  on an `Implemented` entry whose title begins `Correction`, whose exact marker
+  names the immediately preceding entry, whose new ID actually moves backward,
+  and when no prior reset has been consumed.
+- After this correction, resume normal monotonic UTC IDs from this entry's real
+  UTC minute. Reject an unnecessary, malformed, non-immediate, non-correction,
+  non-implemented, repeated, or later backward reset.
+- Keep physical append order as merge chronology. The reset changes only the
+  validator's timestamp watermark; it does not reorder, reinterpret, or erase
+  any earlier product, failure, cost, or verification evidence.
+
+Changes: Added a one-time fail-closed timestamp-sequence reset contract to
+`scripts/validate-build-log.ts` and adversarial unit coverage in
+`tests/unit/build-log-validator.test.ts`. Appended this correction before the
+new held-out implementation entry. No prior build-log byte, runtime, provider,
+session, evaluator result, permission, cost, or release state changed.
+
+Evidence:
+
+- The reset marker is exact and names the immediately preceding
+  `BL-20260830-2050-heldout-readiness-approved` entry.
+- Unit fixtures cover one valid reset followed by a normal UTC entry and reject
+  a non-correction title, non-Implemented status, non-immediate target,
+  malformed marker, unnecessary reset, second reset, and later backward ID.
+- The focused build-log validator suite passed 15 of 15 tests; the repository
+  ledger validated with 38 entries and passed byte-for-byte append-only
+  validation against `HEAD`.
+- Both TypeScript projects and `git diff --check` passed after the reset.
+  Final exact-tree `pnpm check` then passed the same ledger/readiness gates, 68
+  test files and 805 tests with two files and four opt-in tests skipped, and all
+  production bundles. The eventual committed clean-HEAD gate remains pending.
+
+Failures or blockers: A true UTC implementation ID initially failed with
+`timestamp precedes the previous timestamped entry` because the committed
+high-water mark was the local-clock `2050` approval ID. Continuing with a
+fabricated later UTC minute would violate the written rule; rewriting the
+approval entry would violate append-only history. This explicit single-use
+reset is the narrow correction. The underlying mismatch was already disclosed
+by `BL-20260830-0420-pr5-ci-lineage-correction`; later entries continued that
+legacy sequence until this correction.
+
+Limitations and non-claims: The validator checks canonical ID syntax,
+append-only order, uniqueness, reset shape, and post-reset monotonicity. It
+cannot independently observe an author's wall clock or prove that any ordinary
+ID was created at its encoded minute. This governance repair does not verify
+the held-out evaluator, repeat any live run, change routing, improve review
+quality, authorize a provider, or release the app.
+
+Paid exposure: `$0`. The correction used local ledger inspection and
+deterministic tests only. No provider, model-list, inference, OpenRouter,
+reservation, retry, fallback, clone, fetch, or other network request occurred.
+
+Next gate: Commit the exact locally passing tree, run the clean-HEAD release
+gate, push it, and require exact-SHA Linux and macOS CI. Keep the following
+held-out milestone `Implemented` until both remote jobs pass.
+
+References: [affected immediately preceding approval](#bl-20260830-2050-heldout-readiness-approved----2026-08-30----offline-held-out-corpus-and-evaluator-readiness-approved),
+[earlier mismatch disclosure](#bl-20260830-0420-pr5-ci-lineage-correction----2026-08-30----correction-pr-5-closure-includes-the-failed-9dd724b-candidate),
+and [build-log rules](#log-rules).
+
+### BL-20260830-1454-heldout-readiness-implemented -- 2026-08-30 -- Offline held-out evaluator implemented; exact-tree and remote verification pending
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement only the `$0`, deterministic, offline
+runner/evaluator boundary approved by
+`held-out-corpus-evaluator-readiness-v1-plan-1`. The milestone should make a
+future independently curated 24-case review campaign mechanically evaluable
+without placing gold in the runner or public output. It must not create a real
+corpus, contact a provider, execute a campaign, or claim measured review
+quality.
+
+Decisions:
+
+- Keep the runner contract policy-neutral and fixed at 24 opaque ordered
+  assignments. Corpus identity, gold, witnesses, semantic findings,
+  adjudication, salts, and human records remain evaluator-private.
+- Bind the 8-clean/16-faulty corpus, minimum 20 P0/P1 and 8 P2/P3 gold counts,
+  evidence/prompt/limit commitments, corrected-candidate witnesses, run
+  manifest, and terminal result records with strict schemas and
+  domain-separated canonical SHA-256 commitments.
+- Require all 24 terminal outcomes. Accepted records must internally assert at
+  least one inference, positive input/output usage, complete usage reporting,
+  measured latency, and non-`no_dispatch` cost provenance. Treat those as
+  checked operator assertions, not independent execution proof.
+- Require two distinct study-ID judgments for every finding. Bind every full
+  judgment disposition to a coordinator Ed25519 attestation and every
+  disagreement to a separately signed joint resolution. Verify the manifest's
+  coordinator-key fingerprint while retaining external approval, personhood,
+  and actual blinding as explicit trust boundaries.
+- Keep all assigned gold in primary recall denominators, penalize duplicate
+  matches in precision, expose valid-review yield over 24 assignments, and
+  suppress semantic metrics for incomplete or unverified adjudication and
+  valid novel defects. Use exact Wilson 95% calculations and fixed-seed
+  Mulberry32 bootstrap contracts with explicit zero/unknown states.
+- Publish only a strict allow-listed aggregate and a last-written completion
+  marker under a no-replace private namespace. Reparse and cross-check the
+  public aggregate before publication, scan bounded canonical JSON for private
+  values and unsafe path/URL/key forms, and return stable non-disclosing JSON.
+- Use `node --no-warnings --experimental-strip-types` with explicit `.ts`
+  imports for the standalone CLI. Do not use the `tsx` CLI or loader because
+  that dependency graph can import networking and local IPC machinery.
+- Treat recursive source/import scanning as a conservative regression gate,
+  not an operating-system egress sandbox or proof of formal noninterference.
+- Keep this milestone `Implemented`. Focused synthetic proof is not a real
+  campaign, `Verified` exact-SHA status, execution result, or release.
+
+Changes:
+
+- Added the strict runner/run-manifest/run-result contracts in
+  `src/shared/heldout-review-runner-contracts.ts` and evaluator-private corpus,
+  witness, finding, judgment, attestation, and resolution contracts in
+  `src/benchmark/heldout-review-evaluator-contracts.ts`.
+- Added deterministic scoring and strict public-aggregate validation in
+  `src/benchmark/heldout-review-evaluator.ts`, Wilson/bootstrap operational
+  statistics in `src/benchmark/heldout-review-statistics.ts`, and exclusive
+  aggregate/marker publication in
+  `src/benchmark/heldout-review-publication.ts`.
+- Added the stdin-only offline CLI in
+  `scripts/benchmark-heldout-review.ts` and the
+  `pnpm --silent benchmark:heldout-review` operator command. Enabled explicit
+  TypeScript import extensions in the no-emit renderer typecheck so the same
+  shared graph works under Node's native strip-only loader.
+- Added generated in-memory synthetic inputs and unit/adversarial coverage for
+  contracts, semantic scoring, operational statistics, public aggregate
+  integrity, privacy-safe publication, clean-process CLI behavior, and
+  recursive import isolation. No real fixture, gold, salt, signature, result,
+  database, or generated publication was added.
+- Updated the root, benchmark, architecture, readiness, and approved-plan
+  documentation to describe the implemented offline boundary, operator
+  assertions, external trust dependencies, and remaining campaign gate.
+
+Evidence:
+
+- The focused held-out suite passed 101 of 101 tests across six files after
+  the final native-entrypoint and aggregate-integrity repairs.
+- Both Node and renderer TypeScript projects passed. `git diff --check` also
+  passed.
+- A clean-process `pnpm --silent benchmark:heldout-review` with empty standard
+  input returned only the stable bounded `control_invalid` JSON and exit code
+  1, rather than an uncaught loader or module-resolution exception.
+- Synthetic success exercises all 24 accepted assignments, signed complete
+  adjudication, deterministic semantic and operational metrics, strict
+  aggregate reparsing, and no-replace publication. Adversarial tests reject
+  corpus, witness, run-envelope, usage, key, signature, resolution, metric,
+  cost, privacy, loader, and output-integrity mutations.
+- Final exact-tree `pnpm check` passed readiness and the 38-entry build-log
+  validators, both TypeScript projects, 68 test files and 805 tests with two
+  files and four opt-in tests skipped, and the Electron main, preload, and
+  renderer production bundles.
+- `pnpm test:e2e` passed all three macOS workflows in 9.9 seconds: a local tool
+  loop with restart restoration, active-inference cancellation, and current-Git
+  review with stale-copy refusal.
+- Two final independent reviews found no remaining P0/P1 code blocker after
+  the native-strip and aggregate cross-field corrections. Commit, push, and
+  exact-SHA Linux/macOS CI are still pending and therefore are not claimed by
+  this entry.
+
+Failures or blockers:
+
+- Pre-commit review found and corrected nondeterministic locale-dependent
+  ordering, a zero-finding blocking conclusion, missing strict public-output
+  allowlisting, unsafe publication-ID treatment, nondeterministic parallel read
+  errors, and acceptance of a private signing key as a verification key.
+- Adversarial review found that judgment dispositions and disputed resolutions
+  could initially be rewritten without the coordinator key. The contracts now
+  use non-circular signed judgment commitments and separately signed joint
+  resolutions.
+- Initial run validation allowed accepted records with zero inference/usage,
+  allowed non-accepted attempted work to claim `no_dispatch`/zero cost, ignored
+  a manifest/key mismatch when no finding existed, omitted unreported-attempt
+  counts and valid-review yield, and failed to enforce several manifest
+  envelope totals. Those paths now fail closed or remain explicitly visible.
+- The first isolation test used bypassable regular expressions. It was replaced
+  with recursive TypeScript parsing plus strict process/member and module
+  allowlists, including computed-loader and alias counterexamples.
+- The first package command used the `tsx` loader. Independent review showed
+  that loader's dependency graph imports `node:net`, worker/module loading, and
+  local IPC code. After switching prematurely to native stripping, the real
+  standalone command crashed with `ERR_MODULE_NOT_FOUND` because its relative
+  imports lacked `.ts` suffixes; the Vitest subprocess had masked that defect.
+  The final command uses native strip-only loading, explicit suffixes, and a
+  clean minimal subprocess environment. The standalone negative result is
+  retained here and is not erased by the passing correction.
+- The exported public aggregate schema initially allowed mathematically
+  contradictory direct inputs, including a 120-outcome partition and forged
+  completion/adjudication states. Cross-field refinements and table-driven
+  mutation tests now bind outcome, adjudication, Wilson/raw/weighted semantic,
+  operational, cost, bootstrap, usage, infrastructure, and fixed non-claim
+  fields.
+- A later cost audit found the inverse run-record gap: zero inference attempts
+  could still claim provider or host token cost on invalid, blocked, or
+  cancelled outcomes. Zero attempts now require `no_dispatch`, zero selected
+  token cost, and zero provider usage while retaining honest pre-inference tool,
+  latency, and infrastructure facts. The public aggregate now also requires
+  accepted count not to exceed attempts, reported attempts, aggregate input
+  tokens, or aggregate output tokens, and zero aggregate attempts require 24
+  known zero selected costs. Further direct-schema counterexamples added tight
+  corpus gold and accepted-finding caps, bounded unknown-cost assignments by
+  dispatched non-unstarted capacity, and prevented false-accept erasure or
+  forgery through infeasible eligible-fixture, accepted, or unmatched-gold
+  counts.
+- The publisher's first trusted-system-alias implementation allowed macOS
+  `/tmp` during component inspection but rejected the same exact trusted
+  symlink when it was the nearest existing ancestor of a missing output root.
+  It now canonicalizes only the exact allow-listed alias and retains strict
+  rejection for every other symlink; a Darwin-only unique-child regression
+  covers the previously failing path without replacing an existing target.
+- An earlier full-suite attempt inside the restricted sandbox failed 19 local
+  OpenAI-compatible integration tests with `listen EPERM 127.0.0.1`. That was
+  an environment-level loopback denial rather than a product assertion; the
+  final exact tree passed the full suite after loopback binding was explicitly
+  allowed. The negative attempt remains recorded here.
+- A real quality baseline remains blocked by independent corpus curation,
+  deterministic witness execution, two blinded humans, an external
+  coordinator and approved trust anchor, deployment fingerprints, and a new
+  committed one-shot campaign authority. These are intended external gates,
+  not implementation defects to paper over with synthetic data.
+
+Limitations and non-claims: The current tests prove deterministic behavior for
+generated synthetic and adversarial records only. They do not prove a real
+fixture identity, gold correctness, personhood, blinding, signature-key
+preapproval, provider execution, review correctness, recall, precision,
+false-accept rate, general code-review quality, routing benefit, cost saving,
+latency advantage, cloud/hybrid readiness, or release readiness. Operator run
+records are unsigned assertions and the evaluator cannot independently re-prove
+individual attempt timeouts or failed tool-attempt ceilings from the retained
+fields. The safe aggregate intentionally omits the complete private manifest
+hash, implementation revision, and campaign authority, so aggregate-only
+comparisons require retained private manifests or a future privacy-safe public
+binding. Hashes detect later mutation; they do not make storage immutable.
+
+Paid exposure: `$0`. Implementation and proof used local source, generated
+in-memory records, local cryptography, and local deterministic tests only. No
+model-list, inference, configured provider, OpenRouter, paid reservation,
+retry, fallback, clone, fetch, or other network request occurred.
+
+Next gate: Commit the exact locally passing tree, run the clean-HEAD release
+gate, push the implementation, and require Linux Node 22 and macOS Electron
+GitHub Actions on that exact SHA. Only a subsequent append-only closure may
+mark this milestone `Verified`; no provider campaign is authorized.
+
+References: [approved readiness plan](plans/HELD_OUT_CORPUS_EVALUATOR_READINESS_V1.md),
+[operator contract](../benchmarks/README.md#held-out-corpus-and-evaluator-readiness-v1),
+[architecture](ARCHITECTURE.md#offline-held-out-runnerevaluator-boundary),
+[frozen protocol](../benchmarks/change-review/protocol-v1.json), and
+[MVP readiness](MVP_READINESS.md).

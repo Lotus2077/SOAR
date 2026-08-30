@@ -58,6 +58,9 @@ const HISTORY_MARKER = "## Backfilled project history";
 const ENTRY_HEADING = /^### (BL-[a-zA-Z0-9-]+) -- (\d{4}-\d{2}-\d{2}) -- (.+)$/gmu;
 const MODERN_ID = /^BL-(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})-([a-z0-9]+(?:-[a-z0-9]+)*)$/u;
 const HISTORICAL_ID = /^BL-(\d{4})$/u;
+const TIMESTAMP_SEQUENCE_RESET_MARKER =
+  /^Timestamp sequence reset after: `(BL-(?:\d{4}|\d{8}-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*))`\.$/gmu;
+const TIMESTAMP_SEQUENCE_RESET_PREFIX = "Timestamp sequence reset after:";
 const ALLOWED_STATUS_SET = new Set<string>(ALLOWED_BUILD_LOG_STATUSES);
 const HTML_BLOCK_TAGS = new Set([
   "address",
@@ -329,8 +332,10 @@ export function validateBuildLog(text: string): BuildLogValidationResult {
   const priorIds = new Set<string>();
   let previousDate = "";
   let previousModernMinute = "";
+  let previousEntryId: string | undefined;
   let expectedHistoricalNumber = 1;
   let modernHistoryStarted = false;
+  let timestampSequenceResetSeen = false;
 
   for (const entry of entries) {
     if (seenIds.has(entry.id)) {
@@ -350,6 +355,16 @@ export function validateBuildLog(text: string): BuildLogValidationResult {
     }
     previousDate = entry.date;
 
+    const status = entry.fields.Status?.replace(/^`|`$/gu, "") ?? "";
+    const resetDecision = entry.fields.Decisions ?? "";
+    const resetTargets = [
+      ...resetDecision.matchAll(TIMESTAMP_SEQUENCE_RESET_MARKER),
+    ].map((match) => match[1]);
+    const resetMarkerMentions =
+      resetDecision.split(TIMESTAMP_SEQUENCE_RESET_PREFIX).length - 1;
+    const hasResetMarker = resetMarkerMentions > 0;
+    let validTimestampSequenceReset = false;
+
     const historical = HISTORICAL_ID.exec(entry.id);
     const modern = MODERN_ID.exec(entry.id);
     if (historical !== null) {
@@ -368,6 +383,11 @@ export function validateBuildLog(text: string): BuildLogValidationResult {
         );
       }
       expectedHistoricalNumber = historicalNumber + 1;
+      if (hasResetMarker) {
+        errors.push(
+          `${entry.id} (line ${entry.startLine}): timestamp sequence reset marker is invalid`,
+        );
+      }
     } else if (modern !== null) {
       modernHistoryStarted = true;
       const [, year, month, day, hour, minute] = modern;
@@ -390,14 +410,30 @@ export function validateBuildLog(text: string): BuildLogValidationResult {
           `${entry.id} (line ${entry.startLine}): ID date does not match entry date`,
         );
       }
-      if (
-        previousModernMinute.length > 0 &&
-        idMinute < previousModernMinute
-      ) {
+      const timestampMovesBackward =
+        previousModernMinute.length > 0 && idMinute < previousModernMinute;
+      if (hasResetMarker) {
+        validTimestampSequenceReset =
+          resetMarkerMentions === 1 &&
+          resetTargets.length === 1 &&
+          resetTargets[0] === previousEntryId &&
+          previousEntryId !== undefined &&
+          timestampMovesBackward &&
+          !timestampSequenceResetSeen &&
+          /^Correction\b/iu.test(entry.title) &&
+          status === "Implemented";
+        if (!validTimestampSequenceReset) {
+          errors.push(
+            `${entry.id} (line ${entry.startLine}): timestamp sequence reset marker is invalid`,
+          );
+        }
+      }
+      if (timestampMovesBackward && !validTimestampSequenceReset) {
         errors.push(
           `${entry.id} (line ${entry.startLine}): timestamp precedes the previous timestamped entry`,
         );
       }
+      if (validTimestampSequenceReset) timestampSequenceResetSeen = true;
       previousModernMinute = idMinute;
     } else {
       errors.push(
@@ -405,7 +441,6 @@ export function validateBuildLog(text: string): BuildLogValidationResult {
       );
     }
 
-    const status = entry.fields.Status?.replace(/^`|`$/gu, "") ?? "";
     if (!ALLOWED_STATUS_SET.has(status)) {
       errors.push(
         `${entry.id} (line ${entry.startLine}): invalid Status ${JSON.stringify(status)}`,
@@ -434,6 +469,7 @@ export function validateBuildLog(text: string): BuildLogValidationResult {
     }
 
     priorIds.add(entry.id);
+    previousEntryId = entry.id;
   }
 
   return { entries, errors };

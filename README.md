@@ -52,6 +52,13 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   revision, its one authorized real-vLLM episode passed, and the exact
   post-proof revision passed Linux and macOS GitHub Actions. It is Verified but
   not Released.
+- Held-out Evaluator Readiness v1: a separate `$0` offline command validates a
+  policy-neutral 24-case runner contract against evaluator-private oracle,
+  witness, signed judgment, and signed-resolution records, then publishes only
+  a bounded aggregate and last-written completion marker. Its implementation
+  and synthetic/adversarial proofs are present, but exact-SHA remote
+  verification is still pending. No real held-out corpus, human adjudication,
+  provider campaign, or review-quality result exists.
 
 ## Planning and project history
 
@@ -69,6 +76,11 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   boundary. Another live attempt requires new explicit approval and a new
   committed plan authority ID. The plan does not authorize cloud routing, paid
   inference, or PR 6.
+- [Held-out Corpus and Evaluator Readiness v1](docs/plans/HELD_OUT_CORPUS_EVALUATOR_READINESS_V1.md)
+  defines the separately approved deterministic offline harness. It authorizes
+  no provider call and cannot become a quality baseline until an independent
+  curator, two blinded humans, an external coordinator, and a new campaign
+  authority supply the missing private evidence.
 - [Build and change log](docs/BUILD_LOG.md) is the append-only project evidence
   ledger for crucial decisions, implementation milestones, failures, proofs,
   costs, limitations, and next gates.

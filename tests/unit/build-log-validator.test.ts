@@ -13,12 +13,13 @@ function entry(input: {
   date: string;
   title?: string;
   status?: string;
+  decisions?: string;
   references?: string;
 }): string {
   const values: Record<string, string> = {
     Status: `\`${input.status ?? "Implemented"}\``,
     "Scope or hypothesis": "Test the ledger contract.",
-    Decisions: "Keep the test deterministic.",
+    Decisions: input.decisions ?? "Keep the test deterministic.",
     Changes: "Fixture only.",
     Evidence: "Validator unit test.",
     "Failures or blockers": "None.",
@@ -149,6 +150,189 @@ describe("build-log validator", () => {
         expect.stringContaining("timestamp precedes"),
         expect.stringContaining("is not an earlier entry"),
       ]),
+    );
+  });
+
+  it("allows one explicit correction to reset a legacy timestamp sequence to UTC", () => {
+    const result = validateBuildLog(
+      log(
+        entry({ id: "BL-0001", date: "2026-08-27" }),
+        entry({
+          id: "BL-20260829-2000-local-clock",
+          date: "2026-08-29",
+        }),
+        entry({
+          id: "BL-20260829-1200-utc-reset",
+          date: "2026-08-29",
+          title: "Correction: restore the UTC timestamp basis",
+          decisions:
+            "Timestamp sequence reset after: `BL-20260829-2000-local-clock`.",
+          references: "BL-20260829-2000-local-clock.",
+        }),
+        entry({
+          id: "BL-20260829-1201-after-reset",
+          date: "2026-08-29",
+        }),
+      ),
+    );
+
+    expect(result.errors).toEqual([]);
+  });
+
+  it.each([
+    {
+      label: "a non-correction title",
+      title: "Restore the UTC timestamp basis",
+      status: "Implemented",
+      decisions:
+        "Timestamp sequence reset after: `BL-20260829-2000-local-clock`.",
+    },
+    {
+      label: "a non-implemented status",
+      title: "Correction: restore the UTC timestamp basis",
+      status: "Approved",
+      decisions:
+        "Timestamp sequence reset after: `BL-20260829-2000-local-clock`.",
+    },
+    {
+      label: "a non-immediate target",
+      title: "Correction: restore the UTC timestamp basis",
+      status: "Implemented",
+      decisions: "Timestamp sequence reset after: `BL-0001`.",
+    },
+    {
+      label: "a malformed marker",
+      title: "Correction: restore the UTC timestamp basis",
+      status: "Implemented",
+      decisions:
+        "Timestamp sequence reset after: BL-20260829-2000-local-clock.",
+    },
+    {
+      label: "an additional malformed marker",
+      title: "Correction: restore the UTC timestamp basis",
+      status: "Implemented",
+      decisions: [
+        "Timestamp sequence reset after: `BL-20260829-2000-local-clock`.",
+        "Timestamp sequence reset after: malformed.",
+      ].join("\n"),
+    },
+  ])("rejects a backward timestamp reset with $label", ({
+    title,
+    status,
+    decisions,
+  }) => {
+    const result = validateBuildLog(
+      log(
+        entry({ id: "BL-0001", date: "2026-08-27" }),
+        entry({
+          id: "BL-20260829-2000-local-clock",
+          date: "2026-08-29",
+        }),
+        entry({
+          id: "BL-20260829-1200-invalid-reset",
+          date: "2026-08-29",
+          title,
+          status,
+          decisions,
+          references: "BL-20260829-2000-local-clock.",
+        }),
+      ),
+    );
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("timestamp sequence reset marker is invalid"),
+        expect.stringContaining("timestamp precedes"),
+      ]),
+    );
+  });
+
+  it("rejects an unnecessary reset marker and a second backward reset", () => {
+    const unnecessary = validateBuildLog(
+      log(
+        entry({ id: "BL-0001", date: "2026-08-27" }),
+        entry({
+          id: "BL-20260829-1200-first",
+          date: "2026-08-29",
+        }),
+        entry({
+          id: "BL-20260829-1201-unnecessary-reset",
+          date: "2026-08-29",
+          title: "Correction: unnecessary reset",
+          decisions:
+            "Timestamp sequence reset after: `BL-20260829-1200-first`.",
+          references: "BL-20260829-1200-first.",
+        }),
+      ),
+    );
+    expect(unnecessary.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("timestamp sequence reset marker is invalid"),
+      ]),
+    );
+
+    const secondReset = validateBuildLog(
+      log(
+        entry({ id: "BL-0001", date: "2026-08-27" }),
+        entry({
+          id: "BL-20260829-2000-local-clock",
+          date: "2026-08-29",
+        }),
+        entry({
+          id: "BL-20260829-1200-first-reset",
+          date: "2026-08-29",
+          title: "Correction: first UTC reset",
+          decisions:
+            "Timestamp sequence reset after: `BL-20260829-2000-local-clock`.",
+          references: "BL-20260829-2000-local-clock.",
+        }),
+        entry({
+          id: "BL-20260829-1300-forward",
+          date: "2026-08-29",
+        }),
+        entry({
+          id: "BL-20260829-1259-second-reset",
+          date: "2026-08-29",
+          title: "Correction: second UTC reset",
+          decisions:
+            "Timestamp sequence reset after: `BL-20260829-1300-forward`.",
+          references: "BL-20260829-1300-forward.",
+        }),
+      ),
+    );
+    expect(secondReset.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("timestamp sequence reset marker is invalid"),
+        expect.stringContaining("timestamp precedes"),
+      ]),
+    );
+  });
+
+  it("keeps enforcing monotonic timestamps after the one-time reset", () => {
+    const result = validateBuildLog(
+      log(
+        entry({ id: "BL-0001", date: "2026-08-27" }),
+        entry({
+          id: "BL-20260829-2000-local-clock",
+          date: "2026-08-29",
+        }),
+        entry({
+          id: "BL-20260829-1200-utc-reset",
+          date: "2026-08-29",
+          title: "Correction: restore the UTC timestamp basis",
+          decisions:
+            "Timestamp sequence reset after: `BL-20260829-2000-local-clock`.",
+          references: "BL-20260829-2000-local-clock.",
+        }),
+        entry({
+          id: "BL-20260829-1159-late-entry",
+          date: "2026-08-29",
+        }),
+      ),
+    );
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([expect.stringContaining("timestamp precedes")]),
     );
   });
 

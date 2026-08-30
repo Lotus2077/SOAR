@@ -155,6 +155,81 @@ invocation or an unclassified harness defect. `passed` proves only the recorded
 production-path invariants for this fixture; it does not establish review
 quality or any routing, cost, or latency advantage.
 
+## Held-out corpus and evaluator readiness v1
+
+`pnpm --silent benchmark:heldout-review` is a separate deterministic offline evaluator.
+It does not execute an agent, contact a model-list endpoint, import the Electron
+runtime, select a provider, or create campaign authority. It accepts one strict
+JSON control document on stdin, capped at 64 KiB in canonical form with a
+conventional trailing line ending permitted by the transport; private file
+paths are never command-line arguments or output fields. `--silent` is part of
+the machine-readable command so the package manager does not add banners or
+absolute working-directory diagnostics around the JSON contract. The package
+script uses Node's native strip-only TypeScript support; this entrypoint and its
+offline dependency graph avoid third-party loader IPC.
+
+The evaluator requires externally prepared, separate files for the policy-
+neutral 24-fixture runner bundle, evaluator-only oracle and salted commitment
+material, run manifest, all 24 terminal run records, private semantic findings,
+adjudication packets, judgments, signed coordinator attestations, joint
+resolutions, and the externally pre-approved coordinator public key. Each
+coordinator attestation signs a non-circular commitment to its complete
+judgment disposition, and every disputed joint resolution carries its own
+coordinator signature over both judgment hashes and the final disposition.
+The CLI verifies that the supplied public key matches the run manifest; because
+the caller supplies both, campaign approval remains an external operator gate.
+Collection files use these wrapper versions:
+
+- `heldout-private-findings-file-v1`;
+- `heldout-adjudication-packets-file-v1`;
+- `heldout-adjudicator-judgments-file-v1`;
+- `heldout-coordinator-attestations-file-v1`; and
+- `heldout-adjudication-resolutions-file-v1`.
+
+The corpus contract fixes exactly 24 cases for this profile: 8 clean and 16
+faulty, at least 20 P0/P1 and 8 P2/P3 defects, and commitment-bound faulty-
+candidate-fails/corrected-candidate-passes witness records. Tests use generated
+synthetic records only. The repository contains no real held-out identity,
+oracle, gold, raw model review, judgment, signature, salt, or generated result.
+
+Accepted results must assert a dispatch, positive input/output usage, complete
+usage coverage for every inference attempt, measured latency, and non-
+`no_dispatch` cost provenance. These are internally checked operator records,
+not independent proof that dispatch occurred. `no_dispatch` requires zero
+attempts and zero provider usage. The aggregate reports inference, reported,
+and unreported attempt counts so incomplete usage on failed or cancelled work
+remains visible.
+The evaluator rejects round, successful-tool, episode-latency, and necessary
+aggregate token totals beyond the committed manifest envelope. Per-attempt
+duration and failed tool-call counts are not retained in this contract, so the
+future campaign runner remains responsible for those two finer-grained limits.
+
+Primary recall keeps all assigned gold in its denominator, including invalid,
+blocked, cancelled, and unstarted cases. Duplicate gold matches reduce
+precision. Valid-review yield is reported explicitly as accepted outcomes over
+all 24 assignments with a Wilson 95% interval. Missing, rewritten, or disputed
+judgments, an unverified coordinator
+attestation or signed resolution, a mismatched manifest key, or a valid novel
+defect fails closed or suppresses the current semantic aggregate; zero findings
+and zero successful reviews remain explicit non-estimable values. Wilson and
+fixed-seed bootstrap controls come from the committed run manifest, not CLI
+overrides.
+
+Output is one allow-listed aggregate followed by a last-written completion
+marker under a no-replace private directory. The aggregate excludes fixture and
+revision identity, paths, gold, evidence regions, finding IDs/text, individual
+judgments, human identifiers, signatures, endpoints, credentials, raw
+diagnostics, and private-input hashes or sizes. The marker contains only the
+aggregate hash and byte count; the safe stdout summary contains both published
+artifact hashes and sizes. Hashes make later mutation detectable, not
+impossible.
+
+This is evaluator readiness, not a held-out quality baseline. A real campaign
+still requires independent corpus curation and witness execution, two human
+adjudicators plus an external coordinator, a new committed one-shot campaign
+authority, provider execution, and completed adjudication. No such campaign is
+authorized by this command or its plan.
+
 ## Fixture and evaluator utilities
 
 The first fixture/evaluator canary selection is defined in

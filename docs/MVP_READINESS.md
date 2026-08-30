@@ -74,6 +74,19 @@ revision passed Linux and macOS GitHub Actions.
   non-reusable while its ignored `.run-ledger` is preserved. Its one-live-episode
   authority is fixed to the committed plan ID in OS-user-local application
   state on this machine and is independent of disposable benchmark output;
+- a separate offline held-out evaluator-readiness command with policy-neutral
+  runner contracts, evaluator-only 24/8/16 oracle and witness contracts,
+  domain-separated salted commitments, private semantic-finding bindings,
+  manifest-bound Ed25519 coordinator keys, signed judgment commitments and
+  signed joint resolutions, conservative all-assigned scoring, Wilson and
+  fixed-seed cost/latency intervals, dispatch/usage consistency with explicit
+  unreported-attempt counts, manifest-envelope checks, explicit valid-review
+  yield, and no-replace safe aggregate publication.
+  External trust-anchor approval remains a future campaign gate because the
+  offline caller supplies both manifest and key. Its recursive import gate
+  excludes the app runtime, providers, network, dynamic loading, and
+  subprocesses. Tests use generated synthetic records; no real held-out corpus,
+  run, or quality result exists;
 - deterministic unit, integration, and Electron end-to-end tests;
 - strict additive v2 routing-decision and inference-attempt schemas, replay
   invariants, and crash-window recovery;

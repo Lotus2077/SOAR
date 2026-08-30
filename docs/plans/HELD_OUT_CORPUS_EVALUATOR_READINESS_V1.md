@@ -1,7 +1,7 @@
 # Held-out Corpus and Evaluator Readiness v1
 
-Status: **Approved for deterministic offline implementation; no provider
-campaign, quality result, cloud path, paid call, or release is authorized**
+Status: **Implemented; deterministic local verification passed; exact-SHA
+remote verification pending; not Executed or Released**
 
 - Plan ID: `held-out-corpus-evaluator-readiness-v1-plan-1`
 - Approved: 2026-08-30 by the project owner in the project task
@@ -51,8 +51,10 @@ inputs have been supplied.
    evaluator is a separate offline module with no provider/runtime dependency.
 3. Require two independent adjudication records with distinct random study IDs
    for every emitted finding plus externally signed coordinator attestations
-   that those IDs represent two humans who were blinded as required. Unresolved
-   disagreement or missing/invalid attestations keep the report non-scored.
+   that bind both the distinct-human/blinding assertion and a domain-separated
+   commitment to each complete judgment. Require a separately signed joint
+   resolution for disagreements. Unresolved, rewritten, or missing/invalid
+   records keep the report non-scored.
 4. Deterministically compute raw counts, valid-review yield, high-severity and
    all-severity recall, finding precision, false accepts, weighted quality,
    Wilson 95% proportion intervals, and seeded bootstrap cost and latency
@@ -192,6 +194,24 @@ No outcome may be omitted. Operational yield and outcome populations are always
 reported. Semantic metrics are emitted only when every finding in every
 accepted result has complete adjudication.
 
+An accepted record must assert at least one dispatched inference, positive
+reported input and output usage, usage coverage for every attempt, measured
+latency, and non-`no_dispatch` cost provenance. The evaluator verifies the
+record's internal consistency and committed envelope; it does not observe the
+dispatch or turn an unsigned operator record into execution proof. Conversely,
+`no_dispatch` requires zero inference attempts and zero provider usage even
+when bounded pre-inference tooling occurred. The aggregate publishes total
+inference, reported, and unreported attempt counts so incomplete usage on
+non-accepted records remains visible rather than being silently represented as
+zero. A future trusted runner must bind these records to retained campaign
+execution evidence.
+Every terminal record must remain within the manifest's round, successful-tool,
+episode-latency, and necessary aggregate per-reported-attempt token ceilings;
+violations invalidate the run input. Because these records do not retain
+individual attempt durations or failed tool-call counts, the evaluator cannot
+independently re-prove the per-attempt timeout or total attempted-tool ceiling;
+a future trusted runner must enforce and retain those campaign facts.
+
 ### Blinded adjudication
 
 Two distinct random adjudicator study IDs independently judge every emitted
@@ -205,13 +225,18 @@ addresses. Each judgment is one of:
 
 The packet records that provider, policy, cost, and the peer judgment were
 hidden. A signed external coordinator attestation binds each random study ID to
-a distinct human and the required blinding procedure. The harness can verify
+a distinct human, the required blinding procedure, and a domain-separated
+canonical commitment over every judgment field except the attestation hash
+that is created afterward. This non-circular binding includes the disposition,
+so rewriting a judgment invalidates its attestation. The harness can verify
 record independence, signature integrity, and identifier distinctness; it
-cannot itself observe personhood or actual blindness and reports that trust
+cannot itself observe personhood, actual blindness, or whether the supplied
+manifest/key were approved outside the evaluator, and reports that trust
 boundary. Identical independent judgments resolve automatically. A
-disagreement requires an explicit joint resolution naming both study IDs and
-the final disposition. Missing, invalidly attested, or unresolved judgments
-produce a non-scored status, never an inferred score.
+disagreement requires an explicit coordinator-signed joint resolution binding
+both study IDs, both complete judgment hashes, all finding/run bindings, and
+the final disposition. Missing, rewritten, invalidly attested, or unresolved
+judgments produce a non-scored status, never an inferred score.
 
 ## Metric semantics
 
@@ -232,16 +257,16 @@ Any valid novel-defect judgment suppresses every current semantic metric and
 requires a corrected corpus version, new set commitment, and newly authorized
 campaign. It never earns numerator credit in the run that discovered it.
 
-The report separately exposes valid-review yield over all 24, exact terminal
-outcome counts, and optional accepted-result-only recall/precision values
-clearly labeled as secondary conditional diagnostics. Those diagnostics never
-replace or rename the primary all-assigned metrics. Wilson 95% intervals
-accompany proportions. A deterministic seeded percentile bootstrap with a
-fixed algorithm, replicate count, and seed derivation accompanies fixture-level
-latency and cost per successful accepted review. Total cost, cost per assigned
-fixture, raw numerators, and raw denominators are retained. Selected token cost
-and local infrastructure cost are reported separately; unknown infrastructure
-cost never becomes zero.
+The report separately exposes valid-review yield over all 24 with its Wilson
+95% interval, exact terminal outcome counts, and optional accepted-result-only
+recall/precision values clearly labeled as secondary conditional diagnostics.
+Those diagnostics never replace or rename the primary all-assigned metrics.
+Wilson 95% intervals accompany proportions. A deterministic seeded percentile
+bootstrap with a fixed algorithm, replicate count, and seed derivation
+accompanies fixture-level latency and cost per successful accepted review.
+Total cost, cost per assigned fixture, raw numerators, and raw denominators are
+retained. Selected token cost and local infrastructure cost are reported
+separately; unknown infrastructure cost never becomes zero.
 
 Zero denominators never acquire a conventional numeric value. Zero emitted
 findings makes precision and its interval `null` with reason
@@ -299,8 +324,11 @@ every encoded or transformed representation.
    - Runner/oracle/run/adjudication set commitments must match exactly.
 3. **Fail-closed adjudication**
    - Two distinct study-ID judgments and valid signed coordinator attestations
-     are required for every finding; the report preserves the external trust
-     limitation rather than claiming personhood was mechanically proved.
+     that commit each judgment disposition are required for every finding;
+     disputed dispositions require a signed joint resolution. The report
+     preserves the external trust limitation rather than claiming personhood,
+     blinding, or approval of the caller-supplied trust anchor was mechanically
+     proved.
    - Missing, duplicate, self-paired, cross-fixture, invalid-gold, or unresolved
      judgments suppress semantic metrics.
    - Valid novel defects mark the affected fixture and aggregate invalid for a

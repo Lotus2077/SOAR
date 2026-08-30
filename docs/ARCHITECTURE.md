@@ -553,6 +553,64 @@ clones can reconstruct all 12 snapshots. The held-out fixture identities and
 gold required for a quality comparison do not exist in this repository, so the
 calibration proves neither routing benefit nor review quality.
 
+## Offline held-out runner/evaluator boundary
+
+The approved held-out readiness layer is a deterministic offline boundary, not
+a provider campaign. Its strict runner bundle is policy- and provider-neutral:
+it carries exactly 24 opaque ordinals and commitments for the frozen evidence,
+prompt, schema, and limits, but no repository identity, path, patch, class,
+defect, severity, rubric, witness, or adjudication data. It is control-plane
+input and must not be copied into a model-visible workspace or prompt. Policy,
+provider, served-model, deployment, configuration, budgets, and retry authority
+belong to a separate run manifest and do not alter the committed corpus.
+
+The oracle, witness-freeze material, findings, judgments, attestations, and
+resolutions remain evaluator-private. The evaluator accepts already-read,
+strictly bounded records, recomputes the salted corpus commitment, retains all
+24 terminal outcomes, and emits semantic metrics only when every finding has a
+complete valid adjudication. Its module graph is isolated from `src/main`,
+provider adapters, OpenAI clients, runtime routing, `fetch`, network libraries,
+and subprocesses. The CLI may read the named private files, but neither the CLI
+nor evaluator can dispatch inference or contact a provider.
+
+Human semantic judgments use two distinct random study IDs. Externally signed
+Ed25519 coordinator attestations bind those IDs to the distinct-human and
+blinding assertions plus a domain-separated, non-circular commitment to each
+complete judgment disposition. A disagreement requires a separate coordinator
+signature over both judgment hashes and the joint final disposition. The run
+manifest binds the externally pre-approved verification-key fingerprint, and
+the evaluator rejects a supplied key that does not match it. The evaluator
+verifies signatures, bindings, identifier distinctness, and resolution
+consistency. It does not observe personhood or blinding itself, and because the
+offline caller supplies both manifest and key it cannot prove their external
+preapproval; missing, rewritten, invalid, or unresolved assertions keep the
+aggregate non-scored.
+
+The offline CLI accepts one bounded strict JSON control record on standard
+input. Private paths are not accepted as process arguments. It returns only a
+stable error code or a bounded safe summary and does not echo paths, parser
+values, oracle fields, raw exceptions, or private content. Static import and
+privacy tests enforce the runner vocabulary boundary and recursively inspect
+the CLI/evaluator graph. This boundary permits filesystem reads and local
+cryptographic verification only; it permits no provider, network, or
+subprocess operation.
+
+Publication canonicalizes and scans an already-safe aggregate before any
+filesystem mutation. It exclusively creates a private namespace and `0600`
+files under `0700` directories, never replaces an existing target, fsyncs the
+aggregate first, and writes the completion marker last. The marker contains
+only the aggregate SHA-256 and byte count, with no self-hash or forward
+reference; only the safe post-publication summary contains hashes and byte
+counts for both files. Consumers must reject a publication without the final
+marker and verify its aggregate binding. These hashes make later mutation
+detectable, not impossible.
+
+This boundary is authorized only for deterministic `$0` offline implementation
+and synthetic proof. No real held-out corpus, provider call, quality baseline,
+cloud or hybrid comparison, paid exposure, or release is authorized or implied.
+The normative contracts and remaining external dependencies are recorded in
+the [approved readiness plan](plans/HELD_OUT_CORPUS_EVALUATOR_READINESS_V1.md).
+
 ## Current and future routing
 
 The production app has two local-only paths. Repository Investigator retains

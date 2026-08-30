@@ -32,6 +32,7 @@
     "test:e2e": "node scripts/run-electron-e2e.mjs",
     "benchmark": "node --experimental-strip-types scripts/benchmark.ts",
     "benchmark:local-review": "tsx scripts/benchmark-local-review.ts",
+    "benchmark:heldout-review": "node --no-warnings --experimental-strip-types scripts/benchmark-heldout-review.ts",
     "benchmark:preflight": "node --experimental-strip-types scripts/benchmark.ts preflight",
     "calibration:generate": "tsx benchmarks/change-review/generate-calibration.ts",
     "postinstall": "electron-builder install-app-deps",

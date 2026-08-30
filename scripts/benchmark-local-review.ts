@@ -29,7 +29,8 @@ export function parseLocalReviewCliArguments(
 ): LocalReviewCliArguments {
   const values = new Map<string, string>();
   const booleans = new Set<string>();
-  for (let index = 0; index < argv.length; index += 1) {
+  const firstOptionIndex = argv[0] === "--" ? 1 : 0;
+  for (let index = firstOptionIndex; index < argv.length; index += 1) {
     const token = argv[index]!;
     if (!token.startsWith("--")) throw new Error("argument_invalid");
     const name = token.slice(2);

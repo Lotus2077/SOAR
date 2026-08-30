@@ -22,6 +22,11 @@ describe("local review benchmark CLI", () => {
       runId: "local-review-001",
       liveLocalVllm: true,
     });
+    expect(parseLocalReviewCliArguments(["--", ...valid])).toMatchObject({
+      calibrationId: "cal-001-soar-plan-approval",
+      runId: "local-review-001",
+      liveLocalVllm: true,
+    });
   });
 
   it.each([
@@ -35,6 +40,8 @@ describe("local review benchmark CLI", () => {
       ),
     },
     { argv: [...valid, "--run-id", "duplicate"] },
+    { argv: [...valid, "--"] },
+    { argv: ["--", "--", ...valid] },
     {
       argv: valid.map((token) =>
         token === "local-review-001" ? "../escape" : token,

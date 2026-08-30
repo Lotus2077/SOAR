@@ -2160,3 +2160,83 @@ References: [approved bridge plan](plans/LOCAL_EVALUATION_BRIDGE_V1.md),
 [architecture](ARCHITECTURE.md#benchmark-isolation),
 [MVP readiness](MVP_READINESS.md), and
 [approval entry](#bl-20260830-0852-local-evaluation-bridge-approved----2026-08-30----local-evaluation-bridge-v1-approved-for-one-zero-paid-production-path-proof).
+
+### BL-20260830-1915-local-evaluation-bridge-cli-separator-correction -- 2026-08-30 -- The documented live command failed closed before provider dispatch
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct the first exact-commit operator invocation after
+the documented `pnpm benchmark:local-review -- ...` command exposed a package
+runner/CLI argument-boundary mismatch. Preserve the unused one-shot authority
+and require a new exact-commit gate before any live retry.
+
+Decisions:
+
+- Accept exactly one conventional standalone `--` only at the beginning of the
+  specialized CLI argument vector. Continue rejecting a separator in any other
+  position, duplicates, positional inputs, unknown options, and every provider
+  override.
+- Treat commit `df564fd7b92bb0c5170223acf1d9cd1d117640e6` as deterministic
+  evidence but no longer as the live candidate: its release-head and Electron
+  gates passed, yet its documented operator command could not enter the
+  evaluator.
+- Permit a later attempt under the existing approval only because the failed
+  command returned `argument_unknown` before fixture materialization, run
+  reservation, authority claim, model-list health, or inference dispatch. The
+  authority and selected run namespace were both confirmed absent afterward.
+- Supply `SOAR_VLLM_COST_POLICY=local_zero_cost` explicitly to the eventual live
+  command as the approved operator attestation. Do not persist that
+  machine-specific setting in tracked runtime examples or weaken the remote
+  endpoint admission check.
+
+Changes: The specialized argument parser now strips one package-runner
+separator at position zero. CLI regressions cover the documented form and
+continue to reject trailing or repeated separators. No production session,
+provider, tool, persisted-event, IPC, renderer, routing, cost, or permission
+contract changed.
+
+Evidence:
+
+- Before the operator attempt, `pnpm check:release-head` passed the exact clean
+  `df564fd7b92bb0c5170223acf1d9cd1d117640e6` revision: 62 test files and 692
+  tests passed with two files and four opt-in tests skipped, both TypeScript
+  projects passed, readiness and the 31-entry build log validated, and all
+  Electron production bundles built.
+- Electron E2E then passed all three macOS workflows on that same exact clean
+  revision.
+- A read-only configuration probe first rejected the remote route because the
+  explicit zero-token-fee operator attestation was absent. Adding the approved
+  process-local attestation produced only boolean output and confirmed local
+  provider mode, an exact `/v1` base shape, a configured model, exact live
+  limits, and the zero-token-fee policy. Neither probe entered the evaluator or
+  made a network request.
+- The first documented CLI invocation exited 1 with `argument_unknown` because
+  the leading separator reached the script. Immediate checks found the live
+  authority file, run reservation, and run namespace absent, and the Git tree
+  remained clean. No model-list or inference request occurred.
+
+Failures or blockers: The correction is not yet committed and therefore has
+not passed `pnpm check:release-head` or Electron E2E on its own exact revision.
+The authorized live episode remains pending and must not run until those gates
+pass again.
+
+Limitations and non-claims: This is a narrow package-runner compatibility fix,
+not new runtime capability. The earlier exact gates do not verify the corrected
+tree. A process-local `local_zero_cost` declaration is an operator attestation;
+it does not independently prove endpoint billing, infrastructure, electricity,
+or network cost. No review-quality, arbitrary-repository, routing-optimization,
+cloud, or release claim follows.
+
+Paid exposure: `$0` selected metered-provider exposure. No provider, model-list,
+inference, OpenRouter, retry, fallback, clone, fetch, or other network request
+occurred in the failed probes or command.
+
+Next gate: Run the focused CLI regressions and validators, commit the correction,
+then require release-head and macOS Electron E2E on that exact clean revision.
+Only after both pass may the still-unused one-shot local-vLLM authority be
+claimed once.
+
+References: [specialized CLI](../scripts/benchmark-local-review.ts),
+[CLI tests](../tests/unit/benchmark-local-review-cli.test.ts),
+[operator contract](../benchmarks/README.md#local-evaluation-bridge-v1), and
+[approved bridge plan](plans/LOCAL_EVALUATION_BRIDGE_V1.md).

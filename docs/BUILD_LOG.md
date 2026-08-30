@@ -1933,3 +1933,71 @@ References: [affected remote-verification entry](#bl-20260830-0312-pr5-correctio
 [first replacement green run](https://github.com/Lotus2077/SOAR/actions/runs/33270128877),
 [green log-tail run](https://github.com/Lotus2077/SOAR/actions/runs/33270368072),
 and [timeout correction](#bl-20260830-0303-pr5-remote-retention-timeout-correction----2026-08-30----replacement-ci-exposed-a-proof-test-timing-boundary).
+
+### BL-20260830-0852-local-evaluation-bridge-approved -- 2026-08-30 -- Local Evaluation Bridge v1 approved for one zero-paid production-path proof
+
+Status: `Approved`
+
+Scope or hypothesis: Authorize a narrow zero-paid milestone that connects a
+specialized evaluation command to the existing production local-only Review
+Current Changes coordinator, corrects active-versus-proposed configuration and
+evaluation documentation, and executes at most one bounded nonempty local-vLLM
+episode.
+
+Decisions:
+
+- Approve `local-evaluation-bridge-v1-plan-1` only.
+- Reuse the exact production `change-review-v1`, `agentic-execution-v2`, and
+  `local_only_v1` session contract and coordinator rather than implementing a
+  benchmark-only agent.
+- Permit only the smallest Electron-free session-service extraction needed by
+  IPC and the specialized command, plus a behavior-preserving extraction of
+  the duplicated v2 non-cooperative-provider abort race.
+- Bind the one live episode to the frozen public
+  `cal-001-soar-plan-approval` change from explicit local Git objects. The
+  command may use only the existing network-disabled local shared-clone
+  materialization; it may not remotely clone, fetch, or accept an arbitrary
+  workspace.
+- Permit deterministic tests and exactly one live local-vLLM episode after the
+  committed deterministic gates pass. A `sent` or disposition-`unknown`
+  inference consumes that authority; another live inference requires new
+  explicit approval.
+- Keep selected metered-provider exposure at zero. PR 6, OpenRouter, Keychain,
+  cloud egress, paid calls, fallback, and the broad research/coding campaign
+  remain unapproved.
+- Make no persisted event, database, routing-policy, provider, tool-permission,
+  renderer, IPC, or public API contract change.
+
+Changes: Added the approved Local Evaluation Bridge v1 plan and recorded its
+authority boundary. No runtime, provider, inference, credential, egress, or
+paid behavior changed at this approval checkpoint.
+
+Evidence: The project owner explicitly approved the named Local Evaluation
+Bridge v1 zero-paid milestone in the project task on 2026-08-30. The clean
+baseline was `1b86b696b8488a809f3ecd9c3ad2cbd4c8db2f7a`, matching
+`origin/main`. Inspection confirmed that the app already owns the local-only
+production coordinator, while the benchmark CLI has no agent-episode command
+and tracked paid environment variables are not parsed by runtime
+configuration. The frozen `cal-001` Git objects are present in the baseline;
+no fixture, provider, or network action was needed for approval.
+
+Failures or blockers: The documentation truth corrections, bridge command,
+shared service, safe canonical projection, deterministic nonempty fixture
+proof, and live nonempty proof are not implemented or verified at this entry.
+
+Limitations and non-claims: Approval is authority to perform the scoped work.
+It is not implementation, verification, release, real-review quality evidence,
+held-out evaluation, dynamic routing, cloud readiness, cost or latency
+advantage, default-context proof, or general reliability evidence.
+
+Paid exposure: `$0`. This approval and its audit used repository inspection
+only. No provider, inference, model-list, OpenRouter, credential, retry,
+fallback, evaluator, clone, or fetch request occurred.
+
+Next gate: Commit this approval and plan before implementation, then complete
+the truth corrections and deterministic bridge without contacting a provider.
+
+References: [Local Evaluation Bridge v1 plan](plans/LOCAL_EVALUATION_BRIDGE_V1.md),
+[Hybrid Lease Router plan](plans/HYBRID_LEASE_ROUTER_V0.md),
+[benchmark protocol](../benchmarks/README.md), and
+[MVP readiness](MVP_READINESS.md).

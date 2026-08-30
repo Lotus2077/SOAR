@@ -2508,3 +2508,110 @@ References: [approved bridge plan](plans/LOCAL_EVALUATION_BRIDGE_V1.md),
 [operator contract](../benchmarks/README.md#local-evaluation-bridge-v1),
 [MVP readiness](MVP_READINESS.md), and
 [GitHub Actions run](https://github.com/Lotus2077/SOAR/actions/runs/33309497966).
+
+### BL-20260830-2050-heldout-readiness-approved -- 2026-08-30 -- Offline held-out corpus and evaluator readiness approved
+
+Status: `Approved`
+
+Scope or hypothesis: Interpret the project owner's instruction to proceed with
+the next milestone as approval to build the `$0` deterministic held-out corpus
+and evaluator readiness layer that was recommended after Local Evaluation
+Bridge v1, while refusing to manufacture a quality baseline without sealed gold
+and two blinded human adjudicators.
+
+Decisions:
+
+- Approve plan `held-out-corpus-evaluator-readiness-v1-plan-1` for offline
+  implementation only. It adds strict private-input contracts, isolation,
+  deterministic scoring, safe aggregate publication, a CLI, and synthetic
+  tests.
+- Keep the frozen `change-review-eval-v1` minimums: exactly 24 fixtures for this
+  harness profile, 8 clean, 16 faulty, at least 20 P0/P1 defects, at least 8
+  P2/P3 defects, and two humans blinded to policy/provider for semantic finding
+  matches.
+- Emit no recall, precision, false-accept, or weighted-quality metric while
+  adjudication is missing, disputed, or invalid. A region overlap is a
+  candidate, not proof that free-text defect and impact semantics match gold.
+- Keep runner-facing data and public aggregate free of fixture identity, gold,
+  raw review prose, individual judgments, endpoints, credentials, and absolute
+  paths. Gold remains external and evaluator-only.
+- Keep corpus commitments policy-neutral. Bind policy, provider, model,
+  deployment, and configuration in a separate future run manifest so every
+  comparison cohort can receive the same immutable evidence packet.
+- Keep all 24 fixtures' gold in the primary recall denominators. Non-accepted
+  fixtures contribute zero matches, valid novel defects suppress the current
+  semantic score pending a new corpus version, and accepted-only diagnostics
+  remain separately labeled.
+- Treat two-person blinding as a signed external-coordinator trust assertion.
+  The harness can verify distinct random study IDs, record independence, and
+  signature integrity; it cannot mechanically observe human identity or
+  blindness.
+- Define deterministic domain-separated salted SHA-256 commitments, cost and
+  latency bootstraps, stable non-disclosing errors, stdin-only private CLI
+  control, and a no-provider/network import boundary for the offline evaluator.
+- Do not generalize or reuse Local Evaluation Bridge v1. Its public fixture,
+  four-attempt/three-tool contract, artifacts, and consumed authority remain
+  unchanged and retain their Verified status.
+- Authorize no provider or model-list request. A future live campaign needs a
+  second plan after the set commitment and token envelope are frozen, using a
+  new authority ID and at most one no-retry local-only synthesis per slot.
+
+Changes: Added only the approved plan and this ledger entry. No runtime source,
+provider, model, session, tool, event, IPC, renderer, routing, cost, permission,
+evaluator implementation, private corpus, gold, generated artifact, or live
+authority changed.
+
+Evidence:
+
+- The current checkout was clean at baseline
+  `b707f4af59d858d06af487073c8af0d99d1f8dbb`, matched `origin/main`, and its
+  exact Linux and macOS GitHub Actions closure was green before planning.
+- The frozen checked-in protocol already records the 24/8/16 and defect-count
+  minimums, separate sealed storage, evaluator formulas, two-human blinded
+  adjudication, Wilson intervals, bootstrap cost/latency reporting, and
+  invalid/blocked/flaky separation. This milestone adds and freezes a
+  deterministic bootstrap seed and replicate contract.
+- Repository inspection confirmed that no held-out identity, oracle, gold file,
+  or 24-case provider result exists in the project. The 12 checked-in changes
+  are routing calibration with attention labels only.
+- Three independent read-only reviews agreed that a real quality result is
+  blocked by external curation and adjudication. Their pre-commit findings
+  corrected policy-dependent commitments, metric populations, novel-defect
+  handling, adjudication trust, semantic packets, cost intervals, commitment
+  derivation, privacy boundaries, and proof wording in the approved plan.
+- A second review pass removed commitment and publication self-references,
+  fixed the 32-byte/`0x00` commitment encoding, bound witness-freeze evidence
+  and the pre-approved Ed25519 coordinator trust anchor, and made every
+  zero-denominator/bootstrap outcome explicitly non-estimable.
+
+Failures or blockers: The first uncommitted draft had ambiguous recall
+denominators, contradictory novel-defect precision credit, policy-dependent set
+commitments, overclaimed human/blinding verification, and incomplete privacy,
+cost-interval, commitment, trust-anchor, zero-denominator, witness-binding, and
+publication semantics. Independent review caught and this approval checkpoint
+corrects those defects before implementation. A true
+held-out baseline still cannot finish under this approval: no independent
+curator bundle, two-person adjudication team/coordinator attestations, private
+repository map, deterministically executed witnesses, exact deployment
+fingerprint, or committed campaign/token envelope exists. These block live
+execution and a quality claim, not the approved offline harness.
+
+Limitations and non-claims: Approval is not implementation, verification,
+execution, a quality result, end-to-end app evidence, routing benefit, cloud or
+hybrid comparison, cost saving, latency advantage, generalization, or release.
+The future fixed-provider synthesis cohort will still not measure model-driven
+repository acquisition.
+
+Paid exposure: `$0`. Planning used only local source and deterministic
+inspection. No model-list, inference, provider, OpenRouter, paid reservation,
+retry, fallback, clone, fetch, or other network request occurred.
+
+Next gate: Validate and commit this approval checkpoint before implementation.
+Then implement the strict offline contracts, scorer, intervals, safe aggregate
+exporter, CLI, and adversarial synthetic tests. Require exact local and remote
+gates before marking the harness `Verified`; do not contact a provider.
+
+References: [approved readiness plan](plans/HELD_OUT_CORPUS_EVALUATOR_READINESS_V1.md),
+[frozen protocol](../benchmarks/change-review/protocol-v1.json),
+[calibration boundary](../benchmarks/change-review/README.md#held-out-boundary),
+and [MVP readiness](MVP_READINESS.md).

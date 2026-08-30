@@ -103,7 +103,7 @@ function fixedLedgerRoot(options: {
         options.homeDirectory,
         "Library",
         "Application Support",
-        "SOAR",
+        "soar",
         "evaluation-ledger",
       )
     : path.join(

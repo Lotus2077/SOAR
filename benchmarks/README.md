@@ -117,7 +117,7 @@ Operator contract:
   also consumes its run ID.
 - The live authority ledger is separate OS-user application state on this
   machine—under the signed-in account's
-  `Library/Application Support/SOAR/evaluation-ledger` directory on macOS—and
+  `Library/Application Support/soar/evaluation-ledger` directory on macOS—and
   is fixed to the committed plan authority ID. It is a cooperative same-account
   guard, not a hardened security boundary. A sent or disposition-unknown
   inference consumes the authority even when the run fails; a crash after the

@@ -56,7 +56,7 @@ describe("local-review live authority ledger", () => {
         homeDirectory: "/Users/example",
       }),
     ).toBe(
-      "/Users/example/Library/Application Support/SOAR/evaluation-ledger",
+      "/Users/example/Library/Application Support/soar/evaluation-ledger",
     );
     expect(
       localReviewAuthorityInternals.fixedLedgerRoot({
@@ -131,6 +131,42 @@ describe("local-review live authority ledger", () => {
     expect((await stat(authorityPath)).mode & 0o777).toBe(0o600);
   });
 
+  it("claims beneath a pre-existing canonical Darwin app-state directory", async () => {
+    const root = await temporaryRoot();
+    const applicationStateRoot = path.join(
+      root,
+      "Library",
+      "Application Support",
+      "soar",
+    );
+    await mkdir(applicationStateRoot, { recursive: true, mode: 0o755 });
+    const ledgerRoot = localReviewAuthorityInternals.fixedLedgerRoot({
+      platform: "darwin",
+      homeDirectory: root,
+    });
+
+    const first = requireClaimed(
+      await localReviewAuthorityInternals.claimAtLedgerRoot(
+        { runId: "darwin-canonical-first", implementationRevision: revision },
+        { ledgerRoot },
+      ),
+    );
+    const authorityPath = localReviewAuthorityInternals.authorityFilePath(
+      ledgerRoot,
+    );
+    expect((await stat(ledgerRoot)).mode & 0o777).toBe(0o700);
+    expect((await stat(authorityPath)).mode & 0o777).toBe(0o600);
+
+    await releaseLocalReviewLiveAuthorityAfterNoDispatch(first, {
+      inferenceAttempts: [],
+    });
+    const second = await localReviewAuthorityInternals.claimAtLedgerRoot(
+      { runId: "darwin-canonical-second", implementationRevision: revision },
+      { ledgerRoot },
+    );
+    expect(second.status).toBe("claimed");
+  });
+
   it("grants exactly one concurrent exclusive claim", async () => {
     const root = await temporaryRoot();
     const ledgerRoot = path.join(root, "ledger");
@@ -164,6 +200,26 @@ describe("local-review live authority ledger", () => {
       ),
     ).rejects.toMatchObject({ code: "authority_path_unsafe" });
     expect((await lstat(linked)).isSymbolicLink()).toBe(true);
+  });
+
+  it("rejects a symlinked canonical Darwin app-state directory", async () => {
+    const root = await temporaryRoot();
+    const applicationSupport = path.join(root, "Library", "Application Support");
+    const target = path.join(root, "target");
+    await mkdir(applicationSupport, { recursive: true });
+    await mkdir(target, { mode: 0o700 });
+    await symlink(target, path.join(applicationSupport, "soar"), "dir");
+    const ledgerRoot = localReviewAuthorityInternals.fixedLedgerRoot({
+      platform: "darwin",
+      homeDirectory: root,
+    });
+
+    await expect(
+      localReviewAuthorityInternals.claimAtLedgerRoot(
+        { runId: "darwin-symlink", implementationRevision: revision },
+        { ledgerRoot },
+      ),
+    ).rejects.toMatchObject({ code: "authority_path_unsafe" });
   });
 
   it("releases only an owned definitely-undispatched claim and permits reclaim", async () => {

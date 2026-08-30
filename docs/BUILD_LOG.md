@@ -2240,3 +2240,94 @@ References: [specialized CLI](../scripts/benchmark-local-review.ts),
 [CLI tests](../tests/unit/benchmark-local-review-cli.test.ts),
 [operator contract](../benchmarks/README.md#local-evaluation-bridge-v1), and
 [approved bridge plan](plans/LOCAL_EVALUATION_BRIDGE_V1.md).
+
+### BL-20260830-1930-local-evaluation-bridge-darwin-authority-path-correction -- 2026-08-30 -- Canonical macOS app-state spelling blocked the live authority claim
+
+Status: `Implemented`
+
+Scope or hypothesis: Diagnose and correct the classified
+`live_authority_unavailable` result from the first evaluator-entering preflight,
+without relaxing filesystem defenses, reusing its run ID, or treating the
+pre-inference failure as a live proof.
+
+Decisions:
+
+- Change only the Darwin application-state segment from `SOAR` to canonical
+  `soar`, matching the package name and Electron's default user-data namespace.
+  Retain the Linux `.local/state/SOAR` locator and all exact `realpath`, symlink,
+  ownership-by-handle, exclusive-create, permission, and directory-sync checks.
+- Treat this as a pre-verification persisted-locator correction, not a ledger
+  migration: both the legacy uppercase spelling and canonical lowercase
+  spelling were checked and contained no plan-authority claim. On the current
+  case-insensitive volume they identify the same directory; a future migration
+  on a case-sensitive volume would require a separate fail-closed decision.
+- Permanently retain the blocked `local-review-v1-20260830-01` run reservation
+  and safe result. Use a new run ID only after the correction passes exact
+  release-head and Electron gates.
+- Keep the existing one-live-episode approval available because the failure
+  occurred before authority-file creation, session start, canonical event
+  persistence, or inference dispatch. Do not count the successful model-list
+  health request as the required nonempty episode and do not claim `$0`
+  infrastructure cost from the operator's token-fee attestation.
+
+Changes: The Darwin fixed ledger locator and its three documentation references
+now use the canonical lower-case app namespace. Tests cover the exact Darwin
+and unchanged Linux locators, claim/release/reclaim beneath a pre-existing
+lowercase Darwin app-state directory, restrictive ledger/file modes, and
+rejection of a symlinked `soar` ancestor. No session, provider, tool, event,
+IPC, renderer, routing, evaluator-result, or paid-admission contract changed.
+
+Evidence:
+
+- The corrected CLI candidate
+  `afe6441037fe03ea8a78dfec71b17e06138270d2` passed its exact clean
+  release-head gate with 62 test files and 694 tests passed, two files and four
+  opt-in tests skipped, both TypeScript projects, readiness, the 32-entry build
+  log, and all Electron production bundles. Its macOS Electron E2E gate passed
+  all three workflows.
+- The evaluator then published a classified blocked record for run
+  `local-review-v1-20260830-01`: `source = preflight`,
+  `failureCode = live_authority_unavailable`, zero safe events, a 1,434-byte
+  result with SHA-256
+  `cab631fb83ab6392a749bbd5982287b81327357e1e01cf655ccd683d8beb1c66`,
+  an empty safe trace with the standard empty SHA-256, and a 283-byte
+  last-written completion marker with SHA-256
+  `7da0413a7f479328a42afaf1bbddc94c9cbc0274500d46b22c762fd74a22b065`.
+  All three files were mode 0600 and their hashes matched the marker.
+- Read-only inspection showed that the existing Electron application-state
+  directory's canonical basename is lower-case `soar`; resolving the requested
+  uppercase candidate returned that canonical spelling, so the intentionally
+  strict equality check rejected the alias before creating `evaluation-ledger`.
+- Immediately afterward the selected run reservation and completion marker
+  existed, both possible authority-file spellings were absent, and the Git tree
+  remained clean. By code order and the zero-event record, no session or
+  inference attempt began.
+
+Failures or blockers: This locator correction is not yet committed or verified
+on an exact clean revision. The selected run ID is consumed. The one authorized
+nonempty episode remains pending, and no retry may occur before the corrected
+exact gates pass.
+
+Limitations and non-claims: A healthy model-list response proves only that the
+configured model was reachable and advertised sufficient capacity at that
+moment. It does not prove inference, result quality, zero endpoint or
+infrastructure cost, arbitrary-repository behavior, routing advantage, cloud
+readiness, or release readiness. The cooperative authority remains a
+same-account governance guard, not a security boundary against a malicious
+same-user process.
+
+Paid exposure: `$0` selected metered-provider exposure under the operator's
+`local_zero_cost` token-fee attestation. One configured-route model-list health
+request occurred. No inference, OpenRouter, paid reservation, retry, fallback,
+remote clone, or fetch request occurred.
+
+Next gate: Run the authority and evaluator admission regressions, validators,
+typechecks, and diff audit; commit the correction; then require release-head and
+macOS Electron E2E on that exact clean revision. Only after both pass may a new
+run ID attempt to claim the still-unused plan authority once.
+
+References: [authority ledger](../src/benchmark/local-review-authority.ts),
+[authority tests](../tests/unit/local-review-authority.test.ts),
+[operator contract](../benchmarks/README.md#local-evaluation-bridge-v1),
+[architecture](ARCHITECTURE.md#benchmark-isolation), and
+[approved bridge plan](plans/LOCAL_EVALUATION_BRIDGE_V1.md).

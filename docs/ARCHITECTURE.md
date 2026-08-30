@@ -489,7 +489,7 @@ outcome can consume the run ID even when no provider request is sent.
 
 The authority is fixed to committed plan ID
 `local-evaluation-bridge-v1-plan-1` in the signed-in OS account's application
-state (`Library/Application Support/SOAR/evaluation-ledger` on macOS). It is a
+state (`Library/Application Support/soar/evaluation-ledger` on macOS). It is a
 cooperative same-account guard, not a hardened security boundary. Definite
 no-dispatch outcomes release it; `sent`, `unknown`, or unfinished attempts
 retain it, and a crash after claim may conservatively consume it. Another live

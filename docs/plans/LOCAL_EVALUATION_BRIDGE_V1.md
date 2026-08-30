@@ -240,7 +240,7 @@ overwritten or reused while the ignored
 `benchmarks/runs/local-review-v1/.run-ledger` is preserved. A blocked outcome
 after namespace reservation also consumes that run ID. The fixed live-authority
 claim is stored separately in the signed-in OS account's application-state
-ledger (under `Library/Application Support/SOAR/evaluation-ledger` on macOS), so
+ledger (under `Library/Application Support/soar/evaluation-ledger` on macOS), so
 deleting disposable benchmark output does not restore it. Failed and blocked
 records after reservation are retained; SQLite and raw events are never
 exported.

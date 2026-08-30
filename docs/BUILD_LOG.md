@@ -2433,3 +2433,78 @@ References: [approved bridge plan](plans/LOCAL_EVALUATION_BRIDGE_V1.md),
 [operator contract](../benchmarks/README.md#local-evaluation-bridge-v1),
 [architecture](ARCHITECTURE.md#benchmark-isolation), and
 [MVP readiness](MVP_READINESS.md).
+
+### BL-20260830-1947-local-evaluation-bridge-verified -- 2026-08-30 -- Exact post-proof revision passed Linux and macOS CI
+
+Status: `Verified`
+
+Scope or hypothesis: Close Local Evaluation Bridge v1 only after the retained
+live proof, exact local gates, and both required GitHub Actions jobs all passed,
+while keeping `Verified` distinct from `Released` and from the original hybrid
+routing goal.
+
+Decisions:
+
+- Bind remote verification to exact post-proof revision
+  `d5d39d80cbdb7841c4160ca9256b7d4a0b210788` and GitHub Actions run
+  `33309497966`; do not infer success from a branch name or a later HEAD.
+- Mark only Local Evaluation Bridge v1 `Verified`. Do not mark the app,
+  Repository Investigator, hybrid routing, PR 6, the 42-workload campaign, or a
+  release as verified by this milestone.
+- Keep the consumed plan authority and both run reservations unchanged. This
+  status-only closure authorizes no provider contact and cannot be used to
+  repeat the live episode.
+- Require this documentation-only closure commit to pass the same exact-SHA CI.
+  If it fails, append a correction rather than rewriting this entry. If it
+  passes, no further self-referential evidence entry is required.
+
+Changes: Updated the root, benchmark, architecture, readiness, and approved-plan
+status text from `Implemented; remote CI pending` to `Verified; not Released`.
+No runtime source, provider, session, tool, event, IPC, renderer, routing, cost,
+permission, evaluator, fixture, or artifact changed.
+
+Evidence:
+
+- GitHub Actions run `33309497966` targeted exact SHA
+  `d5d39d80cbdb7841c4160ca9256b7d4a0b210788` and concluded success.
+- The Linux Node 22 `check` job completed in 1 minute 3 seconds. It passed
+  checkout, dependency installation, pushed append-only build-log verification,
+  readiness validation, TypeScript, the full non-live test suite, and the
+  production build.
+- The macOS `electron-e2e` job completed in 1 minute 29 seconds. It built the
+  app and passed the three Electron workflows.
+- Before push, the same post-proof SHA passed local `pnpm check:release-head`
+  with 62 test files and 696 tests passed, two files and four opt-in tests
+  skipped, both TypeScript projects, the 34-entry build log, readiness, and all
+  Electron bundles; local Electron E2E passed three of three workflows.
+- The preceding entry retains the exact live result, safe-trace, marker hashes,
+  token/latency facts, authority consumption, and non-claims. This closure adds
+  no new inference evidence.
+
+Failures or blockers: No Local Evaluation Bridge v1 verification blocker
+remains. This documentation-only closure commit still needs its own exact-SHA
+GitHub Actions run; a failure would invalidate the closure until an append-only
+correction passes.
+
+Limitations and non-claims: `Verified` means the narrow frozen-fixture
+production-path promise in the approved plan is evidenced. It is not a quality
+benchmark, a held-out result, proof of arbitrary-repository behavior, proof of
+the shipping default context budget, same-device execution, independent cost
+verification, dynamic or cloud routing, a quality/cost/latency optimum, bulk
+workload execution, general reliability, or release readiness. The model's
+no-blocking-finding conclusion remains untrusted output rather than gold.
+
+Paid exposure: `$0` selected metered-provider exposure under the operator's
+token-fee attestation. This closure made no provider, model-list, inference,
+OpenRouter, paid reservation, retry, fallback, clone, fetch, or other network
+request except the Git push and GitHub Actions status queries.
+
+Next gate: Commit and push this status-only closure and require both exact-SHA
+GitHub jobs to remain green. After that, the next product milestone must be
+planned and approved separately; PR 6 and every paid or cloud provider path
+remain unapproved.
+
+References: [approved bridge plan](plans/LOCAL_EVALUATION_BRIDGE_V1.md),
+[operator contract](../benchmarks/README.md#local-evaluation-bridge-v1),
+[MVP readiness](MVP_READINESS.md), and
+[GitHub Actions run](https://github.com/Lotus2077/SOAR/actions/runs/33309497966).

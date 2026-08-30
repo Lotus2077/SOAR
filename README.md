@@ -49,9 +49,9 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   the canonical production local-only change-review coordinator on one frozen
   nonempty public SOAR change and export a lossy privacy-safe canonical-event
   proof. Exact local release-head and Electron gates passed on the implementation
-  revision, and its one authorized real-vLLM episode passed. Final Linux and
-  macOS GitHub Actions on the post-proof documentation revision remain pending,
-  so it is Implemented but not yet Verified or Released.
+  revision, its one authorized real-vLLM episode passed, and the exact
+  post-proof revision passed Linux and macOS GitHub Actions. It is Verified but
+  not Released.
 
 ## Planning and project history
 

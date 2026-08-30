@@ -80,9 +80,8 @@ production Electron session constructor and local-only review coordinator; it
 does not run any research or SWE-bench workload and cannot select cloud,
 fallback, or paid providers. The bridge is Implemented; its full deterministic
 exact-commit and Electron verification passed, and its separately gated
-nonempty live proof passed once. Final Linux and macOS GitHub Actions on the
-post-proof documentation revision remain pending. It is neither Verified nor
-Released.
+nonempty live proof passed once. The exact post-proof revision then passed
+Linux and macOS GitHub Actions. It is Verified but not Released.
 
 The source must be an explicit local Git repository root containing the frozen
 base and change objects. `--source-repository .` is valid when the current

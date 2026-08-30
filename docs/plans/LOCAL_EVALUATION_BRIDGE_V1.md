@@ -1,9 +1,8 @@
 # Local Evaluation Bridge v1
 
-Status: **Approved and Implemented for one $0 local-only milestone; exact local
-release-head/Electron verification and the one authorized live proof passed;
-final Linux/macOS GitHub Actions remain pending; not Verified or Released; PR 6
-remains unapproved**
+Status: **Verified for the approved $0 local-only milestone; exact local gates,
+the one authorized live proof, and post-proof Linux/macOS GitHub Actions passed;
+not Released; PR 6 remains unapproved**
 
 - Plan version: `local-evaluation-bridge-v1-plan-1`
 - Created: 2026-08-30
@@ -16,8 +15,9 @@ The implementation revision
 `5be93c100c945cfdebb310f5e36dafa1827b9101` passed the deterministic
 release-head and macOS Electron gates. Its one authorized nonempty live episode
 also passed and consumed the plan authority. Final Linux and macOS GitHub
-Actions on the post-proof documentation revision remain pending; that prevents
-a `Verified` claim. No `Released` claim is authorized by this plan.
+Actions passed on exact post-proof revision
+`d5d39d80cbdb7841c4160ca9256b7d4a0b210788`, satisfying the final verification
+gate. No `Released` claim is authorized by this plan.
 
 ## Approval boundary
 

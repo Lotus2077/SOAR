@@ -508,10 +508,10 @@ remotely hosted configured vLLM endpoint.
 This bridge is Implemented. Exact local release-head and Electron verification
 passed on its implementation revision, and the one authorized nonempty live
 proof passed with four attempts, three tools, two routing decisions, no provider
-switch, and a host-accepted fresh result. Final Linux and macOS GitHub Actions
-on the post-proof documentation revision remain pending, so it is not yet
-Verified or Released. The generic research/coding benchmark command remains a
-fixture and evaluator utility, not an agent runner.
+switch, and a host-accepted fresh result. The exact post-proof revision passed
+Linux and macOS GitHub Actions. The bridge is Verified but not Released. The
+generic research/coding benchmark command remains a fixture and evaluator
+utility, not an agent runner.
 
 The guided Local Repository Investigator proof additionally applies
 task-specific exact-call validators. Its architecture task requires one bounded

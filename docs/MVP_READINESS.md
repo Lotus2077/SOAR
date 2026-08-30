@@ -4,11 +4,10 @@ This file records the repository-level readiness contract. It deliberately does
 not describe any maintainer's endpoint, credential, account balance, or local
 machine configuration.
 
-Local Evaluation Bridge v1 is **Implemented** but not yet **Verified**: exact
-release-head and Electron checks passed on its implementation revision and its
-separately authorized nonempty live proof passed once. Final Linux and macOS
-GitHub Actions on the post-proof documentation revision remain pending. It is
-not **Released**.
+Local Evaluation Bridge v1 is **Verified** but not **Released**: exact
+release-head and Electron checks passed on its implementation revision, its
+separately authorized nonempty live proof passed once, and the exact post-proof
+revision passed Linux and macOS GitHub Actions.
 
 ## Implemented
 
@@ -175,7 +174,7 @@ gates passed on implementation revision
 real-vLLM episode then passed with a fresh complete host-accepted result, four
 terminal inference attempts, three successful read-only tools, two routing
 decisions, no provider switch, and 34 safe canonical events. Final remote CI on
-the post-proof documentation revision remains pending.
+the exact post-proof revision passed on Linux and macOS.
 
 The authority ledger is a cooperative guard for processes using the same OS
 account, not a hardened security boundary. A sent or disposition-unknown

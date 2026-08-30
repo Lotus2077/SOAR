@@ -2974,3 +2974,103 @@ References: [verified implementation entry](#bl-20260830-1454-heldout-readiness-
 [operator contract](../benchmarks/README.md#held-out-corpus-and-evaluator-readiness-v1),
 [MVP readiness](MVP_READINESS.md), and
 [GitHub Actions run](https://github.com/Lotus2077/SOAR/actions/runs/33319354110).
+
+### BL-20260830-1629-pr6a-cloud-setup-approved -- 2026-08-30 -- PR6A Cloud Setup and Dispatch Lock approved at zero provider exposure
+
+Status: `Approved`
+
+Scope or hypothesis: Correct the post-PR5 product sequence by freezing further
+evaluator expansion and authorizing the smallest local foundation for a future
+production cloud route. PR6A adds cloud Settings, direct macOS Keychain
+credential lifecycle, metadata-only readiness, pure canonical-message egress
+admission, and structural dispatch interlocks while production remains
+Local-only.
+
+Decisions:
+
+- Approve `pr6a-cloud-setup-dispatch-lock-v1-plan-1` for local `$0`
+  implementation only. The project owner's contextual instruction to proceed
+  followed an explicit calibration that named the PR6A/PR6B split, kept the paid
+  canary separately gated, and stopped evaluator-only work.
+- Split parent PR 6. PR6A is cloud setup with no provider contact; PR6B is
+  provider validation and one paid canary and remains unapproved.
+- Keep candidate metadata separate from runtime providers. Production
+  `ProviderRegistry` remains local-only, no cloud `InferenceProvider` is
+  constructed, and the fake-only hybrid coordinator remains test-only.
+- Use a direct generic-password item in macOS Keychain. The main process invokes
+  `/usr/bin/security` without a shell, supplies writes through stdin with `-w`
+  last, and never places the credential in argv, environment, logs, errors,
+  events, SQLite, renderer storage, or returned IPC data.
+- Keep cloud onboarding optional. Settings may add, replace, report local
+  presence, and delete a credential, but it must say `stored, not validated`
+  and `Hybrid locked`; there is no validation action in PR6A.
+- Implement the egress guard as a pure shadow check over canonical candidate
+  messages plus a host-derived provenance manifest. It returns only version,
+  pass/deny, bounded codes, and semantic message/provenance hashes; it neither
+  attaches to a live session nor performs egress. The hash is not an HTTP-wire-
+  byte claim; PR6B must re-run admission immediately before dispatch.
+- Preserve every production execution interlock: review creation remains
+  `local_only_v1` with consent `none`, Hybrid remains disabled, no real campaign
+  or reservation exists, and any forged Hybrid request fails before credential,
+  runtime, budget, or network work.
+- Use only isolated synthetic credential identities in tests. Do not read,
+  migrate, validate, or exercise the user's existing real credential.
+
+Changes: Added the approved PR6A plan and this append-only decision entry. No
+runtime, credential, Keychain, renderer, IPC, provider, model, session, egress,
+budget, evaluator, database, event, tool, or network behavior changed at this
+approval checkpoint.
+
+Evidence:
+
+- Baseline `e73f5d3012e0e478eb158fea740f9dd60b82ae08` was clean, matched
+  `origin/main`, and exact-SHA GitHub Actions run `33319679991` was green before
+  planning.
+- Live source inspection confirmed that production constructs one local or fake
+  provider, passes no real hybrid runtime, creates only local change-review
+  sessions, exposes no credential Settings IPC, and visibly disables Hybrid.
+- Independent runtime, product/UX, and governance audits agreed that a truthful
+  offline milestone can add a locked cloud candidate and local setup foundation
+  but cannot claim a second runtime provider or cloud readiness.
+- The installed macOS `security` help explicitly warns that passing a password
+  as a `-w` argument is insecure and supports prompting when `-w` is last. The
+  implementation must prove stdin handling without exposing the synthetic
+  sentinel in argv or output.
+- The first uncommitted `pnpm check` attempt ran inside the restricted execution
+  sandbox. Its loopback adapter fixture could not bind `127.0.0.1` and 19
+  OpenAI-compatible tests failed with `listen EPERM`; the other 786 tests passed
+  and four were skipped. The same checkout reran outside that loopback
+  restriction: readiness and the 40-entry build log passed, both TypeScript
+  projects passed, 68 test files and 805 tests passed with two files/four tests
+  skipped, and all Electron bundles built.
+
+Failures or blockers: PR6A is not implemented. Direct Keychain subprocess
+behavior, renderer secret clearing, setup lifecycle, the pure egress
+guard, and all dispatch-lock assertions remain to be built and verified. The
+dated proposed provider snapshot is stale for runtime admission and is not
+approved as a source of model, price, capability, or limit truth. The restricted
+sandbox result is not a code failure, but it is retained because the initial
+verification environment could not satisfy the loopback test prerequisite.
+
+Limitations and non-claims: Approval is authority for the exact local plan, not
+implementation, verification, release, production cloud readiness, credential
+validity, provider availability, egress proof against a real repository,
+provider switching, quality, cost saving, latency improvement, or a general
+Manus/Genspark/Claude Code agent. The bounded scanner will not be general DLP.
+
+Paid exposure: `$0`. Planning used local repository and installed-tool
+inspection only. No configured vLLM, OpenRouter, model-list, key-metadata,
+pricing, health, limit, inference, retry, fallback, evaluator, or other network
+request occurred. No real credential was read or written.
+
+Next gate: Validate, commit, and push this plan/approval checkpoint and require
+its exact-SHA Linux and macOS CI to pass. Only then begin PR6A implementation.
+PR6B still requires a separate proposed plan and explicit approval before any
+provider contact, credential validation, repository egress, paid reservation,
+or cloud inference.
+
+References: [approved PR6A plan](plans/PR6A_CLOUD_SETUP_DISPATCH_LOCK_V1.md),
+[parent Hybrid Lease Router plan](plans/HYBRID_LEASE_ROUTER_V0.md),
+[MVP readiness](MVP_READINESS.md),
+[checkpoint-router ADR](adr/0004-checkpoint-router-budget-runner-v0.md), and
+[baseline CI run](https://github.com/Lotus2077/SOAR/actions/runs/33319679991).

@@ -17,6 +17,35 @@ const LIVE_OPT_IN_FLAGS = [
   "SOAR_RUN_LIVE_VLLM",
   "SOAR_RUN_LIVE_REVIEW_SCHEMA",
   "SOAR_RUN_LIVE_REPOSITORY",
+  "SOAR_RUN_LIVE_LOCAL_REVIEW_V1",
+] as const;
+const RELEASE_GIT_ENVIRONMENT: NodeJS.ProcessEnv = {
+  PATH: "/usr/bin:/bin",
+  LANG: "C",
+  LC_ALL: "C",
+  TMPDIR: "/tmp",
+  TZ: "UTC",
+  GIT_CONFIG_GLOBAL: "/dev/null",
+  GIT_CONFIG_SYSTEM: "/dev/null",
+  GIT_CONFIG_NOSYSTEM: "1",
+  GIT_NO_LAZY_FETCH: "1",
+  GIT_NO_REPLACE_OBJECTS: "1",
+  GIT_OPTIONAL_LOCKS: "0",
+  GIT_PAGER: "cat",
+  GIT_PROTOCOL_FROM_USER: "0",
+  GIT_TERMINAL_PROMPT: "0",
+};
+const RELEASE_GIT_CONFIG = [
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.hooksPath=/dev/null",
+  "-c",
+  "diff.external=",
+  "-c",
+  "diff.trustExitCode=false",
+  "-c",
+  "protocol.allow=never",
 ] as const;
 
 interface ReleaseHeadVerificationOptions {
@@ -27,12 +56,16 @@ interface ReleaseHeadVerificationOptions {
 
 function gitOutput(projectRoot: string, arguments_: readonly string[]): string {
   try {
-    return execFileSync("git", arguments_, {
-      cwd: projectRoot,
+    return execFileSync(
+      "/usr/bin/git",
+      [...RELEASE_GIT_CONFIG, "-C", projectRoot, ...arguments_],
+      {
       encoding: "utf8",
+      env: RELEASE_GIT_ENVIRONMENT,
       maxBuffer: 16 * 1024 * 1024,
       stdio: ["ignore", "pipe", "ignore"],
-    });
+      },
+    );
   } catch {
     throw new Error(RELEASE_HEAD_MISSING_MESSAGE);
   }
@@ -97,6 +130,9 @@ export function deterministicCheckEnvironment(
   environment: NodeJS.ProcessEnv,
 ): NodeJS.ProcessEnv {
   const deterministicEnvironment = { ...environment };
+  for (const name of Object.keys(deterministicEnvironment)) {
+    if (name.startsWith("GIT_")) delete deterministicEnvironment[name];
+  }
   for (const flag of LIVE_OPT_IN_FLAGS) {
     deterministicEnvironment[flag] = "false";
   }

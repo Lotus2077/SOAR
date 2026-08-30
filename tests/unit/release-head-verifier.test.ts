@@ -51,18 +51,59 @@ describe("release-head verifier", () => {
   it("forces every live provider opt-in off for the deterministic child gate", () => {
     const inherited = {
       SAFE_VALUE: "preserved",
+      GIT_DIR: "/tmp/alternate/.git",
+      GIT_WORK_TREE: "/tmp/alternate",
       SOAR_RUN_LIVE_VLLM: "true",
       SOAR_RUN_LIVE_REVIEW_SCHEMA: "true",
       SOAR_RUN_LIVE_REPOSITORY: "true",
+      SOAR_RUN_LIVE_LOCAL_REVIEW_V1: "true",
     };
 
-    expect(deterministicCheckEnvironment(inherited)).toMatchObject({
+    const deterministic = deterministicCheckEnvironment(inherited);
+    expect(deterministic).toMatchObject({
       SAFE_VALUE: "preserved",
       SOAR_RUN_LIVE_VLLM: "false",
       SOAR_RUN_LIVE_REVIEW_SCHEMA: "false",
       SOAR_RUN_LIVE_REPOSITORY: "false",
+      SOAR_RUN_LIVE_LOCAL_REVIEW_V1: "false",
     });
+    expect(deterministic.GIT_DIR).toBeUndefined();
+    expect(deterministic.GIT_WORK_TREE).toBeUndefined();
     expect(inherited.SOAR_RUN_LIVE_VLLM).toBe("true");
+    expect(inherited.GIT_DIR).toBe("/tmp/alternate/.git");
+  });
+
+  it("ignores inherited Git repository overrides for both exact-head checks", () => {
+    const target = repository();
+    const inherited = repository();
+    writeFileSync(path.join(inherited, "alternate.txt"), "alternate\n", "utf8");
+    git(inherited, "add", "alternate.txt");
+    git(inherited, "commit", "--quiet", "-m", "alternate");
+    const targetRevision = git(target, "rev-parse", "HEAD");
+    expect(git(inherited, "rev-parse", "HEAD")).not.toBe(targetRevision);
+    const priorGitDirectory = process.env.GIT_DIR;
+    const priorGitWorkTree = process.env.GIT_WORK_TREE;
+    process.env.GIT_DIR = path.join(inherited, ".git");
+    process.env.GIT_WORK_TREE = inherited;
+    const output: string[] = [];
+    try {
+      expect(
+        verifyReleaseHead({
+          projectRoot: target,
+          runCheck: () => 0,
+          write: (message) => output.push(message),
+        }),
+      ).toBe(0);
+      expect(output).toEqual([
+        `Verifying committed HEAD ${targetRevision} with pnpm check.\n`,
+        `Committed-head verification passed for ${targetRevision}.\n`,
+      ]);
+    } finally {
+      if (priorGitDirectory === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = priorGitDirectory;
+      if (priorGitWorkTree === undefined) delete process.env.GIT_WORK_TREE;
+      else process.env.GIT_WORK_TREE = priorGitWorkTree;
+    }
   });
 
   it("runs the committed-head gate once and allows ignored build artifacts", () => {

@@ -1,7 +1,8 @@
 # Local Evaluation Bridge v1
 
-Status: **Approved for one $0 local-only milestone; implementation and live
-proof pending; PR 6 remains unapproved**
+Status: **Approved and Implemented for one $0 local-only milestone;
+deterministic full/exact-commit verification and the one live proof remain
+pending; not Verified or Released; PR 6 remains unapproved**
 
 - Plan version: `local-evaluation-bridge-v1-plan-1`
 - Created: 2026-08-30
@@ -9,6 +10,11 @@ proof pending; PR 6 remains unapproved**
 - Baseline revision: `1b86b696b8488a809f3ecd9c3ad2cbd4c8db2f7a`
 - Approval ledger: `BL-20260830-0852-local-evaluation-bridge-approved`
 - Project log: [BUILD_LOG.md](../BUILD_LOG.md)
+
+The implementation is present, but the full deterministic release gates have
+not yet passed on its exact committed revision and no nonempty live episode has
+run under this plan. Those pending gates prevent both a `Verified` claim and any
+`Released` claim.
 
 ## Approval boundary
 
@@ -18,12 +24,18 @@ or the broader research/coding benchmark campaign.
 
 The milestone may contact only the already configured operator-attested vLLM
 route. Exactly one nonempty live review episode is authorized after the
-deterministic implementation gates pass on a committed revision. Once an
-inference attempt has request disposition `sent` or `unknown`, that authority
-is consumed even if the episode fails. A further live episode requires new
-explicit approval and a new build-log entry. A model-list or pre-dispatch
-preflight failure does not consume the inference authorization, but it must be
-recorded as blocked.
+deterministic and release gates pass on the exact clean committed revision.
+The cooperative authority guard is fixed to plan ID
+`local-evaluation-bridge-v1-plan-1` in OS-user-local application state on this
+machine; it is not a hardened security boundary against another process running
+as the same account. Once an inference attempt has request disposition `sent`
+or `unknown`, that authority is consumed even if the episode fails. A crash
+after the claim may conservatively consume it when the harness cannot prove
+that dispatch did not occur. A further live episode requires new explicit
+approval and a new committed plan authority ID, plus its build-log entry. A
+model-list or other definitely pre-dispatch failure does not consume inference
+authority, but it must be recorded as blocked when its run namespace has
+already been reserved.
 
 ## Current truth and problem
 
@@ -33,15 +45,17 @@ v2, uses `local_only_v1`, has no egress consent, retains one provider for the
 episode, uses bounded read-only review tools, persists canonical events, and
 accepts only a host-validated structured result.
 
-The benchmark CLI does not currently execute an agent episode. It prepares
-fixtures and evaluates caller-supplied submissions, and its optional trace is
-also caller supplied. Therefore its result export cannot prove that the
-production agent path ran.
+The generic research/coding benchmark CLI does not execute an agent episode. It
+prepares fixtures and evaluates caller-supplied submissions, and its optional
+trace is also caller supplied. Therefore its result export cannot prove that
+the production agent path ran. The implemented specialized
+`benchmark:local-review` bridge is the narrow exception: it executes the
+canonical local-only change-review coordinator for its one fixed fixture.
 
-Some tracked configuration and readiness text also present proposed cloud and
-campaign settings as if they were active runtime inputs. The production config
-parser does not load those values. That truth drift must be corrected before a
-new evaluation claim is published.
+Earlier tracked configuration and readiness text presented proposed cloud and
+campaign settings as if they were active runtime inputs. The implementation
+separates that proposed, unapproved snapshot from the production inputs before
+the bridge can publish a new evaluation claim.
 
 ## User promise
 
@@ -53,7 +67,7 @@ local command that:
 3. waits for the canonical terminal state;
 4. validates the accepted review and route/tool/attempt invariants from the
    append-only event store; and
-5. exports a harness-write-once, tamper-evident, privacy-safe, explicitly
+5. exports a no-replace, tamper-evident, privacy-safe, explicitly
    lossy evaluation record.
 
 The command will fail closed. A completed provider response is not a passing
@@ -110,34 +124,35 @@ logic:
 The shared session service owns only readiness validation, fixed session
 creation, and starting the supplied runner. It returns a nonblocking
 `{ session, completion }` handle. IPC retains workspace authorization, projects
-the initial snapshot, and observes the completion in the background; the
-command awaits the same completion handle and then judges only canonical replay
-and `toChangeReviewView`. Promise resolution alone is never success.
+the initial snapshot, starts the runner, and returns without observing or
+awaiting the completion handle; the command awaits that handle and then judges
+only canonical replay and `toChangeReviewView`. Promise resolution alone is
+never success.
 
-## Narrow execution consolidation
+## Implemented narrow execution consolidation
 
-The two v2 coordinators currently duplicate the promise race that handles a
-provider which ignores abort. A shared helper may combine the user and timeout
-signals, attach a terminal rejection observer immediately, race a still-pending
-completion against abort, snapshot partial content, classify user cancellation
-ahead of timeout while pending, and remove its listener. It must return an
-already-resolved provider result unchanged; both callers retain their existing
-post-resolution cancellation and timeout checks.
+The implementation extracts the former duplicated v2 promise race for a
+provider that ignores abort. The shared helper combines the user and timeout
+signals, attaches a terminal rejection observer immediately, races a
+still-pending completion against abort, snapshots partial content, classifies
+user cancellation ahead of timeout while pending, and removes its listener. It
+returns an already-resolved provider result unchanged; both callers retain
+their existing post-resolution cancellation and timeout checks.
 
-It must not own timers, persistence, accounting, sensitive-output rules,
+It does not own timers, persistence, accounting, sensitive-output rules,
 streaming, response validation, or fallback. `invoked = true`, message-hash
 assertions, and attempt timing boundaries remain at their current call sites.
 The v1 runner is intentionally unchanged.
 
 ## Command contract
 
-Use a separate pinned-`tsx` entry so production modules with extensionless
-imports are not forced through the existing Node strip-types CLI:
+The bridge uses a separate pinned-`tsx` entry so production modules with
+extensionless imports are not forced through the existing Node strip-types CLI:
 
 ```text
 pnpm benchmark:local-review -- \
   --calibration-id cal-001-soar-plan-approval \
-  --source-repository /explicit/local/public-clone \
+  --source-repository . \
   --run-id local-review-001 \
   --live-local-vllm
 ```
@@ -158,14 +173,17 @@ session creation.
 Structured stdout contains only status, stable identifiers, relative artifact
 names, counts, and hashes. It never contains credentials, endpoints, absolute
 paths, objectives, raw source/model/tool bodies, or raw diagnostics. Exit 0 is
-passing, exit 2 is blocked/failed/invalid, exit 1 is a harness defect, and exit
-130 is cancellation.
+passing; exit 2 is a classified blocked, failed, invalid, or admission outcome;
+exit 130 is cancellation; and exit 1 is invalid invocation or an unclassified
+harness defect.
 
 ## Fixture and context bounds
 
 The live fixture is `cal-001-soar-plan-approval`, a frozen real public SOAR
 change with two changed files and 43 changed lines. The source repository must
-already contain its pinned base and change objects. Materialization uses the
+already contain its pinned base and change objects. `--source-repository .` is
+valid when the current directory is a clean full clone containing those objects;
+no shallow or partial source may depend on lazy retrieval. Materialization uses the
 existing network-disabled local shared-clone protocol, verifies the direct
 parent and frozen commit metadata, applies the exact binary full-index patch to
 the index, and requires the host-acquired snapshot and feature facts to match
@@ -211,13 +229,27 @@ The record explicitly states:
 - endpoint billing, infrastructure, electricity, and network cost were not
   independently measured.
 
-Artifacts are written with restrictive permissions to a staging directory,
-scanned for configured sensitive values, absolute source paths, URLs, and
-high-confidence secret patterns, flushed, and atomically published to an
-exclusively created final directory. A run ID can never be overwritten or
-reused. Content hashes make later mutation detectable; this is not an OS-level
-immutability claim. Failed and blocked run records are retained; SQLite and raw
-events are never exported.
+Artifacts are written with restrictive permissions, scanned for configured
+sensitive values, absolute source paths, URLs, and high-confidence secret
+patterns, and flushed. The final directory is exclusively created and its
+fixed files use no-replace publication, but the directory is not atomically
+published as a unit. Readers must treat it as complete only after
+`publication.complete-v1.json` is written last. Content hashes make later
+mutation detectable; they do not make the files immutable. A run ID cannot be
+overwritten or reused while the ignored
+`benchmarks/runs/local-review-v1/.run-ledger` is preserved. A blocked outcome
+after namespace reservation also consumes that run ID. The fixed live-authority
+claim is stored separately in the signed-in OS account's application-state
+ledger (under `Library/Application Support/SOAR/evaluation-ledger` on macOS), so
+deleting disposable benchmark output does not restore it. Failed and blocked
+records after reservation are retained; SQLite and raw events are never
+exported.
+
+For `safe_projection_failed` or `unsafe_output`, the emergency result keeps
+bounded execution facts and the safe trace when each is independently
+scannable. It drops either one fail-closed when retaining it cannot be proven
+safe. Accepted review prose and relative evidence references remain untrusted
+model output and must be inspected before sharing.
 
 ## Acceptance gates
 
@@ -248,8 +280,10 @@ local-only change-review path.
   incomplete acquisition, cancellation, timeout, malformed telemetry,
   sensitive echo, unknown event types, and output overlap fail closed.
 - The event projection and result exporter prove allow-listing, exclusive
-  write-once publication, refusal to overwrite, tamper-evident hashes,
-  restrictive permissions, atomic publication, redaction, and cleanup.
+  no-replace file publication, refusal to overwrite while the ledger is
+  preserved, tamper-evident hashes, restrictive permissions, last-written
+  completion-marker publication, redaction, and cleanup. They do not claim
+  atomic directory publication or immutable files.
 - The shared abort helper retains the existing v1 and v2 cancellation and
   timeout contracts.
 - `pnpm check:release-head` and `pnpm test:e2e` pass on the committed
@@ -262,8 +296,8 @@ local-only change-review path.
   `fresh_complete` with a host-accepted nonempty structured result.
 - Every attempt and tool is terminal and replayable; usage is positive and
   valid; cost is exactly zero under the local operator attestation.
-- One provider/model is used with no switch, metered provider, reservation,
-  retry, or fallback.
+- One provider/model is used with no switch, metered provider, paid budget
+  reservation, retry, or fallback.
 - Tokens, reasoning tokens, latencies, route/attempt/tool/event counts, and
   safe artifact hashes are recorded whether the episode passes or fails.
 - An invalid or failed episode is logged honestly and is not rerun under this
@@ -271,8 +305,11 @@ local-only change-review path.
 
 ### 5. Publication
 
-The final exact SHA must pass Linux Node 22 and macOS Electron GitHub Actions.
-The milestone may then be marked `Verified`, never `Released`.
+The exact implementation SHA must first pass the deterministic release-head and
+Electron gates before the authorized live command runs. After the one live
+result is recorded, the final exact SHA must pass Linux Node 22 and macOS
+Electron GitHub Actions. The milestone may then be marked `Verified`, never
+`Released`.
 
 ## Explicit non-claims
 
@@ -280,4 +317,6 @@ This milestone does not demonstrate review quality, defect recall, precision,
 false-accept rate, arbitrary-repository safety, the default context budget,
 same-device execution, zero infrastructure cost, dynamic routing, cloud
 readiness, quality/cost/latency advantage, execution of the 42 workload
-manifests, general reliability, or release readiness.
+manifests, general reliability, or release readiness. “Local only” constrains
+provider selection; repository evidence can still leave this Mac when the
+configured vLLM endpoint runs remotely.

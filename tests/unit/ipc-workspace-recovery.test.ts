@@ -60,7 +60,7 @@ function config(): SoarConfig {
 }
 
 const runner = {
-  startSession: vi.fn(),
+  startSession: vi.fn().mockResolvedValue(undefined),
   cancelSession: vi.fn(),
   getLocalReviewProviderDescriptor: vi.fn().mockReturnValue({
     id: "local-vllm",
@@ -232,6 +232,86 @@ describe("persisted workspace authorization", () => {
     });
     expect(runner.startSession).toHaveBeenCalledOnce();
     expect(runner.startSession).toHaveBeenCalledWith(snapshot.id);
+  });
+
+  it("rejects an unready review runtime before creating or starting a session", async () => {
+    const root = await createTemporaryRoot();
+    const workspaceRoot = path.join(root, "workspace");
+    await mkdir(workspaceRoot);
+    const canonicalWorkspaceRoot = await realpath(workspaceRoot);
+    const database = createSoarDatabase();
+    databases.push(database);
+    const store = new EventStore(database);
+    store.createSession({
+      title: "Workspace approval",
+      objective: "Remember this selected workspace",
+      workspaceRoot: canonicalWorkspaceRoot,
+    });
+    vi.mocked(runner.getLocalReviewProviderDescriptor).mockReturnValueOnce(
+      undefined,
+    );
+    await registerIpcHandlers({ store, runner, config: config() });
+
+    await expect(
+      handler(IPC_CHANNELS.createChangeReviewSession)(undefined, {
+        workspaceRoot,
+      }) as Promise<unknown>,
+    ).rejects.toThrow(
+      "The configured local provider cannot run structured change reviews.",
+    );
+    expect(store.listSessions()).toHaveLength(1);
+    expect(runner.startSession).not.toHaveBeenCalled();
+  });
+
+  it("returns the created review snapshot without observing background completion", async () => {
+    const root = await createTemporaryRoot();
+    const workspaceRoot = path.join(root, "workspace");
+    await mkdir(workspaceRoot);
+    const canonicalWorkspaceRoot = await realpath(workspaceRoot);
+    const database = createSoarDatabase();
+    databases.push(database);
+    const store = new EventStore(database);
+    store.createSession({
+      title: "Workspace approval",
+      objective: "Remember this selected workspace",
+      workspaceRoot: canonicalWorkspaceRoot,
+    });
+    const completionThen = vi.fn(() => {
+      throw new Error("IPC awaited the background review completion.");
+    });
+    vi.mocked(runner.startSession).mockReturnValueOnce({
+      then: completionThen,
+    } as unknown as Promise<void>);
+    await registerIpcHandlers({ store, runner, config: config() });
+
+    const snapshot = (await handler(
+      IPC_CHANNELS.createChangeReviewSession,
+    )(undefined, { workspaceRoot })) as { id: string; status: string };
+
+    expect(snapshot.status).toBe("created");
+    expect(runner.startSession).toHaveBeenCalledOnce();
+    expect(runner.startSession).toHaveBeenCalledWith(snapshot.id);
+    expect(completionThen).not.toHaveBeenCalled();
+  });
+
+  it("keeps review workspace authorization ahead of session creation", async () => {
+    const root = await createTemporaryRoot();
+    const workspaceRoot = path.join(root, "workspace");
+    await mkdir(workspaceRoot);
+    const database = createSoarDatabase();
+    databases.push(database);
+    const store = new EventStore(database);
+    await registerIpcHandlers({ store, runner, config: config() });
+
+    await expect(
+      handler(IPC_CHANNELS.createChangeReviewSession)(undefined, {
+        workspaceRoot,
+      }) as Promise<unknown>,
+    ).rejects.toThrow(
+      "Choose this workspace in SOAR before starting a review.",
+    );
+    expect(store.listSessions()).toEqual([]);
+    expect(runner.startSession).not.toHaveBeenCalled();
   });
 
   it("does not trust a persisted path that now resolves through a symlink", async () => {

@@ -1,7 +1,10 @@
 {
   "$schema": "./providers.readiness.schema.json",
-  "providers": [
+  "status": "non_runtime_snapshot",
+  "purpose": "non_runtime_provider_and_campaign_planning_snapshot",
+  "runtimeProviders": [
     {
+      "status": "implemented_runtime_input_map",
       "id": "local-vllm",
       "adapter": "openai-compatible",
       "baseUrlEnv": "SOAR_VLLM_BASE_URL",
@@ -13,19 +16,20 @@
         "output": 0
       },
       "capabilities": [
-        "chat.completions",
-        "responses",
-        "reasoning",
-        "tool-calling"
+        "chat_completions",
+        "reasoning_effort",
+        "streaming",
+        "structured_json_schema",
+        "tool_calling"
       ]
-    },
-    {
+    }
+  ],
+  "proposedCloudCampaign": {
+    "status": "proposed_unapproved_non_runtime",
+    "provider": {
       "id": "openrouter-cloud-primary",
       "adapter": "openai-compatible",
-      "enabledEnv": "SOAR_OPENROUTER_ENABLED",
-      "baseUrlEnv": "SOAR_OPENROUTER_BASE_URL",
-      "apiKeyEnv": "SOAR_OPENROUTER_API_KEY",
-      "modelEnv": "SOAR_OPENROUTER_MODEL",
+      "model": "deepseek/deepseek-v4-flash-0731",
       "marginalPriceUsdPerMillionTokens": {
         "input": 0.06,
         "output": 0.12,
@@ -51,12 +55,12 @@
         "parallel-tool-calling",
         "structured-outputs"
       ]
+    },
+    "budget": {
+      "campaignUsd": 100,
+      "automaticStopUsd": 90,
+      "maxPaidEpisodeUsd": 0.75,
+      "denyWhenProjectedCostExceedsRemainingBudget": true
     }
-  ],
-  "budget": {
-    "campaignUsdEnv": "SOAR_CAMPAIGN_BUDGET_USD",
-    "automaticStopUsdEnv": "SOAR_AUTOMATIC_STOP_USD",
-    "maxPaidEpisodeUsdEnv": "SOAR_MAX_PAID_EPISODE_USD",
-    "denyWhenProjectedCostExceedsRemainingBudget": true
   }
 }

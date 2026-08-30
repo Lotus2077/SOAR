@@ -4,30 +4,50 @@
   "title": "SOAR non-runtime provider readiness snapshot",
   "type": "object",
   "additionalProperties": false,
-  "required": ["providers", "budget"],
+  "required": [
+    "status",
+    "purpose",
+    "runtimeProviders",
+    "proposedCloudCampaign"
+  ],
   "properties": {
     "$schema": { "type": "string", "minLength": 1 },
-    "providers": {
+    "status": { "const": "non_runtime_snapshot" },
+    "purpose": {
+      "const": "non_runtime_provider_and_campaign_planning_snapshot"
+    },
+    "runtimeProviders": {
       "type": "array",
       "minItems": 1,
       "items": {
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "status",
           "id",
           "adapter",
           "baseUrlEnv",
           "modelEnv",
+          "costPolicyEnv",
           "marginalPriceUsdPerMillionTokens",
           "capabilities"
         ],
         "properties": {
+          "status": { "const": "implemented_runtime_input_map" },
           "id": { "type": "string", "minLength": 1 },
           "adapter": { "const": "openai-compatible" },
-          "enabledEnv": { "type": "string", "minLength": 1 },
-          "baseUrlEnv": { "type": "string", "minLength": 1 },
-          "apiKeyEnv": { "type": "string" },
-          "modelEnv": { "type": "string", "minLength": 1 },
+          "baseUrlEnv": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]+$"
+          },
+          "apiKeyEnv": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]+$"
+          },
+          "modelEnv": {
+            "type": "string",
+            "pattern": "^[A-Z][A-Z0-9_]+$"
+          },
           "costPolicyEnv": {
             "type": "string",
             "pattern": "^[A-Z][A-Z0-9_]+$"
@@ -37,72 +57,112 @@
             "additionalProperties": false,
             "required": ["input", "output"],
             "properties": {
-              "input": { "type": "number", "minimum": 0 },
-              "output": { "type": "number", "minimum": 0 },
-              "cacheRead": { "type": "number", "minimum": 0 }
-            }
-          },
-          "pricingVerifiedOn": { "type": "string", "format": "date" },
-          "pricingSource": { "type": "string", "format": "uri" },
-          "safeContextTokens": { "type": "integer", "minimum": 1 },
-          "maxOutputTokens": { "type": "integer", "minimum": 1 },
-          "providerRouting": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": ["sort", "allowFallbacks", "maxPriceUsdPerMillionTokens"],
-            "properties": {
-              "sort": { "enum": ["price", "throughput", "latency"] },
-              "allowFallbacks": { "type": "boolean" },
-              "maxPriceUsdPerMillionTokens": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": ["input", "output"],
-                "properties": {
-                  "input": { "type": "number", "exclusiveMinimum": 0 },
-                  "output": { "type": "number", "exclusiveMinimum": 0 }
-                }
-              }
+              "input": { "const": 0 },
+              "output": { "const": 0 }
             }
           },
           "capabilities": {
             "type": "array",
             "uniqueItems": true,
-            "items": { "type": "string", "minLength": 1 }
+            "items": {
+              "enum": [
+                "chat_completions",
+                "reasoning_effort",
+                "streaming",
+                "structured_json_schema",
+                "tool_calling"
+              ]
+            }
           }
-        },
-        "allOf": [
-          {
-            "if": {
-              "properties": {
-                "marginalPriceUsdPerMillionTokens": {
-                  "properties": {
-                    "input": { "const": 0 },
-                    "output": { "const": 0 }
-                  },
-                  "required": ["input", "output"]
-                }
-              },
-              "required": ["marginalPriceUsdPerMillionTokens"]
-            },
-            "then": { "required": ["costPolicyEnv"] }
-          }
-        ]
+        }
       }
     },
-    "budget": {
+    "proposedCloudCampaign": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "campaignUsdEnv",
-        "automaticStopUsdEnv",
-        "maxPaidEpisodeUsdEnv",
-        "denyWhenProjectedCostExceedsRemainingBudget"
-      ],
+      "required": ["status", "provider", "budget"],
       "properties": {
-        "campaignUsdEnv": { "type": "string" },
-        "automaticStopUsdEnv": { "type": "string" },
-        "maxPaidEpisodeUsdEnv": { "type": "string" },
-        "denyWhenProjectedCostExceedsRemainingBudget": { "type": "boolean" }
+        "status": { "const": "proposed_unapproved_non_runtime" },
+        "provider": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "adapter",
+            "model",
+            "marginalPriceUsdPerMillionTokens",
+            "pricingVerifiedOn",
+            "pricingSource",
+            "safeContextTokens",
+            "maxOutputTokens",
+            "providerRouting",
+            "capabilities"
+          ],
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "adapter": { "const": "openai-compatible" },
+            "model": { "type": "string", "minLength": 1 },
+            "marginalPriceUsdPerMillionTokens": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["input", "output"],
+              "properties": {
+                "input": { "type": "number", "minimum": 0 },
+                "output": { "type": "number", "minimum": 0 },
+                "cacheRead": { "type": "number", "minimum": 0 }
+              }
+            },
+            "pricingVerifiedOn": { "type": "string", "format": "date" },
+            "pricingSource": { "type": "string", "format": "uri" },
+            "safeContextTokens": { "type": "integer", "minimum": 1 },
+            "maxOutputTokens": { "type": "integer", "minimum": 1 },
+            "providerRouting": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "sort",
+                "allowFallbacks",
+                "maxPriceUsdPerMillionTokens"
+              ],
+              "properties": {
+                "sort": { "enum": ["price", "throughput", "latency"] },
+                "allowFallbacks": { "type": "boolean" },
+                "maxPriceUsdPerMillionTokens": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["input", "output"],
+                  "properties": {
+                    "input": { "type": "number", "exclusiveMinimum": 0 },
+                    "output": { "type": "number", "exclusiveMinimum": 0 }
+                  }
+                }
+              }
+            },
+            "capabilities": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": { "type": "string", "minLength": 1 }
+            }
+          }
+        },
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "campaignUsd",
+            "automaticStopUsd",
+            "maxPaidEpisodeUsd",
+            "denyWhenProjectedCostExceedsRemainingBudget"
+          ],
+          "properties": {
+            "campaignUsd": { "type": "number", "minimum": 0 },
+            "automaticStopUsd": { "type": "number", "minimum": 0 },
+            "maxPaidEpisodeUsd": { "type": "number", "minimum": 0 },
+            "denyWhenProjectedCostExceedsRemainingBudget": {
+              "type": "boolean"
+            }
+          }
+        }
       }
     }
   }

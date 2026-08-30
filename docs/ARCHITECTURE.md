@@ -446,8 +446,8 @@ unversioned nonempty database can be adopted, its complete normalized schema
 must match the frozen `4233edd` baseline and pass integrity and foreign-key
 checks. Schema version 2 adds constrained append-only budget-ledger storage.
 The fake-only hybrid runner exercises atomic reservation and settlement; the
-production local review path makes no metered-provider reservation and records
-zero selected paid exposure under the operator's `local_zero_cost` attestation.
+production local review path makes no paid budget reservation and records zero
+selected paid exposure under the operator's `local_zero_cost` attestation.
 
 Strict `agentic-execution-v2`, routing-decision, and inference-attempt contracts
 are additive foundations for the hybrid runner. V2 replay cross-checks route,
@@ -474,6 +474,41 @@ gold. Fixture preparation separates agent-visible inputs from private evaluator
 oracles. Agent workspaces must live outside `benchmarks/cache`; hashes and pinned
 revisions make result records reproducible. Official evaluators run only after
 inference and generated caches and traces remain ignored by Git.
+
+Local Evaluation Bridge v1 is a separate specialized harness for one frozen
+nonempty change-review fixture. It creates an isolated database, calls the same
+`startLocalChangeReviewSession` service and `SessionRunner` coordinator as IPC,
+and judges replay plus `toChangeReviewView` rather than trusting promise
+resolution or provider text. Before inference it reserves a run ID in the
+ignored ledger, checks the configured model, revalidates the exact clean
+revision, and claims a plan-scoped OS-user-local one-shot authority stored
+independently of disposable benchmark artifacts. Run-ID durability is
+conditional: the run ID is non-reusable only while the ignored `.run-ledger`
+is preserved. Reservation precedes later admission, so a classified blocked
+outcome can consume the run ID even when no provider request is sent.
+
+The authority is fixed to committed plan ID
+`local-evaluation-bridge-v1-plan-1` in the signed-in OS account's application
+state (`Library/Application Support/SOAR/evaluation-ledger` on macOS). It is a
+cooperative same-account guard, not a hardened security boundary. Definite
+no-dispatch outcomes release it; `sent`, `unknown`, or unfinished attempts
+retain it, and a crash after claim may conservatively consume it. Another live
+attempt requires explicit approval and a new committed plan authority ID.
+
+Export is an allow-listed, lossy safe projection of canonical events plus the
+accepted bounded review, not a copy of the raw event database. The exclusively
+created directory is not atomically published: consumers must require the
+last-written `publication.complete-v1.json` marker. File hashes make mutation
+detectable rather than prevent it. Emergency safe-projection or unsafe-output
+records retain bounded execution and safe events only where independently
+scannable. Accepted review prose and relative evidence references remain
+untrusted. Local-only provider selection can still send fixture evidence to a
+remotely hosted configured vLLM endpoint.
+
+This bridge is Implemented, while full deterministic exact-commit verification
+and the one authorized nonempty live proof remain pending. It is not Verified
+or Released. The generic research/coding benchmark command remains a fixture
+and evaluator utility, not an agent runner.
 
 The guided Local Repository Investigator proof additionally applies
 task-specific exact-call validators. Its architecture task requires one bounded

@@ -132,9 +132,12 @@ At baseline revision `4233edd`:
   zero-cost policy and does not expose honest cloud cost accounting;
 - the checked-in two-provider catalog is readiness documentation, not runtime
   configuration;
-- the current example configuration has a $0.75 paid-episode cap; changing the
-  runtime default to the proposed $0.25 cap is future implementation, not an
-  already-active limit;
+- at that baseline, the tracked example configuration advertised a $0.75 paid-
+  episode value even though the app parsed no cloud or paid-budget settings. It
+  was a broad-campaign planning placeholder, not an active runtime limit. The
+  current tracked example omits those inactive settings. Local-only v2 review
+  sessions now persist an inert 250,000-micro-USD policy field, but no paid route
+  can use it; the separately approval-gated PR 6 canary remains unapproved;
 - no separate OpenRouter provider configuration or credential is loaded by the
   app; the generic configured vLLM endpoint remains an operator trust boundary
   and could incur external charges if it is classified incorrectly;

@@ -29,18 +29,28 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   independently verify the endpoint's external billing or infrastructure cost.
   The endpoint may run on this Mac or another machine, so “local” is not a
   loopback-placement or privacy guarantee.
-- Benchmark target: pinned OpenRouter DeepSeek V4 Flash 0731, not enabled in the app.
+- Non-runtime benchmark planning snapshot: OpenRouter DeepSeek V4 Flash 0731.
+  It is proposed, unapproved, and not enabled or parsed by the app; availability
+  and pricing require fresh verification before any separately approved use.
 - Routing runtime: Repository Investigator retains its deterministic v1 local
   assignment. Review Current Changes creates an app-owned v2
   `local_only_v1` session and keeps inspection and synthesis on the same
   configured provider. A separate fake-only v2 path proves hybrid mechanics
   without enabling a production cloud provider.
-- Evaluation ceiling: USD 100, with an automatic stop at USD 90.
+- Future paid-campaign design: a proposed USD 100 ceiling and USD 90 automatic
+  stop. These values are not active runtime configuration and authorize no paid
+  call.
 - Selected paid exposure for the implemented PR 1 through PR 5 slice: USD 0
   under the operator's local-zero-cost attestation. The app constructs no
   separately configured metered or OpenRouter provider, and paid benchmark
   calls have not started. This is not proof that an incorrectly classified
   configured endpoint cannot bill its operator.
+- Local Evaluation Bridge v1: a specialized, fail-closed command can now run
+  the canonical production local-only change-review coordinator on one frozen
+  nonempty public SOAR change and export a lossy privacy-safe canonical-event
+  proof. It is Implemented; full deterministic exact-commit verification and
+  the separately gated one-shot real-vLLM result remain pending. It is not
+  Verified or Released.
 
 ## Planning and project history
 
@@ -53,6 +63,11 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   schema compatibility only, not a post-fix real-repository flow or full release
   validation. PR 6, its paid OpenRouter canary, and every paid call remain
   separately unapproved and approval-gated.
+- [Local Evaluation Bridge v1](docs/plans/LOCAL_EVALUATION_BRIDGE_V1.md)
+  defines the independently approved `$0`, local-only, one-live-episode proof
+  boundary. Another live attempt requires new explicit approval and a new
+  committed plan authority ID. The plan does not authorize cloud routing, paid
+  inference, or PR 6.
 - [Build and change log](docs/BUILD_LOG.md) is the append-only project evidence
   ledger for crucial decisions, implementation milestones, failures, proofs,
   costs, limitations, and next gates.
@@ -130,8 +145,11 @@ replaced by snapshots. See
 [ADR 0003](docs/adr/0003-immutable-change-acquisition-v1.md) and the
 [calibration protocol](benchmarks/change-review/README.md). These contracts and
 deterministic tests alone do not prove review quality, latency advantage,
-dynamic routing, or release readiness. The separate live canary described below
-proves only exact-schema compatibility for its synthetic fixture.
+dynamic routing, or release readiness. The separate schema canary described
+below proves only exact-schema compatibility for its synthetic fixture. The
+Local Evaluation Bridge has a narrow proof command for one pinned nonempty
+public change; it still does not measure defect recall, precision, or general
+repository-review quality.
 
 ## Fake-only hybrid mechanics
 
@@ -231,10 +249,37 @@ For every non-loopback endpoint, explicitly set
 charges no token fee. SOAR treats that value as the operator's attestation; it
 does not identify the service behind an arbitrary URL, inspect an external
 billing account, or measure electricity, hosting, networking, or other
-infrastructure cost. The non-runtime readiness snapshot in
-`config/providers.readiness.example.json` points to the same environment field.
-It documents benchmark assumptions only; the shipping app builds its validated
-runtime registry in the Electron main process.
+infrastructure cost. The proposed, unapproved non-runtime readiness snapshot in
+`config/providers.readiness.example.json` points to the same local accounting
+field. Its cloud and campaign fields document planning assumptions only and are
+intentionally absent from `.env.example`; the shipping app builds its validated
+single-provider runtime registry in the Electron main process.
+
+### Local Evaluation Bridge v1
+
+The specialized `pnpm benchmark:local-review` command is the only checked-in
+benchmark command that runs the canonical local-only review agent. The generic
+research/coding benchmark command still evaluates caller-supplied submissions;
+it is not an agent runner. Before the authorized live bridge command, the exact
+clean implementation commit must pass the deterministic release-head and
+Electron gates. `--source-repository .` is valid for a clean full clone that
+already contains the fixed fixture objects. See the
+[benchmark operator contract](benchmarks/README.md#local-evaluation-bridge-v1)
+for the exact limits, opt-ins, and exit codes.
+
+The bridge's live authority is a cooperative OS-user-local guard fixed to its
+committed plan ID, not a hardened same-account security boundary. Run IDs remain
+non-reusable only while the ignored `.run-ledger` is preserved; a blocked run
+after namespace reservation consumes its run ID, and a crash after live-authority
+claim may conservatively consume that authority. Output is complete only when
+the last-written `publication.complete-v1.json` marker exists. Hashes are
+tamper-evident, not immutable. Emergency records retain execution and safe trace
+data only where independently scannable. Review prose and relative evidence
+references remain untrusted and must be inspected before sharing.
+
+“Local only” constrains provider selection, not network placement. The frozen
+fixture evidence is sent to the configured vLLM endpoint and can leave this Mac
+when that endpoint is remote.
 
 ### UI design reference
 

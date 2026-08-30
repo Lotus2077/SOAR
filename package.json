@@ -31,6 +31,7 @@
     "test:live-repository": "SOAR_RUN_LIVE_REPOSITORY=true vitest run tests/integration/local-repository-investigator.test.ts --testTimeout=1200000",
     "test:e2e": "node scripts/run-electron-e2e.mjs",
     "benchmark": "node --experimental-strip-types scripts/benchmark.ts",
+    "benchmark:local-review": "tsx scripts/benchmark-local-review.ts",
     "benchmark:preflight": "node --experimental-strip-types scripts/benchmark.ts preflight",
     "calibration:generate": "tsx benchmarks/change-review/generate-calibration.ts",
     "postinstall": "electron-builder install-app-deps",

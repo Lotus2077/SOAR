@@ -54,6 +54,7 @@ import {
 import { toCheckpointRouterRiskV0 } from "../routing/review-risk-router-input";
 import { executeToolCall } from "../tools/tool-gateway";
 import type { RegisteredToolName } from "../tools/tool-registry";
+import { invokeProviderWithAbortRace } from "./provider-invocation";
 
 const ALL_MODEL_TOOLS = [
   "list_files",
@@ -855,11 +856,6 @@ async function executePreparedAttempt(
     () => timeoutController.abort(),
     boundedAttemptTimeoutMs,
   );
-  const signal = AbortSignal.any([
-    options.controller.signal,
-    timeoutController.signal,
-  ]);
-  let rejectOnAbort: (() => void) | undefined;
 
   try {
     if (dispatchObservationError !== undefined) {
@@ -879,43 +875,31 @@ async function executePreparedAttempt(
     if (options.controller.signal.aborted) {
       throw new ProviderAbortedError("Inference cancelled", "", "cancelled");
     }
-    invoked = true;
-    const providerCompletion = prepared.registration.provider.complete({
-      messages: prepared.compiled.messages,
-      signal,
-      requestedMaxOutputTokens: prepared.plan.requestedMaxOutputTokens,
-      allowTools: prepared.plan.allowTools,
-      allowedToolNames: prepared.plan.allowedToolNames,
-      requireToolCall: prepared.plan.requireToolCall,
-      onDelta: (delta) => {
-        if (signal.aborted) return;
-        partial += delta;
-        options.onUpdate?.({
-          sessionId: options.sessionId,
-          kind: "stream",
-          delta,
+    result = await invokeProviderWithAbortRace({
+      userSignal: options.controller.signal,
+      timeoutSignal: timeoutController.signal,
+      getPartialContent: () => partial,
+      invoke: (signal) => {
+        invoked = true;
+        return prepared.registration.provider.complete({
+          messages: prepared.compiled.messages,
+          signal,
+          requestedMaxOutputTokens: prepared.plan.requestedMaxOutputTokens,
+          allowTools: prepared.plan.allowTools,
+          allowedToolNames: prepared.plan.allowedToolNames,
+          requireToolCall: prepared.plan.requireToolCall,
+          onDelta: (delta) => {
+            if (signal.aborted) return;
+            partial += delta;
+            options.onUpdate?.({
+              sessionId: options.sessionId,
+              kind: "stream",
+              delta,
+            });
+          },
         });
       },
     });
-    // Attach a terminal rejection handler immediately so a non-cooperative
-    // provider can settle or reject after the coordinator has timed out without
-    // creating an unhandled promise rejection.
-    void providerCompletion.catch(() => undefined);
-    const aborted = new Promise<never>((_resolve, reject) => {
-      rejectOnAbort = () =>
-        reject(
-          new ProviderAbortedError(
-            options.controller.signal.aborted
-              ? "Inference cancelled"
-              : "Inference timed out",
-            partial,
-            options.controller.signal.aborted ? "cancelled" : "timeout",
-          ),
-        );
-      if (signal.aborted) rejectOnAbort();
-      else signal.addEventListener("abort", rejectOnAbort, { once: true });
-    });
-    result = await Promise.race([providerCompletion, aborted]);
     if (options.controller.signal.aborted) {
       throw new ProviderAbortedError("Inference cancelled", partial, "cancelled");
     }
@@ -927,9 +911,6 @@ async function executePreparedAttempt(
     failure = error;
   } finally {
     clearTimeout(timeout);
-    if (rejectOnAbort !== undefined) {
-      signal.removeEventListener("abort", rejectOnAbort);
-    }
   }
 
   // Only the user-owned controller is authoritative for user intent. Some

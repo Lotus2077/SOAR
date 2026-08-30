@@ -6,11 +6,20 @@ SOAR will plan globally and assign provisionally. It will not run a full model-s
 
 Current implementation boundary: `checkpoint-router-v0` implements only
 `session_start`, `evidence_complete`, and eligible `provider_failure`
-checkpoints in an explicit two-fake-provider v2 runtime. The production app is
-still v1 local-only. The broader invalidation triggers and profiles below are
-product policy, not shipped scheduler behavior.
+checkpoints in an explicit two-fake-provider v2 test/runtime path. Production
+Repository Investigator remains v1 local-only. Production Review Current
+Changes creates a v2 `local_only_v1` session, assigns the configured local
+provider at `session_start`, records an `evidence_complete` decision, and keeps
+the same provider lease through synthesis. It has no provider-failure fallback
+or separately configured cloud provider. The broader invalidation triggers and
+profiles below are product policy, not shipped scheduler behavior.
 
-Every event is persisted and passes cheap deterministic guards for permissions, budget, deadline, context size, and provider health. A full routing decision runs only at the start, at meaningful phase boundaries, or when evidence invalidates the current assignment.
+The target policy persists every event and applies cheap deterministic guards
+for permissions, budget, deadline, context size, and provider health. A full
+routing decision would run only at the start, meaningful phase boundaries, or
+when evidence invalidates the current assignment. The production local review
+currently evaluates its fixed route at session start and evidence completion;
+ordinary tool progress does not invoke a general scheduler.
 
 Each work node receives a model lease. A valid lease keeps the same model across a progressing tool or edit loop, preserving context affinity and avoiding unnecessary switching. A lease is reconsidered when:
 

@@ -23,34 +23,63 @@ describe("checked-in JSON Schema contracts", () => {
         label: "config/providers.readiness.example.json",
       }),
     ).toEqual([]);
-  });
-
-  it("rejects unknown provider fields and missing zero-cost provenance", async () => {
-    const schema = await readJson("config/providers.readiness.schema.json");
-    const invalid = {
-      providers: [
+    expect(example).toMatchObject({
+      status: "non_runtime_snapshot",
+      purpose: "non_runtime_provider_and_campaign_planning_snapshot",
+      runtimeProviders: [
         {
-          id: "invalid-local",
-          adapter: "openai-compatible",
-          baseUrlEnv: "LOCAL_BASE_URL",
-          modelEnv: "LOCAL_MODEL",
-          marginalPriceUsdPerMillionTokens: { input: 0, output: 0 },
-          capabilities: ["tool-calling"],
-          typo: true,
+          status: "implemented_runtime_input_map",
+          id: "local-vllm",
+          capabilities: [
+            "chat_completions",
+            "reasoning_effort",
+            "streaming",
+            "structured_json_schema",
+            "tool_calling",
+          ],
         },
       ],
-      budget: {
-        campaignUsdEnv: "CAMPAIGN_BUDGET",
-        automaticStopUsdEnv: "AUTOMATIC_STOP",
-        maxPaidEpisodeUsdEnv: "EPISODE_BUDGET",
-        denyWhenProjectedCostExceedsRemainingBudget: true,
+      proposedCloudCampaign: {
+        status: "proposed_unapproved_non_runtime",
       },
+    });
+
+    const proposedCloudCampaign = (
+      example as { proposedCloudCampaign: unknown }
+    ).proposedCloudCampaign;
+    expect(JSON.stringify(proposedCloudCampaign)).not.toMatch(
+      /"[^"]*Env"\s*:|"SOAR_[A-Z0-9_]+"/u,
+    );
+  });
+
+  it("rejects unknown fields, invalid runtime vocabulary, and cloud environment mappings", async () => {
+    const [example, schema] = await Promise.all([
+      readJson("config/providers.readiness.example.json"),
+      readJson("config/providers.readiness.schema.json"),
+    ]);
+    const invalid = structuredClone(example) as {
+      runtimeProviders: Array<Record<string, unknown>>;
+      proposedCloudCampaign: {
+        provider: Record<string, unknown>;
+        budget: Record<string, unknown>;
+      };
     };
+    delete invalid.runtimeProviders[0]?.costPolicyEnv;
+    if (invalid.runtimeProviders[0]) {
+      invalid.runtimeProviders[0].capabilities = ["tool-calling"];
+      invalid.runtimeProviders[0].typo = true;
+    }
+    invalid.proposedCloudCampaign.provider.modelEnv = "SOAR_CLOUD_MODEL";
+    invalid.proposedCloudCampaign.budget.campaignUsdEnv =
+      "SOAR_CAMPAIGN_BUDGET_USD";
 
     expect(validateJsonSchema(invalid, schema)).toEqual(
       expect.arrayContaining([
         expect.stringContaining('unexpected property "typo"'),
         expect.stringContaining('missing required property "costPolicyEnv"'),
+        expect.stringContaining("must be one of"),
+        expect.stringContaining('unexpected property "modelEnv"'),
+        expect.stringContaining('unexpected property "campaignUsdEnv"'),
       ]),
     );
   });

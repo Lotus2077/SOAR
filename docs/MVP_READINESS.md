@@ -4,6 +4,11 @@ This file records the repository-level readiness contract. It deliberately does
 not describe any maintainer's endpoint, credential, account balance, or local
 machine configuration.
 
+Local Evaluation Bridge v1 is **Implemented** but not yet **Verified**: its full
+deterministic release-head/Electron checks on the exact committed revision and
+its separately authorized nonempty live proof are pending. It is not
+**Released**.
+
 ## Implemented
 
 - macOS-first Electron shell with a sandboxed React renderer and typed preload
@@ -58,8 +63,17 @@ machine configuration.
   finalization pass;
 - duplicate-observation detection that marks repeated results failed and ends
   tool use after two no-progress observations;
-- executable research and coding benchmark manifests, fixture isolation,
-  preflight checks, evaluator adapters, and machine-readable result export;
+- 22 research and 20 coding benchmark manifests plus fixture isolation,
+  preflight checks, evaluator adapters, and machine-readable result export for
+  already-produced submissions. These utilities do not execute an agent episode
+  or prove that a caller-supplied trace came from the production runtime;
+- a separate Local Evaluation Bridge v1 command that materializes one frozen
+  nonempty public SOAR change without network access, runs the same production
+  local-only review coordinator used by Electron, judges canonical replay, and
+  writes a privacy-safe lossy proof under a run-ID reservation. The run ID is
+  non-reusable while its ignored `.run-ledger` is preserved. Its one-live-episode
+  authority is fixed to the committed plan ID in OS-user-local application
+  state on this machine and is independent of disposable benchmark output;
 - deterministic unit, integration, and Electron end-to-end tests;
 - strict additive v2 routing-decision and inference-attempt schemas, replay
   invariants, and crash-window recovery;
@@ -93,7 +107,10 @@ machine configuration.
   review, or unbounded/binary/submodule evidence review;
 - a signed release channel or general downgrade support for databases that
   contain v2 events;
-- official bulk SWE-bench evaluation on a native x86-64 Linux worker.
+- official bulk SWE-bench evaluation on a native x86-64 Linux worker;
+- a successful post-implementation nonempty Local Evaluation Bridge v1 live
+  result until the separately gated one-shot local-vLLM command is actually run
+  and its exact committed revision and retained result hashes are recorded.
 
 ## Provider contract
 
@@ -142,6 +159,29 @@ Repository Investigator live proof remain separate. The app constructs no
 separate OpenRouter or metered provider, and no such PR 5 route was selected.
 The canary's `$0` cost provenance relies on the operator's configured-endpoint
 attestation and is not independent billing evidence.
+
+Local Evaluation Bridge v1 now adds deterministic production-path coverage for
+the frozen two-file `cal-001-soar-plan-approval` change, including four terminal
+attempts, three successful read-only tools, two routing boundaries, one retained
+provider lease, exact snapshot acceptance, safe canonical projection, and
+no-replace result-file publication followed by a last-written
+`publication.complete-v1.json` marker. The final directory is not atomically
+published and is incomplete until that marker exists. Content hashes make later
+mutation detectable, not impossible. Focused deterministic tests use a scripted
+local provider and do not contact an endpoint; the full exact-commit release
+gate remains pending. The one authorized nonempty real-vLLM episode is a second
+distinct gate until its result is appended to the build log.
+
+The authority ledger is a cooperative guard for processes using the same OS
+account, not a hardened security boundary. A sent or disposition-unknown
+attempt retains the claim, and a crash after claim may conservatively consume
+it. Another live attempt requires new explicit approval and a new committed
+plan authority ID. A run namespace reserved before a classified blocked outcome
+also consumes that run ID while the ignored run ledger remains present.
+Emergency safe-projection or unsafe-output records preserve bounded execution
+and safe trace data where each is independently scannable and omit it
+fail-closed otherwise. Accepted review prose and relative evidence references
+remain untrusted and require inspection before sharing.
 
 Review Current Changes invokes configured-model health admission before its
 provider attempt. That admission fails closed unless the unique selected

@@ -9,7 +9,6 @@ import {
   createSessionInputSchema,
   sessionIdSchema,
   type ReviewAvailability,
-  type AppTaskTrack,
   type WorkspaceSelection,
 } from "../shared/contracts";
 import type { CompletionObligations } from "../shared/session-events";
@@ -18,6 +17,7 @@ import { EventStore } from "./event-store";
 import { SessionRunner } from "./agent/run-session";
 import { toSessionSnapshot, toSessionSummary } from "./session-view";
 import { toChangeReviewView } from "./change-review-view";
+import { startLocalChangeReviewSession } from "./local-change-review-session";
 
 export interface RegisterIpcOptions {
   store: EventStore;
@@ -26,7 +26,7 @@ export interface RegisterIpcOptions {
 }
 
 const TASK_TRACK_COMPLETION_POLICIES: Record<
-  AppTaskTrack,
+  "repository-investigator-v1",
   CompletionObligations
 > = {
   "repository-investigator-v1": {
@@ -37,18 +37,12 @@ const TASK_TRACK_COMPLETION_POLICIES: Record<
     ],
     minimumVerifiedPathLineCitations: 1,
   },
-  "change-review-v1": {
-    requiredSuccessfulTools: ["inspect_git_changes"],
-    minimumVerifiedPathLineCitations: 0,
-  },
 };
 
 const HYBRID_UNAVAILABLE = "Cloud setup is not available in this build." as const;
-const REVIEW_OBJECTIVE =
-  "Review the current Git working-tree changes. Identify concrete defects or bounded risks, cite only host-verified evidence, and state any incomplete coverage.";
 
 function completionObligationsForTaskTrack(
-  taskTrack: AppTaskTrack,
+  taskTrack: "repository-investigator-v1",
 ): CompletionObligations {
   const policy = TASK_TRACK_COMPLETION_POLICIES[taskTrack];
   return {
@@ -213,38 +207,12 @@ export async function registerIpcHandlers({
       if (!approvedWorkspaces.has(workspaceRoot)) {
         throw new Error("Choose this workspace in SOAR before starting a review.");
       }
-      if (
-        runner.getLocalReviewProviderDescriptor() === undefined ||
-        config.limits.inferenceRounds < 2 ||
-        config.limits.toolCalls < 1
-      ) {
-        throw new Error(
-          "The configured local provider cannot run structured change reviews.",
-        );
-      }
-      const session = store.createSession({
-        title: "Review current changes",
-        objective: REVIEW_OBJECTIVE,
+      const { session } = startLocalChangeReviewSession({
+        store,
+        runner,
+        config,
         workspaceRoot,
-        profile: "balanced",
-        taskTrack: "change-review-v1",
-        completionObligations: completionObligationsForTaskTrack(
-          "change-review-v1",
-        ),
-        executionPolicy: {
-          schemaVersion: "agentic-execution-v2",
-          inferenceRounds: config.limits.inferenceRounds,
-          toolCalls: config.limits.toolCalls,
-          routingPolicy: "local_only_v1",
-          maxProviderChanges: 2,
-          maxPaidAttempts: 1,
-          maxPaidEpisodeMicrousd: 250_000,
-          maxEpisodeDurationMs: 900_000,
-          attemptTimeoutMs: Math.min(config.vllm.timeoutMs, 900_000),
-          egressConsent: "none",
-        },
       });
-      void runner.startSession(session.id);
       return toSessionSnapshot(store, session.id);
     },
   );

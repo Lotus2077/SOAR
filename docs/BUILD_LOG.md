@@ -2001,3 +2001,162 @@ References: [Local Evaluation Bridge v1 plan](plans/LOCAL_EVALUATION_BRIDGE_V1.m
 [Hybrid Lease Router plan](plans/HYBRID_LEASE_ROUTER_V0.md),
 [benchmark protocol](../benchmarks/README.md), and
 [MVP readiness](MVP_READINESS.md).
+
+### BL-20260830-1054-local-evaluation-bridge-implemented -- 2026-08-30 -- Local Evaluation Bridge v1 implemented without provider dispatch
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement the approved
+`local-evaluation-bridge-v1-plan-1` zero-paid vertical slice so one specialized
+command can run the production local-only change-review coordinator against the
+frozen nonempty `cal-001-soar-plan-approval` fixture and judge a privacy-safe
+projection of canonical replay. This entry records implementation and focused
+deterministic evidence only. It does not claim the pending clean exact-commit
+release gates or the authorized real-vLLM episode passed.
+
+Decisions:
+
+- Keep the generic research/coding benchmark CLI as a fixture/evaluator utility
+  for caller-supplied submissions. Add a separate
+  `pnpm benchmark:local-review` entry that accepts only the fixed calibration,
+  an explicit local source repository, a safe run ID, and the live-local flag.
+- Require both the command flag and `SOAR_RUN_LIVE_LOCAL_REVIEW_V1=true`, the
+  exact recorded context/round/tool/output configuration, local-only provider
+  accounting, configured-model health, and an unchanged clean implementation
+  revision before inference authority can be claimed. Release-head children
+  forcibly clear every live opt-in.
+- Share fixed review-session creation between Electron IPC and the bridge. IPC
+  retains workspace authorization and returns the created snapshot without
+  awaiting background completion; the bridge awaits the same completion handle
+  and judges only canonical terminal replay plus `toChangeReviewView`.
+- Extract only the duplicated v2 non-cooperative-provider abort race. Timer
+  ownership, persistence, attempt accounting, sensitive-output checks, and v1
+  execution remain at their existing call sites.
+- Reserve the run namespace before later admission and retain a permanent
+  ignored `.run-ledger` tombstone. A run ID is non-reusable only while that
+  ledger is preserved; a blocked run after reservation consumes the run ID.
+- Store the one-live-episode claim separately in fixed OS-user-local
+  application state under the committed plan ID. A `sent`, `unknown`, or
+  unfinished attempt retains the claim. A definite no-dispatch outcome releases
+  it only after its classified result is durably published. A publication
+  failure or crash after claim conservatively retains it. This is cooperative
+  governance for the same OS account, not a hardened security boundary.
+- Publish a strict lossy allow-list of canonical events plus a bounded result.
+  Provider bodies, tool bodies, endpoints, credentials, absolute paths, and raw
+  diagnostics are excluded and scanned. Emergency projection/output failures
+  retain execution facts and safe events only when independently scannable.
+- Use exclusive run-directory creation and no-replace fixed files, followed by
+  a last-written `publication.complete-v1.json` marker. The directory is not
+  atomically published; marker absence means incomplete. Hashes are
+  tamper-evident, not immutable.
+- Treat the bridge preflight and coordinator admission health checks plus one
+  production-reachable synthesis TTL revalidation as the valid passing range of
+  two or three checks.
+- Isolate both live-evaluator and release-head Git inspection from inherited
+  `GIT_*` repository/configuration overrides. The deterministic child also
+  removes inherited `GIT_*` values so a clean alternate repository cannot
+  substitute for the executing checkout.
+- Correct tracked truth: `.env.example` now contains only parsed runtime inputs;
+  proposed cloud/provider-pricing and USD 100 campaign data are explicitly
+  unapproved non-runtime metadata. PR 6, OpenRouter, Keychain, cloud egress,
+  paid inference, fallback, and the 42-workload execution campaign remain
+  unapproved and unavailable.
+
+Changes: Added the specialized bridge CLI, frozen-fixture materializer,
+OS-user-local one-shot authority ledger, permanent run reservation and safe
+result exporter, canonical evaluation logic, and deterministic tests. Added a
+shared local-review session service used by IPC and the bridge, plus the bounded
+v2 provider-abort helper used by both v2 coordinators. Added final publication
+marker metadata to the safe stdout summary and exact cancellation/admission exit
+mapping. Updated release-head live-opt-in and Git-environment isolation, provider
+readiness schema/validator, environment example, routing/readiness/architecture
+truth, and operator documentation. No persisted event, SQLite, renderer, IPC,
+public app API, model tool, workspace-write, routing-policy, or production
+provider-selection contract changed.
+
+Evidence:
+
+- The focused evaluator/export/CLI matrix passed 46 tests after adding
+  cancellation-before-catalog, cancellation-during-revalidation, no-dispatch
+  publication-failure retention, unsafe-review evidence retention, write-once
+  marker, admission classification, and exact exit-code cases.
+- The exact-revision override regressions passed for two independent temporary
+  repositories and a dirty requested target. The paired release-head and
+  evaluator admission files passed 10 of 10 tests.
+- An earlier independent final audit reported no remaining actionable findings.
+  Its aggregate bridge review passed 79 focused tests; the
+  authority/publication audit passed 42 of 42 tests and the runtime/IPC audit
+  passed 72 of 72 tests. A subsequent pre-commit audit found the two issues
+  recorded below; neither was allowed into the implementation commit.
+- `pnpm typecheck`, `pnpm validate:readiness`, and `git diff --check` passed on
+  the implemented working tree. The readiness validator reported 22 research
+  and 20 coding manifests and no high-confidence tracked-file secret-pattern
+  match; that is a scoped pattern scan, not a proof that secrets cannot exist.
+- The deterministic three-health-check regression advances the injected
+  coordinator clock beyond its 60-second TTL and still requires a passing
+  four-attempt, three-tool canonical episode.
+- After correcting the parallel-load clock race described below, `pnpm check`
+  passed the final working tree: readiness and the 31-entry build-log validator,
+  both TypeScript projects, 62 test files with 692 tests passed and 4 skipped,
+  and all Electron-vite main/preload/renderer production builds.
+
+Failures or blockers: The first sandboxed `pnpm check` attempt failed 19
+OpenAI-compatible transport tests because the sandbox denied their loopback
+listener with `listen EPERM`; 60 other files passed. Re-running outside that
+network sandbox passed 61 files, 689 tests with 4 skipped, and the production
+build, but later Git-environment and health-count hardening means that earlier
+full run is not claimed as the final exact-tree gate. Review also found and
+corrected, before commit: disposable-output authority placement; run reservation
+after possible dispatch; symlink, no-replace, provider-scalar, trace-coherence,
+and false-pass gaps; cancellation misclassification at the second health check;
+loss of safe execution evidence on rejected output; implementation-HEAD TOCTOU;
+release before failed publication; the valid third health check being rejected;
+and inherited `GIT_DIR`/`GIT_WORK_TREE` substitution in both exact-revision
+gates. An early temporary-path test used the macOS `/var` alias and returned
+`live_authority_unavailable`; inspection confirmed that it neither created nor
+consumed the production authority ledger. The first final-tree full-suite run
+then passed 61 files but failed the new synthesis-TTL regression: its injected
+clock began only one second ahead of wall time, so parallel suite load let the
+real session creation timestamp overtake it and only the two normal health
+checks occurred. The test clock was moved one day ahead before applying the
+same 60,001-millisecond advance, preserving the intended production-reachable
+third-check assertion without a wall-time race. No provider request occurred in
+any of these failures. The final pre-commit audit then found that absolute-path
+scanning used a narrow preceding-character allow-list and could miss POSIX,
+Windows, UNC, or home-relative paths immediately following Markdown delimiters;
+the scanner now uses a non-path boundary and has delimiter regressions. That
+audit also found that the bridge plan said IPC observed the completion promise
+even though IPC intentionally discards it; the plan now matches the tested
+non-observing behavior.
+
+Limitations and non-claims: Implementation is not `Verified` or `Released`.
+The tree is not yet committed at this entry, so the full deterministic
+release-head and Electron gates have not run against its exact clean SHA. The
+one authorized nonempty real-vLLM episode has not run. Scripted acceptance proves
+production-path wiring and strict trace predicates, not review quality, defect
+recall, precision, arbitrary-repository behavior, the shipping default context
+budget, same-device execution, endpoint billing, infrastructure cost, dynamic
+routing, cloud readiness, quality/cost/latency advantage, or execution of the
+42 workload manifests. Local-only provider policy can still send fixture
+evidence off this Mac when the configured vLLM endpoint is remote. Accepted
+review prose and relative evidence references remain untrusted and require
+inspection before sharing.
+
+Paid exposure: `$0` selected metered-provider exposure under the existing
+operator `local_zero_cost` attestation. No model-list, inference, OpenRouter,
+credential, paid reservation, retry, fallback, clone, fetch, evaluator, or other
+provider/network request occurred while implementing or deterministically
+testing this milestone.
+
+Next gate: Validate this appended entry, run the full deterministic suite and
+build, commit the implementation, and require `pnpm check:release-head` plus
+macOS Electron E2E on the exact clean commit. Only after those gates pass may
+the one authorized local-vLLM episode run. Record its result without rerunning a
+sent/unknown attempt, then require Linux Node 22 and macOS Electron GitHub
+Actions on the final exact SHA before marking the milestone `Verified`.
+
+References: [approved bridge plan](plans/LOCAL_EVALUATION_BRIDGE_V1.md),
+[benchmark operator contract](../benchmarks/README.md#local-evaluation-bridge-v1),
+[architecture](ARCHITECTURE.md#benchmark-isolation),
+[MVP readiness](MVP_READINESS.md), and
+[approval entry](#bl-20260830-0852-local-evaluation-bridge-approved----2026-08-30----local-evaluation-bridge-v1-approved-for-one-zero-paid-production-path-proof).

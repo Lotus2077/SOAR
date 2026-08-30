@@ -126,20 +126,76 @@ for (const record of [...research, ...coding]) {
   );
 }
 
-const cloud = providers.providers.find((provider) => provider.id === "openrouter-cloud-primary");
-const local = providers.providers.find((provider) => provider.id === "local-vllm");
+const expectedLocalCapabilities = [
+  "chat_completions",
+  "reasoning_effort",
+  "streaming",
+  "structured_json_schema",
+  "tool_calling",
+];
+const runtimeProviders = Array.isArray(providers.runtimeProviders)
+  ? providers.runtimeProviders
+  : [];
+const localProviders = runtimeProviders.filter(
+  (provider) => provider.id === "local-vllm",
+);
+const local = localProviders[0];
+requireValue(
+  localProviders.length === 1,
+  "provider metadata must contain exactly one local-vllm runtime input map",
+);
+requireValue(
+  local?.status === "implemented_runtime_input_map",
+  "local provider metadata must identify itself as an implemented runtime input map",
+);
 requireValue(
   local?.costPolicyEnv === "SOAR_VLLM_COST_POLICY",
   "local provider must resolve its explicit cost policy from the environment",
 );
-requireValue(cloud?.modelEnv === "SOAR_OPENROUTER_MODEL", "cloud provider must resolve its model from the environment");
-requireValue(cloud?.enabledEnv === "SOAR_OPENROUTER_ENABLED", "cloud provider must have an explicit enable gate");
-requireValue(cloud?.marginalPriceUsdPerMillionTokens?.input === 0.06, "cloud input price snapshot must be USD 0.06/M");
-requireValue(cloud?.marginalPriceUsdPerMillionTokens?.output === 0.12, "cloud output price snapshot must be USD 0.12/M");
-requireValue(cloud?.providerRouting?.sort === "price", "cloud provider routing must prefer price");
-requireValue(cloud?.providerRouting?.allowFallbacks === false, "cloud provider-managed fallback must remain disabled");
-requireValue(cloud?.providerRouting?.maxPriceUsdPerMillionTokens?.input === 0.08, "unexpected cloud input price ceiling");
-requireValue(cloud?.providerRouting?.maxPriceUsdPerMillionTokens?.output === 0.18, "unexpected cloud output price ceiling");
+requireValue(
+  providers.status === "non_runtime_snapshot" &&
+    providers.purpose === "non_runtime_provider_and_campaign_planning_snapshot" &&
+    providers.proposedCloudCampaign?.status ===
+      "proposed_unapproved_non_runtime",
+  "provider readiness data must identify itself as a proposed, unapproved non-runtime snapshot",
+);
+requireValue(
+  JSON.stringify(local?.capabilities) ===
+    JSON.stringify(expectedLocalCapabilities),
+  `local provider capabilities must exactly match the runtime vocabulary: ${expectedLocalCapabilities.join(", ")}`,
+);
+
+function collectActiveEnvironmentMappings(value, location, findings) {
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) =>
+      collectActiveEnvironmentMappings(entry, `${location}[${index}]`, findings),
+    );
+    return;
+  }
+  if (value === null || typeof value !== "object") return;
+
+  for (const [key, entry] of Object.entries(value)) {
+    const childLocation = `${location}.${key}`;
+    if (
+      /env$/iu.test(key) ||
+      (typeof entry === "string" && /^SOAR_[A-Z0-9_]+$/u.test(entry))
+    ) {
+      findings.push(childLocation);
+    }
+    collectActiveEnvironmentMappings(entry, childLocation, findings);
+  }
+}
+
+const proposedCloudEnvironmentMappings = [];
+collectActiveEnvironmentMappings(
+  providers.proposedCloudCampaign,
+  "proposedCloudCampaign",
+  proposedCloudEnvironmentMappings,
+);
+requireValue(
+  proposedCloudEnvironmentMappings.length === 0,
+  `proposed cloud metadata must not expose active environment mappings: ${proposedCloudEnvironmentMappings.join(", ")}`,
+);
 
 const exampleEnv = await readFile(path.join(root, ".env.example"), "utf8");
 const env = Object.fromEntries(
@@ -152,17 +208,31 @@ const env = Object.fromEntries(
     }),
 );
 
-requireValue(env.SOAR_OPENROUTER_MODEL === "deepseek/deepseek-v4-flash-0731", "unexpected OpenRouter model slug");
-requireValue(env.SOAR_OPENROUTER_ENABLED === "false", "example configuration must keep paid calls disabled");
-requireValue(/^https?:\/\/.+\/v1$/.test(env.SOAR_VLLM_BASE_URL), "vLLM base URL must use HTTP(S) and end in /v1");
+requireValue(
+  /^https?:\/\/.+\/v1$/.test(env.SOAR_VLLM_BASE_URL),
+  "vLLM base URL must use HTTP(S) and end in /v1",
+);
 requireValue(
   local?.costPolicyEnv !== undefined &&
     env[local.costPolicyEnv] === "local_zero_cost",
   "vLLM zero-cost accounting must be an explicit local_zero_cost declaration",
 );
-requireValue(Number(env.SOAR_CAMPAIGN_BUDGET_USD) === 100, "campaign ceiling must be USD 100");
-requireValue(Number(env.SOAR_AUTOMATIC_STOP_USD) === 90, "automatic stop must be USD 90");
-requireValue(Number(env.SOAR_MAX_PAID_EPISODE_USD) === 0.75, "paid episode cap must be USD 0.75");
+for (const inactiveName of [
+  "SOAR_OPENROUTER_BASE_URL",
+  "SOAR_OPENROUTER_API_KEY",
+  "SOAR_OPENROUTER_MODEL",
+  "SOAR_OPENROUTER_ENABLED",
+  "SOAR_OPENROUTER_KEYCHAIN_SERVICE",
+  "SOAR_OPENROUTER_KEYCHAIN_ACCOUNT",
+  "SOAR_CAMPAIGN_BUDGET_USD",
+  "SOAR_AUTOMATIC_STOP_USD",
+  "SOAR_MAX_PAID_EPISODE_USD",
+]) {
+  requireValue(
+    !(inactiveName in env),
+    `.env.example must not advertise inactive runtime input ${inactiveName}`,
+  );
+}
 
 const files = await listRepositoryFiles();
 
@@ -179,6 +249,6 @@ if (errors.length > 0) {
   process.exitCode = 1;
 } else {
   process.stdout.write(
-    `SOAR readiness valid: ${research.length} research workloads, ${coding.length} coding workloads, no tracked or unignored live secret.\n`,
+    `SOAR readiness metadata valid: ${research.length} research workloads, ${coding.length} coding workloads, no high-confidence tracked-file secret-pattern match.\n`,
   );
 }

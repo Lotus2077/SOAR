@@ -86,7 +86,9 @@ revision passed Linux and macOS GitHub Actions.
   offline caller supplies both manifest and key. Its recursive import gate
   excludes the app runtime, providers, network, dynamic loading, and
   subprocesses. Tests use generated synthetic records; no real held-out corpus,
-  run, or quality result exists;
+  run, or quality result exists. Exact implementation revision
+  `0819a60f22ce442b481063d8575d1533540d0f4d` passed Linux Node 22 and macOS
+  Electron CI and is Verified as an offline harness, not Executed or Released;
 - deterministic unit, integration, and Electron end-to-end tests;
 - strict additive v2 routing-decision and inference-attempt schemas, replay
   invariants, and crash-window recovery;

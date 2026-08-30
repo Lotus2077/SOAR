@@ -2882,3 +2882,95 @@ References: [approved readiness plan](plans/HELD_OUT_CORPUS_EVALUATOR_READINESS_
 [architecture](ARCHITECTURE.md#offline-held-out-runnerevaluator-boundary),
 [frozen protocol](../benchmarks/change-review/protocol-v1.json), and
 [MVP readiness](MVP_READINESS.md).
+
+### BL-20260830-1523-heldout-readiness-verified -- 2026-08-30 -- Exact held-out evaluator implementation passed Linux and macOS CI
+
+Status: `Verified`
+
+Scope or hypothesis: Close only Held-out Corpus and Evaluator Readiness v1
+after the complete deterministic offline implementation passed clean committed-
+HEAD local gates and both required GitHub Actions jobs on the exact pushed SHA.
+Keep evaluator-readiness verification distinct from a real corpus campaign,
+quality measurement, product execution, and release.
+
+Decisions:
+
+- Bind verification to exact implementation revision
+  `0819a60f22ce442b481063d8575d1533540d0f4d` and GitHub Actions run
+  `33319354110`; do not infer success from `main` or a later revision.
+- Mark only the deterministic offline harness `Verified`. Do not mark a real
+  held-out set, witnesses, human adjudication, provider campaign, review-quality
+  result, routing advantage, app execution, or release as verified.
+- Preserve all negative pre-commit findings in
+  `BL-20260830-1454-heldout-readiness-implemented`, including loader failure,
+  cost and aggregate-integrity counterexamples, macOS alias failure, and the
+  sandbox loopback denial. Later green evidence does not erase them.
+- Keep the external curator, two blinded humans, coordinator/trust-anchor
+  approval, private manifest retention, and new one-shot campaign authority as
+  future gates. This closure authorizes no provider or model-list contact.
+- Require this status-only documentation closure to receive the same exact-SHA
+  Linux and macOS CI. Under the existing non-recursive log-tail rule, a clean
+  green closure run needs no third status-only entry; any failure, skip,
+  cancellation, or material observation requires an append-only correction.
+
+Changes: Updated root, readiness, and approved-plan status text from
+`Implemented; remote verification pending` to `Verified as an offline harness;
+not Executed or Released`, and appended this closure. No runtime, evaluator,
+contract, test, provider, model, session, tool, IPC, renderer, permission,
+fixture, gold, artifact, routing, or cost behavior changed.
+
+Evidence:
+
+- Local `pnpm check:release-head` verified clean committed HEAD
+  `0819a60f22ce442b481063d8575d1533540d0f4d`: readiness, the 38-entry build
+  log, both TypeScript projects, 68 test files and 805 tests passed with two
+  files and four opt-in tests skipped, and all Electron production bundles
+  built.
+- Local `pnpm test:e2e` then passed all three macOS workflows in 9.9 seconds on
+  the same commit.
+- GitHub Actions run `33319354110` targeted exact SHA
+  `0819a60f22ce442b481063d8575d1533540d0f4d` and concluded success.
+- The Linux Node 22 `check` job `99278479749` completed in 1 minute 10 seconds
+  after passing pushed append-only ledger validation and the full
+  validate/typecheck/test/build command.
+- The dependent macOS `electron-e2e` job `99278630318` completed in 1 minute
+  17 seconds after building the app and passing all Electron workflows.
+- Final independent correctness and governance reviews reported no remaining
+  P0/P1 blocker after the recorded native-loader, public-aggregate, cost,
+  trusted-alias, and UTC-ledger corrections.
+
+Failures or blockers: No deterministic offline evaluator-readiness blocker
+remains. This documentation-only closure commit still needs its own exact-SHA
+GitHub Actions run. Until it passes, the implementation evidence is green but
+the branch's closure status is pending publication verification. Every earlier
+negative result remains in the preceding implementation and UTC-correction
+entries.
+
+Limitations and non-claims: `Verified` means the strict offline contracts,
+scorer/statistics, safe publisher, CLI, isolation regression gates, and
+synthetic/adversarial tests passed on the exact implementation SHA. It does not
+prove real corpus identity or gold, witness correctness, personhood, blinding,
+trust-anchor preapproval, provider execution, review quality, recall,
+precision, false-accept rate, routing benefit, cloud/hybrid readiness, cost or
+latency advantage, general reliability, or release readiness. Run telemetry
+remains operator-asserted; the public aggregate omits the full private manifest,
+implementation binding, and campaign authority; static isolation is not an OS
+egress sandbox.
+
+Paid exposure: `$0`. Verification used local deterministic tests, local
+Electron, Git push, and GitHub Actions only. No model-list, inference,
+configured provider, OpenRouter, paid reservation, retry, fallback, clone,
+fetch, or campaign request occurred.
+
+Next gate: Validate, commit, and push this status-only closure, then require
+both exact-SHA GitHub jobs to pass. After that, any real held-out campaign needs
+a separately proposed and approved plan with independently supplied private
+evidence and explicit execution authority; no provider campaign is authorized
+here.
+
+References: [verified implementation entry](#bl-20260830-1454-heldout-readiness-implemented----2026-08-30----offline-held-out-evaluator-implemented-exact-tree-and-remote-verification-pending),
+[UTC correction](#bl-20260830-1454-build-log-utc-reset----2026-08-30----correction-resume-utc-build-log-ids-after-the-legacy-local-clock-sequence),
+[approved plan](plans/HELD_OUT_CORPUS_EVALUATOR_READINESS_V1.md),
+[operator contract](../benchmarks/README.md#held-out-corpus-and-evaluator-readiness-v1),
+[MVP readiness](MVP_READINESS.md), and
+[GitHub Actions run](https://github.com/Lotus2077/SOAR/actions/runs/33319354110).

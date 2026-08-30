@@ -1,12 +1,14 @@
 # Held-out Corpus and Evaluator Readiness v1
 
-Status: **Implemented; deterministic local verification passed; exact-SHA
-remote verification pending; not Executed or Released**
+Status: **Verified as a deterministic offline harness at `0819a60`; not
+Executed or Released; no provider campaign or quality result is authorized**
 
 - Plan ID: `held-out-corpus-evaluator-readiness-v1-plan-1`
 - Approved: 2026-08-30 by the project owner in the project task
 - Baseline revision: `b707f4af59d858d06af487073c8af0d99d1f8dbb`
 - Approval ledger: `BL-20260830-2050-heldout-readiness-approved`
+- Verified implementation: `0819a60f22ce442b481063d8575d1533540d0f4d`
+- Verification run: `33319354110`
 - Frozen parent protocol: `change-review-eval-v1`
 - Project log: [BUILD_LOG.md](../BUILD_LOG.md)
 

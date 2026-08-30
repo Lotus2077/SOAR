@@ -56,9 +56,9 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   policy-neutral 24-case runner contract against evaluator-private oracle,
   witness, signed judgment, and signed-resolution records, then publishes only
   a bounded aggregate and last-written completion marker. Its implementation
-  and synthetic/adversarial proofs are present, but exact-SHA remote
-  verification is still pending. No real held-out corpus, human adjudication,
-  provider campaign, or review-quality result exists.
+  and synthetic/adversarial proofs passed exact-SHA Linux and macOS CI. The
+  harness is Verified but not Executed or Released. No real held-out corpus,
+  human adjudication, provider campaign, or review-quality result exists.
 
 ## Planning and project history
 

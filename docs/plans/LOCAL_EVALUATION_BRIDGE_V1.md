@@ -1,8 +1,9 @@
 # Local Evaluation Bridge v1
 
-Status: **Approved and Implemented for one $0 local-only milestone;
-deterministic full/exact-commit verification and the one live proof remain
-pending; not Verified or Released; PR 6 remains unapproved**
+Status: **Approved and Implemented for one $0 local-only milestone; exact local
+release-head/Electron verification and the one authorized live proof passed;
+final Linux/macOS GitHub Actions remain pending; not Verified or Released; PR 6
+remains unapproved**
 
 - Plan version: `local-evaluation-bridge-v1-plan-1`
 - Created: 2026-08-30
@@ -11,10 +12,12 @@ pending; not Verified or Released; PR 6 remains unapproved**
 - Approval ledger: `BL-20260830-0852-local-evaluation-bridge-approved`
 - Project log: [BUILD_LOG.md](../BUILD_LOG.md)
 
-The implementation is present, but the full deterministic release gates have
-not yet passed on its exact committed revision and no nonempty live episode has
-run under this plan. Those pending gates prevent both a `Verified` claim and any
-`Released` claim.
+The implementation revision
+`5be93c100c945cfdebb310f5e36dafa1827b9101` passed the deterministic
+release-head and macOS Electron gates. Its one authorized nonempty live episode
+also passed and consumed the plan authority. Final Linux and macOS GitHub
+Actions on the post-proof documentation revision remain pending; that prevents
+a `Verified` claim. No `Released` claim is authorized by this plan.
 
 ## Approval boundary
 
@@ -23,8 +26,9 @@ OpenRouter, Keychain access, cloud egress, a paid request, a provider fallback,
 or the broader research/coding benchmark campaign.
 
 The milestone may contact only the already configured operator-attested vLLM
-route. Exactly one nonempty live review episode is authorized after the
-deterministic and release gates pass on the exact clean committed revision.
+route. Exactly one nonempty live review episode was authorized after the
+deterministic and release gates passed on the exact clean committed revision;
+that episode has run and the authority is consumed.
 The cooperative authority guard is fixed to plan ID
 `local-evaluation-bridge-v1-plan-1` in OS-user-local application state on this
 machine; it is not a hardened security boundary against another process running

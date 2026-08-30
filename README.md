@@ -48,9 +48,10 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
 - Local Evaluation Bridge v1: a specialized, fail-closed command can now run
   the canonical production local-only change-review coordinator on one frozen
   nonempty public SOAR change and export a lossy privacy-safe canonical-event
-  proof. It is Implemented; full deterministic exact-commit verification and
-  the separately gated one-shot real-vLLM result remain pending. It is not
-  Verified or Released.
+  proof. Exact local release-head and Electron gates passed on the implementation
+  revision, and its one authorized real-vLLM episode passed. Final Linux and
+  macOS GitHub Actions on the post-proof documentation revision remain pending,
+  so it is Implemented but not yet Verified or Released.
 
 ## Planning and project history
 

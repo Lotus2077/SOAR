@@ -79,8 +79,10 @@ but only for the frozen `cal-001-soar-plan-approval` change. It shares the
 production Electron session constructor and local-only review coordinator; it
 does not run any research or SWE-bench workload and cannot select cloud,
 fallback, or paid providers. The bridge is Implemented; its full deterministic
-exact-commit verification and its separately gated nonempty live proof are
-pending. It is neither Verified nor Released.
+exact-commit and Electron verification passed, and its separately gated
+nonempty live proof passed once. Final Linux and macOS GitHub Actions on the
+post-proof documentation revision remain pending. It is neither Verified nor
+Released.
 
 The source must be an explicit local Git repository root containing the frozen
 base and change objects. `--source-repository .` is valid when the current
@@ -96,6 +98,7 @@ Electron exact-commit gates before enabling either live opt-in.
 
 ```bash
 SOAR_RUN_LIVE_LOCAL_REVIEW_V1=true \
+SOAR_VLLM_COST_POLICY=local_zero_cost \
 SOAR_MAX_INFERENCE_ROUNDS=4 \
 SOAR_MAX_TOOL_CALLS=3 \
 SOAR_CONTEXT_MAX_INPUT_TOKENS=163840 \
@@ -107,6 +110,12 @@ pnpm benchmark:local-review -- \
   --run-id local-review-001 \
   --live-local-vllm
 ```
+
+This is the recorded operator form, not authorization for another attempt. The
+approved plan authority was consumed by the retained passing episode. A new
+live run requires new explicit approval and a new committed authority ID. Set
+the cost-policy attestation only after confirming that the configured endpoint
+charges no token fee; it does not prove infrastructure or external billing.
 
 Operator contract:
 

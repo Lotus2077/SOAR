@@ -505,10 +505,13 @@ scannable. Accepted review prose and relative evidence references remain
 untrusted. Local-only provider selection can still send fixture evidence to a
 remotely hosted configured vLLM endpoint.
 
-This bridge is Implemented, while full deterministic exact-commit verification
-and the one authorized nonempty live proof remain pending. It is not Verified
-or Released. The generic research/coding benchmark command remains a fixture
-and evaluator utility, not an agent runner.
+This bridge is Implemented. Exact local release-head and Electron verification
+passed on its implementation revision, and the one authorized nonempty live
+proof passed with four attempts, three tools, two routing decisions, no provider
+switch, and a host-accepted fresh result. Final Linux and macOS GitHub Actions
+on the post-proof documentation revision remain pending, so it is not yet
+Verified or Released. The generic research/coding benchmark command remains a
+fixture and evaluator utility, not an agent runner.
 
 The guided Local Repository Investigator proof additionally applies
 task-specific exact-call validators. Its architecture task requires one bounded

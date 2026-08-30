@@ -2331,3 +2331,105 @@ References: [authority ledger](../src/benchmark/local-review-authority.ts),
 [operator contract](../benchmarks/README.md#local-evaluation-bridge-v1),
 [architecture](ARCHITECTURE.md#benchmark-isolation), and
 [approved bridge plan](plans/LOCAL_EVALUATION_BRIDGE_V1.md).
+
+### BL-20260830-1940-local-evaluation-bridge-live-proof-passed -- 2026-08-30 -- One authorized nonempty production-path episode passed
+
+Status: `Implemented`
+
+Scope or hypothesis: Execute the one authorized zero-selected-metered-exposure
+Local Evaluation Bridge v1 episode only after the corrected exact implementation
+revision passed release-head and macOS Electron gates, then retain and verify a
+privacy-safe proof without treating one accepted review as quality evidence.
+
+Decisions:
+
+- Bind the live claim to implementation revision
+  `5be93c100c945cfdebb310f5e36dafa1827b9101`, frozen fixture
+  `cal-001-soar-plan-approval`, and fresh run ID
+  `local-review-v1-20260830-02`. Retain blocked run 01 and never reuse either run
+  ID while the ignored run ledger is preserved.
+- Treat the plan authority as consumed because all four inference attempts have
+  request disposition `sent`. No further live episode may run under
+  `local-evaluation-bridge-v1-plan-1`, even though this episode passed.
+- Record the accepted result's bounded shape, execution facts, hashes, and
+  non-claims, but not its raw review prose. A model conclusion of no blocking
+  findings is untrusted output and is not a defect-quality label.
+- Keep the milestone `Implemented`, not `Verified`, until the post-proof
+  documentation revision passes both Linux Node 22 and macOS Electron GitHub
+  Actions. Never use a documentation-only tail to imply a new live run.
+
+Changes: Updated readiness, architecture, benchmark operator, plan, and root
+documentation to record the passed exact local gates and one-shot live proof,
+the consumed authority, the required explicit remote-route token-fee
+attestation, and pending remote CI. No runtime source, provider, session, tool,
+event, IPC, renderer, routing, cost, permission, or evaluator contract changed
+after the live proof.
+
+Evidence:
+
+- `pnpm check:release-head` passed exact clean revision
+  `5be93c100c945cfdebb310f5e36dafa1827b9101`: readiness and the 33-entry build
+  log validated, both TypeScript projects passed, 62 test files and 696 tests
+  passed with two files and four opt-in tests skipped, and Electron main,
+  preload, and renderer production bundles built.
+- `pnpm test:e2e` then passed all three macOS workflows in 9.0 seconds on the
+  same clean revision.
+- The live result is `passed`, `source = canonical_event_store`, projection
+  `local-review-safe-v1`, lossy, with no raw canonical trace export. The session
+  completed with review freshness `fresh_complete`, complete two-of-two path
+  and three-of-three hunk coverage, zero omissions, snapshot revalidation, a
+  53-character nonempty summary, and no emitted finding. The no-finding model
+  conclusion is recorded only as result shape, not as correctness gold.
+- Canonical reconstruction reports one `local-vllm` provider using `RM-01 VLM`,
+  two health checks, two routing decisions at `session_start` and
+  `evidence_complete`, zero provider switches, four terminal sent attempts with
+  finish reasons `tool_calls`, `tool_calls`, `tool_calls`, and `stop`, and three
+  completed tools: `inspect_git_changes`, `read_text_file`, and
+  `read_text_file`.
+- Usage was 30,770 input tokens, 267 output tokens, zero reported reasoning or
+  cache-read tokens, across four reported attempts. Recorded inference latency
+  was 15,692.452 ms, tool latency 585.925 ms, and end-to-end latency
+  17,080.919 ms. These are one-episode observations, not comparative latency
+  evidence.
+- The safe canonical trace is contiguous with 34 events. `result.json` is 3,227
+  bytes with SHA-256
+  `984302948828da2ba2e12c6e4468701a9befc21039c77bf1b4c7a6cd1ba2b0b4`;
+  the 17,549-byte safe trace SHA-256 is
+  `2db06c1d250086aec25442b2b6dced934d6bbf9dfa9cfc476320519be0e49699`;
+  and the 287-byte last-written marker SHA-256 is
+  `4b940248e6e31bbf048c2df58317939a048fffdd1def69b9f0d8930635f87037`.
+  The marker's embedded result and trace hashes matched recomputation, and all
+  three artifacts were mode 0600.
+- The plan authority file now exists under the canonical OS-user-local app-state
+  ledger, both run reservations are retained, and the tracked Git tree remained
+  clean after artifact publication.
+
+Failures or blockers: No local deterministic or live-proof blocker remains.
+The documentation and this entry are not yet committed or remotely verified.
+The first evaluator-entering run remains a retained classified pre-inference
+failure as recorded in the preceding entry; it is not erased by this pass.
+
+Limitations and non-claims: One frozen two-file review proves production-path
+wiring, canonical trace integrity, bounded tool use, result acceptance, and
+safe publication for that episode only. It does not prove defect recall,
+precision, false-accept rate, arbitrary-repository behavior, the shipping
+default context budget, same-device execution, zero endpoint/infrastructure
+cost, dynamic routing, cloud readiness, quality/cost/latency advantage, the 42
+workload campaign, general reliability, or release readiness. Repository
+evidence left this Mac because the configured vLLM endpoint was remote.
+
+Paid exposure: Selected metered-provider exposure was exactly 0 microusd under
+the operator's `local_zero_cost` token-fee attestation. Endpoint billing,
+infrastructure, electricity, and network cost were not independently measured.
+This episode used the configured local provider only; no OpenRouter, cloud
+provider, paid reservation, retry, fallback, remote clone, or fetch occurred.
+
+Next gate: Validate the documentation diff and build log, commit and push the
+post-proof record, then require Linux Node 22 and macOS Electron GitHub Actions
+on that exact SHA. Only after both pass may a final documentation-only entry mark
+the milestone `Verified`; it must remain not `Released`.
+
+References: [approved bridge plan](plans/LOCAL_EVALUATION_BRIDGE_V1.md),
+[operator contract](../benchmarks/README.md#local-evaluation-bridge-v1),
+[architecture](ARCHITECTURE.md#benchmark-isolation), and
+[MVP readiness](MVP_READINESS.md).

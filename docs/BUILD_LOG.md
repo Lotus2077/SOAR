@@ -3879,3 +3879,82 @@ References: [implementation entry](#bl-20260901-0340-pr6b0-hybrid-simulation-imp
 [earlier capacity decision](#bl-20260830-0237-pr5-remote-ci-capacity-correction----2026-08-30----remote-ci-invalidated-the-pre-commit-pr-5-verification),
 [context handoff ADR](adr/0001-context-handoff-engine-v1.md), and [approved
 PR6B0 plan](plans/PR6B0_HYBRID_SIMULATION_V1.md).
+
+### BL-20260901-0406-pr6b0-local-exact-head-gates -- 2026-09-01 -- Corrected PR6B0 passed every automated local exact-head gate
+
+Status: `Implemented`
+
+Scope or hypothesis: Record the first complete automated local proof of the
+corrected PR6B0 implementation on committed revision
+`e6937929768b7c39dbee865af0722ac7e11c7dbb`, while retaining manual
+accessibility, distribution, push, and remote CI as open gates.
+
+Decisions:
+
+- Bind this local evidence to exact clean HEAD `e6937929`; do not reuse the
+  earlier dirty-tree success or failed `cc8598c` release run.
+- Keep PR6B0 at Implemented. Automated unit/integration/Electron/package gates
+  do not substitute for VoiceOver, keyboard-only, true 200% zoom, full
+  light/dark contrast, reduced-motion, product icon, Developer ID, or
+  notarization evidence.
+- Preserve the context-capacity correction exactly as structural test-fixture
+  deduplication. Do not introduce a post-hoc production compiler change after
+  the exact current-revision oracle and drift case passed.
+
+Changes: Appended this status-only evidence entry. No runtime, provider,
+context, routing, persistence, budget, IPC, renderer, test assertion, endpoint,
+credential, or cost behavior changed after `e6937929` passed its gates.
+
+Evidence:
+
+- The isolated real-revision retention test passed both the exact objective and
+  its 250-byte UTF-8 drift at the unchanged 18,432-token input cap. The complete
+  current independent-oracle symbol schedule survived in the unique accepted
+  final packet; 16 unrelated cases in that file were skipped by the focused
+  selector.
+- `pnpm check:release-head` verified unchanged clean commit
+  `e6937929768b7c39dbee865af0722ac7e11c7dbb`, validated 22 research and 20
+  coding workloads plus 46 build-log entries, passed typecheck, passed 80 test
+  files and 1,007 tests, skipped three files/five opt-in tests, and built all
+  Electron main/preload/renderer bundles.
+- All seven Electron workflows passed on the same committed source: Local
+  restart, active Local Stop, stale-copy refusal, Hybrid success/copy/replay,
+  egress denial with zero cloud attempt, provider failure with one Local
+  fallback, and committed Fake Cloud cancellation with no fallback.
+- `pnpm package:mac` rebuilt the app, ad-hoc signed it, created
+  `dist/SOAR-mac-arm64.zip`, extracted it, and revalidated both the original and
+  archived app as valid on disk and satisfying their Designated Requirement.
+  Packaging explicitly reported the default Electron icon and skipped
+  notarization.
+
+Failures or blockers: No automated local blocker remains on `e6937929`. The
+preceding 34/59 exact-head failure remains recorded in the correction entry and
+was not erased by the passing rerun. This log-only entry creates a new final
+revision, so that revision still requires one clean committed-head gate before
+push. GitHub Linux/check and macOS Electron jobs have not run for the final
+revision. Manual accessibility and distribution gates remain open.
+
+Limitations and non-claims: This evidence verifies local deterministic fake
+control flow and packaging mechanics only. It does not prove real provider
+identity, credential authority, third-party repository egress, actual billing,
+quality/cost/latency optimization, hostile same-account filesystem resistance,
+notarized distribution, or release readiness. The app remains Implemented, not
+Verified or Released.
+
+Paid exposure: `$0`. The exact-head, Electron, and package gates used local
+deterministic fixtures, in-process fake providers, temporary repositories and
+databases, Electron tooling, and Git only. No configured vLLM, OpenRouter,
+model-list, credential, Keychain, pricing, health, inference, retry, fallback,
+evaluator, or other external LLM-provider request occurred; no actual
+reservation or external model spend was created.
+
+Next gate: Commit this status-only entry, run the clean committed-head gate on
+that final revision, repeat Electron E2E and package verification, push, and
+observe both exact-SHA Linux/check and macOS Electron workflows to completion.
+Do not promote status beyond Implemented until the manual gates are durably
+recorded.
+
+References: [capacity correction](#bl-20260901-0401-pr6b0-retention-capacity-correction----2026-09-01----exact-head-retention-failure-corrected-without-weakening-the-proof),
+[implementation entry](#bl-20260901-0340-pr6b0-hybrid-simulation-implemented----2026-09-01----pr6b0-hybrid-simulation-implemented-locally),
+[approved plan](plans/PR6B0_HYBRID_SIMULATION_V1.md), and [MVP
+readiness](MVP_READINESS.md).

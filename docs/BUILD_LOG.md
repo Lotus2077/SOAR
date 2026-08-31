@@ -4061,3 +4061,174 @@ References: [failed GitHub Actions run](https://github.com/Lotus2077/SOAR/action
 [approved PR6B0 plan](plans/PR6B0_HYBRID_SIMULATION_V1.md), [implementation
 entry](#bl-20260901-0340-pr6b0-hybrid-simulation-implemented----2026-09-01----pr6b0-hybrid-simulation-implemented-locally),
 and [MVP readiness](MVP_READINESS.md).
+
+### BL-20260901-0510-pr6b0-automated-closure -- 2026-09-01 -- PR6B0 corrective revision passed exact-SHA automated closure
+
+Status: `Implemented`
+
+Scope or hypothesis: Close the remaining automated post-commit gates for the
+PR6B0 Hybrid simulation on exact corrective revision
+`9495d6bcbaa8cef5d3342e0d53ab02efe28d0002` without promoting the milestone
+past Implemented while its manual accessibility record remains open.
+
+Decisions:
+
+- Bind the closure only to exact revision `9495d6b` and GitHub Actions run
+  `33436752206`.
+- Treat the passing rerun as closure of automated source, Electron, package,
+  independent-review, and Linux/macOS CI gates. Retain the preceding exact-SHA
+  consent-race failure and its correction rather than relabeling it as a flake.
+- Keep PR6B0 at Implemented, not Verified or Released. Automated checks do not
+  substitute for VoiceOver, keyboard-only traversal, 200% zoom/reflow,
+  light/dark contrast, or reduced-motion proof.
+- Preserve every later real credential, provider, egress, budget, paid canary,
+  and optimization claim as a separate milestone.
+
+Changes: Updated current-truth and PR6B0 plan documentation to record automated
+exact-SHA closure. No runtime, IPC, persistence, routing, provider, credential,
+budget, tool, or evaluator behavior changed after the passing revision.
+
+Evidence:
+
+- GitHub Actions run `33436752206` completed successfully on exact head
+  `9495d6bcbaa8cef5d3342e0d53ab02efe28d0002`.
+- Linux `check` job `99634936125` passed in 1 minute 20 seconds. The exact-head
+  pipeline validated 22 research and 20 coding workloads, the build log,
+  TypeScript, all application bundles, 80 passing test files, and 1,008 passing
+  tests; three files/five opt-in tests remained intentionally skipped.
+- macOS `electron-e2e` job `99635348957` passed in 1 minute 48 seconds and ran
+  all seven Local/Hybrid fake workflows.
+- The already recorded local exact-head proof passed the same seven workflows,
+  independent P0/P1 review, and macOS archive verification. The archive was
+  ad-hoc signed, used the default Electron icon, and skipped notarization.
+
+Failures or blockers: GitHub run `33434569025` on prior revision `7fb9bb9`
+remains a real failed proof and led to the consent-convergence correction. The
+manual accessibility matrix and distribution requirements remain open. No
+Developer ID Application identity is installed on the current build host.
+
+Limitations and non-claims: This closure proves deterministic fake-only Hybrid
+control flow and packaging mechanics on one exact SHA. It does not prove a real
+credential, real provider, third-party repository egress, actual billing,
+dynamic routing quality, quality/cost/latency improvement, notarized
+distribution, or release readiness.
+
+Paid exposure: `$0`. The closure used deterministic fixtures, in-process Fake
+Local/Fake Cloud providers, local packaging, and GitHub CI. No configured vLLM,
+OpenRouter, model-list, validation, inference, retry, fallback, evaluator, or
+other external LLM-provider request occurred and no actual reservation or spend
+was created.
+
+Next gate: Complete and durably record the manual PR6B0 accessibility matrix if
+PR6B0 is to advance to Verified. Independently, propose PR6B1 with exact
+credential, signing, proof, and activation boundaries before any new runtime
+work.
+
+References: [passing GitHub Actions run](https://github.com/Lotus2077/SOAR/actions/runs/33436752206),
+[failed preceding run](https://github.com/Lotus2077/SOAR/actions/runs/33434569025),
+[PR6B0 plan](plans/PR6B0_HYBRID_SIMULATION_V1.md), and [MVP
+readiness](MVP_READINESS.md).
+
+### BL-20260901-0514-pr6b1-signed-lease-proposed -- 2026-09-01 -- PR6B1 signed native credential lease proposed as four separately gated phases
+
+Status: `Proposed`
+
+Scope or hypothesis: Define the smallest safe step from PR6B0's fake-only
+Hybrid simulation toward app-identity-bound credential custody without turning
+the owner's forward direction or paid-model willingness into implicit authority
+for credential mutation, provider contact, repository egress, or spend.
+
+Decisions:
+
+- Split PR6B1 into plan/prerequisite work (A), a fail-closed native substrate
+  (B), signed A/B synthetic continuity proof (C), and real native re-entry plus
+  production namespace activation (D). Exact approval of plan ID
+  `pr6b1-signed-native-credential-lease-v1-plan-1` would authorize phase B only.
+- Keep PR6B1-B at `$0` with zero provider requests and zero repository egress.
+  PR6B1-C, PR6B1-D, PR6B2 validation, PR6B3 paid inference, and any campaign
+  each require a later exact plan and durable approval.
+- Remove all PR6A staged store/replace/delete actions in phase B. Retain only a
+  noninteractive metadata status. Real legacy cleanup can return only after a
+  confirmed protected write and a separately approved mutation-safety contract.
+- Keep newly entered and retrieved credentials out of renderer, preload, IPC,
+  and JavaScript memory. A later real-entry action must use a main-owned native
+  secure sheet. Record honestly that AppKit/CoreFoundation copies, abrupt
+  termination, and OS internals cannot be deterministically zeroized by SOAR.
+- Make phase B structurally activation-locked: it has no production or
+  synthetic Keychain locator, secure-entry sheet, lease consumer, or reachable
+  SecItem mutation. Pure fixtures test identity policy; actual signed identity
+  and hostile-host proof belongs to phase C.
+- Require packaged-renderer hardening, top-level-frame/WebContents checks, a
+  pre-initialization single-instance lock, immediate native host/self
+  validation, a serialized native queue, atomic lease consumption, conservative
+  crash ambiguity, and operation-scoped user copy.
+- Treat the candidate `$0.25` PR6B3 canary mentioned in the PR6B0 sequence as
+  unapproved. No exact PR6B3 plan or active budget exists.
+
+Changes: Added the proposed PR6B1 plan and updated README, readiness,
+architecture, routing-policy, and PR6B0 current-truth documentation. The plan
+contains no runtime implementation. No credential field, IPC channel, native
+addon, Keychain item, provider, route, egress, budget, or paid behavior changed
+in this proposal checkpoint.
+
+Evidence:
+
+- Repository inspection confirmed the current renderer-to-IPC credential
+  entry, setup-only CLI-created item, packaged `ELECTRON_RENDERER_URL` path,
+  missing single-instance gate, ad-hoc packaging, disabled Hardened Runtime,
+  and absence of a native credential addon or signed proof.
+- `/usr/bin/security find-identity -v -p codesigning` reported zero valid
+  signing identities on the current host.
+- Independent architecture/security review rejected the first draft because it
+  let the real key enter renderer/V8 memory and exposed nine additional proof
+  gaps. The rewritten plan moved entry to a future native sheet, corrected
+  identity/admission and zeroization claims, locked the production namespace,
+  added native atomic consumption and synthetic generation, hardened renderer
+  and multi-instance boundaries, and made crash outcomes conservative.
+- Independent UX/governance review of the rewritten plan reported zero P0 and
+  zero P1 findings after the production activation, app-copy, accessibility,
+  and status semantics were corrected.
+- A final independent architecture/security delta review reported zero
+  remaining P0/P1 findings after the framework-owned-copy limitation, native
+  synthetic generator, policy-fixture claim, status-only legacy namespace, and
+  proposal-log corrections landed.
+- `git diff --check`, `pnpm validate:build-log`, and
+  `pnpm validate:readiness` passed in the proposal working tree. The full
+  `pnpm check` then passed with 80 test files/1,008 tests, three files/five
+  opt-in tests skipped, TypeScript validation, and all Electron bundles built.
+
+Failures or blockers: PR6B1 is not Approved or Implemented. Phase B cannot
+begin until this exact plan ID is approved and the approval checkpoint passes
+exact-SHA Linux/macOS CI. Phase C additionally requires a locally installed
+Developer ID Application identity/private key, explicit App ID, and matching
+profile. None exists on the current build host. The initial draft's negative
+security and UX findings are retained in this entry; rewriting the proposal
+does not erase them. The first sandboxed `pnpm check` attempt also failed 19
+loopback-backed provider tests with `listen EPERM 127.0.0.1`; 79 other test
+files passed. Repeating the unchanged check with local loopback permission
+passed completely, so this was a proof-environment restriction rather than a
+product correction.
+
+Limitations and non-claims: This proposal proves no native compilation, signed
+identity, entitlement, Data Protection Keychain access, A/B continuity,
+credential lease, real credential, provider validation, cloud inference,
+repository egress, billing, optimization, notarization, or release readiness.
+Even a future phase-B implementation would remain activation-locked and would
+not prove phase C or D.
+
+Paid exposure: `$0`. Planning, repository inspection, documentation, local
+validators, and independent review caused no configured vLLM, OpenRouter,
+model-list, credential, Keychain, price, health, inference, evaluator, retry,
+fallback, or other external LLM-provider request. No reservation or actual
+external spend was created.
+
+Next gate: Validate and commit this proposal checkpoint, run exact-head local
+gates, push it, and require exact-SHA Linux and macOS CI to pass. Then obtain
+explicit owner approval of
+`pr6b1-signed-native-credential-lease-v1-plan-1` before any phase-B runtime
+change. Signing prerequisites can be installed separately without committing or
+displaying private material.
+
+References: [proposed PR6B1 plan](plans/PR6B1_SIGNED_NATIVE_CREDENTIAL_LEASE_V1.md),
+[PR6B0 plan](plans/PR6B0_HYBRID_SIMULATION_V1.md), [architecture](ARCHITECTURE.md),
+[routing policy](ROUTING_POLICY.md), and [MVP readiness](MVP_READINESS.md).

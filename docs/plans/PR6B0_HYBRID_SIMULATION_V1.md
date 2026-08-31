@@ -1,7 +1,7 @@
 # PR6B0 Hybrid Simulation Vertical Slice v1
 
-Status: **Implemented locally in the working tree; implementation evidence is
-not closed; not Verified or Released**
+Status: **Implemented with automated exact-SHA closure; manual verification is
+open; not Verified or Released**
 
 - Plan ID: `pr6b0-hybrid-simulation-v1-plan-1`
 - Parent plan: `hybrid-lease-router-v0-plan-2`
@@ -11,8 +11,10 @@ not closed; not Verified or Released**
 - Approved: 2026-09-01 by the project owner in the project task
 - Approval ledger: `BL-20260901-0052-pr6b0-hybrid-simulation-approved`
 - Approval checkpoint: `be8e4c71ca8892988caae28e2717ede2d5048165`
-- Implemented locally: 2026-09-01; no implementation revision or verification
-  closure is claimed yet
+- Final corrective implementation revision:
+  `9495d6bcbaa8cef5d3342e0d53ab02efe28d0002`
+- Automated closure: GitHub Actions run `33436752206`; Linux/check and macOS
+  Electron passed on 2026-09-01
 - Project log: [BUILD_LOG.md](../BUILD_LOG.md)
 
 The approval is limited to the fake-provider simulation described in this
@@ -22,10 +24,11 @@ PR6B1, PR6B2, and PR6B3 remain separately gated.
 
 ## Current truth after local implementation
 
-`Implemented locally` is a source-state statement only. The working tree now
-contains the approved fake-only runtime, persisted contracts, app flow, and
-deterministic tests, but the pre-commit and post-commit evidence lists below
-have not been closed as a verified implementation revision.
+`Implemented` is an implementation and automated-evidence statement only. The
+approved fake-only runtime, persisted contracts, app flow, and deterministic
+tests passed exact-head, Electron, package, independent-review, and exact-SHA
+Linux/macOS CI gates on the final corrective implementation revision. The
+manual verification and release gates remain open.
 
 The local implementation includes:
 
@@ -51,12 +54,10 @@ no configured-vLLM or external-provider transport and no authority for actual
 reservation or spend. The `$0.25` value is simulation-scoped only. PR6B1,
 PR6B2, PR6B3, real repository egress, and every paid call remain unapproved.
 
-Still pending are a clean final local validation/package/Electron closure,
-exact-SHA Linux and macOS CI, independent final P0/P1 review, and the separate
-manual VoiceOver, keyboard-only, 200% zoom, light/dark contrast, and reduced-
-motion record. Automated assertions do not replace those manual checks. Until
-those gates close, this plan must not be described as Verified or Released and
-does not establish production Hybrid readiness.
+Still pending is the separate manual VoiceOver, keyboard-only, 200% zoom,
+light/dark contrast, and reduced-motion record. Automated assertions do not
+replace those manual checks. Until they close, this plan must not be described
+as Verified or Released and does not establish production Hybrid readiness.
 
 ## Decision
 
@@ -500,14 +501,19 @@ tracked artifacts.
 
 ## Post-commit verification evidence
 
-PR6B0 may advance from `Implemented` to `Verified` only after:
+The first four automated items below passed on final corrective revision
+`9495d6bcbaa8cef5d3342e0d53ab02efe28d0002`; PR6B0 may advance from
+`Implemented` to `Verified` only after the remaining manual verification record
+also passes:
 
 - clean `pnpm check:release-head` on the exact implementation SHA;
 - exact-SHA Electron E2E and package verification;
 - both exact-SHA Linux/check and macOS Electron GitHub Actions jobs pass;
 - independent runtime, security, and UX review finds no open P0/P1 defect; and
-- a status-only closure records every retry, timeout, flake, failed proof, manual
-  gap, and non-claim without changing runtime behavior.
+- the append-only log retains every retry, timeout, failed proof, manual gap,
+  and non-claim without rewriting the negative results; and
+- the manual VoiceOver, keyboard-only, 200% zoom/reflow, light/dark contrast,
+  and reduced-motion matrix passes.
 
 `Verified` is not `Released` and does not authorize a later milestone.
 
@@ -538,9 +544,9 @@ That approval was appended to the build log at checkpoint
 passed its Linux and macOS jobs before implementation began. This remains
 approval evidence, not implementation or verification evidence.
 
-The next gate is to close every applicable pre-commit item without broadening
-the approved authority, record the honest local result in the append-only build
-log, commit the implementation, and then satisfy the post-commit exact-SHA
-verification list. Approval of PR6B0 does not approve PR6B1, PR6B2, PR6B3, any
+The next PR6B0 gate is the separate manual accessibility record. Automated
+exact-head, Electron, package, independent-review, and exact-SHA CI gates passed
+on `9495d6b`; the prior failures remain in the append-only log. Approval of
+PR6B0 does not approve PR6B1, PR6B2, PR6B3, any
 credential read or Keychain mutation, external-provider contact, real
 repository egress, actual reservation, or paid call.

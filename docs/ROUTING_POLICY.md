@@ -75,7 +75,7 @@ Local defaults: repository inventory, search, formatting, test execution, log re
 
 Learned checkpoint routing can replace thresholds only after SOAR has enough complete, evaluator-backed trajectories. Per-turn reinforcement learning is outside the first MVP.
 
-PR6A being Verified and PR6B0 being Implemented locally do not make a real cloud
+PR6A being Verified and PR6B0 having automated exact-SHA closure do not make a real cloud
 candidate eligible for a lease. The Fake Cloud lease has no credential,
 endpoint, network client, or actual-spend authority. Signed credential leasing,
 real provider validation, wire-bound external egress admission, explicit real

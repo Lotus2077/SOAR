@@ -722,7 +722,8 @@ function performs no I/O and PR6A itself attached it to no session. PR6B0 now
 uses that pure policy only before an in-process fake invocation; neither state is
 proof of a real provider request or wire payload.
 
-PR6B0 is Implemented locally but not Verified or Released. It binds semantic
+PR6B0 is Implemented with automated exact-SHA closure but not Verified or
+Released. It binds semantic
 egress admission, checkpoint routing, accounting, fallback, cancellation, and
 replay only to in-process fakes. It neither reads the PR6A credential nor uses a
 network transport, and its nonzero figures are simulation-scoped rather than

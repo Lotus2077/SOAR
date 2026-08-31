@@ -12,7 +12,8 @@ routing runtime matures.
 > Changes** slice. An explicitly enabled fake development/test configuration
 > also exposes an app-visible **Hybrid simulation** that uses two in-process
 > fake providers. Normal vLLM mode remains Local-only and Hybrid-locked. PR6B0
-> is Implemented locally, not Verified or Released: the simulation reads no
+> is Implemented with automated exact-SHA closure, not Verified or Released:
+> the simulation reads no
 > credential, contacts neither the configured vLLM nor an external provider,
 > and has `$0` actual external spend. Cloud execution, write tools, and learned
 > routing remain design targets. Manual VoiceOver, light/dark contrast, and
@@ -50,10 +51,12 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   Fake Local, evaluates the bounded egress policy, may run one tool-free Fake
   Cloud synthesis, and permits one eligible Fake Local fallback. It persists
   only simulation-scoped accounting and reports actual external spend as `$0`.
-- PR6B0 status: **Implemented locally; not Verified or Released.** Exact-SHA CI,
-  package/Electron closure, independent final review, and the manual
-  accessibility record remain outstanding. This status proves no real Hybrid
-  request, model quality, cost saving, or latency improvement.
+- PR6B0 status: **Implemented with automated exact-SHA closure; not Verified or
+  Released.** Exact-head tests, all seven Electron workflows, macOS package
+  validation, independent final review, and exact-SHA Linux/macOS CI passed on
+  `9495d6bcbaa8cef5d3342e0d53ab02efe28d0002`. The manual accessibility record
+  remains outstanding. This status proves no real Hybrid request, model
+  quality, cost saving, or latency improvement.
 - Future paid-campaign design: a proposed USD 100 ceiling and USD 90 automatic
   stop. These values are not active runtime configuration and authorize no paid
   call.
@@ -92,8 +95,10 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   [PR6A Cloud Setup and Dispatch Lock](docs/plans/PR6A_CLOUD_SETUP_DISPATCH_LOCK_V1.md)
   is Verified but not Released;
   [PR6B0 Hybrid Simulation](docs/plans/PR6B0_HYBRID_SIMULATION_V1.md) is
-  Implemented locally but not Verified or Released. PR6B1 credential leasing,
-  PR6B2 provider validation, PR6B3's paid OpenRouter canary, and every paid call
+  Implemented with automated exact-SHA closure but not Verified or Released.
+  [PR6B1 Signed Native Credential Lease](docs/plans/PR6B1_SIGNED_NATIVE_CREDENTIAL_LEASE_V1.md)
+  is Proposed only. PR6B1 runtime work, PR6B2 provider validation,
+  PR6B3's paid OpenRouter canary, and every paid call
   remain separately unapproved and approval-gated.
 - [Local Evaluation Bridge v1](docs/plans/LOCAL_EVALUATION_BRIDGE_V1.md)
   defines the independently approved `$0`, local-only, one-live-episode proof
@@ -216,9 +221,11 @@ Restart replays persisted events without dispatching again.
 Normal vLLM mode still constructs one configured, operator-attested Local
 provider and exposes no Hybrid simulation authority. PR6A Settings remains
 setup-only; PR6B0 neither reads its Keychain item nor constructs an OpenRouter
-transport. The local implementation and automated tests are not yet a Verified
-or Released milestone, and manual VoiceOver, contrast, and reduced-motion proof
-remains pending. There is no claim that fake results measure quality, cost
+transport. Automated exact-head, Electron, package, independent-review, and
+Linux/macOS CI gates passed on the final corrective implementation revision,
+but the manual VoiceOver, keyboard-only, contrast, zoom/reflow, and reduced-
+motion record remains pending. PR6B0 is therefore not yet Verified or Released.
+There is no claim that fake results measure quality, cost
 savings, or latency improvement. See
 [the PR6B0 plan](docs/plans/PR6B0_HYBRID_SIMULATION_V1.md) and
 [ADR 0004](docs/adr/0004-checkpoint-router-budget-runner-v0.md).

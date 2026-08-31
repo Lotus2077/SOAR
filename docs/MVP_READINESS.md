@@ -14,13 +14,16 @@ setup-only Keychain, metadata-only candidate, and pure
 egress-shadow code do not authorize provider validation, production cloud
 dispatch, real Hybrid selection, or PR6B1 through PR6B3.
 
-PR6B0 Hybrid Simulation is **Implemented locally** but not **Verified** or
-**Released**. Its app-visible route exists only when the main process uses fake
+PR6B0 Hybrid Simulation is **Implemented with automated exact-SHA closure** but
+not **Verified** or **Released**. Its app-visible route exists only when the main process uses fake
 provider mode and explicitly enables simulation. It uses in-process Fake Local
 and Fake Cloud implementations, does not read Cloud Settings or a credential,
 does not contact the configured vLLM or an external provider, and records `$0`
-actual external spend. Exact-SHA CI/package closure and manual VoiceOver,
-light/dark contrast, and reduced-motion proof remain pending.
+actual external spend. Exact-head tests, all seven Electron workflows, macOS
+package validation, independent final review, and exact-SHA Linux/macOS CI
+passed on `9495d6bcbaa8cef5d3342e0d53ab02efe28d0002`; manual VoiceOver,
+keyboard-only traversal, 200% zoom/reflow, light/dark contrast, and reduced-
+motion proof remain pending.
 
 ## Implemented
 
@@ -209,12 +212,13 @@ input and stored credential state cannot alter that catalog.
 ## Live proof status
 
 The PR6B0 source, persistence, IPC, renderer, and deterministic-test
-implementation is present locally. That is an implementation state only. It is
-not an exact-SHA proof, a packaged-app result, a real-provider run, or a release.
-The exact-SHA CI and Electron/package verification gates have not closed here,
-and manual VoiceOver, keyboard-only traversal, light/dark contrast, and
-reduced-motion proof remains pending. Normal vLLM mode remains Local-only and
-Hybrid-locked throughout.
+implementation passed its automated exact-SHA closure on corrective revision
+`9495d6bcbaa8cef5d3342e0d53ab02efe28d0002`: exact-head tests, seven Electron
+workflows, package validation, independent review, and GitHub Linux/macOS jobs
+passed. This remains implementation evidence, not a real-provider run or a
+release. Manual VoiceOver, keyboard-only traversal, 200% zoom/reflow,
+light/dark contrast, and reduced-motion proof is pending. Normal vLLM mode
+remains Local-only and Hybrid-locked throughout.
 
 The PR 5 local Review Current Changes implementation has deterministic adapter,
 event/replay, Git, coordinator, IPC, projection, and Electron test coverage.
@@ -375,9 +379,9 @@ artifacts. See
 [ARCHITECTURE.md](ARCHITECTURE.md), and the
 [benchmark protocol](../benchmarks/README.md).
 
-PR6B0 has not met that release gate. In particular, exact-SHA closure and its
-manual accessibility record remain outstanding, so **Implemented locally** must
-not be read as **Verified**, **Released**, or safe for real Hybrid dispatch.
+PR6B0 has not met that release gate. Automated exact-SHA closure passed, but its
+manual accessibility record remains outstanding, so **Implemented** must not be
+read as **Verified**, **Released**, or safe for real Hybrid dispatch.
 
 ## PR 3 through PR 5 verification boundaries
 
@@ -405,8 +409,9 @@ It does not prove review quality or dynamic routing and is not a claim that the
 final release validation or Repository Investigator live proof passed. The
 local structured-schema canary did pass once on 2026-08-30, but only against a
 synthetic empty snapshot; it is not post-fix real-repository or release proof.
-PR6A is Verified but not Released. PR6B0 is Implemented locally but not Verified
-or Released; its Fake Cloud label never denotes an external provider. PR6B1,
+PR6A is Verified but not Released. PR6B0 has automated exact-SHA closure but is
+not Verified or Released; its Fake Cloud label never denotes an external
+provider. PR6B1 is Proposed only. PR6B1 runtime work,
 PR6B2, and PR6B3 remain separately gated and are required before credential
 leasing, provider validation, production cloud dispatch, or a paid OpenRouter
 canary.

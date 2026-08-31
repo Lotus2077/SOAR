@@ -3779,3 +3779,103 @@ plan and explicit approval.
 References: [approved PR6B0 plan](plans/PR6B0_HYBRID_SIMULATION_V1.md),
 [architecture](ARCHITECTURE.md), [routing policy](ROUTING_POLICY.md), [MVP
 readiness](MVP_READINESS.md), and [README](../README.md).
+
+### BL-20260901-0401-pr6b0-retention-capacity-correction -- 2026-09-01 -- Exact-head retention failure corrected without weakening the proof
+
+Status: `Implemented`
+
+Scope or hypothesis: Treat the first clean exact-commit PR6B0 release failure as
+authoritative. Determine why the Repository Investigator's real-revision symbol
+retention proof passed before commit but failed on committed HEAD, then make the
+smallest local `$0` correction that preserves the exact 18,432-token cap,
+independent full-repository oracle, complete-match requirement, and 250-byte
+objective-drift case.
+
+Decisions:
+
+- Classify the result as a deterministic committed-fixture capacity regression,
+  not a flaky test. The proof archives committed `HEAD`; pre-commit checks still
+  exercised the preceding approval revision and could not see uncommitted PR6B0
+  test scaffolding.
+- Preserve the full oracle, current-revision archive, exact global search,
+  `maxMatches`, UTF-8 estimator, 18,432-token ceiling, 20% safety margin, and
+  250-byte drift assertion. Do not exclude tests or new paths, accept a partial
+  envelope, pin an older revision, split the symbol string, or raise capacity.
+- Do not change the production context compiler in this correction. A compact
+  atomic exact-search representation changes the provider packet contract,
+  hashes, telemetry, and selection semantics; it remains a separately designed
+  and approved future milestone as recorded by the earlier PR 5 capacity entry.
+- Consolidate repeated PR6B0 test scaffolding naturally: use one renderer
+  session-control mock factory, one IPC scenario-runner factory, and one plainly
+  named Hybrid cancellation-action helper. Preserve every distinct test and all
+  real production/API references.
+
+Changes:
+
+- Replaced ten repeated renderer `window.soar` cancellation stubs with one typed
+  partial-API factory.
+- Replaced repeated IPC `SessionRunner` object literals with one model-parameter
+  factory while preserving each scenario's original descriptor value.
+- Routed four distinct Hybrid cancellation test actions through one shared
+  helper; the tests still cancel at pre-dispatch, in-flight, post-revalidation,
+  and pre-fallback boundaries.
+- Added this append-only correction entry. No runtime, context compiler,
+  provider, session, routing, persistence, budget, IPC production code,
+  renderer production code, endpoint, credential, or cost behavior changed.
+
+Evidence:
+
+- Clean commit `cc8598cb400c797c576c5b78567b30ec11ffb16e` failed
+  `pnpm check:release-head` with one deterministic assertion: the accepted
+  final packet retained 34 of 59 exact independent-oracle symbol occurrences.
+  Seventy-nine test files and 1,006 tests passed around that failure; three
+  files/five tests were skipped, and build did not run.
+- The same isolated committed-HEAD test failed again with the exact 34/59
+  result. The successful tool trace's exact/untruncated search and claim-evidence
+  assertions passed before final-packet retention failed, isolating the defect
+  to bounded packet capacity rather than search execution or oracle drift.
+- Comparing the approval revision with PR6B0 showed the model-visible symbol
+  schedule grew from 45 to 59 matching lines. The growth came primarily from
+  repeated renderer API mocks, repeated IPC runner mocks, and four new Hybrid
+  cancellation cases; PR6B0 did not modify the compiler or retention assertion.
+- Two independent read-only diagnoses reproduced the failure and recommended
+  structural test-fixture deduplication over an unapproved context-contract
+  change.
+- After refactoring, the three affected files passed all 65 tests, TypeScript
+  validation passed, and `git diff --check` passed. The meaningful source lines
+  now consist of one renderer factory, the existing IPC mock-reset plus one
+  runner factory, and one Hybrid cancellation helper.
+
+Failures or blockers: The exact-head gate remains failed on `cc8598c`; this
+uncommitted structural correction cannot yet prove the real-revision test
+because that test intentionally archives committed HEAD. The correction must be
+committed before its capacity result can be observed. If the natural
+deduplication does not make both the exact and 250-byte-drift cases fit, PR6B0
+must stop and propose the compact atomic-search milestone rather than weaken the
+gate.
+
+Limitations and non-claims: Deduplicating incidental test scaffolding restores a
+bounded repository-specific proof envelope; it does not solve arbitrary future
+repository growth or create an unbounded context guarantee. It does not alter
+production cancellation, improve model quality, prove real Hybrid routing, or
+change PR6B0's Implemented-not-Verified status. Exact correction SHA, complete
+release-head check, Electron E2E, package verification, push, and Linux/macOS CI
+are still pending.
+
+Paid exposure: `$0`. Diagnosis and correction used local Git archives, source
+comparison, deterministic fixtures, TypeScript, and tests only. No configured
+vLLM, OpenRouter, model list, inference, credential, Keychain, pricing, retry,
+fallback, evaluator, or other external LLM-provider request occurred; no
+repository evidence left the device and no actual reservation or spend was
+created.
+
+Next gate: Commit the structural correction and this entry, run the isolated
+real-revision retention test against that exact HEAD, then require a clean
+`pnpm check:release-head`, all seven Electron workflows, and macOS package
+verification. Push only after local exact-head gates pass, then require both
+exact-SHA Linux/check and macOS Electron GitHub jobs to pass.
+
+References: [implementation entry](#bl-20260901-0340-pr6b0-hybrid-simulation-implemented----2026-09-01----pr6b0-hybrid-simulation-implemented-locally),
+[earlier capacity decision](#bl-20260830-0237-pr5-remote-ci-capacity-correction----2026-08-30----remote-ci-invalidated-the-pre-commit-pr-5-verification),
+[context handoff ADR](adr/0001-context-handoff-engine-v1.md), and [approved
+PR6B0 plan](plans/PR6B0_HYBRID_SIMULATION_V1.md).

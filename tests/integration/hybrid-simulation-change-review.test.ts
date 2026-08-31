@@ -200,6 +200,13 @@ function runner(options: {
   });
 }
 
+function requestSessionCancellation(
+  sessionRunner: SessionRunner,
+  sessionId: string,
+): void {
+  sessionRunner.cancelSession(sessionId);
+}
+
 afterEach(async () => {
   for (const database of databases.splice(0)) database.close();
   await Promise.all(
@@ -454,7 +461,7 @@ describe("Hybrid simulation strict change review", () => {
     const sessionRunner = runner({ eventStore, fixture: testRuntime });
     const completion = sessionRunner.startSession("hybrid-cancelled");
     await dispatchReady;
-    sessionRunner.cancelSession("hybrid-cancelled");
+    requestSessionCancellation(sessionRunner, "hybrid-cancelled");
     releaseDispatch();
     await completion;
 
@@ -497,7 +504,10 @@ describe("Hybrid simulation strict change review", () => {
       "hybrid-cancelled-after-invocation",
     );
     await invocationStarted;
-    sessionRunner.cancelSession("hybrid-cancelled-after-invocation");
+    requestSessionCancellation(
+      sessionRunner,
+      "hybrid-cancelled-after-invocation",
+    );
     await completion;
 
     const state = eventStore.getProjectedState(
@@ -538,7 +548,10 @@ describe("Hybrid simulation strict change review", () => {
     let sessionRunner!: SessionRunner;
     const testRuntime = fixture({
       afterRevalidation: () =>
-        sessionRunner.cancelSession("hybrid-cancelled-after-revalidation"),
+        requestSessionCancellation(
+          sessionRunner,
+          "hybrid-cancelled-after-revalidation",
+        ),
     });
     createSessionAndCampaign({
       eventStore,
@@ -597,7 +610,10 @@ describe("Hybrid simulation strict change review", () => {
     const testRuntime = fixture({
       scenario: "provider_error",
       afterFailure: () =>
-        sessionRunner.cancelSession("hybrid-cancelled-before-fallback"),
+        requestSessionCancellation(
+          sessionRunner,
+          "hybrid-cancelled-before-fallback",
+        ),
     });
     createSessionAndCampaign({
       eventStore,

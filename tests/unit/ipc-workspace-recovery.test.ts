@@ -85,14 +85,18 @@ function config(): SoarConfig {
   };
 }
 
-const runner = {
-  startSession: vi.fn().mockResolvedValue(undefined),
-  cancelSession: vi.fn(),
-  getLocalReviewProviderDescriptor: vi.fn().mockReturnValue({
-    id: "local-vllm",
-    model: "local-review-model",
-  }),
-} as unknown as SessionRunner;
+function createScenarioRunner(model = "local-review-model"): SessionRunner {
+  return {
+    startSession: vi.fn().mockResolvedValue(undefined),
+    cancelSession: vi.fn(),
+    getLocalReviewProviderDescriptor: vi.fn().mockReturnValue({
+      id: "local-vllm",
+      model,
+    }),
+  } as unknown as SessionRunner;
+}
+
+const runner = createScenarioRunner();
 
 const HYBRID_TEST_NOW_MS = Date.parse("2026-09-01T01:00:00.000Z");
 
@@ -402,14 +406,9 @@ describe("persisted workspace authorization", () => {
         idFactory: () => `${scenario}-challenge-${++nextChallengeId}`,
         challengeTtlMs: 1_000,
       });
-      const scenarioRunner = {
-        startSession: vi.fn().mockResolvedValue(undefined),
-        cancelSession: vi.fn(),
-        getLocalReviewProviderDescriptor: vi.fn().mockReturnValue({
-          id: "local-vllm",
-          model: "RM-01 VLM (deterministic test double)",
-        }),
-      } as unknown as SessionRunner;
+      const scenarioRunner = createScenarioRunner(
+        "RM-01 VLM (deterministic test double)",
+      );
       const unexpectedCredentialCall = vi.fn(async () => {
         throw new Error("unexpected credential-store call");
       });
@@ -564,14 +563,9 @@ describe("persisted workspace authorization", () => {
       nowMs: () => HYBRID_TEST_NOW_MS,
       idFactory: () => "route-change-challenge",
     });
-    const scenarioRunner = {
-      startSession: vi.fn().mockResolvedValue(undefined),
-      cancelSession: vi.fn(),
-      getLocalReviewProviderDescriptor: vi.fn().mockReturnValue({
-        id: "local-vllm",
-        model: "RM-01 VLM (deterministic test double)",
-      }),
-    } as unknown as SessionRunner;
+    const scenarioRunner = createScenarioRunner(
+      "RM-01 VLM (deterministic test double)",
+    );
     const unexpectedFetch = vi.fn(() => {
       throw new Error("unexpected network call");
     });
@@ -652,14 +646,9 @@ describe("persisted workspace authorization", () => {
       nowMs: () => HYBRID_TEST_NOW_MS,
       idFactory: () => "same-path-replacement-challenge",
     });
-    const scenarioRunner = {
-      startSession: vi.fn().mockResolvedValue(undefined),
-      cancelSession: vi.fn(),
-      getLocalReviewProviderDescriptor: vi.fn().mockReturnValue({
-        id: "local-vllm",
-        model: "RM-01 VLM (deterministic test double)",
-      }),
-    } as unknown as SessionRunner;
+    const scenarioRunner = createScenarioRunner(
+      "RM-01 VLM (deterministic test double)",
+    );
     const unexpectedFetch = vi.fn(() => {
       throw new Error("unexpected network call");
     });
@@ -736,14 +725,9 @@ describe("persisted workspace authorization", () => {
       await mkdir(workspaceRoot);
       return consumed;
     });
-    const scenarioRunner = {
-      startSession: vi.fn().mockResolvedValue(undefined),
-      cancelSession: vi.fn(),
-      getLocalReviewProviderDescriptor: vi.fn().mockReturnValue({
-        id: "local-vllm",
-        model: "RM-01 VLM (deterministic test double)",
-      }),
-    } as unknown as SessionRunner;
+    const scenarioRunner = createScenarioRunner(
+      "RM-01 VLM (deterministic test double)",
+    );
     const unexpectedFetch = vi.fn(() => {
       throw new Error("unexpected network call");
     });

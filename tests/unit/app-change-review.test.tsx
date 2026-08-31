@@ -16,7 +16,10 @@ import {
   ReviewSetup,
   reviewMarkdown,
 } from "../../src/renderer/src/App";
-import type { SessionSnapshot } from "../../src/shared/contracts";
+import type {
+  SessionSnapshot,
+  SoarRendererApi,
+} from "../../src/shared/contracts";
 import {
   HYBRID_SIMULATION_DISCLOSURE_TEXT,
   HYBRID_SIMULATION_DISCLOSURE_TEXT_SHA256,
@@ -204,6 +207,12 @@ const simulationSnapshot = {
   simulationMarker: HYBRID_SIMULATION_MARKER,
 };
 
+function rendererSessionControls(): Partial<SoarRendererApi> {
+  return {
+    cancelSession: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
 function relativeLuminance([red, green, blue]: readonly number[]): number {
   const [r, g, b] = [red, green, blue].map((channel) => {
     const normalized = channel! / 255;
@@ -267,7 +276,7 @@ describe("Review Current Changes renderer", () => {
         listSessions: vi.fn().mockResolvedValue([]),
         getSession: vi.fn().mockResolvedValue(created),
         startSession,
-        cancelSession: vi.fn().mockResolvedValue(undefined),
+        ...rendererSessionControls(),
         subscribeSessionEvents: vi.fn().mockReturnValue(() => undefined),
         getReviewAvailability: vi.fn().mockResolvedValue(availability),
         createChangeReviewSession,
@@ -445,7 +454,7 @@ describe("Review Current Changes renderer", () => {
         listSessions: vi.fn().mockResolvedValue([]),
         getSession: vi.fn().mockResolvedValue(created),
         startSession: vi.fn(),
-        cancelSession: vi.fn(),
+        ...rendererSessionControls(),
         subscribeSessionEvents: vi.fn().mockReturnValue(() => undefined),
         getReviewAvailability: vi.fn().mockResolvedValue(simulationAvailability),
         issueHybridSimulationConsentChallenge,
@@ -548,7 +557,7 @@ describe("Review Current Changes renderer", () => {
         listSessions: vi.fn().mockResolvedValue([]),
         getSession: vi.fn(),
         startSession: vi.fn(),
-        cancelSession: vi.fn(),
+        ...rendererSessionControls(),
         subscribeSessionEvents: vi.fn().mockReturnValue(() => undefined),
         getReviewAvailability: vi.fn().mockResolvedValue(simulationAvailability),
         issueHybridSimulationConsentChallenge,
@@ -624,7 +633,7 @@ describe("Review Current Changes renderer", () => {
         listSessions: vi.fn().mockResolvedValue([]),
         getSession: vi.fn(),
         startSession: vi.fn(),
-        cancelSession: vi.fn(),
+        ...rendererSessionControls(),
         subscribeSessionEvents: vi.fn().mockReturnValue(() => undefined),
         getReviewAvailability: vi.fn().mockResolvedValue(simulationAvailability),
         issueHybridSimulationConsentChallenge,
@@ -683,7 +692,7 @@ describe("Review Current Changes renderer", () => {
         listSessions: vi.fn().mockResolvedValue([]),
         getSession: vi.fn(),
         startSession: vi.fn(),
-        cancelSession: vi.fn(),
+        ...rendererSessionControls(),
         subscribeSessionEvents: vi.fn().mockReturnValue(() => undefined),
         getReviewAvailability: vi.fn().mockResolvedValue(simulationAvailability),
         issueHybridSimulationConsentChallenge: vi
@@ -743,7 +752,7 @@ describe("Review Current Changes renderer", () => {
         listSessions: vi.fn().mockResolvedValue([snapshot]),
         getSession: vi.fn().mockResolvedValue(snapshot),
         startSession: vi.fn(),
-        cancelSession: vi.fn(),
+        ...rendererSessionControls(),
         subscribeSessionEvents: vi.fn().mockReturnValue(() => undefined),
         getReviewAvailability: vi.fn().mockResolvedValue(availability),
         createChangeReviewSession: vi.fn().mockResolvedValue(snapshot),
@@ -836,7 +845,7 @@ describe("Review Current Changes renderer", () => {
         listSessions: vi.fn().mockResolvedValue([snapshot]),
         getSession: vi.fn().mockResolvedValue(snapshot),
         startSession: vi.fn(),
-        cancelSession: vi.fn(),
+        ...rendererSessionControls(),
         subscribeSessionEvents: vi.fn().mockReturnValue(() => undefined),
         getReviewAvailability: vi.fn().mockResolvedValue(availability),
         createChangeReviewSession: vi.fn().mockResolvedValue(snapshot),
@@ -1214,7 +1223,7 @@ describe("Review Current Changes renderer", () => {
         listSessions: vi.fn().mockResolvedValue([simulationSnapshot]),
         getSession: vi.fn().mockResolvedValue(simulationSnapshot),
         startSession: vi.fn(),
-        cancelSession: vi.fn(),
+        ...rendererSessionControls(),
         subscribeSessionEvents: vi.fn().mockReturnValue(() => undefined),
         getReviewAvailability: vi.fn().mockResolvedValue(simulationAvailability),
         issueHybridSimulationConsentChallenge: vi.fn(),
@@ -1263,7 +1272,7 @@ describe("Review Current Changes renderer", () => {
           ),
         ),
         startSession: vi.fn(),
-        cancelSession: vi.fn(),
+        ...rendererSessionControls(),
         subscribeSessionEvents: vi.fn(
           (listener: Parameters<typeof window.soar.subscribeSessionEvents>[0]) => {
             emit = listener;
@@ -1336,7 +1345,7 @@ describe("Review Current Changes renderer", () => {
         listSessions: vi.fn().mockResolvedValue([runningSnapshot]),
         getSession: vi.fn().mockResolvedValue(runningSnapshot),
         startSession: vi.fn(),
-        cancelSession: vi.fn(),
+        ...rendererSessionControls(),
         subscribeSessionEvents: vi.fn(
           (listener: Parameters<typeof window.soar.subscribeSessionEvents>[0]) => {
             emit = listener;

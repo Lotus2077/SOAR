@@ -3501,3 +3501,91 @@ References: [proposed PR6B0 plan](plans/PR6B0_HYBRID_SIMULATION_V1.md),
 Lease Router plan](plans/HYBRID_LEASE_ROUTER_V0.md), [MVP
 readiness](MVP_READINESS.md), [architecture](ARCHITECTURE.md), and [routing
 policy](ROUTING_POLICY.md).
+
+### BL-20260901-0052-pr6b0-hybrid-simulation-approved -- 2026-09-01 -- PR6B0 Hybrid simulation approved for local zero-cost implementation
+
+Status: `Approved`
+
+Scope or hypothesis: Record the project owner's explicit authority for the
+exact fake-provider Hybrid simulation plan after its proposal revision and
+Linux/macOS planning checkpoint passed. This approval permits local `$0`
+implementation of the app, runtime, persistence, accounting, consent, replay,
+and UX contracts in `pr6b0-hybrid-simulation-v1-plan-1` only.
+
+Decisions:
+
+- Approve `pr6b0-hybrid-simulation-v1-plan-1` for local `$0` implementation.
+  The plan ID fixes the scope to the fake-provider simulation and the owner's
+  approval does not broaden any later milestone.
+- Authorize the dedicated strict Hybrid simulation coordinator, two branded
+  in-process fake providers, single-use simulation-consent challenge,
+  simulation-scoped ledger and egress-admission evidence, persistent
+  simulation attribution, app UX, deterministic tests, and removal of the
+  manual CLI cloud-key check named by the approved plan.
+- Preserve every external-exposure gate. The implementation may not read or
+  change a Keychain item, construct or contact a configured vLLM or external
+  provider, send repository content off-device, create an actual cost
+  reservation, or spend money.
+- Require this approval checkpoint to be committed, pushed, and green on its
+  exact-SHA Linux and macOS workflows before runtime implementation begins.
+  PR6B1 credential work, PR6B2 provider validation, and PR6B3 paid inference
+  remain unapproved.
+
+Changes: Updated the proposed plan's authority status and appended this
+approval record. No runtime, native addon, dependency, credential, provider,
+model, IPC, renderer, database, session, router, budget, tool, evaluator, or
+network behavior changed at this checkpoint.
+
+Evidence:
+
+- The project owner explicitly instructed: `Approve
+  pr6b0-hybrid-simulation-v1-plan-1 for local $0 implementation`.
+- Proposal revision `21f98a35375c052d44a401da1cc9077ffa6f3041` was clean,
+  equal to `origin/main`, and its exact GitHub Actions run `33408742376`
+  passed Linux job `99542754551` and macOS Electron job `99543151654` before
+  this approval was recorded.
+- On the exact proposal revision, local `pnpm check:release-head` passed 74
+  test files and 914 tests with three files/five tests skipped, built all
+  Electron bundles, and local Electron E2E passed all three existing workflows.
+- Three independent plan-review lanes reported no remaining P0/P1 planning
+  issue after the proposal incorporated their runtime/persistence,
+  product/UX, and credential/security corrections. That is plan evidence, not
+  implementation evidence.
+
+Failures or blockers: PR6B0 is Approved but not Implemented or Verified. Its
+runtime, schema, migrations, challenge, accounting, replay, cancellation, fake
+providers, coordinator, and app projections do not exist yet. Implementation
+is still blocked until this distinct approval checkpoint is committed, pushed,
+and both exact-SHA CI jobs pass.
+
+Limitations and non-claims: This approval is not evidence of working Hybrid
+simulation, production Hybrid, credential safety, provider/model/pricing
+truth, HTTP identity, routing quality, cost saving, latency improvement, or
+release readiness. An eventual passing PR6B0 will prove only bounded,
+deterministic fake-provider control-flow integration unless separately stated.
+
+Paid exposure: `$0`. This authority change performed no configured vLLM,
+OpenRouter, model-list, key-metadata, pricing, limit, health, inference,
+retry, fallback, evaluator, or other provider request. No Keychain item or real
+credential was read, written, replaced, or deleted.
+
+Correction to the proposal timestamp: the committed
+`BL-20260831-2246-pr6b0-hybrid-simulation-proposed` ID again encoded local wall
+time after the one-time UTC reset documented by
+`BL-20260830-1454-build-log-utc-reset`. That committed identifier cannot be
+rewritten and the validator intentionally permits only one reset, so this
+entry preserves physical chronology with the next local-wall-clock ID while
+making the defect explicit. Its host-observed creation time was 2026-08-31
+16:52 UTC / 2026-09-01 00:52 Asia/Shanghai. Future ledger work must repair the
+validator/governance contract before claiming that post-proposal IDs are UTC.
+
+Next gate: Validate and commit this approval-only change, push the exact
+revision, and require its Linux/check and macOS Electron workflows to pass.
+Only then may local fake-provider PR6B0 implementation begin. Any credential
+work, provider validation, external egress, actual reservation, or paid
+inference requires a new durable plan and explicit approval.
+
+References: [approved PR6B0 plan](plans/PR6B0_HYBRID_SIMULATION_V1.md),
+[proposal entry](#bl-20260831-2246-pr6b0-hybrid-simulation-proposed----2026-08-31----pr6b0-hybrid-simulation-vertical-slice-proposed),
+[verified PR6A plan](plans/PR6A_CLOUD_SETUP_DISPATCH_LOCK_V1.md), and [parent
+Hybrid Lease Router plan](plans/HYBRID_LEASE_ROUTER_V0.md).

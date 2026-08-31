@@ -1,15 +1,21 @@
 # PR6B0 Hybrid Simulation Vertical Slice v1
 
-Status: **Proposed; not Approved; no runtime work is authorized by this
-document**
+Status: **Approved for local `$0` implementation only; not Implemented,
+Verified, or Released**
 
 - Plan ID: `pr6b0-hybrid-simulation-v1-plan-1`
 - Parent plan: `hybrid-lease-router-v0-plan-2`
 - Predecessor: `pr6a-cloud-setup-dispatch-lock-v1-plan-1`
 - Baseline revision: `90531899bc16b3862616a709ac8396257ebdd46c`
 - Proposed: 2026-08-31
-- Approval: not granted
+- Approved: 2026-09-01 by the project owner in the project task
+- Approval ledger: `BL-20260901-0052-pr6b0-hybrid-simulation-approved`
 - Project log: [BUILD_LOG.md](../BUILD_LOG.md)
+
+The approval is limited to the fake-provider simulation described in this
+plan. It authorizes no credential access, configured vLLM or external-provider
+request, real repository egress, actual monetary reservation, or paid spend.
+PR6B1, PR6B2, and PR6B3 remain separately gated.
 
 ## Decision
 

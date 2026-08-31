@@ -6,14 +6,26 @@ import type {
 } from "../shared/contracts";
 import type { StoredSessionEvent } from "../shared/session-events";
 import { EventStore, type SessionRecord } from "./event-store";
+import type { SessionState } from "../shared/session-reducer";
+import { HYBRID_SIMULATION_RESULT_MARKER } from "../shared/hybrid-simulation-contracts";
 
-export function toSessionSummary(session: SessionRecord): SessionSummary {
+export function toSessionSummary(
+  session: SessionRecord,
+  state?: SessionState,
+): SessionSummary {
+  const isSimulation = state?.hybridSimulation !== undefined;
   return {
     id: session.id,
     title: session.title,
     status: session.status,
     createdAt: session.createdAt,
     updatedAt: session.updatedAt,
+    ...(isSimulation
+      ? {
+          executionMode: "hybrid_simulation" as const,
+          simulationMarker: HYBRID_SIMULATION_RESULT_MARKER,
+        }
+      : {}),
   };
 }
 
@@ -28,6 +40,23 @@ function reviewSafePayload(event: StoredSessionEvent): unknown {
         reasonCode: event.payload.reasonCode,
         selectedProviderId: event.payload.selectedProviderId,
         selectedModel: event.payload.selectedModel,
+        costScope: event.payload.costScope,
+        cloudEgressAdmissionId: event.payload.cloudEgressAdmissionId,
+        ...(event.payload.costScope === "simulation" &&
+        event.payload.budgetReservationId !== undefined &&
+        event.payload.billing !== undefined
+          ? {
+              // The renderer reconstructs fail-closed simulation accounting
+              // from this allowlisted projection. Reservation identity plus
+              // the projected total are sufficient; component rates, token
+              // estimates, and remaining-budget details stay main-only.
+              budgetReservationId: event.payload.budgetReservationId,
+              billing: {
+                projectedCostMicrousd:
+                  event.payload.billing.projectedCostMicrousd,
+              },
+            }
+          : {}),
         ...(event.payload.routerInputSnapshot === undefined
           ? {}
           : {
@@ -41,6 +70,16 @@ function reviewSafePayload(event: StoredSessionEvent): unknown {
                 ),
               },
             }),
+      };
+    case "cloud.egress.admission.recorded":
+      return {
+        admissionId: event.payload.admissionId,
+        policyVersion: event.payload.policyVersion,
+        decision: event.payload.decision,
+        reasonCodes: event.payload.reasonCodes,
+        checkpointId: event.payload.checkpointId,
+        simulationAuthorityId: event.payload.simulationAuthorityId,
+        evaluatedAt: event.payload.evaluatedAt,
       };
     case "route.assigned":
       return {
@@ -117,6 +156,8 @@ function reviewSafePayload(event: StoredSessionEvent): unknown {
         structuredOutputContract: event.payload.structuredOutputContract,
         structuredOutputSchemaSha256:
           event.payload.structuredOutputSchemaSha256,
+        costScope: event.payload.costScope,
+        cloudEgressAdmissionId: event.payload.cloudEgressAdmissionId,
       };
     case "inference.attempt.finished":
       return {
@@ -178,7 +219,7 @@ export function toSessionSnapshot(store: EventStore, sessionId: string): Session
   const session = store.requireSession(sessionId);
   const state = store.getProjectedState(sessionId);
   return {
-    ...toSessionSummary(session),
+    ...toSessionSummary(session, state),
     workspaceRoot: session.workspaceRoot,
     ...(state.taskTrack === undefined ? {} : { taskTrack: state.taskTrack }),
     events: store

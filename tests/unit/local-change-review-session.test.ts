@@ -22,6 +22,8 @@ function config(
 ): SoarConfig {
   return {
     providerMode: "local",
+    hybridSimulationEnabled: false,
+    fakeCloudScenario: "success",
     fakeDelayMs: 0,
     vllm: {
       baseUrl: "http://localhost:8000/v1",

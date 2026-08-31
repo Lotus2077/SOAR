@@ -9,6 +9,8 @@ import {
   type CompletionObligationCheckPayload,
   type CompletionObligations,
   type CompletionObligationToolName,
+  type CloudEgressAdmissionRecordV1,
+  type CostScope,
   type ContextCompilationMode,
   type ContextCompilationReason,
   type JsonValue,
@@ -21,6 +23,11 @@ import {
   type SessionStatus,
   type StoredSessionEvent,
 } from "./session-events";
+import {
+  HYBRID_SIMULATION_ROUTING_POLICY_ID,
+  type HybridSimulationSessionAuthorityV1,
+  type RuntimeCostScope,
+} from "./hybrid-simulation-contracts";
 import { normalizeCitationsFromEvidence } from "./citation-evidence";
 import { parseSuccessfulRepositoryToolObservation } from "./tool-observation";
 import {
@@ -144,6 +151,23 @@ export interface InferenceAttemptRecord
   finished?: InferenceAttemptFinishRecord;
 }
 
+export interface CloudEgressAdmissionRecord
+  extends CloudEgressAdmissionRecordV1 {
+  sequence: number;
+  createdAt: string;
+}
+
+export interface SessionScopedCostAmounts {
+  reservedMicrousd: number;
+  settledMicrousd: number;
+}
+
+export interface SessionCostScopeProjection {
+  actual: SessionScopedCostAmounts;
+  simulation: SessionScopedCostAmounts;
+  legacyUnclassified: SessionScopedCostAmounts & { present: boolean };
+}
+
 export interface SessionState {
   id: string;
   title: string;
@@ -159,12 +183,15 @@ export interface SessionState {
   messages: CanonicalMessage[];
   routes: RouteAssignment[];
   contextCompilations: ContextCompilation[];
+  cloudEgressAdmissions: CloudEgressAdmissionRecord[];
   routingDecisions: RoutingDecisionRecord[];
   inferenceAttempts: InferenceAttemptRecord[];
   executionPolicy?: AgenticExecutionPolicy;
+  hybridSimulation?: HybridSimulationSessionAuthorityV1;
   completionObligations: CompletionObligations;
   completionChecks: CompletionObligationCheck[];
   usage: SessionUsage;
+  costScopes: SessionCostScopeProjection;
   result?: string;
   error?: string;
   /** Present only for v2 sessions; used to enforce the persisted event grammar. */
@@ -177,6 +204,53 @@ const EMPTY_COMPLETION_OBLIGATIONS: CompletionObligations = {
   requiredSuccessfulTools: [],
   minimumVerifiedPathLineCitations: 0,
 };
+
+const EMPTY_COST_SCOPE_PROJECTION: SessionCostScopeProjection = {
+  actual: { reservedMicrousd: 0, settledMicrousd: 0 },
+  simulation: { reservedMicrousd: 0, settledMicrousd: 0 },
+  legacyUnclassified: {
+    reservedMicrousd: 0,
+    settledMicrousd: 0,
+    present: false,
+  },
+};
+
+function effectiveCostScope(scope: RuntimeCostScope | undefined): CostScope {
+  return scope ?? "legacy_unclassified";
+}
+
+function cloneCostScopeProjection(
+  projection: SessionCostScopeProjection | undefined,
+): SessionCostScopeProjection {
+  const source = projection ?? EMPTY_COST_SCOPE_PROJECTION;
+  return {
+    actual: { ...source.actual },
+    simulation: { ...source.simulation },
+    legacyUnclassified: { ...source.legacyUnclassified },
+  };
+}
+
+function addScopedCost(
+  projection: SessionCostScopeProjection,
+  scope: CostScope,
+  kind: keyof SessionScopedCostAmounts,
+  amountMicrousd: number,
+): void {
+  const target =
+    scope === "actual"
+      ? projection.actual
+      : scope === "simulation"
+        ? projection.simulation
+        : projection.legacyUnclassified;
+  const next = target[kind] + amountMicrousd;
+  if (!Number.isSafeInteger(next) || next < 0) {
+    throw new Error(`Session ${scope} ${kind} cost exceeds safe-integer range`);
+  }
+  target[kind] = next;
+  if (scope === "legacy_unclassified") {
+    projection.legacyUnclassified.present = true;
+  }
+}
 
 function cloneCompletionObligations(
   obligations: CompletionObligations,
@@ -359,6 +433,14 @@ function assertV2StartGrammar(
   ) {
     throw new Error(
       `Open inference attempt ${openAttempt.attemptId} must finish before ${event.type}`,
+    );
+  }
+  if (
+    lastType === "cloud.egress.admission.recorded" &&
+    event.type !== "routing.decision.recorded"
+  ) {
+    throw new Error(
+      "A cloud egress admission record must be followed by its routing decision",
     );
   }
   if (lastType === "routing.decision.recorded") {
@@ -599,6 +681,7 @@ function ensureActive(state: SessionState, event: StoredSessionEvent): void {
 function ensureRunning(state: SessionState, event: StoredSessionEvent): void {
   const runningOnlyEvent =
     event.type === "routing.decision.recorded" ||
+    event.type === "cloud.egress.admission.recorded" ||
     event.type === "route.assigned" ||
     event.type === "assistant.message.started" ||
     event.type === "assistant.message.delta" ||
@@ -654,11 +737,15 @@ export function createInitialSessionState(
     messages: [],
     routes: [],
     contextCompilations: [],
+    cloudEgressAdmissions: [],
     routingDecisions: [],
     inferenceAttempts: [],
     ...(event.payload.executionPolicy === undefined
       ? {}
       : { executionPolicy: { ...event.payload.executionPolicy } }),
+    ...(event.payload.hybridSimulation === undefined
+      ? {}
+      : { hybridSimulation: structuredClone(event.payload.hybridSimulation) }),
     completionObligations: cloneCompletionObligations(
       event.payload.completionObligations ?? EMPTY_COMPLETION_OBLIGATIONS,
     ),
@@ -670,6 +757,7 @@ export function createInitialSessionState(
       costUsd: 0,
       latencyMs: 0,
     },
+    costScopes: cloneCostScopeProjection(undefined),
     ...(event.payload.executionPolicy?.schemaVersion === "agentic-execution-v2"
       ? { lastV2EventType: event.type }
       : {}),
@@ -734,6 +822,9 @@ export function reduceSessionEvent(
     contextCompilations: (state.contextCompilations ?? []).map(
       (compilation) => ({ ...compilation }),
     ),
+    cloudEgressAdmissions: (state.cloudEgressAdmissions ?? []).map(
+      (record) => ({ ...record, reasonCodes: [...record.reasonCodes] }),
+    ),
     routingDecisions: (state.routingDecisions ?? []).map(cloneRoutingDecision),
     inferenceAttempts: (state.inferenceAttempts ?? []).map(
       cloneInferenceAttempt,
@@ -748,6 +839,7 @@ export function reduceSessionEvent(
       verifiedPathLineCitations: [...check.verifiedPathLineCitations],
     })),
     usage: { ...state.usage },
+    costScopes: cloneCostScopeProjection(state.costScopes),
     updatedAt: event.createdAt,
     lastSequence: event.sequence,
   };
@@ -804,10 +896,200 @@ export function reduceSessionEvent(
         status: "completed",
       });
       break;
+    case "cloud.egress.admission.recorded": {
+      const policy = v2Policy(next);
+      const authority = next.hybridSimulation;
+      if (
+        policy?.routingPolicy !== HYBRID_SIMULATION_ROUTING_POLICY_ID ||
+        authority === undefined
+      ) {
+        throw new Error(
+          "cloud egress admission records require persisted Hybrid simulation authority",
+        );
+      }
+      if (event.payload.evaluatedAt !== event.createdAt) {
+        throw new Error(
+          "cloud egress admission evaluatedAt must equal its event timestamp",
+        );
+      }
+      if (
+        event.payload.simulationAuthorityId !==
+        authority.simulationAuthorityId
+      ) {
+        throw new Error(
+          "cloud egress admission does not match the session simulation authority",
+        );
+      }
+      if (!hasCompleteRoutingEvidence(next)) {
+        throw new Error(
+          "cloud egress admission requires complete Local investigation evidence",
+        );
+      }
+      if (
+        next.cloudEgressAdmissions.some(
+          (record) =>
+            record.admissionId === event.payload.admissionId ||
+            record.checkpointId === event.payload.checkpointId,
+        )
+      ) {
+        throw new Error(
+          `Duplicate cloud egress admission ${event.payload.admissionId}`,
+        );
+      }
+      if (
+        next.routingDecisions.some(
+          (decision) => decision.boundary === "evidence_complete",
+        )
+      ) {
+        throw new Error(
+          "cloud egress admission cannot follow the evidence_complete decision",
+        );
+      }
+      next.cloudEgressAdmissions.push({
+        ...event.payload,
+        reasonCodes: [...event.payload.reasonCodes],
+        sequence: event.sequence,
+        createdAt: event.createdAt,
+      });
+      break;
+    }
     case "routing.decision.recorded": {
       const policy = v2Policy(next);
       if (!policy) {
         throw new Error("routing.decision.recorded requires agentic-execution-v2");
+      }
+      const simulationPolicy =
+        policy.routingPolicy === HYBRID_SIMULATION_ROUTING_POLICY_ID;
+      if (simulationPolicy) {
+        const authority = next.hybridSimulation;
+        if (
+          authority === undefined ||
+          event.payload.costScope !== "simulation"
+        ) {
+          throw new Error(
+            "Hybrid simulation decisions require explicit simulation cost scope and authority",
+          );
+        }
+        const authorityProviders = new Map([
+          [
+            authority.fakeLocalProvider.providerId,
+            authority.fakeLocalProvider.model,
+          ],
+          [
+            authority.fakeCloudProvider.providerId,
+            authority.fakeCloudProvider.model,
+          ],
+        ]);
+        const matchesAuthorityProvider = (
+          providerId: string,
+          model: string,
+        ): boolean => authorityProviders.get(providerId) === model;
+        if (
+          !matchesAuthorityProvider(
+            event.payload.selectedProviderId,
+            event.payload.selectedModel,
+          ) ||
+          (event.payload.proposedProviderId !== undefined &&
+            (event.payload.proposedModel === undefined ||
+              !matchesAuthorityProvider(
+                event.payload.proposedProviderId,
+                event.payload.proposedModel,
+              ))) ||
+          event.payload.candidateProviderIds.some(
+            (providerId) => !authorityProviders.has(providerId),
+          ) ||
+          event.payload.routerInputSnapshot?.providers.some(
+            (provider) =>
+              !matchesAuthorityProvider(provider.providerId, provider.model),
+          ) ||
+          (event.payload.reasonCode === "cloud_admitted"
+            ? event.payload.selectedProviderId !==
+              authority.fakeCloudProvider.providerId
+            : event.payload.selectedProviderId !==
+              authority.fakeLocalProvider.providerId)
+        ) {
+          throw new Error(
+            "Hybrid simulation routing identities must remain inside the persisted fake-provider authority",
+          );
+        }
+        if (event.payload.boundary === "session_start") {
+          if (event.payload.cloudEgressAdmissionId !== undefined) {
+            throw new Error(
+              "session_start cannot reference a cloud egress admission",
+            );
+          }
+        } else if (event.payload.boundary === "evidence_complete") {
+          if (event.payload.reasonCode === "low_risk_local_review") {
+            if (
+              event.payload.cloudEgressAdmissionId !== undefined ||
+              event.payload.admission.egress.status !== "not_applicable" ||
+              next.lastV2EventType === "cloud.egress.admission.recorded"
+            ) {
+              throw new Error(
+                "Low-risk Local simulation review must not create egress admission evidence",
+              );
+            }
+          } else {
+            const admissionRecord = next.cloudEgressAdmissions.at(-1);
+            const packetCheckpointId =
+              event.payload.checkpointId ?? event.payload.proposalCheckpointId;
+            const packetMessagesSha256 =
+              event.payload.messagesSha256 ??
+              event.payload.proposalMessagesSha256;
+            if (
+              next.lastV2EventType !== "cloud.egress.admission.recorded" ||
+              admissionRecord === undefined ||
+              admissionRecord.sequence !== event.sequence - 1 ||
+              event.payload.cloudEgressAdmissionId !==
+                admissionRecord.admissionId ||
+              packetCheckpointId !== admissionRecord.checkpointId ||
+              packetMessagesSha256 !==
+                admissionRecord.messagesSemanticSha256 ||
+              event.payload.provenanceSemanticSha256 !==
+                admissionRecord.provenanceSemanticSha256
+            ) {
+              throw new Error(
+                "Hybrid simulation cloud-proposal decision does not match its immediate egress admission record",
+              );
+            }
+            const expectedEgressStatus =
+              admissionRecord.decision === "pass" ? "passed" : "denied";
+            if (
+              event.payload.admission.egress.status !== expectedEgressStatus ||
+              (admissionRecord.decision === "deny") !==
+                (event.payload.reasonCode === "egress_denial")
+            ) {
+              throw new Error(
+                "Hybrid simulation routing consequence does not match egress admission",
+              );
+            }
+          }
+        } else {
+          const priorAttempt = next.inferenceAttempts.at(-1);
+          if (
+            event.payload.cloudEgressAdmissionId === undefined ||
+            event.payload.cloudEgressAdmissionId !==
+              priorAttempt?.cloudEgressAdmissionId ||
+            event.payload.provenanceSemanticSha256 === undefined ||
+            event.payload.provenanceSemanticSha256 !==
+              next.cloudEgressAdmissions.find(
+                (admission) =>
+                  admission.admissionId ===
+                  event.payload.cloudEgressAdmissionId,
+              )?.provenanceSemanticSha256
+          ) {
+            throw new Error(
+              "Hybrid simulation provider fallback must retain the originating egress admission",
+            );
+          }
+        }
+      } else if (
+        event.payload.costScope === "simulation" ||
+        event.payload.cloudEgressAdmissionId !== undefined
+      ) {
+        throw new Error(
+          "Simulation scope and egress admission identity require hybrid_simulation_v1",
+        );
       }
       if (
         next.routingDecisions.some(
@@ -838,11 +1120,17 @@ export function reduceSessionEvent(
       }
       if (event.payload.reasonCode === "cloud_admitted") {
         if (
-          policy.routingPolicy !== "hybrid_v0" ||
-          policy.egressConsent !== "session_cloud_synthesis_v1"
+          !(
+            (policy.routingPolicy === "hybrid_v0" &&
+              policy.egressConsent === "session_cloud_synthesis_v1") ||
+            (simulationPolicy &&
+              policy.egressConsent === "none" &&
+              policy.simulationConsent ===
+                "simulation_cloud_synthesis_v1")
+          )
         ) {
           throw new Error(
-            "cloud_admitted requires hybrid_v0 and session cloud-synthesis consent",
+            "cloud_admitted requires exact real or simulation routing consent",
           );
         }
         if (
@@ -856,14 +1144,22 @@ export function reduceSessionEvent(
         }
       }
       if (isCloudProposalDenialReason(event.payload.reasonCode)) {
-        if (policy.routingPolicy !== "hybrid_v0") {
+        if (
+          policy.routingPolicy !== "hybrid_v0" &&
+          !simulationPolicy
+        ) {
           throw new Error(
-            "a denied cloud proposal requires the hybrid_v0 routing policy",
+            "a denied cloud proposal requires the hybrid_v0 routing policy or the approved Hybrid simulation policy",
           );
         }
         if (
           event.payload.admission.egress.status === "passed" &&
-          policy.egressConsent !== "session_cloud_synthesis_v1"
+          !(
+            policy.egressConsent === "session_cloud_synthesis_v1" ||
+            (simulationPolicy &&
+              policy.simulationConsent ===
+                "simulation_cloud_synthesis_v1")
+          )
         ) {
           throw new Error(
             "a denied cloud proposal cannot record passed egress without session cloud-synthesis consent",
@@ -1026,6 +1322,17 @@ export function reduceSessionEvent(
         sequence: event.sequence,
         createdAt: event.createdAt,
       });
+      if (
+        event.payload.billing !== undefined &&
+        event.payload.budgetReservationId !== undefined
+      ) {
+        addScopedCost(
+          next.costScopes,
+          effectiveCostScope(event.payload.costScope),
+          "reservedMicrousd",
+          event.payload.billing.projectedCostMicrousd,
+        );
+      }
       break;
     }
     case "route.assigned":
@@ -1751,6 +2058,24 @@ export function reduceSessionEvent(
         );
       }
       if (
+        effectiveCostScope(event.payload.costScope) !==
+          effectiveCostScope(decision.costScope) ||
+        event.payload.cloudEgressAdmissionId !==
+          decision.cloudEgressAdmissionId
+      ) {
+        throw new Error(
+          `Inference attempt ${event.payload.attemptId} cost scope or egress admission does not match its routing decision`,
+        );
+      }
+      if (
+        policy.routingPolicy === HYBRID_SIMULATION_ROUTING_POLICY_ID &&
+        event.payload.costScope !== "simulation"
+      ) {
+        throw new Error(
+          `Hybrid simulation attempt ${event.payload.attemptId} requires explicit simulation cost scope`,
+        );
+      }
+      if (
         decision.reasonCode === "cloud_admitted" &&
         decision.billing !== undefined &&
         decision.billing.requestedMaxOutputTokens !==
@@ -1839,6 +2164,24 @@ export function reduceSessionEvent(
           `Inference attempt ${event.payload.attemptId} cost reservation does not match its start`,
         );
       }
+      if (
+        effectiveCostScope(event.payload.cost.costScope) !==
+        effectiveCostScope(attempt.costScope)
+      ) {
+        throw new Error(
+          `Inference attempt ${event.payload.attemptId} finish cost scope does not match its start`,
+        );
+      }
+      if (
+        next.executionPolicy?.schemaVersion === "agentic-execution-v2" &&
+        next.executionPolicy.routingPolicy ===
+          HYBRID_SIMULATION_ROUTING_POLICY_ID &&
+        event.payload.cost.costScope !== "simulation"
+      ) {
+        throw new Error(
+          `Hybrid simulation attempt ${event.payload.attemptId} finish requires explicit simulation cost scope`,
+        );
+      }
       if (attempt.budgetReservationId === undefined) {
         if (
           event.payload.cost.amountMicrousd !== 0 ||
@@ -1917,7 +2260,15 @@ export function reduceSessionEvent(
       next.usage.inputTokens += event.payload.usage.inputTokens;
       next.usage.outputTokens += event.payload.usage.outputTokens;
       next.usage.reasoningTokens += event.payload.usage.reasoningTokens;
-      next.usage.costUsd += event.payload.cost.amountMicrousd / 1_000_000;
+      if (event.payload.cost.costScope === "actual") {
+        next.usage.costUsd += event.payload.cost.amountMicrousd / 1_000_000;
+      }
+      addScopedCost(
+        next.costScopes,
+        effectiveCostScope(event.payload.cost.costScope),
+        "settledMicrousd",
+        event.payload.cost.amountMicrousd,
+      );
       next.usage.latencyMs += event.payload.latencyMs;
       if (event.payload.ttftMs !== undefined) {
         next.usage.ttftMs = event.payload.ttftMs;
@@ -2140,7 +2491,9 @@ export function reduceSessionEvent(
       next.usage.inputTokens += event.payload.inputTokens;
       next.usage.outputTokens += event.payload.outputTokens;
       next.usage.reasoningTokens += event.payload.reasoningTokens;
-      next.usage.costUsd += event.payload.costUsd;
+      // v1 usage has no immutable cost-scope identity. Preserve its token and
+      // latency history, but never relabel an unclassified legacy amount as
+      // actual spend in the sessions.total_cost_usd projection.
       next.usage.latencyMs += event.payload.latencyMs ?? 0;
       if (event.payload.ttftMs !== undefined) {
         next.usage.ttftMs = event.payload.ttftMs;

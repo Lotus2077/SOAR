@@ -102,7 +102,7 @@ describe("session reducer", () => {
     ).toBe(true);
   });
 
-  it("replays a complete local tool-calling trajectory deterministically", () => {
+  it("replays a complete local tool trajectory and excludes unscoped v1 cost from actual spend", () => {
     const sessionId = "session-1";
     const events: StoredSessionEvent[] = [
       stored(sessionId, 1, {
@@ -216,7 +216,7 @@ describe("session reducer", () => {
           inputTokens: 100,
           outputTokens: 20,
           reasoningTokens: 5,
-          costUsd: 0,
+          costUsd: 1.25,
           latencyMs: 650,
           ttftMs: 120,
         },

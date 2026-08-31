@@ -40,7 +40,6 @@
     "package:mac": "pnpm build && node scripts/package-mac.mjs",
     "check": "pnpm validate:readiness && pnpm validate:build-log && pnpm typecheck && pnpm test && pnpm build",
     "check:release-head": "node --experimental-strip-types scripts/verify-release-head.ts",
-    "check:cloud-key": "node scripts/check-openrouter-key.mjs",
     "validate:readiness": "node scripts/validate-readiness.mjs",
     "validate:build-log": "node --experimental-strip-types scripts/validate-build-log.ts"
   },

@@ -13,11 +13,26 @@ import {
   createSoarDatabase,
   type SoarDatabase,
 } from "../../src/main/database";
+import { buildInspectGitChangesResultV1 } from "../../src/main/change-acquisition-contracts";
 import { EventStore } from "../../src/main/event-store";
+import {
+  HYBRID_SIMULATION_CAMPAIGN_CREATED_AT,
+  HYBRID_SIMULATION_CONSENT_ID,
+  HYBRID_SIMULATION_DISCLOSURE_TEXT_SHA256,
+  HYBRID_SIMULATION_DISCLOSURE_VERSION,
+  HYBRID_SIMULATION_MAX_SPEND_MICROUSD,
+  HYBRID_SIMULATION_RESULT_MARKER,
+  HYBRID_SIMULATION_ROUTE,
+  type HybridSimulationSessionAuthorityV1,
+} from "../../src/shared/hybrid-simulation-contracts";
 import type {
   RoutingDecisionPayload,
   SessionEventData,
+  StoredSessionEvent,
 } from "../../src/shared/session-events";
+import { parseStoredSessionEvent } from "../../src/shared/session-events";
+import { replaySession } from "../../src/shared/session-reducer";
+import { reviewFixtureSnapshot } from "../helpers/review-event-fixture";
 
 const databases: SoarDatabase[] = [];
 
@@ -32,6 +47,40 @@ const PRICING_ID = "pricing-1";
 const RESERVATION_ID = "reservation-1";
 const CLOUD_ATTEMPT_ID = `${SESSION_ID}:attempt:2`;
 const INITIAL_DECISION_ID = `${SESSION_ID}:decision:1`;
+const SIMULATION_AUTHORITY_ID = "hybrid-simulation-authority-v1";
+
+const SIMULATION_AUTHORITY: HybridSimulationSessionAuthorityV1 = {
+  schemaVersion: "hybrid-simulation-session-authority-v1",
+  simulationAuthorityId: SIMULATION_AUTHORITY_ID,
+  disclosureVersion: HYBRID_SIMULATION_DISCLOSURE_VERSION,
+  disclosureTextSha256: HYBRID_SIMULATION_DISCLOSURE_TEXT_SHA256,
+  route: HYBRID_SIMULATION_ROUTE,
+  resultMarker: HYBRID_SIMULATION_RESULT_MARKER,
+  costScope: "simulation",
+  simulationConsent: HYBRID_SIMULATION_CONSENT_ID,
+  egressConsent: "none",
+  maxSimulatedSpendMicrousd: HYBRID_SIMULATION_MAX_SPEND_MICROUSD,
+  fakeLocalProvider: { providerId: LOCAL_PROVIDER, model: LOCAL_MODEL },
+  fakeCloudProvider: { providerId: CLOUD_PROVIDER, model: CLOUD_MODEL },
+  riskPolicyId: "review-risk-v1",
+  routerPolicyVersion: "hybrid-lease-router-v0",
+  healthSnapshotId: "health-1",
+  pricingSnapshotId: PRICING_ID,
+  credentialMetadataId: CREDENTIAL_ID,
+  campaignId: CAMPAIGN_ID,
+  campaignCreatedAt: HYBRID_SIMULATION_CAMPAIGN_CREATED_AT,
+};
+
+function egressAdmissionId(sessionId = SESSION_ID): string {
+  return `${sessionId}:egress:1`;
+}
+
+function simulationCostAuthority(sessionId = SESSION_ID) {
+  return {
+    costScope: "simulation" as const,
+    cloudEgressAdmissionId: egressAdmissionId(sessionId),
+  };
+}
 
 function eventIds(prefix: string, length: number): string[] {
   return Array.from({ length }, (_, index) => `${prefix}:event:${index + 1}`);
@@ -39,8 +88,8 @@ function eventIds(prefix: string, length: number): string[] {
 
 function budgetedStartEventIds(prefix: string) {
   return {
-    admitted: eventIds(`${prefix}:admitted`, 5),
-    denied: eventIds(`${prefix}:denied`, 4),
+    admitted: eventIds(`${prefix}:admitted`, 6),
+    denied: eventIds(`${prefix}:denied`, 5),
   };
 }
 
@@ -247,18 +296,25 @@ function createV2Session(
     title: "Atomic budget session",
     objective: "Collect evidence and synthesize.",
     workspaceRoot: "/tmp/workspace",
+    taskTrack: "change-review-v1",
+    completionObligations: {
+      requiredSuccessfulTools: ["inspect_git_changes"],
+      minimumVerifiedPathLineCitations: 0,
+    },
     executionPolicy: {
       schemaVersion: "agentic-execution-v2",
       inferenceRounds: 4,
       toolCalls: 2,
-      routingPolicy: "hybrid_v0",
+      routingPolicy: "hybrid_simulation_v1",
       maxProviderChanges: 2,
       maxPaidAttempts: 1,
-      maxPaidEpisodeMicrousd: options.episodeCapMicrousd ?? 250,
+      maxPaidEpisodeMicrousd: HYBRID_SIMULATION_MAX_SPEND_MICROUSD,
       maxEpisodeDurationMs: 120_000,
       attemptTimeoutMs: 30_000,
-      egressConsent: "session_cloud_synthesis_v1",
+      egressConsent: "none",
+      simulationConsent: HYBRID_SIMULATION_CONSENT_ID,
     },
+    hybridSimulation: SIMULATION_AUTHORITY,
     createdAt: "2026-08-29T00:00:00.000Z",
   });
   store.append(
@@ -291,6 +347,7 @@ function initialLocalStartEvents(sessionId = SESSION_ID): SessionEventData[] {
       payload: {
         decisionId,
         policyVersion: "hybrid-lease-router-v0",
+        costScope: "simulation",
         boundary: "session_start",
         phase: "investigation",
         action: "assign_new_lease",
@@ -355,8 +412,9 @@ function initialLocalStartEvents(sessionId = SESSION_ID): SessionEventData[] {
         phase: "investigation",
         requestedMaxOutputTokens: 512,
         allowTools: true,
-        allowedToolNames: ["read_text_file"],
+        allowedToolNames: ["inspect_git_changes"],
         requireToolCall: true,
+        costScope: "simulation",
       },
     },
   ];
@@ -392,7 +450,11 @@ function finishInitialEvidenceRound(store: EventStore, sessionId = SESSION_ID): 
             reasoningTokens: 0,
             reported: true,
           },
-          cost: { amountMicrousd: 0, provenance: "local_zero_cost_policy" },
+          cost: {
+            amountMicrousd: 0,
+            provenance: "local_zero_cost_policy",
+            costScope: "simulation",
+          },
           latencyMs: 10,
         },
       },
@@ -401,20 +463,18 @@ function finishInitialEvidenceRound(store: EventStore, sessionId = SESSION_ID): 
         payload: {
           toolCallId: `${sessionId}:tool:1`,
           messageId,
-          name: "read_text_file",
-          arguments: { relativePath: "README.md" },
+          name: "inspect_git_changes",
+          arguments: { schemaVersion: "inspect-git-changes-v1" },
         },
       },
       {
         type: "tool.call.completed",
         payload: {
           toolCallId: `${sessionId}:tool:1`,
-          name: "read_text_file",
+          name: "inspect_git_changes",
           content: JSON.stringify({
             ok: true,
-            text: "evidence",
-            bytes: 8,
-            truncated: false,
+            ...buildInspectGitChangesResultV1(reviewFixtureSnapshot()),
           }),
           isError: false,
           durationMs: 1,
@@ -449,6 +509,7 @@ function setup(options: {
     automaticStopMicrousd:
       options.campaignAutomaticStopMicrousd ?? 90_000_000,
     hardCeilingMicrousd: 100_000_000,
+    costScope: "simulation",
     createdAt: "2026-08-29T00:00:00.000Z",
   });
   const attempts = new AttemptUnitOfWork(ledger, {
@@ -476,6 +537,7 @@ function makeEvidenceReady(options: {
     createdAt: "2026-08-29T00:00:02.000Z",
     eventIds: eventIds("initial", initial.length),
     events: initial,
+    costScope: "simulation",
   });
   finishInitialEvidenceRound(fixture.store);
   return fixture;
@@ -512,10 +574,27 @@ function cloudStartEvents(
     const leaseId = `${sessionId}:lease:2`;
     return [
       {
+        type: "cloud.egress.admission.recorded",
+        payload: {
+          schemaVersion: "cloud-egress-admission-record-v1",
+          admissionId: egressAdmissionId(sessionId),
+          policyVersion: "cloud-egress-policy-v1",
+          decision: "pass",
+          reasonCodes: [],
+          messagesSemanticSha256: "4".repeat(64),
+          provenanceSemanticSha256: "f".repeat(64),
+          checkpointId,
+          simulationAuthorityId: SIMULATION_AUTHORITY_ID,
+          evaluatedAt: "2026-08-29T00:00:04.000Z",
+        },
+      },
+      {
         type: "routing.decision.recorded",
         payload: {
           decisionId,
           policyVersion: "hybrid-lease-router-v0",
+          costScope: "simulation",
+          cloudEgressAdmissionId: egressAdmissionId(sessionId),
           boundary: "evidence_complete",
           phase: "synthesis",
           action: "assign_new_lease",
@@ -544,6 +623,7 @@ function cloudStartEvents(
           checkpointId,
           packetSha256: "3".repeat(64),
           messagesSha256: "4".repeat(64),
+          provenanceSemanticSha256: "f".repeat(64),
         },
       },
       {
@@ -599,6 +679,8 @@ function cloudStartEvents(
           allowTools: false,
           requireToolCall: false,
           budgetReservationId: reservationId,
+          costScope: "simulation",
+          cloudEgressAdmissionId: egressAdmissionId(sessionId),
         },
       },
     ];
@@ -606,10 +688,27 @@ function cloudStartEvents(
 
   return [
     {
+      type: "cloud.egress.admission.recorded",
+      payload: {
+        schemaVersion: "cloud-egress-admission-record-v1",
+        admissionId: egressAdmissionId(sessionId),
+        policyVersion: "cloud-egress-policy-v1",
+        decision: "pass",
+        reasonCodes: [],
+        messagesSemanticSha256: "6".repeat(64),
+        provenanceSemanticSha256: "f".repeat(64),
+        checkpointId: `${sessionId}:proposal:2`,
+        simulationAuthorityId: SIMULATION_AUTHORITY_ID,
+        evaluatedAt: "2026-08-29T00:00:04.000Z",
+      },
+    },
+    {
       type: "routing.decision.recorded",
       payload: {
         decisionId,
         policyVersion: "hybrid-lease-router-v0",
+        costScope: "simulation",
+        cloudEgressAdmissionId: egressAdmissionId(sessionId),
         boundary: "evidence_complete",
         phase: "synthesis",
         action: "retain_lease",
@@ -640,6 +739,7 @@ function cloudStartEvents(
         proposalCheckpointId: `${sessionId}:proposal:2`,
         proposalPacketSha256: "5".repeat(64),
         proposalMessagesSha256: "6".repeat(64),
+        provenanceSemanticSha256: "f".repeat(64),
       },
     },
     {
@@ -682,6 +782,8 @@ function cloudStartEvents(
         requestedMaxOutputTokens: 512,
         allowTools: false,
         requireToolCall: false,
+        costScope: "simulation",
+        cloudEgressAdmissionId: egressAdmissionId(sessionId),
       },
     },
   ];
@@ -700,6 +802,7 @@ function commitCloudStart(
     attemptId: CLOUD_ATTEMPT_ID,
     providerId: CLOUD_PROVIDER,
     pricingSnapshotId: PRICING_ID,
+    ...simulationCostAuthority(),
     projection: projection(),
     buildEvents: cloudStartEvents,
   });
@@ -741,6 +844,7 @@ function successfulCloudFinishEvents(options: {
           amountMicrousd: amount,
           provenance: options.provenance ?? "host_pricing_snapshot",
           reservationId: RESERVATION_ID,
+          costScope: "simulation",
         },
         latencyMs: 20,
       },
@@ -760,6 +864,72 @@ afterEach(() => {
 });
 
 describe("AttemptUnitOfWork", () => {
+  it("rejects a simulation route whose candidate escapes the persisted fake-provider authority", () => {
+    const fixture = setup();
+    const events = structuredClone(initialLocalStartEvents());
+    const decision = events[0];
+    if (decision?.type !== "routing.decision.recorded") {
+      throw new Error("Missing initial routing decision fixture.");
+    }
+    decision.payload.candidateProviderIds = [
+      LOCAL_PROVIDER,
+      "third-provider",
+    ];
+    const localProvider = decision.payload.routerInputSnapshot?.providers[0];
+    if (localProvider === undefined || decision.payload.routerInputSnapshot === undefined) {
+      throw new Error("Missing initial provider snapshot fixture.");
+    }
+    decision.payload.routerInputSnapshot.providers.push({
+      ...localProvider,
+      providerId: "third-provider",
+      model: "third-model",
+    });
+
+    expect(() =>
+      fixture.store.appendMany(SESSION_ID, events, {
+        expectedSequence: 3,
+        eventIds: eventIds("authority-escape", events.length),
+        createdAt: "2026-08-29T00:00:02.000Z",
+      }),
+    ).toThrow(/persisted fake-provider authority/);
+    expect(fixture.store.requireSession(SESSION_ID).lastSequence).toBe(3);
+  });
+
+  it("rejects a forged legacy fake actual/no-egress bypass before any transaction or event work", () => {
+    const fixture = setup();
+    const beforeRows = fixture.database
+      .prepare("SELECT COUNT(*) AS count FROM budget_ledger_entries")
+      .get();
+    let built = false;
+    expect(() =>
+      fixture.attempts.commitBudgetedStart({
+        sessionId: SESSION_ID,
+        expectedSequence: 3,
+        createdAt: "2026-08-29T00:00:02.000Z",
+        eventIds: budgetedStartEventIds("actual-forbidden"),
+        campaignId: CAMPAIGN_ID,
+        reservationId: "actual-reservation",
+        attemptId: "actual-attempt",
+        providerId: CLOUD_PROVIDER,
+        pricingSnapshotId: PRICING_ID,
+        costScope: "actual",
+        legacyFakeHybridV0: true,
+        projection: projection(),
+        buildEvents: () => {
+          built = true;
+          return [];
+        },
+      } as Parameters<typeof fixture.attempts.commitBudgetedStart>[0]),
+    ).toThrow(/Actual cloud dispatch is not authorized/);
+    expect(built).toBe(false);
+    expect(fixture.store.requireSession(SESSION_ID).lastSequence).toBe(3);
+    expect(
+      fixture.database
+        .prepare("SELECT COUNT(*) AS count FROM budget_ledger_entries")
+        .get(),
+    ).toEqual(beforeRows);
+  });
+
   it("commits a local start with preallocated envelope IDs and no budget row", () => {
     const { store, ledger, attempts } = setup();
     const events = initialLocalStartEvents();
@@ -770,6 +940,7 @@ describe("AttemptUnitOfWork", () => {
       createdAt: "2026-08-29T00:00:02.000Z",
       eventIds: ids,
       events,
+      costScope: "simulation",
     });
     expect(committed).toMatchObject({
       attemptId: `${SESSION_ID}:attempt:1`,
@@ -799,6 +970,7 @@ describe("AttemptUnitOfWork", () => {
           createdAt: "2026-08-29T00:00:02.000Z",
           eventIds: eventIds(`fault-local-${point}`, events.length),
           events,
+          costScope: "simulation",
         }),
       ).toThrow(`fault:${point}`);
       expect(fixture.store.requireSession(SESSION_ID).lastSequence).toBe(3);
@@ -816,6 +988,7 @@ describe("AttemptUnitOfWork", () => {
         createdAt: "2026-08-29T00:00:03.000Z",
         eventIds: eventIds("stale-local-snapshot", events.length),
         events,
+        costScope: "simulation",
       }),
     ).toThrow(/router snapshot asOf to match the atomic batch timestamp/u);
     expect(fixture.store.requireSession(SESSION_ID).lastSequence).toBe(3);
@@ -839,6 +1012,7 @@ describe("AttemptUnitOfWork", () => {
         createdAt: "2026-08-29T00:00:02.000Z",
         eventIds: eventIds("widened-local-start", widened.length),
         events: widened,
+        costScope: "simulation",
       }),
     ).toThrow(/exact initial, routed, or retained-lease/);
     expect(fixture.store.requireSession(SESSION_ID).lastSequence).toBe(3);
@@ -849,6 +1023,7 @@ describe("AttemptUnitOfWork", () => {
       createdAt: "2026-08-29T00:00:02.000Z",
       eventIds: eventIds("valid-local-start", startEvents.length),
       events: startEvents,
+      costScope: "simulation",
     });
     const pricedFinish: SessionEventData[] = [
       {
@@ -876,7 +1051,11 @@ describe("AttemptUnitOfWork", () => {
             reasoningTokens: 0,
             reported: true,
           },
-          cost: { amountMicrousd: 1, provenance: "provider_reported" },
+          cost: {
+            amountMicrousd: 1,
+            provenance: "provider_reported",
+            costScope: "simulation",
+          },
           latencyMs: 1,
         },
       },
@@ -911,7 +1090,7 @@ describe("AttemptUnitOfWork", () => {
         amountMicrousd: 250,
       },
     ]);
-    expect(fixture.store.requireSession(SESSION_ID).lastSequence).toBe(17);
+    expect(fixture.store.requireSession(SESSION_ID).lastSequence).toBe(18);
     expect(fixture.store.replay(SESSION_ID)).toEqual(
       fixture.store.getProjectedState(SESSION_ID),
     );
@@ -930,8 +1109,20 @@ describe("AttemptUnitOfWork", () => {
         attemptId: CLOUD_ATTEMPT_ID,
         providerId: CLOUD_PROVIDER,
         pricingSnapshotId: PRICING_ID,
+        ...simulationCostAuthority(),
         projection: projection(),
-        buildEvents: cloudStartEvents,
+        buildEvents: (resolution) =>
+          cloudStartEvents(resolution).map((event) =>
+            event.type === "cloud.egress.admission.recorded"
+              ? {
+                  ...event,
+                  payload: {
+                    ...event.payload,
+                    evaluatedAt: "2026-08-29T00:00:05.000Z",
+                  },
+                }
+              : event,
+          ),
       }),
     ).toThrow(/router snapshot asOf to match the atomic batch timestamp/u);
     expect(fixture.store.requireSession(SESSION_ID).lastSequence).toBe(12);
@@ -948,6 +1139,7 @@ describe("AttemptUnitOfWork", () => {
         attemptId: "orphan-attempt",
         providerId: CLOUD_PROVIDER,
         pricingSnapshotId: PRICING_ID,
+        ...simulationCostAuthority(),
         episodeCapMicrousd: 250,
         projection: projection(),
         createdAt: "2026-08-29T00:00:04.000Z",
@@ -997,7 +1189,7 @@ describe("AttemptUnitOfWork", () => {
     );
     const events = successfulCloudFinishEvents({ amountMicrousd: 126 });
     fixture.store.appendMany(SESSION_ID, events, {
-      expectedSequence: 17,
+      expectedSequence: 18,
       createdAt: "2026-08-29T00:00:05.000Z",
       eventIds: eventIds("false-host-price", events.length),
     });
@@ -1027,7 +1219,7 @@ describe("AttemptUnitOfWork", () => {
       provenance: "provider_reported",
     });
     fixture.store.appendMany(SESSION_ID, events, {
-      expectedSequence: 17,
+      expectedSequence: 18,
       createdAt: "2026-08-29T00:00:05.000Z",
       eventIds: eventIds("unfailed-overrun", events.length),
     });
@@ -1051,6 +1243,7 @@ describe("AttemptUnitOfWork", () => {
           attemptId: CLOUD_ATTEMPT_ID,
           providerId: CLOUD_PROVIDER,
           pricingSnapshotId: PRICING_ID,
+          ...simulationCostAuthority(),
           episodeCapMicrousd: 250,
           projection: projection(),
           createdAt: "2026-08-29T00:00:04.000Z",
@@ -1077,8 +1270,10 @@ describe("AttemptUnitOfWork", () => {
     );
   });
 
-  it("atomically records a cap-plus-one denial and starts retained local synthesis", () => {
-    const fixture = makeEvidenceReady({ episodeCapMicrousd: 249 });
+  it("atomically records a locked campaign denial and starts retained local synthesis", () => {
+    const fixture = makeEvidenceReady({
+      campaignAutomaticStopMicrousd: 249,
+    });
     const committed = fixture.attempts.commitBudgetedStart({
       sessionId: SESSION_ID,
       expectedSequence: 12,
@@ -1089,25 +1284,103 @@ describe("AttemptUnitOfWork", () => {
       attemptId: CLOUD_ATTEMPT_ID,
       providerId: CLOUD_PROVIDER,
       pricingSnapshotId: PRICING_ID,
+      ...simulationCostAuthority(),
       projection: projection(),
       buildEvents: cloudStartEvents,
     });
     expect(committed).toMatchObject({
       providerId: LOCAL_PROVIDER,
       paidDispatchAuthorized: false,
-      budgetResolution: { status: "denied", reason: "episode_cap" },
+      budgetResolution: {
+        status: "denied",
+        reason: "campaign_automatic_stop",
+      },
     });
     expect(fixture.ledger.listOutstandingReservations()).toEqual([]);
     expect(fixture.store.getProjectedState(SESSION_ID).routingDecisions.at(-1)).toMatchObject({
       reasonCode: "budget_denial",
       triggerFacts: [
-        { key: "budget_denial_reason", value: "episode_cap" },
+        {
+          key: "budget_denial_reason",
+          value: "campaign_automatic_stop",
+        },
         { key: "router_evidence_ready", value: true },
         {
           key: "router_successful_investigation_attempt_count",
           value: 1,
         },
       ],
+    });
+  });
+
+  it("atomically persists pre-budget denial and retained Local start with zero reservation", () => {
+    const fixture = makeEvidenceReady({
+      campaignAutomaticStopMicrousd: 249,
+    });
+    const lockedDenial = fixture.ledger.runImmediate((transaction) =>
+      transaction.reserve({
+        campaignId: CAMPAIGN_ID,
+        reservationId: "unused-denied-reservation",
+        sessionId: SESSION_ID,
+        attemptId: CLOUD_ATTEMPT_ID,
+        providerId: CLOUD_PROVIDER,
+        pricingSnapshotId: PRICING_ID,
+        ...simulationCostAuthority(),
+        episodeCapMicrousd: HYBRID_SIMULATION_MAX_SPEND_MICROUSD,
+        projection: projection(),
+        createdAt: "2026-08-29T00:00:04.000Z",
+      }),
+    );
+    if (lockedDenial.status !== "denied") {
+      throw new Error("expected a no-row locked denial fixture");
+    }
+    const events = cloudStartEvents(lockedDenial).map((event) => {
+      if (event.type !== "routing.decision.recorded") return event;
+      const {
+        billing: _billing,
+        campaignId: _campaignId,
+        pricingSnapshotId: _pricingSnapshotId,
+        healthSnapshotId: _healthSnapshotId,
+        ...payload
+      } = event.payload;
+      return {
+        ...event,
+        payload: {
+          ...payload,
+          reasonCode: "missing_credential" as const,
+          triggerFacts: payload.triggerFacts.filter(
+            (fact) => fact.key !== "budget_denial_reason",
+          ),
+          admission: {
+            capability: { status: "passed" as const, reasonCode: "capability_ok" as const },
+            credential: { status: "denied" as const, reasonCode: "missing_credential" as const },
+            health: { status: "not_applicable" as const, reasonCode: "not_applicable" as const },
+            pricing: { status: "not_applicable" as const, reasonCode: "not_applicable" as const },
+            egress: { status: "passed" as const, reasonCode: "egress_ok" as const },
+            deadline: { status: "passed" as const, reasonCode: "deadline_ok" as const },
+            budget: { status: "not_applicable" as const, reasonCode: "not_applicable" as const },
+          },
+          credentialMetadataId: CREDENTIAL_ID,
+        },
+      };
+    });
+
+    const committed = fixture.attempts.commitLocalStart({
+      sessionId: SESSION_ID,
+      expectedSequence: 12,
+      createdAt: "2026-08-29T00:00:04.000Z",
+      eventIds: eventIds("pre-budget-denial", 5),
+      events,
+      ...simulationCostAuthority(),
+    });
+    expect(committed).toMatchObject({
+      providerId: LOCAL_PROVIDER,
+      paidDispatchAuthorized: false,
+    });
+    expect(fixture.ledger.listOutstandingReservations()).toEqual([]);
+    expect(fixture.store.replay(SESSION_ID).routingDecisions.at(-1)).toMatchObject({
+      reasonCode: "missing_credential",
+      cloudEgressAdmissionId: egressAdmissionId(),
     });
   });
 
@@ -1131,6 +1404,7 @@ describe("AttemptUnitOfWork", () => {
       createdAt: "2026-08-29T00:00:02.000Z",
       eventIds: eventIds("competing-initial", competingInitial.length),
       events: competingInitial,
+      costScope: "simulation",
     });
     finishInitialEvidenceRound(fixture.store, competingSessionId);
 
@@ -1146,6 +1420,7 @@ describe("AttemptUnitOfWork", () => {
       attemptId: competingAttemptId,
       providerId: CLOUD_PROVIDER,
       pricingSnapshotId: PRICING_ID,
+      ...simulationCostAuthority(competingSessionId),
       projection: projection(),
       buildEvents: (resolution) =>
         cloudStartEvents(resolution, {
@@ -1170,6 +1445,7 @@ describe("AttemptUnitOfWork", () => {
       attemptId: CLOUD_ATTEMPT_ID,
       providerId: CLOUD_PROVIDER,
       pricingSnapshotId: PRICING_ID,
+      ...simulationCostAuthority(),
       projection: projection(),
       buildEvents: cloudStartEvents,
     });
@@ -1226,7 +1502,7 @@ describe("AttemptUnitOfWork", () => {
     const events = successfulCloudFinishEvents();
     const committed = fixture.attempts.commitAttemptFinish({
       sessionId: SESSION_ID,
-      expectedSequence: 17,
+      expectedSequence: 18,
       createdAt: "2026-08-29T00:00:05.000Z",
       eventIds: eventIds("cloud-finish", events.length),
       events,
@@ -1266,6 +1542,7 @@ describe("AttemptUnitOfWork", () => {
             amountMicrousd: 0,
             provenance: "host_pricing_snapshot",
             reservationId: RESERVATION_ID,
+            costScope: "simulation",
           },
           latencyMs: 0,
           errorCode: "pre_dispatch_failure",
@@ -1278,7 +1555,7 @@ describe("AttemptUnitOfWork", () => {
     ];
     const committed = fixture.attempts.commitAttemptFinish({
       sessionId: SESSION_ID,
-      expectedSequence: 17,
+      expectedSequence: 18,
       createdAt: "2026-08-29T00:00:05.000Z",
       eventIds: eventIds("released-finish", events.length),
       events,
@@ -1318,6 +1595,7 @@ describe("AttemptUnitOfWork", () => {
             amountMicrousd: 250,
             provenance: "reserved_unknown",
             reservationId: RESERVATION_ID,
+            costScope: "simulation",
           },
           latencyMs: 1,
           errorCode: "startup_recovery",
@@ -1330,7 +1608,7 @@ describe("AttemptUnitOfWork", () => {
     ];
     const input = {
       sessionId: SESSION_ID,
-      expectedSequence: 17,
+      expectedSequence: 18,
       createdAt: "2026-08-29T00:00:05.000Z",
       eventIds: eventIds("recovery", events.length),
       events,
@@ -1339,9 +1617,13 @@ describe("AttemptUnitOfWork", () => {
     const committed = fixture.attempts.commitRecoveryFinish(input);
     expect(committed.terminalBudgetEntry).toMatchObject({
       rowType: "settlement",
+      costScope: "simulation",
       amountMicrousd: 250,
       costProvenance: "reserved_unknown",
     });
+    expect(
+      fixture.store.replay(SESSION_ID).inferenceAttempts.at(-1)?.finished?.cost,
+    ).toMatchObject({ costScope: "simulation", amountMicrousd: 250 });
     expect(fixture.store.requireSession(SESSION_ID).status).toBe("interrupted");
     expect(fixture.ledger.listOutstandingReservations()).toEqual([]);
     expect(() => fixture.attempts.commitRecoveryFinish(input)).toThrow();
@@ -1365,7 +1647,7 @@ describe("AttemptUnitOfWork", () => {
     });
     const committed = fixture.attempts.commitAttemptFinish({
       sessionId: SESSION_ID,
-      expectedSequence: 17,
+      expectedSequence: 18,
       createdAt: "2026-08-29T00:00:05.000Z",
       eventIds: eventIds("overrun-finish", events.length),
       events,
@@ -1401,14 +1683,14 @@ describe("AttemptUnitOfWork", () => {
       expect(() =>
         faulting.commitAttemptFinish({
           sessionId: SESSION_ID,
-          expectedSequence: 17,
+          expectedSequence: 18,
           createdAt: "2026-08-29T00:00:05.000Z",
           eventIds: eventIds(`fault-finish-${point}`, events.length),
           events,
           terminalLedgerEntryId: `fault-terminal-${point}`,
         }),
       ).toThrow(`fault:${point}`);
-      expect(fixture.store.requireSession(SESSION_ID).lastSequence).toBe(17);
+      expect(fixture.store.requireSession(SESSION_ID).lastSequence).toBe(18);
       expect(fixture.ledger.listOutstandingReservations()).toHaveLength(1);
       expect(
         fixture.database
@@ -1437,14 +1719,14 @@ describe("AttemptUnitOfWork", () => {
       expect(() =>
         faulting.commitAttemptFinish({
           sessionId: SESSION_ID,
-          expectedSequence: 17,
+          expectedSequence: 18,
           createdAt: "2026-08-29T00:00:05.000Z",
           eventIds: eventIds(`fault-finish-${point}`, events.length),
           events,
           terminalLedgerEntryId: `fault-terminal-${point}`,
         }),
       ).toThrow(`fault:${point}`);
-      expect(fixture.store.requireSession(SESSION_ID).lastSequence).toBe(17);
+      expect(fixture.store.requireSession(SESSION_ID).lastSequence).toBe(18);
       expect(fixture.ledger.listOutstandingReservations()).toHaveLength(1);
       expect(
         fixture.database
@@ -1464,14 +1746,123 @@ describe("AttemptUnitOfWork", () => {
     expect(() =>
       fixture.attempts.commitAttemptFinish({
         sessionId: SESSION_ID,
-        expectedSequence: 17,
+        expectedSequence: 18,
         createdAt: "2026-08-29T00:00:05.000Z",
         eventIds: eventIds("forged-finish", events.length),
         events,
         terminalLedgerEntryId: "forged-settlement",
       }),
     ).toThrow(/does not match 125/);
-    expect(fixture.store.requireSession(SESSION_ID).lastSequence).toBe(17);
+    expect(fixture.store.requireSession(SESSION_ID).lastSequence).toBe(18);
     expect(fixture.ledger.listOutstandingReservations()).toHaveLength(1);
+  });
+
+  it("fails closed when simulation replay history is malformed, missing, duplicated, or cross-linked", () => {
+    const fixture = makeEvidenceReady();
+    commitCloudStart(fixture);
+    const canonical = fixture.store.getEvents(SESSION_ID);
+    expect(replaySession(canonical)).toEqual(
+      fixture.store.getProjectedState(SESSION_ID),
+    );
+
+    const canonicalAdmission = canonical.find(
+      (
+        event,
+      ): event is Extract<
+        StoredSessionEvent,
+        { type: "cloud.egress.admission.recorded" }
+      > => event.type === "cloud.egress.admission.recorded",
+    );
+    if (canonicalAdmission === undefined) {
+      throw new Error("missing canonical egress admission fixture");
+    }
+    expect(() =>
+      parseStoredSessionEvent({
+        ...canonicalAdmission,
+        payload: {
+          ...canonicalAdmission.payload,
+          rawWorkspacePath: "/private/forbidden",
+        },
+      }),
+    ).toThrow();
+
+    const missing = structuredClone(canonical);
+    const missingIndex = missing.findIndex(
+      (event) => event.type === "cloud.egress.admission.recorded",
+    );
+    missing.splice(missingIndex, 1);
+    for (let index = missingIndex; index < missing.length; index += 1) {
+      missing[index]!.sequence -= 1;
+    }
+    expect(() => replaySession(missing)).toThrow(
+      /does not match its immediate egress admission record/u,
+    );
+
+    const duplicated = structuredClone(canonical);
+    const duplicateIndex = duplicated.findIndex(
+      (event) => event.type === "cloud.egress.admission.recorded",
+    );
+    const duplicate = structuredClone(duplicated[duplicateIndex]!);
+    for (let index = duplicateIndex + 1; index < duplicated.length; index += 1) {
+      duplicated[index]!.sequence += 1;
+    }
+    duplicate.id = "duplicate-egress-admission-event";
+    duplicate.sequence += 1;
+    duplicated.splice(duplicateIndex + 1, 0, duplicate);
+    expect(() => replaySession(duplicated)).toThrow(
+      /must be followed by its routing decision|Duplicate cloud egress admission/u,
+    );
+
+    const wrongRecordHash = structuredClone(canonical);
+    const admission = wrongRecordHash.find(
+      (event) => event.type === "cloud.egress.admission.recorded",
+    );
+    if (admission?.type !== "cloud.egress.admission.recorded") {
+      throw new Error("missing cloned egress admission fixture");
+    }
+    admission.payload.messagesSemanticSha256 = "0".repeat(64);
+    expect(() => replaySession(wrongRecordHash)).toThrow(
+      /does not match its immediate egress admission record/u,
+    );
+
+    const wrongProvenanceHash = structuredClone(canonical);
+    const provenanceAdmission = wrongProvenanceHash.find(
+      (event) => event.type === "cloud.egress.admission.recorded",
+    );
+    if (provenanceAdmission?.type !== "cloud.egress.admission.recorded") {
+      throw new Error("missing cloned provenance admission fixture");
+    }
+    provenanceAdmission.payload.provenanceSemanticSha256 = "0".repeat(64);
+    expect(() => replaySession(wrongProvenanceHash)).toThrow(
+      /does not match its immediate egress admission record/u,
+    );
+
+    const wrongDecisionScope = structuredClone(canonical);
+    const decision = wrongDecisionScope.find(
+      (event) =>
+        event.type === "routing.decision.recorded" &&
+        event.payload.boundary === "evidence_complete",
+    );
+    if (decision?.type !== "routing.decision.recorded") {
+      throw new Error("missing cloned cloud routing decision fixture");
+    }
+    decision.payload.costScope = "actual";
+    expect(() => replaySession(wrongDecisionScope)).toThrow(
+      /explicit simulation cost scope/u,
+    );
+
+    const wrongAttemptLink = structuredClone(canonical);
+    const attempt = wrongAttemptLink.find(
+      (event) =>
+        event.type === "inference.attempt.started" &&
+        event.payload.attemptId === CLOUD_ATTEMPT_ID,
+    );
+    if (attempt?.type !== "inference.attempt.started") {
+      throw new Error("missing cloned cloud attempt fixture");
+    }
+    attempt.payload.cloudEgressAdmissionId = "other-egress-admission";
+    expect(() => replaySession(wrongAttemptLink)).toThrow(
+      /cost scope or egress admission does not match/u,
+    );
   });
 });

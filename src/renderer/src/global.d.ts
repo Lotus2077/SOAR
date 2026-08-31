@@ -26,6 +26,8 @@ declare global {
     status: SoarSessionStatus;
     createdAt: string;
     updatedAt: string;
+    executionMode?: "local" | "hybrid_simulation";
+    simulationMarker?: string;
   }
 
   interface SoarSessionSnapshot extends SoarSessionSummary {

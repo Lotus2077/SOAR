@@ -11,6 +11,11 @@ import { CloudCredentialSetupService } from "./cloud-credential-service";
 import { EphemeralSetupCredentialStore } from "./providers/ephemeral-setup-credential-store";
 import { MacOsKeychainCredentialSetupStore } from "./providers/macos-keychain-credential-store";
 import { createRuntimeProviderCatalog } from "./providers/runtime-catalog";
+import {
+  assertHybridSimulationRuntimeV1,
+  hybridSimulationAuthoritySnapshotV1,
+} from "./hybrid-simulation-runtime";
+import { HybridSimulationConsentChallengeStore } from "./hybrid-simulation-consent";
 import { recoverRunningSessions } from "./recovery";
 import { toRendererSessionUpdate } from "./session-view";
 import { IPC_CHANNELS } from "../shared/contracts";
@@ -77,10 +82,26 @@ async function bootstrap(): Promise<void> {
   recoverRunningSessions(store);
 
   const providerCatalog = createRuntimeProviderCatalog(config);
+  const hybridSimulationConsent =
+    providerCatalog.hybridSimulationRuntime === undefined
+      ? undefined
+      : new HybridSimulationConsentChallengeStore({
+          authority: hybridSimulationAuthoritySnapshotV1(
+            providerCatalog.hybridSimulationRuntime,
+            assertHybridSimulationRuntimeV1({
+              runtime: providerCatalog.hybridSimulationRuntime,
+              providerRegistry: providerCatalog.registry,
+              defaultLocalProviderId: providerCatalog.defaultLocalProviderId,
+            }),
+          ),
+        });
   const runner = new SessionRunner({
     store,
     providerRegistry: providerCatalog.registry,
     defaultLocalProviderId: providerCatalog.defaultLocalProviderId,
+    ...(providerCatalog.hybridSimulationRuntime === undefined
+      ? {}
+      : { hybridSimulationRuntime: providerCatalog.hybridSimulationRuntime }),
     limits: config.limits,
     context: config.context,
     localReviewSensitiveValues: [
@@ -103,6 +124,9 @@ async function bootstrap(): Promise<void> {
     runner,
     config,
     cloudCredentialSetup,
+    ...(hybridSimulationConsent === undefined
+      ? {}
+      : { hybridSimulationConsent }),
   });
   createWindow();
 

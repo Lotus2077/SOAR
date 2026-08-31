@@ -1212,7 +1212,7 @@ describe("agentic-execution-v2 replay state machine", () => {
     });
   });
 
-  it("charges reserved_unknown at exactly the originating full reservation", () => {
+  it("keeps an unscoped reserved_unknown charge out of actual session spend", () => {
     const investigation = [
       created(),
       started(),
@@ -1280,7 +1280,15 @@ describe("agentic-execution-v2 replay state machine", () => {
 
     expect(state).toMatchObject({
       status: "interrupted",
-      usage: { costUsd: 0.000002 },
+      usage: { costUsd: 0 },
+      costScopes: {
+        actual: { reservedMicrousd: 0, settledMicrousd: 0 },
+        legacyUnclassified: {
+          reservedMicrousd: 2,
+          settledMicrousd: 2,
+          present: true,
+        },
+      },
       inferenceAttempts: [
         {},
         {

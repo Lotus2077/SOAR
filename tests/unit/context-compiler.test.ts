@@ -26,6 +26,7 @@ function session(messages: CanonicalMessage[]): SessionState {
     messages,
     routes: [],
     contextCompilations: [],
+    cloudEgressAdmissions: [],
     routingDecisions: [],
     inferenceAttempts: [],
     completionObligations: {
@@ -39,6 +40,15 @@ function session(messages: CanonicalMessage[]): SessionState {
       reasoningTokens: 400,
       costUsd: 0,
       latencyMs: 1_000,
+    },
+    costScopes: {
+      actual: { reservedMicrousd: 0, settledMicrousd: 0 },
+      simulation: { reservedMicrousd: 0, settledMicrousd: 0 },
+      legacyUnclassified: {
+        reservedMicrousd: 0,
+        settledMicrousd: 0,
+        present: false,
+      },
     },
   };
 }

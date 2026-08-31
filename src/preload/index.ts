@@ -13,6 +13,10 @@ const IPC_CHANNELS = {
   startSession: "soar:start-session",
   cancelSession: "soar:cancel-session",
   getReviewAvailability: "soar:get-review-availability",
+  issueHybridSimulationConsentChallenge:
+    "soar:issue-hybrid-simulation-consent-challenge",
+  invalidateHybridSimulationConsentChallenges:
+    "soar:invalidate-hybrid-simulation-consent-challenges",
   createChangeReviewSession: "soar:create-change-review-session",
   getChangeReviewView: "soar:get-change-review-view",
   getCloudSetupStatus: "soar:get-cloud-setup-status",
@@ -30,6 +34,15 @@ const api: SoarRendererApi = {
   cancelSession: (id) => ipcRenderer.invoke(IPC_CHANNELS.cancelSession, id),
   getReviewAvailability: () =>
     ipcRenderer.invoke(IPC_CHANNELS.getReviewAvailability),
+  issueHybridSimulationConsentChallenge: (input) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.issueHybridSimulationConsentChallenge,
+      input,
+    ),
+  invalidateHybridSimulationConsentChallenges: () =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.invalidateHybridSimulationConsentChallenges,
+    ),
   createChangeReviewSession: (input) =>
     ipcRenderer.invoke(IPC_CHANNELS.createChangeReviewSession, input),
   getChangeReviewView: (id) =>

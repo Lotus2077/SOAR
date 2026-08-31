@@ -82,6 +82,8 @@ describe("loadConfig", () => {
       maxInputTokens: 18_432,
       safetyMargin: 0.2,
     });
+    expect(config.hybridSimulationEnabled).toBe(false);
+    expect(config.fakeCloudScenario).toBe("success");
   });
 
   it("keeps explicit process environment values authoritative", async () => {
@@ -194,6 +196,54 @@ describe("loadConfig", () => {
         },
       }),
     ).toThrow();
+  });
+
+  it("admits Hybrid simulation authority only in explicit fake mode", async () => {
+    const roots = await createConfigRoots();
+
+    expect(() =>
+      loadConfig({
+        ...roots,
+        environment: { SOAR_ENABLE_HYBRID_SIMULATION: "true" },
+      }),
+    ).toThrow(/requires SOAR_PROVIDER_MODE=fake/u);
+
+    expect(
+      loadConfig({
+        ...roots,
+        environment: {
+          SOAR_PROVIDER_MODE: "fake",
+          SOAR_ENABLE_HYBRID_SIMULATION: "true",
+        },
+      }),
+    ).toMatchObject({
+      providerMode: "fake",
+      hybridSimulationEnabled: true,
+      fakeCloudScenario: "success",
+    });
+
+    expect(() =>
+      loadConfig({
+        ...roots,
+        environment: {
+          SOAR_PROVIDER_MODE: "fake",
+          SOAR_ENABLE_HYBRID_SIMULATION: "true",
+          SOAR_HYBRID_SIMULATION_FAKE_CLOUD_SCENARIO: "provider_error",
+        },
+      }),
+    ).toThrow(/requires fake Hybrid simulation with SOAR_TEST_WORKSPACE/u);
+
+    expect(
+      loadConfig({
+        ...roots,
+        environment: {
+          SOAR_PROVIDER_MODE: "fake",
+          SOAR_ENABLE_HYBRID_SIMULATION: "true",
+          SOAR_TEST_WORKSPACE: roots.cwd,
+          SOAR_HYBRID_SIMULATION_FAKE_CLOUD_SCENARIO: "provider_error",
+        },
+      }).fakeCloudScenario,
+    ).toBe("provider_error");
   });
 
   it("requires an HTTP(S) vLLM API base at the exact /v1 path", async () => {

@@ -1,7 +1,7 @@
 # PR6B0 Hybrid Simulation Vertical Slice v1
 
-Status: **Approved for local `$0` implementation only; not Implemented,
-Verified, or Released**
+Status: **Implemented locally in the working tree; implementation evidence is
+not closed; not Verified or Released**
 
 - Plan ID: `pr6b0-hybrid-simulation-v1-plan-1`
 - Parent plan: `hybrid-lease-router-v0-plan-2`
@@ -10,12 +10,53 @@ Verified, or Released**
 - Proposed: 2026-08-31
 - Approved: 2026-09-01 by the project owner in the project task
 - Approval ledger: `BL-20260901-0052-pr6b0-hybrid-simulation-approved`
+- Approval checkpoint: `be8e4c71ca8892988caae28e2717ede2d5048165`
+- Implemented locally: 2026-09-01; no implementation revision or verification
+  closure is claimed yet
 - Project log: [BUILD_LOG.md](../BUILD_LOG.md)
 
 The approval is limited to the fake-provider simulation described in this
 plan. It authorizes no credential access, configured vLLM or external-provider
 request, real repository egress, actual monetary reservation, or paid spend.
 PR6B1, PR6B2, and PR6B3 remain separately gated.
+
+## Current truth after local implementation
+
+`Implemented locally` is a source-state statement only. The working tree now
+contains the approved fake-only runtime, persisted contracts, app flow, and
+deterministic tests, but the pre-commit and post-commit evidence lists below
+have not been closed as a verified implementation revision.
+
+The local implementation includes:
+
+- main-process-only construction behind provider mode `fake` plus the explicit
+  simulation flag; normal vLLM configuration remains Local-only and rejects
+  simulation authority;
+- the branded Fake Local and no-tools Fake Cloud providers, strict hybrid
+  change-review coordinator, immediate semantic egress admission, immutable
+  simulation-scoped budget/event/recovery records, one eligible Local fallback,
+  cancellation, freshness rejection, and replay without redispatch;
+- single-use workspace-bound disclosure challenges; main returns the bounded
+  public disclosure/cap/expiry, while the renderer's create request returns
+  only the approved workspace/route, opaque challenge ID, and acknowledgement;
+- Local-default and Hybrid simulation selection, exact fake-only markers,
+  phase/provider/reason/fallback visibility, simulated cap/reserved/settled
+  values with settlement provenance, `$0` actual external spend, stamped copy,
+  history/replay attribution, and fail-closed projection; and
+- removal of the executable CLI credential-reader/provider-check named in the
+  approved plan.
+
+No credential or Keychain item was needed to implement this path. The path has
+no configured-vLLM or external-provider transport and no authority for actual
+reservation or spend. The `$0.25` value is simulation-scoped only. PR6B1,
+PR6B2, PR6B3, real repository egress, and every paid call remain unapproved.
+
+Still pending are a clean final local validation/package/Electron closure,
+exact-SHA Linux and macOS CI, independent final P0/P1 review, and the separate
+manual VoiceOver, keyboard-only, 200% zoom, light/dark contrast, and reduced-
+motion record. Automated assertions do not replace those manual checks. Until
+those gates close, this plan must not be described as Verified or Released and
+does not establish production Hybrid readiness.
 
 ## Decision
 
@@ -483,16 +524,23 @@ identity, actual model capability, price/limit truth, paid-attempt accounting,
 review quality improvement, cost saving, latency improvement, hostile-process
 resistance, Developer ID/notarization, or release readiness.
 
-## Approval and next gate
+## Approval history and next gate
 
-Before implementation, this proposed plan and its `Proposed` build-log entry
-must be validated, committed, pushed, and pass exact-SHA Linux and macOS CI.
-The project owner must then explicitly reply:
+Before implementation, this plan and its `Proposed` build-log entry were
+validated, committed, pushed, and passed exact-SHA Linux and macOS CI. The
+project owner then explicitly replied:
 
 > Approve `pr6b0-hybrid-simulation-v1-plan-1` for local `$0` implementation
 > only.
 
-That approval must be appended to the build log, committed, pushed, and pass
-its own exact-SHA Linux and macOS CI checkpoint before implementation begins.
-Approval of PR6B0 does not approve PR6B1, PR6B2, PR6B3, any credential read or
-Keychain mutation, provider contact, repository egress, or paid call.
+That approval was appended to the build log at checkpoint
+`be8e4c71ca8892988caae28e2717ede2d5048165`; GitHub Actions run `33416882090`
+passed its Linux and macOS jobs before implementation began. This remains
+approval evidence, not implementation or verification evidence.
+
+The next gate is to close every applicable pre-commit item without broadening
+the approved authority, record the honest local result in the append-only build
+log, commit the implementation, and then satisfy the post-commit exact-SHA
+verification list. Approval of PR6B0 does not approve PR6B1, PR6B2, PR6B3, any
+credential read or Keychain mutation, external-provider contact, real
+repository egress, actual reservation, or paid call.

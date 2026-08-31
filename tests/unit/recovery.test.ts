@@ -189,6 +189,7 @@ describe("recoverRunningSessions", () => {
       openingExposureMicrousd: 0,
       automaticStopMicrousd: 1_000,
       hardCeilingMicrousd: 1_000,
+      costScope: "actual",
       createdAt: "2026-08-29T00:00:00.000Z",
     });
     ledger.runImmediate((transaction) =>
@@ -199,6 +200,8 @@ describe("recoverRunningSessions", () => {
         attemptId: "orphan-attempt",
         providerId: "fake-cloud",
         pricingSnapshotId: "orphan-pricing",
+        costScope: "actual",
+        cloudEgressAdmissionId: "orphan-egress-admission",
         episodeCapMicrousd: 250,
         projection: {
           billableInputTokens: 100,

@@ -19,6 +19,10 @@ import {
   replaySession,
   type SessionState,
 } from "../shared/session-reducer";
+import {
+  HybridSimulationSessionAuthorityV1Schema,
+  type HybridSimulationSessionAuthorityV1,
+} from "../shared/hybrid-simulation-contracts";
 
 interface SessionRow {
   id: string;
@@ -96,6 +100,7 @@ export interface CreateSessionInput {
   taskTrack?: AppTaskTrack;
   completionObligations?: CompletionObligations;
   executionPolicy?: AgenticExecutionPolicy;
+  hybridSimulation?: HybridSimulationSessionAuthorityV1;
   createdAt?: string;
 }
 
@@ -196,12 +201,16 @@ function parseState(row: SessionRow): SessionState {
   const parsed = JSON.parse(row.state_json) as Omit<
     SessionState,
     | "contextCompilations"
+    | "cloudEgressAdmissions"
+    | "costScopes"
     | "completionObligations"
     | "completionChecks"
     | "routingDecisions"
     | "inferenceAttempts"
   > & {
     contextCompilations?: SessionState["contextCompilations"];
+    cloudEgressAdmissions?: SessionState["cloudEgressAdmissions"];
+    costScopes?: SessionState["costScopes"];
     completionObligations?: SessionState["completionObligations"];
     completionChecks?: SessionState["completionChecks"];
     routingDecisions?: SessionState["routingDecisions"];
@@ -220,6 +229,14 @@ function parseState(row: SessionRow): SessionState {
     !Array.isArray(parsed.routingDecisions)
   ) {
     throw new Error(`Session projection ${row.id} has invalid routing decisions`);
+  }
+  if (
+    parsed.cloudEgressAdmissions !== undefined &&
+    !Array.isArray(parsed.cloudEgressAdmissions)
+  ) {
+    throw new Error(
+      `Session projection ${row.id} has invalid cloud egress admissions`,
+    );
   }
   if (
     parsed.inferenceAttempts !== undefined &&
@@ -245,6 +262,12 @@ function parseState(row: SessionRow): SessionState {
     parsed.executionPolicy === undefined
       ? undefined
       : AgenticExecutionPolicySchema.parse(parsed.executionPolicy);
+  const hybridSimulation =
+    parsed.hybridSimulation === undefined
+      ? undefined
+      : HybridSimulationSessionAuthorityV1Schema.parse(
+          parsed.hybridSimulation,
+        );
   const taskTrack =
     parsed.taskTrack === undefined
       ? undefined
@@ -254,6 +277,16 @@ function parseState(row: SessionRow): SessionState {
     // Projections written before context compilation telemetry was introduced
     // remain readable and are upgraded on the next append.
     contextCompilations: parsed.contextCompilations ?? [],
+    cloudEgressAdmissions: parsed.cloudEgressAdmissions ?? [],
+    costScopes: parsed.costScopes ?? {
+      actual: { reservedMicrousd: 0, settledMicrousd: 0 },
+      simulation: { reservedMicrousd: 0, settledMicrousd: 0 },
+      legacyUnclassified: {
+        reservedMicrousd: 0,
+        settledMicrousd: 0,
+        present: false,
+      },
+    },
     routingDecisions: parsed.routingDecisions ?? [],
     inferenceAttempts: parsed.inferenceAttempts ?? [],
     completionObligations: {
@@ -268,6 +301,9 @@ function parseState(row: SessionRow): SessionState {
     ...(executionPolicy === undefined
       ? {}
       : { executionPolicy: { ...executionPolicy } }),
+    ...(hybridSimulation === undefined
+      ? {}
+      : { hybridSimulation: structuredClone(hybridSimulation) }),
   };
   if (state.id !== row.id || state.lastSequence !== row.last_sequence) {
     throw new Error(`Session projection ${row.id} is inconsistent`);
@@ -301,6 +337,9 @@ export class EventStore {
               ...(input.executionPolicy === undefined
                 ? {}
                 : { executionPolicy: input.executionPolicy }),
+              ...(input.hybridSimulation === undefined
+                ? {}
+                : { hybridSimulation: input.hybridSimulation }),
             },
           },
           createdAt,

@@ -1,3 +1,11 @@
+import {
+  closeSync,
+  constants as fsConstants,
+  fstatSync,
+  openSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import { stat, realpath } from "node:fs/promises";
 import path from "node:path";
 
@@ -13,6 +21,7 @@ import {
   IPC_CHANNELS,
   createChangeReviewSessionInputSchema,
   createSessionInputSchema,
+  issueHybridSimulationConsentChallengeInputSchema,
   sessionIdSchema,
   type ReviewAvailability,
   type WorkspaceSelection,
@@ -24,6 +33,11 @@ import { SessionRunner } from "./agent/run-session";
 import { toSessionSnapshot, toSessionSummary } from "./session-view";
 import { toChangeReviewView } from "./change-review-view";
 import { startLocalChangeReviewSession } from "./local-change-review-session";
+import type {
+  HybridSimulationConsentChallengeStore,
+  HybridSimulationWorkspaceDirectoryIdentityV1,
+} from "./hybrid-simulation-consent";
+import { startHybridChangeReviewSession } from "./hybrid-change-review-session";
 import {
   CloudCredentialSetupService,
   unavailableCloudSetupStatus,
@@ -34,6 +48,7 @@ export interface RegisterIpcOptions {
   runner: SessionRunner;
   config: SoarConfig;
   cloudCredentialSetup?: CloudCredentialSetupService;
+  hybridSimulationConsent?: HybridSimulationConsentChallengeStore;
 }
 
 const TASK_TRACK_COMPLETION_POLICIES: Record<
@@ -50,7 +65,20 @@ const TASK_TRACK_COMPLETION_POLICIES: Record<
   },
 };
 
-function hybridAvailability(): ReviewAvailability["hybrid"] {
+function hybridAvailability(enabled: boolean): ReviewAvailability["hybrid"] {
+  if (enabled) {
+    return {
+      enabled: true,
+      mode: "simulation",
+      label: "Hybrid simulation",
+      reason:
+        "Simulation is independent of Cloud Settings and never reads your stored credential.",
+      separatelyConfiguredPaidProviderReachable: false,
+      reachabilitySummary:
+        "Two in-process Fake models; no external provider is contacted.",
+      consent: "simulation_cloud_synthesis_v1",
+    };
+  }
   return {
     enabled: false,
     reason: HYBRID_LOCKED_REVIEW_REASON,
@@ -77,11 +105,109 @@ function completionObligationsForTaskTrack(
   };
 }
 
-async function canonicalDirectory(candidate: string): Promise<string> {
+interface CanonicalDirectoryIdentity {
+  path: string;
+  identity: HybridSimulationWorkspaceDirectoryIdentityV1;
+}
+
+interface CanonicalDirectoryIdentityLease extends CanonicalDirectoryIdentity {
+  admit<T>(callback: (canonicalWorkspaceIdentity: string) => T): T;
+  close(): void;
+}
+
+async function canonicalDirectoryIdentity(
+  candidate: string,
+): Promise<CanonicalDirectoryIdentity> {
   const canonical = await realpath(candidate);
-  const metadata = await stat(canonical);
+  const metadata = await stat(canonical, { bigint: true });
   if (!metadata.isDirectory()) throw new Error("The selected workspace is not a directory.");
-  return canonical;
+  return {
+    path: canonical,
+    identity: {
+      canonicalWorkspaceIdentity: canonical,
+      device: metadata.dev.toString(10),
+      inode: metadata.ino.toString(10),
+    },
+  };
+}
+
+async function canonicalDirectory(candidate: string): Promise<string> {
+  return (await canonicalDirectoryIdentity(candidate)).path;
+}
+
+function openCanonicalDirectoryIdentityLease(
+  candidate: string,
+): CanonicalDirectoryIdentityLease {
+  const canonical = realpathSync(candidate);
+  const descriptor = openSync(
+    canonical,
+    fsConstants.O_RDONLY |
+      fsConstants.O_DIRECTORY |
+      fsConstants.O_NOFOLLOW,
+  );
+  let closed = false;
+  try {
+    const openedMetadata = fstatSync(descriptor, { bigint: true });
+    if (!openedMetadata.isDirectory()) {
+      throw new Error("The selected workspace is not a directory.");
+    }
+    const identity: HybridSimulationWorkspaceDirectoryIdentityV1 = {
+      canonicalWorkspaceIdentity: canonical,
+      device: openedMetadata.dev.toString(10),
+      inode: openedMetadata.ino.toString(10),
+    };
+    const assertCurrentPath = (): void => {
+      const currentCanonical = realpathSync(candidate);
+      const currentPathMetadata = statSync(currentCanonical, { bigint: true });
+      const currentOpenedMetadata = fstatSync(descriptor, { bigint: true });
+      if (
+        currentCanonical !== canonical ||
+        !currentPathMetadata.isDirectory() ||
+        !currentOpenedMetadata.isDirectory() ||
+        currentPathMetadata.dev !== currentOpenedMetadata.dev ||
+        currentPathMetadata.ino !== currentOpenedMetadata.ino ||
+        currentOpenedMetadata.dev.toString(10) !== identity.device ||
+        currentOpenedMetadata.ino.toString(10) !== identity.inode
+      ) {
+        throw new Error("The selected workspace identity changed.");
+      }
+    };
+    assertCurrentPath();
+    return {
+      path: canonical,
+      identity,
+      admit<T>(callback: (canonicalWorkspaceIdentity: string) => T): T {
+        // Revalidate the still-open directory handle immediately before the
+        // synchronous ledger/session admission callback. No renderer work or
+        // event-loop turn can occur between this check and admission.
+        assertCurrentPath();
+        return callback(canonical);
+      },
+      close(): void {
+        if (closed) return;
+        closed = true;
+        closeSync(descriptor);
+      },
+    };
+  } catch (error) {
+    if (!closed) {
+      closed = true;
+      closeSync(descriptor);
+    }
+    throw error;
+  }
+}
+
+function rendererReferencedChallengeId(rawInput: unknown): string | undefined {
+  if (
+    typeof rawInput !== "object" ||
+    rawInput === null ||
+    !("challengeId" in rawInput) ||
+    typeof rawInput.challengeId !== "string"
+  ) {
+    return undefined;
+  }
+  return rawInput.challengeId;
 }
 
 function titleFromTask(task: string): string {
@@ -115,6 +241,7 @@ export async function registerIpcHandlers({
   runner,
   config,
   cloudCredentialSetup,
+  hybridSimulationConsent,
 }: RegisterIpcOptions): Promise<() => void> {
   const approvedWorkspaces = new Set<string>();
 
@@ -167,7 +294,11 @@ export async function registerIpcHandlers({
   });
 
   ipcMain.handle(IPC_CHANNELS.listSessions, () =>
-    store.listSessions({ limit: 200 }).map(toSessionSummary),
+    store
+      .listSessions({ limit: 200 })
+      .map((session) =>
+        toSessionSummary(session, store.getProjectedState(session.id)),
+      ),
   );
 
   ipcMain.handle(IPC_CHANNELS.getSession, (_event, rawId: unknown) => {
@@ -189,34 +320,72 @@ export async function registerIpcHandlers({
     const descriptor = runner.getLocalReviewProviderDescriptor();
     const limitsReady =
       config.limits.inferenceRounds >= 2 && config.limits.toolCalls >= 1;
+    const simulationAvailable = hybridSimulationConsent !== undefined;
+    const localLabel = simulationAvailable ? "Fake Local" : "Local model";
+    const localCostSummary = simulationAvailable
+      ? "Fake Local has $0 simulated token cost and makes no external request."
+      : "The configured vLLM route declares a $0 token fee; endpoint billing and infrastructure costs are not independently verified.";
+    const localTransportSummary = simulationAvailable
+      ? "Review evidence stays inside the app and is processed by Fake Local."
+      : "Review evidence is sent to the configured vLLM endpoint.";
     return {
       local: descriptor && limitsReady
         ? {
             enabled: true,
-            label: "Local model",
+            label: localLabel,
             providerId: descriptor.id,
             model: descriptor.model,
             declaredTokenFeeMicrousd: 0,
-            costAccountingSummary:
-              "The configured vLLM route declares a $0 token fee; endpoint billing and infrastructure costs are not independently verified.",
-            evidenceTransportSummary:
-              "Review evidence is sent to the configured vLLM endpoint.",
+            costAccountingSummary: localCostSummary,
+            evidenceTransportSummary: localTransportSummary,
           }
         : {
             enabled: false,
-            label: "Local model",
+            label: localLabel,
             reason: descriptor
               ? "The configured execution limits cannot complete a review."
               : "The configured local provider does not support structured change reviews.",
             declaredTokenFeeMicrousd: 0,
-            costAccountingSummary:
-              "The configured vLLM route declares a $0 token fee; endpoint billing and infrastructure costs are not independently verified.",
-            evidenceTransportSummary:
-              "Review evidence is sent to the configured vLLM endpoint.",
+            costAccountingSummary: localCostSummary,
+            evidenceTransportSummary: localTransportSummary,
           },
-      hybrid: hybridAvailability(),
+      hybrid: hybridAvailability(simulationAvailable),
     };
   });
+
+  ipcMain.handle(
+    IPC_CHANNELS.issueHybridSimulationConsentChallenge,
+    async (_event, rawInput: unknown) => {
+      const input =
+        issueHybridSimulationConsentChallengeInputSchema.parse(rawInput);
+      if (hybridSimulationConsent === undefined) {
+        throw new Error("Hybrid simulation is not available in this app runtime.");
+      }
+      // Capture the generation before filesystem work so a later route or
+      // workspace invalidation also cancels an in-flight issue request.
+      const issueGeneration =
+        hybridSimulationConsent.captureIssueGeneration();
+      const workspace = await canonicalDirectoryIdentity(input.workspaceRoot);
+      if (!approvedWorkspaces.has(workspace.path)) {
+        throw new Error(
+          "Choose this workspace in SOAR before reviewing simulation consent.",
+        );
+      }
+      return hybridSimulationConsent.issue(
+        workspace.path,
+        workspace.identity,
+        issueGeneration,
+      );
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.invalidateHybridSimulationConsentChallenges,
+    async (_event, rawInput: unknown): Promise<void> => {
+      assertNoIpcPayload(rawInput);
+      hybridSimulationConsent?.clear();
+    },
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.getCloudSetupStatus,
@@ -259,7 +428,64 @@ export async function registerIpcHandlers({
   ipcMain.handle(
     IPC_CHANNELS.createChangeReviewSession,
     async (_event, rawInput: unknown) => {
-      const input = createChangeReviewSessionInputSchema.parse(rawInput);
+      const referencedHybridChallengeId =
+        rendererReferencedChallengeId(rawInput);
+      const parsedInput = createChangeReviewSessionInputSchema.safeParse(rawInput);
+      if (!parsedInput.success) {
+        hybridSimulationConsent?.burnKnownChallenge(
+          referencedHybridChallengeId,
+        );
+        throw parsedInput.error;
+      }
+      const input = parsedInput.data;
+      if (input.route === "hybrid_simulation") {
+        if (hybridSimulationConsent === undefined) {
+          throw new Error("Hybrid simulation is not available in this app runtime.");
+        }
+        // Issued challenges bind canonical selected identities. Unknown,
+        // replayed, expired, or mismatched acknowledgements burn/fail before
+        // filesystem, session, budget, credential, or provider work.
+        if (!approvedWorkspaces.has(input.workspaceRoot)) {
+          hybridSimulationConsent.burnKnownChallenge(input.challengeId);
+          throw new Error("Choose this workspace in SOAR before starting a review.");
+        }
+        let workspaceLease: CanonicalDirectoryIdentityLease | undefined;
+        try {
+          const consumedConsent = await hybridSimulationConsent.consume(
+            {
+              challengeId: input.challengeId,
+              acknowledged: input.acknowledged,
+              canonicalWorkspaceIdentity: input.workspaceRoot,
+              route: input.route,
+            },
+            async (canonicalWorkspaceIdentity) => {
+              workspaceLease = openCanonicalDirectoryIdentityLease(
+                canonicalWorkspaceIdentity,
+              );
+              return workspaceLease.identity;
+            },
+          );
+          if (workspaceLease === undefined) {
+            throw new Error("The selected workspace identity changed.");
+          }
+          return workspaceLease.admit((workspaceRoot) => {
+            if (workspaceRoot !== input.workspaceRoot) {
+              throw new Error("The selected workspace identity changed.");
+            }
+            const { session } = startHybridChangeReviewSession({
+              store,
+              runner,
+              config,
+              workspaceRoot,
+              consumedConsent,
+            });
+            return toSessionSnapshot(store, session.id);
+          });
+        } finally {
+          workspaceLease?.close();
+        }
+      }
+
       const workspaceRoot = await canonicalDirectory(input.workspaceRoot);
       if (!approvedWorkspaces.has(workspaceRoot)) {
         throw new Error("Choose this workspace in SOAR before starting a review.");

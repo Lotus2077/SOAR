@@ -435,6 +435,114 @@ const BUDGET_LEDGER_SCHEMA = `
   END;
 `;
 
+// Existing append-only rows cannot be rewritten to claim a provenance they did
+// not persist. Migration 3 classifies them as legacy_unclassified through the
+// column default, while insert guards require every new row to state simulation
+// or actual scope explicitly and preserve that scope across parent links.
+const BUDGET_COST_SCOPE_SCHEMA = `
+  ALTER TABLE budget_ledger_entries
+    ADD COLUMN cost_scope TEXT NOT NULL DEFAULT 'legacy_unclassified'
+      CHECK (cost_scope IN ('simulation', 'actual', 'legacy_unclassified'));
+
+  ALTER TABLE budget_ledger_entries
+    ADD COLUMN cloud_egress_admission_id TEXT
+      CHECK (
+        cloud_egress_admission_id IS NULL
+        OR length(cloud_egress_admission_id) BETWEEN 1 AND 256
+      );
+
+  DROP TRIGGER budget_ledger_reservation_parent_guard;
+  DROP TRIGGER budget_ledger_terminal_parent_guard;
+
+  CREATE TRIGGER budget_ledger_runtime_cost_scope_guard
+  BEFORE INSERT ON budget_ledger_entries
+  WHEN NEW.cost_scope = 'legacy_unclassified'
+    AND NOT (
+      NEW.row_type IN ('settlement', 'release', 'overrun')
+      AND EXISTS (
+        SELECT 1
+        FROM budget_ledger_entries AS reservation
+        JOIN budget_ledger_entries AS campaign
+          ON campaign.id = reservation.campaign_id
+         AND campaign.row_type = 'campaign'
+        WHERE reservation.id = NEW.reservation_id
+          AND reservation.row_type = 'reservation'
+          AND reservation.campaign_id = NEW.campaign_id
+          AND reservation.cost_scope = 'legacy_unclassified'
+          AND campaign.cost_scope = 'legacy_unclassified'
+      )
+    )
+  BEGIN
+    SELECT RAISE(ABORT, 'new budget rows require simulation or actual cost scope except terminal recovery of migrated legacy reservations');
+  END;
+
+  CREATE TRIGGER budget_ledger_egress_identity_guard
+  BEFORE INSERT ON budget_ledger_entries
+  BEGIN
+    SELECT CASE
+      WHEN NEW.row_type = 'reservation'
+        AND NEW.cost_scope = 'simulation'
+        AND NEW.cloud_egress_admission_id IS NULL
+      THEN RAISE(ABORT, 'runtime reservation requires cloud egress admission identity')
+      WHEN NEW.row_type <> 'reservation'
+        AND NEW.cloud_egress_admission_id IS NOT NULL
+      THEN RAISE(ABORT, 'cloud egress admission identity is reserved for reservation rows')
+    END;
+  END;
+
+  CREATE TRIGGER budget_ledger_actual_legacy_exposure_guard
+  BEFORE INSERT ON budget_ledger_entries
+  WHEN NEW.row_type = 'reservation'
+    AND NEW.cost_scope = 'actual'
+    AND EXISTS (
+      SELECT 1
+      FROM budget_ledger_entries AS legacy
+      WHERE legacy.cost_scope = 'legacy_unclassified'
+    )
+  BEGIN
+    SELECT RAISE(ABORT, 'actual admission blocked by legacy unclassified exposure');
+  END;
+
+  CREATE TRIGGER budget_ledger_reservation_parent_guard
+  BEFORE INSERT ON budget_ledger_entries
+  WHEN NEW.row_type = 'reservation'
+  BEGIN
+    SELECT CASE WHEN NOT EXISTS (
+      SELECT 1
+      FROM budget_ledger_entries AS campaign
+      WHERE campaign.id = NEW.campaign_id
+        AND campaign.row_type = 'campaign'
+        AND campaign.provider_id = NEW.provider_id
+        AND campaign.cost_scope = NEW.cost_scope
+    ) THEN RAISE(ABORT, 'budget reservation campaign/provider/scope mismatch') END;
+  END;
+
+  CREATE TRIGGER budget_ledger_terminal_parent_guard
+  BEFORE INSERT ON budget_ledger_entries
+  WHEN NEW.row_type IN ('settlement', 'release', 'overrun')
+  BEGIN
+    SELECT CASE WHEN NOT EXISTS (
+      SELECT 1
+      FROM budget_ledger_entries AS reservation
+      JOIN budget_ledger_entries AS campaign
+        ON campaign.id = reservation.campaign_id
+       AND campaign.row_type = 'campaign'
+      WHERE reservation.id = NEW.reservation_id
+        AND reservation.row_type = 'reservation'
+        AND reservation.campaign_id = NEW.campaign_id
+        AND reservation.cost_scope = NEW.cost_scope
+        AND campaign.cost_scope = NEW.cost_scope
+    ) THEN RAISE(ABORT, 'budget terminal row reservation/campaign/scope mismatch') END;
+  END;
+
+  CREATE UNIQUE INDEX budget_ledger_reservation_egress_admission_idx
+    ON budget_ledger_entries(cloud_egress_admission_id)
+    WHERE row_type = 'reservation';
+
+  CREATE INDEX budget_ledger_cost_scope_row_type_idx
+    ON budget_ledger_entries(cost_scope, row_type, created_at, id);
+`;
+
 interface DatabaseMigration {
   version: number;
   name: string;
@@ -451,6 +559,11 @@ const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
     version: 2,
     name: "append-only-operational-budget-ledger",
     sql: BUDGET_LEDGER_SCHEMA,
+  },
+  {
+    version: 3,
+    name: "immutable-budget-cost-scope-and-egress-identity",
+    sql: BUDGET_COST_SCOPE_SCHEMA,
   },
 ];
 

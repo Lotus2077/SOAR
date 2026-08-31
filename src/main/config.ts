@@ -44,6 +44,10 @@ const environmentSchema = z.object({
     .default("local_zero_cost"),
   SOAR_ALLOW_INSECURE_VLLM_HTTP: booleanString,
   SOAR_PROVIDER_MODE: z.enum(["local", "fake"]).default("local"),
+  SOAR_ENABLE_HYBRID_SIMULATION: booleanString,
+  SOAR_HYBRID_SIMULATION_FAKE_CLOUD_SCENARIO: z
+    .enum(["success", "provider_error"])
+    .default("success"),
   SOAR_FAKE_DELAY_MS: z.coerce.number().int().min(0).max(5_000).default(12),
   SOAR_DB_PATH: z.string().optional(),
   SOAR_TEST_WORKSPACE: z.string().optional(),
@@ -62,6 +66,9 @@ const environmentSchema = z.object({
 
 export interface SoarConfig {
   providerMode: "local" | "fake";
+  /** Main-process-only authority. Valid only with the deterministic fake catalog. */
+  hybridSimulationEnabled: boolean;
+  fakeCloudScenario: "success" | "provider_error";
   fakeDelayMs: number;
   vllm: {
     baseUrl: string;
@@ -119,6 +126,21 @@ function loadEnvironmentFiles(options: LoadConfigOptions): NodeJS.ProcessEnv {
 export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
   const rawEnvironment = loadEnvironmentFiles(options);
   const env = environmentSchema.parse(rawEnvironment);
+  if (env.SOAR_ENABLE_HYBRID_SIMULATION && env.SOAR_PROVIDER_MODE !== "fake") {
+    throw new Error(
+      "SOAR_ENABLE_HYBRID_SIMULATION requires SOAR_PROVIDER_MODE=fake; normal vLLM mode cannot construct simulation authority.",
+    );
+  }
+  if (
+    env.SOAR_HYBRID_SIMULATION_FAKE_CLOUD_SCENARIO !== "success" &&
+    (!env.SOAR_ENABLE_HYBRID_SIMULATION ||
+      env.SOAR_PROVIDER_MODE !== "fake" ||
+      !env.SOAR_TEST_WORKSPACE)
+  ) {
+    throw new Error(
+      "A non-success fake cloud scenario requires fake Hybrid simulation with SOAR_TEST_WORKSPACE.",
+    );
+  }
   const url = new URL(env.SOAR_VLLM_BASE_URL);
   const isLoopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(
     url.hostname,
@@ -141,6 +163,9 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
 
   return {
     providerMode: env.SOAR_PROVIDER_MODE,
+    hybridSimulationEnabled: env.SOAR_ENABLE_HYBRID_SIMULATION,
+    fakeCloudScenario:
+      env.SOAR_HYBRID_SIMULATION_FAKE_CLOUD_SCENARIO,
     fakeDelayMs: env.SOAR_FAKE_DELAY_MS,
     vllm: {
       baseUrl: env.SOAR_VLLM_BASE_URL,

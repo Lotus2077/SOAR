@@ -12,7 +12,15 @@ revision passed Linux and macOS GitHub Actions.
 PR6A Cloud Setup and Dispatch Lock is **Verified** but not **Released**. Its
 setup-only Keychain, metadata-only candidate, and pure
 egress-shadow code do not authorize provider validation, production cloud
-dispatch, Hybrid selection, or PR6B.
+dispatch, real Hybrid selection, or PR6B1 through PR6B3.
+
+PR6B0 Hybrid Simulation is **Implemented locally** but not **Verified** or
+**Released**. Its app-visible route exists only when the main process uses fake
+provider mode and explicitly enables simulation. It uses in-process Fake Local
+and Fake Cloud implementations, does not read Cloud Settings or a credential,
+does not contact the configured vLLM or an external provider, and records `$0`
+actual external spend. Exact-SHA CI/package closure and manual VoiceOver,
+light/dark contrast, and reduced-motion proof remain pending.
 
 ## Implemented
 
@@ -30,8 +38,9 @@ dispatch, Hybrid selection, or PR6B.
   operator must explicitly set `SOAR_VLLM_COST_POLICY=local_zero_cost` after
   confirming that the endpoint charges no token fee;
 - validated provider descriptors plus a main-process runtime catalog and
-  registry; the registry currently constructs only the selected local or
-  deterministic fake provider, while one locked cloud candidate remains
+  registry. Normal vLLM mode constructs exactly the configured Local provider.
+  Explicit fake simulation mode constructs only the branded Fake Local and
+  tool-free Fake Cloud providers; one locked real-cloud candidate remains
   separate metadata and cannot be parsed as a dispatchable provider;
 - setup-only macOS Keychain status, add/replace, and delete behavior with no
   raw-secret read method, plus strict metadata-only main/preload/renderer
@@ -39,8 +48,8 @@ dispatch, Hybrid selection, or PR6B.
   dispatch-locked states;
 - a pure canonical-message cloud-egress shadow guard that evaluates
   host-derived provenance and returns bounded finding codes and semantic
-  hashes. It performs no I/O and is not wired to a production session or
-  provider dispatch;
+  hashes. It performs no I/O. Normal vLLM mode retains the PR6A shadow-only
+  boundary; PR6B0 binds the policy to an in-process fake invocation only;
 - bounded, read-only repository tools for listing, literal search, and text reads;
 - a separate host-only `inspect_git_changes` gateway that acquires deterministic
   staged, unstaged, rename, delete, and bounded untracked change manifests
@@ -54,6 +63,21 @@ dispatch, Hybrid selection, or PR6B.
   Review Current Changes path. It keeps inspection, bounded full reads, and one
   tool-free synthesis on the same selected provider and records zero selected
   metered-provider exposure under that operator attestation;
+- a separate main-owned `hybrid_simulation_v1` Review Current Changes path
+  available only under explicit fake simulation configuration. It consumes a
+  single-use workspace-bound disclosure challenge, acquires evidence locally,
+  evaluates immediate semantic egress admission, may invoke one no-tools Fake
+  Cloud synthesis, and permits one eligible Fake Local continuation/fallback;
+- immutable `simulation | actual | legacy_unclassified` cost scope across
+  campaigns, reservations, route decisions, attempts, terminal accounting, and
+  recovery. PR6B0 uses only `simulation`, labels provider-reported, host-priced,
+  conservative-full-reservation, or not-settled provenance, and excludes those
+  values from actual-spend projections;
+- a renderer-safe Hybrid simulation picker with Local selected by default,
+  challenge-bound consent and invalidation, exact fake-only result/history/copy
+  markers, replay-safe phase and provider trace, simulated cap/reserved/settled
+  values, `$0` actual external spend, cancellation disclosure, focus restoration,
+  textual phase status, and responsive reflow assertions;
 - canonical-event review provenance reconstruction, a no-truncation review
   packet, exact raw-versus-attached result verification, host semantic
   acceptance, and post-synthesis snapshot revalidation;
@@ -110,23 +134,24 @@ dispatch, Hybrid selection, or PR6B.
   integer-micro-USD budget ledger, atomic attempt unit of work, paged recovery,
   event/ledger reconciliation, and an explicit two-fake-provider v2 runner that
   covers admission, denial, timeout, cancellation, overrun, and one local
-  fallback at zero paid cost. Production constructs no separately configured
-  metered cloud provider: Repository Investigator emits v1 local-only sessions
-  and Review Current Changes emits v2 local-only sessions.
+  fallback at zero paid cost. PR6B0 now connects those mechanics to the strict
+  change-review coordinator using branded in-process fakes. Normal vLLM mode
+  still constructs no separately configured metered cloud provider: Repository
+  Investigator emits v1 local-only sessions and Review Current Changes emits v2
+  local-only sessions.
 
 ## Not implemented
 
 - production cloud-provider execution, dispatch-time credential retrieval, or
   remote credential validation;
-- production hybrid routing, production provider-health/price acquisition, or
+- real/production hybrid routing, production provider-health/price acquisition, or
   learned scheduling;
 - any production provider switch: the review v2 path is deliberately
-  same-provider and Local only, while Hybrid is visibly disabled and reports
-  that no separate metered provider is configured;
-- PR6B's immediately-pre-dispatch egress admission and wire binding, live
-  health/pricing evidence, credential validation, secret resolver, production
-  OpenRouter transport, and paid canary. PR6B remains unapproved; PR6A's pure
-  guard is shadow-only and grants no dispatch authority;
+  same-provider and Local only in normal vLLM mode, where Hybrid is visibly
+  disabled and reports that no separate metered provider is configured;
+- PR6B1's signed credential lease, PR6B2's real credential/provider/health/
+  pricing validation, and PR6B3's external transport, wire-bound admission,
+  real reservation, and paid canary. PR6B0 authorizes none of them;
 - complete release validation or current Repository Investigator live proof;
   the one-shot synthetic empty-snapshot structured-review schema canary and
   deterministic/Electron PR 5 gates passed on 2026-08-30, but the live canary
@@ -167,7 +192,7 @@ Locked PR6A candidate metadata records
 `deepseek/deepseek-v4-flash-0731` through OpenRouter as product intent. It is not
 an enabled application runtime or evidence of current availability, capability,
 limits, or pricing; those external facts require fresh validation under a
-separately approved PR6B plan.
+separately approved PR6B2 plan.
 
 Context Packet v1 conservatively estimates one token per UTF-8 byte, reserves a
 configurable safety margin, and subtracts adapter-estimated provider request
@@ -175,10 +200,21 @@ overhead before admitting evidence. `usage.recorded` remains the source for
 actual provider token usage, while its `reported` flag distinguishes real
 telemetry from a missing report represented by zero. The packet compiler changes
 provider request construction, not route selection. Repository Investigator
-retains its single local route; Review Current Changes records a v2 local lease
-and keeps that same selected provider through synthesis.
+retains its single local route. In normal vLLM mode, Review Current Changes
+records a v2 local lease and keeps that same selected provider through
+synthesis. Explicit fake simulation mode instead uses its fixed main-owned
+Fake Local/Fake Cloud catalog and simulation-only checkpoint policy; renderer
+input and stored credential state cannot alter that catalog.
 
 ## Live proof status
+
+The PR6B0 source, persistence, IPC, renderer, and deterministic-test
+implementation is present locally. That is an implementation state only. It is
+not an exact-SHA proof, a packaged-app result, a real-provider run, or a release.
+The exact-SHA CI and Electron/package verification gates have not closed here,
+and manual VoiceOver, keyboard-only traversal, light/dark contrast, and
+reduced-motion proof remains pending. Normal vLLM mode remains Local-only and
+Hybrid-locked throughout.
 
 The PR 5 local Review Current Changes implementation has deterministic adapter,
 event/replay, Git, coordinator, IPC, projection, and Electron test coverage.
@@ -322,6 +358,10 @@ sharing.
   the following operation, so a concurrent external repository-config writer
   remains a documented TOCTOU trust limitation;
 - repository content and retrieved benchmark material are untrusted input;
+- Hybrid simulation authority is main-owned, fake-only, and unavailable in
+  normal vLLM mode. Its challenge acknowledges simulation only, real egress
+  consent remains `none`, and no Keychain or external transport is reachable
+  from that path;
 - destructive actions, publishing, credential access, and external side effects
   require new tools and an explicit permission design before they can ship.
 
@@ -334,6 +374,10 @@ artifacts. See
 [CONTRIBUTING.md](../CONTRIBUTING.md),
 [ARCHITECTURE.md](ARCHITECTURE.md), and the
 [benchmark protocol](../benchmarks/README.md).
+
+PR6B0 has not met that release gate. In particular, exact-SHA closure and its
+manual accessibility record remain outstanding, so **Implemented locally** must
+not be read as **Verified**, **Released**, or safe for real Hybrid dispatch.
 
 ## PR 3 through PR 5 verification boundaries
 
@@ -351,14 +395,18 @@ The frozen curator labels represent review attention, not defect correctness.
 No held-out quality corpus, model-facing review workflow, quality improvement,
 cost saving, or latency benefit is proved by PR 3. PR 4 adds deterministic
 routing and accounting mechanics only through nominally branded fake providers.
-Its fake cloud lease is not a production cloud path and is never rendered as a
-user review. PR 5 implements the app-created local-only workflow,
+Its original fake cloud lease is not a production cloud path and was not
+rendered as a user review. PR6B0 separately connects a strictly branded fake
+simulation to the app without creating a real cloud route. PR 5 implements the
+app-created local-only workflow,
 repository-observation event provenance, no-truncation evidence packet, strict
 same-provider structured result, freshness/copy rules, and renderer redaction.
 It does not prove review quality or dynamic routing and is not a claim that the
 final release validation or Repository Investigator live proof passed. The
 local structured-schema canary did pass once on 2026-08-30, but only against a
 synthetic empty snapshot; it is not post-fix real-repository or release proof.
-PR6A is Verified but not Released. PR6B remains
-unapproved and separately gates provider validation, production cloud dispatch,
-and the paid OpenRouter canary.
+PR6A is Verified but not Released. PR6B0 is Implemented locally but not Verified
+or Released; its Fake Cloud label never denotes an external provider. PR6B1,
+PR6B2, and PR6B3 remain separately gated and are required before credential
+leasing, provider validation, production cloud dispatch, or a paid OpenRouter
+canary.

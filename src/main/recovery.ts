@@ -56,11 +56,17 @@ function interruptedAttemptEvent(
           ? {
               amountMicrousd: 0,
               provenance: "local_zero_cost_policy" as const,
+              ...(attempt.costScope === undefined
+                ? {}
+                : { costScope: attempt.costScope }),
             }
           : {
               amountMicrousd: decision?.billing?.projectedCostMicrousd ?? 0,
               provenance: "reserved_unknown" as const,
               reservationId,
+              ...(attempt.costScope === undefined
+                ? {}
+                : { costScope: attempt.costScope }),
             },
       latencyMs: Math.max(
         0,

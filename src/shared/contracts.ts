@@ -15,6 +15,12 @@ import type {
   HybridLockedReason,
   SaveCloudCredentialInput,
 } from "./cloud-setup-contracts";
+import {
+  HYBRID_SIMULATION_CONSENT_ID,
+  HYBRID_SIMULATION_RESULT_MARKER,
+  HYBRID_SIMULATION_ROUTE,
+  type HybridSimulationConsentChallengeV1,
+} from "./hybrid-simulation-contracts";
 
 export const sessionStatuses = SESSION_STATUSES;
 export const sessionStatusSchema = SessionStatusSchema;
@@ -29,11 +35,32 @@ export const createSessionInputSchema = z
   })
   .strict();
 
-export const createChangeReviewSessionInputSchema = z
-  .object({
+const changeReviewWorkspaceInputSchema = z.object({
     workspaceRoot: z.string().trim().min(1).max(4_096),
-  })
-  .strict();
+  });
+
+export const issueHybridSimulationConsentChallengeInputSchema =
+  changeReviewWorkspaceInputSchema
+    .extend({ route: z.literal(HYBRID_SIMULATION_ROUTE) })
+    .strict();
+
+export const createChangeReviewSessionInputSchema = z.discriminatedUnion(
+  "route",
+  [
+    changeReviewWorkspaceInputSchema
+      .extend({ route: z.literal("local") })
+      .strict(),
+    changeReviewWorkspaceInputSchema
+      .extend({
+        route: z.literal(HYBRID_SIMULATION_ROUTE),
+        challengeId: z.string().trim().min(1).max(256),
+        acknowledged: z.literal(true),
+      })
+      .strict(),
+  ],
+);
+
+export type ReviewRouteIntent = "local" | typeof HYBRID_SIMULATION_ROUTE;
 
 export const sessionIdSchema = z.string().uuid();
 
@@ -56,6 +83,8 @@ export interface SessionSummary {
   status: SessionStatus;
   createdAt: string;
   updatedAt: string;
+  executionMode?: ReviewRouteIntent;
+  simulationMarker?: typeof HYBRID_SIMULATION_RESULT_MARKER;
 }
 
 export interface SessionSnapshot extends SessionSummary {
@@ -81,22 +110,76 @@ export interface ReviewAvailability {
     model?: string;
     reason?: string;
     declaredTokenFeeMicrousd: 0;
-    costAccountingSummary: "The configured vLLM route declares a $0 token fee; endpoint billing and infrastructure costs are not independently verified.";
-    evidenceTransportSummary: "Review evidence is sent to the configured vLLM endpoint.";
+    costAccountingSummary: string;
+    evidenceTransportSummary: string;
   };
-  hybrid: {
-    enabled: false;
-    reason: HybridLockedReason;
-    separatelyConfiguredPaidProviderReachable: false;
-    reachabilitySummary: HybridLockedReachabilitySummary;
-    consent: "none";
-  };
+  hybrid:
+    | {
+        enabled: false;
+        reason: HybridLockedReason;
+        separatelyConfiguredPaidProviderReachable: false;
+        reachabilitySummary: HybridLockedReachabilitySummary;
+        consent: "none";
+      }
+    | {
+        enabled: true;
+        mode: "simulation";
+        label: "Hybrid simulation";
+        reason: "Simulation is independent of Cloud Settings and never reads your stored credential.";
+        separatelyConfiguredPaidProviderReachable: false;
+        reachabilitySummary: "Two in-process Fake models; no external provider is contacted.";
+        consent: typeof HYBRID_SIMULATION_CONSENT_ID;
+      };
 }
 
 export interface ReviewPhaseView {
   id: "inspection" | "checkpoint" | "synthesis" | "fallback";
   status: "pending" | "active" | "complete" | "failed" | "cancelled";
   label: string;
+  providerLabel?: string;
+  model?: string;
+  reason?: string;
+  latencyMs?: number;
+  simulatedReservedMicrousd?: number;
+  simulatedSettledMicrousd?: number;
+  simulatedSettlementProvenance?:
+    | "provider_reported"
+    | "host_pricing_snapshot"
+    | "reserved_unknown"
+    | "not_settled";
+  actualExternalSpendMicrousd?: 0;
+}
+
+export interface HybridSimulationProjection {
+  marker: typeof HYBRID_SIMULATION_RESULT_MARKER;
+  costScope: "simulation";
+  maxSimulatedSpendMicrousd: number;
+  reservedMicrousd: number;
+  settledMicrousd: number;
+  settlementProvenance:
+    | "provider_reported"
+    | "host_pricing_snapshot"
+    | "reserved_unknown"
+    | "not_settled";
+  actualExternalSpendMicrousd: 0;
+}
+
+export interface ReviewRoutePhaseView {
+  phaseId: ReviewPhaseView["id"];
+  providerLabel: string;
+  model: string;
+  locality: "local" | "cloud";
+  status: ReviewPhaseView["status"];
+  reason: string;
+  latencyMs?: number;
+  simulatedReservedMicrousd?: number;
+  simulatedSettledMicrousd?: number;
+  simulatedSettlementProvenance?:
+    | "provider_reported"
+    | "host_pricing_snapshot"
+    | "reserved_unknown"
+    | "not_settled";
+  actualExternalSpendMicrousd?: 0;
 }
 
 export interface ReviewCoverageView {
@@ -120,6 +203,7 @@ export interface ChangeReviewView {
   sessionId: string;
   status: SessionStatus;
   freshness: ReviewFreshness;
+  executionMode?: ReviewRouteIntent;
   phases: ReviewPhaseView[];
   route?: {
     providerId: string;
@@ -127,6 +211,8 @@ export interface ChangeReviewView {
     locality: "local" | "cloud";
     reasonCode: string;
   };
+  routes?: ReviewRoutePhaseView[];
+  simulation?: HybridSimulationProjection;
   reviewResult?: ReviewResultV1;
   coverage?: ReviewCoverageView;
   baseRevision?: string;
@@ -153,6 +239,12 @@ export interface SoarRendererApi {
   startSession(id: string): Promise<void>;
   cancelSession(id: string): Promise<void>;
   getReviewAvailability(): Promise<ReviewAvailability>;
+  issueHybridSimulationConsentChallenge(
+    input: z.input<
+      typeof issueHybridSimulationConsentChallengeInputSchema
+    >,
+  ): Promise<HybridSimulationConsentChallengeV1>;
+  invalidateHybridSimulationConsentChallenges(): Promise<void>;
   createChangeReviewSession(
     input: z.input<typeof createChangeReviewSessionInputSchema>,
   ): Promise<SessionSnapshot>;
@@ -171,6 +263,10 @@ export const IPC_CHANNELS = {
   startSession: "soar:start-session",
   cancelSession: "soar:cancel-session",
   getReviewAvailability: "soar:get-review-availability",
+  issueHybridSimulationConsentChallenge:
+    "soar:issue-hybrid-simulation-consent-challenge",
+  invalidateHybridSimulationConsentChallenges:
+    "soar:invalidate-hybrid-simulation-consent-challenges",
   createChangeReviewSession: "soar:create-change-review-session",
   getChangeReviewView: "soar:get-change-review-view",
   getCloudSetupStatus: "soar:get-cloud-setup-status",

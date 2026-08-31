@@ -7,19 +7,17 @@ import type {
 } from "./types";
 import { ProviderAbortedError } from "./types";
 import { parseProviderDescriptor } from "./provider-descriptor";
-import { deriveReviewCoverageV1 } from "../change-acquisition-contracts";
 import {
   REVIEW_RESULT_V1_STRUCTURED_OUTPUT_CONTRACT,
-  ReviewResultV1Schema,
 } from "../../shared/review-result-contract";
 import {
-  ReviewSynthesisPacketV1Schema,
-  type ReviewSynthesisPacketV1,
-} from "../../shared/review-synthesis-packet";
+  deterministicFakeReviewResultV1,
+  extractFakeReviewSynthesisPacketV1,
+} from "./fake-review-synthesis";
 
 const CONTEXT_PACKET_PREFIX = "SOAR_CONTEXT_PACKET_V1\n";
-const REVIEW_SYNTHESIS_PACKET_PREFIX =
-  "SOAR_REVIEW_SYNTHESIS_PACKET_V1\n";
+const FAKE_LOCAL_PROVIDER_V1 = Symbol("soar.fake-local-provider-v1");
+const FAKE_LOCAL_PROVIDERS_V1 = new WeakSet<object>();
 
 interface ContextPacketToolEvidence {
   kind: "tool_evidence";
@@ -74,57 +72,34 @@ function extractLastToolResult(messages: ProviderMessage[]): string | undefined 
   return undefined;
 }
 
-function extractReviewSynthesisPacket(
+function schedulerOwnedToolArguments(
   messages: ProviderMessage[],
-): ReviewSynthesisPacketV1 {
-  for (let index = messages.length - 1; index >= 0; index -= 1) {
-    const message = messages[index];
-    if (
-      message?.role !== "user" ||
-      !message.content.startsWith(REVIEW_SYNTHESIS_PACKET_PREFIX)
-    ) {
-      continue;
-    }
-    return ReviewSynthesisPacketV1Schema.parse(
-      JSON.parse(message.content.slice(REVIEW_SYNTHESIS_PACKET_PREFIX.length)),
+  toolName: string,
+): Record<string, unknown> | undefined {
+  const marker =
+    `Call exactly ${toolName} once with exactly these scheduler-owned JSON arguments: `;
+  const suffix = ". Do not emit prose or any other tool call.";
+  const system = [...messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === "system" &&
+        typeof message.content === "string" &&
+        message.content.includes(marker),
     );
+  const content = system?.content;
+  if (typeof content !== "string") return undefined;
+  const start = content.indexOf(marker) + marker.length;
+  const end = content.indexOf(suffix, start);
+  if (end < start) return undefined;
+  try {
+    const parsed = JSON.parse(content.slice(start, end)) as unknown;
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : undefined;
+  } catch {
+    return undefined;
   }
-  throw new TypeError(
-    "The fake change-review provider requires one review synthesis packet.",
-  );
-}
-
-function deterministicReviewResult(packet: ReviewSynthesisPacketV1): string {
-  const coverage = deriveReviewCoverageV1({
-    snapshot: packet.snapshot,
-    evidenceSet: packet.evidenceSet,
-    packetRetainedEvidenceSet: true,
-    // The fake models a stable deterministic fixture. The production host owns
-    // the real post-inference snapshot revalidation and can still reject it.
-    snapshotRevalidated: true,
-  });
-  const complete = coverage.status === "complete";
-  return JSON.stringify(
-    ReviewResultV1Schema.parse({
-      schemaVersion: REVIEW_RESULT_V1_STRUCTURED_OUTPUT_CONTRACT,
-      snapshotId: packet.snapshot.snapshotId,
-      summary: complete
-        ? "No blocking findings were produced from the admitted deterministic test evidence."
-        : "The deterministic test review is incomplete because the admitted evidence does not satisfy every coverage gate.",
-      conclusion: complete ? "no_blocking_findings" : "incomplete",
-      evidenceSetId: packet.evidenceSet.evidenceSetId,
-      omissions: complete
-        ? []
-        : [
-            {
-              code: "fake_incomplete_evidence",
-              description:
-                "One or more host-derived evidence coverage gates are incomplete.",
-            },
-          ],
-      findings: [],
-    }),
-  );
 }
 
 function waitForDelay(
@@ -165,6 +140,7 @@ async function emitChunks(
 }
 
 export class FakeProvider implements DescribedInferenceProvider {
+  readonly [FAKE_LOCAL_PROVIDER_V1] = true as const;
   readonly id = "local-vllm";
   readonly model = "RM-01 VLM (deterministic test double)";
   readonly costPolicy = "local_zero_cost" as const;
@@ -186,10 +162,18 @@ export class FakeProvider implements DescribedInferenceProvider {
     accounting: { kind: "local_zero_cost" },
   });
   private readonly delayMs: number;
+  private readonly structuredReviewScenario: "success" | "provider_error";
   private toolCallSequence = 0;
 
-  constructor(options: { delayMs?: number } = {}) {
+  constructor(options: {
+    delayMs?: number;
+    /** Test-only failure seam for structured Local review synthesis. */
+    structuredReviewScenario?: "success" | "provider_error";
+  } = {}) {
     this.delayMs = options.delayMs ?? 12;
+    this.structuredReviewScenario =
+      options.structuredReviewScenario ?? "success";
+    FAKE_LOCAL_PROVIDERS_V1.add(this);
   }
 
   async checkConfiguredModelAvailability(
@@ -222,8 +206,11 @@ export class FakeProvider implements DescribedInferenceProvider {
       if (input.signal.aborted) {
         throw new ProviderAbortedError("Fake inference cancelled", "");
       }
-      const packet = extractReviewSynthesisPacket(input.messages);
-      const content = deterministicReviewResult(packet);
+      if (this.structuredReviewScenario === "provider_error") {
+        throw new Error("Deterministic fake Local review failure");
+      }
+      const packet = extractFakeReviewSynthesisPacketV1(input.messages);
+      const content = deterministicFakeReviewResultV1(packet);
       return {
         content,
         toolCalls: [],
@@ -254,13 +241,14 @@ export class FakeProvider implements DescribedInferenceProvider {
     if (requiredTool || useLegacyDefaultTool) {
       const toolName = requiredTool ?? "read_text_file";
       const arguments_ =
-        toolName === "list_files"
+        schedulerOwnedToolArguments(input.messages, toolName) ??
+        (toolName === "list_files"
           ? {}
           : toolName === "search_text"
             ? { query: "SOAR" }
             : toolName === "inspect_git_changes"
               ? { schemaVersion: "inspect-git-changes-v1" }
-              : { relativePath: "SOAR_PROBE.txt" };
+              : { relativePath: "SOAR_PROBE.txt" });
       this.toolCallSequence += 1;
       return {
         content: "",
@@ -313,4 +301,10 @@ export class FakeProvider implements DescribedInferenceProvider {
       durationMs: performance.now() - startedAt,
     };
   }
+}
+
+export function isFakeLocalProviderV1(
+  provider: DescribedInferenceProvider,
+): provider is FakeProvider {
+  return FAKE_LOCAL_PROVIDERS_V1.has(provider);
 }

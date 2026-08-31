@@ -35,10 +35,8 @@ import {
   runLocalChangeReviewV1,
   type LocalChangeReviewRuntimeV1,
 } from "./run-local-change-review";
-import {
-  runSessionV2,
-  type FakeOnlyHybridRuntimeV0,
-} from "./run-session-v2";
+import { runHybridChangeReviewV1 } from "./run-hybrid-change-review";
+import type { HybridSimulationRuntimeV1 } from "../hybrid-simulation-runtime";
 import type { ProviderDescriptor } from "../providers/provider-descriptor";
 
 export type RuntimeUpdate =
@@ -51,8 +49,8 @@ export interface SessionRunnerOptions {
   defaultLocalProviderId: string;
   limits: SoarConfig["limits"];
   context?: SoarConfig["context"];
-  /** PR 4 opt-in only. Production bootstrap intentionally omits this. */
-  hybridRuntime?: FakeOnlyHybridRuntimeV0;
+  /** Nominal main-process-only authority for the branded fake simulation. */
+  hybridSimulationRuntime?: HybridSimulationRuntimeV1;
   /** Deterministic seams for the production local-only review coordinator. */
   localReviewRuntime?: LocalChangeReviewRuntimeV1;
   /** Main-process-only exact values that a review provider must never echo. */
@@ -355,7 +353,7 @@ export class SessionRunner {
   private readonly provider: InferenceProvider;
   private readonly limits: SoarConfig["limits"];
   private readonly context: SoarConfig["context"];
-  private readonly hybridRuntime?: FakeOnlyHybridRuntimeV0;
+  private readonly hybridSimulationRuntime?: HybridSimulationRuntimeV1;
   private readonly localReviewRuntime?: LocalChangeReviewRuntimeV1;
   private readonly localReviewSensitiveValues: readonly string[];
   private readonly onUpdate?: (update: RuntimeUpdate) => void;
@@ -384,7 +382,7 @@ export class SessionRunner {
       maxInputTokens: 18_432,
       safetyMargin: 0.2,
     };
-    this.hybridRuntime = options.hybridRuntime;
+    this.hybridSimulationRuntime = options.hybridSimulationRuntime;
     this.localReviewRuntime = options.localReviewRuntime;
     this.localReviewSensitiveValues = Object.freeze(
       [...new Set(options.localReviewSensitiveValues ?? [])].filter(
@@ -482,6 +480,32 @@ export class SessionRunner {
     const policy = state.executionPolicy;
     if (policy?.schemaVersion === "agentic-execution-v2") {
       if (state.taskTrack === "change-review-v1") {
+        if (policy.routingPolicy === "hybrid_simulation_v1") {
+          if (this.hybridSimulationRuntime === undefined) {
+            this.append(sessionId, {
+              type: "session.failed",
+              payload: {
+                error:
+                  "This build has no Hybrid simulation runtime. No provider request was dispatched.",
+              },
+            });
+            return;
+          }
+          await runHybridChangeReviewV1({
+            sessionId,
+            store: this.store,
+            providerRegistry: this.providerRegistry,
+            defaultLocalProviderId: this.defaultLocalProviderId,
+            context: this.context,
+            controller,
+            runtime: this.hybridSimulationRuntime,
+            sensitiveValues: this.localReviewSensitiveValues,
+            ...(this.onUpdate === undefined
+              ? {}
+              : { onUpdate: this.onUpdate }),
+          });
+          return;
+        }
         await runLocalChangeReviewV1({
           sessionId,
           store: this.store,
@@ -497,25 +521,12 @@ export class SessionRunner {
         });
         return;
       }
-      if (this.hybridRuntime === undefined) {
-        this.append(sessionId, {
-          type: "session.failed",
-          payload: {
-            error:
-              "This build has no explicit fake-only v2 runtime. No provider request was dispatched.",
-          },
-        });
-        return;
-      }
-      await runSessionV2({
-        sessionId,
-        store: this.store,
-        providerRegistry: this.providerRegistry,
-        defaultLocalProviderId: this.defaultLocalProviderId,
-        context: this.context,
-        runtime: this.hybridRuntime,
-        controller,
-        ...(this.onUpdate === undefined ? {} : { onUpdate: this.onUpdate }),
+      this.append(sessionId, {
+        type: "session.failed",
+        payload: {
+          error:
+            "This build has no production agentic-execution-v2 runtime for this task track. No provider request was dispatched.",
+        },
       });
       return;
     }

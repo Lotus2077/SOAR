@@ -16,7 +16,14 @@ import type {
   ProviderHealthSnapshotV0,
   ProviderPricingSnapshotV0,
 } from "../../src/shared/session-events";
-import { RoutingDecisionPayloadSchema } from "../../src/shared/session-events";
+import {
+  AgenticExecutionPolicyV2Schema,
+  RoutingDecisionPayloadSchema,
+} from "../../src/shared/session-events";
+import {
+  HYBRID_SIMULATION_CONSENT_ID,
+  HYBRID_SIMULATION_MAX_SPEND_MICROUSD,
+} from "../../src/shared/hybrid-simulation-contracts";
 
 const AS_OF = "2026-08-29T12:00:00.000Z";
 const LOCAL_PROVIDER_ID = "local-primary";
@@ -35,6 +42,14 @@ const policy: AgenticExecutionPolicyV2 = {
   maxEpisodeDurationMs: 600_000,
   attemptTimeoutMs: 60_000,
   egressConsent: "session_cloud_synthesis_v1",
+};
+
+const simulationPolicy: AgenticExecutionPolicyV2 = {
+  ...policy,
+  routingPolicy: "hybrid_simulation_v1",
+  maxPaidEpisodeMicrousd: HYBRID_SIMULATION_MAX_SPEND_MICROUSD,
+  egressConsent: "none",
+  simulationConsent: HYBRID_SIMULATION_CONSENT_ID,
 };
 
 const localProvider: CheckpointProviderV0 = {
@@ -430,6 +445,116 @@ describe("checkpoint-router-v0", () => {
     }
   });
 
+  it("keeps low-risk simulation local without inventing an egress identity", () => {
+    const result = requireDecision(
+      resolveCheckpointRouteV0(
+        localEvidenceInput(completeRisk("low_risk"), simulationPolicy),
+      ),
+    );
+
+    expect(result.decision).toMatchObject({
+      reasonCode: "low_risk_local_review",
+      costScope: "simulation",
+      selectedProviderId: LOCAL_PROVIDER_ID,
+    });
+    expect(result.decision.cloudEgressAdmissionId).toBeUndefined();
+    expect(result.attempt).toMatchObject({
+      providerId: LOCAL_PROVIDER_ID,
+      costScope: "simulation",
+    });
+    expect(result.attempt.cloudEgressAdmissionId).toBeUndefined();
+  });
+
+  it("binds simulation cloud decisions and attempts to one persisted egress identity", () => {
+    const input = highRiskCloudInput();
+    input.policy = simulationPolicy;
+    input.cloudAdmission!.packet.cloudEgressAdmissionId =
+      "egress-simulation-cloud";
+
+    const result = requireDecision(resolveCheckpointRouteV0(input));
+    expect(result.decision).toMatchObject({
+      reasonCode: "cloud_admitted",
+      costScope: "simulation",
+      cloudEgressAdmissionId: "egress-simulation-cloud",
+    });
+    expect(result.attempt).toMatchObject({
+      providerId: CLOUD_PROVIDER_ID,
+      costScope: "simulation",
+      cloudEgressAdmissionId: "egress-simulation-cloud",
+    });
+
+    const missingIdentity = structuredClone(input);
+    delete missingIdentity.cloudAdmission!.packet.cloudEgressAdmissionId;
+    expect(() => resolveCheckpointRouteV0(missingIdentity)).toThrow(
+      /requires a persisted egress admission identity/u,
+    );
+  });
+
+  it("evaluates simulation DLP before all later cloud admission facts", () => {
+    const afterDlp = highRiskCloudInput();
+    afterDlp.policy = simulationPolicy;
+    afterDlp.cloudAdmission!.packet.cloudEgressAdmissionId =
+      "egress-simulation-pass";
+    afterDlp.cloudAdmission!.credentialAvailable = false;
+    const missingCredential = requireDecision(
+      resolveCheckpointRouteV0(afterDlp),
+    );
+    expect(missingCredential.decision).toMatchObject({
+      reasonCode: "missing_credential",
+      costScope: "simulation",
+      cloudEgressAdmissionId: "egress-simulation-pass",
+      admission: {
+        egress: { status: "passed", reasonCode: "egress_ok" },
+        credential: {
+          status: "denied",
+          reasonCode: "missing_credential",
+        },
+      },
+    });
+    expect(missingCredential.attempt).toMatchObject({
+      providerId: LOCAL_PROVIDER_ID,
+      cloudEgressAdmissionId: "egress-simulation-pass",
+    });
+
+    const deniedByDlp = structuredClone(afterDlp);
+    deniedByDlp.cloudAdmission!.packet.cloudEgressAdmissionId =
+      "egress-simulation-denied";
+    deniedByDlp.cloudAdmission!.packet.egressAllowed = false;
+    const egressDenial = requireDecision(
+      resolveCheckpointRouteV0(deniedByDlp),
+    );
+    expect(egressDenial.decision).toMatchObject({
+      reasonCode: "egress_denial",
+      cloudEgressAdmissionId: "egress-simulation-denied",
+      admission: {
+        egress: { status: "denied", reasonCode: "egress_denial" },
+        capability: {
+          status: "not_applicable",
+          reasonCode: "not_applicable",
+        },
+        credential: {
+          status: "not_applicable",
+          reasonCode: "not_applicable",
+        },
+      },
+    });
+  });
+
+  it("does not let simulation consent authorize another routing policy", () => {
+    expect(() =>
+      AgenticExecutionPolicyV2Schema.parse({
+        ...policy,
+        simulationConsent: HYBRID_SIMULATION_CONSENT_ID,
+      }),
+    ).toThrow(/reserved for hybrid_simulation_v1/u);
+    expect(() =>
+      AgenticExecutionPolicyV2Schema.parse({
+        ...simulationPolicy,
+        egressConsent: "session_cloud_synthesis_v1",
+      }),
+    ).toThrow(/real egress consent none/u);
+  });
+
   it("admits one high-risk cloud synthesis with exact replay and billing facts", () => {
     const input = highRiskCloudInput();
     const proposal = proposeCheckpointRouteV0({
@@ -750,6 +875,40 @@ describe("checkpoint-router-v0", () => {
     expect(
       resolveCheckpointRouteV0(fallbackInput(policy.attemptTimeoutMs - 1)),
     ).toEqual({ kind: "terminal_denial", code: "deadline_exhausted" });
+  });
+
+  it("propagates simulation fallback provenance and rejects forged cross-scope state", () => {
+    const input = fallbackInput(policy.attemptTimeoutMs);
+    input.policy = simulationPolicy;
+    input.state.lastAttempt = {
+      ...input.state.lastAttempt!,
+      costScope: "simulation",
+      cloudEgressAdmissionId: "egress-simulation-fallback",
+    };
+
+    const result = requireDecision(resolveCheckpointRouteV0(input));
+    expect(result.decision).toMatchObject({
+      reasonCode: "local_fallback",
+      costScope: "simulation",
+      cloudEgressAdmissionId: "egress-simulation-fallback",
+    });
+    expect(result.attempt).toMatchObject({
+      providerId: LOCAL_PROVIDER_ID,
+      costScope: "simulation",
+      cloudEgressAdmissionId: "egress-simulation-fallback",
+    });
+
+    const forgedScope = structuredClone(input);
+    forgedScope.state.lastAttempt!.costScope = "actual";
+    expect(() => resolveCheckpointRouteV0(forgedScope)).toThrow(
+      /cost scope does not match the routing policy/u,
+    );
+
+    const missingIdentity = structuredClone(input);
+    delete missingIdentity.state.lastAttempt!.cloudEgressAdmissionId;
+    expect(() => resolveCheckpointRouteV0(missingIdentity)).toThrow(
+      /requires its persisted egress admission identity/u,
+    );
   });
 
   it.each(["cancelled", "interrupted", "succeeded"] as const)(

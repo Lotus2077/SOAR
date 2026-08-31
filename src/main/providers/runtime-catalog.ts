@@ -11,6 +11,11 @@ import {
   LOCKED_CLOUD_PROVIDER_CANDIDATES,
 } from "./cloud-provider-candidate";
 import type { CloudCandidateMetadata } from "../../shared/cloud-setup-contracts";
+import {
+  createHybridSimulationRuntimeV1,
+  type HybridSimulationRuntimeV1,
+} from "../hybrid-simulation-runtime";
+import { createFakeCloudReviewProviderV1 } from "./fake-cloud-review-provider";
 
 export function createLocalVllmDescriptor(config: SoarConfig): ProviderDescriptor {
   return parseProviderDescriptor({
@@ -48,6 +53,8 @@ export function createLocalVllmProvider(
 export interface RuntimeProviderCatalog {
   registry: ProviderRegistry;
   defaultLocalProviderId: string;
+  /** Present only under the explicit main-process fake simulation authority. */
+  hybridSimulationRuntime?: HybridSimulationRuntimeV1;
   /** Metadata-only candidates; never dispatch registrations in PR6A. */
   cloudCandidates: readonly CloudCandidateMetadata[];
 }
@@ -63,12 +70,31 @@ export function createRuntimeProviderCatalog(
     config.providerMode === "fake"
       ? new FakeProvider({ delayMs: config.fakeDelayMs })
       : createLocalVllmProvider(config);
+  const simulationCloud = config.hybridSimulationEnabled
+    ? createFakeCloudReviewProviderV1({
+        pricingVerifiedAt: new Date().toISOString(),
+        delayMs: config.fakeDelayMs,
+        scenario: config.fakeCloudScenario,
+      })
+    : undefined;
   const registry = new ProviderRegistry([
     { descriptor: selected.descriptor, provider: selected },
+    ...(simulationCloud === undefined
+      ? []
+      : [{ descriptor: simulationCloud.descriptor, provider: simulationCloud }]),
   ]);
+  const hybridSimulationRuntime = config.hybridSimulationEnabled
+    ? createHybridSimulationRuntimeV1({
+        providerRegistry: registry,
+        defaultLocalProviderId: selected.id,
+      })
+    : undefined;
   return {
     registry,
     defaultLocalProviderId: selected.id,
+    ...(hybridSimulationRuntime === undefined
+      ? {}
+      : { hybridSimulationRuntime }),
     cloudCandidates: LOCKED_CLOUD_PROVIDER_CANDIDATES,
   };
 }

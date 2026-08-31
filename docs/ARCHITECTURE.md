@@ -17,8 +17,12 @@ Electron main process
     |                -> bounded tool gateway -> selected workspace
     +-- LocalChangeReviewCoordinator -> host change acquisition
     |                               -> review context compiler -> provider
+    +-- HybridSimulationChangeReview -> host change acquisition
+    |                               -> semantic egress admission
+    |                               -> branded in-process fake providers
+    |                               -> simulation-scoped budget ledger
     +-- CloudCredentialSetupService -> setup-only Keychain adapter (no secret read)
-    +-- pure cloud-egress shadow guard (no I/O or session wiring)
+    +-- pure cloud-egress guard (shadow-only in normal vLLM mode)
     +-- EventStore -> SQLite
     +-- redacted session/review projections -> renderer
 ```
@@ -32,6 +36,13 @@ password field is cleared before IPC is invoked, and every response is a
 metadata-only projection that cannot return the credential or grant dispatch
 authority.
 
+The fake-only Hybrid simulation bridge is also typed and allow-listed. Its
+renderer payload contains only the selected workspace, `local` or
+`hybrid_simulation` route intent, an opaque consent-challenge ID, and the
+acknowledgement. Main owns the fixed disclosure, fake providers, simulated cap,
+policies, and cost scope. The renderer cannot supply a credential, provider,
+model, endpoint, price, actual-spend authority, or real egress consent.
+
 ## Session lifecycle
 
 1. IPC validates a task and selected workspace.
@@ -39,8 +50,11 @@ authority.
    track, ordered completion obligations, and versioned inference/tool-call
    policy as canonical events in SQLite. Legacy sessions may lack a task track;
    new app sessions persist either `repository-investigator-v1` or
-   `change-review-v1` explicitly. The latter always uses
-   `agentic-execution-v2`, `local_only_v1`, and no egress consent.
+   `change-review-v1` explicitly. In normal vLLM mode the latter uses
+   `agentic-execution-v2`, `local_only_v1`, and no egress consent. An explicitly
+   enabled fake-only simulation uses the distinct persisted
+   `hybrid_simulation_v1` policy and simulation consent while real egress
+   consent remains `none`.
 3. `SessionRunner` persists the start and route assignment before inference.
 4. Before every provider call, the runner compiles observable state into a
    token-bounded `soar.context-packet.v1` and persists `context.compiled`.
@@ -118,6 +132,52 @@ excludes per-file coverage, changed paths, and snapshot/evidence IDs; the
 accepted structured result may still include bounded evidence references for
 its findings. The renderer snapshot also excludes raw model output and rejected
 validator diagnostics.
+
+## Fake-only Hybrid simulation lifecycle
+
+PR6B0 is a separate main-owned change-review path, not a way to widen the
+normal vLLM registry. Configuration constructs its authority only when provider
+mode is `fake` and the explicit simulation flag is enabled. Normal vLLM mode
+rejects that flag and continues to expose Local-only Review Current Changes
+with Hybrid locked. Stored Cloud Settings state has no effect on simulation
+availability.
+
+1. Main issues a bounded, single-use challenge bound to the canonical selected
+   workspace, fixed disclosure version/hash, fake-only authority, expiry, and
+   `$0.25` simulated maximum. The user must select Hybrid simulation and
+   acknowledge the initially unchecked disclosure. Changing route or workspace
+   clears the acknowledgement.
+2. Main atomically consumes the challenge before creating a
+   `change-review-v1` session with `hybrid_simulation_v1`, simulation consent,
+   real egress consent `none`, and the immutable branded authority snapshot.
+   Unknown, replayed, expired, or mismatched input creates no session or budget
+   work.
+3. The strict coordinator acquires repository changes and required full-read
+   evidence locally, derives coverage and risk, and compiles the exact no-tools
+   `ReviewResultV1` message plus host provenance.
+4. Immediately before a possible Fake Cloud invocation, the pure egress policy
+   evaluates those semantic messages and provenance. A persisted admission
+   record carries bounded codes and hashes, not request bodies, roots, matches,
+   secrets, or raw diagnostics. Denial creates no Fake Cloud attempt or
+   simulated reservation and may continue with Fake Local.
+5. An admitted checkpoint reserves at most 250,000 simulation-scoped micro-USD
+   and starts the attempt through the existing atomic unit of work. The Fake
+   Cloud provider is an in-process, tool-free structured-review implementation
+   with no network client, endpoint, or credential input.
+6. Settlement, release, conservative unknown usage, recovery, one eligible
+   Fake Local fallback, cancellation, and terminal events remain append-only.
+   Cancellation creates no fallback. Snapshot drift can reject the result but
+   does not rewrite accounting.
+7. Renderer-safe projections repeat the exact simulation marker, Fake provider
+   labels, route/fallback reason and status, latency, simulated reservation and
+   settlement provenance, and `$0` actual external spend. Replay reconstructs
+   the route without dispatching again; missing attribution withholds ordinary
+   result/copy presentation.
+
+This architecture is Implemented locally, not Verified or Released. It grants
+no credential or network authority and proves no production provider identity,
+wire request, review-quality benefit, cost saving, or latency improvement.
+Manual VoiceOver, light/dark contrast, and reduced-motion proof remains pending.
 
 ## Context compilation
 
@@ -235,9 +295,11 @@ advertised value is bounded endpoint metadata, not empirical capacity
 verification or a universal provider guarantee. The adapter supports the one
 exact `ReviewResultV1` JSON Schema contract only when tools are disabled and the
 descriptor advertises `structured_json_schema`; arbitrary structured contracts
-and prose-suffix repair are rejected. The current production registry
-constructs exactly one configured, operator-attested local provider; the
-deterministic fake is test/development only. PR6A adds a separate locked
+and prose-suffix repair are rejected. Normal vLLM mode constructs exactly one
+configured, operator-attested Local provider. Explicit fake simulation mode
+instead constructs exactly its branded Fake Local and tool-free Fake Cloud
+providers under a nominal main-process authority; neither has an external
+transport. PR6A adds a separate locked
 cloud-candidate metadata record and a direct setup-only macOS Keychain adapter
 with presence, write/replace, and delete operations. That adapter deliberately
 has no raw-secret read or dispatch-time resolver, and the candidate is not a
@@ -454,10 +516,13 @@ explicit migration with compatibility tests.
 Database startup uses an append-only, checksummed migration ledger. Before an
 unversioned nonempty database can be adopted, its complete normalized schema
 must match the frozen `4233edd` baseline and pass integrity and foreign-key
-checks. Schema version 2 adds constrained append-only budget-ledger storage.
-The fake-only hybrid runner exercises atomic reservation and settlement; the
-production local review path makes no paid budget reservation and records zero
-selected paid exposure under the operator's `local_zero_cost` attestation.
+checks. Schema version 2 adds constrained append-only budget-ledger storage;
+schema version 3 adds immutable `simulation | actual | legacy_unclassified`
+scope and cross-scope guards. PR6B0 exercises atomic simulation reservation and
+settlement only. Legacy-unclassified exposure blocks future actual admission;
+it is never silently counted as zero. The normal local review path makes no
+paid budget reservation and records zero selected paid exposure under the
+operator's `local_zero_cost` attestation.
 
 Strict `agentic-execution-v2`, routing-decision, and inference-attempt contracts
 are additive foundations for the hybrid runner. V2 replay cross-checks route,
@@ -465,8 +530,9 @@ lease, decision, context, message, model, reservation, usage, and terminal
 attempt identity; startup recovery explicitly closes each supported crash
 window. Canonical state is reconstructed from append-only events before every
 append rather than trusting mutable projection JSON. Repository Investigator
-still creates v1 sessions, while Review Current Changes creates local-only v2
-history with the same replay invariants. See
+still creates v1 sessions. Normal vLLM Review Current Changes creates local-only
+v2 history, while explicit fake simulation creates separately branded,
+simulation-scoped v2 history under the same replay invariants. See
 [ADR 0002](adr/0002-agentic-execution-v2-event-state-machine.md).
 
 Projected sessions created before context telemetry existed default
@@ -623,14 +689,13 @@ the [approved readiness plan](plans/HELD_OUT_CORPUS_EVALUATOR_READINESS_V1.md).
 
 ## Current and future routing
 
-The production app has two local-only paths. Repository Investigator retains
+Normal vLLM operation has two Local-only paths. Repository Investigator retains
 one deterministic v1 route. Review Current Changes creates a v2
 `change-review-v1` session, persists its session-start decision and lease, and
 retains the same configured provider through inspection, evidence reads, and
 structured synthesis. Host immutable change acquisition is connected only to
-that dedicated review workflow. PR 4's separate fake-only v2 coordinator still
-proves future hybrid mechanics without constructing a production cloud
-provider.
+that dedicated review workflow. PR6B0 adds an app-visible fake-only simulation
+of the strict review flow without constructing a production cloud provider.
 
 `checkpoint-router-v0` is a pure proposal/resolution pair. It consumes replayed
 state plus explicit provider, risk, health, pricing, deadline, egress, packet,
@@ -640,7 +705,7 @@ fake-cloud synthesis after complete evidence, and may assign one local fallback
 after an eligible cloud failure. Productive tool rounds retain the current
 lease and do not call the router.
 
-Every PR 4 decision persists a bounded immutable input snapshot. The exact
+Every checkpoint decision persists a bounded immutable input snapshot. The exact
 provider registration and provider-specific request reserve used to compile a
 cloud packet are bound before admission; the same registration, packet hashes,
 and requested output allowance are dispatched after the reservation/event
@@ -653,16 +718,24 @@ against canonical events at startup and before later admission. See
 PR6A is Verified but not Released. It provides the
 setup-only Keychain boundary, locked candidate metadata, and a pure shadow
 admission function over canonical messages and host-derived provenance. The
-shadow function performs no I/O, is not attached to a session, and is not proof
-of a real provider request or wire payload.
+function performs no I/O and PR6A itself attached it to no session. PR6B0 now
+uses that pure policy only before an in-process fake invocation; neither state is
+proof of a real provider request or wire payload.
 
-Production cloud routing still requires a separately approved PR6B: raw-secret
-resolution at the dispatch boundary, credential and provider validation, live
-health and pricing evidence, immediately-pre-dispatch egress admission bound to
-the wire request, explicit Hybrid authority, and the paid OpenRouter canary.
-PR6B remains unapproved. The app may report a credential as stored locally, but
+PR6B0 is Implemented locally but not Verified or Released. It binds semantic
+egress admission, checkpoint routing, accounting, fallback, cancellation, and
+replay only to in-process fakes. It neither reads the PR6A credential nor uses a
+network transport, and its nonzero figures are simulation-scoped rather than
+actual spend.
+
+Production cloud routing still requires separately approved PR6B1 through
+PR6B3 work: signed raw-secret resolution at the dispatch boundary, credential
+and provider validation, live health and pricing evidence, immediately-before-
+dispatch egress admission bound to the serialized wire request, explicit real
+Hybrid authority, and the paid OpenRouter canary. Those milestones remain
+unapproved. The app may report a credential as stored locally, but
 it also reports not validated and keeps Hybrid locked. The implemented
-production paths therefore still select only the operator-attested local route.
+normal-vLLM paths therefore still select only the operator-attested Local route.
 The generic vLLM URL remains an operator trust boundary; SOAR does not
 independently prove that it cannot bill. Configuration or stored setup state
 alone cannot enable a cloud route.

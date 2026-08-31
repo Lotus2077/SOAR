@@ -161,6 +161,8 @@ describe("ProviderRegistry", () => {
   it("keeps one dispatch registration and a separately typed locked cloud candidate", () => {
     const config: SoarConfig = {
       providerMode: "local",
+      hybridSimulationEnabled: false,
+      fakeCloudScenario: "success",
       fakeDelayMs: 0,
       vllm: {
         baseUrl: "https://local-provider.example/v1",
@@ -206,6 +208,57 @@ describe("ProviderRegistry", () => {
     expect(
       catalog.registry.getDescriptor(catalog.cloudCandidates[0]!.candidateId),
     ).toBeUndefined();
+  });
+
+  it("constructs exactly two branded fake providers only with explicit simulation authority", () => {
+    const config: SoarConfig = {
+      providerMode: "fake",
+      hybridSimulationEnabled: true,
+      fakeCloudScenario: "success",
+      fakeDelayMs: 0,
+      vllm: {
+        baseUrl: "http://localhost:8000/v1",
+        apiKey: "unused-local-fake",
+        model: "unused-local-model",
+        costPolicy: "local_zero_cost",
+        maxOutputTokens: 8_192,
+        timeoutMs: 30_000,
+      },
+      limits: { inferenceRounds: 24, toolCalls: 24 },
+      context: { maxInputTokens: 16_384, safetyMargin: 0.2 },
+    };
+
+    const catalog = createRuntimeProviderCatalog(config);
+
+    expect(catalog.registry.listDescriptors()).toHaveLength(2);
+    expect(catalog.registry.listDescriptors()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: catalog.defaultLocalProviderId,
+          locality: "local",
+          accounting: { kind: "local_zero_cost" },
+        }),
+        expect.objectContaining({
+          id: "fake-cloud-review",
+          locality: "cloud",
+          accounting: expect.objectContaining({ kind: "metered" }),
+          capabilities: expect.not.arrayContaining(["tool_calling"]),
+        }),
+      ]),
+    );
+    expect(catalog.hybridSimulationRuntime).toMatchObject({
+      kind: "hybrid-simulation-runtime-v1",
+      localProviderId: catalog.defaultLocalProviderId,
+      cloudProviderId: "fake-cloud-review",
+      maxSimulatedSpendMicrousd: 250_000,
+    });
+
+    expect(
+      createRuntimeProviderCatalog({
+        ...config,
+        hybridSimulationEnabled: false,
+      }).registry.listDescriptors(),
+    ).toHaveLength(1);
   });
 
   it("keeps production bootstrap free of a cloud-provider or Hybrid constructor path", () => {

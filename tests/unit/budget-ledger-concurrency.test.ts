@@ -54,6 +54,8 @@ function reservationInput(
     attemptId: `${sessionId}:attempt:1`,
     providerId: "fake-cloud",
     pricingSnapshotId: "pricing-1",
+    costScope: "actual",
+    cloudEgressAdmissionId: `egress-${reservationId}`,
     episodeCapMicrousd: 250,
     projection: {
       billableInputTokens: 100,
@@ -198,6 +200,7 @@ describe("BudgetLedger concurrent admission", () => {
       openingExposureMicrousd: 0,
       automaticStopMicrousd: 250,
       hardCeilingMicrousd: 500,
+      costScope: "actual",
       createdAt: "2026-08-29T02:00:00.000Z",
     });
 

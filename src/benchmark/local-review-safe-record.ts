@@ -402,6 +402,10 @@ function projectSafeLocalReviewEventWithStateV1(
         },
       };
       break;
+    case "cloud.egress.admission.recorded":
+      throw new Error(
+        "Hybrid simulation egress events are outside local-review-safe-event-v1",
+      );
     case "routing.decision.recorded": {
       const payload = data.payload;
       projected = {

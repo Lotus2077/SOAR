@@ -38,73 +38,38 @@ import {
   useState,
 } from "react";
 
+import type { CloudSetupStatus } from "../../shared/cloud-setup-contracts";
 import type {
-  CloudSetupStatus,
-  HybridLockedReachabilitySummary,
-  HybridLockedReason,
-} from "../../shared/cloud-setup-contracts";
+  ChangeReviewView,
+  HybridSimulationProjection,
+  ReviewAvailability,
+  ReviewFreshness,
+  ReviewPhaseView,
+  ReviewRouteIntent,
+  SoarRendererApi,
+} from "../../shared/contracts";
+import {
+  HYBRID_SIMULATION_MAX_SPEND_MICROUSD,
+  HYBRID_SIMULATION_RESULT_MARKER,
+  type HybridSimulationConsentChallengeV1,
+} from "../../shared/hybrid-simulation-contracts";
 import { CloudSettings } from "./CloudSettings";
 
 type Payload = Record<string, unknown>;
 
-type ReviewFreshness =
-  | "pending"
-  | "not_available"
-  | "fresh_complete"
-  | "identity_same_unverifiable"
-  | "drifted"
-  | "unavailable";
+export const HYBRID_SIMULATION_MARKER = HYBRID_SIMULATION_RESULT_MARKER;
 
-interface ReviewAvailability {
-  local: {
-    enabled: boolean;
-    label: string;
-    providerId?: string;
-    model?: string;
-    reason?: string;
-    declaredTokenFeeMicrousd: 0;
-    costAccountingSummary: "The configured vLLM route declares a $0 token fee; endpoint billing and infrastructure costs are not independently verified.";
-    evidenceTransportSummary: "Review evidence is sent to the configured vLLM endpoint.";
-  };
-  hybrid: {
-    enabled: false;
-    reason: HybridLockedReason;
-    separatelyConfiguredPaidProviderReachable: false;
-    reachabilitySummary: HybridLockedReachabilitySummary;
-    consent: "none";
-  };
-}
-
-interface ReviewPhaseView {
-  id: "inspection" | "checkpoint" | "synthesis" | "fallback";
-  status: "pending" | "active" | "complete" | "failed" | "cancelled";
-  label: string;
-}
-
-interface ChangeReviewView {
-  sessionId: string;
-  status: string;
-  freshness: ReviewFreshness;
-  phases: ReviewPhaseView[];
-  route?: {
-    providerId: string;
-    model: string;
-    locality: "local" | "cloud";
-    reasonCode: string;
-  };
-  reviewResult?: unknown;
-  coverage?: unknown;
-  baseRevision?: string;
-  acceptanceNote?: string;
-}
-
-interface ReviewRendererApi {
-  getReviewAvailability(): Promise<ReviewAvailability>;
-  createChangeReviewSession(input: {
+type HybridSimulationConsentChallenge = HybridSimulationConsentChallengeV1;
+type ReviewRendererApi = Pick<
+  SoarRendererApi,
+  "getReviewAvailability" | "createChangeReviewSession" | "getChangeReviewView"
+> & {
+  issueHybridSimulationConsentChallenge?(input: {
     workspaceRoot: string;
-  }): Promise<SoarSessionSnapshot>;
-  getChangeReviewView(id: string): Promise<ChangeReviewView>;
-}
+    route: "hybrid_simulation";
+  }): Promise<HybridSimulationConsentChallenge>;
+  invalidateHybridSimulationConsentChallenges?(): Promise<void>;
+};
 
 const defaultReviewAvailability: ReviewAvailability = {
   local: {
@@ -735,6 +700,102 @@ function SessionListSkeleton() {
   );
 }
 
+function sessionSimulationState(
+  session: Pick<SoarSessionSummary, "executionMode" | "simulationMarker">,
+): "attributed" | "invalid" | null {
+  const claimed =
+    session.executionMode === "hybrid_simulation" ||
+    session.simulationMarker !== undefined;
+  if (!claimed) return null;
+  return session.executionMode === "hybrid_simulation" &&
+    session.simulationMarker === HYBRID_SIMULATION_MARKER
+    ? "attributed"
+    : "invalid";
+}
+
+function simulationProjectionFromSnapshot(
+  snapshot: SoarSessionSnapshot,
+): HybridSimulationProjection | null {
+  if (sessionSimulationState(snapshot) !== "attributed") return null;
+  let reservedMicrousd = 0;
+  let settledMicrousd = 0;
+  let settlementProvenance: HybridSimulationProjection["settlementProvenance"] =
+    "not_settled";
+  for (const event of snapshot.events) {
+    const payload = asPayload(event.payload);
+    if (event.type === "routing.decision.recorded") {
+      if (payload.costScope !== "simulation") return null;
+      const billing = asPayload(payload.billing);
+      const projectedCost = billing.projectedCostMicrousd;
+      const hasReservation =
+        typeof payload.budgetReservationId === "string" &&
+        payload.budgetReservationId.trim().length > 0;
+      if (
+        projectedCost !== undefined &&
+        !isSafeSimulatedMicrousd(projectedCost)
+      ) {
+        return null;
+      }
+      if (hasReservation && projectedCost !== undefined) {
+        reservedMicrousd += projectedCost;
+        if (
+          !Number.isSafeInteger(reservedMicrousd) ||
+          reservedMicrousd > HYBRID_SIMULATION_MAX_SPEND_MICROUSD
+        ) {
+          return null;
+        }
+      } else if (hasReservation) {
+        return null;
+      }
+    }
+    if (event.type === "inference.attempt.finished") {
+      const cost = asPayload(payload.cost);
+      if (cost.costScope !== "simulation") return null;
+      if (!isSafeNonnegativeMicrousd(cost.amountMicrousd)) {
+        return null;
+      }
+      settledMicrousd += cost.amountMicrousd;
+      if (!Number.isSafeInteger(settledMicrousd)) {
+        return null;
+      }
+      if (cost.amountMicrousd > 0) {
+        if (!isSimulationSettlementProvenance(cost.provenance)) return null;
+        settlementProvenance = cost.provenance;
+      }
+    }
+  }
+  if (
+    reservedMicrousd > HYBRID_SIMULATION_MAX_SPEND_MICROUSD
+  ) {
+    return null;
+  }
+  const overrun = settledMicrousd > HYBRID_SIMULATION_MAX_SPEND_MICROUSD;
+  if (
+    overrun &&
+    (normalizeStatus(snapshot.status) !== "failed" ||
+      (settlementProvenance !== "provider_reported" &&
+        settlementProvenance !== "host_pricing_snapshot"))
+  ) {
+    return null;
+  }
+  if (
+    (settlementProvenance === "not_settled" && settledMicrousd !== 0) ||
+    (settlementProvenance === "reserved_unknown" &&
+      settledMicrousd !== reservedMicrousd)
+  ) {
+    return null;
+  }
+  return {
+    marker: HYBRID_SIMULATION_MARKER,
+    costScope: "simulation",
+    maxSimulatedSpendMicrousd: HYBRID_SIMULATION_MAX_SPEND_MICROUSD,
+    reservedMicrousd,
+    settledMicrousd,
+    settlementProvenance,
+    actualExternalSpendMicrousd: 0,
+  };
+}
+
 interface SessionSidebarProps {
   sessions: SoarSessionSummary[];
   selectedId: string | null;
@@ -769,9 +830,17 @@ function SessionSidebar({
   const visibleSessions = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     if (!normalizedQuery) return sessions;
-    return sessions.filter((session) =>
-      (session.title || "Untitled task").toLowerCase().includes(normalizedQuery),
-    );
+    return sessions.filter((session) => {
+      const searchable = [
+        session.title || "Untitled task",
+        sessionSimulationState(session) === "attributed"
+          ? HYBRID_SIMULATION_MARKER
+          : "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return searchable.includes(normalizedQuery);
+    });
   }, [query, sessions]);
 
   return (
@@ -841,6 +910,7 @@ function SessionSidebar({
         {!loading
           ? visibleSessions.map((session) => {
               const status = normalizeStatus(session.status);
+              const simulationState = sessionSimulationState(session);
               return (
                 <button
                   key={session.id}
@@ -851,6 +921,15 @@ function SessionSidebar({
                   <span className="session-row-main">
                     <strong>{session.title || "Untitled task"}</strong>
                     <span>{formatRelative(session.updatedAt)}</span>
+                    {simulationState === "attributed" ? (
+                      <small className="session-simulation-marker">
+                        {HYBRID_SIMULATION_MARKER}
+                      </small>
+                    ) : simulationState === "invalid" ? (
+                      <small className="session-simulation-marker is-invalid">
+                        Simulation attribution unavailable — result withheld.
+                      </small>
+                    ) : null}
                   </span>
                   <span className={`session-state-mark state-${status}`} aria-label={status} />
                 </button>
@@ -1158,6 +1237,210 @@ function reviewApi(): ReviewRendererApi | null {
     : null;
 }
 
+function isCurrentSimulationChallenge(
+  value: HybridSimulationConsentChallenge,
+): boolean {
+  return (
+    value.schemaVersion === "hybrid-simulation-consent-challenge-v1" &&
+    value.route === "hybrid_simulation" &&
+    value.maxSimulatedSpendMicrousd === HYBRID_SIMULATION_MAX_SPEND_MICROUSD &&
+    value.challengeId.trim().length > 0 &&
+    value.disclosureVersion.trim().length > 0 &&
+    value.disclosureText.trim().length > 0 &&
+    /^[a-f0-9]{64}$/u.test(value.disclosureTextSha256) &&
+    Number.isFinite(Date.parse(value.expiresAt)) &&
+    Date.parse(value.expiresAt) > Date.now()
+  );
+}
+
+function isSimulationSettlementProvenance(
+  value: unknown,
+): value is Exclude<
+  HybridSimulationProjection["settlementProvenance"],
+  "not_settled"
+> {
+  return (
+    value === "provider_reported" ||
+    value === "host_pricing_snapshot" ||
+    value === "reserved_unknown"
+  );
+}
+
+function isProjectedSimulationSettlementProvenance(
+  value: unknown,
+): value is HybridSimulationProjection["settlementProvenance"] {
+  return value === "not_settled" || isSimulationSettlementProvenance(value);
+}
+
+function simulationSettlementLabel(
+  provenance: HybridSimulationProjection["settlementProvenance"],
+): string {
+  switch (provenance) {
+    case "provider_reported":
+      return "Provider-reported simulated settlement";
+    case "host_pricing_snapshot":
+      return "Host-priced simulated settlement";
+    case "reserved_unknown":
+      return "Conservative full simulated reservation";
+    case "not_settled":
+      return "Not settled";
+  }
+}
+
+function isSafeSimulatedMicrousd(value: unknown): value is number {
+  return (
+    Number.isSafeInteger(value) &&
+    (value as number) >= 0 &&
+    (value as number) <= HYBRID_SIMULATION_MAX_SPEND_MICROUSD
+  );
+}
+
+function isSafeNonnegativeMicrousd(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) >= 0;
+}
+
+function isAllowedSimulationSettlement(
+  value: unknown,
+  provenance: unknown,
+  status: string,
+): value is number {
+  if (!isSafeNonnegativeMicrousd(value)) return false;
+  if (value <= HYBRID_SIMULATION_MAX_SPEND_MICROUSD) return true;
+  return (
+    normalizeStatus(status) === "failed" &&
+    (provenance === "provider_reported" ||
+      provenance === "host_pricing_snapshot")
+  );
+}
+
+function isAllowedSimulationRouteIdentity(route: {
+  providerLabel: string;
+  locality: "local" | "cloud";
+}): boolean {
+  return (
+    (route.providerLabel === "Fake Local" && route.locality === "local") ||
+    (route.providerLabel === "Fake Cloud" && route.locality === "cloud") ||
+    (route.providerLabel === "Fake Cloud candidate" &&
+      route.locality === "cloud")
+  );
+}
+
+function simulationProjectionIsSafe(
+  view: ChangeReviewView,
+): view is ChangeReviewView & { simulation: HybridSimulationProjection } {
+  const projection = view.simulation;
+  if (view.executionMode !== "hybrid_simulation") return false;
+  const overrun =
+    projection !== undefined &&
+    isSafeNonnegativeMicrousd(projection.settledMicrousd) &&
+    projection.settledMicrousd > HYBRID_SIMULATION_MAX_SPEND_MICROUSD;
+  if (
+    !projection ||
+    projection.marker !== HYBRID_SIMULATION_MARKER ||
+    projection.costScope !== "simulation" ||
+    projection.actualExternalSpendMicrousd !== 0 ||
+    !isProjectedSimulationSettlementProvenance(
+      projection.settlementProvenance,
+    ) ||
+    !isSafeSimulatedMicrousd(projection.maxSimulatedSpendMicrousd) ||
+    !isSafeSimulatedMicrousd(projection.reservedMicrousd) ||
+    !isAllowedSimulationSettlement(
+      projection.settledMicrousd,
+      projection.settlementProvenance,
+      view.status,
+    ) ||
+    projection.maxSimulatedSpendMicrousd !== HYBRID_SIMULATION_MAX_SPEND_MICROUSD ||
+    projection.reservedMicrousd > projection.maxSimulatedSpendMicrousd ||
+    (overrun &&
+      projection.settlementProvenance !== "provider_reported" &&
+      projection.settlementProvenance !== "host_pricing_snapshot") ||
+    (projection.settlementProvenance === "not_settled" &&
+      projection.settledMicrousd !== 0) ||
+    (projection.settlementProvenance === "reserved_unknown" &&
+      projection.settledMicrousd !== projection.reservedMicrousd)
+  ) {
+    return false;
+  }
+  if (
+    !view.phases.every((phase) => {
+      if (phase.providerLabel === undefined) {
+        return (
+          phase.model === undefined &&
+          phase.simulatedReservedMicrousd === undefined &&
+          phase.simulatedSettledMicrousd === undefined &&
+          phase.simulatedSettlementProvenance === undefined &&
+          phase.actualExternalSpendMicrousd === undefined
+        );
+      }
+      if (
+        (phase.providerLabel !== "Fake Local" &&
+          phase.providerLabel !== "Fake Cloud" &&
+          phase.providerLabel !== "Fake Cloud candidate") ||
+        typeof phase.model !== "string" ||
+        phase.model.trim().length === 0 ||
+        phase.actualExternalSpendMicrousd !== 0
+      ) {
+        return false;
+      }
+      const reserved = phase.simulatedReservedMicrousd;
+      if (reserved !== undefined && !isSafeSimulatedMicrousd(reserved)) {
+        return false;
+      }
+      const settled = phase.simulatedSettledMicrousd;
+      const provenance = phase.simulatedSettlementProvenance;
+      if (settled === undefined && provenance === undefined) return true;
+      if (
+        settled === undefined ||
+        !isProjectedSimulationSettlementProvenance(provenance) ||
+        !isAllowedSimulationSettlement(settled, provenance, view.status)
+      ) {
+        return false;
+      }
+      if (provenance === "not_settled") return settled === 0;
+      if (provenance !== "reserved_unknown") return true;
+      return reserved !== undefined && settled === reserved;
+    })
+  ) {
+    return false;
+  }
+  const attributedRoutes = view.routes || [];
+  if (attributedRoutes.length === 0) {
+    return view.reviewResult === undefined;
+  }
+  let routeSettledMicrousd = 0;
+  const routesSafe = attributedRoutes.every((route) => {
+      if (
+        !isAllowedSimulationRouteIdentity(route) ||
+        route.actualExternalSpendMicrousd !== 0
+      ) {
+        return false;
+      }
+      const settled = route.simulatedSettledMicrousd;
+      const reserved = route.simulatedReservedMicrousd;
+      const provenance = route.simulatedSettlementProvenance;
+      if (reserved !== undefined && !isSafeSimulatedMicrousd(reserved)) {
+        return false;
+      }
+      if (settled === undefined && provenance === undefined) return true;
+      if (
+        settled === undefined ||
+        !isAllowedSimulationSettlement(settled, provenance, view.status) ||
+        !isProjectedSimulationSettlementProvenance(provenance)
+      ) {
+        return false;
+      }
+      routeSettledMicrousd += settled;
+      if (!Number.isSafeInteger(routeSettledMicrousd)) return false;
+      if (provenance === "not_settled") return settled === 0;
+      if (provenance !== "reserved_unknown") return true;
+      return (
+        reserved !== undefined &&
+        settled === reserved
+      );
+    });
+  return routesSafe && routeSettledMicrousd === projection.settledMicrousd;
+}
+
 interface ReviewFindingView {
   findingId: string;
   severity: "P0" | "P1" | "P2" | "P3";
@@ -1327,8 +1610,16 @@ function markdownCode(value: string): string {
   return `${delimiter}${padding}${value}${padding}${delimiter}`;
 }
 
+function formatMicrousd(microusd: number): string {
+  return `$${(microusd / 1_000_000).toFixed(2)}`;
+}
+
 export function reviewMarkdown(view: ChangeReviewView): string | null {
   if (view.freshness !== "fresh_complete") return null;
+  const simulationClaimed =
+    view.executionMode === "hybrid_simulation" || view.simulation !== undefined;
+  const simulationSafe = simulationProjectionIsSafe(view);
+  if (simulationClaimed && !simulationSafe) return null;
   const result = reviewResultProjection(view.reviewResult);
   if (!result) return null;
   const conclusion =
@@ -1340,6 +1631,7 @@ export function reviewMarkdown(view: ChangeReviewView): string | null {
   const lines = [
     "# Review current changes",
     "",
+    ...(simulationSafe ? [`> **${HYBRID_SIMULATION_MARKER}**`, ""] : []),
     markdownLiteral(result.summary),
     "",
     `**Conclusion:** ${conclusion}`,
@@ -1351,6 +1643,7 @@ export function reviewMarkdown(view: ChangeReviewView): string | null {
         "",
         `### [${markdownLiteral(finding.severity)}] ${markdownLiteral(finding.title)}`,
         "",
+        ...(simulationSafe ? [`> **${HYBRID_SIMULATION_MARKER}**`, ""] : []),
         `**Impact:** ${markdownLiteral(finding.impact)}`,
         "",
         `**Suggested correction:** ${markdownLiteral(finding.suggestedCorrection)}`,
@@ -1364,6 +1657,17 @@ export function reviewMarkdown(view: ChangeReviewView): string | null {
         ),
       );
     });
+  }
+  if (simulationSafe) {
+    lines.push(
+      "",
+      "## Simulation accounting",
+      "",
+      `- Maximum reservation: Simulated ${formatMicrousd(view.simulation.maxSimulatedSpendMicrousd)}`,
+      `- Reserved: Simulated ${formatMicrousd(view.simulation.reservedMicrousd)}`,
+      `- Settled: Simulated ${formatMicrousd(view.simulation.settledMicrousd)} (${simulationSettlementLabel(view.simulation.settlementProvenance)})`,
+      "- Actual external provider spend: $0",
+    );
   }
   if (result.omissions.length > 0) {
     lines.push("", "## Omissions");
@@ -1395,24 +1699,56 @@ export function ReviewSetup({
   availability,
   loading,
   busy,
+  route = "local",
+  challenge = null,
+  consentChecked = false,
+  consentLoading = false,
+  consentError = null,
   onChooseWorkspace,
   onOpenCloudSettings,
+  onRouteChange = () => undefined,
+  onConsentChange = () => undefined,
+  onRetryChallenge = () => undefined,
   onStart,
 }: {
   workspace: { path: string; name: string } | null;
   availability: ReviewAvailability;
   loading: boolean;
   busy: boolean;
+  route?: ReviewRouteIntent;
+  challenge?: HybridSimulationConsentChallenge | null;
+  consentChecked?: boolean;
+  consentLoading?: boolean;
+  consentError?: string | null;
   onChooseWorkspace: () => void;
   onOpenCloudSettings: () => void;
+  onRouteChange?: (route: ReviewRouteIntent) => void;
+  onConsentChange?: (checked: boolean) => void;
+  onRetryChallenge?: () => void;
   onStart: () => void;
 }) {
+  const consentRef = useRef<HTMLInputElement>(null);
+  const retryConsentRef = useRef<HTMLButtonElement>(null);
+  const simulationAvailable =
+    availability.hybrid.enabled && availability.hybrid.mode === "simulation";
+  const simulationSelected = route === "hybrid_simulation";
   const localDetail = availability.local.model
     ? `${availability.local.label} · ${availability.local.model}`
     : availability.local.reason || availability.local.label;
   const declaredTokenFee = `$${
     availability.local.declaredTokenFeeMicrousd / 1_000_000
   }`;
+
+  useEffect(() => {
+    if (challenge) consentRef.current?.focus();
+  }, [challenge?.challengeId]);
+
+  useEffect(() => {
+    if (consentError && !challenge && !consentLoading) {
+      retryConsentRef.current?.focus();
+    }
+  }, [challenge, consentError, consentLoading]);
+
   return (
     <section className="review-setup" aria-labelledby="review-setup-title">
       <header className="review-setup-heading">
@@ -1435,24 +1771,48 @@ export function ReviewSetup({
 
         <fieldset className="review-mode-fieldset">
           <legend>Route</legend>
-          <label className={`review-mode-row is-selected ${availability.local.enabled ? "" : "is-unavailable"}`}>
-            <input type="radio" name="review-route" checked readOnly disabled={!availability.local.enabled} />
+          <label className={`review-mode-row ${route === "local" ? "is-selected" : ""} ${availability.local.enabled ? "" : "is-unavailable"}`}>
+            <input
+              type="radio"
+              name="review-route"
+              aria-label="Local"
+              checked={route === "local"}
+              onChange={() => onRouteChange("local")}
+              disabled={!availability.local.enabled}
+            />
             <span className="review-setting-icon"><HardDrives /></span>
             <span className="review-setting-copy">
               <strong>Local</strong>
               <small>{loading ? "Checking local review support..." : localDetail}</small>
             </span>
-            <span className="review-mode-state">Selected</span>
+            <span className="review-mode-state">{route === "local" ? "Selected" : "Available"}</span>
           </label>
-          <div className="review-mode-row is-disabled">
-            <input type="radio" name="review-route" aria-label="Hybrid" disabled />
+          <label
+            className={`review-mode-row ${simulationSelected ? "is-selected" : ""} ${simulationAvailable ? "" : "is-disabled"}`}
+          >
+            <input
+              type="radio"
+              name="review-route"
+              aria-label={simulationAvailable ? "Hybrid simulation" : "Hybrid"}
+              checked={simulationSelected}
+              onChange={() => onRouteChange("hybrid_simulation")}
+              disabled={!simulationAvailable}
+            />
             <span className="review-setting-icon"><Cpu /></span>
             <span className="review-setting-copy">
-              <strong>Hybrid</strong>
-              <small>{availability.hybrid.reason}</small>
+              <strong>{simulationAvailable ? "Hybrid simulation" : "Hybrid"}</strong>
+              <small>
+                {simulationAvailable
+                  ? "Fake Local and fake cloud models exercise the Hybrid control flow."
+                  : availability.hybrid.reason}
+              </small>
             </span>
-            <span className="review-mode-actions">
-              <span className="review-mode-state">Unavailable</span>
+            <span className="review-mode-state">
+              {simulationSelected ? "Selected" : simulationAvailable ? "Available" : "Unavailable"}
+            </span>
+          </label>
+          {!simulationAvailable ? (
+            <div className="review-mode-help">
               <button
                 type="button"
                 className="review-text-button"
@@ -1461,27 +1821,114 @@ export function ReviewSetup({
               >
                 Set up cloud
               </button>
-            </span>
-          </div>
+            </div>
+          ) : null}
         </fieldset>
+
+        {simulationSelected ? (
+          <section
+            className="review-simulation-disclosure"
+            aria-labelledby="review-simulation-disclosure-title"
+          >
+            <div className="review-simulation-heading">
+              <WarningCircle weight="fill" aria-hidden="true" />
+              <div>
+                <span className="review-section-kicker">Explicit fake-only mode</span>
+                <h2 id="review-simulation-disclosure-title">Hybrid simulation disclosure</h2>
+              </div>
+            </div>
+            <p className="review-simulation-marker">{HYBRID_SIMULATION_MARKER}</p>
+            {challenge ? (
+              <>
+                <p className="review-disclosure-copy">{challenge.disclosureText}</p>
+                <div className="review-simulation-terms" aria-label="Simulation terms">
+                  <span>
+                    <small>Maximum reservation</small>
+                    <strong>
+                      Simulated ${(challenge.maxSimulatedSpendMicrousd / 1_000_000).toFixed(2)}
+                    </strong>
+                  </span>
+                  <span>
+                    <small>Actual external spend</small>
+                    <strong>$0</strong>
+                  </span>
+                </div>
+                <label className="review-consent-row">
+                  <input
+                    ref={consentRef}
+                    type="checkbox"
+                    checked={consentChecked}
+                    onChange={(event) => onConsentChange(event.target.checked)}
+                  />
+                  <span>
+                    I acknowledge this challenge-bound fake simulation disclosure.
+                  </span>
+                </label>
+                <small className="review-disclosure-version">
+                  Disclosure {challenge.disclosureVersion} · expires {formatClock(challenge.expiresAt)}
+                </small>
+              </>
+            ) : (
+              <div className="review-consent-state" role="status" aria-live="polite">
+                {consentLoading
+                  ? "Preparing the disclosure for this repository…"
+                  : workspace
+                    ? "A current disclosure is required before simulation can start."
+                    : "Choose a repository to prepare its disclosure."}
+              </div>
+            )}
+            {consentError ? (
+              <div className="review-consent-error" role="alert">
+                <span>{consentError}</span>
+                {workspace && !consentLoading ? (
+                  <button
+                    ref={retryConsentRef}
+                    type="button"
+                    className="review-text-button"
+                    onClick={onRetryChallenge}
+                  >
+                    Prepare a new disclosure
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            <p className="review-cloud-independence">
+              Simulation is independent of Cloud Settings and never reads your stored credential.
+            </p>
+          </section>
+        ) : null}
 
         <div className="review-policy-grid">
           <div>
             <Coins />
-            <span><small>Declared token fee</small><strong>{declaredTokenFee}</strong></span>
+            <span>
+              <small>{simulationSelected ? "Maximum reservation" : "Declared token fee"}</small>
+              <strong>{simulationSelected ? "Simulated $0.25" : declaredTokenFee}</strong>
+            </span>
           </div>
           <div>
             <LockKey />
-            <span><small>Paid cloud consent</small><strong>Off</strong></span>
+            <span>
+              <small>{simulationSelected ? "Actual external spend" : "Paid cloud consent"}</small>
+              <strong>{simulationSelected ? "$0" : "Off"}</strong>
+            </span>
           </div>
         </div>
         <div className="review-egress-note">
           <Files />
           <span>
             <strong>Evidence transport</strong>
-            {availability.local.evidenceTransportSummary}{" "}
-            {availability.local.costAccountingSummary}{" "}
-            {availability.hybrid.reachabilitySummary}
+            {simulationSelected ? (
+              "No content leaves this machine in simulation. The disclosure names the repository content classes a future real Hybrid request would send."
+            ) : simulationAvailable ? (
+              "Local uses the in-process Fake Local model in this explicit development/test configuration; no content leaves this machine and the declared token fee is $0."
+            ) : (
+              <>
+                {availability.local.evidenceTransportSummary}{" "}
+                {availability.local.costAccountingSummary}{" "}
+                {availability.hybrid.reachabilitySummary}
+              </>
+            )}
           </span>
         </div>
       </div>
@@ -1489,12 +1936,25 @@ export function ReviewSetup({
       <button
         type="button"
         className="review-start-button"
-        data-testid="start-local-review"
+        data-testid={simulationSelected ? "start-hybrid-simulation" : "start-local-review"}
         onClick={onStart}
-        disabled={busy || loading || !workspace || !availability.local.enabled}
+        disabled={
+          busy ||
+          loading ||
+          !workspace ||
+          (simulationSelected
+            ? !simulationAvailable || !challenge || !consentChecked
+            : !availability.local.enabled)
+        }
       >
         <GitDiff />
-        {busy ? "Starting local review..." : "Start local review"}
+        {busy
+          ? simulationSelected
+            ? "Starting Hybrid simulation..."
+            : "Starting local review..."
+          : simulationSelected
+            ? "Start Hybrid simulation"
+            : "Start local review"}
       </button>
     </section>
   );
@@ -1503,24 +1963,54 @@ export function ReviewSetup({
 function ReviewTimeline({ phases }: { phases: ReviewPhaseView[] }) {
   return (
     <ol className="review-timeline" aria-label="Review phases">
-      {phases.map((phase) => (
-        <li className={`phase-${phase.status}`} key={phase.id}>
-          <span className="review-phase-mark" aria-hidden="true">
-            {phase.status === "complete" ? (
-              <CheckCircle weight="fill" />
-            ) : phase.status === "failed" ? (
-              <XCircle weight="fill" />
-            ) : phase.status === "cancelled" ? (
-              <Stop weight="fill" />
-            ) : phase.status === "active" ? (
-              <Sparkle weight="fill" />
-            ) : (
-              <Clock />
-            )}
-          </span>
-          <span>{phase.label}</span>
-        </li>
-      ))}
+      {phases.map((phase) => {
+        const details = [
+          phase.providerLabel && phase.model
+            ? `${phase.providerLabel} · ${phase.model}`
+            : phase.providerLabel || phase.model,
+          phase.reason ? routeReasonLabel(phase.reason) : undefined,
+          typeof phase.latencyMs === "number"
+            ? `${formatProviderDuration(phase.latencyMs)} latency`
+            : undefined,
+          typeof phase.simulatedReservedMicrousd === "number"
+            ? `Simulated ${formatMicrousd(phase.simulatedReservedMicrousd)} reserved`
+            : undefined,
+          typeof phase.simulatedSettledMicrousd === "number"
+            ? `Simulated ${formatMicrousd(phase.simulatedSettledMicrousd)} settled${phase.simulatedSettlementProvenance ? ` (${simulationSettlementLabel(phase.simulatedSettlementProvenance)})` : ""}`
+            : undefined,
+          phase.actualExternalSpendMicrousd === 0
+            ? "Actual external spend $0"
+            : undefined,
+        ].filter((detail): detail is string => Boolean(detail));
+        return (
+          <li
+            className={`phase-${phase.status}`}
+            key={phase.id}
+            aria-current={phase.status === "active" ? "step" : undefined}
+          >
+            <span className="review-phase-mark" aria-hidden="true">
+              {phase.status === "complete" ? (
+                <CheckCircle weight="fill" />
+              ) : phase.status === "failed" ? (
+                <XCircle weight="fill" />
+              ) : phase.status === "cancelled" ? (
+                <Stop weight="fill" />
+              ) : phase.status === "active" ? (
+                <Sparkle weight="fill" />
+              ) : (
+                <Clock />
+              )}
+            </span>
+            <span className="review-phase-copy">
+              <strong>{phase.label}</strong>
+              <small>{typeLabel(phase.status)}</small>
+              {details.length > 0 ? (
+                <small className="review-phase-detail">{details.join(" · ")}</small>
+              ) : null}
+            </span>
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -1577,23 +2067,38 @@ export function ChangeReviewWorkspace({
   onStop: () => void;
 }) {
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
-  const status = normalizeStatus(view?.status || snapshot.status);
+  const matchingView = view?.sessionId === snapshot.id ? view : null;
+  const snapshotSimulationState = sessionSimulationState(snapshot);
+  const status = normalizeStatus(matchingView?.status || snapshot.status);
   const running = status === "running" || status === "queued" || status === "created";
-  const freshness = view?.freshness ?? "pending";
+  const freshness = matchingView?.freshness ?? "pending";
   const freshnessMessage = freshnessCopy(freshness);
-  const result = freshness === "fresh_complete" || freshness === "identity_same_unverifiable"
-    ? reviewResultProjection(view?.reviewResult)
-    : null;
-  const markdown = view ? reviewMarkdown(view) : null;
+  const simulationClaimed =
+    snapshotSimulationState !== null ||
+    matchingView?.executionMode === "hybrid_simulation" ||
+    matchingView?.simulation !== undefined;
+  const safeSimulationView =
+    matchingView && simulationProjectionIsSafe(matchingView) ? matchingView : null;
+  const simulationSafe = safeSimulationView !== null;
+  const simulationHeaderAttributed =
+    snapshotSimulationState === "attributed" || simulationSafe;
+  const simulationRoutes = safeSimulationView?.routes ?? [];
+  const simulationProjection = safeSimulationView?.simulation;
+  const result =
+    (!simulationClaimed || simulationSafe) &&
+    (freshness === "fresh_complete" || freshness === "identity_same_unverifiable")
+      ? reviewResultProjection(matchingView?.reviewResult)
+      : null;
+  const markdown = matchingView ? reviewMarkdown(matchingView) : null;
   const conclusion = result?.conclusion;
-  const coveragePayload = asPayload(view?.coverage);
+  const coveragePayload = asPayload(matchingView?.coverage);
   const coverageCounts = asPayload(coveragePayload.counts);
   const emptySnapshot =
     result !== null && coverageCounts.changedPaths === 0;
 
   useEffect(() => {
     setCopyState("idle");
-  }, [snapshot.id, view?.freshness, view?.reviewResult]);
+  }, [snapshot.id, matchingView?.freshness, matchingView?.reviewResult]);
 
   const copyReview = async () => {
     if (!markdown) return;
@@ -1603,6 +2108,9 @@ export function ChangeReviewWorkspace({
       // Copy is a new use of the artifact, so ask main to revalidate the
       // workspace again instead of trusting the view that was rendered earlier.
       const refreshed = await api.getChangeReviewView(snapshot.id);
+      if (refreshed.sessionId !== snapshot.id) {
+        throw new Error("The refreshed review belongs to a different session.");
+      }
       const refreshedMarkdown = reviewMarkdown(refreshed);
       if (!refreshedMarkdown) {
         throw new Error("The review is no longer fresh enough to copy.");
@@ -1620,6 +2128,11 @@ export function ChangeReviewWorkspace({
         <div>
           <span className="review-kicker">Review current changes</span>
           <h1>{workspaceName(snapshot.workspaceRoot)}</h1>
+          {simulationHeaderAttributed ? (
+            <p className="review-header-simulation-marker">
+              {HYBRID_SIMULATION_MARKER}
+            </p>
+          ) : null}
         </div>
         {running ? (
           <button
@@ -1640,14 +2153,70 @@ export function ChangeReviewWorkspace({
         ) : null}
       </header>
 
-      <ReviewTimeline phases={view?.phases || []} />
+      {!simulationClaimed || simulationSafe ? (
+        <ReviewTimeline phases={matchingView?.phases || []} />
+      ) : null}
 
       <div className="review-scroll-region">
-        {view?.route ? (
+        {simulationSafe ? (
+          <section className="review-route-sequence" aria-labelledby="review-route-sequence-title">
+            <header>
+              <span className="review-section-kicker">Replay-safe route trace</span>
+              <h2 id="review-route-sequence-title">Hybrid simulation route</h2>
+            </header>
+            <ol>
+              {simulationRoutes.map((route, index) => (
+                <li key={`${route.phaseId}-${index}`}>
+                  <span className={`review-route-status phase-${route.status}`}>
+                    {typeLabel(route.status)}
+                  </span>
+                  <div>
+                    <strong>{route.providerLabel}</strong>
+                    <span>{route.model}</span>
+                    <p>{route.reason}</p>
+                  </div>
+                  <dl>
+                    <div>
+                      <dt>Latency</dt>
+                      <dd>{typeof route.latencyMs === "number" ? formatProviderDuration(route.latencyMs) : "—"}</dd>
+                    </div>
+                    {typeof route.simulatedReservedMicrousd === "number" ? (
+                      <div>
+                        <dt>Reserved</dt>
+                        <dd>Simulated {formatMicrousd(route.simulatedReservedMicrousd)}</dd>
+                      </div>
+                    ) : null}
+                    {typeof route.simulatedSettledMicrousd === "number" ? (
+                      <div>
+                        <dt>Settled</dt>
+                        <dd>
+                          Simulated {formatMicrousd(route.simulatedSettledMicrousd)}
+                          <small className="simulation-provenance">
+                            {simulationSettlementLabel(route.simulatedSettlementProvenance!)}
+                          </small>
+                        </dd>
+                      </div>
+                    ) : null}
+                    <div>
+                      <dt>Actual external spend</dt>
+                      <dd>$0</dd>
+                    </div>
+                  </dl>
+                </li>
+              ))}
+            </ol>
+            <div className="review-simulation-cost-summary">
+              <span><small>Maximum reservation</small><strong>Simulated {formatMicrousd(simulationProjection!.maxSimulatedSpendMicrousd)}</strong></span>
+              <span><small>Reserved</small><strong>Simulated {formatMicrousd(simulationProjection!.reservedMicrousd)}</strong></span>
+              <span><small>Settled · {simulationSettlementLabel(simulationProjection!.settlementProvenance)}</small><strong>Simulated {formatMicrousd(simulationProjection!.settledMicrousd)}</strong></span>
+              <span><small>Actual external spend</small><strong>$0</strong></span>
+            </div>
+          </section>
+        ) : !simulationClaimed && matchingView?.route ? (
           <div className="review-route-line">
             <Cpu />
-            <span><strong>{view.route.model}</strong>{view.route.providerId} · {typeLabel(view.route.locality)}</span>
-            <small>{routeReasonLabel(view.route.reasonCode)}</small>
+            <span><strong>{matchingView.route.model}</strong>{matchingView.route.providerId} · {typeLabel(matchingView.route.locality)}</span>
+            <small>{routeReasonLabel(matchingView.route.reasonCode)}</small>
           </div>
         ) : null}
 
@@ -1656,7 +2225,11 @@ export function ChangeReviewWorkspace({
             <span className="review-progress-mark"><Sparkle weight="fill" /></span>
             <div>
               <strong>{loading ? "Loading review state" : "Inspecting your changes"}</strong>
-              <p>SOAR is collecting bounded repository evidence before local synthesis.</p>
+              <p>
+                {simulationHeaderAttributed
+                  ? "SOAR is exercising the fake Hybrid route. No external provider is contacted."
+                  : "SOAR is collecting bounded repository evidence before local synthesis."}
+              </p>
             </div>
           </section>
         ) : (
@@ -1669,9 +2242,34 @@ export function ChangeReviewWorkspace({
               <span><strong>{freshnessMessage.label}</strong>{freshnessMessage.detail}</span>
             </section>
 
+            {simulationClaimed && !simulationSafe ? (
+              <section className="review-result-withheld" role="alert">
+                <WarningCircle weight="fill" />
+                <div>
+                  <strong>Simulation attribution is incomplete</strong>
+                  <p>
+                    SOAR will not display or copy this result because its fake-provider, simulated-cost, or zero-external-spend attribution is missing.
+                  </p>
+                </div>
+              </section>
+            ) : null}
+
+            {simulationSafe && status === "cancelled" ? (
+              <section className="review-cancellation-note" role="status">
+                <Stop weight="fill" />
+                <span>
+                  <strong>Simulation stopped</strong>
+                  No Local fallback starts after cancellation. Actual external provider spend remains $0.
+                </span>
+              </section>
+            ) : null}
+
             {result ? (
               <>
                 <section className="review-result-summary" data-testid="review-result">
+                  {simulationSafe ? (
+                    <p className="review-simulation-inline-marker">{HYBRID_SIMULATION_MARKER}</p>
+                  ) : null}
                   <span className="review-section-kicker">Accepted structured result</span>
                   <h2>
                     {emptySnapshot
@@ -1683,7 +2281,7 @@ export function ChangeReviewWorkspace({
                         : "Review incomplete"}
                   </h2>
                   <p>{result.summary}</p>
-                  {view?.acceptanceNote ? <small>{view.acceptanceNote}</small> : null}
+                  {matchingView?.acceptanceNote ? <small>{matchingView.acceptanceNote}</small> : null}
                 </section>
 
                 {result.findings.length > 0 ? (
@@ -1695,6 +2293,9 @@ export function ChangeReviewWorkspace({
                     <div className="review-finding-list">
                       {result.findings.map((finding) => (
                         <article className={`review-finding severity-${finding.severity.toLowerCase()}`} key={finding.findingId}>
+                          {simulationSafe ? (
+                            <p className="review-simulation-inline-marker">{HYBRID_SIMULATION_MARKER}</p>
+                          ) : null}
                           <header>
                             <span>{finding.severity}</span>
                             <h3>{finding.title}</h3>
@@ -1708,7 +2309,7 @@ export function ChangeReviewWorkspace({
                             {finding.evidence.map((evidence, index) => (
                               <li key={`${finding.findingId}-evidence-${index}`}>
                                 <Code />
-                                {evidenceLabel(evidence, view?.baseRevision)}
+                                {evidenceLabel(evidence, matchingView?.baseRevision)}
                               </li>
                             ))}
                           </ul>
@@ -1718,7 +2319,7 @@ export function ChangeReviewWorkspace({
                   </section>
                 ) : null}
 
-                <CoverageSummary coverage={view?.coverage} />
+                <CoverageSummary coverage={matchingView?.coverage} />
 
                 {result.omissions.length > 0 ? (
                   <section className="review-omissions">
@@ -1729,12 +2330,12 @@ export function ChangeReviewWorkspace({
                   </section>
                 ) : null}
               </>
-            ) : (
+            ) : simulationClaimed && !simulationSafe ? null : (
               <section className="review-result-withheld">
                 <WarningCircle weight="fill" />
                 <div>
                   <strong>{status === "failed" || status === "error" ? "Review could not finish" : "Review result withheld"}</strong>
-                  <p>{view?.acceptanceNote || "SOAR does not display or copy findings until the reviewed snapshot is fully revalidated."}</p>
+                  <p>{matchingView?.acceptanceNote || "SOAR does not display or copy findings until the reviewed snapshot is fully revalidated."}</p>
                 </div>
               </section>
             )}
@@ -1781,6 +2382,8 @@ export interface RunSummary {
   totalTokens: number;
   reported: boolean | null;
   costProvenance: RunCostProvenance | null;
+  simulationState: "attributed" | "invalid" | null;
+  simulation: HybridSimulationProjection | null;
 }
 
 function usageCostProvenance(value: unknown): Exclude<RunCostProvenance, "mixed"> {
@@ -1930,17 +2533,35 @@ export function summarizeRun(snapshot: SoarSessionSnapshot | null): RunSummary {
       : usage.latencyReported
         ? formatProviderDuration(usage.latency)
         : "Unknown";
+  const claimedSimulationState = snapshot
+    ? sessionSimulationState(snapshot)
+    : null;
+  const simulation =
+    snapshot && claimedSimulationState === "attributed"
+      ? simulationProjectionFromSnapshot(snapshot)
+      : null;
+  const simulationState =
+    claimedSimulationState === "attributed" && simulation === null
+      ? "invalid"
+      : claimedSimulationState;
 
   return {
     events,
-    model,
-    provider,
-    locality,
-    reason,
+    model: simulationState === "invalid" ? null : model,
+    provider: simulationState === "invalid" ? null : provider,
+    locality: simulationState === "invalid" ? null : locality,
+    reason:
+      simulationState === "invalid"
+        ? "Simulation attribution unavailable"
+        : reason,
     duration,
     providerDuration,
     cost:
-      usage.records === 0
+      simulationState === "invalid"
+        ? "Withheld"
+        : simulation
+          ? "$0.00"
+          : usage.records === 0
         ? null
         : usage.costProvenance === "unreported" ||
             usage.costProvenance === "reserved_unknown"
@@ -1954,6 +2575,8 @@ export function summarizeRun(snapshot: SoarSessionSnapshot | null): RunSummary {
     totalTokens: usage.input + usage.output + usage.reasoning,
     reported: usage.records === 0 ? null : usage.reported,
     costProvenance: usage.records === 0 ? null : usage.costProvenance,
+    simulationState,
+    simulation,
   };
 }
 
@@ -2003,22 +2626,33 @@ export function TracePanel({
         </div>
       ) : (
         <>
-          <section className="route-summary">
-            <div className="route-model">
-              <span className="route-model-icon"><Cpu weight="fill" /></span>
-              <span>
-                <small>
-                  {summary.locality
-                    ? `${typeLabel(summary.locality)} route${summary.provider ? ` · ${summary.provider}` : ""}`
-                    : summary.model
-                      ? "Selected model"
-                      : "Routing"}
-                </small>
-                <strong>{summary.model || "Route pending"}</strong>
-              </span>
+          {summary.simulationState === "attributed" ? (
+            <div className="trace-simulation-marker" role="note">
+              {HYBRID_SIMULATION_MARKER}
             </div>
-            <p>{shortText(routeReasonLabel(summary.reason), 100)}</p>
-          </section>
+          ) : summary.simulationState === "invalid" ? (
+            <div className="trace-simulation-marker is-invalid" role="alert">
+              Simulation attribution unavailable — route and cost details withheld.
+            </div>
+          ) : null}
+          {summary.simulationState === "invalid" ? null : (
+            <section className="route-summary">
+              <div className="route-model">
+                <span className="route-model-icon"><Cpu weight="fill" /></span>
+                <span>
+                  <small>
+                    {summary.locality
+                      ? `${typeLabel(summary.locality)} route${summary.provider ? ` · ${summary.provider}` : ""}`
+                      : summary.model
+                        ? "Selected model"
+                        : "Routing"}
+                  </small>
+                  <strong>{summary.model || "Route pending"}</strong>
+                </span>
+              </div>
+              <p>{shortText(routeReasonLabel(summary.reason), 100)}</p>
+            </section>
+          )}
 
           <div className="metric-grid">
             <div>
@@ -2042,10 +2676,35 @@ export function TracePanel({
             </div>
             <div>
               <Coins />
-              <span>Cost</span>
+              <span>
+                {summary.simulationState === "attributed"
+                  ? "Actual external spend"
+                  : "Cost"}
+              </span>
               <strong>{summary.cost || "—"}</strong>
             </div>
           </div>
+
+          {summary.simulation ? (
+            <section className="trace-simulation-cost" aria-label="Simulation accounting">
+              <span>
+                <small>Maximum reservation</small>
+                <strong>Simulated {formatMicrousd(summary.simulation.maxSimulatedSpendMicrousd)}</strong>
+              </span>
+              <span>
+                <small>Reserved</small>
+                <strong>Simulated {formatMicrousd(summary.simulation.reservedMicrousd)}</strong>
+              </span>
+              <span>
+                <small>Settled · {simulationSettlementLabel(summary.simulation.settlementProvenance)}</small>
+                <strong>Simulated {formatMicrousd(summary.simulation.settledMicrousd)}</strong>
+              </span>
+              <span>
+                <small>Actual external spend</small>
+                <strong>$0</strong>
+              </span>
+            </section>
+          ) : null}
 
           <section className="workspace-summary">
             <span>Workspace</span>
@@ -2053,6 +2712,12 @@ export function TracePanel({
             <small>{snapshot.workspaceRoot || "No workspace selected"}</small>
           </section>
 
+          {summary.simulationState === "invalid" ? (
+            <div className="trace-empty" role="status">
+              <List />
+              <p>Activity details are withheld until simulation attribution is valid.</p>
+            </div>
+          ) : (
           <section className="activity-section">
             <div className="activity-heading">
               <strong>Activity</strong>
@@ -2078,21 +2743,26 @@ export function TracePanel({
               </ol>
             )}
           </section>
+          )}
         </>
       )}
     </aside>
   );
 }
 
-function StatusBar({ snapshot }: { snapshot: SoarSessionSnapshot | null }) {
+export function StatusBar({ snapshot }: { snapshot: SoarSessionSnapshot | null }) {
   const summary = useMemo(() => summarizeRun(snapshot), [snapshot]);
   const status = normalizeStatus(snapshot?.status);
   const statusLabel = !snapshot
     ? "Runtime checked when a task starts"
     : status === "created" && snapshot.taskTrack === "change-review-v1"
-      ? "Preparing local review"
-      : status === "running" || status === "queued"
-      ? "Agent working"
+      ? summary.simulationState === "attributed"
+        ? "Preparing Hybrid simulation"
+        : "Preparing local review"
+    : status === "running" || status === "queued"
+      ? summary.simulationState === "attributed"
+        ? "Hybrid simulation running"
+        : "Agent working"
       : status === "completed"
         ? "Run completed"
         : status === "failed" || status === "error"
@@ -2102,21 +2772,107 @@ function StatusBar({ snapshot }: { snapshot: SoarSessionSnapshot | null }) {
             : status === "interrupted"
               ? "Run interrupted"
               : "Run not started";
+  const displayedStatusLabel =
+    summary.simulationState === "invalid"
+        ? "Simulation attribution unavailable"
+        : statusLabel;
 
   return (
     <footer className="statusbar" aria-label="Runtime status">
       <span className="statusbar-connection">
         <span className={`runtime-dot ${status === "running" ? "is-working" : ""}`} aria-hidden="true" />
-        {statusLabel}
+        {displayedStatusLabel}
       </span>
       <span className="statusbar-session">
-        <span data-testid="route-model">{summary.model || (snapshot ? "Route pending" : "No active run")}</span>
+        <span data-testid="route-model">
+          {summary.simulationState === "invalid"
+            ? "Route withheld"
+            : summary.model || (snapshot ? "Route pending" : "No active run")}
+        </span>
         <span aria-hidden="true">·</span>
-        <span>{summary.locality ? typeLabel(summary.locality) : summary.model ? "Local" : "Idle"}</span>
+        <span>
+          {summary.simulationState === "attributed"
+            ? "Simulation"
+            : summary.simulationState === "invalid"
+              ? "Locality withheld"
+            : summary.locality
+              ? typeLabel(summary.locality)
+              : summary.model
+                ? "Local"
+                : "Idle"}
+        </span>
         <span aria-hidden="true">·</span>
-        <span data-testid="route-cost">{summary.cost || "—"}</span>
+        <span data-testid="route-cost">
+          {summary.simulation
+            ? `Simulated ${formatMicrousd(summary.simulation.settledMicrousd)} · actual $0`
+            : summary.cost || "—"}
+        </span>
       </span>
     </footer>
+  );
+}
+
+interface SimulationCompletionNotice {
+  sessionId: string;
+  sessionTitle: string;
+  outcome: "completed" | "failed" | "cancelled" | "interrupted";
+}
+
+function SimulationCompletionNotification({
+  notice,
+  onDismiss,
+}: {
+  notice: SimulationCompletionNotice;
+  onDismiss: () => void;
+}) {
+  const heading =
+    notice.outcome === "completed"
+      ? "Hybrid simulation completed"
+      : notice.outcome === "cancelled"
+        ? "Hybrid simulation stopped"
+        : notice.outcome === "interrupted"
+          ? "Hybrid simulation interrupted"
+          : "Hybrid simulation failed";
+  const outcomeIcon =
+    notice.outcome === "completed" ? (
+      <CheckCircle weight="fill" />
+    ) : notice.outcome === "cancelled" ? (
+      <Stop weight="fill" />
+    ) : (
+      <WarningCircle weight="fill" />
+    );
+  return (
+    <aside
+      className={`simulation-completion-notification is-${notice.outcome}`}
+      data-testid="simulation-completion-notification"
+      data-outcome={notice.outcome}
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <span
+        className="simulation-notification-outcome-icon"
+        data-icon={
+          notice.outcome === "completed"
+            ? "success"
+            : notice.outcome === "cancelled"
+              ? "stop"
+              : "warning"
+        }
+        aria-hidden="true"
+      >
+        {outcomeIcon}
+      </span>
+      <span>
+        <strong>{heading}</strong>
+        <small>{notice.sessionTitle}</small>
+        <small>Session {notice.sessionId}</small>
+        <small>{HYBRID_SIMULATION_MARKER}</small>
+      </span>
+      <button type="button" onClick={onDismiss} aria-label="Dismiss simulation notification">
+        <X />
+      </button>
+    </aside>
   );
 }
 
@@ -2138,6 +2894,12 @@ export function App() {
     defaultReviewAvailability,
   );
   const [reviewAvailabilityLoading, setReviewAvailabilityLoading] = useState(false);
+  const [reviewRoute, setReviewRoute] = useState<ReviewRouteIntent>("local");
+  const [simulationChallenge, setSimulationChallenge] =
+    useState<HybridSimulationConsentChallenge | null>(null);
+  const [simulationConsentChecked, setSimulationConsentChecked] = useState(false);
+  const [simulationConsentLoading, setSimulationConsentLoading] = useState(false);
+  const [simulationConsentError, setSimulationConsentError] = useState<string | null>(null);
   const [reviewView, setReviewView] = useState<ChangeReviewView | null>(null);
   const [reviewViewLoading, setReviewViewLoading] = useState(false);
   const [cloudSetupStatus, setCloudSetupStatus] =
@@ -2146,17 +2908,42 @@ export function App() {
   const [cloudSetupLoadFailed, setCloudSetupLoadFailed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false);
+  const [simulationCompletionNotice, setSimulationCompletionNotice] =
+    useState<SimulationCompletionNotice | null>(null);
   const compactLayout = useMediaQuery("(max-width: 880px)");
   const selectedIdRef = useRef<string | null>(null);
   const latestAssistantStartRef = useRef<string | null>(null);
   const reviewRequestOrdinalRef = useRef(0);
+  const simulationChallengeOrdinalRef = useRef(0);
   const settingsReturnSurfaceRef = useRef<"task" | "review_setup">("task");
   const settingsReturnFocusRef = useRef<"sidebar" | "review" | null>(null);
   const settingsFocusRestorePendingRef = useRef(false);
+  const notifiedSimulationTerminalsRef = useRef(new Set<string>());
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!simulationChallenge) return;
+    const remainingMs = Date.parse(simulationChallenge.expiresAt) - Date.now();
+    const expire = () => {
+      simulationChallengeOrdinalRef.current += 1;
+      setSimulationChallenge(null);
+      setSimulationConsentChecked(false);
+      setSimulationConsentLoading(false);
+      setSimulationConsentError(
+        "This disclosure expired. Prepare a new disclosure before starting.",
+      );
+    };
+    if (!Number.isFinite(remainingMs) || remainingMs <= 0) {
+      expire();
+      return;
+    }
+    if (remainingMs > 2_147_000_000) return;
+    const timeout = window.setTimeout(expire, remainingMs);
+    return () => window.clearTimeout(timeout);
+  }, [simulationChallenge]);
 
   useEffect(() => {
     const focusTarget = settingsReturnFocusRef.current;
@@ -2185,6 +2972,10 @@ export function App() {
       setReviewViewLoading(false);
       return;
     }
+    // A review projection is session-bound. Clear any prior projection before
+    // issuing the next request so a fast history switch cannot briefly render
+    // or copy another session's attribution.
+    setReviewView(null);
     const api = reviewApi();
     if (!api) {
       reviewRequestOrdinalRef.current += 1;
@@ -2253,6 +3044,8 @@ export function App() {
         status: incoming.status,
         createdAt: incoming.createdAt,
         updatedAt: incoming.updatedAt,
+        executionMode: incoming.executionMode,
+        simulationMarker: incoming.simulationMarker,
       };
       const rest = current.filter((item) => item.id !== incoming.id);
       return [summary, ...rest].sort(
@@ -2287,6 +3080,25 @@ export function App() {
       }
       if (update.kind === "snapshot" && update.snapshot) {
         upsertSummary(update.snapshot);
+        const terminalStatus = normalizeStatus(update.snapshot.status);
+        if (
+          update.sessionId === selectedIdRef.current &&
+          terminalStatuses.has(terminalStatus) &&
+          sessionSimulationState(update.snapshot) === "attributed" &&
+          !notifiedSimulationTerminalsRef.current.has(update.snapshot.id)
+        ) {
+          notifiedSimulationTerminalsRef.current.add(update.snapshot.id);
+          setSimulationCompletionNotice({
+            sessionId: update.snapshot.id,
+            sessionTitle: update.snapshot.title || "Untitled task",
+            outcome:
+              terminalStatus === "completed" ||
+              terminalStatus === "cancelled" ||
+              terminalStatus === "interrupted"
+                ? terminalStatus
+                : "failed",
+          });
+        }
         if (update.sessionId === selectedIdRef.current) {
           const latestAssistantStartId = latestAssistantStartEventId(
             update.snapshot,
@@ -2315,10 +3127,13 @@ export function App() {
   useEffect(() => {
     if (!selectedId) {
       setSnapshot(null);
+      setReviewView(null);
       return;
     }
     let active = true;
     setLoadingSession(true);
+    setSnapshot(null);
+    setReviewView(null);
     setStreamedText("");
     latestAssistantStartRef.current = null;
     void window.soar
@@ -2341,15 +3156,121 @@ export function App() {
     };
   }, [selectedId]);
 
-  const chooseWorkspace = useCallback(async () => {
-    setError(null);
+  const invalidateSimulationConsent = useCallback((): Promise<boolean> => {
+    simulationChallengeOrdinalRef.current += 1;
+    setSimulationChallenge(null);
+    setSimulationConsentChecked(false);
+    setSimulationConsentLoading(false);
+    setSimulationConsentError(null);
+    const api = reviewApi();
+    if (!api?.invalidateHybridSimulationConsentChallenges) {
+      return Promise.resolve(false);
+    }
+    return api
+      .invalidateHybridSimulationConsentChallenges()
+      .then(() => true)
+      .catch(() => {
+        setSimulationConsentError(
+          "The previous Hybrid simulation disclosure could not be revoked.",
+        );
+        return false;
+      });
+  }, []);
+
+  const issueSimulationChallenge = useCallback(async (workspaceRoot: string) => {
+    const api = reviewApi();
+    const requestOrdinal = ++simulationChallengeOrdinalRef.current;
+    setSimulationChallenge(null);
+    setSimulationConsentChecked(false);
+    setSimulationConsentError(null);
+    if (!api?.issueHybridSimulationConsentChallenge) {
+      setSimulationConsentLoading(false);
+      setSimulationConsentError(
+        "This app build cannot issue a Hybrid simulation disclosure.",
+      );
+      return;
+    }
+    setSimulationConsentLoading(true);
     try {
-      const choice = await window.soar.chooseWorkspace();
-      if (choice) setWorkspace(choice);
+      const challenge = await api.issueHybridSimulationConsentChallenge({
+        workspaceRoot,
+        route: "hybrid_simulation",
+      });
+      if (requestOrdinal !== simulationChallengeOrdinalRef.current) return;
+      if (!isCurrentSimulationChallenge(challenge)) {
+        throw new Error("The simulation disclosure returned by the app is invalid or expired.");
+      }
+      setSimulationChallenge(challenge);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The workspace picker could not open.");
+      if (requestOrdinal !== simulationChallengeOrdinalRef.current) return;
+      setSimulationChallenge(null);
+      setSimulationConsentChecked(false);
+      setSimulationConsentError(
+        reason instanceof Error
+          ? reason.message
+          : "The simulation disclosure could not be prepared.",
+      );
+    } finally {
+      if (requestOrdinal === simulationChallengeOrdinalRef.current) {
+        setSimulationConsentLoading(false);
+      }
     }
   }, []);
+
+  const chooseWorkspace = useCallback(async () => {
+    setError(null);
+    const mustInvalidateConsent =
+      surface === "review_setup" &&
+      (reviewRoute === "hybrid_simulation" || simulationChallenge !== null);
+    const consentInvalidated = mustInvalidateConsent
+      ? await invalidateSimulationConsent()
+      : true;
+    if (mustInvalidateConsent && !consentInvalidated) {
+      setError(
+        "The workspace cannot change until the previous Hybrid simulation disclosure is revoked.",
+      );
+      return;
+    }
+    try {
+      const choice = await window.soar.chooseWorkspace();
+      if (choice) {
+        setWorkspace(choice);
+        if (
+          surface === "review_setup" &&
+          reviewRoute === "hybrid_simulation" &&
+          consentInvalidated
+        ) {
+          void issueSimulationChallenge(choice.path);
+        }
+      } else if (
+        surface === "review_setup" &&
+        reviewRoute === "hybrid_simulation" &&
+        consentInvalidated &&
+        workspace
+      ) {
+        // The picker was cancelled after main burned the prior challenge.
+        // Restore a usable, unchecked disclosure for the unchanged workspace.
+        void issueSimulationChallenge(workspace.path);
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The workspace picker could not open.");
+      if (
+        surface === "review_setup" &&
+        reviewRoute === "hybrid_simulation" &&
+        consentInvalidated &&
+        workspace
+      ) {
+        void issueSimulationChallenge(workspace.path);
+      }
+    }
+  }, [
+    invalidateSimulationConsent,
+    issueSimulationChallenge,
+    reviewRoute,
+    simulationChallenge,
+    surface,
+    workspace,
+  ]);
 
   const startNewSession = useCallback(async () => {
     if (!task.trim() || !workspace || busy) return;
@@ -2450,6 +3371,8 @@ export function App() {
     setSelectedId(null);
     setSnapshot(null);
     setReviewView(null);
+    setReviewRoute("local");
+    void invalidateSimulationConsent();
     setStreamedText("");
     latestAssistantStartRef.current = null;
     setSurface("review_setup");
@@ -2471,10 +3394,56 @@ export function App() {
         setError(reason instanceof Error ? reason.message : "Local review support could not be checked.");
       })
       .finally(() => setReviewAvailabilityLoading(false));
-  }, []);
+  }, [invalidateSimulationConsent]);
+
+  const changeReviewRoute = useCallback(
+    (nextRoute: ReviewRouteIntent) => {
+      if (nextRoute === reviewRoute) return;
+      const invalidation = invalidateSimulationConsent();
+      const invalidationOrdinal = simulationChallengeOrdinalRef.current;
+      void invalidation.then((invalidated) => {
+        if (
+          invalidated &&
+          invalidationOrdinal === simulationChallengeOrdinalRef.current
+        ) {
+          setReviewRoute(nextRoute);
+          if (nextRoute === "hybrid_simulation" && workspace) {
+            void issueSimulationChallenge(workspace.path);
+          }
+        }
+      });
+    },
+    [invalidateSimulationConsent, issueSimulationChallenge, reviewRoute, workspace],
+  );
+
+  const retrySimulationChallenge = useCallback(() => {
+    if (!workspace || reviewRoute !== "hybrid_simulation") return;
+    const invalidation = invalidateSimulationConsent();
+    const invalidationOrdinal = simulationChallengeOrdinalRef.current;
+    void invalidation.then((invalidated) => {
+      if (
+        invalidated &&
+        invalidationOrdinal === simulationChallengeOrdinalRef.current
+      ) {
+        void issueSimulationChallenge(workspace.path);
+      }
+    });
+  }, [invalidateSimulationConsent, issueSimulationChallenge, reviewRoute, workspace]);
 
   const startChangeReview = useCallback(async () => {
-    if (!workspace || busy || !reviewAvailability.local.enabled) return;
+    const simulationSelected = reviewRoute === "hybrid_simulation";
+    const simulationChallengeId = simulationChallenge?.challengeId;
+    if (
+      !workspace ||
+      busy ||
+      (simulationSelected
+        ? !reviewAvailability.hybrid.enabled ||
+          !simulationChallengeId ||
+          !simulationConsentChecked
+        : !reviewAvailability.local.enabled)
+    ) {
+      return;
+    }
     const api = reviewApi();
     if (!api) {
       setError("Review Current Changes is not available in this app build.");
@@ -2483,21 +3452,53 @@ export function App() {
     setBusy(true);
     setError(null);
     try {
-      const created = await api.createChangeReviewSession({
-        workspaceRoot: workspace.path,
-      });
+      const created = await api.createChangeReviewSession(
+        simulationSelected
+          ? {
+              workspaceRoot: workspace.path,
+              route: "hybrid_simulation",
+              challengeId: simulationChallengeId!,
+              acknowledged: true,
+            }
+          : {
+              workspaceRoot: workspace.path,
+              route: "local",
+            },
+      );
       upsertSummary(created);
       selectedIdRef.current = created.id;
       setSelectedId(created.id);
       setSnapshot(created);
       setReviewView(null);
+      void invalidateSimulationConsent();
       setSurface("task");
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "The local review could not start.");
+      if (simulationSelected) {
+        simulationChallengeOrdinalRef.current += 1;
+        setSimulationChallenge(null);
+        setSimulationConsentChecked(false);
+        setSimulationConsentError(
+          reason instanceof Error
+            ? `${reason.message} Prepare a new disclosure before retrying.`
+            : "The Hybrid simulation could not start. Prepare a new disclosure before retrying.",
+        );
+      } else {
+        setError(reason instanceof Error ? reason.message : "The local review could not start.");
+      }
     } finally {
       setBusy(false);
     }
-  }, [busy, reviewAvailability.local.enabled, upsertSummary, workspace]);
+  }, [
+    busy,
+    reviewAvailability.hybrid.enabled,
+    reviewAvailability.local.enabled,
+    reviewRoute,
+    simulationChallenge,
+    simulationConsentChecked,
+    invalidateSimulationConsent,
+    upsertSummary,
+    workspace,
+  ]);
 
   const cancelSession = useCallback(async () => {
     if (!snapshot || busy) return;
@@ -2522,16 +3523,22 @@ export function App() {
     setError(null);
     setSurface("task");
     setReviewView(null);
+    setSimulationCompletionNotice(null);
+    void invalidateSimulationConsent();
     setSidebarOpen(false);
-  }, []);
+  }, [invalidateSimulationConsent]);
 
   const selectSession = useCallback((id: string) => {
     selectedIdRef.current = id;
     setSelectedId(id);
+    setSnapshot(null);
+    setReviewView(null);
+    setSimulationCompletionNotice(null);
     setSidebarOpen(false);
     setError(null);
     setSurface("task");
-  }, []);
+    void invalidateSimulationConsent();
+  }, [invalidateSimulationConsent]);
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -2624,6 +3631,15 @@ export function App() {
           </div>
         ) : null}
 
+        {simulationCompletionNotice &&
+        simulationCompletionNotice.sessionId === selectedId &&
+        simulationCompletionNotice.sessionId === snapshot?.id ? (
+          <SimulationCompletionNotification
+            notice={simulationCompletionNotice}
+            onDismiss={() => setSimulationCompletionNotice(null)}
+          />
+        ) : null}
+
         <section className="conversation-panel">
           {surface === "settings" ? (
             <CloudSettings
@@ -2641,10 +3657,18 @@ export function App() {
               availability={reviewAvailability}
               loading={reviewAvailabilityLoading}
               busy={busy}
+              route={reviewRoute}
+              challenge={simulationChallenge}
+              consentChecked={simulationConsentChecked}
+              consentLoading={simulationConsentLoading}
+              consentError={simulationConsentError}
               onChooseWorkspace={chooseWorkspace}
               onOpenCloudSettings={() =>
                 openCloudSettings("review_setup", "review")
               }
+              onRouteChange={changeReviewRoute}
+              onConsentChange={setSimulationConsentChecked}
+              onRetryChallenge={retrySimulationChallenge}
               onStart={startChangeReview}
             />
           ) : reviewSession && snapshot ? (

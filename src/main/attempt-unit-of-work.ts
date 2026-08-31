@@ -7,6 +7,10 @@ import {
 } from "../shared/session-events";
 import type { InferenceAttemptRecord } from "../shared/session-reducer";
 import {
+  RuntimeCostScopeSchema,
+  type RuntimeCostScope,
+} from "../shared/hybrid-simulation-contracts";
+import {
   BUDGET_CACHE_ASSUMPTION,
   BUDGET_ROUNDING_POLICY,
   BudgetLedger,
@@ -36,7 +40,10 @@ interface AtomicEventBatch {
   events: readonly SessionEventData[];
 }
 
-export interface CommitLocalStartInput extends AtomicEventBatch {}
+export interface CommitLocalStartInput extends AtomicEventBatch {
+  costScope: RuntimeCostScope;
+  cloudEgressAdmissionId?: string;
+}
 
 export interface CommitBudgetedStartInput
   extends Omit<AtomicEventBatch, "events" | "eventIds"> {
@@ -53,6 +60,8 @@ export interface CommitBudgetedStartInput
   attemptId: string;
   providerId: string;
   pricingSnapshotId: string;
+  costScope: RuntimeCostScope;
+  cloudEgressAdmissionId?: string;
   projection: BudgetProjectionInput;
   /**
    * Synchronous and side-effect free. It runs while the SQLite immediate lock
@@ -64,11 +73,17 @@ export interface CommitBudgetedStartInput
 }
 
 function validateBudgetedStartEventIds(
-  eventIds: CommitBudgetedStartInput["eventIds"],
+  input: CommitBudgetedStartInput,
 ): void {
-  if (eventIds.admitted.length !== 5 || eventIds.denied.length !== 4) {
+  const eventIds = input.eventIds;
+  const expectedAdmitted = 6;
+  const expectedDenied = 5;
+  if (
+    eventIds.admitted.length !== expectedAdmitted ||
+    eventIds.denied.length !== expectedDenied
+  ) {
     throw new Error(
-      "budgeted start requires five admitted and four denied preallocated event IDs",
+      `budgeted start requires ${expectedAdmitted} admitted and ${expectedDenied} denied preallocated event IDs`,
     );
   }
   const allIds = [...eventIds.admitted, ...eventIds.denied];
@@ -123,6 +138,13 @@ function requireSingleAttemptStart(events: readonly SessionEventData[]) {
 
 const LOCAL_START_PATTERNS: readonly (readonly SessionEventData["type"][])[] = [
   [
+    "cloud.egress.admission.recorded",
+    "routing.decision.recorded",
+    "assistant.message.started",
+    "context.compiled",
+    "inference.attempt.started",
+  ],
+  [
     "session.started",
     "routing.decision.recorded",
     "route.assigned",
@@ -153,7 +175,10 @@ const LOCAL_START_PATTERNS: readonly (readonly SessionEventData["type"][])[] = [
 function validateLocalStartBatch(
   events: readonly SessionEventData[],
   createdAt: string,
+  costScopeValue: RuntimeCostScope,
+  cloudEgressAdmissionId?: string,
 ) {
+  const costScope = RuntimeCostScopeSchema.parse(costScopeValue);
   if (
     !LOCAL_START_PATTERNS.some((pattern) => exactTypes(events, pattern))
   ) {
@@ -162,6 +187,14 @@ function validateLocalStartBatch(
     );
   }
   const attempt = requireSingleAttemptStart(events);
+  if (
+    attempt.payload.costScope !== costScope ||
+    attempt.payload.cloudEgressAdmissionId !== cloudEgressAdmissionId
+  ) {
+    throw new Error(
+      "commitLocalStart attempt does not match its cost scope and egress admission input",
+    );
+  }
   if (attempt.payload.budgetReservationId !== undefined) {
     throw new Error("commitLocalStart cannot authorize a reserved attempt");
   }
@@ -169,6 +202,14 @@ function validateLocalStartBatch(
     (event) => event.type === "routing.decision.recorded",
   );
   if (decision?.type === "routing.decision.recorded") {
+    if (
+      decision.payload.costScope !== costScope ||
+      decision.payload.cloudEgressAdmissionId !== cloudEgressAdmissionId
+    ) {
+      throw new Error(
+        "commitLocalStart decision does not match its cost scope and egress admission input",
+      );
+    }
     if (decision.payload.routerInputSnapshot === undefined) {
       throw new Error(
         "commitLocalStart requires the current checkpoint-router input snapshot",
@@ -202,6 +243,25 @@ function validateLocalStartBatch(
         `commitLocalStart cannot authorize metered provider ${attempt.payload.providerId}`,
       );
     }
+  }
+  const egressRecords = events.filter(
+    (event) => event.type === "cloud.egress.admission.recorded",
+  );
+  if (egressRecords.length > 1) {
+    throw new Error("commitLocalStart accepts at most one egress admission record");
+  }
+  const egress = egressRecords[0];
+  if (
+    egress?.type === "cloud.egress.admission.recorded" &&
+    (egress.payload.admissionId !== cloudEgressAdmissionId ||
+      egress.payload.evaluatedAt !== createdAt ||
+      decision?.type !== "routing.decision.recorded" ||
+      decision.payload.provenanceSemanticSha256 !==
+        egress.payload.provenanceSemanticSha256)
+  ) {
+    throw new Error(
+      "commitLocalStart egress admission does not match its atomic batch",
+    );
   }
   return attempt;
 }
@@ -298,6 +358,7 @@ function validateBudgetedStartBatch(
   const expectedTypes =
     resolution.status === "admitted"
       ? ([
+          "cloud.egress.admission.recorded",
           "routing.decision.recorded",
           "route.assigned",
           "assistant.message.started",
@@ -305,6 +366,7 @@ function validateBudgetedStartBatch(
           "inference.attempt.started",
         ] as const)
       : ([
+          "cloud.egress.admission.recorded",
           "routing.decision.recorded",
           "assistant.message.started",
           "context.compiled",
@@ -315,9 +377,11 @@ function validateBudgetedStartBatch(
       `budgeted ${resolution.status} start requires exact event order ${expectedTypes.join(" -> ")}`,
     );
   }
-  const decisionEvent = events[0];
+  const egressEvent = events[0];
+  const decisionEvent = events[1];
   const attemptEvent = events.at(-1);
   if (
+    egressEvent?.type !== "cloud.egress.admission.recorded" ||
     decisionEvent?.type !== "routing.decision.recorded" ||
     attemptEvent?.type !== "inference.attempt.started"
   ) {
@@ -325,6 +389,25 @@ function validateBudgetedStartBatch(
   }
   const decision = decisionEvent.payload;
   const attempt = attemptEvent.payload;
+  const costScope = RuntimeCostScopeSchema.parse(input.costScope);
+  const egressMatches =
+    egressEvent.type === "cloud.egress.admission.recorded" &&
+    egressEvent.payload.admissionId === input.cloudEgressAdmissionId &&
+    egressEvent.payload.decision === "pass" &&
+    egressEvent.payload.evaluatedAt === input.createdAt &&
+    decision.cloudEgressAdmissionId === input.cloudEgressAdmissionId &&
+    decision.provenanceSemanticSha256 ===
+      egressEvent.payload.provenanceSemanticSha256 &&
+    attempt.cloudEgressAdmissionId === input.cloudEgressAdmissionId;
+  if (
+    !egressMatches ||
+    decision.costScope !== costScope ||
+    attempt.costScope !== costScope
+  ) {
+    throw new Error(
+      "budgeted start requires one passed egress admission and exact cost-scope links",
+    );
+  }
   if (decision.routerInputSnapshot === undefined) {
     throw new Error(
       "budgeted start requires the current checkpoint-router input snapshot",
@@ -472,7 +555,12 @@ export class AttemptUnitOfWork {
 
   commitLocalStart(input: CommitLocalStartInput): CommittedAttemptStart {
     const events = parseBatch(input.events);
-    const attempt = validateLocalStartBatch(events, input.createdAt);
+    const attempt = validateLocalStartBatch(
+      events,
+      input.createdAt,
+      input.costScope,
+      input.cloudEgressAdmissionId,
+    );
     const stored = this.appendAtomicEvents(input, events, input.eventIds);
     return {
       events: stored,
@@ -486,7 +574,13 @@ export class AttemptUnitOfWork {
   commitBudgetedStart(
     input: CommitBudgetedStartInput,
   ): CommittedAttemptStart {
-    validateBudgetedStartEventIds(input.eventIds);
+    const costScope = RuntimeCostScopeSchema.parse(input.costScope);
+    if (costScope !== "simulation") {
+      throw new Error(
+        "Actual cloud dispatch is not authorized by the PR6B0 attempt unit of work",
+      );
+    }
+    validateBudgetedStartEventIds(input);
     return this.ledger.runImmediate((transaction) => {
       const state = this.store.replay(input.sessionId);
       if (state.lastSequence !== input.expectedSequence) {
@@ -498,6 +592,9 @@ export class AttemptUnitOfWork {
       }
       transaction.assertEventReconciled();
       const campaign = transaction.requireCampaign(input.campaignId);
+      if (campaign.costScope !== input.costScope) {
+        throw new Error("budgeted start campaign cost scope mismatch");
+      }
       const resolution = transaction.reserve({
         campaignId: input.campaignId,
         reservationId: input.reservationId,
@@ -505,6 +602,8 @@ export class AttemptUnitOfWork {
         attemptId: input.attemptId,
         providerId: input.providerId,
         pricingSnapshotId: input.pricingSnapshotId,
+        costScope: input.costScope,
+        cloudEgressAdmissionId: input.cloudEgressAdmissionId,
         episodeCapMicrousd: episodeBudgetCap(state),
         projection: input.projection,
         createdAt: input.createdAt,

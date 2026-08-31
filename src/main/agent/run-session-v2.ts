@@ -32,11 +32,10 @@ import {
   hasSuccessfulToolResult,
   type SessionState,
 } from "../../shared/session-reducer";
-import { AttemptUnitOfWork } from "../attempt-unit-of-work";
 import {
   BUDGET_CACHE_ASSUMPTION,
-  BudgetLedger,
   projectWorstCaseCostMicrousd,
+  type BudgetProjectionInput,
   type BudgetReservationResolution,
 } from "../budget-ledger";
 import type { SoarConfig } from "../config";
@@ -87,10 +86,52 @@ export interface FakeOnlyHybridRuntimeV0 {
   reviewRisk: ReviewRiskResultV1;
   egressAllowed: boolean;
   providerFeeCeilingMicrousd?: number;
-  /** Test-only atomic fault seam; production has no v2 runtime at all. */
-  attemptUnitOfWorkFactory?: (ledger: BudgetLedger) => AttemptUnitOfWork;
+  /**
+   * Test-only, in-memory mechanics seam. It must never write the production
+   * budget ledger or be supplied by Electron bootstrap.
+   */
+  testOnlyAttemptHarness: LegacyFakeHybridAttemptHarnessV0;
   clock?: () => Date;
   idFactory?: () => string;
+}
+
+export interface LegacyFakeAtomicBatchV0 {
+  sessionId: string;
+  expectedSequence: number;
+  createdAt: string;
+  eventIds: readonly string[];
+  events: readonly SessionEventData[];
+}
+
+export interface LegacyFakeBudgetedStartInputV0
+  extends Omit<LegacyFakeAtomicBatchV0, "events" | "eventIds"> {
+  eventIds: {
+    admitted: readonly string[];
+    denied: readonly string[];
+  };
+  campaignId: string;
+  reservationId: string;
+  attemptId: string;
+  providerId: string;
+  pricingSnapshotId: string;
+  projection: BudgetProjectionInput;
+  buildEvents: (
+    resolution: BudgetReservationResolution,
+  ) => readonly SessionEventData[];
+}
+
+export interface LegacyFakeAttemptFinishInputV0
+  extends LegacyFakeAtomicBatchV0 {
+  terminalLedgerEntryId?: string;
+}
+
+export interface LegacyFakeHybridAttemptHarnessV0 {
+  commitLocalStart(input: LegacyFakeAtomicBatchV0): void;
+  commitBudgetedStart(input: LegacyFakeBudgetedStartInputV0): {
+    dispatchAuthorized: true;
+    budgetResolution: BudgetReservationResolution;
+  };
+  commitAttemptFinish(input: LegacyFakeAttemptFinishInputV0): void;
 }
 
 export interface RunSessionV2Options {
@@ -355,6 +396,11 @@ function assertFakeOnlyRuntime(options: RunSessionV2Options): {
   if (options.runtime.kind !== "fake-only-hybrid-runtime-v0") {
     throw new Error("The PR 4 v2 coordinator accepts only an explicit fake-only runtime");
   }
+  if (options.runtime.testOnlyAttemptHarness === undefined) {
+    throw new Error(
+      "The deprecated fake-only v2 coordinator requires its isolated test mechanics harness",
+    );
+  }
   const descriptors = options.providerRegistry.listDescriptors({ includeDisabled: true });
   const actualIds = descriptors.map((descriptor) => descriptor.id).sort(compareText);
   const admittedFakeIds = [...options.runtime.fakeProviderIds].sort(compareText);
@@ -476,7 +522,13 @@ function attemptStartEvents(options: {
   const { state, decision, plan, identities, compiled } = options;
   const events: SessionEventData[] = [];
   if (options.includeDecision) {
-    events.push({ type: "routing.decision.recorded", payload: decision });
+    const legacyDecision = { ...decision };
+    delete legacyDecision.costScope;
+    delete legacyDecision.cloudEgressAdmissionId;
+    events.push({
+      type: "routing.decision.recorded",
+      payload: legacyDecision,
+    });
   }
   if (options.includeRoute) {
     events.push({
@@ -803,7 +855,10 @@ function finishPayload(options: {
           decision: prepared.decision,
           requestDisposition: options.requestDisposition,
         })
-      : { amountMicrousd: 0, provenance: "local_zero_cost_policy" },
+      : {
+          amountMicrousd: 0,
+          provenance: "local_zero_cost_policy",
+        },
     latencyMs: result?.durationMs ?? 0,
     ...(result?.timeToFirstTokenMs === undefined
       ? {}
@@ -821,7 +876,7 @@ function eventCountIds(runtime: FakeOnlyHybridRuntimeV0, events: readonly unknow
 async function executePreparedAttempt(
   options: RunSessionV2Options,
   policy: AgenticExecutionPolicyV2,
-  attempts: AttemptUnitOfWork,
+  attempts: LegacyFakeHybridAttemptHarnessV0,
   prepared: PreparedAttempt,
 ): Promise<AttemptExecutionResult> {
   let invoked = false;
@@ -1239,10 +1294,7 @@ export async function runSessionV2(options: RunSessionV2Options): Promise<void> 
   try {
     const admitted = assertFakeOnlyRuntime(options);
     const { policy, local, cloudDescriptor, providers } = admitted;
-    const ledger = new BudgetLedger(options.store);
-    const attempts =
-      options.runtime.attemptUnitOfWorkFactory?.(ledger) ??
-      new AttemptUnitOfWork(ledger);
+    const attempts = options.runtime.testOnlyAttemptHarness;
 
     let state = options.store.getProjectedState(options.sessionId);
     if (options.controller.signal.aborted) {

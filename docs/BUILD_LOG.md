@@ -3589,3 +3589,193 @@ References: [approved PR6B0 plan](plans/PR6B0_HYBRID_SIMULATION_V1.md),
 [proposal entry](#bl-20260831-2246-pr6b0-hybrid-simulation-proposed----2026-08-31----pr6b0-hybrid-simulation-vertical-slice-proposed),
 [verified PR6A plan](plans/PR6A_CLOUD_SETUP_DISPATCH_LOCK_V1.md), and [parent
 Hybrid Lease Router plan](plans/HYBRID_LEASE_ROUTER_V0.md).
+
+### BL-20260901-0340-pr6b0-hybrid-simulation-implemented -- 2026-09-01 -- PR6B0 Hybrid simulation implemented locally
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement the approved
+`pr6b0-hybrid-simulation-v1-plan-1` as an app-visible, fake-provider-only Hybrid
+change-review vertical slice. Exercise the production-shaped checkpoint,
+semantic egress admission, simulated budget, tool-free fake Cloud synthesis,
+bounded Local fallback, cancellation, recovery, replay, and renderer contracts
+without reading a credential, contacting a configured model endpoint, sending
+repository evidence off-device, creating actual cost exposure, or spending
+money.
+
+Decisions:
+
+- Keep the feature behind both `SOAR_ENABLE_HYBRID_SIMULATION` and deterministic
+  fake provider mode. A normal configured vLLM runtime remains Local-only and
+  cannot construct or select this Hybrid route.
+- Use a dedicated strict Hybrid change-review coordinator. Local inspection
+  produces the immutable review evidence; the evidence-complete checkpoint may
+  select one tool-free deterministic Fake Cloud synthesis; one eligible
+  provider failure may select one strict Fake Local synthesis fallback.
+- Preserve central tool ownership. Only the local inspection attempt can invoke
+  `inspect_git_changes`; Fake Cloud receives a bounded compiled evidence packet
+  and cannot request or execute a tool.
+- Require a main-process, single-use simulation-consent challenge bound to the
+  disclosure, route, cap, authority, fake providers, workspace identity, and
+  expiry. Per-workspace invalidation epochs close same-path challenge races, and
+  the final admission lease revalidates directory device/inode identity before
+  fake Cloud dispatch.
+- Persist the simulation authority, egress admission, routing/attempt binding,
+  reservation, settlement, and zero-actual-spend attribution. Database migration
+  3 adds immutable `simulation | actual | legacy_unclassified` cost scope;
+  pre-scope history remains quarantined as legacy-unclassified and cannot be
+  silently counted as actual or simulation spend.
+- Keep the older generic fake runner available only to tests. Production has no
+  import or bundle path to it, and its historical unscoped records cannot
+  populate the PR6B0 production simulation or actual ledger.
+- Recover pre-migration running/open attempt state conservatively, reconcile
+  reservations once, and make replay renderer-only: opening, copying, or
+  replaying a completed review performs no redispatch.
+- Fail renderer projections closed unless exact simulation marker, Fake
+  provider identity, model, cost scope, safe reservation, settlement
+  provenance, explicit actual `$0`, aggregate reconciliation, and matching
+  session identity are all present. Failed Fake Cloud synthesis and successful
+  Local fallback remain distinct phases with causal Cloud-before-Local order
+  and the persisted terminal failure reason.
+- Remove the manual CLI credential-reader/provider-check script and its package
+  command. Do not replace it with a secret resolver, external health check, or
+  provider validation path in PR6B0.
+- Classify this checkpoint as Implemented only. Automated evidence is strong,
+  but required manual VoiceOver, keyboard-only, true 200% zoom, full light/dark
+  contrast, and reduced-motion checks are not complete; the app package also
+  lacks release identity, icon, and notarization.
+
+Changes:
+
+- Added deterministic Fake Cloud review and shared fake synthesis providers,
+  Hybrid runtime admission, consent authority, semantic egress gate, and the
+  strict Hybrid change-review coordinator.
+- Extended the checkpoint router, event grammar, reducer, event store, budget
+  ledger, attempt unit of work, recovery, database migration, safe session
+  projection, and local review route to preserve simulation-scoped authority,
+  evidence, cost, cancellation, fallback, and replay invariants.
+- Added IPC/preload/app flows for challenge issuance, consent confirmation,
+  Hybrid review creation, Stop, history, route trace, phase/cost attribution,
+  notifications, copy, replay, fail-closed display, and persistent
+  `Simulation only - no external provider called` disclosure.
+- Updated architecture, routing, readiness, approved plan, README, and benchmark
+  safe-record documentation to describe the implemented boundary and remaining
+  non-claims.
+- Added unit, integration, migration, concurrency, recovery, renderer, and seven
+  Electron workflows for success, denial, provider failure plus fallback,
+  committed-attempt cancellation, local review, restart, and stale-copy refusal.
+- Deleted `scripts/check-openrouter-key.mjs` and the `check:cloud-key` package
+  command.
+
+Evidence:
+
+- Approval checkpoint `be8e4c71ca8892988caae28e2717ede2d5048165`
+  was clean, pushed, and passed exact-SHA GitHub Actions run
+  `33416882090` before runtime implementation began.
+- Final current-tree `pnpm check` passed readiness, the pre-entry 44-entry build
+  log, typecheck, 80 test files and 1,007 tests; three files and five tests were
+  deliberately skipped. All main, preload, and renderer Electron bundles built.
+- Focused post-review proof passed five files and 71 tests covering the strict
+  view, renderer validation, metrics, Hybrid integration, and safe session
+  projection. A second independent correctness lane passed 159 tests across 11
+  files plus typecheck and diff check.
+- Final Electron E2E passed all seven workflows. The committed-attempt Stop case
+  waits for a persisted Fake Cloud attempt, records exactly one cancelled finish
+  with conservative full-reservation settlement, starts no provider-failure
+  decision or Local synthesis, and preserves zero actual external spend.
+- The success workflow proves Fake Local inspection, a real egress pass, one
+  simulated reservation and one deterministic Fake Cloud synthesis, accepted
+  grounded result, durable route/cost trace, copy, restart replay, and zero
+  redispatch. Denial proves zero Fake Cloud attempts/reservations followed by
+  Local continuation. Provider failure proves a failed Fake Cloud synthesis
+  with `provider_error` followed by one completed Fake Local fallback.
+- `pnpm package:mac` built, ad-hoc signed, archived, extracted, and revalidated
+  `dist/SOAR-mac-arm64.zip`; the app and extracted archive were valid on disk and
+  satisfied their Designated Requirement.
+- Static tracked-source scans found no known credential, private endpoint,
+  machine-specific path, removed credential-reader command, or Keychain CLI
+  invocation. Production source/bundle scans found no generic fake v2 runner
+  import or symbol.
+- Two independent final read-only reviews reported 0 P0 / 0 P1 across phase and
+  route truthfulness, fail-closed UX, fake-only/no-network authority, consent and
+  workspace binding, accounting, cancellation, recovery, replay, and legacy
+  quarantine.
+
+Failures or blockers:
+
+- The first Electron check used a stale bundle and presented Hybrid as locked;
+  rebuilding exposed the implemented route. This was a test-build error, not a
+  runtime unlock defect.
+- An early attempt to retire the generic fake runner broke 36 of 38 historical
+  coordinator tests. It was reversed, then narrowed correctly to test-only use
+  with no production import, bundle symbol, or actual/simulation ledger path.
+- The first restricted full suite had 19 loopback `EPERM` failures and one real
+  reducer assertion failure. The reducer was corrected; running the networked
+  loopback fixtures with approved local permissions passed.
+- Adversarial reviews found and prompted corrections for provenance rebinding,
+  cancellation after workspace revalidation, same-path consent races, padded
+  challenge burn, legacy migration recovery, stale cross-session UI, missing
+  fail-closed markers, notification attribution, simulated overrun handling,
+  route attribution, small-text contrast, failure/fallback phase truthfulness,
+  denial causality, unknown settlement provenance, missing explicit `$0`, and
+  terminal failure-reason display. None of those negative results was discarded.
+- The first high-risk Electron expansion passed four of seven cases because the
+  success, denial, and failure fixtures changed a low-risk path and correctly
+  stayed Local. The fixtures now change a sensitive provider path.
+- The next four-of-seven run exposed a hidden duplicate text locator, an exact
+  denial-reason mismatch, and a safe-session projection that omitted the minimal
+  reservation facts needed for renderer attribution. Locators/reason matching
+  were corrected, and the safe projection now exposes only reservation identity
+  and projected aggregate cost, not rates, token assumptions, budgets, endpoints,
+  repository evidence, or credentials.
+- A six-of-seven run found the completion toast intercepted Copy Markdown. The
+  toast body now ignores pointer input while its dismiss button remains operable.
+- The first cancellation E2E stopped during Local inspection and therefore did
+  not prove committed Fake Cloud cancellation. It now waits for the persisted
+  cloud-attempt start and asserts the full terminal event/accounting grammar.
+- The first final failure-reason E2E rerun passed six of seven cases because its
+  locator matched both the Fake Cloud candidate checkpoint and failed Fake Cloud
+  synthesis. The locator was narrowed to the Failed row and the unchanged runtime
+  then passed all seven workflows.
+- Exact implementation commit SHA, push, and Linux/macOS CI remain pending at
+  this log point. Manual accessibility and release-distribution gates also remain
+  open.
+
+Limitations and non-claims: PR6B0 proves a deterministic local simulation of
+Hybrid control flow, not real Hybrid inference. No claim is made about real
+credential safety, provider/model/pricing/limit/health truth, HTTP wire identity,
+repository egress to a third party, model quality, routing quality, cost saving,
+latency improvement, benchmark superiority, or production readiness. The
+workspace admission lease revalidates the directory identity at the dispatch
+boundary; it is not a lifetime inode lock, and a hostile same-account filesystem
+attacker is outside this milestone's claim. Failed provider-reported or
+host-priced simulated overruns remain visible in full; malformed or impossible
+over-cap projections and invalid `reserved_unknown` settlements fail closed. The
+macOS artifact uses the default Electron icon, an ad-hoc `identityName=-`
+signature, and no notarization. Manual VoiceOver, keyboard-only traversal, true
+200% zoom, complete light/dark contrast, and reduced-motion checks remain
+unclosed. PR6B0 is not Verified or Released. PR6B1 credential authority, PR6B2
+real provider validation, PR6B3 paid inference, and all production Hybrid work
+remain separately unapproved.
+
+Paid exposure: `$0`. Implementation and verification used in-process Fake Local
+and Fake Cloud providers, temporary repositories/databases, synthetic loopback
+fixtures, local Electron, packaging, and GitHub CI metadata. The app and tests
+made no configured vLLM, OpenRouter, model-list, key-metadata, pricing, limit,
+health, inference, retry, fallback, evaluator, or other external LLM-provider
+request. No Keychain item or real credential was read, written, replaced, or
+deleted; no repository evidence was sent off-device; no actual reservation or
+external model spend was created.
+
+Next gate: Validate this append-only entry, run the complete gate on the final
+tree, commit and push one implementation revision, then require both exact-SHA
+Linux/check and macOS Electron GitHub jobs to pass. Keep status at Implemented
+until manual VoiceOver, keyboard-only, true 200% zoom, light/dark contrast, and
+reduced-motion proof is durably recorded. Release additionally requires a real
+product icon, Developer ID distribution signing, and notarization. Any PR6B1+
+credential, real-provider, external-egress, or paid work requires a new committed
+plan and explicit approval.
+
+References: [approved PR6B0 plan](plans/PR6B0_HYBRID_SIMULATION_V1.md),
+[architecture](ARCHITECTURE.md), [routing policy](ROUTING_POLICY.md), [MVP
+readiness](MVP_READINESS.md), and [README](../README.md).

@@ -1,5 +1,6 @@
 import {
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -9,11 +10,22 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  runSessionV2,
   type FakeOnlyHybridRuntimeV0,
+  type LegacyFakeAttemptFinishInputV0,
+  type LegacyFakeAtomicBatchV0,
+  type LegacyFakeBudgetedStartInputV0,
+  type LegacyFakeHybridAttemptHarnessV0,
 } from "../../src/main/agent/run-session-v2";
 import { SessionRunner } from "../../src/main/agent/run-session";
-import { AttemptUnitOfWork } from "../../src/main/attempt-unit-of-work";
-import { BudgetLedger } from "../../src/main/budget-ledger";
+import {
+  BUDGET_ROUNDING_POLICY,
+  projectWorstCaseCostMicrousd,
+  type BudgetBillingSnapshot,
+  type BudgetPosition,
+  type BudgetReservation,
+  type BudgetReservationResolution,
+} from "../../src/main/budget-ledger";
 import {
   createSoarDatabase,
   type SoarDatabase,
@@ -49,6 +61,164 @@ const LOCAL_ID = "fake-local";
 const CLOUD_ID = "fake-cloud";
 const CAMPAIGN_ID = "fake-campaign";
 const CREDENTIAL_ID = "fake-credential-metadata";
+
+type LegacyFakeFaultPoint = "after_budget_mutation" | "after_event_append";
+
+/**
+ * Historical scheduler mechanics only. This harness intentionally never
+ * writes budget_ledger_entries, so its fake cloud costs cannot become actual
+ * spend or participate in production recovery/reconciliation.
+ */
+class LegacyFakeAttemptHarness
+  implements LegacyFakeHybridAttemptHarnessV0
+{
+  private readonly reservations = new Map<string, BudgetReservation>();
+
+  constructor(
+    private readonly store: EventStore,
+    private readonly faultInjector?: (point: LegacyFakeFaultPoint) => void,
+  ) {}
+
+  listOutstandingReservations(options: {
+    sessionId: string;
+  }): BudgetReservation[] {
+    return [...this.reservations.values()].filter(
+      (reservation) => reservation.sessionId === options.sessionId,
+    );
+  }
+
+  commitLocalStart(input: LegacyFakeAtomicBatchV0): void {
+    this.store.appendMany(input.sessionId, input.events, {
+      expectedSequence: input.expectedSequence,
+      createdAt: input.createdAt,
+      eventIds: input.eventIds,
+    });
+  }
+
+  commitBudgetedStart(input: LegacyFakeBudgetedStartInputV0): {
+    dispatchAuthorized: true;
+    budgetResolution: BudgetReservationResolution;
+  } {
+    const state = this.store.getProjectedState(input.sessionId);
+    const policy = state.executionPolicy;
+    if (policy?.schemaVersion !== "agentic-execution-v2") {
+      throw new Error("Legacy fake mechanics require a v2 policy");
+    }
+    const projectedCostMicrousd = projectWorstCaseCostMicrousd(
+      input.projection,
+    );
+    const position: BudgetPosition = {
+      campaignId: input.campaignId,
+      sessionId: input.sessionId,
+      episodeCapMicrousd: policy.maxPaidEpisodeMicrousd,
+      episodeExposureMicrousd: 0,
+      campaignExposureMicrousd: 0,
+      remainingEpisodeMicrousd: policy.maxPaidEpisodeMicrousd,
+      remainingAutomaticStopMicrousd: 90_000_000,
+      remainingHardCeilingMicrousd: 100_000_000,
+      remainingCampaignMicrousd: 90_000_000,
+      automaticStopMicrousd: 90_000_000,
+      hardCeilingMicrousd: 100_000_000,
+      campaignDisabled: false,
+    };
+    const billing: BudgetBillingSnapshot = {
+      billableInputTokens: input.projection.billableInputTokens,
+      billableCacheReadTokens: input.projection.billableCacheReadTokens,
+      requestedMaxOutputTokens: input.projection.requestedMaxOutputTokens,
+      inputMicrousdPerMillionTokens:
+        input.projection.inputMicrousdPerMillionTokens,
+      outputMicrousdPerMillionTokens:
+        input.projection.outputMicrousdPerMillionTokens,
+      ...(input.projection.cacheReadMicrousdPerMillionTokens === undefined
+        ? {}
+        : {
+            cacheReadMicrousdPerMillionTokens:
+              input.projection.cacheReadMicrousdPerMillionTokens,
+          }),
+      providerFeeCeilingMicrousd:
+        input.projection.providerFeeCeilingMicrousd,
+      roundingPolicy: BUDGET_ROUNDING_POLICY,
+      projectedCostMicrousd,
+      remainingEpisodeMicrousd: position.remainingEpisodeMicrousd,
+      remainingCampaignMicrousd: position.remainingCampaignMicrousd,
+    };
+    const reservation: BudgetReservation = {
+      id: input.reservationId,
+      campaignId: input.campaignId,
+      sessionId: input.sessionId,
+      attemptId: input.attemptId,
+      providerId: input.providerId,
+      pricingSnapshotId: input.pricingSnapshotId,
+      costScope: "legacy_unclassified",
+      amountMicrousd: projectedCostMicrousd,
+      billableEstimatedInputTokens: input.projection.billableInputTokens,
+      requestedMaxOutputTokens: input.projection.requestedMaxOutputTokens,
+      cacheReadTokensAssumed: input.projection.billableCacheReadTokens,
+      inputRateMicrousdPerMillion:
+        input.projection.inputMicrousdPerMillionTokens,
+      outputRateMicrousdPerMillion:
+        input.projection.outputMicrousdPerMillionTokens,
+      cacheReadRateMicrousdPerMillion:
+        input.projection.cacheReadMicrousdPerMillionTokens ?? 0,
+      providerFeeCeilingMicrousd:
+        input.projection.providerFeeCeilingMicrousd,
+      cacheAssumption: input.projection.cacheAssumption,
+      roundingPolicy: BUDGET_ROUNDING_POLICY,
+      createdAt: input.createdAt,
+    };
+    const resolution: BudgetReservationResolution =
+      projectedCostMicrousd > position.remainingEpisodeMicrousd
+        ? { status: "denied", reason: "episode_cap", billing, position }
+        : { status: "admitted", billing, position, reservation };
+    const events = input.buildEvents(resolution);
+    const eventIds = input.eventIds[resolution.status];
+    if (events.length !== eventIds.length) {
+      throw new Error("Legacy fake mechanics event identity count mismatch");
+    }
+
+    try {
+      if (resolution.status === "admitted") {
+        this.reservations.set(reservation.id, reservation);
+        this.faultInjector?.("after_budget_mutation");
+      }
+      this.store.appendMany(input.sessionId, events, {
+        expectedSequence: input.expectedSequence,
+        createdAt: input.createdAt,
+        eventIds,
+        ...(this.faultInjector === undefined
+          ? {}
+          : {
+              afterEachPersistedForTest: (index) => {
+                if (index === events.length - 1) {
+                  this.faultInjector?.("after_event_append");
+                }
+              },
+            }),
+      });
+    } catch (error) {
+      this.reservations.delete(reservation.id);
+      throw error;
+    }
+    return { dispatchAuthorized: true, budgetResolution: resolution };
+  }
+
+  commitAttemptFinish(input: LegacyFakeAttemptFinishInputV0): void {
+    const finish = input.events.find(
+      (event) => event.type === "inference.attempt.finished",
+    );
+    if (finish?.type !== "inference.attempt.finished") {
+      throw new Error("Legacy fake mechanics require one attempt finish");
+    }
+    this.store.appendMany(input.sessionId, input.events, {
+      expectedSequence: input.expectedSequence,
+      createdAt: input.createdAt,
+      eventIds: input.eventIds,
+    });
+    if (finish.payload.cost.reservationId !== undefined) {
+      this.reservations.delete(finish.payload.cost.reservationId);
+    }
+  }
+}
 
 function usage(inputTokens = 100, outputTokens = 20) {
   return {
@@ -176,6 +346,7 @@ interface FixtureOptions {
   cloudEstimatedReserveTokens?: number;
   cloudDescriptorOverrides?: Partial<ProviderDescriptor>;
   runtimeOverrides?: Partial<FakeOnlyHybridRuntimeV0>;
+  attemptFaultInjector?: (point: LegacyFakeFaultPoint) => void;
 }
 
 function fixture(options: FixtureOptions) {
@@ -254,16 +425,10 @@ function fixture(options: FixtureOptions) {
     },
     createdAt: "2026-08-29T11:59:00.000Z",
   });
-  const ledger = new BudgetLedger(store);
-  ledger.createCampaign({
-    id: CAMPAIGN_ID,
-    providerId: CLOUD_ID,
-    credentialMetadataId: CREDENTIAL_ID,
-    openingExposureMicrousd: 0,
-    automaticStopMicrousd: 90_000_000,
-    hardCeilingMicrousd: 100_000_000,
-    createdAt: "2026-08-29T11:59:30.000Z",
-  });
+  const mechanics = new LegacyFakeAttemptHarness(
+    store,
+    options.attemptFaultInjector,
+  );
 
   let id = 0;
   const runtime: FakeOnlyHybridRuntimeV0 = {
@@ -308,61 +473,62 @@ function fixture(options: FixtureOptions) {
     },
     reviewRisk: highRisk(),
     egressAllowed: true,
+    testOnlyAttemptHarness: mechanics,
     clock: () => new Date(NOW),
     idFactory: () => `fake-id-${++id}`,
     ...options.runtimeOverrides,
   };
-  let runner: SessionRunner;
-  runner = new SessionRunner({
-    store,
-    providerRegistry,
-    defaultLocalProviderId: LOCAL_ID,
-    limits: { inferenceRounds: 4, toolCalls: 2 },
-    context: { maxInputTokens: 16_384, safetyMargin: 0.1 },
-    hybridRuntime: runtime,
-    ...(options.cancelAfterCloudFailure ||
-    options.cancelAfterEvidence ||
-    options.onPersisted !== undefined
-      ? {
-          onUpdate: () => {
-            options.onPersisted?.();
-            const state = store.getProjectedState(sessionId);
-            const latest = state.inferenceAttempts.at(-1);
-            if (
-              options.cancelAfterCloudFailure &&
-              latest?.providerId === CLOUD_ID &&
-              latest.finished !== undefined &&
-              latest.finished.outcome !== "succeeded" &&
-              latest.finished.outcome !== "cancelled"
-            ) {
-              runner.cancelSession(sessionId);
-              return;
-            }
-            const successfulToolResults = state.messages.reduce(
-              (count, message) =>
-                count +
-                (message.toolCalls ?? []).filter(
-                  (tool) => tool.status === "completed",
-                ).length,
-              0,
-            );
-            if (
-              options.cancelAfterEvidence &&
-              successfulToolResults >= 2 &&
-              state.inferenceAttempts.every(
-                (attempt) => attempt.finished !== undefined,
-              )
-            ) {
-              runner.cancelSession(sessionId);
-            }
-          },
-        }
-      : {}),
-  });
+  const controller = new AbortController();
+  const onUpdate = () => {
+    options.onPersisted?.();
+    const state = store.getProjectedState(sessionId);
+    const latest = state.inferenceAttempts.at(-1);
+    if (
+      options.cancelAfterCloudFailure &&
+      latest?.providerId === CLOUD_ID &&
+      latest.finished !== undefined &&
+      latest.finished.outcome !== "succeeded" &&
+      latest.finished.outcome !== "cancelled"
+    ) {
+      controller.abort();
+      return;
+    }
+    const successfulToolResults = state.messages.reduce(
+      (count, message) =>
+        count +
+        (message.toolCalls ?? []).filter(
+          (tool) => tool.status === "completed",
+        ).length,
+      0,
+    );
+    if (
+      options.cancelAfterEvidence &&
+      successfulToolResults >= 2 &&
+      state.inferenceAttempts.every(
+        (attempt) => attempt.finished !== undefined,
+      )
+    ) {
+      controller.abort();
+    }
+  };
+  const runner = {
+    startSession: (requestedSessionId: string) =>
+      runSessionV2({
+        sessionId: requestedSessionId,
+        store,
+        providerRegistry,
+        defaultLocalProviderId: LOCAL_ID,
+        context: { maxInputTokens: 16_384, safetyMargin: 0.1 },
+        runtime,
+        controller,
+        onUpdate,
+      }),
+    cancelSession: (_requestedSessionId: string) => controller.abort(),
+  };
   return {
     database,
     store,
-    ledger,
+    ledger: mechanics,
     local,
     cloud,
     providerRegistry,
@@ -441,6 +607,35 @@ describe("fake-only agentic-execution-v2 runner", () => {
     expect(context.ledger.listOutstandingReservations({
       sessionId: context.sessionId,
     })).toEqual([]);
+    expect(state.usage.costUsd).toBe(0);
+    expect(state.costScopes.actual).toEqual({
+      reservedMicrousd: 0,
+      settledMicrousd: 0,
+    });
+    expect(state.costScopes.legacyUnclassified.present).toBe(true);
+    expect(state.costScopes.legacyUnclassified.settledMicrousd).toBeGreaterThan(
+      0,
+    );
+    expect(context.store.requireSession(context.sessionId).totalCostUsd).toBe(0);
+    expect(
+      context.database
+        .prepare(
+          "SELECT COUNT(*) AS count FROM budget_ledger_entries WHERE session_id = ?",
+        )
+        .get(context.sessionId),
+    ).toEqual({ count: 0 });
+    expect(
+      state.routingDecisions.every(
+        (decision) => decision.costScope === undefined,
+      ),
+    ).toBe(true);
+    expect(
+      state.inferenceAttempts.every(
+        (attempt) =>
+          attempt.costScope === undefined &&
+          attempt.finished?.cost.costScope === undefined,
+      ),
+    ).toBe(true);
   });
 
   it("freezes health observations before the atomic budget callback", async () => {
@@ -1249,15 +1444,10 @@ describe("fake-only agentic-execution-v2 runner", () => {
   it("rolls back an injected atomic budget fault and never exposes dispatch authority", async () => {
     const context = fixture({
       cloudStep: () => finalResult("fake-cloud-model", "must not dispatch"),
-      runtimeOverrides: {
-        attemptUnitOfWorkFactory: (ledger) =>
-          new AttemptUnitOfWork(ledger, {
-            faultInjector: (point) => {
-              if (point === "after_budget_mutation") {
-                throw new Error("injected atomic budget fault");
-              }
-            },
-          }),
+      attemptFaultInjector: (point) => {
+        if (point === "after_budget_mutation") {
+          throw new Error("injected atomic budget fault");
+        }
       },
     });
 
@@ -1305,18 +1495,18 @@ describe("fake-only agentic-execution-v2 runner", () => {
     const context = fixture({
       cloudStep: () => finalResult("fake-cloud-model", "must not dispatch"),
     });
-    const runner = new SessionRunner({
+    await runSessionV2({
+      sessionId: context.sessionId,
       store: context.store,
       providerRegistry: context.providerRegistry,
       defaultLocalProviderId: LOCAL_ID,
-      limits: { inferenceRounds: 4, toolCalls: 2 },
-      hybridRuntime: {
+      context: { maxInputTokens: 16_384, safetyMargin: 0.1 },
+      runtime: {
         ...context.runtime,
         fakeProviderIds: [LOCAL_ID],
       },
+      controller: new AbortController(),
     });
-
-    await runner.startSession(context.sessionId);
 
     const state = context.store.getProjectedState(context.sessionId);
     expect(state.status).toBe("failed");
@@ -1381,20 +1571,30 @@ describe("fake-only agentic-execution-v2 runner", () => {
         provider: context.cloud,
       },
     ]);
-    const runner = new SessionRunner({
+    await runSessionV2({
+      sessionId: context.sessionId,
       store: context.store,
       providerRegistry,
       defaultLocalProviderId: LOCAL_ID,
-      limits: { inferenceRounds: 4, toolCalls: 2 },
-      hybridRuntime: context.runtime,
+      context: { maxInputTokens: 16_384, safetyMargin: 0.1 },
+      runtime: context.runtime,
+      controller: new AbortController(),
     });
-
-    await runner.startSession(context.sessionId);
 
     const state = context.store.getProjectedState(context.sessionId);
     expect(state.status).toBe("failed");
     expect(state.error).toMatch(/not a nominally branded fake provider/u);
     expect(context.local.inputs).toHaveLength(0);
     expect(context.cloud.inputs).toHaveLength(0);
+  });
+
+  it("keeps the deprecated fake runner outside the production SessionRunner graph", () => {
+    const productionRunnerSource = readFileSync(
+      join(process.cwd(), "src/main/agent/run-session.ts"),
+      "utf8",
+    );
+    expect(productionRunnerSource).not.toMatch(
+      /run-session-v2|FakeOnlyHybridRuntimeV0|hybridRuntime/u,
+    );
   });
 });

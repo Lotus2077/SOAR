@@ -64,6 +64,7 @@ function fixture(options: {
     openingExposureMicrousd: options.openingExposureMicrousd ?? 0,
     automaticStopMicrousd: options.automaticStopMicrousd ?? 90_000_000,
     hardCeilingMicrousd: options.hardCeilingMicrousd ?? 100_000_000,
+    costScope: "actual",
     createdAt: CREATED_AT,
   });
   return { database, store, ledger, sessionId };
@@ -87,6 +88,10 @@ function reserve(
       attemptId: options.attemptId ?? "attempt-1",
       providerId: "fake-cloud",
       pricingSnapshotId: "pricing-1",
+      costScope: "actual",
+      cloudEgressAdmissionId: `egress-${
+        options.reservationId ?? "reservation-1"
+      }`,
       episodeCapMicrousd: options.episodeCapMicrousd ?? 250,
       projection: options.projection ?? DEFAULT_PROJECTION,
       createdAt: "2026-08-29T01:00:01.000Z",
@@ -116,6 +121,8 @@ describe("BudgetLedger", () => {
           attemptId: "rolled-back-attempt",
           providerId: "fake-cloud",
           pricingSnapshotId: "pricing-1",
+          costScope: "actual",
+          cloudEgressAdmissionId: "egress-rolled-back-reservation",
           episodeCapMicrousd: 250,
           projection: DEFAULT_PROJECTION,
           createdAt: "2026-08-29T01:00:01.000Z",
@@ -131,6 +138,29 @@ describe("BudgetLedger", () => {
     ).toThrow(/active SQLite transaction/);
   });
 
+  it("rejects a forged legacy fake reservation without egress identity", () => {
+    const { ledger } = fixture();
+
+    expect(() =>
+      ledger.runImmediate((transaction) =>
+        transaction.reserve({
+          campaignId: "campaign-1",
+          reservationId: "forged-legacy-reservation",
+          sessionId: "budget-session",
+          attemptId: "forged-legacy-attempt",
+          providerId: "fake-cloud",
+          pricingSnapshotId: "pricing-1",
+          costScope: "actual",
+          legacyFakeHybridV0: true,
+          episodeCapMicrousd: 250,
+          projection: DEFAULT_PROJECTION,
+          createdAt: "2026-08-29T01:00:01.000Z",
+        } as Parameters<typeof transaction.reserve>[0]),
+      ),
+    ).toThrow(/requires cloud egress admission identity/u);
+    expect(ledger.listOutstandingReservations()).toEqual([]);
+  });
+
   it("fails reconciliation on a standalone orphan reservation", () => {
     const { ledger } = fixture();
     expect(reserve(ledger)).toMatchObject({ status: "admitted" });
@@ -138,6 +168,135 @@ describe("BudgetLedger", () => {
     expect(() => ledger.assertEventReconciled()).toThrow(
       /reservation-1: ledger reservation has no canonical attempt/,
     );
+  });
+
+  it("idempotently ensures only an exact immutable campaign authority", () => {
+    const { ledger } = fixture();
+    const exact = {
+      id: "campaign-1",
+      providerId: "fake-cloud",
+      credentialMetadataId: "fake-credential-metadata",
+      openingExposureMicrousd: 0,
+      automaticStopMicrousd: 90_000_000,
+      hardCeilingMicrousd: 100_000_000,
+      costScope: "actual" as const,
+      createdAt: CREATED_AT,
+    };
+
+    expect(ledger.ensureCampaign(exact)).toEqual(ledger.ensureCampaign(exact));
+    expect(() =>
+      ledger.ensureCampaign({ ...exact, hardCeilingMicrousd: 99_999_999 }),
+    ).toThrow(/different immutable authority/);
+  });
+
+  it("keeps actual, simulation, and legacy-unclassified aggregates distinct", () => {
+    const { database, store, ledger } = fixture();
+    expect(reserve(ledger)).toMatchObject({ status: "admitted" });
+    store.createSession({
+      id: "simulation-budget-session",
+      title: "Simulation budget test",
+      objective: "Keep simulated accounting separate.",
+      workspaceRoot: "/tmp/workspace",
+    });
+    ledger.createCampaign({
+      id: "simulation-campaign",
+      providerId: "fake-simulation-cloud",
+      credentialMetadataId: "fake-simulation-credential",
+      openingExposureMicrousd: 0,
+      automaticStopMicrousd: 250,
+      hardCeilingMicrousd: 250,
+      costScope: "simulation",
+      createdAt: CREATED_AT,
+    });
+    expect(
+      ledger.runImmediate((transaction) =>
+        transaction.reserve({
+          campaignId: "simulation-campaign",
+          reservationId: "simulation-reservation",
+          sessionId: "simulation-budget-session",
+          attemptId: "simulation-attempt",
+          providerId: "fake-simulation-cloud",
+          pricingSnapshotId: "simulation-pricing",
+          costScope: "simulation",
+          cloudEgressAdmissionId: "simulation-egress-admission",
+          episodeCapMicrousd: 250,
+          projection: DEFAULT_PROJECTION,
+          createdAt: "2026-08-29T01:00:01.000Z",
+        }),
+      ),
+    ).toMatchObject({ status: "admitted" });
+    expect(ledger.getCostScopeSummary()).toMatchObject({
+      actual: {
+        rowCount: 2,
+        openingExposureMicrousd: 0,
+        outstandingReservationMicrousd: 250,
+        settledMicrousd: 0,
+      },
+      simulation: {
+        rowCount: 2,
+        outstandingReservationMicrousd: 250,
+        settledMicrousd: 0,
+      },
+      legacyUnclassified: { rowCount: 0, present: false },
+    });
+    ledger.runImmediate((transaction) =>
+      transaction.resolve({
+        terminalEntryId: "settlement-1",
+        reservationId: "reservation-1",
+        rowType: "settlement",
+        amountMicrousd: 180,
+        costProvenance: "provider_reported",
+        requestDisposition: "sent",
+        createdAt: "2026-08-29T01:00:02.000Z",
+      }),
+    );
+
+    // This row represents what migration 3 leaves behind. Dropping only the
+    // new-row guard is a focused test seam; the actual-admission gate remains.
+    database.exec("DROP TRIGGER budget_ledger_runtime_cost_scope_guard");
+    database
+      .prepare(
+        `INSERT INTO budget_ledger_entries (
+           id, row_type, campaign_id, provider_id, credential_metadata_id,
+           amount_microusd, opening_exposure_microusd,
+           automatic_stop_microusd, hard_ceiling_microusd, cost_scope, created_at
+         ) VALUES (?, 'campaign', ?, ?, ?, ?, ?, ?, ?, 'legacy_unclassified', ?)`,
+      )
+      .run(
+        "legacy-campaign",
+        "legacy-campaign",
+        "legacy-provider",
+        "legacy-credential",
+        17,
+        17,
+        100,
+        100,
+        "2026-08-28T00:00:00.000Z",
+      );
+
+    expect(ledger.getCostScopeSummary()).toMatchObject({
+      actual: {
+        rowCount: 3,
+        outstandingReservationMicrousd: 0,
+        settledMicrousd: 180,
+      },
+      simulation: {
+        rowCount: 2,
+        outstandingReservationMicrousd: 250,
+        settledMicrousd: 0,
+      },
+      legacyUnclassified: {
+        rowCount: 1,
+        openingExposureMicrousd: 17,
+        present: true,
+      },
+    });
+    expect(() =>
+      reserve(ledger, {
+        reservationId: "blocked-actual-reservation",
+        attemptId: "blocked-actual-attempt",
+      }),
+    ).toThrow(/unclassified historical exposure/);
   });
 
   it("uses exact BigInt component rounding and rejects unsafe projections", () => {

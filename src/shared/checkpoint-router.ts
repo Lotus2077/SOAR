@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import {
+  HYBRID_SIMULATION_ROUTING_POLICY_ID,
+  RuntimeCostScopeSchema,
+} from "./hybrid-simulation-contracts";
+import {
   AgenticExecutionPolicyV2Schema,
   ProviderHealthSnapshotV0Schema,
   ProviderPricingSnapshotV0Schema,
@@ -153,6 +157,8 @@ const lastAttemptSchema = z
     ]),
     requestDisposition: z.enum(["not_sent", "sent", "unknown"]),
     budgetReservationId: boundedId.optional(),
+    costScope: RuntimeCostScopeSchema.optional(),
+    cloudEgressAdmissionId: boundedId.optional(),
   })
   .strict();
 
@@ -459,6 +465,7 @@ const packetAdmissionSchema = z
     packetSha256: sha256,
     messagesSha256: sha256,
     egressAllowed: z.boolean(),
+    cloudEgressAdmissionId: boundedId.optional(),
   })
   .strict();
 
@@ -548,6 +555,10 @@ export const AttemptPlanV0Schema = z
       .optional(),
     requireToolCall: z.boolean(),
     budgetReservationId: boundedId.optional(),
+    // Current router results always emit this. Optional input preserves older
+    // hand-authored mechanics fixtures until their event histories are rebuilt.
+    costScope: RuntimeCostScopeSchema.optional(),
+    cloudEgressAdmissionId: boundedId.optional(),
   })
   .strict()
   .superRefine((attempt, context) => {
@@ -704,6 +715,27 @@ function assertProviderFailureState(
   if (input.boundary !== "provider_failure") return;
   const active = input.state.activeLease;
   const attempt = input.state.lastAttempt;
+  const expectedCostScope = routingCostScope(input.policy);
+  if (
+    attempt !== undefined &&
+    ((attempt.costScope !== undefined &&
+      attempt.costScope !== expectedCostScope) ||
+      (expectedCostScope === "simulation" &&
+        attempt.costScope !== "simulation"))
+  ) {
+    throw new Error(
+      "provider_failure attempt cost scope does not match the routing policy",
+    );
+  }
+  if (
+    expectedCostScope === "simulation" &&
+    attempt !== undefined &&
+    attempt.cloudEgressAdmissionId === undefined
+  ) {
+    throw new Error(
+      "provider_failure simulation attempt requires its persisted egress admission identity",
+    );
+  }
   const activeProvider = active
     ? providers.find((provider) => provider.providerId === active.providerId)
     : undefined;
@@ -777,7 +809,9 @@ export function proposeCheckpointRouteV0(
       intent = "low_risk_local_review";
     } else if (
       input.risk.classification === "high_risk" &&
-      input.policy.routingPolicy === "hybrid_v0"
+      (input.policy.routingPolicy === "hybrid_v0" ||
+        input.policy.routingPolicy ===
+          HYBRID_SIMULATION_ROUTING_POLICY_ID)
     ) {
       if (input.cloudProviderId === undefined) {
         throw new Error("hybrid high-risk routing requires a configured cloud provider");
@@ -1097,6 +1131,14 @@ function localReason(proposal: CheckpointProposalV0) {
   }
 }
 
+function routingCostScope(
+  policy: AgenticExecutionPolicyV2,
+): "simulation" | "actual" {
+  return policy.routingPolicy === HYBRID_SIMULATION_ROUTING_POLICY_ID
+    ? "simulation"
+    : "actual";
+}
+
 function localDecision(options: {
   input: CheckpointResolutionInputV0;
   proposal: CheckpointProposalV0;
@@ -1153,6 +1195,14 @@ function localDecision(options: {
   const decision = RoutingDecisionPayloadSchema.parse({
     decisionId: input.decisionId,
     policyVersion: CHECKPOINT_ROUTER_POLICY_VERSION,
+    costScope: routingCostScope(input.policy),
+    ...(input.boundary === "provider_failure" &&
+    input.state.lastAttempt?.cloudEgressAdmissionId !== undefined
+      ? {
+          cloudEgressAdmissionId:
+            input.state.lastAttempt.cloudEgressAdmissionId,
+        }
+      : {}),
     boundary: proposal.boundary,
     phase: proposal.phase,
     action: proposal.action,
@@ -1187,6 +1237,14 @@ function localDecision(options: {
         }
       : {}),
     requireToolCall: proposal.requireToolCall,
+    costScope: routingCostScope(input.policy),
+    ...(input.boundary === "provider_failure" &&
+    input.state.lastAttempt?.cloudEgressAdmissionId !== undefined
+      ? {
+          cloudEgressAdmissionId:
+            input.state.lastAttempt.cloudEgressAdmissionId,
+        }
+      : {}),
   });
   return decisionResult(decision, attempt);
 }
@@ -1213,6 +1271,16 @@ function cloudDecision(options: {
   const admissionInput = CloudAdmissionInputV0Schema.parse(
     options.admissionInput,
   );
+  const simulationPolicy =
+    input.policy.routingPolicy === HYBRID_SIMULATION_ROUTING_POLICY_ID;
+  if (
+    simulationPolicy &&
+    admissionInput.packet.cloudEgressAdmissionId === undefined
+  ) {
+    throw new Error(
+      "Hybrid simulation cloud routing requires a persisted egress admission identity",
+    );
+  }
   const cloudHealth = ProviderHealthSnapshotV0Schema.parse(
     input.targetHealthSnapshot,
   );
@@ -1236,7 +1304,27 @@ function cloudDecision(options: {
   const admission = initialAdmission();
   let denialReason: CloudDenialReason | undefined;
 
-  if (!cloud.enabled) {
+  // Simulation persists one DLP admission record for every cloud proposal,
+  // including proposals later denied by capability, deadline, credential,
+  // health, pricing, or the locked budget. Evaluate that independently first
+  // so the persisted decision always reflects the record's pass/deny result.
+  if (simulationPolicy) {
+    const consentAllowsEgress =
+      input.policy.egressConsent === "none" &&
+      input.policy.simulationConsent ===
+        "simulation_cloud_synthesis_v1";
+    if (!consentAllowsEgress || !admissionInput.packet.egressAllowed) {
+      admission.egress = denied("egress_denial");
+      denialReason = "egress_denial";
+    } else {
+      admission.egress = passed("egress_ok");
+    }
+  }
+
+  if (denialReason !== undefined) {
+    // An egress denial is final for the proposal. Later admission facts remain
+    // not_applicable and cannot obscure the persisted DLP consequence.
+  } else if (!cloud.enabled) {
     denialReason = "disabled_provider";
   } else if (!hasCapabilities(cloud, proposal.requiredCapabilities)) {
     admission.capability = denied("capability_mismatch");
@@ -1263,15 +1351,20 @@ function cloudDecision(options: {
             denialReason = "pricing_denial";
           } else {
             admission.pricing = passed("pricing_ok");
-            if (
-              input.policy.egressConsent !==
-                "session_cloud_synthesis_v1" ||
-              !admissionInput.packet.egressAllowed
-            ) {
-              admission.egress = denied("egress_denial");
-              denialReason = "egress_denial";
-            } else {
-              admission.egress = passed("egress_ok");
+            if (!simulationPolicy) {
+              const consentAllowsEgress =
+                input.policy.routingPolicy === "hybrid_v0" &&
+                input.policy.egressConsent ===
+                  "session_cloud_synthesis_v1";
+              if (
+                !consentAllowsEgress ||
+                !admissionInput.packet.egressAllowed
+              ) {
+                admission.egress = denied("egress_denial");
+                denialReason = "egress_denial";
+              } else {
+                admission.egress = passed("egress_ok");
+              }
             }
           }
         }
@@ -1342,6 +1435,13 @@ function cloudDecision(options: {
     const decision = RoutingDecisionPayloadSchema.parse({
       decisionId: input.decisionId,
       policyVersion: CHECKPOINT_ROUTER_POLICY_VERSION,
+      costScope: routingCostScope(input.policy),
+      ...(admissionInput.packet.cloudEgressAdmissionId === undefined
+        ? {}
+        : {
+            cloudEgressAdmissionId:
+              admissionInput.packet.cloudEgressAdmissionId,
+          }),
       boundary: proposal.boundary,
       phase: proposal.phase,
       action: "retain_lease",
@@ -1388,6 +1488,13 @@ function cloudDecision(options: {
       requestedMaxOutputTokens: local.maxOutputTokens,
       allowTools: false,
       requireToolCall: false,
+      costScope: routingCostScope(input.policy),
+      ...(admissionInput.packet.cloudEgressAdmissionId === undefined
+        ? {}
+        : {
+            cloudEgressAdmissionId:
+              admissionInput.packet.cloudEgressAdmissionId,
+          }),
     });
     return decisionResult(decision, attempt);
   }
@@ -1404,6 +1511,13 @@ function cloudDecision(options: {
   const decision = RoutingDecisionPayloadSchema.parse({
     decisionId: input.decisionId,
     policyVersion: CHECKPOINT_ROUTER_POLICY_VERSION,
+    costScope: routingCostScope(input.policy),
+    ...(admissionInput.packet.cloudEgressAdmissionId === undefined
+      ? {}
+      : {
+          cloudEgressAdmissionId:
+            admissionInput.packet.cloudEgressAdmissionId,
+        }),
     boundary: proposal.boundary,
     phase: proposal.phase,
     action: "assign_new_lease",
@@ -1436,6 +1550,13 @@ function cloudDecision(options: {
     allowTools: false,
     requireToolCall: false,
     budgetReservationId: admissionInput.budget.reservationId,
+    costScope: routingCostScope(input.policy),
+    ...(admissionInput.packet.cloudEgressAdmissionId === undefined
+      ? {}
+      : {
+          cloudEgressAdmissionId:
+            admissionInput.packet.cloudEgressAdmissionId,
+        }),
   });
   return decisionResult(decision, attempt);
 }

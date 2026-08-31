@@ -9,10 +9,14 @@ routing runtime matures.
 > [!IMPORTANT]
 > SOAR is an experimental, pre-release project. The checked-in runtime is a
 > local-only repository investigator plus a local-only **Review Current
-> Changes** slice. Cloud execution, write tools, and learned routing are design
-> targets, not shipping features yet. The locally verified PR6A foundation
-> can store setup-only cloud credentials and describe a locked cloud candidate,
-> but it cannot validate a credential or dispatch a cloud request.
+> Changes** slice. An explicitly enabled fake development/test configuration
+> also exposes an app-visible **Hybrid simulation** that uses two in-process
+> fake providers. Normal vLLM mode remains Local-only and Hybrid-locked. PR6B0
+> is Implemented locally, not Verified or Released: the simulation reads no
+> credential, contacts neither the configured vLLM nor an external provider,
+> and has `$0` actual external spend. Cloud execution, write tools, and learned
+> routing remain design targets. Manual VoiceOver, light/dark contrast, and
+> reduced-motion proof for PR6B0 is still pending.
 
 The MVP optimizes a constrained trade-off rather than promising an impossible per-task optimum:
 
@@ -36,12 +40,20 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   Optional Settings can add, replace, report local presence, and delete a
   dedicated Keychain credential without returning it to the renderer. The
   credential and candidate are not validated or dispatchable; availability and
-  pricing require fresh evidence and separate PR6B approval.
+  pricing require fresh evidence and separate PR6B2 approval.
 - Routing runtime: Repository Investigator retains its deterministic v1 local
   assignment. Review Current Changes creates an app-owned v2
   `local_only_v1` session and keeps inspection and synthesis on the same
-  configured provider. A separate fake-only v2 path proves hybrid mechanics
-  without enabling a production cloud provider.
+  configured provider in normal vLLM mode. With `SOAR_PROVIDER_MODE=fake` and
+  `SOAR_ENABLE_HYBRID_SIMULATION=true`, the app can instead create a strictly
+  branded `hybrid_simulation_v1` review. That path routes local inspection to
+  Fake Local, evaluates the bounded egress policy, may run one tool-free Fake
+  Cloud synthesis, and permits one eligible Fake Local fallback. It persists
+  only simulation-scoped accounting and reports actual external spend as `$0`.
+- PR6B0 status: **Implemented locally; not Verified or Released.** Exact-SHA CI,
+  package/Electron closure, independent final review, and the manual
+  accessibility record remain outstanding. This status proves no real Hybrid
+  request, model quality, cost saving, or latency improvement.
 - Future paid-campaign design: a proposed USD 100 ceiling and USD 90 automatic
   stop. These values are not active runtime configuration and authorize no paid
   call.
@@ -49,8 +61,9 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   under the operator's local-zero-cost attestation. The app constructs no
   separately configured metered or OpenRouter provider, and paid benchmark
   calls are not authorized. The PR6A setup path has no cloud transport or paid
-  attempt path. This is not proof that an incorrectly classified configured
-  endpoint cannot bill its operator.
+  attempt path. PR6B0's `$0.25` figure is a simulated maximum reservation and is
+  excluded from actual spend. This is not proof that an incorrectly classified
+  configured endpoint cannot bill its operator.
 - Local Evaluation Bridge v1: a specialized, fail-closed command can now run
   the canonical production local-only change-review coordinator on one frozen
   nonempty public SOAR change and export a lossy privacy-safe canonical-event
@@ -77,9 +90,11 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   schema compatibility only, not a post-fix real-repository flow or full release
   validation. PR 6 is now split:
   [PR6A Cloud Setup and Dispatch Lock](docs/plans/PR6A_CLOUD_SETUP_DISPATCH_LOCK_V1.md)
-  is Verified but not Released; PR6B, its paid OpenRouter canary, and every paid
-  call remain
-  separately unapproved and approval-gated.
+  is Verified but not Released;
+  [PR6B0 Hybrid Simulation](docs/plans/PR6B0_HYBRID_SIMULATION_V1.md) is
+  Implemented locally but not Verified or Released. PR6B1 credential leasing,
+  PR6B2 provider validation, PR6B3's paid OpenRouter canary, and every paid call
+  remain separately unapproved and approval-gated.
 - [Local Evaluation Bridge v1](docs/plans/LOCAL_EVALUATION_BRIDGE_V1.md)
   defines the independently approved `$0`, local-only, one-live-episode proof
   boundary. Another live attempt requires new explicit approval and a new
@@ -175,26 +190,40 @@ repository-review quality.
 
 ## Fake-only hybrid mechanics
 
-The additive v2 coordinator proves the mechanical local-investigation to
-fake-cloud-synthesis path without changing the production app entry point. Its
-pure router runs only at session start, evidence completion, and eligible cloud
-failure; routine tool rounds retain their lease. Every current decision stores
-bounded provider and deadline facts plus the applicable health, pricing, risk,
-and packet facts reached by that decision. A paid attempt reservation and its
-canonical start events share one immediate SQLite transaction, and
-settlement/recovery closes the ledger and event history together.
+PR6B0 adds a separate app-visible path only when main-process configuration
+selects fake provider mode and explicitly enables Hybrid simulation. Local is
+still the default. Selecting simulation issues a bounded, single-use,
+workspace-bound disclosure challenge; the user must acknowledge it before the
+session can start. The renderer cannot choose providers, model IDs, pricing,
+the `$0.25` simulated cap, or real egress consent.
 
-The proof uses nominally branded deterministic providers. Production constructs
-one configured, operator-attested local provider: Repository Investigator
-creates v1 sessions and Review Current Changes creates local-only v2 sessions.
-PR6A adds a setup-only OpenRouter Keychain lifecycle, but no secret-read
-resolver, production metered provider, or user-selectable Hybrid execution.
-There is no claim that the fake result measures quality, cost savings, or
-latency improvement. The generic configured endpoint remains an operator trust
-boundary, not a billing oracle. See
+The strict coordinator acquires and validates repository evidence locally,
+runs the pure checkpoint router at session start, evidence completion, and one
+eligible fake-cloud failure, and keeps routine work on its current lease. It
+binds an immediate semantic egress-admission record to the exact fake-cloud
+messages and provenance. Denial causes zero Fake Cloud attempts and zero
+simulated reservation. An admitted attempt uses a no-tools, structured-result
+Fake Cloud implementation with no network client. One eligible denial or
+failure may continue through Fake Local; cancellation creates no fallback.
+
+Simulation campaigns, reservations, attempts, settlements, and recovery rows
+carry the immutable `simulation` cost scope. Legacy rows remain
+`legacy_unclassified`; actual-spend views select only `actual`. The UI and copy
+repeat the exact fake-only marker, provider labels, simulated cap/reserved/
+settled amounts with settlement provenance, and `$0` actual external spend.
+Restart replays persisted events without dispatching again.
+
+Normal vLLM mode still constructs one configured, operator-attested Local
+provider and exposes no Hybrid simulation authority. PR6A Settings remains
+setup-only; PR6B0 neither reads its Keychain item nor constructs an OpenRouter
+transport. The local implementation and automated tests are not yet a Verified
+or Released milestone, and manual VoiceOver, contrast, and reduced-motion proof
+remains pending. There is no claim that fake results measure quality, cost
+savings, or latency improvement. See
+[the PR6B0 plan](docs/plans/PR6B0_HYBRID_SIMULATION_V1.md) and
 [ADR 0004](docs/adr/0004-checkpoint-router-budget-runner-v0.md).
 
-## Local-only desktop slice
+## Desktop slice and fake-only simulation
 
 The first working slice is an Electron application with:
 
@@ -202,7 +231,10 @@ The first working slice is an Electron application with:
 - a narrow, typed preload bridge with renderer sandboxing;
 - optional cloud Settings with strict metadata-only status/save/delete IPC,
   setup-only macOS Keychain storage, explicit stored-but-unvalidated copy, and
-  a dispatch-locked Hybrid control;
+  a dispatch-locked real Hybrid control;
+- a fake-only Review Current Changes route picker, challenge-bound disclosure,
+  simulated accounting, route/fallback trace, cancellation copy, and persistent
+  replay attribution when the main process explicitly enables simulation;
 - an append-only SQLite session log and restart recovery;
 - streaming inference through the configured OpenAI-compatible vLLM endpoint;
 - a central read-only repository tool registry with bounded `list_files`,
@@ -233,18 +265,21 @@ The first working slice is an Electron application with:
 - fail-closed completion handling for truncated, filtered, empty, malformed, or
   tool-looping provider responses, including evidence-backed citation
   validation and a tool-free final synthesis after two duplicate observations;
-- a pure cloud-egress shadow guard over canonical messages and host-derived
-  provenance. It returns bounded codes and hashes only, performs no I/O, and is
-  not connected to a production session or dispatch path.
+- a pure cloud-egress guard over canonical messages and host-derived provenance.
+  It returns bounded codes and hashes only and performs no I/O. Normal vLLM
+  operation retains the PR6A shadow boundary; PR6B0 binds the same policy to a
+  fake in-process invocation only.
 
-Neither production runtime path constructs the separately configured OpenRouter
-provider or exposes Hybrid session creation. The Review UI reports the local
-credential state separately from provider validation and keeps Hybrid locked.
+Normal vLLM runtime constructs no separately configured OpenRouter provider and
+exposes no Hybrid session creation. The Review UI reports the local credential
+state separately from provider validation and keeps real Hybrid locked. The
+separate fake-only configuration can expose Hybrid simulation, but its authority
+cannot be widened by renderer input or stored setup state.
 The configured vLLM adapter is still a
 generic OpenAI-compatible network path: its `local_zero_cost` classification is
 operator-attested and does not independently prove that the endpoint cannot
-bill. Production cloud routing remains a later, separately approved PR6B
-milestone. New desktop tasks
+bill. Production cloud routing remains later, separately approved PR6B1 through
+PR6B3 work. New desktop tasks
 select either the versioned `repository-investigator-v1` or `change-review-v1`
 track. The main process owns each track's policy and obligations; the renderer
 cannot supply arbitrary completion rules. Legacy sessions remain readable
@@ -285,6 +320,13 @@ infrastructure cost. The proposed, unapproved non-runtime readiness snapshot in
 field. Its cloud and campaign fields document planning assumptions only and are
 intentionally absent from `.env.example`; the shipping app builds its validated
 single-provider runtime registry in the Electron main process.
+
+For the `$0`, no-network development/test simulation, start the app with both
+`SOAR_PROVIDER_MODE=fake` and `SOAR_ENABLE_HYBRID_SIMULATION=true`. This replaces
+the normal configured-vLLM runtime with the two branded in-process fakes; it
+does not read Cloud Settings, contact either configured endpoint, or authorize
+real Hybrid. Local remains selected until the user chooses Hybrid simulation
+and acknowledges the workspace-bound disclosure.
 
 ### Local Evaluation Bridge v1
 

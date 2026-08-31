@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, symlink } from "node:fs/promises";
+import { mkdir, mkdtemp, realpath, rename, rm, symlink } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -34,12 +34,34 @@ import { CloudCredentialSetupService } from "../../src/main/cloud-credential-ser
 import type { SoarConfig } from "../../src/main/config";
 import { createSoarDatabase, type SoarDatabase } from "../../src/main/database";
 import { EventStore } from "../../src/main/event-store";
+import { HybridSimulationConsentChallengeStore } from "../../src/main/hybrid-simulation-consent";
+import {
+  HYBRID_SIMULATION_AUTHORITY_ID,
+  HYBRID_SIMULATION_CAMPAIGN_ID,
+  HYBRID_SIMULATION_CLOUD_HEALTH_SNAPSHOT_ID,
+  HYBRID_SIMULATION_CREDENTIAL_METADATA_ID,
+  HYBRID_SIMULATION_PRICING_SNAPSHOT_ID,
+} from "../../src/main/hybrid-simulation-runtime";
 import { registerIpcHandlers } from "../../src/main/ipc";
+import {
+  FAKE_CLOUD_REVIEW_MODEL,
+  FAKE_CLOUD_REVIEW_PROVIDER_ID,
+} from "../../src/main/providers/fake-cloud-review-provider";
 import type { SetupOnlyCredentialStore } from "../../src/main/providers/macos-keychain-credential-store";
 import {
   createSessionInputSchema,
   IPC_CHANNELS,
 } from "../../src/shared/contracts";
+import {
+  HYBRID_SIMULATION_CAMPAIGN_CREATED_AT,
+  HYBRID_SIMULATION_CONSENT_ID,
+  HYBRID_SIMULATION_DISCLOSURE_TEXT_SHA256,
+  HYBRID_SIMULATION_DISCLOSURE_VERSION,
+  HYBRID_SIMULATION_MAX_SPEND_MICROUSD,
+  HYBRID_SIMULATION_RESULT_MARKER,
+  HYBRID_SIMULATION_ROUTE,
+  type HybridSimulationSessionAuthorityV1,
+} from "../../src/shared/hybrid-simulation-contracts";
 
 const temporaryDirectories: string[] = [];
 const databases: SoarDatabase[] = [];
@@ -47,6 +69,8 @@ const databases: SoarDatabase[] = [];
 function config(): SoarConfig {
   return {
     providerMode: "local",
+    hybridSimulationEnabled: false,
+    fakeCloudScenario: "success",
     fakeDelayMs: 0,
     vllm: {
       baseUrl: "http://localhost:8000/v1",
@@ -69,6 +93,46 @@ const runner = {
     model: "local-review-model",
   }),
 } as unknown as SessionRunner;
+
+const HYBRID_TEST_NOW_MS = Date.parse("2026-09-01T01:00:00.000Z");
+
+function hybridSimulationAuthority(): HybridSimulationSessionAuthorityV1 {
+  return {
+    schemaVersion: "hybrid-simulation-session-authority-v1",
+    simulationAuthorityId: HYBRID_SIMULATION_AUTHORITY_ID,
+    disclosureVersion: HYBRID_SIMULATION_DISCLOSURE_VERSION,
+    disclosureTextSha256: HYBRID_SIMULATION_DISCLOSURE_TEXT_SHA256,
+    route: HYBRID_SIMULATION_ROUTE,
+    resultMarker: HYBRID_SIMULATION_RESULT_MARKER,
+    costScope: "simulation",
+    simulationConsent: HYBRID_SIMULATION_CONSENT_ID,
+    egressConsent: "none",
+    maxSimulatedSpendMicrousd: HYBRID_SIMULATION_MAX_SPEND_MICROUSD,
+    fakeLocalProvider: {
+      providerId: "local-vllm",
+      model: "RM-01 VLM (deterministic test double)",
+    },
+    fakeCloudProvider: {
+      providerId: FAKE_CLOUD_REVIEW_PROVIDER_ID,
+      model: FAKE_CLOUD_REVIEW_MODEL,
+    },
+    riskPolicyId: "review-risk-v1",
+    routerPolicyVersion: "hybrid-lease-router-v0",
+    healthSnapshotId: HYBRID_SIMULATION_CLOUD_HEALTH_SNAPSHOT_ID,
+    pricingSnapshotId: HYBRID_SIMULATION_PRICING_SNAPSHOT_ID,
+    credentialMetadataId: HYBRID_SIMULATION_CREDENTIAL_METADATA_ID,
+    campaignId: HYBRID_SIMULATION_CAMPAIGN_ID,
+    campaignCreatedAt: HYBRID_SIMULATION_CAMPAIGN_CREATED_AT,
+  };
+}
+
+function hybridConfig(): SoarConfig {
+  return {
+    ...config(),
+    providerMode: "fake",
+    hybridSimulationEnabled: true,
+  };
+}
 
 async function createTemporaryRoot(): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "soar-ipc-restart-"));
@@ -217,7 +281,7 @@ describe("persisted workspace authorization", () => {
 
     const snapshot = (await handler(
       IPC_CHANNELS.createChangeReviewSession,
-    )(undefined, { workspaceRoot })) as { id: string };
+    )(undefined, { workspaceRoot, route: "local" })) as { id: string };
     const state = store.getProjectedState(snapshot.id);
     expect(state.taskTrack).toBe("change-review-v1");
     expect(state.completionObligations).toEqual({
@@ -295,6 +359,428 @@ describe("persisted workspace authorization", () => {
     expect(budgetRows.count).toBe(0);
   });
 
+  it("fails closed on invalid Hybrid challenges before new session, ledger, runner, provider, network, or workspace work", async () => {
+    const scenarios = [
+      "unknown",
+      "replayed",
+      "expired",
+      "workspace_mismatch",
+      "unapproved_workspace",
+      "route_mismatch",
+      "extra_field",
+    ] as const;
+
+    for (const scenario of scenarios) {
+      const root = await createTemporaryRoot();
+      const workspaceAPath = path.join(root, "workspace-a");
+      const workspaceBPath = path.join(root, "workspace-b");
+      await mkdir(workspaceAPath);
+      await mkdir(workspaceBPath);
+      const workspaceA = await realpath(workspaceAPath);
+      const workspaceB = await realpath(workspaceBPath);
+      const database = createSoarDatabase();
+      databases.push(database);
+      const store = new EventStore(database);
+      const approvedRoots =
+        scenario === "unapproved_workspace"
+          ? [workspaceA]
+          : [workspaceA, workspaceB];
+      for (const [index, workspaceRoot] of approvedRoots.entries()) {
+        store.createSession({
+          id: `hybrid-consent-approval-${scenario}-${index}`,
+          title: "Workspace approval",
+          objective: "Remember this selected workspace",
+          workspaceRoot,
+        });
+      }
+
+      let nowMs = HYBRID_TEST_NOW_MS;
+      let nextChallengeId = 0;
+      const consent = new HybridSimulationConsentChallengeStore({
+        authority: hybridSimulationAuthority(),
+        nowMs: () => nowMs,
+        idFactory: () => `${scenario}-challenge-${++nextChallengeId}`,
+        challengeTtlMs: 1_000,
+      });
+      const scenarioRunner = {
+        startSession: vi.fn().mockResolvedValue(undefined),
+        cancelSession: vi.fn(),
+        getLocalReviewProviderDescriptor: vi.fn().mockReturnValue({
+          id: "local-vllm",
+          model: "RM-01 VLM (deterministic test double)",
+        }),
+      } as unknown as SessionRunner;
+      const unexpectedCredentialCall = vi.fn(async () => {
+        throw new Error("unexpected credential-store call");
+      });
+      const setupStore: SetupOnlyCredentialStore = {
+        status: unexpectedCredentialCall,
+        has: unexpectedCredentialCall,
+        write: unexpectedCredentialCall,
+        replace: unexpectedCredentialCall,
+        delete: unexpectedCredentialCall,
+      };
+      const unexpectedFetch = vi.fn(() => {
+        throw new Error("unexpected network call");
+      });
+      vi.stubGlobal("fetch", unexpectedFetch);
+      await registerIpcHandlers({
+        store,
+        runner: scenarioRunner,
+        config: hybridConfig(),
+        cloudCredentialSetup: new CloudCredentialSetupService(setupStore),
+        hybridSimulationConsent: consent,
+      });
+
+      const challenge = (await handler(
+        IPC_CHANNELS.issueHybridSimulationConsentChallenge,
+      )(undefined, {
+        workspaceRoot: workspaceA,
+        route: HYBRID_SIMULATION_ROUTE,
+      })) as { challengeId: string };
+      const acknowledgement = {
+        workspaceRoot: workspaceA,
+        route: HYBRID_SIMULATION_ROUTE,
+        challengeId: challenge.challengeId,
+        acknowledged: true as const,
+      };
+
+      let invalidInput: Record<string, unknown> = acknowledgement;
+      let removedWorkspace = workspaceA;
+      let expectedError = /unknown or was already used/u;
+      if (scenario === "unknown") {
+        invalidInput = {
+          ...acknowledgement,
+          challengeId: "unknown-challenge-id",
+        };
+      } else if (scenario === "replayed") {
+        await handler(IPC_CHANNELS.createChangeReviewSession)(
+          undefined,
+          acknowledgement,
+        );
+      } else if (scenario === "expired") {
+        nowMs += 1_000;
+        expectedError = /consent expired/u;
+      } else if (scenario === "workspace_mismatch") {
+        invalidInput = { ...acknowledgement, workspaceRoot: workspaceB };
+        removedWorkspace = workspaceB;
+        expectedError = /no longer matches this request/u;
+      } else if (scenario === "unapproved_workspace") {
+        invalidInput = { ...acknowledgement, workspaceRoot: workspaceB };
+        removedWorkspace = workspaceB;
+        expectedError = /Choose this workspace/u;
+      } else if (scenario === "route_mismatch") {
+        invalidInput = { ...acknowledgement, route: "local" };
+        expectedError = /unrecognized_keys|challengeId/u;
+      } else {
+        invalidInput = {
+          ...acknowledgement,
+          challengeId: `  ${challenge.challengeId}  `,
+          providerId: "forged-renderer-provider",
+          model: "forged-renderer-model",
+          campaignId: "forged-renderer-campaign",
+          maxSimulatedSpendMicrousd: 1,
+          pricingSnapshotId: "forged-renderer-pricing",
+          endpoint: "https://forged.invalid/v1",
+          egressConsent: "session_cloud_synthesis_v1",
+        };
+        expectedError = /unrecognized_keys|providerId/u;
+      }
+
+      const countsBefore = {
+        sessions: store.listSessions().length,
+        budgetRows: (
+          database
+            .prepare("SELECT COUNT(*) AS count FROM budget_ledger_entries")
+            .get() as { count: number }
+        ).count,
+        runnerStarts: vi.mocked(scenarioRunner.startSession).mock.calls.length,
+        providerValidations: vi.mocked(
+          scenarioRunner.getLocalReviewProviderDescriptor,
+        ).mock.calls.length,
+        credentialCalls: unexpectedCredentialCall.mock.calls.length,
+        fetchCalls: unexpectedFetch.mock.calls.length,
+      };
+
+      // The approved identity remains in main memory while its directory is
+      // deliberately removed. A challenge-specific/schema error therefore
+      // proves rejection happened before canonicalDirectory realpath/stat work.
+      await rm(removedWorkspace, { recursive: true, force: true });
+      await expect(
+        handler(IPC_CHANNELS.createChangeReviewSession)(
+          undefined,
+          invalidInput,
+        ) as Promise<unknown>,
+      ).rejects.toThrow(expectedError);
+
+      if (
+        scenario === "extra_field" ||
+        scenario === "unapproved_workspace" ||
+        scenario === "route_mismatch"
+      ) {
+        if (scenario === "unapproved_workspace") {
+          await rm(workspaceA, { recursive: true, force: true });
+        }
+        await expect(
+          handler(IPC_CHANNELS.createChangeReviewSession)(
+            undefined,
+            acknowledgement,
+          ) as Promise<unknown>,
+        ).rejects.toThrow(/unknown or was already used/u);
+      }
+
+      expect({
+        sessions: store.listSessions().length,
+        budgetRows: (
+          database
+            .prepare("SELECT COUNT(*) AS count FROM budget_ledger_entries")
+            .get() as { count: number }
+        ).count,
+        runnerStarts: vi.mocked(scenarioRunner.startSession).mock.calls.length,
+        providerValidations: vi.mocked(
+          scenarioRunner.getLocalReviewProviderDescriptor,
+        ).mock.calls.length,
+        credentialCalls: unexpectedCredentialCall.mock.calls.length,
+        fetchCalls: unexpectedFetch.mock.calls.length,
+      }).toEqual(countsBefore);
+    }
+  });
+
+  it("burns an outstanding Hybrid challenge through main IPC before stale-ID reuse", async () => {
+    const root = await createTemporaryRoot();
+    const workspacePath = path.join(root, "workspace");
+    await mkdir(workspacePath);
+    const workspaceRoot = await realpath(workspacePath);
+    const database = createSoarDatabase();
+    databases.push(database);
+    const store = new EventStore(database);
+    store.createSession({
+      title: "Workspace approval",
+      objective: "Remember this selected workspace",
+      workspaceRoot,
+    });
+    const consent = new HybridSimulationConsentChallengeStore({
+      authority: hybridSimulationAuthority(),
+      nowMs: () => HYBRID_TEST_NOW_MS,
+      idFactory: () => "route-change-challenge",
+    });
+    const scenarioRunner = {
+      startSession: vi.fn().mockResolvedValue(undefined),
+      cancelSession: vi.fn(),
+      getLocalReviewProviderDescriptor: vi.fn().mockReturnValue({
+        id: "local-vllm",
+        model: "RM-01 VLM (deterministic test double)",
+      }),
+    } as unknown as SessionRunner;
+    const unexpectedFetch = vi.fn(() => {
+      throw new Error("unexpected network call");
+    });
+    vi.stubGlobal("fetch", unexpectedFetch);
+    await registerIpcHandlers({
+      store,
+      runner: scenarioRunner,
+      config: hybridConfig(),
+      hybridSimulationConsent: consent,
+    });
+
+    const challenge = (await handler(
+      IPC_CHANNELS.issueHybridSimulationConsentChallenge,
+    )(undefined, {
+      workspaceRoot,
+      route: HYBRID_SIMULATION_ROUTE,
+    })) as { challengeId: string };
+    await expect(
+      handler(IPC_CHANNELS.invalidateHybridSimulationConsentChallenges)(
+        undefined,
+      ),
+    ).resolves.toBeUndefined();
+
+    const countsBefore = {
+      sessions: store.listSessions().length,
+      budgetRows: (
+        database
+          .prepare("SELECT COUNT(*) AS count FROM budget_ledger_entries")
+          .get() as { count: number }
+      ).count,
+      runnerStarts: vi.mocked(scenarioRunner.startSession).mock.calls.length,
+      providerValidations: vi.mocked(
+        scenarioRunner.getLocalReviewProviderDescriptor,
+      ).mock.calls.length,
+      fetchCalls: unexpectedFetch.mock.calls.length,
+    };
+    // A stale ID must fail before resolving or inspecting its removed path.
+    await rm(workspaceRoot, { recursive: true, force: true });
+    await expect(
+      handler(IPC_CHANNELS.createChangeReviewSession)(undefined, {
+        workspaceRoot,
+        route: HYBRID_SIMULATION_ROUTE,
+        challengeId: challenge.challengeId,
+        acknowledged: true,
+      }) as Promise<unknown>,
+    ).rejects.toThrow(/unknown or was already used/u);
+    expect({
+      sessions: store.listSessions().length,
+      budgetRows: (
+        database
+          .prepare("SELECT COUNT(*) AS count FROM budget_ledger_entries")
+          .get() as { count: number }
+      ).count,
+      runnerStarts: vi.mocked(scenarioRunner.startSession).mock.calls.length,
+      providerValidations: vi.mocked(
+        scenarioRunner.getLocalReviewProviderDescriptor,
+      ).mock.calls.length,
+      fetchCalls: unexpectedFetch.mock.calls.length,
+    }).toEqual(countsBefore);
+  });
+
+  it("rejects same-path directory replacement before session, ledger, provider, network, or evidence work", async () => {
+    const root = await createTemporaryRoot();
+    const workspacePath = path.join(root, "workspace");
+    const originalWorkspacePath = path.join(root, "workspace-original");
+    await mkdir(workspacePath);
+    const workspaceRoot = await realpath(workspacePath);
+    const database = createSoarDatabase();
+    databases.push(database);
+    const store = new EventStore(database);
+    store.createSession({
+      title: "Workspace approval",
+      objective: "Remember this selected workspace",
+      workspaceRoot,
+    });
+    const consent = new HybridSimulationConsentChallengeStore({
+      authority: hybridSimulationAuthority(),
+      nowMs: () => HYBRID_TEST_NOW_MS,
+      idFactory: () => "same-path-replacement-challenge",
+    });
+    const scenarioRunner = {
+      startSession: vi.fn().mockResolvedValue(undefined),
+      cancelSession: vi.fn(),
+      getLocalReviewProviderDescriptor: vi.fn().mockReturnValue({
+        id: "local-vllm",
+        model: "RM-01 VLM (deterministic test double)",
+      }),
+    } as unknown as SessionRunner;
+    const unexpectedFetch = vi.fn(() => {
+      throw new Error("unexpected network call");
+    });
+    vi.stubGlobal("fetch", unexpectedFetch);
+    await registerIpcHandlers({
+      store,
+      runner: scenarioRunner,
+      config: hybridConfig(),
+      hybridSimulationConsent: consent,
+    });
+
+    const challenge = (await handler(
+      IPC_CHANNELS.issueHybridSimulationConsentChallenge,
+    )(undefined, {
+      workspaceRoot,
+      route: HYBRID_SIMULATION_ROUTE,
+    })) as { challengeId: string };
+    await rename(workspaceRoot, originalWorkspacePath);
+    await mkdir(workspaceRoot);
+
+    await expect(
+      handler(IPC_CHANNELS.createChangeReviewSession)(undefined, {
+        workspaceRoot,
+        route: HYBRID_SIMULATION_ROUTE,
+        challengeId: challenge.challengeId,
+        acknowledged: true,
+      }) as Promise<unknown>,
+    ).rejects.toThrow(/no longer matches this request/u);
+    await expect(
+      handler(IPC_CHANNELS.createChangeReviewSession)(undefined, {
+        workspaceRoot,
+        route: HYBRID_SIMULATION_ROUTE,
+        challengeId: challenge.challengeId,
+        acknowledged: true,
+      }) as Promise<unknown>,
+    ).rejects.toThrow(/unknown or was already used/u);
+
+    expect(store.listSessions()).toHaveLength(1);
+    expect(
+      database
+        .prepare("SELECT COUNT(*) AS count FROM budget_ledger_entries")
+        .get(),
+    ).toEqual({ count: 0 });
+    expect(scenarioRunner.startSession).not.toHaveBeenCalled();
+    expect(scenarioRunner.getLocalReviewProviderDescriptor).not.toHaveBeenCalled();
+    expect(unexpectedFetch).not.toHaveBeenCalled();
+  });
+
+  it("revalidates an open directory identity lease at synchronous session admission", async () => {
+    const root = await createTemporaryRoot();
+    const workspacePath = path.join(root, "workspace");
+    const originalWorkspacePath = path.join(root, "workspace-original");
+    await mkdir(workspacePath);
+    const workspaceRoot = await realpath(workspacePath);
+    const database = createSoarDatabase();
+    databases.push(database);
+    const store = new EventStore(database);
+    store.createSession({
+      title: "Workspace approval",
+      objective: "Remember this selected workspace",
+      workspaceRoot,
+    });
+    const consent = new HybridSimulationConsentChallengeStore({
+      authority: hybridSimulationAuthority(),
+      nowMs: () => HYBRID_TEST_NOW_MS,
+      idFactory: () => "admission-race-challenge",
+    });
+    const originalConsume = consent.consume.bind(consent);
+    vi.spyOn(consent, "consume").mockImplementationOnce(async (...args) => {
+      const consumed = await originalConsume(...args);
+      // Simulate replacement after the consent identity check but before IPC
+      // can enter the synchronous ledger/session admission callback.
+      await rename(workspaceRoot, originalWorkspacePath);
+      await mkdir(workspaceRoot);
+      return consumed;
+    });
+    const scenarioRunner = {
+      startSession: vi.fn().mockResolvedValue(undefined),
+      cancelSession: vi.fn(),
+      getLocalReviewProviderDescriptor: vi.fn().mockReturnValue({
+        id: "local-vllm",
+        model: "RM-01 VLM (deterministic test double)",
+      }),
+    } as unknown as SessionRunner;
+    const unexpectedFetch = vi.fn(() => {
+      throw new Error("unexpected network call");
+    });
+    vi.stubGlobal("fetch", unexpectedFetch);
+    await registerIpcHandlers({
+      store,
+      runner: scenarioRunner,
+      config: hybridConfig(),
+      hybridSimulationConsent: consent,
+    });
+
+    const challenge = (await handler(
+      IPC_CHANNELS.issueHybridSimulationConsentChallenge,
+    )(undefined, {
+      workspaceRoot,
+      route: HYBRID_SIMULATION_ROUTE,
+    })) as { challengeId: string };
+    await expect(
+      handler(IPC_CHANNELS.createChangeReviewSession)(undefined, {
+        workspaceRoot,
+        route: HYBRID_SIMULATION_ROUTE,
+        challengeId: challenge.challengeId,
+        acknowledged: true,
+      }) as Promise<unknown>,
+    ).rejects.toThrow(/workspace identity changed/u);
+
+    expect(store.listSessions()).toHaveLength(1);
+    expect(
+      database
+        .prepare("SELECT COUNT(*) AS count FROM budget_ledger_entries")
+        .get(),
+    ).toEqual({ count: 0 });
+    expect(scenarioRunner.startSession).not.toHaveBeenCalled();
+    expect(scenarioRunner.getLocalReviewProviderDescriptor).not.toHaveBeenCalled();
+    expect(unexpectedFetch).not.toHaveBeenCalled();
+  });
+
   it("rejects an unready review runtime before creating or starting a session", async () => {
     const root = await createTemporaryRoot();
     const workspaceRoot = path.join(root, "workspace");
@@ -316,6 +802,7 @@ describe("persisted workspace authorization", () => {
     await expect(
       handler(IPC_CHANNELS.createChangeReviewSession)(undefined, {
         workspaceRoot,
+        route: "local",
       }) as Promise<unknown>,
     ).rejects.toThrow(
       "The configured local provider cannot run structured change reviews.",
@@ -347,7 +834,10 @@ describe("persisted workspace authorization", () => {
 
     const snapshot = (await handler(
       IPC_CHANNELS.createChangeReviewSession,
-    )(undefined, { workspaceRoot })) as { id: string; status: string };
+    )(undefined, { workspaceRoot, route: "local" })) as {
+      id: string;
+      status: string;
+    };
 
     expect(snapshot.status).toBe("created");
     expect(runner.startSession).toHaveBeenCalledOnce();
@@ -367,6 +857,7 @@ describe("persisted workspace authorization", () => {
     await expect(
       handler(IPC_CHANNELS.createChangeReviewSession)(undefined, {
         workspaceRoot,
+        route: "local",
       }) as Promise<unknown>,
     ).rejects.toThrow(
       "Choose this workspace in SOAR before starting a review.",

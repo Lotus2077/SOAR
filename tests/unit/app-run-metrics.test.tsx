@@ -5,7 +5,12 @@ import { cleanup, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { summarizeRun, TracePanel } from "../../src/renderer/src/App";
+import {
+  HYBRID_SIMULATION_MARKER,
+  StatusBar,
+  summarizeRun,
+  TracePanel,
+} from "../../src/renderer/src/App";
 import type { SessionSnapshot } from "../../src/shared/contracts";
 
 afterEach(cleanup);
@@ -30,8 +35,13 @@ function snapshotWithUsage(
   };
 }
 
-function metric(label: "End-to-end" | "Total tokens" | "Cost"): HTMLElement {
-  const container = screen.getByText(label).parentElement;
+function metric(
+  label: "End-to-end" | "Total tokens" | "Cost" | "Actual external spend",
+): HTMLElement {
+  const labelElement = screen
+    .getAllByText(label)
+    .find((element) => element.matches(".metric-grid > div > span"));
+  const container = labelElement?.parentElement ?? null;
   if (container === null) throw new Error(`Missing ${label} metric container`);
   return container;
 }
@@ -204,5 +214,313 @@ describe("run metrics provenance", () => {
     expect(metric("Total tokens")).toHaveTextContent("Total tokens17");
     expect(screen.queryByText("Latency")).not.toBeInTheDocument();
     expect(screen.queryByText("Tokens")).not.toBeInTheDocument();
+  });
+
+  it("separates simulation accounting from actual external provider spend", () => {
+    const snapshot = {
+      ...snapshotWithUsage(),
+      executionMode: "hybrid_simulation" as const,
+      simulationMarker: HYBRID_SIMULATION_MARKER,
+      events: [
+        {
+          id: "route",
+          sequence: 1,
+          type: "routing.decision.recorded",
+          createdAt: "2026-08-29T00:00:00.100Z",
+          payload: {
+            costScope: "simulation",
+            budgetReservationId: "simulation-reservation",
+            billing: { projectedCostMicrousd: 250_000 },
+          },
+        },
+        {
+          id: "finished",
+          sequence: 2,
+          type: "inference.attempt.finished",
+          createdAt: "2026-08-29T00:00:00.900Z",
+          payload: {
+            usage: {
+              inputTokens: 8,
+              outputTokens: 3,
+              reasoningTokens: 0,
+              reported: true,
+            },
+            cost: {
+              amountMicrousd: 120_000,
+              provenance: "provider_reported",
+              costScope: "simulation",
+            },
+            latencyMs: 800,
+          },
+        },
+      ],
+    };
+
+    expect(summarizeRun(snapshot)).toMatchObject({
+      simulationState: "attributed",
+      cost: "$0.00",
+      simulation: {
+        settledMicrousd: 120_000,
+        settlementProvenance: "provider_reported",
+        actualExternalSpendMicrousd: 0,
+      },
+    });
+
+    render(<TracePanel snapshot={snapshot} open onClose={() => undefined} />);
+
+    expect(screen.getByText(HYBRID_SIMULATION_MARKER)).toBeVisible();
+    expect(metric("Actual external spend")).toHaveTextContent(
+      "Actual external spend$0.00",
+    );
+    expect(screen.getAllByText("Simulated $0.25").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Simulated $0.12").length).toBeGreaterThan(0);
+    expect(
+      screen.getByText("Settled · Provider-reported simulated settlement"),
+    ).toBeVisible();
+    expect(screen.queryByText("Cost", { selector: "span" })).not.toBeInTheDocument();
+  });
+
+  it("does not report a denied projected cost as a simulated reservation", () => {
+    const snapshot = {
+      ...snapshotWithUsage(),
+      executionMode: "hybrid_simulation" as const,
+      simulationMarker: HYBRID_SIMULATION_MARKER,
+      events: [
+        {
+          id: "budget-denied-route",
+          sequence: 1,
+          type: "routing.decision.recorded",
+          createdAt: "2026-08-29T00:00:00.100Z",
+          payload: {
+            costScope: "simulation",
+            reasonCode: "budget_denial",
+            billing: { projectedCostMicrousd: 250_000 },
+          },
+        },
+      ],
+    };
+
+    expect(summarizeRun(snapshot)).toMatchObject({
+      simulationState: "attributed",
+      simulation: {
+        reservedMicrousd: 0,
+        settledMicrousd: 0,
+        actualExternalSpendMicrousd: 0,
+      },
+    });
+  });
+
+  it("keeps a failed fake-cloud reservation attributed after Local fallback", () => {
+    const reservedMicrousd = 37_407;
+    const snapshot = {
+      ...snapshotWithUsage(),
+      executionMode: "hybrid_simulation" as const,
+      simulationMarker: HYBRID_SIMULATION_MARKER,
+      events: [
+        {
+          id: "cloud-route",
+          sequence: 1,
+          type: "routing.decision.recorded",
+          createdAt: "2026-08-29T00:00:00.100Z",
+          payload: {
+            costScope: "simulation",
+            budgetReservationId: "simulation-reservation",
+            billing: { projectedCostMicrousd: reservedMicrousd },
+          },
+        },
+        {
+          id: "cloud-finished",
+          sequence: 2,
+          type: "inference.attempt.finished",
+          createdAt: "2026-08-29T00:00:00.500Z",
+          payload: {
+            outcome: "provider_error",
+            requestDisposition: "unknown",
+            usage: {
+              inputTokens: 0,
+              outputTokens: 0,
+              reasoningTokens: 0,
+              reported: false,
+            },
+            cost: {
+              amountMicrousd: reservedMicrousd,
+              provenance: "reserved_unknown",
+              costScope: "simulation",
+            },
+            latencyMs: 0,
+          },
+        },
+        {
+          id: "fallback-route",
+          sequence: 3,
+          type: "routing.decision.recorded",
+          createdAt: "2026-08-29T00:00:00.600Z",
+          payload: {
+            costScope: "simulation",
+            reasonCode: "local_fallback",
+          },
+        },
+        {
+          id: "fallback-finished",
+          sequence: 4,
+          type: "inference.attempt.finished",
+          createdAt: "2026-08-29T00:00:00.900Z",
+          payload: {
+            outcome: "succeeded",
+            requestDisposition: "sent",
+            usage: {
+              inputTokens: 96,
+              outputTokens: 48,
+              reasoningTokens: 0,
+              reported: true,
+            },
+            cost: {
+              amountMicrousd: 0,
+              provenance: "local_zero_cost_policy",
+              costScope: "simulation",
+            },
+            latencyMs: 300,
+          },
+        },
+      ],
+    };
+
+    expect(summarizeRun(snapshot)).toMatchObject({
+      simulationState: "attributed",
+      cost: "$0.00",
+      simulation: {
+        reservedMicrousd,
+        settledMicrousd: reservedMicrousd,
+        settlementProvenance: "reserved_unknown",
+        actualExternalSpendMicrousd: 0,
+      },
+    });
+
+    render(<TracePanel snapshot={snapshot} open onClose={() => undefined} />);
+    expect(metric("Actual external spend")).toHaveTextContent("$0.00");
+    expect(screen.getAllByText("Simulated $0.04").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Withheld")).not.toBeInTheDocument();
+  });
+
+  it("shows a recorded simulation overrun in full on a failed terminal run", () => {
+    const snapshot = {
+      ...snapshotWithUsage(),
+      status: "failed" as const,
+      executionMode: "hybrid_simulation" as const,
+      simulationMarker: HYBRID_SIMULATION_MARKER,
+      events: [
+        {
+          id: "route",
+          sequence: 1,
+          type: "routing.decision.recorded",
+          createdAt: "2026-08-29T00:00:00.100Z",
+          payload: {
+            costScope: "simulation",
+            budgetReservationId: "simulation-reservation",
+            billing: { projectedCostMicrousd: 250_000 },
+          },
+        },
+        {
+          id: "finished-overrun",
+          sequence: 2,
+          type: "inference.attempt.finished",
+          createdAt: "2026-08-29T00:00:00.900Z",
+          payload: {
+            usage: {
+              inputTokens: 8,
+              outputTokens: 3,
+              reasoningTokens: 0,
+              reported: true,
+            },
+            cost: {
+              amountMicrousd: 300_000,
+              provenance: "provider_reported",
+              costScope: "simulation",
+            },
+            latencyMs: 800,
+          },
+        },
+      ],
+    };
+
+    expect(summarizeRun(snapshot)).toMatchObject({
+      simulationState: "attributed",
+      cost: "$0.00",
+      simulation: {
+        reservedMicrousd: 250_000,
+        settledMicrousd: 300_000,
+        settlementProvenance: "provider_reported",
+        actualExternalSpendMicrousd: 0,
+      },
+    });
+
+    render(<TracePanel snapshot={snapshot} open onClose={() => undefined} />);
+    expect(screen.getByText(HYBRID_SIMULATION_MARKER)).toBeVisible();
+    expect(screen.getByText("Simulated $0.30")).toBeVisible();
+    expect(metric("Actual external spend")).toHaveTextContent("$0.00");
+  });
+
+  it("withholds route and cost when a simulation snapshot loses its exact marker", () => {
+    const snapshot = {
+      ...snapshotWithUsage(),
+      executionMode: "hybrid_simulation" as const,
+      simulationMarker: "Fake review",
+      events: [
+        {
+          id: "malformed-attributed-route",
+          sequence: 1,
+          type: "routing.decision.recorded",
+          createdAt: "2026-08-29T00:00:00.100Z",
+          payload: {
+            costScope: "simulation",
+            selectedProviderId: "fake-local-review",
+            selectedModel: "fake-local-model",
+            reasonCode: "low_risk_local_review",
+            routerInputSnapshot: {
+              providers: [
+                {
+                  providerId: "fake-local-review",
+                  model: "fake-local-model",
+                  locality: "local",
+                },
+              ],
+            },
+          },
+        },
+      ],
+    };
+
+    expect(summarizeRun(snapshot)).toMatchObject({
+      simulationState: "invalid",
+      model: null,
+      provider: null,
+      locality: null,
+      cost: "Withheld",
+      simulation: null,
+    });
+
+    render(
+      <>
+        <TracePanel snapshot={snapshot} open onClose={() => undefined} />
+        <StatusBar snapshot={snapshot} />
+      </>,
+    );
+    expect(
+      screen.getByText(
+        "Simulation attribution unavailable — route and cost details withheld.",
+      ),
+    ).toBeVisible();
+    expect(metric("Cost")).toHaveTextContent("CostWithheld");
+    expect(screen.queryByText("Simulated $0.12")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Activity details are withheld until simulation attribution is valid.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("Activity")).not.toBeInTheDocument();
+    expect(screen.getByTestId("route-model")).toHaveTextContent("Route withheld");
+    expect(screen.getByText("Locality withheld")).toBeVisible();
+    expect(screen.getByTestId("route-cost")).toHaveTextContent("Withheld");
+    expect(screen.queryByText("fake-local-model")).not.toBeInTheDocument();
   });
 });

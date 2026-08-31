@@ -2,6 +2,11 @@ import type {
   InferenceAttemptRecord,
   SessionState,
 } from "../shared/session-reducer";
+import {
+  RuntimeCostScopeSchema,
+  type CostScope,
+  type RuntimeCostScope,
+} from "../shared/hybrid-simulation-contracts";
 import { EventStore } from "./event-store";
 import type { SoarDatabase } from "./database";
 
@@ -26,6 +31,7 @@ export interface CreateBudgetCampaignInput {
   openingExposureMicrousd: number;
   automaticStopMicrousd: number;
   hardCeilingMicrousd: number;
+  costScope: RuntimeCostScope;
   createdAt: string;
 }
 
@@ -36,6 +42,7 @@ export interface BudgetCampaign {
   openingExposureMicrousd: number;
   automaticStopMicrousd: number;
   hardCeilingMicrousd: number;
+  costScope: CostScope;
   createdAt: string;
 }
 
@@ -86,6 +93,8 @@ export interface BudgetReservation {
   attemptId: string;
   providerId: string;
   pricingSnapshotId: string;
+  costScope: CostScope;
+  cloudEgressAdmissionId?: string;
   amountMicrousd: number;
   billableEstimatedInputTokens: number;
   requestedMaxOutputTokens: number;
@@ -104,11 +113,25 @@ export interface BudgetTerminalEntry {
   rowType: BudgetTerminalRowType;
   campaignId: string;
   reservationId: string;
+  costScope: CostScope;
   amountMicrousd: number;
   costProvenance?: BudgetCostProvenance;
   requestDisposition: BudgetRequestDisposition;
   reasonCode?: string;
   createdAt: string;
+}
+
+export interface BudgetCostScopeAmounts {
+  rowCount: number;
+  openingExposureMicrousd: number;
+  outstandingReservationMicrousd: number;
+  settledMicrousd: number;
+}
+
+export interface BudgetCostScopeSummary {
+  actual: BudgetCostScopeAmounts;
+  simulation: BudgetCostScopeAmounts;
+  legacyUnclassified: BudgetCostScopeAmounts & { present: boolean };
 }
 
 export type BudgetDenialReason =
@@ -138,6 +161,8 @@ export interface ReserveBudgetInput {
   attemptId: string;
   providerId: string;
   pricingSnapshotId: string;
+  costScope: RuntimeCostScope;
+  cloudEgressAdmissionId?: string;
   episodeCapMicrousd: number;
   projection: BudgetProjectionInput;
   createdAt: string;
@@ -162,6 +187,7 @@ interface CampaignRow {
   opening_exposure_microusd: bigint;
   automatic_stop_microusd: bigint;
   hard_ceiling_microusd: bigint;
+  cost_scope: CostScope;
   created_at: string;
 }
 
@@ -172,6 +198,8 @@ interface ReservationRow {
   attempt_id: string;
   provider_id: string;
   pricing_snapshot_id: string;
+  cost_scope: CostScope;
+  cloud_egress_admission_id: string | null;
   amount_microusd: bigint;
   billable_estimated_input_tokens: bigint;
   requested_max_output_tokens: bigint;
@@ -191,6 +219,7 @@ interface ExposureRow {
   reservation_id: string;
   session_id: string | null;
   amount_microusd: bigint;
+  cost_scope: CostScope;
 }
 
 interface TerminalRow {
@@ -198,6 +227,7 @@ interface TerminalRow {
   row_type: BudgetTerminalRowType;
   campaign_id: string;
   reservation_id: string;
+  cost_scope: CostScope;
   amount_microusd: bigint;
   cost_provenance: BudgetCostProvenance | null;
   request_disposition: BudgetRequestDisposition;
@@ -208,6 +238,14 @@ interface TerminalRow {
 interface AttemptEventPayloadRow {
   session_id: string;
   payload_json: string;
+}
+
+interface CostScopeAggregateRow {
+  cost_scope: CostScope;
+  row_count: bigint;
+  opening_exposure_microusd: bigint;
+  outstanding_reservation_microusd: bigint;
+  settled_microusd: bigint;
 }
 
 function assertBoundedId(value: string, label: string): string {
@@ -251,6 +289,59 @@ function assertSafeInteger(
     );
   }
   return value;
+}
+
+function normalizeCampaignInput(
+  input: CreateBudgetCampaignInput,
+): CreateBudgetCampaignInput {
+  const normalized = {
+    id: assertBoundedId(input.id, "campaignId"),
+    providerId: assertBoundedId(input.providerId, "providerId"),
+    credentialMetadataId: assertBoundedId(
+      input.credentialMetadataId,
+      "credentialMetadataId",
+    ),
+    openingExposureMicrousd: assertSafeInteger(
+      input.openingExposureMicrousd,
+      "openingExposureMicrousd",
+    ),
+    automaticStopMicrousd: assertSafeInteger(
+      input.automaticStopMicrousd,
+      "automaticStopMicrousd",
+    ),
+    hardCeilingMicrousd: assertSafeInteger(
+      input.hardCeilingMicrousd,
+      "hardCeilingMicrousd",
+      { positive: true },
+    ),
+    costScope: RuntimeCostScopeSchema.parse(input.costScope),
+    createdAt: assertCanonicalTimestamp(input.createdAt),
+  };
+  if (
+    normalized.openingExposureMicrousd > normalized.automaticStopMicrousd ||
+    normalized.automaticStopMicrousd > normalized.hardCeilingMicrousd
+  ) {
+    throw new RangeError(
+      "campaign limits require opening exposure <= automatic stop <= hard ceiling",
+    );
+  }
+  return normalized;
+}
+
+function campaignMatchesInput(
+  campaign: BudgetCampaign,
+  input: CreateBudgetCampaignInput,
+): boolean {
+  return (
+    campaign.id === input.id &&
+    campaign.providerId === input.providerId &&
+    campaign.credentialMetadataId === input.credentialMetadataId &&
+    campaign.openingExposureMicrousd === input.openingExposureMicrousd &&
+    campaign.automaticStopMicrousd === input.automaticStopMicrousd &&
+    campaign.hardCeilingMicrousd === input.hardCeilingMicrousd &&
+    campaign.costScope === input.costScope &&
+    campaign.createdAt === input.createdAt
+  );
 }
 
 function safeNumber(value: bigint, label: string): number {
@@ -340,6 +431,7 @@ function toCampaign(row: CampaignRow): BudgetCampaign {
       row.hard_ceiling_microusd,
       "campaign hard ceiling",
     ),
+    costScope: row.cost_scope,
     createdAt: row.created_at,
   };
 }
@@ -358,6 +450,10 @@ function toReservation(row: ReservationRow): BudgetReservation {
     attemptId: row.attempt_id,
     providerId: row.provider_id,
     pricingSnapshotId: row.pricing_snapshot_id,
+    costScope: row.cost_scope,
+    ...(row.cloud_egress_admission_id === null
+      ? {}
+      : { cloudEgressAdmissionId: row.cloud_egress_admission_id }),
     amountMicrousd: safeNumber(row.amount_microusd, "reservation amount"),
     billableEstimatedInputTokens: safeNumber(
       row.billable_estimated_input_tokens,
@@ -399,6 +495,7 @@ function toTerminal(row: TerminalRow): BudgetTerminalEntry {
     rowType: row.row_type,
     campaignId: row.campaign_id,
     reservationId: row.reservation_id,
+    costScope: row.cost_scope,
     amountMicrousd: safeNumber(row.amount_microusd, "terminal amount"),
     ...(row.cost_provenance === null
       ? {}
@@ -423,6 +520,12 @@ function reconciliationFailure(subjectId: string, detail: string): never {
   throw new Error(
     `Budget/event reconciliation failed for ${subjectId}: ${detail}`,
   );
+}
+
+function persistedEventCostScope(
+  scope: "simulation" | "actual" | undefined,
+): CostScope {
+  return scope ?? "legacy_unclassified";
 }
 
 function assertReservationProjection(reservation: BudgetReservation): void {
@@ -546,26 +649,32 @@ export class BudgetLedgerTransaction {
     }
   }
 
-  requireCampaign(campaignId: string): BudgetCampaign {
+  getCampaign(campaignId: string): BudgetCampaign | undefined {
     this.assertActive();
     assertBoundedId(campaignId, "campaignId");
     const row = this.database
       .prepare<unknown[], CampaignRow>(
         `SELECT id, provider_id, credential_metadata_id, amount_microusd,
                 opening_exposure_microusd, automatic_stop_microusd,
-                hard_ceiling_microusd, created_at
+                hard_ceiling_microusd, cost_scope, created_at
          FROM budget_ledger_entries
          WHERE id = ? AND row_type = 'campaign'`,
       )
       .safeIntegers(true)
       .get(campaignId);
-    if (row === undefined) {
-      throw new Error(`Unknown budget campaign ${campaignId}`);
-    }
+    if (row === undefined) return undefined;
     if (row.amount_microusd !== row.opening_exposure_microusd) {
       throw new Error(`Campaign ${campaignId} has inconsistent opening exposure`);
     }
     return toCampaign(row);
+  }
+
+  requireCampaign(campaignId: string): BudgetCampaign {
+    const campaign = this.getCampaign(campaignId);
+    if (campaign === undefined) {
+      throw new Error(`Unknown budget campaign ${campaignId}`);
+    }
+    return campaign;
   }
 
   insertCampaign(input: CreateBudgetCampaignInput): BudgetCampaign {
@@ -575,8 +684,8 @@ export class BudgetLedgerTransaction {
         `INSERT INTO budget_ledger_entries (
            id, row_type, campaign_id, provider_id, credential_metadata_id,
            amount_microusd, opening_exposure_microusd,
-           automatic_stop_microusd, hard_ceiling_microusd, created_at
-         ) VALUES (?, 'campaign', ?, ?, ?, ?, ?, ?, ?, ?)`,
+           automatic_stop_microusd, hard_ceiling_microusd, cost_scope, created_at
+         ) VALUES (?, 'campaign', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.id,
@@ -587,6 +696,7 @@ export class BudgetLedgerTransaction {
         input.openingExposureMicrousd,
         input.automaticStopMicrousd,
         input.hardCeilingMicrousd,
+        input.costScope,
         input.createdAt,
       );
     return this.requireCampaign(input.id);
@@ -598,7 +708,8 @@ export class BudgetLedgerTransaction {
     const row = this.database
       .prepare<unknown[], ReservationRow>(
         `SELECT id, campaign_id, session_id, attempt_id, provider_id,
-                pricing_snapshot_id, amount_microusd,
+                pricing_snapshot_id, cost_scope, cloud_egress_admission_id,
+                amount_microusd,
                 billable_estimated_input_tokens, requested_max_output_tokens,
                 cache_read_tokens_assumed, input_rate_microusd_per_million,
                 output_rate_microusd_per_million,
@@ -622,7 +733,8 @@ export class BudgetLedgerTransaction {
     const row = this.database
       .prepare<unknown[], TerminalRow>(
         `SELECT id, row_type, campaign_id, reservation_id, amount_microusd,
-                cost_provenance, request_disposition, reason_code, created_at
+                cost_scope, cost_provenance, request_disposition, reason_code,
+                created_at
          FROM budget_ledger_entries
          WHERE reservation_id = ?
            AND row_type IN ('settlement', 'release', 'overrun')`,
@@ -642,7 +754,8 @@ export class BudgetLedgerTransaction {
     const reservations = this.database
       .prepare<unknown[], ReservationRow>(
         `SELECT id, campaign_id, session_id, attempt_id, provider_id,
-                pricing_snapshot_id, amount_microusd,
+                pricing_snapshot_id, cost_scope, cloud_egress_admission_id,
+                amount_microusd,
                 billable_estimated_input_tokens, requested_max_output_tokens,
                 cache_read_tokens_assumed, input_rate_microusd_per_million,
                 output_rate_microusd_per_million,
@@ -659,7 +772,8 @@ export class BudgetLedgerTransaction {
     const terminals = this.database
       .prepare<unknown[], TerminalRow>(
         `SELECT id, row_type, campaign_id, reservation_id, amount_microusd,
-                cost_provenance, request_disposition, reason_code, created_at
+                cost_scope, cost_provenance, request_disposition, reason_code,
+                created_at
          FROM budget_ledger_entries
          WHERE row_type IN ('settlement', 'release', 'overrun')
          ORDER BY created_at ASC, id ASC`,
@@ -681,10 +795,17 @@ export class BudgetLedgerTransaction {
 
     const terminalByReservationId = new Map<string, BudgetTerminalEntry>();
     for (const terminal of terminals) {
-      if (!reservationById.has(terminal.reservationId)) {
+      const parentReservation = reservationById.get(terminal.reservationId);
+      if (parentReservation === undefined) {
         reconciliationFailure(
           terminal.id,
           "terminal row has no reservation row",
+        );
+      }
+      if (terminal.costScope !== parentReservation.costScope) {
+        reconciliationFailure(
+          terminal.id,
+          "terminal row cost scope does not match its reservation",
         );
       }
       if (terminalByReservationId.has(terminal.reservationId)) {
@@ -760,7 +881,11 @@ export class BudgetLedgerTransaction {
           reservation.providerId !== attempt.providerId ||
           reservation.requestedMaxOutputTokens !==
             attempt.requestedMaxOutputTokens ||
-          reservation.createdAt !== attempt.createdAt
+          reservation.createdAt !== attempt.createdAt ||
+          reservation.costScope !==
+            persistedEventCostScope(attempt.costScope) ||
+          reservation.cloudEgressAdmissionId !==
+            attempt.cloudEgressAdmissionId
         ) {
           reconciliationFailure(
             reservationId,
@@ -779,6 +904,10 @@ export class BudgetLedgerTransaction {
           decision.campaignId !== reservation.campaignId ||
           decision.pricingSnapshotId !== reservation.pricingSnapshotId ||
           decision.billing === undefined ||
+          persistedEventCostScope(decision.costScope) !==
+            reservation.costScope ||
+          decision.cloudEgressAdmissionId !==
+            reservation.cloudEgressAdmissionId ||
           !billingMatchesReservation(decision.billing, reservation)
         ) {
           reconciliationFailure(
@@ -794,7 +923,8 @@ export class BudgetLedgerTransaction {
         }
         if (
           campaign.providerId !== reservation.providerId ||
-          decision.credentialMetadataId !== campaign.credentialMetadataId
+          decision.credentialMetadataId !== campaign.credentialMetadataId ||
+          campaign.costScope !== reservation.costScope
         ) {
           reconciliationFailure(
             reservationId,
@@ -815,6 +945,28 @@ export class BudgetLedgerTransaction {
             reservationId,
             "decision records an impossible remaining budget",
           );
+        }
+
+        if (reservation.costScope === "simulation") {
+          const admissionId = reservation.cloudEgressAdmissionId;
+          const admission = state.cloudEgressAdmissions.find(
+            (candidate) => candidate.admissionId === admissionId,
+          );
+          if (
+            admissionId === undefined ||
+            admission === undefined ||
+            admission.decision !== "pass" ||
+            decision.cloudEgressAdmissionId !== admissionId ||
+            decision.messagesSha256 !== admission.messagesSemanticSha256 ||
+            decision.provenanceSemanticSha256 !==
+              admission.provenanceSemanticSha256 ||
+            decision.checkpointId !== admission.checkpointId
+          ) {
+            reconciliationFailure(
+              reservationId,
+              "simulation reservation does not match a passed egress admission record",
+            );
+          }
         }
 
         const finish = attempt.finished;
@@ -844,14 +996,16 @@ export class BudgetLedgerTransaction {
           terminal.amountMicrousd !== finish.cost.amountMicrousd ||
           terminal.requestDisposition !== finish.requestDisposition ||
           terminal.createdAt !== finish.createdAt ||
-          finish.cost.reservationId !== reservation.id
+          finish.cost.reservationId !== reservation.id ||
+          persistedEventCostScope(finish.cost.costScope) !==
+            reservation.costScope ||
+          terminal.costScope !== reservation.costScope
         ) {
           reconciliationFailure(
             reservationId,
             "terminal row does not match its canonical attempt finish",
           );
         }
-
         if (expectedRowType === "release") {
           if (
             finish.cost.provenance !== "host_pricing_snapshot" ||
@@ -929,7 +1083,9 @@ export class BudgetLedgerTransaction {
     const sql = `
       SELECT reservation.id, reservation.campaign_id, reservation.session_id,
              reservation.attempt_id, reservation.provider_id,
-             reservation.pricing_snapshot_id, reservation.amount_microusd,
+             reservation.pricing_snapshot_id, reservation.cost_scope,
+             reservation.cloud_egress_admission_id,
+             reservation.amount_microusd,
              reservation.billable_estimated_input_tokens,
              reservation.requested_max_output_tokens,
              reservation.cache_read_tokens_assumed,
@@ -957,6 +1113,95 @@ export class BudgetLedgerTransaction {
     return rows.map(toReservation);
   }
 
+  getCostScopeSummary(options: {
+    sessionId?: string;
+  } = {}): BudgetCostScopeSummary {
+    this.assertActive();
+    if (options.sessionId !== undefined) {
+      assertBoundedId(options.sessionId, "sessionId");
+    }
+    const sessionFilter =
+      options.sessionId === undefined
+        ? ""
+        : `WHERE (
+             (entry.row_type = 'reservation' AND entry.session_id = ?)
+             OR (
+               entry.row_type IN ('settlement', 'release', 'overrun')
+               AND EXISTS (
+                 SELECT 1
+                 FROM budget_ledger_entries AS reservation
+                 WHERE reservation.id = entry.reservation_id
+                   AND reservation.row_type = 'reservation'
+                   AND reservation.session_id = ?
+               )
+             )
+           )`;
+    const statement = this.database
+      .prepare<unknown[], CostScopeAggregateRow>(
+        `SELECT entry.cost_scope,
+                COUNT(*) AS row_count,
+                COALESCE(SUM(
+                  CASE WHEN entry.row_type = 'campaign'
+                    THEN entry.amount_microusd ELSE 0 END
+                ), 0) AS opening_exposure_microusd,
+                COALESCE(SUM(
+                  CASE WHEN entry.row_type = 'reservation'
+                    AND NOT EXISTS (
+                      SELECT 1
+                      FROM budget_ledger_entries AS terminal
+                      WHERE terminal.reservation_id = entry.id
+                        AND terminal.row_type IN ('settlement', 'release', 'overrun')
+                    ) THEN entry.amount_microusd ELSE 0 END
+                ), 0) AS outstanding_reservation_microusd,
+                COALESCE(SUM(
+                  CASE WHEN entry.row_type IN ('settlement', 'overrun')
+                    THEN entry.amount_microusd ELSE 0 END
+                ), 0) AS settled_microusd
+         FROM budget_ledger_entries AS entry
+         ${sessionFilter}
+         GROUP BY entry.cost_scope
+         ORDER BY entry.cost_scope ASC`,
+      )
+      .safeIntegers(true);
+    const rows =
+      options.sessionId === undefined
+        ? statement.all()
+        : statement.all(options.sessionId, options.sessionId);
+    const empty = (): BudgetCostScopeAmounts => ({
+      rowCount: 0,
+      openingExposureMicrousd: 0,
+      outstandingReservationMicrousd: 0,
+      settledMicrousd: 0,
+    });
+    const actual = empty();
+    const simulation = empty();
+    const legacyUnclassified = { ...empty(), present: false };
+    for (const row of rows) {
+      const values: BudgetCostScopeAmounts = {
+        rowCount: safeNumber(row.row_count, "cost-scope row count"),
+        openingExposureMicrousd: safeNumber(
+          row.opening_exposure_microusd,
+          "cost-scope opening exposure",
+        ),
+        outstandingReservationMicrousd: safeNumber(
+          row.outstanding_reservation_microusd,
+          "cost-scope outstanding reservation",
+        ),
+        settledMicrousd: safeNumber(
+          row.settled_microusd,
+          "cost-scope settled amount",
+        ),
+      };
+      if (row.cost_scope === "actual") Object.assign(actual, values);
+      else if (row.cost_scope === "simulation") {
+        Object.assign(simulation, values);
+      } else {
+        Object.assign(legacyUnclassified, values, { present: true });
+      }
+    }
+    return { actual, simulation, legacyUnclassified };
+  }
+
   getPosition(
     campaignId: string,
     sessionId: string,
@@ -969,7 +1214,8 @@ export class BudgetLedgerTransaction {
 
     const rows = this.database
       .prepare<unknown[], ExposureRow>(
-        `SELECT id, row_type, reservation_id, session_id, amount_microusd
+        `SELECT id, row_type, reservation_id, session_id, amount_microusd,
+                cost_scope
          FROM budget_ledger_entries
          WHERE campaign_id = ? AND row_type <> 'campaign'
          ORDER BY created_at ASC, id ASC`,
@@ -1064,6 +1310,17 @@ export class BudgetLedgerTransaction {
     assertBoundedId(input.attemptId, "attemptId");
     assertBoundedId(input.providerId, "providerId");
     assertBoundedId(input.pricingSnapshotId, "pricingSnapshotId");
+    const costScope = RuntimeCostScopeSchema.parse(input.costScope);
+    if (input.cloudEgressAdmissionId === undefined) {
+      throw new Error(
+        "A runtime reservation requires cloud egress admission identity",
+      );
+    } else {
+      assertBoundedId(
+        input.cloudEgressAdmissionId,
+        "cloudEgressAdmissionId",
+      );
+    }
     assertCanonicalTimestamp(input.createdAt);
     assertSafeInteger(input.episodeCapMicrousd, "episodeCapMicrousd");
     const projectedCostMicrousd = projectWorstCaseCostMicrousd(input.projection);
@@ -1072,10 +1329,28 @@ export class BudgetLedgerTransaction {
     }
 
     const campaign = this.requireCampaign(input.campaignId);
-    if (campaign.providerId !== input.providerId) {
+    if (
+      campaign.providerId !== input.providerId ||
+      campaign.costScope !== costScope
+    ) {
       throw new Error(
-        `Campaign ${campaign.id} does not belong to provider ${input.providerId}`,
+        `Campaign ${campaign.id} does not match provider and cost scope`,
       );
+    }
+    if (costScope === "actual") {
+      const legacy = this.database
+        .prepare(
+          `SELECT id
+           FROM budget_ledger_entries
+           WHERE cost_scope = 'legacy_unclassified'
+           LIMIT 1`,
+        )
+        .get() as { id: string } | undefined;
+      if (legacy !== undefined) {
+        throw new Error(
+          "Actual budget admission is blocked by unclassified historical exposure",
+        );
+      }
     }
     const priorEpisodeReservation = this.database
       .prepare(
@@ -1133,7 +1408,8 @@ export class BudgetLedgerTransaction {
       .prepare(
         `INSERT INTO budget_ledger_entries (
            id, row_type, campaign_id, reservation_id, session_id, attempt_id,
-           provider_id, pricing_snapshot_id, amount_microusd,
+           provider_id, pricing_snapshot_id, cost_scope,
+           cloud_egress_admission_id, amount_microusd,
            billable_estimated_input_tokens, requested_max_output_tokens,
            cache_read_tokens_assumed, input_rate_microusd_per_million,
            output_rate_microusd_per_million,
@@ -1141,7 +1417,7 @@ export class BudgetLedgerTransaction {
            provider_fee_ceiling_microusd, cache_assumption, rounding_policy,
            created_at
          ) VALUES (
-           ?, 'reservation', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+           ?, 'reservation', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
          )`,
       )
       .run(
@@ -1152,6 +1428,8 @@ export class BudgetLedgerTransaction {
         input.attemptId,
         input.providerId,
         input.pricingSnapshotId,
+        costScope,
+        input.cloudEgressAdmissionId,
         projectedCostMicrousd,
         input.projection.billableInputTokens,
         input.projection.requestedMaxOutputTokens,
@@ -1231,15 +1509,16 @@ export class BudgetLedgerTransaction {
     this.database
       .prepare(
         `INSERT INTO budget_ledger_entries (
-           id, row_type, campaign_id, reservation_id, amount_microusd,
+           id, row_type, campaign_id, reservation_id, cost_scope, amount_microusd,
            cost_provenance, request_disposition, reason_code, created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         input.terminalEntryId,
         input.rowType,
         reservation.campaignId,
         input.reservationId,
+        reservation.costScope,
         input.amountMicrousd,
         input.costProvenance ?? null,
         input.requestDisposition,
@@ -1287,38 +1566,29 @@ export class BudgetLedger {
   }
 
   createCampaign(input: CreateBudgetCampaignInput): BudgetCampaign {
-    const normalized = {
-      id: assertBoundedId(input.id, "campaignId"),
-      providerId: assertBoundedId(input.providerId, "providerId"),
-      credentialMetadataId: assertBoundedId(
-        input.credentialMetadataId,
-        "credentialMetadataId",
-      ),
-      openingExposureMicrousd: assertSafeInteger(
-        input.openingExposureMicrousd,
-        "openingExposureMicrousd",
-      ),
-      automaticStopMicrousd: assertSafeInteger(
-        input.automaticStopMicrousd,
-        "automaticStopMicrousd",
-      ),
-      hardCeilingMicrousd: assertSafeInteger(
-        input.hardCeilingMicrousd,
-        "hardCeilingMicrousd",
-        { positive: true },
-      ),
-      createdAt: assertCanonicalTimestamp(input.createdAt),
-    };
-    if (
-      normalized.openingExposureMicrousd > normalized.automaticStopMicrousd ||
-      normalized.automaticStopMicrousd > normalized.hardCeilingMicrousd
-    ) {
-      throw new RangeError(
-        "campaign limits require opening exposure <= automatic stop <= hard ceiling",
-      );
-    }
+    const normalized = normalizeCampaignInput(input);
     return this.runImmediate((transaction) => {
       return transaction.insertCampaign(normalized);
+    });
+  }
+
+  /**
+   * Idempotent bootstrap for the one fixed simulation campaign. An existing ID
+   * is accepted only when every authority and accounting field is identical.
+   */
+  ensureCampaign(input: CreateBudgetCampaignInput): BudgetCampaign {
+    const normalized = normalizeCampaignInput(input);
+    return this.runImmediate((transaction) => {
+      const existing = transaction.getCampaign(normalized.id);
+      if (existing === undefined) {
+        return transaction.insertCampaign(normalized);
+      }
+      if (!campaignMatchesInput(existing, normalized)) {
+        throw new Error(
+          `Budget campaign ${normalized.id} exists with different immutable authority`,
+        );
+      }
+      return existing;
     });
   }
 
@@ -1341,6 +1611,14 @@ export class BudgetLedger {
   } = {}): BudgetReservation[] {
     return this.runImmediate((transaction) =>
       transaction.listOutstandingReservations(options),
+    );
+  }
+
+  getCostScopeSummary(options: {
+    sessionId?: string;
+  } = {}): BudgetCostScopeSummary {
+    return this.runImmediate((transaction) =>
+      transaction.getCostScopeSummary(options),
     );
   }
 

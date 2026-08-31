@@ -5,6 +5,21 @@ import {
   REVIEW_RESULT_V1_JSON_SCHEMA_SHA256,
   ReviewResultV1Schema,
 } from "./review-result-contract";
+import {
+  CostScopeSchema,
+  HYBRID_SIMULATION_CONSENT_ID,
+  HYBRID_SIMULATION_MAX_SPEND_MICROUSD,
+  HYBRID_SIMULATION_ROUTING_POLICY_ID,
+  HybridSimulationSessionAuthorityV1Schema,
+  RuntimeCostScopeSchema,
+} from "./hybrid-simulation-contracts";
+
+export {
+  CostScopeSchema,
+  RuntimeCostScopeSchema,
+  type CostScope,
+  type RuntimeCostScope,
+} from "./hybrid-simulation-contracts";
 
 export const SESSION_STATUSES = [
   "created",
@@ -109,7 +124,11 @@ export const AgenticExecutionPolicyV1Schema = z
   })
   .strict();
 
-export const ROUTING_POLICY_IDS = ["local_only_v1", "hybrid_v0"] as const;
+export const ROUTING_POLICY_IDS = [
+  "local_only_v1",
+  "hybrid_v0",
+  HYBRID_SIMULATION_ROUTING_POLICY_ID,
+] as const;
 export const RoutingPolicyIdSchema = z.enum(ROUTING_POLICY_IDS);
 export type RoutingPolicyId = z.infer<typeof RoutingPolicyIdSchema>;
 
@@ -119,6 +138,11 @@ export const EGRESS_CONSENTS = [
 ] as const;
 export const EgressConsentSchema = z.enum(EGRESS_CONSENTS);
 export type EgressConsent = z.infer<typeof EgressConsentSchema>;
+
+export const SimulationConsentSchema = z.literal(
+  HYBRID_SIMULATION_CONSENT_ID,
+);
+export type SimulationConsent = z.infer<typeof SimulationConsentSchema>;
 
 export const AgenticExecutionPolicyV2Schema = z
   .object({
@@ -142,6 +166,7 @@ export const AgenticExecutionPolicyV2Schema = z
     maxEpisodeDurationMs: z.number().int().positive().safe(),
     attemptTimeoutMs: z.number().int().positive().safe(),
     egressConsent: EgressConsentSchema,
+    simulationConsent: SimulationConsentSchema.optional(),
   })
   .strict()
   .superRefine((policy, context) => {
@@ -160,6 +185,37 @@ export const AgenticExecutionPolicyV2Schema = z
         code: "custom",
         message: "local_only_v1 requires egressConsent none",
         path: ["egressConsent"],
+      });
+    }
+    if (policy.routingPolicy === HYBRID_SIMULATION_ROUTING_POLICY_ID) {
+      if (
+        policy.egressConsent !== "none" ||
+        policy.simulationConsent !== HYBRID_SIMULATION_CONSENT_ID
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "hybrid_simulation_v1 requires simulation consent and real egress consent none",
+          path: ["simulationConsent"],
+        });
+      }
+      if (
+        policy.maxPaidAttempts !== 1 ||
+        policy.maxPaidEpisodeMicrousd !==
+          HYBRID_SIMULATION_MAX_SPEND_MICROUSD
+      ) {
+        context.addIssue({
+          code: "custom",
+          message:
+            "hybrid_simulation_v1 requires one attempt and the fixed simulated cap",
+          path: ["maxPaidEpisodeMicrousd"],
+        });
+      }
+    } else if (policy.simulationConsent !== undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "simulation consent is reserved for hybrid_simulation_v1",
+        path: ["simulationConsent"],
       });
     }
   });
@@ -224,6 +280,7 @@ export const SessionEventTypeSchema = z.enum([
   "session.created",
   "session.started",
   "user.message",
+  "cloud.egress.admission.recorded",
   "routing.decision.recorded",
   "route.assigned",
   "assistant.message.started",
@@ -269,6 +326,54 @@ const safePositiveInteger = z.number().int().positive().safe();
 const boundedV2Id = requiredId.max(256);
 const boundedCode = z.string().trim().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/u);
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
+
+const sortedCloudEgressReasonCodesSchema = z
+  .array(boundedCode)
+  .max(64)
+  .superRefine((reasonCodes, context) => {
+    for (let index = 1; index < reasonCodes.length; index += 1) {
+      const previous = reasonCodes[index - 1];
+      const current = reasonCodes[index];
+      if (previous !== undefined && current !== undefined && previous >= current) {
+        context.addIssue({
+          code: "custom",
+          message: "cloud egress reason codes must be sorted and unique",
+          path: [index],
+        });
+      }
+    }
+  });
+
+export const CloudEgressAdmissionRecordV1Schema = z
+  .object({
+    schemaVersion: z.literal("cloud-egress-admission-record-v1"),
+    admissionId: boundedV2Id,
+    policyVersion: z.literal("cloud-egress-policy-v1"),
+    decision: z.enum(["pass", "deny"]),
+    reasonCodes: sortedCloudEgressReasonCodesSchema,
+    messagesSemanticSha256: sha256,
+    provenanceSemanticSha256: sha256,
+    checkpointId: boundedV2Id,
+    simulationAuthorityId: boundedCode,
+    evaluatedAt: z.string().datetime({ offset: true }),
+  })
+  .strict()
+  .superRefine((record, context) => {
+    if (
+      (record.decision === "pass" && record.reasonCodes.length !== 0) ||
+      (record.decision === "deny" && record.reasonCodes.length === 0)
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "passing egress has no reasons and denied egress has at least one reason",
+        path: ["reasonCodes"],
+      });
+    }
+  });
+export type CloudEgressAdmissionRecordV1 = z.infer<
+  typeof CloudEgressAdmissionRecordV1Schema
+>;
 
 export const ROUTING_BOUNDARIES = [
   "session_start",
@@ -758,6 +863,10 @@ export const RoutingDecisionPayloadSchema = z
   .object({
     decisionId: boundedV2Id,
     policyVersion: z.literal("hybrid-lease-router-v0"),
+    // Optional only for replay compatibility. Current writers persist one of
+    // the two runtime scopes; absence projects as legacy_unclassified.
+    costScope: RuntimeCostScopeSchema.optional(),
+    cloudEgressAdmissionId: boundedV2Id.optional(),
     boundary: RoutingBoundarySchema,
     phase: RoutingPhaseSchema,
     action: RoutingDecisionActionSchema,
@@ -860,6 +969,10 @@ export const RoutingDecisionPayloadSchema = z
     checkpointId: boundedV2Id.optional(),
     packetSha256: sha256.optional(),
     messagesSha256: sha256.optional(),
+    // Required by the PR6B0 simulation reducer whenever an immediate egress
+    // admission record exists. Optional at the schema layer only for replay of
+    // pre-PR6B0 routing decisions.
+    provenanceSemanticSha256: sha256.optional(),
     proposalCheckpointId: boundedV2Id.optional(),
     proposalPacketSha256: sha256.optional(),
     proposalMessagesSha256: sha256.optional(),
@@ -1484,6 +1597,9 @@ export const InferenceAttemptStartedPayloadSchema = z
       .literal(REVIEW_RESULT_V1_JSON_SCHEMA_SHA256)
       .optional(),
     budgetReservationId: boundedV2Id.optional(),
+    // Optional only for replay compatibility with pre-PR6B0 attempts.
+    costScope: RuntimeCostScopeSchema.optional(),
+    cloudEgressAdmissionId: boundedV2Id.optional(),
   })
   .strict()
   .superRefine((attempt, context) => {
@@ -1571,6 +1687,8 @@ export const InferenceAttemptFinishedPayloadSchema = z
           "reserved_unknown",
         ]),
         reservationId: boundedV2Id.optional(),
+        // Optional only for replay compatibility with pre-PR6B0 finishes.
+        costScope: RuntimeCostScopeSchema.optional(),
       })
       .strict(),
     latencyMs: nonNegativeNumber,
@@ -1668,6 +1786,7 @@ const sessionCreatedSchema = z
         taskTrack: AppTaskTrackSchema.optional(),
         completionObligations: CompletionObligationsSchema.optional(),
         executionPolicy: AgenticExecutionPolicySchema.optional(),
+        hybridSimulation: HybridSimulationSessionAuthorityV1Schema.optional(),
       })
       .strict()
       .superRefine((payload, context) => {
@@ -1710,16 +1829,17 @@ const sessionCreatedSchema = z
           }
         }
         if (payload.taskTrack === "change-review-v1") {
-          if (
-            payload.executionPolicy?.schemaVersion !==
-              "agentic-execution-v2" ||
-            payload.executionPolicy.routingPolicy !== "local_only_v1" ||
-            payload.executionPolicy.egressConsent !== "none"
-          ) {
+          const policy = payload.executionPolicy;
+          const allowedChangeReviewPolicy =
+            policy?.schemaVersion === "agentic-execution-v2" &&
+            policy.egressConsent === "none" &&
+            (policy.routingPolicy === "local_only_v1" ||
+              policy.routingPolicy === HYBRID_SIMULATION_ROUTING_POLICY_ID);
+          if (!allowedChangeReviewPolicy) {
             context.addIssue({
               code: "custom",
               message:
-                "change-review-v1 requires a local-only v2 policy with no egress consent",
+                "change-review-v1 requires an approved Local or Hybrid simulation v2 policy with no real egress consent",
               path: ["executionPolicy"],
             });
           }
@@ -1735,6 +1855,26 @@ const sessionCreatedSchema = z
               path: ["completionObligations"],
             });
           }
+        }
+        const isHybridSimulation =
+          payload.executionPolicy?.schemaVersion === "agentic-execution-v2" &&
+          payload.executionPolicy.routingPolicy ===
+            HYBRID_SIMULATION_ROUTING_POLICY_ID;
+        if (isHybridSimulation !== (payload.hybridSimulation !== undefined)) {
+          context.addIssue({
+            code: "custom",
+            message:
+              "hybrid simulation policy and authority snapshot must be persisted together",
+            path: ["hybridSimulation"],
+          });
+        }
+        if (isHybridSimulation && payload.taskTrack !== "change-review-v1") {
+          context.addIssue({
+            code: "custom",
+            message:
+              "hybrid_simulation_v1 is restricted to change-review-v1 sessions",
+            path: ["taskTrack"],
+          });
         }
       }),
   })
@@ -1781,6 +1921,13 @@ const userMessageSchema = z
         content: z.string().min(1),
       })
       .strict(),
+  })
+  .strict();
+
+const cloudEgressAdmissionRecordedSchema = z
+  .object({
+    type: z.literal("cloud.egress.admission.recorded"),
+    payload: CloudEgressAdmissionRecordV1Schema,
   })
   .strict();
 
@@ -2181,6 +2328,7 @@ export const SessionEventDataSchema = z.discriminatedUnion("type", [
   sessionCreatedSchema,
   sessionStartedSchema,
   userMessageSchema,
+  cloudEgressAdmissionRecordedSchema,
   routingDecisionRecordedSchema,
   routeAssignedSchema,
   assistantMessageStartedSchema,

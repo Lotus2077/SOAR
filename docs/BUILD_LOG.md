@@ -3351,3 +3351,153 @@ References: [verified implementation entry](#bl-20260830-1726-pr6a-cloud-setup-i
 [MVP readiness](MVP_READINESS.md), [architecture](ARCHITECTURE.md),
 [routing policy](ROUTING_POLICY.md), and
 [exact implementation CI](https://github.com/Lotus2077/SOAR/actions/runs/33401604875).
+
+### BL-20260831-2246-pr6b0-hybrid-simulation-proposed -- 2026-08-31 -- PR6B0 Hybrid simulation vertical slice proposed
+
+Status: `Proposed`
+
+Scope or hypothesis: Calibrate the next milestone after verified PR6A by
+splitting the former provider-validation-and-paid-canary scope into separately
+authorized changes. Propose PR6B0 as a local `$0` app-visible Hybrid simulation
+that connects the strict review, egress, router, simulated budget, fake cloud,
+Local fallback, replay, cancellation, and UX path while normal production stays
+Hybrid-locked. No credential, configured vLLM, or external provider is touched;
+authority is limited to two nominally branded in-process fakes.
+
+Decisions:
+
+- Do not implement the former PR6B as one change. Separate fake-only
+  production-shaped Hybrid proof, signed native credential leasing, real
+  provider validation, and one paid public-fixture canary into PR6B0 through
+  PR6B3.
+- Reject native real-credential re-entry as the immediate next milestone. The
+  current ad-hoc package cannot prove upgrade-stable item authority, and
+  synchronous Security.framework item mutations have no cancellable timeout.
+  Inviting re-entry now could create an inaccessible duplicate without enabling
+  Hybrid.
+- Make PR6B0 the fake-only vertical slice because it advances the original
+  routing goal without credential, signing, external-provider, external-egress,
+  or real monetary authority. Native identity remains a hard prerequisite
+  before any real secret resolver, not before two deterministic in-process fake
+  providers.
+- Require a dedicated strict hybrid change-review coordinator. Do not remove
+  the brand from the generic fake v2 runner, whose generic completion does not
+  own `ReviewResultV1` grounding, acceptance, or freshness.
+- Persist an explicit simulation policy/cost scope, use exactly two branded
+  fake providers, run the real checkpoint/egress/budget/attempt invariants with
+  simulated nonzero amounts, and exclude those amounts from actual spend.
+- Persist simulation-only consent while real egress consent remains `none`.
+  Require a main-issued single-use consent challenge bound to the workspace,
+  exact disclosure, cap, route, authority, fake providers, and expiry; reject
+  stale/replayed/mismatched challenges before session or ledger work.
+- Add immutable `simulation | actual | legacy_unclassified` scope across every
+  campaign, reservation, routing decision, attempt/cost, terminal row, recovery
+  adjustment, and event. New rows cannot be legacy-unclassified; migrated rows
+  remain separately reported and excluded from actual and simulation totals.
+  Any nonempty unclassified history blocks later actual admission until a
+  separately approved explicit audit/classification. Require same-scope
+  reconciliation and never infer scope from provider names or excluded totals.
+- Persist bounded pass/deny cloud-egress admission records with policy/reason,
+  message/provenance hashes, checkpoint and simulation-authority identity;
+  require canonical routing/attempt binding and replay zero-dispatch denials.
+- Retain unavoidable **Simulation only** and **Simulated** attribution in every
+  active, completed, history, notification, result/finding, copy, and replay
+  projection; label both providers Fake and keep availability independent of
+  Cloud Settings.
+- Expose Hybrid simulation only when fake provider mode and an explicit
+  main-process simulation flag are both present. Normal production still
+  constructs one Local provider and keeps Hybrid disabled.
+- Remove the repository's manually invoked CLI credential-reader/provider-check
+  script during the approved implementation; do not replace it with another
+  secret resolver or provider check.
+
+Changes: Added proposed plan `pr6b0-hybrid-simulation-v1-plan-1` and this
+append-only proposal entry.
+No runtime, native addon, dependency, Keychain item, credential, provider,
+model, IPC, renderer, database, session, router, budget, tool, evaluator, or
+network behavior changed.
+
+Evidence:
+
+- The live checkout was clean at verified PR6A closure revision
+  `90531899bc16b3862616a709ac8396257ebdd46c`, equal to `origin/main`, before
+  this proposal was written.
+- Repository inspection confirmed production constructs only the configured
+  Local or deterministic fake provider; Hybrid availability remains false;
+  the cloud setup service has no secret-read method; and the PR6A egress policy
+  remains pure and unwired.
+- Repository inspection also confirmed that the manually invoked
+  `check:cloud-key` command reads the staging item with the forbidden CLI
+  secret-resolver form and contacts the candidate provider. It is not called by
+  normal app startup or `pnpm check`, but the proposal removes it rather than
+  treating it as a future runtime foundation.
+- Independent product/UX, runtime, and credential-security reviews agreed that
+  provider validation and the paid canary must be separate gates. Review of the
+  first native-re-entry draft found the ad-hoc identity, non-cancellable native
+  mutation, destructive-cleanup, test-namespace, and packaged-app proof gaps;
+  that approach was rejected before implementation.
+- Runtime inspection confirmed that the existing fake-only v2 coordinator is
+  useful mechanics evidence but produces generic completion, while
+  `run-local-change-review.ts` owns the strict structured review compiler,
+  evidence grounding, host acceptance, and freshness behavior. PR6B0 therefore
+  proposes a dedicated coordinator rather than weakening the fake-only brand.
+- The first full `pnpm check` attempt inside the restricted sandbox passed
+  readiness, the 43-entry log, typecheck, 73 test files and 895 tests, but 19
+  OpenAI-compatible tests failed immediately because loopback bind returned
+  `listen EPERM` on `127.0.0.1`; three files and five tests were skipped. The
+  unchanged checkout reran outside that restriction: 74 test files and 914
+  tests passed with three files/five tests skipped, and all Electron bundles
+  built.
+- The first `pnpm test:e2e` attempt correctly refused to launch Electron inside
+  the restricted GUI sandbox. The unchanged checkout reran with approved GUI
+  access and all three existing Electron workflows passed in 9.0 seconds:
+  restart restoration, active Local cancellation, and Local current-change
+  review with stale-copy refusal.
+- Two adversarial review rounds covered product/UX, runtime/persistence, and
+  credential/security boundaries. They rejected the initial native-re-entry
+  direction, then found challenge-binding, consent separation, immutable ledger
+  scope, replayable egress evidence, persistent simulation attribution,
+  Settings independence, bounded-DLP wording, and legacy-exposure admission
+  gaps in the replacement plan. After corrections, all three reviews reported
+  no remaining P0/P1 planning issue. This is plan review, not implementation
+  review or runtime proof.
+
+Failures or blockers: PR6B0 is not approved or implemented. The current staged
+item remains setup-only and not app-identity-isolated, but PR6B0 neither reads
+nor changes it. The repository still contains the manual CLI key-check command
+until an approved implementation removes it. The configured fake catalog still
+contains one provider, the strict local review has no cloud checkpoint, and
+the app has no simulation consent/cost/route UX. The restricted-loopback test
+failure and restricted-GUI refusal are retained above. GitHub CLI
+authentication was invalid during this planning pass; push and exact-SHA CI
+observation must be proven rather than assumed.
+
+Limitations and non-claims: This proposal is not authority to change a Keychain
+item, delete the manual script, implement runtime code, resolve a secret,
+contact a provider, send repository content externally, enable real Hybrid,
+reserve real money, or run a canary. Even an eventual passing PR6B0 will prove
+only deterministic fake control-flow integration, not credential safety,
+hostile-process denial, upgrade-stable app identity, provider/model/price/limit
+truth, HTTP wire identity, production Hybrid, routing quality, cost saving,
+latency improvement, or release readiness.
+
+Paid exposure: `$0`. Planning used local source/configuration inspection,
+public Apple platform documentation, and deterministic reasoning only. No
+configured vLLM, OpenRouter, model-list, key-metadata, pricing, limit, health,
+account, inference, retry, fallback, evaluator, or other provider request
+occurred. No Keychain item or real credential was read, written, replaced, or
+deleted.
+
+Next gate: Revalidate this corrected proposal, commit and push it, and require
+exact-SHA Linux/check and macOS Electron CI to pass. Then require the project
+owner's exact explicit approval of `pr6b0-hybrid-simulation-v1-plan-1` for local
+`$0` implementation. Append that approval, commit and push the approval
+checkpoint, and require its own exact-SHA Linux/macOS CI before runtime work
+begins. PR6B1, PR6B2, PR6B3, credential resolution, provider contact, external
+repository egress, and paid inference remain separately unapproved.
+
+References: [proposed PR6B0 plan](plans/PR6B0_HYBRID_SIMULATION_V1.md),
+[verified PR6A plan](plans/PR6A_CLOUD_SETUP_DISPATCH_LOCK_V1.md), [parent Hybrid
+Lease Router plan](plans/HYBRID_LEASE_ROUTER_V0.md), [MVP
+readiness](MVP_READINESS.md), [architecture](ARCHITECTURE.md), and [routing
+policy](ROUTING_POLICY.md).

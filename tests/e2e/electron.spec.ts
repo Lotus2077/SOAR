@@ -105,9 +105,16 @@ async function createChangedReviewWorkspace(
 
 async function selectHybridSimulation(
   page: Page,
+  canonicalWorkspaceRoot: string,
 ): Promise<void> {
   await page.getByTestId("review-current-changes").click();
   await page.getByRole("button", { name: "Choose" }).click();
+  await expect(
+    page.getByRole("button", { name: "Change", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByText(canonicalWorkspaceRoot, { exact: true }),
+  ).toBeVisible();
   const local = page.getByRole("radio", { name: "Local" });
   const hybrid = page.getByRole("radio", { name: "Hybrid simulation" });
   await expect(local).toBeChecked();
@@ -122,6 +129,18 @@ async function selectHybridSimulation(
   const consent = page.getByRole("checkbox", {
     name: /acknowledge this challenge-bound fake simulation disclosure/u,
   });
+  const consentError = page.locator(".review-consent-error");
+  await expect(
+    page.locator(".review-consent-row, .review-consent-error"),
+  ).toHaveCount(1, { timeout: 30_000 });
+  const consentErrorCount = await consentError.count();
+  const consentErrorText = consentErrorCount
+    ? await consentError.first().textContent()
+    : null;
+  expect(
+    consentErrorCount,
+    `Hybrid disclosure error: ${consentErrorText ?? "unknown"}`,
+  ).toBe(0);
   await expect(consent).toBeFocused();
   await expect(consent).not.toBeChecked();
   await expect(page.getByTestId("start-hybrid-simulation")).toBeDisabled();
@@ -428,7 +447,7 @@ test("runs, copies, and replays a fully attributed Hybrid simulation without red
   });
   try {
     let page = await electronApp.firstWindow();
-    await selectHybridSimulation(page);
+    await selectHybridSimulation(page, canonicalWorkspaceRoot);
     await expect(page.getByText(canonicalWorkspaceRoot, { exact: true })).toBeVisible();
     await page.getByTestId("start-hybrid-simulation").click();
     await expect(page.locator('[aria-current="step"]')).toBeVisible();
@@ -533,7 +552,8 @@ test("runs, copies, and replays a fully attributed Hybrid simulation without red
 
 test("shows egress denial with zero fake-cloud attempts and one Fake Local continuation", async () => {
   const syntheticDeniedValue = `sk-or-v1-${"D".repeat(24)}`;
-  const { testRoot, workspaceRoot } = await createChangedReviewWorkspace(
+  const { testRoot, workspaceRoot, canonicalWorkspaceRoot } =
+    await createChangedReviewWorkspace(
     "soar-hybrid-denial-e2e-",
     `temporary fixture ${syntheticDeniedValue}\n`,
     highRiskReviewPath,
@@ -544,7 +564,7 @@ test("shows egress denial with zero fake-cloud attempts and one Fake Local conti
   });
   try {
     const page = await electronApp.firstWindow();
-    await selectHybridSimulation(page);
+    await selectHybridSimulation(page, canonicalWorkspaceRoot);
     await page.getByTestId("start-hybrid-simulation").click();
     await expect(page.getByTestId("session-status")).toContainText("completed");
     await expect(page.locator(".review-route-sequence")).toContainText(
@@ -576,7 +596,8 @@ test("shows egress denial with zero fake-cloud attempts and one Fake Local conti
 });
 
 test("shows one failed Fake Cloud phase followed by one Fake Local fallback", async () => {
-  const { testRoot, workspaceRoot } = await createChangedReviewWorkspace(
+  const { testRoot, workspaceRoot, canonicalWorkspaceRoot } =
+    await createChangedReviewWorkspace(
     "soar-hybrid-failure-e2e-",
     `${marker}\n`,
     highRiskReviewPath,
@@ -587,7 +608,7 @@ test("shows one failed Fake Cloud phase followed by one Fake Local fallback", as
   });
   try {
     const page = await electronApp.firstWindow();
-    await selectHybridSimulation(page);
+    await selectHybridSimulation(page, canonicalWorkspaceRoot);
     await page.getByTestId("start-hybrid-simulation").click();
     await expect(page.getByTestId("session-status")).toContainText("completed");
     const route = page.locator(".review-route-sequence");
@@ -608,7 +629,8 @@ test("shows one failed Fake Cloud phase followed by one Fake Local fallback", as
 });
 
 test("stops a committed Fake Cloud simulation attempt without starting a Local fallback", async () => {
-  const { testRoot, workspaceRoot } = await createChangedReviewWorkspace(
+  const { testRoot, workspaceRoot, canonicalWorkspaceRoot } =
+    await createChangedReviewWorkspace(
     "soar-hybrid-cancel-e2e-",
     `${marker}\n`,
     highRiskReviewPath,
@@ -620,7 +642,7 @@ test("stops a committed Fake Cloud simulation attempt without starting a Local f
   });
   try {
     const page = await electronApp.firstWindow();
-    await selectHybridSimulation(page);
+    await selectHybridSimulation(page, canonicalWorkspaceRoot);
     await page.getByTestId("start-hybrid-simulation").click();
     await expect(page.getByTestId("session-status")).toContainText("running");
     await expect

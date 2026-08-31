@@ -3958,3 +3958,106 @@ References: [capacity correction](#bl-20260901-0401-pr6b0-retention-capacity-cor
 [implementation entry](#bl-20260901-0340-pr6b0-hybrid-simulation-implemented----2026-09-01----pr6b0-hybrid-simulation-implemented-locally),
 [approved plan](plans/PR6B0_HYBRID_SIMULATION_V1.md), and [MVP
 readiness](MVP_READINESS.md).
+
+### BL-20260901-0428-pr6b0-consent-convergence-correction -- 2026-09-01 -- macOS CI exposed and local proof corrected a Hybrid disclosure race
+
+Status: `Implemented`
+
+Scope or hypothesis: Treat the exact-SHA macOS Electron failure for
+`7fb9bb9a06ade2c0d454abce0cc493fb6918051b` as a product-state failure until
+disproved. Explain why the first Hybrid workflow could select its route and
+render its simulation marker yet never receive a consent control, then correct
+the transition without weakening consent invalidation or hiding the result with
+a retry or longer timeout.
+
+Decisions:
+
+- Classify the failure as a real crossed async transition, not an Electron or CI
+  flake. The workspace chooser and route-change callbacks each read their
+  invocation-time React closure; when they completed in the opposite order,
+  each could observe only half of the new state and both could skip challenge
+  issuance.
+- Keep workspace selection and route selection available as independent UI
+  actions. Synchronize current workspace and route refs at every mutation site
+  so the callback that settles second issues exactly one workspace-bound
+  challenge. A route ref becomes Hybrid only after main consent invalidation
+  succeeds and its request ordinal is still current.
+- Do not add a convergence effect. It could issue while an existing Hybrid
+  workspace change is still invalidating its old disclosure. Do not mask the
+  race with Playwright retries or a timeout-only change.
+- Make the Electron helper wait for the selected canonical repository
+  projection before selecting Hybrid. After route selection, require either the
+  consent row or an explicit consent error so IPC failures retain a useful
+  diagnostic branch.
+
+Changes:
+
+- Added synchronized workspace and review-route refs in the renderer. Session
+  loading, chooser completion, review reset, and route completion now update the
+  corresponding ref with their state mutation.
+- The chooser reads the current route after resolving, and route completion
+  reads the current workspace after successful invalidation. JavaScript runs
+  each synchronous ref-update-and-check section atomically, so only the second
+  transition can observe both new values and issue the challenge.
+- Added a deterministic renderer regression that holds the workspace chooser
+  unresolved, selects Hybrid, then resolves the chooser and proves exactly one
+  challenge request, an unchecked focused acknowledgement, and a disabled Start
+  action.
+- Hardened all four Hybrid Electron workflows to wait for the exact repository
+  projection and to distinguish consent success from an explicit issuance
+  error.
+
+Evidence:
+
+- GitHub Actions run `33434569025` on exact head `7fb9bb9` passed Linux
+  `check` job `99627756647` and failed macOS `electron-e2e` job
+  `99628129554`. The first three workflows passed. The Hybrid success workflow
+  then waited 15 seconds for a focused consent checkbox that did not exist;
+  three later Hybrid workflows passed. The failed screen had Hybrid selected
+  without a consent row or consent error, matching the crossed-transition state.
+- Two independent read-only reviews traced the same interleaving and rejected a
+  timeout-only repair. A final review of the correction reported zero P0 and
+  zero P1 findings and confirmed both completion orderings issue once only after
+  successful invalidation.
+- The focused renderer file passes 35 tests, including the new deferred-chooser
+  regression. TypeScript validation and `git diff --check` pass.
+- The first local Electron rerun after the product correction honestly failed
+  four Hybrid cases because two newly added test diagnostics were defective:
+  the non-exact `Change` accessible-name query also matched `Review Current
+  Changes`, and reading text from an absent error locator waited 30 seconds.
+  Making the button name exact and reading error text only when the error exists
+  corrected the helper. The next complete Electron run passed all seven
+  workflows in 20.5 seconds.
+
+Failures or blockers: The correction and this entry are not yet committed, so
+the exact-head release gate cannot yet archive and prove them. A new GitHub
+Linux/check and macOS Electron run is pending. The negative result for run
+`33434569025` remains authoritative for `7fb9bb9`; later local success does not
+rewrite it. Manual accessibility and distribution gates remain open.
+
+Limitations and non-claims: This correction proves deterministic renderer
+convergence and fake-only Electron behavior. It does not prove real provider
+identity, credential authority, external repository egress, billing, model
+quality, quality/cost/latency optimization, hostile filesystem resistance,
+notarized distribution, or release readiness. PR6B0 remains Implemented, not
+Verified or Released.
+
+Paid exposure: `$0`. Diagnosis and correction used public GitHub CI metadata,
+local source, deterministic unit fixtures, in-process Fake Local and Fake Cloud
+providers, temporary test repositories/databases, and local Electron. No
+configured vLLM, OpenRouter, model-list, credential, Keychain, pricing, health,
+inference, retry, fallback, evaluator, or other external LLM-provider request
+occurred; no repository evidence left the device and no actual reservation or
+external model spend was created.
+
+Next gate: Validate this append-only entry, commit the correction, and run the
+complete clean exact-head release gate, all seven Electron workflows, package
+verification, and tracked secret/private-path scans. Push only after those local
+gates pass, then require exact-SHA Linux/check and macOS Electron jobs to pass.
+Keep status at Implemented until the documented manual accessibility and
+distribution gates close.
+
+References: [failed GitHub Actions run](https://github.com/Lotus2077/SOAR/actions/runs/33434569025),
+[approved PR6B0 plan](plans/PR6B0_HYBRID_SIMULATION_V1.md), [implementation
+entry](#bl-20260901-0340-pr6b0-hybrid-simulation-implemented----2026-09-01----pr6b0-hybrid-simulation-implemented-locally),
+and [MVP readiness](MVP_READINESS.md).

@@ -509,6 +509,70 @@ describe("Review Current Changes renderer", () => {
     expect(submitted).not.toHaveProperty("disclosureText");
   });
 
+  it("issues one disclosure when the workspace chooser resolves after Hybrid is selected", async () => {
+    const user = userEvent.setup();
+    let resolveWorkspace:
+      | ((choice: { path: string; name: string } | null) => void)
+      | undefined;
+    const pendingWorkspace = new Promise<{
+      path: string;
+      name: string;
+    } | null>((resolve) => {
+      resolveWorkspace = resolve;
+    });
+    const issueHybridSimulationConsentChallenge = vi
+      .fn()
+      .mockResolvedValue(simulationChallenge);
+    Object.defineProperty(window, "soar", {
+      configurable: true,
+      value: {
+        chooseWorkspace: vi.fn().mockReturnValue(pendingWorkspace),
+        createSession: vi.fn(),
+        listSessions: vi.fn().mockResolvedValue([]),
+        getSession: vi.fn(),
+        startSession: vi.fn(),
+        ...rendererSessionControls(),
+        subscribeSessionEvents: vi.fn().mockReturnValue(() => undefined),
+        getReviewAvailability: vi.fn().mockResolvedValue(simulationAvailability),
+        issueHybridSimulationConsentChallenge,
+        invalidateHybridSimulationConsentChallenges: vi
+          .fn()
+          .mockResolvedValue(undefined),
+        createChangeReviewSession: vi.fn(),
+        getChangeReviewView: vi.fn(),
+      },
+    });
+
+    render(<App />);
+    await user.click(
+      screen.getAllByRole("button", { name: "Review Current Changes" })[0]!,
+    );
+    await user.click(await screen.findByRole("button", { name: "Choose" }));
+    await user.click(screen.getByRole("radio", { name: "Hybrid simulation" }));
+
+    expect(screen.getByRole("radio", { name: "Hybrid simulation" })).toBeChecked();
+    expect(issueHybridSimulationConsentChallenge).not.toHaveBeenCalled();
+
+    await act(async () => {
+      resolveWorkspace?.({ path: "/tmp/workspace", name: "workspace" });
+      await pendingWorkspace;
+    });
+
+    const consent = await screen.findByRole("checkbox", {
+      name: /acknowledge this challenge-bound fake simulation disclosure/u,
+    });
+    expect(issueHybridSimulationConsentChallenge).toHaveBeenCalledTimes(1);
+    expect(issueHybridSimulationConsentChallenge).toHaveBeenCalledWith({
+      workspaceRoot: "/tmp/workspace",
+      route: "hybrid_simulation",
+    });
+    expect(consent).not.toBeChecked();
+    expect(consent).toHaveFocus();
+    expect(
+      screen.getByRole("button", { name: "Start Hybrid simulation" }),
+    ).toBeDisabled();
+  });
+
   it("announces a stale disclosure inline and restores focus to the retry action", () => {
     render(
       <ReviewSetup

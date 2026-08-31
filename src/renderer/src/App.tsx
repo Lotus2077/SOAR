@@ -2912,6 +2912,8 @@ export function App() {
     useState<SimulationCompletionNotice | null>(null);
   const compactLayout = useMediaQuery("(max-width: 880px)");
   const selectedIdRef = useRef<string | null>(null);
+  const workspaceRef = useRef<{ path: string; name: string } | null>(null);
+  const reviewRouteRef = useRef<ReviewRouteIntent>("local");
   const latestAssistantStartRef = useRef<string | null>(null);
   const reviewRequestOrdinalRef = useRef(0);
   const simulationChallengeOrdinalRef = useRef(0);
@@ -3142,7 +3144,12 @@ export function App() {
         if (!active) return;
         setSnapshot(value);
         if (value.workspaceRoot) {
-          setWorkspace({ path: value.workspaceRoot, name: workspaceName(value.workspaceRoot) });
+          const nextWorkspace = {
+            path: value.workspaceRoot,
+            name: workspaceName(value.workspaceRoot),
+          };
+          workspaceRef.current = nextWorkspace;
+          setWorkspace(nextWorkspace);
         }
       })
       .catch((reason: unknown) => {
@@ -3234,10 +3241,11 @@ export function App() {
     try {
       const choice = await window.soar.chooseWorkspace();
       if (choice) {
+        workspaceRef.current = choice;
         setWorkspace(choice);
         if (
           surface === "review_setup" &&
-          reviewRoute === "hybrid_simulation" &&
+          reviewRouteRef.current === "hybrid_simulation" &&
           consentInvalidated
         ) {
           void issueSimulationChallenge(choice.path);
@@ -3371,6 +3379,7 @@ export function App() {
     setSelectedId(null);
     setSnapshot(null);
     setReviewView(null);
+    reviewRouteRef.current = "local";
     setReviewRoute("local");
     void invalidateSimulationConsent();
     setStreamedText("");
@@ -3406,9 +3415,10 @@ export function App() {
           invalidated &&
           invalidationOrdinal === simulationChallengeOrdinalRef.current
         ) {
+          reviewRouteRef.current = nextRoute;
           setReviewRoute(nextRoute);
-          if (nextRoute === "hybrid_simulation" && workspace) {
-            void issueSimulationChallenge(workspace.path);
+          if (nextRoute === "hybrid_simulation" && workspaceRef.current) {
+            void issueSimulationChallenge(workspaceRef.current.path);
           }
         }
       });

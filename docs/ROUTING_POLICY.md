@@ -11,7 +11,9 @@ Repository Investigator remains v1 local-only. Production Review Current
 Changes creates a v2 `local_only_v1` session, assigns the configured local
 provider at `session_start`, records an `evidence_complete` decision, and keeps
 the same provider lease through synthesis. It has no provider-failure fallback
-or separately configured cloud provider. The broader invalidation triggers and
+or separately configured cloud provider. PR6A adds only a locked metadata
+candidate, setup-only Keychain lifecycle, and pure egress shadow guard; none is
+a selectable route or scheduler input. The broader invalidation triggers and
 profiles below are product policy, not shipped scheduler behavior.
 
 The target policy persists every event and applies cheap deterministic guards
@@ -65,3 +67,7 @@ Local defaults: repository inventory, search, formatting, test execution, log re
 | Fast | Choose the provider most likely to finish before the deadline; avoid slow cascades. |
 
 Learned checkpoint routing can replace thresholds only after SOAR has enough complete, evaluator-backed trajectories. Per-turn reinforcement learning is outside the first MVP.
+
+PR6A being locally implemented does not make a cloud candidate eligible for a
+lease. Provider validation, immediately-pre-dispatch egress admission, explicit
+Hybrid authority, and any paid canary remain unapproved PR6B work.

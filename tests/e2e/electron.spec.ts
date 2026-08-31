@@ -176,9 +176,77 @@ test("reviews current Git changes locally and refuses a stale Markdown copy", as
     await expect(localRoute).toBeEnabled();
     await expect(hybridRoute).toBeDisabled();
     await expect(
-      page.getByText("Cloud setup is not available in this build.", {
-        exact: true,
-      }),
+      page.getByText(
+        "Cloud setup does not enable Hybrid. Hybrid dispatch is locked in this build.",
+        {
+          exact: true,
+        },
+      ),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Set up cloud" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Cloud synthesis" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "Cloud synthesis" }),
+    ).toBeFocused();
+    await expect(page.getByText("Not configured", { exact: true })).toBeVisible();
+    await expect(page.getByText("Not validated", { exact: true })).toBeVisible();
+    await expect(page.getByText("Hybrid locked", { exact: true })).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /validate/u }),
+    ).toHaveCount(0);
+
+    const syntheticCredential = "SOAR_E2E_SYNTHETIC_CLOUD_CREDENTIAL";
+    const cloudCredential = page.getByLabel("OpenRouter credential");
+    await cloudCredential.fill(syntheticCredential);
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await expect(cloudCredential).toHaveValue("");
+    await expect(page.getByText("Stored locally", { exact: true })).toBeVisible();
+    await expect(page.locator("body")).not.toContainText(syntheticCredential);
+
+    await page.getByRole("button", { name: "Done" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Review current changes" }),
+    ).toBeVisible();
+    await expect(page.getByRole("radio", { name: "Hybrid" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Set up cloud" })).toBeFocused();
+    await expect(
+      page.getByText(
+        "Cloud setup does not enable Hybrid. Hybrid dispatch is locked in this build.",
+        {
+          exact: true,
+        },
+      ),
+    ).toBeVisible();
+
+    await page.getByRole("button", { name: "Set up cloud" }).click();
+    await expect(page.getByText("Stored locally", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Delete", exact: true }).click();
+    const removeCredential = page.getByRole("button", {
+      name: "Remove credential",
+    });
+    await expect(removeCredential).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(
+      page.getByRole("button", { name: "Keep credential" }),
+    ).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await expect(removeCredential).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(page.getByText("Not configured", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("OpenRouter credential")).toBeFocused();
+    await page.getByRole("button", { name: "Done" }).click();
+    await expect(page.getByRole("radio", { name: "Hybrid" })).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Set up cloud" })).toBeFocused();
+    await expect(
+      page.getByText(
+        "Cloud setup does not enable Hybrid. Hybrid dispatch is locked in this build.",
+        {
+          exact: true,
+        },
+      ),
     ).toBeVisible();
 
     await page.getByRole("button", { name: "Choose" }).click();

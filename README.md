@@ -10,7 +10,9 @@ routing runtime matures.
 > SOAR is an experimental, pre-release project. The checked-in runtime is a
 > local-only repository investigator plus a local-only **Review Current
 > Changes** slice. Cloud execution, write tools, and learned routing are design
-> targets, not shipping features yet.
+> targets, not shipping features yet. The locally implemented PR6A foundation
+> can store setup-only cloud credentials and describe a locked cloud candidate,
+> but it cannot validate a credential or dispatch a cloud request.
 
 The MVP optimizes a constrained trade-off rather than promising an impossible per-task optimum:
 
@@ -29,9 +31,12 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   independently verify the endpoint's external billing or infrastructure cost.
   The endpoint may run on this Mac or another machine, so “local” is not a
   loopback-placement or privacy guarantee.
-- Non-runtime benchmark planning snapshot: OpenRouter DeepSeek V4 Flash 0731.
-  It is proposed, unapproved, and not enabled or parsed by the app; availability
-  and pricing require fresh verification before any separately approved use.
+- Locked cloud candidate: PR6A records OpenRouter DeepSeek V4 Flash 0731 as
+  metadata-only product intent, separate from the runtime provider registry.
+  Optional Settings can add, replace, report local presence, and delete a
+  dedicated Keychain credential without returning it to the renderer. The
+  credential and candidate are not validated or dispatchable; availability and
+  pricing require fresh evidence and separate PR6B approval.
 - Routing runtime: Repository Investigator retains its deterministic v1 local
   assignment. Review Current Changes creates an app-owned v2
   `local_only_v1` session and keeps inspection and synthesis on the same
@@ -40,11 +45,12 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
 - Future paid-campaign design: a proposed USD 100 ceiling and USD 90 automatic
   stop. These values are not active runtime configuration and authorize no paid
   call.
-- Selected paid exposure for the implemented PR 1 through PR 5 slice: USD 0
+- Selected paid exposure for the production app remains USD 0
   under the operator's local-zero-cost attestation. The app constructs no
   separately configured metered or OpenRouter provider, and paid benchmark
-  calls have not started. This is not proof that an incorrectly classified
-  configured endpoint cannot bill its operator.
+  calls are not authorized. The PR6A setup path has no cloud transport or paid
+  attempt path. This is not proof that an incorrectly classified configured
+  endpoint cannot bill its operator.
 - Local Evaluation Bridge v1: a specialized, fail-closed command can now run
   the canonical production local-only change-review coordinator on one frozen
   nonempty public SOAR change and export a lossy privacy-safe canonical-event
@@ -69,7 +75,10 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   empty-snapshot structured-schema canary passed on 2026-08-30; the append-only
   build log records the exact scope and non-claims. The live canary demonstrates
   schema compatibility only, not a post-fix real-repository flow or full release
-  validation. PR 6, its paid OpenRouter canary, and every paid call remain
+  validation. PR 6 is now split:
+  [PR6A Cloud Setup and Dispatch Lock](docs/plans/PR6A_CLOUD_SETUP_DISPATCH_LOCK_V1.md)
+  is approved and implemented locally, with verification and release still
+  pending; PR6B, its paid OpenRouter canary, and every paid call remain
   separately unapproved and approval-gated.
 - [Local Evaluation Bridge v1](docs/plans/LOCAL_EVALUATION_BRIDGE_V1.md)
   defines the independently approved `$0`, local-only, one-live-episode proof
@@ -178,11 +187,12 @@ settlement/recovery closes the ledger and event history together.
 The proof uses nominally branded deterministic providers. Production constructs
 one configured, operator-attested local provider: Repository Investigator
 creates v1 sessions and Review Current Changes creates local-only v2 sessions.
-There is no separately configured production metered provider, OpenRouter
-credential path, user-selectable Hybrid execution, or claim that the fake
-result measures quality, cost savings, or latency improvement. The generic
-configured endpoint remains an operator trust boundary, not a billing oracle.
-See [ADR 0004](docs/adr/0004-checkpoint-router-budget-runner-v0.md).
+PR6A adds a setup-only OpenRouter Keychain lifecycle, but no secret-read
+resolver, production metered provider, or user-selectable Hybrid execution.
+There is no claim that the fake result measures quality, cost savings, or
+latency improvement. The generic configured endpoint remains an operator trust
+boundary, not a billing oracle. See
+[ADR 0004](docs/adr/0004-checkpoint-router-budget-runner-v0.md).
 
 ## Local-only desktop slice
 
@@ -190,6 +200,9 @@ The first working slice is an Electron application with:
 
 - a React task workspace with sessions, transcript, and run details;
 - a narrow, typed preload bridge with renderer sandboxing;
+- optional cloud Settings with strict metadata-only status/save/delete IPC,
+  setup-only macOS Keychain storage, explicit stored-but-unvalidated copy, and
+  a dispatch-locked Hybrid control;
 - an append-only SQLite session log and restart recovery;
 - streaming inference through the configured OpenAI-compatible vLLM endpoint;
 - a central read-only repository tool registry with bounded `list_files`,
@@ -219,14 +232,19 @@ The first working slice is an Electron application with:
   pre-inference context checkpoint during replay;
 - fail-closed completion handling for truncated, filtered, empty, malformed, or
   tool-looping provider responses, including evidence-backed citation
-  validation and a tool-free final synthesis after two duplicate observations.
+  validation and a tool-free final synthesis after two duplicate observations;
+- a pure cloud-egress shadow guard over canonical messages and host-derived
+  provenance. It returns bounded codes and hashes only, performs no I/O, and is
+  not connected to a production session or dispatch path.
 
 Neither production runtime path constructs the separately configured OpenRouter
-provider or exposes Hybrid session creation. The Review UI reports that no
-separate paid route is configured. The configured vLLM adapter is still a
+provider or exposes Hybrid session creation. The Review UI reports the local
+credential state separately from provider validation and keeps Hybrid locked.
+The configured vLLM adapter is still a
 generic OpenAI-compatible network path: its `local_zero_cost` classification is
 operator-attested and does not independently prove that the endpoint cannot
-bill. Cloud routing is a later, separately approved milestone. New desktop tasks
+bill. Production cloud routing remains a later, separately approved PR6B
+milestone. New desktop tasks
 select either the versioned `repository-investigator-v1` or `change-review-v1`
 track. The main process owns each track's policy and obligations; the renderer
 cannot supply arbitrary completion rules. Legacy sessions remain readable

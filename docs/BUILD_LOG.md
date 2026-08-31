@@ -3074,3 +3074,176 @@ References: [approved PR6A plan](plans/PR6A_CLOUD_SETUP_DISPATCH_LOCK_V1.md),
 [MVP readiness](MVP_READINESS.md),
 [checkpoint-router ADR](adr/0004-checkpoint-router-budget-runner-v0.md), and
 [baseline CI run](https://github.com/Lotus2077/SOAR/actions/runs/33319679991).
+
+### BL-20260830-1726-pr6a-cloud-setup-implemented -- 2026-08-30 -- PR6A Cloud Setup and Dispatch Lock implemented locally
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement the approved PR6A local-only boundary for a
+future cloud route: optional credential Settings, direct macOS Keychain setup
+lifecycle, metadata-only cloud-candidate state, a pure canonical-message egress
+guard, and structural production dispatch interlocks. Preserve immediate Local
+review, make no configured or external LLM-provider request from the PR6A setup
+path or proof, spend `$0`, and keep PR6B unapproved.
+
+Decisions:
+
+- Keep the cloud candidate outside `ProviderRegistry` and outside the
+  `InferenceProvider` type. Production still constructs exactly one local or
+  deterministic fake provider and passes no real hybrid runtime.
+- Give PR6A a setup-only credential-store interface with status, write/replace,
+  and delete. It has no secret read or dispatch-time resolution method.
+- Serialize credential mutations and fail a concurrent save/delete with a
+  stable `operation_in_progress` result before the rejected secret reaches the
+  store. Coalesce concurrent metadata reads, but do not make Local review wait
+  for Keychain status.
+- Keep all Hybrid availability copy state-neutral: storing a credential does
+  not enable Hybrid. A forged Hybrid review request is rejected before
+  credential, provider, session, campaign, budget, or network work.
+- Treat canonical-message provenance as an exact UTF-16 segment partition bound
+  to semantic hashes. Deny missing consent, incomplete provenance, roots and
+  traversal variants, recognized secrets, denied paths, unadmitted artifacts,
+  tool definitions, and any assistant-owned `tool_calls` field. Return only
+  bounded reason codes and hashes.
+- Keep Settings optional and renderer-secret handling one-way: the uncontrolled
+  password field is cleared synchronously before IPC, no browser storage is
+  used, and IPC returns metadata only. Add deliberate keyboard focus entry,
+  confirmation, cancellation, deletion, and return behavior.
+- Keep the setup adapter on the documented terminating `/usr/bin/security`
+  write form for PR6A. An attempted `-T ""` ACL tightening required interactive
+  authorization and hit both the test and adapter timeout, so it was reverted.
+  The current staged item is not app-identity-isolated; native Security-
+  framework identity/ACL design plus migration or recreation is a hard PR6B
+  prerequisite before any read capability.
+- Treat `/usr/bin/security` exit status as the protocol and discard bounded
+  stdout/stderr. The approved plan's `malformed-output` wording means stream
+  errors and output-limit violations fail closed; PR6A does not parse or claim
+  semantic validity for arbitrary diagnostic text.
+
+Changes:
+
+- Added strict shared cloud-setup contracts, a locked metadata-only candidate,
+  direct `/usr/bin/security` Keychain adapter, an ephemeral fake-mode presence
+  store, credential lifecycle service, and pure egress-policy module.
+- Added narrow main/preload/renderer status, save/replace, and delete methods;
+  optional Cloud Settings; accurate stored-but-unvalidated and Hybrid-locked
+  states; and production construction that contains no cloud transport.
+- Added bounded subprocess time, output, kill, and close handling. Credential
+  writes use argument-array execution with no shell, put `-w` last, and provide
+  the synthetic value only through standard input.
+- Added unit, integration, renderer, IPC, provider-registry, and Electron tests
+  for lifecycle, restart, concurrency, secret isolation, focus, forged inputs,
+  Local readiness, path/secret/provenance adversaries, and construction locks.
+- Replaced raw strict-schema exceptions at the credential IPC boundary with a
+  constant `invalid_credential` status, added unknown-presence recovery after
+  resolved Keychain failures, and closed egress scanning over bounded Unicode,
+  percent, slash, and path transforms with fail-closed transform exhaustion.
+- Updated the architecture, routing, readiness, README, and approved-plan status
+  to describe the implemented local boundary without claiming cloud readiness.
+
+Evidence:
+
+- The evidence below applies to the dirty implementation working tree based on
+  approval checkpoint `21db5e988dce42e70fbfaf0bd69accc528672e66`; it is not a
+  clean release-head or exact implementation-SHA claim.
+- Approval checkpoint `21db5e988dce42e70fbfaf0bd69accc528672e66`
+  predates runtime work and passed exact-SHA GitHub Actions run `33323059340`,
+  including Linux check job `99288305404` and macOS Electron job
+  `99288440431`.
+- `pnpm typecheck` passed both TypeScript projects. The nine-file focused
+  `pnpm exec vitest run` command over cloud contracts/service/stores, egress,
+  IPC, provider-registry, and renderer review/Settings tests passed 132 tests.
+- Final dirty-tree `pnpm check` passed readiness for 22 research plus 20 coding
+  workloads, the 41-entry ledger, both TypeScript projects, 74 test files with
+  three skipped, 914 tests with five skipped, and all main, preload, and
+  renderer bundles.
+- Before the late IPC, renderer, and egress-only corrections, the opt-in command
+  `SOAR_RUN_KEYCHAIN_INTEGRATION=true pnpm exec vitest run` over the integration,
+  native-store, credential-service, and ephemeral-store files passed four files
+  and 46 tests. It used one unique synthetic item, observed
+  add/status/reconstruction/replace/delete, and verified absence after cleanup;
+  it did not read or modify a real credential. The adapter source was restored
+  to that same command form after the later rejected ACL experiment, but a
+  post-revert platform rerun is currently blocked as recorded below.
+- Final dirty-tree `pnpm test:e2e` passed all three Electron workflows,
+  including restart, cancellation, and Local current-change review with the
+  optional Settings and disabled-Hybrid assertions embedded in the review
+  workflow.
+- An earlier dirty-tree `pnpm package:mac` built and locally signed the app,
+  verified the app and extracted archive signatures, and produced a verified
+  arm64 archive before the late corrections. The final package rerun rebuilt
+  the corrected bundles but did not finish, as recorded below. Readiness found
+  no high-confidence tracked-file secret pattern and `git diff --check` passed.
+
+Failures or blockers: The first real Keychain attempt inside the restricted
+execution sandbox returned stable `keychain_write_failed`; the same isolated
+suite then passed outside that restriction and cleaned up its synthetic item.
+Initial adversarial review found over-broad renderer metadata, message-index-
+only provenance, Unicode/percent and parent-traversal bypasses, tool definitions
+outside admission, premature subprocess completion, empty `tool_calls`, an
+unbounded mutation queue, incomplete focus restoration, false global no-
+provider-contact copy, and Local readiness coupled to Keychain status. Late
+review additionally found that a raw Zod strict error could echo a credential
+used as an unknown property name, resolved `local_storage_error` results entered
+the save/delete success path, retry/status changes were not announced or
+focused accessibly, field/error contrast was insufficient, and four-layer,
+full-width, and eight-digit Unicode escape forms bypassed egress scanning. Each
+code defect was corrected and its focused regression passes.
+
+The `-T ""` Keychain ACL experiment then timed out first at Vitest's five-
+second limit and again at the adapter's ten-second limit with
+`keychain_timeout`; it was reverted. Test cleanup hooks returned without an
+additional cleanup failure. Subsequent post-revert CRUD attempts still hit the
+five-second harness timeout because the host's macOS authentication agent was
+wedged; even metadata-only `security show-keychain-info` hung. Eight orphaned
+GitHub credential-lookup subprocesses were terminated with explicit approval,
+but the system SecurityAgent remained unresponsive and a force kill was
+rejected as unsafe. The exact final-tree native CRUD rerun therefore remains
+blocked on the user safely dismissing/unlocking the macOS Keychain dialog or
+restarting the host.
+
+The final `pnpm package:mac` rerun rebuilt the corrected bundles but then spent
+several minutes stalled in Electron packaging after module discovery and was
+cancelled with SIGINT; the earlier archive proof is not exact-final-tree proof.
+A governance review also stopped closure until this entry recorded the late
+negatives and corrected its evidence scope. Exact implementation-commit CI has
+not run. This milestone remains `Implemented`, not `Verified`.
+
+Limitations and non-claims: The PR6A setup path does not read the stored
+credential, validate it, contact a cloud provider, prove provider/model
+availability or price, construct a cloud runtime, enable Hybrid, create cloud
+consent or a campaign, or dispatch repository content. The existing Local route
+remains intentionally network-capable toward its configured vLLM endpoint, and
+tests exercise synthetic loopback OpenAI-compatible transports; zero dispatch
+is a structural cloud-path result, not an OS network sandbox.
+
+The CLI-created Keychain item retains `/usr/bin/security`'s default creator ACL
+and is not app-identity-isolated. PR6B must use a separately approved native
+Security-framework identity/ACL design, migrate or recreate staged CLI items,
+and must not add a CLI `find ... -w` secret resolver. Provenance source
+classification remains trusted host input, the scanner is bounded rather than
+general DLP, and semantic hashes do not prove eventual HTTP wire bytes. No real
+VoiceOver or 200% zoom run occurred. Packaging uses the default Electron icon,
+is not notarized, and needs an exact-final-tree rerun. No quality, cost,
+latency, routing, hostile-same-account-process resistance, or release-readiness
+improvement is claimed.
+
+Paid exposure: `$0`. Proof used deterministic tests, synthetic loopback
+OpenAI-compatible fixtures, isolated synthetic Keychain identities, local
+Electron/packaging, and the already-green approval-checkpoint CI. The PR6A
+setup/proof work made no configured vLLM, OpenRouter, external model-list,
+credential-validation, price, limit, health, inference, retry, fallback,
+evaluator, or other external LLM-provider request.
+
+Next gate: Safely clear the host Keychain authorization state, rerun exact-tree
+synthetic CRUD and `pnpm package:mac`, then validate and commit this
+implementation. Require clean exact-commit `pnpm check:release-head`, Electron
+E2E, push, and both exact-SHA GitHub Actions jobs before appending a status-only
+`Verified` closure. PR6B still needs a separate committed plan and explicit
+approval before any credential read for dispatch, provider contact, repository
+egress, paid reservation, or canary.
+
+References: [approved PR6A plan](plans/PR6A_CLOUD_SETUP_DISPATCH_LOCK_V1.md),
+[MVP readiness](MVP_READINESS.md), [architecture](ARCHITECTURE.md),
+[routing policy](ROUTING_POLICY.md), and
+[approval-checkpoint CI](https://github.com/Lotus2077/SOAR/actions/runs/33323059340).

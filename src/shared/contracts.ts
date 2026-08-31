@@ -9,6 +9,12 @@ import {
   type SessionStatus,
 } from "./session-events";
 import type { ReviewResultV1 } from "./review-result-contract";
+import type {
+  CloudSetupStatus,
+  HybridLockedReachabilitySummary,
+  HybridLockedReason,
+  SaveCloudCredentialInput,
+} from "./cloud-setup-contracts";
 
 export const sessionStatuses = SESSION_STATUSES;
 export const sessionStatusSchema = SessionStatusSchema;
@@ -80,9 +86,9 @@ export interface ReviewAvailability {
   };
   hybrid: {
     enabled: false;
-    reason: "Cloud setup is not available in this build.";
+    reason: HybridLockedReason;
     separatelyConfiguredPaidProviderReachable: false;
-    reachabilitySummary: "No separately configured paid provider is available in this build.";
+    reachabilitySummary: HybridLockedReachabilitySummary;
     consent: "none";
   };
 }
@@ -151,6 +157,9 @@ export interface SoarRendererApi {
     input: z.input<typeof createChangeReviewSessionInputSchema>,
   ): Promise<SessionSnapshot>;
   getChangeReviewView(id: string): Promise<ChangeReviewView>;
+  getCloudSetupStatus(): Promise<CloudSetupStatus>;
+  saveCloudCredential(input: SaveCloudCredentialInput): Promise<CloudSetupStatus>;
+  deleteCloudCredential(): Promise<CloudSetupStatus>;
   subscribeSessionEvents(listener: (update: SessionUpdate) => void): () => void;
 }
 
@@ -164,5 +173,8 @@ export const IPC_CHANNELS = {
   getReviewAvailability: "soar:get-review-availability",
   createChangeReviewSession: "soar:create-change-review-session",
   getChangeReviewView: "soar:get-change-review-view",
+  getCloudSetupStatus: "soar:get-cloud-setup-status",
+  saveCloudCredential: "soar:save-cloud-credential",
+  deleteCloudCredential: "soar:delete-cloud-credential",
   sessionUpdate: "soar:session-update",
 } as const;

@@ -20,11 +20,13 @@
   --user-bubble: #dae7fd;
   --stroke: rgba(31, 35, 40, 0.11);
   --stroke-strong: #d0d7de;
+  --field-border: #7d8590;
   --green: #1f8a65;
   --green-soft: rgba(31, 138, 101, 0.1);
   --orange: #b86a2f;
   --orange-soft: rgba(184, 106, 47, 0.1);
   --red: #cf2d56;
+  --error-text: #a40e37;
   --red-soft: rgba(207, 45, 86, 0.09);
   --sidebar-width: 14.8125rem;
   --titlebar-height: 2.125rem;
@@ -59,11 +61,13 @@
     --user-bubble: #07162c;
     --stroke: rgba(230, 237, 243, 0.1);
     --stroke-strong: #30363d;
+    --field-border: #6e7681;
     --green: #55a583;
     --green-soft: rgba(85, 165, 131, 0.11);
     --orange: #d59a63;
     --orange-soft: rgba(213, 154, 99, 0.12);
     --red: #e75e78;
+    --error-text: #ff7b91;
     --red-soft: rgba(231, 94, 120, 0.11);
     --shadow-composer:
       0 0 0 1px rgba(230, 237, 243, 0.025),
@@ -470,10 +474,28 @@ kbd {
   font-weight: 550;
 }
 
-.sidebar-footer > svg {
+.sidebar-footer > svg,
+.sidebar-settings-button svg {
   width: 12px;
   height: 12px;
   opacity: 0.65;
+}
+
+.sidebar-settings-button {
+  display: grid;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: var(--radius-row);
+  color: var(--text-secondary);
+  background: transparent;
+}
+
+.sidebar-settings-button:hover {
+  color: var(--foreground);
+  background: var(--accent-soft);
 }
 
 .runtime-dot {
@@ -939,6 +961,16 @@ kbd {
   font-weight: 550;
 }
 
+.review-mode-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.review-mode-actions .review-text-button {
+  margin-right: -3px;
+}
+
 .review-mode-row.is-selected .review-mode-state {
   color: var(--accent);
 }
@@ -1038,6 +1070,331 @@ kbd {
 .review-start-button svg {
   width: 14px;
   height: 14px;
+}
+
+/* Cloud setup is deliberately a quiet Settings surface, not onboarding. */
+.cloud-settings {
+  width: min(42rem, calc(100% - 48px));
+  height: 100%;
+  margin: 0 auto;
+  padding: clamp(34px, 7vh, 68px) 0 42px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.cloud-settings-heading {
+  position: relative;
+  max-width: 38rem;
+}
+
+.cloud-settings-heading h1 {
+  margin: 6px 0 0;
+  color: var(--foreground);
+  font-size: clamp(25px, 3vw, 34px);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+}
+
+.cloud-settings-heading p {
+  max-width: 62ch;
+  margin: 12px 0 0;
+  color: var(--text-secondary);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.cloud-settings-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0 0 22px;
+  padding: 3px 5px 3px 2px;
+  border: 0;
+  border-radius: var(--radius-row);
+  color: var(--text-secondary);
+  background: transparent;
+  font-size: 10.5px;
+  font-weight: 550;
+}
+
+.cloud-settings-back:hover {
+  color: var(--foreground);
+  background: var(--accent-softer);
+}
+
+.cloud-settings-back svg {
+  width: 12px;
+  height: 12px;
+}
+
+.cloud-settings-loading,
+.cloud-settings-load-error {
+  margin-top: 34px;
+  padding: 18px 3px;
+  border-top: 1px solid var(--stroke-strong);
+  border-bottom: 1px solid var(--stroke);
+  color: var(--text-tertiary);
+  font-size: 11.5px;
+}
+
+.cloud-settings-load-error {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.cloud-settings-load-error > svg {
+  width: 15px;
+  height: 15px;
+  color: var(--orange);
+}
+
+.cloud-settings-load-error > span {
+  display: grid;
+  gap: 2px;
+}
+
+.cloud-settings-load-error strong {
+  color: var(--foreground);
+  font-size: 11.5px;
+}
+
+.cloud-settings-body {
+  margin-top: 34px;
+  border-top: 1px solid var(--stroke-strong);
+}
+
+.cloud-candidate {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  min-height: 72px;
+  align-items: center;
+  gap: 11px;
+  padding: 10px 3px;
+  border-bottom: 1px solid var(--stroke);
+}
+
+.cloud-candidate-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: var(--radius-control);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.cloud-candidate-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.cloud-candidate > span,
+.cloud-candidate > span > span,
+.cloud-state-card > span,
+.cloud-credential-heading > span,
+.cloud-delete-confirm > span {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.cloud-candidate small,
+.cloud-state-card small,
+.cloud-credential-heading small,
+.cloud-delete-confirm small {
+  color: var(--text-tertiary);
+  font-size: 9.5px;
+  line-height: 1.35;
+}
+
+.cloud-candidate strong {
+  font-size: 12.5px;
+  font-weight: 620;
+}
+
+.cloud-candidate > span > span {
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+}
+
+.cloud-state-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--stroke);
+}
+
+.cloud-state-card {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  min-height: 106px;
+  align-content: start;
+  gap: 8px;
+  padding: 14px 12px;
+}
+
+.cloud-state-card + .cloud-state-card {
+  border-left: 1px solid var(--stroke);
+}
+
+.cloud-state-card > svg {
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  color: var(--text-tertiary);
+}
+
+.cloud-state-card strong {
+  color: var(--foreground);
+  font-size: 11px;
+  font-weight: 610;
+}
+
+.cloud-state-card > span > span {
+  color: var(--text-tertiary);
+  font-size: 9.75px;
+  line-height: 1.42;
+}
+
+.cloud-state-card.state-stored_unvalidated > svg {
+  color: var(--green);
+}
+
+.cloud-state-card.state-local_storage_error > svg,
+.cloud-state-card.state-unvalidated > svg {
+  color: var(--orange);
+}
+
+.cloud-state-card.state-locked > svg {
+  color: var(--text-secondary);
+}
+
+.cloud-credential-form {
+  margin-top: 30px;
+}
+
+.cloud-credential-heading {
+  padding: 0 3px 10px;
+}
+
+.cloud-credential-heading strong,
+.cloud-delete-confirm strong {
+  color: var(--foreground);
+  font-size: 11.5px;
+  font-weight: 610;
+}
+
+.cloud-credential-field {
+  display: grid;
+  gap: 6px;
+}
+
+.cloud-credential-field > span {
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  font-weight: 550;
+}
+
+.cloud-credential-field input {
+  width: 100%;
+  height: 34px;
+  padding: 0 9px;
+  border: 1px solid var(--field-border);
+  border-radius: var(--radius-control);
+  color: var(--foreground);
+  background: var(--surface-raised);
+  font-family: Menlo, Monaco, "SF Mono", monospace;
+  font-size: 11.5px;
+  box-shadow: var(--shadow-composer);
+}
+
+.cloud-credential-field input:disabled {
+  opacity: 0.55;
+}
+
+.cloud-credential-privacy {
+  max-width: 64ch;
+  margin: 7px 0 0;
+  color: var(--text-tertiary);
+  font-size: 9.75px;
+  line-height: 1.45;
+}
+
+.cloud-operation-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 8px 9px;
+  border-left: 2px solid var(--red);
+  color: var(--error-text);
+  background: var(--red-soft);
+  font-size: 10.5px;
+}
+
+.cloud-status-retry {
+  margin-top: 14px;
+}
+
+.cloud-operation-error svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.cloud-credential-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.cloud-save-button {
+  margin-top: 0;
+}
+
+.cloud-delete-button,
+.cloud-delete-confirm-button {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 1px solid var(--stroke-strong);
+  border-radius: var(--radius-control);
+  color: var(--red);
+  background: transparent;
+  font-size: 10.5px;
+  font-weight: 570;
+}
+
+.cloud-delete-button:hover:not(:disabled),
+.cloud-delete-confirm-button:hover:not(:disabled) {
+  background: var(--red-soft);
+}
+
+.cloud-delete-button svg {
+  width: 12px;
+  height: 12px;
+}
+
+.cloud-delete-confirm {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  padding: 11px 10px;
+  border: 1px solid color-mix(in srgb, var(--red) 28%, var(--stroke));
+  border-radius: var(--radius-control);
+  background: var(--red-soft);
+}
+
+.cloud-delete-confirm-button {
+  border-color: color-mix(in srgb, var(--red) 45%, var(--stroke-strong));
 }
 
 .review-workspace {
@@ -2661,6 +3018,29 @@ kbd {
   .review-setup {
     width: calc(100% - 30px);
     padding-top: 34px;
+  }
+
+  .cloud-settings {
+    width: calc(100% - 30px);
+    padding-top: 28px;
+  }
+
+  .cloud-state-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cloud-state-card {
+    min-height: 76px;
+  }
+
+  .cloud-state-card + .cloud-state-card {
+    border-top: 1px solid var(--stroke);
+    border-left: 0;
+  }
+
+  .cloud-delete-confirm {
+    grid-template-columns: 1fr;
+    justify-items: start;
   }
 
   .review-workspace-header,

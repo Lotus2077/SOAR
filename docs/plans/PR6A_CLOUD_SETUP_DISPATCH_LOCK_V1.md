@@ -1,13 +1,14 @@
 # PR6A Cloud Setup and Dispatch Lock v1
 
-Status: **Approved for local `$0` implementation; not Implemented, Verified, or
-Released; provider contact and Hybrid execution remain prohibited**
+Status: **Implemented locally; verification pending; not Verified or Released;
+provider contact and Hybrid execution remain prohibited**
 
 - Plan ID: `pr6a-cloud-setup-dispatch-lock-v1-plan-1`
 - Parent plan: `hybrid-lease-router-v0-plan-2`
 - Baseline revision: `e73f5d3012e0e478eb158fea740f9dd60b82ae08`
 - Approved: 2026-08-31 by the project owner in the project task
 - Approval ledger: `BL-20260830-1629-pr6a-cloud-setup-approved`
+- Implementation ledger: `BL-20260830-1726-pr6a-cloud-setup-implemented`
 - Project log: [BUILD_LOG.md](../BUILD_LOG.md)
 
 ## Decision
@@ -164,6 +165,16 @@ Required invariants:
   non-macOS cases fail closed with stable secret-free codes; and
 - synthetic integration items use unique test-only service/account identities
   and are deleted in bounded cleanup.
+
+Implementation clarification: `/usr/bin/security` stdout and stderr are not a
+parsed data protocol. The adapter discards bounded diagnostic bytes and uses
+only exit status. The approved `malformed-output` requirement is implemented as
+fail-closed stream errors and output-limit violations; it is not a claim that
+arbitrary bounded diagnostic text has a semantic schema. An attempted `-T ""`
+ACL tightening did not terminate without interactive authorization and was
+reverted. PR6A remains setup-only with no read capability; native Security-
+framework app identity, ACL design, and staged-item migration or recreation are
+required before PR6B may resolve a credential.
 
 ### 3. Settings is optional and metadata-only
 
@@ -353,7 +364,7 @@ metadata-only projection.
 | Egress deny | Absolute roots, relevant escaped forms, known credentials, token/private-key forms, denied paths, and unapproved artifacts deny |
 | Egress pass | Bounded admitted workspace-relative evidence passes only under explicit synthetic consent input |
 | Egress privacy | Findings contain codes and hashes only; rejected content is never returned or persisted |
-| Dispatch lock | Zero cloud provider construction, zero cloud sessions, zero budget campaign/reservation, and zero provider/network calls |
+| Dispatch lock | Zero cloud provider construction, zero cloud sessions, zero budget campaign/reservation, and zero configured/external cloud-provider calls from PR6A; local synthetic loopback fixtures remain permitted |
 | Regression | Existing local review, fake-hybrid, recovery, budget, renderer, and Electron tests remain green |
 | Release candidate | `pnpm check`, `pnpm test:e2e`, clean `pnpm check:release-head`, and exact-SHA Linux/macOS CI pass |
 

@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import type { SoarConfig } from "../../src/main/config";
 import {
   parseProviderDescriptor,
+  ProviderDescriptorSchema,
   type ProviderDescriptor,
 } from "../../src/main/providers/provider-descriptor";
 import { ProviderRegistry } from "../../src/main/providers/provider-registry";
@@ -155,7 +158,7 @@ describe("ProviderRegistry", () => {
     ).toThrow(/lacks required capabilities/u);
   });
 
-  it("constructs only the selected local provider in the PR 2 runtime catalog", () => {
+  it("keeps one dispatch registration and a separately typed locked cloud candidate", () => {
     const config: SoarConfig = {
       providerMode: "local",
       fakeDelayMs: 0,
@@ -188,6 +191,47 @@ describe("ProviderRegistry", () => {
     expect(
       catalog.registry.listDescriptors()[0]?.capabilities,
     ).toContain("structured_json_schema");
+    expect(catalog.cloudCandidates).toEqual([
+      {
+        candidateId: "openrouter-deepseek-v4-flash-0731",
+        providerLabel: "OpenRouter",
+        modelLabel: "DeepSeek V4 Flash",
+        adapterFamily: "openai-compatible",
+        intendedModelSlug: "deepseek/deepseek-v4-flash-0731",
+      },
+    ]);
+    expect(
+      ProviderDescriptorSchema.safeParse(catalog.cloudCandidates[0]).success,
+    ).toBe(false);
+    expect(
+      catalog.registry.getDescriptor(catalog.cloudCandidates[0]!.candidateId),
+    ).toBeUndefined();
+  });
+
+  it("keeps production bootstrap free of a cloud-provider or Hybrid constructor path", () => {
+    const bootstrapSource = readFileSync(
+      new URL("../../src/main/index.ts", import.meta.url),
+      "utf8",
+    );
+    const catalogSource = readFileSync(
+      new URL(
+        "../../src/main/providers/runtime-catalog.ts",
+        import.meta.url,
+      ),
+      "utf8",
+    );
+
+    expect(bootstrapSource).not.toMatch(/\bhybridRuntime\s*:/u);
+    expect(bootstrapSource).not.toMatch(
+      /\b(?:new|create)[A-Za-z0-9_]*(?:Cloud|OpenRouter)[A-Za-z0-9_]*Provider\b/u,
+    );
+    expect(catalogSource).not.toMatch(
+      /\b(?:new|create)[A-Za-z0-9_]*(?:Cloud|OpenRouter)[A-Za-z0-9_]*Provider\b/u,
+    );
+    expect(catalogSource.match(/\bnew\s+[A-Za-z0-9_]+Provider\b/gu)).toEqual([
+      "new OpenAICompatibleProvider",
+      "new FakeProvider",
+    ]);
   });
 
   it("rejects duplicate ids and mismatched implementation identity", () => {

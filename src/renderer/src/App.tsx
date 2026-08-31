@@ -10,6 +10,7 @@ import {
   Files,
   FolderOpen,
   GitDiff,
+  Gear,
   HardDrives,
   List,
   LockKey,
@@ -37,6 +38,13 @@ import {
   useState,
 } from "react";
 
+import type {
+  CloudSetupStatus,
+  HybridLockedReachabilitySummary,
+  HybridLockedReason,
+} from "../../shared/cloud-setup-contracts";
+import { CloudSettings } from "./CloudSettings";
+
 type Payload = Record<string, unknown>;
 
 type ReviewFreshness =
@@ -60,9 +68,9 @@ interface ReviewAvailability {
   };
   hybrid: {
     enabled: false;
-    reason: "Cloud setup is not available in this build.";
+    reason: HybridLockedReason;
     separatelyConfiguredPaidProviderReachable: false;
-    reachabilitySummary: "No separately configured paid provider is available in this build.";
+    reachabilitySummary: HybridLockedReachabilitySummary;
     consent: "none";
   };
 }
@@ -111,10 +119,11 @@ const defaultReviewAvailability: ReviewAvailability = {
   },
   hybrid: {
     enabled: false,
-    reason: "Cloud setup is not available in this build.",
+    reason:
+      "Cloud setup does not enable Hybrid. Hybrid dispatch is locked in this build.",
     separatelyConfiguredPaidProviderReachable: false,
     reachabilitySummary:
-      "No separately configured paid provider is available in this build.",
+      "This build performs no cloud-provider validation or dispatch.",
     consent: "none",
   },
 };
@@ -736,6 +745,7 @@ interface SessionSidebarProps {
   onSelect: (id: string) => void;
   onNew: () => void;
   onReview: () => void;
+  onSettings: () => void;
   onClose: () => void;
 }
 
@@ -749,6 +759,7 @@ function SessionSidebar({
   onSelect,
   onNew,
   onReview,
+  onSettings,
   onClose,
 }: SessionSidebarProps) {
   const [query, setQuery] = useState("");
@@ -854,7 +865,16 @@ function SessionSidebar({
           <strong>Local runtime</strong>
           {runtimeActive ? "Working" : "Checked on run"}
         </span>
-        <Cpu aria-hidden="true" />
+        <button
+          type="button"
+          className="sidebar-settings-button"
+          data-cloud-settings-trigger="sidebar"
+          onClick={onSettings}
+          aria-label="Open settings"
+          title="Settings"
+        >
+          <Gear aria-hidden="true" />
+        </button>
       </div>
     </aside>
   );
@@ -1376,6 +1396,7 @@ export function ReviewSetup({
   loading,
   busy,
   onChooseWorkspace,
+  onOpenCloudSettings,
   onStart,
 }: {
   workspace: { path: string; name: string } | null;
@@ -1383,6 +1404,7 @@ export function ReviewSetup({
   loading: boolean;
   busy: boolean;
   onChooseWorkspace: () => void;
+  onOpenCloudSettings: () => void;
   onStart: () => void;
 }) {
   const localDetail = availability.local.model
@@ -1422,15 +1444,25 @@ export function ReviewSetup({
             </span>
             <span className="review-mode-state">Selected</span>
           </label>
-          <label className="review-mode-row is-disabled" aria-disabled="true">
-            <input type="radio" name="review-route" disabled />
+          <div className="review-mode-row is-disabled">
+            <input type="radio" name="review-route" aria-label="Hybrid" disabled />
             <span className="review-setting-icon"><Cpu /></span>
             <span className="review-setting-copy">
               <strong>Hybrid</strong>
               <small>{availability.hybrid.reason}</small>
             </span>
-            <span className="review-mode-state">Unavailable</span>
-          </label>
+            <span className="review-mode-actions">
+              <span className="review-mode-state">Unavailable</span>
+              <button
+                type="button"
+                className="review-text-button"
+                data-cloud-settings-trigger="review"
+                onClick={onOpenCloudSettings}
+              >
+                Set up cloud
+              </button>
+            </span>
+          </div>
         </fieldset>
 
         <div className="review-policy-grid">
@@ -2099,23 +2131,52 @@ export function App() {
   const [loadingSession, setLoadingSession] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [surface, setSurface] = useState<"task" | "review_setup">("task");
+  const [surface, setSurface] = useState<
+    "task" | "review_setup" | "settings"
+  >("task");
   const [reviewAvailability, setReviewAvailability] = useState<ReviewAvailability>(
     defaultReviewAvailability,
   );
   const [reviewAvailabilityLoading, setReviewAvailabilityLoading] = useState(false);
   const [reviewView, setReviewView] = useState<ChangeReviewView | null>(null);
   const [reviewViewLoading, setReviewViewLoading] = useState(false);
+  const [cloudSetupStatus, setCloudSetupStatus] =
+    useState<CloudSetupStatus | null>(null);
+  const [cloudSetupLoading, setCloudSetupLoading] = useState(false);
+  const [cloudSetupLoadFailed, setCloudSetupLoadFailed] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false);
   const compactLayout = useMediaQuery("(max-width: 880px)");
   const selectedIdRef = useRef<string | null>(null);
   const latestAssistantStartRef = useRef<string | null>(null);
   const reviewRequestOrdinalRef = useRef(0);
+  const settingsReturnSurfaceRef = useRef<"task" | "review_setup">("task");
+  const settingsReturnFocusRef = useRef<"sidebar" | "review" | null>(null);
+  const settingsFocusRestorePendingRef = useRef(false);
 
   useEffect(() => {
     selectedIdRef.current = selectedId;
   }, [selectedId]);
+
+  useEffect(() => {
+    const focusTarget = settingsReturnFocusRef.current;
+    if (
+      surface === "settings" ||
+      focusTarget === null ||
+      !settingsFocusRestorePendingRef.current
+    ) {
+      return;
+    }
+    settingsFocusRestorePendingRef.current = false;
+    settingsReturnFocusRef.current = null;
+    const candidate = document.querySelector<HTMLElement>(
+      `[data-cloud-settings-trigger="${focusTarget}"]`,
+    );
+    const target = candidate?.closest("[inert]")
+      ? document.querySelector<HTMLElement>("[data-cloud-settings-return-menu]")
+      : candidate;
+    target?.focus();
+  }, [surface]);
 
   useEffect(() => {
     if (snapshot?.taskTrack !== "change-review-v1") {
@@ -2315,6 +2376,75 @@ export function App() {
     }
   }, [busy, task, upsertSummary, workspace]);
 
+  const loadCloudSetupStatus = useCallback(() => {
+    setCloudSetupLoading(true);
+    setCloudSetupLoadFailed(false);
+    void window.soar
+      .getCloudSetupStatus()
+      .then((status) => setCloudSetupStatus(status))
+      .catch(() => {
+        setCloudSetupStatus(null);
+        setCloudSetupLoadFailed(true);
+      })
+      .finally(() => setCloudSetupLoading(false));
+  }, []);
+
+  const openCloudSettings = useCallback(
+    (
+      returnSurface: "task" | "review_setup",
+      returnFocus: "sidebar" | "review",
+    ) => {
+      settingsReturnSurfaceRef.current = returnSurface;
+      settingsReturnFocusRef.current = returnFocus;
+      settingsFocusRestorePendingRef.current = false;
+      setSurface("settings");
+      setError(null);
+      setSidebarOpen(false);
+      loadCloudSetupStatus();
+    },
+    [loadCloudSetupStatus],
+  );
+
+  const closeCloudSettings = useCallback(() => {
+    const returnSurface = settingsReturnSurfaceRef.current;
+    settingsFocusRestorePendingRef.current = true;
+    setSurface(returnSurface);
+    setError(null);
+
+    if (returnSurface !== "review_setup") return;
+    const api = reviewApi();
+    if (!api) {
+      setReviewAvailability(defaultReviewAvailability);
+      setError("Review Current Changes is not available in this app build.");
+      return;
+    }
+    setReviewAvailabilityLoading(true);
+    void api
+      .getReviewAvailability()
+      .then(setReviewAvailability)
+      .catch(() => {
+        setReviewAvailability(defaultReviewAvailability);
+        setError("Local review support could not be checked.");
+      })
+      .finally(() => setReviewAvailabilityLoading(false));
+  }, []);
+
+  const saveCloudCredential = useCallback((credential: string) => {
+    return window.soar.saveCloudCredential({ credential }).then((status) => {
+      setCloudSetupStatus(status);
+      setCloudSetupLoadFailed(false);
+      return status;
+    });
+  }, []);
+
+  const deleteCloudCredential = useCallback(() => {
+    return window.soar.deleteCloudCredential().then((status) => {
+      setCloudSetupStatus(status);
+      setCloudSetupLoadFailed(false);
+      return status;
+    });
+  }, []);
+
   const openReviewSetup = useCallback(() => {
     selectedIdRef.current = null;
     setSelectedId(null);
@@ -2442,20 +2572,29 @@ export function App() {
         onSelect={selectSession}
         onNew={newTask}
         onReview={openReviewSetup}
+        onSettings={() =>
+          openCloudSettings(
+            surface === "review_setup" ? "review_setup" : "task",
+            "sidebar",
+          )
+        }
         onClose={() => setSidebarOpen(false)}
       />
 
       <main className="main-workspace">
-        <header className={`task-header ${snapshot || surface === "review_setup" ? "has-session" : "is-empty"}`}>
+        <header className={`task-header ${snapshot || surface !== "task" ? "has-session" : "is-empty"}`}>
           <button
             className="icon-button session-menu-button"
+            data-cloud-settings-return-menu
             onClick={() => setSidebarOpen(true)}
             aria-label="Open sessions"
           >
             <SidebarSimple />
           </button>
           <div className="task-heading">
-            {snapshot ? (
+            {surface === "settings" ? (
+              <strong>Settings</strong>
+            ) : snapshot ? (
               <>
                 <strong>{snapshot.title || "Untitled task"}</strong>
                 <span>{workspaceName(snapshot.workspaceRoot)}</span>
@@ -2486,13 +2625,26 @@ export function App() {
         ) : null}
 
         <section className="conversation-panel">
-          {surface === "review_setup" ? (
+          {surface === "settings" ? (
+            <CloudSettings
+              status={cloudSetupStatus}
+              loading={cloudSetupLoading}
+              loadFailed={cloudSetupLoadFailed}
+              onRetry={loadCloudSetupStatus}
+              onSave={saveCloudCredential}
+              onDelete={deleteCloudCredential}
+              onDone={closeCloudSettings}
+            />
+          ) : surface === "review_setup" ? (
             <ReviewSetup
               workspace={workspace}
               availability={reviewAvailability}
               loading={reviewAvailabilityLoading}
               busy={busy}
               onChooseWorkspace={chooseWorkspace}
+              onOpenCloudSettings={() =>
+                openCloudSettings("review_setup", "review")
+              }
               onStart={startChangeReview}
             />
           ) : reviewSession && snapshot ? (

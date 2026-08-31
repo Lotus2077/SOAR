@@ -4,6 +4,12 @@ import path from "node:path";
 import { dialog, ipcMain } from "electron";
 
 import {
+  HYBRID_LOCKED_REVIEW_REASON,
+  HYBRID_LOCKED_REVIEW_REACHABILITY,
+  SaveCloudCredentialInputSchema,
+  type CloudSetupStatus,
+} from "../shared/cloud-setup-contracts";
+import {
   IPC_CHANNELS,
   createChangeReviewSessionInputSchema,
   createSessionInputSchema,
@@ -18,11 +24,16 @@ import { SessionRunner } from "./agent/run-session";
 import { toSessionSnapshot, toSessionSummary } from "./session-view";
 import { toChangeReviewView } from "./change-review-view";
 import { startLocalChangeReviewSession } from "./local-change-review-session";
+import {
+  CloudCredentialSetupService,
+  unavailableCloudSetupStatus,
+} from "./cloud-credential-service";
 
 export interface RegisterIpcOptions {
   store: EventStore;
   runner: SessionRunner;
   config: SoarConfig;
+  cloudCredentialSetup?: CloudCredentialSetupService;
 }
 
 const TASK_TRACK_COMPLETION_POLICIES: Record<
@@ -39,7 +50,21 @@ const TASK_TRACK_COMPLETION_POLICIES: Record<
   },
 };
 
-const HYBRID_UNAVAILABLE = "Cloud setup is not available in this build." as const;
+function hybridAvailability(): ReviewAvailability["hybrid"] {
+  return {
+    enabled: false,
+    reason: HYBRID_LOCKED_REVIEW_REASON,
+    separatelyConfiguredPaidProviderReachable: false,
+    reachabilitySummary: HYBRID_LOCKED_REVIEW_REACHABILITY,
+    consent: "none",
+  };
+}
+
+function assertNoIpcPayload(value: unknown): void {
+  if (value !== undefined) {
+    throw new TypeError("This IPC method does not accept an input payload.");
+  }
+}
 
 function completionObligationsForTaskTrack(
   taskTrack: "repository-investigator-v1",
@@ -89,6 +114,7 @@ export async function registerIpcHandlers({
   store,
   runner,
   config,
+  cloudCredentialSetup,
 }: RegisterIpcOptions): Promise<() => void> {
   const approvedWorkspaces = new Set<string>();
 
@@ -159,7 +185,7 @@ export async function registerIpcHandlers({
     runner.cancelSession(sessionId);
   });
 
-  ipcMain.handle(IPC_CHANNELS.getReviewAvailability, (): ReviewAvailability => {
+  ipcMain.handle(IPC_CHANNELS.getReviewAvailability, async (): Promise<ReviewAvailability> => {
     const descriptor = runner.getLocalReviewProviderDescriptor();
     const limitsReady =
       config.limits.inferenceRounds >= 2 && config.limits.toolCalls >= 1;
@@ -188,16 +214,47 @@ export async function registerIpcHandlers({
             evidenceTransportSummary:
               "Review evidence is sent to the configured vLLM endpoint.",
           },
-      hybrid: {
-        enabled: false,
-        reason: HYBRID_UNAVAILABLE,
-        separatelyConfiguredPaidProviderReachable: false,
-        reachabilitySummary:
-          "No separately configured paid provider is available in this build.",
-        consent: "none",
-      },
+      hybrid: hybridAvailability(),
     };
   });
+
+  ipcMain.handle(
+    IPC_CHANNELS.getCloudSetupStatus,
+    async (_event, rawInput: unknown): Promise<CloudSetupStatus> => {
+      assertNoIpcPayload(rawInput);
+      return cloudCredentialSetup === undefined
+        ? unavailableCloudSetupStatus()
+        : cloudCredentialSetup.getStatus();
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.saveCloudCredential,
+    async (_event, rawInput: unknown): Promise<CloudSetupStatus> => {
+      // Never let a raw Zod error cross IPC. Strict-schema diagnostics include
+      // unrecognized property names, which a forged renderer could populate
+      // with credential material. The allow-listed status contains no caller
+      // bytes and keeps dispatch locked.
+      const parsedInput = SaveCloudCredentialInputSchema.safeParse(rawInput);
+      if (!parsedInput.success) {
+        return unavailableCloudSetupStatus("invalid_credential");
+      }
+      if (cloudCredentialSetup === undefined) {
+        return unavailableCloudSetupStatus();
+      }
+      return cloudCredentialSetup.save(parsedInput.data.credential);
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.deleteCloudCredential,
+    async (_event, rawInput: unknown): Promise<CloudSetupStatus> => {
+      assertNoIpcPayload(rawInput);
+      return cloudCredentialSetup === undefined
+        ? unavailableCloudSetupStatus()
+        : cloudCredentialSetup.delete();
+    },
+  );
 
   ipcMain.handle(
     IPC_CHANNELS.createChangeReviewSession,

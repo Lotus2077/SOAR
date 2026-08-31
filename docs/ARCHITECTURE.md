@@ -17,6 +17,8 @@ Electron main process
     |                -> bounded tool gateway -> selected workspace
     +-- LocalChangeReviewCoordinator -> host change acquisition
     |                               -> review context compiler -> provider
+    +-- CloudCredentialSetupService -> setup-only Keychain adapter (no secret read)
+    +-- pure cloud-egress shadow guard (no I/O or session wiring)
     +-- EventStore -> SQLite
     +-- redacted session/review projections -> renderer
 ```
@@ -25,6 +27,10 @@ The renderer has no Node.js integration and cannot access credentials or the
 filesystem directly. The preload exposes only the methods in
 `src/shared/contracts.ts`. `src/main/ipc.ts` validates every renderer payload and
 requires the user to select a canonical workspace before a session can use it.
+Cloud Settings exposes only status, save/replace, and delete operations. The
+password field is cleared before IPC is invoked, and every response is a
+metadata-only projection that cannot return the credential or grant dispatch
+authority.
 
 ## Session lifecycle
 
@@ -229,13 +235,17 @@ advertised value is bounded endpoint metadata, not empirical capacity
 verification or a universal provider guarantee. The adapter supports the one
 exact `ReviewResultV1` JSON Schema contract only when tools are disabled and the
 descriptor advertises `structured_json_schema`; arbitrary structured contracts
-and prose-suffix repair are rejected. The current production catalog constructs
-exactly one configured, operator-attested local provider; the deterministic
-fake is test/development only. The credential-store interface currently has
-only a fake implementation, so there is no separately configured production
-metered provider or OpenRouter credential path. Because the local adapter takes
-a generic OpenAI-compatible URL, that statement does not prove that a
-misclassified configured endpoint cannot itself bill the operator.
+and prose-suffix repair are rejected. The current production registry
+constructs exactly one configured, operator-attested local provider; the
+deterministic fake is test/development only. PR6A adds a separate locked
+cloud-candidate metadata record and a direct setup-only macOS Keychain adapter
+with presence, write/replace, and delete operations. That adapter deliberately
+has no raw-secret read or dispatch-time resolver, and the candidate is not a
+`ProviderDescriptor` or `InferenceProvider`. There is therefore no separately
+configured production metered provider or OpenRouter transport. Because the
+local adapter takes a generic OpenAI-compatible URL, that statement does not
+prove that a misclassified configured endpoint cannot itself bill the
+operator.
 
 The non-runtime provider snapshot at
 `config/providers.readiness.example.json` names `SOAR_VLLM_COST_POLICY` through
@@ -640,14 +650,22 @@ charges unknown dispatch, records overruns in full, and reconciles ledger rows
 against canonical events at startup and before later admission. See
 [ADR 0004](adr/0004-checkpoint-router-budget-runner-v0.md).
 
-Production cloud routing still requires PR 6 credential isolation,
-exact-message egress admission, live health and pricing evidence, and a
-separately approved paid OpenRouter canary. PR 6 remains unapproved; the app
-reports that no separate metered provider or Hybrid route is configured, and
-the implemented PR 1 through PR 5 slice has selected paid exposure of `$0`
-under the local endpoint attestation. The generic vLLM URL is still an operator
-trust boundary; SOAR does not independently prove that it cannot bill.
-Configuration alone does not enable the separately configured PR 6 cloud route.
+PR6A is implemented locally but not Verified or Released. It provides the
+setup-only Keychain boundary, locked candidate metadata, and a pure shadow
+admission function over canonical messages and host-derived provenance. The
+shadow function performs no I/O, is not attached to a session, and is not proof
+of a real provider request or wire payload.
+
+Production cloud routing still requires a separately approved PR6B: raw-secret
+resolution at the dispatch boundary, credential and provider validation, live
+health and pricing evidence, immediately-pre-dispatch egress admission bound to
+the wire request, explicit Hybrid authority, and the paid OpenRouter canary.
+PR6B remains unapproved. The app may report a credential as stored locally, but
+it also reports not validated and keeps Hybrid locked. The implemented
+production paths therefore still select only the operator-attested local route.
+The generic vLLM URL remains an operator trust boundary; SOAR does not
+independently prove that it cannot bill. Configuration or stored setup state
+alone cannot enable a cloud route.
 Compiling context before each stateless provider request is not a routing
 decision and does not end the current lease. The current documentation records
 a passing one-shot synthetic empty-snapshot structured-output canary on

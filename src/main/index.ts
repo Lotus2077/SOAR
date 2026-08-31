@@ -7,6 +7,9 @@ import { loadConfig } from "./config";
 import { createSoarDatabase, type SoarDatabase } from "./database";
 import { EventStore } from "./event-store";
 import { registerIpcHandlers } from "./ipc";
+import { CloudCredentialSetupService } from "./cloud-credential-service";
+import { EphemeralSetupCredentialStore } from "./providers/ephemeral-setup-credential-store";
+import { MacOsKeychainCredentialSetupStore } from "./providers/macos-keychain-credential-store";
 import { createRuntimeProviderCatalog } from "./providers/runtime-catalog";
 import { recoverRunningSessions } from "./recovery";
 import { toRendererSessionUpdate } from "./session-view";
@@ -89,7 +92,18 @@ async function bootstrap(): Promise<void> {
     onUpdate: (update) => publish(store, update),
   });
 
-  unregisterIpc = await registerIpcHandlers({ store, runner, config });
+  const cloudCredentialSetup = new CloudCredentialSetupService(
+    config.providerMode === "fake"
+      ? new EphemeralSetupCredentialStore()
+      : new MacOsKeychainCredentialSetupStore(),
+  );
+
+  unregisterIpc = await registerIpcHandlers({
+    store,
+    runner,
+    config,
+    cloudCredentialSetup,
+  });
   createWindow();
 
   app.on("activate", () => {

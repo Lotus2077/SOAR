@@ -9,6 +9,11 @@ release-head and Electron checks passed on its implementation revision, its
 separately authorized nonempty live proof passed once, and the exact post-proof
 revision passed Linux and macOS GitHub Actions.
 
+PR6A Cloud Setup and Dispatch Lock is **implemented locally**, not **Verified**
+or **Released**. Its setup-only Keychain, metadata-only candidate, and pure
+egress-shadow code do not authorize provider validation, production cloud
+dispatch, Hybrid selection, or PR6B.
+
 ## Implemented
 
 - macOS-first Electron shell with a sandboxed React renderer and typed preload
@@ -25,8 +30,17 @@ revision passed Linux and macOS GitHub Actions.
   operator must explicitly set `SOAR_VLLM_COST_POLICY=local_zero_cost` after
   confirming that the endpoint charges no token fee;
 - validated provider descriptors plus a main-process runtime catalog and
-  registry; the catalog currently constructs only the selected local or
-  deterministic fake provider;
+  registry; the registry currently constructs only the selected local or
+  deterministic fake provider, while one locked cloud candidate remains
+  separate metadata and cannot be parsed as a dispatchable provider;
+- setup-only macOS Keychain status, add/replace, and delete behavior with no
+  raw-secret read method, plus strict metadata-only main/preload/renderer
+  contracts and optional Settings that distinguish stored, unvalidated, and
+  dispatch-locked states;
+- a pure canonical-message cloud-egress shadow guard that evaluates
+  host-derived provenance and returns bounded finding codes and semantic
+  hashes. It performs no I/O and is not wired to a production session or
+  provider dispatch;
 - bounded, read-only repository tools for listing, literal search, and text reads;
 - a separate host-only `inspect_git_changes` gateway that acquires deterministic
   staged, unstaged, rename, delete, and bounded untracked change manifests
@@ -102,16 +116,17 @@ revision passed Linux and macOS GitHub Actions.
 
 ## Not implemented
 
-- production cloud-provider execution or macOS Keychain retrieval;
+- production cloud-provider execution, dispatch-time credential retrieval, or
+  remote credential validation;
 - production hybrid routing, production provider-health/price acquisition, or
   learned scheduling;
 - any production provider switch: the review v2 path is deliberately
   same-provider and Local only, while Hybrid is visibly disabled and reports
   that no separate metered provider is configured;
-- PR 6's exact-message egress admission, Keychain flow, health/pricing evidence,
-  and paid OpenRouter canary. PR 6 remains unapproved and the selected paid
-  exposure for PR 1 through PR 5 is `$0` under the configured endpoint's
-  operator attestation;
+- PR6B's immediately-pre-dispatch egress admission and wire binding, live
+  health/pricing evidence, credential validation, secret resolver, production
+  OpenRouter transport, and paid canary. PR6B remains unapproved; PR6A's pure
+  guard is shadow-only and grants no dispatch authority;
 - complete release validation or current Repository Investigator live proof;
   the one-shot synthetic empty-snapshot structured-review schema canary and
   deterministic/Electron PR 5 gates passed on 2026-08-30, but the live canary
@@ -148,10 +163,11 @@ infrastructure cost. Review synthesis uses the exact OpenAI-compatible JSON
 Schema response format with tools disabled; arbitrary structured contracts and
 a free-form JSON-suffix fallback are not supported.
 
-The cloud benchmark design currently pins
-`deepseek/deepseek-v4-flash-0731` through OpenRouter. That pin is evaluation
-configuration, not an enabled application runtime. Pricing and availability are
-external facts and must be revalidated before any paid campaign.
+Locked PR6A candidate metadata records
+`deepseek/deepseek-v4-flash-0731` through OpenRouter as product intent. It is not
+an enabled application runtime or evidence of current availability, capability,
+limits, or pricing; those external facts require fresh validation under a
+separately approved PR6B plan.
 
 Context Packet v1 conservatively estimates one token per UTF-8 byte, reserves a
 configurable safety margin, and subtracts adapter-estimated provider request
@@ -343,4 +359,6 @@ It does not prove review quality or dynamic routing and is not a claim that the
 final release validation or Repository Investigator live proof passed. The
 local structured-schema canary did pass once on 2026-08-30, but only against a
 synthetic empty snapshot; it is not post-fix real-repository or release proof.
-PR 6 remains unapproved and separately gates the paid OpenRouter canary.
+PR6A is implemented locally but not Verified or Released. PR6B remains
+unapproved and separately gates provider validation, production cloud dispatch,
+and the paid OpenRouter canary.

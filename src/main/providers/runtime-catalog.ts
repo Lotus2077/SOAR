@@ -7,6 +7,10 @@ import {
 import { parseProviderDescriptor, type ProviderDescriptor } from "./provider-descriptor";
 import { ProviderRegistry } from "./provider-registry";
 import type { DescribedInferenceProvider } from "./types";
+import {
+  LOCKED_CLOUD_PROVIDER_CANDIDATES,
+} from "./cloud-provider-candidate";
+import type { CloudCandidateMetadata } from "../../shared/cloud-setup-contracts";
 
 export function createLocalVllmDescriptor(config: SoarConfig): ProviderDescriptor {
   return parseProviderDescriptor({
@@ -44,11 +48,13 @@ export function createLocalVllmProvider(
 export interface RuntimeProviderCatalog {
   registry: ProviderRegistry;
   defaultLocalProviderId: string;
+  /** Metadata-only candidates; never dispatch registrations in PR6A. */
+  cloudCandidates: readonly CloudCandidateMetadata[];
 }
 
 /**
- * PR 2 intentionally constructs one local or fake provider only. Cloud
- * construction is approval-gated and does not exist in this catalog.
+ * Production constructs one local or fake provider only. PR6A exposes a
+ * separately typed locked candidate for setup UI, never a cloud provider.
  */
 export function createRuntimeProviderCatalog(
   config: SoarConfig,
@@ -60,5 +66,9 @@ export function createRuntimeProviderCatalog(
   const registry = new ProviderRegistry([
     { descriptor: selected.descriptor, provider: selected },
   ]);
-  return { registry, defaultLocalProviderId: selected.id };
+  return {
+    registry,
+    defaultLocalProviderId: selected.id,
+    cloudCandidates: LOCKED_CLOUD_PROVIDER_CANDIDATES,
+  };
 }

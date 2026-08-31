@@ -31,10 +31,11 @@ const availability = {
   },
   hybrid: {
     enabled: false as const,
-    reason: "Cloud setup is not available in this build." as const,
+    reason:
+      "Cloud setup does not enable Hybrid. Hybrid dispatch is locked in this build." as const,
     separatelyConfiguredPaidProviderReachable: false as const,
     reachabilitySummary:
-      "No separately configured paid provider is available in this build." as const,
+      "This build performs no cloud-provider validation or dispatch." as const,
     consent: "none" as const,
   },
 };
@@ -175,6 +176,7 @@ describe("Review Current Changes renderer", () => {
   it("shows a flat local setup with an honest disabled Hybrid policy", async () => {
     const user = userEvent.setup();
     const choose = vi.fn();
+    const openCloudSettings = vi.fn();
     const start = vi.fn();
     render(
       <ReviewSetup
@@ -183,12 +185,17 @@ describe("Review Current Changes renderer", () => {
         loading={false}
         busy={false}
         onChooseWorkspace={choose}
+        onOpenCloudSettings={openCloudSettings}
         onStart={start}
       />,
     );
 
     expect(screen.getByRole("heading", { name: "Review current changes" })).toBeVisible();
-    expect(screen.getByText("Cloud setup is not available in this build.")).toBeVisible();
+    expect(
+      screen.getByText(
+        "Cloud setup does not enable Hybrid. Hybrid dispatch is locked in this build.",
+      ),
+    ).toBeVisible();
     expect(screen.getByText("Declared token fee")).toBeVisible();
     expect(screen.getByText("$0")).toBeVisible();
     expect(screen.getByText("Paid cloud consent")).toBeVisible();
@@ -200,9 +207,14 @@ describe("Review Current Changes renderer", () => {
       screen.getByText(/configured vLLM route declares a \$0 token fee/u),
     ).toBeVisible();
     expect(
-      screen.getByText(/No separately configured paid provider is available in this build/u),
+      screen.getByText(/no cloud-provider validation or dispatch/u),
     ).toBeVisible();
     expect(screen.queryByText("$0.25")).not.toBeInTheDocument();
+
+    const hybrid = screen.getByRole("radio", { name: "Hybrid" });
+    expect(hybrid).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Set up cloud" }));
+    expect(openCloudSettings).toHaveBeenCalledOnce();
 
     await user.click(screen.getByRole("button", { name: "Start local review" }));
     expect(start).toHaveBeenCalledOnce();

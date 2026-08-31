@@ -218,6 +218,7 @@ function dependencies(
         { descriptor: provider.descriptor, provider },
       ]),
       defaultLocalProviderId: provider.id,
+      cloudCandidates: [] as const,
     }),
     claimLiveAuthority: (input: {
       runId: string;

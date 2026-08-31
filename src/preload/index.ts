@@ -15,6 +15,9 @@ const IPC_CHANNELS = {
   getReviewAvailability: "soar:get-review-availability",
   createChangeReviewSession: "soar:create-change-review-session",
   getChangeReviewView: "soar:get-change-review-view",
+  getCloudSetupStatus: "soar:get-cloud-setup-status",
+  saveCloudCredential: "soar:save-cloud-credential",
+  deleteCloudCredential: "soar:delete-cloud-credential",
   sessionUpdate: "soar:session-update",
 } as const;
 
@@ -31,6 +34,12 @@ const api: SoarRendererApi = {
     ipcRenderer.invoke(IPC_CHANNELS.createChangeReviewSession, input),
   getChangeReviewView: (id) =>
     ipcRenderer.invoke(IPC_CHANNELS.getChangeReviewView, id),
+  getCloudSetupStatus: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getCloudSetupStatus),
+  saveCloudCredential: (input) =>
+    ipcRenderer.invoke(IPC_CHANNELS.saveCloudCredential, input),
+  deleteCloudCredential: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.deleteCloudCredential),
   subscribeSessionEvents: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, update: SessionUpdate): void => {
       listener(update);

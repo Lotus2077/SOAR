@@ -1,6 +1,6 @@
 # PR6A Cloud Setup and Dispatch Lock v1
 
-Status: **Implemented locally; verification pending; not Verified or Released;
+Status: **Verified locally and on exact-SHA Linux/macOS CI; not Released;
 provider contact and Hybrid execution remain prohibited**
 
 - Plan ID: `pr6a-cloud-setup-dispatch-lock-v1-plan-1`
@@ -9,6 +9,7 @@ provider contact and Hybrid execution remain prohibited**
 - Approved: 2026-08-31 by the project owner in the project task
 - Approval ledger: `BL-20260830-1629-pr6a-cloud-setup-approved`
 - Implementation ledger: `BL-20260830-1726-pr6a-cloud-setup-implemented`
+- Verification ledger: `BL-20260831-1419-pr6a-cloud-setup-verified`
 - Project log: [BUILD_LOG.md](../BUILD_LOG.md)
 
 ## Decision

@@ -10,7 +10,7 @@ routing runtime matures.
 > SOAR is an experimental, pre-release project. The checked-in runtime is a
 > local-only repository investigator plus a local-only **Review Current
 > Changes** slice. Cloud execution, write tools, and learned routing are design
-> targets, not shipping features yet. The locally implemented PR6A foundation
+> targets, not shipping features yet. The locally verified PR6A foundation
 > can store setup-only cloud credentials and describe a locked cloud candidate,
 > but it cannot validate a credential or dispatch a cloud request.
 
@@ -77,8 +77,8 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   schema compatibility only, not a post-fix real-repository flow or full release
   validation. PR 6 is now split:
   [PR6A Cloud Setup and Dispatch Lock](docs/plans/PR6A_CLOUD_SETUP_DISPATCH_LOCK_V1.md)
-  is approved and implemented locally, with verification and release still
-  pending; PR6B, its paid OpenRouter canary, and every paid call remain
+  is Verified but not Released; PR6B, its paid OpenRouter canary, and every paid
+  call remain
   separately unapproved and approval-gated.
 - [Local Evaluation Bridge v1](docs/plans/LOCAL_EVALUATION_BRIDGE_V1.md)
   defines the independently approved `$0`, local-only, one-live-episode proof

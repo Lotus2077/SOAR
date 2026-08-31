@@ -650,7 +650,7 @@ charges unknown dispatch, records overruns in full, and reconciles ledger rows
 against canonical events at startup and before later admission. See
 [ADR 0004](adr/0004-checkpoint-router-budget-runner-v0.md).
 
-PR6A is implemented locally but not Verified or Released. It provides the
+PR6A is Verified but not Released. It provides the
 setup-only Keychain boundary, locked candidate metadata, and a pure shadow
 admission function over canonical messages and host-derived provenance. The
 shadow function performs no I/O, is not attached to a session, and is not proof

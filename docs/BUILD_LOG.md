@@ -3247,3 +3247,107 @@ References: [approved PR6A plan](plans/PR6A_CLOUD_SETUP_DISPATCH_LOCK_V1.md),
 [MVP readiness](MVP_READINESS.md), [architecture](ARCHITECTURE.md),
 [routing policy](ROUTING_POLICY.md), and
 [approval-checkpoint CI](https://github.com/Lotus2077/SOAR/actions/runs/33323059340).
+
+### BL-20260831-1419-pr6a-cloud-setup-verified -- 2026-08-31 -- PR6A exact implementation revision verified
+
+Status: `Verified`
+
+Scope or hypothesis: Determine whether exact implementation revision
+`d6cb1e77c7fe021e3c08f627df0217687e718bae` satisfies the approved PR6A local-
+only verification matrix: deterministic release-head, Electron workflows,
+native synthetic Keychain lifecycle and cleanup, macOS packaging/signature
+verification, dispatch-lock review, and exact-SHA Linux/macOS CI, all at `$0`
+external LLM-provider exposure.
+
+Decisions:
+
+- Advance PR6A from `Implemented` to `Verified` because every required local
+  and remote gate passed on the exact implementation revision. Do not advance
+  it to `Released` and do not authorize PR6B.
+- Retain the first release-head timeout and first exact package stall as
+  negative evidence. Their isolated and full retries passed; this supports a
+  host-load diagnosis but does not erase the observed flakiness.
+- Retain the default `/usr/bin/security` creator-ACL limitation. Verification
+  covers setup-only storage with no read/resolve path, not app-identity
+  isolation or hostile-same-account-process resistance. Native Security-
+  framework identity/ACL design and staged-item migration/recreation remain a
+  hard PR6B prerequisite.
+- Keep the cloud egress guard unwired and shadow-only. Verification proves the
+  pure local admission contract and production dispatch interlocks, not a real
+  provider request, HTTP wire binding, or general DLP.
+
+Changes: Updated only current-truth status documentation and appended this
+closure entry. No runtime, credential, Keychain, provider, model, session,
+router, egress, budget, tool, database, renderer behavior, or network authority
+changed after the verified implementation revision.
+
+Evidence:
+
+- Clean `pnpm check:release-head` passed on exact commit
+  `d6cb1e77c7fe021e3c08f627df0217687e718bae`: readiness validated 22 research
+  plus 20 coding workloads and the tracked-file secret scan, the 41-entry log
+  validated, both TypeScript projects passed, 74 test files passed with three
+  skipped, 914 tests passed with five skipped, and all Electron bundles built.
+- Exact-commit `pnpm test:e2e` passed all three macOS Electron workflows:
+  restart restoration, active cancellation, and Local current-change review
+  with optional cloud Settings and locked Hybrid behavior.
+- Exact-commit opt-in Keychain verification passed four files and 46 tests. A
+  fresh unique synthetic item was added, observed after adapter reconstruction,
+  replaced, deleted, and confirmed absent by bounded cleanup. No real
+  credential was read or modified.
+- Exact-commit `pnpm package:mac` built the arm64 application, performed local
+  signing, verified the packaged app on disk and against its designated
+  requirement, created the archive, extracted it, reverified the signature,
+  and produced `dist/SOAR-mac-arm64.zip` as an ignored local artifact.
+- GitHub Actions run `33401604875` passed for the exact implementation SHA:
+  Linux/check job `99518983165` completed in 1m7s and macOS Electron job
+  `99519357633` completed in 1m27s.
+- Independent architecture, security, and UX reviews reported no remaining
+  P0/P1 code defect. Focus, live-region behavior, and measured light/dark
+  contrast passed focused review; default ACL, VoiceOver, and 200% zoom were
+  retained as explicit limitations rather than silently claimed.
+
+Failures or blockers: The first clean release-head attempt on the exact SHA
+failed because two established heavy fixture tests exceeded their 5s and 15s
+timeouts while 912 other tests passed. Each timed-out test then passed alone in
+1.61s and 2.34s, and the unchanged full release-head rerun passed all 914 tests.
+The first exact packaging attempt rebuilt corrected bundles but stalled for
+several minutes after Electron module discovery and was cancelled; the unchanged
+exact-commit retry completed full signing and archive verification. Earlier
+post-revert Keychain reruns were blocked by a wedged macOS authentication agent,
+as retained in the implementation entry; after credential access recovered,
+the unchanged exact commit passed the full synthetic CRUD/cleanup suite in
+415ms. No deterministic PR6A verification blocker remains. This status-only
+closure commit still requires its own publication CI.
+
+Limitations and non-claims: `Verified` means the narrow PR6A setup lifecycle,
+metadata projection, pure egress guard, dispatch interlocks, optional Settings,
+and regression suite passed on the exact implementation SHA. It does not mean
+the stored credential is valid, app-identity-isolated, or readable by a
+production adapter; that a provider/model/price/limit is reachable or current;
+that Hybrid, cloud consent, repository egress, a paid campaign, or fallback is
+enabled; or that routing improves quality, cost, or latency. The configured
+Local vLLM route remains an operator trust boundary and may be remote; synthetic
+loopback tests are not an OS network sandbox. The package is locally signed,
+uses the default Electron icon, and is not notarized. VoiceOver and 200% zoom
+remain manual release checks. PR6A is not Released.
+
+Paid exposure: `$0`. Verification used local deterministic and synthetic
+loopback fixtures, isolated synthetic Keychain items, local Electron/packaging,
+Git push, and GitHub Actions. The PR6A proof made no configured vLLM,
+OpenRouter, model-list, key-metadata, credential-validation, pricing, limit,
+health, inference, retry, fallback, evaluator, or other external LLM-provider
+request.
+
+Next gate: Validate, commit, and push this status-only closure, then require its
+own Linux/check and macOS Electron GitHub jobs to pass. PR6B remains separately
+unapproved and requires a committed proposed plan plus explicit owner approval
+before any credential read, provider validation/contact, repository egress,
+production Hybrid construction, paid reservation, or canary. Release work also
+needs product icon/notarization and manual VoiceOver/zoom proof.
+
+References: [verified implementation entry](#bl-20260830-1726-pr6a-cloud-setup-implemented----2026-08-30----pr6a-cloud-setup-and-dispatch-lock-implemented-locally),
+[approved PR6A plan](plans/PR6A_CLOUD_SETUP_DISPATCH_LOCK_V1.md),
+[MVP readiness](MVP_READINESS.md), [architecture](ARCHITECTURE.md),
+[routing policy](ROUTING_POLICY.md), and
+[exact implementation CI](https://github.com/Lotus2077/SOAR/actions/runs/33401604875).

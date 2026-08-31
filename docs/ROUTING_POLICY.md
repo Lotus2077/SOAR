@@ -68,6 +68,6 @@ Local defaults: repository inventory, search, formatting, test execution, log re
 
 Learned checkpoint routing can replace thresholds only after SOAR has enough complete, evaluator-backed trajectories. Per-turn reinforcement learning is outside the first MVP.
 
-PR6A being locally implemented does not make a cloud candidate eligible for a
+PR6A being Verified does not make a cloud candidate eligible for a
 lease. Provider validation, immediately-pre-dispatch egress admission, explicit
 Hybrid authority, and any paid canary remain unapproved PR6B work.

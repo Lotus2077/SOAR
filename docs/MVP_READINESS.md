@@ -9,8 +9,8 @@ release-head and Electron checks passed on its implementation revision, its
 separately authorized nonempty live proof passed once, and the exact post-proof
 revision passed Linux and macOS GitHub Actions.
 
-PR6A Cloud Setup and Dispatch Lock is **implemented locally**, not **Verified**
-or **Released**. Its setup-only Keychain, metadata-only candidate, and pure
+PR6A Cloud Setup and Dispatch Lock is **Verified** but not **Released**. Its
+setup-only Keychain, metadata-only candidate, and pure
 egress-shadow code do not authorize provider validation, production cloud
 dispatch, Hybrid selection, or PR6B.
 
@@ -359,6 +359,6 @@ It does not prove review quality or dynamic routing and is not a claim that the
 final release validation or Repository Investigator live proof passed. The
 local structured-schema canary did pass once on 2026-08-30, but only against a
 synthetic empty snapshot; it is not post-fix real-repository or release proof.
-PR6A is implemented locally but not Verified or Released. PR6B remains
+PR6A is Verified but not Released. PR6B remains
 unapproved and separately gates provider validation, production cloud dispatch,
 and the paid OpenRouter canary.

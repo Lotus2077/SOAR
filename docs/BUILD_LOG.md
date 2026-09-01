@@ -4770,3 +4770,164 @@ References: [PR6B1 plan](plans/PR6B1_SIGNED_NATIVE_CREDENTIAL_LEASE_V1.md),
 [closure entry](#bl-20260901-1934-pr6b1b-implemented----2026-09-01----pr6b1-b-closed-as-implemented-on-exact-sha),
 [closure CI](https://github.com/Lotus2077/SOAR/actions/runs/33533178755),
 [architecture](ARCHITECTURE.md), and [MVP readiness](MVP_READINESS.md).
+
+### BL-20260902-0103-pr6r-real-provider-slice-proposed -- 2026-09-02 -- Development real-provider slice proposed after goal recalibration
+
+Status: `Proposed`
+
+Scope or hypothesis: Reconcile the live repository with SOAR's original
+app-first objective: meet a task-quality floor, then minimize paid-model cost
+and end-to-end latency across Local and Cloud providers. Propose the first `$0`
+phase of a narrow unpackaged real-provider transport/accounting canary without
+weakening the packaged production credential lock, collapsing external/paid
+approval gates, or pretending unavailable signing and quality evidence exists.
+
+Decisions:
+
+- Record that the project has built a real Local app, canonical state/context,
+  deterministic route and budget mechanics, fake Hybrid simulation, locked
+  native credential substrate, and offline evaluator infrastructure, but has
+  not produced a real Cloud trajectory or Local/Cloud/Hybrid outcome record.
+  More unrelated fake, UI, credential, or evaluator substrate alone is not the
+  next product-value proof.
+- Keep PR6B1-C blocked and unproposed. A live host check on 2026-09-02 still
+  found zero valid code-signing identities and zero profiles in both normal
+  macOS provisioning-profile locations. The missing Developer ID Application
+  identity/private key, explicit App ID, and matching profile remain hard
+  prerequisites for the signed synthetic path.
+- Propose `pr6r-development-real-provider-slice-v1-plan-1` as a roadmap-order
+  recalibration, not a production-security rollback. Split it into separately
+  approved R-A `$0` implementation, R-B credential/provider validation plus one
+  configured-Local baseline, and R-C paid Cloud canary. PR6B1-C/D remain
+  mandatory for packaged production custody.
+- Bind every phase to existing public high-risk fixture
+  `cal-007-flask-jinja-name`, its Flask repository/base/change revisions, nine
+  exact documentation/runtime paths, 62 changed lines,
+  snapshot/index/discovery hashes, and packet/token/output ceilings. Its
+  curator label is review-attention only, not correctness gold; the canary
+  cannot measure task quality or satisfy the original quality goal.
+- Propose R-A only: exact-fixture contracts, common-checkpoint comparison,
+  loopback Cloud-shaped serialization, route/accounting/authority/replay
+  mechanics, app UI, hostile packaged denial, and deterministic proof at `$0`.
+  R-A rejects every real credential, non-loopback URL, configured provider,
+  off-device egress, actual-cost reservation, and paid request. Every R-A
+  attempt/reservation remains simulation-scoped; the actual-paid operation is
+  absent and deferred.
+- Split R-A delivery into reviewable A1 contracts/build isolation, A2 sealed
+  loopback request/accounting authority, and A3 coordinator/UI/package proof.
+  The normal package must structurally omit the development runtime; runtime
+  `app.isPackaged` checks remain defense in depth rather than the primary lock.
+- Require a later R-B plan to define a main-only, read-only development Keychain
+  resolver whose secret never enters Electron's launch or child-process
+  environment; stable host-authored errors; compile-time package exclusion;
+  dedicated-key zero opening exposure and non-resetting provider USD 100 hard
+  limit; exact account/model/upstream/pricing validation; and one Local baseline
+  that freezes the exact Cloud-bound packet. R-B performs no paid inference.
+- Require a later R-C plan and approval to bind one exact selectable upstream
+  provider slug plus separately verified unique endpoint/deployment metadata,
+  disabled provider/model fallback, all supported parameters, fresh component
+  pricing, exact request/packet hashes, two fixed possible paid slots, durable
+  OS-user-local authority state, and a USD 0.25 aggregate ceiling. Sent,
+  unknown, crash, publication failure, or corrupt/missing authority state can
+  never be reset through app-database deletion.
+- Preserve the existing simulation-only attempt-unit-of-work guard. A later
+  actual paid operation must require unforgeable R-C authority and atomically
+  bind its exact application-request body, fixed slot, reservation, and event
+  state. It uses direct fetch without SDK reserialization, redirect, or retry;
+  every possible billing component is represented or proved disabled, and
+  unknown/divergent billing consumes the reservation and stops the campaign.
+- Treat the public OpenRouter model page checked on 2026-09-02 as orientation
+  only. The exact pinned slug exists and advertises tool calling and structured
+  output, but it is not an immutable deployment identity. Official routing docs
+  confirm default load balancing/fallback, so later R-C must select one exact
+  upstream with `only`/`order`, disable fallbacks, require all parameters, and
+  deny when it cannot bind a conservative exact charge ceiling.
+- Do not infer approval from the owner's general willingness to use paid models
+  or the instruction that initiated this recalibration. Only the exact R-A
+  approval sentence may authorize the next build. R-B and R-C remain unproposed
+  until their prerequisite evidence exists.
+
+Changes: Added the exact proposed plan and linked its unapproved status from the
+README. No application runtime, renderer, preload, IPC, database, native module,
+Keychain, provider registry, transport, routing, egress, budget, tool, evaluator,
+credential, package, or CI behavior changed.
+
+Evidence:
+
+- The clean baseline was `7e3a4488695d1e75e70f36509f45d6d89233c54e`
+  and synchronized with `origin/main` before this proposal.
+- Independent read-only product-gap, plan-gate, and implementation-opportunity
+  audits agreed that normal runtime constructs exactly one Local provider,
+  fake simulation is the only two-provider runtime, the generic 42-workload
+  utilities execute no agent episode, write/test/browser/shell tools are absent,
+  and no Approved-but-unimplemented runtime milestone exists.
+- `/usr/bin/security find-identity -v -p codesigning` returned zero valid
+  identities. Bounded counts found zero provisioning profiles in both standard
+  user locations. No private signing path or account information was retained.
+- The official OpenRouter model page resolved the exact proposed slug on
+  2026-09-02 and described Chat Completions examples, tool calling, structured
+  output, current providers, and current displayed pricing. Official provider-
+  routing documentation separately confirms default load balancing/fallback
+  and the available pin/fallback/parameter controls. Those read-only public
+  checks are not account, credential, endpoint-health, pricing-admission, or
+  inference evidence.
+- Final exact Node 22.22.2 `pnpm check` passed both validators and typechecks,
+  the locked native core proof, 88 Vitest files and 1,026 tests with two files/
+  four opt-in tests skipped, and the Electron production build. Vitest completed
+  in 30.55 seconds.
+- After the first-draft findings below were corrected, three independent final
+  product/experiment, governance/gate, and security/implementability reviews
+  each reported zero P0, zero P1, and zero P2 findings. `git diff --check` also
+  passed on the final proposal tree.
+
+Failures or blockers: The critical signed-production path is blocked before
+proposal by missing Developer ID prerequisites. There was no Approved-but-
+unimplemented runtime milestone. Independent review rejected the first PR6R
+draft because it collapsed implementation/validation/paid gates, left the
+fixture and upstream provider unfrozen, treated output validity as quality,
+allowed an Electron launch-environment secret, ambiguously compared shared
+investigation latency, underspecified one-shot consumption, and used a non-ledger
+status. The proposal now splits R-A/B/C, freezes the high-risk
+`cal-007-flask-jinja-name` fixture, makes quality a non-goal, confines R-A to
+loopback, moves real secret/provider work to R-B,
+requires exact upstream/packet/authority facts before R-C, and uses only the
+existing build-log status vocabulary. R-A remains blocked on exact approval.
+The first canonical check attempt under the host-default unsupported Node 26.7.0
+was rejected by `engine-strict`. The first exact-Node-22 full test inside the
+restricted sandbox then passed 87 files/1,007 tests but failed all 19 tests in
+the unchanged loopback-backed OpenAI-compatible file with `listen EPERM` on
+`127.0.0.1`; typecheck and native proof had already passed. The unchanged final
+full gate with test-only loopback permission passed all expected tests and the
+build. These were validation-environment failures, not proposal-runtime
+regressions, and their negative results are retained here.
+
+Limitations and non-claims: This proposal is not Implemented, Verified,
+Activated, Executed, or Released. It proves no credential availability,
+provider account/model/price/limit/health, configured endpoint, cloud request,
+repository egress, inference, budget reservation, billing, quality, cost saving,
+latency improvement, routing benefit, signing continuity, notarization, release
+readiness, or user value. Even a later passing one-fixture canary can prove only
+bounded development transport/admission/accounting/replay integrity and one-
+sample latency records, not correctness, optimality, or general performance.
+
+Paid exposure: `$0`. This turn used repository inspection, local signing-
+prerequisite checks, independent read-only audits, and public documentation
+research. It made no configured vLLM, OpenRouter API, model-list, provider-
+validation, inference, retry, fallback, evaluator, repository-egress, or other
+LLM-provider request. No credential value was resolved, entered, retrieved,
+mutated, displayed, or persisted, and no budget reservation or actual spend was
+created.
+
+Next gate: Validate and independently review the exact proposal, commit and push
+it, and require Linux `check` plus macOS `electron-e2e` CI to pass. Then request
+the exact phase R-A `$0` approval sentence in the plan. Stop before every
+runtime edit, credential resolution, provider/API contact, configured-vLLM
+request, repository egress, budget reservation, or paid operation until that
+approval is durably recorded.
+
+References: [proposed PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
+[PR6B1 signed production plan](plans/PR6B1_SIGNED_NATIVE_CREDENTIAL_LEASE_V1.md),
+[routing policy](ROUTING_POLICY.md), [MVP readiness](MVP_READINESS.md),
+[benchmark protocol](../benchmarks/README.md), and
+[OpenRouter model page](https://openrouter.ai/deepseek/deepseek-v4-flash-0731),
+and [OpenRouter provider routing](https://openrouter.ai/docs/guides/routing/provider-selection).

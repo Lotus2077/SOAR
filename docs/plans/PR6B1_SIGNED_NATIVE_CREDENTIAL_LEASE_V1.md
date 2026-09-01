@@ -1,21 +1,33 @@
 # PR6B1 Signed Native Credential Lease v1
 
-Status: **Proposed; not Approved, Implemented, Verified, Activated, or Released**
+Status: **Phase-B approval recorded; effective only after the committed approval
+checkpoint passes exact-SHA Linux/macOS CI; not Implemented, Verified,
+Activated, or Released**
 
 - Plan ID: `pr6b1-signed-native-credential-lease-v1-plan-1`
 - Parent plan: `hybrid-lease-router-v0-plan-2`
 - Predecessor: `pr6b0-hybrid-simulation-v1-plan-1`
 - Baseline revision: `9495d6bcbaa8cef5d3342e0d53ab02efe28d0002`
 - Proposed: 2026-09-01
+- Phase-B owner approval recorded: 2026-09-01
+- Approval response: **go for the next milestone**, given directly after the
+  exact phase-B approval request
+- Approval ledger: `BL-20260901-1647-pr6b1b-approved`
+- Green proposal revision: `7e4b31d19f89087b2c5c7e7517bbfdffc137b2d1`
+- Green proposal CI: GitHub Actions run `33440996797`
 - Provider-spend ceiling: `$0`
 - Provider requests: none
 - Repository egress: none
 - Project log: [BUILD_LOG.md](../BUILD_LOG.md)
 
 The project owner directed SOAR to continue after PR6B0 and expressed willingness
-to use a paid model when a later milestone needs it. That direction authorizes
-planning only. It is not approval of this exact plan, a credential operation,
-a provider request, repository egress, a budget, or any later milestone.
+to use a paid model when a later milestone needs it. After this exact plan was
+committed, pushed, independently reviewed, and passed proposal CI, the owner
+responded **go for the next milestone** directly to the exact request to approve
+`pr6b1-signed-native-credential-lease-v1-plan-1` for local `$0` phase-B
+implementation only. That is recorded as phase-B approval. It is not approval
+of a credential operation, provider request, repository egress, budget, or any
+later milestone.
 
 PR6B1 is split deliberately. Approval of this exact plan would authorize only
 the fail-closed `$0` substrate in phase B below. A signed synthetic Keychain
@@ -40,8 +52,8 @@ synthetic data before a separate decision permits real re-entry.
 
 | Phase | Scope | Current state | Separate approval required? |
 | --- | --- | --- | --- |
-| PR6B1-A | Correct plan and establish signing prerequisites | Proposed | This proposal does not install or export signing material |
-| PR6B1-B | Fail-closed native substrate, locked UI, contracts, fakes, journal, package verifier | Not Approved | Yes: exact approval of this plan ID |
+| PR6B1-A | Correct plan and establish signing prerequisites | Plan checkpoint complete; signing prerequisites still absent | This approval does not install or export signing material |
+| PR6B1-B | Fail-closed native substrate, locked UI, contracts, fakes, journal, package verifier | Approval recorded; effective after approval-checkpoint CI | Approval is limited to this exact plan ID |
 | PR6B1-C | Signed A/B synthetic continuity and hostile-host proof | Not Proposed | Yes: a later exact proof plan after signing prerequisites exist |
 | PR6B1-D | Native secure re-entry and production protected-item activation | Not Proposed | Yes: only after a durable passing PR6B1-C checkpoint |
 | PR6B2 | Bounded real provider/account/model/price/limit/health validation | Not Proposed | Yes |

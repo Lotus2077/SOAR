@@ -79,6 +79,8 @@ PR6A being Verified and PR6B0 having automated exact-SHA closure do not make a r
 candidate eligible for a lease. The Fake Cloud lease has no credential,
 endpoint, network client, or actual-spend authority. Signed credential leasing,
 real provider validation, wire-bound external egress admission, explicit real
-Hybrid authority, and any paid canary remain separately unapproved PR6B1 through
-PR6B3 work. Manual VoiceOver, light/dark contrast, and reduced-motion proof for
-the simulation UI also remains pending, so PR6B0 is not Verified or Released.
+Hybrid authority, and any paid canary remain separately unapproved PR6B1-C/
+PR6B1-D through PR6B3 work. PR6B1-B has owner approval recorded only for a
+`$0`, activation-locked substrate and cannot create a real route. Manual
+VoiceOver, light/dark contrast, and reduced-motion proof for the simulation UI
+also remains pending, so PR6B0 is not Verified or Released.

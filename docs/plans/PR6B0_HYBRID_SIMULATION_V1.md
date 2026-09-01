@@ -20,7 +20,8 @@ open; not Verified or Released**
 The approval is limited to the fake-provider simulation described in this
 plan. It authorizes no credential access, configured vLLM or external-provider
 request, real repository egress, actual monetary reservation, or paid spend.
-PR6B1, PR6B2, and PR6B3 remain separately gated.
+PR6B1-B later received separate owner approval for a `$0`, activation-locked
+substrate only. PR6B1-C, PR6B1-D, PR6B2, and PR6B3 remain separately gated.
 
 ## Current truth after local implementation
 

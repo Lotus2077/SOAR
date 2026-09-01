@@ -729,12 +729,14 @@ replay only to in-process fakes. It neither reads the PR6A credential nor uses a
 network transport, and its nonzero figures are simulation-scoped rather than
 actual spend.
 
-Production cloud routing still requires separately approved PR6B1 through
-PR6B3 work: signed raw-secret resolution at the dispatch boundary, credential
-and provider validation, live health and pricing evidence, immediately-before-
-dispatch egress admission bound to the serialized wire request, explicit real
-Hybrid authority, and the paid OpenRouter canary. Those milestones remain
-unapproved. The app may report a credential as stored locally, but
+Production cloud routing still requires separately approved PR6B1-C/PR6B1-D
+through PR6B3 work: signed raw-secret resolution at the dispatch boundary,
+credential and provider validation, live health and pricing evidence,
+immediately-before-dispatch egress admission bound to the serialized wire
+request, explicit real Hybrid authority, and the paid OpenRouter canary.
+PR6B1-B has owner approval recorded for a `$0`, structurally activation-locked
+substrate only and cannot provide any of those capabilities. The app may report
+a credential as stored locally, but
 it also reports not validated and keeps Hybrid locked. The implemented
 normal-vLLM paths therefore still select only the operator-attested Local route.
 The generic vLLM URL remains an operator trust boundary; SOAR does not

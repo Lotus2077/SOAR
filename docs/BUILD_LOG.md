@@ -4232,3 +4232,80 @@ displaying private material.
 References: [proposed PR6B1 plan](plans/PR6B1_SIGNED_NATIVE_CREDENTIAL_LEASE_V1.md),
 [PR6B0 plan](plans/PR6B0_HYBRID_SIMULATION_V1.md), [architecture](ARCHITECTURE.md),
 [routing policy](ROUTING_POLICY.md), and [MVP readiness](MVP_READINESS.md).
+
+### BL-20260901-1647-pr6b1b-approved -- 2026-09-01 -- PR6B1-B approved for local zero-cost fail-closed implementation
+
+Status: `Approved`
+
+Scope or hypothesis: Record the project owner's approval of exact plan
+`pr6b1-signed-native-credential-lease-v1-plan-1` for phase B only, after the
+owner responded **go for the next milestone** directly to the exact approval
+request presented with the green proposal checkpoint.
+
+Decisions:
+
+- Interpret the response in its immediate context as approval of local `$0`
+  PR6B1-B implementation only: strict contracts, unavailable/fake authorities,
+  status-only legacy recovery, mutation journal, locked native broker, package
+  and renderer hardening, truthful locked UI, and deterministic proof.
+- Make the approval effective only after the commit containing this entry and
+  approval metadata passes exact-SHA Linux/check and macOS Electron CI. No
+  phase-B runtime edit may begin before that gate closes.
+- Preserve the exact plan's structural lock: phase B contains no production or
+  synthetic Keychain locator, native secure-entry sheet, reachable SecItem
+  mutation, lease consumer, real provider, real Hybrid route, external egress,
+  budget reservation, or paid call.
+- Do not treat the owner's earlier willingness to use paid models as approval
+  for PR6B1-C signed proof, PR6B1-D real re-entry, PR6B2 provider validation,
+  PR6B3 paid inference, a campaign budget, or repository egress.
+- Keep phase B eligible to proceed without a Developer ID identity after its
+  approval checkpoint is green. The missing signing identity remains a hard
+  blocker for the later PR6B1-C proof, not for locked phase-B source work.
+
+Changes: Updated plan and current-truth documentation with the scoped approval
+and its still-pending exact-SHA activation gate. No runtime, renderer, preload,
+IPC, database, native module, Keychain, provider, routing, egress, budget, tool,
+or evaluator behavior changed in this approval checkpoint.
+
+Evidence:
+
+- The owner gave **go for the next milestone** directly after being asked to
+  approve `pr6b1-signed-native-credential-lease-v1-plan-1` for local `$0`
+  phase-B implementation only.
+- Proposal revision `7e4b31d19f89087b2c5c7e7517bbfdffc137b2d1` is clean and
+  pushed to `origin/main`.
+- Local proposal proof passed `pnpm check:release-head` with 80 test files and
+  1,008 tests, all seven Electron workflows, and ad-hoc macOS package/archive
+  verification.
+- GitHub Actions run `33440996797` passed Linux `check` job `99648889525` in 1
+  minute 18 seconds and macOS `electron-e2e` job `99649284323` in 1 minute 46
+  seconds on exact proposal revision `7e4b31d`.
+- Independent architecture/security and UX/governance reviews reported zero
+  remaining P0/P1 findings on the exact proposal.
+
+Failures or blockers: The approval is recorded but cannot activate runtime work
+until this approval entry is committed, pushed, and its exact SHA passes both CI
+jobs. The current host still has zero valid Developer ID Application identities
+and no matching profile, so signed phase C cannot run. Those prerequisites do
+not block phase B.
+
+Limitations and non-claims: Approved is not Implemented, Verified, Activated,
+or Released. Approval does not prove native compilation, signed identity,
+Keychain isolation, continuity, a real credential lease, provider validation,
+cloud inference, billing, optimization, notarization, or user value.
+
+Paid exposure: `$0`. Approval recording and proposal evidence used local tests,
+in-process fake providers, ad-hoc packaging, and GitHub CI. No configured vLLM,
+OpenRouter, model-list, credential, Keychain, price, health, inference,
+evaluator, retry, fallback, external repository egress, reservation, or actual
+spend occurred.
+
+Next gate: Validate and commit this approval-only checkpoint, run the clean
+exact-head local gate, push it, and require exact-SHA Linux/check and macOS
+Electron CI to pass. Only then begin the phase-B implementation sequence in the
+approved plan. Stop before any PR6B1-C, PR6B1-D, PR6B2, or PR6B3 work.
+
+References: [approved PR6B1 plan](plans/PR6B1_SIGNED_NATIVE_CREDENTIAL_LEASE_V1.md),
+[proposal entry](#bl-20260901-0514-pr6b1-signed-lease-proposed----2026-09-01----pr6b1-signed-native-credential-lease-proposed-as-four-separately-gated-phases),
+[proposal CI](https://github.com/Lotus2077/SOAR/actions/runs/33440996797),
+[architecture](ARCHITECTURE.md), and [MVP readiness](MVP_READINESS.md).

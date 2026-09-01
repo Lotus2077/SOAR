@@ -97,9 +97,11 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   [PR6B0 Hybrid Simulation](docs/plans/PR6B0_HYBRID_SIMULATION_V1.md) is
   Implemented with automated exact-SHA closure but not Verified or Released.
   [PR6B1 Signed Native Credential Lease](docs/plans/PR6B1_SIGNED_NATIVE_CREDENTIAL_LEASE_V1.md)
-  is Proposed only. PR6B1 runtime work, PR6B2 provider validation,
-  PR6B3's paid OpenRouter canary, and every paid call
-  remain separately unapproved and approval-gated.
+  has owner approval recorded for local `$0` phase-B implementation, effective
+  only after its committed approval checkpoint passes exact-SHA CI; it is not
+  Implemented. PR6B1-C signed proof, PR6B1-D real re-entry, PR6B2 provider
+  validation, PR6B3's paid OpenRouter canary, and every paid call remain
+  separately unapproved and approval-gated.
 - [Local Evaluation Bridge v1](docs/plans/LOCAL_EVALUATION_BRIDGE_V1.md)
   defines the independently approved `$0`, local-only, one-live-episode proof
   boundary. Another live attempt requires new explicit approval and a new
@@ -285,8 +287,9 @@ cannot be widened by renderer input or stored setup state.
 The configured vLLM adapter is still a
 generic OpenAI-compatible network path: its `local_zero_cost` classification is
 operator-attested and does not independently prove that the endpoint cannot
-bill. Production cloud routing remains later, separately approved PR6B1 through
-PR6B3 work. New desktop tasks
+bill. Production cloud routing remains later PR6B1-C/PR6B1-D through PR6B3 work
+with separate approval gates. Approved phase B is structurally activation-
+locked and cannot route to Cloud. New desktop tasks
 select either the versioned `repository-investigator-v1` or `change-review-v1`
 track. The main process owns each track's policy and obligations; the renderer
 cannot supply arbitrary completion rules. Legacy sessions remain readable

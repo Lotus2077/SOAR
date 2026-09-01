@@ -411,7 +411,9 @@ local structured-schema canary did pass once on 2026-08-30, but only against a
 synthetic empty snapshot; it is not post-fix real-repository or release proof.
 PR6A is Verified but not Released. PR6B0 has automated exact-SHA closure but is
 not Verified or Released; its Fake Cloud label never denotes an external
-provider. PR6B1 is Proposed only. PR6B1 runtime work,
-PR6B2, and PR6B3 remain separately gated and are required before credential
-leasing, provider validation, production cloud dispatch, or a paid OpenRouter
-canary.
+provider. PR6B1-B has owner approval recorded for local `$0`, fail-closed
+implementation, effective only after the committed approval checkpoint passes
+exact-SHA CI; it is not Implemented. PR6B1-C signed proof, PR6B1-D real
+re-entry, PR6B2, and PR6B3 remain separately gated and are required before a
+real credential lease, provider validation, production cloud dispatch, or a
+paid OpenRouter canary.

@@ -4685,3 +4685,88 @@ References: [exact PR6B1 plan](plans/PR6B1_SIGNED_NATIVE_CREDENTIAL_LEASE_V1.md)
 [implementation CI](https://github.com/Lotus2077/SOAR/actions/runs/33502709739),
 [architecture](ARCHITECTURE.md), [routing policy](ROUTING_POLICY.md), and
 [MVP readiness](MVP_READINESS.md).
+
+### BL-20260902-0044-pr6b1b-closure-ci -- 2026-09-02 -- PR6B1-B closure and contributor contract passed exact-SHA CI
+
+Status: `Implemented`
+
+Scope or hypothesis: Record the final exact-SHA repository-health proof for the
+PR6B1-B closure and Node-22 contributor-contract correction without changing or
+expanding the implemented credential substrate. Keep implementation evidence,
+closure metadata, package evidence, and later signed/provider gates bound to
+their actual revisions.
+
+Decisions:
+
+- Retain `ddd171c6092f695e64360d73e78a257ee3fb9159` as the exact PR6B1-B
+  application implementation revision and `571d953c69ea571203edaccee763df5737d1f941`
+  as the later closure/current-truth and contributor-contract revision.
+- Treat GitHub Actions run `33533178755` as repository-health proof for the
+  latter exact revision. It does not replace the implementation archive or
+  create signed, credential, provider, egress, budget, activation, or release
+  evidence.
+- Keep the previously hashed archive and packaged canary bound only to
+  `ddd171c`; `571d953c` changes Electron packaging input metadata and was not
+  repackaged or canaried. Do not imply that CI fills this package-proof gap.
+- Stop before PR6B1-C. The signing prerequisites and separate exact approval
+  required by the plan remain absent.
+
+Changes: Appended this evidence-only ledger entry after the closure revision
+passed its local exact-head and remote exact-SHA gates. No application runtime,
+renderer, preload, IPC, database, native module, Keychain, provider, routing,
+egress, budget, tool, evaluator, credential, dependency, package configuration,
+or contributor contract changed in this entry.
+
+Evidence:
+
+- Clean committed-head `pnpm check:release-head` passed on
+  `571d953c69ea571203edaccee763df5737d1f941` under exact Node 22.22.2: native
+  core proof, readiness/build-log/type checks, 88 Vitest files and 1,026 tests
+  passed, two files/four opt-in tests were skipped, and the production build
+  completed. Vitest completed in 29.92 seconds.
+- The exact closure-commit Electron run passed 12/12 unpackaged workflows in
+  26.7 seconds; the separately invoked packaged-only spec was intentionally
+  skipped because no archive was built for this metadata correction.
+- GitHub Actions run `33533178755` passed Linux Node-22 `check` job
+  `99941045899` in 1 minute 26 seconds and dependent macOS `electron-e2e` job
+  `99941531123` in 2 minutes 44 seconds. The Linux job performed a fresh frozen
+  install and the full gate; the macOS job installed, built the addon/app, and
+  ran the unpackaged Electron suite.
+- Both final independent delta reviews reported zero P0 and zero P1 findings.
+  They confirmed current status wording, Node-engine/type/lock consistency,
+  package-proof binding, strict-install limitations, and no security-authority
+  regression.
+
+Failures or blockers: No new closure failure occurred after commit. The Node-26
+optimizer stalls, rejected diagnostic wrappers, Node-24/jsdom-floor correction,
+strict-engine limitation, and exact Node-22 recovery remain preserved in
+`BL-20260901-1934-pr6b1b-implemented`. PR6B1-C remains blocked from proposal by
+the missing Developer ID Application identity, explicit App ID, matching
+profile, and private key.
+
+Limitations and non-claims: This evidence does not make PR6B1-B Verified,
+Activated, or Released and proves no Developer-ID continuity, protected
+credential, lease use, provider validity, cloud request, repository egress,
+actual budget, billing, routing quality, cost saving, latency improvement,
+notarization, or user value. Run `33533178755` did not package the app or run the
+packaged canary. The final package proof therefore remains archive
+`f259fea2c6e7531cfa9bd2a049d26184a1924a0f434a6e9ff8bf146456c4cfdb`
+from exact implementation revision `ddd171c`, with all limitations recorded in
+the preceding closure entry.
+
+Paid exposure: `$0`. Local validation and GitHub CI made no configured vLLM,
+OpenRouter, model-list, credential-validation, inference, retry, fallback,
+evaluator, repository-egress, or other external LLM-provider request. No
+credential secret/value was entered, retrieved, mutated, or written, and no
+actual budget reservation or spend was created.
+
+Next gate: Validate, commit, and push this evidence-only record. PR6B1-C may be
+proposed only after its signing prerequisites exist; its plan must then be
+committed, independently reviewed, and explicitly approved before any synthetic
+Keychain proof. PR6B1-D, PR6B2, PR6B3, real Hybrid, and every paid/provider
+operation remain separately gated.
+
+References: [PR6B1 plan](plans/PR6B1_SIGNED_NATIVE_CREDENTIAL_LEASE_V1.md),
+[closure entry](#bl-20260901-1934-pr6b1b-implemented----2026-09-01----pr6b1-b-closed-as-implemented-on-exact-sha),
+[closure CI](https://github.com/Lotus2077/SOAR/actions/runs/33533178755),
+[architecture](ARCHITECTURE.md), and [MVP readiness](MVP_READINESS.md).

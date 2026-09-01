@@ -4993,3 +4993,75 @@ reservation, or paid action until that approval is durably recorded.
 References: [PR6R proposal](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
 [proposal CI](https://github.com/Lotus2077/SOAR/actions/runs/33539267786), and
 [preceding proposal entry](#bl-20260902-0103-pr6r-real-provider-slice-proposed----2026-09-02----development-real-provider-slice-proposed-after-goal-recalibration).
+
+### BL-20260902-0445-pr6ra-approved -- 2026-09-02 -- PR6R-A approved for zero-cost loopback implementation
+
+Status: `Approved`
+
+Scope or hypothesis: Record the owner's informed response to the exact PR6R-A
+approval request and authorize only the committed `$0`, loopback-only R-A1
+through R-A3 implementation. Preserve the separately gated R-B credential and
+provider-validation phase and R-C actual-paid phase.
+
+Decisions:
+
+- Treat the owner's direct reply, "approved, and actual-paid authority is
+  granted; go for the next milestone", immediately following the exact R-A
+  approval sentence, as contextual acceptance of that exact R-A sentence.
+- Apply only the R-A authority that can presently be admitted: local `$0`
+  implementation and loopback proof with no real credential resolution,
+  configured-vLLM or OpenRouter request, off-device repository egress,
+  actual-cost reservation, or spend. Every R-A attempt and reservation remains
+  `costScope=simulation`; the actual-paid operation remains absent.
+- Record the owner's additional actual-paid statement as future intent, not
+  operative R-B or R-C authority. The committed plan forbids collapsing phases,
+  and no R-B evidence or exact R-C provider, packet, price, credential-metadata,
+  reservation, or authority facts yet exist for informed paid admission.
+- Implement R-A in the committed A1, A2, then A3 order. Each checkpoint requires
+  focused tests and review before the next begins; full exact-head, package,
+  Electron, independent review, and Linux/macOS CI evidence remain required for
+  `Implemented` closure.
+
+Changes: Updated the PR6R plan and README current-state wording from `Proposed`
+to `Approved` for phase R-A only and appended this authority record. No runtime,
+renderer, preload, IPC, database, native module, Keychain, provider, transport,
+routing, egress, budget, tool, evaluator, fixture, package, or workflow behavior
+changed.
+
+Evidence:
+
+- The exact R-A approval sentence was presented from the committed plan after
+  proposal revision `6f06d8c97d36ce24b2231b3e88710c8aeafaaa73` passed Linux
+  and macOS CI in run `33539267786`.
+- The owner responded directly and unambiguously approved proceeding to the
+  next milestone while also expressing broader paid intent.
+- Approval-record baseline `5c6f826b82879b5b73c66c5a2111b7b37ee50f3e`
+  was clean, synchronized with `origin/main`, and green in CI run `33539797481`
+  before this entry.
+
+Failures or blockers: No R-A implementation failure exists yet because runtime
+work has not begun. R-B and R-C remain unproposed and cannot consume the broader
+paid statement. The signed packaged-production path remains blocked by the
+missing Developer ID prerequisites recorded earlier.
+
+Limitations and non-claims: `Approved` is authority for scoped work, not proof
+of implementation. This entry proves no runtime contract, loopback request,
+fixture materialization, provider validity, credential availability, configured
+endpoint, repository egress, actual reservation, inference, billing, quality,
+cost saving, latency improvement, routing benefit, packaging, release readiness,
+or user value.
+
+Paid exposure: `$0`. Recording approval made no configured vLLM, OpenRouter API,
+model-list, validation, inference, retry, fallback, evaluator, repository-egress,
+or other external LLM-provider request. It resolved no credential and created no
+simulation or actual-cost reservation.
+
+Next gate: Validate, independently review, commit, push, and pass Linux/macOS CI
+for this approval record before the first R-A runtime edit. Then implement and
+review R-A1, R-A2, and R-A3 without crossing any credential, configured-provider,
+off-device-egress, actual-budget, or paid boundary.
+
+References: [PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
+[proposal CI](https://github.com/Lotus2077/SOAR/actions/runs/33539267786),
+[approval-record baseline CI](https://github.com/Lotus2077/SOAR/actions/runs/33539797481),
+and [proposal entry](#bl-20260902-0103-pr6r-real-provider-slice-proposed----2026-09-02----development-real-provider-slice-proposed-after-goal-recalibration).

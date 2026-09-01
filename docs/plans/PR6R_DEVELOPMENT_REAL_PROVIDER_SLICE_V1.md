@@ -1,15 +1,17 @@
 # PR6R Development Real-Provider Slice v1
 
-Status: **Phase R-A Proposed; no runtime, credential, provider, egress, budget,
-or paid authority**
+Status: **Phase R-A Approved; runtime not yet Implemented; no real credential,
+configured-provider, off-device-egress, actual-budget, or paid authority**
 
 - Plan ID: `pr6r-development-real-provider-slice-v1-plan-1`
 - Product goal: first real-provider transport, accounting, and latency canary
 - Baseline revision: `7e3a4488695d1e75e70f36509f45d6d89233c54e`
 - Proposed: 2026-09-02
-- Approval: not granted
+- Approval: granted 2026-09-02 for the exact R-A `$0` scope; see
+  `BL-20260902-0445-pr6ra-approved`
 - Phase R-A provider spend and external LLM requests: **USD 0 and none**
-- Later proposed paid ceiling: **USD 0.25 aggregate**, not approved
+- Later proposed paid ceiling: **USD 0.25 aggregate**, not operative or
+  approved under R-C
 - Proposed cloud model: exact pinned slug
   `deepseek/deepseek-v4-flash-0731`
 - Project log: [BUILD_LOG.md](../BUILD_LOG.md)
@@ -45,7 +47,7 @@ egress, or paid authority below. Each phase retains a separate durable gate.
 
 | Phase | Scope | Current state | Separate approval required? |
 | --- | --- | --- | --- |
-| PR6R-A | `$0` contracts, app flow, loopback transport, deterministic authority/accounting/replay proof, and packaged denial | Proposed | Yes: exact R-A sentence below |
+| PR6R-A | `$0` contracts, app flow, loopback transport, deterministic authority/accounting/replay proof, and packaged denial | Approved; implementation not started | Granted for the exact R-A sentence below |
 | PR6R-B | Main-only development credential resolution, bounded account/model/upstream/pricing validation, and one Local baseline over the frozen public fixture | Not Proposed | Yes: later exact plan after R-A exact-SHA closure |
 | PR6R-C | At most two paid Cloud synthesis attempts over the exact R-B packet under a USD 0.25 aggregate reservation | Not Proposed | Yes: later exact plan after R-B evidence freezes every request fact |
 
@@ -399,11 +401,11 @@ Anything broader requires the later exact R-B or R-C plan and approval.
 
 ## Next gate
 
-Commit, independently review, push, and pass Linux/macOS CI for this proposal
-only. Then request the exact R-A approval sentence. Until that approval is
-durably recorded, make no runtime change, resolve no credential, contact no
-provider or configured vLLM endpoint, send no repository content, create no
-budget reservation, and incur no paid spend.
+Validate, independently review, commit, push, and pass Linux/macOS CI for the
+approval record. Then begin R-A1 and continue through R-A3 only after each
+checkpoint's focused tests and review pass. Stop before every R-B/R-C real-
+credential, configured-provider, off-device-egress, actual-budget, or paid
+boundary.
 
 ## References
 

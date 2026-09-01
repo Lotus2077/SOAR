@@ -4931,3 +4931,65 @@ References: [proposed PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.m
 [benchmark protocol](../benchmarks/README.md), and
 [OpenRouter model page](https://openrouter.ai/deepseek/deepseek-v4-flash-0731),
 and [OpenRouter provider routing](https://openrouter.ai/docs/guides/routing/provider-selection).
+
+### BL-20260902-0146-pr6r-proposal-ci-passed -- 2026-09-02 -- Exact proposal revision passed required CI
+
+Status: `Proposed`
+
+Scope or hypothesis: Durably bind the PR6R development real-provider proposal
+to its first pushed exact revision and record whether the proposal-only change
+passes the required Linux validation and macOS Electron gates. This is evidence
+for reviewing the proposal; it is not implementation approval or runtime proof.
+
+Decisions:
+
+- Bind the reviewed proposal to exact revision
+  `6f06d8c97d36ce24b2231b3e88710c8aeafaaa73` and CI run `33539267786`.
+- Retain PR6R-A as `Proposed`. Passing proposal CI does not authorize or elevate
+  R-A, R-B, or R-C, and it does not change any credential, egress, provider,
+  reservation, or paid-work boundary.
+- Require the exact R-A approval sentence in the committed plan before any
+  runtime edit. R-B credential/provider validation and R-C paid inference remain
+  separate future plans and approval gates.
+
+Changes: Appended this evidence-only record after the proposal commit passed
+both required CI jobs. No application, renderer, preload, IPC, database, native
+module, Keychain, provider, transport, routing, egress, budget, tool, evaluator,
+fixture, package, or workflow behavior changed.
+
+Evidence:
+
+- GitHub Actions run `33539267786` passed for exact proposal revision
+  `6f06d8c97d36ce24b2231b3e88710c8aeafaaa73`.
+- Linux job `99961155368` passed append-only verification plus the canonical
+  validate, type-check, test, and build gate in 1 minute 32 seconds.
+- macOS job `99961687592` built the application and passed Electron end-to-end
+  tests in 2 minutes 21 seconds.
+- The proposal revision was synchronized with `origin/main` before this record
+  was appended.
+
+Failures or blockers: The CI run recorded no failed job. PR6R-A remains blocked
+on exact informed approval. PR6R-B and PR6R-C remain unproposed, and the signed
+production path remains blocked by the missing Developer ID prerequisites
+recorded in the preceding proposal entry.
+
+Limitations and non-claims: Proposal CI proves only that the committed plan,
+README link, and build-log entry preserve the existing repository gates. It
+proves no runtime implementation, configured provider, credential, endpoint
+health, repository egress, inference, accounting, billing, task quality, cost
+saving, latency improvement, routing benefit, signing continuity, release
+readiness, or user value.
+
+Paid exposure: `$0`. CI and this evidence-only update made no configured vLLM,
+OpenRouter API, model-list, validation, inference, retry, fallback, evaluator,
+repository-egress, or other external LLM-provider request. No credential value
+was resolved or handled, and no reservation or actual spend was created.
+
+Next gate: Validate, commit, and push this evidence-only record and require its
+CI to pass. Then request the exact PR6R-A approval sentence from the committed
+plan. Stop before all runtime edits and every credential, provider, egress,
+reservation, or paid action until that approval is durably recorded.
+
+References: [PR6R proposal](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
+[proposal CI](https://github.com/Lotus2077/SOAR/actions/runs/33539267786), and
+[preceding proposal entry](#bl-20260902-0103-pr6r-real-provider-slice-proposed----2026-09-02----development-real-provider-slice-proposed-after-goal-recalibration).

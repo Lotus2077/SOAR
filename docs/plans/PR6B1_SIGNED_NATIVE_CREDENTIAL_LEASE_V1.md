@@ -1,8 +1,7 @@
 # PR6B1 Signed Native Credential Lease v1
 
-Status: **Phase-B approval is effective and local candidate gates pass; exact
-committed-SHA Linux/macOS CI is pending; not Implemented, Verified, Activated,
-or Released**
+Status: **Phase B Implemented with automated exact-SHA closure; not Verified,
+Activated, or Released**
 
 - Plan ID: `pr6b1-signed-native-credential-lease-v1-plan-1`
 - Parent plan: `hybrid-lease-router-v0-plan-2`
@@ -18,6 +17,9 @@ or Released**
 - Green phase-B approval revision:
   `578424ad32e53c96bfa9a8e3901ee31535d1e17a`
 - Green phase-B approval CI: GitHub Actions run `33489646557`
+- Phase-B implementation revision:
+  `ddd171c6092f695e64360d73e78a257ee3fb9159`
+- Green phase-B implementation CI: GitHub Actions run `33502709739`
 - Provider-spend ceiling: `$0`
 - Provider requests: none
 - Repository egress: none
@@ -32,7 +34,7 @@ implementation only. That is recorded as phase-B approval. It is not approval
 of a credential operation, provider request, repository egress, budget, or any
 later milestone.
 
-PR6B1 is split deliberately. Approval of this exact plan would authorize only
+PR6B1 is split deliberately. Approval of this exact plan authorized only
 the fail-closed `$0` substrate in phase B below. A signed synthetic Keychain
 proof, real credential re-entry, provider validation, and paid inference each
 retain separate durable approval gates.
@@ -56,7 +58,7 @@ synthetic data before a separate decision permits real re-entry.
 | Phase | Scope | Current state | Separate approval required? |
 | --- | --- | --- | --- |
 | PR6B1-A | Correct plan and establish signing prerequisites | Plan checkpoint complete; signing prerequisites still absent | This approval does not install or export signing material |
-| PR6B1-B | Fail-closed native substrate, locked UI, contracts, fakes, journal, package verifier | Local candidate gates pass; exact committed-SHA CI pending | Approval is limited to this exact plan ID |
+| PR6B1-B | Fail-closed native substrate, locked UI, contracts, fakes, journal, package verifier | Implemented with automated exact-SHA closure; not Verified, Activated, or Released | Approval is limited to this exact plan ID |
 | PR6B1-C | Signed A/B synthetic continuity and hostile-host proof | Not Proposed | Yes: a later exact proof plan after signing prerequisites exist |
 | PR6B1-D | Native secure re-entry and production protected-item activation | Not Proposed | Yes: only after a durable passing PR6B1-C checkpoint |
 | PR6B2 | Bounded real provider/account/model/price/limit/health validation | Not Proposed | Yes |
@@ -97,8 +99,8 @@ signature reports; they must not be misclassified as secrets.
 
 ## Exact authority boundary for this proposal
 
-Approval of `pr6b1-signed-native-credential-lease-v1-plan-1` would authorize
-only local `$0` phase-B work to:
+The effective approval of `pr6b1-signed-native-credential-lease-v1-plan-1`
+authorized only local `$0` phase-B work to:
 
 - disable PR6A staged store/replace and remove its renderer credential field;
 - retain only noninteractive staged status; remove staged mutation actions;
@@ -468,7 +470,7 @@ The locked screen and all fake future-state fixtures must preserve:
   production/synthetic constants or proof consumers; and
 - provider/network traps prove zero OpenRouter request.
 
-Phase B can be Implemented without a signing identity. It cannot prove signed
+Phase B is Implemented without a signing identity. This does not prove signed
 identity admission, Data Protection Keychain access, upgrade continuity, a real
 credential lease, or real provider use.
 

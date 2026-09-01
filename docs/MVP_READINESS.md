@@ -11,7 +11,7 @@ revision passed Linux and macOS GitHub Actions.
 
 PR6A Cloud Setup and Dispatch Lock was **Verified** but not **Released**. Its
 historical setup-only Keychain operations are superseded by the PR6B1-B
-candidate's status-only boundary. Its metadata candidate and pure egress-shadow
+status-only boundary. Its metadata candidate and pure egress-shadow
 code do not authorize provider validation, production cloud dispatch, real
 Hybrid selection, or PR6B1-C through PR6B3.
 
@@ -26,14 +26,14 @@ passed on `9495d6bcbaa8cef5d3342e0d53ab02efe28d0002`; manual VoiceOver,
 keyboard-only traversal, 200% zoom/reflow, light/dark contrast, and reduced-
 motion proof remain pending.
 
-PR6B1-B has effective owner approval for local `$0` implementation. The current
-tree is an **implementation candidate**, not yet **Implemented**, **Verified**,
+PR6B1-B is **Implemented with automated exact-SHA closure**, not **Verified**,
 **Activated**, or **Released**. It removes secret entry and mutation from the
 web stack, adds a status-only locked native authority and conservative operation
 journal, and leaves provider checks, real Hybrid, repository egress, and spend
-locked. Local deterministic, Electron, exact-archive, canary, and independent-
-review gates pass; clean committed-head and exact-SHA CI closure are still
-required.
+locked. Deterministic, committed-head, Electron, exact-archive, canary,
+independent-review, and Linux/macOS CI gates passed on
+`ddd171c6092f695e64360d73e78a257ee3fb9159`. This is `$0` phase-B substrate
+evidence, not signed credential-continuity or provider evidence.
 
 ## Implemented
 
@@ -59,8 +59,7 @@ required.
   secret or mutation schema, exact current-window/top-frame authority, a
   locked Objective-C++ macOS broker, noninteractive legacy attribute status,
   a non-secret SQLite operation journal with conservative restart ambiguity,
-  and provider-not-run/dispatch-locked projections. This remains an
-  implementation candidate until its exact-SHA closure;
+  and provider-not-run/dispatch-locked projections;
 - a pure canonical-message cloud-egress shadow guard that evaluates
   host-derived provenance and returns bounded finding codes and semantic
   hashes. It performs no I/O. Normal vLLM mode retains the PR6A shadow-only
@@ -425,10 +424,8 @@ local structured-schema canary did pass once on 2026-08-30, but only against a
 synthetic empty snapshot; it is not post-fix real-repository or release proof.
 PR6A is Verified but not Released. PR6B0 has automated exact-SHA closure but is
 not Verified or Released; its Fake Cloud label never denotes an external
-provider. PR6B1-B has effective owner approval for local `$0`, fail-closed
-implementation. Local candidate gates pass and exact committed-SHA CI is
-pending; it is not yet
-Implemented. PR6B1-C signed proof, PR6B1-D real
-re-entry, PR6B2, and PR6B3 remain separately gated and are required before a
-real credential lease, provider validation, production cloud dispatch, or a
-paid OpenRouter canary.
+provider. PR6B1-B is Implemented with automated exact-SHA closure for local
+`$0` phase B, not Verified, Activated, or Released. PR6B1-C signed proof,
+PR6B1-D real re-entry, PR6B2, and PR6B3 remain separately gated and are required
+before a real credential lease, provider validation, production cloud dispatch,
+or a paid OpenRouter canary.

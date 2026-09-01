@@ -7,7 +7,11 @@ design and migration cost are visible before implementation begins.
 
 ## Development setup
 
-You need Git, Node.js 22.22.2 or newer, pnpm 10.12.4, and a C++20 compiler.
+You need Git, Node.js 22.22.2 or later in the Node 22 line, pnpm 10.12.4, and a
+C++20 compiler. Node 24 and Node 26 are not currently part of the supported
+contributor contract.
+The checked-in `.nvmrc` selects the exact CI baseline, and pnpm rejects an
+unsupported Node engine before installing dependencies.
 macOS contributors also need Xcode Command Line Tools because the locked native
 credential module builds through `xcrun`; macOS is required for the desktop
 application, Electron end-to-end tests, and package/canary checks. Most type

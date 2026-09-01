@@ -16,11 +16,12 @@ routing runtime matures.
 > the simulation reads no
 > credential, contacts neither the configured vLLM nor an external provider,
 > and has `$0` actual external spend. Cloud execution, write tools, and learned
-> routing remain design targets. PR6B1-B is currently a local implementation
-> candidate: it replaces secret entry with a status-only, activation-locked
-> native credential boundary. Local deterministic, package, canary, Electron,
-> and review gates pass, but it is not Implemented until exact committed-SHA
-> Linux/macOS CI closes. Manual VoiceOver, light/dark
+> routing remain design targets. PR6B1-B is **Implemented with automated
+> exact-SHA closure**, not Verified, Activated, or Released: it replaces secret
+> entry with a status-only, activation-locked native credential boundary.
+> Deterministic, committed-head, package, canary, Electron, independent-review,
+> and Linux/macOS CI gates passed on
+> `ddd171c6092f695e64360d73e78a257ee3fb9159`. Manual VoiceOver, light/dark
 > contrast, and reduced-motion proof for PR6B0 is still pending.
 
 The MVP optimizes a constrained trade-off rather than promising an impossible per-task optimum:
@@ -42,7 +43,7 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   loopback-placement or privacy guarantee.
 - Locked cloud candidate: OpenRouter DeepSeek V4 Flash 0731 remains
   metadata-only product intent, separate from the runtime provider registry.
-  The PR6B1-B candidate removes credential entry and mutation from renderer,
+  The PR6B1-B implementation removes credential entry and mutation from renderer,
   preload, and IPC. **Cloud credential** shows only strict, non-secret native
   identity, legacy-item metadata, operation-recovery, provider-not-run, and
   dispatch-locked status. The locked package has no protected-item locator,
@@ -68,9 +69,10 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
 - Selected paid exposure for the production app remains USD 0
   under the operator's local-zero-cost attestation. The app constructs no
   separately configured metered or OpenRouter provider, and paid benchmark
-  calls are not authorized. The PR6A setup path has no cloud transport or paid
-  attempt path. PR6B0's `$0.25` figure is a simulated maximum reservation and is
-  excluded from actual spend. This is not proof that an incorrectly classified
+  calls are not authorized. The implemented PR6B1-B status boundary has no
+  cloud transport or paid-attempt path. PR6B0's `$0.25` figure is a simulated
+  maximum reservation excluded from actual spend. This is not proof that an
+  incorrectly classified
   configured endpoint cannot bill its operator.
 - Local Evaluation Bridge v1: a specialized, fail-closed command can now run
   the canonical production local-only change-review coordinator on one frozen
@@ -102,11 +104,10 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   [PR6B0 Hybrid Simulation](docs/plans/PR6B0_HYBRID_SIMULATION_V1.md) is
   Implemented with automated exact-SHA closure but not Verified or Released.
   [PR6B1 Signed Native Credential Lease](docs/plans/PR6B1_SIGNED_NATIVE_CREDENTIAL_LEASE_V1.md)
-  has effective owner approval for local `$0` phase-B implementation. Its local
-  candidate gates pass and exact committed-SHA CI is pending; it is not yet
-  Implemented. PR6B1-C signed proof, PR6B1-D real re-entry, PR6B2 provider
-  validation, PR6B3's paid OpenRouter canary, and every paid call remain
-  separately unapproved and approval-gated.
+  is Implemented with automated exact-SHA closure for local `$0` phase B, not
+  Verified, Activated, or Released. PR6B1-C signed proof, PR6B1-D real re-entry,
+  PR6B2 provider validation, PR6B3's paid OpenRouter canary, and every paid call
+  remain separately unapproved and approval-gated.
 - [Local Evaluation Bridge v1](docs/plans/LOCAL_EVALUATION_BRIDGE_V1.md)
   defines the independently approved `$0`, local-only, one-live-episode proof
   boundary. Another live attempt requires new explicit approval and a new
@@ -226,13 +227,16 @@ settled amounts with settlement provenance, and `$0` actual external spend.
 Restart replays persisted events without dispatching again.
 
 Normal vLLM mode still constructs one configured, operator-attested Local
-provider and exposes no Hybrid simulation authority. The PR6B1-B candidate
+provider and exposes no Hybrid simulation authority. The PR6B1-B implementation
 exposes status only and cannot enter, mutate, retrieve, validate, or dispatch a
-credential; PR6B0 neither reads any Keychain item nor constructs an OpenRouter
-transport. Automated exact-head, Electron, package, independent-review, and
-Linux/macOS CI gates passed on the final corrective implementation revision,
-but the manual VoiceOver, keyboard-only, contrast, zoom/reflow, and reduced-
-motion record remains pending. PR6B0 is therefore not yet Verified or Released.
+credential. Its exact-SHA closure passed on
+`ddd171c6092f695e64360d73e78a257ee3fb9159`, but manual VoiceOver remains
+unrecorded and it is not Verified, Activated, or Released. Separately, PR6B0
+neither reads any Keychain item nor constructs an OpenRouter transport. Its
+automated exact-head, Electron, package, independent-review, and Linux/macOS CI
+gates passed on `9495d6bcbaa8cef5d3342e0d53ab02efe28d0002`, but its manual
+VoiceOver, keyboard-only, contrast, zoom/reflow, and reduced-motion record
+remains pending. PR6B0 is therefore not yet Verified or Released.
 There is no claim that fake results measure quality, cost
 savings, or latency improvement. See
 [the PR6B0 plan](docs/plans/PR6B0_HYBRID_SIMULATION_V1.md) and
@@ -295,8 +299,8 @@ The configured vLLM adapter is still a
 generic OpenAI-compatible network path: its `local_zero_cost` classification is
 operator-attested and does not independently prove that the endpoint cannot
 bill. Production cloud routing remains later PR6B1-C/PR6B1-D through PR6B3 work
-with separate approval gates. The phase-B candidate is structurally activation-
-locked and cannot route to Cloud. New desktop tasks
+with separate approval gates. The phase-B implementation is structurally
+activation-locked and cannot route to Cloud. New desktop tasks
 select either the versioned `repository-investigator-v1` or `change-review-v1`
 track. The main process owns each track's policy and obligations; the renderer
 cannot supply arbitrary completion rules. Legacy sessions remain readable
@@ -307,7 +311,8 @@ without a track field.
 Prerequisites:
 
 - macOS for the desktop application and Electron end-to-end test;
-- Node.js 22.22.2 or newer and pnpm 10.12.4;
+- Node.js 22.22.2 or later in the Node 22 line and pnpm 10.12.4; Node 24 and
+  Node 26 are not currently part of the supported contributor contract;
 - an OpenAI-compatible vLLM endpoint for real inference.
 
 ```sh

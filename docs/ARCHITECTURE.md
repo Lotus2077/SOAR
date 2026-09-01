@@ -722,10 +722,10 @@ against canonical events at startup and before later admission. See
 [ADR 0004](adr/0004-checkpoint-router-budget-runner-v0.md).
 
 PR6A was Verified but not Released. Its historical setup-only Keychain
-operations are superseded by PR6B1-B's status-only candidate. The locked
-candidate metadata and pure shadow admission function over canonical messages
-and host-derived provenance remain; the function performs no I/O and PR6A
-itself attached it to no session. PR6B0 uses that pure policy only before an
+operations are superseded by PR6B1-B's implemented status-only boundary. The
+locked candidate metadata and pure shadow admission function over canonical
+messages and host-derived provenance remain; the function performs no I/O and
+PR6A itself attached it to no session. PR6B0 uses that pure policy only before an
 in-process fake invocation; neither state is proof of a real provider request
 or wire payload.
 
@@ -741,8 +741,10 @@ through PR6B3 work: signed raw-secret resolution at the dispatch boundary,
 credential and provider validation, live health and pricing evidence,
 immediately-before-dispatch egress admission bound to the serialized wire
 request, explicit real Hybrid authority, and the paid OpenRouter canary.
-PR6B1-B has effective owner approval for a `$0`, structurally activation-locked
-substrate only. Its local implementation candidate can report source-bounded
+PR6B1-B is Implemented with automated exact-SHA closure on
+`ddd171c6092f695e64360d73e78a257ee3fb9159` (GitHub Actions run `33502709739`)
+as a `$0`, structurally activation-locked substrate; it is not Verified,
+Activated, or Released. Its implementation can report source-bounded
 legacy metadata and conservative operation recovery, but cannot report or use a
 protected credential. It always reports provider check **Not run** and Cloud
 requests **Locked**. The implemented

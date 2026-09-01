@@ -4509,3 +4509,179 @@ References: [approved PR6B1 plan](plans/PR6B1_SIGNED_NATIVE_CREDENTIAL_LEASE_V1.
 [architecture](ARCHITECTURE.md), [routing policy](ROUTING_POLICY.md),
 [MVP readiness](MVP_READINESS.md), and
 [approval CI](https://github.com/Lotus2077/SOAR/actions/runs/33489646557).
+
+### BL-20260901-1934-pr6b1b-implemented -- 2026-09-01 -- PR6B1-B closed as implemented on exact SHA
+
+Status: `Implemented`
+
+Scope or hypothesis: Close only the approved local `$0` phase B of
+`pr6b1-signed-native-credential-lease-v1-plan-1` after its committed
+implementation, exact-head local proof, exact archive canary, independent
+review, and exact-SHA Linux/macOS CI all pass. Preserve the boundary between an
+implemented activation-locked substrate and later signed, credential, provider,
+egress, budget, paid, activation, and release work.
+
+Decisions:
+
+- Mark only PR6B1-B **Implemented**. Reserve **Verified** for a separately
+  approved passing PR6B1-C signed A/B synthetic continuity proof,
+  **Activated** for separately approved PR6B1-D real native re-entry, and
+  **Released** for later notarized distribution and release approval.
+- Bind the implementation result to exact revision
+  `ddd171c6092f695e64360d73e78a257ee3fb9159` and GitHub Actions run
+  `33502709739`. Do not infer closure from a dirty working tree, a different
+  revision, or the earlier invalidated archive candidates.
+- Retain the structural lock: phase B has no production or synthetic protected-
+  item locator, native secure-entry sheet, reachable Keychain mutation,
+  protected credential resolution, lease consumer, real cloud provider,
+  provider validation, repository egress, real Hybrid authority, actual budget
+  reservation, or paid request.
+- Keep PR6B1-C unproposed and unapproved while the required Developer ID
+  Application identity, explicit App ID, matching profile, and private key are
+  unavailable. The owner's general permission to use a paid model does not
+  supersede the exact gates for PR6B1-C/D, PR6B2, PR6B3, or a paid campaign.
+- Narrow the contributor Node contract from unbounded `>=22.22.2` to
+  `^22.22.2`, the only fresh-install and CI-proven major line. The host's Node
+  26.7.0 repeatedly left Vite/Vitest renderer dependency optimization asleep
+  without test progress. Node 24.0.2 completed both the renderer slice and
+  canonical full gate against the existing installed tree, but the locked
+  `jsdom@30.0.1` dependency requires Node 24.15+ for a fresh install; that
+  diagnostic run therefore does not authorize Node 24 support. Do not advertise
+  another major until a later fresh frozen install and full proof exist.
+- Align the compile-time Node API surface to exact `@types/node` 22.20.1, add an
+  exact `22.22.2` `.nvmrc`, and enable pnpm `engine-strict`. The prior Node 26
+  types could admit APIs absent from the supported runtime, while an advisory
+  engine alone let contributors enter the known-stalling Node 26 path.
+
+Changes: Updated the plan, README, architecture, routing policy, and readiness
+documents from candidate/pending language to the exact phase-B closure state.
+Also constrained package and contributor metadata to the proven Node 22 major
+line, aligned Node type definitions, and added standard version-manager and
+install-time enforcement files. No application runtime, renderer, preload, IPC, database, native
+module, Keychain, provider, routing, egress, budget, tool, evaluator, or
+credential behavior changed in this closure checkpoint.
+
+Evidence:
+
+- Clean committed-head `pnpm check:release-head` passed on
+  `ddd171c6092f695e64360d73e78a257ee3fb9159`: the locked native core proof,
+  readiness/build-log/type checks, 88 Vitest files and 1,026 tests passed, four
+  opt-in tests were skipped, and the production build completed.
+- The exact committed-head Electron suite passed 12/12 workflows in 30.5
+  seconds: Local tool loop/restart, cancellation, second-instance denial, three
+  credential-operation states, compact dark/reduced-motion/200% zoom, local
+  review, and four Fake Hybrid cases. The separate packaged-only spec was
+  intentionally excluded from that unpackaged run.
+- The post-commit macOS archive
+  `SOAR-mac-arm64.zip` has SHA-256
+  `f259fea2c6e7531cfa9bd2a049d26184a1924a0f434a6e9ff8bf146456c4cfdb`.
+  The build copied the reviewed native inputs into the pinned package; the
+  package verifier then accepted exactly one addon, the sealed renderer and
+  manifest, Mach-O symbol and entitlement policy, strict ad-hoc signature
+  validity, the fixed bundle identifier, architecture, and legal resources
+  before and after archive extraction. The
+  immediately following canary ran that exact hashed archive and passed 1/1 in
+  4.7 seconds. It ignored a hostile renderer override, showed native ad-hoc
+  locked status plus **Not run** and **Locked**, exposed no password or mutation
+  action, and made zero HTTP or upgrade requests to its configured loopback
+  renderer/vLLM trap before and after shutdown.
+  This archive and canary bind only implementation SHA `ddd171c`; the later
+  contributor-engine metadata correction is an Electron packaging input and
+  was not repackaged or canaried. Its own CI does not perform package/canary
+  proof.
+- Exact implementation revision GitHub Actions run `33502709739` passed Linux
+  `check` job `99839503665` in 1 minute 42 seconds and macOS `electron-e2e` job
+  `99839982854` in 2 minutes 43 seconds. Linux proves cross-platform import,
+  build, and test safety but does not compile or run the Darwin addon. The macOS
+  job builds the addon and runs unpackaged Electron workflows; it does not run
+  the distributable archive or packaged canary, which are separate local
+  evidence above.
+- Independent native/security and UI/IPC/navigation/open-source final reviews
+  each reported zero P0 and zero P1 findings after their findings were fixed.
+  The final UI/IPC delta recheck passed four focused files and 38 tests plus
+  `git diff --check`.
+- `pnpm validate:readiness` still reports 22 research and 20 coding workload
+  manifests and no high-confidence tracked-file secret match. The implementation
+  commit and this closure record contain no credential, private endpoint,
+  private path, raw private trace, evaluator gold, or generated database/archive.
+- With coordinator and workers pinned to installed Node 24.0.2, all five
+  renderer files passed 60/60 tests in 35.6 seconds, then canonical `pnpm check`
+  passed the native proof, 88 Vitest files and 1,026 tests with the documented
+  two-file/four-test skips, type checks, readiness/log validators, and the full
+  Electron production bundle. Because that runtime is below the locked jsdom
+  fresh-install floor, this is diagnostic evidence only. It is not Node 24
+  contributor-support, fresh-install, package, or CI proof. Supported-runtime
+  proof remains exact Node 22.22.2 CI.
+- Under cached exact Node 22.22.2, `pnpm install --frozen-lockfile` synchronized
+  `@types/node` 22.20.1, rebuilt the locked addon and `better-sqlite3` for
+  Electron, and completed in 7 minutes 1.1 seconds. Canonical `pnpm check` then
+  passed the native proof, 88 Vitest files and 1,026 tests with two files/four
+  tests skipped, both type checks, both validators, and the production bundle;
+  Vitest itself completed in 34.95 seconds. A Node 26.7.0 offline lockfile
+  install was rejected before mutation with `ERR_PNPM_UNSUPPORTED_ENGINE`.
+
+Failures or blockers: No phase-B closure blocker remains. The material negative
+results, stale/concurrent Electron runs, invalidated archives, package-verifier
+corrections, sandbox-only failures, and final fixes remain recorded in
+`BL-20260901-1916-pr6b1b-implementation-candidate`; this closure does not erase
+or reinterpret them. The first uncommitted closure draft used a compound Status
+label and the build-log validator rejected it; the field now uses the exact
+`Implemented` enum while the narrower non-claims remain in prose. The current
+pre-commit `pnpm check` under the host-default Node 26.7.0 then hit timeout
+ceilings in four tests across three unrelated Git-fixture files and stopped
+making progress; it was interrupted after the failures were already conclusive.
+The unchanged three files passed 27 tests with one opt-in skip in 8.0 seconds
+when rerun together in isolation. A second default-Node full run and a verbose
+diagnostic run later slept during renderer dependency import with no child work;
+moving aside abandoned generated Vite optimizer caches did not correct it. An
+initial Node 24 wrapper still let `pnpm exec` resolve Node 26 workers, and a
+reduced PATH then omitted nested `pnpm`; both diagnostic attempts were rejected
+before being treated as proof. Pinning both the coordinator and worker PATH to
+Node 24.0.2 made the renderer slice and canonical full gate pass, but review
+then found that runtime is below the locked jsdom Node 24.15 fresh-install
+floor. The public contract was corrected to the proven Node 22 line only. This
+is an unsupported-Node compatibility finding and contributor-metadata
+correction, not an application-runtime correction. The current host still lacks
+the signing prerequisites required to propose or execute PR6B1-C.
+
+Limitations and non-claims: Phase-B closure does not prove Developer-ID identity
+continuity, signed hostile-host denial, Data Protection Keychain access,
+upgrade continuity, secure native entry, a real credential or usable lease,
+credential validity, provider account/model/price/limit/health, repository
+egress, cloud inference, billing, routing quality, cost saving, latency
+improvement, notarization, release readiness, or user value. The ad-hoc archive
+uses the default Electron icon, disables Hardened Runtime, and is not notarized.
+The native status path has no service-level deadline for a pathological OS
+stall; the passive legacy admission is structural rather than Developer-ID
+continuity; packaged CSP still retains a loopback WebSocket allowance for
+development compatibility although the current renderer has no such client;
+archive/source binding remains procedural; and manual VoiceOver is unrecorded.
+The packaged canary's loopback trap is not a global network monitor, it runs no
+Local task, and it does not instrument Security.framework or disclose whether a
+legacy item exists. `engine-strict` guards dependency installation, not every
+arbitrary command against an already-installed tree; `.nvmrc` and the documented
+contract remain necessary contributor guidance.
+
+Paid exposure: `$0`. The implementation and closure used local compilation,
+deterministic fakes, loopback test traps, Electron, ad-hoc packaging, archive
+inspection, and GitHub CI. They made no configured vLLM, OpenRouter, model-list,
+credential-validation, inference, retry, fallback, evaluator, repository-egress,
+or other external LLM-provider request. No credential secret/value was entered,
+retrieved, replaced, removed, or written; the sole Keychain exception was the
+documented noninteractive metadata-only legacy attribute query. No actual
+budget reservation or spend was created.
+
+Next gate: Validate, commit, and push this closure and contributor-runtime
+metadata correction, then
+require its own Linux/macOS CI as a separate repository-health gate; run
+`33502709739` proves the implementation SHA, not the later closure-doc SHA. Stop
+before PR6B1-C. A later exact signed-proof plan may be proposed only after its
+signing prerequisites exist, then must be committed, independently reviewed,
+and explicitly approved before any synthetic Keychain proof. PR6B1-D, PR6B2,
+PR6B3, real Hybrid, and every paid/provider operation remain separately gated.
+
+References: [exact PR6B1 plan](plans/PR6B1_SIGNED_NATIVE_CREDENTIAL_LEASE_V1.md),
+[implementation candidate and failure ledger](#bl-20260901-1916-pr6b1b-implementation-candidate----2026-09-01----pr6b1-b-fail-closed-native-credential-substrate-integrated-locally),
+[implementation CI](https://github.com/Lotus2077/SOAR/actions/runs/33502709739),
+[architecture](ARCHITECTURE.md), [routing policy](ROUTING_POLICY.md), and
+[MVP readiness](MVP_READINESS.md).

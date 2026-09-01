@@ -63,5 +63,13 @@ describe("macOS packaging license contract", () => {
       expect(packageScript).toContain(`"${resourceName}"`);
     }
     expect(packageScript).toContain("metadata.size === 0");
+    expect(packageScript).toContain("verifyLockedMacPackage");
+
+    expect(notices).toContain("`@electron/asar` version 3.4.1");
+    expect(
+      JSON.parse(
+        readFileSync(path.join(projectRoot, "package.json"), "utf8"),
+      ).devDependencies["@electron/asar"],
+    ).toBe("3.4.1");
   });
 });

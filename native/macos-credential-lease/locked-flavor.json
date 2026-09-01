@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "soar-native-credential-package-v1",
+  "flavor": "locked",
+  "protectedItemLocator": false,
+  "syntheticItemLocator": false,
+  "secureEntry": false,
+  "mutation": false,
+  "consumer": false
+}

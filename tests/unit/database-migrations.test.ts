@@ -67,6 +67,10 @@ describe("database migrations", () => {
         version: 3,
         name: "immutable-budget-cost-scope-and-egress-identity",
       },
+      {
+        version: 4,
+        name: "credential-operation-journal-v1",
+      },
     ]);
     expect(migrations).toHaveLength(LATEST_DATABASE_SCHEMA_VERSION);
     for (const migration of migrations) {
@@ -141,7 +145,7 @@ describe("database migrations", () => {
 
     const upgraded = trackDatabase(createSoarDatabase(databasePath));
     const upgradedStore = new EventStore(upgraded);
-    expect(listAppliedDatabaseMigrations(upgraded)).toHaveLength(3);
+    expect(listAppliedDatabaseMigrations(upgraded)).toHaveLength(4);
     expect(upgradedStore.getEvents(session.id)).toEqual(legacyEvents);
     expect(upgradedStore.replay(session.id)).toEqual(legacyReplay);
     expect(
@@ -187,6 +191,83 @@ describe("database migrations", () => {
     expect(reopenedStore.getEvents(session.id)).toEqual(eventsBeforeReopen);
     expect(reopenedStore.getProjectedState(session.id)).toEqual(
       reopenedStore.replay(session.id),
+    );
+  });
+
+  it("upgrades an exact v3 database to the empty credential journal without rewriting existing data", () => {
+    const databasePath = temporaryDatabasePath();
+    const current = trackDatabase(createSoarDatabase(databasePath));
+    const store = new EventStore(current);
+    store.createSession({
+      id: "v3-session",
+      title: "V3 session",
+      objective: "Preserve this row while adding the credential journal.",
+      workspaceRoot: "/tmp/v3-workspace",
+      createdAt: "2026-09-01T00:00:00.000Z",
+    });
+    const sessionBefore = store.requireSession("v3-session");
+    const migrationDeleteTrigger = current
+      .prepare(
+        `SELECT sql FROM sqlite_master
+         WHERE type = 'trigger' AND name = 'schema_migrations_no_delete'`,
+      )
+      .get() as { sql: string };
+    current.exec(`
+      DROP TABLE credential_operation_journal;
+      DROP TRIGGER schema_migrations_no_delete;
+      DELETE FROM schema_migrations WHERE version = 4;
+    `);
+    current.exec(migrationDeleteTrigger.sql);
+    closeDatabase(current);
+
+    const upgraded = trackDatabase(createSoarDatabase(databasePath));
+    expect(listAppliedDatabaseMigrations(upgraded).map(({ version }) => version)).toEqual([
+      1, 2, 3, 4,
+    ]);
+    expect(new EventStore(upgraded).requireSession("v3-session")).toEqual(
+      sessionBefore,
+    );
+    expect(
+      upgraded
+        .prepare("SELECT COUNT(*) AS count FROM credential_operation_journal")
+        .get(),
+    ).toEqual({ count: 0 });
+    expect(upgraded.pragma("foreign_key_check")).toEqual([]);
+    expect(upgraded.pragma("integrity_check", { simple: true })).toBe("ok");
+    const migrationsBeforeReopen = listAppliedDatabaseMigrations(upgraded);
+    closeDatabase(upgraded);
+
+    const reopened = trackDatabase(createSoarDatabase(databasePath));
+    expect(listAppliedDatabaseMigrations(reopened)).toEqual(
+      migrationsBeforeReopen,
+    );
+    expect(
+      reopened
+        .prepare("SELECT COUNT(*) AS count FROM credential_operation_journal")
+        .get(),
+    ).toEqual({ count: 0 });
+  });
+
+  it("rejects credential journal migration checksum drift", () => {
+    const databasePath = temporaryDatabasePath();
+    const current = trackDatabase(createSoarDatabase(databasePath));
+    const noUpdateTrigger = current
+      .prepare(
+        `SELECT sql FROM sqlite_master
+         WHERE type = 'trigger' AND name = 'schema_migrations_no_update'`,
+      )
+      .get() as { sql: string };
+    current.exec("DROP TRIGGER schema_migrations_no_update");
+    current
+      .prepare(
+        "UPDATE schema_migrations SET checksum_sha256 = ? WHERE version = 4",
+      )
+      .run("a".repeat(64));
+    current.exec(noUpdateTrigger.sql);
+    closeDatabase(current);
+
+    expect(() => createSoarDatabase(databasePath)).toThrow(
+      /Database migration 4 does not match the supported name\/checksum/u,
     );
   });
 
@@ -625,14 +706,15 @@ describe("database migrations", () => {
             AND reservation.campaign_id = NEW.campaign_id
         ) THEN RAISE(ABORT, 'budget terminal row reservation/campaign mismatch') END;
       END;
+      DROP TABLE credential_operation_journal;
       DROP TRIGGER schema_migrations_no_delete;
-      DELETE FROM schema_migrations WHERE version = 3;
+      DELETE FROM schema_migrations WHERE version IN (3, 4);
     `);
     current.exec(migrationDeleteTrigger.sql);
     closeDatabase(current);
 
     const migrated = trackDatabase(createSoarDatabase(databasePath));
-    expect(listAppliedDatabaseMigrations(migrated)).toHaveLength(3);
+    expect(listAppliedDatabaseMigrations(migrated)).toHaveLength(4);
     expect(
       migrated
         .prepare(
@@ -843,7 +925,7 @@ describe("database migrations", () => {
          ) VALUES (?, ?, ?, ?)`,
       )
       .run(
-        4,
+        5,
         "future-migration",
         "a".repeat(64),
         "2026-08-29T00:00:00.000Z",
@@ -851,13 +933,13 @@ describe("database migrations", () => {
     closeDatabase(current);
 
     expect(() => createSoarDatabase(databasePath)).toThrow(
-      /newer than supported version 3/,
+      /newer than supported version 4/,
     );
 
     const raw = trackDatabase(new BetterSqlite3(databasePath, { readonly: true }));
     expect(
       raw.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get(),
-    ).toEqual({ count: 4 });
+    ).toEqual({ count: 5 });
   });
 
   it("provides a scoped, egress-linked append-only budget schema", () => {

@@ -1,98 +1,139 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  CLOUD_CREDENTIAL_MAX_BYTES,
-  CloudSetupStatusSchema,
-  SaveCloudCredentialInputSchema,
-  cloudCandidateView,
+  CloudCredentialStatusSchema,
   cloudDispatchLock,
+  cloudProviderCheckNotRun,
+  cloudProviderNotContacted,
+  type CloudCredentialStatus,
 } from "../../src/shared/cloud-setup-contracts";
 
-function status(state: "not_configured" | "stored_unvalidated") {
+function lockedStatus(
+  overrides: Partial<CloudCredentialStatus> = {},
+): CloudCredentialStatus {
   return {
-    schemaVersion: "cloud-setup-status-v1",
-    candidate: cloudCandidateView(),
-    state,
+    schemaVersion: "cloud-credential-status-v1",
+    capabilityVersion: "credential-lease-authority-v1",
+    activationPhase: "phase_b_locked",
+    build: {
+      state: "unsigned_or_adhoc",
+      reasonCode: "signed_build_required",
+    },
+    legacyStagedItem: {
+      state: "not_observed",
+      reasonCode: "legacy_metadata_not_observed",
+    },
+    protectedItem: { state: "unknown", reasonCode: "activation_locked" },
+    providerCheck: cloudProviderCheckNotRun(),
     dispatch: cloudDispatchLock(),
-  } as const;
+    providerContact: cloudProviderNotContacted(),
+    latestOperation: { state: "none" },
+    ...overrides,
+  };
 }
 
-describe("cloud setup contracts", () => {
-  it("accepts exactly one bounded credential string", () => {
+describe("cloud credential status contracts", () => {
+  it("accepts only bounded, status-only phase-B projections", () => {
+    expect(CloudCredentialStatusSchema.parse(lockedStatus())).toEqual(
+      lockedStatus(),
+    );
     expect(
-      SaveCloudCredentialInputSchema.parse({ credential: "synthetic-value" }),
-    ).toEqual({ credential: "synthetic-value" });
+      CloudCredentialStatusSchema.parse(
+        lockedStatus({
+          build: {
+            state: "eligible",
+            reasonCode: "identity_policy_satisfied",
+          },
+          legacyStagedItem: {
+            state: "present",
+            reasonCode: "legacy_metadata_present",
+          },
+          latestOperation: {
+            state: "outcome_unknown",
+            kind: "replace_protected",
+            recoveryCode: "manual_recovery_required",
+          },
+        }),
+      ),
+    ).toMatchObject({
+      activationPhase: "phase_b_locked",
+      providerCheck: { state: "not_run" },
+      dispatch: { state: "locked" },
+      providerContact: { state: "not_contacted" },
+    });
+  });
 
-    for (const input of [
-      {},
-      { credential: "" },
-      { credential: " leading-space" },
-      { credential: "trailing-space " },
-      { credential: "line-one\nline-two" },
-      { credential: "nul\0byte" },
-      { credential: "synthetic-value", providerId: "forged-provider" },
-      { credential: "synthetic-value", consent: true },
-      { credential: "é".repeat(CLOUD_CREDENTIAL_MAX_BYTES) },
+  it("rejects secret-shaped, provider-authority, locator, and unknown fields", () => {
+    for (const projection of [
+      { ...lockedStatus(), credential: "synthetic-secret" },
+      { ...lockedStatus(), authorization: "Bearer synthetic-secret" },
+      { ...lockedStatus(), endpoint: "https://example.invalid/v1" },
+      { ...lockedStatus(), leaseHandle: "opaque-handle" },
+      { ...lockedStatus(), requestedGeneration: "generation-1" },
+      { ...lockedStatus(), operationId: "operation-1" },
+      {
+        ...lockedStatus(),
+        providerCheck: {
+          ...cloudProviderCheckNotRun(),
+          model: "forged-model",
+        },
+      },
+      {
+        ...lockedStatus(),
+        dispatch: { ...cloudDispatchLock(), state: "enabled" },
+      },
+      {
+        ...lockedStatus(),
+        providerContact: {
+          ...cloudProviderNotContacted(),
+          state: "contacted",
+        },
+      },
+      {
+        ...lockedStatus(),
+        latestOperation: {
+          state: "pending",
+          kind: "store_protected",
+          credential: "synthetic-secret",
+        },
+      },
     ]) {
-      expect(SaveCloudCredentialInputSchema.safeParse(input).success).toBe(false);
+      expect(CloudCredentialStatusSchema.safeParse(projection).success).toBe(
+        false,
+      );
     }
   });
 
-  it("accepts only metadata-only setup projections with dispatch locked", () => {
-    expect(CloudSetupStatusSchema.parse(status("not_configured"))).toEqual(
-      status("not_configured"),
-    );
-    expect(
-      CloudSetupStatusSchema.parse(status("stored_unvalidated")),
-    ).toEqual(status("stored_unvalidated"));
-    expect(
-      CloudSetupStatusSchema.parse({
-        ...status("not_configured"),
-        state: "local_storage_error",
-        errorCode: "keychain_status_failed",
-      }),
-    ).toMatchObject({
-      state: "local_storage_error",
-      errorCode: "keychain_status_failed",
-      dispatch: { state: "locked" },
-    });
-    expect(
-      CloudSetupStatusSchema.parse({
-        ...status("not_configured"),
-        state: "local_storage_error",
-        errorCode: "operation_in_progress",
-      }),
-    ).toMatchObject({
-      state: "local_storage_error",
-      errorCode: "operation_in_progress",
-      dispatch: { state: "locked" },
-    });
-  });
-
-  it("rejects secret echoes, forged authority, and inconsistent error fields", () => {
+  it("binds every build and item state to an allow-listed reason", () => {
     for (const projection of [
-      { ...status("not_configured"), credential: "synthetic-secret" },
-      { ...status("not_configured"), endpoint: "https://example.invalid" },
-      { ...status("not_configured"), consent: "granted" },
-      {
-        ...status("not_configured"),
-        candidate: {
-          ...cloudCandidateView(),
-          candidateId: "forged-candidate",
-          intendedModelSlug: "forged/model",
-        },
-      },
-      { ...status("not_configured"), errorCode: "keychain_status_failed" },
-      {
-        ...status("not_configured"),
-        state: "local_storage_error",
-      },
-      {
-        ...status("not_configured"),
-        dispatch: { ...cloudDispatchLock(), state: "enabled" },
-      },
+      lockedStatus({
+        build: {
+          state: "eligible",
+          reasonCode: "signed_build_required",
+        } as never,
+      }),
+      lockedStatus({
+        legacyStagedItem: {
+          state: "present",
+          reasonCode: "legacy_metadata_not_observed",
+        } as never,
+      }),
+      lockedStatus({
+        protectedItem: {
+          state: "not_observed",
+          reasonCode: "activation_locked",
+        } as never,
+      }),
+      lockedStatus({
+        latestOperation: {
+          state: "outcome_unknown",
+          kind: "remove_protected",
+        } as never,
+      }),
     ]) {
-      expect(CloudSetupStatusSchema.safeParse(projection).success).toBe(false);
+      expect(CloudCredentialStatusSchema.safeParse(projection).success).toBe(
+        false,
+      );
     }
   });
 });

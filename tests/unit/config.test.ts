@@ -246,6 +246,59 @@ describe("loadConfig", () => {
     ).toBe("provider_error");
   });
 
+  it("admits credential-operation UI fixtures only in Fake mode with a test workspace", async () => {
+    const roots = await createConfigRoots();
+
+    expect(() =>
+      loadConfig({
+        ...roots,
+        environment: {
+          SOAR_TEST_WORKSPACE: roots.cwd,
+          SOAR_TEST_CREDENTIAL_OPERATION_STATE: "pending",
+        },
+      }),
+    ).toThrow(/requires SOAR_PROVIDER_MODE=fake and SOAR_TEST_WORKSPACE/u);
+
+    expect(() =>
+      loadConfig({
+        ...roots,
+        environment: {
+          SOAR_PROVIDER_MODE: "fake",
+          SOAR_TEST_CREDENTIAL_OPERATION_STATE:
+            "outcome_unknown_await_native_completion",
+        },
+      }),
+    ).toThrow(/requires SOAR_PROVIDER_MODE=fake and SOAR_TEST_WORKSPACE/u);
+
+    expect(
+      loadConfig({
+        ...roots,
+        environment: {
+          SOAR_PROVIDER_MODE: "fake",
+          SOAR_TEST_WORKSPACE: roots.cwd,
+          SOAR_TEST_CREDENTIAL_OPERATION_STATE:
+            "outcome_unknown_manual_recovery_required",
+        },
+      }),
+    ).toMatchObject({
+      providerMode: "fake",
+      testWorkspace: roots.cwd,
+      testCredentialOperationState:
+        "outcome_unknown_manual_recovery_required",
+    });
+
+    expect(() =>
+      loadConfig({
+        ...roots,
+        environment: {
+          SOAR_PROVIDER_MODE: "fake",
+          SOAR_TEST_WORKSPACE: roots.cwd,
+          SOAR_TEST_CREDENTIAL_OPERATION_STATE: "unknown_fixture",
+        },
+      }),
+    ).toThrow();
+  });
+
   it("requires an HTTP(S) vLLM API base at the exact /v1 path", async () => {
     const roots = await createConfigRoots();
     const baseEnvironment = {

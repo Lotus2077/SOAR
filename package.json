@@ -21,22 +21,25 @@
     "pnpm": ">=10.12.4 <11"
   },
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "dev": "pnpm build:native:locked && electron-vite dev",
+    "build": "pnpm build:native:locked && electron-vite build",
+    "build:native:locked": "node scripts/build-locked-native.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "test": "vitest run",
+    "test": "pnpm test:native-core && vitest run",
+    "test:native-core": "node scripts/test-native-credential-core.mjs",
     "test:watch": "vitest",
     "test:live-vllm": "SOAR_RUN_LIVE_VLLM=true vitest run tests/integration/live-vllm.test.ts --testTimeout=600000",
     "test:live-review-schema": "SOAR_RUN_LIVE_REVIEW_SCHEMA=true vitest run tests/integration/live-review-schema.test.ts --testTimeout=600000 --disableConsoleIntercept",
     "test:live-repository": "SOAR_RUN_LIVE_REPOSITORY=true vitest run tests/integration/local-repository-investigator.test.ts --testTimeout=1200000",
     "test:e2e": "node scripts/run-electron-e2e.mjs",
+    "test:e2e:packaged-credential-status": "node scripts/run-packaged-credential-status-canary.mjs",
     "benchmark": "node --experimental-strip-types scripts/benchmark.ts",
     "benchmark:local-review": "tsx scripts/benchmark-local-review.ts",
     "benchmark:heldout-review": "node --no-warnings --experimental-strip-types scripts/benchmark-heldout-review.ts",
     "benchmark:preflight": "node --experimental-strip-types scripts/benchmark.ts preflight",
     "calibration:generate": "tsx benchmarks/change-review/generate-calibration.ts",
     "postinstall": "electron-builder install-app-deps",
-    "rebuild:native": "electron-rebuild -f -w better-sqlite3",
+    "rebuild:native": "node scripts/rebuild-native.mjs",
     "package:mac": "pnpm build && node scripts/package-mac.mjs",
     "check": "pnpm validate:readiness && pnpm validate:build-log && pnpm typecheck && pnpm test && pnpm build",
     "check:release-head": "node --experimental-strip-types scripts/verify-release-head.ts",
@@ -55,7 +58,11 @@
     "remark-gfm": "^4.0.1",
     "zod": "^4.4.3"
   },
+  "optionalDependencies": {
+    "@soar/macos-credential-lease": "file:native/macos-credential-lease"
+  },
   "devDependencies": {
+    "@electron/asar": "3.4.1",
     "@electron/rebuild": "^4.2.0",
     "@playwright/test": "^1.62.1",
     "@testing-library/jest-dom": "^7.0.1",
@@ -77,6 +84,7 @@
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "@soar/macos-credential-lease",
       "better-sqlite3",
       "electron",
       "esbuild"

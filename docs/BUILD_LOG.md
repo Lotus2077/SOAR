@@ -4309,3 +4309,203 @@ References: [approved PR6B1 plan](plans/PR6B1_SIGNED_NATIVE_CREDENTIAL_LEASE_V1.
 [proposal entry](#bl-20260901-0514-pr6b1-signed-lease-proposed----2026-09-01----pr6b1-signed-native-credential-lease-proposed-as-four-separately-gated-phases),
 [proposal CI](https://github.com/Lotus2077/SOAR/actions/runs/33440996797),
 [architecture](ARCHITECTURE.md), and [MVP readiness](MVP_READINESS.md).
+
+### BL-20260901-1916-pr6b1b-implementation-candidate -- 2026-09-01 -- PR6B1-B fail-closed native credential substrate integrated locally
+
+Status: `In progress`
+
+Scope or hypothesis: Implement only the approved local `$0` phase B of exact
+plan `pr6b1-signed-native-credential-lease-v1-plan-1`: remove secret-capable web
+setup, add a locked native authority and conservative non-secret operation
+journal, harden bootstrap/IPC/package identity, and prove an ad-hoc contributor
+archive without enabling a protected credential, provider, egress, or spend.
+This entry records the implementation candidate before its first code commit;
+phase B cannot become Implemented until a clean committed candidate passes
+exact-SHA Linux and macOS CI.
+
+Decisions:
+
+- Activated phase-B authority only after approval revision
+  `578424ad32e53c96bfa9a8e3901ee31535d1e17a` passed GitHub Actions run
+  `33489646557` on both Linux and macOS. The approval remains phase-B-only and
+  authorizes no PR6B1-C/D, PR6B2, PR6B3, provider, repository-egress, credential
+  mutation, or paid work.
+- Retired renderer/preload/IPC credential entry, store/replace, and delete
+  operations and deleted the three setup-store implementations. The only web
+  surface is strict status metadata. Main requires the current window's exact
+  `WebContents`, top-level frame, and renderer URL before payload validation,
+  then strict-parses both primary and unavailable status projections before
+  returning them.
+- Added the locked Objective-C++ Node-API broker. Every lease-shaped export
+  returns `activation_locked`; no protected or synthetic locator, secure-entry
+  sheet, value-data query, consumer, or mutation symbol exists. The sole
+  Keychain exception is one exact generic-password legacy attribute query with
+  match-one, attributes true, data false, authentication UI fail, bounded
+  results, and native host/module/path/entitlement admission. Ad-hoc admission
+  is structural rather than Developer-ID continuity and is acceptable only for
+  this non-secret presence class.
+- Added a checksummed SQLite v4 credential-operation journal. Operation and
+  generation identities use distinct lowercase UUIDv4 brands in both Zod and
+  SQL. Rows contain allow-listed non-secret state only. Startup marks abandoned
+  pending work conservatively unknown before status IPC, retains unresolved
+  exclusion across reopen/concurrent connections and wall-clock rollback, and
+  never treats restart or metadata mismatch as definite failure.
+- Moved mutable initialization behind Electron's single-instance lock and a
+  dynamic bootstrap import. The initial window is created unloaded, exact IPC
+  authority and navigation/window/webview denial are installed before the
+  sealed renderer loads, and packaged builds ignore renderer URL overrides.
+  The test-only pending/unknown UI projection additionally rejects every
+  packaged runtime even if Fake/test environment values are supplied.
+- Pinned and licensed `@electron/asar` 3.4.1, synchronized the exact reviewed
+  native sources into pnpm's installed `file:` dependency before every build,
+  ASAR-unpacked exactly one fixed addon, and excluded native source, build
+  metadata, and alternate `bin` addons. Package inspection tokenizes exact
+  undefined Mach-O symbols and rejects Keychain mutation, protected-item,
+  secure-entry, access-group/access-control/accessibility/synchronizable/value-
+  data imports and activation strings.
+- Replaced electron-builder's broad fallback entitlements with a phase-B
+  contributor policy: exactly seven reviewed Electron executables may carry
+  only `com.apple.security.cs.allow-jit=true`; every other Mach-O, including the
+  addon, must have no entitlement. In particular, disabled library validation
+  and unsigned executable memory are forbidden. This is an Electron JIT
+  exception for the locked ad-hoc contributor flavor, not Hardened Runtime,
+  signed eligibility, or a future production signing policy.
+- Made the Cloud Credential screen status-only and truthful. Exact copy covers
+  unsigned/ineligible/unknown identity, legacy metadata, protected activation
+  lock, provider check Not run, Cloud requests Locked, and operation ambiguity.
+  Denied/unavailable refreshes retain qualified prior source-proven legacy
+  state. One persistent atomic polite region reports read progress, bounded
+  success, or operation progress; actionable unknown states are alerts. Focus
+  returns to the exact origin or the visible compact sessions control, and dark
+  small-text contrast has a computed WCAG AA ratchet.
+
+Changes: Added the native module, native build/rebuild/core-proof scripts,
+locked package policy and archive verifier, packaged canary, main bootstrap,
+window-security policy, credential authority/fake/journal/status modules,
+SQLite migration v4, strict shared contracts, and deterministic/unit/Electron
+tests. Removed the retired secret-capable setup stores and tests. Updated
+README, architecture, routing, readiness, contributor prerequisites, package
+configuration, dependency lock, and third-party notices. Generated `out`,
+native build output, databases, test output, and `dist` remain ignored and are
+not part of the candidate commit.
+
+Evidence:
+
+- `pnpm test` passed the locked native C++ core proof plus 88 Vitest files and
+  1,026 tests; two files/four opt-in tests were intentionally skipped. The
+  focused phase-B integration matrix separately passed 18 files/128 tests, and
+  the final IPC/prior-state delta passed four files/40 tests.
+- `pnpm typecheck`, `pnpm build`, `pnpm validate:readiness`,
+  `pnpm validate:build-log`, and `git diff --check` passed in the integrated
+  working tree. Readiness still reports the frozen 22 research and 20 coding
+  workload manifests and no high-confidence tracked-file secret match.
+- The final unpackaged Electron suite passed 12/12 Local, cancellation,
+  second-instance, credential pending/unknown, compact dark/reduced-motion/200%
+  zoom, local review, and four Fake Hybrid workflows in 25.8 seconds; the
+  separate packaged-only spec was intentionally skipped in that run.
+- Final `pnpm package:mac` built, ad-hoc signed, recursively inspected,
+  archived, re-extracted, and reverified `dist/SOAR-mac-arm64.zip`, SHA-256
+  `ed9236cc5cdc3e6acc8b2a7f88e3915a92dde0a0c32987dde5d04de087db3f84`.
+  The immediately following packaged Local-mode canary passed 1/1 in 4.1
+  seconds. It loaded the Electron-ABI addon, ignored a hostile renderer URL
+  override, showed the signed-setup-unavailable/Not run/Locked UI with no
+  password or mutation action, made zero HTTP or upgrade requests to its
+  configured loopback trap before and after shutdown, and cleaned its extracted
+  temporary app.
+- Independent native/security review ended at zero P0 and zero P1 after the
+  startup recovery, nonce, host/path, entitlement, package, query-ratchet,
+  fallback-projection, and packaged-fixture findings were corrected.
+  Independent UI/IPC/navigation/open-source review also ended at zero P0 and
+  zero P1 after copy, alerts, persistent success announcement, contrast,
+  compact focus, prior-state, and final IPC parse findings were corrected.
+
+Failures or blockers:
+
+- Initial strict-contract focused tests contained three invalid fixture
+  assumptions. Test fixtures were corrected without relaxing runtime policy.
+- The first addon compilation failed because Xcode 26 deprecation warnings for
+  the required noninteractive Keychain UI-fail constant were promoted by
+  `-Werror`; a narrowly scoped diagnostic pragma was added around that approved
+  constant. The first native-core runner also over-minimized its environment
+  and prevented `xcrun` temporary-file creation; it now preserves the caller's
+  environment.
+- An offline dependency install lacked cached archives and left a partial
+  `node_modules`; this caused an absent Electron license, missing Electron
+  binary, and native rebuilds that initially found only `better-sqlite3`.
+  A normal install/postinstall restored dependencies. No product result is
+  inferred from those environment failures.
+- Early Electron runs failed before launch, and stale/concurrent bundle runs
+  later produced invalid 6/7 and 0/7 results. A clean run then exposed two real
+  product defects in sequence: dynamic bootstrap's chunk-relative renderer
+  path and preload path. Both now derive from `app.getAppPath()` and their
+  negative results remain retained here.
+- The first package attempt was blocked by sandbox DNS. Subsequent packaging
+  exposed a stale pnpm `file:` dependency, a package with a second addon under
+  `bin`, and a verifier that inspected forbidden activation markers only in
+  strings. Exact source synchronization, one-addon admission, and exact
+  `nm -u` symbol checks corrected those defects. Earlier structurally passing
+  package claims were retracted.
+- A suffix-only native module-path gate and a legacy-status path that evaluated
+  but ignored identity were found and corrected to exact canonical bundle
+  equality plus a distinct legacy admission policy. Broad default Electron
+  entitlements then made the passive legacy path fail closed; the explicit
+  allow-jit-only policy corrected the contributor package without weakening
+  native admission.
+- Nonfinal dirty-tree canaries passed archives
+  `8a1edfb897ab0c7f487565215c32f8b1ffc48b3bd25cbf63718ed52aa5ed0fc2`
+  and `8ccb62ccc44d0fbbf7b16d74f990d20bf564078e9bf3534c5ad08f93e06561b4`.
+  They were invalidated by later source/security corrections and are not final
+  evidence. The final sandboxed package attempt again failed with
+  `ENOTFOUND github.com`; the unchanged approved-network rerun produced the
+  final hash above.
+- The first full Vitest run passed 87 files/998 tests but failed 19 tests in one
+  loopback-backed file with sandbox `listen EPERM`. The unchanged file passed
+  21/21 with loopback permission, and the final full permitted run passed. A
+  restored untracked duplicate of the retired main entrypoint also caused one
+  typecheck failure; its identity was inspected and it was moved out of the
+  source tree rather than committed or silently used.
+- The current host still has no valid Developer ID Application identity or
+  matching profile. That blocks PR6B1-C and does not weaken or block the locked
+  phase-B candidate.
+
+Limitations and non-claims: This working-tree evidence is not exact committed-
+SHA proof and phase B remains In progress. The ad-hoc archive uses the default
+Electron icon, disables Hardened Runtime, is not notarized, and is not a release.
+The passive legacy check exposes metadata only; the canary exercises the native
+status path but does not instrument Security.framework to prove the exact OS
+query or disclose any item result. Native signature/Keychain calls have no
+service-level deadline, so a pathological OS stall can leave status pending.
+The package canary traps its configured loopback HTTP/upgrade targets, not every
+possible host-network channel, and it does not run a Local task. Packaged HTML
+still permits loopback WebSocket connections for development compatibility;
+current packaged renderer source has no such client, but a split packaged CSP
+is later defense-in-depth work. Archive/source binding is procedural through an
+immediate rebuild, recorded hash, and canary; the wrapper does not accept a
+commit or expected-hash argument. Manual VoiceOver remains unrecorded.
+
+No evidence here proves Developer-ID continuity, signed hostile-host denial,
+Data Protection Keychain access, upgrade continuity, secure native entry, a
+real credential or lease, credential validity, provider account/model/price/
+limit/health, OpenRouter contact, repository egress, cloud inference, billing,
+dynamic routing quality, cost saving, latency improvement, notarization,
+release readiness, or user value. PR6B1-C/D, PR6B2, and PR6B3 remain separately
+gated and unapproved.
+
+Paid exposure: `$0`. Implementation, native compilation, deterministic fakes,
+local loopback tests, Electron workflows, packaging, archive inspection, and
+the packaged canary caused no configured vLLM, OpenRouter, model-list,
+credential validation, inference, retry, fallback, evaluator, repository-
+egress, or other external LLM-provider request. No credential was entered,
+read, replaced, removed, or written; no external budget reservation or actual
+spend was created.
+
+Next gate: Commit this implementation candidate, run the clean committed-head
+release gate plus Electron/package/canary proof, push the exact SHA, and require
+Linux `check` and macOS `electron-e2e` CI to pass. Only a later append-only
+closure entry may then mark phase B Implemented. Keep Verified, Activated, and
+Released reserved, and stop before PR6B1-C or any paid/provider work.
+
+References: [approved PR6B1 plan](plans/PR6B1_SIGNED_NATIVE_CREDENTIAL_LEASE_V1.md),
+[architecture](ARCHITECTURE.md), [routing policy](ROUTING_POLICY.md),
+[MVP readiness](MVP_READINESS.md), and
+[approval CI](https://github.com/Lotus2077/SOAR/actions/runs/33489646557).

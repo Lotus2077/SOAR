@@ -5,6 +5,8 @@ import { dirname, join, relative } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
 
+import { verifyLockedMacPackage } from "./verify-locked-mac-package.mjs";
+
 const projectRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const distDir = join(projectRoot, "dist");
 const archivePath = join(distDir, "SOAR-mac-arm64.zip");
@@ -64,6 +66,8 @@ async function verifyApp(appPath) {
       );
     }
   }
+
+  await verifyLockedMacPackage(appPath);
 }
 
 async function main() {

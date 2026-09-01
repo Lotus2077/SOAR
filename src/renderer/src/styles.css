@@ -499,8 +499,8 @@ kbd {
 
 .sidebar-settings-button {
   display: grid;
-  width: 20px;
-  height: 18px;
+  width: 32px;
+  height: 32px;
   padding: 0;
   place-items: center;
   border: 0;
@@ -1221,7 +1221,7 @@ kbd {
   height: 14px;
 }
 
-/* Cloud setup is deliberately a quiet Settings surface, not onboarding. */
+/* Credential status is deliberately a quiet Settings surface, not onboarding. */
 .cloud-settings {
   width: min(42rem, calc(100% - 48px));
   height: 100%;
@@ -1255,6 +1255,7 @@ kbd {
 
 .cloud-settings-back {
   display: inline-flex;
+  min-height: 32px;
   align-items: center;
   gap: 5px;
   margin: 0 0 22px;
@@ -1342,18 +1343,14 @@ kbd {
 
 .cloud-candidate > span,
 .cloud-candidate > span > span,
-.cloud-state-card > span,
-.cloud-credential-heading > span,
-.cloud-delete-confirm > span {
+.cloud-state-card > span {
   display: grid;
   min-width: 0;
   gap: 2px;
 }
 
 .cloud-candidate small,
-.cloud-state-card small,
-.cloud-credential-heading small,
-.cloud-delete-confirm small {
+.cloud-state-card small {
   color: var(--text-tertiary);
   font-size: 9.5px;
   line-height: 1.35;
@@ -1371,7 +1368,7 @@ kbd {
 
 .cloud-state-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   border-bottom: 1px solid var(--stroke);
 }
 
@@ -1384,8 +1381,12 @@ kbd {
   padding: 14px 12px;
 }
 
-.cloud-state-card + .cloud-state-card {
+.cloud-state-card:nth-child(even) {
   border-left: 1px solid var(--stroke);
+}
+
+.cloud-state-card:nth-child(n + 3) {
+  border-top: 1px solid var(--stroke);
 }
 
 .cloud-state-card > svg {
@@ -1420,57 +1421,6 @@ kbd {
   color: var(--text-secondary);
 }
 
-.cloud-credential-form {
-  margin-top: 30px;
-}
-
-.cloud-credential-heading {
-  padding: 0 3px 10px;
-}
-
-.cloud-credential-heading strong,
-.cloud-delete-confirm strong {
-  color: var(--foreground);
-  font-size: 11.5px;
-  font-weight: 610;
-}
-
-.cloud-credential-field {
-  display: grid;
-  gap: 6px;
-}
-
-.cloud-credential-field > span {
-  color: var(--text-secondary);
-  font-size: 10.5px;
-  font-weight: 550;
-}
-
-.cloud-credential-field input {
-  width: 100%;
-  height: 34px;
-  padding: 0 9px;
-  border: 1px solid var(--field-border);
-  border-radius: var(--radius-control);
-  color: var(--foreground);
-  background: var(--surface-raised);
-  font-family: Menlo, Monaco, "SF Mono", monospace;
-  font-size: 11.5px;
-  box-shadow: var(--shadow-composer);
-}
-
-.cloud-credential-field input:disabled {
-  opacity: 0.55;
-}
-
-.cloud-credential-privacy {
-  max-width: 64ch;
-  margin: 7px 0 0;
-  color: var(--text-tertiary);
-  font-size: 9.75px;
-  line-height: 1.45;
-}
-
 .cloud-operation-error {
   display: flex;
   align-items: flex-start;
@@ -1494,56 +1444,24 @@ kbd {
   margin-top: 2px;
 }
 
-.cloud-credential-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 16px;
+.cloud-operation-error strong {
+  color: inherit;
+  font-weight: 620;
 }
 
-.cloud-save-button {
-  margin-top: 0;
-}
-
-.cloud-delete-button,
-.cloud-delete-confirm-button {
-  display: inline-flex;
-  min-height: 32px;
-  align-items: center;
-  gap: 6px;
-  padding: 0 9px;
-  border: 1px solid var(--stroke-strong);
-  border-radius: var(--radius-control);
-  color: var(--red);
-  background: transparent;
+.cloud-operation-status,
+.cloud-provider-contact {
+  margin: 12px 3px 0;
+  color: var(--text-tertiary);
   font-size: 10.5px;
-  font-weight: 570;
+  line-height: 1.45;
 }
 
-.cloud-delete-button:hover:not(:disabled),
-.cloud-delete-confirm-button:hover:not(:disabled) {
-  background: var(--red-soft);
-}
-
-.cloud-delete-button svg {
-  width: 12px;
-  height: 12px;
-}
-
-.cloud-delete-confirm {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: 8px;
-  margin-top: 14px;
-  padding: 11px 10px;
-  border: 1px solid color-mix(in srgb, var(--red) 28%, var(--stroke));
-  border-radius: var(--radius-control);
-  background: var(--red-soft);
-}
-
-.cloud-delete-confirm-button {
-  border-color: color-mix(in srgb, var(--red) 45%, var(--stroke-strong));
+.cloud-operation-status {
+  padding: 8px 9px;
+  border-left: 2px solid var(--orange);
+  color: var(--text-secondary);
+  background: var(--orange-soft);
 }
 
 .review-workspace {
@@ -3529,11 +3447,6 @@ kbd {
   .cloud-state-card + .cloud-state-card {
     border-top: 1px solid var(--stroke);
     border-left: 0;
-  }
-
-  .cloud-delete-confirm {
-    grid-template-columns: 1fr;
-    justify-items: start;
   }
 
   .review-workspace-header,

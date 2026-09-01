@@ -21,7 +21,8 @@ Electron main process
     |                               -> semantic egress admission
     |                               -> branded in-process fake providers
     |                               -> simulation-scoped budget ledger
-    +-- CloudCredentialSetupService -> setup-only Keychain adapter (no secret read)
+    +-- CloudCredentialStatusService -> operation journal
+    |                                -> activation-locked native authority
     +-- pure cloud-egress guard (shadow-only in normal vLLM mode)
     +-- EventStore -> SQLite
     +-- redacted session/review projections -> renderer
@@ -31,10 +32,13 @@ The renderer has no Node.js integration and cannot access credentials or the
 filesystem directly. The preload exposes only the methods in
 `src/shared/contracts.ts`. `src/main/ipc.ts` validates every renderer payload and
 requires the user to select a canonical workspace before a session can use it.
-Cloud Settings exposes only status, save/replace, and delete operations. The
-password field is cleared before IPC is invoked, and every response is a
-metadata-only projection that cannot return the credential or grant dispatch
-authority.
+Cloud Credential exposes only one status request. Credential entry and mutation
+are absent from renderer, preload, and IPC. Main admits the request only from
+the current window's exact top-level `WebContents` and renderer URL. Its strict
+projection cannot return a credential, operation identity, native diagnostic,
+lease handle, provider authority, or dispatch authority. A persisted
+non-secret journal retains pending and ambiguous operation state even when
+native metadata becomes unavailable.
 
 The fake-only Hybrid simulation bridge is also typed and allow-listed. Its
 renderer payload contains only the selected workspace, `local` or
@@ -299,10 +303,12 @@ and prose-suffix repair are rejected. Normal vLLM mode constructs exactly one
 configured, operator-attested Local provider. Explicit fake simulation mode
 instead constructs exactly its branded Fake Local and tool-free Fake Cloud
 providers under a nominal main-process authority; neither has an external
-transport. PR6A adds a separate locked
-cloud-candidate metadata record and a direct setup-only macOS Keychain adapter
-with presence, write/replace, and delete operations. That adapter deliberately
-has no raw-secret read or dispatch-time resolver, and the candidate is not a
+transport. PR6B1-B replaces PR6A's setup adapter with a separate locked
+cloud-candidate metadata record, status-only service, checksummed non-secret
+operation journal, and activation-locked native macOS authority. The phase-B
+binary retains only a noninteractive legacy-item attribute query after native
+host/module admission; it has no protected-item locator, secure-entry sheet,
+lease consumer, or reachable Keychain mutation. The candidate is not a
 `ProviderDescriptor` or `InferenceProvider`. There is therefore no separately
 configured production metered provider or OpenRouter transport. Because the
 local adapter takes a generic OpenAI-compatible URL, that statement does not
@@ -715,12 +721,13 @@ charges unknown dispatch, records overruns in full, and reconciles ledger rows
 against canonical events at startup and before later admission. See
 [ADR 0004](adr/0004-checkpoint-router-budget-runner-v0.md).
 
-PR6A is Verified but not Released. It provides the
-setup-only Keychain boundary, locked candidate metadata, and a pure shadow
-admission function over canonical messages and host-derived provenance. The
-function performs no I/O and PR6A itself attached it to no session. PR6B0 now
-uses that pure policy only before an in-process fake invocation; neither state is
-proof of a real provider request or wire payload.
+PR6A was Verified but not Released. Its historical setup-only Keychain
+operations are superseded by PR6B1-B's status-only candidate. The locked
+candidate metadata and pure shadow admission function over canonical messages
+and host-derived provenance remain; the function performs no I/O and PR6A
+itself attached it to no session. PR6B0 uses that pure policy only before an
+in-process fake invocation; neither state is proof of a real provider request
+or wire payload.
 
 PR6B0 is Implemented with automated exact-SHA closure but not Verified or
 Released. It binds semantic
@@ -734,10 +741,11 @@ through PR6B3 work: signed raw-secret resolution at the dispatch boundary,
 credential and provider validation, live health and pricing evidence,
 immediately-before-dispatch egress admission bound to the serialized wire
 request, explicit real Hybrid authority, and the paid OpenRouter canary.
-PR6B1-B has owner approval recorded for a `$0`, structurally activation-locked
-substrate only and cannot provide any of those capabilities. The app may report
-a credential as stored locally, but
-it also reports not validated and keeps Hybrid locked. The implemented
+PR6B1-B has effective owner approval for a `$0`, structurally activation-locked
+substrate only. Its local implementation candidate can report source-bounded
+legacy metadata and conservative operation recovery, but cannot report or use a
+protected credential. It always reports provider check **Not run** and Cloud
+requests **Locked**. The implemented
 normal-vLLM paths therefore still select only the operator-attested Local route.
 The generic vLLM URL remains an operator trust boundary; SOAR does not
 independently prove that it cannot bill. Configuration or stored setup state

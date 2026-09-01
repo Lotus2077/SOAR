@@ -42,7 +42,7 @@ const availability = {
   hybrid: {
     enabled: false as const,
     reason:
-      "Cloud setup does not enable Hybrid. Hybrid dispatch is locked in this build." as const,
+      "Cloud credential status does not enable Hybrid. Real cloud dispatch is locked in this build." as const,
     separatelyConfiguredPaidProviderReachable: false as const,
     reachabilitySummary:
       "This build performs no cloud-provider validation or dispatch." as const,
@@ -332,7 +332,7 @@ describe("Review Current Changes renderer", () => {
     expect(screen.getByRole("heading", { name: "Review current changes" })).toBeVisible();
     expect(
       screen.getByText(
-        "Cloud setup does not enable Hybrid. Hybrid dispatch is locked in this build.",
+        "Cloud credential status does not enable Hybrid. Real cloud dispatch is locked in this build.",
       ),
     ).toBeVisible();
     expect(screen.getByText("Declared token fee")).toBeVisible();
@@ -352,7 +352,9 @@ describe("Review Current Changes renderer", () => {
 
     const hybrid = screen.getByRole("radio", { name: "Hybrid" });
     expect(hybrid).toBeDisabled();
-    await user.click(screen.getByRole("button", { name: "Set up cloud" }));
+    await user.click(
+      screen.getByRole("button", { name: "Manage cloud credential" }),
+    );
     expect(openCloudSettings).toHaveBeenCalledOnce();
 
     await user.click(screen.getByRole("button", { name: "Start local review" }));
@@ -380,7 +382,9 @@ describe("Review Current Changes renderer", () => {
 
     expect(screen.getByRole("radio", { name: "Local" })).toBeChecked();
     expect(screen.getByRole("radio", { name: "Hybrid simulation" })).toBeEnabled();
-    expect(screen.queryByRole("button", { name: "Set up cloud" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Manage cloud credential" }),
+    ).not.toBeInTheDocument();
     expect(screen.queryByText(HYBRID_SIMULATION_MARKER)).not.toBeInTheDocument();
     expect(
       screen.getByText(/Local uses the in-process Fake Local model/u),

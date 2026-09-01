@@ -1,8 +1,8 @@
 # PR6B1 Signed Native Credential Lease v1
 
-Status: **Phase-B approval recorded; effective only after the committed approval
-checkpoint passes exact-SHA Linux/macOS CI; not Implemented, Verified,
-Activated, or Released**
+Status: **Phase-B approval is effective and local candidate gates pass; exact
+committed-SHA Linux/macOS CI is pending; not Implemented, Verified, Activated,
+or Released**
 
 - Plan ID: `pr6b1-signed-native-credential-lease-v1-plan-1`
 - Parent plan: `hybrid-lease-router-v0-plan-2`
@@ -15,6 +15,9 @@ Activated, or Released**
 - Approval ledger: `BL-20260901-1647-pr6b1b-approved`
 - Green proposal revision: `7e4b31d19f89087b2c5c7e7517bbfdffc137b2d1`
 - Green proposal CI: GitHub Actions run `33440996797`
+- Green phase-B approval revision:
+  `578424ad32e53c96bfa9a8e3901ee31535d1e17a`
+- Green phase-B approval CI: GitHub Actions run `33489646557`
 - Provider-spend ceiling: `$0`
 - Provider requests: none
 - Repository egress: none
@@ -53,7 +56,7 @@ synthetic data before a separate decision permits real re-entry.
 | Phase | Scope | Current state | Separate approval required? |
 | --- | --- | --- | --- |
 | PR6B1-A | Correct plan and establish signing prerequisites | Plan checkpoint complete; signing prerequisites still absent | This approval does not install or export signing material |
-| PR6B1-B | Fail-closed native substrate, locked UI, contracts, fakes, journal, package verifier | Approval recorded; effective after approval-checkpoint CI | Approval is limited to this exact plan ID |
+| PR6B1-B | Fail-closed native substrate, locked UI, contracts, fakes, journal, package verifier | Local candidate gates pass; exact committed-SHA CI pending | Approval is limited to this exact plan ID |
 | PR6B1-C | Signed A/B synthetic continuity and hostile-host proof | Not Proposed | Yes: a later exact proof plan after signing prerequisites exist |
 | PR6B1-D | Native secure re-entry and production protected-item activation | Not Proposed | Yes: only after a durable passing PR6B1-C checkpoint |
 | PR6B2 | Bounded real provider/account/model/price/limit/health validation | Not Proposed | Yes |
@@ -167,9 +170,12 @@ Approval would not authorize:
   its host process and itself before exposing capability status; every Keychain
   operation repeats the native gate. TypeScript does not pretend it can obtain
   native-backed eligibility before importing the native module.
-- Linux and unsigned/ad-hoc macOS builds load a structural unavailable adapter.
-  They never resolve a production service/account or call protected Keychain
-  APIs.
+- Linux and macOS processes without the exact native addon load a structural
+  unavailable adapter. The reviewed ad-hoc macOS contributor package loads the
+  locked broker so it can report `signed_build_required` and, only after exact
+  host/module/path/entitlement admission, perform the noninteractive legacy
+  attribute query. It never resolves a protected production service/account or
+  calls protected Keychain APIs.
 
 ### Renderer and IPC identity
 

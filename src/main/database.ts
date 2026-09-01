@@ -543,6 +543,178 @@ const BUDGET_COST_SCOPE_SCHEMA = `
     ON budget_ledger_entries(cost_scope, row_type, created_at, id);
 `;
 
+// PR6B1-B stores only non-secret credential-operation reconciliation metadata.
+// The table deliberately has no value, handle, provider, endpoint, path, native
+// diagnostic, or free-text column. Production credential mutation remains
+// activation-locked; deterministic fakes exercise these persistence rules.
+const CREDENTIAL_OPERATION_JOURNAL_SCHEMA = `
+  CREATE TABLE credential_operation_journal (
+    operation_id TEXT PRIMARY KEY NOT NULL
+      CHECK (
+        length(operation_id) = 46
+        AND substr(operation_id, 1, 10) = 'operation-'
+        AND substr(operation_id, 19, 1) = '-'
+        AND substr(operation_id, 24, 1) = '-'
+        AND substr(operation_id, 29, 1) = '-'
+        AND substr(operation_id, 34, 1) = '-'
+        AND length(replace(substr(operation_id, 11), '-', '')) = 32
+        AND replace(substr(operation_id, 11), '-', '')
+          NOT GLOB '*[^0-9a-f]*'
+        AND substr(operation_id, 25, 1) = '4'
+        AND substr(operation_id, 30, 1) GLOB '[89ab]'
+      ),
+    operation_kind TEXT NOT NULL
+      CHECK (
+        operation_kind IN (
+          'store_protected',
+          'replace_protected',
+          'remove_protected',
+          'remove_legacy_staged'
+        )
+      ),
+    requested_generation TEXT
+      CHECK (
+        requested_generation IS NULL
+        OR (
+          length(requested_generation) = 47
+          AND substr(requested_generation, 1, 11) = 'generation-'
+          AND substr(requested_generation, 20, 1) = '-'
+          AND substr(requested_generation, 25, 1) = '-'
+          AND substr(requested_generation, 30, 1) = '-'
+          AND substr(requested_generation, 35, 1) = '-'
+          AND length(
+            replace(substr(requested_generation, 12), '-', '')
+          ) = 32
+          AND replace(substr(requested_generation, 12), '-', '')
+            NOT GLOB '*[^0-9a-f]*'
+          AND substr(requested_generation, 26, 1) = '4'
+          AND substr(requested_generation, 31, 1) GLOB '[89ab]'
+        )
+      ),
+    started_at TEXT NOT NULL
+      CHECK (started_at GLOB '????-??-??T??:??:??.???Z'),
+    updated_at TEXT NOT NULL
+      CHECK (
+        updated_at GLOB '????-??-??T??:??:??.???Z'
+        AND updated_at >= started_at
+      ),
+    state TEXT NOT NULL
+      CHECK (state IN ('pending', 'confirmed', 'outcome_unknown', 'superseded')),
+    result_code TEXT
+      CHECK (
+        result_code IS NULL
+        OR result_code IN (
+          'native_success_confirmed',
+          'native_failure_confirmed',
+          'metadata_match_confirmed',
+          'caller_abandoned',
+          'process_interrupted',
+          'metadata_mismatch',
+          'native_completion_unknown',
+          'manual_supersession_confirmed'
+        )
+      ),
+    recovery_code TEXT
+      CHECK (
+        recovery_code IS NULL
+        OR recovery_code IN (
+          'await_native_completion',
+          'manual_recovery_required'
+        )
+      ),
+    identity_capability_version TEXT NOT NULL
+      CHECK (identity_capability_version = 'credential-lease-authority-v1'),
+    CHECK (
+      CASE operation_kind
+        WHEN 'store_protected' THEN requested_generation IS NOT NULL
+        WHEN 'replace_protected' THEN requested_generation IS NOT NULL
+        WHEN 'remove_protected' THEN requested_generation IS NULL
+        WHEN 'remove_legacy_staged' THEN requested_generation IS NULL
+        ELSE 0
+      END
+    ),
+    CHECK (
+      CASE state
+        WHEN 'pending' THEN
+          result_code IS NULL AND recovery_code IS NULL
+        WHEN 'confirmed' THEN
+          result_code IN (
+            'native_success_confirmed',
+            'native_failure_confirmed',
+            'metadata_match_confirmed'
+          )
+          AND recovery_code IS NULL
+        WHEN 'outcome_unknown' THEN
+          (
+            result_code IN ('caller_abandoned', 'native_completion_unknown')
+            AND recovery_code = 'await_native_completion'
+          )
+          OR (
+            result_code IN ('process_interrupted', 'metadata_mismatch')
+            AND recovery_code = 'manual_recovery_required'
+          )
+        WHEN 'superseded' THEN
+          result_code = 'manual_supersession_confirmed'
+          AND recovery_code IS NULL
+        ELSE 0
+      END
+    )
+  );
+
+  CREATE UNIQUE INDEX credential_operation_journal_one_unresolved_idx
+    ON credential_operation_journal ((1))
+    WHERE state IN ('pending', 'outcome_unknown');
+
+  CREATE INDEX credential_operation_journal_updated_idx
+    ON credential_operation_journal(updated_at DESC, operation_id DESC);
+
+  CREATE TRIGGER credential_operation_journal_immutable_fields
+  BEFORE UPDATE ON credential_operation_journal
+  WHEN NEW.operation_id <> OLD.operation_id
+    OR NEW.operation_kind <> OLD.operation_kind
+    OR NOT (NEW.requested_generation IS OLD.requested_generation)
+    OR NEW.started_at <> OLD.started_at
+    OR NEW.identity_capability_version <> OLD.identity_capability_version
+  BEGIN
+    SELECT RAISE(ABORT, 'credential operation identity is immutable');
+  END;
+
+  CREATE TRIGGER credential_operation_journal_monotonic_update
+  BEFORE UPDATE ON credential_operation_journal
+  WHEN NEW.updated_at < OLD.updated_at
+  BEGIN
+    SELECT RAISE(ABORT, 'credential operation update time cannot move backward');
+  END;
+
+  CREATE TRIGGER credential_operation_journal_state_transition
+  BEFORE UPDATE ON credential_operation_journal
+  WHEN NOT (
+    (
+      OLD.state = 'pending'
+      AND NEW.state IN ('confirmed', 'outcome_unknown')
+    )
+    OR (
+      OLD.state = 'outcome_unknown'
+      AND NEW.state IN ('confirmed', 'superseded')
+    )
+    OR (
+      OLD.state = 'outcome_unknown'
+      AND OLD.recovery_code = 'await_native_completion'
+      AND NEW.state = 'outcome_unknown'
+      AND NEW.recovery_code = 'manual_recovery_required'
+    )
+  )
+  BEGIN
+    SELECT RAISE(ABORT, 'invalid credential operation state transition');
+  END;
+
+  CREATE TRIGGER credential_operation_journal_no_delete
+  BEFORE DELETE ON credential_operation_journal
+  BEGIN
+    SELECT RAISE(ABORT, 'credential_operation_journal cannot be deleted');
+  END;
+`;
+
 interface DatabaseMigration {
   version: number;
   name: string;
@@ -564,6 +736,11 @@ const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
     version: 3,
     name: "immutable-budget-cost-scope-and-egress-identity",
     sql: BUDGET_COST_SCOPE_SCHEMA,
+  },
+  {
+    version: 4,
+    name: "credential-operation-journal-v1",
+    sql: CREDENTIAL_OPERATION_JOURNAL_SCHEMA,
   },
 ];
 

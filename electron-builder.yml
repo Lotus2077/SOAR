@@ -5,6 +5,9 @@ directories:
 files:
   - out/**
   - package.json
+  - "!node_modules/@soar/macos-credential-lease/binding.gyp"
+  - "!node_modules/@soar/macos-credential-lease/bin/**"
+  - "!node_modules/@soar/macos-credential-lease/src/**"
 extraResources:
   - from: LICENSE
     to: LICENSE
@@ -16,9 +19,13 @@ extraResources:
     to: THIRD_PARTY_NOTICES.md
 asarUnpack:
   - node_modules/better-sqlite3/**
+  - node_modules/@soar/macos-credential-lease/build/Release/*.node
 mac:
   category: public.app-category.developer-tools
   identity: "-"
+  entitlements: build/entitlements.phase-b.ad-hoc.plist
+  entitlementsInherit: build/entitlements.phase-b.ad-hoc.plist
+  entitlementsLoginHelper: build/entitlements.phase-b.ad-hoc.plist
   target:
     - dir
   hardenedRuntime: false

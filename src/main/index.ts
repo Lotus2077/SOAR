@@ -1,161 +1,60 @@
-import path from "node:path";
-
 import { app, BrowserWindow, dialog } from "electron";
 
-import { SessionRunner, type RuntimeUpdate } from "./agent/run-session";
-import { loadConfig } from "./config";
-import { createSoarDatabase, type SoarDatabase } from "./database";
-import { EventStore } from "./event-store";
-import { registerIpcHandlers } from "./ipc";
-import { CloudCredentialSetupService } from "./cloud-credential-service";
-import { EphemeralSetupCredentialStore } from "./providers/ephemeral-setup-credential-store";
-import { MacOsKeychainCredentialSetupStore } from "./providers/macos-keychain-credential-store";
-import { createRuntimeProviderCatalog } from "./providers/runtime-catalog";
-import {
-  assertHybridSimulationRuntimeV1,
-  hybridSimulationAuthoritySnapshotV1,
-} from "./hybrid-simulation-runtime";
-import { HybridSimulationConsentChallengeStore } from "./hybrid-simulation-consent";
-import { recoverRunningSessions } from "./recovery";
-import { toRendererSessionUpdate } from "./session-view";
-import { IPC_CHANNELS } from "../shared/contracts";
+import type { BootstrapController } from "./bootstrap";
 
-let database: SoarDatabase | undefined;
-let unregisterIpc: (() => void) | undefined;
-
-function createWindow(): BrowserWindow {
-  const window = new BrowserWindow({
-    width: 1_420,
-    height: 900,
-    minWidth: 760,
-    minHeight: 560,
-    show: false,
-    backgroundColor: "#f8faff",
-    title: "SOAR",
-    titleBarStyle: "hiddenInset",
-    trafficLightPosition: { x: 18, y: 18 },
-    webPreferences: {
-      preload: path.join(__dirname, "../preload/index.cjs"),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-      webviewTag: false,
-    },
-  });
-
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-  window.webContents.on("will-navigate", (event, targetUrl) => {
-    const currentUrl = window.webContents.getURL();
-    if (currentUrl && new URL(targetUrl).origin !== new URL(currentUrl).origin) {
-      event.preventDefault();
-    }
-  });
-  window.once("ready-to-show", () => window.show());
-
-  const rendererUrl = process.env.ELECTRON_RENDERER_URL;
-  if (rendererUrl) {
-    void window.loadURL(rendererUrl);
-  } else {
-    void window.loadFile(path.join(__dirname, "../renderer/index.html"));
-  }
-
-  return window;
-}
-
-function publish(store: EventStore, update: RuntimeUpdate): void {
-  const payload = toRendererSessionUpdate(store, update);
-
-  for (const window of BrowserWindow.getAllWindows()) {
-    if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.sessionUpdate, payload);
-  }
-}
-
-async function bootstrap(): Promise<void> {
-  const userDataPath = app.getPath("userData");
-  const config = loadConfig({
-    appPath: app.getAppPath(),
-    userDataPath,
-  });
-  const databasePath = config.databasePath ?? path.join(userDataPath, "soar.sqlite");
-  database = createSoarDatabase(databasePath);
-  const store = new EventStore(database);
-  recoverRunningSessions(store);
-
-  const providerCatalog = createRuntimeProviderCatalog(config);
-  const hybridSimulationConsent =
-    providerCatalog.hybridSimulationRuntime === undefined
-      ? undefined
-      : new HybridSimulationConsentChallengeStore({
-          authority: hybridSimulationAuthoritySnapshotV1(
-            providerCatalog.hybridSimulationRuntime,
-            assertHybridSimulationRuntimeV1({
-              runtime: providerCatalog.hybridSimulationRuntime,
-              providerRegistry: providerCatalog.registry,
-              defaultLocalProviderId: providerCatalog.defaultLocalProviderId,
-            }),
-          ),
-        });
-  const runner = new SessionRunner({
-    store,
-    providerRegistry: providerCatalog.registry,
-    defaultLocalProviderId: providerCatalog.defaultLocalProviderId,
-    ...(providerCatalog.hybridSimulationRuntime === undefined
-      ? {}
-      : { hybridSimulationRuntime: providerCatalog.hybridSimulationRuntime }),
-    limits: config.limits,
-    context: config.context,
-    localReviewSensitiveValues: [
-      ...(config.vllm.sensitiveApiKey === undefined
-        ? []
-        : [config.vllm.sensitiveApiKey]),
-      config.vllm.baseUrl,
-    ],
-    onUpdate: (update) => publish(store, update),
-  });
-
-  const cloudCredentialSetup = new CloudCredentialSetupService(
-    config.providerMode === "fake"
-      ? new EphemeralSetupCredentialStore()
-      : new MacOsKeychainCredentialSetupStore(),
-  );
-
-  unregisterIpc = await registerIpcHandlers({
-    store,
-    runner,
-    config,
-    cloudCredentialSetup,
-    ...(hybridSimulationConsent === undefined
-      ? {}
-      : { hybridSimulationConsent }),
-  });
-  createWindow();
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-}
+let controller: BootstrapController | undefined;
 
 function startupErrorMessage(error: unknown): string {
-  const detail = error instanceof Error ? error.message : "An unknown startup error occurred.";
-  const redacted = detail.replace(/sk-[A-Za-z0-9_-]{12,}/gu, "[redacted]").slice(0, 2_000);
+  const detail =
+    error instanceof Error ? error.message : "An unknown startup error occurred.";
+  const redacted = detail
+    .replace(/sk-[A-Za-z0-9_-]{12,}/gu, "[redacted]")
+    .slice(0, 2_000);
   return `SOAR could not finish starting.\n\n${redacted}\n\nCheck the app configuration and try again.`;
 }
 
-app.whenReady().then(bootstrap).catch((error: unknown) => {
-  console.error("SOAR failed to start", error);
-  try {
-    dialog.showErrorBox("SOAR could not start", startupErrorMessage(error));
-  } catch (dialogError) {
-    console.error("SOAR could not show its startup error dialog", dialogError);
-  }
+// This is the first mutable app decision. The bootstrap module (and therefore
+// SQLite and every credential/native module) is imported only after the
+// primary process owns Electron's single-instance lock.
+const primaryInstance = app.requestSingleInstanceLock();
+if (!primaryInstance) {
   app.quit();
-});
+} else {
+  app.on("second-instance", () => {
+    const window = BrowserWindow.getAllWindows()[0];
+    if (window === undefined || window.isDestroyed()) return;
+    if (window.isMinimized()) window.restore();
+    window.show();
+    window.focus();
+  });
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin" || process.env.SOAR_PROVIDER_MODE === "fake") app.quit();
-});
+  app
+    .whenReady()
+    .then(async () => {
+      const { bootstrap } = await import("./bootstrap");
+      controller = await bootstrap();
+    })
+    .catch((error: unknown) => {
+      console.error("SOAR failed to start", error);
+      try {
+        dialog.showErrorBox("SOAR could not start", startupErrorMessage(error));
+      } catch (dialogError) {
+        console.error("SOAR could not show its startup error dialog", dialogError);
+      }
+      app.quit();
+    });
 
-app.on("will-quit", () => {
-  unregisterIpc?.();
-  database?.close();
-});
+  app.on("window-all-closed", () => {
+    if (
+      process.platform !== "darwin" ||
+      process.env.SOAR_PROVIDER_MODE === "fake"
+    ) {
+      app.quit();
+    }
+  });
+
+  app.on("will-quit", () => {
+    controller?.close();
+    controller = undefined;
+  });
+}

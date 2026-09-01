@@ -1,14 +1,19 @@
 /** @vitest-environment jsdom */
 
+import { readFileSync } from "node:fs";
+
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "../../src/renderer/src/App";
 import { CloudSettings } from "../../src/renderer/src/CloudSettings";
-import type { CloudSetupStatus } from "../../src/shared/cloud-setup-contracts";
+import {
+  CLOUD_DISPATCH_LOCK_EXPLANATION,
+  type CloudCredentialStatus,
+} from "../../src/shared/cloud-setup-contracts";
 
 afterEach(() => {
   cleanup();
@@ -16,31 +21,42 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-const candidate = {
-  providerLabel: "OpenRouter",
-  modelLabel: "DeepSeek V4 Flash",
-} as const;
+function status(
+  overrides: Partial<CloudCredentialStatus> = {},
+): CloudCredentialStatus {
+  return {
+    schemaVersion: "cloud-credential-status-v1",
+    capabilityVersion: "credential-lease-authority-v1",
+    activationPhase: "phase_b_locked",
+    build: {
+      state: "unsigned_or_adhoc",
+      reasonCode: "signed_build_required",
+    },
+    legacyStagedItem: {
+      state: "not_observed",
+      reasonCode: "legacy_metadata_not_observed",
+    },
+    protectedItem: {
+      state: "unknown",
+      reasonCode: "activation_locked",
+    },
+    providerCheck: { providerLabel: "OpenRouter", state: "not_run" },
+    dispatch: {
+      state: "locked",
+      reasonCode: "pr6b1_phase_b_locked",
+      explanation: CLOUD_DISPATCH_LOCK_EXPLANATION,
+    },
+    providerContact: {
+      providerLabel: "OpenRouter",
+      state: "not_contacted",
+      scope: "credential_operation",
+    },
+    latestOperation: { state: "none" },
+    ...overrides,
+  };
+}
 
-const dispatch = {
-  state: "locked",
-  reasonCode: "pr6a_dispatch_locked",
-  explanation:
-    "This build cannot validate a cloud credential or dispatch a cloud request.",
-} as const;
-
-const notConfigured: CloudSetupStatus = {
-  schemaVersion: "cloud-setup-status-v1",
-  candidate,
-  state: "not_configured",
-  dispatch,
-};
-
-const storedUnvalidated: CloudSetupStatus = {
-  schemaVersion: "cloud-setup-status-v1",
-  candidate,
-  state: "stored_unvalidated",
-  dispatch,
-};
+const lockedStatus = status();
 
 function deferred<T>(): {
   promise: Promise<T>;
@@ -56,6 +72,32 @@ function deferred<T>(): {
   return { promise, resolve, reject };
 }
 
+function relativeLuminance([red, green, blue]: readonly number[]): number {
+  const [r, g, b] = [red, green, blue].map((channel) => {
+    const normalized = channel! / 255;
+    return normalized <= 0.04045
+      ? normalized / 12.92
+      : ((normalized + 0.055) / 1.055) ** 2.4;
+  });
+  return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!;
+}
+
+function contrastRatio(
+  foreground: readonly number[],
+  background: readonly number[],
+): number {
+  const foregroundLuminance = relativeLuminance(foreground);
+  const backgroundLuminance = relativeLuminance(background);
+  return (
+    (Math.max(foregroundLuminance, backgroundLuminance) + 0.05) /
+    (Math.min(foregroundLuminance, backgroundLuminance) + 0.05)
+  );
+}
+
+function hexChannels(value: string): number[] {
+  return value.match(/../gu)!.map((channel) => parseInt(channel, 16));
+}
+
 function installAppApi(overrides: Record<string, unknown> = {}) {
   const api = {
     chooseWorkspace: vi.fn().mockResolvedValue(null),
@@ -67,9 +109,7 @@ function installAppApi(overrides: Record<string, unknown> = {}) {
     getReviewAvailability: vi.fn(),
     createChangeReviewSession: vi.fn(),
     getChangeReviewView: vi.fn(),
-    getCloudSetupStatus: vi.fn().mockResolvedValue(notConfigured),
-    saveCloudCredential: vi.fn().mockResolvedValue(storedUnvalidated),
-    deleteCloudCredential: vi.fn().mockResolvedValue(notConfigured),
+    getCloudCredentialStatus: vi.fn().mockResolvedValue(lockedStatus),
     subscribeSessionEvents: vi.fn().mockReturnValue(() => undefined),
     ...overrides,
   };
@@ -80,254 +120,359 @@ function installAppApi(overrides: Record<string, unknown> = {}) {
   return api;
 }
 
-describe("Cloud Settings", () => {
-  it("is optional on first run and reads only local setup status when opened", async () => {
+describe("Cloud credential settings", () => {
+  it("keeps dark-theme operation-status small text above WCAG AA contrast", () => {
+    const css = readFileSync("src/renderer/src/styles.css", "utf8");
+    const darkTheme = css.slice(css.indexOf("@media (prefers-color-scheme: dark)"));
+    const foregroundHex = darkTheme.match(
+      /--text-secondary:\s*#([0-9a-f]{6})/iu,
+    )?.[1];
+    const surfaceHex = darkTheme.match(/--surface:\s*#([0-9a-f]{6})/iu)?.[1];
+    const soft = darkTheme.match(
+      /--orange-soft:\s*rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/u,
+    );
+    if (!foregroundHex || !surfaceHex || !soft) {
+      throw new Error("Dark operation-status colors are missing.");
+    }
+    expect(css).toMatch(
+      /\.cloud-operation-status\s*\{[^}]*color:\s*var\(--text-secondary\)/u,
+    );
+    const foreground = hexChannels(foregroundHex);
+    const surface = hexChannels(surfaceHex);
+    const alpha = Number(soft[4]);
+    const background = soft.slice(1, 4).map((channel, index) =>
+      Math.round(Number(channel) * alpha + surface[index]! * (1 - alpha)),
+    );
+
+    expect(contrastRatio(foreground, background)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("is optional on first run and reads only local metadata when opened", async () => {
     const user = userEvent.setup();
     const api = installAppApi();
 
     render(<App />);
     await screen.findByText("Your sessions will appear here.");
-    expect(api.getCloudSetupStatus).not.toHaveBeenCalled();
+    expect(api.getCloudCredentialStatus).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole("button", { name: "Open settings" }));
+    await user.click(
+      screen.getByRole("button", { name: "Manage cloud credential" }),
+    );
 
     const heading = await screen.findByRole("heading", {
-      name: "Cloud synthesis",
+      name: "Cloud credential",
     });
-    expect(heading).toBeVisible();
     expect(heading).toHaveFocus();
-    expect(api.getCloudSetupStatus).toHaveBeenCalledOnce();
-    expect(screen.getByText("Not configured")).toBeVisible();
-    expect(screen.getByText("Not validated")).toBeVisible();
-    expect(screen.getByText("Hybrid locked")).toBeVisible();
-    expect(screen.queryByRole("button", { name: /validate/u })).not.toBeInTheDocument();
+    expect(api.getCloudCredentialStatus).toHaveBeenCalledOnce();
+    expect(
+      screen.getByText("Signed setup is not available in this build"),
+    ).toBeVisible();
+    expect(screen.getByText("No older setup item found")).toBeVisible();
+    expect(screen.getByText("Protected credential not inspected")).toBeVisible();
+    expect(screen.getByText("Not run")).toBeVisible();
+    expect(screen.getByText("Locked")).toBeVisible();
+    expect(
+      screen.getByText(
+        "OpenRouter was not contacted by this credential operation.",
+      ),
+    ).toBeVisible();
   });
 
-  it("clears the uncontrolled password field before awaiting save and never uses browser storage", async () => {
-    const user = userEvent.setup();
-    const pending = deferred<CloudSetupStatus>();
-    const onSave = vi.fn(() => pending.promise);
-    const localSet = vi.fn();
-    const sessionSet = vi.fn();
-    vi.stubGlobal("localStorage", { setItem: localSet });
-    vi.stubGlobal("sessionStorage", { setItem: sessionSet });
-    const syntheticCredential = "synthetic-cloud-credential-value";
-
-    render(
-      <CloudSettings
-        status={notConfigured}
-        loading={false}
-        loadFailed={false}
-        onRetry={vi.fn()}
-        onSave={onSave}
-        onDelete={vi.fn()}
-        onDone={vi.fn()}
-      />,
-    );
-
-    const field = screen.getByLabelText("OpenRouter credential");
-    await user.type(field, syntheticCredential);
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    expect(onSave).toHaveBeenCalledWith(syntheticCredential);
-    expect(field).toHaveValue("");
-    expect(document.body).not.toHaveTextContent(syntheticCredential);
-    expect(localSet).not.toHaveBeenCalled();
-    expect(sessionSet).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: "Done" })).toBeDisabled();
-
-    pending.resolve(storedUnvalidated);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeEnabled());
-    expect(screen.getByRole("button", { name: "Done" })).toBeEnabled();
-  });
-
-  it("supports replace and delete without echoing a rejected credential", async () => {
-    const user = userEvent.setup();
-    const replacement = "synthetic-replacement-value";
-    const onSave = vi
-      .fn<(credential: string) => Promise<CloudSetupStatus>>()
-      .mockRejectedValue(new Error(`unsafe backend echo: ${replacement}`));
-    const onDelete = vi.fn().mockResolvedValue(notConfigured);
-
-    render(
-      <CloudSettings
-        status={storedUnvalidated}
-        loading={false}
-        loadFailed={false}
-        onRetry={vi.fn()}
-        onSave={onSave}
-        onDelete={onDelete}
-        onDone={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByText("Stored locally")).toBeVisible();
-    const field = screen.getByLabelText("Replacement OpenRouter credential");
-    await user.type(field, replacement);
-    await user.click(screen.getByRole("button", { name: "Replace" }));
-
-    expect(field).toHaveValue("");
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "SOAR could not confirm the replacement.",
-    );
-    expect(document.body).not.toHaveTextContent(replacement);
-
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    expect(screen.getByText("Remove the stored credential?")).toBeVisible();
-    const remove = screen.getByRole("button", { name: "Remove credential" });
-    await waitFor(() => expect(remove).toHaveFocus());
-    await user.tab();
-    expect(screen.getByRole("button", { name: "Keep credential" })).toHaveFocus();
-    await user.keyboard("{Enter}");
-    await waitFor(() =>
-      expect(screen.getByRole("button", { name: "Delete" })).toHaveFocus(),
-    );
-    await user.keyboard("{Enter}");
-    const confirmedRemove = screen.getByRole("button", {
-      name: "Remove credential",
+  it("exposes no credential input or mutation action in any locked state", () => {
+    const present = status({
+      build: { state: "eligible", reasonCode: "identity_policy_satisfied" },
+      legacyStagedItem: {
+        state: "present",
+        reasonCode: "legacy_metadata_present",
+      },
     });
-    await waitFor(() => expect(confirmedRemove).toHaveFocus());
-    await user.keyboard("{Enter}");
-    await waitFor(() => expect(onDelete).toHaveBeenCalledOnce());
-    await waitFor(() => expect(field).toHaveFocus());
+
+    render(
+      <CloudSettings
+        status={present}
+        loading={false}
+        loadFailed={false}
+        onRetry={vi.fn()}
+        onDone={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Real credential setup is still locked")).toBeVisible();
+    expect(screen.getByText("Older setup item present")).toBeVisible();
+    expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+    expect(document.querySelector('input[type="password"]')).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /save|replace|delete|remove/u }),
+    ).not.toBeInTheDocument();
   });
 
-  it("wires save and delete results back into the app status view", async () => {
+  it("uses the signed-setup headline for an ineligible signed host", () => {
+    render(
+      <CloudSettings
+        status={status({
+          build: {
+            state: "ineligible",
+            reasonCode: "wrong_bundle_identifier",
+          },
+        })}
+        loading={false}
+        loadFailed={false}
+        onRetry={vi.fn()}
+        onDone={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("Signed setup is not available in this build"),
+    ).toBeVisible();
+    expect(
+      screen.queryByText("This build's credential identity could not be confirmed"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("distinguishes a locked Keychain from denied and unavailable metadata", () => {
+    render(
+      <CloudSettings
+        status={status({
+          legacyStagedItem: {
+            state: "unknown",
+            reasonCode: "keychain_locked",
+          },
+        })}
+        loading={false}
+        loadFailed={false}
+        onRetry={vi.fn()}
+        onDone={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText("Unlock your Mac Keychain to continue"),
+    ).toBeVisible();
+    expect(screen.getByRole("alert")).toHaveAccessibleName(
+      "Older setup item",
+    );
+    expect(
+      screen.getByText(/did not show an authentication prompt/u),
+    ).toBeVisible();
+    expect(document.querySelector('input[type="password"]')).toBeNull();
+  });
+
+  it("retains the last source-proven legacy state across a denied refresh", async () => {
+    const first = status({
+      legacyStagedItem: {
+        state: "present",
+        reasonCode: "legacy_metadata_present",
+      },
+    });
+    const denied = status({
+      legacyStagedItem: {
+        state: "unknown",
+        reasonCode: "keychain_access_denied",
+      },
+    });
+    installAppApi({
+      getCloudCredentialStatus: vi
+        .fn()
+        .mockResolvedValueOnce(first)
+        .mockResolvedValueOnce(denied),
+    });
     const user = userEvent.setup();
-    const api = installAppApi();
 
     render(<App />);
-    await user.click(screen.getByRole("button", { name: "Open settings" }));
-    const field = await screen.findByLabelText("OpenRouter credential");
-    await user.type(field, "synthetic-app-flow-value");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    expect(await screen.findByText("Stored locally")).toBeVisible();
-    expect(api.saveCloudCredential).toHaveBeenCalledWith({
-      credential: "synthetic-app-flow-value",
+    const trigger = await screen.findByRole("button", {
+      name: "Manage cloud credential",
     });
+    await user.click(trigger);
+    expect(await screen.findByText("Older setup item present")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await user.click(trigger);
 
-    await user.click(screen.getByRole("button", { name: "Delete" }));
-    await user.click(screen.getByRole("button", { name: "Remove credential" }));
-
-    expect(await screen.findByText("Not configured")).toBeVisible();
-    expect(api.deleteCloudCredential).toHaveBeenCalledOnce();
+    expect(await screen.findByText("Keychain access was denied")).toBeVisible();
+    expect(
+      screen.getByText(/last completed metadata check observed the older setup item/u),
+    ).toBeVisible();
+    expect(document.querySelector('input[type="password"]')).toBeNull();
   });
 
-  it("restores focus to the Settings trigger after Done", async () => {
+  it("keeps operation progress and unknown outcome copy bounded and accessible", () => {
+    const { rerender } = render(
+      <CloudSettings
+        status={status({
+          latestOperation: {
+            state: "pending",
+            kind: "replace_protected",
+          },
+        })}
+        loading={false}
+        loadFailed={false}
+        onRetry={vi.fn()}
+        onDone={vi.fn()}
+      />,
+    );
+
+    const progress = screen.getByTestId("cloud-credential-live-status");
+    expect(progress).toHaveAttribute("role", "status");
+    expect(progress).toHaveTextContent("Replacing credential in Keychain…");
+    expect(progress).toHaveAttribute("aria-busy", "true");
+
+    rerender(
+      <CloudSettings
+        status={status({
+          latestOperation: {
+            state: "outcome_unknown",
+            kind: "replace_protected",
+            recoveryCode: "await_native_completion",
+          },
+        })}
+        loading={false}
+        loadFailed={false}
+        onRetry={vi.fn()}
+        onDone={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("status")).toBeEmptyDOMElement();
+    expect(screen.getByRole("status")).toHaveAttribute("aria-busy", "false");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "The previous credential replacement has not been confirmed.",
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "duplicate changes remain locked",
+    );
+  });
+
+  it("uses one persistent polite region for metadata progress and bounded success", async () => {
+    const request = deferred<CloudCredentialStatus>();
+    installAppApi({
+      getCloudCredentialStatus: vi.fn().mockReturnValue(request.promise),
+    });
+    const user = userEvent.setup();
+
+    render(<App />);
+    await user.click(
+      screen.getByRole("button", { name: "Manage cloud credential" }),
+    );
+    const liveRegion = await screen.findByTestId(
+      "cloud-credential-live-status",
+    );
+    expect(liveRegion).toHaveAttribute("role", "status");
+    expect(liveRegion).toHaveAttribute("aria-live", "polite");
+    expect(liveRegion).toHaveAttribute("aria-atomic", "true");
+    expect(liveRegion).toHaveTextContent(
+      "Reading non-secret local credential status…",
+    );
+
+    request.resolve(lockedStatus);
+    await waitFor(() =>
+      expect(liveRegion).toHaveTextContent(
+        "Local credential status loaded. Cloud requests remain locked.",
+      ),
+    );
+    expect(screen.getAllByRole("status")).toEqual([liveRegion]);
+  });
+
+  it("renders allow-listed unavailable status and restores focus after retry", async () => {
+    const user = userEvent.setup();
+    const getCloudCredentialStatus = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("raw status detail"))
+      .mockResolvedValueOnce(lockedStatus);
+    installAppApi({ getCloudCredentialStatus });
+
+    render(<App />);
+    await user.click(
+      screen.getByRole("button", { name: "Manage cloud credential" }),
+    );
+    const error = await screen.findByRole("alert");
+    expect(error).toHaveTextContent("Local credential status unavailable");
+    expect(error).not.toHaveTextContent("raw status detail");
+
+    await user.click(
+      within(error).getByRole("button", { name: "Retry local status" }),
+    );
+    const heading = await screen.findByRole("heading", {
+      name: "Cloud credential",
+    });
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(screen.getByText("No older setup item found")).toBeVisible();
+  });
+
+  it("restores focus to the exact navigation trigger after Done", async () => {
     const user = userEvent.setup();
     installAppApi();
 
     render(<App />);
-    const trigger = await screen.findByRole("button", { name: "Open settings" });
+    const trigger = await screen.findByRole("button", {
+      name: "Manage cloud credential",
+    });
     await user.click(trigger);
-    await screen.findByRole("heading", { name: "Cloud synthesis" });
+    await screen.findByRole("heading", { name: "Cloud credential" });
     await user.click(screen.getByRole("button", { name: "Done" }));
 
     await waitFor(() => expect(trigger).toHaveFocus());
   });
 
-  it("renders only allow-listed local storage error copy", () => {
-    render(
-      <CloudSettings
-        status={{
-          ...notConfigured,
-          state: "local_storage_error",
-          errorCode: "keychain_status_failed",
-        }}
-        loading={false}
-        loadFailed={false}
-        onRetry={vi.fn()}
-        onSave={vi.fn()}
-        onDelete={vi.fn()}
-        onDone={vi.fn()}
-      />,
+  it("restores compact-layout focus to the sessions menu when the origin becomes inert", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockImplementation((query: string) => ({
+        matches: query === "(max-width: 880px)",
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
     );
-
-    expect(screen.getByText("Local storage error")).toBeVisible();
-    expect(
-      screen.getByText("SOAR could not read the local credential status."),
-    ).toBeVisible();
-    expect(screen.getByText("Hybrid locked")).toBeVisible();
-    expect(
-      screen.getByRole("button", { name: "Retry local status" }),
-    ).toBeVisible();
-    expect(
-      screen.queryByLabelText("OpenRouter credential"),
-    ).not.toBeInTheDocument();
-  });
-
-  it("treats resolved save failures as unknown local state and focuses recovery", async () => {
     const user = userEvent.setup();
-    const errorStatus: CloudSetupStatus = {
-      ...notConfigured,
-      state: "local_storage_error",
-      errorCode: "keychain_write_failed",
-    };
-    installAppApi({ saveCloudCredential: vi.fn().mockResolvedValue(errorStatus) });
+    installAppApi();
 
     render(<App />);
-    await user.click(screen.getByRole("button", { name: "Open settings" }));
-    const field = await screen.findByLabelText("OpenRouter credential");
-    await user.type(field, "synthetic-resolved-save-failure");
-    await user.click(screen.getByRole("button", { name: "Save" }));
-
-    expect(await screen.findByText("Local storage error")).toBeVisible();
-    const retry = screen.getByRole("button", { name: "Retry local status" });
-    await waitFor(() => expect(retry).toHaveFocus());
-    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
-  });
-
-  it("does not treat a resolved delete failure as successful", async () => {
-    const user = userEvent.setup();
-    const errorStatus: CloudSetupStatus = {
-      ...notConfigured,
-      state: "local_storage_error",
-      errorCode: "keychain_delete_failed",
-    };
-    installAppApi({
-      getCloudSetupStatus: vi.fn().mockResolvedValue(storedUnvalidated),
-      deleteCloudCredential: vi.fn().mockResolvedValue(errorStatus),
+    const menu = await screen.findByRole("button", { name: "Open sessions" });
+    await user.click(menu);
+    const trigger = screen.getByRole("button", {
+      name: "Manage cloud credential",
     });
+    await user.click(trigger);
+    await screen.findByRole("heading", { name: "Cloud credential" });
+    await user.click(screen.getByRole("button", { name: "Done" }));
 
-    render(<App />);
-    await user.click(screen.getByRole("button", { name: "Open settings" }));
-    await user.click(await screen.findByRole("button", { name: "Delete" }));
-    await user.click(
-      screen.getByRole("button", { name: "Remove credential" }),
-    );
-
-    expect(await screen.findByText("Local storage error")).toBeVisible();
-    const retry = screen.getByRole("button", { name: "Retry local status" });
-    await waitFor(() => expect(retry).toHaveFocus());
-    expect(screen.queryByText("Not configured")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Save" })).not.toBeInTheDocument();
+    await waitFor(() => expect(menu).toHaveFocus());
   });
 
-  it("restores focus after retrying local status", async () => {
+  it("ignores a stale status response after the screen is reopened", async () => {
     const user = userEvent.setup();
-    const errorStatus: CloudSetupStatus = {
-      ...notConfigured,
-      state: "local_storage_error",
-      errorCode: "keychain_status_failed",
-    };
-    const getCloudSetupStatus = vi
+    const stale = deferred<CloudCredentialStatus>();
+    const current = status({
+      legacyStagedItem: {
+        state: "present",
+        reasonCode: "legacy_metadata_present",
+      },
+    });
+    const getCloudCredentialStatus = vi
       .fn()
-      .mockResolvedValueOnce(errorStatus)
-      .mockResolvedValueOnce(notConfigured);
-    installAppApi({ getCloudSetupStatus });
+      .mockReturnValueOnce(stale.promise)
+      .mockResolvedValueOnce(current);
+    installAppApi({ getCloudCredentialStatus });
 
     render(<App />);
-    await user.click(screen.getByRole("button", { name: "Open settings" }));
-    await user.click(
-      await screen.findByRole("button", { name: "Retry local status" }),
-    );
-
-    const heading = await screen.findByRole("heading", {
-      name: "Cloud synthesis",
+    const trigger = await screen.findByRole("button", {
+      name: "Manage cloud credential",
     });
-    await waitFor(() => expect(heading).toHaveFocus());
-    expect(screen.getByText("Not configured")).toBeVisible();
+    await user.click(trigger);
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Reading non-secret local credential status",
+    );
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await user.click(trigger);
+
+    expect(await screen.findByText("Older setup item present")).toBeVisible();
+    stale.resolve(lockedStatus);
+    await Promise.resolve();
+    expect(screen.getByText("Older setup item present")).toBeVisible();
+    expect(screen.queryByText("No older setup item found")).not.toBeInTheDocument();
   });
 });

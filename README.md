@@ -16,8 +16,12 @@ routing runtime matures.
 > the simulation reads no
 > credential, contacts neither the configured vLLM nor an external provider,
 > and has `$0` actual external spend. Cloud execution, write tools, and learned
-> routing remain design targets. Manual VoiceOver, light/dark contrast, and
-> reduced-motion proof for PR6B0 is still pending.
+> routing remain design targets. PR6B1-B is currently a local implementation
+> candidate: it replaces secret entry with a status-only, activation-locked
+> native credential boundary. Local deterministic, package, canary, Electron,
+> and review gates pass, but it is not Implemented until exact committed-SHA
+> Linux/macOS CI closes. Manual VoiceOver, light/dark
+> contrast, and reduced-motion proof for PR6B0 is still pending.
 
 The MVP optimizes a constrained trade-off rather than promising an impossible per-task optimum:
 
@@ -36,12 +40,13 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   independently verify the endpoint's external billing or infrastructure cost.
   The endpoint may run on this Mac or another machine, so “local” is not a
   loopback-placement or privacy guarantee.
-- Locked cloud candidate: PR6A records OpenRouter DeepSeek V4 Flash 0731 as
+- Locked cloud candidate: OpenRouter DeepSeek V4 Flash 0731 remains
   metadata-only product intent, separate from the runtime provider registry.
-  Optional Settings can add, replace, report local presence, and delete a
-  dedicated Keychain credential without returning it to the renderer. The
-  credential and candidate are not validated or dispatchable; availability and
-  pricing require fresh evidence and separate PR6B2 approval.
+  The PR6B1-B candidate removes credential entry and mutation from renderer,
+  preload, and IPC. **Cloud credential** shows only strict, non-secret native
+  identity, legacy-item metadata, operation-recovery, provider-not-run, and
+  dispatch-locked status. The locked package has no protected-item locator,
+  secure-entry sheet, lease consumer, provider transport, or cloud authority.
 - Routing runtime: Repository Investigator retains its deterministic v1 local
   assignment. Review Current Changes creates an app-owned v2
   `local_only_v1` session and keeps inspection and synthesis on the same
@@ -97,8 +102,8 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   [PR6B0 Hybrid Simulation](docs/plans/PR6B0_HYBRID_SIMULATION_V1.md) is
   Implemented with automated exact-SHA closure but not Verified or Released.
   [PR6B1 Signed Native Credential Lease](docs/plans/PR6B1_SIGNED_NATIVE_CREDENTIAL_LEASE_V1.md)
-  has owner approval recorded for local `$0` phase-B implementation, effective
-  only after its committed approval checkpoint passes exact-SHA CI; it is not
+  has effective owner approval for local `$0` phase-B implementation. Its local
+  candidate gates pass and exact committed-SHA CI is pending; it is not yet
   Implemented. PR6B1-C signed proof, PR6B1-D real re-entry, PR6B2 provider
   validation, PR6B3's paid OpenRouter canary, and every paid call remain
   separately unapproved and approval-gated.
@@ -221,8 +226,9 @@ settled amounts with settlement provenance, and `$0` actual external spend.
 Restart replays persisted events without dispatching again.
 
 Normal vLLM mode still constructs one configured, operator-attested Local
-provider and exposes no Hybrid simulation authority. PR6A Settings remains
-setup-only; PR6B0 neither reads its Keychain item nor constructs an OpenRouter
+provider and exposes no Hybrid simulation authority. The PR6B1-B candidate
+exposes status only and cannot enter, mutate, retrieve, validate, or dispatch a
+credential; PR6B0 neither reads any Keychain item nor constructs an OpenRouter
 transport. Automated exact-head, Electron, package, independent-review, and
 Linux/macOS CI gates passed on the final corrective implementation revision,
 but the manual VoiceOver, keyboard-only, contrast, zoom/reflow, and reduced-
@@ -238,9 +244,10 @@ The first working slice is an Electron application with:
 
 - a React task workspace with sessions, transcript, and run details;
 - a narrow, typed preload bridge with renderer sandboxing;
-- optional cloud Settings with strict metadata-only status/save/delete IPC,
-  setup-only macOS Keychain storage, explicit stored-but-unvalidated copy, and
-  a dispatch-locked real Hybrid control;
+- status-only **Cloud credential** settings with exact top-level renderer
+  authority, no secret or mutation IPC, an activation-locked native macOS
+  broker, conservative SQLite operation recovery, provider-not-run copy, and a
+  dispatch-locked real Hybrid control;
 - a fake-only Review Current Changes route picker, challenge-bound disclosure,
   simulated accounting, route/fallback trace, cancellation copy, and persistent
   replay attribution when the main process explicitly enables simulation;
@@ -288,7 +295,7 @@ The configured vLLM adapter is still a
 generic OpenAI-compatible network path: its `local_zero_cost` classification is
 operator-attested and does not independently prove that the endpoint cannot
 bill. Production cloud routing remains later PR6B1-C/PR6B1-D through PR6B3 work
-with separate approval gates. Approved phase B is structurally activation-
+with separate approval gates. The phase-B candidate is structurally activation-
 locked and cannot route to Cloud. New desktop tasks
 select either the versioned `repository-investigator-v1` or `change-review-v1`
 track. The main process owns each track's policy and obligations; the renderer
@@ -538,7 +545,14 @@ pnpm package:mac
 
 The verified artifact is written to `dist/SOAR-mac-arm64.zip`. Packaging and
 signature verification happen outside the Desktop folder so macOS FileProvider
-metadata cannot invalidate the application bundle before it is archived.
+metadata cannot invalidate the application bundle before it is archived. The
+package verifier also checks the single locked native addon, its sealed
+bundle-relative placement, activation-marker absence, and the contributor
+package's reviewed ad-hoc entitlement contract. Run
+`pnpm test:e2e:packaged-credential-status` only after building that exact
+archive; it launches the packaged app in Local mode behind a loopback network
+trap and proves status/dispatch lock behavior, not signed continuity or a real
+credential.
 
 Start with [MVP readiness](docs/MVP_READINESS.md), [routing policy](docs/ROUTING_POLICY.md), and the [benchmark protocol](benchmarks/README.md).
 

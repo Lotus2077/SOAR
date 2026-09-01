@@ -51,6 +51,13 @@ const environmentSchema = z.object({
   SOAR_FAKE_DELAY_MS: z.coerce.number().int().min(0).max(5_000).default(12),
   SOAR_DB_PATH: z.string().optional(),
   SOAR_TEST_WORKSPACE: z.string().optional(),
+  SOAR_TEST_CREDENTIAL_OPERATION_STATE: z
+    .enum([
+      "pending",
+      "outcome_unknown_await_native_completion",
+      "outcome_unknown_manual_recovery_required",
+    ])
+    .optional(),
   SOAR_MAX_INFERENCE_ROUNDS: z.coerce.number().int().min(1).max(32).default(24),
   SOAR_MAX_TOOL_CALLS: z.coerce.number().int().min(1).max(32).default(24),
   SOAR_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(128).max(65_536).default(8_192),
@@ -82,6 +89,14 @@ export interface SoarConfig {
   };
   databasePath?: string;
   testWorkspace?: string;
+  /**
+   * Deterministic renderer proof fixture. It is admitted only for Fake mode
+   * with an explicit test workspace and never invokes native or provider code.
+   */
+  testCredentialOperationState?:
+    | "pending"
+    | "outcome_unknown_await_native_completion"
+    | "outcome_unknown_manual_recovery_required";
   limits: {
     inferenceRounds: number;
     toolCalls: number;
@@ -141,6 +156,14 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
       "A non-success fake cloud scenario requires fake Hybrid simulation with SOAR_TEST_WORKSPACE.",
     );
   }
+  if (
+    env.SOAR_TEST_CREDENTIAL_OPERATION_STATE !== undefined &&
+    (env.SOAR_PROVIDER_MODE !== "fake" || !env.SOAR_TEST_WORKSPACE)
+  ) {
+    throw new Error(
+      "SOAR_TEST_CREDENTIAL_OPERATION_STATE requires SOAR_PROVIDER_MODE=fake and SOAR_TEST_WORKSPACE.",
+    );
+  }
   const url = new URL(env.SOAR_VLLM_BASE_URL);
   const isLoopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(
     url.hostname,
@@ -180,6 +203,12 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
     },
     databasePath: env.SOAR_DB_PATH,
     testWorkspace: env.SOAR_TEST_WORKSPACE,
+    ...(env.SOAR_TEST_CREDENTIAL_OPERATION_STATE === undefined
+      ? {}
+      : {
+          testCredentialOperationState:
+            env.SOAR_TEST_CREDENTIAL_OPERATION_STATE,
+        }),
     limits: {
       inferenceRounds: env.SOAR_MAX_INFERENCE_ROUNDS,
       toolCalls: env.SOAR_MAX_TOOL_CALLS,

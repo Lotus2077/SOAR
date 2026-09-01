@@ -9,13 +9,18 @@ import {
 import { stat, realpath } from "node:fs/promises";
 import path from "node:path";
 
-import { dialog, ipcMain } from "electron";
+import {
+  dialog,
+  ipcMain,
+  type BrowserWindow,
+  type IpcMainInvokeEvent,
+} from "electron";
 
 import {
+  CloudCredentialStatusSchema,
   HYBRID_LOCKED_REVIEW_REASON,
   HYBRID_LOCKED_REVIEW_REACHABILITY,
-  SaveCloudCredentialInputSchema,
-  type CloudSetupStatus,
+  type CloudCredentialStatus,
 } from "../shared/cloud-setup-contracts";
 import {
   IPC_CHANNELS,
@@ -39,16 +44,60 @@ import type {
 } from "./hybrid-simulation-consent";
 import { startHybridChangeReviewSession } from "./hybrid-change-review-session";
 import {
-  CloudCredentialSetupService,
-  unavailableCloudSetupStatus,
+  unavailableCloudCredentialStatus,
 } from "./cloud-credential-service";
+import type { CloudCredentialStatusSource } from "./cloud-credential-status-test-fixture";
 
 export interface RegisterIpcOptions {
   store: EventStore;
   runner: SessionRunner;
   config: SoarConfig;
-  cloudCredentialSetup?: CloudCredentialSetupService;
+  credentialIpcAuthority: CredentialIpcAuthority;
+  cloudCredentialStatus?: CloudCredentialStatusSource;
   hybridSimulationConsent?: HybridSimulationConsentChallengeStore;
+}
+
+/**
+ * Main-owned identity for the one renderer allowed to request credential
+ * metadata. The getter follows macOS window recreation; callers must never
+ * cache authority from a destroyed BrowserWindow.
+ */
+export interface CredentialIpcAuthority {
+  readonly expectedRendererUrl: string;
+  currentWindow(): BrowserWindow | undefined;
+}
+
+const CREDENTIAL_IPC_DENIED_MESSAGE =
+  "Cloud credential status is unavailable from this renderer." as const;
+
+/**
+ * Reject a credential request unless it came from the current SOAR window's
+ * top-level frame at the exact renderer entry URL. This check deliberately
+ * uses object identity as well as URL identity; a foreign WebContents cannot
+ * gain authority by navigating to a look-alike URL.
+ */
+export function assertCredentialIpcSender(
+  event: IpcMainInvokeEvent,
+  authority: CredentialIpcAuthority,
+): void {
+  try {
+    const window = authority.currentWindow();
+    const expectedUrl = authority.expectedRendererUrl;
+    if (
+      window === undefined ||
+      window.isDestroyed() ||
+      expectedUrl.length === 0 ||
+      window.webContents.isDestroyed() ||
+      event.sender !== window.webContents ||
+      event.senderFrame !== window.webContents.mainFrame ||
+      event.sender.getURL() !== expectedUrl ||
+      event.senderFrame.url !== expectedUrl
+    ) {
+      throw new Error(CREDENTIAL_IPC_DENIED_MESSAGE);
+    }
+  } catch {
+    throw new Error(CREDENTIAL_IPC_DENIED_MESSAGE);
+  }
 }
 
 const TASK_TRACK_COMPLETION_POLICIES: Record<
@@ -91,6 +140,21 @@ function hybridAvailability(enabled: boolean): ReviewAvailability["hybrid"] {
 function assertNoIpcPayload(value: unknown): void {
   if (value !== undefined) {
     throw new TypeError("This IPC method does not accept an input payload.");
+  }
+}
+
+function unavailableCredentialStatus(
+  source: CloudCredentialStatusSource | undefined,
+): CloudCredentialStatus {
+  try {
+    return source?.getUnavailableStatus === undefined
+      ? unavailableCloudCredentialStatus()
+      : CloudCredentialStatusSchema.parse(source.getUnavailableStatus());
+  } catch {
+    // A corrupt or unreadable journal must not turn a status request into an
+    // IPC failure. The fully locked no-operation projection is the final
+    // fallback; SQLite still owns duplicate-operation exclusion.
+    return unavailableCloudCredentialStatus();
   }
 }
 
@@ -240,7 +304,8 @@ export async function registerIpcHandlers({
   store,
   runner,
   config,
-  cloudCredentialSetup,
+  credentialIpcAuthority,
+  cloudCredentialStatus,
   hybridSimulationConsent,
 }: RegisterIpcOptions): Promise<() => void> {
   const approvedWorkspaces = new Set<string>();
@@ -388,40 +453,20 @@ export async function registerIpcHandlers({
   );
 
   ipcMain.handle(
-    IPC_CHANNELS.getCloudSetupStatus,
-    async (_event, rawInput: unknown): Promise<CloudSetupStatus> => {
+    IPC_CHANNELS.getCloudCredentialStatus,
+    async (event, rawInput: unknown): Promise<CloudCredentialStatus> => {
+      assertCredentialIpcSender(event, credentialIpcAuthority);
       assertNoIpcPayload(rawInput);
-      return cloudCredentialSetup === undefined
-        ? unavailableCloudSetupStatus()
-        : cloudCredentialSetup.getStatus();
-    },
-  );
-
-  ipcMain.handle(
-    IPC_CHANNELS.saveCloudCredential,
-    async (_event, rawInput: unknown): Promise<CloudSetupStatus> => {
-      // Never let a raw Zod error cross IPC. Strict-schema diagnostics include
-      // unrecognized property names, which a forged renderer could populate
-      // with credential material. The allow-listed status contains no caller
-      // bytes and keeps dispatch locked.
-      const parsedInput = SaveCloudCredentialInputSchema.safeParse(rawInput);
-      if (!parsedInput.success) {
-        return unavailableCloudSetupStatus("invalid_credential");
+      if (cloudCredentialStatus === undefined) {
+        return unavailableCredentialStatus(cloudCredentialStatus);
       }
-      if (cloudCredentialSetup === undefined) {
-        return unavailableCloudSetupStatus();
+      try {
+        return CloudCredentialStatusSchema.parse(
+          await cloudCredentialStatus.getStatus(),
+        );
+      } catch {
+        return unavailableCredentialStatus(cloudCredentialStatus);
       }
-      return cloudCredentialSetup.save(parsedInput.data.credential);
-    },
-  );
-
-  ipcMain.handle(
-    IPC_CHANNELS.deleteCloudCredential,
-    async (_event, rawInput: unknown): Promise<CloudSetupStatus> => {
-      assertNoIpcPayload(rawInput);
-      return cloudCredentialSetup === undefined
-        ? unavailableCloudSetupStatus()
-        : cloudCredentialSetup.delete();
     },
   );
 

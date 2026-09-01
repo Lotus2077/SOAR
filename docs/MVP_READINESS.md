@@ -9,10 +9,11 @@ release-head and Electron checks passed on its implementation revision, its
 separately authorized nonempty live proof passed once, and the exact post-proof
 revision passed Linux and macOS GitHub Actions.
 
-PR6A Cloud Setup and Dispatch Lock is **Verified** but not **Released**. Its
-setup-only Keychain, metadata-only candidate, and pure
-egress-shadow code do not authorize provider validation, production cloud
-dispatch, real Hybrid selection, or PR6B1 through PR6B3.
+PR6A Cloud Setup and Dispatch Lock was **Verified** but not **Released**. Its
+historical setup-only Keychain operations are superseded by the PR6B1-B
+candidate's status-only boundary. Its metadata candidate and pure egress-shadow
+code do not authorize provider validation, production cloud dispatch, real
+Hybrid selection, or PR6B1-C through PR6B3.
 
 PR6B0 Hybrid Simulation is **Implemented with automated exact-SHA closure** but
 not **Verified** or **Released**. Its app-visible route exists only when the main process uses fake
@@ -24,6 +25,15 @@ package validation, independent final review, and exact-SHA Linux/macOS CI
 passed on `9495d6bcbaa8cef5d3342e0d53ab02efe28d0002`; manual VoiceOver,
 keyboard-only traversal, 200% zoom/reflow, light/dark contrast, and reduced-
 motion proof remain pending.
+
+PR6B1-B has effective owner approval for local `$0` implementation. The current
+tree is an **implementation candidate**, not yet **Implemented**, **Verified**,
+**Activated**, or **Released**. It removes secret entry and mutation from the
+web stack, adds a status-only locked native authority and conservative operation
+journal, and leaves provider checks, real Hybrid, repository egress, and spend
+locked. Local deterministic, Electron, exact-archive, canary, and independent-
+review gates pass; clean committed-head and exact-SHA CI closure are still
+required.
 
 ## Implemented
 
@@ -45,10 +55,12 @@ motion proof remain pending.
   Explicit fake simulation mode constructs only the branded Fake Local and
   tool-free Fake Cloud providers; one locked real-cloud candidate remains
   separate metadata and cannot be parsed as a dispatchable provider;
-- setup-only macOS Keychain status, add/replace, and delete behavior with no
-  raw-secret read method, plus strict metadata-only main/preload/renderer
-  contracts and optional Settings that distinguish stored, unvalidated, and
-  dispatch-locked states;
+- a PR6B1-B status-only Cloud Credential boundary with no renderer/preload/IPC
+  secret or mutation schema, exact current-window/top-frame authority, a
+  locked Objective-C++ macOS broker, noninteractive legacy attribute status,
+  a non-secret SQLite operation journal with conservative restart ambiguity,
+  and provider-not-run/dispatch-locked projections. This remains an
+  implementation candidate until its exact-SHA closure;
 - a pure canonical-message cloud-egress shadow guard that evaluates
   host-derived provenance and returns bounded finding codes and semantic
   hashes. It performs no I/O. Normal vLLM mode retains the PR6A shadow-only
@@ -152,9 +164,11 @@ motion proof remain pending.
 - any production provider switch: the review v2 path is deliberately
   same-provider and Local only in normal vLLM mode, where Hybrid is visibly
   disabled and reports that no separate metered provider is configured;
-- PR6B1's signed credential lease, PR6B2's real credential/provider/health/
-  pricing validation, and PR6B3's external transport, wire-bound admission,
-  real reservation, and paid canary. PR6B0 authorizes none of them;
+- PR6B1-C's signed A/B credential-continuity proof, PR6B1-D's real native
+  re-entry and protected lease activation, PR6B2's real credential/provider/
+  health/pricing validation, and PR6B3's external transport, wire-bound
+  admission, real reservation, and paid canary. Phase B authorizes none of
+  them;
 - complete release validation or current Repository Investigator live proof;
   the one-shot synthetic empty-snapshot structured-review schema canary and
   deterministic/Electron PR 5 gates passed on 2026-08-30, but the live canary
@@ -411,9 +425,10 @@ local structured-schema canary did pass once on 2026-08-30, but only against a
 synthetic empty snapshot; it is not post-fix real-repository or release proof.
 PR6A is Verified but not Released. PR6B0 has automated exact-SHA closure but is
 not Verified or Released; its Fake Cloud label never denotes an external
-provider. PR6B1-B has owner approval recorded for local `$0`, fail-closed
-implementation, effective only after the committed approval checkpoint passes
-exact-SHA CI; it is not Implemented. PR6B1-C signed proof, PR6B1-D real
+provider. PR6B1-B has effective owner approval for local `$0`, fail-closed
+implementation. Local candidate gates pass and exact committed-SHA CI is
+pending; it is not yet
+Implemented. PR6B1-C signed proof, PR6B1-D real
 re-entry, PR6B2, and PR6B3 remain separately gated and are required before a
 real credential lease, provider validation, production cloud dispatch, or a
 paid OpenRouter canary.

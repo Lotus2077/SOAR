@@ -7,9 +7,11 @@ design and migration cost are visible before implementation begins.
 
 ## Development setup
 
-You need Git, Node.js 22.22.2 or newer, and pnpm 10.12.4. macOS is required to
-run the desktop application and Electron end-to-end test; most type checks,
-unit tests, and production builds also run on Linux.
+You need Git, Node.js 22.22.2 or newer, pnpm 10.12.4, and a C++20 compiler.
+macOS contributors also need Xcode Command Line Tools because the locked native
+credential module builds through `xcrun`; macOS is required for the desktop
+application, Electron end-to-end tests, and package/canary checks. Most type
+checks, unit tests, and production bundles also run on Linux.
 
 ```sh
 git clone https://github.com/Lotus2077/SOAR.git
@@ -31,6 +33,8 @@ endpoint credential, benchmark gold data, or generated run artifacts.
 - `src/renderer`: the React desktop interface;
 - `src/shared`: schemas, event contracts, context construction, and reducers;
 - `src/benchmark`: fixture, workspace, preflight, evaluator, and result logic;
+- `native`: version-pinned, platform-specific native modules. PR6B1-B permits
+  only the activation-locked macOS credential broker flavor;
 - `tests`: unit, integration, live opt-in, and Electron end-to-end coverage;
 - `benchmarks`: public workload manifests, source pins, schemas, and protocol.
 
@@ -93,6 +97,8 @@ On macOS, also run:
 
 ```sh
 pnpm test:e2e
+pnpm package:mac
+pnpm test:e2e:packaged-credential-status
 ```
 
 Use live checks only when the change touches the corresponding integration:

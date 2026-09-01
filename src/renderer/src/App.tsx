@@ -38,7 +38,7 @@ import {
   useState,
 } from "react";
 
-import type { CloudSetupStatus } from "../../shared/cloud-setup-contracts";
+import type { CloudCredentialStatus } from "../../shared/cloud-setup-contracts";
 import type {
   ChangeReviewView,
   HybridSimulationProjection,
@@ -85,7 +85,7 @@ const defaultReviewAvailability: ReviewAvailability = {
   hybrid: {
     enabled: false,
     reason:
-      "Cloud setup does not enable Hybrid. Hybrid dispatch is locked in this build.",
+      "Cloud credential status does not enable Hybrid. Real cloud dispatch is locked in this build.",
     separatelyConfiguredPaidProviderReachable: false,
     reachabilitySummary:
       "This build performs no cloud-provider validation or dispatch.",
@@ -947,10 +947,10 @@ function SessionSidebar({
         <button
           type="button"
           className="sidebar-settings-button"
-          data-cloud-settings-trigger="sidebar"
+          data-cloud-credential-trigger="sidebar"
           onClick={onSettings}
-          aria-label="Open settings"
-          title="Settings"
+          aria-label="Manage cloud credential"
+          title="Cloud credential"
         >
           <Gear aria-hidden="true" />
         </button>
@@ -1816,10 +1816,10 @@ export function ReviewSetup({
               <button
                 type="button"
                 className="review-text-button"
-                data-cloud-settings-trigger="review"
+                data-cloud-credential-trigger="review"
                 onClick={onOpenCloudSettings}
               >
-                Set up cloud
+                Manage cloud credential
               </button>
             </div>
           ) : null}
@@ -2902,10 +2902,18 @@ export function App() {
   const [simulationConsentError, setSimulationConsentError] = useState<string | null>(null);
   const [reviewView, setReviewView] = useState<ChangeReviewView | null>(null);
   const [reviewViewLoading, setReviewViewLoading] = useState(false);
-  const [cloudSetupStatus, setCloudSetupStatus] =
-    useState<CloudSetupStatus | null>(null);
-  const [cloudSetupLoading, setCloudSetupLoading] = useState(false);
-  const [cloudSetupLoadFailed, setCloudSetupLoadFailed] = useState(false);
+  const [cloudCredentialStatus, setCloudCredentialStatus] =
+    useState<CloudCredentialStatus | null>(null);
+  const [lastSourceProvenLegacyStatus, setLastSourceProvenLegacyStatus] =
+    useState<
+      Extract<
+        CloudCredentialStatus["legacyStagedItem"],
+        { state: "present" | "not_observed" }
+      > | null
+    >(null);
+  const [cloudCredentialLoading, setCloudCredentialLoading] = useState(false);
+  const [cloudCredentialLoadFailed, setCloudCredentialLoadFailed] =
+    useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [traceOpen, setTraceOpen] = useState(false);
   const [simulationCompletionNotice, setSimulationCompletionNotice] =
@@ -2917,6 +2925,7 @@ export function App() {
   const latestAssistantStartRef = useRef<string | null>(null);
   const reviewRequestOrdinalRef = useRef(0);
   const simulationChallengeOrdinalRef = useRef(0);
+  const cloudCredentialRequestOrdinalRef = useRef(0);
   const settingsReturnSurfaceRef = useRef<"task" | "review_setup">("task");
   const settingsReturnFocusRef = useRef<"sidebar" | "review" | null>(null);
   const settingsFocusRestorePendingRef = useRef(false);
@@ -2959,10 +2968,10 @@ export function App() {
     settingsFocusRestorePendingRef.current = false;
     settingsReturnFocusRef.current = null;
     const candidate = document.querySelector<HTMLElement>(
-      `[data-cloud-settings-trigger="${focusTarget}"]`,
+      `[data-cloud-credential-trigger="${focusTarget}"]`,
     );
     const target = candidate?.closest("[inert]")
-      ? document.querySelector<HTMLElement>("[data-cloud-settings-return-menu]")
+      ? document.querySelector<HTMLElement>("[data-cloud-credential-return-menu]")
       : candidate;
     target?.focus();
   }, [surface]);
@@ -3305,17 +3314,29 @@ export function App() {
     }
   }, [busy, task, upsertSummary, workspace]);
 
-  const loadCloudSetupStatus = useCallback(() => {
-    setCloudSetupLoading(true);
-    setCloudSetupLoadFailed(false);
+  const loadCloudCredentialStatus = useCallback(() => {
+    const requestOrdinal = ++cloudCredentialRequestOrdinalRef.current;
+    setCloudCredentialLoading(true);
+    setCloudCredentialLoadFailed(false);
     void window.soar
-      .getCloudSetupStatus()
-      .then((status) => setCloudSetupStatus(status))
-      .catch(() => {
-        setCloudSetupStatus(null);
-        setCloudSetupLoadFailed(true);
+      .getCloudCredentialStatus()
+      .then((status) => {
+        if (requestOrdinal !== cloudCredentialRequestOrdinalRef.current) return;
+        if (status.legacyStagedItem.state !== "unknown") {
+          setLastSourceProvenLegacyStatus(status.legacyStagedItem);
+        }
+        setCloudCredentialStatus(status);
       })
-      .finally(() => setCloudSetupLoading(false));
+      .catch(() => {
+        if (requestOrdinal !== cloudCredentialRequestOrdinalRef.current) return;
+        setCloudCredentialStatus(null);
+        setCloudCredentialLoadFailed(true);
+      })
+      .finally(() => {
+        if (requestOrdinal === cloudCredentialRequestOrdinalRef.current) {
+          setCloudCredentialLoading(false);
+        }
+      });
   }, []);
 
   const openCloudSettings = useCallback(
@@ -3329,9 +3350,9 @@ export function App() {
       setSurface("settings");
       setError(null);
       setSidebarOpen(false);
-      loadCloudSetupStatus();
+      loadCloudCredentialStatus();
     },
-    [loadCloudSetupStatus],
+    [loadCloudCredentialStatus],
   );
 
   const closeCloudSettings = useCallback(() => {
@@ -3356,22 +3377,6 @@ export function App() {
         setError("Local review support could not be checked.");
       })
       .finally(() => setReviewAvailabilityLoading(false));
-  }, []);
-
-  const saveCloudCredential = useCallback((credential: string) => {
-    return window.soar.saveCloudCredential({ credential }).then((status) => {
-      setCloudSetupStatus(status);
-      setCloudSetupLoadFailed(false);
-      return status;
-    });
-  }, []);
-
-  const deleteCloudCredential = useCallback(() => {
-    return window.soar.deleteCloudCredential().then((status) => {
-      setCloudSetupStatus(status);
-      setCloudSetupLoadFailed(false);
-      return status;
-    });
   }, []);
 
   const openReviewSetup = useCallback(() => {
@@ -3602,7 +3607,7 @@ export function App() {
         <header className={`task-header ${snapshot || surface !== "task" ? "has-session" : "is-empty"}`}>
           <button
             className="icon-button session-menu-button"
-            data-cloud-settings-return-menu
+            data-cloud-credential-return-menu
             onClick={() => setSidebarOpen(true)}
             aria-label="Open sessions"
           >
@@ -3653,12 +3658,11 @@ export function App() {
         <section className="conversation-panel">
           {surface === "settings" ? (
             <CloudSettings
-              status={cloudSetupStatus}
-              loading={cloudSetupLoading}
-              loadFailed={cloudSetupLoadFailed}
-              onRetry={loadCloudSetupStatus}
-              onSave={saveCloudCredential}
-              onDelete={deleteCloudCredential}
+              status={cloudCredentialStatus}
+              lastSourceProvenLegacyStatus={lastSourceProvenLegacyStatus}
+              loading={cloudCredentialLoading}
+              loadFailed={cloudCredentialLoadFailed}
+              onRetry={loadCloudCredentialStatus}
               onDone={closeCloudSettings}
             />
           ) : surface === "review_setup" ? (

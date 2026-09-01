@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, mkdir, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -14,6 +14,7 @@ import {
 
 import { HYBRID_SIMULATION_RESULT_MARKER } from "../../src/shared/hybrid-simulation-contracts";
 import type { SoarRendererApi } from "../../src/shared/contracts";
+import type { TestCredentialOperationState } from "../../src/main/cloud-credential-status-test-fixture";
 
 const projectRoot = path.resolve(import.meta.dirname, "../..");
 const marker = "SOAR-E2E-PROBE-91D7";
@@ -37,16 +38,35 @@ async function launchApp(
     fakeDelayMs?: number;
     hybridSimulation?: boolean;
     fakeCloudScenario?: "success" | "provider_error";
+    credentialOperationState?: TestCredentialOperationState;
   } = {},
+  environment = launchEnvironment(testRoot, workspaceRoot, options),
 ): Promise<ElectronApplication> {
   const executablePath = process.env.SOAR_E2E_EXECUTABLE;
-  const runtimeFlags = process.env.SOAR_E2E_DARK === "true" ? ["--force-dark-mode"] : [];
   return electron.launch({
     ...(executablePath ? { executablePath } : {}),
-    args: executablePath ? runtimeFlags : [...runtimeFlags, projectRoot],
+    args: electronLaunchArguments(executablePath !== undefined),
     cwd: projectRoot,
-    env: {
-      ...process.env,
+    env: environment,
+  });
+}
+
+function launchEnvironment(
+  testRoot: string,
+  workspaceRoot: string,
+  options: {
+    fakeDelayMs?: number;
+    hybridSimulation?: boolean;
+    fakeCloudScenario?: "success" | "provider_error";
+    credentialOperationState?: TestCredentialOperationState;
+  } = {},
+): Record<string, string> {
+  const inheritedEnvironment: Record<string, string> = {};
+  for (const [name, value] of Object.entries(process.env)) {
+    if (value !== undefined) inheritedEnvironment[name] = value;
+  }
+  return {
+      ...inheritedEnvironment,
       SOAR_PROVIDER_MODE: "fake",
       SOAR_ENABLE_HYBRID_SIMULATION: String(
         options.hybridSimulation ?? false,
@@ -64,7 +84,50 @@ async function launchApp(
       SOAR_CONTEXT_MAX_INPUT_TOKENS: "18432",
       SOAR_DB_PATH: path.join(testRoot, "soar-e2e.sqlite"),
       SOAR_TEST_WORKSPACE: workspaceRoot,
-    },
+      ...(options.credentialOperationState === undefined
+        ? {}
+        : {
+            SOAR_TEST_CREDENTIAL_OPERATION_STATE:
+              options.credentialOperationState,
+          }),
+  };
+}
+
+function electronLaunchArguments(packagedExecutable: boolean): string[] {
+  const runtimeFlags =
+    process.env.SOAR_E2E_DARK === "true" ? ["--force-dark-mode"] : [];
+  return packagedExecutable
+    ? runtimeFlags
+    : [...runtimeFlags, projectRoot];
+}
+
+function waitForProcessExit(
+  process: ChildProcess,
+  timeoutMs: number,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      cleanup();
+      reject(new Error("The second Electron process did not exit promptly."));
+    }, timeoutMs);
+    const onError = (error: Error): void => {
+      cleanup();
+      reject(error);
+    };
+    const onExit = (
+      code: number | null,
+      signal: NodeJS.Signals | null,
+    ): void => {
+      cleanup();
+      resolve({ code, signal });
+    };
+    const cleanup = (): void => {
+      clearTimeout(timeout);
+      process.removeListener("error", onError);
+      process.removeListener("exit", onExit);
+    };
+    process.once("error", onError);
+    process.once("exit", onExit);
   });
 }
 
@@ -125,7 +188,9 @@ async function selectHybridSimulation(
   await expect(
     page.getByText(HYBRID_SIMULATION_RESULT_MARKER, { exact: true }),
   ).toBeVisible();
-  await expect(page.getByRole("button", { name: "Set up cloud" })).toHaveCount(0);
+  await expect(
+    page.locator('[data-cloud-credential-trigger="review"]'),
+  ).toHaveCount(0);
   const consent = page.getByRole("checkbox", {
     name: /acknowledge this challenge-bound fake simulation disclosure/u,
   });
@@ -250,6 +315,196 @@ test("cancels an active local inference through the UI", async () => {
   await electronApp.close();
 });
 
+test("exits an identical second instance while the first remains usable", async () => {
+  const testRoot = await mkdtemp(path.join(tmpdir(), "soar-single-instance-e2e-"));
+  const workspaceRoot = path.join(testRoot, "workspace");
+  await mkdir(workspaceRoot);
+  const environment = launchEnvironment(testRoot, workspaceRoot);
+  const firstApp = await launchApp(testRoot, workspaceRoot, {}, environment);
+  let secondProcess: ChildProcess | undefined;
+
+  try {
+    const page = await firstApp.firstWindow();
+    await expect(page.getByTestId("task-input")).toBeVisible();
+    expect(firstApp.windows()).toHaveLength(1);
+
+    const executablePath =
+      process.env.SOAR_E2E_EXECUTABLE ?? firstApp.process().spawnfile;
+    secondProcess = spawn(
+      executablePath,
+      electronLaunchArguments(process.env.SOAR_E2E_EXECUTABLE !== undefined),
+      {
+        cwd: projectRoot,
+        env: environment,
+        stdio: "ignore",
+      },
+    );
+    await expect(
+      waitForProcessExit(secondProcess, 10_000),
+    ).resolves.toEqual({ code: 0, signal: null });
+    await expect.poll(() => firstApp.windows().length).toBe(1);
+
+    const composer = page.getByTestId("task-input");
+    await composer.fill("The primary instance remains usable.");
+    await expect(composer).toHaveValue("The primary instance remains usable.");
+  } finally {
+    if (
+      secondProcess !== undefined &&
+      secondProcess.exitCode === null &&
+      !secondProcess.killed
+    ) {
+      secondProcess.kill("SIGTERM");
+    }
+    await firstApp.close();
+  }
+});
+
+const credentialOperationFixtures: ReadonlyArray<{
+  fixture: TestCredentialOperationState;
+  accessibleRole: "status" | "alert";
+  expectedText: string;
+}> = [
+  {
+    fixture: "pending",
+    accessibleRole: "status",
+    expectedText: "Replacing credential in Keychain…",
+  },
+  {
+    fixture: "outcome_unknown_await_native_completion",
+    accessibleRole: "alert",
+    expectedText:
+      "SOAR is still reconciling the original operation; duplicate changes remain locked.",
+  },
+  {
+    fixture: "outcome_unknown_manual_recovery_required",
+    accessibleRole: "alert",
+    expectedText:
+      "Duplicate changes remain locked until the defined manual recovery is completed.",
+  },
+];
+
+for (const fixture of credentialOperationFixtures) {
+  test(`renders the ${fixture.fixture} credential-operation fixture with keyboard focus`, async () => {
+    const testRoot = await mkdtemp(path.join(tmpdir(), "soar-credential-status-e2e-"));
+    const workspaceRoot = path.join(testRoot, "workspace");
+    await mkdir(workspaceRoot);
+    const electronApp = await launchApp(testRoot, workspaceRoot, {
+      credentialOperationState: fixture.fixture,
+    });
+
+    try {
+      const page = await electronApp.firstWindow();
+      const trigger = page.locator(
+        '[data-cloud-credential-trigger="sidebar"]',
+      );
+      await trigger.focus();
+      await expect(trigger).toBeFocused();
+      await page.keyboard.press("Enter");
+
+      const heading = page.getByRole("heading", {
+        name: "Cloud credential",
+      });
+      await expect(heading).toBeVisible();
+      await expect(heading).toBeFocused();
+
+      const operation =
+        fixture.accessibleRole === "status"
+          ? page.getByTestId("cloud-credential-live-status")
+          : page.locator(".cloud-operation-error");
+      await expect(operation).toHaveAttribute("role", fixture.accessibleRole);
+      await expect(operation).toContainText(fixture.expectedText);
+      if (fixture.fixture === "pending") {
+        await expect(operation).toHaveAttribute("aria-live", "polite");
+        await expect(operation).toHaveAttribute("aria-busy", "true");
+        await expect(page.locator(".cloud-operation-status")).toContainText(
+          fixture.expectedText,
+        );
+      }
+
+      await expect(
+        page.getByText(
+          "OpenRouter was not contacted by this credential operation.",
+          { exact: true },
+        ),
+      ).toBeVisible();
+      await expect(page.getByText("Locked", { exact: true })).toBeVisible();
+      await expect(page.locator('input[type="password"]')).toHaveCount(0);
+      await expect(
+        page.getByRole("button", { name: /save|replace|delete|remove/u }),
+      ).toHaveCount(0);
+
+      await page.keyboard.press("Shift+Tab");
+      const done = page.getByRole("button", { name: "Done" });
+      await expect(done).toBeFocused();
+      await page.keyboard.press("Enter");
+      await expect(trigger).toBeFocused();
+    } finally {
+      await electronApp.close();
+    }
+  });
+}
+
+test("keeps Cloud credential usable at compact width, dark mode, reduced motion, and 200% zoom", async () => {
+  const testRoot = await mkdtemp(path.join(tmpdir(), "soar-credential-a11y-e2e-"));
+  const workspaceRoot = path.join(testRoot, "workspace");
+  await mkdir(workspaceRoot);
+  const electronApp = await launchApp(testRoot, workspaceRoot);
+
+  try {
+    const page = await electronApp.firstWindow();
+    await page.setViewportSize({ width: 760, height: 560 });
+    const menu = page.getByRole("button", { name: "Open sessions" });
+    await menu.click();
+    const trigger = page.getByRole("button", {
+      name: "Manage cloud credential",
+    });
+    await expect(trigger).toBeVisible();
+    await trigger.click();
+
+    const heading = page.getByRole("heading", { name: "Cloud credential" });
+    await expect(heading).toBeFocused();
+    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+    await page.evaluate(() => {
+      const renderer = globalThis as unknown as {
+        document: { documentElement: { style: { zoom: string } } };
+      };
+      renderer.document.documentElement.style.zoom = "2";
+    });
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const renderer = globalThis as unknown as {
+            document: {
+              querySelector(selector: string): {
+                scrollWidth: number;
+                clientWidth: number;
+              } | null;
+            };
+            matchMedia(query: string): { matches: boolean };
+          };
+          const surface = renderer.document.querySelector(".cloud-settings");
+          return (
+            surface !== null &&
+            surface.scrollWidth <= surface.clientWidth &&
+            renderer.matchMedia("(prefers-color-scheme: dark)").matches &&
+            renderer.matchMedia("(prefers-reduced-motion: reduce)").matches
+          );
+        }),
+      )
+      .toBe(true);
+    await expect(page.locator('input[type="password"]')).toHaveCount(0);
+    await expect(page.getByText("Locked", { exact: true })).toBeVisible();
+
+    await page.keyboard.press("Shift+Tab");
+    const done = page.getByRole("button", { name: "Done" });
+    await expect(done).toBeFocused();
+    await page.keyboard.press("Enter");
+    await expect(menu).toBeFocused();
+  } finally {
+    await electronApp.close();
+  }
+});
+
 test("reviews current Git changes locally and refuses a stale Markdown copy", async () => {
   const testRoot = await mkdtemp(path.join(tmpdir(), "soar-review-e2e-"));
   const workspaceRoot = path.join(testRoot, "workspace");
@@ -290,72 +545,59 @@ test("reviews current Git changes locally and refuses a stale Markdown copy", as
     await expect(hybridRoute).toBeDisabled();
     await expect(
       page.getByText(
-        "Cloud setup does not enable Hybrid. Hybrid dispatch is locked in this build.",
+        "Cloud credential status does not enable Hybrid. Real cloud dispatch is locked in this build.",
         {
           exact: true,
         },
       ),
     ).toBeVisible();
 
-    await page.getByRole("button", { name: "Set up cloud" }).click();
+    const manageCloudCredential = page.locator(
+      '[data-cloud-credential-trigger="review"]',
+    );
+    const manageCredentialBox = await manageCloudCredential.boundingBox();
+    expect(manageCredentialBox?.height ?? 0).toBeGreaterThanOrEqual(32);
+    await manageCloudCredential.click();
     await expect(
-      page.getByRole("heading", { name: "Cloud synthesis" }),
+      page.getByRole("heading", { name: "Cloud credential" }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Cloud synthesis" }),
+      page.getByRole("heading", { name: "Cloud credential" }),
     ).toBeFocused();
-    await expect(page.getByText("Not configured", { exact: true })).toBeVisible();
-    await expect(page.getByText("Not validated", { exact: true })).toBeVisible();
-    await expect(page.getByText("Hybrid locked", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("This build's credential identity could not be confirmed", {
+        exact: true,
+      }),
+    ).toBeVisible();
+    await expect(page.getByText("Not run", { exact: true })).toBeVisible();
+    await expect(page.getByText("Locked", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText(
+        "OpenRouter was not contacted by this credential operation.",
+        { exact: true },
+      ),
+    ).toBeVisible();
     await expect(
       page.getByRole("button", { name: /validate/u }),
     ).toHaveCount(0);
-
-    const syntheticCredential = "SOAR_E2E_SYNTHETIC_CLOUD_CREDENTIAL";
-    const cloudCredential = page.getByLabel("OpenRouter credential");
-    await cloudCredential.fill(syntheticCredential);
-    await page.getByRole("button", { name: "Save", exact: true }).click();
-    await expect(cloudCredential).toHaveValue("");
-    await expect(page.getByText("Stored locally", { exact: true })).toBeVisible();
-    await expect(page.locator("body")).not.toContainText(syntheticCredential);
+    const doneBox = await page
+      .getByRole("button", { name: "Done" })
+      .boundingBox();
+    expect(doneBox?.height ?? 0).toBeGreaterThanOrEqual(32);
+    await expect(page.locator('input[type="password"]')).toHaveCount(0);
+    await expect(
+      page.getByRole("button", { name: /save|replace|delete|remove/u }),
+    ).toHaveCount(0);
 
     await page.getByRole("button", { name: "Done" }).click();
     await expect(
       page.getByRole("heading", { name: "Review current changes" }),
     ).toBeVisible();
     await expect(page.getByRole("radio", { name: "Hybrid" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "Set up cloud" })).toBeFocused();
+    await expect(manageCloudCredential).toBeFocused();
     await expect(
       page.getByText(
-        "Cloud setup does not enable Hybrid. Hybrid dispatch is locked in this build.",
-        {
-          exact: true,
-        },
-      ),
-    ).toBeVisible();
-
-    await page.getByRole("button", { name: "Set up cloud" }).click();
-    await expect(page.getByText("Stored locally", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Delete", exact: true }).click();
-    const removeCredential = page.getByRole("button", {
-      name: "Remove credential",
-    });
-    await expect(removeCredential).toBeFocused();
-    await page.keyboard.press("Tab");
-    await expect(
-      page.getByRole("button", { name: "Keep credential" }),
-    ).toBeFocused();
-    await page.keyboard.press("Shift+Tab");
-    await expect(removeCredential).toBeFocused();
-    await page.keyboard.press("Enter");
-    await expect(page.getByText("Not configured", { exact: true })).toBeVisible();
-    await expect(page.getByLabel("OpenRouter credential")).toBeFocused();
-    await page.getByRole("button", { name: "Done" }).click();
-    await expect(page.getByRole("radio", { name: "Hybrid" })).toBeDisabled();
-    await expect(page.getByRole("button", { name: "Set up cloud" })).toBeFocused();
-    await expect(
-      page.getByText(
-        "Cloud setup does not enable Hybrid. Hybrid dispatch is locked in this build.",
+        "Cloud credential status does not enable Hybrid. Real cloud dispatch is locked in this build.",
         {
           exact: true,
         },

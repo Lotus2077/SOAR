@@ -1,203 +1,248 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { CloudCredentialSetupService } from "../../src/main/cloud-credential-service";
 import {
-  SetupCredentialStoreError,
-  type SetupOnlyCredentialStore,
-} from "../../src/main/providers/macos-keychain-credential-store";
+  CloudCredentialStatusService,
+  unavailableCloudCredentialStatus,
+} from "../../src/main/cloud-credential-service";
+import {
+  NATIVE_CREDENTIAL_LEASE_SCHEMA_VERSION,
+  type CredentialAuthoritySnapshot,
+  type CredentialLeaseAuthority,
+} from "../../src/main/credentials/credential-lease-authority";
+import { FakeCredentialLeaseAuthority } from "../../src/main/credentials/fake-credential-lease-authority";
+import { CredentialOperationJournal } from "../../src/main/credentials/credential-operation-journal";
+import {
+  createSoarDatabase,
+  type SoarDatabase,
+} from "../../src/main/database";
 
-function deferred(): {
-  promise: Promise<void>;
-  resolve: () => void;
+const databases: SoarDatabase[] = [];
+
+afterEach(() => {
+  for (const database of databases.splice(0)) database.close();
+});
+
+function journal(): CredentialOperationJournal {
+  const database = createSoarDatabase();
+  databases.push(database);
+  return new CredentialOperationJournal(database);
+}
+
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
 } {
-  let resolve!: () => void;
-  const promise = new Promise<void>((resolvePromise) => {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
     resolve = resolvePromise;
   });
   return { promise, resolve };
 }
 
-function store(overrides: Partial<SetupOnlyCredentialStore> = {}): SetupOnlyCredentialStore {
-  return {
-    status: vi.fn().mockResolvedValue({ state: "not_stored" }),
-    has: vi.fn().mockResolvedValue(false),
-    write: vi.fn().mockResolvedValue(undefined),
-    replace: vi.fn().mockResolvedValue(undefined),
-    delete: vi.fn().mockResolvedValue(false),
-    ...overrides,
-  };
-}
-
-describe("CloudCredentialSetupService", () => {
-  it("projects missing and stored Keychain state without dispatch authority", async () => {
-    const missing = new CloudCredentialSetupService(store());
-    await expect(missing.getStatus()).resolves.toMatchObject({
-      schemaVersion: "cloud-setup-status-v1",
-      state: "not_configured",
-      dispatch: {
-        state: "locked",
-        reasonCode: "pr6a_dispatch_locked",
+describe("CloudCredentialStatusService", () => {
+  it("projects native metadata while protected state and provider dispatch stay locked", async () => {
+    const authority = new FakeCredentialLeaseAuthority({
+      protectedGeneration: "generation-1",
+      legacyStagedItem: {
+        state: "present",
+        reasonCode: "legacy_metadata_present",
       },
     });
+    const service = new CloudCredentialStatusService(authority, journal());
 
-    const stored = new CloudCredentialSetupService(
-      store({ has: vi.fn().mockResolvedValue(true) }),
-    );
-    await expect(stored.getStatus()).resolves.toMatchObject({
-      state: "stored_unvalidated",
-      dispatch: { state: "locked" },
+    await expect(service.getStatus()).resolves.toEqual({
+      schemaVersion: "cloud-credential-status-v1",
+      capabilityVersion: "credential-lease-authority-v1",
+      activationPhase: "phase_b_locked",
+      build: {
+        state: "eligible",
+        reasonCode: "identity_policy_satisfied",
+      },
+      legacyStagedItem: {
+        state: "present",
+        reasonCode: "legacy_metadata_present",
+      },
+      protectedItem: { state: "unknown", reasonCode: "activation_locked" },
+      providerCheck: { providerLabel: "OpenRouter", state: "not_run" },
+      dispatch: {
+        state: "locked",
+        reasonCode: "pr6b1_phase_b_locked",
+        explanation:
+          "Real cloud dispatch remains locked until the later credential, provider, egress, and budget gates pass.",
+      },
+      providerContact: {
+        providerLabel: "OpenRouter",
+        state: "not_contacted",
+        scope: "credential_operation",
+      },
+      latestOperation: { state: "none" },
     });
+    expect("save" in service).toBe(false);
+    expect("delete" in service).toBe(false);
   });
 
-  it("upserts once and never returns or retains the submitted credential", async () => {
-    const replace = vi.fn().mockResolvedValue(undefined);
-    const setupStore = store({ replace });
-    const service = new CloudCredentialSetupService(setupStore);
-    const sentinel = "SOAR_SYNTHETIC_CLOUD_CREDENTIAL_SENTINEL";
+  it("maps unsigned, ineligible, and unavailable identity results without free text", async () => {
+    const cases = [
+      [
+        {
+          schemaVersion: NATIVE_CREDENTIAL_LEASE_SCHEMA_VERSION,
+          flavor: "locked",
+          eligibility: "ineligible",
+          reasonCode: "signed_build_required",
+        },
+        { state: "unsigned_or_adhoc", reasonCode: "signed_build_required" },
+      ],
+      [
+        {
+          schemaVersion: NATIVE_CREDENTIAL_LEASE_SCHEMA_VERSION,
+          flavor: "locked",
+          eligibility: "ineligible",
+          reasonCode: "wrong_team_identifier",
+        },
+        { state: "ineligible", reasonCode: "wrong_team_identifier" },
+      ],
+      [
+        {
+          schemaVersion: NATIVE_CREDENTIAL_LEASE_SCHEMA_VERSION,
+          flavor: "locked",
+          eligibility: "unavailable",
+          reasonCode: "native_module_unavailable",
+        },
+        {
+          state: "eligibility_unknown",
+          reasonCode: "native_module_unavailable",
+        },
+      ],
+    ] as const;
 
-    const result = await service.save(sentinel);
-
-    expect(replace).toHaveBeenCalledOnce();
-    expect(replace).toHaveBeenCalledWith(sentinel);
-    expect(setupStore.has).not.toHaveBeenCalled();
-    expect(setupStore.write).not.toHaveBeenCalled();
-    expect(JSON.stringify(result)).not.toContain(sentinel);
-    expect(JSON.stringify(service)).not.toContain(sentinel);
-    expect(result).toMatchObject({
-      state: "stored_unvalidated",
-      dispatch: { state: "locked" },
-    });
-  });
-
-  it("deletes idempotently and keeps Hybrid locked", async () => {
-    const remove = vi.fn().mockResolvedValue(false);
-    const service = new CloudCredentialSetupService(store({ delete: remove }));
-
-    await expect(service.delete()).resolves.toMatchObject({
-      state: "not_configured",
-      dispatch: { state: "locked" },
-    });
-    expect(remove).toHaveBeenCalledOnce();
-  });
-
-  it("rejects concurrent save and delete mutations before another secret reaches the store", async () => {
-    const active = deferred();
-    const replace = vi.fn((_credential: string) => active.promise);
-    const remove = vi.fn().mockResolvedValue(false);
-    const service = new CloudCredentialSetupService(
-      store({ replace, delete: remove }),
-    );
-    const accepted = "SOAR_ACCEPTED_MUTATION_SENTINEL";
-    const rejected = "SOAR_REJECTED_MUTATION_SENTINEL";
-
-    const first = service.save(accepted);
-    await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce());
-
-    const [secondSave, concurrentDelete] = await Promise.all([
-      service.save(rejected),
-      service.delete(),
-    ]);
-
-    for (const result of [secondSave, concurrentDelete]) {
-      expect(result).toMatchObject({
-        state: "local_storage_error",
-        errorCode: "operation_in_progress",
+    for (const [capability, expected] of cases) {
+      const authority: CredentialLeaseAuthority = {
+        getSnapshot: async () => ({
+          capability,
+          legacyStagedItem: {
+            state: "unknown",
+            reasonCode: "legacy_metadata_unavailable",
+          },
+          protectedItem: {
+            state: "unknown",
+            reasonCode: "activation_locked",
+          },
+        }),
+        acquireLease: vi.fn(),
+        consumeLease: vi.fn(),
+        releaseLease: vi.fn(),
+      };
+      const service = new CloudCredentialStatusService(authority, journal());
+      await expect(service.getStatus()).resolves.toMatchObject({
+        build: expected,
         dispatch: { state: "locked" },
       });
-      expect(JSON.stringify(result)).not.toContain(rejected);
     }
-    expect(replace).toHaveBeenCalledOnce();
-    expect(replace).toHaveBeenCalledWith(accepted);
-    expect(remove).not.toHaveBeenCalled();
-    expect(JSON.stringify(service)).not.toContain(rejected);
-
-    active.resolve();
-    await expect(first).resolves.toMatchObject({
-      state: "stored_unvalidated",
-    });
-    await expect(service.delete()).resolves.toMatchObject({
-      state: "not_configured",
-    });
-    expect(remove).toHaveBeenCalledOnce();
   });
 
-  it("rejects a save before its secret reaches the store while delete is active", async () => {
-    const active = deferred();
-    const replace = vi.fn().mockResolvedValue(undefined);
-    const remove = vi.fn(() => active.promise.then(() => true));
-    const service = new CloudCredentialSetupService(
-      store({ replace, delete: remove }),
-    );
-    const rejected = "SOAR_DELETE_BLOCKED_SAVE_SENTINEL";
-
-    const first = service.delete();
-    await vi.waitFor(() => expect(remove).toHaveBeenCalledOnce());
-    const blocked = await service.save(rejected);
-
-    expect(blocked).toMatchObject({
-      state: "local_storage_error",
-      errorCode: "operation_in_progress",
-    });
-    expect(replace).not.toHaveBeenCalled();
-    expect(JSON.stringify(blocked)).not.toContain(rejected);
-
-    active.resolve();
-    await expect(first).resolves.toMatchObject({ state: "not_configured" });
-  });
-
-  it("coalesces concurrent status reads so they cannot build a queue ahead of a secret", async () => {
-    const active = deferred();
-    const has = vi.fn(() => active.promise.then(() => false));
-    const service = new CloudCredentialSetupService(store({ has }));
+  it("coalesces concurrent metadata reads and never invokes a lease operation", async () => {
+    const pending = deferred<CredentialAuthoritySnapshot>();
+    const authority: CredentialLeaseAuthority = {
+      getSnapshot: vi.fn(() => pending.promise),
+      acquireLease: vi.fn(),
+      consumeLease: vi.fn(),
+      releaseLease: vi.fn(),
+    };
+    const service = new CloudCredentialStatusService(authority, journal());
 
     const first = service.getStatus();
     const second = service.getStatus();
+    expect(first).toBe(second);
+    expect(authority.getSnapshot).toHaveBeenCalledOnce();
 
-    expect(second).toBe(first);
-    expect(has).toHaveBeenCalledOnce();
-    active.resolve();
-    await expect(Promise.all([first, second])).resolves.toEqual([
-      expect.objectContaining({ state: "not_configured" }),
-      expect.objectContaining({ state: "not_configured" }),
-    ]);
+    pending.resolve({
+      capability: {
+        schemaVersion: NATIVE_CREDENTIAL_LEASE_SCHEMA_VERSION,
+        flavor: "locked",
+        eligibility: "unavailable",
+        reasonCode: "identity_check_unavailable",
+      },
+      legacyStagedItem: {
+        state: "unknown",
+        reasonCode: "legacy_metadata_unavailable",
+      },
+      protectedItem: { state: "unknown", reasonCode: "activation_locked" },
+    });
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    expect(authority.acquireLease).not.toHaveBeenCalled();
+    expect(authority.consumeLease).not.toHaveBeenCalled();
+    expect(authority.releaseLease).not.toHaveBeenCalled();
   });
 
-  it("maps allow-listed Keychain failures without exposing raw errors", async () => {
-    const sentinel = "SOAR_RAW_KEYCHAIN_ERROR_SENTINEL";
-    const service = new CloudCredentialSetupService(
-      store({
-        has: vi
-          .fn()
-          .mockRejectedValue(
-            new SetupCredentialStoreError("keychain_status_failed"),
-          ),
-        replace: vi.fn().mockRejectedValue(new Error(sentinel)),
-        delete: vi
-          .fn()
-          .mockRejectedValue(
-            new SetupCredentialStoreError("keychain_delete_failed"),
-          ),
-      }),
+  it("projects only allow-listed journal recovery metadata", async () => {
+    const operationJournal = journal();
+    const operation = operationJournal.begin({
+      operationKind: "replace_protected",
+      requestedGeneration:
+        "generation-00000000-0000-4000-8000-000000000001",
+      startedAt: "2026-09-01T00:00:00.000Z",
+    });
+    operationJournal.markCallerAbandoned(
+      operation.operationId,
+      "2026-09-01T00:00:01.000Z",
+    );
+    const service = new CloudCredentialStatusService(
+      new FakeCredentialLeaseAuthority(),
+      operationJournal,
     );
 
-    const statuses = [
-      await service.getStatus(),
-      await service.save("synthetic-value"),
-      await service.delete(),
-    ];
+    const result = await service.getStatus();
+    expect(result.latestOperation).toEqual({
+      state: "outcome_unknown",
+      kind: "replace_protected",
+      recoveryCode: "await_native_completion",
+    });
+    expect(JSON.stringify(result)).not.toContain(operation.operationId);
+    expect(JSON.stringify(result)).not.toContain(
+      "generation-00000000-0000-4000-8000-000000000001",
+    );
+  });
 
-    expect(statuses.map((entry) => entry.state)).toEqual([
-      "local_storage_error",
-      "local_storage_error",
-      "local_storage_error",
-    ]);
-    expect(statuses.map((entry) =>
-      entry.state === "local_storage_error" ? entry.errorCode : undefined,
-    )).toEqual([
-      "keychain_status_failed",
-      "keychain_unavailable",
-      "keychain_delete_failed",
-    ]);
-    expect(JSON.stringify(statuses)).not.toContain(sentinel);
+  it("builds a strict unavailable projection without native diagnostics", () => {
+    expect(unavailableCloudCredentialStatus()).toMatchObject({
+      build: {
+        state: "eligibility_unknown",
+        reasonCode: "identity_check_unavailable",
+      },
+      protectedItem: { state: "unknown", reasonCode: "activation_locked" },
+      providerCheck: { state: "not_run" },
+      dispatch: { state: "locked" },
+      providerContact: { state: "not_contacted" },
+    });
+  });
+
+  it("preserves journal ambiguity in an unavailable native projection", () => {
+    const operationJournal = journal();
+    const operation = operationJournal.begin({
+      operationKind: "replace_protected",
+      requestedGeneration:
+        "generation-00000000-0000-4000-8000-000000000001",
+      startedAt: "2026-09-01T00:00:00.000Z",
+    });
+    operationJournal.markNativeCompletionUnknown(
+      operation.operationId,
+      "2026-09-01T00:00:01.000Z",
+    );
+    const service = new CloudCredentialStatusService(
+      new FakeCredentialLeaseAuthority(),
+      operationJournal,
+    );
+
+    expect(service.getUnavailableStatus()).toMatchObject({
+      build: {
+        state: "eligibility_unknown",
+        reasonCode: "identity_check_unavailable",
+      },
+      latestOperation: {
+        state: "outcome_unknown",
+        kind: "replace_protected",
+        recoveryCode: "await_native_completion",
+      },
+    });
   });
 });

@@ -17,8 +17,9 @@ Current Changes creates a v2 `local_only_v1` session, assigns the configured
 Local provider at `session_start`, records an `evidence_complete` decision, and
 keeps the same provider lease through synthesis. It has no provider-failure
 fallback or separately configured cloud provider, and Hybrid remains visibly
-locked. PR6A's metadata candidate, setup-only Keychain lifecycle, and normal-
-mode egress shadow are not selectable routes or scheduler inputs. The broader
+locked. PR6B1-B's metadata candidate, status-only native credential boundary,
+operation journal, and normal-mode egress shadow are not selectable routes or
+scheduler inputs. The broader
 invalidation triggers and profiles below are product policy, not shipped
 scheduler behavior.
 
@@ -80,7 +81,8 @@ candidate eligible for a lease. The Fake Cloud lease has no credential,
 endpoint, network client, or actual-spend authority. Signed credential leasing,
 real provider validation, wire-bound external egress admission, explicit real
 Hybrid authority, and any paid canary remain separately unapproved PR6B1-C/
-PR6B1-D through PR6B3 work. PR6B1-B has owner approval recorded only for a
-`$0`, activation-locked substrate and cannot create a real route. Manual
+PR6B1-D through PR6B3 work. PR6B1-B has effective owner approval only for a
+`$0`, activation-locked substrate. Its local implementation candidate cannot
+create a real route and is not Implemented until its exact-SHA gates close. Manual
 VoiceOver, light/dark contrast, and reduced-motion proof for the simulation UI
 also remains pending, so PR6B0 is not Verified or Released.

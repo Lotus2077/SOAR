@@ -1,65 +1,82 @@
 import {
-  CloudSetupStatusSchema,
-  cloudCandidateView,
+  CREDENTIAL_ACTIVATION_PHASE,
+  CREDENTIAL_AUTHORITY_CAPABILITY_VERSION,
+  CLOUD_CREDENTIAL_STATUS_SCHEMA_VERSION,
+  CloudCredentialStatusSchema,
   cloudDispatchLock,
-  type CloudSetupErrorCode,
-  type CloudSetupStatus,
+  cloudProviderCheckNotRun,
+  cloudProviderNotContacted,
+  type CloudCredentialStatus,
+  type CredentialBuildEligibility,
+  type CredentialOperationProjection,
+  type LegacyStagedItemStatus,
 } from "../shared/cloud-setup-contracts";
-import {
-  SetupCredentialStoreError,
-  type SetupOnlyCredentialStore,
-} from "./providers/macos-keychain-credential-store";
+import type { CredentialLeaseAuthority } from "./credentials/credential-lease-authority";
+import type { CredentialOperationJournal } from "./credentials/credential-operation-journal";
 
-function status(
-  state: "not_configured" | "stored_unvalidated",
-): CloudSetupStatus {
-  return Object.freeze(
-    CloudSetupStatusSchema.parse({
-      schemaVersion: "cloud-setup-status-v1",
-      candidate: cloudCandidateView(),
-      state,
-      dispatch: cloudDispatchLock(),
-    }),
-  );
+function projectBuild(
+  capability: Awaited<
+    ReturnType<CredentialLeaseAuthority["getSnapshot"]>
+  >["capability"],
+): CredentialBuildEligibility {
+  if (capability.eligibility === "eligible") {
+    return { state: "eligible", reasonCode: capability.reasonCode };
+  }
+  if (capability.eligibility === "unavailable") {
+    return {
+      state: "eligibility_unknown",
+      reasonCode: capability.reasonCode,
+    };
+  }
+  if (capability.reasonCode === "signed_build_required") {
+    return {
+      state: "unsigned_or_adhoc",
+      reasonCode: capability.reasonCode,
+    };
+  }
+  return { state: "ineligible", reasonCode: capability.reasonCode };
 }
 
-function errorStatus(errorCode: CloudSetupErrorCode): CloudSetupStatus {
+function status(input: {
+  build: CredentialBuildEligibility;
+  legacyStagedItem: LegacyStagedItemStatus;
+  latestOperation: ReturnType<CredentialOperationJournal["latestProjection"]>;
+}): CloudCredentialStatus {
   return Object.freeze(
-    CloudSetupStatusSchema.parse({
-      schemaVersion: "cloud-setup-status-v1",
-      candidate: cloudCandidateView(),
-      state: "local_storage_error",
-      errorCode,
+    CloudCredentialStatusSchema.parse({
+      schemaVersion: CLOUD_CREDENTIAL_STATUS_SCHEMA_VERSION,
+      capabilityVersion: CREDENTIAL_AUTHORITY_CAPABILITY_VERSION,
+      activationPhase: CREDENTIAL_ACTIVATION_PHASE,
+      build: input.build,
+      legacyStagedItem: input.legacyStagedItem,
+      // The phase-B package has no protected locator. Even an eligible host may
+      // not claim that a protected item is present or absent.
+      protectedItem: {
+        state: "unknown",
+        reasonCode: "activation_locked",
+      },
+      providerCheck: cloudProviderCheckNotRun(),
       dispatch: cloudDispatchLock(),
+      providerContact: cloudProviderNotContacted(),
+      latestOperation: input.latestOperation,
     }),
   );
-}
-
-function stableErrorCode(error: unknown): CloudSetupErrorCode {
-  if (error instanceof SetupCredentialStoreError) return error.code;
-  return "keychain_unavailable";
 }
 
 /**
- * Metadata-only PR6A setup service.
- *
- * It has no raw-secret read capability and never retains the credential after
- * the bounded Keychain call returns. Provider validation and dispatch require
- * a separately approved service in PR6B.
+ * Status-only PR6B1-B projection. It has no credential input, mutation,
+ * provider, egress, budget, or dispatch dependency.
  */
-export class CloudCredentialSetupService {
-  // Valid IPC calls must not build a raw-secret queue behind the Keychain
-  // adapter. The gate is acquired synchronously before the store sees a value.
-  private mutationInFlight = false;
-  // Status carries no secret. Coalescing it prevents metadata-only callers from
-  // stacking an unbounded serialized queue ahead of one accepted mutation.
-  private statusInFlight: Promise<CloudSetupStatus> | undefined;
+export class CloudCredentialStatusService {
+  private statusInFlight: Promise<CloudCredentialStatus> | undefined;
 
-  constructor(private readonly store: SetupOnlyCredentialStore) {}
+  constructor(
+    private readonly authority: CredentialLeaseAuthority,
+    private readonly journal: CredentialOperationJournal,
+  ) {}
 
-  getStatus(): Promise<CloudSetupStatus> {
+  getStatus(): Promise<CloudCredentialStatus> {
     if (this.statusInFlight !== undefined) return this.statusInFlight;
-
     const pending = this.readStatus();
     this.statusInFlight = pending;
     void pending.then(
@@ -69,57 +86,45 @@ export class CloudCredentialSetupService {
     return pending;
   }
 
-  private async readStatus(): Promise<CloudSetupStatus> {
-    try {
-      return (await this.store.has())
-        ? status("stored_unvalidated")
-        : status("not_configured");
-    } catch (error) {
-      return errorStatus(stableErrorCode(error));
-    }
+  /**
+   * Fail-closed projection for callers that could not obtain native metadata.
+   * The journal is read independently so an authority failure cannot hide a
+   * persisted pending or ambiguous operation as if no operation existed.
+   */
+  getUnavailableStatus(): CloudCredentialStatus {
+    return unavailableCloudCredentialStatus(
+      "identity_check_unavailable",
+      this.journal.latestProjection(),
+    );
   }
 
-  async save(credential: string): Promise<CloudSetupStatus> {
-    if (!this.beginMutation()) return errorStatus("operation_in_progress");
-
-    try {
-      // `security -U` is an upsert. This avoids a check-then-write race while
-      // keeping the raw value inside one setup-only call.
-      await this.store.replace(credential);
-      return status("stored_unvalidated");
-    } catch (error) {
-      return errorStatus(stableErrorCode(error));
-    } finally {
-      this.mutationInFlight = false;
-    }
+  private async readStatus(): Promise<CloudCredentialStatus> {
+    const snapshot = await this.authority.getSnapshot();
+    return status({
+      build: projectBuild(snapshot.capability),
+      legacyStagedItem: snapshot.legacyStagedItem,
+      latestOperation: this.journal.latestProjection(),
+    });
   }
 
-  async delete(): Promise<CloudSetupStatus> {
-    if (!this.beginMutation()) return errorStatus("operation_in_progress");
-
-    try {
-      await this.store.delete();
-      return status("not_configured");
-    } catch (error) {
-      return errorStatus(stableErrorCode(error));
-    } finally {
-      this.mutationInFlight = false;
-    }
-  }
-
-  private beginMutation(): boolean {
-    if (this.mutationInFlight) return false;
-    this.mutationInFlight = true;
-    return true;
-  }
-
-  private clearStatusInFlight(pending: Promise<CloudSetupStatus>): void {
+  private clearStatusInFlight(pending: Promise<CloudCredentialStatus>): void {
     if (this.statusInFlight === pending) this.statusInFlight = undefined;
   }
 }
 
-export function unavailableCloudSetupStatus(
-  errorCode: CloudSetupErrorCode = "keychain_unavailable",
-): CloudSetupStatus {
-  return errorStatus(errorCode);
+export function unavailableCloudCredentialStatus(
+  reasonCode:
+    | "unsupported_platform"
+    | "native_module_unavailable"
+    | "identity_check_unavailable" = "identity_check_unavailable",
+  latestOperation: CredentialOperationProjection = { state: "none" },
+): CloudCredentialStatus {
+  return status({
+    build: { state: "eligibility_unknown", reasonCode },
+    legacyStagedItem: {
+      state: "unknown",
+      reasonCode: "legacy_metadata_unavailable",
+    },
+    latestOperation,
+  });
 }

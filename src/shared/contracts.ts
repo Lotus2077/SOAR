@@ -10,10 +10,9 @@ import {
 } from "./session-events";
 import type { ReviewResultV1 } from "./review-result-contract";
 import type {
-  CloudSetupStatus,
+  CloudCredentialStatus,
   HybridLockedReachabilitySummary,
   HybridLockedReason,
-  SaveCloudCredentialInput,
 } from "./cloud-setup-contracts";
 import {
   HYBRID_SIMULATION_CONSENT_ID,
@@ -249,9 +248,7 @@ export interface SoarRendererApi {
     input: z.input<typeof createChangeReviewSessionInputSchema>,
   ): Promise<SessionSnapshot>;
   getChangeReviewView(id: string): Promise<ChangeReviewView>;
-  getCloudSetupStatus(): Promise<CloudSetupStatus>;
-  saveCloudCredential(input: SaveCloudCredentialInput): Promise<CloudSetupStatus>;
-  deleteCloudCredential(): Promise<CloudSetupStatus>;
+  getCloudCredentialStatus(): Promise<CloudCredentialStatus>;
   subscribeSessionEvents(listener: (update: SessionUpdate) => void): () => void;
 }
 
@@ -269,8 +266,6 @@ export const IPC_CHANNELS = {
     "soar:invalidate-hybrid-simulation-consent-challenges",
   createChangeReviewSession: "soar:create-change-review-session",
   getChangeReviewView: "soar:get-change-review-view",
-  getCloudSetupStatus: "soar:get-cloud-setup-status",
-  saveCloudCredential: "soar:save-cloud-credential",
-  deleteCloudCredential: "soar:delete-cloud-credential",
+  getCloudCredentialStatus: "soar:get-cloud-credential-status",
   sessionUpdate: "soar:session-update",
 } as const;

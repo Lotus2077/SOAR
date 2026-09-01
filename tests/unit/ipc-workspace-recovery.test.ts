@@ -30,7 +30,7 @@ vi.mock("electron", () => ({
 }));
 
 import type { SessionRunner } from "../../src/main/agent/run-session";
-import { CloudCredentialSetupService } from "../../src/main/cloud-credential-service";
+import type { CloudCredentialStatusService } from "../../src/main/cloud-credential-service";
 import type { SoarConfig } from "../../src/main/config";
 import { createSoarDatabase, type SoarDatabase } from "../../src/main/database";
 import { EventStore } from "../../src/main/event-store";
@@ -42,12 +42,15 @@ import {
   HYBRID_SIMULATION_CREDENTIAL_METADATA_ID,
   HYBRID_SIMULATION_PRICING_SNAPSHOT_ID,
 } from "../../src/main/hybrid-simulation-runtime";
-import { registerIpcHandlers } from "../../src/main/ipc";
+import {
+  registerIpcHandlers as registerIpcHandlersBase,
+  type CredentialIpcAuthority,
+  type RegisterIpcOptions,
+} from "../../src/main/ipc";
 import {
   FAKE_CLOUD_REVIEW_MODEL,
   FAKE_CLOUD_REVIEW_PROVIDER_ID,
 } from "../../src/main/providers/fake-cloud-review-provider";
-import type { SetupOnlyCredentialStore } from "../../src/main/providers/macos-keychain-credential-store";
 import {
   createSessionInputSchema,
   IPC_CHANNELS,
@@ -62,6 +65,10 @@ import {
   HYBRID_SIMULATION_ROUTE,
   type HybridSimulationSessionAuthorityV1,
 } from "../../src/shared/hybrid-simulation-contracts";
+import {
+  CLOUD_DISPATCH_LOCK_EXPLANATION,
+  type CloudCredentialStatus,
+} from "../../src/shared/cloud-setup-contracts";
 
 const temporaryDirectories: string[] = [];
 const databases: SoarDatabase[] = [];
@@ -97,6 +104,82 @@ function createScenarioRunner(model = "local-review-model"): SessionRunner {
 }
 
 const runner = createScenarioRunner();
+
+const TEST_RENDERER_URL = "file:///Applications/SOAR.app/renderer/index.html";
+const trustedCredentialFrame = { url: TEST_RENDERER_URL };
+const trustedCredentialWebContents = {
+  mainFrame: trustedCredentialFrame,
+  getURL: () => TEST_RENDERER_URL,
+  isDestroyed: () => false,
+};
+const trustedCredentialWindow = {
+  isDestroyed: () => false,
+  webContents: trustedCredentialWebContents,
+};
+const trustedCredentialIpcAuthority = {
+  expectedRendererUrl: TEST_RENDERER_URL,
+  currentWindow: () => trustedCredentialWindow,
+} as unknown as CredentialIpcAuthority;
+const trustedCredentialEvent = {
+  sender: trustedCredentialWebContents,
+  senderFrame: trustedCredentialFrame,
+};
+
+type TestRegisterIpcOptions = Omit<
+  RegisterIpcOptions,
+  "credentialIpcAuthority"
+> & {
+  credentialIpcAuthority?: CredentialIpcAuthority;
+};
+
+function registerIpcHandlers(options: TestRegisterIpcOptions) {
+  const {
+    credentialIpcAuthority = trustedCredentialIpcAuthority,
+    ...runtimeOptions
+  } = options;
+  return registerIpcHandlersBase({
+    ...runtimeOptions,
+    credentialIpcAuthority,
+  });
+}
+
+function cloudCredentialStatus(
+  overrides: Partial<CloudCredentialStatus> = {},
+): CloudCredentialStatus {
+  return {
+    schemaVersion: "cloud-credential-status-v1",
+    capabilityVersion: "credential-lease-authority-v1",
+    activationPhase: "phase_b_locked",
+    build: {
+      state: "unsigned_or_adhoc",
+      reasonCode: "signed_build_required",
+    },
+    legacyStagedItem: {
+      state: "not_observed",
+      reasonCode: "legacy_metadata_not_observed",
+    },
+    protectedItem: { state: "unknown", reasonCode: "activation_locked" },
+    providerCheck: { providerLabel: "OpenRouter", state: "not_run" },
+    dispatch: {
+      state: "locked",
+      reasonCode: "pr6b1_phase_b_locked",
+      explanation: CLOUD_DISPATCH_LOCK_EXPLANATION,
+    },
+    providerContact: {
+      providerLabel: "OpenRouter",
+      state: "not_contacted",
+      scope: "credential_operation",
+    },
+    latestOperation: { state: "none" },
+    ...overrides,
+  };
+}
+
+function statusService(
+  getStatus: () => Promise<CloudCredentialStatus>,
+): CloudCredentialStatusService {
+  return { getStatus } as unknown as CloudCredentialStatusService;
+}
 
 const HYBRID_TEST_NOW_MS = Date.parse("2026-09-01T01:00:00.000Z");
 
@@ -275,7 +358,7 @@ describe("persisted workspace authorization", () => {
       hybrid: {
         enabled: false,
         reason:
-          "Cloud setup does not enable Hybrid. Hybrid dispatch is locked in this build.",
+          "Cloud credential status does not enable Hybrid. Real cloud dispatch is locked in this build.",
         separatelyConfiguredPaidProviderReachable: false,
         reachabilitySummary:
           "This build performs no cloud-provider validation or dispatch.",
@@ -324,13 +407,6 @@ describe("persisted workspace authorization", () => {
     const unexpectedSetupCall = vi.fn(async () => {
       throw new Error("unexpected credential-store call");
     });
-    const setupStore: SetupOnlyCredentialStore = {
-      status: unexpectedSetupCall,
-      has: unexpectedSetupCall,
-      write: unexpectedSetupCall,
-      replace: unexpectedSetupCall,
-      delete: unexpectedSetupCall,
-    };
     const unexpectedFetch = vi.fn(() => {
       throw new Error("unexpected network call");
     });
@@ -339,7 +415,7 @@ describe("persisted workspace authorization", () => {
       store,
       runner,
       config: config(),
-      cloudCredentialSetup: new CloudCredentialSetupService(setupStore),
+      cloudCredentialStatus: statusService(unexpectedSetupCall),
     });
 
     await expect(
@@ -412,13 +488,6 @@ describe("persisted workspace authorization", () => {
       const unexpectedCredentialCall = vi.fn(async () => {
         throw new Error("unexpected credential-store call");
       });
-      const setupStore: SetupOnlyCredentialStore = {
-        status: unexpectedCredentialCall,
-        has: unexpectedCredentialCall,
-        write: unexpectedCredentialCall,
-        replace: unexpectedCredentialCall,
-        delete: unexpectedCredentialCall,
-      };
       const unexpectedFetch = vi.fn(() => {
         throw new Error("unexpected network call");
       });
@@ -427,7 +496,7 @@ describe("persisted workspace authorization", () => {
         store,
         runner: scenarioRunner,
         config: hybridConfig(),
-        cloudCredentialSetup: new CloudCredentialSetupService(setupStore),
+        cloudCredentialStatus: statusService(unexpectedCredentialCall),
         hybridSimulationConsent: consent,
       });
 
@@ -885,25 +954,18 @@ describe("persisted workspace authorization", () => {
   });
 });
 
-describe("cloud setup IPC boundary", () => {
-  it("returns local review readiness without consulting Keychain status", async () => {
+describe("cloud credential status IPC boundary", () => {
+  it("returns local review readiness without consulting credential status", async () => {
     const database = createSoarDatabase();
     databases.push(database);
     const unexpectedStatus = vi.fn(async () => {
-      throw new Error("review readiness must not wait for Keychain");
+      throw new Error("review readiness must not wait for credential status");
     });
-    const setupStore: SetupOnlyCredentialStore = {
-      status: unexpectedStatus,
-      has: unexpectedStatus,
-      write: vi.fn(),
-      replace: vi.fn(),
-      delete: vi.fn(),
-    };
     await registerIpcHandlers({
       store: new EventStore(database),
       runner,
       config: config(),
-      cloudCredentialSetup: new CloudCredentialSetupService(setupStore),
+      cloudCredentialStatus: statusService(unexpectedStatus),
     });
 
     await expect(
@@ -913,192 +975,143 @@ describe("cloud setup IPC boundary", () => {
       hybrid: {
         enabled: false,
         reason:
-          "Cloud setup does not enable Hybrid. Hybrid dispatch is locked in this build.",
+          "Cloud credential status does not enable Hybrid. Real cloud dispatch is locked in this build.",
         consent: "none",
       },
     });
     expect(unexpectedStatus).not.toHaveBeenCalled();
   });
 
-  it("accepts only a bounded credential and returns metadata while Hybrid stays locked", async () => {
+  it("returns strict metadata only to the current top-level renderer", async () => {
     const database = createSoarDatabase();
     databases.push(database);
-    const store = new EventStore(database);
-    let stored = false;
-    const replace = vi.fn(async () => {
-      stored = true;
+    const projected = cloudCredentialStatus({
+      legacyStagedItem: {
+        state: "present",
+        reasonCode: "legacy_metadata_present",
+      },
     });
-    const remove = vi.fn(async () => {
-      const existed = stored;
-      stored = false;
-      return existed;
-    });
-    const setupStore: SetupOnlyCredentialStore = {
-      status: vi.fn(async () => ({
-        state: stored ? ("stored" as const) : ("not_stored" as const),
-      })),
-      has: vi.fn(async () => stored),
-      write: vi.fn(async () => {
-        stored = true;
-      }),
-      replace,
-      delete: remove,
-    };
+    const getStatus = vi.fn().mockResolvedValue(projected);
     await registerIpcHandlers({
-      store,
+      store: new EventStore(database),
       runner,
       config: config(),
-      cloudCredentialSetup: new CloudCredentialSetupService(setupStore),
+      cloudCredentialStatus: statusService(getStatus),
     });
 
     await expect(
-      handler(IPC_CHANNELS.getCloudSetupStatus)(undefined),
-    ).resolves.toMatchObject({
-      state: "not_configured",
-      candidate: {
-        providerLabel: "OpenRouter",
-        modelLabel: "DeepSeek V4 Flash",
-      },
-      dispatch: { state: "locked", reasonCode: "pr6a_dispatch_locked" },
-    });
+      handler(IPC_CHANNELS.getCloudCredentialStatus)(trustedCredentialEvent),
+    ).resolves.toEqual(projected);
+    expect(getStatus).toHaveBeenCalledOnce();
+    expect(JSON.stringify(projected)).not.toMatch(
+      /credentialValue|authorization|leaseHandle|endpoint|modelSlug/u,
+    );
+
     await expect(
-      handler(IPC_CHANNELS.getCloudSetupStatus)(undefined, {
+      handler(IPC_CHANNELS.getCloudCredentialStatus)(trustedCredentialEvent, {
         credential: "must-not-be-accepted",
       }),
     ).rejects.toThrow("does not accept an input payload");
+    expect(getStatus).toHaveBeenCalledOnce();
+  });
 
-    const secret = "SOAR_SYNTHETIC_IPC_CREDENTIAL_SENTINEL";
-    const secretAsUnknownKey =
-      "SOAR_SYNTHETIC_IPC_SECRET_AS_PROPERTY_NAME_SENTINEL";
-    const rejectedWrite = await handler(
-      IPC_CHANNELS.saveCloudCredential,
-    )(undefined, {
-      credential: secret,
-      [secretAsUnknownKey]: true,
+  it("strict-parses primary and unavailable status sources at the IPC boundary", async () => {
+    const database = createSoarDatabase();
+    databases.push(database);
+    const getStatus = vi.fn().mockResolvedValue({
+      ...cloudCredentialStatus(),
+      unexpectedDiagnostic: "SOAR_NATIVE_DETAIL_SENTINEL",
     });
-    expect(rejectedWrite).toMatchObject({
-      state: "local_storage_error",
-      errorCode: "invalid_credential",
-      dispatch: { state: "locked", reasonCode: "pr6a_dispatch_locked" },
+    const getUnavailableStatus = vi.fn().mockReturnValue({
+      ...cloudCredentialStatus(),
+      unexpectedFallbackDiagnostic: "SOAR_NATIVE_FALLBACK_SENTINEL",
     });
-    expect(JSON.stringify(rejectedWrite)).not.toContain(secret);
-    expect(JSON.stringify(rejectedWrite)).not.toContain(secretAsUnknownKey);
-    expect(replace).not.toHaveBeenCalled();
+    await registerIpcHandlers({
+      store: new EventStore(database),
+      runner,
+      config: config(),
+      cloudCredentialStatus: { getStatus, getUnavailableStatus },
+    });
 
-    const saved = await handler(IPC_CHANNELS.saveCloudCredential)(undefined, {
-      credential: secret,
-    });
-    expect(replace).toHaveBeenCalledOnce();
-    expect(replace).toHaveBeenCalledWith(secret);
-    expect(saved).toMatchObject({
-      state: "stored_unvalidated",
-      candidate: {
-        providerLabel: "OpenRouter",
-        modelLabel: "DeepSeek V4 Flash",
+    const result = await handler(IPC_CHANNELS.getCloudCredentialStatus)(
+      trustedCredentialEvent,
+    );
+    expect(result).toMatchObject({
+      build: {
+        state: "eligibility_unknown",
+        reasonCode: "identity_check_unavailable",
       },
-      dispatch: { state: "locked", reasonCode: "pr6a_dispatch_locked" },
-    });
-    expect(JSON.stringify(saved)).not.toContain(secret);
-    expect(JSON.stringify(saved)).not.toContain("candidateId");
-    expect(JSON.stringify(saved)).not.toContain("intendedModelSlug");
-    expect(
-      JSON.stringify({
-        sessions: database.prepare("SELECT * FROM sessions").all(),
-        events: database.prepare("SELECT * FROM session_events").all(),
-        budget: database
-          .prepare("SELECT * FROM budget_ledger_entries")
-          .all(),
-      }),
-    ).not.toContain(secret);
-
-    await expect(
-      handler(IPC_CHANNELS.getReviewAvailability)(undefined),
-    ).resolves.toMatchObject({
-      hybrid: {
-        enabled: false,
-        reason:
-          "Cloud setup does not enable Hybrid. Hybrid dispatch is locked in this build.",
-        separatelyConfiguredPaidProviderReachable: false,
-        consent: "none",
-      },
-    });
-
-    await expect(
-      handler(IPC_CHANNELS.deleteCloudCredential)(undefined),
-    ).resolves.toMatchObject({
-      state: "not_configured",
       dispatch: { state: "locked" },
+      latestOperation: { state: "none" },
     });
-    expect(remove).toHaveBeenCalledOnce();
-    await expect(
-      handler(IPC_CHANNELS.deleteCloudCredential)(undefined, {
-        credential: "must-not-be-accepted",
-      }),
-    ).rejects.toThrow("does not accept an input payload");
-    expect(remove).toHaveBeenCalledOnce();
+    expect(JSON.stringify(result)).not.toContain("SOAR_NATIVE_DETAIL_SENTINEL");
+    expect(JSON.stringify(result)).not.toContain(
+      "SOAR_NATIVE_FALLBACK_SENTINEL",
+    );
+    expect(getUnavailableStatus).toHaveBeenCalledOnce();
   });
 
-  it("rejects concurrent credential mutations before another IPC secret reaches the store", async () => {
+  it("rejects foreign WebContents, subframes, and URL mismatch before status access", async () => {
     const database = createSoarDatabase();
     databases.push(database);
-    const store = new EventStore(database);
-    let releaseFirst!: () => void;
-    const firstPending = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
-    });
-    const replace = vi.fn((_credential: string) => firstPending);
-    const remove = vi.fn().mockResolvedValue(false);
-    const setupStore: SetupOnlyCredentialStore = {
-      status: vi.fn().mockResolvedValue({ state: "not_stored" }),
-      has: vi.fn().mockResolvedValue(false),
-      write: vi.fn().mockResolvedValue(undefined),
-      replace,
-      delete: remove,
-    };
+    const getStatus = vi.fn().mockResolvedValue(cloudCredentialStatus());
     await registerIpcHandlers({
-      store,
+      store: new EventStore(database),
       runner,
       config: config(),
-      cloudCredentialSetup: new CloudCredentialSetupService(setupStore),
+      cloudCredentialStatus: statusService(getStatus),
     });
-    const accepted = "SOAR_IPC_ACCEPTED_MUTATION_SENTINEL";
-    const rejected = "SOAR_IPC_REJECTED_MUTATION_SENTINEL";
 
-    const first = handler(IPC_CHANNELS.saveCloudCredential)(undefined, {
-      credential: accepted,
-    }) as Promise<unknown>;
-    await vi.waitFor(() => expect(replace).toHaveBeenCalledOnce());
-
-    const blockedSave = await handler(IPC_CHANNELS.saveCloudCredential)(
-      undefined,
-      { credential: rejected },
-    );
-    const blockedDelete = await handler(IPC_CHANNELS.deleteCloudCredential)(
-      undefined,
-    );
-
-    for (const result of [blockedSave, blockedDelete]) {
-      expect(result).toMatchObject({
-        state: "local_storage_error",
-        errorCode: "operation_in_progress",
-        dispatch: { state: "locked", reasonCode: "pr6a_dispatch_locked" },
-      });
-      expect(JSON.stringify(result)).not.toContain(rejected);
+    const sameUrlForeignFrame = { url: TEST_RENDERER_URL };
+    const sameUrlForeignContents = {
+      mainFrame: sameUrlForeignFrame,
+      getURL: () => TEST_RENDERER_URL,
+      isDestroyed: () => false,
+    };
+    const hostilePayload = {
+      credential: "SOAR_FOREIGN_RENDERER_SECRET_SENTINEL",
+    };
+    for (const event of [
+      {
+        sender: sameUrlForeignContents,
+        senderFrame: sameUrlForeignFrame,
+      },
+      {
+        sender: trustedCredentialWebContents,
+        senderFrame: { url: TEST_RENDERER_URL },
+      },
+    ]) {
+      await expect(
+        handler(IPC_CHANNELS.getCloudCredentialStatus)(event, hostilePayload),
+      ).rejects.toThrow(
+        "Cloud credential status is unavailable from this renderer.",
+      );
     }
-    expect(replace).toHaveBeenCalledOnce();
-    expect(replace).toHaveBeenCalledWith(accepted);
-    expect(remove).not.toHaveBeenCalled();
-    expect(JSON.stringify(replace.mock.calls)).not.toContain(rejected);
 
-    releaseFirst();
-    await expect(first).resolves.toMatchObject({ state: "stored_unvalidated" });
+    const wrongUrlAuthority = {
+      ...trustedCredentialIpcAuthority,
+      expectedRendererUrl: "file:///foreign/renderer.html",
+    };
+    electron.handlers.clear();
+    await registerIpcHandlers({
+      store: new EventStore(database),
+      runner,
+      config: config(),
+      credentialIpcAuthority: wrongUrlAuthority,
+      cloudCredentialStatus: statusService(getStatus),
+    });
     await expect(
-      handler(IPC_CHANNELS.deleteCloudCredential)(undefined),
-    ).resolves.toMatchObject({ state: "not_configured" });
-    expect(remove).toHaveBeenCalledOnce();
+      handler(IPC_CHANNELS.getCloudCredentialStatus)(
+        trustedCredentialEvent,
+        hostilePayload,
+      ),
+    ).rejects.toThrow(
+      "Cloud credential status is unavailable from this renderer.",
+    );
+    expect(getStatus).not.toHaveBeenCalled();
   });
 
-  it("fails closed with metadata-only storage status when setup is unavailable", async () => {
+  it("has no renderer IPC channel for staged credential mutation", async () => {
     const database = createSoarDatabase();
     databases.push(database);
     await registerIpcHandlers({
@@ -1107,20 +1120,71 @@ describe("cloud setup IPC boundary", () => {
       config: config(),
     });
 
-    const results = await Promise.all([
-      handler(IPC_CHANNELS.getCloudSetupStatus)(undefined),
-      handler(IPC_CHANNELS.saveCloudCredential)(undefined, {
-        credential: "synthetic-unavailable-value",
-      }),
-      handler(IPC_CHANNELS.deleteCloudCredential)(undefined),
-    ]);
-    for (const result of results) {
-      expect(result).toMatchObject({
-        state: "local_storage_error",
-        errorCode: "keychain_unavailable",
-        dispatch: { state: "locked", reasonCode: "pr6a_dispatch_locked" },
-      });
-      expect(JSON.stringify(result)).not.toContain("synthetic-unavailable-value");
-    }
+    expect(IPC_CHANNELS).not.toHaveProperty("saveCloudCredential");
+    expect(IPC_CHANNELS).not.toHaveProperty("deleteCloudCredential");
+    expect(electron.handlers.has("soar:save-cloud-credential")).toBe(false);
+    expect(electron.handlers.has("soar:delete-cloud-credential")).toBe(false);
+  });
+
+  it("fails closed with metadata-only status when the authority is unavailable", async () => {
+    const database = createSoarDatabase();
+    databases.push(database);
+    await registerIpcHandlers({
+      store: new EventStore(database),
+      runner,
+      config: config(),
+    });
+
+    await expect(
+      handler(IPC_CHANNELS.getCloudCredentialStatus)(trustedCredentialEvent),
+    ).resolves.toMatchObject({
+      schemaVersion: "cloud-credential-status-v1",
+      build: {
+        state: "eligibility_unknown",
+        reasonCode: "identity_check_unavailable",
+      },
+      protectedItem: { state: "unknown", reasonCode: "activation_locked" },
+      providerCheck: { state: "not_run" },
+      dispatch: { state: "locked", reasonCode: "pr6b1_phase_b_locked" },
+      providerContact: { state: "not_contacted" },
+      latestOperation: { state: "none" },
+    });
+  });
+
+  it("preserves an unresolved operation when native status projection fails", async () => {
+    const database = createSoarDatabase();
+    databases.push(database);
+    const unavailableStatus = cloudCredentialStatus({
+      build: {
+        state: "eligibility_unknown",
+        reasonCode: "identity_check_unavailable",
+      },
+      legacyStagedItem: {
+        state: "unknown",
+        reasonCode: "legacy_metadata_unavailable",
+      },
+      latestOperation: {
+        state: "outcome_unknown",
+        kind: "replace_protected",
+        recoveryCode: "manual_recovery_required",
+      },
+    });
+    const getStatus = vi.fn().mockRejectedValue(new Error("native failure"));
+    const getUnavailableStatus = vi.fn().mockReturnValue(unavailableStatus);
+    await registerIpcHandlers({
+      store: new EventStore(database),
+      runner,
+      config: config(),
+      cloudCredentialStatus: {
+        getStatus,
+        getUnavailableStatus,
+      },
+    });
+
+    await expect(
+      handler(IPC_CHANNELS.getCloudCredentialStatus)(trustedCredentialEvent),
+    ).resolves.toEqual(unavailableStatus);
+    expect(getStatus).toHaveBeenCalledOnce();
+    expect(getUnavailableStatus).toHaveBeenCalledOnce();
   });
 });

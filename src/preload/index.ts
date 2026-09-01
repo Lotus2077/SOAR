@@ -19,9 +19,7 @@ const IPC_CHANNELS = {
     "soar:invalidate-hybrid-simulation-consent-challenges",
   createChangeReviewSession: "soar:create-change-review-session",
   getChangeReviewView: "soar:get-change-review-view",
-  getCloudSetupStatus: "soar:get-cloud-setup-status",
-  saveCloudCredential: "soar:save-cloud-credential",
-  deleteCloudCredential: "soar:delete-cloud-credential",
+  getCloudCredentialStatus: "soar:get-cloud-credential-status",
   sessionUpdate: "soar:session-update",
 } as const;
 
@@ -47,12 +45,8 @@ const api: SoarRendererApi = {
     ipcRenderer.invoke(IPC_CHANNELS.createChangeReviewSession, input),
   getChangeReviewView: (id) =>
     ipcRenderer.invoke(IPC_CHANNELS.getChangeReviewView, id),
-  getCloudSetupStatus: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.getCloudSetupStatus),
-  saveCloudCredential: (input) =>
-    ipcRenderer.invoke(IPC_CHANNELS.saveCloudCredential, input),
-  deleteCloudCredential: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.deleteCloudCredential),
+  getCloudCredentialStatus: () =>
+    ipcRenderer.invoke(IPC_CHANNELS.getCloudCredentialStatus),
   subscribeSessionEvents: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, update: SessionUpdate): void => {
       listener(update);

@@ -269,6 +269,74 @@ fixture checks prove structural isolation and exact local fixture identity only;
 they prove no review quality, routing benefit, cost saving, latency improvement,
 production readiness, or release status.
 
+## PR6R-A2 deterministic loopback and recovery boundary
+
+PR6R-A2 is Implemented locally as backend/test-only `$0` substrate; exact-SHA
+CI closure is pending, and it is not Verified or Released. It is deliberately
+not retained by the Electron main entry, preload, renderer, IPC, or package, so
+the shipped special graph remains v5. Its fixed post-import saga is:
+
+```text
+exact imported child
+  -> preflight runtime/listener/IDs/clock
+  -> OS slot claim and arm
+  -> atomic SQLite simulation reserve/start
+  -> synchronously burn one dispatch grant
+  -> one direct loopback HTTP request
+  -> atomic SQLite finish/accounting
+  -> live SQLite + OS terminal reconciliation
+```
+
+The checkpoint import stores hashes and identities, not the packet, messages,
+workspace, prompt, endpoint credential, or provider response. A fresh process
+may reobserve it only by transiently rehydrating the canonical public packet,
+messages, checkpoint, and investigation and revalidating the exact parent
+evidence/provenance plus the unchanged four-event child. Preparation retains a
+nominal import token and replays the child before any OS effect, so a clone,
+store transplant, or post-prepare mutation cannot consume the slot.
+
+The transport targets only the origin privately minted by its live fixture
+server. It uses one direct `node:http.request` with explicit framing, no default
+authorization or ambient headers, no DNS/proxy/redirect/retry/connection reuse,
+and a bounded total deadline. The response parser requires canonical JSON,
+exact model/request identities, strict framing, bounded fatal UTF-8, a complete
+`ReviewResultV1`, and internally consistent usage. Complete bounded failures
+retain only their body hash; incomplete and oversized bodies do not claim one.
+Raw response bytes, headers, diagnostics, and exceptions are discarded.
+
+SQLite and the OS-user ledger cannot share a transaction. Recovery therefore
+never redispatches: an OS-only claim blocks; a durable denial or pre-reservation
+cancellation can publish only its matching OS terminal; a durable open admitted
+attempt is interrupted and consumes its full simulation reservation as
+`unknown`; and an already matching pair is observed idempotently. Recovery
+requires a process-local authority binding one genuine development runtime to
+one canonical reopened `BudgetLedger`. Every second-slot, fallback, comparison,
+or safe-projection use then revalidates both SQLite and OS evidence. The initial
+all-pending comparison/safe-projection pair has a separate one-use live-campaign
+authority over the exact campaign-only prior replay. A later transition requires
+live SQLite/OS terminal reconciliation plus the exact prior replay and may
+change only the matching pending decision. Reuse, unrelated decision or
+topology changes, and fallback fabrication fail closed. The append itself
+consumes a one-use token bound to the exact store, hashes, terminal tuple,
+usage, cost, and immutable append payload rather than relying on wrapper
+convention.
+
+A2 adds optional response/result hash fields to generic finish events without
+changing payload-contract v6 or existing replay. It deliberately does not mark
+the parsed result accepted or complete the child: A3 must perform evidence
+acceptance and accepted review-result/output projection first. A3 must also
+integrate dedicated PR6R recovery before generic startup recovery, bind the
+app's canonical database,
+encapsulate host clock/ID sources, resolve or explicitly approve the narrow A2
+ESM dependency cycle, replace the `local_only_v1` signature heuristic, and
+advance the retained build graph to v6.
+
+This boundary proves deterministic loopback framing, one-use dispatch,
+simulation accounting, data minimization, and conservative restart behavior.
+It proves no configured-provider request, credential use, actual cost, model
+quality, routing benefit, latency improvement, production readiness,
+verification, or release.
+
 ## Context compilation
 
 `src/shared/context-compiler.ts` is a pure projection over reduced session state.

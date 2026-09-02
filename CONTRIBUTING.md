@@ -85,12 +85,13 @@ development-canary build followed by a production build. The dual-flavor gate
 requires the normal package policy to reject the special output and leaves
 `out/` restored to the normal application.
 
-### PR6R-A1 development-only checks
+### PR6R-A development-only checks
 
-PR6R-A1 is an in-progress, unpackaged, `$0` structural checkpoint. Its special
-Electron graph is not a production Cloud path and must never receive a real
-credential, provider endpoint, repository-egress permission, or paid authority.
-Run its build checks explicitly with:
+PR6R-A1 is an unpackaged `$0` structural checkpoint, and A2 adds backend/test-
+only sealed loopback transport plus simulation accounting/recovery. Neither is
+a production Cloud path. They must never receive a real credential, configured
+provider endpoint, repository-egress permission, or paid authority. Run the
+build checks explicitly with:
 
 ```sh
 pnpm build:pr6r-development-canary
@@ -104,8 +105,12 @@ verifies the normal flavor. `pnpm check` includes that dual-flavor sequence.
 If the dual-flavor command is interrupted, treat `out/` as unknown and possibly
 special. Run `pnpm build` to rebuild and verify the normal flavor before running,
 packaging, or publishing anything from `out/`.
-These A1 gates have no network dependency: dependencies and fixture objects must
-already be present locally, and any outbound connection is a failed proof.
+These A1/A2 gates have no external-network dependency: dependencies and fixture
+objects must already be present locally, and any outbound connection is a
+failed proof. A2 tests bind only ephemeral `127.0.0.1`/`::1` fixture listeners;
+restricted CI or local sandboxes must explicitly permit that loopback bind, not
+general egress. The tests assert exact zero/one observed request counts and scan
+file-backed SQLite/safe projections for raw request and response markers.
 Any change to a persisted PR6R campaign, comparison, safe-projection, fallback,
 transition, or chronology contract must deliberately update the payload-contract
 descriptor/version and its migration tests; the fingerprint is an explicit

@@ -22,7 +22,11 @@ routing runtime matures.
 > Deterministic, committed-head, package, canary, Electron, independent-review,
 > and Linux/macOS CI gates passed on
 > `ddd171c6092f695e64360d73e78a257ee3fb9159`. Manual VoiceOver, light/dark
-> contrast, and reduced-motion proof for PR6B0 is still pending.
+> contrast, and reduced-motion proof for PR6B0 is still pending. Separate local
+> deterministic PR6R-A2 tests now prove at most one sealed `$0`, synthetic,
+> fixture-owned loopback request plus conservative cross-store accounting/
+> recovery, but the path is not wired into the app or package and is not a
+> configured-provider or paid-model result.
 
 The MVP optimizes a constrained trade-off rather than promising an impossible per-task optimum:
 
@@ -57,6 +61,14 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   Fake Local, evaluates the bounded egress policy, may run one tool-free Fake
   Cloud synthesis, and permits one eligible Fake Local fallback. It persists
   only simulation-scoped accounting and reports actual external spend as `$0`.
+- PR6R-A2 status: **Implemented locally; committed-head CI closure pending; not
+  Verified or Released.** The backend/test-only path imports one exact public
+  checkpoint, preflights nominal authority, executes at most one direct
+  fixture-owned loopback request, persists simulation-scoped usage/cost/hashes,
+  and reconciles SQLite with the OS slot ledger without restart redispatch. It
+  is absent from Electron bootstrap, renderer, preload, IPC, and package. A3 is
+  still required for evidence acceptance, safe result projection, app UX,
+  retained graph v6, and startup integration.
 - PR6B0 status: **Implemented with automated exact-SHA closure; not Verified or
   Released.** Exact-head tests, all seven Electron workflows, macOS package
   validation, independent final review, and exact-SHA Linux/macOS CI passed on
@@ -114,8 +126,10 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   production lock. R-A1 contracts, frozen fixture, append-only canary store,
   OS-user one-shot authority ledger, and compile-time development-canary build
   isolation are **Implemented** on exact revision `4cab8a7`, but not Verified or
-  Released. R-A2 transport/accounting and R-A3 app flow remain not Implemented.
-  This does not authorize real credential resolution, configured-provider
+  Released. R-A2's backend-only sealed loopback transport, simulation
+  accounting, and no-redispatch recovery are **Implemented locally** with
+  committed-head CI closure pending; R-A3 app flow remains not Implemented.
+  This does not demonstrate real credential resolution, configured-provider
   contact, off-device repository egress, actual-cost reservation, or paid work.
   Real credential/provider validation and a later at-most-two-request USD 0.25
   canary remain separate unproposed R-B/R-C gates; the owner's broader paid-work

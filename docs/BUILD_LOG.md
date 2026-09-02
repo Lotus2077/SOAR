@@ -5939,3 +5939,306 @@ Linux `check` and macOS `electron-e2e` success before A2 runtime changes.
 References: [PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
 [A2 implementation plan](#bl-20260902-1555-pr6ra2-implementation-plan), and
 [future paid authority](#bl-20260902-1610-pr6r-future-paid-authority).
+
+### BL-20260902-1636-pr6ra2-implementation-in-progress -- 2026-09-02 -- Exact plan gate passed and A2 runtime work began
+
+Status: `In progress`
+
+Scope or hypothesis: Begin only the frozen backend/test-only PR6R-A2 `$0`
+implementation after its final plan/correction revision passed the required
+exact-SHA Linux and macOS repository gates.
+
+Decisions:
+
+- Bind implementation start to commit
+  `b2340cf737b090ff3fc4417a7d14998e1372323b` and CI run `33609234110`.
+- Split work into independently reviewable SQLite/checkpoint authority,
+  strict loopback/OS authority, and root-owned saga/recovery integration seams.
+- Keep A2 out of renderer, preload, IPC, bootstrap, packaged activation, and
+  the retained Electron module graph. Special-build graph v5 therefore remains
+  unchanged until A3 deliberately retains the transport under graph v6.
+- Make no configured-provider request and use no credential or actual-cost
+  operation in A2 despite the separately recorded future high-level cost
+  authority.
+- Preserve genuine one-use authority across prepared start, transport outcome,
+  persisted finish, and cross-store terminal reconciliation. For A2 this
+  intentionally accepts one narrow static ESM dependency cycle among the
+  SQLite, transport-authority, transport, and attempt-adapter modules rather
+  than weakening the nominal proof or broadening into a mid-milestone module
+  refactor. No participating module may read a cycle-imported live binding at
+  initialization; focused import-order/runtime proof is required. Reassess or
+  remove this cycle before A3 retains the path in build-graph v6.
+
+Changes: Implementation is beginning after this entry. At entry time no runtime
+file has changed from the exact plan revision.
+
+Evidence:
+
+- GitHub Actions run `33609234110` passed on exact SHA
+  `b2340cf737b090ff3fc4417a7d14998e1372323b`.
+- Linux `check` job `100180233131` passed in 1 minute 20 seconds.
+- macOS `electron-e2e` job `100180618980` passed in 2 minutes 41 seconds.
+- Local `git diff --check`, build-log validation, and readiness validation
+  passed before the plan/correction commits.
+
+Failures or blockers: The final pre-code review caught a headers-then-stall
+timeout ambiguity after the first design commit. Append-only correction
+`b2340cf` now keeps that case `unknown` under payload contract v6, and the exact
+corrected SHA passed CI. During implementation, the first explicit cal-007
+fixture run failed closed with the intentionally redacted
+`pr6r_frozen_fixture_materialization_failed` result when the temporary public
+Flask source was a partial clone. After the exact base tree and change blobs
+were hydrated, the same gate passed both fixture and nominal-import cases. The
+redacted boundary prevents claiming the missing blobs as the internally
+observed exception, so that attribution remains an inference from the one
+controlled change. Restricted-shell fixture-server tests also could not bind a
+loopback port; the identical 9-test parser/server selection passed with explicit
+loopback-bind permission. Review then found two in-process authority gaps still
+being repaired: a direct syntactic import event could reach fresh SQLite
+dispatch authority without the nominal imported-checkpoint handle, and a
+structurally forged transport result could be persisted as terminal accounting.
+Neither finding caused provider contact, and A2 must not be called complete
+until fresh start and finish bindings consume genuine one-use nominal proofs.
+The first composed-saga run then passed success and pre-reservation cancellation
+but exposed two additional negative results: its budget-denial fixture placed
+the OS claim after the fixed SQLite decision timestamp, correctly failing the
+monotonic-time guard, and post-dispatch cancellation could not revalidate
+because the pre-reservation cancellation recognizer rejected every cancelled
+session containing an attempt before the terminal-attempt recognizer ran. The
+former is a test-clock defect; the latter is a real reconciliation bug being
+repaired with an explicit post-dispatch cancellation regression. The initial
+restricted-shell saga run also failed all four cases at the expected localhost
+bind boundary before the permitted loopback run reached these code paths.
+Independent saga review then found two additional authority defects before
+closure: the import-derived prepared-start token bound identities but not the
+exact admission-selected event batch, and the cross-store reconciled handle
+retained only OS proof after consuming its SQLite receipt. As written, a caller
+holding a genuine start token could substitute another generic-valid start
+batch, while deletion or corruption of SQLite after initial reconciliation
+would not invalidate downstream use of the in-memory reconciled handle. Both
+are P1 fail-closed gaps and are being repaired with exact chosen-batch binding
+and live two-store revalidation. Review also confirmed that generic startup
+recovery currently emits `startup_recovery` for an imported PR6R child; A3 must
+order the dedicated PR6R recovery first and make the generic pass skip these
+children before any bootstrap activation.
+Security/accounting review also found that the first composed runner accepted
+an arbitrary test-injected `AttemptUnitOfWork` without proving it wrapped the
+supplied ledger. That could let a genuine prepared token commit and account in
+a structurally identical copied database while the caller-facing ledger stayed
+untouched. The injection was removed; the runner now always constructs the unit
+of work from its exact ledger and exposes only a fault callback bound to that
+construction.
+The same review found two lower-level variants that the runner fix alone did
+not close. Prepared start/finish tokens carried canonical identities and event
+batches but not the exact originating EventStore/ledger object, so an exported
+binder could consume a genuine token against a byte-identical copied database.
+It also showed that the initial green budget-denial saga used an unrealistic
+clock: `prepared.createdAt` preceded the later OS claim, so the durable denial
+terminal timestamp would fail the OS monotonic-time guard in ordinary runtime
+chronology. A2 remains incomplete while exact store identity is propagated and
+denial distinguishes the earlier decision evidence from later OS publication
+without weakening terminal matching.
+The fixture also counted only captured in-limit requests; an accidental retry
+arriving after `maxRequests` was rejected before capture and therefore remained
+invisible to assertions on `requests.length`. The proof surface is being
+extended to count every observed HTTP request, including over-limit attempts,
+so exact zero/one-request claims cannot pass by omission.
+Runner-order review then found that the first composition treated the prepared
+attempt wrapper structurally and claimed the OS slot before the later SQLite
+path consumed its nominal commit authority. A cloned or transplanted wrapper
+could therefore strand the one-use OS slot even though SQLite correctly
+rejected it. The adapter now exposes a read-only exact-wrapper/store/request
+assertion, and the runner invokes it before ID allocation or any OS/SQLite side
+effect while preserving the later one-use commit. A runner-level cloned-wrapper
+regression must prove zero OS claim and zero observed requests before closure.
+Further review found that restart recovery still accepted a structural
+`BudgetLedger`, so a copied database could be substituted after the canonical
+database disappeared. It also found that the explicit test ID/clock sources,
+runtime authority, and listener capability were not all validated before OS
+claim, allowing invalid input to strand a slot before later validation. These
+are real P1 composition defects, not test-only curiosities. Recovery is being
+changed to require a one-runtime/one-ledger nominal binding, and the runner is
+being changed to validate live prepared state, runtime/listener identity, all
+unique bounded IDs, and one canonical nonfuture timestamp before its first OS
+effect while retaining the grant-time race recheck.
+The downstream comparison path had three successive authority gaps: the raw
+canary append remained callable without a nominal token; an initially genuine
+terminal token could bless an unrelated structurally valid decision/accounting
+pair; and accessor/Proxy input could mutate evidence between validation and
+append. The append itself is being made to consume a one-use exact-store/input
+token, exact OS/SQLite hashes and terminal/accounting facts are being bound,
+and caller input is captured before a final live two-store revalidation.
+Late review then showed that this exact-terminal check still authorized too
+large a comparison transition: the same Cloud terminal could be reused while
+unrelated Local/Hybrid/fallback decisions changed, and the first all-pending
+baseline had no production nominal append authority. A2 therefore cannot close
+on a wrapper that merely validates one selected decision. The no-schema repair
+must give the initial all-pending pair its own live-campaign one-use authority,
+bind later appends to exact prior replay, permit only the one matching terminal
+transition, and reject unrelated state, fallback fabrication, or reuse.
+Review also identified two evidence gaps: unexpected parser exceptions after a
+complete bounded body lost the known response hash, and the composed runner
+had not scanned a file-backed database/safe projection for unique raw transport
+markers or asserted the exact terminal budget amount. Both must be covered
+before the implementation status changes.
+
+Limitations and non-claims: A2 is now In progress, not Implemented, Verified, or
+Released. The passing plan CI proves repository health for documentation and
+the prior A1 runtime only; it does not yet prove any A2 transport, accounting,
+reconciliation, cancellation, recovery, or application behavior.
+
+Paid exposure: `$0`. Plan CI and implementation setup made no configured vLLM,
+OpenRouter, provider-validation, inference, retry, fallback, repository-egress,
+credential-resolution, or actual-budget request.
+
+Next gate: Implement the exact frozen seams, run focused adversarial and crash/
+replay tests, then the full local gate and independent reviews. Stop before A3
+and every R-B/R-C configured-provider or paid boundary.
+
+References: [PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
+[plan CI](https://github.com/Lotus2077/SOAR/actions/runs/33609234110), and
+[timeout correction](#bl-20260902-1630-pr6ra2-timeout-disposition-correction).
+
+### BL-20260902-2052-pr6ra2-local-implemented -- 2026-09-02 -- A2 deterministic loopback and recovery closed locally
+
+Status: `Implemented`
+
+Scope or hypothesis: Close only the backend/test-only PR6R-A2 `$0` checkpoint
+after its frozen seams, composed saga, crash/restart behavior, persisted hash
+and accounting projection, exact comparison authority, full local repository
+gate, hydrated public-fixture proof, and independent blocker reviews passed.
+Keep exact-SHA Linux/macOS CI pending, R-A overall in progress, A3 not
+Implemented, and every R-B/R-C configured-provider or paid boundary closed.
+
+Decisions:
+
+- Mark A2 **Implemented locally**, not Verified or Released. This status covers
+  deterministic synthetic loopback framing, hash-only checkpoint import,
+  simulation-scoped atomic SQLite attempt/accounting units, cooperative OS
+  slot authority, fail-closed cross-store reconciliation, and no-redispatch
+  recovery. It does not claim an app-visible route or a real provider result.
+- Bind the work to the previously green base
+  `b2340cf737b090ff3fc4417a7d14998e1372323b`; this entry is being appended in
+  the implementation worktree before the future implementation commit exists.
+  Do not invent an exact implementation SHA. A separate append-only record
+  must bind the pushed commit and exact GitHub Actions run.
+- Preserve A2 outside Electron main bootstrap, preload, renderer, IPC,
+  packaging, and the retained special graph. Graph v5 remains the shipped
+  structural checkpoint; A3 must deliberately retain and prove graph v6.
+- Give the initial all-pending comparison/projection pair a separate one-use
+  live-campaign authority over the exact campaign-only replay. A later
+  comparison transition requires live SQLite/OS reconciliation plus the exact
+  prior replay and may change only the matching pending decision. Reuse,
+  unrelated decision or fallback mutation, topology changes, stale replay,
+  delayed token use, and schema-rejection validity mislabeling fail closed.
+- Keep response and parsed-result hashes as the only optional A2 durable
+  response carriers. The renderer-safe Local-review event projection copies
+  those hashes with the same sent/success coupling, but no raw response,
+  accepted review output, or session-completion bridge is added.
+- Measure request duration with a monotonic clock and record finish chronology
+  from the host completion observation. Dispatch freshness uses half-open
+  health/pricing validity and rejects the exact expiry instant before OS claim.
+- Retain the narrow A2 static ESM cycle only for this backend/test checkpoint.
+  A3 must remove or explicitly approve it before retained app integration.
+
+Changes: Added the hash-only checkpoint import and reobservation boundary;
+bounded IPv4/IPv6 fixture server; strict canonical response parser; nominal
+loopback transport authority; direct one-request `node:http` transport;
+SQLite start, finish, cancellation, denial, terminal-witness, and recovery
+authority; runtime/canonical-ledger/campaign binding; and the composed A2
+runner. Extended generic finish events and replay with optional response/result
+hashes, projected them into safe Local-review records, hardened the canary
+comparison append, and added focused unit/integration fixtures. Updated README,
+contributor guidance, architecture, readiness, and only the mutable status/next-
+gate portions of the frozen PR6R plan. The corrected toolchain run created a
+workspace-local package-store cache; it was verified as generated state,
+removed, and added to `.gitignore` rather than committed.
+
+Evidence:
+
+- Both TypeScript projects passed after the final authority, expiry-boundary,
+  and safe-projection repairs.
+- The complete A2 unit matrix passed 16/16 files and 273/273 tests. It covers
+  parser/framing bounds, IPv4/IPv6, exact zero/one observed request counts,
+  one-use and transplant-resistant authority, start/finish accounting,
+  cancellation and denial, response hashes, exact simulated cost, raw-marker
+  exclusion, OS/SQLite/campaign binding, monotonic timing, exact freshness
+  boundaries, crash injection, close/reopen recovery, and zero redispatch.
+- The hydrated, pinned public Flask fixture proof passed 2/2 from already-
+  present local Git objects. The recorded command is intentionally sanitized;
+  no private fixture path is persisted here.
+- The final unmodified `pnpm check` passed: readiness metadata and the prior
+  65-entry ledger validated; locked native credential-core proof passed; 103
+  test files and 1,266 tests passed; three files and six opt-in tests skipped;
+  the development-canary build passed; normal policy rejected its output; and
+  the normal production build was restored and verified.
+- Independent runner/recovery review reported no remaining P1/P2 after exact
+  health/pricing expiry rejection and coupled safe-hash projection were added.
+  Its repaired runner/safe-record surface passed 60/60, and the related
+  transport/response/runtime surface passed 54/54.
+- Independent authority/security review and its separate security child found
+  no remaining P1/P2. The authority/canary/SQLite surface passed 84/84 and the
+  explicit schema-rejection regression proves `not_available` rejects before
+  append while canonical `failed` validity succeeds only on a fresh authority.
+- Independent documentation review required the current-state wording,
+  baseline/terminal distinction, sanitized fixture evidence, and separate
+  future exact-SHA CI record now reflected here. Final `git diff --check` and
+  readiness validation passed before this append.
+
+Failures or blockers: The append-only in-progress entry retains every earlier
+negative result and P1/P2 repair. Closure additionally preserves three late
+negative results. First, an initial full-gate command launched nested `pnpm`
+under Node 26 and failed the repository's `^22.22.2` engine guard before any
+project check; the corrected Node 22 environment was then used. Second, that
+corrected full gate reached 1,263 passing tests before one unrelated long-path
+`inspect_git_changes` case exceeded the five-second limit by 86 ms. The case
+passed alone in 1.66 seconds, and the required unmodified full gate then passed;
+the failed run is not erased. Third, final review found equality-at-expiry and
+safe-finish-hash projection gaps after the first green full gate. Both were
+repaired, targeted tests passed, and the complete A2 and repository gates were
+rerun rather than reusing stale evidence.
+
+The earlier start/finish token, selected-batch, exact-store, copied-ledger,
+live-two-store, cancellation-order, monotonic-time, listener-count, preflight,
+raw-canary-append, mutable-input, delayed-token, append-postcondition,
+initial-baseline, exact-prior-replay, unrelated-decision, response-hash,
+file-backed raw-marker, and exact-terminal-budget blockers are all covered by
+the final implementation and regressions. No actionable A2 P0/P1/P2 remains.
+
+Limitations and non-claims: A2 remains backend/test-only and absent from
+renderer, preload, IPC, bootstrap, package activation, and retained graph v6.
+Its parsed ReviewResult is main-only and neither accepted nor used to complete
+the child. Generic startup recovery is not yet ordered around the dedicated
+PR6R recovery path. Rehydration is transient, production clock/ID sources are
+not yet encapsulated by an app coordinator, and the narrow static ESM cycle
+remains. The first durable real-store Cloud comparison transition also requires
+the valid Local-completed predecessor and accepted-output work that belongs to
+A3; structural custom-store tests prove the authority seam, not that app flow.
+OS, SQLite, and canary persistence cannot share one transaction, so a crash may
+lose availability while failing closed; A2 does not claim false atomicity.
+
+This checkpoint proves no configured-provider request, credential custody,
+off-device repository egress, actual provider cost, model quality, held-out
+task correctness, best-result regret, routing benefit, cost saving, latency
+improvement, production readiness, verification, release, or user value.
+
+Paid exposure: `$0`. Implementation, fixture proof, builds, tests, and reviews
+made no configured vLLM, OpenRouter, model-list, provider-validation,
+inference, retry, fallback, evaluator, credential-resolution, repository-
+egress, actual-budget, or other external LLM-provider request. Every A2
+reservation and settlement remained simulation-scoped; actual-paid authority
+was false and actual external provider spend remained zero.
+
+Next gate: Commit and push the A2 implementation and this local closure, then
+require exact-SHA Linux/macOS CI and append that result without rewriting this
+entry or any negative evidence. Only after that durable checkpoint may A3
+planning/entry begin for canonical app coordination, startup ordering,
+accepted output, Local-before-Cloud real-store orchestration, graph v6,
+renderer/IPC UX, and package proof. Stop before every R-B/R-C credential,
+configured-provider, off-device-egress, actual-budget, or paid boundary.
+
+References: [PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
+[implementation record](#bl-20260902-1636-pr6ra2-implementation-in-progress),
+[A2 plan](#bl-20260902-1555-pr6ra2-implementation-plan),
+[corrected plan CI](https://github.com/Lotus2077/SOAR/actions/runs/33609234110),
+[MVP readiness](MVP_READINESS.md), and [architecture](ARCHITECTURE.md).

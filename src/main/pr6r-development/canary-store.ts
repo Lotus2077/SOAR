@@ -18,6 +18,10 @@ import {
   type Pr6rSafeProjectionV1,
 } from "../../shared/pr6r-development-contracts";
 import { REVIEW_RESULT_V1_LIMITS } from "../../shared/review-result-contract";
+import {
+  consumePr6rComparisonProjectionUseAuthority,
+  type Pr6rComparisonProjectionUseAuthority,
+} from "./authority-ledger";
 
 export const PR6R_CANARY_STORE_SCHEMA_VERSION = 1 as const;
 export const PR6R_CANARY_MAX_RECORDS = 17 as const;
@@ -874,6 +878,7 @@ export class Pr6rCanaryStore {
   }
 
   appendComparisonProjection(input: {
+    authority: Pr6rComparisonProjectionUseAuthority;
     comparisonRecordId: string;
     safeProjectionRecordId: string;
     expectedSequence: number;
@@ -881,16 +886,21 @@ export class Pr6rCanaryStore {
     safeProjection: unknown;
     createdAt: string;
   }): Pr6rCanaryRecordPair {
-    const comparison = deepFreeze(
-      Pr6rComparisonV1Schema.parse(input.comparison),
-    );
-    const safeProjection = deepFreeze(
-      Pr6rSafeProjectionV1Schema.parse(input.safeProjection),
-    );
-    const createdAt = canonicalTimestamp(input.createdAt);
     return this.database.transaction(() => {
       assertDatabaseReady(this.database);
       const replay = this.replayLocked();
+      consumePr6rComparisonProjectionUseAuthority(input.authority, {
+        store: this,
+        appendInput: input,
+        priorReplay: replay,
+      });
+      const comparison = deepFreeze(
+        Pr6rComparisonV1Schema.parse(input.comparison),
+      );
+      const safeProjection = deepFreeze(
+        Pr6rSafeProjectionV1Schema.parse(input.safeProjection),
+      );
+      const createdAt = canonicalTimestamp(input.createdAt);
       if (replay === undefined) {
         throw new Error("PR6R campaign must exist before comparison records.");
       }

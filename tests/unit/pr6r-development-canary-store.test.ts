@@ -4,7 +4,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import BetterSqlite3 from "better-sqlite3";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+// Store-contract tests intentionally isolate payload/SQLite validation from
+// the production A2 cross-store authority boundary.
+vi.mock("../../src/main/pr6r-development/authority-ledger", () => ({
+  consumePr6rComparisonProjectionUseAuthority() {},
+}));
 
 import {
   PR6R_CAMPAIGN_ID,
@@ -44,12 +50,21 @@ import {
   Pr6rCanarySequenceConflictError,
   Pr6rCanaryStore,
 } from "../../src/main/pr6r-development/canary-store";
+import type { Pr6rComparisonProjectionUseAuthority } from "../../src/main/pr6r-development/authority-ledger";
 
 const HASH_A = "a".repeat(64);
 const HASH_B = "b".repeat(64);
 const HASH_C = "c".repeat(64);
 const HASH_D = "d".repeat(64);
 const HASH_E = "e".repeat(64);
+const TEST_ONLY_COMPARISON_PROJECTION_AUTHORITY = Object.freeze({
+  kind: "pr6r_comparison_projection_use" as const,
+  scope: "terminal_transition" as const,
+  campaignId: PR6R_CAMPAIGN_ID,
+  requestId: "test-request",
+  attemptId: "test-attempt",
+  reservationId: "test-reservation",
+}) satisfies Pr6rComparisonProjectionUseAuthority;
 const IMPLEMENTATION_REVISION = HASH_C;
 const PARENT_SESSION_ID = "parent-session";
 const PACKET_UTF8 = canonicalPr6rJsonV1({
@@ -634,6 +649,7 @@ function appendPair(
   projection: unknown = projectionFor(value),
 ): void {
   store.appendComparisonProjection({
+    authority: TEST_ONLY_COMPARISON_PROJECTION_AUTHORITY,
     comparisonRecordId: `comparison-${expectedSequence}`,
     safeProjectionRecordId: `projection-${expectedSequence}`,
     expectedSequence,
@@ -956,6 +972,7 @@ describe("PR6R development canary store", () => {
       const pending = comparison(["pending", "pending", "pending"]);
       expect(() =>
         store.appendComparisonProjection({
+          authority: TEST_ONLY_COMPARISON_PROJECTION_AUTHORITY,
           comparisonRecordId: "stale-comparison",
           safeProjectionRecordId: "stale-projection",
           expectedSequence: 0,
@@ -966,6 +983,7 @@ describe("PR6R development canary store", () => {
       ).toThrow(Pr6rCanarySequenceConflictError);
       expect(() =>
         store.appendComparisonProjection({
+          authority: TEST_ONLY_COMPARISON_PROJECTION_AUTHORITY,
           comparisonRecordId: "duplicate-record",
           safeProjectionRecordId: "duplicate-record",
           expectedSequence: 1,

@@ -280,6 +280,7 @@ export const SessionEventTypeSchema = z.enum([
   "session.created",
   "session.started",
   "user.message",
+  "synthesis.checkpoint.imported",
   "cloud.egress.admission.recorded",
   "routing.decision.recorded",
   "route.assigned",
@@ -326,6 +327,53 @@ const safePositiveInteger = z.number().int().positive().safe();
 const boundedV2Id = requiredId.max(256);
 const boundedCode = z.string().trim().min(1).max(128).regex(/^[a-z0-9][a-z0-9._-]*$/u);
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
+
+const sortedCompletedRequiredToolNamesSchema = z
+  .array(CompletionObligationToolNameSchema)
+  .max(maximumAgenticPolicySteps)
+  .superRefine((toolNames, context) => {
+    for (let index = 1; index < toolNames.length; index += 1) {
+      const previous = toolNames[index - 1];
+      const current = toolNames[index];
+      if (previous !== undefined && current !== undefined && previous >= current) {
+        context.addIssue({
+          code: "custom",
+          message: "completed required tool names must be sorted and unique",
+          path: [index],
+        });
+      }
+    }
+  });
+
+/**
+ * Hash-only PR6R development handoff. The durable event deliberately contains
+ * no prompt, repository material, workspace path, endpoint, or credential.
+ */
+export const SynthesisCheckpointImportedPayloadSchema = z
+  .object({
+    schemaVersion: z.literal("synthesis-checkpoint-import-v1"),
+    importId: boundedV2Id,
+    parentSessionId: boundedV2Id,
+    parentLastSequence: safePositiveInteger,
+    commonInvestigationSha256: sha256,
+    commonCheckpointSha256: sha256,
+    checkpointId: boundedV2Id,
+    packetSha256: sha256,
+    semanticMessagesSha256: sha256,
+    responseSchemaSha256: sha256,
+    provenanceSemanticSha256: sha256,
+    reviewSnapshotId: sha256,
+    reviewEvidenceSetId: sha256,
+    reviewProvenanceSha256: sha256,
+    completedRequiredToolNames: sortedCompletedRequiredToolNamesSchema,
+    retainedLocalLeaseId: boundedV2Id,
+    importedAt: z.string().datetime({ offset: true }),
+  })
+  .strict();
+
+export type SynthesisCheckpointImportedPayload = z.infer<
+  typeof SynthesisCheckpointImportedPayloadSchema
+>;
 
 const sortedCloudEgressReasonCodesSchema = z
   .array(boundedCode)
@@ -1694,6 +1742,8 @@ export const InferenceAttemptFinishedPayloadSchema = z
     latencyMs: nonNegativeNumber,
     ttftMs: nonNegativeNumber.optional(),
     errorCode: boundedCode.optional(),
+    responseBodySha256: sha256.optional(),
+    reviewResultSha256: sha256.optional(),
   })
   .strict()
   .superRefine((attempt, context) => {
@@ -1766,6 +1816,29 @@ export const InferenceAttemptFinishedPayloadSchema = z
         code: "custom",
         message: "reserved_unknown requires a sent or unknown reserved request",
         path: ["cost", "reservationId"],
+      });
+    }
+    if (
+      attempt.responseBodySha256 !== undefined &&
+      attempt.requestDisposition !== "sent"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "responseBodySha256 requires requestDisposition sent",
+        path: ["responseBodySha256"],
+      });
+    }
+    if (
+      attempt.reviewResultSha256 !== undefined &&
+      (attempt.responseBodySha256 === undefined ||
+        attempt.outcome !== "succeeded" ||
+        attempt.requestDisposition !== "sent")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "reviewResultSha256 requires a successful sent attempt and responseBodySha256",
+        path: ["reviewResultSha256"],
       });
     }
   });
@@ -1921,6 +1994,13 @@ const userMessageSchema = z
         content: z.string().min(1),
       })
       .strict(),
+  })
+  .strict();
+
+const synthesisCheckpointImportedSchema = z
+  .object({
+    type: z.literal("synthesis.checkpoint.imported"),
+    payload: SynthesisCheckpointImportedPayloadSchema,
   })
   .strict();
 
@@ -2328,6 +2408,7 @@ export const SessionEventDataSchema = z.discriminatedUnion("type", [
   sessionCreatedSchema,
   sessionStartedSchema,
   userMessageSchema,
+  synthesisCheckpointImportedSchema,
   cloudEgressAdmissionRecordedSchema,
   routingDecisionRecordedSchema,
   routeAssignedSchema,

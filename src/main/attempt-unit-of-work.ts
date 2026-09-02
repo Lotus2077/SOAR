@@ -5,7 +5,10 @@ import {
   type SessionEventData,
   type StoredSessionEvent,
 } from "../shared/session-events";
-import type { InferenceAttemptRecord } from "../shared/session-reducer";
+import type {
+  InferenceAttemptRecord,
+  SessionState,
+} from "../shared/session-reducer";
 import {
   RuntimeCostScopeSchema,
   type RuntimeCostScope,
@@ -100,6 +103,12 @@ function validateBudgetedStartEventIds(
 export interface CommitAttemptFinishInput extends AtomicEventBatch {
   /** Required only when the attempt owns a budget reservation. */
   terminalLedgerEntryId?: string;
+  /**
+   * Optional synchronous state assertion executed inside the same immediate
+   * transaction before accounting or events mutate. Recovery adapters use it
+   * to preserve their narrower replay contract.
+   */
+  assertOpenState?: (state: Readonly<SessionState>) => unknown;
 }
 
 export interface CommittedAttemptStart {
@@ -109,17 +118,181 @@ export interface CommittedAttemptStart {
   dispatchAuthorized: true;
   paidDispatchAuthorized: boolean;
   budgetResolution?: BudgetReservationResolution;
+  /** Opaque, process-local proof that the SQLite transaction committed. */
+  persistenceReceipt: AttemptStartPersistenceReceipt;
 }
 
 export interface CommittedAttemptFinish {
   events: StoredSessionEvent[];
   attemptId: string;
   terminalBudgetEntry?: BudgetTerminalEntry;
+  /** Opaque, process-local proof that the SQLite transaction committed. */
+  persistenceReceipt: AttemptFinishPersistenceReceipt;
+}
+
+export interface AttemptStartPersistenceReceipt {
+  readonly kind: "attempt_start_persistence_receipt";
+}
+
+export interface AttemptFinishPersistenceReceipt {
+  readonly kind: "attempt_finish_persistence_receipt";
+}
+
+export interface ConsumedAttemptStartPersistenceProof {
+  readonly ledger: BudgetLedger;
+  readonly sessionId: string;
+  readonly createdAt: string;
+  readonly inputAttemptId: string;
+  readonly inputProviderId: string;
+  readonly committedAttemptId: string;
+  readonly committedProviderId: string;
+  readonly costScope: RuntimeCostScope;
+  readonly cloudEgressAdmissionId?: string;
+  readonly campaignId?: string;
+  readonly reservationId?: string;
+  readonly pricingSnapshotId?: string;
+  readonly budgetResolution?: BudgetReservationResolution;
+  readonly events: readonly StoredSessionEvent[];
+}
+
+export interface ConsumedAttemptFinishPersistenceProof {
+  readonly ledger: BudgetLedger;
+  readonly sessionId: string;
+  readonly createdAt: string;
+  readonly attemptId: string;
+  readonly terminalBudgetEntry?: BudgetTerminalEntry;
+  readonly events: readonly StoredSessionEvent[];
+}
+
+interface AttemptStartPersistenceState
+  extends ConsumedAttemptStartPersistenceProof {
+  consumed: boolean;
+}
+
+interface AttemptFinishPersistenceState
+  extends ConsumedAttemptFinishPersistenceProof {
+  consumed: boolean;
+}
+
+const attemptStartPersistenceState = new WeakMap<
+  AttemptStartPersistenceReceipt,
+  AttemptStartPersistenceState
+>();
+const attemptFinishPersistenceState = new WeakMap<
+  AttemptFinishPersistenceReceipt,
+  AttemptFinishPersistenceState
+>();
+
+function frozenStoredEvents(
+  events: readonly StoredSessionEvent[],
+): readonly StoredSessionEvent[] {
+  return Object.freeze(events.map((event) => Object.freeze(structuredClone(event))));
+}
+
+export function consumeAttemptStartPersistenceReceipt(
+  receipt: AttemptStartPersistenceReceipt,
+): ConsumedAttemptStartPersistenceProof {
+  const state = attemptStartPersistenceState.get(receipt);
+  if (state === undefined || state.consumed) {
+    throw new Error("Attempt start persistence receipt is forged or already consumed");
+  }
+  state.consumed = true;
+  const { consumed: _consumed, ...proof } = state;
+  return Object.freeze(proof);
+}
+
+export function consumeAttemptFinishPersistenceReceipt(
+  receipt: AttemptFinishPersistenceReceipt,
+): ConsumedAttemptFinishPersistenceProof {
+  const state = attemptFinishPersistenceState.get(receipt);
+  if (state === undefined || state.consumed) {
+    throw new Error("Attempt finish persistence receipt is forged or already consumed");
+  }
+  state.consumed = true;
+  const { consumed: _consumed, ...proof } = state;
+  return Object.freeze(proof);
+}
+
+function withStartPersistenceReceipt(
+  ledger: BudgetLedger,
+  input: {
+    sessionId: string;
+    createdAt: string;
+    attemptId: string;
+    providerId: string;
+    costScope: RuntimeCostScope;
+    cloudEgressAdmissionId?: string;
+    campaignId?: string;
+    reservationId?: string;
+    pricingSnapshotId?: string;
+  },
+  committed: Omit<CommittedAttemptStart, "persistenceReceipt">,
+): CommittedAttemptStart {
+  const receipt = Object.freeze({
+    kind: "attempt_start_persistence_receipt" as const,
+  });
+  attemptStartPersistenceState.set(receipt, {
+    ledger,
+    sessionId: input.sessionId,
+    createdAt: input.createdAt,
+    inputAttemptId: input.attemptId,
+    inputProviderId: input.providerId,
+    committedAttemptId: committed.attemptId,
+    committedProviderId: committed.providerId,
+    costScope: input.costScope,
+    ...(input.cloudEgressAdmissionId === undefined
+      ? {}
+      : { cloudEgressAdmissionId: input.cloudEgressAdmissionId }),
+    ...(input.campaignId === undefined ? {} : { campaignId: input.campaignId }),
+    ...(input.reservationId === undefined
+      ? {}
+      : { reservationId: input.reservationId }),
+    ...(input.pricingSnapshotId === undefined
+      ? {}
+      : { pricingSnapshotId: input.pricingSnapshotId }),
+    ...(committed.budgetResolution === undefined
+      ? {}
+      : { budgetResolution: structuredClone(committed.budgetResolution) }),
+    events: frozenStoredEvents(committed.events),
+    consumed: false,
+  });
+  return { ...committed, persistenceReceipt: receipt };
+}
+
+function withFinishPersistenceReceipt(
+  ledger: BudgetLedger,
+  input: Pick<CommitAttemptFinishInput, "sessionId" | "createdAt">,
+  committed: Omit<CommittedAttemptFinish, "persistenceReceipt">,
+): CommittedAttemptFinish {
+  const receipt = Object.freeze({
+    kind: "attempt_finish_persistence_receipt" as const,
+  });
+  attemptFinishPersistenceState.set(receipt, {
+    ledger,
+    sessionId: input.sessionId,
+    createdAt: input.createdAt,
+    attemptId: committed.attemptId,
+    ...(committed.terminalBudgetEntry === undefined
+      ? {}
+      : { terminalBudgetEntry: { ...committed.terminalBudgetEntry } }),
+    events: frozenStoredEvents(committed.events),
+    consumed: false,
+  });
+  return { ...committed, persistenceReceipt: receipt };
 }
 
 function parseBatch(events: readonly SessionEventData[]): SessionEventData[] {
   if (events.length === 0) throw new RangeError("atomic event batch cannot be empty");
   return events.map((event) => parseSessionEventData(event));
+}
+
+function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+  return (
+    (typeof value === "object" || typeof value === "function") &&
+    value !== null &&
+    "then" in value &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
 }
 
 function requireSingleAttemptStart(events: readonly SessionEventData[]) {
@@ -562,13 +735,26 @@ export class AttemptUnitOfWork {
       input.cloudEgressAdmissionId,
     );
     const stored = this.appendAtomicEvents(input, events, input.eventIds);
-    return {
-      events: stored,
-      attemptId: attempt.payload.attemptId,
-      providerId: attempt.payload.providerId,
-      dispatchAuthorized: true,
-      paidDispatchAuthorized: false,
-    };
+    return withStartPersistenceReceipt(
+      this.ledger,
+      {
+        sessionId: input.sessionId,
+        createdAt: input.createdAt,
+        attemptId: attempt.payload.attemptId,
+        providerId: attempt.payload.providerId,
+        costScope: input.costScope,
+        ...(input.cloudEgressAdmissionId === undefined
+          ? {}
+          : { cloudEgressAdmissionId: input.cloudEgressAdmissionId }),
+      },
+      {
+        events: stored,
+        attemptId: attempt.payload.attemptId,
+        providerId: attempt.payload.providerId,
+        dispatchAuthorized: true,
+        paidDispatchAuthorized: false,
+      },
+    );
   }
 
   commitBudgetedStart(
@@ -581,7 +767,7 @@ export class AttemptUnitOfWork {
       );
     }
     validateBudgetedStartEventIds(input);
-    return this.ledger.runImmediate((transaction) => {
+    const committed = this.ledger.runImmediate((transaction) => {
       const state = this.store.replay(input.sessionId);
       if (state.lastSequence !== input.expectedSequence) {
         throw new SequenceConflictError(
@@ -630,6 +816,23 @@ export class AttemptUnitOfWork {
         budgetResolution: resolution,
       };
     });
+    return withStartPersistenceReceipt(
+      this.ledger,
+      {
+        sessionId: input.sessionId,
+        createdAt: input.createdAt,
+        attemptId: input.attemptId,
+        providerId: input.providerId,
+        costScope,
+        ...(input.cloudEgressAdmissionId === undefined
+          ? {}
+          : { cloudEgressAdmissionId: input.cloudEgressAdmissionId }),
+        campaignId: input.campaignId,
+        reservationId: input.reservationId,
+        pricingSnapshotId: input.pricingSnapshotId,
+      },
+      committed,
+    );
   }
 
   commitAttemptFinish(
@@ -637,7 +840,7 @@ export class AttemptUnitOfWork {
   ): CommittedAttemptFinish {
     const parsedEvents = parseBatch(input.events);
     const finishEvent = validateAttemptFinishBatch(parsedEvents);
-    return this.ledger.runImmediate((transaction) => {
+    const committed = this.ledger.runImmediate((transaction) => {
       const state = this.store.replay(input.sessionId);
       if (state.lastSequence !== input.expectedSequence) {
         throw new SequenceConflictError(
@@ -645,6 +848,10 @@ export class AttemptUnitOfWork {
           input.expectedSequence,
           state.lastSequence,
         );
+      }
+      const assertionResult = input.assertOpenState?.(state);
+      if (isPromiseLike(assertionResult)) {
+        throw new TypeError("attempt finish state assertions must be synchronous");
       }
       const attempt = state.inferenceAttempts.find(
         (candidate) => candidate.attemptId === finishEvent.payload.attemptId,
@@ -695,6 +902,7 @@ export class AttemptUnitOfWork {
         ...(terminalBudgetEntry === undefined ? {} : { terminalBudgetEntry }),
       };
     });
+    return withFinishPersistenceReceipt(this.ledger, input, committed);
   }
 
   commitRecoveryFinish(

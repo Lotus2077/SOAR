@@ -35,15 +35,18 @@ independent-review, and Linux/macOS CI gates passed on
 `ddd171c6092f695e64360d73e78a257ee3fb9159`. This is `$0` phase-B substrate
 evidence, not signed credential-continuity or provider evidence.
 
-## Implemented PR6R-A1 checkpoint
+## Implemented PR6R-A checkpoints
 
 PR6R-A is approved only for the `$0`, loopback-development sequence. Its A1
 contracts, exact public-fixture materializer, development-only Electron graph,
 canary store, and OS-user-local authority ledger are present in the current
 working milestone and are **Implemented** on exact revision
 `4cab8a7d61ef648fdfed6b03653c5bfbe367e28d` after independent review,
-committed-head proof, and Linux/macOS CI run `33603435199`. A1 is not Verified
-or Released. A2 and A3 are not implemented.
+committed-head proof, and Linux/macOS CI run `33603435199`. A2's backend-only
+sealed loopback transport, SQLite/OS accounting, and conservative recovery are
+also Implemented in the current revision with focused local proof; committed-
+head Linux/macOS closure is still pending. Neither A1 nor A2 is Verified or
+Released, and A3 is not implemented.
 
 A1 proof is deliberately narrow:
 
@@ -62,6 +65,36 @@ A1 proof is deliberately narrow:
   allowance for the versioned projection envelope. Those hashes prove host-canonical
   equality, not secrecy, authenticity outside the host boundary, model quality,
   or an external provider event.
+
+A2 proof is also deliberately narrow:
+
+- one hash-only synthesis child imports the exact completed public-fixture
+  checkpoint, inherits the existing Local lease, and starts with zero child
+  attempts. Restart authority is reminted only after transiently rehydrated
+  packet/message/checkpoint inputs revalidate against the exact parent and
+  import-only child;
+- one direct `node:http` loopback transport accepts only the sealed canonical
+  request, a live fixture-listener capability, genuine runtime/OS/SQLite
+  authority, and one admitted simulation reservation. It has no credential,
+  proxy, redirect, retry, SDK, configured provider, or arbitrary URL input;
+- atomic SQLite start/finish accounting and the OS slot ledger are reconciled
+  through nominal live two-store witnesses. Budget denial and pre-reservation
+  cancellation make zero requests; every sent crash recovers without
+  redispatch, and an admitted open attempt consumes the full simulation
+  reservation as `unknown`;
+- the first all-pending comparison/projection pair consumes a separate one-use
+  live-campaign authority over the exact campaign-only replay. A later terminal
+  transition is bound to the exact prior replay and may change only its matching
+  decision; reuse, unrelated decision/fallback mutation, topology changes, and
+  schema-rejection validity mislabeling fail closed;
+- complete bounded responses persist only normalized usage, cost, stable
+  terminal facts, and optional response/result hashes. File-backed success and
+  malformed-response tests scan every SQLite table, the closed database files,
+  and the safe finish projection for unique raw request/response markers; and
+- the focused local matrix passes strict parser/framing, IPv4/IPv6, one-use
+  authority, zero/one observed-request, cancellation, denial, exact host-priced
+  settlement, crash/reopen, transplant, deletion, and idempotent-recovery
+  cases. This is synthetic loopback evidence, not provider or quality evidence.
 
 The following limitations are part of the readiness contract:
 
@@ -83,11 +116,22 @@ The following limitations are part of the readiness contract:
 - the current special signature denylist includes `local_only_v1`, which A3
   will legitimately need. A3 must replace or narrowly scope that heuristic
   through the exact graph/provenance policy and regression tests; and
-- A1 has no loopback transport episode, attempt/budget unit of work, app
-  coordinator, interactive canary UI, configured-provider request, credential
-  resolution, off-device egress, actual-cost reservation, or paid inference.
+- A2 remains absent from renderer, preload, IPC, bootstrap, the retained
+  Electron graph, and packaged activation; build proof remains v5. A3 must bind
+  the canonical reopened ledger, run dedicated PR6R recovery before generic
+  startup recovery, transiently reconstruct the public packet/messages, remove
+  or explicitly reassess the narrow static ESM cycle, and advance the retained
+  graph proof to v6;
+- A2's deterministic runner accepts explicit ID/clock sources for fault proof,
+  but validates and freezes all IDs and its one canonical nonfuture timestamp
+  before the first OS effect. A3 must encapsulate production host sources in
+  its retained coordinator rather than expose them through IPC or renderer
+  input; and
+- A1/A2 have no app coordinator, interactive canary UI, configured-provider
+  request, credential resolution, off-device egress, actual-cost reservation,
+  or paid inference.
 
-Accordingly, A1 proves no review quality, best-result regret, routing benefit,
+Accordingly, A1/A2 prove no review quality, best-result regret, routing benefit,
 cost saving, latency improvement, production readiness, verification, or
 release. Contributor commands and cleanup boundaries are documented in
 [CONTRIBUTING.md](../CONTRIBUTING.md).
@@ -213,9 +257,8 @@ release. Contributor commands and cleanup boundaries are documented in
 
 ## Not implemented
 
-- PR6R-A2 sealed one-use loopback transport and simulation accounting, PR6R-A3
-  coordinator/UI/package proof, and every later PR6R-B credential/provider or
-  PR6R-C paid-provider phase;
+- PR6R-A3 coordinator/UI/package proof and every later PR6R-B credential/
+  provider or PR6R-C paid-provider phase;
 - production cloud-provider execution, dispatch-time credential retrieval, or
   remote credential validation;
 - real/production hybrid routing, production provider-health/price acquisition, or

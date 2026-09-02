@@ -2,6 +2,10 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   AttemptUnitOfWork,
+  consumeAttemptFinishPersistenceReceipt,
+  consumeAttemptStartPersistenceReceipt,
+  type AttemptFinishPersistenceReceipt,
+  type AttemptStartPersistenceReceipt,
   type AtomicPersistenceFaultPoint,
 } from "../../src/main/attempt-unit-of-work";
 import {
@@ -15,6 +19,7 @@ import {
 } from "../../src/main/database";
 import { buildInspectGitChangesResultV1 } from "../../src/main/change-acquisition-contracts";
 import { EventStore } from "../../src/main/event-store";
+import type { SessionState } from "../../src/shared/session-reducer";
 import {
   HYBRID_SIMULATION_CAMPAIGN_CREATED_AT,
   HYBRID_SIMULATION_CONSENT_ID,
@@ -864,6 +869,63 @@ afterEach(() => {
 });
 
 describe("AttemptUnitOfWork", () => {
+  it("mints nominal one-use persistence proofs only for committed starts", () => {
+    const fixture = makeEvidenceReady();
+    const committed = commitCloudStart(fixture);
+    const proof = consumeAttemptStartPersistenceReceipt(
+      committed.persistenceReceipt,
+    );
+    expect(proof).toMatchObject({
+      ledger: fixture.ledger,
+      sessionId: SESSION_ID,
+      inputAttemptId: CLOUD_ATTEMPT_ID,
+      committedAttemptId: CLOUD_ATTEMPT_ID,
+      reservationId: RESERVATION_ID,
+      budgetResolution: { status: "admitted" },
+    });
+    expect(() =>
+      consumeAttemptStartPersistenceReceipt(committed.persistenceReceipt),
+    ).toThrow(/already consumed/u);
+    expect(() =>
+      consumeAttemptStartPersistenceReceipt({
+        ...committed.persistenceReceipt,
+      } as AttemptStartPersistenceReceipt),
+    ).toThrow(/forged/u);
+  });
+
+  it("mints nominal one-use persistence proofs only for committed finishes", () => {
+    const fixture = makeEvidenceReady();
+    commitCloudStart(fixture);
+    const committed = fixture.attempts.commitAttemptFinish({
+      sessionId: SESSION_ID,
+      expectedSequence: 18,
+      createdAt: "2026-08-29T00:00:05.000Z",
+      eventIds: eventIds("receipt-finish", 2),
+      terminalLedgerEntryId: "receipt-finish-terminal",
+      events: successfulCloudFinishEvents(),
+    });
+    const proof = consumeAttemptFinishPersistenceReceipt(
+      committed.persistenceReceipt,
+    );
+    expect(proof).toMatchObject({
+      ledger: fixture.ledger,
+      sessionId: SESSION_ID,
+      attemptId: CLOUD_ATTEMPT_ID,
+      terminalBudgetEntry: {
+        id: "receipt-finish-terminal",
+        reservationId: RESERVATION_ID,
+      },
+    });
+    expect(() =>
+      consumeAttemptFinishPersistenceReceipt(committed.persistenceReceipt),
+    ).toThrow(/already consumed/u);
+    expect(() =>
+      consumeAttemptFinishPersistenceReceipt({
+        ...committed.persistenceReceipt,
+      } as AttemptFinishPersistenceReceipt),
+    ).toThrow(/forged/u);
+  });
+
   it("rejects a simulation route whose candidate escapes the persisted fake-provider authority", () => {
     const fixture = setup();
     const events = structuredClone(initialLocalStartEvents());
@@ -1577,6 +1639,7 @@ describe("AttemptUnitOfWork", () => {
   it("atomically charges an unknown recovered request in full exactly once", () => {
     const fixture = makeEvidenceReady();
     commitCloudStart(fixture);
+    let recoveryStateAssertionCount = 0;
     const events: SessionEventData[] = [
       {
         type: "inference.attempt.finished",
@@ -1613,8 +1676,14 @@ describe("AttemptUnitOfWork", () => {
       eventIds: eventIds("recovery", events.length),
       events,
       terminalLedgerEntryId: "recovery-settlement-1",
+      assertOpenState: (state: Readonly<SessionState>) => {
+        recoveryStateAssertionCount += 1;
+        expect(state.lastSequence).toBe(18);
+        expect(state.inferenceAttempts.at(-1)?.finished).toBeUndefined();
+      },
     };
     const committed = fixture.attempts.commitRecoveryFinish(input);
+    expect(recoveryStateAssertionCount).toBe(1);
     expect(committed.terminalBudgetEntry).toMatchObject({
       rowType: "settlement",
       costScope: "simulation",

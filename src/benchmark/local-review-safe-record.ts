@@ -59,6 +59,75 @@ function envelope<T extends string, S extends z.ZodType>(
     .strict();
 }
 
+const SafeInferenceAttemptFinishedPayloadSchema = z
+  .object({
+    attemptId: id,
+    checkpointId: id,
+    outcome: z.enum([
+      "succeeded",
+      "provider_error",
+      "protocol_error",
+      "cancelled",
+      "timeout",
+      "interrupted",
+    ]),
+    requestDisposition: z.enum(["not_sent", "sent", "unknown"]),
+    finishReason: SafeFinishReasonSchema.optional(),
+    servedModelMatchesRequested: z.boolean().optional(),
+    usage: z
+      .object({
+        inputTokens: nonNegativeInteger,
+        outputTokens: nonNegativeInteger,
+        reasoningTokens: nonNegativeInteger,
+        cacheReadTokens: nonNegativeInteger.optional(),
+        reported: z.boolean(),
+      })
+      .strict(),
+    cost: z
+      .object({
+        amountMicrousd: nonNegativeInteger,
+        provenance: z.enum([
+          "local_zero_cost_policy",
+          "provider_reported",
+          "host_pricing_snapshot",
+          "reserved_unknown",
+        ]),
+        reservationId: optionalId,
+      })
+      .strict(),
+    latencyMs: nonNegativeNumber,
+    ttftMs: nonNegativeNumber.optional(),
+    errorCode: optionalId,
+    responseBodySha256: sha256.optional(),
+    reviewResultSha256: sha256.optional(),
+  })
+  .strict()
+  .superRefine((attempt, context) => {
+    if (
+      attempt.responseBodySha256 !== undefined &&
+      attempt.requestDisposition !== "sent"
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "responseBodySha256 requires requestDisposition sent",
+        path: ["responseBodySha256"],
+      });
+    }
+    if (
+      attempt.reviewResultSha256 !== undefined &&
+      (attempt.responseBodySha256 === undefined ||
+        attempt.outcome !== "succeeded" ||
+        attempt.requestDisposition !== "sent")
+    ) {
+      context.addIssue({
+        code: "custom",
+        message:
+          "reviewResultSha256 requires a successful sent attempt and responseBodySha256",
+        path: ["reviewResultSha256"],
+      });
+    }
+  });
+
 const SafeEventV1Schema = z.discriminatedUnion("type", [
   envelope(
     "session.created",
@@ -223,47 +292,7 @@ const SafeEventV1Schema = z.discriminatedUnion("type", [
   ),
   envelope(
     "inference.attempt.finished",
-    z
-      .object({
-        attemptId: id,
-        checkpointId: id,
-        outcome: z.enum([
-          "succeeded",
-          "provider_error",
-          "protocol_error",
-          "cancelled",
-          "timeout",
-          "interrupted",
-        ]),
-        requestDisposition: z.enum(["not_sent", "sent", "unknown"]),
-        finishReason: SafeFinishReasonSchema.optional(),
-        servedModelMatchesRequested: z.boolean().optional(),
-        usage: z
-          .object({
-            inputTokens: nonNegativeInteger,
-            outputTokens: nonNegativeInteger,
-            reasoningTokens: nonNegativeInteger,
-            cacheReadTokens: nonNegativeInteger.optional(),
-            reported: z.boolean(),
-          })
-          .strict(),
-        cost: z
-          .object({
-            amountMicrousd: nonNegativeInteger,
-            provenance: z.enum([
-              "local_zero_cost_policy",
-              "provider_reported",
-              "host_pricing_snapshot",
-              "reserved_unknown",
-            ]),
-            reservationId: optionalId,
-          })
-          .strict(),
-        latencyMs: nonNegativeNumber,
-        ttftMs: nonNegativeNumber.optional(),
-        errorCode: optionalId,
-      })
-      .strict(),
+    SafeInferenceAttemptFinishedPayloadSchema,
   ),
   envelope(
     "completion.obligations.checked",
@@ -615,6 +644,12 @@ function projectSafeLocalReviewEventWithStateV1(
           latencyMs: payload.latencyMs,
           ...(payload.ttftMs === undefined ? {} : { ttftMs: payload.ttftMs }),
           ...(payload.errorCode ? { errorCode: payload.errorCode } : {}),
+          ...(payload.responseBodySha256 === undefined
+            ? {}
+            : { responseBodySha256: payload.responseBodySha256 }),
+          ...(payload.reviewResultSha256 === undefined
+            ? {}
+            : { reviewResultSha256: payload.reviewResultSha256 }),
         },
       };
       break;
@@ -673,6 +708,10 @@ function projectSafeLocalReviewEventWithStateV1(
     case "session.interrupted":
       projected = { ...common, payload: { terminal: "interrupted" } };
       break;
+    case "synthesis.checkpoint.imported":
+      throw new Error(
+        "PR6R synthesis checkpoint imports are not Local-review benchmark events.",
+      );
     default:
       return assertNever(data);
   }

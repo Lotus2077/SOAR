@@ -22,6 +22,7 @@ import {
   type SessionEventType,
   type SessionStatus,
   type StoredSessionEvent,
+  type SynthesisCheckpointImportedPayload,
 } from "./session-events";
 import {
   HYBRID_SIMULATION_ROUTING_POLICY_ID,
@@ -157,6 +158,12 @@ export interface CloudEgressAdmissionRecord
   createdAt: string;
 }
 
+export interface SynthesisCheckpointImportRecord
+  extends SynthesisCheckpointImportedPayload {
+  sequence: number;
+  createdAt: string;
+}
+
 export interface SessionScopedCostAmounts {
   reservedMicrousd: number;
   settledMicrousd: number;
@@ -186,6 +193,8 @@ export interface SessionState {
   cloudEgressAdmissions: CloudEgressAdmissionRecord[];
   routingDecisions: RoutingDecisionRecord[];
   inferenceAttempts: InferenceAttemptRecord[];
+  /** Present only in PR6R development synthesis children. */
+  synthesisCheckpointImport?: SynthesisCheckpointImportRecord;
   executionPolicy?: AgenticExecutionPolicy;
   hybridSimulation?: HybridSimulationSessionAuthorityV1;
   completionObligations: CompletionObligations;
@@ -391,6 +400,90 @@ function hasCompleteRoutingEvidence(state: SessionState): boolean {
   return allToolCalls(state).some(hasSuccessfulToolResult);
 }
 
+function importedCheckpointMatchesAdmission(
+  state: SessionState,
+  admission: CloudEgressAdmissionRecordV1,
+): boolean {
+  const imported = state.synthesisCheckpointImport;
+  const activeRoute = state.routes.at(-1);
+  return (
+    imported !== undefined &&
+    state.lastV2EventType === "synthesis.checkpoint.imported" &&
+    imported.sequence === state.lastSequence - 1 &&
+    state.inferenceAttempts.length === 0 &&
+    state.contextCompilations.length === 0 &&
+    state.routingDecisions.length === 0 &&
+    activeRoute?.leaseId === imported.retainedLocalLeaseId &&
+    activeRoute.phase === "investigation" &&
+    admission.checkpointId === imported.checkpointId &&
+    admission.messagesSemanticSha256 === imported.semanticMessagesSha256 &&
+    admission.provenanceSemanticSha256 ===
+      imported.provenanceSemanticSha256
+  );
+}
+
+function importedCheckpointMatchesDecision(
+  state: SessionState,
+  decision: RoutingDecisionPayload,
+): boolean {
+  const imported = state.synthesisCheckpointImport;
+  const admission = state.cloudEgressAdmissions.at(-1);
+  if (
+    imported === undefined ||
+    admission === undefined ||
+    imported.sequence !== state.lastSequence - 2 ||
+    admission.sequence !== state.lastSequence - 1 ||
+    state.lastV2EventType !== "cloud.egress.admission.recorded" ||
+    state.inferenceAttempts.length !== 0 ||
+    state.contextCompilations.length !== 0 ||
+    state.routingDecisions.length !== 0 ||
+    decision.boundary !== "evidence_complete" ||
+    decision.routerInputSnapshot === undefined ||
+    decision.priorLeaseId !== imported.retainedLocalLeaseId
+  ) {
+    return false;
+  }
+  const packetCheckpointId =
+    decision.checkpointId ?? decision.proposalCheckpointId;
+  const packetSha256 =
+    decision.packetSha256 ?? decision.proposalPacketSha256;
+  const messagesSha256 =
+    decision.messagesSha256 ?? decision.proposalMessagesSha256;
+  if (
+    packetCheckpointId !== imported.checkpointId ||
+    packetSha256 !== imported.packetSha256 ||
+    messagesSha256 !== imported.semanticMessagesSha256 ||
+    decision.provenanceSemanticSha256 !==
+      imported.provenanceSemanticSha256 ||
+    admission.checkpointId !== imported.checkpointId ||
+    admission.messagesSemanticSha256 !== imported.semanticMessagesSha256 ||
+    admission.provenanceSemanticSha256 !==
+      imported.provenanceSemanticSha256
+  ) {
+    return false;
+  }
+  const importedFacts = decision.triggerFacts.filter(
+    (fact) => fact.key !== "budget_denial_reason",
+  );
+  return (
+    JSON.stringify(importedFacts) ===
+      JSON.stringify([
+        { key: "router_evidence_import_id", value: imported.importId },
+        { key: "router_evidence_ready", value: true },
+        {
+          key: "router_evidence_source",
+          value: "pr6r_imported_checkpoint_v1",
+        },
+        {
+          key: "router_successful_investigation_attempt_count",
+          value: 0,
+        },
+      ]) &&
+    (decision.reasonCode === "budget_denial") ===
+      decision.triggerFacts.some((fact) => fact.key === "budget_denial_reason")
+  );
+}
+
 function openInferenceAttempts(state: SessionState): InferenceAttemptRecord[] {
   return state.inferenceAttempts.filter((attempt) => attempt.finished === undefined);
 }
@@ -441,6 +534,15 @@ function assertV2StartGrammar(
   ) {
     throw new Error(
       "A cloud egress admission record must be followed by its routing decision",
+    );
+  }
+  if (
+    lastType === "synthesis.checkpoint.imported" &&
+    event.type !== "cloud.egress.admission.recorded" &&
+    event.type !== "session.cancelled"
+  ) {
+    throw new Error(
+      "An imported synthesis checkpoint must be followed by cloud egress admission or session cancellation",
     );
   }
   if (lastType === "routing.decision.recorded") {
@@ -681,6 +783,7 @@ function ensureActive(state: SessionState, event: StoredSessionEvent): void {
 function ensureRunning(state: SessionState, event: StoredSessionEvent): void {
   const runningOnlyEvent =
     event.type === "routing.decision.recorded" ||
+    event.type === "synthesis.checkpoint.imported" ||
     event.type === "cloud.egress.admission.recorded" ||
     event.type === "route.assigned" ||
     event.type === "assistant.message.started" ||
@@ -829,6 +932,16 @@ export function reduceSessionEvent(
     inferenceAttempts: (state.inferenceAttempts ?? []).map(
       cloneInferenceAttempt,
     ),
+    ...(state.synthesisCheckpointImport === undefined
+      ? {}
+      : {
+          synthesisCheckpointImport: {
+            ...state.synthesisCheckpointImport,
+            completedRequiredToolNames: [
+              ...state.synthesisCheckpointImport.completedRequiredToolNames,
+            ],
+          },
+        }),
     completionObligations: cloneCompletionObligations(
       state.completionObligations ?? EMPTY_COMPLETION_OBLIGATIONS,
     ),
@@ -896,6 +1009,73 @@ export function reduceSessionEvent(
         status: "completed",
       });
       break;
+    case "synthesis.checkpoint.imported": {
+      const policy = v2Policy(next);
+      const authority = next.hybridSimulation;
+      if (
+        policy?.routingPolicy !== HYBRID_SIMULATION_ROUTING_POLICY_ID ||
+        authority === undefined ||
+        next.taskTrack !== "change-review-v1"
+      ) {
+        throw new Error(
+          "synthesis checkpoint imports require a Hybrid simulation change-review child",
+        );
+      }
+      if (
+        next.lastV2EventType !== "session.started" ||
+        next.synthesisCheckpointImport !== undefined ||
+        next.routes.length !== 0 ||
+        next.routingDecisions.length !== 0 ||
+        next.cloudEgressAdmissions.length !== 0 ||
+        next.contextCompilations.length !== 0 ||
+        next.inferenceAttempts.length !== 0 ||
+        next.messages.some((message) => message.role === "assistant")
+      ) {
+        throw new Error(
+          "synthesis checkpoint import must be the first and only child handoff after session start",
+        );
+      }
+      if (
+        event.payload.importedAt !== event.createdAt ||
+        event.payload.parentSessionId === event.sessionId ||
+        event.payload.checkpointId !== `${event.sessionId}:context:1`
+      ) {
+        throw new Error(
+          "synthesis checkpoint import has an invalid timestamp, parent, or child checkpoint identity",
+        );
+      }
+      const expectedCompletedTools = [
+        ...next.completionObligations.requiredSuccessfulTools,
+      ].sort();
+      if (
+        !equalStrings(
+          event.payload.completedRequiredToolNames,
+          expectedCompletedTools,
+        )
+      ) {
+        throw new Error(
+          "synthesis checkpoint import must bind every child required tool as completed parent evidence",
+        );
+      }
+      next.synthesisCheckpointImport = {
+        ...event.payload,
+        completedRequiredToolNames: [
+          ...event.payload.completedRequiredToolNames,
+        ],
+        sequence: event.sequence,
+        createdAt: event.createdAt,
+      };
+      next.routes.push({
+        providerId: authority.fakeLocalProvider.providerId,
+        model: authority.fakeLocalProvider.model,
+        reason: "inherited PR6R Local investigation lease",
+        leaseId: event.payload.retainedLocalLeaseId,
+        phase: "investigation",
+        sequence: event.sequence,
+        createdAt: event.createdAt,
+      });
+      break;
+    }
     case "cloud.egress.admission.recorded": {
       const policy = v2Policy(next);
       const authority = next.hybridSimulation;
@@ -920,7 +1100,10 @@ export function reduceSessionEvent(
           "cloud egress admission does not match the session simulation authority",
         );
       }
-      if (!hasCompleteRoutingEvidence(next)) {
+      if (
+        !hasCompleteRoutingEvidence(next) &&
+        !importedCheckpointMatchesAdmission(next, event.payload)
+      ) {
         throw new Error(
           "cloud egress admission requires complete Local investigation evidence",
         );
@@ -960,6 +1143,10 @@ export function reduceSessionEvent(
       }
       const simulationPolicy =
         policy.routingPolicy === HYBRID_SIMULATION_ROUTING_POLICY_ID;
+      const usesImportedCheckpoint = importedCheckpointMatchesDecision(
+        next,
+        event.payload,
+      );
       if (simulationPolicy) {
         const authority = next.hybridSimulation;
         if (
@@ -1219,12 +1406,26 @@ export function reduceSessionEvent(
       if (event.payload.boundary === "evidence_complete") {
         const successfulInvestigationCount =
           successfulInvestigationAttemptCount(next);
-        if (!hasCompleteRoutingEvidence(next)) {
+        if (
+          !hasCompleteRoutingEvidence(next) &&
+          !usesImportedCheckpoint
+        ) {
           throw new Error(
             "evidence_complete requires successful investigation and completed evidence obligations",
           );
         }
-        if (event.payload.routerInputSnapshot !== undefined) {
+        if (
+          next.synthesisCheckpointImport !== undefined &&
+          !usesImportedCheckpoint
+        ) {
+          throw new Error(
+            "imported checkpoint evidence requires its exact admission, packet, provenance, and trigger-fact binding",
+          );
+        }
+        if (
+          event.payload.routerInputSnapshot !== undefined &&
+          !usesImportedCheckpoint
+        ) {
           const evidenceReadyFact = event.payload.triggerFacts.find(
             (fact) => fact.key === "router_evidence_ready",
           );

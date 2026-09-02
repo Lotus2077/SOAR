@@ -625,8 +625,11 @@ A crash between those terminal writes is reconciliation-only and cannot
 dispatch or unlock downstream authority. After an admitted start, grant mint
 and consumption occur in the same synchronous turn with no cancellation gap. A
 crash or later cancellation is conservatively `unknown` and consumes the full
-reservation. A response observed from the server is `sent`; valid usage settles
-from the host pricing snapshot without trusting a provider cost field.
+reservation. Only a complete, bounded, framing-valid response body counts as
+observed and `sent`; headers alone do not. A timeout or cancellation after
+headers but before complete-body proof remains `unknown`, receives no response
+hash, and consumes the full reservation under payload contract v6. Valid usage
+settles from the host pricing snapshot without trusting a provider cost field.
 
 Focused acceptance requires exact captured method/path/headers/body/hash;
 IPv4/IPv6 success; forged, cloned, mismatched, stale, concurrent, and reused
@@ -634,7 +637,8 @@ grant denial; zero requests for budget denial and pre-reservation cancellation;
 no redirect or retry; stable classifications for HTTP, oversize, malformed
 JSON/UTF-8, model/protocol/usage/result errors, timeout, socket ambiguity, and
 post-dispatch cancellation; atomic start-before-server observation; exact
-host-priced settlement; injected crash tests at every saga boundary; durable
+host-priced settlement; an explicit headers-then-stall timeout/unknown
+regression; injected crash tests at every saga boundary; durable
 close/reopen replay with zero redispatch; no raw transport material in SQLite or
 safe output; unchanged normal Local/Fake simulation behavior; source/build
 proof of zero configured-provider construction; and focused independent

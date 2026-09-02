@@ -5893,3 +5893,49 @@ exact committed provider and cost/egress plan before any actual-paid dispatch.
 
 References: [PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md) and
 [A2 implementation plan](#bl-20260902-1555-pr6ra2-implementation-plan).
+
+### BL-20260902-1630-pr6ra2-timeout-disposition-correction -- 2026-09-02 -- Complete-body observation replaces headers-only sent inference
+
+Status: `Approved`
+
+Scope or hypothesis: Correct one ambiguity in the committed frozen A2 design
+without rewriting its audit record: a response can emit headers and then stall
+before a complete bounded body exists.
+
+Decisions:
+
+- Define A2 response observation as a complete, bounded, framing-valid response
+  body. Headers alone do not establish `requestDisposition=sent`.
+- Preserve payload-contract v6. A timeout or cancellation after headers but
+  before complete-body proof is `unknown`, carries no response-body hash, and
+  consumes the full simulation reservation. Do not invent a sent-timeout code
+  or payload-contract v7.
+- Require a headers-then-stall regression in the A2 transport proof.
+
+Changes: Corrected the mutable PR6R plan and appended this superseding decision.
+No runtime, event, canary payload, OS ledger, provider, credential, endpoint,
+egress, budget, renderer, IPC, package, or network behavior changed.
+
+Evidence: Independent review compared the frozen prose with the existing v6
+reason/disposition validator. `loopback.timeout` is valid only with `unknown`,
+while Node HTTP may expose headers before the response body completes.
+
+Failures or blockers: Commit `fee29d8` used the broader phrase "response
+observed" and could have led an implementation to classify a headers-only stall
+as sent. This entry supersedes only that phrase; the rest of the approved A2
+design remains intact. The correction commit and its exact-SHA Linux/macOS CI
+must pass before runtime implementation.
+
+Limitations and non-claims: This resolves the taxonomy ambiguity only. It does
+not implement or prove the transport, timeout race, accounting, provider access,
+actual spend, production readiness, verification, or release.
+
+Paid exposure: `$0`. Documentation review only; no provider or loopback request
+occurred.
+
+Next gate: Commit and push this append-only correction, then require exact-SHA
+Linux `check` and macOS `electron-e2e` success before A2 runtime changes.
+
+References: [PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
+[A2 implementation plan](#bl-20260902-1555-pr6ra2-implementation-plan), and
+[future paid authority](#bl-20260902-1610-pr6r-future-paid-authority).

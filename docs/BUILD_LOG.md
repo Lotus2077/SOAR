@@ -5583,3 +5583,313 @@ References: [PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
 [approval record](#bl-20260902-0445-pr6ra-approved),
 [CI run](https://github.com/Lotus2077/SOAR/actions/runs/33603435199),
 [MVP readiness](MVP_READINESS.md), and [architecture](ARCHITECTURE.md).
+
+### BL-20260902-1554-pr6ra1-closure-ci-evidence -- 2026-09-02 -- A1 closure record passed exact-SHA repository CI
+
+Status: `Implemented`
+
+Scope or hypothesis: Bind the status-only A1 closure record to its own exact
+commit and required Linux/macOS repository-health CI before beginning any A2
+runtime change.
+
+Decisions:
+
+- Treat `6a8bc0db27dce7d5eab4b72a456e424a92c55d6a` as the durable A1
+  closure-record revision. It changes documentation and the append-only ledger
+  only; A1 runtime remains bound to implementation revision `4cab8a7`.
+- Preserve A1 as Implemented, not Verified or Released. This evidence does not
+  change R-A2/R-A3 status and grants no R-B/R-C credential, configured-provider,
+  repository-egress, actual-budget, or paid authority.
+- Require the A2 design record committed with this evidence to pass its own
+  Linux/macOS repository-health CI before runtime implementation starts.
+
+Changes: Appended this evidence-only record after the closure commit passed its
+exact-SHA remote gates. No runtime, renderer, preload, IPC, SQLite schema,
+provider, credential, egress, budget, routing, tool, evaluator, dependency,
+package, or network behavior changed.
+
+Evidence:
+
+- GitHub Actions run `33604950171` completed successfully on exact SHA
+  `6a8bc0db27dce7d5eab4b72a456e424a92c55d6a`.
+- Linux `check` job `100166710575` passed frozen install, append-only comparison
+  against the pushed parent, readiness, typecheck, deterministic tests, and the
+  dual-flavor build gate in 1 minute 37 seconds.
+- macOS `electron-e2e` job `100167150221` passed frozen install, development
+  and normal build-flavor verification, and Electron E2E in 2 minutes 11
+  seconds.
+- The preceding independent closure review found no remaining actionable
+  P0/P1/P2 and verified the exact implementation SHA, run/job identities,
+  durations, five-file documentation diff, 60-entry ledger, append-only status,
+  and status/authority boundaries.
+
+Failures or blockers: No closure CI job failed. A review caught two candidate-
+record defects before commit: the next gate initially skipped closure-record CI,
+and an unqualified host-egress sentence ignored the GitHub push. The record now
+requires this exact evidence gate and scopes the no-egress claim to application/
+provider-bound review packets. The reviewer also questioned fixture-enabled
+test arithmetic; a direct full-suite rerun with the exact public fixture enabled
+proved 96 passed/two skipped files and 1,167 passed/four skipped tests, confirming
+that the separately recorded non-fixture release-head totals remain 95/three and
+1,166/five. Those corrections remain part of the audit trail.
+
+Limitations and non-claims: Repository CI re-proves deterministic repository
+health and Electron/build isolation for the closure revision. It does not add
+or prove a loopback attempt, transport bytes, accounting reconciliation,
+configured provider, credential, off-device application packet, actual spend,
+review quality, routing benefit, production readiness, verification, or
+release.
+
+Paid exposure: `$0`. This evidence used GitHub repository CI and local
+deterministic fixture/tests only. No configured vLLM, OpenRouter, model-list,
+validation, inference, retry, fallback, evaluator, credential resolution,
+repository-egress request, actual reservation, or external model spend
+occurred.
+
+Next gate: Land the adjacent frozen R-A2 design and require its exact-SHA
+Linux/macOS repository-health CI. Only then may R-A2 runtime implementation
+begin.
+
+References: [closure record](#bl-20260902-0730-pr6ra1-implemented),
+[closure CI](https://github.com/Lotus2077/SOAR/actions/runs/33604950171), and
+[PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md).
+
+### BL-20260902-1555-pr6ra2-implementation-plan -- 2026-09-02 -- Frozen A2 sealed loopback and accounting design
+
+Status: `Approved`
+
+Scope or hypothesis: Refine checkpoint R-A2 within the already approved exact
+PR6R-A `$0` grant before code changes. Add only sealed loopback bytes, a one-use
+nominal transport capability, strict synthetic response parsing, hash-bound
+child checkpoint import, existing simulation accounting/replay, and fail-closed
+recovery. Preserve the A3 UI/coordinator/package boundary and every R-B/R-C
+gate.
+
+Decisions:
+
+- Use a canonical synthetic Chat Completions envelope: exact request/model/
+  upstream identities, creation zero, exactly one non-streamed assistant-string
+  choice, no extra field/tool/refusal, `finish_reason=stop`, exact status/framing/
+  JSON headers, a derived 524,807-byte envelope bound, coherent integer usage,
+  zero cache writes, and the existing ReviewResultV1 shape parser. Full evidence
+  acceptance remains A3 work.
+- Freeze the strict internal response schema as
+  `pr6r-loopback-chat-completion-response-v1`: exact request ID, object,
+  creation value, model, synthetic `provider`, one choice/message/finish reason,
+  and nested prompt/completion/cache/reasoning/total usage fields, with every
+  extra field forbidden and exact `canonicalPr6rJsonV1` byte equality. Normalize
+  visible output as completion minus reasoning. Derive the wire cap from a
+  519-byte maximum-value empty-content envelope plus twice the 262,144-byte raw
+  result ceiling, exactly 524,807 bytes.
+- Omit the generic attempt/context `structuredOutputContract` in A2 because its
+  current completion grammar requires immediate host evidence acceptance. Keep
+  the exact schema hash in the checkpoint import/sealed request, persist only
+  normalized attempt/accounting and hashes, return the parsed result main-only,
+  and leave A3 to persist host-accepted output/projection. Never forge an
+  `accepted` parse status.
+- Add optional bounded `responseBodySha256` and `reviewResultSha256` fields to
+  `inference.attempt.finished`, because no existing allowed A2 event can carry
+  those hashes without raw assistant content or a false accepted review. A
+  response hash requires complete bounded bytes and `sent`; a result hash also
+  requires a successful strictly parsed result and equals
+  `canonicalPr6rReviewResultSha256(parsedResult)`. Old events omit both and
+  replay unchanged. This does not change the PR6R canary payload contract.
+- Supersede the R-A wording `direct-fetch` with one byte-preserving direct
+  `node:http.request`. Node HTTP does not follow redirects; the transport also
+  has no retry, SDK, proxy/DNS, keepalive, speculation, or background path. It
+  sends the exact sealed buffer only to literal IPv4/IPv6 loopback with a fixed
+  path and no Authorization header. Real authorization remains deferred to
+  separately gated R-B/R-C.
+- Require a nominal endpoint capability minted only by the dedicated bounded
+  fixture server and bound to its actual listening origin. No environment,
+  renderer, IPC, argument, database, deep link, or general factory can select an
+  arbitrary loopback service. This prevents local SSRF but does not authenticate
+  a hostile same-user loopback process.
+- Mint an opaque WeakMap-backed dispatch grant only from genuine special-build
+  runtime authority, live OS slot authority, the exact sealed request, and a
+  matching admitted simulation reservation/open attempt. Consume it
+  synchronously before socket construction. Structural, recovered, cloned,
+  mismatched, stale, concurrent, or reused objects cannot dispatch.
+- Mint a pre-reservation cancellation receipt only inside BudgetLedger
+  `runImmediate`, after `assertEventReconciled` and nested EventStore replay
+  revalidate the imported child, prove no reservation/attempt start, and append
+  `session.cancelled` in the same `BEGIN IMMEDIATE`. Publish the OS cancelled/
+  not-sent terminal only from that receipt; a crash between the two terminals
+  remains reconciliation-only and cannot redispatch.
+- Advance build graph proof to v6 only when the retained transport lands. Record
+  exact importer/specifier/binding edges. A2 stays backend/test-only and leaves
+  shipped special-build graph v5 unchanged; A3 retention must create v6 by re-
+  enumerating every existing v5 edge plus only named
+  `node:http.createServer` in the bounded fixture-server source, named
+  `node:http.request` in the transport source, and named
+  `node:crypto.createHash` in its exact new hashing source if needed. Reject
+  every other new/re-exported/broad/alternate binding and every HTTPS/net/TLS/
+  DNS/SDK/Electron-net/global-network/dynamic-loader alternative.
+- Add a schema-compatible hash-only synthesis-checkpoint import so a distinct
+  child session can reuse the parent's completed investigation without copying
+  or fabricating tool calls. A nominal capability is minted only after exact
+  parent replay and consumed atomically/idempotently before OS claim. It binds
+  parent sequence, checkpoint, packet, semantic-message, response-schema, and
+  provenance identities and creates an inherited Local lease with zero child
+  investigation attempts. Forged/stale/transplanted/reused imports fail; existing
+  sessions replay unchanged and the normal app gains no transport constructor.
+- Freeze that append-only carrier as event `synthesis.checkpoint.imported` with
+  payload schema `synthesis-checkpoint-import-v1` and bounded import/parent/
+  sequence/hash/review/tool/lease/timestamp fields. Keep generic
+  `RouterStateViewV0`, `CheckpointProposalInputV0`, and
+  `checkpoint-router-input-v0` unchanged. A development-only PR6R adapter may
+  emit an ordinary bounded v0 router snapshot plus canonical imported-evidence
+  trigger facts only after nominal import replay; reducer validation accepts
+  only that exact fact/import/admission binding with a true count of zero child
+  investigations. Normal routing is not weakened and no attempt is fabricated.
+- Reuse the existing EventStore, BudgetLedger, and atomic AttemptUnitOfWork. Do
+  not weaken `commitBudgetedStart`: every reservation remains simulation-scoped
+  and its non-simulation guard remains exact. Host pricing uses integer
+  micro-USD rates, zero cache assumption/fee, actual estimated input, and the
+  fixed maximum output allowance.
+- Freeze the saga order as atomic child checkpoint import, OS claim, atomic
+  SQLite reserve/start, one-use grant, single request, atomic finish/settlement,
+  then OS terminal, after all pure validation. Budget denial and cancellation
+  rechecked after OS claim but before synchronous reservation produce zero
+  requests and no reservation. Once start is admitted, grant mint/consumption
+  has no await gap; later ambiguity is unknown/full-reservation.
+- Do not invent cross-store atomicity. An OS claim without exactly matching
+  SQLite evidence permanently blocks this fixed campaign: no redispatch, second
+  slot, fallback, terminal comparison, or safe projection. Trusted replay may
+  mint a reconciliation-only capability for an exact SQLite budget denial,
+  pre-reservation `session.cancelled` terminal with no attempt/reservation, or
+  terminal attempt; it may publish only the matching OS terminal and cannot
+  dispatch. An admitted open attempt may recover through existing unknown/full-
+  reservation accounting plus `loopback.recovery_required`. Matching terminal
+  pairs replay idempotently; missing/corrupt/conflicting evidence blocks.
+- Harden the downstream authority APIs themselves so an OS-only terminal,
+  including one made by the A1 raw recovery helper, cannot unlock the second
+  slot, fallback, comparison, or projection. Require a nominal cross-store-
+  reconciled terminal capability privately bound to matching SQLite accounting
+  and OS evidence; remove or de-authorize the raw recovery path rather than
+  relying on a wrapper convention.
+- Keep canary payload contract v6, its store schema, and authority ledger record
+  format unchanged in A2. The blocked incomplete state is not misrepresented as
+  a persisted terminal. The first future persisted campaign/comparison/
+  projection change still requires a real ordered migration and old-database
+  compatibility proof.
+- On budget denial, retain the explicit Local attempt created by the existing
+  UoW for later A3 coordination; do not pretend Local fallback executed. A2
+  returns typed main-only evidence and hashes but persists no raw response,
+  header, Authorization marker, endpoint, socket error, exception, or body.
+
+Changes: Refined the committed PR6R plan with the exact A2 architecture,
+cross-store saga, no-migration/blocking decision, direct-HTTP correction,
+response bounds, child checkpoint handoff, accounting rules, and focused proof
+matrix. No runtime code changed in this plan checkpoint.
+
+Evidence: Independent read-only contract, existing-primitive, and transport
+threat-model reviews inspected the A1 request/authority/store/build boundaries,
+generic EventStore/BudgetLedger/AttemptUnitOfWork, reducer evidence rules,
+recovery paths, and existing test fixtures. They identified the reusable
+simulation guard and atomic ledger/event transaction, plus three gaps now made
+explicit: reusable slot handles need a one-use transport grant; OS files and
+SQLite need a conservative saga; and distinct synthesis children need a real
+checkpoint import instead of duplicated evidence. A final adversarial review
+found two more recovery gaps before code: cancellation needed a durable SQLite
+terminal before its OS terminal, and an OS-only A1 recovery record could still
+unlock downstream slots. Both are now explicit implementation requirements. A
+last persisted-contract review also found that no allowed generic A2 event could
+carry the promised response/result hashes; the optional strictly coupled finish-
+event fields now close that gap without changing the canary payload contract. A
+scope review then caught that silently widening checkpoint-router v0 would have
+weakened normal evidence semantics; the explicit PR6R-only adapter and versioned
+import event replace that approach.
+
+Failures or blockers: The first design assumption—that A1's slot handle plus a
+structural UoW return was sufficient—failed review because both can be replayed
+or forged at the transport boundary. Another assumption—that the generic
+`evidence_complete` UoW could run directly in a child—failed source inspection:
+the reducer requires successful investigation evidence in that same session.
+The checkpoint-import contract and persistence-revalidated one-use grant replace
+those assumptions. Cross-store terminal recovery remains intentionally
+availability-losing in ambiguous windows rather than falsely claiming atomic
+success. The initial cancellation design also lacked its SQLite terminal, and
+the initial downstream rule trusted any OS terminal; atomic cancellation and a
+nominal cross-store reconciliation capability supersede those assumptions. This
+plan/evidence revision also replaces the assumption that finish events already
+had hash carriers and the assumption that generic router v0 could directly
+represent imported evidence. It still needs commit, push, and exact-SHA Linux/
+macOS CI before implementation.
+
+Limitations and non-claims: R-A2 will prove only bounded synthetic loopback
+transport, simulation admission/accounting, replay, cancellation, and
+conservative recovery over deterministic fixtures. It will not provide the A3
+coordinator/app UI/package canary, real credential or provider validation,
+configured vLLM/OpenRouter contact, off-device application egress, actual-cost
+reservation, paid inference, correctness gold, best-result regret, cost saving,
+latency advantage, production readiness, verification, or release.
+
+Paid exposure: `$0`. Planning and reviews used repository source and the
+already-local public fixture only. No configured vLLM, OpenRouter, model-list,
+validation, inference, retry, fallback, evaluator, credential resolution,
+repository-egress request, actual reservation, or external model spend
+occurred.
+
+Next gate: Commit and push this exact evidence/design revision and require both
+Linux `check` and macOS `electron-e2e` CI to pass. Then implement only the frozen
+R-A2 scope, run its focused adversarial/accounting/recovery proof, obtain
+independent reviews, and stop before R-A3 and all R-B/R-C operations.
+
+References: [PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
+[A1 closure evidence](#bl-20260902-1554-pr6ra1-closure-ci-evidence),
+[A1 closure record](#bl-20260902-0730-pr6ra1-implemented),
+[attempt unit of work](../src/main/attempt-unit-of-work.ts), and
+[architecture](ARCHITECTURE.md).
+
+### BL-20260902-1610-pr6r-future-paid-authority -- 2026-09-02 -- Future actual-paid authority recorded without activating a provider gate
+
+Status: `Approved`
+
+Scope or hypothesis: Approval class `future_cost_authority_only`. Record the
+user's explicit statement that actual-paid work is authorized after the current
+milestone, while preserving the already approved PR6R sequencing and exact per-
+checkpoint safety contracts. This entry is not an R-B/R-C plan approval or a
+paid-dispatch capability.
+
+Decisions:
+
+- Treat the user's authorization as sufficient high-level cost authority for a
+  later real-provider milestone; do not ask again merely whether any paid spend
+  is permitted.
+- Do not reinterpret that broad authority as implementation proof or as a
+  waiver of the committed R-B/R-C prerequisites. Before the first configured
+  provider request, the exact provider, credential lease, repository-egress
+  packet, actual budget/reservation, request count, stop conditions, and
+  recovery behavior must still be frozen and durably approved under the PR6R
+  gates.
+- Continue R-A2 as the already approved `$0` loopback milestone. It has no
+  reason to contact a configured provider or consume actual spend.
+
+Changes: Appended this authorization record only. No runtime, provider,
+credential, endpoint, egress, budget, routing, IPC, renderer, package, or
+network behavior changed.
+
+Evidence: The user explicitly wrote, "approved, and actual-paid authority is
+granted; go for the next milestone" after being told that the next active
+checkpoint was the `$0` PR6R-A2 slice and that later real-provider gates remain
+separate.
+
+Failures or blockers: None for R-A2. The exact R-B and R-C operating plans are
+not yet approved or Implemented, so no paid/configured-provider operation may
+start from this record alone.
+
+Limitations and non-claims: This is an authorization fact, not evidence of a
+credential, working provider endpoint, valid model, safe repository egress,
+actual reservation, successful paid response, quality improvement, cost
+saving, latency improvement, production readiness, verification, or release.
+
+Paid exposure: `$0` in this record. No provider request or model inference was
+made while recording it.
+
+Next gate: Complete the exact-SHA plan CI, implement and prove R-A2 at `$0`, and
+stop at R-A3. A later move into R-B/R-C must bind this broad authority to the
+exact committed provider and cost/egress plan before any actual-paid dispatch.
+
+References: [PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md) and
+[A2 implementation plan](#bl-20260902-1555-pr6ra2-implementation-plan).

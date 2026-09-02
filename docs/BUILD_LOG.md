@@ -6242,3 +6242,87 @@ References: [PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
 [A2 plan](#bl-20260902-1555-pr6ra2-implementation-plan),
 [corrected plan CI](https://github.com/Lotus2077/SOAR/actions/runs/33609234110),
 [MVP readiness](MVP_READINESS.md), and [architecture](ARCHITECTURE.md).
+
+### BL-20260902-2105-pr6ra2-exact-sha-ci -- 2026-09-02 -- A2 implementation passed exact-SHA Linux and macOS CI
+
+Status: `Implemented`
+
+Scope or hypothesis: Bind the locally closed PR6R-A2 backend/test-only `$0`
+implementation to its exact pushed revision and required Linux/macOS repository
+CI result without changing its verification, release, provider, cost, egress,
+or app-integration status.
+
+Decisions:
+
+- Bind A2 implementation closure to exact revision
+  `f9037ef9d9739c1df33bfcc0fdc5d3c2aa372523` and GitHub Actions run
+  `33633065030`.
+- Change current-state wording from local/CI-pending to **Implemented with
+  automated exact-SHA closure**. Keep A2 not Verified and not Released, keep
+  R-A overall in progress, and keep A3 not Implemented.
+- Preserve the implementation and negative evidence in
+  `BL-20260902-2052-pr6ra2-local-implemented` and the earlier in-progress entry.
+  This record does not rewrite or erase either failed full-gate attempt, the
+  late review findings, or any A3 limitation.
+- Keep R-B and R-C unproposed and unapproved. Passing repository CI is not
+  credential, configured-provider, off-device-egress, actual-budget, paid-
+  dispatch, quality, or routing authority.
+
+Changes: Updated only README, architecture, readiness, and the mutable PR6R
+plan status/next-gate text to cite the exact A2 implementation revision and CI
+run, then appended this evidence record. No runtime, persisted schema, renderer,
+preload, IPC, provider, credential, routing, budget, tool, evaluator, package,
+or network behavior changed.
+
+Evidence:
+
+- The exact implementation revision was pushed from `main` to `origin/main`.
+- GitHub Actions run `33633065030` completed with conclusion `success` for the
+  exact revision.
+- Linux `check` job `100257060441` passed in 1 minute 37 seconds, including
+  frozen dependency install, pushed append-only build-log verification, the
+  canonical readiness/typecheck/test/build gate, and normal-output restoration.
+- macOS `electron-e2e` job `100257611262` passed in 3 minutes 5 seconds,
+  including dependency install, development/normal build-flavor verification,
+  and the complete Electron end-to-end suite.
+- Before push, `pnpm check:release-head` passed on the same exact revision with
+  a clean start and finish: 103 test files and 1,266 tests passed, three files
+  and six opt-in tests skipped, the locked native core passed, development-
+  canary isolation passed, normal policy rejected special output, and a normal
+  production build was restored.
+
+Failures or blockers: This exact CI run recorded no failed job. A3 canonical
+coordinator/startup/accepted-output/real-store/UI/package integration remains
+the next R-A blocker. R-B/R-C remain blocked by their separate facts, plans,
+and approvals.
+
+Limitations and non-claims: Exact-SHA CI confirms repository consistency for
+the committed A2 backend/test path. It does not make A2 app-visible, retain it
+in graph v6, accept or score a model result, complete the synthesis child, or
+resolve the non-atomic OS/SQLite/canary availability window. It proves no real
+provider contact, credential custody, off-device repository egress, actual
+cost, model quality, held-out correctness, best-result regret, routing benefit,
+cost saving, latency improvement, production readiness, verification, release,
+or user value.
+
+Paid exposure: `$0`. Commit, push, local committed-head proof, and CI made no
+configured vLLM, OpenRouter, model-list, provider-validation, inference, retry,
+fallback, evaluator, credential-resolution, repository-egress, actual-budget,
+or other external LLM-provider request. A2 paid-dispatch authority remained
+false, no operative R-B/R-C paid-dispatch authority existed, and actual
+external provider spend remained zero.
+
+Next gate: Commit and push this closure-only evidence record and require its own
+Linux/macOS repository CI to pass. Then begin R-A3 planning/entry for canonical
+app coordination, dedicated-before-generic recovery, accepted output, valid
+Local-before-Cloud real-store comparison chronology, graph v6, renderer/IPC UX,
+and package proof. Stop before every R-B/R-C credential, configured-provider,
+off-device-egress, actual-budget, or paid boundary.
+
+References: [implementation commit](https://github.com/Lotus2077/SOAR/commit/f9037ef9d9739c1df33bfcc0fdc5d3c2aa372523),
+[CI run](https://github.com/Lotus2077/SOAR/actions/runs/33633065030),
+[Linux job](https://github.com/Lotus2077/SOAR/actions/runs/33633065030/job/100257060441),
+[macOS job](https://github.com/Lotus2077/SOAR/actions/runs/33633065030/job/100257611262),
+[local closure](#bl-20260902-2052-pr6ra2-local-implemented),
+[PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
+[MVP readiness](MVP_READINESS.md), and [architecture](ARCHITECTURE.md).

@@ -44,8 +44,9 @@ working milestone and are **Implemented** on exact revision
 `4cab8a7d61ef648fdfed6b03653c5bfbe367e28d` after independent review,
 committed-head proof, and Linux/macOS CI run `33603435199`. A2's backend-only
 sealed loopback transport, SQLite/OS accounting, and conservative recovery are
-also Implemented in the current revision with focused local proof; committed-
-head Linux/macOS closure is still pending. Neither A1 nor A2 is Verified or
+also **Implemented with automated exact-SHA closure** on revision
+`f9037ef9d9739c1df33bfcc0fdc5d3c2aa372523`: committed-head local proof and
+Linux/macOS CI run `33633065030` passed. Neither A1 nor A2 is Verified or
 Released, and A3 is not implemented.
 
 A1 proof is deliberately narrow:

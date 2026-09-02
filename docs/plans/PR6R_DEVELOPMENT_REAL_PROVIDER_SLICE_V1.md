@@ -1,9 +1,10 @@
 # PR6R Development Real-Provider Slice v1
 
 Status: **Phase R-A Approved and in progress; R-A1 Implemented; R-A2
-Implemented locally with exact-SHA CI pending; neither is Verified or Released;
-R-A3 not Implemented; no operative R-B/R-C real credential, configured-provider,
-off-device-egress, actual-budget, or paid-dispatch authority**
+Implemented with automated exact-SHA closure on `f9037ef`; neither is Verified
+or Released; R-A3 not Implemented; no operative R-B/R-C real credential,
+configured-provider, off-device-egress, actual-budget, or paid-dispatch
+authority**
 
 - Plan ID: `pr6r-development-real-provider-slice-v1-plan-1`
 - Product goal: first real-provider transport, accounting, and latency canary
@@ -49,7 +50,7 @@ egress, or paid authority below. Each phase retains a separate durable gate.
 
 | Phase | Scope | Current state | Separate approval required? |
 | --- | --- | --- | --- |
-| PR6R-A | `$0` contracts, app flow, loopback transport, deterministic authority/accounting/replay proof, and packaged denial | Approved and in progress; R-A1 Implemented on `4cab8a7`; R-A2 Implemented locally with exact-SHA CI pending; R-A3 not Implemented | Granted for the exact R-A sentence below |
+| PR6R-A | `$0` contracts, app flow, loopback transport, deterministic authority/accounting/replay proof, and packaged denial | Approved and in progress; R-A1 Implemented on `4cab8a7`; R-A2 Implemented with exact-SHA CI run `33633065030` on `f9037ef`; R-A3 not Implemented | Granted for the exact R-A sentence below |
 | PR6R-B | Main-only development credential resolution, bounded account/model/upstream/pricing validation, and one Local baseline over the frozen public fixture | Not Proposed | Yes: later exact plan after R-A exact-SHA closure |
 | PR6R-C | At most two paid Cloud synthesis attempts over the exact R-B packet under a USD 0.25 aggregate reservation | Not Proposed | Yes: later exact plan after R-B evidence freezes every request fact |
 
@@ -652,13 +653,13 @@ cannot authorize the second slot, fallback, comparison, or projection.
 
 ## Next gate
 
-Commit and push the A2 implementation plus its local closure evidence, then
-require exact-SHA Linux/macOS CI and append that result without rewriting any
-earlier failure. Only after this durable checkpoint may R-A3 entry planning
-begin; A3 still requires its own retained-app integration, startup-recovery,
-accepted-output, build-graph-v6, UX/package, and approval criteria. Stop before
-every R-B/R-C real-credential, configured-provider, off-device-egress, actual-
-budget, or paid boundary.
+A2's exact implementation revision passed Linux/macOS CI. Commit and push its
+append-only CI evidence record, require that closure-only revision's repository
+CI to pass, and then begin R-A3 entry planning. A3 still requires retained-app
+integration, startup-recovery ordering, accepted output, Local-before-Cloud
+real-store orchestration, build-graph v6, UX/package proof, and its documented
+entry criteria. Stop before every R-B/R-C real-credential, configured-provider,
+off-device-egress, actual-budget, or paid boundary.
 
 ## References
 

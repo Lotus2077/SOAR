@@ -271,10 +271,12 @@ production readiness, or release status.
 
 ## PR6R-A2 deterministic loopback and recovery boundary
 
-PR6R-A2 is Implemented locally as backend/test-only `$0` substrate; exact-SHA
-CI closure is pending, and it is not Verified or Released. It is deliberately
-not retained by the Electron main entry, preload, renderer, IPC, or package, so
-the shipped special graph remains v5. Its fixed post-import saga is:
+PR6R-A2 is Implemented with automated exact-SHA closure as backend/test-only
+`$0` substrate, but it is not Verified or Released. Exact revision
+`f9037ef9d9739c1df33bfcc0fdc5d3c2aa372523` passed Linux/macOS CI run
+`33633065030`. It is deliberately not retained by the Electron main entry,
+preload, renderer, IPC, or package, so the shipped special graph remains v5.
+Its fixed post-import saga is:
 
 ```text
 exact imported child
@@ -310,16 +312,16 @@ cancellation can publish only its matching OS terminal; a durable open admitted
 attempt is interrupted and consumes its full simulation reservation as
 `unknown`; and an already matching pair is observed idempotently. Recovery
 requires a process-local authority binding one genuine development runtime to
-one canonical reopened `BudgetLedger`. Every second-slot, fallback, comparison,
-or safe-projection use then revalidates both SQLite and OS evidence. The initial
-all-pending comparison/safe-projection pair has a separate one-use live-campaign
-authority over the exact campaign-only prior replay. A later transition requires
-live SQLite/OS terminal reconciliation plus the exact prior replay and may
-change only the matching pending decision. Reuse, unrelated decision or
-topology changes, and fallback fabrication fail closed. The append itself
-consumes a one-use token bound to the exact store, hashes, terminal tuple,
-usage, cost, and immutable append payload rather than relying on wrapper
-convention.
+one canonical reopened `BudgetLedger`. Every terminal-authorized second-slot,
+fallback, later comparison, or safe-projection transition revalidates both
+SQLite and OS evidence. The initial all-pending comparison/safe-projection pair
+instead has a separate one-use live-campaign authority over the exact campaign-
+only prior replay. A later transition requires live SQLite/OS terminal
+reconciliation plus the exact prior replay and may change only the matching
+pending decision. Reuse, unrelated decision or topology changes, and fallback
+fabrication fail closed. The append itself consumes a one-use token bound to
+the exact store, hashes, terminal tuple, usage, cost, and immutable append
+payload rather than relying on wrapper convention.
 
 A2 adds optional response/result hash fields to generic finish events without
 changing payload-contract v6 or existing replay. It deliberately does not mark

@@ -61,6 +61,11 @@ const HISTORICAL_ID = /^BL-(\d{4})$/u;
 const TIMESTAMP_SEQUENCE_RESET_MARKER =
   /^Timestamp sequence reset after: `(BL-(?:\d{4}|\d{8}-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*))`\.$/gmu;
 const TIMESTAMP_SEQUENCE_RESET_PREFIX = "Timestamp sequence reset after:";
+export const KNOWN_TIMESTAMP_SEQUENCE_RESETS = Object.freeze({
+  "BL-20260830-1454-build-log-utc-reset":
+    "BL-20260830-2050-heldout-readiness-approved",
+  "BL-20260902-0357-pr6ra-utc-reset": "BL-20260902-0445-pr6ra-approved",
+} as const);
 const ALLOWED_STATUS_SET = new Set<string>(ALLOWED_BUILD_LOG_STATUSES);
 const HTML_BLOCK_TAGS = new Set([
   "address",
@@ -335,8 +340,6 @@ export function validateBuildLog(text: string): BuildLogValidationResult {
   let previousEntryId: string | undefined;
   let expectedHistoricalNumber = 1;
   let modernHistoryStarted = false;
-  let timestampSequenceResetSeen = false;
-
   for (const entry of entries) {
     if (seenIds.has(entry.id)) {
       errors.push(`${entry.id} (line ${entry.startLine}): duplicate entry ID`);
@@ -413,13 +416,16 @@ export function validateBuildLog(text: string): BuildLogValidationResult {
       const timestampMovesBackward =
         previousModernMinute.length > 0 && idMinute < previousModernMinute;
       if (hasResetMarker) {
+        const knownResetTarget = (
+          KNOWN_TIMESTAMP_SEQUENCE_RESETS as Readonly<Record<string, string>>
+        )[entry.id];
         validTimestampSequenceReset =
           resetMarkerMentions === 1 &&
           resetTargets.length === 1 &&
           resetTargets[0] === previousEntryId &&
+          resetTargets[0] === knownResetTarget &&
           previousEntryId !== undefined &&
           timestampMovesBackward &&
-          !timestampSequenceResetSeen &&
           /^Correction\b/iu.test(entry.title) &&
           status === "Implemented";
         if (!validTimestampSequenceReset) {
@@ -433,7 +439,6 @@ export function validateBuildLog(text: string): BuildLogValidationResult {
           `${entry.id} (line ${entry.startLine}): timestamp precedes the previous timestamped entry`,
         );
       }
-      if (validTimestampSequenceReset) timestampSequenceResetSeen = true;
       previousModernMinute = idMinute;
     } else {
       errors.push(

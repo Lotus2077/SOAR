@@ -1,6 +1,7 @@
 # PR6R Development Real-Provider Slice v1
 
-Status: **Phase R-A Approved; runtime not yet Implemented; no real credential,
+Status: **Phase R-A Approved and in progress; R-A1 under final review and not
+yet Implemented; R-A2/R-A3 not Implemented; no real credential,
 configured-provider, off-device-egress, actual-budget, or paid authority**
 
 - Plan ID: `pr6r-development-real-provider-slice-v1-plan-1`
@@ -47,7 +48,7 @@ egress, or paid authority below. Each phase retains a separate durable gate.
 
 | Phase | Scope | Current state | Separate approval required? |
 | --- | --- | --- | --- |
-| PR6R-A | `$0` contracts, app flow, loopback transport, deterministic authority/accounting/replay proof, and packaged denial | Approved; implementation not started | Granted for the exact R-A sentence below |
+| PR6R-A | `$0` contracts, app flow, loopback transport, deterministic authority/accounting/replay proof, and packaged denial | Approved and in progress; R-A1 under final review, R-A2/R-A3 not Implemented | Granted for the exact R-A sentence below |
 | PR6R-B | Main-only development credential resolution, bounded account/model/upstream/pricing validation, and one Local baseline over the frozen public fixture | Not Proposed | Yes: later exact plan after R-A exact-SHA closure |
 | PR6R-C | At most two paid Cloud synthesis attempts over the exact R-B packet under a USD 0.25 aggregate reservation | Not Proposed | Yes: later exact plan after R-B evidence freezes every request fact |
 
@@ -401,11 +402,12 @@ Anything broader requires the later exact R-B or R-C plan and approval.
 
 ## Next gate
 
-Validate, independently review, commit, push, and pass Linux/macOS CI for the
-approval record. Then begin R-A1 and continue through R-A3 only after each
-checkpoint's focused tests and review pass. Stop before every R-B/R-C real-
-credential, configured-provider, off-device-egress, actual-budget, or paid
-boundary.
+Finish R-A1's independent final review and exact local fixture/full-gate proof,
+then commit and push the exact A1 revision and require its Linux/macOS CI to
+pass. Only after that durable A1 closure may R-A2 begin its sealed one-use
+loopback transport and simulation-accounting work. R-A3 remains gated on R-A2's
+focused proof and review. Stop before every R-B/R-C real-credential,
+configured-provider, off-device-egress, actual-budget, or paid boundary.
 
 ## References
 

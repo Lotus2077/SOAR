@@ -153,25 +153,63 @@ describe("build-log validator", () => {
     );
   });
 
-  it("allows one explicit correction to reset a legacy timestamp sequence to UTC", () => {
+  it("allows the exact first committed UTC correction pair", () => {
     const result = validateBuildLog(
       log(
         entry({ id: "BL-0001", date: "2026-08-27" }),
         entry({
-          id: "BL-20260829-2000-local-clock",
-          date: "2026-08-29",
+          id: "BL-20260830-2050-heldout-readiness-approved",
+          date: "2026-08-30",
         }),
         entry({
-          id: "BL-20260829-1200-utc-reset",
-          date: "2026-08-29",
+          id: "BL-20260830-1454-build-log-utc-reset",
+          date: "2026-08-30",
           title: "Correction: restore the UTC timestamp basis",
           decisions:
-            "Timestamp sequence reset after: `BL-20260829-2000-local-clock`.",
-          references: "BL-20260829-2000-local-clock.",
+            "Timestamp sequence reset after: `BL-20260830-2050-heldout-readiness-approved`.",
+          references: "BL-20260830-2050-heldout-readiness-approved.",
         }),
         entry({
-          id: "BL-20260829-1201-after-reset",
-          date: "2026-08-29",
+          id: "BL-20260830-1455-after-reset",
+          date: "2026-08-30",
+        }),
+      ),
+    );
+
+    expect(result.errors).toEqual([]);
+  });
+
+  it("allows only both exact committed UTC correction pairs", () => {
+    const result = validateBuildLog(
+      log(
+        entry({ id: "BL-0001", date: "2026-08-27" }),
+        entry({
+          id: "BL-20260830-2050-heldout-readiness-approved",
+          date: "2026-08-30",
+        }),
+        entry({
+          id: "BL-20260830-1454-build-log-utc-reset",
+          date: "2026-08-30",
+          title: "Correction: restore the UTC timestamp basis",
+          decisions:
+            "Timestamp sequence reset after: `BL-20260830-2050-heldout-readiness-approved`.",
+          references: "BL-20260830-2050-heldout-readiness-approved.",
+        }),
+        entry({
+          id: "BL-20260902-0445-pr6ra-approved",
+          date: "2026-09-02",
+        }),
+        entry({
+          id: "BL-20260902-0357-pr6ra-utc-reset",
+          date: "2026-09-02",
+          title: "Correction: restore the UTC timestamp basis again",
+          decisions:
+            "Timestamp sequence reset after: `BL-20260902-0445-pr6ra-approved`.",
+          references: "BL-20260902-0445-pr6ra-approved.",
+        }),
+        entry({
+          id: "BL-20260902-0358-after-second-reset",
+          date: "2026-09-02",
         }),
       ),
     );
@@ -247,7 +285,7 @@ describe("build-log validator", () => {
     );
   });
 
-  it("rejects an unnecessary reset marker and a second backward reset", () => {
+  it("rejects an unnecessary reset marker and a second same-date backward reset", () => {
     const unnecessary = validateBuildLog(
       log(
         entry({ id: "BL-0001", date: "2026-08-27" }),
@@ -308,25 +346,25 @@ describe("build-log validator", () => {
     );
   });
 
-  it("keeps enforcing monotonic timestamps after the one-time reset", () => {
+  it("keeps enforcing monotonic timestamps after a known reset", () => {
     const result = validateBuildLog(
       log(
         entry({ id: "BL-0001", date: "2026-08-27" }),
         entry({
-          id: "BL-20260829-2000-local-clock",
-          date: "2026-08-29",
+          id: "BL-20260830-2050-heldout-readiness-approved",
+          date: "2026-08-30",
         }),
         entry({
-          id: "BL-20260829-1200-utc-reset",
-          date: "2026-08-29",
+          id: "BL-20260830-1454-build-log-utc-reset",
+          date: "2026-08-30",
           title: "Correction: restore the UTC timestamp basis",
           decisions:
-            "Timestamp sequence reset after: `BL-20260829-2000-local-clock`.",
-          references: "BL-20260829-2000-local-clock.",
+            "Timestamp sequence reset after: `BL-20260830-2050-heldout-readiness-approved`.",
+          references: "BL-20260830-2050-heldout-readiness-approved.",
         }),
         entry({
-          id: "BL-20260829-1159-late-entry",
-          date: "2026-08-29",
+          id: "BL-20260830-1453-late-entry",
+          date: "2026-08-30",
         }),
       ),
     );

@@ -1,6 +1,13 @@
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -105,7 +112,7 @@ function requireCommit(repositoryRoot: string, revision: string): void {
   }
 }
 
-function loadFixture(projectRoot: string): {
+function loadFixture(projectRoot: string, fixtureId: string): {
   change: ChangeReviewCalibrationChangeV1;
   manifestSha256: string;
 } {
@@ -133,33 +140,45 @@ function loadFixture(projectRoot: string): {
     throw new Error("Frozen local-review fixture manifest hash mismatch.");
   }
   const change = calibration.changes.find(
-    (candidate) => candidate.id === LOCAL_REVIEW_FIXTURE_ID,
+    (candidate) => candidate.id === fixtureId,
   );
   if (!change) throw new Error("Frozen local-review fixture is missing.");
   return { change, manifestSha256 };
 }
 
-export interface MaterializedLocalReviewFixtureV1 {
-  fixtureId: typeof LOCAL_REVIEW_FIXTURE_ID;
+export interface MaterializedFrozenReviewFixtureV1<
+  FixtureId extends string = string,
+> {
+  fixtureId: FixtureId;
   manifestSha256: string;
   workspaceRoot: string;
   snapshot: ChangeSnapshotV1;
+  repository: string;
   baseRevision: string;
   changeRevision: string;
+  subject: string;
+  materialization: string;
   changedPathCount: number;
   changedLineCount: number;
   cleanup(): void;
 }
 
+export type MaterializedLocalReviewFixtureV1 =
+  MaterializedFrozenReviewFixtureV1<typeof LOCAL_REVIEW_FIXTURE_ID>;
+
 /**
  * Reproduces one frozen public change from explicit local Git objects. The
- * shared clone is local-only and has its remote removed before checkout; this
- * function never clones from or fetches a URL.
+ * shared clone is local-only, copies every required base object into its own
+ * object database, and has its remote and alternates removed before the patch
+ * is applied. This function never clones from or fetches a URL.
  */
-export async function materializeLocalReviewFixtureV1(options: {
+export async function materializeFrozenReviewFixtureV1<
+  const FixtureId extends string,
+>(options: {
   projectRoot: string;
   sourceRepository: string;
-}): Promise<MaterializedLocalReviewFixtureV1> {
+  fixtureId: FixtureId;
+}): Promise<MaterializedFrozenReviewFixtureV1<FixtureId>> {
   const projectRoot = realpathSync(options.projectRoot);
   const sourceRepository = realpathSync(options.sourceRepository);
   const repositoryTopLevel = git(
@@ -171,7 +190,10 @@ export async function materializeLocalReviewFixtureV1(options: {
     throw new Error("The local-review source must be a Git repository root.");
   }
 
-  const { change, manifestSha256 } = loadFixture(projectRoot);
+  const { change, manifestSha256 } = loadFixture(
+    projectRoot,
+    options.fixtureId,
+  );
   const { baseRevision, changeRevision } = change.source;
   requireCommit(sourceRepository, baseRevision);
   requireCommit(sourceRepository, changeRevision);
@@ -224,6 +246,80 @@ export async function materializeLocalReviewFixtureV1(options: {
     );
     git(workspaceRoot, ["remote", "remove", "origin"]);
     git(workspaceRoot, ["checkout", "--quiet", "--detach", baseRevision]);
+    const retainedRefs = git(
+      workspaceRoot,
+      ["for-each-ref", "--format=%(refname)"],
+      { encoding: "utf8" },
+    )
+      .trim()
+      .split("\n")
+      .filter((reference) => reference.length > 0);
+    for (const reference of retainedRefs) {
+      git(workspaceRoot, ["update-ref", "-d", reference]);
+    }
+    git(workspaceRoot, ["reflog", "expire", "--expire=now", "--all"]);
+    // `--shared` makes otherwise-unadvertised local objects available for the
+    // exact detached checkout. Repack while HEAD names the base, then remove
+    // the alternate so the returned workspace cannot depend on the source.
+    const baseObjectIds = git(
+      workspaceRoot,
+      ["ls-tree", "-r", "-t", "--full-tree", baseRevision],
+      { encoding: "utf8" },
+    )
+      .trim()
+      .split("\n")
+      .filter((line) => line.length > 0)
+      .map((line) => {
+        const match = /^[0-7]{6} (?:blob|tree|commit) ([0-9a-f]{40,64})\t/u.exec(
+          line,
+        );
+        if (match?.[1] === undefined) {
+          throw new Error("Frozen local-review fixture object list is malformed.");
+        }
+        return match[1];
+      });
+    const baseTree = git(
+      workspaceRoot,
+      ["rev-parse", `${baseRevision}^{tree}`],
+      { encoding: "utf8" },
+    ).trim();
+    git(
+      workspaceRoot,
+      [
+        "pack-objects",
+        path.join(workspaceRoot, ".git", "objects", "pack", "pack"),
+      ],
+      {
+        input: Buffer.from(
+          `${[baseRevision, baseTree, ...baseObjectIds].join("\n")}\n`,
+        ),
+      },
+    );
+    // The exact base is intentionally a shallow boundary: its tree is fully
+    // present, while historical parents are neither needed nor retained.
+    writeFileSync(
+      path.join(workspaceRoot, ".git", "shallow"),
+      `${baseRevision}\n`,
+      { encoding: "utf8", mode: 0o600 },
+    );
+    const alternatesPath = path.join(
+      workspaceRoot,
+      ".git",
+      "objects",
+      "info",
+      "alternates",
+    );
+    rmSync(alternatesPath, { force: true });
+    if (existsSync(alternatesPath)) {
+      throw new Error("Frozen local-review fixture retained Git alternates.");
+    }
+    if (
+      git(workspaceRoot, ["remote"], { encoding: "utf8" }).trim() !== ""
+    ) {
+      throw new Error("Frozen local-review fixture retained a Git remote.");
+    }
+    requireCommit(workspaceRoot, baseRevision);
+    git(workspaceRoot, ["fsck", "--connectivity-only", "--no-dangling"]);
     const patch = git(sourceRepository, [
       "diff",
       "--binary",
@@ -288,12 +384,15 @@ export async function materializeLocalReviewFixtureV1(options: {
 
     keep = true;
     return {
-      fixtureId: LOCAL_REVIEW_FIXTURE_ID,
+      fixtureId: options.fixtureId,
       manifestSha256,
       workspaceRoot,
       snapshot,
+      repository: change.source.repository,
       baseRevision,
       changeRevision,
+      subject: change.source.subject,
+      materialization: change.materialization.protocol,
       changedPathCount: change.acquisition.verifiedFeatureFacts.changedPathCount,
       changedLineCount: change.acquisition.verifiedFeatureFacts.changedLineCount,
       cleanup: () => rmSync(temporaryRoot, { recursive: true, force: true }),
@@ -301,4 +400,15 @@ export async function materializeLocalReviewFixtureV1(options: {
   } finally {
     if (!keep) rmSync(temporaryRoot, { recursive: true, force: true });
   }
+}
+
+/** Existing cal-001 compatibility wrapper used by the local evaluation bridge. */
+export async function materializeLocalReviewFixtureV1(options: {
+  projectRoot: string;
+  sourceRepository: string;
+}): Promise<MaterializedLocalReviewFixtureV1> {
+  return materializeFrozenReviewFixtureV1({
+    ...options,
+    fixtureId: LOCAL_REVIEW_FIXTURE_ID,
+  });
 }

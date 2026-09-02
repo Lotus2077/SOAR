@@ -11,6 +11,30 @@ export const SEALED_PRELOAD_ENTRY = "out/preload/index.cjs";
 export const SEALED_RENDERER_ENTRY = "out/renderer/index.html";
 export const PHASE_B_AD_HOC_ENTITLEMENT =
   "com.apple.security.cs.allow-jit";
+export const PR6R_DEVELOPMENT_CANARY_BUILD_MARKER =
+  "SOAR_PR6R_DEVELOPMENT_CANARY_V1";
+export const PR6R_DEVELOPMENT_CANARY_MAIN_IDENTITY =
+  "SOAR_PR6R_DEVELOPMENT_CANARY_V1_MAIN_ARTIFACT_V1";
+export const PR6R_DEVELOPMENT_CANARY_PRELOAD_IDENTITY =
+  "SOAR_PR6R_DEVELOPMENT_CANARY_V1_PRELOAD_ARTIFACT_V1";
+export const PR6R_DEVELOPMENT_CANARY_RENDERER_IDENTITY =
+  "SOAR_PR6R_DEVELOPMENT_CANARY_V1_RENDERER_ARTIFACT_V1";
+export const PR6R_DEVELOPMENT_CANARY_ARTIFACT_IDENTITIES = Object.freeze({
+  main: PR6R_DEVELOPMENT_CANARY_MAIN_IDENTITY,
+  preload: PR6R_DEVELOPMENT_CANARY_PRELOAD_IDENTITY,
+  renderer: PR6R_DEVELOPMENT_CANARY_RENDERER_IDENTITY,
+});
+
+export const PR6R_DEVELOPMENT_FORBIDDEN_BUNDLE_SIGNATURES = Object.freeze([
+  "AgenticExecutionPolicySchema",
+  "RoutingDecisionPayloadSchema",
+  "ProviderDescriptorSchema",
+  "AcquireCredentialLeaseInputSchema",
+  "@soar/macos-credential-lease",
+  "soar:get-cloud-credential-status",
+  "hybrid_simulation_v1",
+  "local_only_v1",
+]);
 
 export const PHASE_B_ALLOW_JIT_CODE_PATHS = Object.freeze([
   "Contents/MacOS/SOAR",
@@ -126,6 +150,12 @@ export function parseLockedFlavorManifest(rawManifest) {
 }
 
 export function assertRendererBundleLocked(bundleText) {
+  if (bundleText.includes(PR6R_DEVELOPMENT_CANARY_BUILD_MARKER)) {
+    throw new Error(
+      "PR6R development-canary marker survived packaging: " +
+        PR6R_DEVELOPMENT_CANARY_BUILD_MARKER,
+    );
+  }
   for (const marker of retiredRendererMutationMarkers) {
     if (bundleText.includes(marker)) {
       throw new Error(`Retired credential mutation survived packaging: ${marker}`);

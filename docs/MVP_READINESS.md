@@ -35,6 +35,62 @@ independent-review, and Linux/macOS CI gates passed on
 `ddd171c6092f695e64360d73e78a257ee3fb9159`. This is `$0` phase-B substrate
 evidence, not signed credential-continuity or provider evidence.
 
+## In-progress PR6R-A1 checkpoint
+
+PR6R-A is approved only for the `$0`, loopback-development sequence. Its A1
+contracts, exact public-fixture materializer, development-only Electron graph,
+canary store, and OS-user-local authority ledger are present in the current
+working milestone, but A1 remains **in progress** until its exact revision is
+committed, independently reviewed, pushed, and green in the required Linux and
+macOS gates. A2 and A3 are not implemented.
+
+Current local proof is deliberately narrow:
+
+- the special build admits exact repository modules and bare externals, carries
+  distinct artifact identities, and is rejected by the normal package policy;
+  the dual-flavor command then restores a verified normal `out/`;
+- the explicit `cal-007-flask-jinja-name` command reconstructs the pinned
+  nine-path, 62-line fixture from already-present local Git objects with no URL
+  clone, fetch, provider call, credential, or paid spend; and
+- the strict contracts and append-only stores bind checkpoint, request,
+  campaign, guard, slot, terminal, accounting, fallback, and projection facts
+  using opaque structural hashes. Payload-contract v6 also removes the internal
+  fallback child-session ID from renderer output and bounds raw replay history
+  to 17 records of at most 1 MiB each. The payload ceiling is four times the
+  single-result ceiling: three bounded review outputs plus one result-sized
+  allowance for the versioned projection envelope. Those hashes prove host-canonical
+  equality, not secrecy, authenticity outside the host boundary, model quality,
+  or an external provider event.
+
+The following limitations are part of the readiness contract:
+
+- `pr6r-development-module-graph.json` is an unsigned deterministic declaration,
+  not an artifact-byte attestation. Public identities plus copied JSON can
+  counterfeit it outside the canonical build, so it is not standalone proof;
+- build-proof v5 parses allowlisted TypeScript/JavaScript and applies a
+  dynamic-loader/global-network AST-node denylist. It remains a conservative
+  regression guard, not semantic/data-flow analysis or standalone no-egress
+  proof. Exact-source review and runtime evidence remain required;
+- the authority files are a cooperative same-user ratchet. Deleting only the
+  ledger root is detected, but a same-user process can delete both the separate
+  guard and ledger; A1 is not hardened tamper-proof storage;
+- structurally completed A1 output retains `outputValidity=deferred`. Only A3
+  may recompute validity from admitted evidence;
+- A1 renderer-safe citations are limited to the fixture's nine changed paths.
+  Unchanged tests, helpers, and other repository context require an A3
+  snapshot/evidence-set-bound allowlist and a persisted-contract revision;
+- the current special signature denylist includes `local_only_v1`, which A3
+  will legitimately need. A3 must replace or narrowly scope that heuristic
+  through the exact graph/provenance policy and regression tests; and
+- A1 has no loopback transport episode, attempt/budget unit of work, app
+  coordinator, interactive canary UI, configured-provider request, credential
+  resolution, off-device egress, actual-cost reservation, or paid inference.
+
+Accordingly, A1 proves no review quality, best-result regret, routing benefit,
+cost saving, latency improvement, production readiness, verification, or
+release. Contributor commands and cleanup boundaries are documented in
+[CONTRIBUTING.md](../CONTRIBUTING.md).
+
 ## Implemented
 
 - macOS-first Electron shell with a sandboxed React renderer and typed preload
@@ -156,6 +212,9 @@ evidence, not signed credential-continuity or provider evidence.
 
 ## Not implemented
 
+- PR6R-A2 sealed one-use loopback transport and simulation accounting, PR6R-A3
+  coordinator/UI/package proof, and every later PR6R-B credential/provider or
+  PR6R-C paid-provider phase;
 - production cloud-provider execution, dispatch-time credential retrieval, or
   remote credential validation;
 - real/production hybrid routing, production provider-health/price acquisition, or

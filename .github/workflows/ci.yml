@@ -55,7 +55,7 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Build application
-        run: pnpm build
+      - name: Verify development and normal build flavors
+        run: pnpm verify:pr6r-development-build-flavors
       - name: Run Electron end-to-end tests
         run: pnpm test:e2e

@@ -183,6 +183,91 @@ no credential or network authority and proves no production provider identity,
 wire request, review-quality benefit, cost saving, or latency improvement.
 Manual VoiceOver, light/dark contrast, and reduced-motion proof remains pending.
 
+## PR6R-A1 development-canary boundary
+
+PR6R-A1 is an in-progress structural checkpoint, not part of the normal app
+graph. A separate Electron config selects a distinct main entry, preload, and
+static renderer. The main entry checks `app.isPackaged` before dynamically
+importing the development runtime. Build-time graph policy admits an exact set
+of repository-owned modules and bare externals for each process. The canonical
+dual-flavor gate builds the special graph, requires the normal policy to reject
+its marker, then rebuilds and verifies the normal graph so `out/` finishes in
+the production flavor.
+
+A1's separate fixture proof materializes only the pinned
+`cal-007-flask-jinja-name` public fixture from explicit local Git objects. Its
+materializer performs a local shared clone, copies the required base objects,
+removes refs, reflogs, remotes, and alternates, applies the fixed patch, and
+rechecks the revision, tree, snapshot, path, line-count, discovery, and risk
+facts. It performs no URL clone or fetch. Missing local objects fail with a
+stable code. Materialization failures remove their temporary root; a successful
+materialization returns a caller-owned cleanup handle. The explicit fixture
+proof invokes it in `finally` and verifies removal. A3 must likewise prove
+cleanup across success, failure, and cancellation before its coordinator ships.
+
+A1 contracts use opaque SHA-256 values to bind exact structural records such as
+the checkpoint, application request, campaign, guard, slot claim, terminal
+record, and safe projection without persisting their raw bodies. These hashes
+prove equality to the host-canonical bytes or records named by the contract;
+they are not secrets, signatures, provider attestations, task-quality scores,
+or proof that an external event occurred. Output validity is deliberately
+`deferred` even for structurally completed A1 records. A3 must recompute and
+bind validity from admitted evidence before any completed result can be called
+valid.
+
+Payload-contract v6 requires provider-before-pricing chronology, one canonical
+request body across both Cloud-shaped attempts, and a lossy renderer fallback
+shape that omits the internal Local child-session ID. The canary store rejects
+no-op snapshots, caps the campaign at 17 records, and checks a 1 MiB raw
+payload ceiling in SQL and before replay materializes payload text. That bound
+admits three maximum-size review results plus one result-sized allowance for
+the versioned safe-projection envelope.
+
+A1's renderer-safe evidence-path allowlist is fixture-static and contains only
+the nine changed `cal-007` paths. It cannot yet project citations to unchanged
+tests, helpers, or repository context. If the A3 common investigation admits
+such context, A3 must replace this with a snapshot/evidence-set-bound allowlist,
+version the persisted contract, and prove the broader projection remains safe.
+
+The OS-user-local campaign ledger is a cooperative same-user ratchet. Separate
+guard and ledger records detect deleting only the ledger root, and claims bind
+their campaign and slot records. This is not tamper-proof storage: a process
+running as the same user can delete both the guard and ledger. A1 therefore
+proves fail-closed behavior for the tested deletion and transplant cases, not
+resistance to a malicious same-user process.
+
+Each emitted `pr6r-development-module-graph.json` is a deterministic public
+declaration checked as part of the real build. It is not signed and is not
+cryptographically bound to emitted artifact bytes; copied public identities and
+JSON can counterfeit the declaration outside the canonical build. Evidence
+must therefore cite the complete dual-flavor command on an exact revision, not
+the JSON file alone.
+
+Build-proof v5 parses each allowlisted TypeScript/JavaScript source with the
+pinned Babel parser before applying a conservative AST-node denylist for common
+dynamic loaders, code evaluation, Node binding access, and direct global
+network primitives. Comment, string, template-raw, and regular-expression text
+is not executable syntax, while executable template expressions remain
+visible. This is a regression guard, not semantic or data-flow no-egress proof:
+it can still reject harmless executable identifiers and does not resolve
+aliases, obfuscation, reflection, or every API reachable through an allowed
+external such as Electron. Exact-source review and runtime evidence remain
+required.
+
+The current special-bundle signature denylist also contains
+`local_only_v1`, while the planned A3 coordinator must legitimately represent
+that route. Before A3, this heuristic must be replaced or narrowly scoped using
+the exact module/provenance boundary and adversarial tests. Simply deleting the
+signature check would weaken the normal-runtime exclusion claim.
+
+A1 contains no loopback HTTP dispatch, attempt/budget transaction, coordinator,
+interactive renderer workflow, configured vLLM/OpenRouter request, credential
+resolution, off-device repository egress, actual-cost reservation, or paid
+inference. Those are later, separately reviewed checkpoints. A1 build and
+fixture checks prove structural isolation and exact local fixture identity only;
+they prove no review quality, routing benefit, cost saving, latency improvement,
+production readiness, or release status.
+
 ## Context compilation
 
 `src/shared/context-compiler.ts` is a pure projection over reduced session state.

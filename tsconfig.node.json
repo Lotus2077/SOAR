@@ -16,6 +16,7 @@
   },
   "include": [
     "electron.vite.config.ts",
+    "electron.vite.pr6r-development-canary.config.ts",
     "vitest.config.ts",
     "playwright.config.ts",
     "src/main/**/*.ts",

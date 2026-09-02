@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   LOCAL_REVIEW_FIXTURE_ID,
+  materializeFrozenReviewFixtureV1,
   materializeLocalReviewFixtureV1,
 } from "../../src/benchmark/local-review-fixture";
 import { inspectGitChanges } from "../../src/main/tools/inspect-git-changes";
@@ -33,6 +34,22 @@ describe("local review evaluation fixture", () => {
         request: { schemaVersion: "inspect-git-changes-v1" },
       });
       expect(replay.snapshot.snapshotId).toBe(fixture.snapshot.snapshotId);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  it("selects an explicit frozen fixture without changing the legacy wrapper", async () => {
+    const fixture = await materializeFrozenReviewFixtureV1({
+      projectRoot,
+      sourceRepository: projectRoot,
+      fixtureId: LOCAL_REVIEW_FIXTURE_ID,
+    });
+    try {
+      expect(fixture.fixtureId).toBe(LOCAL_REVIEW_FIXTURE_ID);
+      expect(fixture.snapshot.snapshotId).toBe(
+        "3c327a17b3b76c8e72570be5d18ff4ae09cd9b28a9cac92fe5b582e13876c1d3",
+      );
     } finally {
       fixture.cleanup();
     }

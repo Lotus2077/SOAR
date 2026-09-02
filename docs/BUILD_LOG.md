@@ -5065,3 +5065,421 @@ References: [PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
 [proposal CI](https://github.com/Lotus2077/SOAR/actions/runs/33539267786),
 [approval-record baseline CI](https://github.com/Lotus2077/SOAR/actions/runs/33539797481),
 and [proposal entry](#bl-20260902-0103-pr6r-real-provider-slice-proposed----2026-09-02----development-real-provider-slice-proposed-after-goal-recalibration).
+
+### BL-20260902-0357-pr6ra-utc-reset -- 2026-09-02 -- Correction: resume UTC build-log IDs after the PR6R-A approval
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct the immutable PR6R-A approval entry's use of an
+Asia/Shanghai wall-clock-like minute in an ID governed by the ledger's UTC
+rule. Preserve that committed approval byte-for-byte while returning subsequent
+entries to observed UTC chronology.
+
+Decisions:
+
+Timestamp sequence reset after: `BL-20260902-0445-pr6ra-approved`.
+
+- Preserve the committed approval entry and every earlier ID exactly as merged.
+  This correction changes only the validator's timestamp watermark; it does not
+  change or expand the approval, provider, credential, egress, cost, or paid
+  authority recorded there.
+- Replace the generic lifetime/date reset exception with an explicit immutable
+  allowlist containing only the two known correction-to-predecessor pairs:
+  `BL-20260830-1454-build-log-utc-reset` after
+  `BL-20260830-2050-heldout-readiness-approved`, and this correction after
+  `BL-20260902-0445-pr6ra-approved`. A listed reset must still be an
+  `Implemented` `Correction`, move backward, carry exactly one well-formed
+  marker naming the immediately preceding entry, and cite only an earlier
+  entry. An unknown future reset is invalid even on a new UTC date.
+- Reject an unnecessary reset, a second reset on the same UTC date, a malformed
+  or non-immediate marker, and any later uncorrected backward timestamp.
+- Use the observed `2026-09-02T03:57Z` minute for this correction and a later
+  observed UTC minute for the still-uncommitted R-A1 entry.
+
+Changes: Updated `scripts/validate-build-log.ts` to admit only the two exact
+known reset pairs, added acceptance coverage for both pairs and adversarial
+unknown/malformed/repeated reset coverage, appended this correction, and left
+the committed approval entry unchanged.
+
+Evidence:
+
+- The exact marker names the immediately preceding
+  `BL-20260902-0445-pr6ra-approved` entry and this ID moves backward to an
+  observed UTC minute on the same date.
+- The focused validator suite covers a valid later-date correction, a rejected
+  second same-date correction, unnecessary and malformed markers, incorrect
+  status/title/target cases, and continued monotonic enforcement after reset.
+- The focused build-log validator suite passed 16 of 16 tests, including both
+  exact known pairs plus unknown, malformed, unnecessary, repeated, and later
+  uncorrected rewind rejection.
+- `pnpm validate:build-log` accepted the repository ledger with 59 entries.
+  These focused results prove only the chronology contract described here.
+
+Failures or blockers: The approval ID was already committed with the wrong time
+basis and cannot honestly be renamed. The earlier global one-reset policy would
+reject this otherwise valid new correction, while a generic date-scoped escape
+would authorize unknown future rewinds. The exact two-pair allowlist must land
+with this correction. No product-runtime blocker or authority expansion follows
+from this chronology correction.
+
+Limitations and non-claims: This is governance-metadata repair only. It proves
+no R-A1 runtime correctness, final review closure, loopback request, configured
+provider contact, credential availability, repository egress, accounting,
+quality, cost saving, latency improvement, routing benefit, packaging, release
+readiness, or user value.
+
+Paid exposure: `$0`. The correction and deterministic validator tests make no
+provider, model-list, inference, evaluator, retry, fallback, repository-egress,
+credential, reservation, or paid request.
+
+Next gate: With the focused validator and repository-ledger checks complete,
+finish the open R-A1 hardening, independent review, exact checks, commit, push,
+and Linux/macOS CI before beginning R-A2.
+
+References: [PR6R-A approval](#bl-20260902-0445-pr6ra-approved),
+[prior UTC reset](#bl-20260830-1454-build-log-utc-reset),
+[PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md), and
+[build-log rules](#log-rules).
+
+### BL-20260902-0358-pr6ra1-in-progress -- 2026-09-02 -- PR6R-A1 contracts and structural isolation under final review
+
+Status: `In progress`
+
+Scope or hypothesis: Implement and independently review only checkpoint R-A1
+of the approved PR6R-A development slice: exact frozen-fixture materialization,
+strict canonical and persisted contracts, durable simulation-only authority,
+append-only canary storage, and a compile-time development build graph whose
+marker is rejected by the normal package policy. Keep R-A overall in progress
+and stop before R-A2 loopback dispatch/accounting and R-A3 coordinator/UI work.
+
+Decisions:
+
+- Use a structurally separate Electron config, main entry, preload, and static
+  renderer. The special entry checks `app.isPackaged` before dynamically
+  importing any PR6R runtime module and never imports normal bootstrap, config,
+  runtime catalog, provider, credential, session IPC, or OpenAI SDK code. Exact
+  source allowlists and generated graph proofs identify all three special
+  graphs; the normal graph rejects every PR6R development source transitively.
+  Every genuine development runtime authority retains the forbidden marker.
+  Build-proof v5 rejects non-literal or external dynamic imports, common
+  runtime-loader/global-network syntax in allowlisted special sources, unsafe
+  emitted filenames, and local output imports that do not resolve to an
+  emitted chunk. It also binds the exact imported members of broad externals,
+  such as Electron, rather than approving the whole module surface. This keeps
+  the observed special graph statically enumerable rather than trusting only
+  Rollup's concrete module-specifier lists.
+  A pinned TypeScript-capable Babel parser distinguishes executable AST nodes
+  from comments, strings, template raw text, and regular-expression literals
+  while preserving executable template expressions. The denylist remains
+  deliberately non-semantic and does not resolve aliases or reflection.
+  The canonical dual-flavor gate builds the special graph, requires normal
+  policy rejection, rebuilds the normal graph, and scans every bounded output
+  artifact. Filesystem and ASAR metadata are size-preflighted before file reads
+  or archive extraction, with post-read bounds retained. Its unsigned JSON
+  graph files are build-time declarations rather than standalone artifact
+  provenance.
+- Materialize `cal-007-flask-jinja-name` only from explicit local Git objects.
+  The app never fetches the repository. The temporary detached workspace packs
+  the exact base commit/tree/blob objects, declares that base as its shallow
+  boundary, removes all refs, reflogs, remotes, and alternates, and verifies the
+  frozen repository, revisions, subject, materialization protocol, nine paths,
+  62 lines, snapshot, index, discovery, and risk facts. Failed materialization
+  cleans its temporary root; success returns a cleanup handle, and the exact
+  fixture proof calls it in `finally` and verifies removal. A3 must prove the
+  same cleanup ownership across success, failure, and cancellation.
+- Define canonical checkpoint and application-request preimages from the actual
+  canonical packet and semantic messages. Structural hashes, byte counts,
+  provider shape, terminal state, accounting, latency, fallback, and
+  safe-projection facts are recomputed or cross-bound. R-A1 does not accept a
+  caller-asserted output-validity pass: completed records keep validity
+  `deferred` until R-A3 can recompute it from admitted evidence.
+  Every Cloud-shaped synthesis request must use a child session distinct from
+  the campaign parent before an authority binding can be constructed.
+- Persist bounded evidence for the implementation revision, OS authority claim,
+  synthetic loopback provider validation/pricing, common investigation,
+  per-route measurement, reported/unreported tokens, exact host arithmetic,
+  simulation reservation/settlement, output validity, fallback, and terminal
+  reason. Renderer-safe text rejects URIs, absolute/traversal paths, host/port
+  endpoints, authorization/envelope/header material, and raw diagnostics.
+- Carry campaign/guard and full sealed application-request/slot/terminal hashes
+  through strict persisted schemas. A1 checks canonical construction and
+  structural equality, but a public store caller can still submit fabricated
+  structurally valid opaque hashes; live OS-ledger and EventStore/BudgetLedger
+  reconciliation remains an explicit A2 gate.
+  Cloud and Hybrid sessions, application requests, authority records, and
+  reservations must be distinct while origin, canonical request body, and
+  common checkpoint remain exactly shared. A Local fallback can be claimed
+  only against the matching failed Cloud-shaped terminal; `not_used` is
+  terminal only after all three synthesis slots are decided.
+- Use a separate development-canary SQLite schema rather than changing the
+  production app database. Reopen verifies exact migration-owned tables,
+  indexes, triggers, an explicit payload-contract version/fingerprint, embedded
+  evidence chronology, integrity, and foreign keys. Payload-contract v6 also
+  requires the host-pricing snapshot timestamp not to predate the exact
+  provider validation hash it references and replaces the full fallback state
+  in renderer output with a lossy safe shape that omits its internal Local
+  child-session ID. It also binds both Cloud-shaped records to one canonical
+  request body. The reducer rejects no-op snapshots and enforces a 17-record
+  ceiling; schema and pre-replay checks bound each raw payload to 1 MiB before
+  JavaScript materialization. That bound is four times the ReviewResultV1
+  serialized ceiling so three maximum-size outputs and one result-sized
+  projection-envelope allowance remain representable. It otherwise enforces
+  one campaign, parent, and checkpoint, deterministic record order, monotonic
+  terminal transitions, and atomic comparison plus safe-projection equality. Unshipped
+  pre-A1 development databases are intentionally incompatible and must be
+  recreated or explicitly migrated.
+  Opening the store requires an explicit absolute on-disk path; no default or
+  `:memory:` production path exists, and the raw SQLite handle is private.
+  White-box corruption tests use a test-local unsafe accessor. The first
+  post-A1 persisted-contract revision must add a real ordered migration and an
+  old-database compatibility test rather than only changing the fingerprint.
+- Store global campaign and slot authority outside app user data under the OS
+  user state boundary. Publish 0700/0600 no-follow records atomically through a
+  temporary file plus hard link. Bind each one-shot slot to revision, loopback
+  origin, full application-request hash, body/checkpoint hashes, request, child
+  session, attempt, and reservation. Terminal records bind the exact claim
+  hash; recovery-only handles can write only fixed failed/unknown recovery
+  semantics; a failed terminal can recover the one campaign-wide Local
+  fallback without restoring dispatch authority. Per-record sibling sentinels
+  make one-sided deletion of a claim, terminal, or fallback fail closed. The
+  arbitrary-root claim helper no longer exists in production exports; tests
+  exercise the fixed OS layout through a mocked home boundary.
+- Keep Local and loopback terminal vocabularies route-scoped and reconcile each
+  loopback failure/cancellation reason with its request disposition and response
+  evidence. Only the post-claim `loopback.budget_denied` failure may terminalize
+  a claimed slot as definitely not sent; authority/request/binding/slot-consumed
+  failures remain admission errors outside the claimed-slot terminal contract.
+- Make the one campaign-wide fallback an explicit reuse of the already-completed
+  Local synthesis result, bound to that Local child session and result hash,
+  rather than an evidence-free second synthesis operation.
+- Reserve one parent/common Local investigation and separate synthesis child
+  sessions for the two Cloud-shaped slots in later checkpoints because the
+  existing budget ledger permits one reservation per session. Do not weaken the
+  existing fake-Hybrid or simulation-only paid-start guard.
+
+Changes: Added the PR6R development contracts, frozen-fixture wrapper, separate
+canary store and payload-contract-v6 migration fingerprint, OS-user authority
+ledger, nominal runtime authority, standalone development-canary Electron
+graph, build marker and module-graph-v5 verifier, stable path-redacting fixture boundary, explicit
+fixture-proof command, and focused unit/integration tests.
+Generalized the existing local-review fixture materializer while retaining its
+exact `cal-001` compatibility wrapper. Updated contributor, architecture,
+readiness, README, and plan text to keep R-A1 explicitly in progress until the
+exact implementation revision is reviewed, pushed, and green on Linux/macOS CI.
+
+Evidence:
+
+- Approval revision `67833f5fb711ddbb82f956ee4aa530516b78c2c7` passed
+  Linux and macOS CI in run `33557490659` before runtime work began.
+- An earlier post-hardening focused A1 matrix passed 126 tests across ten files,
+  including contracts, canary-store reducer/schema tampering, authority
+  concurrency/recovery/transplant cases, runtime/build isolation, locked
+  package policy, build-log governance, legacy `cal-001`, and exact `cal-007`
+  integration.
+- The explicit `cal-007` proof command passed from prepared local public Flask
+  objects. The same command without the required local object source failed
+  closed instead of silently skipping the milestone proof.
+- On an earlier payload-contract-v6 review snapshot, ten focused contract, store,
+  authority, build-isolation, navigation, fixture-boundary, package-policy,
+  build-log, and legacy-fixture files passed 156 tests. Both TypeScript graphs,
+  readiness, the 59-entry ledger, and `git diff --check` passed. The exact
+  `cal-007` proof passed again from prepared local public objects and verified
+  successful cleanup, while the same command with no source configured failed
+  closed.
+- Node and renderer TypeScript graphs passed. The marked development-canary
+  build passed exact main/preload/renderer artifact identities and generated
+  source-graph proofs. The normal verifier rejected that special output by its
+  forbidden marker. A normal rebuild and verifier then passed and restored
+  normal output; the development verifier rejected that normal output because
+  the exact special graph proof was absent.
+- Earlier targeted contract/store/build and authority reviews drove the
+  corrections recorded below. On the latest parser-backed tree, independent
+  truth-log, security, and open-source-maintainability re-reviews reported no
+  remaining actionable P0/P1/P2. The final build/release refresh remains open;
+  these reviews do not replace exact-HEAD or CI proof.
+- An earlier post-hardening full `pnpm check` passed with readiness and the 59-entry
+  ledger valid, both TypeScript graphs clean, the locked native core proof,
+  94 test files and 1,131 tests passed, three files and five opt-in tests
+  skipped, and a successful normal production build plus isolation scan. Later
+  route, authority, chronology, payload-contract, and build-flavor hardening
+  makes those results historical rather than final closure evidence.
+- A later pre-maintainability-fix payload-contract-v6 working snapshot passed
+  `pnpm check` with
+  readiness and the 59-entry ledger valid, both TypeScript graphs clean, the
+  locked native core proof, 95 test files and 1,162 tests passed, three files
+  and five opt-in tests skipped, and the complete special-build rejection plus
+  restored normal production build. Subsequent store API and build-parser
+  corrections make this historical rather than final closure evidence.
+- On the parser-backed v5 build-policy snapshot, ten focused A1 files passed
+  160 tests; both TypeScript graphs, readiness, the 59-entry ledger, and diff
+  hygiene passed. The exact `cal-007` proof passed and removed its successful
+  temporary workspace. Build/package policy tests passed 23 tests, including
+  literal/regular-expression false-positive cases and the two demonstrated
+  executable regex/template bypasses.
+- The parser-backed working snapshot passed `pnpm check`: 95 test files and
+  1,166 tests passed, three files and five opt-in tests skipped, both type
+  graphs and the locked native core passed, and the v5 special build was
+  rejected by normal policy before a verified normal output rebuild. Final
+  review then required exact renderer-CSP/case-insensitive no-script assertions
+  and static computed-member/TypeScript-wrapper coverage; its focused 17-test
+  file passed after those later changes. Exact-HEAD rerun, commit, push,
+  and Linux/macOS CI remain open, so none of this is release or milestone-
+  closure proof.
+
+Failures or blockers: Early store tests failed because a fixture retained an
+obsolete response-schema hash. Early authority tests exposed macOS temporary
+path canonicalization and a partially visible concurrent claim; typecheck also
+caught test narrowing errors. Those were corrected with realpath-normalized
+test roots, atomic publication, and typed fixtures. The first exact Flask
+materialization failed because its shallow local source had no branch ref
+visible to the shared clone; the prepared source gained a local ref and the
+exact proof then passed. A broad alternate-object repack later hung, and the
+first bounded pack failed `git fsck` because cloned refs/reflogs and the root
+tree still referenced uncopied objects; the materializer now deletes those
+refs/reflogs, includes the root tree, and uses an explicit shallow boundary.
+
+Independent review rejected the first A1 draft for unbound request hashes,
+cross-record checkpoint drift, incomplete schema fingerprinting, skipped exact
+fixture proof, retained Git alternates, loose terminal states, a special entry
+that imported the normal app, incomplete proof/accounting fields, claimless
+fallback, orphan terminal handling, unrestricted recovery semantics, lost
+restart fallback, and transplantable terminal records. Later adversarial review
+also found unsafe timestamp refinement, unbound host pricing, contradictory
+validity/reason states, and punctuation-adjacent URI/path/endpoint/envelope text
+bypasses. A subsequent whole-diff/security review found fallback-transition,
+output-validity, authority-reset/order, terminal-consistency, and numeric-host
+leakage gaps; those findings remained explicit hardening work rather than being
+prematurely reported as clean. Their fixes include genuine sealed-
+request bindings, campaign/guard and slot/terminal cross-hashes, strict terminal
+code/disposition combinations, Cloud-before-Hybrid chronology, one-use fallback
+trigger identity, completed-validity deferral, and broader safe-field screening.
+A build-isolation review then demonstrated that the first marker-only checks
+could accept a normal bundle with an injected marker, miss a transitive normal
+import, pull broad session/routing contracts into the special graph, and leak a
+fixture-source path on failure. Exact graph allowlists/proofs, three artifact
+identities, normal-runtime signature scans, and a stable fixture error replaced
+that design. Final review subsequently found that emitted relative imports
+could escape the output bundle, oversized filesystem/ASAR members were checked
+only after reading, and computed ESM or CommonJS runtime loaders could evade the
+enumerated external graph. Output-target validation, pre-read/pre-extract size
+bounds, build-proof v4, exact external-member bindings, and explicit
+computed-loader denials now cover the tested cases. The same review found that
+a Cloud-shaped request could reuse the parent
+session and that host pricing could claim a timestamp earlier than the
+hash-bound provider validation; the child-session refinement and persisted
+payload-contract-v6 chronology ratchet now rejects both before authority/store
+admission. Review also found a raw internal fallback session ID in the safe
+projection, cross-slot authority that required only different attempt IDs but
+not shared evidence, duplicated cancellation vocabulary, and a loopback
+renderer redirect gap. A lossy safe fallback projection, exact cross-slot
+origin/body/checkpoint bindings, shared cancellation arrays, and redirect/frame
+navigation policy now reject those cases. These corrections have focused
+adversarial proof. At that checkpoint the final whole-diff reviews and full
+gate remained open; the later evidence above supersedes that interim state.
+The same store review demonstrated that identical snapshots could be appended
+without bound and that replay selected raw payload text before enforcing any
+byte ceiling. No-op rejection, a fixed record cap, a SQL byte constraint, and a
+pre-materialization count/size query now fail closed under focused duplicate,
+flood, and oversized-database tests.
+The first finite-store correction reused the 256 KiB single-review-result bound
+as the entire record bound. Review demonstrated that this rejected a legal safe
+projection containing multiple bounded outputs. Payload-contract v6 derives a
+1 MiB record ceiling from three result slots plus one result-sized envelope
+allowance, and a regression persists and replays a valid three-output
+projection larger than the old ceiling.
+The final contributor review found three P2 maintainability gaps: an implicit
+in-memory store default with a public raw database handle, raw-source lexical
+matching that rejected comments and literals, and migration guidance that
+could be read as promising compatibility from a fingerprint bump alone. The
+store now requires an explicit absolute durable path and hides its connection;
+the first build-guard correction attempted to mask comments and literal text
+while retaining template expressions; contributor guidance requires a real
+ordered migration plus an old-database compatibility test for the first
+post-A1 persisted change.
+Adversarial follow-up then proved the handwritten masker could mistake regular
+expression characters for comment, quote, or template delimiters and hide a
+later executable `fetch`, `require`, or `process.binding`. Build-proof v5
+replaces that scanner with the pinned Babel parser and AST-node traversal;
+regressions cover harmless literal/regex text plus executable syntax after a
+slash regex and inside a template expression.
+Build review subsequently found that zero-expression template-literal member
+names and type-erased TypeScript wrappers around `process` or a computed
+property were executable but not normalized by the first AST traversal. The v5
+policy now resolves static string/template property names and unwraps the
+transparent TypeScript/parenthesized expression forms before testing direct
+globals and `process` binding access; dedicated regressions reject each
+demonstrated form. A final adjacent case reached `process.binding` through the
+static `globalThis.process`/`global.process` member path; v5 now recognizes
+those direct global process references as well. These AST changes postdate the
+1,166-test full run recorded above, so that run remains working-snapshot rather
+than exact-final-tree evidence.
+The first AST-loader-guard attempt imported a TypeScript 7 package root that
+exposes no compiler API and broke every special transform; the benign focused
+case caught it before commit. A later first attempt to add the pinned Babel
+parser offline failed before changing dependencies because pnpm selected a
+different store than the existing install; retrying against the already-linked
+store reused local packages with zero downloads. The parser-backed v5 build
+policy replaces both failed approaches.
+The first parser-backed dual-flavor build then rejected the renderer HTML as if
+it were JavaScript. The transform now reserves AST parsing for JavaScript and
+TypeScript modules while the exact static-HTML source/CSP/no-script checks retain
+the renderer boundary; the rerun passed and restored normal output.
+Before these later store/API/parser corrections, the first post-hardening full
+gate failed at readiness because a
+synthetic private-key sentinel was written as one scan-visible test literal; the
+test now assembles the sentinel without resembling a tracked credential, and
+readiness plus that historical full-gate rerun passed. A later historical
+full-gate run inside the managed sandbox failed 19 OpenAI-compatible tests
+solely because loopback `listen` returned `EPERM`; its approved rerun with
+loopback test-server permission passed before the final store/API/parser
+changes. A fresh complete gate on the final parser-backed tree, R-A2, R-A3, and
+exact-SHA CI remain blockers to overall R-A `Implemented` status.
+
+Limitations and non-claims: The current A1 snapshot is intended to prove strict
+local contracts, fixture identity, bounded storage/authority ratchets, and
+build-graph isolation only after its final gates pass. It has no
+loopback HTTP dispatch, runtime simulation reservation/settlement episode,
+three-route coordinator, cancellation flow, renderer interaction, Electron
+workflow, packaged archive canary, configured vLLM/OpenRouter contact,
+credential resolution, off-device repository egress, actual-cost reservation,
+or paid inference. The special renderer is only a structural stub. A sibling
+guard fails closed if only the ledger root is deleted, but a hostile same-user
+actor can delete both copies or the guard and ledger; A1 does not claim tamper
+resistance against the OS-account owner. A1 persists opaque structural binding
+hashes, but it does not yet prove they came from the live OS ledger or reconcile
+them with EventStore/BudgetLedger terminal accounting; R-A2 must complete that
+ordering before dispatch. The explicit payload-contract fingerprint is a
+versioned contributor ratchet, not an automatic digest of Zod internals.
+Build-proof v5's dynamic-loader/global-network AST-node denylist is deliberately
+conservative and is not semantic/data-flow analysis or a host sandbox. It may
+reject harmless executable identifiers; aliases, obfuscation, reflection, or
+APIs reachable through an admitted external still require exact-source review
+and runtime evidence. The graph JSON alone does not prove no egress.
+Completed output validity is explicitly deferred until R-A3 recomputes
+evidence-backed checks. Renderer-safe evidence paths are also fixture-static
+and limited to the nine changed `cal-007` paths; unchanged tests, helpers, or
+other repository context cannot be cited unless A3 introduces a
+snapshot/evidence-set-bound allowlist and versions the persisted contract.
+One public fixture has no correctness gold, so this proves no review quality,
+best-result regret, cost saving, latency improvement, routing benefit,
+production readiness, verification, release, or user value.
+
+Paid exposure: `$0`. A bounded public Flask Git acquisition prepared local
+objects for the exact fixture proof, but the application made no repository
+fetch and no configured vLLM, OpenRouter, model-list, validation, inference,
+retry, fallback, evaluator, or other LLM-provider request. No credential value
+was resolved, no off-device repository packet was sent, every encoded authority
+fact remains simulation-only with actual-paid authority false, and actual
+external provider spend remains zero.
+
+Next gate: Independently review, commit, push, and require Linux/macOS CI for
+this exact R-A1 checkpoint. Only after that evidence is durable may R-A2 add the
+sealed one-use loopback transport and existing simulation accounting unit of
+work. Stop before R-A3 and every R-B/R-C credential, configured-provider,
+off-device-egress, actual-budget, or paid boundary until their preceding gates
+are satisfied.
+
+References: [PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
+[approval record](#bl-20260902-0445-pr6ra-approved),
+[routing policy](ROUTING_POLICY.md), [architecture](ARCHITECTURE.md), and
+[benchmark protocol](../benchmarks/README.md).

@@ -6,6 +6,14 @@ export const SEALED_MAIN_ENTRY: string;
 export const SEALED_PRELOAD_ENTRY: string;
 export const SEALED_RENDERER_ENTRY: string;
 export const PHASE_B_AD_HOC_ENTITLEMENT: string;
+export const PR6R_DEVELOPMENT_CANARY_BUILD_MARKER: string;
+export const PR6R_DEVELOPMENT_CANARY_MAIN_IDENTITY: string;
+export const PR6R_DEVELOPMENT_CANARY_PRELOAD_IDENTITY: string;
+export const PR6R_DEVELOPMENT_CANARY_RENDERER_IDENTITY: string;
+export const PR6R_DEVELOPMENT_CANARY_ARTIFACT_IDENTITIES: Readonly<
+  Record<"main" | "preload" | "renderer", string>
+>;
+export const PR6R_DEVELOPMENT_FORBIDDEN_BUNDLE_SIGNATURES: readonly string[];
 export const PHASE_B_ALLOW_JIT_CODE_PATHS: readonly string[];
 export const FORBIDDEN_LOCKED_NATIVE_ACTIVATION_SYMBOLS: readonly string[];
 

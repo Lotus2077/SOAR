@@ -15,6 +15,9 @@ import {
 } from "./locked-credential-package-policy.mjs";
 
 const execFileAsync = promisify(execFile);
+const MAX_PACKAGED_OUT_FILES = 2_000;
+const MAX_PACKAGED_OUT_ENTRY_BYTES = 16 * 1024 * 1024;
+const MAX_PACKAGED_OUT_BYTES = 64 * 1024 * 1024;
 
 async function boundedOutput(command, args) {
   const { stdout = "" } = await execFileAsync(command, args, {
@@ -69,12 +72,64 @@ async function verifyPhaseBAdHocEntitlements(appPath) {
   }
 }
 
-function archiveEntryText(archivePath, entry) {
+function archiveEntryBytes(archivePath, entry) {
   const value = asar.extractFile(archivePath, entry);
-  if (value.byteLength > 16 * 1024 * 1024) {
+  if (value.byteLength > MAX_PACKAGED_OUT_ENTRY_BYTES) {
     throw new Error(`Packaged source exceeds its verifier bound: ${entry}`);
   }
-  return value.toString("utf8");
+  return value;
+}
+
+function archiveEntryText(archivePath, entry) {
+  return archiveEntryBytes(archivePath, entry).toString("utf8");
+}
+
+export function packagedOutputText(archivePath, entries) {
+  const outputEntries = [];
+  let declaredBytes = 0;
+  for (const rawEntry of entries) {
+    const entry = rawEntry.replace(/^[/\\]+/u, "").replaceAll("\\", "/");
+    if (!entry.startsWith("out/")) continue;
+    const metadata = asar.statFile(archivePath, entry, false);
+    if ("files" in metadata) continue;
+    if ("link" in metadata) {
+      throw new Error("Packaged output contains an unsupported symbolic link.");
+    }
+    if (
+      typeof metadata.size !== "number" ||
+      !Number.isSafeInteger(metadata.size) ||
+      metadata.size < 0
+    ) {
+      throw new Error("Packaged output contains an unsupported entry type.");
+    }
+    if (metadata.size > MAX_PACKAGED_OUT_ENTRY_BYTES) {
+      throw new Error(`Packaged source exceeds its verifier bound: ${entry}`);
+    }
+    declaredBytes += metadata.size;
+    if (declaredBytes > MAX_PACKAGED_OUT_BYTES) {
+      throw new Error("Packaged output inspection exceeded its byte bound.");
+    }
+    outputEntries.push({ entry, declaredSize: metadata.size });
+    if (outputEntries.length > MAX_PACKAGED_OUT_FILES) {
+      throw new Error("Packaged output inspection exceeded its file bound.");
+    }
+  }
+
+  outputEntries.sort((left, right) => left.entry.localeCompare(right.entry));
+  let totalBytes = 0;
+  let bundledText = "";
+  for (const { entry, declaredSize } of outputEntries) {
+    const value = archiveEntryBytes(archivePath, entry);
+    if (value.byteLength !== declaredSize) {
+      throw new Error(`Packaged output size changed during inspection: ${entry}`);
+    }
+    totalBytes += value.byteLength;
+    if (totalBytes > MAX_PACKAGED_OUT_BYTES) {
+      throw new Error("Packaged output inspection exceeded its byte bound.");
+    }
+    bundledText += value.toString("utf8");
+  }
+  return bundledText;
 }
 
 export async function verifyLockedMacPackage(appPath) {
@@ -100,19 +155,7 @@ export async function verifyLockedMacPackage(appPath) {
     throw new Error("Locked native credential broker is not ASAR-unpacked.");
   }
 
-  let bundledText = "";
-  for (const rawEntry of entries) {
-    const entry = rawEntry.replace(/^[/\\]+/u, "").replaceAll("\\", "/");
-    if (
-      entry.startsWith("out/") &&
-      (entry.endsWith(".js") ||
-        entry.endsWith(".cjs") ||
-        entry.endsWith(".html"))
-    ) {
-      bundledText += archiveEntryText(archivePath, entry);
-    }
-  }
-  assertRendererBundleLocked(bundledText);
+  assertRendererBundleLocked(packagedOutputText(archivePath, entries));
 
   await boundedOutput("/usr/bin/codesign", [
     "--verify",

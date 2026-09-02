@@ -22,7 +22,10 @@
   },
   "scripts": {
     "dev": "pnpm build:native:locked && electron-vite dev",
-    "build": "pnpm build:native:locked && electron-vite build",
+    "dev:pr6r-development-canary": "pnpm build:native:locked && electron-vite dev --config electron.vite.pr6r-development-canary.config.ts",
+    "build": "pnpm build:native:locked && electron-vite build && node scripts/verify-pr6r-development-build-isolation.mjs normal",
+    "build:pr6r-development-canary": "pnpm build:native:locked && electron-vite build --config electron.vite.pr6r-development-canary.config.ts && node scripts/verify-pr6r-development-build-isolation.mjs development-canary",
+    "verify:pr6r-development-build-flavors": "node scripts/verify-pr6r-development-build-flavors.mjs",
     "build:native:locked": "node scripts/build-locked-native.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "pnpm test:native-core && vitest run",
@@ -31,6 +34,7 @@
     "test:live-vllm": "SOAR_RUN_LIVE_VLLM=true vitest run tests/integration/live-vllm.test.ts --testTimeout=600000",
     "test:live-review-schema": "SOAR_RUN_LIVE_REVIEW_SCHEMA=true vitest run tests/integration/live-review-schema.test.ts --testTimeout=600000 --disableConsoleIntercept",
     "test:live-repository": "SOAR_RUN_LIVE_REPOSITORY=true vitest run tests/integration/local-repository-investigator.test.ts --testTimeout=1200000",
+    "test:pr6r-development-fixture": "SOAR_PR6R_FIXTURE_PROOF_REQUIRED=true vitest run tests/integration/pr6r-development-fixture.test.ts --testTimeout=30000",
     "test:e2e": "node scripts/run-electron-e2e.mjs",
     "test:e2e:packaged-credential-status": "node scripts/run-packaged-credential-status-canary.mjs",
     "benchmark": "node --experimental-strip-types scripts/benchmark.ts",
@@ -41,7 +45,7 @@
     "postinstall": "electron-builder install-app-deps",
     "rebuild:native": "node scripts/rebuild-native.mjs",
     "package:mac": "pnpm build && node scripts/package-mac.mjs",
-    "check": "pnpm validate:readiness && pnpm validate:build-log && pnpm typecheck && pnpm test && pnpm build",
+    "check": "pnpm validate:readiness && pnpm validate:build-log && pnpm typecheck && pnpm test && pnpm verify:pr6r-development-build-flavors",
     "check:release-head": "node --experimental-strip-types scripts/verify-release-head.ts",
     "validate:readiness": "node scripts/validate-readiness.mjs",
     "validate:build-log": "node --experimental-strip-types scripts/validate-build-log.ts"
@@ -62,6 +66,7 @@
     "@soar/macos-credential-lease": "file:native/macos-credential-lease"
   },
   "devDependencies": {
+    "@babel/parser": "7.29.8",
     "@electron/asar": "3.4.1",
     "@electron/rebuild": "^4.2.0",
     "@playwright/test": "^1.62.1",

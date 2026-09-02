@@ -81,7 +81,60 @@ pnpm check
 
 `pnpm check` validates workload manifests and secret hygiene, type-checks both
 process environments, runs the deterministic test suite, and creates a
-production build.
+development-canary build followed by a production build. The dual-flavor gate
+requires the normal package policy to reject the special output and leaves
+`out/` restored to the normal application.
+
+### PR6R-A1 development-only checks
+
+PR6R-A1 is an in-progress, unpackaged, `$0` structural checkpoint. Its special
+Electron graph is not a production Cloud path and must never receive a real
+credential, provider endpoint, repository-egress permission, or paid authority.
+Run its build checks explicitly with:
+
+```sh
+pnpm build:pr6r-development-canary
+pnpm verify:pr6r-development-build-flavors
+```
+
+The first command intentionally leaves the special flavor in `out/`. Do not
+package or publish that output. The second command builds and verifies the
+special flavor, confirms that the normal policy rejects it, then rebuilds and
+verifies the normal flavor. `pnpm check` includes that dual-flavor sequence.
+If the dual-flavor command is interrupted, treat `out/` as unknown and possibly
+special. Run `pnpm build` to rebuild and verify the normal flavor before running,
+packaging, or publishing anything from `out/`.
+These A1 gates have no network dependency: dependencies and fixture objects must
+already be present locally, and any outbound connection is a failed proof.
+Any change to a persisted PR6R campaign, comparison, safe-projection, fallback,
+transition, or chronology contract must deliberately update the payload-contract
+descriptor/version and its migration tests; the fingerprint is an explicit
+contributor ratchet, not an automatic digest of the Zod implementation. The A1
+store intentionally accepts only its one fresh schema because it is unshipped.
+Do not treat a version/fingerprint bump alone as a migration: the first
+post-A1 persisted-contract change must add an ordered schema migration and a
+compatibility test that opens the immediately preceding committed database.
+
+The exact frozen public fixture proof additionally requires an already-present
+local Flask Git repository containing the pinned objects:
+
+```sh
+SOAR_PR6R_FLASK_REPO=/absolute/path/to/local/flask \
+  pnpm test:pr6r-development-fixture
+```
+
+The fixture command accepts a local repository root only. It may make its
+bounded local shared clone, but it must not clone from a URL, fetch, contact a
+model provider, or read a secret; missing objects fail closed.
+Keep the source path in the untracked environment only and never paste a private
+path, endpoint, credential, raw trace, or generated database into a commit or
+review artifact. A successful materialization returns a caller-owned cleanup
+handle; the explicit proof invokes it in `finally` and verifies that its
+temporary workspace is gone. A future app coordinator must preserve that rule
+on success, failure, and cancellation. After an interrupted run, inspect and
+remove only the exact leftover temporary directory—never use a broad recursive
+cleanup target. `$0` here means zero external provider spend; local compute and
+storage are not measured.
 
 After committing a release candidate, or before citing an integration test that
 builds its fixture from `git archive HEAD`, run the committed-head gate:

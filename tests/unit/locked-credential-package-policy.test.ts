@@ -1,7 +1,16 @@
-import { readFile } from "node:fs/promises";
+import asar from "@electron/asar";
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   FORBIDDEN_LOCKED_NATIVE_ACTIVATION_SYMBOLS,
@@ -10,6 +19,7 @@ import {
   LOCKED_NATIVE_PACKAGE_MANIFEST,
   PHASE_B_AD_HOC_ENTITLEMENT,
   PHASE_B_ALLOW_JIT_CODE_PATHS,
+  PR6R_DEVELOPMENT_CANARY_ARTIFACT_IDENTITIES,
   SEALED_MAIN_ENTRY,
   SEALED_PRELOAD_ENTRY,
   SEALED_RENDERER_ENTRY,
@@ -19,6 +29,7 @@ import {
   assertRendererBundleLocked,
   parseLockedFlavorManifest,
 } from "../../scripts/locked-credential-package-policy.mjs";
+import { packagedOutputText } from "../../scripts/verify-locked-mac-package.mjs";
 
 const projectRoot = path.resolve(import.meta.dirname, "../..");
 
@@ -94,6 +105,13 @@ describe("locked credential package policy", () => {
     expect(() => assertRendererBundleLocked("soar:save-cloud-credential")).toThrow(
       /mutation survived/u,
     );
+    for (const identity of Object.values(
+      PR6R_DEVELOPMENT_CANARY_ARTIFACT_IDENTITIES,
+    )) {
+      expect(() => assertRendererBundleLocked(identity)).toThrow(
+        /development-canary marker survived packaging/iu,
+      );
+    }
     expect(() =>
       assertLockedNativeInspection({
         symbols: "_SecItemCopyMatching\n",
@@ -139,6 +157,81 @@ describe("locked credential package policy", () => {
         strings: "locked\n",
       }),
     ).not.toThrow();
+  });
+
+  it("scans packaged output artifacts regardless of filename extension", async () => {
+    const temporaryRoot = await mkdtemp(
+      path.join(tmpdir(), "soar-packaged-output-scan-"),
+    );
+    const sourceRoot = path.join(temporaryRoot, "source");
+    const archivePath = path.join(temporaryRoot, "app.asar");
+    try {
+      await mkdir(path.join(sourceRoot, "out", "main"), { recursive: true });
+      await writeFile(
+        path.join(sourceRoot, "out", "main", "hidden-runtime.mjs"),
+        "SOAR_PR6R_DEVELOPMENT_CANARY_V1",
+        "utf8",
+      );
+      await asar.createPackage(sourceRoot, archivePath);
+      const entries = asar.listPackage(archivePath, { isPack: false });
+      expect(packagedOutputText(archivePath, entries)).toContain(
+        "SOAR_PR6R_DEVELOPMENT_CANARY_V1",
+      );
+
+      const linkedArchivePath = path.join(temporaryRoot, "linked.asar");
+      await symlink(
+        "hidden-runtime.mjs",
+        path.join(sourceRoot, "out", "main", "unsupported-link"),
+      );
+      await asar.createPackage(sourceRoot, linkedArchivePath);
+      expect(() =>
+        packagedOutputText(
+          linkedArchivePath,
+          asar.listPackage(linkedArchivePath, { isPack: false }),
+        ),
+      ).toThrow(/unsupported symbolic link/iu);
+    } finally {
+      await rm(temporaryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects declared ASAR size overruns before extracting any output", () => {
+    const statSpy = vi.spyOn(asar, "statFile");
+    const extractSpy = vi.spyOn(asar, "extractFile");
+    try {
+      statSpy.mockImplementation((_archivePath, entry) => {
+        const normalized = entry.replace(/^[/\\]+/u, "");
+        const size = normalized.endsWith("oversized.bin")
+          ? 16 * 1024 * 1024 + 1
+          : 1;
+        return { size } as ReturnType<typeof asar.statFile>;
+      });
+      extractSpy.mockImplementation(() => {
+        throw new Error("extractFile must not run after a preflight denial");
+      });
+
+      expect(() =>
+        packagedOutputText("unused.asar", ["/out/main/oversized.bin"]),
+      ).toThrow(/packaged source exceeds its verifier bound/iu);
+      expect(extractSpy).not.toHaveBeenCalled();
+
+      statSpy.mockImplementation(() => ({
+        size: 16 * 1024 * 1024,
+      }) as ReturnType<typeof asar.statFile>);
+      expect(() =>
+        packagedOutputText("unused.asar", [
+          "/out/main/a.bin",
+          "/out/main/b.bin",
+          "/out/main/c.bin",
+          "/out/main/d.bin",
+          "/out/main/e.bin",
+        ]),
+      ).toThrow(/packaged output inspection exceeded its byte bound/iu);
+      expect(extractSpy).not.toHaveBeenCalled();
+    } finally {
+      statSpy.mockRestore();
+      extractSpy.mockRestore();
+    }
   });
 
   it("allows exactly allow-jit on the bounded Phase-B Electron executables", async () => {

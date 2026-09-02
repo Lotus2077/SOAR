@@ -6326,3 +6326,116 @@ References: [implementation commit](https://github.com/Lotus2077/SOAR/commit/f90
 [local closure](#bl-20260902-2052-pr6ra2-local-implemented),
 [PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
 [MVP readiness](MVP_READINESS.md), and [architecture](ARCHITECTURE.md).
+
+### BL-20260902-2154-pr6ra2-closure-record-ci-and-maintainer-handoff -- 2026-09-02 -- A2 closure record passed CI and current truth advanced to A3 planning
+
+Status: `Implemented`
+
+Scope or hypothesis: Record the exact Linux/macOS repository-health result for
+the append-only A2 closure record, preserve the implementation/evidence
+distinction, clean regenerable ignored local output without deleting machine
+configuration or benchmark evidence, and leave a contributor-readable current
+gate. Do not promote A2 to Verified or Released and do not begin A3, R-B, R-C,
+credential, configured-provider, egress, actual-budget, or paid work.
+
+Decisions:
+
+- Keep `f9037ef9d9739c1df33bfcc0fdc5d3c2aa372523` and CI run
+  `33633065030` as the A2 runtime implementation closure. Treat
+  `46e2f81020c3e03c2cd3a185a7aaa153064ea055` and run `33634232959` as
+  documentation/current-truth repository-health evidence only.
+- Keep A2 **Implemented with automated exact-SHA closure**, not Verified or
+  Released; keep R-A overall in progress and A3 not Implemented. The passed
+  closure-record CI grants no runtime, provider, credential, egress, budget,
+  quality, or routing authority.
+- Advance only the frozen PR6R plan's mutable next-gate text to A3 planning.
+  A3 still requires its own plan/entry criteria, implementation, proof, review,
+  and exact-SHA CI before its status can change.
+- Remove regenerable ignored package/build/test output from the maintainer
+  checkout while preserving ignored machine configuration, benchmark fixture
+  caches, benchmark run evidence, and installed dependencies. This is local
+  hygiene, not a tracked runtime change or deletion of evaluation history.
+- Use the existing README, architecture, and readiness sections as the
+  contributor-facing accomplishment summary instead of adding a duplicate
+  status document. They already describe the app-first goal, implemented
+  slices, and current limitations.
+
+Changes: Updated only the mutable PR6R next gate and appended this record.
+Removed ignored `dist/`, `out/`, and `test-results/` output from the local
+checkout; those directories are regenerable and remain ignored. No runtime,
+persisted schema, provider, credential, router, budget, tool, evaluator,
+renderer, preload, IPC, package policy, or network behavior changed.
+
+Evidence:
+
+- The closure record was pushed on `main` as exact revision
+  `46e2f81020c3e03c2cd3a185a7aaa153064ea055`, which matched `origin/main`
+  before this documentation handoff.
+- GitHub Actions run `33634232959` completed with conclusion `success` for that
+  exact revision. Linux `check` job `100260939431` passed in 1 minute 23
+  seconds, and macOS `electron-e2e` job `100261407748` passed in 3 minutes 1
+  second.
+- Independent documentation review found the implementation/runtime sections
+  accurate and identified only the append-only CI record plus mutable next gate
+  as stale. Independent cleanliness review found no untracked source, tracked
+  generated output, high-confidence tracked secret, or occurrence of the known
+  supplied remote vLLM endpoint in current or reachable history; readiness,
+  build-log validation, `git diff --check`, and `git fsck` passed on the clean
+  base.
+- The final documentation tree passed the complete unmodified `pnpm check`
+  under exact Node 22.22.2 with test-loopback permission: readiness and the
+  68-entry build log validated; both TypeScript projects and the locked native
+  core passed; 103 test files and 1,266 tests passed with three files and six
+  opt-in tests skipped; the development-canary build passed; normal policy
+  rejected its output; and the normal production build was restored. Its
+  generated output was removed again after validation so the checkout retained
+  only the explicitly preserved ignored local state.
+
+Failures or blockers: The cited exact closure-record CI run recorded no failed
+job. Two initial standalone validator invocations used the host-default
+unsupported Node 26.7.0 and were rejected by the repository's `^22.22.2`
+engine guard before either project validator ran. The first corrected Node 22
+full gate then ran inside a restricted workspace sandbox: validators,
+typechecks, and native proof passed, but 71 tests across five files failed when
+test-only IPv4/IPv6 listeners received `listen EPERM`. The same unmodified
+Node 22 gate reran with loopback-listener permission and passed completely.
+During local housekeeping, the first post-removal inspection loop also used
+zsh's special lowercase `path` variable and therefore lost command lookup
+before `git status`; the removals had already completed, the loop was rerun
+with a non-special variable, and inspection passed. None of these failed
+attempts is erased or counted as product success. A3 app integration remains
+the next R-A blocker, and all R-B/R-C boundaries remain closed.
+
+Limitations and non-claims: This record changes documentation and local
+maintainer hygiene only. Ignored machine configuration, benchmark caches,
+accepted/failed/quarantined benchmark evidence, and installed dependencies
+were deliberately retained. Build and test commands can regenerate the removed
+directories. A2 remains backend/test-only and absent from Electron bootstrap,
+renderer, preload, IPC, retained graph v6, and package activation. This proves
+no configured-provider contact, credential custody, off-device repository
+egress, actual cost, model quality, held-out correctness, best-result regret,
+routing benefit, cost saving, latency improvement, production readiness,
+verification, release, or user value.
+
+Paid exposure: `$0`. Documentation, audit, cleanup, and repository validation
+made no configured vLLM, OpenRouter, model-list, provider-validation,
+inference, retry, fallback, evaluator, credential-resolution, repository-
+egress, actual-budget, or other external LLM-provider request. No paid-
+dispatch authority was exercised and actual external provider spend remained
+zero.
+
+Next gate: Validate and independently review this exact documentation tree,
+commit and push it, and require its Linux/macOS repository CI to pass. Then
+begin a separately logged R-A3 plan/entry for canonical app coordination,
+dedicated-before-generic startup recovery, accepted output, valid Local-before-
+Cloud real-store chronology, build-graph v6, renderer/IPC UX, and package
+proof. Stop before every R-B/R-C credential, configured-provider, off-device-
+egress, actual-budget, or paid boundary.
+
+References: [closure commit](https://github.com/Lotus2077/SOAR/commit/46e2f81020c3e03c2cd3a185a7aaa153064ea055),
+[closure CI run](https://github.com/Lotus2077/SOAR/actions/runs/33634232959),
+[Linux job](https://github.com/Lotus2077/SOAR/actions/runs/33634232959/job/100260939431),
+[macOS job](https://github.com/Lotus2077/SOAR/actions/runs/33634232959/job/100261407748),
+[A2 exact-SHA record](#bl-20260902-2105-pr6ra2-exact-sha-ci),
+[PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
+[MVP readiness](MVP_READINESS.md), and [architecture](ARCHITECTURE.md).

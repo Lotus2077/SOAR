@@ -653,13 +653,14 @@ cannot authorize the second slot, fallback, comparison, or projection.
 
 ## Next gate
 
-A2's exact implementation revision passed Linux/macOS CI. Commit and push its
-append-only CI evidence record, require that closure-only revision's repository
-CI to pass, and then begin R-A3 entry planning. A3 still requires retained-app
-integration, startup-recovery ordering, accepted output, Local-before-Cloud
-real-store orchestration, build-graph v6, UX/package proof, and its documented
-entry criteria. Stop before every R-B/R-C real-credential, configured-provider,
-off-device-egress, actual-budget, or paid boundary.
+A2's exact implementation revision and its append-only closure record both
+passed Linux/macOS CI. R-A3 is the next implementation milestone; begin its
+separately logged entry only from a clean, green exact-SHA documentation base.
+A3 covers retained-app integration, dedicated-before-generic startup recovery,
+accepted output, Local-before-Cloud real-store orchestration, build-graph v6,
+renderer/IPC UX, package proof, and the checkpoint's documented entry criteria.
+Stop before every R-B/R-C real-credential, configured-provider, off-device-
+egress, actual-budget, or paid boundary.
 
 ## References
 

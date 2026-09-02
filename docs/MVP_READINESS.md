@@ -35,16 +35,17 @@ independent-review, and Linux/macOS CI gates passed on
 `ddd171c6092f695e64360d73e78a257ee3fb9159`. This is `$0` phase-B substrate
 evidence, not signed credential-continuity or provider evidence.
 
-## In-progress PR6R-A1 checkpoint
+## Implemented PR6R-A1 checkpoint
 
 PR6R-A is approved only for the `$0`, loopback-development sequence. Its A1
 contracts, exact public-fixture materializer, development-only Electron graph,
 canary store, and OS-user-local authority ledger are present in the current
-working milestone, but A1 remains **in progress** until its exact revision is
-committed, independently reviewed, pushed, and green in the required Linux and
-macOS gates. A2 and A3 are not implemented.
+working milestone and are **Implemented** on exact revision
+`4cab8a7d61ef648fdfed6b03653c5bfbe367e28d` after independent review,
+committed-head proof, and Linux/macOS CI run `33603435199`. A1 is not Verified
+or Released. A2 and A3 are not implemented.
 
-Current local proof is deliberately narrow:
+A1 proof is deliberately narrow:
 
 - the special build admits exact repository modules and bare externals, carries
   distinct artifact identities, and is rejected by the normal package policy;

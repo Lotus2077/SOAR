@@ -5483,3 +5483,103 @@ References: [PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
 [approval record](#bl-20260902-0445-pr6ra-approved),
 [routing policy](ROUTING_POLICY.md), [architecture](ARCHITECTURE.md), and
 [benchmark protocol](../benchmarks/README.md).
+
+### BL-20260902-0730-pr6ra1-implemented -- 2026-09-02 -- PR6R-A1 closed as implemented on exact SHA
+
+Status: `Implemented`
+
+Scope or hypothesis: Close only checkpoint R-A1 of the approved `$0` PR6R-A
+development slice after its implementation, exact committed-head and fixture
+proof, independent review, push, and exact-SHA Linux/macOS CI pass. Keep R-A
+overall in progress and preserve all later transport, coordinator, credential,
+provider, egress, actual-budget, paid, verification, and release gates.
+
+Decisions:
+
+- Mark only R-A1 **Implemented**. This status covers the frozen public fixture,
+  strict canonical/persisted contracts, bounded development canary store,
+  cooperative OS-user authority ratchet, and structurally isolated special
+  build graph. It does not mark R-A2, R-A3, R-B, R-C, PR6R overall, or the app
+  Verified, Activated, Released, or production-ready.
+- Bind A1 closure to exact revision
+  `4cab8a7d61ef648fdfed6b03653c5bfbe367e28d` and GitHub Actions run
+  `33603435199`. Retain every failed test, rejected design, reviewer finding,
+  store-contract correction, parser bypass, and non-proof in the preceding
+  append-only implementation entry.
+- Preserve the authority boundary recorded at approval: R-A2 and R-A3 remain
+  simulation-only and `$0`; R-B credential/configured-provider validation and
+  R-C actual-paid inference remain separately unproposed and unapproved. The
+  owner's broader paid intent does not supply the missing exact R-B/R-C facts.
+- Make R-A2 the next milestone. It may add only the sealed one-use loopback
+  transport plus existing simulation attempt/budget/event reconciliation
+  required by the committed plan, with focused proof and review before R-A3.
+
+Changes: Updated README, architecture, readiness, and the PR6R plan from A1
+candidate language to exact-SHA `Implemented` closure and appended this durable
+status record. No runtime, renderer, preload, IPC, SQLite schema, authority,
+provider, credential, routing, repository-egress, budget, tool, evaluator,
+package, or network behavior changed in this closure checkpoint.
+
+Evidence:
+
+- Clean committed-head `pnpm check:release-head` passed on
+  `4cab8a7d61ef648fdfed6b03653c5bfbe367e28d`: readiness and the 59-entry ledger
+  were valid, both TypeScript graphs and the locked native core passed, 95 test
+  files and 1,166 tests passed, three files and five opt-in tests skipped, the
+  module-graph-v5 development flavor passed, normal policy rejected it, and a
+  verified normal production build was restored.
+- The explicit exact-HEAD `cal-007-flask-jinja-name` proof passed 1/1 from
+  already-present local public Git objects, reproduced the frozen nine-path,
+  62-line snapshot, and verified successful temporary-workspace cleanup. The
+  same exact-HEAD command without the required local object source failed closed
+  instead of silently skipping.
+- Independent build/release, truth-log, security, and open-source-
+  maintainability reviews reported no remaining actionable P0/P1/P2 after the
+  final payload-contract-v6, explicit durable-store, parser-backed graph-v5,
+  computed-member/TypeScript-wrapper, CSP, and no-script corrections.
+- GitHub Actions run `33603435199` passed on the exact revision. Linux job
+  `100162005942` passed frozen install, append-only log proof, and the canonical
+  full check in 1 minute 36 seconds. macOS job `100162436067` passed frozen
+  install, the dual-flavor build gate, and Electron E2E in 2 minutes 31 seconds.
+
+Failures or blockers: CI recorded no failed job, and no A1 P0/P1/P2 remains.
+R-A2 transport/accounting, R-A3 coordinator/UI/package proof, and exact-SHA CI
+for their future revisions remain blockers to R-A completion. R-B/R-C remain
+blocked on their separately required proposals, facts, and approvals.
+
+Limitations and non-claims: A1 proves bounded local contracts, structural
+authority/storage behavior, fixture identity, and canonical build isolation.
+It has no loopback HTTP episode, live EventStore/BudgetLedger reconciliation,
+three-route coordinator, cancellation workflow, interactive canary UI,
+configured vLLM/OpenRouter request, credential resolution, off-device packet,
+actual-cost reservation, paid inference, or correctness gold. Its unsigned
+graph proof is not artifact attestation; its parser policy is not semantic,
+data-flow, or runtime no-egress proof; its authority files do not resist a
+hostile same-user deleting both copies; completed output validity remains
+deferred; renderer citations remain limited to the nine changed fixture paths.
+This closure proves no review quality, best-result regret, cost saving, latency
+improvement, routing benefit, production readiness, verification, release, or
+user value.
+
+Paid exposure: `$0`. The exact fixture proof, local checks, builds, reviews,
+push, and CI made no configured vLLM, OpenRouter, model-list, validation,
+inference, retry, fallback, evaluator, repository-egress, credential,
+reservation, or other external LLM-provider request. No credential value was
+resolved, no application/provider-bound review packet left the host,
+actual-paid authority remained false in every A1 contract, and actual external
+provider spend remained zero.
+
+Next gate: Commit and push this closure-only record, require its own Linux/macOS
+repository-health CI to pass, and bind that exact result in a later append-only
+evidence entry. Only then may R-A2 planning and implementation begin. R-A2 is
+limited to the sealed one-use loopback transport and simulation
+accounting/reconciliation unit of work, with focused tests, independent review,
+an exact implementation commit, committed-head proof, push, and Linux/macOS CI
+required before R-A3. Stop before every R-B/R-C credential,
+configured-provider, off-device-egress, actual-budget, or paid operation.
+
+References: [PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
+[implementation entry](#bl-20260902-0358-pr6ra1-in-progress),
+[approval record](#bl-20260902-0445-pr6ra-approved),
+[CI run](https://github.com/Lotus2077/SOAR/actions/runs/33603435199),
+[MVP readiness](MVP_READINESS.md), and [architecture](ARCHITECTURE.md).

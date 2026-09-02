@@ -113,14 +113,13 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   implementation around one exact public fixture while preserving the packaged
   production lock. R-A1 contracts, frozen fixture, append-only canary store,
   OS-user one-shot authority ledger, and compile-time development-canary build
-  isolation are present in the current milestone and under final review; A1 is
-  not yet Implemented or Verified, and R-A2 transport/accounting and R-A3 app
-  flow remain not Implemented. This does not authorize real credential resolution,
-  configured-provider contact, off-device repository egress, actual-cost
-  reservation, or paid work. Real credential/provider validation and a later
-  at-most-two-request USD 0.25 canary remain separate unproposed R-B/R-C gates;
-  the owner's broader paid-work intent is not operative authority for either
-  unproposed phase.
+  isolation are **Implemented** on exact revision `4cab8a7`, but not Verified or
+  Released. R-A2 transport/accounting and R-A3 app flow remain not Implemented.
+  This does not authorize real credential resolution, configured-provider
+  contact, off-device repository egress, actual-cost reservation, or paid work.
+  Real credential/provider validation and a later at-most-two-request USD 0.25
+  canary remain separate unproposed R-B/R-C gates; the owner's broader paid-work
+  intent is not operative authority for either unproposed phase.
 - [Local Evaluation Bridge v1](docs/plans/LOCAL_EVALUATION_BRIDGE_V1.md)
   defines the independently approved `$0`, local-only, one-live-episode proof
   boundary. Another live attempt requires new explicit approval and a new

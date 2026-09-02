@@ -185,8 +185,9 @@ Manual VoiceOver, light/dark contrast, and reduced-motion proof remains pending.
 
 ## PR6R-A1 development-canary boundary
 
-PR6R-A1 is an in-progress structural checkpoint, not part of the normal app
-graph. A separate Electron config selects a distinct main entry, preload, and
+PR6R-A1 is an Implemented structural checkpoint on exact revision `4cab8a7`,
+not part of the normal app graph and not Verified or Released. A separate
+Electron config selects a distinct main entry, preload, and
 static renderer. The main entry checks `app.isPackaged` before dynamically
 importing the development runtime. Build-time graph policy admits an exact set
 of repository-owned modules and bare externals for each process. The canonical

@@ -71,6 +71,10 @@ describe("database migrations", () => {
         version: 4,
         name: "credential-operation-journal-v1",
       },
+      { version: 5, name: "patch-run-store-v1" },
+      { version: 6, name: "patch-comparison-screen-v1" },
+      { version: 7, name: "patch-comparison-evaluation-claims-v1" },
+      { version: 8, name: "patch-routing-comparison-v1" },
     ]);
     expect(migrations).toHaveLength(LATEST_DATABASE_SCHEMA_VERSION);
     for (const migration of migrations) {
@@ -145,7 +149,7 @@ describe("database migrations", () => {
 
     const upgraded = trackDatabase(createSoarDatabase(databasePath));
     const upgradedStore = new EventStore(upgraded);
-    expect(listAppliedDatabaseMigrations(upgraded)).toHaveLength(4);
+    expect(listAppliedDatabaseMigrations(upgraded)).toHaveLength(LATEST_DATABASE_SCHEMA_VERSION);
     expect(upgradedStore.getEvents(session.id)).toEqual(legacyEvents);
     expect(upgradedStore.replay(session.id)).toEqual(legacyReplay);
     expect(
@@ -213,16 +217,27 @@ describe("database migrations", () => {
       )
       .get() as { sql: string };
     current.exec(`
+      DROP TABLE patch_routing_evaluation_claims;
+      DROP TABLE patch_routing_assignments;
+      DROP TABLE patch_routing_blocks;
+      DROP TABLE patch_routing_screens;
+      DROP TABLE patch_comparison_evaluation_claims;
+      DROP TABLE patch_comparison_assignments;
+      DROP TABLE patch_comparison_blocks;
+      DROP TABLE patch_comparison_screens;
+      DROP TABLE patch_run_requests;
+      DROP TABLE patch_run_events;
+      DROP TABLE patch_runs;
       DROP TABLE credential_operation_journal;
       DROP TRIGGER schema_migrations_no_delete;
-      DELETE FROM schema_migrations WHERE version = 4;
+      DELETE FROM schema_migrations WHERE version >= 4;
     `);
     current.exec(migrationDeleteTrigger.sql);
     closeDatabase(current);
 
     const upgraded = trackDatabase(createSoarDatabase(databasePath));
     expect(listAppliedDatabaseMigrations(upgraded).map(({ version }) => version)).toEqual([
-      1, 2, 3, 4,
+      1, 2, 3, 4, 5, 6, 7, 8,
     ]);
     expect(new EventStore(upgraded).requireSession("v3-session")).toEqual(
       sessionBefore,
@@ -706,15 +721,26 @@ describe("database migrations", () => {
             AND reservation.campaign_id = NEW.campaign_id
         ) THEN RAISE(ABORT, 'budget terminal row reservation/campaign mismatch') END;
       END;
+      DROP TABLE patch_routing_evaluation_claims;
+      DROP TABLE patch_routing_assignments;
+      DROP TABLE patch_routing_blocks;
+      DROP TABLE patch_routing_screens;
+      DROP TABLE patch_comparison_evaluation_claims;
+      DROP TABLE patch_comparison_assignments;
+      DROP TABLE patch_comparison_blocks;
+      DROP TABLE patch_comparison_screens;
+      DROP TABLE patch_run_requests;
+      DROP TABLE patch_run_events;
+      DROP TABLE patch_runs;
       DROP TABLE credential_operation_journal;
       DROP TRIGGER schema_migrations_no_delete;
-      DELETE FROM schema_migrations WHERE version IN (3, 4);
+      DELETE FROM schema_migrations WHERE version >= 3;
     `);
     current.exec(migrationDeleteTrigger.sql);
     closeDatabase(current);
 
     const migrated = trackDatabase(createSoarDatabase(databasePath));
-    expect(listAppliedDatabaseMigrations(migrated)).toHaveLength(4);
+    expect(listAppliedDatabaseMigrations(migrated)).toHaveLength(LATEST_DATABASE_SCHEMA_VERSION);
     expect(
       migrated
         .prepare(
@@ -925,7 +951,7 @@ describe("database migrations", () => {
          ) VALUES (?, ?, ?, ?)`,
       )
       .run(
-        5,
+        LATEST_DATABASE_SCHEMA_VERSION + 1,
         "future-migration",
         "a".repeat(64),
         "2026-08-29T00:00:00.000Z",
@@ -933,13 +959,13 @@ describe("database migrations", () => {
     closeDatabase(current);
 
     expect(() => createSoarDatabase(databasePath)).toThrow(
-      /newer than supported version 4/,
+      new RegExp(`newer than supported version ${LATEST_DATABASE_SCHEMA_VERSION}`),
     );
 
     const raw = trackDatabase(new BetterSqlite3(databasePath, { readonly: true }));
     expect(
       raw.prepare("SELECT COUNT(*) AS count FROM schema_migrations").get(),
-    ).toEqual({ count: 5 });
+    ).toEqual({ count: LATEST_DATABASE_SCHEMA_VERSION + 1 });
   });
 
   it("provides a scoped, egress-linked append-only budget schema", () => {

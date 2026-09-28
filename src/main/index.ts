@@ -53,8 +53,12 @@ if (!primaryInstance) {
     }
   });
 
-  app.on("will-quit", () => {
-    controller?.close();
-    controller = undefined;
+  let closing = false;
+  app.on("before-quit", (event) => {
+    if (!controller) return;
+    event.preventDefault();
+    if (closing) return;
+    closing = true;
+    void controller.close().finally(() => { controller = undefined; app.quit(); });
   });
 }

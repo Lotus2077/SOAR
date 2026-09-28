@@ -1,29 +1,27 @@
-import {
-  ArrowUp,
-  CaretRight,
-  CheckCircle,
-  Clock,
-  Code,
-  Coins,
-  Copy,
-  Cpu,
-  Files,
-  FolderOpen,
-  GitDiff,
-  Gear,
-  HardDrives,
-  List,
-  LockKey,
-  MagnifyingGlass,
-  SidebarSimple,
-  Sparkle,
-  Stop,
-  TerminalWindow,
-  WarningCircle,
-  Wrench,
-  X,
-  XCircle,
-} from "@phosphor-icons/react";
+import { ArrowUp } from "@phosphor-icons/react/dist/csr/ArrowUp";
+import { CaretRight } from "@phosphor-icons/react/dist/csr/CaretRight";
+import { CheckCircle } from "@phosphor-icons/react/dist/csr/CheckCircle";
+import { Clock } from "@phosphor-icons/react/dist/csr/Clock";
+import { Code } from "@phosphor-icons/react/dist/csr/Code";
+import { Coins } from "@phosphor-icons/react/dist/csr/Coins";
+import { Copy } from "@phosphor-icons/react/dist/csr/Copy";
+import { Cpu } from "@phosphor-icons/react/dist/csr/Cpu";
+import { Files } from "@phosphor-icons/react/dist/csr/Files";
+import { FolderOpen } from "@phosphor-icons/react/dist/csr/FolderOpen";
+import { GitDiff } from "@phosphor-icons/react/dist/csr/GitDiff";
+import { Gear } from "@phosphor-icons/react/dist/csr/Gear";
+import { HardDrives } from "@phosphor-icons/react/dist/csr/HardDrives";
+import { List } from "@phosphor-icons/react/dist/csr/List";
+import { LockKey } from "@phosphor-icons/react/dist/csr/LockKey";
+import { MagnifyingGlass } from "@phosphor-icons/react/dist/csr/MagnifyingGlass";
+import { SidebarSimple } from "@phosphor-icons/react/dist/csr/SidebarSimple";
+import { Sparkle } from "@phosphor-icons/react/dist/csr/Sparkle";
+import { Stop } from "@phosphor-icons/react/dist/csr/Stop";
+import { TerminalWindow } from "@phosphor-icons/react/dist/csr/TerminalWindow";
+import { WarningCircle } from "@phosphor-icons/react/dist/csr/WarningCircle";
+import { Wrench } from "@phosphor-icons/react/dist/csr/Wrench";
+import { X } from "@phosphor-icons/react/dist/csr/X";
+import { XCircle } from "@phosphor-icons/react/dist/csr/XCircle";
 import React from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -54,6 +52,8 @@ import {
   type HybridSimulationConsentChallengeV1,
 } from "../../shared/hybrid-simulation-contracts";
 import { CloudSettings } from "./CloudSettings";
+import { PatchRunWorkspace } from "./PatchRunWorkspace";
+import { GeneralTaskWorkspace } from "./GeneralTaskWorkspace";
 
 type Payload = Record<string, unknown>;
 
@@ -806,6 +806,8 @@ interface SessionSidebarProps {
   onSelect: (id: string) => void;
   onNew: () => void;
   onReview: () => void;
+  onCoding: () => void;
+  onGeneral: () => void;
   onSettings: () => void;
   onClose: () => void;
 }
@@ -820,6 +822,8 @@ function SessionSidebar({
   onSelect,
   onNew,
   onReview,
+  onCoding,
+  onGeneral,
   onSettings,
   onClose,
 }: SessionSidebarProps) {
@@ -868,6 +872,10 @@ function SessionSidebar({
         <span>New task</span>
         <kbd>⌘ N</kbd>
       </button>
+      <button className="new-task-button" data-testid="general-task-entry" onClick={onGeneral}>
+        <Files />
+        <span>General task</span>
+      </button>
       <button
         className="new-task-button review-changes-entry"
         data-testid="review-current-changes"
@@ -875,6 +883,14 @@ function SessionSidebar({
       >
         <GitDiff />
         <span>Review Current Changes</span>
+      </button>
+      <button
+        className="new-task-button"
+        data-testid="coding-task-entry"
+        onClick={onCoding}
+      >
+        <Code />
+        <span>Fix a repository</span>
       </button>
 
       <label className="session-search">
@@ -2888,7 +2904,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [surface, setSurface] = useState<
-    "task" | "review_setup" | "settings"
+    "task" | "review_setup" | "settings" | "coding" | "general"
   >("task");
   const [reviewAvailability, setReviewAvailability] = useState<ReviewAvailability>(
     defaultReviewAvailability,
@@ -2926,7 +2942,7 @@ export function App() {
   const reviewRequestOrdinalRef = useRef(0);
   const simulationChallengeOrdinalRef = useRef(0);
   const cloudCredentialRequestOrdinalRef = useRef(0);
-  const settingsReturnSurfaceRef = useRef<"task" | "review_setup">("task");
+  const settingsReturnSurfaceRef = useRef<"task" | "review_setup" | "coding" | "general">("task");
   const settingsReturnFocusRef = useRef<"sidebar" | "review" | null>(null);
   const settingsFocusRestorePendingRef = useRef(false);
   const notifiedSimulationTerminalsRef = useRef(new Set<string>());
@@ -3341,7 +3357,7 @@ export function App() {
 
   const openCloudSettings = useCallback(
     (
-      returnSurface: "task" | "review_setup",
+      returnSurface: "task" | "review_setup" | "coding" | "general",
       returnFocus: "sidebar" | "review",
     ) => {
       settingsReturnSurfaceRef.current = returnSurface;
@@ -3594,9 +3610,23 @@ export function App() {
         onSelect={selectSession}
         onNew={newTask}
         onReview={openReviewSetup}
+        onCoding={() => {
+          setSurface("coding");
+          setSidebarOpen(false);
+          setTraceOpen(false);
+          setError(null);
+          void invalidateSimulationConsent();
+        }}
+        onGeneral={() => {
+          setSurface("general");
+          setSidebarOpen(false);
+          setTraceOpen(false);
+          setError(null);
+          void invalidateSimulationConsent();
+        }}
         onSettings={() =>
           openCloudSettings(
-            surface === "review_setup" ? "review_setup" : "task",
+            surface === "general" ? "general" : surface === "coding" ? "coding" : surface === "review_setup" ? "review_setup" : "task",
             "sidebar",
           )
         }
@@ -3616,6 +3646,10 @@ export function App() {
           <div className="task-heading">
             {surface === "settings" ? (
               <strong>Settings</strong>
+            ) : surface === "general" ? (
+              <strong>General task</strong>
+            ) : surface === "coding" ? (
+              <strong>Coding task</strong>
             ) : snapshot ? (
               <>
                 <strong>{snapshot.title || "Untitled task"}</strong>
@@ -3626,12 +3660,12 @@ export function App() {
             ) : null}
           </div>
           <div className="task-header-actions">
-            {snapshot ? <StatusBadge status={snapshot.status} /> : null}
+            {snapshot && surface !== "coding" && surface !== "general" ? <StatusBadge status={snapshot.status} /> : null}
             <button
               className="icon-button trace-toggle"
               onClick={() => setTraceOpen(true)}
               aria-label="Open run details"
-              disabled={!snapshot}
+              disabled={!snapshot || surface === "coding" || surface === "general"}
             >
               <List />
             </button>
@@ -3647,6 +3681,8 @@ export function App() {
         ) : null}
 
         {simulationCompletionNotice &&
+        surface !== "coding" &&
+        surface !== "general" &&
         simulationCompletionNotice.sessionId === selectedId &&
         simulationCompletionNotice.sessionId === snapshot?.id ? (
           <SimulationCompletionNotification
@@ -3656,7 +3692,11 @@ export function App() {
         ) : null}
 
         <section className="conversation-panel">
-          {surface === "settings" ? (
+          {surface === "general" ? (
+            <GeneralTaskWorkspace />
+          ) : surface === "coding" ? (
+            <PatchRunWorkspace />
+          ) : surface === "settings" ? (
             <CloudSettings
               status={cloudCredentialStatus}
               lastSourceProvenLegacyStatus={lastSourceProvenLegacyStatus}
@@ -3715,7 +3755,15 @@ export function App() {
             </>
           )}
         </section>
-        <StatusBar snapshot={snapshot} />
+        {surface === "general" ? (
+          <footer className="statusbar" aria-label="General workspace status">
+            <span>General task pilot · public or synthetic material only</span>
+          </footer>
+        ) : surface === "coding" ? (
+          <footer className="statusbar" aria-label="Coding workspace status">
+            <span>Coding pilot · source checkout stays unchanged</span>
+          </footer>
+        ) : <StatusBar snapshot={snapshot} />}
       </main>
 
       <TracePanel snapshot={snapshot} open={traceOpen} onClose={() => setTraceOpen(false)} />

@@ -569,6 +569,8 @@ describe("inspect_git_changes host acquisition", () => {
     );
   });
 
+  // Two full 200-path filesystem scans can exceed the default timeout under
+  // suite contention; this checks deterministic byte bounds, not scan latency.
   it("evicts trailing long-path entries instead of failing the result byte bound", async () => {
     const repository = await makeRepository("long-path-result-bound");
     const longDirectory = path.join(
@@ -604,7 +606,7 @@ describe("inspect_git_changes host acquisition", () => {
     await expect(
       verifyChangeSnapshot({ workspaceRoot: repository, snapshot: first.snapshot }),
     ).resolves.toBe(false);
-  });
+  }, 15_000);
 
   it("uses the same admitted-hunk line facts for live and frozen CR-only risk", async () => {
     const repository = await makeRepository("cr-only-risk-parity");

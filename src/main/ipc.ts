@@ -6,7 +6,7 @@ import {
   realpathSync,
   statSync,
 } from "node:fs";
-import { stat, realpath } from "node:fs/promises";
+import { stat, realpath, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import {
@@ -47,6 +47,8 @@ import {
   unavailableCloudCredentialStatus,
 } from "./cloud-credential-service";
 import type { CloudCredentialStatusSource } from "./cloud-credential-status-test-fixture";
+import type { PatchRunController } from "./patch-runs/controller";
+import { PATCH_RUN_IPC_CHANNELS, PatchRunCreateInputSchema, PatchRunIdSchema, PatchRunDecisionInputSchema } from "../shared/patch-run-contracts";
 
 export interface RegisterIpcOptions {
   store: EventStore;
@@ -55,6 +57,7 @@ export interface RegisterIpcOptions {
   credentialIpcAuthority: CredentialIpcAuthority;
   cloudCredentialStatus?: CloudCredentialStatusSource;
   hybridSimulationConsent?: HybridSimulationConsentChallengeStore;
+  patchRuns?: PatchRunController;
 }
 
 /**
@@ -307,10 +310,40 @@ export async function registerIpcHandlers({
   credentialIpcAuthority,
   cloudCredentialStatus,
   hybridSimulationConsent,
+  patchRuns,
 }: RegisterIpcOptions): Promise<() => void> {
   const approvedWorkspaces = new Set<string>();
 
   await restorePersistedWorkspaceApprovals(store, approvedWorkspaces);
+
+  if (patchRuns) {
+    const handle = (channel: string, operation: (input: unknown) => unknown): void => {
+      ipcMain.handle(channel, (event, input: unknown) => { assertCredentialIpcSender(event, credentialIpcAuthority); return operation(input); });
+    };
+    handle(PATCH_RUN_IPC_CHANNELS.getPatchRunAvailability, (input) => { assertNoIpcPayload(input); return patchRuns.availability(); });
+    handle(PATCH_RUN_IPC_CHANNELS.listPatchRuns, (input) => { assertNoIpcPayload(input); return patchRuns.store.list(); });
+    handle(PATCH_RUN_IPC_CHANNELS.getPatchRun, (input) => patchRuns.store.get(PatchRunIdSchema.parse(input)));
+    handle(PATCH_RUN_IPC_CHANNELS.createPatchRun, async (raw) => {
+      const input = PatchRunCreateInputSchema.parse(raw);
+      const workspaceRoot = await canonicalDirectory(input.workspaceRoot);
+      if (!approvedWorkspaces.has(workspaceRoot)) throw new Error("Choose this workspace in SOAR before starting a coding run.");
+      return patchRuns.create({ ...input, workspaceRoot });
+    });
+    handle(PATCH_RUN_IPC_CHANNELS.startPatchRun, (input) => patchRuns.start(PatchRunIdSchema.parse(input)));
+    handle(PATCH_RUN_IPC_CHANNELS.cancelPatchRun, (input) => patchRuns.cancel(PatchRunIdSchema.parse(input)));
+    handle(PATCH_RUN_IPC_CHANNELS.decidePatchRun, (raw) => {
+      const input = PatchRunDecisionInputSchema.parse(raw);
+      return patchRuns.store.decide(input.id, input.decision);
+    });
+    handle(PATCH_RUN_IPC_CHANNELS.exportPatchRun, async (raw) => {
+      const snapshot = patchRuns.store.get(PatchRunIdSchema.parse(raw));
+      if (!snapshot.patch?.text || snapshot.status === "running") throw new Error("This run has no finished patch to export.");
+      const result = await dialog.showSaveDialog({ title: "Export patch", defaultPath: `soar-${snapshot.id.slice(0, 8)}.patch`, filters: [{ name: "Patch", extensions: ["patch", "diff"] }] });
+      if (result.canceled || !result.filePath) return { exported: false };
+      await writeFile(result.filePath, snapshot.patch.text, { mode: 0o600 });
+      return { exported: true, filePath: result.filePath };
+    });
+  }
 
   if (config.providerMode === "fake" && config.testWorkspace) {
     approvedWorkspaces.add(await canonicalDirectory(config.testWorkspace));
@@ -562,6 +595,9 @@ export async function registerIpcHandlers({
   });
 
   return () => {
+    for (const channel of Object.values(PATCH_RUN_IPC_CHANNELS)) {
+      if (channel !== PATCH_RUN_IPC_CHANNELS.patchRunUpdate) ipcMain.removeHandler(channel);
+    }
     for (const channel of Object.values(IPC_CHANNELS)) {
       if (channel !== IPC_CHANNELS.sessionUpdate) ipcMain.removeHandler(channel);
     }

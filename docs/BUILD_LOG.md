@@ -6439,3 +6439,11054 @@ References: [closure commit](https://github.com/Lotus2077/SOAR/commit/46e2f81020
 [A2 exact-SHA record](#bl-20260902-2105-pr6ra2-exact-sha-ci),
 [PR6R plan](plans/PR6R_DEVELOPMENT_REAL_PROVIDER_SLICE_V1.md),
 [MVP readiness](MVP_READINESS.md), and [architecture](ARCHITECTURE.md).
+
+### BL-20260907-1625-mvp-coding-pilot-proposal -- 2026-09-07 -- Propose an app-first coding MVP with bounded learning cycles
+
+Status: `Proposed`
+
+Scope or hypothesis: Respond to the owner's request for an independent MVP
+plan after reviewing the external redesign and the current codebase. Determine
+whether a small app-owned repository-to-patch workflow is useful, then whether
+bounded local investigation adds value beyond a tuned cloud solver and
+deterministic host preparation. This record proposes work; it does not begin
+implementation or change current runtime/readiness status.
+
+Decisions:
+
+- Propose a 15-working-day internal app pilot, with a useful live patch by day
+  five, a 12-task three-arm screen by day ten, and one targeted iteration or
+  stop decision by day fifteen. These are investment timeboxes, not guaranteed
+  delivery dates or proof of population quality/cost improvement.
+- Retain Electron and compatible fixture/evaluation/storage utilities. Borrow
+  a pinned coding engine behind a trusted worker, with main-owned admission,
+  canonical coding-run records, accounting, lifecycle, and artifact acceptance.
+  Preserve existing v1/v2 contracts and historical evidence; propose deferring
+  further PR6R expansion rather than deleting it or claiming it was stopped.
+- Make preview/export the first patch-delivery surface. Defer in-app Apply
+  until concurrent-edit, path/type, and atomic-failure handling are defined.
+- Test the exact local-investigation-then-cloud policy that the app exposes.
+  Compare it with both cloud-only and host-preparation controls. Hidden
+  acceptance tests run after the policy ends and never trigger retries.
+- Require all repository-controlled setup and evaluation code to execute in
+  credential-free isolation. A public-snapshot policy and session-lived pilot
+  credentials require their own explicit authority; existing locked Keychain
+  and PR6R permissions do not authorize this new execution path.
+- Propose an initial USD 300 all-in exposure ceiling and a separately decided
+  optional USD 150 iteration/user-use tranche. Neither is approved or active.
+  Small-sample results choose the next investment; inconclusive results do not
+  establish that the broader hybrid direction is impossible.
+
+Changes: Added `docs/plans/MVP_CODING_PILOT_V1.md` with the current-code audit,
+user workflow, acceptance criteria, execution ownership, reuse decisions,
+delivery slices, evaluation/control design, failure responses, proposed spend,
+and unresolved entry facts. No runtime, schema, provider, credential, egress,
+budget, tool, renderer, package, or existing milestone status was changed.
+
+Evidence:
+
+- The reviewed source base was clean revision
+  `6a32777fb2efcb4b1f24e5d5163f8d3235d84abb` before documentation edits.
+- Read the append-only log, current architecture/readiness, app bootstrap and
+  IPC, real local and deprecated fake dispatch paths, provider settings,
+  event/migration/recovery constraints, budget/egress boundaries, evaluation
+  utilities, and package policies. This is a targeted code review, not a
+  complete security audit or a live product proof.
+- Independent execution, evaluation, and harness-source reviews informed the
+  proposal. Draft review found and corrected three material issues: ambiguous
+  isolation for setup/evaluator commands, premature original-checkout Apply,
+  and a screening rule that could advance a hybrid dominated by cloud-only.
+- Primary mini-swe-agent sources establish a candidate library/worker seam,
+  text-action class, cache-aware provider adapter, and Docker environment.
+  The plan requires validating the pinned artifact and overrides unsafe-for-
+  this-scope retry, retrospective-budget, and asynchronous-cleanup defaults.
+- `git diff --check` passed. The Node 22.22.2 build-log validator passed with
+  69 entries and confirmed append-only preservation against `HEAD`. The new
+  uncommitted entry was moved to the actual tail after a patch initially
+  matched the preceding entry's repeated reference text; committed history
+  was checked for exact preservation. No historical CI result is presented
+  as a fresh run.
+
+Failures or blockers: The host-default Node was 26.7.0. An existing Node
+22.22.2 runtime was located and used for the attempted checks, but the
+installed TypeScript entry file is marked macOS `dataless`; typechecking and a
+direct read of that entry stalled and were interrupted. The readiness
+validator also stalled and was interrupted without a pass or a diagnosed
+blocking file. An optional process-list diagnostic was denied by the sandbox;
+no privileged process inspection was needed or attempted. File availability
+and supported-toolchain validation are explicit kickoff prerequisites.
+
+Limitations and non-claims: No implementation, provider/model measurement,
+container execution, task acceptance, cost saving, routing benefit, packaging,
+release, or user-value claim was established. Hardware, actual model versions,
+prices, credential mode, admitted repositories, and evaluator execution host
+must be frozen before live work. The plan and proposed sequencing are not
+approved merely because they are written into this log.
+
+Paid exposure: `$0`. No configured inference endpoint, cloud provider,
+credential resolution, repository-to-model egress, paid evaluator, rental,
+purchase, or external message was executed during this review/planning work.
+Public documentation research does not authorize a model campaign.
+
+Next gate: Review and adopt or revise this concrete plan. If adopted, append
+the scoped approval and sequencing decision, restore file/toolchain
+availability, and begin the two-day integration slice. Live provider work
+requires the separately recorded exact pilot authority and spend limits.
+
+References: [MVP coding pilot](plans/MVP_CODING_PILOT_V1.md),
+[current readiness](MVP_READINESS.md), [architecture](ARCHITECTURE.md),
+[benchmark boundary](../benchmarks/README.md), and
+[previous next gate](#bl-20260902-2154-pr6ra2-closure-record-ci-and-maintainer-handoff).
+
+### BL-20260907-1634-mvp-coding-pilot-approved -- 2026-09-07 -- Owner authorizes implementation of the coding MVP
+
+Status: `Approved`
+
+Scope or hypothesis: Implement the concrete app-first coding pilot described in
+MVP_CODING_PILOT_V1.md in response to the owner's instruction, "go and build the
+MVP". Deliver the app execution path and learn from actual patches, with the
+plan's explicit 15-working-day investment limit and bounded experiments.
+
+Decisions:
+
+- Adopt implementation of the proposed scope and replace PR6R-A3 as the
+  immediate work sequence. Retain all prior code and evidence; no PR6R paid or
+  credential gate is activated by this scheduling change.
+- Treat the initial USD 300 all-in pilot ceiling in the presented plan as the
+  maximum scope of this instruction. The optional USD 150 iteration remains a
+  separate, unapproved decision. Do not spend merely because a ceiling exists.
+- Before any actual provider request, bind the concrete configured provider,
+  session-lived credential mode, admitted public snapshot, request/episode
+  limits and remaining campaign authority. Resolve missing facts rather than
+  inventing endpoints, capabilities, prices or authorization.
+- Begin with the additive coding-run store/contracts, trusted worker bridge,
+  isolated scripted fixtures and app preview/export; parallelize independent
+  frontend, runtime and verification work behind a shared typed boundary.
+
+Changes: Updated the mutable plan status and work-sequence text to record this
+approval. Runtime implementation is beginning after this durable entry.
+
+Evidence: The owner explicitly instructed implementation after receiving the
+concrete plan, timeline, proposed budget and limitations. The working tree
+contains only the preceding plan and append-only log edits before this entry.
+
+Failures or blockers: The installed TypeScript entry remains marked macOS
+`dataless`. Restore a usable pinned toolchain before treating tests as evidence.
+Python/container/provider readiness must be checked; no availability is assumed.
+
+Limitations and non-claims: Approval does not mean implementation, verification,
+release, user value, coding quality or routing benefit. An initial scripted
+fixture proves mechanics only. No provider or billing activity has occurred.
+
+Paid exposure: `$0` at approval. The initial ceiling is USD 300; actual dispatch
+requires the concrete pilot authority and conservative accounting described
+above. The optional extension is inactive.
+
+Next gate: Establish the shared coding-run interface and usable dependencies;
+implement the app/worker vertical slice, test isolation/cancellation/recovery,
+then freeze concrete live-run configuration before invoking a model.
+
+References: [coding MVP plan](plans/MVP_CODING_PILOT_V1.md),
+[proposal](#bl-20260907-1625-mvp-coding-pilot-proposal).
+
+### BL-20260907-1653-mvp-coding-pilot-implementation -- 2026-09-07 -- App coding MVP and isolated worker implemented
+
+Status: `Implemented`
+
+Scope or hypothesis: Deliver the approved app-first coding MVP as an additive
+vertical slice. A user selects an acknowledged public committed snapshot,
+requests a Python fix, receives a patch and visible checks, and can export and
+Keep/Reject it. Mechanics proof precedes any model-quality or economic claim.
+
+Decisions:
+
+- The owner selected OpenRouter with a session API key. The new route reads only
+  SOAR_PATCH_API_KEY in main, passes it privately to the trusted worker, and
+  never resolves the legacy locked Keychain credential or activates PR6R.
+- Add migration 5 and patch-run-v1 records rather than widening legacy v2's
+  one-paid-attempt grammar. Main reserves each exact worker-prepared request
+  before ACK, uses one in-flight request, and retains unknown exposure through
+  restart. The initial active ceiling is USD 5/episode and USD 70 total smoke
+  inference in this database, within the adopted USD 300 all-in plan. Additional
+  evaluation allocation and the optional extension are not activated.
+- Borrow checksum-pinned mini-swe-agent 2.4.6's default control loop and replace
+  only its model/environment interfaces. Its default SDK retry and post-call
+  cost behavior cannot enforce this pilot's pre-dispatch envelope. The small
+  exact-body urllib adapter makes no retries/redirects and accepts main's ACK
+  for the unchanged serialized request. The initial app exposes OpenRouter;
+  the worker's separate Anthropic branch is not initial-provider evidence.
+- Default to the existing configured DeepSeek V4 Flash 0731 model. Official
+  OpenRouter pages were checked for current model/provider existence, price
+  ceilings and provider-routing semantics. Default routing pins the deepseek
+  provider, disables fallback, requires request parameters and excludes per-
+  request fees. Main binds configured prices, source revision, image ID,
+  destination hash and request body identity before dispatch. No configured
+  provider request has been made.
+- Keep original worktrees untouched. Copy regular committed blobs using the
+  existing isolated Git policy; reject symlinks, submodules, credential/excluded
+  paths, excess size and reused destinations. Execute generated commands only
+  in credential-free, network-disabled Docker containers with bounded resources.
+- After the task exits, discard its Git metadata and reconstruct the immutable
+  patch against the original source in a fresh verification container. Run
+  visible checks after freezing that patch. Submitted test changes are visible
+  feedback, not independent hidden-oracle success. Cancellation and crash
+  recovery require confirmed container cleanup before completion.
+- Implement cloud, host-prepared-cloud and bounded read-only-local-then-cloud
+  policies. The controls share total caps. Unknown local exposure or cancellation
+  stops; an eligible safe local failure falls back once. No learned routing,
+  automatic patch application, hidden evaluator retries or campaign is added.
+
+Changes: Added coding contracts/store, main controller/supervisor, IPC/preload,
+app workspace with diff/export/Keep/Reject and durable stopping state, pinned
+Python bootstrap/core identity, Dockerfile, developer setup/demo commands,
+synthetic Python fixtures and focused unit/runtime/Electron tests. Added the
+coding quickstart and qualified readiness text while preserving legacy review,
+native credential and special-build guardrails. Source attribution is retained.
+
+Evidence:
+
+- Restored locked JavaScript dependencies under Node 22.22.2. Existing dependency
+  placeholders were preserved in an ignored node_modules directory. Normal
+  Electron build and node/web typechecking passed during integration.
+- The worker's 12-test matrix passed, including real Docker repairs of two
+  synthetic bugs, tampered Git-metadata reconstruction, exact admitted HTTP
+  bytes, full mini loop with a synthetic HTTP model, local safe fallback,
+  unknown-response stopping, and cancellation/cleanup. No model was contacted.
+- A separate TypeScript controller-to-worker-to-HTTP-fixture-to-Docker test
+  passed: every observed request had prior durable reserved exposure, three
+  normalized receipts settled, a real patch passed visible checks and the
+  original source remained unchanged. Its USD 0.0003 is synthetic fixture
+  accounting, not an external charge.
+- Two real Electron/Docker tests passed in 14.6 seconds: patch/check/export/Keep
+  and restart persistence, plus cancellation with no remaining run containers.
+  Actual screenshots were inspected for readable controls, costs and diff.
+  Fifteen renderer tests passed; focused storage/admission/workspace/lifecycle
+  tests and further shutdown review were also run. Full-suite closure remains
+  a separate pending check at this entry.
+
+Failures or blockers:
+
+- Existing macOS dataless dependency files blocked the initial toolchain. A
+  fresh frozen dependency install succeeded. Additional tracked-file/Git-object
+  placeholders blocked old regression fixtures: 402 objects were recovered from
+  a separate repository download only after verifying their object hashes; 92
+  unavailable objects were left untouched. HEAD's complete archive now reads.
+  Identical tracked placeholder files were restored, without branch/history or
+  working-change replacement. Initial blocked/interrupted tests are not passes.
+- The sandbox denied local fixture sockets and Docker access. Approved local
+  test execution was used; no provider calls were enabled. Dependency backup
+  discovery and broad concurrency caused further stalled attempts; those were
+  interrupted and bounded diagnostic test scheduling was used.
+- The first Python bootstrap copied the uv-managed interpreter, which could not
+  find its standard library. A symlinked virtual environment fixed installation
+  and the pinned runtime self-check passed.
+- The first full app fixture failed before a useful patch: OrbStack preserved
+  host ownership, preventing writes under dropped Linux capabilities. Trusted
+  normalized tar imports fixed the actual ownership issue; the initial failure
+  trace/screenshots were retained locally and the two Electron tests reran.
+- Review found premature terminal projection, a cleanup failure that could hang
+  completion, unbound request phases, missed sensitive paths and slow preparation
+  cancellation. These were corrected with targeted regression coverage; final
+  controller shutdown checks remain in progress at this entry.
+
+Limitations and non-claims: This is developer MVP implementation plus specified
+local mechanics evidence. It is not a public release, real-model patch proof,
+quality/cost/latency parity, routing benefit, a completed 12-task experiment,
+security against hostile multi-tenant use, or signed credential continuity.
+The key is not configured for a real run yet. The task image is pinned by its
+built ID per run; apt package fetching at image build is not byte-reproducible.
+The SQLite ceiling is cooperative per-database accounting, not an account-wide
+or tamper-proof billing cap. Manual accessibility and packaged runtime support
+are not established.
+
+Paid exposure: USD 0 actual external inference, rentals and purchases. All
+observed model responses were predetermined local fixtures. Public package,
+source and documentation downloads did not invoke inference. The optional
+USD 150 extension remains inactive.
+
+Next gate: Complete regression/build isolation and final lifecycle checks,
+launch the usable MVP, then run one real nonempty public fix after the session
+key is configured. Record its exact authority, patch, acceptance and cost before
+any comparison campaign or quality/savings claim.
+
+References: [approved MVP plan](plans/MVP_CODING_PILOT_V1.md),
+[coding quickstart](MVP_CODING_QUICKSTART.md),
+[worker identity](../runtime/patch-worker/runtime-lock.json),
+[OpenRouter provider selection](https://openrouter.ai/docs/guides/routing/provider-selection).
+
+### BL-20260907-1704-mvp-coding-pilot-local-closure -- 2026-09-07 -- Local mechanics verified and usable demo opened
+
+Status: `Implemented`
+
+Scope or hypothesis: Close the approved MVP implementation slice with fresh
+local regression and actual desktop evidence; retain the real-model and
+comparative-experiment gates as pending work requiring a configured session key.
+
+Decisions: Treat the coding slice as implemented with local mechanics verified,
+not as a Verified/Released product or an economic result. Default dev:patch to
+Cloud-only launch so a missing legacy remote-vLLM attestation cannot prevent
+using OpenRouter. dev:patch:hybrid retains the configured local provider and its
+explicit no-token-fee attestation. The demo has an isolated fake-provider
+configuration. These launch modes do not rewrite the owner's environment files.
+
+Changes: Completed abortable snapshot preparation, shared shutdown completion,
+uncapped persisted-run orphan recovery, current-authority checks for old drafts,
+and failure terminalization when a worker exits without durable completion.
+Added three configuration regressions for pinned provider/price controls,
+Cloud-only local exclusion, and scripted credential exclusion. Updated the
+quickstart and readiness statements, and opened the actual demo at its finished
+patch for owner review.
+
+Evidence:
+
+- Node 22.22.2 `VITEST_MAX_WORKERS=2 pnpm check` passed: readiness metadata,
+  append-only-log syntax, both TypeScript configurations, locked native core,
+  1,326 tests across 109 passing files, and both build flavors with normal output
+  restored. Four files/seven cases were intentionally skipped, including
+  opt-in live-provider/runtime cases. This is working-tree evidence, not CI,
+  exact-commit or release evidence.
+- The real controller/worker/HTTP-fixture/Docker test was rerun after final
+  lifecycle changes together with nine controller regressions: all ten passed.
+  The Python worker's twelve-test proof includes real containers and synthetic
+  HTTP responses. No external model was called.
+- Full desktop regression passed fourteen workflows in 44.8 seconds: retained
+  local investigation/review, locked credential presentation, simulation flows,
+  single-instance behavior, and both new real-container coding workflows.
+  The separate packaged credential canary was intentionally skipped.
+- After the final launch-mode correction, the nine configuration/admission tests
+  and both TypeScript configurations passed. Launch scripts were exercised
+  directly. Whitespace and log-preservation checks are part of closure.
+- The actual developer demo was then operated through its UI: choose the
+  synthetic public repository, enter an addition fix, acknowledge source, start,
+  and observe Ready for review. The nonempty diff changes subtraction to
+  addition; all three visible unittest cases pass. UI reports three seconds,
+  USD 0 known spend and USD 0 reserved exposure. Keep/Reject is left for the
+  owner. This run is visibly scripted and has no inference-quality meaning.
+
+Failures or blockers: The final legacy regression stall was a dataless Git pack
+reverse index, not an implementation regression. It was preserved locally and
+regenerated from its existing pack; the full check then passed. A preliminary
+chained validation command accidentally used host Node 26 for its second command;
+that command failed its engine check and was rerun explicitly with Node 22.
+The first demo launcher inherited an incomplete remote-vLLM configuration and
+failed startup before dispatch. Explicit demo isolation and the separate
+Cloud-only launch correct that dependency; the working demo was rerun. These
+negative results remain recorded. The latest local configuration check confirms
+SOAR_PATCH_API_KEY is still absent, so real provider validation cannot proceed.
+
+Limitations and non-claims: No real OpenRouter patch, dedicated-GPU performance,
+C/D/H comparison, model quality, user-value result, savings, latency gain,
+packaged coding runtime, signed installer, CI or release is claimed. Local cost
+attestation excludes hardware/electricity; the per-database ceiling is not an
+account-wide cap. The approved comparison campaign remains pending. No hidden
+evaluator result was used to revise a submitted patch.
+
+Paid exposure: USD 0 actual external inference, rental or purchase. The initial
+USD 300 envelope remains the ceiling, only USD 70 smoke inference is active in
+code, and the optional USD 150 extension is still unapproved.
+
+Next gate: Configure a session OpenRouter key locally using the quickstart,
+launch dev:patch and run one nonempty admitted public task. Record the actual
+patch, visible checks, owner decision and provider receipt. Then execute the
+small fixed-policy screen and iterate or stop under the approved plan.
+
+References: [coding quickstart](MVP_CODING_QUICKSTART.md),
+[approved plan](plans/MVP_CODING_PILOT_V1.md),
+[implementation entry](#bl-20260907-1653-mvp-coding-pilot-implementation).
+
+### BL-20260907-1711-openrouter-session-handoff -- 2026-09-07 -- Existing credential recovered for the approved live smoke
+
+Status: `Approved`
+
+Scope or hypothesis: Resume the already approved first real OpenRouter smoke
+using the owner's existing session-credential authorization.
+
+Decisions: The preceding closure's missing-key statement was too broad. It
+described a separate process environment, not the owner's credential setup.
+The side conversation had already loaded the configured Keychain entry into a
+dedicated Terminal shell, with explicit authorization to use it for this MVP.
+No model request occurred in that setup. Terminal automation is unavailable to
+this task. A trusted direct launch process successfully verified retrieval of
+the same configured entry, reporting availability only. Use that process to
+pass the key in memory to the existing session-only pilot launcher. Do not
+persist the key or activate the older locked credential feature.
+
+Changes: Correct the launch handoff and proceed with Cloud policy on the
+public synthetic calculator snapshot
+`c4e22dbf76dd15b75c4b191dddd826c1006ca6a2`. The objective is to fix addition
+for positive, negative and zero operands; visible checks use unittest. This
+first task is a provider/transport smoke, not a useful-maintenance benchmark.
+
+Evidence: Current configuration and launcher were inspected. A trusted
+Keychain lookup returned a nonempty credential without revealing its value.
+The runtime image remains
+`sha256:95be0fdf09ef20ff31c5f605108f068422a58edb93b35834c5cfaf45312d3071`.
+Dispatch targets OpenRouter's HTTPS chat-completions endpoint, model
+`deepseek/deepseek-v4-flash-0731`, upstream `deepseek`, with fallback disabled
+and USD 0.44/1.32 per-million input/output admission ceilings. The first smoke
+uses a USD 1 episode ceiling within the existing USD 70 persisted smoke cap,
+60 steps, 1,200 seconds and 4,096 output tokens per request. The controller
+must still record exact source/runtime/destination and each request admission.
+
+Failures or blockers: The earlier process-local credential check missed the
+prepared launch session. This is corrected here without erasing that result.
+The Terminal-control tool rejected access; the direct trusted launch context
+does not automate Terminal and retrieved the already-authorized credential.
+
+Limitations and non-claims: Credential availability proves neither inference
+quality nor a completed live run. The synthetic task cannot establish useful
+public maintenance-task acceptance, comparative quality or savings.
+
+Paid exposure: USD 0 at this admission entry. The first episode is capped at
+USD 1; the overall approved USD 300 envelope and inactive extension are unchanged.
+
+Next gate: Launch the app, run the admitted smoke, and record its actual
+request dispositions, receipt, patch and visible checks before further work.
+
+References: [coding quickstart](MVP_CODING_QUICKSTART.md),
+[approved MVP plan](plans/MVP_CODING_PILOT_V1.md).
+
+### BL-20260907-1718-first-live-failure-diagnostics -- 2026-09-07 -- Preserve the failed smoke and expose safe provider diagnostics
+
+Status: `Implemented`
+
+Scope or hypothesis: Learn from the first actual provider attempt and make its
+failure category inspectable without exposing provider bodies or credentials.
+
+Decisions: Keep the failed episode and its unresolved reservation. Do not
+automatically retry or declare an HTTP/transport failure free. Add fixed
+diagnostic codes and human-readable error categories while preserving request
+admission, settlement and cleanup boundaries.
+
+Changes: Python distinguishes allowlisted HTTP statuses, TLS verification,
+connection, timeout, redirect and response-format failures. Main accepts only
+fixed diagnostic summaries for durable events and the app error. Arbitrary
+exception text, URLs, headers and response bodies are excluded. Prepare a
+separate public maintenance task on `dbader/schedule` revision
+`82a43db1b938d8fdf60103bd41f329e06c8d3651`: reject nonpositive scheduling
+intervals before scheduling/registration, including direct jobs and randomized
+lower bounds, while retaining positive and fractional behavior. Its isolated
+acceptance tests were frozen outside the source before provider execution.
+The same provider/model/image and USD 1 episode ceiling remain admitted for
+this second smoke; the original failed run will remain unchanged.
+
+Evidence: Run `f499be54-8c67-4267-b367-044ed1bc1b45` failed in 2.118 seconds
+after exactly one admitted request, before any patch or visible check. Its
+USD 0.005789 reservation remains unresolved. Read-only OpenRouter credential
+validation returned HTTP 200, and public metadata returned the pinned model
+and DeepSeek upstream within the configured price ceilings. A credential-free
+metadata request also returned HTTP 200 in the worker's restricted environment.
+Eleven TypeScript lifecycle/admission tests and both typechecks passed. Python
+diagnostic regressions cover secret-bearing error data without emitting it.
+The public schedule source has 32 regular files and no unsupported paths.
+Container-only baseline acceptance records fourteen invalid-interval failures
+and four passing positive-behavior tests; no evaluator data enters the solver.
+
+Failures or blockers: The original worker deliberately discarded all exception
+details, so the first failure's exact cause is unavailable. Do not infer it
+was authentication, an empty account, TLS, or model unavailability. The first
+new TypeScript test run referenced a nonexistent public store method; the
+assertion was corrected to query the test database and all eleven tests passed.
+
+Limitations and non-claims: No successful paid generation or useful patch yet.
+Authentication and model metadata checks prove availability only, not that a
+generation request will succeed. The acceptance baseline is a single selected
+development task, not a held-out campaign or quality-rate result.
+
+Paid exposure: USD 0 known spend plus USD 0.005789 unresolved exposure.
+All further requests remain subject to the existing USD 70 persisted cap.
+
+Next gate: Exercise the diagnostic change through the app on the admitted
+public maintenance task, then inspect its result before another provider call.
+
+References: [approved MVP plan](plans/MVP_CODING_PILOT_V1.md),
+[public source](https://github.com/dbader/schedule/tree/82a43db1b938d8fdf60103bd41f329e06c8d3651).
+
+### BL-20260907-1722-explicit-smoke-upstream-change -- 2026-09-07 -- Use a compatible OpenRouter upstream for a fresh smoke
+
+Status: `Approved`
+
+Scope or hypothesis: Test whether a different explicitly pinned upstream can
+complete the approved public maintenance task under the same model and budget.
+
+Decisions: Preserve both failed runs. Pin the next new episode to
+`baseten/fp8` through the existing SOAR_PATCH_PROVIDER_SLUG setting, retaining
+OpenRouter, `deepseek/deepseek-v4-flash-0731`, fallback disabled, required
+parameter support, USD 0.44/1.32 per-million ceilings, per-request fee ceiling
+zero, USD 1 per episode and USD 70 persisted smoke exposure. This is an explicit
+development-provider selection within the approved OpenRouter pilot, not an
+automatic failover. Do not alter the owner's privacy or guardrail settings.
+
+Changes: Use the existing session-only launch override. No persisted provider
+configuration, source snapshot, test command or evaluator is changed. The
+schedule task remains development evidence and is not a comparison arm.
+
+Evidence: Run `ae2b7d7a-c815-405b-9c62-e3915590c238` failed after one request
+in 2.350 seconds with the new safe HTTP 404 diagnostic and USD 0.005948
+unresolved exposure. Authenticated filtered-model listing includes the selected
+model. Public endpoint metadata lists BaseTen FP8 within the existing price
+ceilings, supporting max_tokens; the public ZDR endpoint list includes it.
+These reads do not establish the exact reason the DeepSeek-only route failed.
+After the diagnostic change, all fifteen Python real-Docker tests and all ten
+runtime-integration/controller tests passed, in addition to eleven focused
+lifecycle/admission tests and both typechecks.
+
+Failures or blockers: Both DeepSeek-only attempts produced no patch. The first
+has no retained transport category; the second is HTTP 404. Authentication,
+model identity and public endpoint discovery alone were insufficient readiness
+checks. Account-specific routing eligibility remains to be proved by execution.
+
+Limitations and non-claims: No privacy setting was changed and no paid success
+is claimed. A successful alternative route will not explain the earlier 404
+or prove model quality across tasks. Oracle feedback will not be given to a
+solver to revise a terminal submission.
+
+Paid exposure: USD 0 known plus USD 0.011737 unresolved across two attempts.
+The next independently admitted episode retains its USD 1 ceiling.
+
+Next gate: Run one fresh public schedule episode with the new pinned upstream;
+inspect its terminal patch, visible checks, receipt and frozen independent
+acceptance before considering any comparison campaign.
+
+References: [approved MVP plan](plans/MVP_CODING_PILOT_V1.md),
+[OpenRouter routing](https://openrouter.ai/docs/guides/routing/provider-selection),
+[ZDR endpoint policy](https://openrouter.ai/docs/guides/features/zdr).
+
+### BL-20260907-1725-rate-limit-and-final-route-smoke -- 2026-09-07 -- Preserve the rate-limit failure and cap the final compatibility attempt
+
+Status: `Approved`
+
+Scope or hypothesis: Make one final separately admitted compatibility attempt
+on the same public schedule task before stopping provider diagnosis this turn.
+
+Decisions: Select `deepinfra/fp8` explicitly through OpenRouter, keeping the
+same model, task, source revision, visible checks, frozen external evaluator,
+USD 1 episode ceiling and every existing admission/privacy/campaign control.
+No automatic retries, provider fallbacks or account-setting changes are added.
+
+Changes: Session launch override only. Earlier failed episodes remain durable.
+
+Evidence: BaseTen run `ac6f825c-6d58-4524-aa42-5984b8d68627` returned HTTP 429
+in 2.719 seconds after one admitted request. No patch/check was produced;
+USD 0.005949 remains reserved. A read-only account/key check confirms capacity
+for the USD 1 episode and no exhausted key spending limit. Public DeepInfra
+FP8 metadata lists max_tokens support, status zero, and USD 0.06/0.18 per-million
+pricing under the unchanged ceilings; the route is also in the public ZDR list.
+The owner is not asked to provide an already available credential again.
+
+Failures or blockers: HTTP 429 does not by itself establish account-wide or
+upstream-specific rate limiting. The safe worker does not retain provider error
+bodies. The precise BaseTen rejection reason is therefore not claimed.
+
+Limitations and non-claims: This is a bounded development compatibility test,
+not a policy comparison or a successful product result. Selecting another
+listed endpoint does not guarantee execution. No privacy restriction is relaxed.
+
+Paid exposure: USD 0 known plus USD 0.017686 unresolved across three episodes.
+The fourth episode is capped at USD 1 within the existing persisted USD 70 cap.
+
+Next gate: Inspect the fourth episode's result. If a patch is produced, run
+frozen acceptance in a fresh credential-free container. If provider admission
+still fails, stop dispatch and report the observed external limitation.
+
+References: [approved MVP plan](plans/MVP_CODING_PILOT_V1.md),
+[model endpoints](https://openrouter.ai/api/v1/models/deepseek/deepseek-v4-flash-0731/endpoints),
+[ZDR endpoints](https://openrouter.ai/api/v1/endpoints/zdr).
+
+### BL-20260907-1728-owner-authorized-openai-smoke -- 2026-09-07 -- Switch the capped public smoke to direct OpenAI
+
+Status: `Approved`
+
+Scope or hypothesis: The owner explicitly requested trying an OpenAI API key
+instead of continuing OpenRouter diagnosis. Apply that authorization to one
+fresh app-triggered episode on the already admitted public schedule task.
+
+Decisions: Use direct HTTPS OpenAI chat completions, pinned model
+`gpt-4.1-mini-2025-04-14`, with USD 0.40 input/1.60 output per million from the
+current official model page. This compact non-reasoning model fits the existing
+text-action adapter and this bounded task. Retain USD 1 per episode, USD 70
+persisted campaign accounting, 60 steps, 1,200 seconds and 4,096 output tokens.
+Do not send OpenRouter routing fields to OpenAI. Pass the supplied credential
+only through private terminal input into the trusted process environment and
+worker stdin; never save it in source/config, command arguments, artifacts or
+logs. The older locked credential feature remains unchanged.
+
+Changes: Add an explicit openai/openrouter provider selector, provider-specific
+model defaults and the direct OpenAI fixed destination. Ignore legacy
+OpenRouter model/upstream settings when OpenAI is selected. Keep the existing
+Python transport, isolated runtime, source snapshot, visible checks and frozen
+independent acceptance. No automatic fallback or redispatch is added.
+
+Evidence: Final OpenRouter run `91c63e91-bdf3-4682-8844-ddc0fcad9bd1` completed
+one generation with 258 input/147 output tokens and a provider-reported cost
+accounted as USD 0.000042, then its next request returned HTTP 429. It ended
+in 7.665 seconds without a patch. Five requests across four OpenRouter episodes
+have USD 0.000042 known spend plus USD 0.023672 unresolved exposure. All task
+containers were independently confirmed absent. The owner then explicitly
+selected the OpenAI alternative; this supersedes the prior provider-diagnosis
+stop for the new provider only.
+
+Failures or blockers: No OpenRouter patch was produced. Authentication was
+available throughout; route errors and rate limits prevented completion. A
+read-only diagnostic query used a nonexistent database created_at column and
+was corrected to query by the known run ID; no database mutation occurred.
+
+Limitations and non-claims: The OpenAI run is still pending. Direct OpenAI does
+not expose OpenRouter's provider price-filter fields; admission uses the pinned
+model's documented standard prices and conservative usage accounting. Any
+cache savings are not pre-spent, and calculated cost is not an invoice. No
+quality-rate, comparative economics, release or held-out result is claimed.
+
+Paid exposure: Existing USD 0.000042 known plus USD 0.023672 unresolved remains
+in the same database. The new direct OpenAI episode has a USD 1 ceiling.
+
+Next gate: Validate the direct-provider configuration and run the same public
+maintenance task through the app, then evaluate only its frozen terminal patch.
+
+References: [approved MVP plan](plans/MVP_CODING_PILOT_V1.md),
+[official OpenAI model and pricing](https://developers.openai.com/api/docs/models/gpt-4.1-mini).
+
+### BL-20260907-1731-openai-loop-failure-iteration -- 2026-09-07 -- Direct OpenAI works; fix the submission protocol before another episode
+
+Status: `Implemented`
+
+Scope or hypothesis: Use the first direct OpenAI run to identify runtime and
+agent-behavior problems rather than letting a no-op loop consume its step cap.
+
+Decisions: Stop the observed loop. Preserve the cancelled episode, request
+receipts and unresolved exposure. Improve only the worker's command/submission
+contract before a fresh episode; do not treat model claims of passing tests as
+verification or expose the frozen evaluator to improve a submission.
+
+Changes: Direct OpenAI support was implemented and its twenty-two focused
+configuration/admission/controller tests plus both TypeScript checks passed.
+The key was accepted by OpenAI's read-only model endpoint with HTTP 200 and
+never entered a repository file, task container or renderer. In the first
+coding run the model emitted a comment followed by SOAR_SUBMIT; exact string
+matching missed the intended submission and executed it as an unavailable
+shell command. Subsequent model actions repeated exit 0. Stop this episode
+and accept the marker when it is the sole nonblank, noncomment command in the
+next worker version; additional substantive commands must not be discarded.
+Clarify the available shell tools, actual-source inspection and submission
+instructions. Retain the existing request and budget boundaries.
+
+Evidence: Run `0e3fc53a-94dc-47c5-b86b-f0f1e8b95e3f` was cancelled through the
+app after 76.998 seconds. Seventeen generation requests succeeded; one in-flight
+request remains unknown. The run accounts USD 0.022054 at documented token
+prices and reserves USD 0.012432. Initial commands invented a new scheduler
+module without inspecting the existing source and had command errors; no
+correct maintenance patch or passing external acceptance is claimed.
+
+Failures or blockers: Submission handling was too brittle. Model completion
+claims and repeated exit 0 were not task completion. No terminal patch had been
+captured before cancellation, so no patch artifact was produced. This exposes
+a remaining limitation: cancellation retains already captured artifacts, but
+currently discards unsubmitted candidate edits when cleaning up the container.
+Keep this limitation visible; do not claim complete partial-work recovery.
+
+Limitations and non-claims: Direct OpenAI connectivity is now demonstrated.
+Useful task completion, independent acceptance and partial-work recovery remain
+unverified. This calibration failure is not a C/D/H comparison or release.
+
+Paid exposure: Across five episodes, USD 0.022096 accounted known/estimated
+cost plus USD 0.036104 unresolved exposure remains in the same database. The
+next freshly admitted OpenAI episode retains the USD 1 ceiling.
+
+Next gate: Test the corrected command/submission contract, then rerun the fixed
+public task and independently assess only its frozen terminal patch.
+
+References: [coding quickstart](MVP_CODING_QUICKSTART.md),
+[approved MVP plan](plans/MVP_CODING_PILOT_V1.md).
+
+### BL-20260907-1736-mini-model-stop-and-full-model-trial -- 2026-09-07 -- Stop repeated failed repairs and try the full model
+
+Status: `Approved`
+
+Scope or hypothesis: The corrected transport reaches real code editing, but
+this small model failed to complete a bounded existing-code fix. Test the full
+GPT-4.1 snapshot on a fresh copy under the same USD 1 episode ceiling.
+
+Decisions: Stop repeated failed syntax repairs after approximately two and a
+half minutes. Select `gpt-4.1-2025-04-14` explicitly, with documented standard
+USD 2 input/8 output per million. Keep direct OpenAI, the existing session key,
+same task/source/visible checks, corrected worker, frozen independent evaluator,
+no transport retries and existing USD 70 persisted smoke ceiling. No evaluator
+feedback, hand-written solution or prior candidate is supplied to the new run.
+
+Changes: Explicit session model and price overrides only; source and evaluator
+remain unchanged. Preserve the two mini-model failures. The submission/prompt
+correction passed all seventeen real-Docker Python tests without skips. The
+combined configuration/admission/controller/lifecycle/store/renderer checks
+passed fifty-three tests across six files. Both TypeScript checks also passed
+for direct OpenAI support.
+
+Evidence: Corrected mini run `5da5d203-7d6a-4f7b-9e72-bd69372dbe4f` actually
+read existing code, then repeatedly introduced/repaired a syntax error. It was
+cancelled through the app at 153.173 seconds with USD 0.064701 accounted and
+USD 0.033336 reserved; no terminal patch or independent acceptance exists.
+The original checkout remains clean and the independent evaluator is unchanged.
+Official documentation confirms the selected full-model snapshot, endpoint
+support and standard prices. This is a compatibility/capability trial, not a
+controlled claim that the full model is better.
+
+Failures or blockers: Generation success did not establish coding success.
+The weak-model repair loop is retained as a negative product result. Partial
+unsubmitted edits are still lost on cancellation, as recorded previously.
+
+Limitations and non-claims: No accepted patch, model-quality rate, useful local
+policy, savings or release is claimed yet. Per-request estimates deliberately
+ignore cache discounts, and account invoices have not been reconciled.
+
+Paid exposure: Across six episodes, USD 0.086797 accounted known/estimated
+cost plus USD 0.069440 unresolved exposure remains durable. The next episode
+retains USD 1; no overall budget extension is activated.
+
+Next gate: Run the full model through the same app and inspect its frozen
+submission with the unchanged independent acceptance tests.
+
+References: [approved MVP plan](plans/MVP_CODING_PILOT_V1.md),
+[official GPT-4.1 model/pricing](https://developers.openai.com/api/docs/models/gpt-4.1).
+
+### BL-20260907-1745-visible-check-task-contract -- 2026-09-07 -- Repair the missing visible command in the solver task
+
+Status: `Approved`
+
+Scope or hypothesis: The first full-model submission reached the app, but its
+new regression module used a different location from the selected visible
+command. Check and repair task propagation before one fresh bounded trial.
+
+Decisions: Preserve the full-model result and its immutable patch. Supply the
+exact user-selected visible command to the cloud solver in every policy; it is
+ordinary task information, not independent evaluator feedback. Also request a
+final diff review and removal of temporary scratch files. Make no task-specific
+solution change and do not send independent test results to the solver.
+
+Changes: The worker currently passes only the objective and optional preparation
+brief to the cloud model. The configured visible command is executed only after
+submission. A targeted worker/test correction is authorized, followed by one
+fresh app-triggered trial with the same pinned GPT-4.1, public source, objective,
+visible command, independent evaluator and USD 1 ceiling. This remains within
+the existing smoke budget; no new campaign or automatic retry is activated.
+
+Evidence: Run `cfbc30c1-251d-4781-8e72-f7bbfd09ef10` finished in 36.860 seconds
+with a three-file nonempty patch and USD 0.123802 estimated token cost, no
+unresolved exposure. Three selected legacy tests passed. The final visible
+command failed importing the requested root-level regression module; the model
+had created it inside the package and ran a different command. It also retained
+a backup source file. These observed failures are independent of any oracle.
+The final model-label correction passed fourteen lifecycle/admission tests and
+both TypeScript checks; the app showed the exact OpenAI model during execution.
+
+Failures or blockers: The app did not pass an explicit visible-check command
+from the user's form to the solver. The resulting submission is incomplete
+against the selected check and is not accepted merely because it contains code.
+
+Limitations and non-claims: This is a development-task compatibility correction,
+not a fresh held-out result, model ranking, hybrid benefit or release. Independent
+acceptance of this frozen submission is recorded separately when available.
+Partial unsubmitted work recovery remains pending.
+
+Paid exposure: Seven episodes account USD 0.210599 known/estimated cost and
+USD 0.069440 unresolved exposure before the next run. The next episode is capped
+at USD 1 and all prior failures remain in the same durable ledger.
+
+Next gate: Verify that the actual selected command reaches the cloud model,
+then run one clean episode and independently inspect its frozen output.
+
+References: [coding quickstart](MVP_CODING_QUICKSTART.md),
+[approved MVP plan](plans/MVP_CODING_PILOT_V1.md).
+
+### BL-20260907-1753-submitted-patch-preservation -- 2026-09-07 -- Preserve submitted work before visible checks
+
+Status: `Implemented`
+
+Scope or hypothesis: A submitted patch must remain reviewable when its visible
+check times out or the owner cancels checking.
+
+Decisions: Persist the immutable patch immediately after reconstruction in the
+fresh verifier, before executing visible checks. Checks retain their separate
+pending/passed/failed state; early patch availability implies no check success.
+
+Changes: Moved the Python patch receipt before verification and removed the
+unused visibleChecksPassed field from that receipt. Added main-process lifecycle
+regressions for cancellation during verification, check timeout and failed checks,
+including exact patch/hash retention after durable event replay. The exact
+selected visible command now also reaches the cloud solver under every policy.
+
+Evidence: All ten focused worker lifecycle tests passed, including the three
+new retention cases; whitespace validation passed. Independent review found no
+further high-confidence blockers for the Cloud-only internal handoff. The prior
+full-model frozen patch independently passed seven functional tests in a fresh
+isolated container, but still failed the visible command and contained a backup
+file. That functional pass does not override incomplete submission/review status.
+
+Failures or blockers: Previously a check failure that threw before its receipt
+could discard an already-submitted patch. This differs from unsubmitted candidate
+edits, whose recovery remains deferred. Review also found that localSummary is
+not populated, so the experimental hybrid view cannot yet show its investigation
+handoff; this is recorded as a limitation, not covered by the Cloud proof.
+
+Limitations and non-claims: The independent oracle evaluates requested behavior,
+not all repository conventions or human acceptance. These changes do not implement
+partial unsubmitted work recovery, hybrid evidence review, a comparison campaign
+or a release. No provider call occurred while applying this correction.
+
+Paid exposure: Unchanged from the preceding entry; the next approved fresh
+full-model trial remains capped at USD 1.
+
+Next gate: Complete Python task-propagation and early-artifact tests, then run
+the corrected path through the app and inspect the immutable result independently.
+
+References: [worker](../runtime/patch-worker/worker.py),
+[lifecycle tests](../tests/unit/patch-run-worker-lifecycle.test.ts),
+[approved MVP plan](plans/MVP_CODING_PILOT_V1.md).
+
+### BL-20260907-1755-live-pilot-closure -- 2026-09-07 -- First app pilot closed with explicit failure outcomes
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the implemented app mechanics, direct OpenAI execution
+and bounded pilot outcomes. This status applies to that evidence only; a fully
+accepted coding submission, hybrid value and release remain unverified.
+
+Decisions: Stop paid trials after eight recorded development episodes. Retain
+all failed/cancelled requests, unresolved exposure and immutable artifacts.
+Prioritize recoverable work after solver command timeout and stronger cloud
+calibration before routing experiments. Leave Keep/Reject to the owner.
+
+Changes: Direct OpenAI support, safe provider diagnostics, robust submission
+handling, exact visible-command task propagation, readable model labels and
+pre-check patch persistence are implemented. The pilot report, quickstart,
+readiness and plan now state actual live results instead of pilot pending.
+A pre-existing long-path test received a case-specific fifteen-second timeout:
+it performs two full two-hundred-path filesystem scans and asserts correctness,
+not latency. No assertion, application deadline or global test setting changed.
+
+Evidence: The final unmodified pnpm check command passed under Node 22.22.2:
+readiness/build-log validation, both TypeScript checks, native core proof,
+1,341 tests passed with seven intentional skips across 110 passing/four skipped
+files, and both normal/development-canary build isolation proofs. The Python
+suite passed eighteen real-Docker tests; the subsequently added cancellation
+regression passed separately and demonstrated early frozen-patch retention,
+unchanged source and confirmed cleanup. Ten lifecycle tests passed, including
+cancel/timeout/failed-check artifact preservation and replay. All changes remain
+local and uncommitted; this is not an exact-commit CI or package-release proof.
+
+Run cfbc30c1-251d-4781-8e72-f7bbfd09ef10 produced a 37,513-byte, three-file
+patch in 36.860 seconds. Its SHA-256 is
+`da7eea2508d082ba983aca7c9ecc6deae5c98e59fe7d9feb0dcea3d617822863`.
+The immutable patch passed all seven pre-frozen independent functional tests
+and three selected legacy tests, but failed the visible module import. Its
+backup file and disrupted docstrings also prevent full reviewer acceptance.
+The patch was exported through the app; exported bytes exactly match the stored
+artifact. No owner decision was entered and no patch was applied to source.
+
+The corrected run 639d0788-1546-405c-9ea9-24297b6efb08 stopped at 113.307
+seconds on container_command_timeout while its solver ran the exact visible
+command. It had not submitted, so no patch was retained or independently scored.
+Final inspection confirmed the pinned public source unchanged and no remaining
+worker/evaluator containers. The final worker source SHA-256 is
+`d8101c4cd7e59851e22cddbe4c7d32a9d5c8abc8572bb4310415a01c0028676f`.
+
+Failures or blockers: Two initial full-check attempts hit the unchanged
+long-path test's five-second timeout, with 1,340 other tests passing each time.
+The file passed all thirty-three tests alone; the corrected timeout case also
+passed alone before the successful full rerun. These failures are retained.
+Live provider and model failures are retained in the report and database.
+The latest timeout still loses unsubmitted edits. A clean fully accepted live
+submission and the hybrid investigation-summary UI remain outstanding.
+
+Limitations and non-claims: Mechanics, connectivity, one functional patch and
+failure detection are verified. Reliable coding-task completion, complete P0
+acceptance, voluntary repeat use, dedicated local serving, C/D/H comparisons,
+quality rates, savings and release are not established. Independent functional
+passes do not override failed visible checks or human review. Generated artifacts,
+evaluator cases, credentials and raw local traces remain outside version control.
+
+Paid exposure: Eight episodes account USD 0.384801 plus USD 0.069440 unresolved
+maximum exposure, combined USD 0.454241. Estimates use admitted token prices
+when a billed receipt is absent; invoices are not reconciled. No overall budget
+extension was activated and no provider request was made during final checks.
+
+Next gate: Recover work and actionable output after timed-out solver commands,
+then calibrate a current strong cloud configuration on fresh bounded tasks.
+Require visible checks, independent acceptance and owner review before the
+comparison screen; do not buy further routing infrastructure from this evidence.
+
+References: [pilot report](MVP_CODING_PILOT_REPORT.md),
+[coding quickstart](MVP_CODING_QUICKSTART.md),
+[approved MVP plan](plans/MVP_CODING_PILOT_V1.md).
+
+### BL-20260907-1756-continue-timeout-recovery -- 2026-09-07 -- Continue with recoverable command failures
+
+Status: `Approved`
+
+Scope or hypothesis: The owner requested continuation after the first live pilot.
+Repair the observed loss of unfinished work on command timeout before another
+bounded cloud calibration. This is the next step in the approved MVP scope.
+
+Decisions: On a generated command timeout, preserve its bounded output, stop and
+independently confirm the whole candidate container is stopped, safely extract
+regular source files, and rebuild from the original pinned image and snapshot.
+Never reuse a candidate's modified operating system or trust its Git metadata.
+Allow at most two command-timeout recoveries in one episode; model follow-up
+requests still require ordinary exact-body admission and remaining budget.
+Unknown provider exposure, cancellation and the episode deadline never permit
+another model call. Recover unfinished source into a separately labelled artifact
+on graceful cancellation/deadline/failure with a twenty-second artifact-only
+budget and a forty-five-second main-process termination grace, then independently
+confirm cleanup. A recovered artifact is not a submitted or checked patch.
+
+Changes: Authorize an optional backward-compatible patch kind, explicit recovery
+receipts and UI labels, bounded Python recovery, and regression tests proving
+process termination, output/edit retention, no redispatch, unchanged source and
+cleanup. In parallel prepare narrowly opt-in current OpenAI Sol compatibility
+from official documentation, preserving legacy providers. No paid request is
+admitted by this implementation entry alone.
+
+Evidence: The preceding pilot's last run timed out at 113.307 seconds before
+submission and discarded candidate edits. Current code kills only the host
+Docker client on command timeout; this does not prove candidate descendants
+stopped. Main also drops artifact receipts once cancellation starts and kills
+the worker after five seconds, too early for bounded artifact extraction.
+
+Failures or blockers: Useful coding completion remains unproven. Recovery cannot
+guarantee salvage after host/Docker loss, an immediate hard kill or a candidate
+that violates the bounded regular-file policy. Fail closed and report inability
+to recover, without hiding the original failure or permitting more model work.
+
+Limitations and non-claims: This step does not establish hybrid quality/savings,
+add private-repository access, in-app Apply, arbitrary checkpoint restart or a
+release. Original pilot failures stay immutable; new trials are separate episodes.
+
+Paid exposure: Existing eight episodes remain USD 0.384801 accounted plus
+USD 0.069440 unresolved. No budget extension. A subsequent trial requires tested
+adapter settings and a durably recorded exact provider/task/price envelope.
+
+Next gate: Real-container timeout/cancel/deadline/failure proofs, typed UI/store
+retention tests, then one explicitly bounded strong-cloud calibration.
+
+References: [pilot report](MVP_CODING_PILOT_REPORT.md),
+[approved MVP plan](plans/MVP_CODING_PILOT_V1.md).
+
+### BL-20260907-1801-boltons-fresh-calibration-fixture -- 2026-09-07 -- Freeze a fresh signed-range maintenance task
+
+Status: `Verified`
+
+Scope or hypothesis: Prepare one fresh bounded public Python maintenance task
+for strong-cloud development calibration after the schedule submission failures.
+The task extends documented positive-only integer-list parsing to signed values
+and ranges, while preserving existing valid behavior and literal customization.
+This is a requested feature, not an allegation of a known upstream defect.
+
+Decisions: Pin public boltons revision
+`78ec69cac4465c57bb7debafcf3181d7d1ceaa76` and the previously frozen Python
+image. Keep the clone unchanged. Freeze independent acceptance outside the
+solver snapshot before any model receives this task. Give the solver the exact
+standard-library doctest and unittest command; do not give it evaluator cases.
+Do not treat a development task selected by the implementer as held-out
+comparative quality evidence.
+
+Changes: An ignored local fixture manifest, independent nine-method unittest
+suite and safe pinned-blob evaluator runner are prepared. The runner copies
+only bounded regular Git blobs and executes repository code in a fresh
+credential-free container with no network, host mounts or capabilities. It
+applies any later immutable patch inside that sandbox and checks the unchanged
+oracle hash before execution. The original clone remains clean.
+
+Evidence: The source contains 112 regular files totaling 980,231 bytes. Existing
+strutils doctests passed in the fixed image. The unmodified source produced
+five errors and one failing method in the nine-method independent suite; three
+positive/control methods passed. Oracle SHA-256 is
+`f642e7a9c713dbd8f6c054ff7f2ef517c18b60880088d52217de91b052eb6d4b`.
+The evaluator returned failure as expected and removed its container. Clone,
+manifest, oracle, runner and raw output are excluded by the ignored pilot tree.
+
+Failures or blockers: The baseline does not implement the requested signed
+parsing and strict field grammar. No candidate patch has been generated or
+accepted for this task. Existing doctests passing does not prove full upstream
+suite compatibility; the prepared image intentionally has no pytest dependency.
+
+Limitations and non-claims: This verifies deterministic task setup, negative
+baseline and selected existing behavior only. It does not establish coding
+quality, usefulness, savings, routing benefit or release readiness. The full
+upstream test suite is outside the standard-library-only visible command.
+
+Paid exposure: None. Fixture preparation made no model request and activated
+no additional provider budget.
+
+Next gate: Finish recovery/adapter checks, record the concrete provider/model/
+price envelope, then launch one fresh app-triggered episode. Independently
+score only its terminal immutable patch and preserve every failure.
+
+References: [public boltons source](https://github.com/mahmoud/boltons/tree/78ec69cac4465c57bb7debafcf3181d7d1ceaa76),
+[approved MVP plan](plans/MVP_CODING_PILOT_V1.md),
+[pilot report](MVP_CODING_PILOT_REPORT.md).
+
+### BL-20260907-1810-sol-boltons-trial-authority -- 2026-09-07 -- One bounded modern-cloud development trial
+
+Status: `Approved`
+
+Scope or hypothesis: Following the owner's continuation request, test whether the
+recovered coding loop can deliver a clean submission on one fresh public task
+using a current strong cloud configuration, after local contract proofs pass.
+
+Decisions: Admit one new Cloud episode on public boltons revision
+`78ec69cac4465c57bb7debafcf3181d7d1ceaa76`, extending parse_int_list to signed
+integers/ranges and preserving format_int_list behavior. The frozen task manifest
+specifies positive-input compatibility, literal delimiters, whitespace, reversed
+endpoints, duplicates, malformed-input rejection and root-level unittest tests.
+The exact visible command runs existing strutils doctests then test_signed_int_ranges.
+Independent cases remain outside solver source/prompts and are not retry feedback.
+
+Use the already owner-authorized direct OpenAI session credential only in trusted
+process memory. The fixed destination is https://api.openai.com/v1/chat/completions;
+read-only model access may be checked first at the same provider. Explicit model
+`gpt-5.6-sol` is an undated published ID, not an immutable snapshot. Record any
+returned model identity. Set medium reasoning, standard service tier,
+max_completion_tokens=8192 including reasoning, and a 256000-byte input envelope.
+Use explicit caching with no breakpoints, which official documentation defines
+as no cache reads/writes; reject unexpected cache activity after accounting it.
+Use documented standard USD 4 input/20 output per million. Do not inherit prior
+2/8 prices, legacy max_tokens or OpenRouter fields. Keep redirects and transport
+retries disabled and preserve unknown exposure.
+
+Changes: The Sol compatibility profile and exact admission/usage tests are
+implemented. Launch with USD 1 episode ceiling, thirty model steps and a
+five-minute episode deadline. Source has 112 regular files/980231 bytes. Execute
+only in the already pinned network-disabled, credential-free image; original
+checkout and evaluator are unchanged. No Apply, commit, push or owner decision
+is authorized by this trial. Local test fixtures may be created/discarded normally.
+
+Evidence: Sol config/admission tests passed thirty-five cases; seven isolated
+provider-protocol tests passed; both TypeScript checks passed. Recovery's first
+full Python suite passed twenty-five tests, and an added cancellation-during-
+rebuild regression passed. All three fresh-built Electron/Docker flows passed,
+including export and restart of unfinished work. Combined final Python validation
+must finish before clicking Start. The first Electron invocation was interrupted
+because a fresh production renderer build had not yet been established; its
+partial result is not counted as current-source proof. The fresh build/rerun
+passed all three. A sandbox loopback-bind denial in provider-fixture validation
+was rerun with authorized local access; no external provider was involved.
+
+Failures or blockers: No Sol account access, live format reliability, task
+acceptance, actual latency or realized API cost has been verified yet. Read-only
+access failure blocks dispatch. A failed live attempt remains a negative result;
+there is no automatic provider retry or budget increase.
+
+Limitations and non-claims: This is development calibration on a fresh task,
+not a controlled comparison with the different previous schedule task, a model
+ranking, a cached production cost measurement, hybrid evidence or release.
+Cooperative failure recovery cannot guarantee uncaptured edits after immediate
+hard process/host loss. No hidden evaluator content is placed in source or logs.
+
+Paid exposure: Existing USD 0.384801 accounted plus USD 0.069440 unresolved
+remains durable. This trial adds at most USD 1 under the existing USD 70 smoke
+ceiling. No optional budget tranche is activated.
+
+Next gate: Complete local validation, verify provider access, run this exact
+app-triggered task, freeze its patch and evaluate independently once.
+
+References: [Sol model](https://developers.openai.com/api/docs/models/gpt-5.6-sol),
+[request contract](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create),
+[cache semantics](https://developers.openai.com/api/docs/guides/prompt-caching),
+[approved MVP plan](plans/MVP_CODING_PILOT_V1.md).
+
+### BL-20260907-1818-boltons-sol-independent-review -- 2026-09-07 -- Functional passes retained with reviewer rejection
+
+Status: `Verified`
+
+Scope or hypothesis: Independently assess the one authorized fresh boltons
+Sol submission, preserving the difference between submission, visible checks,
+frozen functional acceptance and compatibility review.
+
+Decisions: Freeze terminal patch bytes before evaluation. Execute the unchanged
+independent suite once; never send its cases or results back to the solver.
+Preserve that receipt after the separate review finds a missed compatibility
+case. Stop paid trials; do not rewrite the submitted patch or its terminal state.
+Leave the owner's Keep/Reject action untouched.
+
+Changes: Ignored evidence now includes the exact terminal snapshot, immutable
+patch, evaluator receipt, request/cost summary, separate reviewer rejection and
+metadata-only cleanup proofs. No source checkout or application code changed
+while evaluating. A stopped SOAR test orphan from the completed preceding test
+sessions was removed by exact container ID after its ownership, stopped state
+and absence from the live app database were verified; no force-kill was used.
+
+Evidence: Run `fbac0cfe-0ed1-47ab-9cca-c1ffa3cfdfe3` completed in 100.592
+seconds with seven successful OpenAI requests admitted as `gpt-5.6-sol`.
+It produced a submitted two-file patch of 6,182 bytes, SHA-256
+`371b8bc78d3b161e0666f2d0bbb3dac1092735e4860ef6c0d74b11267326ef65`.
+The app's visible checks passed. A fresh sandbox passed all nine frozen
+independent methods, all six generated visible unit tests and existing strutils
+doctests. The single evaluator receipt is 2,428 bytes, SHA-256
+`3ca96de4b2b62f5a26feb2cbf0820b282a32ded79f77aea56d9972d8b8aeaf5b`.
+Source Git status remains empty. The persisted run.completed event and separate
+filtered Docker inventory confirm no live-run or evaluator containers remain;
+final inventory after removing the old stopped test orphan contains no SOAR
+containers. The event grammar has no distinct cleanup event, so container
+absence is recorded as independent evidence rather than invented event data.
+
+Failures or blockers: Independent review rejected the patch because its new
+ASCII-only digit pattern excludes Unicode decimal input previously accepted by
+int(), violating the requested preservation of valid positive-input behavior.
+The frozen suite omitted that case. Its nine passes remain true within their
+scope and do not override review rejection. There was no second oracle run,
+paid retry, patch application or owner decision.
+
+Limitations and non-claims: This proves a nonempty app-triggered submission,
+working visible checks, one frozen functional-suite pass and actionable review.
+Clean full task acceptance, full upstream compatibility, repeat reliability,
+model superiority, routing benefit, savings and release remain unproven.
+The undated model ID and one developer-selected task do not establish a stable
+benchmark. Generated tests do not substitute for independent acceptance.
+
+Paid exposure: This episode accounts USD 0.267624 with zero unresolved reserve.
+The overall ledger contains eighty-four request attempts, USD 0.652425 accounted
+and USD 0.069440 unresolved exposure. These remain conservative token-price
+estimates where no provider invoice-level cost is returned, not reconciled bills.
+
+Next gate: Retain the compatibility finding as a separate regression and define
+the next bounded task/review iteration. Do not expand the routing experiment
+from a functional-suite pass that failed compatibility review.
+
+References: [pilot report](MVP_CODING_PILOT_REPORT.md),
+[approved MVP plan](plans/MVP_CODING_PILOT_V1.md),
+[public pinned source](https://github.com/mahmoud/boltons/tree/78ec69cac4465c57bb7debafcf3181d7d1ceaa76).
+
+### BL-20260907-1819-recovery-and-sol-local-closure -- 2026-09-07 -- Recover unfinished work and preserve the new review failure
+
+Status: `Verified`
+
+Scope or hypothesis: Close the owner-authorized continuation with bounded command
+recovery, explicit unfinished artifacts, an opt-in modern OpenAI profile and one
+fresh app-triggered development trial. Verification here covers the stated local
+mechanics and live receipts; full task acceptance remains failed on review.
+
+Decisions: Generated-command timeout may rebuild the candidate at most twice.
+Stop the complete old container and independently confirm its stopped state
+before extracting bounded regular files. Restore only source into a fresh pinned
+image, reconstruct Git from the original snapshot and retain bounded timeout
+output. Do not rerun the command automatically. Every further model call still
+requires admission; cancellation, deadline and unknown exposure block it.
+Use a twenty-second artifact-only salvage budget and forty-five-second main
+termination grace. A safely captured source copy survives cancellation during
+replacement. Main independently confirms cleanup as the final backstop.
+
+Changes: Python now distinguishes command timeout from episode termination and
+recovers unsubmitted source after graceful cancellation, deadline or failure.
+The optional patch kind is backward compatible: absent means submitted.
+Recovered artifacts have no check success, cannot complete the run, never
+replace a submitted artifact, and carry explicit unfinished labels in the app
+and export notice. A later actual submission may replace a recovered artifact.
+
+The direct OpenAI Sol profile validates the exact total-output cap, reasoning,
+service and cache controls at admission. It records reasoning/cache subsets and
+returned model identity, settles known usage before rejecting empty or truncated
+actions, and rejects unexpected cache activity or output overflow. Legacy
+provider bodies/defaults remain compatible. Documentation records the scope,
+retained failures and the next compatibility-review gate.
+
+Evidence: The final current-source pnpm check passed both TypeScript checks,
+native proof, 1,372 tests with seven intentional skips (111 files passed, four
+skipped), and both build flavors. The separate Python worker/provider suite
+passed all thirty-three tests with real Docker and isolated HTTP fixtures.
+Three fresh-built Electron/Docker flows passed, including recovery export and
+restart, and submitted-patch preservation during check cancellation. Focused
+store/UI/lifecycle tests passed forty-four cases; Sol config/admission tests
+passed thirty-five. Independent review found and prompted repair of the safely
+captured-source lifetime during container replacement; its cancellation
+regression passed in the final Python suite.
+
+The authorized live run used seven successful Sol calls and produced a two-file
+submission, with app-visible checks and nine independent methods passing.
+Read-only OpenAI model access succeeded before dispatch. All returned model
+receipts identify gpt-5.6-sol; all cache counts are zero. Actual app export is
+6,182 bytes and matches frozen SHA-256
+371b8bc78d3b161e0666f2d0bbb3dac1092735e4860ef6c0d74b11267326ef65.
+Original source remains clean and owner Keep/Reject remains unset.
+
+Failures or blockers: Separate patch review found the Unicode decimal regression
+missed by the frozen suite. Preserve both the nine passing methods and reviewer
+rejection. No more model requests were made after this finding. Two first
+full-gate invocations stopped at new uncommitted log ID/status formatting, before
+running code tests. Those headings were normalized to the required UTC sequence,
+including the prior uncommitted closure's local-time heading; no committed entry
+or negative result was rewritten. The complete rerun passed. The interrupted
+earlier Electron run and sandbox fixture-bind retry remain recorded above.
+One stopped test orphan from completed tests was found and removed by exact ID
+after ownership/inactivity checks; final SOAR container inventory is empty.
+
+Limitations and non-claims: Graceful recovery cannot guarantee uncaptured edits
+after immediate process/host death, Docker loss or invalid/oversized candidate
+files. Live Sol did not trigger timeout recovery; its recovery proof is local
+test evidence. One developer-selected task and an undated model ID establish no
+comparative quality or latency rate. No full upstream suite, accepted useful
+task, dedicated-local run, C/D/H screen, savings claim, in-app Apply, commit,
+push, packaging release or optional budget extension is included.
+
+Paid exposure: New trial USD 0.267624 accounted, zero unresolved reserve. Across
+nine episodes, USD 0.652425 accounted plus USD 0.069440 unresolved, maximum
+recorded combined exposure USD 0.721865. These are conservative usage-based
+estimates where billed cost is unavailable, not invoice reconciliation. No
+credential is retained in code, evidence, database or documentation.
+
+Next gate: Include compatibility cases from existing behavior before freezing
+the next acceptance suite, retain independent review even after test passes,
+and establish full task acceptance before expanding the comparison. The known
+Unicode case is now a development regression; label any future repair separately.
+Rerun document validators after this entry and retain the current app for review.
+
+References: [pilot report](MVP_CODING_PILOT_REPORT.md),
+[quickstart](MVP_CODING_QUICKSTART.md),
+[approved MVP plan](plans/MVP_CODING_PILOT_V1.md),
+[worker](../runtime/patch-worker/worker.py),
+[patch contract](../src/shared/patch-run-contracts.ts),
+[Sol admission tests](../tests/unit/patch-openai-sol.test.ts),
+[Electron proof](../tests/e2e/patch-run.spec.ts).
+
+### BL-20260908-1058-owned-local-hybrid-screen-authority -- 2026-09-08 -- Finish the MVP and test the actual hybrid policy
+
+Status: `Approved`
+
+Scope or hypothesis: The owner explicitly set the active goal to finish the MVP
+and measure whether hybrid delivers good patches and saves money, supplied the
+local chat-completions endpoint, permitted its current HTTP transport, and
+confirmed owned unlimited-access hardware costing approximately USD 3,500.
+The previous turn made progress on recovery but did not test hybrid benefit.
+
+Decisions: Finish local-evidence visibility and the shared-controller C/D/H
+runner while independently preparing twelve unused bounded public tasks across
+at least three repositories. Keep the two exposed development tasks excluded.
+Freeze the complete selection, order, source revisions, independent tests and
+reference validation before screen results. Use independent agent-authored
+acceptance plus patch review and label that authorship honestly; the previous
+plan's human-authored evaluator is not claimed. A known development regression
+does not block the newly requested comparison, but remains rejected evidence.
+
+Record the exact private local destination in ignored authority, never tracked
+documentation. Read-only model discovery reports alias RM-01 VLM, owned_by vllm,
+and 262144 maximum model length; this does not identify underlying weights or
+precision. Allow at most two non-sensitive synthetic compatibility requests,
+2048 output tokens and sixty seconds each, before repository inference. Use
+separate local input/output limits rather than inheriting Sol's larger output
+cap. Local per-token fees are zero for the owner-operated endpoint; hardware,
+utilization, depreciation and power remain separate measured/assumed expenses.
+
+Changes: Authorize finishing local summary, fallback/time/usage receipts and app
+presentation, scoped comparison recovery, whole-task block reservation, and a
+resumable shared-controller experiment entry. Explicit screen configuration may
+set the campaign ceiling up to the already approved USD 180 allocation; preserve
+the USD 70 default. Reserve USD 9 per complete task block: each arm has the same
+USD 3 cap, forty solver steps and six hundred seconds total, including at most
+eight local actions/three hundred seconds for H. Thirty-six episodes reserve at
+most USD 108 new exposure. Existing unknown spend remains charged. No optional
+budget extension or automatic repeat of terminal episodes is activated.
+
+Evidence: Current source/build log and policy were reread. Local model discovery
+returned HTTP 200. The old development launcher handle is absent, so it is not
+treated as a live provider process. Prior local proofs and failed compatibility
+review remain intact. A concrete task slate is being checked against source;
+no screen task has been dispatched. The owner supplied device price during work.
+
+Failures or blockers: Underlying local model identity/engine details, action
+format, comparative solve yield and savings are unmeasured. Useful patch
+acceptance is still open. These are the experiment's questions, not grounds for
+substituting more cloud-only smoke tests. Any inaccessible provider or unsafe
+fixture must be recorded before deciding how to proceed.
+
+Limitations and non-claims: A developer-selected twelve-task screen can inform
+the next iteration, not certify quality parity or production savings. Owned
+hardware is not free electricity or zero amortization. Report measured cloud
+spend, local phase time and break-even/sensitivity when full operating cost is
+unavailable. Do not infer weights from the served alias or host preparation
+benefit from an H-versus-C comparison alone.
+
+Paid exposure: Existing USD 0.652425 accounted plus USD 0.069440 unresolved stays
+durable. New screen maximum USD 108 under the existing USD 180 allocation and
+USD 300 initial overall ceiling. Synthetic local probes have no per-token bill;
+record their duration. No credentials are written to files or candidate sandboxes.
+
+Next gate: Verify local protocol, finish and validate the comparison contracts,
+freeze all task/reference/acceptance evidence, then run complete C/D/H blocks and
+inspect independent outcomes. Retain the active goal until evidence supports a
+candid result for hybrid and the app workflow is usable.
+
+References: [MVP plan](plans/MVP_CODING_PILOT_V1.md),
+[pilot results](MVP_CODING_PILOT_REPORT.md),
+[configuration](../src/main/patch-runs/config.ts).
+
+### BL-20260908-1147-hybrid-handoff-and-screen-preproof -- 2026-09-08 -- Finish local evidence and verify prerequisites before paid blocks
+
+Status: `Implemented`
+
+Scope or hypothesis: Make the owner-requested hybrid experiment informative by
+forwarding relevant source, exposing local effort and using independently frozen
+tasks through the same app controller. Prepare the complete twelve-task screen;
+no policy outcomes have been collected at this entry.
+
+Decisions: Local read actions may specify a positive bounded start line and
+return at most 120 numbered lines/12000 bytes using a fixed host command. Forward
+only the three most recent successful read/search observations, equally bounded
+with truncation labels, in a 4096-byte evidence section. Keep deterministic
+inventory separate. The previous layout could fill the evidence budget with
+duplicated inventory and omit relevant source. It is not the tested policy.
+Separate local 2048-output/64000-input limits from Sol 8192/256000 limits.
+
+Known, settled local format failures, no useful evidence and pre-admission input
+limit exhaustion fall back once to D preparation. Unknown exposure, cancellation
+or an expired episode stops the run. Scout time and failed work remain counted.
+Persist exact forwarded evidence and typed elapsed/outcome/fallback metadata.
+Per-phase usage includes requests, known fees, reserved exposure and token
+subsets; old phase-less records remain unattributed. Zero-fee unknown local
+requests cannot complete a run or authorize cloud continuation.
+
+Changes: Main/store/shared/UI, Python bounded reads/handoff and provider limits
+are implemented. The resumable comparison uses the same controller/store/worker,
+immutable task assignments, balanced seed-20260908 arm order, whole-block
+reservations and scoped recovery that does not interrupt unrelated app runs.
+The user-owned device price is USD 3500; reports separate zero token fees from
+capital/power and include utilization sensitivity and break-even hourly cost.
+
+Evidence: Local synthetic protocol probe returned HTTP 200, the required
+inventory action and valid usage in 2.641 seconds. Served identity is RM-01 VLM;
+read-only serving version reports 0.28.0. These do not reveal weights, GPU,
+precision or measured cache reliability. Direct OpenAI model access again
+returned HTTP 200 without generation. No old SOAR app process or live launcher
+is assumed: its prior handle was absent, and a fresh session-only launcher now
+waits for an explicit comparison command. A pre-screen SQLite backup is ignored.
+
+The first new Python invocation failed thirteen subcases and errored on two
+because the Docker socket was absent before candidate creation. OrbStack was
+started, the original pinned image identity was confirmed, and all thirty-four
+Python tests then passed, including real offset-based scout handoff and cleanup.
+Twenty-nine config/Sol tests passed; focused main/UI accounting tests passed
+eighty-three cases with the added empty-evidence case passing in its later subset.
+The runner agent reports seventy-two focused orchestration/accounting/migration
+tests and both typechecks passing. Final review and the full gate remain pending.
+
+Failures or blockers: Pre-dispatch review found a zero-test evaluator success
+path when patched code exits during import; explicit infrastructure errors were
+also conflated with task failures, and evaluation lacked a durable single-use
+claim. Repair these before freezing runtime configuration or paid dispatch.
+The fixture setup also preserved Docker unavailability, existing doctest trailing
+whitespace and receipt counting/output-order corrections as setup failures.
+No model failure or success rate is derived from those setup attempts.
+
+Limitations and non-claims: All twelve task specifications, revisions, oracle and
+reference identities were fixed before any policy sees them. Only trusted helper
+hardening and its reproof receipts may change before the final manifest freeze;
+do not adjust tasks after seeing model outcomes. Independent agent-authored
+functional acceptance and separate patch review are not owner acceptance or a
+public held-out benchmark. No hybrid quality/savings result exists yet.
+
+Paid exposure: No new cloud generation. Prior USD 0.652425 accounted plus
+USD 0.069440 unresolved remains. The single owner-operated synthetic local probe
+has no token fee; its measured duration is retained. The USD 108 new screen
+maximum and prior overall allocation are unchanged.
+
+Next gate: Finish the three confirmed evaluation fixes, reprove unchanged
+baseline/reference task identities, run the final checks, then freeze runtime
+configuration and dispatch matched blocks. Keep the complete objective active.
+
+References: [comparison entry](MVP_COMPARISON_SCREEN.md),
+[worker](../runtime/patch-worker/worker.py),
+[comparison runner](../src/main/patch-runs/comparison.ts),
+[evaluator](../scripts/evaluate-patch-screen.py).
+
+### BL-20260908-1154-pre-exposure-acceptance-corrections -- 2026-09-08 -- Correct four independently found acceptance gaps before dispatch
+
+Status: `Approved`
+
+Scope or hypothesis: Independent fixture review found gaps that could repeat
+the prior false acceptance. No screen policy has run, so correct the confirmed
+requirements now, preserve the weaker freeze, then reprove and refreeze all tasks.
+
+Decisions: Supersede the preceding entry's helper-only revision restriction for
+four concrete pre-exposure corrections: verify gzip's omitted-mtime clock and
+standard-library invalid timestamp behavior; distinguish frozen keys with
+different keyword names; clarify map_reduce inclusion by the predicate result,
+not key truthiness; and retain duration parsing's existing Unicode digits,
+permissive surrounding text, no-number result and invalid numeric exception.
+These follow the original required behavior or resolve conflicting wording;
+none was selected from a model outcome.
+
+Changes: Revise three oracles and one task sentence. Keep all twelve task IDs,
+repositories, pinned revisions, reference implementation bytes, visible commands
+and arm-order seed unchanged. Archive the prior full manifest, oracle files and
+receipts; retain an explicit diff and old/new task-identity hashes in ignored
+evidence. Revalidate all baseline/reference receipts with the hardened helper
+before publishing the final manifest. Do not rewrite any prior proof as if it
+covered these missing assertions.
+
+Evidence: A second agent independently inspected all twelve reference changes,
+confirmed all twenty-four earlier transcript hashes, and found no wrong-package
+import path. Pinned-source probes confirm the duration compatibility behavior.
+The new local fallback regression passed six synthetic cases, covering settled
+format/no-evidence/context failures and unknown-outcome stop. All three built
+Electron/Docker patch/export/cancel/restart flows passed in 20.3 seconds.
+
+Failures or blockers: The earlier acceptance set omitted real requirements.
+Evaluator cancellation also needs a bounded signal fix before final helper
+identity: interrupting container creation must not race later creation after
+cleanup. Record preproof failures separately from task/model outcomes.
+
+Limitations and non-claims: Agent-authored tests and reference implementations
+can share blind spots; independent patch review remains necessary after passes.
+This is internal calibration, not human-curated benchmark certification.
+There are still no screen outcomes, quality comparisons or savings findings.
+
+Paid exposure: No new generation or budget increase. The session credential
+remains only in the trusted waiting launcher. The USD 108 maximum new screen
+exposure and USD 180 campaign ceiling remain unchanged.
+
+Next gate: Stable cleanup-tested helper, all twenty-four revised setup proofs,
+full project check, then exact runtime/manifest freeze and live blocks.
+
+References: [preceding preproof](#bl-20260908-1147-hybrid-handoff-and-screen-preproof),
+[comparison entry](MVP_COMPARISON_SCREEN.md),
+[approved plan](plans/MVP_CODING_PILOT_V1.md).
+
+### BL-20260908-1210-comparison-freeze-verified -- 2026-09-08 -- Freeze the full matched screen before first dispatch
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the shared app runtime and all experiment inputs,
+then execute the previously approved twelve-task C/D/H screen. Verification at
+this entry covers implementation and fixture setup, not model task quality.
+
+Decisions: The common cloud instruction permits reusing adequate host-provided
+inventory and source excerpts, with additional inspection when context is
+missing. This applies to every arm and was fixed before any screen output.
+Keep all fourteen runtime/code digests unchanged during the screen. Preserve
+single-use dispatch and evaluation claims, no automatic repeats, and all losses.
+
+Changes: The hardened evaluator requires a completed nonempty expected-count
+suite, distinguishes infrastructure from candidate failures, and records an
+immutable evaluation claim before execution. Migration seven adds claims while
+preserving migration six's checksum. Bounded cancellation handles container
+creation before confirming exact owned-container cleanup.
+
+Evidence: Full pnpm check passed both TypeScript checks, the locked native
+credential proof, 1393 tests and both development/normal build flavors. Seven
+suite tests remained skipped; this is not claimed as their execution. The
+separate real-Docker worker suite passed 34 tests, the expanded fallback case
+passed six scenarios, and all three built Electron patch/export/cancel/restart
+flows passed. Eighteen comparison/migration tests and five hardened Python
+helper tests also passed, including real Docker cancellation cleanup.
+
+All 24 revised fixture receipts are validated: every baseline fails its new
+requirement while 17 baseline compatibility methods pass; every reference passes,
+covering 57 independent methods and all visible commands. The three exact public
+source revisions are boltons 78ec69cac4465c57bb7debafcf3181d7d1ceaa76,
+more-itertools b656ecc0a64e328549a9858af1c4b609f9922b07, and cachetools
+4500e3d04288738d25acbb4973eb3c3e1bf41db9. Source materialization, evaluator
+artifacts and independent receipt identities pass validation.
+
+Final raw manifest SHA-256:
+78925943c57733cf83db4656c15f18f27f2ad994fd62a5b3cceca2391a1489d6.
+Canonical parsed manifest SHA-256:
+f7ea6f8d9b35f09b03a73e3a426846d15e289390b47f0d4ed048910e5cdefbaf.
+Configuration SHA-256:
+ac749dc47d2e8293f0a8d0fb457208bbb9bcf41047e251f82aa5feb19a5d5788.
+Balanced order SHA-256:
+ceea31ed44d39dce2008930e44988b1e3a0a4ba159da41b85965f698628970ff.
+Evaluator SHA-256:
+31d6990326d55d5590ed739c56849b1098ec4d5d829382a6a4475f84fa5ffefb.
+
+The exact configuration is frozen in ignored evidence and the main app ledger:
+Sol medium/default, USD 4/20 per million input/output tokens, cloud limits
+8192 output tokens/256000 input bytes; RM-01 VLM local limits 2048/64000,
+zero local token fees; identical USD 3/600-second/40-step episodes. All 36
+assignments now exist with zero dispatches and zero new spend. Six arm orders
+appear twice each under seed 20260908. Private destinations and source paths
+remain outside tracked documentation. Device purchase assumption is USD 3500.
+
+Failures or blockers: A cancellation proof initially left an owned container
+because signal interruption during creation was not handled correctly; that
+container was removed and the corrected helper passed its real cleanup test.
+The first no-call manifest freeze rejected two extra audit metadata fields.
+Their original JSON was archived; the fields moved to a separate audit record,
+with every task object and all 24 receipts unchanged. Schema/source validation
+and the second no-call freeze then passed. Neither failure is a model outcome.
+
+Limitations and non-claims: Tests establish mechanics and the stated fixture
+behaviors. Agent-authored acceptance and references can share blind spots;
+separate blinded patch review remains required before usefulness conclusions.
+No quality parity, savings, weight identity, production readiness or owner
+acceptance is established. Power and realized utilization remain unmeasured.
+
+Paid exposure: No new cloud generation before this entry. Start the existing
+approved screen next: reserve USD 9 for each complete task block, at most USD
+108 new episode exposure within the USD 180 allocation. Prior accounted and
+unresolved development exposure remains charged. No budget extension is used.
+
+Next gate: Run the frozen screen, retain failures and incomplete blocks, review
+submitted patches independently, analyze quality/API cost/device economics, and
+inspect actual hybrid evidence and export through the app before reporting.
+
+References: [comparison guide](MVP_COMPARISON_SCREEN.md),
+[approved screen authority](#bl-20260908-1058-owned-local-hybrid-screen-authority),
+[pre-exposure correction](#bl-20260908-1154-pre-exposure-acceptance-corrections).
+
+### BL-20260908-1247-screen-midpoint-negative-evidence -- 2026-09-08 -- Retain local fallbacks and independent review failures
+
+Status: `Verified`
+
+Scope or hypothesis: First six complete matched task blocks, eighteen episodes,
+have terminal independent outcomes. This is an interim observation under the
+unchanged frozen configuration, not a final quality or savings estimate.
+
+Decisions: The tested local handoff has not earned advancement: none of the
+first six H episodes forwarded local source evidence. Finish the authorized
+predeclared screen to retain the complete matched controls and review coverage;
+do not alter prompts, discard fallbacks, retry paid episodes or pool a repaired
+policy with this configuration. Prepare narrowly scoped diagnostics separately.
+
+Changes: Only ignored review evidence, copied-source proposed patches and a
+runtime archive have been added during execution. A proposed post-screen field
+will distinguish empty from truncated local output without saving raw responses.
+A stale human-readable runtime event says campaign ceiling USD 70; request
+admissions, frozen configuration and actual enforcement use USD 180. Preserve
+the old event and fix only future display text. A partial UI read initially
+suggested the form default exceeded its cap; fuller inspection confirms initial
+clamping already works. The actual refresh issue is replacement of an explicitly
+cleared/zero budget with a positive value. Its correction is also deferred.
+
+Evidence: All eighteen independent suites passed. Settled API fees in those six
+complete blocks are C USD 1.803896, D USD 1.396244, H USD 1.846376, with no
+unresolved exposure in those completed blocks. All six H stages fell back. The
+first two have one settled local request and no local tool execution; code
+inspection makes empty/truncated completion the strongest explanation, but the
+persisted generic reason cannot distinguish them. This is an inference, not an
+observed provider finish reason. All fourteen runtime digests still match.
+
+Blinded reviews of the first fifteen candidates provisionally accepted twelve
+and rejected all three TTL touch patches. Two introduce deadline-to-deadline
+comparisons beyond the documented custom clock requirement; one appends a renewed
+entry incorrectly after a supported datetime clock moves backward. Independent
+network-disabled Docker counterexamples confirmed the defects and cleanup.
+One reviewer originally accepted the third patch; a separate supplemental
+adjudication records the reproduced issue without replacing the first review.
+Original frozen acceptance passes remain intact as discovered false accepts.
+
+Failures or blockers: Both approved synthetic local probes produced the fenced
+inventory action; the second took 2.438 seconds and returned valid usage. This
+does not establish real-task compatibility. An attempted diagnostic extracting
+the private worker prompt was rejected by automatic approval review because it
+would export that text over HTTP. No request from that attempt was sent. The
+accepted replacement used standalone invented text with no worker/source code.
+Both synthetic probe allowances are now consumed; no additional probe is implied.
+Reviewer setup failures from sandboxed Apple Git warnings/permissions were
+preserved separately; exact source revisions remain clean and unchanged.
+
+Limitations and non-claims: Local API fees are zero, but a USD 3500 owned device
+has no demonstrated payback from these fallback-only episodes. Device lifetime,
+utilization and electricity remain assumptions or unavailable. Short internally
+selected feature tasks do not establish heavy-session performance. No owner
+Keep/Reject decisions have been made by the agent.
+
+Paid exposure: The eighteen completed episodes account for USD 5.046516. Later
+active episodes remain within the original USD 108 new screen maximum and USD
+180 campaign allocation. Prior development fees and unresolved exposure remain
+charged. No synthetic probe fee, budget increase or paid retry is introduced.
+
+Next gate: Complete the frozen screen and independent reviews; report all costs,
+rejections and latency. Apply and verify the separately prepared diagnostic and
+UI/receipt corrections only after preserving the original results, then inspect
+the app workflow with actual history. No release or optional spend extension.
+
+References: [verified freeze](#bl-20260908-1210-comparison-freeze-verified),
+[comparison guide](MVP_COMPARISON_SCREEN.md),
+[original pilot](MVP_CODING_PILOT_REPORT.md).
+
+### BL-20260908-1328-complete-screen-and-bounded-repair -- 2026-09-08 -- Preserve all 36 outcomes and approve a separate handoff repair
+
+Status: `Approved`
+
+Scope or hypothesis: The original public Python comparison has finished. Preserve
+its negative local-contribution result before changing runtime behavior. The
+owner's existing instruction to build, fail fast and iterate authorizes bounded
+implementation fixes within the MVP; this entry introduces no paid trial.
+
+Decisions: Keep the original screen immutable. Implement exact local-output
+failure labels, budget-form/receipt corrections, and a separately identified
+partial-handoff policy v2. A scout stopped specifically by its step limit may
+forward only already collected, bounded host source excerpts. It must still stop
+on cancellation, an unsettled request or an expired deadline. No extra local
+calls, generated model diagnosis, increased cap or automatic retry is permitted.
+Do not pool the repaired policy with the original 36 outcomes.
+
+Changes: Three independently reviewed copied-source patches are ready to apply
+in order: output diagnostics, budget/receipt integration, partial handoff v2.
+Their SHA-256 digests are respectively
+`aebc779c547086e155f512ad8a8f574708ecb3aaeff1d9b44be18023a16272a6`,
+`456d7e25555e53e20e249aff9877d72095b82b754eb517c04524ac7035ca078a`,
+`67d4021f1afdd6b13708d6e428f7a07337035702793d593cc96c085916b4b896`.
+The diagnostic field distinguishes settled empty/truncated output without raw
+response retention. Budget refresh preserves explicit empty/zero choices; new
+admission receipts display the actual configured campaign ceiling. Old receipts
+remain unchanged. Partial evidence uses the existing summary size limits.
+
+Evidence: The CLI exited successfully after all 36 evaluations. All arms passed
+12/12 frozen independent suites. Settled fees: C USD 4.426520, D USD 3.846788,
+H USD 4.036588; unresolved screen exposure is zero. All twelve H stages fell
+back and no local source was forwarded. Full blind review is still finishing;
+three discovered TTL false accepts are already preserved separately. All
+fourteen frozen runtime digests matched after completion. The final report,
+freeze, runtime archive and local ledger backup were preserved before edits.
+Final report SHA-256:
+`7d43afc67b0e464e8307713c5354647afd048594793bb3950a9a5440309de211`.
+Copied-source checks and independent static review found no concrete defect in
+the three proposed repairs; real Docker and complete app gates remain pending.
+
+Failures or blockers: Original local fallback receipts lack precise cause
+information. One scout gathered useful source but its eight-call cap caused the
+submission-only policy to discard it; the step-limit cause is inferred from the
+recorded sequence and code. Other fallback causes must not be guessed. The
+repair does not retroactively identify those causes or repair rejected patches.
+
+Limitations and non-claims: Automated acceptance is not owner acceptance or proof
+of correctness. Current evidence does not justify hybrid advancement, heavy
+session quality, a saving attributable to local work, or payback of the owner's
+approximately USD 3500 device. No new live proof of v2 exists yet.
+
+Paid exposure: Original screen total USD 12.309896, no unresolved screen fees.
+Prior development USD 0.652425 accounted plus USD 0.069440 unresolved remains
+separate and charged. Applying and testing these repairs uses no model calls and
+adds no cloud exposure or extension to the existing authority.
+
+Next gate: Apply the reviewed patches, run real Docker worker/evaluator tests,
+full repository checks and built Electron workflow tests; finish blind review
+and independent economics analysis; inspect actual app history and export.
+
+References: [verified freeze](#bl-20260908-1210-comparison-freeze-verified),
+[midpoint findings](#bl-20260908-1247-screen-midpoint-negative-evidence),
+[comparison guide](MVP_COMPARISON_SCREEN.md).
+
+### BL-20260908-1342-review-complete-repair-and-cancellation-race -- 2026-09-08 -- Complete independent analysis and preserve a newly found admission race
+
+Status: `Implemented`
+
+Scope or hypothesis: Finish review and cost analysis of the unchanged original
+screen, apply the approved post-screen repairs, and verify the actual app flow.
+
+Decisions: The original hybrid policy does not advance. All 72 blinded reviews
+are frozen, with C11/12, D10/12 and H10/12 review-acceptable candidates. Keep
+owner acceptance unmeasured and the repaired hybrid policy experimental. Fix a
+concrete cancellation race found by the new Docker regression before closure;
+no further paid experiment is needed for this first negative result.
+
+Changes: The three approved patches were applied. The report, readiness,
+quickstart and plan now distinguish original live results from repaired v2.
+Independent analysis preserves original reviewer findings and supplemental
+adjudication together; it labels raw automated break-even arithmetic separately
+from review-qualified economics. The worker admission wait now requires a
+post-receive cancellation check before validating the admission response. Its
+focused regression synchronizes cancellation after source collection, without
+sending another provider request; unknown-exposure behavior remains separate.
+
+Evidence: All reviews agree after the preserved TTL adjudication: three TTL
+defects and two large-index window defects are false accepts of the original
+frozen suites. Separate network-disabled Docker counterexamples confirmed them.
+An independent ledger audit reconciled all 36 unique assignments, twelve blocks,
+310 settled requests and USD 12.309896 with zero unknown screen exposure. All
+twelve first H cloud-input hashes equal their D counterpart, confirming no
+initial local source contribution. Paired median H delays are +0.6625 seconds
+versus C and +10.3895 versus D. H costs USD 0.403659 per acceptable patch versus
+C 0.402411 and D 0.384679; all rejected-patch costs remain included.
+
+The post-repair repository check passed both TypeScript checks, native proof,
+112 files/1410 tests (4 files/7 tests skipped) and both build flavors. Three
+built Electron workflows passed in 19.7 seconds. Actual app inspection showed
+real H cache-peek phase fees, eight local receipts, six cloud receipts, original
+fallback, visible checks and diff. App export matched the original 7918-byte
+patch exactly; SHA-256:
+`c1964cc86eca498dc56c3b721ac759c3647ab8ee0e08d783404456ce90cf509f`.
+Owner Keep/Reject controls were not used. A tracked/unignored-file scan found no
+high-confidence credentials, private destination or owner filesystem paths.
+
+Failures or blockers: Initial repository/Python checks under the filesystem
+sandbox could not open loopback listeners or Docker sockets; their failed logs
+are retained. Authorized repository checks then passed. The authorized Python
+suite reached 41 tests and exposed one new cancellation assertion failure.
+Focused metadata showed cancellation arriving during Bridge.admit's receive
+wait was mislabeled admission_request_mismatch, not an unknown HTTP outcome.
+The narrow post-wait check and deterministic regression address this race;
+corrected focused/full Docker gates and final Electron rerun remain pending.
+A transient native UI automation pipe closure recovered after reconnection.
+
+Limitations and non-claims: Review-acceptable means provisional independent
+code review, not user usefulness or guaranteed correctness. The USD 3500 device
+has no demonstrated payback; power, utilization and lifetime remain unmeasured
+or scenario inputs. v2 has mechanics evidence only and must never be pooled
+with the completed screen. No release, commit, push or owner decision is made.
+
+Paid exposure: No new model requests. Screen USD 12.309896 plus prior development
+USD 0.652425 accounted and USD 0.069440 unresolved gives cumulative known
+USD 12.962321 and maximum USD 13.031761. No optional extension was used.
+
+Next gate: Pass the focused cancellation regression, full credential-free Docker
+worker/evaluator suite and final built Electron checks; independently review the
+small production fix, verify cleanup/source identity and finalize the report.
+
+References: [screen report](MVP_HYBRID_SCREEN_REPORT.md),
+[approved repair](#bl-20260908-1328-complete-screen-and-bounded-repair),
+[quickstart](MVP_CODING_QUICKSTART.md).
+
+### BL-20260908-1345-first-coding-mvp-verified-negative-hybrid-result -- 2026-09-08 -- Close the first MVP with a complete negative comparison
+
+Status: `Verified`
+
+Scope or hypothesis: The first local coding MVP and the authorized original
+36-episode C/D/H experiment are complete. Verification covers the repository,
+real Docker execution, desktop workflow, immutable export, independent review
+and ledger reconciliation. It does not assert hybrid benefit or release.
+
+Decisions: Retain the usable cloud patch workflow and keep hybrid experimental.
+The original local handoff failed its advancement test; the repaired partial
+handoff is uncalibrated. Stop this experiment with the negative result preserved.
+Owner review/repeat use and a future fresh-task policy comparison are subsequent
+product/evaluation work, not fabricated completion evidence or automatic spend.
+
+Changes: Completed the final result report and corrected current status across
+README, readiness, quickstart and plan while retaining earlier failures. Added
+the independently reviewed post-receive cancellation check and deterministic
+regression without weakening request/body validation or unknown-exposure stops.
+No runtime changes remain pending in this MVP scope.
+
+Evidence: Final Python worker/evaluator suite: 41/41 methods, zero skips,
+81.984 seconds against the pinned network-disabled task image. The focused
+admission/partial/cancellation/unknown cases also passed. Final worker SHA-256:
+`808d4a85f053c7acc3471fce631eeeed07002bb10c47b464609ca8f391ea443d`.
+Python gate log SHA-256:
+`557445aabe3f56519e55533d3644433c306837ef7be798a4df1fe5fe638c7116`.
+Three built Electron workflows passed again in 22.1 seconds after that fix.
+The earlier full repository gate passed 112 files/1410 tests with 4 files/7
+tests skipped, both TypeScript checks, native credential proof and both build
+flavors; the later correction touches only Python code/tests and documentation.
+Independent code and report review found no remaining blocking finding.
+
+All three public source revisions are still exact and clean. Final live-ledger
+inspection found all 36 screen runs completed, zero active coding runs and zero
+owner decisions; Docker showed zero owned worker containers. Actual app history
+and byte-identical export were verified in the previous entry. All 72 immutable
+reviews, one supplemental adjudication, original acceptance results and prior
+failed setup/verification receipts remain preserved outside tracked source.
+
+Failures or blockers: No required implementation or verification work remains
+blocked. The original screen's twelve local fallbacks and five review-discovered
+false accepts remain negative results. Sandbox socket failures and the reproduced
+admission cancellation race remain documented; authorized corrected gates pass.
+No additional real-model v2 trial was run.
+
+Limitations and non-claims: C11/12, D10/12 and H10/12 are provisional review
+acceptance counts on selected short feature tasks. They do not demonstrate
+heavy-session quality parity, owner usefulness, production readiness or absence
+of other bugs. H's USD 0.403659 per acceptable patch exceeds C's USD 0.402411
+and D's USD 0.384679. All H stages fell back, so there is no useful local-source
+attribution. The owner's approximately USD 3500 device is included in assumed
+capital scenarios; measured electricity, utilization and payback remain unknown.
+This is a working local implementation, not a commit, push, installer or release.
+
+Paid exposure: Original screen USD 12.309896; earlier development USD 0.652425
+accounted plus USD 0.069440 unresolved. Cumulative known USD 12.962321 and maximum
+USD 13.031761 remain ledger estimates, not invoice reconciliation. Verification
+and repairs introduced no additional model calls. No optional extension used.
+
+Next gate: Owner use and review of a real patch; any further hybrid comparison
+must freeze fresh tasks and the repaired configuration under recorded scope.
+The current first-MVP build and original experiment require no further work.
+
+References: [complete report](MVP_HYBRID_SCREEN_REPORT.md),
+[quickstart](MVP_CODING_QUICKSTART.md),
+[repair and preserved failure](#bl-20260908-1342-review-complete-repair-and-cancellation-race),
+[original pilot](MVP_CODING_PILOT_REPORT.md).
+
+### BL-20260908-1414-local-capability-and-causal-diagnosis-authority -- 2026-09-08 -- Test local ability before judging its role
+
+Status: `Approved`
+
+Scope or hypothesis: The owner explicitly asks to determine the local model's
+capability boundary, then explain why it did not help and whether routing was
+responsible. The owner identifies the deployed model as Qwen-3.8 27B FP8 and
+reports successful GPU-kernel optimization planning and execution. The served
+alias remains RM-01 VLM; weight identity has not been independently inspected.
+
+Decisions: The completed v1 screen cannot judge local coding ability: its fixed
+policy allowed only read-only retrieval and forwarded no model analysis or
+patch. Begin a separate local-only capability and causal study. This new owner
+instruction authorizes new bounded diagnostics, superseding the exhausted old
+two-probe allowance for this scope. Preserve the original screen unchanged.
+
+Changes: Prepare twelve new synthetic coding tasks spanning functions, stateful
+logic and small multi-file repositories, with independently executed acceptance
+and reference proof. Three representatives also receive deterministic context
+variants at 8/32/64 KiB, giving twenty-one initial conditions. Then compare
+interfaces/settings/limits on matched tasks, run a bounded local-only action
+loop, and replay handoffs offline. Exact prompt/source/oracle/configuration
+hashes must be frozen before each stage dispatch. Separate invalid format,
+truncation, denied action, admission limit and incorrect code outcomes.
+
+Evidence: Current code uses a fixed policy selector, not a dynamic router.
+The scout receives the objective without the already-created file inventory;
+its eight-call cap includes format failures and submission. Only the last
+three host read/search excerpts, capped at 1200 bytes each, can reach cloud.
+The new worker sends non-streaming max_tokens with no reasoning control; the
+retained local adapter uses streaming, max_completion_tokens and explicit
+reasoning_effort none. These are candidate causes, not established explanations.
+The previous independent audit confirms real local dispatch and identical first
+H/D cloud inputs on all twelve tasks. A controlled new envelope capture is
+required to identify the missing final-content failure causes.
+
+Failures or blockers: The model API alone cannot execute GPU kernels. The owner
+has been asked for an existing GPU execution route and representative repository;
+that part remains pending while source-provided coding and interface tests can
+proceed. Synthetic Python results will not be presented as GPU performance.
+
+Limitations and non-claims: This study measures defined workload and configuration
+boundaries, not universal model intelligence. Generous diagnostic context/output
+limits are distinct from production scout limits. Code runs only in existing
+isolated credential-free, network-disabled Docker containers. No evaluator gold,
+reference solution, private repository, credential or private trace is sent to
+the model. Only public/synthetic final text and envelope metadata are retained
+as ignored evidence; model reasoning-channel text is neither retained nor run.
+
+Paid exposure: Zero paid cloud requests are authorized by this stage. At most
+120 local requests, concurrency one, 16384 output tokens and 256000 serialized
+input bytes per request, 180-second request timeout. The owner's no-token-fee
+attestation and approximately USD 3500 owned-device assumption remain in force.
+Unknown/timeout outcomes stop their batch without automatic retry. No optional
+USD 150 extension, endpoint mutation or GPU-server command execution is implied.
+
+Next gate: Prove and freeze fixtures, execute the direct capability ladder,
+then use matched diagnostics to distinguish serving/protocol, role/limits,
+handoff loss and downstream reuse. Scope GPU execution when concrete access is
+available; do not replace that evidence with synthetic-task success.
+
+References: [original screen report](MVP_HYBRID_SCREEN_REPORT.md),
+[first MVP result](#bl-20260908-1345-first-coding-mvp-verified-negative-hybrid-result),
+[coding plan](plans/MVP_CODING_PILOT_V1.md).
+
+### BL-20260908-1444-local-fixtures-default-timeout-and-routing-research -- 2026-09-08 -- Separate capability from interface and policy
+
+Status: `Implemented`
+
+Scope or hypothesis: The owner clarified that GPU execution access is unavailable
+and authorized other coding tasks. This removes GPU execution from this study's
+scope without treating synthetic coding as evidence of kernel performance. The
+owner also explicitly requested routing research, including Minions and PyroDash.
+
+Decisions: Preserve the original screen and the first default-profile batch.
+Stop that batch after its unknown timeout. Compare documented thinking controls
+on matched inputs, then separately test autonomous local coding. Research policy
+mechanics from current pinned source before proposing another paid comparison.
+
+Changes: Twelve synthetic maintenance fixtures and twenty-one prompt conditions
+are frozen. All twelve baseline and reference patches were executed in the
+pinned isolated evaluator; an independent agent audited objectives, source,
+oracles, hashes and patch equivalence. Four oracle corrections made before model
+exposure are retained with superseding proofs. A scoped diagnostic client records
+final output and envelope metadata without retaining reasoning-channel text.
+The research document compares fixed scouting, request routing, cascades,
+Minion/MinionS/MinionCode and trained PyroDash offload.
+
+Evidence: The fixture manifest SHA-256 is
+89b763c884cdb7aabd0f2e999a979011612704ab829b9c013c32d66c2979c75a.
+All twelve references pass four independent tests; all twelve baselines retain
+one compatibility pass and fail three requested behaviors. Cleanup is confirmed
+for all twenty-four final proofs. With server-default thinking and an 8192-token
+cap, dependency-levels passed all four tests in 176.569 seconds: 7799 completion
+tokens included 7458 reasoning tokens. The next counter-ledger request timed out
+at 180.002 seconds before HTTP headers. The server subsequently reported zero
+running and waiting requests. Only two of twenty-one conditions were attempted.
+
+Failures or blockers: The timeout is unknown, not incorrect code; nineteen
+conditions remain unrun. Audit found diagnostic evaluator classification and
+cleanup weaknesses, now being corrected before further grading. The initial
+client used an inactivity timeout; its replacement enforces a wall deadline.
+The initial code and results remain archived and that cohort will not resume.
+
+Limitations and non-claims: One successful source-provided task does not establish
+an ability boundary. Padding variants test tolerance to irrelevant context,
+not repository retrieval. Autonomous execution remains unmeasured. Official
+Qwen documentation and vLLM source identify omitted thinking controls as a
+plausible cause, but matched calls are still needed. PyroDash now includes a
+coding adapter and aggregate coding figure; earlier blanket absence claims are
+superseded. Matching public Qwen3.8 agentic offload weights and independently
+reproducible coding receipts were not located.
+
+Paid exposure: Two local requests under the new 120-request authority, including
+one unknown timeout. Zero new paid cloud calls. Hardware assumptions unchanged.
+
+Next gate: Freeze the corrected grader and matched thinking-control cohort;
+execute bounded direct and autonomous coding diagnostics. Preserve every
+protocol, timeout, candidate and infrastructure outcome separately. A new paid
+four-arm routing comparison remains a proposal, outside this local-only scope.
+
+References: [routing policy research](ROUTING_POLICY_RESEARCH.md),
+[study authority](#bl-20260908-1414-local-capability-and-causal-diagnosis-authority),
+[original screen](MVP_HYBRID_SCREEN_REPORT.md).
+
+### BL-20260908-1452-thinking-controls-and-exact-scout-replication -- 2026-09-08 -- Measure settings before attributing local failure
+
+Status: `Implemented`
+
+Scope or hypothesis: Use the approved local-only study to separate response
+settings from coding ability and the original fixed retrieval policy.
+
+Decisions: Complete the fast-profile direct screen, then use separately labelled
+medium-thinking follow-ups for its code failures. Reuse existing matched medium
+observations rather than repeat them. These adaptive diagnostics cannot supply
+an unbiased held-out comparison. Replicate three original first scout requests
+with exact original body hashes and compare only the documented thinking flag.
+
+Changes: The corrected diagnostic grader binds source, oracle, image, response,
+patch and code identities; distinguishes candidate failure from infrastructure;
+records format normalization; prevents unreviewed interrupted re-evaluation;
+and sends SIGTERM with cleanup grace on evaluator timeout. Seventeen focused
+tests and two real-Docker proofs pass. The initial grading remains preserved.
+The scoped client has a tested wall deadline. The six scout conditions are
+first-turn-only forensic replications with no generated action execution.
+
+Evidence: All six direct controls completed. Medium passed three of three tasks
+in 19.949, 33.029 and 111.508 seconds. Disabled thinking passed two of three in
+4.238, 5.657 and 13.102 seconds; the escaped-assignment candidate mishandled an
+escaped equals sign. All disabled controls reported zero reasoning tokens and
+all medium controls reported positive reasoning tokens. All had complete final
+JSON and zero cached input tokens. The subsequent twenty-one-condition disabled
+screen completed; its independent outcome audit is pending. The scout freeze
+SHA-256 is d47887562e43d9dd8c40223e631c9cd3fb5fd8440b6f8468ae02dfb3e9cc813c.
+All three baseline bodies exactly match original first-request ledger hashes.
+Eight offline scout-runner tests pass.
+
+Failures or blockers: Default-thinking timeout remains unknown and unrepeated.
+The fast setting has demonstrated a correctness tradeoff; it is not selected
+as a maximum-capability profile. Offline replay confirms that the original peek
+scout gathered 43758 source bytes but forwarded zero. V2 eligibility would retain
+approximately 3453 bytes with canonical headers; even a header-free upper bound
+is only 3600 bytes. Critical gathered definitions are omitted.
+
+Limitations and non-claims: Scout replications use exposed original public tasks
+and normal operating instructions, with no repository source or evaluator gold.
+They can reproduce current interface behavior, not reconstruct missing original
+envelopes or prove unchanged server weights/configuration. The handoff replay
+does not prove that a cloud solver would reuse a larger handoff. Three matched
+direct tasks do not establish general accuracy or latency distributions.
+
+Paid exposure: Twenty-nine new local requests to date: two initial default,
+six controls and twenty-one fast-profile conditions; one unknown is retained.
+The next scout batch permits six additional local requests within the same
+120-request authority. Zero new paid cloud calls, no optional extension.
+
+Next gate: Execute the frozen six scout conditions, complete independent direct
+result review, and run the reviewed autonomous local coding harness. Preserve
+all assigned conditions and stop any batch with an unknown outcome.
+
+References: [capability diagnosis](LOCAL_CAPABILITY_DIAGNOSIS.md),
+[routing research and handoff replay](ROUTING_POLICY_RESEARCH.md),
+[local authority](#bl-20260908-1414-local-capability-and-causal-diagnosis-authority).
+
+### BL-20260908-1517-local-coding-protocol-budget-and-quality-separated -- 2026-09-08 -- First-action repair does not imply solved tasks
+
+Status: `Verified`
+
+Scope or hypothesis: Separate direct coding ability, action formatting, execution
+budget and candidate correctness under the existing local-only authority.
+
+Decisions: Preserve each setting and cohort separately. Select the first frozen
+autonomous task for one 24-call contrast before grading unsubmitted artifacts.
+Reserve at most 24 calls for an exposed real-public-repository diagnostic and
+three for first-turn native-tool interface checks, within the 120-call ceiling.
+The real task may use an explicit format example; report that changed scaffold
+and task exposure rather than treating it as a held-out cap comparison.
+
+Changes: Completed the fast direct screen, selected medium follow-ups, exact
+scout replication, literal-format ablation, three eight-call autonomous episodes
+and one 24-call episode. The diagnostic client now also captures the legacy
+function_call value as inert data; earlier missing values remain unknown. The
+autonomous harness uses pinned mini-SWE-agent and Docker, exact receipt and
+candidate identities, command/input/request/episode caps and verified cleanup.
+Its fourteen-test gate and five final response-channel cases passed.
+
+Evidence: Fast direct results are 15/21 conditions, including 8/12 short tasks,
+with 74/84 independent method executions passing. Eleven responses complied
+strictly with JSON-only output; ten required whole-fence normalization. Median
+request time was 6.961 seconds. Three matched medium controls passed; selected
+medium follow-ups fixed digest normalization and queue behavior, but incremental
+decoding still failed and its 8 KiB condition timed out. The 64 KiB follow-up
+remains unrun. The server eventually reported zero running/waiting requests
+before later dispatch; intermediate aggregate counters cannot identify whose
+generation was active or reconcile the unknown request's work.
+
+Failures or blockers: Exact original scout requests yielded zero accepted
+actions out of six: three empty responses and three prose/JSON format failures.
+All stopped normally, with no token-length finish. Adding only a literal fenced
+inventory example produced six of six accepted first actions at the same cap;
+new receipts have no legacy or modern tool calls. All three eight-call coding
+episodes ended without submission. Offline grading of their captured artifacts
+gave 1/4, 4/4 and 3/4, separately from the unchanged unsuccessful episode results.
+The first emitted XML tags inside shell commands; the second had a passing
+candidate before cutoff; the third contradicted the requirement when revising
+a self-test. The 24-call first-task repeat submitted after 22 requests but still
+failed one of four independent tests despite a visible pass.
+
+Limitations and non-claims: Accepted inventory syntax is first-turn protocol
+evidence, not useful retrieval or a successful hybrid. A fresh longer episode
+can follow a different stochastic trajectory; submission at 22 calls does not
+prove the earlier eight-call candidate would have become correct. Source-provided
+success and local self-tests do not establish autonomous correctness. No learned
+router, dynamic local-first production policy, cloud saving or GPU speedup has
+been established. Two local unknown outcomes remain unretried and unresolved.
+
+Paid exposure: Ninety-one local requests attempted, including two unknowns;
+zero new paid cloud calls. At most 27 further calls are proposed here for the
+real repository and native interface, keeping the total at or below 118/120.
+No optional paid extension or server configuration change.
+
+Next gate: Finish the bounded real-repository/native diagnostics. Apply the
+exact demonstrated scout prompt appendix only after active frozen trials end,
+then run the existing focused runtime regressions. Finalize the causal report
+and a separately proposed routing experiment with explicit production-contract
+and paid-work boundaries.
+
+References: [capability diagnosis](LOCAL_CAPABILITY_DIAGNOSIS.md),
+[routing policy comparison](ROUTING_POLICY_RESEARCH.md),
+[original hybrid result](MVP_HYBRID_SCREEN_REPORT.md).
+
+### BL-20260908-1529-local-diagnosis-closed-and-scout-format-corrected -- 2026-09-08 -- Repair the demonstrated boundary before testing routing
+
+Status: `Verified`
+
+Scope or hypothesis: Complete the bounded local capability and causal study,
+implement the demonstrated first-turn scout correction, and document a routing
+plan grounded in current Minions/PyroDash source and execution evidence.
+
+Decisions: The original hybrid result does not establish weak local coding
+ability. Direct coding, protocol failures, limited action budgets, specification
+errors and lossy handoffs are separate findings. Prioritize a native coding
+adapter with explicit validated tool/history/accounting contracts before a new
+local-first or cloud-plan/local-execute comparison. Those dynamic production
+policies and paid experiments remain proposed, not implemented or authorized by
+this local-only study.
+
+Changes: Appended exactly the measured literal inventory example to the
+production SCOUT_SYSTEM instruction. An AST comparison verifies that this string
+is the only runtime change in this study. The prior worker is archived unchanged.
+Completed the diagnosis and routing research reports and linked them from README
+and readiness. All raw requests, sources, oracles and generated artifacts remain
+ignored; no credential or private endpoint was added to tracked content.
+
+Evidence: The new worker SHA-256 is
+6336bdefc6677e69a78464c18cd6224b19999ae8142d2117c71403c9cbc884c1;
+its scout prompt matches all six successful first-turn ablation requests exactly.
+Three existing unit regressions pass, and two pinned-Docker handoff/fallback/
+unknown-exposure regressions pass in 28.598 seconds. These tests use fixtures,
+not additional model calls. Independent reviews verify all direct, control,
+autonomous, real-repository and native-probe identity/outcome chains. The final
+evidence inventory hash is
+3ac4a2c2e7cc98f9646c75824c6640f7150ec150b28d85bc52621fc09585cf8e.
+The real repository exhausted 24 calls without submission; duplicate edits were
+explicitly reset, leaving an empty terminal patch. Native inventory calls passed
+three of three serialization checks, with no function execution or result roundtrip.
+
+Failures or blockers: Real-task action output remained XML-contaminated despite
+the added shell example. There is no independently acceptable submitted patch
+from the autonomous local cohorts. A passing unsubmitted TSV artifact and direct
+coding successes remain useful lower-bound evidence. Two request timeouts remain
+unknown; no automatic retries or retroactive success assignment occurred. Final
+health checks found zero remaining SOAR worker containers and zero unreceipted
+requests. The server reported two active, unattributed generations and zero
+queued requests at closure; this is not a quiescent-server claim.
+
+Limitations and non-claims: The scout change is verified only for the measured
+first-turn formatting boundary. It does not repair XML in arbitrary shell
+actions or demonstrate full retrieval, local-first routing, coding parity,
+useful cloud handoff, GPU optimization or savings. Public-repository reuse and
+adaptive follow-ups are explicitly exposed diagnostics. Sampling, server load,
+model weights and launch flags were not fully controlled or independently pinned.
+The current patch remains local and uncommitted; no push, installer or release.
+
+Paid exposure: Exactly 118 local requests: 116 complete and two unknown. Zero
+new paid cloud calls. The existing cloud screen and its exposure totals remain
+unchanged. The approximately USD 3500 device and unknown electricity/utilization
+do not establish total-cost savings or payback. No optional extension used.
+
+Next gate: Implement and validate native multi-turn local coding in isolation,
+using the diagnosed failures for calibration. Freeze the adapter and observable
+escalation signals before fresh held-out C/L/E/P tasks. A twelve-task fail-fast
+screen, followed only if promising by broader confirmation, is proposed; its
+cloud spend needs a separately recorded concrete scope. Owner Keep/Reject and
+independent acceptance remain distinct, and hidden tests cannot drive routing.
+
+References: [complete local diagnosis](LOCAL_CAPABILITY_DIAGNOSIS.md),
+[primary-source routing research](ROUTING_POLICY_RESEARCH.md),
+[unchanged original screen](MVP_HYBRID_SCREEN_REPORT.md),
+[readiness boundary](MVP_READINESS.md).
+
+### BL-20260908-1704-native-local-calibration-approved -- 2026-09-08 -- Native coding calibration authority
+
+Status: `Approved`
+
+Scope or hypothesis: Repair and test native multi-turn local coding in isolation
+before admitting any dynamic routing policy. Reuse the three diagnosed synthetic
+tasks and exposed cachetools task to distinguish protocol repair from coding
+acceptance; these four tasks are calibration, not held-out evidence.
+
+Decisions: The owner's instruction to go on for the next step authorizes a new
+bounded local-only stage. Use explicit thinking disabled, native run_command and
+submit_task functions, preserved assistant call IDs and matching tool results.
+Never recover executable commands from prose, fences, XML or reasoning. A shell
+command spelling the legacy submission marker cannot submit a native episode.
+Protocol rejection follows durable response settlement. Check cancellation before
+all actions, including submission. Unknown outcomes stop the batch without retry.
+
+Changes: Recorded a separate ignored authority with at most 100 new local requests,
+concurrency one, four immutable episodes capped at 24 calls and 600 seconds each,
+8192 output tokens, 256000 serialized input bytes, 180-second request deadline and
+30-second commands. Prepare a standalone protocol module and isolated harness;
+production routing and cloud admission remain unchanged.
+
+Evidence: The previous study closed at 118 requests and its frozen evidence remains
+unchanged. Review of pinned mini-SWE-agent 2.4.6 and current DockerSession confirms
+that native assistant calls and role=tool observations can be preserved, while the
+old fenced adapter dropped their identity. Three prior first-turn native probes
+establish serialization only. Offline protocol tests and a real-Docker tool/result/
+submission canary must pass before any new live coding episode.
+
+Failures or blockers: No native multi-turn coding result exists at approval.
+Current server weights, parser launch flags and unrelated load remain unverified.
+
+Limitations and non-claims: This is an implementation and calibration gate, not
+production routing, held-out generalization, GPU optimization, cloud parity,
+release or savings proof. Independent oracle outcomes never enter model history.
+All source copies, oracles, credentials, endpoints and raw traces remain ignored.
+
+Paid exposure: Zero paid cloud requests authorized. The owner-attested local token
+fee is zero; the approximately USD 3500 owned device and unknown power/utilization
+still require separate accounting for total cost. No cloud extension is used.
+
+Next gate: Verify strict native history and action execution offline, freeze the
+adapter and four-task manifest, then measure submission and independent acceptance.
+Any subsequent paid routing comparison requires a separately recorded concrete scope.
+
+References: [prior diagnosis](LOCAL_CAPABILITY_DIAGNOSIS.md),
+[routing research](ROUTING_POLICY_RESEARCH.md).
+
+### BL-20260908-1717-native-adapter-offline-gate -- 2026-09-08 -- Native execution contract frozen
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the isolated native protocol and Docker lifecycle
+before dispatching the four approved local calibration episodes.
+
+Decisions: Freeze the thinking-disabled native adapter after offline review and
+canaries. Protocol stops are terminal. A started episode without a terminal result,
+unknown receipt, mismatched body identity or malformed accounting blocks a later
+dispatch. Every accepted command remains byte-for-byte equal to its JSON argument.
+Tool observations preserve exit, timeout and recovery metadata; oversized escaped
+output is explicitly truncated within the native wire limit.
+
+Changes: Added the pure native_local protocol helper and its focused tests.
+Created a separate ignored native harness by adapting the proven capture,
+verification, accounting and cleanup lifecycle. Production worker and app policy
+admission are unchanged. Recorded the four-task manifest, exact prior user prompts,
+new native system/tools, authority and code hashes in an immutable stage freeze.
+
+Evidence: Ten pure protocol tests and twelve harness unit tests pass. Seven real
+pinned-Docker tests pass in 28.766 seconds, covering actual argument execution,
+paired result history, dedicated submission and strict independent acceptance,
+inert prose, nonzero exits, rejection without execution, cancellation, timeout
+recovery, source preservation, disallowed changes and cap exhaustion. All tests
+use fake provider responses and make zero model calls. Independent review verified
+all 213 task provenance references. Native module SHA-256 is
+4d49932c9eeeb4ffb2d22e47e470cd8f982d3892d250e3d40cdafa34174d700a;
+manifest hash is
+67c6fdd38706469e4123ace4abc3d429c601908795a6b00d2e4124a4d6ec1a2c;
+frozen stage hash is
+53f138d5bc8bce4c61cabf60c9a1ea9a723edbc746ecb01dc7f285036aaeae17.
+
+Failures or blockers: OrbStack was stopped and its CLI start timed out; opening
+the existing app restored Docker 29.4.0. The first timeout canary failed because
+a delayed child wrote during Docker's one-second shutdown grace, and the allowed
+path gate correctly rejected that extra file. The test was corrected to distinguish
+grace-period edits from surviving processes after removal; the original failed
+run and diagnosis remain preserved. No runtime fix was needed for this test error.
+
+Limitations and non-claims: This verifies protocol and execution mechanics, not
+live native model compliance or coding quality. Shutdown does not instantaneously
+freeze edits at a command deadline; source is captured only after confirmed stop.
+A server health snapshot found zero running/queued generations and zero remaining
+SOAR worker containers. Earlier snapshots found two unrelated active generations;
+server workload remains uncontrolled.
+
+Paid exposure: Zero new model calls at this gate and zero paid cloud exposure.
+The separately approved ceiling of 100 local requests remains in force.
+
+Next gate: Execute the four immutable native episodes sequentially and independently
+audit actual submission, visible checks, oracle acceptance, receipts and cleanup.
+No adaptive retries or paid routing experiment are included.
+
+References: [native calibration](NATIVE_LOCAL_CALIBRATION.md),
+[approved calibration boundary](#bl-20260908-1704-native-local-calibration-approved----2026-09-08----native-coding-calibration-authority).
+
+### BL-20260908-1727-native-calibration-metadata-correction-and-artifact-check -- 2026-09-08 -- Preserve the effective bound and grade the unfinished artifact separately
+
+Status: `Approved`
+
+Scope or hypothesis: Close live dispatch at four episodes and clarify an inherited
+private-authority scalar. Check the unfinished cachetools patch offline to learn
+whether its failure is coding acceptance or submission budget exhaustion.
+
+Decisions: The effective approved output bound was 8192 tokens, enforced by the
+frozen native request builder, harness and every dispatched body. The copied
+private authority retained the older study's 16384-token scalar. That higher
+scalar was not newly approved and does not supersede the narrower frozen bound.
+Preserve the original authority and freeze unchanged and report this discrepancy.
+No further live requests are authorized by the remaining numeric ceiling.
+
+Changes: Recorded closure after 60 local requests and four terminal episodes.
+Authorize one offline evaluation of the immutable, unsubmitted cachetools artifact
+against its already frozen visible check and independent oracle. Its original
+non-submission and failure result remain unchanged. No result or gold feedback is
+returned to any model, and no additional model call or adaptive continuation occurs.
+
+Evidence: The runner reports two submitted independent passes and two unsubmitted
+call-limit exits. The final cachetools artifact is nonempty and changes all four
+allowed implementation, stub, documentation and new regression-test files.
+All 60 HTTP receipts are complete. Independent audit is checking every body against
+the actual 8192-token bound; the metadata mismatch must remain in its findings.
+
+Failures or blockers: The larger repository task exhausted 24 calls, leaving a
+10164-byte artifact without native submission. This alone does not establish its
+coding quality. The scalar metadata discrepancy is retained as a bookkeeping
+failure, not silently rewritten or treated as larger inference permission.
+
+Limitations and non-claims: Offline artifact acceptance cannot turn an unfinished
+episode into a submitted success or a held-out result. There is no new runtime
+policy, cloud execution, GPU-server execution, production admission or release.
+
+Paid exposure: Zero additional model requests or paid cloud calls in this offline
+check. The live stage remains closed at exactly 60 local requests.
+
+Next gate: Independently audit the completed request/history/patch chain, preserve
+the offline artifact result separately, and use observable failures to specify the
+next routing checkpoint before fresh paid comparisons.
+
+References: [native calibration](NATIVE_LOCAL_CALIBRATION.md).
+
+### BL-20260908-1733-native-coding-calibration-closed -- 2026-09-08 -- Protocol repaired and remaining progress failures measured
+
+Status: `Verified`
+
+Scope or hypothesis: Complete the isolated native coding gate and distinguish
+accepted submissions, native protocol compliance, unfinished artifacts and the
+next observable routing checkpoint.
+
+Decisions: Advance the native interface to an isolated verified implementation,
+while retaining fixed production policies. The next engineering gate is a trusted
+exact visible-check action, reserved finishing capacity and bounded progress/help
+checkpoints with an intact patch/check handoff. Do not label protocol or unknown
+accounting failures as difficulty or automatically trigger paid escalation. Freeze
+those decisions before fresh held-out C/L/E/P comparisons.
+
+Changes: Completed four immutable native episodes and closed dispatch at 60 local
+requests. Added a complete calibration report and updated README, readiness,
+diagnosis and routing research to separate this later evidence from the unchanged
+118-request study and original cloud screen. Added the pure reusable native helper
+and ten protocol tests; its isolated harness and artifacts remain ignored. No
+production worker, policy enum, app admission or credential change in this stage.
+
+Evidence: Independent audit verifies 60 complete native envelopes, 58 byte-matched
+shell actions, preserved call/result identity, two native submissions and strict
+acceptance of two of four exposed tasks. TSV and manifest normalization each use
+six requests, pass all four independent methods and the exact visible check, and
+confirm cleanup. Their total times are 24.496 and 32.803 seconds. UTF-8 lines uses
+24 requests and remains visibly broken and unsubmitted after 87.942 seconds; it
+repeats the same scalar probe 18 times without applying the observed correction.
+Cachetools uses 24 requests and retains a 10164-byte four-file artifact without
+submission after 157.599 seconds. It passes five of five oracle methods in the
+separate offline check, but its exact visible command reports six failures and
+two errors across 71 newly authored tests. Its original unsuccessful episode
+result remains unchanged. All source snapshots are unchanged and all cleanup
+checks pass. Ten protocol, twelve harness and seven real-Docker test methods pass.
+Independent audit SHA-256 is
+8d446fcaa08fd8638b0dd604972ff63ad5019ff63cab420c7e68220d18cc5382;
+the separate artifact supplement SHA-256 is
+9f04b37850ff30fb150e6bd51ca3aaf18b94037de20ae9a817bacd321f1a47f2.
+Final independent documentation review is clean. The final ignored evidence
+inventory binds 246 files with SHA-256
+62fa06785048c83e01edd511ab03be6a2419c4da48fc18e5e1428649a0b16046;
+the prior 118-request study inventory retains its original hash.
+
+Failures or blockers: Two tasks remain unfinished. UTF-8 feedback is delivered
+correctly but not applied. Cachetools test commands mask failures through pipelines,
+then unfinished generated tests retain invalid constructor/default/expiration and
+unstable eviction assumptions. Shell exit zero is not test acceptance. The copied
+authority's stale 16384 scalar is documented by the preceding correction; approved,
+frozen and all actual request limits are 8192. The original failed timeout canary
+and first audit metadata-assumption failure remain preserved.
+
+Limitations and non-claims: These are four exposed calibration tasks, not a general
+50-percent accuracy estimate or held-out quality result. Adapter changes include
+the system prompt, native schema and history together; this is not a single-field
+causal ablation. No oracle feedback entered live history. An accepted unfinished
+artifact is never inferred; the larger artifact also fails full visible acceptance.
+Independent acceptance is not owner Keep/Reject or deployment. No dynamic route,
+cloud parity, GPU-kernel optimization, total-cost saving, push, installer or release
+is demonstrated. Server weights/flags and background load remain unverified.
+
+Paid exposure: Exactly 60 new local requests, all complete, zero unknowns and zero
+new paid cloud calls. Usage is 431942 input tokens, including 276800 reported cached
+tokens, and 12116 completion tokens with zero reported reasoning tokens. Summed
+supervised request wall time is 284.514 seconds, HTTP-client receipt time is
+281.250 seconds and complete episode time is 302.840 seconds; none is measured
+GPU-active time. The USD 3500 owned device and unknown power,
+utilization and lifetime remain separate. The stage is closed; its unused numerical
+allowance is not an automatic continuation. The original cloud ledger is unchanged.
+
+Next gate: Implement and freeze the small observable checkpoint policy and trusted
+check result contract, including artifact-preserving terminal reasons. Then prepare
+a fresh matched routing screen with concrete cloud limits recorded before any paid
+request. Retain two-of-four acceptance as calibration evidence and use the failed
+cases to test progress and check handling without turning gold into a route signal.
+
+References: [native coding results](NATIVE_LOCAL_CALIBRATION.md),
+[updated routing experiment](ROUTING_POLICY_RESEARCH.md),
+[original local study](LOCAL_CAPABILITY_DIAGNOSIS.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260909-0500-routing-mvp-execution-approved -- 2026-09-09 -- Implement the app router and test the actual cost-quality claim
+
+Status: `Approved`
+
+Scope or hypothesis: Execute the owner's active goal across all four next steps:
+finish local control, integrate app routing, compare fresh matched policies and
+apply a fail-fast quality/cost decision. The goal remains incomplete until the
+required implementation and evidence exist; mechanics alone are insufficient.
+
+Decisions: Implement native local-only, local-first with one irreversible cloud
+escalation, and one cloud plan followed by local work with at most one later cloud
+recovery phase. Main-owned request admission, phase transitions, fresh exact-check
+receipts and source-bound progress checkpoints govern execution. Three duplicate
+observations without source change or two failed trusted checks trigger help.
+Protocol, timeout, cancellation or unknown-accounting failures stop without a paid
+automatic fallback. Reserve finishing time/calls and preserve the patch on handoff.
+
+Changes: Recorded the concrete routing implementation/evaluation plan and archived
+previous worker/native-helper source in the new ignored stage. Source, fixtures,
+authority, private traces and costs from closed prior studies remain unchanged.
+Parallel owners cover pure checkpoint logic, app/main admission and fresh fixtures;
+root integrates Python execution, benchmark control and final evidence.
+
+Evidence: The user's current active objective explicitly requests executing all
+four steps and exploring/implementing a routing system that saves money and
+preserves quality. Current source still admits only three fixed policies; native
+calibration proves two of four accepted tasks and identifies concrete progress and
+check-handling failures. Those findings determine the implementation, not oracle
+feedback in the new benchmark.
+
+Failures or blockers: No dynamic router or new paid comparison exists yet. Cloud
+credentials and live provider readiness will be verified safely before dispatch.
+No inference about model quality or savings follows from this approval.
+
+Limitations and non-claims: Twelve fresh tasks are an initial fail-fast screen,
+not a statistical equivalence proof. Work targets coding sessions using the owned
+local server; GPU-kernel execution is unavailable. API savings and all-in device
+cost remain separate. No production-quality, release or savings claim is made.
+
+Paid exposure: New aggregate ceiling USD 150 including unknowns. Initial allocation
+is six calibration episodes at USD 3 plus twelve four-arm blocks with three paid
+arms capped at USD 3 each (USD 108); USD 24 remains a separately recorded follow-up
+reserve. Prior ledgers are unchanged. Each episode has 40 total calls, 600 seconds,
+8192 output tokens, 256000 input bytes, 120-second HTTP deadline, 30-second commands
+and 60-second trusted checks. Local maximum is 24 calls including two finishing
+calls. No paid work before tests, proofs, readiness and immutable freeze.
+
+Next gate: Implement and validate the end-to-end app/native/checkpoint contract;
+freeze calibration and fresh task/source/reference proofs before any model run.
+
+References: [routing execution plan](plans/MVP_ROUTING_V1.md),
+[calibration evidence](NATIVE_LOCAL_CALIBRATION.md),
+[research and advancement criteria](ROUTING_POLICY_RESEARCH.md).
+
+### BL-20260909-0509-routing-checkpoint-unit-proof -- 2026-09-09 -- Pure policy passes; execution integration remains incomplete
+
+Status: `Implemented`
+
+Scope or hypothesis: Turn observed local repetition and unfinished-check failures
+into a bounded checkpoint policy without interpreting accounting or protocol
+failures as permission for paid recovery.
+
+Decisions: Verify the pure checkpoint contract before wiring live execution.
+Keep local-only stops and paid recovery permission separate; pure tests do not
+establish end-to-end verification.
+
+Changes: Added a pure coding router enforcing three identical observations with
+unchanged source, two cumulative failed trusted checks, two reserved finishing
+calls, fresh exact-check evidence before submission and one guarded irreversible
+cloud handoff. Added the optional four-tool native coding profile and a shared
+serialized request contract. App policy, admission, persistence and UI integration
+are being edited in parallel; the worker's native execution loop is not wired yet.
+
+Evidence: Root reran all 14 focused routing tests and all 10 existing native
+protocol tests successfully. These verify pure state transitions, evidence chains,
+history validation and existing protocol behavior. The preceding worker transport
+refactor passed 41 discovered Python tests with 13 opt-in tests skipped (28
+executed); its sandboxed loopback attempt failed with EPERM before the authorized
+loopback run passed. This is not a fresh all-Docker or app end-to-end gate. The
+routing helper SHA-256 is
+3905025d33d61f964733a64db63969251d705eff83abbc8cfe07e6990f0ff011.
+
+Failures or blockers: End-to-end trusted checks, native execution and patch-preserving
+cloud handoff remain unfinished. The twelve-task fresh evaluation slate is selected;
+four fixtures are authored, but no baseline/reference proof pair has completed at
+this checkpoint. New TypeScript integration tests are still in progress.
+
+Limitations and non-claims: The earlier full repository/Electron gate describes the
+prior implementation, not these in-progress edits. Pure tests do not demonstrate a
+local/cloud transition, improved completion, held-out quality, savings or release.
+The prior 36-episode hybrid failure and two-of-four local calibration remain the
+latest completed live results.
+
+Paid exposure: Zero new local inference requests or paid cloud requests in this
+implementation checkpoint. The new USD 150 ceiling is permission for a bounded
+future evaluation after its recorded gates, not reported expenditure.
+
+Next gate: Complete worker/app integration and focused Docker/provider-fixture
+proofs, then freeze the fresh source/reference tasks and request limits before
+calibration and the matched four-policy live screen.
+
+References: [routing plan](plans/MVP_ROUTING_V1.md),
+[original comparison](MVP_HYBRID_SCREEN_REPORT.md),
+[local calibration](NATIVE_LOCAL_CALIBRATION.md).
+
+### BL-20260909-0552-native-app-routing-and-fresh-screen-substrate -- 2026-09-09 -- Native phases reach the app; live advancement remains pending
+
+Status: `Implemented`
+
+Scope or hypothesis: Execute native local work through the application's admitted
+provider path, carry real source edits through one recovery boundary and prepare
+an independent comparison against the strongest previous cloud-only control.
+
+Decisions: New C means prepared cloud, with the same deterministic host source
+inventory supplied to L/E/P. Historical C/D/H records are unchanged. All new arms
+share 30-second command and 60-second check limits. Every provider request must
+leave its full HTTP deadline plus the final check reserve; the HTTP deadline also
+preserves the reserve after delayed admission. The six initial calibration episodes
+reuse the exposed UTF-8-lines and cachetools-peek tasks under L/E/P, separately from
+the twelve fresh tasks. Public scope instructions and full patch-path validation
+must match across arms. Missing or false cleanup confirmation stops the stage and
+cannot be promoted by a later automatic cleanup retry.
+
+Changes: Wired the optional native coding profile and pure router into the worker,
+main admission, persisted checkpoint/plan/handoff state and policy UI. Source is
+paused between local actions. Trusted checks execute in fresh containers; stopped
+source is reconstructed against the original before diff capture. A failed or
+interrupted local phase preserves its source, while cloud recovery continues from
+the actual local candidate. Local-only never receives a cloud configuration or key.
+Added additive C/L/E/P comparison tables, balanced assignment/claim controls and
+shared campaign exposure accounting. Historical migration SQL and closed study
+artifacts were preserved. Added an explicitly scripted-only bounded action override
+for native Electron workflow proofs; live mode ignores it.
+
+Evidence: Focused app/main tests reached 143 passing cases including six actual
+controller/Python/Docker workflows, one of which performs three real native HTTP
+fixture requests with exact request IDs, history, usage and checked submission.
+The new Python execution suite passed twelve tests, including ten real Docker
+proofs and a local HTTP provider fixture. A later pure time-reserve regression
+passes for all four policy families; an independent no-HTTP proof confirms 150
+seconds blocks while 181 seconds admits the 120+60-second profile. The full Python
+suite ran 77 methods; five subcase assertions failed only because the host inventory
+label changed. After updating those expected labels and aligning shared deadlines,
+all 29 affected worker methods passed. A final comprehensive gate remains pending
+subsequent review fixes. The additive comparison/migration gate passed 30 cases
+before its scope/cleanup review corrections. Store/lifecycle cleanup tests passed
+49 cases; configuration fixture isolation passed seven.
+
+Fresh evidence: Twelve fresh objectives have 24 baseline/reference proofs, 65/65
+reference methods, twelve baseline compatibility passes and twelve visible-check
+passes. All source revisions are clean and all proof containers removed. Independent
+review inspected all twelve and corrected two reference/oracle gaps before exposure;
+earlier proof failures and corrections remain preserved. The final private manifest
+SHA-256 is 075ce50f8954ae97e3247001b50ae66d202f3c1a40559d5bb25b5752dd3e6193.
+The parent freeze has not yet occurred.
+
+Failures or blockers: Review reproduced a missing per-request finishing-time
+reserve, a cancellation-during-reconstruction source-loss risk, an unenforced
+allowed-file contract and a missing durable cleanup receipt. Fixes and regression
+proofs are being completed before freeze. Initial integration fixture readiness
+ordering and historical inventory-label assertions were corrected without changing
+model outcomes. No held-out result can be inferred from these engineering tests.
+
+Limitations and non-claims: Read-only provider readiness returned HTTP 200 for the
+selected OpenAI model and the existing local alias, which advertises context 262144
+and engine version 0.28.0. These metadata responses do not verify weights, launch
+flags, quality, generation or billing. The owned device remains approximately USD
+3500 with unmeasured power/utilization. No new native-policy live result, meaningful
+API saving, all-in saving, owner acceptance, push, installer or release exists yet.
+
+Paid exposure: Zero new inference/generation requests; provider checks were GET
+metadata only. The previously provided OpenAI credential was re-established in a
+non-echoing session and remains only in trusted process memory. The new session
+uses the dedicated stage ledger and USD 150 ceiling, including unknown exposure.
+No paid dispatch before final tests, reviewed proofs and immutable freezes.
+
+Next gate: Finish independent scope/cleanup review, run the full repository/Python
+and built Electron gates, freeze the separate calibration and fresh screen, then
+run their bounded live episodes through the app controller. Preserve every failure
+and use independent acceptance plus blind review for the advancement decision.
+
+References: [routing plan](plans/MVP_ROUTING_V1.md),
+[native calibration](NATIVE_LOCAL_CALIBRATION.md),
+[original negative comparison](MVP_HYBRID_SCREEN_REPORT.md).
+
+### BL-20260909-0602-native-routing-full-mechanics-gate -- 2026-09-09 -- Full repository, Docker and built-app workflows pass
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the new app-integrated routing mechanics before
+freezing or dispatching the separate calibration and fresh comparison. This
+status applies to execution and accounting mechanics, not live routing quality.
+
+Decisions: Retain the previous negative hybrid result and two-of-four isolated
+local result as the latest completed live evidence. Passing fixture tests does
+not advance any new policy on cost or quality.
+
+Changes: Completed the coordinated full repository and Python gates, then the
+built Electron workflow gate after the Node tests finished. No runtime changes,
+configuration freeze or new model generation occurred during this verification.
+
+Evidence: The full repository check exited zero: readiness/build-log validation,
+both TypeScript checks, native credential core proof, 116 passing test files and
+1470 passing tests, with four files and twelve tests skipped, followed by both
+build flavors and their isolation checks. The full Python suite passed all 78
+methods in 143.070 seconds, including real Docker and local HTTP fixture tests,
+with no skips. All five built Electron workflows passed in 39.2 seconds:
+patch/export/decision restoration, cancellation and cleanup, unfinished-work
+recovery, native local-only checked submission, and local-first recovery retaining
+the local patch. The native app workflows also verify routing evidence, exact
+export bytes and history restoration. These provider fixtures make no real model
+generation or paid API requests.
+
+Failures or blockers: No remaining failure in these executed gates. The six-episode
+calibration driver is undergoing independent review. Its immutable freeze and the
+fresh comparison freeze remain pending; no new live assignment has started.
+
+Limitations and non-claims: Unit, Docker and Electron proofs establish the tested
+control flow and failure boundaries. They do not establish model capability,
+review-acceptable quality, meaningful API savings, device payback or a release.
+The twelve fresh task fixtures and their 65 reference acceptance methods are
+evaluation preparation, not model successes. No commit, push or installer exists
+for this milestone.
+
+Paid exposure: Zero new inference requests in this verification stage. The approved
+USD 150 exposure ceiling remains a future bound, not reported expenditure.
+
+Next gate: Finish calibration-driver review, freeze all source/configuration/task
+identities and record the successful preflight. Run six exposed calibration
+episodes, then the twelve-task four-policy comparison only if calibration clears
+the runtime boundary. Independently evaluate and blindly review all candidates,
+including failures in cost totals, before applying the predeclared advancement
+criteria.
+
+References: [approved routing plan](plans/MVP_ROUTING_V1.md),
+[original comparison](MVP_HYBRID_SCREEN_REPORT.md),
+[isolated native results](NATIVE_LOCAL_CALIBRATION.md).
+
+### BL-20260909-0611-routing-freeze-and-live-calibration-preflight -- 2026-09-09 -- Immutable runtime and tasks clear the live gate
+
+Status: `Approved`
+
+Scope or hypothesis: Exercise the tested native policies on six exposed calibration
+episodes before opening the twelve fresh comparison tasks. Earlier approval covers
+this bounded execution; this entry records satisfaction of its pre-dispatch gate.
+
+Decisions: Freeze twenty-one runtime/evaluator/report source files, provider
+profiles, limits and all forty-eight fresh assignments. Separately freeze the six
+UTF-8-lines/cache-peek L/E/P assignments and their calibration driver. Preserve
+original source/reference proofs and all historical results. Root will inspect
+calibration outcomes before fresh dispatch; no automatic retry or owner acceptance.
+
+Changes: Archived the frozen runtime and recorded the preflight binding the full
+repository, 78-method Python and five-workflow Electron proofs, fixture proofs,
+provider metadata readiness and independent calibration-driver review. Updated
+the quickstart for native policies, their distinct timeout behavior and the new
+stage budget. Calibration replay validation now binds terminal run identity,
+claims, source, patch, scope and evaluator receipts; legitimate no-patch failures
+remain valid negative outcomes, and derived acceptance flags cannot be fabricated.
+
+Evidence: Fresh configuration SHA-256
+08412d03295ab8fe1dd93e8cee8638dbc400bb3421042f077269fbe62b75b86b;
+calibration plan SHA-256
+1da37a7dd40303e6ba7c3defcba704faf3a72bb7c6a4eab7e5ce10b041c2b952;
+calibration driver SHA-256
+afa19bd11013955279ba998ecad351e45a7776d40bd8a834994c6d6c1d2bdfde.
+Both metadata-only freezes exited zero. Independent driver inspection and targeted
+metadata/replay checks passed, with no model or evaluator calls. Root rehashed all
+runtime files and eight evidence files before recording the matching passed
+preflight. The stage ledger contained zero runs and zero claimed assignments.
+
+Failures or blockers: Three replay-evidence issues were corrected before freezing:
+insufficient terminal result validation, undefined no-patch canonicalization and
+unbound derived acceptance flags. No remaining confirmed preflight blocker.
+
+Limitations and non-claims: This is authorization to execute the frozen experiment,
+not a successful experiment. The fresh slate is agent-authored and not an external
+human-curated benchmark. No model quality, savings, payback or release is established.
+
+Paid exposure: Zero generation requests before preflight. Six calibration episodes
+are capped at USD 3 each, at most USD 18, inside the USD 150 stage ceiling including
+unknowns. The following 48 fresh assignments retain their separately frozen order
+and bounds. Calibration and fresh comparison share one ledger and runner lock.
+
+Next gate: Run the six calibration episodes, preserve every candidate and failure,
+inspect cleanup/accounting and task completion, then decide whether the unchanged
+runtime is ready for the fresh comparison.
+
+References: [approved routing plan](plans/MVP_ROUTING_V1.md),
+[mechanics and usage](MVP_CODING_QUICKSTART.md),
+[prior exposed failures](NATIVE_LOCAL_CALIBRATION.md).
+
+### BL-20260909-0632-routing-calibration-closed-fresh-dispatch -- 2026-09-09 -- Exposed results clear mechanics; fresh economics still unproven
+
+Status: `Verified`
+
+Scope or hypothesis: Complete the six frozen app-controller calibration episodes
+and determine whether the unchanged runtime can proceed to its fresh comparison.
+
+Decisions: Proceed with all 48 already-frozen fresh assignments, including the
+weaker local-only/local-first policies, without tuning from evaluator feedback.
+This is a runtime-gate decision, not advancement of a policy on quality or savings.
+The independent blinded review seed was created before any fresh dispatch.
+
+Changes: Closed calibration and wrote a self-contained result report. Independently
+validated every stored run/result/claim/patch/scope/receipt against the stage ledger
+and rehashed all frozen runtime files. Prepared and reviewed offline blind packaging
+that preserves all 48 dispositions privately while withholding policy, fees, time,
+checks and completion labels from reviewers. A pre-package review removed
+submission/completeness labels; twelve synthetic methods now pass, including
+byte-identical packages across different statuses for the same patch. The original
+packager and earlier authoring failure remain archived.
+
+Evidence: Local-only independently solved 1/2 tasks, local-first 1/2 and cloud-plan
+local 2/2. The 97 requests comprise 95 local and two cloud planner calls, all settled.
+Total API fees are USD 0.096508; unresolved exposure is zero. No cloud recovery was
+used. All six worker cleanups and five evaluator cleanups are confirmed; the failed
+unsubmitted episode was not evaluated. A fresh Docker inventory found no remaining
+SOAR task container. Independent source review confirmed the UTF-8 candidate defect
+and the finishing-action policy stop; all four independently passing patches have
+no material defect found in bounded exposed-task review. Original sources and all
+21 runtime hashes remain unchanged.
+
+Failures or blockers: The local-only UTF-8 patch passes visible checks but fails
+one of four independent methods by buffering an invalid byte. Local-first fails
+at call 23 after a disallowed finishing action, preserving an unsubmitted patch.
+Correct allowed-action guidance was present. The exact rejected tool is absent
+from the stored diagnostic; earlier commentary identifying it as another editing
+command was too specific. No runtime/evaluator/accounting blocker was found.
+
+Limitations and non-claims: Four of six independently solved exposed episodes are
+not held-out accuracy, owner acceptance or a savings comparison. No contemporaneous
+cloud-only calibration arm exists. The shared four-tool schema during restricted
+finishing calls may merit a separately tested future interface change, but remains
+frozen for this comparison. The owned device and unmeasured electricity/utilization
+are excluded from API fees. No release or general quality-parity claim is made.
+
+Paid exposure: Calibration is closed at USD 0.096508 accounted, zero unknown.
+The forthcoming twelve four-arm task blocks share that ledger and the approved
+USD 150 aggregate ceiling. Three potentially paid arms per block remain capped
+at USD 3 each, with one-use dispatch/evaluation claims and no automatic retries.
+
+Next gate: Execute the fresh matched screen, retain failures and unknowns, then
+perform independent tests and blinded reviews. Compare accepted counts, all-assigned
+API cost per acceptable patch and latency before deciding whether to advance,
+iterate or reject a policy.
+
+References: [calibration result](MVP_ROUTING_CALIBRATION.md),
+[frozen comparison plan](plans/MVP_ROUTING_V1.md),
+[original negative comparison](MVP_HYBRID_SCREEN_REPORT.md).
+
+### BL-20260909-0648-first-fresh-routing-block -- 2026-09-09 -- Real local edits reach cloud; whole-screen judgment pending
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the first real native local-to-cloud transfer and
+retain the first matched four-policy task block while the full screen continues.
+
+Decisions: Continue the unchanged 48-assignment screen. A first-task fee reduction
+with increased latency does not advance a policy; independent blinded reviews
+and complete matched results remain required.
+
+Changes: Independently audited the completed local phase and first cloud admission
+for the fresh cache discard-call task. No runtime, prompt, policy, fixture or
+budget changed. No extra model or evaluator calls were made by the audit.
+
+Evidence: All 23 local requests settled before the one recovery transition. The
+48-decision hash/predecessor chain verifies. Applying the persisted 14048-byte
+patch to pinned Git blobs entirely in memory reconstructs the exact 44-file
+handoff source hash. The first 27906-byte cloud request body reconstructs to its
+admitted hash and includes the complete patch and 7572-byte observed-action/check
+summary, without excerpt truncation. The separate terminal records show both
+cloud and local-first submitted patches passing independent acceptance and cleanup.
+Cloud-plan/local also passes; local-only stops with an unfinished recovered patch.
+
+First-block measurements: Prepared cloud costs USD 0.597264 in 125.384 seconds;
+local-only costs zero attested API fees and remains unsubmitted after 177.446
+seconds; local-first costs USD 0.448308 in 251.029 seconds; cloud-plan/local costs
+USD 0.089404 in 278.030 seconds. These are automatic acceptance outcomes, not blind
+review-acceptable outcomes. Solver time excludes the subsequent independent
+evaluation. All four terminal worker cleanups are confirmed.
+
+Failures or blockers: The local-only failure remains assigned and unscored. Both
+collaboration arms are slower than prepared cloud on this task despite lower
+API fees. No whole-screen quality, latency or savings decision follows. No
+runtime/accounting blocker is currently observed.
+
+Limitations and non-claims: At the observed checkpoint only 4/48 fresh assignments
+were evaluated; the fifth assignment was actively executing in the confirmed
+live runner session. Blind review has not begun. The handoff audit itself stops
+at first cloud admission; terminal results above come from separate ledger and
+evaluator receipts. Device cost, owner acceptance and release remain unproven.
+
+Paid exposure: First-block known fees total USD 1.134976. Including closed
+calibration, the observed stage known total is USD 1.231484. All completed
+requests are settled, no unknown request is recorded, and a subsequent local
+request was in flight. The approved USD 150 aggregate ceiling remains enforced.
+
+Next gate: Wait on the existing live runner; do not restart or duplicate its
+claims. Finish the remaining frozen blocks, inspect any retained failure, then
+close dispatch and perform blinded acceptance and total-cost analysis.
+
+References: [routing plan](plans/MVP_ROUTING_V1.md),
+[completed exposed calibration](MVP_ROUTING_CALIBRATION.md).
+
+### BL-20260909-0707-review-protocol-and-confirmation-preparation -- 2026-09-09 -- Fix final analysis rules before blind distribution
+
+Status: `Proposed`
+
+Scope or hypothesis: Prepare final acceptance analysis and an outcome-independent
+confirmation slate while the existing frozen screen continues unchanged.
+
+Decisions: Require two independent full-patch reviews per neutral candidate, with
+unresolved disagreements held for separate blinded adjudication. Bind every verdict
+to the exact task/source/patch/package and private mapping. Interpret the paired
+material-regression rule conservatively: a substantiated defect on a task where C
+is acceptable disqualifies the alternative, even if another task offsets its count.
+Use all twelve terminal elapsed times per arm, including failures and cleanup and
+excluding subsequent grading; active partial durations never pass the latency gate.
+These clarifications are recorded before packaging/distribution, after root has
+seen early automatic results. They are not represented as pre-outcome registration.
+
+Changes: Added the private review/analysis protocol. An independent source audit
+confirmed that the current report leaves review-qualified economics unavailable;
+its interim median includes active partial times and needs explicit final coverage
+labelling outside the frozen runtime. No runtime/report source changed during
+dispatch. Separately fixed four confirmation objectives and scopes before authoring
+their tests/references; no confirmation proof or model run is authorized by selection.
+
+Evidence: The confirmation selection SHA-256 is
+74222d2a9729f1773ff174600f48e0091a3ed9af1a4a227a448a44164f83f0b3,
+recorded at 06:59:21 UTC. It covers cache-clear generation barriers, seeded atomic
+JSONL writing, nested speculative iterator checkpoints and a logical multi-file
+cursor. The author used a fresh context, source specifications and pinned public
+code, with no model outcome content read. Reference/oracle proofs remain pending
+and no Docker workload is added during the latency comparison.
+
+Failures or blockers: The initially assigned confirmation author disclosed that
+reading the latest build log exposed one block's automatic results before selecting
+any task. That attempt was stopped without authored artifacts. A fresh author was
+used. Its historical filename-only observation of words such as failure/acceptance
+is recorded separately and was not an actual model-result read. No blind candidate
+package or reviewer verdict exists yet.
+
+Limitations and non-claims: Confirmation selection is preparation, not a proven
+fixture, approval for paid follow-up, model success or deployment-quality evidence.
+The existing 48-assignment screen, all failure denominators, original thresholds
+and aggregate budget remain unchanged. Neither current partial results nor a
+favorable future code review establishes owner acceptance or device payback.
+
+Paid exposure: No additional provider/evaluator call from this preparation or audit.
+The active comparison continues within its existing USD 150 ledger ceiling. Any
+confirmation execution needs its own recorded freeze and authority within the
+separately allocated USD 24 follow-up reserve.
+
+Next gate: Finish existing dispatch, then distribute neutral packages and perform
+the exact acceptance/economics join. Prove confirmation references after the shared
+host is no longer measuring the current screen's latency.
+
+References: [routing comparison plan](plans/MVP_ROUTING_V1.md),
+[calibration result](MVP_ROUTING_CALIBRATION.md).
+
+### BL-20260909-0735-routing-screen-local-server-interruption -- 2026-09-09 -- Preserve local HTTP failure and inspect before continuation
+
+Status: `Failed`
+
+Scope or hypothesis: Run the frozen 48-assignment comparison without losing failed
+attempts, unresolved provider outcomes or cleanup evidence.
+
+Decisions: The original uninterrupted dispatch stopped. Retain the local-first
+failure and its unknown request permanently; do not retry it or change its
+evaluation. Prepare a separately reviewed, one-use continuation of only the fixed
+24 never-dispatched assignments in the original final six task blocks. Execution
+requires matching frozen identities, healthy provider metadata, unchanged claims,
+and a recorded continuation authority. The active owner goal covers this bounded
+work; no new budget or replacement task is introduced.
+
+Changes: Inspected the stopped runner, immutable request/result records and host
+cleanup. Began an external continuation driver that reuses the frozen episode
+runner and all original assignment/evaluation methods, changing only the explicit
+block traversal allowlist. No frozen runtime, provider prompt, manifest, earlier
+request, claim or evaluation was edited. Final analysis continues to treat the
+screen as interrupted and ineligible under its original no-unknown advancement
+gate, even if the remaining assignments later finish.
+
+Evidence: Twenty-four assignments have terminal dispositions, six per arm; five
+blocks completed normally. Independent checks pass on six cloud, three local-only,
+five local-first and six cloud-plan/local candidates. The sixth local-first run
+received HTTP 500 on its seventh local request, stopped without cloud recovery,
+preserved an unfinished patch and confirmed worker cleanup. Its request reservation
+is zero but its outcome remains unknown. The launcher reported command exit 1;
+subsequent process inspection found no launcher child or original comparison
+process, and Docker reported zero SOAR task containers. A metadata-only readiness
+check at 07:31 UTC reached cloud metadata but the local metadata request failed.
+
+Failures or blockers: The local provider failure blocks additional dispatch until
+readiness recovers. Container removal does not prove remote generation quiescence.
+The original runner correctly refuses to cross an unresolved assignment on an
+ordinary restart. Earlier transient preparation/check delays also remain in elapsed
+times; no captured stack established their cause and no latency was discarded.
+
+Limitations and non-claims: These partial automated results do not establish
+review acceptance, routing savings, quality equivalence, owner usefulness or a
+release. Zero reserved token fees do not make an unknown request successful or
+establish zero electricity use. Continuing the unchanged suffix is descriptive
+evidence gathering, not a waiver of the original advancement criteria.
+
+Paid exposure: The stage has 398 settled requests accounting for USD 2.691900,
+including USD 0.096508 from closed calibration, and one unknown local request
+with zero admitted token-fee exposure. The USD 150 aggregate ceiling remains;
+every future request still requires its ordinary admission and budget checks.
+
+Next gate: Review the concrete fixed-suffix driver and its one-use authority,
+recheck provider readiness, then dispatch only previously unclaimed assignments.
+Retain the interrupted screen and use separate fresh confirmation before any
+policy advancement claim. Confirmation fixtures remain under static review;
+behavioral proofs have not yet run.
+
+References: [original routing authority](plans/MVP_ROUTING_V1.md),
+[calibration result](MVP_ROUTING_CALIBRATION.md).
+
+### BL-20260909-0746-interrupted-prefix-review-and-confirmation-proofs -- 2026-09-09 -- Use the provider outage for independent acceptance work
+
+Status: `Implemented`
+
+Scope or hypothesis: Prepare honest source review and confirmation evidence while
+the original model dispatch is closed and the local provider is unavailable.
+
+Decisions: Package the 24 terminal artifacts now, retaining all 48 assignment
+dispositions, including the 24 unrun assignments, in the private mapping. Require
+two independent neutral-package reviews and preserve original responses. A later
+suffix package must have byte-identical earlier candidate/index bindings before
+those responses can be reused; it receives a new private mapping. This staging
+change does not reveal reviews to solvers or alter any frozen task or runtime.
+Run confirmation baseline/reference proofs only under the exact initial-dispatch
+closure and the same exclusive runner lock, while no live solve is being timed.
+
+Changes: Recorded an immutable interrupted-dispatch closure and produced 24
+neutral packages. Separately prepared four confirmation fixtures with 17 protected
+visible methods and initially 117 independent methods. Static review identified
+implementation-specific assertions in the atomic JSONL oracle. Archived its
+originals and removed private-attribute and specific I/O-helper assumptions;
+public constructor, byte, cursor and filesystem behavior checks remain. The
+independent count is now 110, including 36 atomic JSONL methods. Objectives,
+scopes, visible checks, reference patches and the selected-slate bytes are unchanged.
+
+Evidence: The initial closure binds 24 terminal runs, confirmed worker cleanup,
+the exact unknown request and unchanged 21-file runtime. Neutral packaging retains
+48 dispositions and withholds policy, cost, time, completion and evaluator labels.
+Four confirmation inventories, source hashes, allowed reference paths, exact inline
+visible checks and syntax checks pass static verification. The immutable selection
+SHA-256 remains 74222d2a9729f1773ff174600f48e0091a3ed9af1a4a227a448a44164f83f0b3;
+the corrected aggregate task-specification SHA-256 is
+dfafc357a19bad04d7ee33646c76b35c2fc29f56eb2c82a6967d513ccd264aa5.
+
+Failures or blockers: The removed probes could reject compliant alternative I/O
+implementations. Bounded copying, short I/O, streaming writes and exceptional
+cleanup still require explicit reference/candidate source review; passing the
+remaining behavior tests cannot establish these properties alone. The local
+metadata check has failed twice after HTTP 500. No continuation has dispatched.
+
+Limitations and non-claims: Static fixture preparation and neutral packaging do
+not establish reference correctness, candidate acceptance, paid-follow-up authority
+or routing savings. Behavioral proof receipts and the second independent candidate
+review remain pending. Interrupted dispatch remains ineligible for advancement.
+
+Paid exposure: No new model request. Local offline proof work may use Docker;
+it has no cloud token fees. Prior USD 2.691900 known fees and the unknown zero-fee
+local request remain unchanged, as do the USD 150 ceiling and separate USD 24
+confirmation reserve.
+
+Next gate: Complete isolated baseline/reference proofs and independent full-patch
+reviews; validate candidate-bound responses and all-assigned accounting. A reviewed
+continuation may run only after readiness returns and the proof lock is released.
+
+References: [routing plan](plans/MVP_ROUTING_V1.md),
+[current readiness](MVP_READINESS.md).
+
+### BL-20260909-0815-confirmation-fixture-behavioral-proofs -- 2026-09-09 -- Verify fresh confirmation fixtures without model dispatch
+
+Status: `Verified`
+
+Scope or hypothesis: Establish that four selected confirmation tasks expose their
+missing behavior and have working reference implementations before any model run.
+
+Decisions: Keep the selected objectives, scopes and original selection unchanged.
+Retain the first failed proof and all preparation corrections. Fixture verification
+does not authorize or establish a successful model comparison.
+
+Changes: The first cache baseline proof timed out under the evaluator deadline.
+Archived its oracle and receipts, then bounded its initial reentrant call and made
+failing subcases terminate their method instead of continuing into later waits.
+All 28 methods and passing-case variants remain. Independent source review checked
+this correction and the earlier atomic JSONL oracle fairness correction. The latter
+removed implementation-specific assumptions while preserving public behavior checks.
+
+Evidence: Eight isolated Docker proofs completed: four unchanged baselines fail the
+requested new behavior; all four reference patches pass all 110 independent methods
+and all four visible-check commands. Every proof confirms cleanup. The immutable
+selection SHA-256 remains
+74222d2a9729f1773ff174600f48e0091a3ed9af1a4a227a448a44164f83f0b3;
+the final task-specification SHA-256 is
+9249ca5525ea11a644d0744cd21a117acb96ac577b9bbed5bad9fa53355f4262.
+The original timeout and superseded oracle remain separate private artifacts.
+
+Failures or blockers: The first timeout was a fixture preparation failure, not a
+model outcome. Some synchronous oracle calls still rely on the overall evaluator
+deadline. The correcting root had seen primary-screen results; this repair is not
+claimed outcome-blind. Selection preceded those results, and no confirmation model
+request occurred before or after the correction.
+
+Limitations and non-claims: Reference correctness on these checks does not establish
+model success, routing quality, latency, savings, owner usefulness or release.
+Independent source review remains necessary for properties outside behavioral tests.
+
+Paid exposure: Zero additional model requests or cloud token fees. Docker work ran
+under the existing exclusive comparison lock after the initial dispatch closed.
+
+Next gate: Complete initial-screen acceptance accounting, restore the unchanged
+local provider, and separately freeze any selected-policy confirmation within the
+existing reserve before dispatch.
+
+References: [routing plan](plans/MVP_ROUTING_V1.md),
+[current readiness](MVP_READINESS.md).
+
+### BL-20260909-0816-fixed-suffix-continuation-authority -- 2026-09-09 -- Approve unchanged never-dispatched suffix only
+
+Status: `Approved`
+
+Scope or hypothesis: Continue evidence gathering for the 24 untouched assignments
+without retrying or removing the interrupted local-first failure.
+
+Decisions: The owner's active execution goal authorizes this fixed continuation
+under the original budget and frozen runtime. Root reviewed the concrete external
+driver and recorded a separate approved authority. Readiness and launch integration
+remain prerequisites; approval is not a dispatch or result.
+
+Changes: The external driver reuses the frozen episode runner and original store
+methods, restricts traversal to the final six original blocks, verifies earlier
+assignment/request/evaluation bindings, and uses an exclusive permanent dispatch
+claim. It refuses new unknown outcomes and does not recover or retry earlier runs.
+
+Evidence: Six synthetic continuation tests pass, standalone type checking passes,
+and root's read-only check confirms 24 untouched assignments, preserved original
+failure and unchanged 21 runtime files. Approved authority SHA-256 is
+f99e7a91d06cf5d975370f4dc237bf42a2ef7eff7ecfbbc87ee1c08bb8a8d767;
+driver SHA-256 is
+58e57c993e0eb088c3ef9ae0f81d3e599b3f324db1e9382569fdb691387614d9.
+
+Failures or blockers: The local metadata request has failed three times after the
+HTTP 500. No continuation dispatch claim exists. Trusted session launch integration
+is still pending; the original ordinary runner must not be restarted.
+
+Limitations and non-claims: Completing this suffix cannot clear the interrupted
+screen's original no-unknown gate. Its results would be descriptive evidence only.
+Synthetic driver tests do not prove provider recovery or successful live continuation.
+
+Paid exposure: No additional inference. The stage retains USD 2.691900 known API
+fees, including calibration, plus one unknown local request with zero admitted
+token-fee exposure. Original stage and episode limits remain unchanged.
+
+Next gate: Finish trusted launch integration, verify healthy unchanged provider
+metadata, then dispatch only the fixed suffix. Preserve all original failures.
+
+References: [routing plan](plans/MVP_ROUTING_V1.md),
+[current readiness](MVP_READINESS.md).
+
+### BL-20260909-0819-interrupted-routing-acceptance-result -- 2026-09-09 -- Preserve observed quality losses after independent review
+
+Status: `Failed`
+
+Scope or hypothesis: Determine whether the interrupted comparison's lower API
+spend retains acceptable patch quality against the same-task prepared-cloud control.
+
+Decisions: No policy advances. Preserve all 48 assignments, all 24 terminal
+dispositions and the unknown provider request. The untouched suffix can supply
+descriptive evidence, but cannot remove already observed paired quality failures
+or clear the original no-unknown gate. Prioritize concrete failure diagnosis and
+a frozen improvement for fresh confirmation before considering a hybrid default.
+
+Changes: Completed two independent full-patch reviews for all 24 artifacts and
+one independent adjudication. The offline join validates package contents before
+baseline reads and accepts separately bound reviewer clarification of ambiguous
+unblinding notes. It retains the original notes and hashes. Independent source
+review found no blocker in those changes; 20 synthetic join tests pass.
+
+Evidence: The validated join accepts C 6, L 2, E 3 and P 4 patches among six
+attempted tasks per policy. All 12 assigned tasks per policy remain represented;
+six per policy are unrun. Known API fees are respectively USD 1.418164, 0,
+0.704548 and 0.472680. Fees per acceptable patch so far are USD 0.236361, 0,
+0.234849 and 0.118170. No alternative preserves the observed cloud acceptance
+count. Original reviewers agreed on 23 candidates; adjudication resolves the
+remaining candidate as a material regression. Combined mechanical and review
+acceptance is narrower than a source-review verdict alone.
+
+Failures or blockers: The first join treated every nonempty unblinding note as
+suspected exposure, including explicit negative observations. Original reviewers
+supplied separate boolean clarifications; responses were not rewritten. A second
+join rejected an adjudication citation to a metadata path outside the existing
+allowed evidence schema. That reviewer supplied a citation-only corrected response
+and a new clarification, retaining the original and unchanged verdict. The third
+join completed and reports incomplete evidence for every alternative. The local
+server remains unavailable as of the last metadata check.
+
+Limitations and non-claims: Partial costs and accepted counts do not establish a
+completed success rate, general quality equivalence, latency benefit or release.
+The cloud-plan/local prefix costs about half as much per acceptable patch, but its
+two additional rejected tasks preclude claiming preserved quality. All-in device
+cost and owner acceptance remain unmeasured. Reviewer authorship/independence rests
+on owner-side assignment records rather than hashes alone.
+
+Paid exposure: No additional inference from review or joining. Known stage API
+fees remain USD 2.691900 including calibration, with one unknown zero-reservation
+local request. Failed-attempt fees are included in the comparison.
+
+Next gate: Inspect the accepted-versus-rejected differences, retain the current
+policies as failed candidates, and test a narrowly targeted improvement on exposed
+development cases before fresh confirmation. Restore provider readiness before
+any live model work. The previously approved suffix remains optional descriptive
+work and is not an advancement requirement once paired failure is established.
+
+References: [interrupted comparison report](MVP_ROUTING_SCREEN_REPORT.md),
+[routing plan](plans/MVP_ROUTING_V1.md).
+
+### BL-20260909-0828-mandatory-cloud-review-experiment -- 2026-09-09 -- Retire failed-policy suffix and implement a bounded review policy
+
+Status: `Approved`
+
+Scope or hypothesis: Test whether cloud review and optional repair after local
+implementation can recover quality while retaining enough API savings.
+
+Decisions: Add distinct `cloud_plan_local_review`; preserve the original P policy.
+Use the existing single cloud handoff and coding agent to inspect and optionally
+repair the actual workspace before final submission. Do not add a separate model
+verdict protocol or trained router before this smaller experiment is measured.
+The owner's active goal authorizes implementation and bounded evaluation under
+the new plan. Retire the previously approved unused suffix without dispatch.
+
+Changes: Verified all 21 current runtime files byte-for-byte against their frozen
+hashes and archived copies before allowing new edits. Recorded separate archive
+and continuation-retirement receipts; the prior authority and failure remain.
+Prepared the exact policy, reserve, runtime verification and fresh-evaluation plan.
+
+Evidence: Two independent source investigations found that local submission avoids
+the current recovery path. The cache candidate's helper also breaks valid keyword
+forwarding, and a broader ordinary command reports test failures despite a pipeline
+exit status of zero. The retry candidate introduced fractional-delay truncation
+during unrelated debugging. The cloud plans did not demand those defects. The
+fourth metadata-only readiness check still fails locally while cloud responds.
+
+Failures or blockers: Local availability still blocks end-to-end model evaluation.
+A review agent may miss the same defects or consume the entire savings margin;
+neither repair success nor favorable economics is assumed.
+
+Limitations and non-claims: This is approved implementation work, not a verified
+policy. Fresh cloud context is not independent-model quality proof. A completed
+cloud review action still requires external tests and blind review. The original
+interrupted results cannot be qualified by renaming the new policy.
+
+Paid exposure: No new generation. Reallocate up to USD 18 of the retired suffix
+allowance for six exposed development episodes; keep the existing USD 24 reserve
+for eight fresh paired confirmation episodes. Prior known fees and all unresolved
+reservations remain inside the original USD 150 aggregate ceiling. Live batches
+require their own verified configuration, readiness and one-use dispatch freeze.
+
+Next gate: Implement and independently test provisional submission, required cloud
+handoff, source-bound checks, reserve enforcement and app behavior. Then freeze
+bounded development runs; do not wait for local availability to complete offline work.
+
+References: [review policy plan](plans/MVP_ROUTING_REVIEW_V2.md),
+[interrupted result](MVP_ROUTING_SCREEN_REPORT.md).
+
+### BL-20260909-0858-review-policy-implementation-status -- 2026-09-09 -- Record tested backend and remaining app and live gates
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement mandatory cloud review and optional repair after
+local coding as a separate experiment; measure whether it repairs observed quality
+losses without erasing API savings.
+
+Decisions: Preserve the original policies and failed comparison. Treat a checked
+local submission as provisional, require the existing single cloud handoff, and
+retain time and model-call reserves. Unknown outcomes and protocol failures stop
+without paid fallback. A cloud response is a runtime prerequisite, not quality proof.
+
+Changes: Added the policy to the Python worker/router, shared contracts, main-owned
+store/admission checks and app selection/progress presentation. Added a bounded
+private six-task development driver with immutable input bindings and one-use
+claims. Prepared the six exposed tasks using the existing session configuration.
+The trusted launcher has a hash-pinned operator wrapper for separate prepare,
+freeze and run operations; credentials stay in the existing process environment.
+
+Evidence: All 89 Python runtime tests pass, including Docker and loopback cases;
+71 focused main-process tests across five files and 13 private driver tests pass.
+Application and driver TypeScript checks pass. Independent source review found no
+blocking issue in the runtime or driver. Preparation made zero model requests.
+
+Failures or blockers: Three UI attempts failed before executing tests because
+workers did not initialize within the startup timeout. A direct jsdom import also
+spent several minutes reading dependency files before completing. No dependency
+version or assertion was changed. A subsequent UI attempt and application build
+remain running, so neither is a passing result. The last completed provider
+metadata check still found the local server unavailable.
+
+Limitations and non-claims: The previous 1,470-test repository gate and five
+Electron workflows belong to the earlier implementation. Current full repository,
+app and Electron verification remain pending. No root mechanics gate, development
+freeze, paid dispatch or live result exists for the new policy. Source review and
+synthetic repairs do not prove that a cloud model will detect defects or preserve
+quality and savings on fresh tasks. Nothing is Released.
+
+Paid exposure: No new inference; the approved USD 18 development allowance and
+USD 24 fresh-confirmation reserve remain within the original USD 150 stage ceiling.
+Prior fees, unresolved reservations and the original unknown request are preserved.
+
+Next gate: Complete app and repository checks, freeze the six exposed development
+episodes, and run only after provider readiness succeeds. If repair benefit and
+fees justify advancement, freeze one candidate for the four fresh paired tasks.
+
+References: [review policy plan](plans/MVP_ROUTING_REVIEW_V2.md),
+[interrupted result](MVP_ROUTING_SCREEN_REPORT.md), [readiness](MVP_READINESS.md).
+
+### BL-20260909-0900-provider-metadata-recovered -- 2026-09-09 -- Record restored metadata readiness without generation
+
+Status: `Verified`
+
+Scope or hypothesis: Recheck the configured providers after the local HTTP 500 and
+four failed metadata checks, without retrying the original request or generating.
+
+Decisions: Provider metadata is available again. Retain the original failure and
+unknown request; require fresh readiness at development dispatch as planned.
+
+Changes: Preserved a separate metadata-only receipt from 08:57:41 UTC. No runtime,
+provider configuration, model settings or original comparison state was changed.
+
+Evidence: Both configured cloud and local model metadata returned HTTP 200; the
+selected local alias matched once. The runtime reported cloud, local and Docker
+availability. The receipt explicitly records no generation requested.
+
+Failures or blockers: App, full repository and Electron checks remain pending.
+The earlier dependency startup failures remain recorded.
+
+Limitations and non-claims: Metadata recovery does not prove successful inference,
+stable serving, underlying model weights, patch quality or policy savings. This
+supersedes the last-observed connectivity blocker in the previous entry only.
+
+Paid exposure: No inference or new API generation fees.
+
+Next gate: Finish mechanics verification and freeze the bounded development run;
+recheck metadata immediately before each episode rather than reuse this receipt.
+
+References: [review policy plan](plans/MVP_ROUTING_REVIEW_V2.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260909-0921-reviewed-policy-mechanics -- 2026-09-09 -- Verify required cloud review and repaired-source checks
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the new policy's runtime and app behavior before
+bounded live development; this entry establishes mechanics only.
+
+Decisions: Cloud commands invalidate the previous local check's freshness while
+preserving its result and source identity. Final verification records the repaired
+source separately. Existing policies and the original failed comparison remain.
+
+Changes: Corrected main-process freshness invalidation after independent review.
+Added a lifecycle regression and an Electron case in which cloud repairs the actual
+local candidate. Refreshed the six-task preparation for the corrected runtime,
+preserving the earlier preparation and consumed operator request separately.
+
+Evidence: The complete repository gate passes 1,485 tests with 12 existing skips,
+TypeScript checks, native proof and both build flavors. All 89 Python runtime tests
+and six Electron workflows pass; the new cloud-edit case verifies different local
+and final patch/source hashes, stale local checks, passing final checks, exact export,
+restart persistence and cleanup. All 13 private driver tests pass. Independent
+runtime, driver, wrapper and freshness source reviews found no blocking issue.
+
+Failures or blockers: Retained three pre-test worker startup failures, a UI query
+failure caused by duplicate status text, and two full/focused repository attempts
+with fixture timeouts. The UI query now selects the current task's status. Identical
+Git archive bytes took 12,699 ms, then 45 ms on a repeated probe; the fixture tests
+and complete gate then passed with unchanged timeouts and assertions. Dependency
+read warming changed no files or versions. The underlying transient I/O cause is
+not established. No current mechanics blocker remains.
+
+Limitations and non-claims: Scripted cloud repair and loopback requests do not prove
+live model review quality, preserved acceptance, favorable API economics or release.
+Metadata recovery alone does not prove generation. The new development batch has
+not yet been dispatched; fresh confirmation remains separate.
+
+Paid exposure: No new inference. The approved six-task USD 18 allowance and USD 24
+confirmation reserve stay within the existing USD 150 aggregate stage cap.
+
+Next gate: Bind the completed evidence and current runtime to the root mechanics
+gate, freeze the six exposed tasks, and dispatch once with fresh provider metadata.
+
+References: [review policy plan](plans/MVP_ROUTING_REVIEW_V2.md),
+[routing report](MVP_ROUTING_SCREEN_REPORT.md), [readiness](MVP_READINESS.md).
+
+### BL-20260909-0926-reviewed-development-dispatch -- 2026-09-09 -- Freeze six exposed tasks for one bounded development batch
+
+Status: `Approved`
+
+Scope or hypothesis: Determine whether mandatory cloud review repairs observed
+local defects while preserving useful API savings on the six exposed tasks.
+
+Decisions: The existing execution authority covers one six-task development batch,
+with USD 3 per episode and USD 18 total, within the original USD 150 stage ledger.
+Root reviewed passing mechanics and bound 62 evidence files directly, including
+runtime, UI, tests, build artifacts, driver and trusted operator. All six original
+attempted tasks are included; failures are not selected out. Fresh confirmation
+and independent task acceptance remain separate gates.
+
+Changes: Created an exclusive root mechanics gate and frozen development plan;
+all earlier preparation, failure, unrun-assignment and operator claims remain.
+The batch must revalidate configuration, provider metadata, accounting and all
+bound inputs before each episode. No resume or automatic retry is authorized.
+
+Evidence: Gate SHA-256 is
+7f53a2b27c86a1cfa647b038411c2d1a173dcd9cd83873cc6c422b02c3f4f143.
+Plan SHA-256 is
+0d192fb0e8a54f83cdba00f3e6b1b01ce5880af893ba5f22699dfc8950e17905.
+Frozen record SHA-256 is
+e77d395b1dbf5f869da402f8eeb9b07d2dd70efc65273d18d92917faf650ab6a.
+Trusted-session preparation and freeze each completed with zero model requests.
+
+Failures or blockers: None in current runtime mechanics. The offline acceptance
+adapter is undergoing separate independent review; its completion is required
+before interpreting results, not evidence of successful model execution.
+
+Limitations and non-claims: Freeze and approval do not prove dispatch, completed
+episodes, model review competence, independent quality acceptance or savings.
+These tasks are exposed development examples and cannot substitute for fresh
+paired confirmation. The original interrupted screen remains failed.
+
+Paid exposure: Authorizes at most USD 18 new API exposure; the USD 24 confirmation
+reserve, prior known fees and all unresolved reservations remain in the same stage.
+
+Next gate: Dispatch once through the trusted session after fresh readiness;
+review resulting full patches independently and join exact quality and fees.
+
+References: [review policy plan](plans/MVP_ROUTING_REVIEW_V2.md),
+[routing report](MVP_ROUTING_SCREEN_REPORT.md).
+
+### BL-20260909-0938-development-analysis-contract -- 2026-09-09 -- Verify offline development acceptance and full-fee accounting
+
+Status: `Verified`
+
+Scope or hypothesis: Join all six exposed development outcomes with independent
+patch review and original same-task cloud controls, without leaking evaluator data.
+
+Decisions: Reuse the original neutral package, two-review/adjudication contract,
+request ledger and source/check validators. A passing result only qualifies a
+candidate for fresh confirmation. Zero local requests may be legitimate after an
+early time-reserve handoff; report that contribution separately from acceptance.
+
+Changes: Added a private offline adapter with complete six-assignment denominators,
+planner/local/cloud fee and request breakdowns, failed-attempt inclusion and strict
+unknown handling. Bind the cloud plan, local handoff bytes/hash, final checkpoint,
+phase order and request usage. Require verified driver closure and exact run inventory.
+
+Evidence: Thirteen synthetic tests pass; the twelve actual historical C/P controls
+and review chains revalidate to C six accepted and P four accepted. Independent
+source review found no blocker after correcting missing mechanics, handoff-artifact
+and checkpoint-projection bindings. Legal empty/zero-local handoffs have positive
+coverage. Helper SHA-256 is
+ee19c218343f338cc01d199fedd442a9bd52564d3d95dbd5f1c5f3bfaafa6466.
+
+Failures or blockers: Earlier adapter versions omitted some independent mechanics
+bindings. Their receipts remain preserved; the final version adds negative tests.
+Real result packaging and joining must wait for verified batch closure.
+
+Limitations and non-claims: The synthetic tests use mocked control bindings; actual
+historical controls are separately verified. Process closure remains root-owned.
+No live new-policy acceptance, fresh confirmation or release is inferred.
+
+Paid exposure: The adapter made no provider or evaluator calls. The separately
+approved development batch is running under its existing budget; its fees will be
+joined after closure rather than attributed to this offline verification.
+
+Next gate: Verify terminal batch state, package every available artifact, obtain
+two independent blind reviews per candidate and retain all failures and fees.
+
+References: [review policy plan](plans/MVP_ROUTING_REVIEW_V2.md),
+[routing report](MVP_ROUTING_SCREEN_REPORT.md).
+
+### BL-20260909-0947-reviewed-policy-cost-futility -- 2026-09-09 -- Stop the review policy when its savings target becomes impossible
+
+Status: `Failed`
+
+Scope or hypothesis: Required cloud review should preserve acceptable quality while
+reducing API cost per acceptable patch by at least 20 percent against prepared cloud.
+
+Decisions: Stop the bounded development batch for mathematical cost futility.
+The first three completed tasks already cost USD 1.199436, exceeding 80 percent of
+the complete six-task cloud control's USD 1.418164. Even six accepted patches and
+zero further fees could not pass. Do not spend the untouched remainder merely to
+complete a disqualified candidate; preserve all six assignment dispositions.
+
+Changes: Sent SIGINT to the active batch child through its existing cancellation
+path. Verified the child exited with code 1 and no SOAR task containers remain.
+Recorded a separate immutable root closure and futility proof; retained original
+driver outputs. Created neutral packages for all four available artifacts and
+assigned two independent reviewers with no inherited conversation/outcome context.
+
+Evidence: Three runs completed with passing visible and independent checks. Their
+API fees were USD 0.787688, 0.154068 and 0.257680. The fourth run is cancelled with
+cleanup confirmed; the last two assignments are unrun. All four linked runs are
+terminal and exactly match the database inventory added since the freeze. No
+reserved or started request remains; unknown exposure is retained separately.
+
+Failures or blockers: The cancelled fourth episode had an in-flight cloud request.
+Its USD 0.301480 reservation remains unknown; no automatic retry or inferred refund
+is allowed. Known development fees total USD 1.288388, including the cancelled
+episode. This cancellation uncertainty is separate from the cost rejection, which
+was conclusive using only the first three completed fees before cancellation.
+
+Limitations and non-claims: Passing checks do not establish full-patch acceptance;
+blind reviews are pending. The interrupted batch cannot advance. These are exposed
+development tasks, not fresh confirmation. Local planning, compact review or a
+different local reasoning profile remain hypotheses, not proven improvements.
+
+Paid exposure: Known combined stage fees are USD 3.980288, plus the new unknown
+USD 0.301480 reservation and the original unknown zero-reservation local request.
+All remain below the original USD 150 cap. No new batch or confirmation is dispatched.
+
+Next gate: Finish independent review and exact accounting; identify why cloud
+review repeated substantial coding work. Freeze a narrower improvement only after
+its concrete evidence and bounded plan are reviewed, retaining this failed result.
+
+References: [review policy plan](plans/MVP_ROUTING_REVIEW_V2.md),
+[routing report](MVP_ROUTING_SCREEN_REPORT.md).
+
+### BL-20260909-1000-reviewed-policy-final-acceptance -- 2026-09-09 -- Close independent review while retaining the failed experiment
+
+Status: `Failed`
+
+Scope or hypothesis: Determine full-patch acceptance for every available artifact
+from the stopped mandatory-cloud-review development batch and retain exact fees.
+
+Decisions: The candidate cannot advance. Two independent reviewers agree on all
+four available artifacts; one of the three completed runs is accepted and two
+contain material regressions. The cancelled artifact is source-review acceptable,
+but is not an accepted completed run. Retain all six assignments and the conclusive
+cost rejection; the incomplete batch is not a completed success-rate estimate.
+
+Changes: Joined the eight candidate-bound reviews with the existing source, checks,
+events and request ledger. Updated readiness and the routing report. Archived 70
+frozen evidence/input files with matching hashes before any further runtime edits.
+Earlier build-log entries stating that review was pending remain historical records.
+
+Evidence: Final acceptance is one of six assigned: three completed, one cancelled,
+two unrun. The two completed rejected patches introduce unsupported non-strict
+comparisons for otherwise valid custom keys and an uncaught exception on a long
+valid numeric Retry-After header. Both passed their available automated checks.
+The final report SHA-256 is
+e205ebbeab83dd6051d4734b73c89e02d2776470e1359796ce7b3db0670296f8.
+The offline join exits successfully with decision `incomplete_evidence`; a separate
+immutable receipt proves that the required savings were already impossible.
+
+Failures or blockers: Mandatory review neither preserved observed cloud quality
+nor met the cost threshold. Cloud review repeated inspection, tests and repairs
+over multiple requests. A single review phase did not bound the cloud call count.
+
+Limitations and non-claims: Exposed development with historical same-task controls
+does not establish fresh paired performance. Reviewer agreement is not proof of
+exhaustive correctness. No model has attempted the four prepared fresh confirmation
+tasks. No default promotion, device-payback claim, owner acceptance or release.
+
+Paid exposure: No new inference for this closure. Known development fees remain
+USD 1.288388, with USD 0.301480 unknown reservation. Known stage fees remain
+USD 3.980288 plus that reservation and the original unknown local request.
+
+Next gate: Prepare a small diagnostic of one compact cloud critique per original
+cloud-plan/local candidate and at most one bounded local repair attempt. Include
+all six candidates, preserve independent acceptance and count every fee. This is
+proposed only; concrete mechanics and bounds must precede any new paid dispatch.
+
+References: [routing report](MVP_ROUTING_SCREEN_REPORT.md),
+[readiness](MVP_READINESS.md), [review policy plan](plans/MVP_ROUTING_REVIEW_V2.md).
+
+### BL-20260909-1015-compact-critic-implementation -- 2026-09-09 -- Prepare a bounded critique diagnostic after the failed review loop
+
+Status: `Approved`
+
+Scope or hypothesis: Test whether one compact cloud critique and a bounded local
+repair can preserve useful local work without repeating a full cloud coding session.
+
+Decisions: Authorize offline implementation under the continuing owner goal. Use
+all six original cloud-plan/local artifacts with deterministic public context.
+Freeze the critique protocol before outcomes. No new paid dispatch is yet approved;
+it requires reviewed mechanics, exact inputs, preserved accounting and a root gate.
+
+Changes: Added the compact-critic diagnostic plan. Parallel work prepares generic
+candidate bundles, the pure response contract and a small private one-response
+transport using existing admission. Accounting-only carrier runs cannot claim a
+completed patch; diagnostic outcomes are separate candidate-bound receipts.
+
+Evidence: The stopped prior policy's final report and 70-file archive remain.
+The trusted credential launcher was polled and remains live and idle. Its existing
+command is not restarted; any new operator must be separately bound after review.
+
+Failures or blockers: The previous mandatory review cost and quality failure is
+retained. The new critic might miss defects or lack context; that is the hypothesis
+being tested, not an asserted improvement. Local repair mechanics remain to be built.
+
+Limitations and non-claims: Reusing exposed candidate generation can qualify a
+follow-up but cannot prove full-session savings, latency or fresh task quality.
+A compact model verdict never replaces independent task acceptance.
+
+Paid exposure: No new inference. Proposed dispatch bounds are six cloud calls,
+USD 0.50 per request and USD 3 total, within the remaining approved development
+allowance and original USD 150 stage cap. Keep all prior unknowns and the USD 24
+fresh-confirmation reserve. Stop between requests for cost futility or new unknowns.
+
+Next gate: Review and test bundle completeness, response validation, one-use
+admission and accounting, then freeze exact six inputs and record dispatch approval.
+
+References: [compact critique plan](plans/MVP_ROUTING_CRITIC_V1.md),
+[routing report](MVP_ROUTING_SCREEN_REPORT.md).
+
+### BL-20260909-1016-critic-context-sizing -- 2026-09-09 -- Revise the input ceiling from complete-source measurements before inference
+
+Status: `Approved`
+
+Scope or hypothesis: Preserve the difficult cache-library candidate while fitting
+complete selected review context into a one-request diagnostic.
+
+Decisions: Supersede the prior proposed 64 KiB bundle and USD 0.50 individual bounds
+before any inference. Use a uniform 96 KiB bundle ceiling, 128,000-byte canonical
+request ceiling and USD 0.70 individual carrier limit. Keep the total USD 3 cap;
+require the sum of all six exact request reservations to fit it before approval.
+The generic optional-context target remains 64 KiB rather than filling larger
+packets merely because the ceiling grew. This does not select tasks by outcome.
+
+Changes: Updated the proposed plan and instructed the parallel bundle, contract
+and admission work to use the same revised limits. Preserve all 64 KiB preparations.
+No root dispatch gate or paid batch has been created.
+
+Evidence: Offline preparation at 64 KiB included complete required context for five
+of six tasks; the cache-library artifact could not fit its exact diff and required
+source. A uniform 96 KiB preparation contains all six, with the largest current
+packet 95,365 bytes. Final source binding, canonical request sizing and tests remain
+pending; these preliminary sizes are not dispatch authorization.
+
+Failures or blockers: The first context bound excluded required source for one
+candidate. The packet now retains complete source instead of silently truncating
+or dropping that candidate. Critic competence remains entirely untested.
+
+Limitations and non-claims: This is a pre-inference input preparation correction,
+not a model-quality result or a fresh-task evaluation. The final six request body
+reservations must still pass the unchanged aggregate cap.
+
+Paid exposure: No requests. Maximum possible individual reservation under the
+revised body/output envelope is USD 0.675840; aggregate diagnostic exposure remains
+USD 3, with prior unknowns and the original stage cap unchanged.
+
+Next gate: Finish source/response/admission tests, review frozen six-input bytes
+and summed request reservations, then record separate bounded dispatch approval.
+
+References: [compact critique plan](plans/MVP_ROUTING_CRITIC_V1.md),
+[routing report](MVP_ROUTING_SCREEN_REPORT.md).
+
+### BL-20260909-1035-compact-critic-dispatch -- 2026-09-09 -- Verify and approve one six-request development diagnostic
+
+Status: `Approved`
+
+Scope or hypothesis: Determine whether one compact cloud critique per original
+candidate can identify material defects without another full cloud coding loop.
+
+Decisions: Approve Stage A once under the existing owner authority and development
+allowance. All six original P candidates remain in original order. The sum of exact
+request reservations is USD 2.310040, within the unchanged USD 3 diagnostic cap.
+This authorizes critiques only; no local repairs or fresh confirmation are launched.
+
+Changes: Implemented the pure critique contract, deterministic source packets and
+one-request private admitted transport. Bound 60 reviewed preparation files plus
+six packets and the original freeze; root approval also binds verification and
+independent review receipts. Repointed the trusted session wrapper, preserving its
+prior bytes in the failed experiment archive and the preparation-failure archive.
+
+Evidence: Seventeen actual SQLite/admission tests, fourteen producer/source-binding
+tests and eleven contract tests pass. Three real subprocess/loopback cases verify
+one HTTP request on success, no HTTP after denied admission, and an unknown outcome
+on invalid usage. Full application typecheck and private driver/operator typechecks
+pass. Independent final source review reports no material blocker. The shared HTTP
+worker bytes match the earlier 89-test verified runtime. Trusted preparation passed
+with zero model requests. Plan SHA-256 is
+5e68e175166f41a96d2ca2374a5f970ebd049764423e995d6eb66e6cc51db5a5.
+Root gate SHA-256 is
+bda2e723c795df96cf961145ed96304a02549aa55b270c8d28c88e440022f3d5.
+
+Failures or blockers: The first read-only preparation stopped because the new cloud
+identity projection omitted explicit allowInsecureHttp false from the original
+snapshot. It made no model requests or plan/freeze/dispatch claim. Preserve its
+consumed operator claim, code and inputs; the corrected identity is covered by a
+regression against the exact original frozen object. Earlier 64 KiB preparation
+insufficiency and canonical temporary-directory test correction remain recorded.
+
+Limitations and non-claims: Mechanics and complete selected static context do not
+prove critique quality, independent patch acceptance or savings. Carrier runs are
+accounting-only and cannot complete a coding task. Their fixed failed terminal
+status is separate from the critique response status and patch-quality denominator.
+Stage B local repair still requires implemented and reviewed mechanics.
+
+Paid exposure: At most six requests, USD 0.70 individual carrier limits and USD 3
+new aggregate exposure. Current campaign exposure including held comparison blocks
+and all unknowns is USD 13.098912, below the original USD 150 cap with this allowance.
+Known fees and unresolved reservations are not reclassified. Preserve the USD 24
+fresh-confirmation reserve; stop between requests for new unknowns or cost futility.
+
+Next gate: Freeze and dispatch exactly once with fresh cloud metadata before each
+request. Preserve all responses and fees, then assess false accepts offline against
+prior independent review before authorizing any local repair execution.
+
+References: [compact critique plan](plans/MVP_ROUTING_CRITIC_V1.md),
+[routing report](MVP_ROUTING_SCREEN_REPORT.md).
+
+### BL-20260909-1037-critic-root-gate-format -- 2026-09-09 -- Correct the root approval timestamp before freeze
+
+Status: `Approved`
+
+Scope or hypothesis: Serialize the already approved six-request gate in its strict
+UTC timestamp format; preserve the failed freeze preflight without dispatch.
+
+Decisions: Keep the exact plan, source, request bodies, six assignments and USD 3
+cap. Correct only root approval approvedAt from an equivalent UTC offset to the
+required Z suffix. This is a root-produced format correction, not provider failure.
+
+Changes: Archived the rejected gate and consumed freeze operator request. The
+superseding root gate SHA-256 is
+3e5a0859fb08be99db5acf180cd21dca07b2dd9e6a04bc627ce3345ab8589dfd.
+The prior gate and build-log reference remain as historical evidence.
+
+Evidence: All bound file hashes match. The first freeze produced no frozen record
+or dispatch claim; a read-only diagnosis identified the strict approvedAt schema.
+No inference occurred. Source and mechanics test results remain unchanged.
+
+Failures or blockers: Root initially serialized a valid UTC offset that the strict
+Z-only gate schema rejects. No approval check was weakened or bypassed.
+
+Limitations and non-claims: Correct serialization establishes no model quality,
+savings or executed diagnostic. The one-use freeze and dispatch remain subsequent.
+
+Paid exposure: Zero new requests. The previously approved USD 3 cap, six-request
+ceiling, all prior unknowns and original stage authority remain unchanged.
+
+Next gate: Freeze the unchanged prepared plan with the corrected root gate, then
+dispatch once with fresh metadata.
+
+References: [compact critique plan](plans/MVP_ROUTING_CRITIC_V1.md),
+[build log](BUILD_LOG.md).
+
+### BL-20260909-1045-compact-critic-stage-a -- 2026-09-09 -- Verify six live critique responses and retain the repair boundary
+
+Status: `Verified`
+
+Scope or hypothesis: Test one cloud critique per original local candidate, without
+another cloud command loop, and determine whether bounded repair is worth testing.
+
+Decisions: Stage A qualifies only for the proposed bounded local-repair experiment.
+All six critiques are structurally valid, with four acceptable and two repair_required
+verdicts matching prior binary patch acceptance. Do not equate this agreement with
+exhaustive defect detection or a new accepted patch. No fresh confirmation is run.
+
+Changes: Executed the frozen diagnostic once through the trusted session; independently
+joined exact response, input, source-run, patch, request and fee identities after all
+six responses were fixed. Archived frozen files, input packets, closures and results
+before any subsequent runtime change. All original failed experiments remain intact.
+
+Evidence: Six requests settled successfully for USD 0.491912, with no new unknowns.
+All child transports exited zero. The six accounting carriers are terminal failed
+with the diagnostic-only reason, as designed; they are not failed coding attempts or
+accepted patches in the quality denominator. Exact old database rows/events/requests
+remain unchanged. The offline analysis exits zero; its SHA-256 is
+b6f5ed70daefd6dd8147b1d207d7b8defe52e1cda6f32e1ea3a89d3e806d6619.
+The actual freeze SHA-256 is
+fddae51f8fdf8dfbfdf94fc133c0242d62039baf4515edd84ce4fd96feb8fe50.
+
+Failures or blockers: Critic findings do not explicitly identify the known cache
+keyword-forwarding defect, although that candidate is flagged for other repairs.
+The Retry-After critique does identify fractional-delay truncation and a long-number
+conversion risk. The local repair will receive only public task and critic guidance;
+independent reviewer findings cannot be inserted to make the diagnostic pass.
+
+Limitations and non-claims: Original generation plus critique fees total USD 0.964592,
+conditionally 31.98 percent below cloud only if all six final patches become acceptable
+without further paid calls. No repairs, new independently accepted patches, full-session
+latency, fresh quality result, default-policy promotion or device payback is established.
+
+Paid exposure: Known stage fees are now USD 4.472200. The prior USD 0.301480 unknown
+reservation and original zero-reservation unknown remain unchanged. All six new
+reservations settled; no further paid request or automatic retry is dispatched.
+
+Next gate: Implement and verify at most eight native local requests with two finishing
+calls and exact seeded/final source bindings, then repair the two flagged candidates
+once and independently evaluate all six final candidates.
+
+References: [compact critique plan](plans/MVP_ROUTING_CRITIC_V1.md),
+[routing report](MVP_ROUTING_SCREEN_REPORT.md), [readiness](MVP_READINESS.md).
+
+### BL-20260909-1050-local-repair-implementation -- 2026-09-09 -- Implement the bounded repair mechanics without expanding cloud work
+
+Status: `Approved`
+
+Scope or hypothesis: Let the local model repair the two critic-flagged original
+patches once, retaining the four accepted-by-critic candidates unchanged.
+
+Decisions: Authorize offline implementation only until the new mechanics and exact
+seeds are verified. Reuse the existing controller/worker. Narrow a programmatic
+local-only limit to eight requests with two finishing calls; keep ordinary policy
+defaults and the native wire protocol unchanged. No additional cloud request.
+
+Changes: Added the local-repair plan. Parallel work implements the shared bounded
+call-limit seam and deterministic seed preparation. The repair guidance uses only
+the public task and frozen critic findings, never independent review or evaluator gold.
+The 93-file Stage A archive was verified before these runtime changes.
+
+Evidence: Stage A's exact six response/fee/source bindings are verified and the
+known generation-plus-critique cost is USD 0.964592. The two required repairs have
+not run. Seed and original public revisions will be recorded separately; composed
+full patches must match the source checked by the runtime before evaluation.
+
+Failures or blockers: A model can miss the previously observed cache defect even
+when it fixes the critic's other findings. Eight calls may be insufficient. Neither
+possibility is grounds to insert hidden guidance or quietly extend the attempt.
+
+Limitations and non-claims: Seed preparation and bounded runtime changes are not
+accepted repair or fresh routing evidence. Local inference and final independent
+checks/reviews remain behind the verified execution gate.
+
+Paid exposure: No new inference in this implementation step. Proposed repair
+execution has at most sixteen local requests with owner-attested zero API token
+fees, no cloud provider configuration, and the original stage ledger/unknowns intact.
+
+Next gate: Verify matching eight-call admission/router/finishing behavior, exact
+seed and final-source composition, then freeze and run the two repairs once.
+
+References: [local repair plan](plans/MVP_ROUTING_CRITIC_REPAIR_V1.md),
+[compact critique plan](plans/MVP_ROUTING_CRITIC_V1.md).
+
+### BL-20260909-1110-local-repair-offline -- 2026-09-09 -- Implement bounded repair admission and verify deterministic seeds
+
+Status: `Implemented`
+
+Scope or hypothesis: Prepare the two critic-selected local repairs without treating
+offline mechanics as evidence that either repair works.
+
+Decisions: Keep eight local calls including two finishing calls, no cloud provider
+and unchanged ordinary policy defaults. The runtime execution gate remains pending.
+Retain four original candidates and prepare exactly the two flagged candidates.
+
+Changes: Added matching programmatic limits to parent admission and the Python
+router, execution and prompts. Parent checks independently deny edits in the
+finishing reserve, checks on the last call and a ninth request. Prepared deterministic
+Git seeds and a full-patch composition helper that requires the final runtime source
+hash. Objectives contain public tasks and exact critic findings only.
+
+Evidence: The current ten implementation/test files and four saved logs match the
+implementation receipt. Fifteen TypeScript suites pass 235 tests; both application
+typechecks pass. Python coverage is 72 passing tests with 26 Docker tests skipped:
+the first run passed 71 with one sandbox loopback-bind error, and an isolated rerun
+of that same test passed with local-bind permission. Preserve both results. Twelve
+seed tests pass, including tampering, source modes and composition roundtrips. Root
+reverified all six seed/retained dispositions with zero model requests. Receipt
+SHA-256 is 8b33f7813e689e3e696d6d877a3826f5404ee0afe736b56da02a8eb9a37ecf71;
+seed manifest SHA-256 is
+a6e9f60b6bf3bfbce55fec5165d49ed481b6c15cfd6e36198466d4ab90245634.
+
+Failures or blockers: The initial loopback restriction is resolved for its isolated
+fixture. The updated runtime has not yet received its Docker verification. The
+repair driver, frozen dispatch gate and live repair execution are still unfinished.
+
+Limitations and non-claims: Earlier full repository, Docker and Electron results
+belong to the earlier runtime revision. Current offline tests do not establish
+repair acceptance, end-to-end routing savings, latency, hardware payback or release.
+No new repair artifact has been produced or independently accepted.
+
+Paid exposure: Zero new model requests. Prior fees and unknown exposure remain
+unchanged. No cloud dispatch or repair execution is authorized by this entry.
+
+Next gate: Finish and review the driver, verify updated Docker execution, then
+freeze the exact two repairs before local inference. Independently check and blind
+review all six final artifacts before any fresh paired comparison.
+
+References: [local repair plan](plans/MVP_ROUTING_CRITIC_REPAIR_V1.md),
+[routing report](MVP_ROUTING_SCREEN_REPORT.md), [readiness](MVP_READINESS.md).
+
+### BL-20260909-1130-local-repair-dispatch -- 2026-09-09 -- Verify and approve two bounded local repairs
+
+Status: `Approved`
+
+Scope or hypothesis: Test whether the local model can repair the two critic-flagged
+patches within eight calls each, preserving four original candidates for evaluation.
+
+Decisions: Under the continuing owner goal, approve one fixed batch of two local
+repairs with sixteen requests maximum, two finishing calls per task, 600 seconds
+per episode, zero local token fees and no cloud configuration. Stop on an unknown
+request or unconfirmed cleanup. No automatic retry or extension is approved.
+
+Changes: Completed the private driver through the existing controller and ledger,
+exact original provider/image/profile binding, immutable claims, all-six dispositions
+on interruption and checked-source/full-patch composition. Earlier critic carriers
+are independently rebound to their archived results, actual requests, charges and
+event replay before becoming part of the preserved repair baseline.
+
+Evidence: All 98 existing Python tests passed with all 26 Docker tests enabled.
+A further eight-call Docker case passed with six edits, check seven, submission
+eight, exact final source/patch and cleanup; combined coverage is 99 passing tests.
+Shared runtime bytes remained unchanged. Eight private driver tests and private
+typechecks pass, including actual copied-ledger fee/unknown/replay tampering.
+Independent source review reports no remaining material blocker. Read-only
+preparation verified all six dispositions and made zero model requests. Plan
+SHA-256 is cc0333b80c8b73892364e91386f83941d242fef8a9867eebbd4550f9d335d871;
+root gate SHA-256 is
+07b90152d6b42e3c64b235f23bd83885feadab844ae407bd8f5aea1a8564ec31.
+
+Failures or blockers: Review caught a wrong terminal-error field and composition
+receipt filename before inference; both are corrected. A copied-ledger negative
+test initially hit the existing append-only event trigger. The passing version
+asserts that protection and separately mutates a copied snapshot to test replay
+rejection. Failed test logs remain intact; no production guard was weakened.
+
+Limitations and non-claims: Docker fixtures prove mechanics, not repair quality.
+No real repair has yet run or been independently accepted. Passing development
+repairs would only qualify the full policy for a later untouched paired comparison.
+Earlier failed routing studies, unknown exposure and hardware cost limits remain.
+
+Paid exposure: No new requests during preparation and verification. Authorized
+new local API fees are zero, with no cloud provider/key loaded by this operator.
+Original stage cap and all prior ledger rows remain intact.
+
+Next gate: Freeze and run the two repairs once, then independently evaluate and
+blind-review all six final artifacts. Do not infer acceptance from visible checks.
+
+References: [local repair plan](plans/MVP_ROUTING_CRITIC_REPAIR_V1.md),
+[routing report](MVP_ROUTING_SCREEN_REPORT.md).
+
+### BL-20260909-1200-local-repair-result -- 2026-09-09 -- Retain the failed repair gate and its concrete request-interface defect
+
+Status: `Verified`
+
+Scope or hypothesis: Complete the bounded local repair and independently check its
+eligible final patches without converting an unfinished artifact into a success.
+
+Decisions: Reject this policy version's six-of-six advancement gate. Cache failed
+after seven calls with a disallowed action and no visible checks or submission.
+Retry-After submitted after six calls. Preserve both attempts; no retry occurred.
+Authorize the separately described tool-filtering implementation and verification
+offline only, based on the observed router/request mismatch.
+
+Changes: Ran the frozen two-task batch, composed the submitted patch against the
+original baseline with exact successful runtime source binding, then independently
+evaluated five available candidates and one explicit unscorable failure. Archived
+152 generation/runtime/evidence files before any following runtime changes.
+
+Evidence: Thirteen local requests settled with zero new API fees and zero unknowns;
+both task containers were removed. Five submitted candidates pass the original
+independent Docker checks. Cache remains not scorable. Full-patch blind review is
+still pending, so no new independent acceptance count is claimed. Generation freeze
+SHA-256 is c55359d4339ab67d60ae6c9cafa4ff29819f92243af0bc7120c948e6940ae48d;
+independent evaluation freeze SHA-256 is
+eeba0c6c45e3df8be5eeea4c32f29746584a696012336332357e9c0d6f077e73.
+
+Failures or blockers: Cache response seven parsed successfully but failed action
+authorization. All four tools were advertised despite narrower permitted actions;
+only textual guidance described the budget. Stored evidence cannot distinguish
+which forbidden action was selected. Separately, preparation/archive processes
+stalled inside OS file reads; targeted read/hash verification outside the sandbox
+allowed the existing handles to finish without restarting either operation. No
+model/evaluation attempt was retried because of this filesystem wait.
+
+Limitations and non-claims: Independent test passes do not replace blind source
+review. Five potential successes cannot meet the six-of-six quality gate. The
+USD 0.964592 generation-plus-critique fees remain conditional economics, not a
+verified saving. No fresh confirmation, default policy promotion or release.
+
+Paid exposure: Zero additional local API fees; original known stage fees remain
+USD 4.472200 with the prior USD 0.301480 unknown reservation and zero-fee unknown
+preserved. No cloud request occurred in repair or evaluation.
+
+Next gate: Complete blind review and archive the final analysis. Implement exact
+router-derived tool subsets and parent validation, with mechanics tests. Any new
+live policy study requires separate frozen authority; the failed batch stays closed.
+
+References: [tool filtering plan](plans/MVP_ROUTING_TOOL_MASK_V1.md),
+[local repair plan](plans/MVP_ROUTING_CRITIC_REPAIR_V1.md).
+
+### BL-20260909-1230-repair-acceptance-control-correction -- 2026-09-09 -- Close blind review and correct the earlier cloud acceptance assessment
+
+Status: `Verified`
+
+Scope or hypothesis: Join all six final dispositions, independent checks and blind
+source reviews, then apply newly found counterexamples equally to the original
+cloud controls instead of holding the candidate policy to a higher standard.
+
+Decisions: Final repair-policy acceptance is four of six assigned; reject advancement.
+Preserve the unsubmitted cache artifact as a failure. Two previously accepted cloud
+controls also violate the public requirements under identical probes; supersede the
+earlier six-of-six cloud acceptance claim without rewriting its historical reports.
+Do not infer quality equivalence from equal coarse counts: additional candidate
+keyword and invalid-year failures remain beyond the defects shared with cloud.
+
+Changes: Prepared six neutral full-patch packages with 478 indexed public files.
+Two fresh independent source reviewers agreed on five verdicts. A separate neutral
+adjudication sustained both Retry-After findings and rejected that candidate. Added
+same-program Docker probes for the two exact original cloud controls and completed
+the immutable final evidence/ledger join. Published the repair result and correction.
+
+Evidence: Docker reproduced candidate oversized-year OverflowError, unknown-timezone
+acceptance, three cache keyword collisions and metadata shadowing; cleanup succeeded.
+Original cloud handled the oversized year and three keyword names but shared the
+unknown-timezone and metadata defects. The join checks all 152 archived generation
+files, 478 package files, original baseline rows/events/requests, thirteen settled
+repair requests, final source/check/patch bindings, review and adjudication identities,
+and known/unknown fees. Final analysis SHA-256 is
+33ab82f4b2a68b0812c5252642d20e5a2df2f3645fad9f7300210ad59158148e.
+
+Failures or blockers: Independent tests missed defects in both candidate and control.
+The previously accepted control is not an oracle. One source-review disagreement
+required adjudication; the supported-date-arithmetic restriction does not excuse
+invalid input failing during parsing or an ordinary-date unknown timezone token.
+
+Limitations and non-claims: This is exposed development and a targeted control audit,
+not a new full-control cohort, untouched confirmation, owner acceptance or release.
+Four accepted patches and additional regressions do not clear the frozen gate.
+Full-session latency and all-in device economics remain unproven.
+
+Paid exposure: No additional model requests during review or probes. Policy fees
+remain USD 0.964592; known stage fees remain USD 4.472200 with prior unknowns intact.
+
+Next gate: Finish the separately approved tool-filtering implementation and actual
+main/runtime verification. Semantic-quality improvement needs its own evidence and
+separate frozen live authority; do not rerun or relabel this closed failed batch.
+
+References: [repair result](MVP_ROUTING_REPAIR_REPORT.md),
+[tool-filtering plan](plans/MVP_ROUTING_TOOL_MASK_V1.md).
+
+### BL-20260909-1300-native-tool-filtering -- 2026-09-09 -- Align advertised tools with the current router checkpoint
+
+Status: `Verified`
+
+Scope or hypothesis: Remove the observed mismatch between native request tools
+and permitted actions without relaxing execution, settlement or finishing guards.
+Verification is limited to offline runtime mechanics and independent source review.
+
+Decisions: Advertise the exact permitted subset in canonical catalog order. Main
+independently validates the request-bound checkpoint and tool definitions. Preserve
+full-catalog historical validation and record a small allowlisted denial receipt
+after settlement when a provider nevertheless selects a forbidden action.
+
+Changes: Updated the Python native builder and execution path, main admission and
+denial handling, native fixtures, and regression/integration tests. Standalone
+calibration retains its default complete catalog. Historical generation evidence
+and the closed failed repair batch remain unchanged. Corrected stale readiness and
+quickstart summaries to include the final repair result and cloud-control audit.
+
+Evidence: One hundred Python tests passed, including twenty-seven Docker cases.
+Fourteen TypeScript suites passed 213 assertions. All seven main/runtime integration
+cases passed across two focused runs: six native and one cloud loopback fixture.
+Native checks cover actual execution through main and Docker, eight-call finishing,
+forbidden-response settlement/stop and cleanup using the real container label.
+Independent review found no material runtime blocker and confirmed unchanged
+settlement, call/time and cancellation guards against the archived runtime.
+Root independently verified all ten current source/test hashes and six log hashes.
+Implementation receipt SHA-256 is
+8be2f7b2a6bb766ca6e86932bea99c1072d610b9e83c96d56bde212eef289e42.
+
+Failures or blockers: The broader unit invocation had a UI worker startup error;
+31 UI assertions did not run, and a thread-worker attempt also timed out. A generic
+cloud loopback fixture initially timed out; its isolated rerun passed with the
+original timeout and unchanged runtime. Review found a wrong cleanup label in the
+test, which was corrected before the six native integration cases were rerun.
+Earlier failed logs are retained. Earlier typechecks passed; a final saved invocation
+remains pending behind a dependency import probe at this entry's cutoff.
+
+Limitations and non-claims: These scoped passes are not a current clean full-suite,
+Electron, live-provider, quality, cost-saving or release proof. Tool filtering cannot
+correct the semantic defects or promote the failed four-of-six repair result.
+No new model attempt or live study is authorized by this mechanics milestone.
+
+Paid exposure: Zero new real model requests and zero new API fees. The previous
+known fees and unknown reservations remain unchanged.
+
+Next gate: Freeze and bound a distinct local-quality experiment before new inference;
+verify semantic improvement before spending the untouched confirmation tasks. Keep
+all failed-policy costs and control defects in the comparison.
+
+References: [tool-filtering plan](plans/MVP_ROUTING_TOOL_MASK_V1.md),
+[repair result](MVP_ROUTING_REPAIR_REPORT.md), [readiness](MVP_READINESS.md).
+
+### BL-20260909-1330-reasoning-calibration-preparation -- 2026-09-09 -- Close tool-filtering typechecks and prepare a bounded reasoning comparison
+
+Status: `Approved`
+
+Scope or hypothesis: Test whether medium reasoning improves native local repair
+within the existing episode envelope after correcting advertised tool availability.
+Approval covers offline implementation and preparation only at this entry.
+
+Decisions: Add a default-disabled programmatic profile seam, allowing medium only
+for local-only runs. Compare both settings on the same two original exposed repair
+seeds in counterbalanced order. Preserve action/result history, tool masks and
+all output/input/call/time limits. Keep the four untouched confirmation tasks unused
+until a policy clears development quality checks. No UI or default policy change.
+
+Changes: Recorded the reasoning-calibration plan and delegated independent runtime
+and driver work. Corrected the current readiness paragraph after the final saved
+tool-filtering typecheck completed successfully. Earlier pending and failed logs
+remain intact; no historical result was rewritten.
+
+Evidence: Tool-filtering node and web typechecks completed with exit zero. The
+superseding private receipt verifies the unchanged ten source/test hashes and
+earlier logs, then adds final typecheck and terminated dependency-probe state.
+Receipt SHA-256 is
+f17ff56cdb45f863a47894111c9c7cff7f8a34eb6b38e6c4c26671c5db022327.
+Independent design review supports four fresh episodes with identical seeds and
+counterbalanced disabled/medium order. Earlier direct controls used the exact
+8192-token medium profile with reasoning_effort and no chat_template_kwargs.
+
+Failures or blockers: Tool-filtering UI assertions remain unexecuted because of
+worker startup timeouts. The current native request authority hardcodes disabled
+thinking, so no medium inference can run before the narrow change is implemented,
+tested, independently reviewed and frozen. There is no new quality result.
+
+Limitations and non-claims: Exposed two-task calibration is not untouched quality
+confirmation or production routing proof. Medium reasoning under fixed history and
+timeouts is not the model's maximum capability. Test passing does not establish
+semantic acceptance. Previous fees, unknowns and failed policies remain separate.
+
+Paid exposure: Zero new model requests during this preparation. A later live gate
+may authorize at most four episodes, thirty-two local requests and zero new API
+fees; this entry does not authorize that dispatch or any cloud request.
+
+Next gate: Complete exact-profile mechanics, bounded-driver tests and independent
+review; freeze all four assignments and evaluation inputs before recording live
+authority. Stop on unknown outcomes and never automatically retry an assignment.
+
+References: [reasoning plan](plans/MVP_ROUTING_REASONING_V1.md),
+[tool-filtering plan](plans/MVP_ROUTING_TOOL_MASK_V1.md).
+
+### BL-20260909-1400-native-reasoning-mechanics -- 2026-09-09 -- Verify the explicit native medium profile and bounded comparison driver
+
+Status: `Implemented`
+
+Scope or hypothesis: Permit the paired local reasoning experiment through the
+ordinary app runtime, with no default behavior or tool-history change.
+
+Decisions: Medium is an explicit programmatic local-only profile. Main and Python
+independently admit its exact request controls, preserve native action/result
+history and bound total completion tokens including reasoning. Disabled remains
+the default; the static native contract, call limits and timeouts are unchanged.
+
+Changes: Added localCodingThinking to internal configuration and normalized worker
+limits, exact profile validation in both runtimes, and native reasoning-usage
+accounting checks. Added a private four-episode driver, counterbalanced assignment
+identities, isolated ledger/storage, immutable claims and complete stop dispositions.
+The operator now pins the independently reviewed driver SHA instead of its explicit
+pending placeholder. Evaluation attribution is being hardened separately before
+the live freeze.
+
+Evidence: Shared verification passes 109 TypeScript tests, all 108 Python methods
+across the original run and targeted reruns, eight actual main/worker/loopback/Docker
+integration cases and both application typechecks. The Python set includes 27 Docker
+methods. Independent runtime review found no blocker. Shared receipt SHA-256 is
+8fdb296c768b873c5730573f21ff754803e02768d0d56bc7eda7f794e2f8a37b.
+Nine private driver tests and its strict TypeScript check pass. Independent driver
+review found no concrete blocker at SHA-256
+36c84f8887da78916f835caec1dbee679b147b943aa69da3c030f728cda745de.
+
+Failures or blockers: The initial integration launcher resolved the Python venv
+symlink to its base interpreter and failed before worker dispatch; using the exact
+venv executable fixed the launch. Four Python methods initially failed on cleanup
+or absent container events. One exited, non-OOM test container was explicitly
+removed after ownership verification; the four methods then passed unchanged.
+The underlying Docker cause was not retained and remains undetermined. Original
+failure logs remain. Evaluator review found missing fresh-assignment attribution
+in the first adapter; that adapter will not be used for live results.
+
+Limitations and non-claims: These are runtime and harness mechanics. No real model
+has received the medium native profile, and no new candidate, semantic improvement,
+quality-preserving saving or release is established. Earlier full-suite/UI limits
+remain; passing focused checks is not a current release gate.
+
+Paid exposure: Zero new real model requests and zero new API fees.
+
+Next gate: Finish evaluation attribution and owned-child cleanup checks, freeze the
+reviewed inputs and record the separate live four-episode authority before dispatch.
+
+References: [reasoning plan](plans/MVP_ROUTING_REASONING_V1.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260909-1430-native-reasoning-dispatch -- 2026-09-09 -- Authorize the frozen four-episode local comparison
+
+Status: `Approved`
+
+Scope or hypothesis: Under the continuing owner objective, execute the separately
+prepared disabled-versus-medium local repair comparison once, retaining every
+assigned outcome. This gate is distinct from the closed failed repair batch.
+
+Decisions: Authorize exactly cache-disabled, cache-medium, retry-medium and
+retry-disabled in that order. Each receives the unchanged original seed and
+public-plus-original-critic objective, corrected tool masks, eight calls including
+two finishing calls, 8192 total output tokens, 256000 input bytes, 120 seconds per
+request and 600 seconds per episode. No cloud configuration or key is loaded.
+Unknown outcomes stop the batch without retry; all four dispositions remain.
+
+Changes: Closed independent review of the driver and final evaluator wrapper,
+including exact assignment/run/profile/source attribution, bounded probe output,
+owned-child close on cancellation and receipt-based failure handling. Froze the
+evaluation inputs, then prepared a plan binding 76 source/evidence/input files.
+Recorded the private root gate against that exact canonical plan.
+
+Evidence: Fourteen evaluator-attribution tests, five source/probe-attribution tests
+and three owned-child lifecycle tests pass, in addition to the shared runtime and
+nine private-driver checks recorded above. Strict private typechecks pass.
+Independent final review found no remaining material blocker. Plan SHA-256 is
+31a4ecf510047e2c04e540e4a67d968f82a0b95d9d779ab05ba9e15694273aff;
+root gate SHA-256 is
+cc97d3c5419027ede924f9014cc4aacc4e4896bfb0637f37e9fb8308cd2d9cef.
+Read-only preparation verified all four assignments with zero model requests.
+
+Failures or blockers: Sandboxed preparation and a diagnostic call reached the
+60-second seed-verification subprocess timeout. Both were terminal before another
+operation. Direct verification then completed; the unchanged reviewed preparation
+passed outside the filesystem sandbox without changing its timeout. The exact
+cause of the sandboxed wait was not captured; no model failure, retry or request
+occurred. Earlier failed logs remain. Initial evaluator tests were too narrow to
+prove fresh assignment attribution; the hardened wrapper and fourteen-test proof
+supersede that gap. A first wrapper test command found no files because it used the
+repository test include pattern; the explicit private configuration ran the tests.
+
+Limitations and non-claims: No episode has run at this entry. This exposed
+calibration cannot establish general quality parity, full-policy savings or device
+payback. Independent checks and blind review follow generation; evaluation findings
+must not enter model prompts. Four untouched paired confirmation tasks remain gated.
+
+Paid exposure: At most 32 new local model requests and zero new API fees. Historical
+known fees and unknown reservations remain in the original studies; the new study
+has its own ledger and storage and cannot recover or redispatch historical runs.
+
+Next gate: Freeze and execute once, reconcile all requests and cleanup, independently
+evaluate final eligible artifacts and apply the predeclared profile selection rule.
+
+References: [reasoning plan](plans/MVP_ROUTING_REASONING_V1.md),
+[repair result](MVP_ROUTING_REPAIR_REPORT.md).
+
+### BL-20260909-1545-native-reasoning-stop -- 2026-09-09 -- Close the failed reasoning batch and reconcile its accounting
+
+Status: `Verified`
+
+Scope or hypothesis: Verify terminal generation and accounting for the approved
+four-assignment native reasoning comparison. The quality advancement hypothesis
+failed; this status does not certify model quality or evaluator completion.
+
+Decisions: Keep the batch closed without inference retry. Medium reasoning does
+not qualify for promotion. Preserve the unknown request, both unrun assignments,
+recovered unfinished work and the separate evaluation-harness failure. Keep all
+four untouched confirmation tasks unused.
+
+Changes: Wrote a read-only generation audit and the reasoning result report;
+updated current readiness while retaining earlier failed-policy records.
+
+Evidence: The audit verifies frozen file bindings, exact ledger/run inventory,
+event replay, source revisions, terminal cleanup, request admissions and phase
+usage totals. Four assignments contain two attempted runs, thirteen local requests,
+twelve settled receipts and one unknown outcome. Neither attempted run submitted
+a candidate. The disabled run made seven requests and failed a fresh source-bound
+checkpoint test. Medium made five settled requests reporting 4517 reasoning tokens
+within 4859 output tokens before its sixth request timed out. Both runs confirm
+container cleanup. Audit SHA-256 is
+5c1a594cdaf21d69c9d6daf76bfa1b00c2c4aae2b36259312e061867f69deaff.
+
+Failures or blockers: The disabled checkpoint raised an AttributeError in the
+bound cache-discard method. Final checks are not_run but a checkpoint check did
+run and fail. Medium exceeded the unchanged 120-second request deadline and its
+provider outcome remains unknown. Post-generation evaluation separately stopped
+before its first assignment receipt; all four evaluations remain unrun. Its failed
+claim is retained without retry. Evaluation-stop SHA-256 is
+b0cd6a265bd6643a6660de8bba1b636aa7e83ad22855fee2ab0404aab1e9e0af.
+The independent package-builder draft only passed syntax checking and was never
+executed or verified end to end; it is not cleared for future use.
+Read-only independent diagnosis traced the preclaim evaluation failure to objective
+normalization: the frozen raw seed ends in a newline, while the create schema trims
+the admitted objective. The evaluator compared those unequal hashes. Its mocked
+fixture skipped the create-schema boundary. No frozen source was changed or failed
+evaluation retried; a later version needs schema-normalized attribution coverage.
+
+Limitations and non-claims: This is zero submitted candidates out of four assigned,
+not four independently rejected patches. The interrupted comparison cannot rank
+profiles generally or establish the model's maximum coding ability. Container
+cleanup does not prove remote inference stopped. Scoped runtime checks do not
+establish current full-suite, owner acceptance, release, preserved-quality savings
+or device payback. No new semantic review completed during closure.
+
+Paid exposure: Thirteen new local requests, zero new cloud requests and zero new
+API fees under the configured local tariff. The unknown local outcome remains
+explicit with zero API reservation. Historical known fees and unknown reservations
+remain unchanged in their original studies.
+
+Next gate: Diagnose completion, timeout and evaluator attribution from existing
+evidence. Test a narrower, frozen task-selection policy only after development
+quality and full-policy economics justify a distinct bounded dispatch. Do not spend
+untouched confirmation tasks on a profile that failed its development gate.
+
+References: [reasoning report](MVP_ROUTING_REASONING_REPORT.md),
+[readiness](MVP_READINESS.md), [reasoning plan](plans/MVP_ROUTING_REASONING_V1.md).
+
+### BL-20260909-1600-early-check-preparation -- 2026-09-09 -- Preserve a repair window within the existing local budget
+
+Status: `Approved`
+
+Scope or hypothesis: Under the continuing owner objective, implement and verify
+an explicit earlier-check profile offline. Earlier feedback may permit repair
+within the same eight-call envelope; it does not establish semantic quality.
+
+Decisions: Keep all task classes in the eventual full-session comparison. Test
+feedback timing rather than choosing only easy tasks or increasing model/time
+budgets. Default behavior is unchanged. The new repair_window schedule is
+programmatic and local-only; before the request with four calls remaining, require
+checks/help if no fresh passing check and no earlier failed check exist. This leaves
+an edit/check/submit sequence after an initial failed check. Main and Python must
+agree on the admitted schedule and tool mask.
+
+Changes: Recorded the early-check plan, delegated runtime and independent diagnosis,
+and added an actual controller/HTTP/Python/Docker integration scenario for failed
+check five, repair six, passing check seven and explicit submission eight. Added
+a future evaluator objective-binding helper using the real create-schema boundary;
+the closed v1 evaluator remains unchanged.
+
+Evidence: Before shared runtime changes, all 84 original frozen input and closure
+bindings were verified and archived. Archive manifest SHA-256 is
+c2ca0325d04da26f21c4d82b6ea7f1bf613c7af0eac4efec5d9d9003ba2af54e.
+The previous turn reconciled terminal accounting and identified the evaluator's
+exact normalization defect, constituting concrete progress. Current early-check
+runtime and integration verification are pending at this entry.
+
+Failures or blockers: The disabled run inspected four times, edited twice, then
+failed its first trusted check with one model call left. Medium's first five
+settled actions only inspected source and its sixth request timed out. There are
+no denied-action events in either run; the corrected tool mask was not the new
+failure. The prior evaluator fixture bypassed actual objective normalization.
+
+Limitations and non-claims: No new model request is authorized by this offline
+entry. Earlier timing/quality failures, unknowns and evaluation stop remain intact.
+The objective-binding helper alone does not complete a semantic evaluation or
+repair the closed study. No current release, full-session saving or broad local
+capability result is established.
+
+Paid exposure: Zero new real model requests and zero new API fees.
+
+Next gate: Complete focused regressions, actual integration and independent review.
+Then freeze a distinct bounded development study before inference, and advance
+only on accepted patch quality plus complete-policy economics. Untouched
+confirmation stays gated.
+
+References: [early-check plan](plans/MVP_ROUTING_EARLY_CHECK_V1.md),
+[reasoning result](MVP_ROUTING_REASONING_REPORT.md).
+
+### BL-20260910-0010-early-check-mechanics -- 2026-09-10 -- Verify earlier feedback and repair future evaluator attribution
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the explicit local-only repair_window schedule and
+future objective attribution. This is runtime mechanics, not a live model outcome.
+
+Decisions: Keep the default final_only schedule. When four calls remain, force a
+check/help request only if no current passing check or earlier failed check exists.
+Tell the experimental model about this boundary before work begins. A passing
+check on an unchanged seed does not prove repair, and subsequent edits always
+invalidate it. Full coding task scope and all original negative outcomes remain.
+
+Changes: Main and Python enforce the same admitted schedule and tool masks, record
+the schedule in checkpoint evidence and reject incompatible policy/budget settings.
+Added the objective-binding helper plus real controller/store creation regressions.
+A new read-only v2 inspector validates both prior admitted objectives and all four
+dispositions against 84 archived files, saved snapshots and the read-only ledger.
+Fixed the default routing comparison schema to accept explicit disabled/final_only
+fields while leaving omitted historical fields unchanged and rejecting experiments.
+
+Evidence: All 237 patch TypeScript assertions across 15 files, all 114 Python
+methods including 27 Docker methods in one invocation, ten actual
+controller/HTTP/Python/Docker integrations and both application typechecks pass.
+The new integrations demonstrate failed check five, repair six, passing check seven
+and submission eight; a separate case passes early, introduces a later regression,
+fails the fresh check and cannot submit. Independent source review found no material
+blocker in runtime, objective attribution, comparator compatibility or integration
+assertions. Shared receipt SHA-256 is
+de88575940abf2b33416957026e7963dafda15d1919682ac5c6d16e7ab41ac74.
+Read-only attribution v2 receipt SHA-256 is
+0402984592559f363819aebca76c54913a0e09d3b21e478d04727dbceab0846b.
+The request-level diagnosis binds original frozen runtime and thirteen request rows;
+its SHA-256 is 01634e65c968001ef85e8dade18aa7684af12b868dc690ddf458396ffefeaf51.
+
+Failures or blockers: The comparator regression was reproduced before repair:
+current runtime thinking/checkSchedule fields failed its strict schema. Its focused
+37-test comparison/report pass follows that retained red result. One initial pure
+Python assertion omitted the newly explicit default schedule and was corrected;
+both logs remain. A first v2 inspector launcher failed on sandboxed tsx IPC before
+script execution; the supported node import loader completed the read-only audit.
+The medium run had five inspections, including different portions of a file; this
+does not establish an exact duplicate-read loop. No new model result exists.
+
+Limitations and non-claims: Deterministic model fixtures establish enforcement and
+feedback availability, not whether the local model will use them successfully.
+The prior failed evaluation was not rerun; objective attribution is not semantic
+acceptance. Earlier UI/full-suite/release limitations remain. No quality-preserving
+saving, whole-session latency benefit, owner acceptance or device payback is proved.
+
+Paid exposure: Zero new real model requests or API fees. Historical unknown
+outcomes and reservations remain unchanged.
+
+Next gate: Prepare and independently review a new two-seed development runner and
+evaluator, verify known-probe wrappers against reference artifacts, then freeze
+exact sources, evaluation inputs and bounded authority before inference. Two
+attempts may falsify completion/quality; they cannot establish schedule causality.
+Untouched full-policy confirmation remains gated.
+
+References: [early-check plan](plans/MVP_ROUTING_EARLY_CHECK_V1.md),
+[readiness](MVP_READINESS.md), [reasoning result](MVP_ROUTING_REASONING_REPORT.md).
+
+### BL-20260910-0027-reference-precheck-failed -- 2026-09-10 -- Preserve negative reference checks before new model dispatch
+
+Status: `Failed`
+
+Scope or hypothesis: The stronger known-probe wrappers should validate against
+the original reference artifacts before the proposed two-attempt development run.
+
+Decisions: Do not interpret process exit zero as a passing reference proof. Its
+closed receipt explicitly reports passed=false. Preserve the original references,
+probes and negative receipts; do not weaken expectations to clear the gate.
+
+Changes: Updated readiness with the precheck result and undispatched batch state.
+No runtime, model configuration, frozen evaluator or historical result was changed.
+The initial new entry used the actual UTC audit time, 2026-09-09 16:27, but the
+ledger validator rejected it after the preceding locally dated 2026-09-10 entry.
+This entry retains that local-date sequence without rewriting earlier entries;
+the actual UTC audit time is recorded here explicitly.
+
+Evidence: In the modified working tree based on
+6a32777fb2efcb4b1f24e5d5163f8d3235d84abb, the reference-only Node 22 driver
+completed through the pinned Docker evaluator. Cache ran four cases with three
+passes and one failure; Retry-After ran two with one pass and one failure. Both
+reported zero errors/skips, verified harnesses and confirmed cleanup. Closure
+SHA-256 is ada4ab7d1d94768c7eadca33ab50ef16185b9096a4edc377726b6bc1a3d20a13.
+Independent read-only review agrees these are behavior failures. All 29 files
+bound by the earlier shared implementation receipt still match their hashes.
+No new batch gate, freeze, dispatch claim, ledger or run storage exists.
+
+Failures or blockers: Both original references fail a stronger known-defect case.
+The reference preparation gate is not green. Successful harness execution does
+not establish correct reference behavior or acceptable generated patches.
+
+Limitations and non-claims: This evaluated original references, not new model
+outputs. Earlier runtime test passes remain scoped mechanics evidence; no new
+quality, savings, full-suite or release claim follows from this audit.
+
+Paid exposure: Zero new model requests and zero new API fees.
+
+Next gate: Independently reconcile the public task contracts, reference behavior
+and probe expectations. Establish a separately versioned passing positive control
+where justified without rewriting historical gold or this failed proof. Then
+complete preparation and freeze the exact bounded development authority before
+any model dispatch. Untouched confirmation remains gated.
+
+References: [development plan](plans/MVP_ROUTING_EARLY_CHECK_DEVELOPMENT_V1.md),
+[readiness](MVP_READINESS.md), [prior repair report](MVP_ROUTING_REPAIR_REPORT.md).
+
+### BL-20260910-0040-early-check-development-gate -- 2026-09-10 -- Clear corrected positive controls and authorize two local attempts
+
+Status: `Approved`
+
+Scope or hypothesis: Test whether earlier check feedback enables two independently
+acceptable repairs within the unchanged eight-call envelope. The continuing owner
+goal authorizes this distinct bounded development dispatch after offline proof.
+
+Decisions: Both stronger probe expectations follow the original public contracts.
+Retain the failed reference proof unchanged and use separately versioned corrected
+positive controls only for evaluator preparation. Keep those controls and the added
+probe details out of model inputs. This study uses the original exposed repair seeds,
+public tasks and original compact critic messages; no untouched task is dispatched.
+
+Changes: Constructed and independently reviewed corrected positive controls,
+verified both suites per task, inspected the exact evaluator inputs, and prepared
+the new driver against all original seeds. The prior goal turn produced the negative
+reference proof and changed the next action, so it was progress rather than a wait.
+
+Evidence: All four actual Docker suites passed, totaling seventeen methods: cache
+six original and four probe cases; Retry-After five original and two probe cases.
+All harnesses and cleanups verified. Positive proof closure SHA-256 is
+9095707534b18b0f8572e3a976d3a1c16816f3ef271e309174c24360774b0d1e.
+Independent review verified all 67 control bindings, allowed patch scope and public
+contract support. Operator, driver, evaluator and proof-source reviews found no
+material blocker. Actual preparation passed under supported Node 22 and the exact
+runtime virtual environment. The prepared plan binds 251 files; canonical SHA-256
+is 701b6d28207c6d15b4babffe8db03a1a59dbfa38d39ab4318245784fbc5c23d8.
+The private root gate binds that plan and exact offline, review, Docker and evaluator
+receipts. Actual authority time is retained in its UTC approvedAt field; this entry
+continues the preceding local-date ledger sequence without rewriting older entries.
+
+Failures or blockers: The original references remain failed against stronger checks.
+Their corrected fixtures do not repair historical model outcomes. No inference has
+run at this entry. Any freeze or admission failure must be resolved before dispatch.
+
+Limitations and non-claims: Positive controls and runtime mechanics do not establish
+model quality or savings. Two exposed attempts have no concurrent timing control and
+cannot prove causality, broad capability, owner acceptance or release readiness.
+
+Paid exposure: Approved maximum two local episodes, sixteen local requests and zero
+new API fees. Each episode retains eight calls, 8192 output tokens per request,
+256000 input bytes, 120 seconds per request and 600 seconds total. No cloud provider
+or credential is configured. Unknown inference, cancellation, cleanup failure or
+evidence drift stops the entire batch; failed and unrun assignments remain counted.
+
+Next gate: Freeze the exact approved plan and gate, dispatch once, close all assigned
+outcomes and independently evaluate eligible submitted patches. Both repairs must be
+accepted before rejoining all six policy outcomes and full costs. The four untouched
+confirmation tasks remain gated on development quality and economics.
+
+References: [development plan](plans/MVP_ROUTING_EARLY_CHECK_DEVELOPMENT_V1.md),
+[readiness](MVP_READINESS.md), [original negative proof entry](#bl-20260910-0027-reference-precheck-failed--2026-09-10--preserve-negative-reference-checks-before-new-model-dispatch).
+
+### BL-20260910-0057-early-check-development-failed -- 2026-09-10 -- Close both attempts and reject advancement
+
+Status: `Failed`
+
+Scope or hypothesis: The approved two-attempt earlier-check profile should finish
+independently acceptable repairs within eight local calls each. Both assigned
+attempts and their frozen evaluation are now closed.
+
+Decisions: Zero accepted repairs out of two assigned fails advancement. Preserve
+both outcomes, no retry, and no untouched confirmation dispatch. Stop treating check
+timing alone as the quality hypothesis. Keep the full coding-task scope and prior
+full-policy cost/quality failures; zero new API fees are not a successful economy.
+
+Changes: Ran the frozen driver once, evaluated its sole eligible submission with
+both original and stronger suites, obtained two independent source reviews, and
+published the earlier-check report. Readiness reflects the closed failed result.
+The local-date ledger sequence is retained; actual audit UTC time is
+2026-09-09 16:57. Historical entries and frozen study inputs remain unchanged.
+
+Evidence: All ten local requests succeeded and settled, five per task. Both run
+snapshots replay exactly and both cleanups are confirmed. Cache used 36.904 seconds;
+Retry used 60.221 seconds, excluding subsequent offline artifact composition.
+The generation audit verifies all 251 frozen bindings, checkpoint chains, objectives,
+request usage, zero unknowns and exact submitted-source composition. Audit SHA-256
+is e9cc21a2be4873684e8bbe2401da61eb21626327c1c2da437a900a44df92b152.
+The evaluator closed both dispositions: cache not scorable, Retry scored on both
+suites with verified harnesses and cleanup. Two independent source reviewers reject
+the identical Retry patch and agree on decimal and timezone defects. They reviewed
+complete sources without the new evaluation receipts, but were not blind to study
+context. Final joined analysis SHA-256 is
+b22cc05be5e0b56de3d5f96250ffb81522d5ad3ccb36e89f959ce5fc3cd23202.
+All 307 input and closed-evidence files were byte-verified and archived before any
+future runtime edits; archive manifest SHA-256 is
+7423c33510017ff37759167f7aed779e067090838b7ed3cdc24aced334ed3fbf.
+
+Failures or blockers: Cache returned the recorded run_command on request five when
+only checks/help were allowed. It was denied before execution, with no trusted
+checkpoint check or feedback. Retry checked voluntarily on request four and
+submitted on five; its original five acceptance tests passed, but both frozen date
+probes failed. Source review additionally identified wrong long-decimal accumulation;
+that finding is source-supported rather than a newly executed frozen probe.
+
+Limitations and non-claims: No causal schedule benefit follows from Retry's early
+voluntary check. The source-composition helper verifies reconstruction; the driver
+and evaluator separately bind it to actual runtime checks. Zero accepted repairs
+leaves cost per accepted repair undefined. This is not a full-session comparison,
+general capability result, owner acceptance, device payback or release proof.
+
+Paid exposure: Ten settled local requests, zero new cloud requests, zero new API
+fees and zero new unknown reservation. Usage totals are 69,554 input tokens and
+3,150 output tokens, including zero reported reasoning tokens; 14,400 cache-read
+tokens are reported separately and are not subtracted from input a second time.
+Earlier known fees and unknown reservations remain in their original studies.
+
+Next gate: Prepare a distinct policy combining reliable host-owned checks with
+executable checks derived from public requirements before local repair. Host
+automation addresses command selection, not semantic coverage. Generated checks
+must remain fallible model output, with validity and all cloud/test costs measured;
+hidden evaluation cannot become a routing signal. Reuse shared evaluation machinery.
+Require development quality and complete-policy economics before any untouched
+full-session comparison. No new paid batch is authorized by this result entry.
+
+References: [earlier-check result](MVP_ROUTING_EARLY_CHECK_REPORT.md),
+[readiness](MVP_READINESS.md), [development plan](plans/MVP_ROUTING_EARLY_CHECK_DEVELOPMENT_V1.md).
+
+### BL-20260910-0110-public-checks-offline -- 2026-09-10 -- Implement public executable checks and host-owned checkpoints
+
+Status: `Approved`
+
+Scope or hypothesis: Combine reliable checkpoint execution with checks generated
+from public requirements by the existing cloud planner. The previous goal turn
+completed two real attempts, independent evaluation and failure diagnosis, so it
+constituted progress. Timing alone failed its development quality hypothesis.
+
+Decisions: Reuse the existing planner transport and accounting rather than adding
+an unmetered model client. Keep defaults unchanged and make both features explicit
+programmatic experiments. Host actions consume time but no fabricated model calls.
+Generated tests have separate fallible provenance and cannot be independent gold.
+
+Changes: Recorded the public-checks implementation plan and delegated independent
+Python-router, main-admission and pure planner-artifact work. Root owns execution
+integration and end-to-end verification. No new inference has been dispatched.
+
+Evidence: The preceding failed study's 307 files are archived under manifest
+7423c33510017ff37759167f7aed779e067090838b7ed3cdc24aced334ed3fbf.
+Its source-level gate failure and complete request accounting remain unchanged.
+Current runtime behavior and store/admission contracts were inspected before work.
+
+Failures or blockers: New host-check lifecycle and model-generated check provenance
+need implementation and verification. These are pending work, not live results.
+
+Limitations and non-claims: The proposal does not prove that generated checks will
+be valid or sufficient, or that planner cost will be recovered. Preserve full-task
+scope, independent evaluation and all earlier failures. No release/default-policy,
+quality-preserving savings or device-payback claim is authorized.
+
+Paid exposure: Offline implementation/tests only; zero new real model requests.
+
+Next gate: Complete mechanics, actual runtime integration and independent review,
+then freeze a separately bounded development dispatch before any real model calls.
+
+References: [public-checks plan](plans/MVP_ROUTING_PUBLIC_CHECKS_V1.md),
+[failed earlier-check result](MVP_ROUTING_EARLY_CHECK_REPORT.md).
+
+### BL-20260910-0115-public-checks-component-status -- 2026-09-10 -- Verify isolated components and clarify current work status
+
+Status: `In progress`
+
+Scope or hypothesis: Answer the owner's progress question against current source
+and reports while retaining the boundary between component tests and routing value.
+
+Decisions: Keep the active routing objective open. The new profile is offline only;
+do not present earlier verification totals as a clean result for current edits.
+
+Changes: Added the pure host-check scheduler and planner-check artifact helper.
+Updated readiness to mark the combined workflow as still being integrated. Main
+admission, persistence, feedback and Docker integration remain unfinished.
+
+Evidence: Root independently reran 40 router tests and 16 planner-helper tests;
+both passed. Router source SHA-256 is
+874c0b498a2e104b3241e4eb44d172bd3d68288bfdec57486fa729b5959b2972;
+planner-helper source SHA-256 is
+89dcb42e9b96da2e9fdca11d28c07f9bf73aa3c694900ea02e3c984a5b9a6766.
+These tests cover state transitions, source freshness and strict artifact/receipt
+parsing. An independent read-only status audit confirmed the original hybrid cost
+failure, corrected cloud-control limitations, four-of-six repair result and latest
+zero-of-two development result. No historical model outcome was rerun.
+
+Failures or blockers: The initial helper tests exposed a missing explicit rejection
+of a load_tests function definition; it was fixed before the passing focused runs.
+Generated test source has not executed in Docker for this profile, and combined
+runtime/main transport verification remains pending. Earlier full-suite and UI
+limitations remain unchanged.
+
+Limitations and non-claims: Static parser and router tests do not demonstrate that
+generated checks are correct or useful, that a model follows feedback, or that the
+policy preserves quality and saves money. No release or device-payback claim.
+
+Paid exposure: Zero new real model requests and zero new API fees.
+
+Next gate: Complete integration and independent review, then freeze the bounded
+development comparison. Require quality and complete-policy economics before
+opening the four untouched confirmation tasks.
+
+References: [readiness](MVP_READINESS.md),
+[public-checks plan](plans/MVP_ROUTING_PUBLIC_CHECKS_V1.md),
+[latest failed result](MVP_ROUTING_EARLY_CHECK_REPORT.md).
+
+### BL-20260910-0145-public-checks-runtime-proof -- 2026-09-10 -- Verify separate planner checks through actual execution and retain failed proof
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the offline runtime mechanics of host-owned checks
+and one cloud plan carrying executable public-requirement checks. The preceding
+goal turn added focused component evidence and corrected readiness; this turn
+completed integration and produced actual execution evidence. The money/quality
+objective remains open.
+
+Decisions: Reuse one planner request, existing provider admission and cost ledger.
+Keep generated tests outside candidate-controlled files, run them in a separate
+isolated verifier on the same source as the visible check, and persist both
+provenance and receipts separately. Require both fresh passes for local submission
+and repeat final generated verification after cloud recovery. Preserve total
+episode/call caps while reserving time for both check commands. Only the opt-in
+live-compatible profile admits this behavior.
+
+Changes: Connected artifact parsing, strict main admission, source-bound execution,
+host feedback, fallback, final checks, persistence/replay and separate app display.
+Added actual repair, fallback, missing-result and final-regression fixtures. Fixed
+planner-bound stop eligibility and preserved final-receipt freshness independently
+of the earlier local-router source. Recorded a proposed six-task C/P development
+comparison using versioned shared-runner contracts rather than reopening old runs.
+
+Evidence: The first actual controller/HTTP/Python/Docker invocation passed fifteen
+of sixteen cases; its final-cloud-regression failure is retained. All four affected
+planner integration cases passed after correction; twelve other runtime cases had
+passed in that first invocation. The fixtures verify complete phase usage, source
+and artifact identity, original-workspace cleanliness, replay and container removal.
+All 312 TypeScript assertions across seventeen scoped suites pass. One Python
+invocation passed 152 methods including 27 Docker cases; all 53 router methods,
+including three additional regressions, passed after the stop correction. Both
+application typechecks pass. The offline receipt binds eighteen source/test files
+and eight result logs; SHA-256 is
+23c6370fa06a5058861cc2f0a0db9302e541ec4cc8c4add9df9b67ed7a2cf059.
+Independent scoped reviews found no remaining material integration blocker.
+
+Failures or blockers: Review found and resolved transport reserve and visible-timeout
+evidence mismatches. Negative tests reproduced cancellation after failed recheck
+and final-cloud source freshness errors before correction. The UI invocation
+executed zero assertions because its worker timed out during startup. Bounded
+dependency probes reproduced a jsdom initialization hang both inside and outside
+the sandbox, without establishing the exact cause; no dependency/version/timeout
+workaround was applied. All root test and dependency-probe handles are terminal,
+including the exact identified import probe stopped with exit 143.
+
+Limitations and non-claims: Synthetic model responses and fee receipts establish
+execution/accounting mechanics, not model quality or actual API savings. Generated
+tests may be wrong or incomplete; their wrapper is not an independent correctness
+oracle or a hostile-code sandbox. UI assertions, full-repository/release checks,
+owner acceptance and device payback remain unverified. The next development
+manifest/runner/exposure freeze is still work to implement, not a live result.
+
+Paid exposure: Zero real model requests and zero new API fees this turn. Prior
+study costs and unknown exposure are unchanged. No new paid batch is authorized
+by this offline proof or the proposed comparison document.
+
+Next gate: Implement the versioned paired shared-runner profile, bind the complete
+exposed cohort and evaluator, independently review the dispatch and accounting
+gate, then freeze a bounded development test. Require accepted patch quality and
+whole-policy economics before opening untouched confirmation tasks.
+
+References: [offline result](MVP_ROUTING_PUBLIC_CHECKS_REPORT.md),
+[runtime plan](plans/MVP_ROUTING_PUBLIC_CHECKS_V1.md),
+[development proposal](plans/MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_V2.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260910-0150-public-checks-paired-runner -- 2026-09-10 -- Implement a versioned paired development comparison
+
+Status: `Approved`
+
+Scope or hypothesis: Prepare the complete six-task prepared-cloud versus
+cloud-plan/local experiment through the shared execution and evaluation path.
+The preceding goal turn completed runtime integration and actual Docker evidence,
+so it was progress. Quality-preserving savings remain the uncompleted objective.
+
+Decisions: Add a separate version-2 six-task/two-arm manifest and configuration.
+Retain version-1 frozen schemas and serialization. Derive a controller profile per
+arm, preserving the strongest prepared-cloud comparator. Keep the existing SQL
+reservation contract and all historical exposure; do not reopen failed studies.
+Generated-check diagnostics cannot become independent acceptance.
+
+Changes: Approved offline shared-runner work under the continuing owner goal.
+Delegate independent runner, reporting and CLI work; root checks cohort/evaluator
+preparation and the source/admission boundaries before any proposed live freeze.
+
+Evidence: Current build log and source were reread. The preceding runtime proof
+binds eighteen files and eight result logs under SHA-256
+23c6370fa06a5058861cc2f0a0db9302e541ec4cc8c4add9df9b67ed7a2cf059.
+Source review established the existing hardcoded four-arm/twelve-task boundaries
+and confirmed that the current SQL can hold the C/P subset without migration.
+
+Failures or blockers: The new runner contract, report denominators, exact task
+preparation and aggregate spending admission still require verification. The UI
+dependency initialization issue remains separate and unresolved.
+
+Limitations and non-claims: This approval covers implementation and deterministic
+offline proofs only. Six exposed tasks cannot prove generalization. No runtime,
+model-quality, savings, device-payback or release result is added by this entry.
+
+Paid exposure: Zero real model requests authorized by this implementation entry.
+
+Next gate: Verify the versioned shared runner and evaluation/report joins, freeze
+the full development cohort and existing exposure, then record bounded dispatch
+authority before any provider request. Preserve untouched confirmation tasks.
+
+References: [development plan](plans/MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_V2.md),
+[offline runtime result](MVP_ROUTING_PUBLIC_CHECKS_REPORT.md).
+
+### BL-20260910-0225-public-checks-paired-freeze -- 2026-09-10 -- Verify the shared paired runner and freeze corrected development inputs
+
+Status: `Verified`
+
+Scope or hypothesis: Complete the offline runner and cohort preparation for the
+six-task C/P comparison. The immediately preceding status-only goal turn was no
+progress; this turn changed implementation, completed evidence and froze the next
+experiment. The full quality-preserving savings objective remains open.
+
+Decisions: Preserve V1 contracts and add a distinct six-task/two-arm V2. Reuse the
+existing stage database with an explicit immutable historical admission receipt,
+instead of resetting spending. Bind prior rows across eleven tables, retain old
+unknowns and block holds, and require exact accounting-only evidence for the six
+critic carriers without runtime cleanup receipts. Require a fresh empty-container
+observation, per-episode revalidation and final closure after controllers stop.
+Missing/failed/stale closure must also block later independent-review reports.
+
+Changes: Implemented per-arm controllers, balanced paired blocks, strict diagnostic
+evaluation, complete cost/latency denominators and exact independent/paired review
+joins. Added historical admission and durable final report gating. Prepared all
+six original public inputs with separately versioned stronger private checks and
+corrected reference controls. Froze twelve assignments; none is claimed or linked.
+
+Evidence: Root's combined run passed 118 tests across five scoped suites and the
+Node application typecheck passed. Independent runner, report, historical-admission
+and cohort reviews found no remaining material scoped blocker. Selected reference
+proofs pass 42 methods; unchanged baselines fail while retaining six compatibility
+passes. Shared schema/source validation passes. The historical receipt retains
+42 prior runs, USD 4.472200 settled plus USD 0.301480 unresolved; the old open hold
+makes total prior campaign exposure USD 13.590824. Post-freeze verification confirms
+all historical rows unchanged. The freeze binds 24 runtime/evaluation files, SHA-256
+cec085a3cef4a73ac4da53ac8b43f1f39b6ef0350466f42c4c7d83e7ae4b4976;
+offline verification receipt SHA-256 is
+9e45832540331991427d277891759e22c3d6fdf7e0b954a2ea9d1ffe8ec7e05d.
+
+Failures or blockers: Preserve the initial incomplete baseline wrapper proof,
+the long-decimal reference failure and the cache function-metadata reference
+failure. Versioned corrections passed affected Docker/reference/visible checks.
+Review also caught and fixed a final-admission report bypass before freeze.
+The UI worker startup problem remains unresolved. No root process from these
+offline checks or freeze operations remains running.
+
+Limitations and non-claims: These are offline mechanics and evaluator-readiness
+proofs. Synthetic test responses do not establish provider readiness, model quality
+or savings. The six tasks are exposed development data; four untouched confirmation
+tasks remain reserved. No full-repository/release, owner-acceptance, device-payback
+or all-in cost claim. Historical project spending outside this stage is separate.
+
+Paid exposure: Zero new model requests or API fees. The twelve frozen episodes
+have a USD 36 aggregate episode ceiling. Existing block accounting may hold USD 39
+while the final pair is open; old exposure remains within the USD 150 campaign cap.
+This entry records the offline freeze, not a provider request or live result.
+
+Next gate: Record exact bounded live dispatch authority, establish session provider
+readiness, and run the unchanged paired cohort. Require complete independent patch
+and paired quality review, at least 20 percent lower API cost per accepted patch,
+and at most 25 percent median latency increase before untouched confirmation.
+
+References: [paired preparation](MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_REPORT.md),
+[development plan](plans/MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_V2.md).
+
+### BL-20260910-0252-paired-stop-correction -- 2026-09-10 -- Correction: retire undispatched freeze and verify infrastructure stopping
+
+Status: `Verified`
+
+Scope or hypothesis: Correction to BL-20260910-0225-public-checks-paired-freeze.
+The earlier scoped pass missed a terminal worker infrastructure failure that could
+allow another assignment to dispatch. The previous goal turn reported status and
+identified an additional native-history classification edge case; this turn
+completes its correction and creates the replacement offline freeze.
+
+Decisions: Retire the original twelve-assignment freeze before any claim. Retain
+all original database rows and archived source/evidence. Keep the same six public
+tasks, 42-method independent evaluator, balanced C/P order and budget. V2 must
+stop on infrastructure, cancellation or unclassified errors; exact evidenced
+model/check/budget failures remain failed task outcomes. Preserve V1 behavior.
+
+Changes: Added a conservative terminal failure classifier and stop before later
+dispatch or evaluator claims. Bind native response classification to checkpoint
+policy and exact local request count so an outbound history failure is not
+mistaken for model output. Require full source-bound evidence for failed generated
+checks. Corrected diagnostic reporting to the actual persisted WorkerError form.
+Prepared independently reviewed private launch and neutral review helpers.
+
+Evidence: Root's combined five-suite invocation passed 128 tests; the Node
+application typecheck and diff whitespace check passed. Targeted correction tests
+passed 65 of 65; independent source review cleared the exact runtime bytes. The
+launcher passed 23 synthetic tests; the neutral packager passed 15 synthetic
+tests and private typecheck. Replacement shared freeze completed without inference.
+All 24 runtime/evaluator hashes match; both old and replacement screens have twelve
+assignments and zero claims. Historical admission verifies all prior rows unchanged
+and retains USD 13.590824 campaign exposure. Replacement frozen-file SHA-256 is
+41344542c9b816f5cdd63da1ee4c0cab347b662c1876b521b35c811594dc5781;
+offline verification SHA-256 is
+97f136bf3e5df443aff418b2ffcd2819e1aaf3813846e07743bda229bedf592b.
+
+Failures or blockers: Preserve the first correction test result, 55 passed and
+10 failed because new synthetic fixtures lacked required campaign/patch fields.
+Corrected fixtures passed the subsequent invocations. Preserve the reviewed native
+history ambiguity and its correction. Earlier reference/oracle failures and the
+UI startup limitation remain. The original freeze cannot authorize dispatch.
+
+Limitations and non-claims: This is scoped offline verification on an uncommitted
+working tree. Neither helper tests nor reference patches establish model quality,
+savings, a full release gate or owner acceptance. No new model outputs exist.
+
+Paid exposure: Zero new model requests or API fees for this correction/freeze.
+
+Next gate: Record exact bounded live authority for the replacement screen, check
+session provider metadata, and run that one frozen comparison without retry.
+
+References: [paired preparation](MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_REPORT.md),
+[development plan](plans/MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_V2.md).
+
+### BL-20260910-0253-paired-development-dispatch -- 2026-09-10 -- Authorize the corrected bounded C/P development comparison
+
+Status: `Approved`
+
+Scope or hypothesis: Under the owner's continuing instruction to execute the plan
+and test quality-preserving routing savings, run the corrected six-task C/P
+development comparison once. This records the exact paid gate required by the
+development plan; it does not authorize retrying or replacing prior attempts.
+
+Decisions: Dispatch screen routing-public-checks-development-v2b, frozen-file
+SHA-256 41344542c9b816f5cdd63da1ee4c0cab347b662c1876b521b35c811594dc5781,
+configuration SHA-256
+4f084649f4a6a28c4cbda22da706e24926e1ae09d3be63cfe2eeab7c3ab441e6,
+and parsed-manifest SHA-256
+fe688a544b001093d93229302a30ea66bf1aebe4b02172043b04ddc69a0d99ed.
+Use direct OpenAI gpt-5.6-sol with the existing frozen request settings and the
+owner's configured local coding model. Use a session-only cloud key and read-only
+model metadata checks before inference. Both arms receive only their original
+public task/source and visible checks; independent evaluator content stays private.
+
+Changes: Authorize twelve assignments, six per arm, concurrency one, three C/P and
+three P/C pairs. C retains prepared-cloud behavior. P uses one cloud plan plus
+public-requirement tests, host-owned local checkpoints and at most one cloud
+recovery. Retain 600 seconds, 40 total requests and USD 3 per episode; P retains
+24 local requests and both check-command reserves. No automatic retry or replacement.
+
+Evidence: The immediately preceding correction entry records 128 passing scoped
+tests, source review, exact freeze and preserved historical accounting. Its offline
+verification receipt SHA-256 is
+97f136bf3e5df443aff418b2ffcd2819e1aaf3813846e07743bda229bedf592b.
+Provider readiness and this profile's live execution are pending, not presumed.
+
+Failures or blockers: Any new unknown outcome, infrastructure/unclassified runtime
+failure, unconfirmed cleanup or source/configuration drift stops later dispatch.
+Keep interrupted/failed/unrun assignments in the six-per-arm denominators. Require
+final controller closure and historical ledger revalidation; missing or failed
+closure prevents advancement even if some candidates pass checks.
+
+Limitations and non-claims: Six exposed development tasks cannot establish general
+coding quality. Generated tests are runtime feedback and may be wrong. Independent
+checks and neutral source plus paired regression review determine acceptance;
+failed-runtime diagnostic artifacts cannot become accepted completions. Untouched
+confirmation, release, owner acceptance and device payback are not authorized or
+proven by this entry.
+
+Paid exposure: At most USD 36 new aggregate episode exposure, within the existing
+USD 150 campaign cap. Existing conservative block holds can temporarily account
+for USD 39 of new exposure; prior campaign exposure is USD 13.590824, making the
+conservative combined ceiling USD 52.590824. Count every planner, fallback, failed
+request and unknown reservation. These stage figures are not all-time project
+spending. Zero local API fees exclude the USD 3,500 device and operating costs.
+
+Next gate: Close the complete paired evidence, then require at least 20 percent
+lower API cost per independently accepted patch, no fewer P acceptances, no
+additional material P regression and at most 25 percent greater median latency.
+Only complete passing evidence may open a separately recorded untouched-task gate.
+
+References: [development plan](plans/MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_V2.md),
+[paired preparation](MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_REPORT.md).
+
+### BL-20260910-0300-paired-launch-rejected -- 2026-09-10 -- Record automatic approval rejection before process creation
+
+Status: `Blocked`
+
+Scope or hypothesis: Attempt the exact bounded launch described by
+BL-20260910-0253-paired-development-dispatch after independent gate validation.
+This is a launch-permission blocker; the broader routing goal remains active.
+
+Decisions: Do not bypass or indirectly execute the rejected action. Retain the
+freeze, approval record and zero-claim assignment state. Ask the owner for explicit
+authorization covering the exact OpenAI destination, public source/task/tool-output
+payload and at most USD 36 new API charges before another launch attempt.
+
+Changes: Saved an immutable private rejection receipt. No runtime, model request,
+assignment or existing ledger outcome was changed by the rejected tool action.
+
+Evidence: Independent pre-dispatch review matched the eight gate inputs, all 24
+runtime/evaluator files, five test files and three logs. It confirmed twelve
+unclaimed assignments, exact configuration and the 128-test pass. The escalated
+execution tool then returned a CreateProcess rejection; no process/session was
+created and no session key was read. The exact reviewed gate SHA-256 is
+1c3508d63654b1480854b3359788cf3bbd71418c7ed7f8731d1d1f71a568cbd7.
+
+Failures or blockers: Automatic approval review stated that the owner had not
+explicitly authorized this exact public repository data transfer to OpenAI and
+up-to-USD-36 charge, notwithstanding the broader continuing execution instruction.
+The repository-level approval entry alone did not satisfy that external review.
+
+Limitations and non-claims: This is not a model failure, provider-readiness result
+or live routing result. The scoped offline proofs stand; quality and savings for
+the new profile remain untested. No release or untouched confirmation is claimed.
+
+Paid exposure: Zero new model requests and zero new API charges. The requested
+launch ceiling remains USD 36; existing historical exposure is unchanged.
+
+Next gate: Obtain explicit owner confirmation for this concrete launch, record it
+durably, revalidate the same inputs and use the reviewed session launcher. No
+automatic retry is authorized by this rejection entry.
+
+References: [paired preparation](MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_REPORT.md),
+[development plan](plans/MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_V2.md).
+
+### BL-20260910-0310-paired-owner-approval -- 2026-09-10 -- Record explicit owner approval for the exact bounded live comparison
+
+Status: `Approved`
+
+Scope or hypothesis: The owner replied "approve" to the explicit request to run
+the twelve-episode comparison, sending the six public coding tasks, repository
+source and tool outputs to OpenAI at api.openai.com using gpt-5.6-sol and the
+configured local model, with a maximum of USD 36 in new API charges.
+
+Decisions: This explicit confirmation resolves the permission blocker recorded
+in BL-20260910-0300-paired-launch-rejected. Proceed with the same already frozen
+comparison; no prior model attempt is retried. Preserve the earlier rejected
+launch gate and bind the current launch gate to this owner-confirmed entry.
+
+Changes: Record durable exact-payload, destination and spending authorization.
+The twelve assignments, public inputs, code, provider settings, execution limits,
+evaluation and no-retry rules from BL-20260910-0253-paired-development-dispatch
+remain unchanged. The session key stays in hidden terminal input and process
+memory only; no credential is written into project evidence.
+
+Evidence: Before launch, read-only inspection still shows twelve assignments,
+zero claims and zero runs. The unchanged frozen-file SHA-256 is
+41344542c9b816f5cdd63da1ee4c0cab347b662c1876b521b35c811594dc5781;
+offline verification SHA-256 is
+97f136bf3e5df443aff418b2ffcd2819e1aaf3813846e07743bda229bedf592b.
+The owner confirmation follows the concrete approval question and automatic
+approval-review rejection; automatic goal continuation alone was not treated as
+that confirmation.
+
+Failures or blockers: Preserve the prior pre-process rejection. The launch must
+still pass exact gate/source validation, provider metadata readiness, historical
+accounting admission and runtime availability before inference. Any new unknown,
+infrastructure/unclassified failure, cleanup failure or drift stops dispatch.
+
+Limitations and non-claims: Approval is not execution or a quality/savings result.
+Only the six exposed development tasks are authorized. All twelve assignments,
+fees and unresolved exposure remain in the report. Generated checks do not replace
+independent acceptance or paired source review; untouched confirmation stays gated.
+
+Paid exposure: At most USD 36 new API exposure, USD 3 per episode, concurrency one,
+within the existing USD 150 campaign ceiling and preserved prior exposure. No
+additional attempt, automatic retry or replacement is authorized.
+
+Next gate: Launch the reviewed session operator once, follow the same process to
+terminal closure, then evaluate independent acceptance, additional regressions,
+API cost per accepted patch and complete terminal latency against the frozen gate.
+
+References: [development plan](plans/MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_V2.md),
+[paired preparation](MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_REPORT.md).
+
+### BL-20260910-0442-paired-live-start -- 2026-09-10 -- Start the owner-approved paired comparison after provider readiness
+
+Status: `In progress`
+
+Scope or hypothesis: Execute the same twelve frozen C/P development assignments
+under BL-20260910-0310-paired-owner-approval. This is live execution progress, not
+the completed quality or economics result.
+
+Decisions: Rebind the private launch gate to the explicit owner confirmation while
+retaining its previous rejected version. Keep all eight launch inputs, 24 frozen
+runtime/evaluator sources and experiment settings unchanged. Follow the same
+owned process through terminal closure; do not restart it after observation timeouts.
+
+Changes: Started the reviewed Node 22 session launcher with hidden key input.
+Both cloud and local read-only model metadata returned HTTP 200 and matched the
+frozen advertised model identities. The operator claimed the study once and
+started the shared comparison runner. The first prepared-cloud assignment is live.
+
+Evidence: The launch gate validates under SHA-256
+9897ea2cea2c5748e9c2f62ede5acef7691ad58a84ea06a22d3d2ca621a31358.
+The provider-readiness receipt and dispatch claim are dated 2026-09-10T04:41:04Z.
+Read-only progress inspection observes the first assigned run executing cloud
+requests, with settled usage receipts and no observed unknown request. The same
+owned launch session remains running. The build-log validator passed before launch.
+
+Failures or blockers: The earlier approval rejection remains preserved. No new
+infrastructure or unknown-provider failure is observed at this progress checkpoint.
+Any such failure must stop subsequent dispatch under the frozen policy.
+
+Limitations and non-claims: Readiness metadata confirms access and the advertised
+model ID, not immutable weights. No candidate has yet completed independent
+acceptance, and there is no quality-preserving savings or release claim.
+
+Paid exposure: The live study retains its USD 36 new-episode ceiling, USD 3 per
+episode and USD 150 shared campaign cap; charges are accumulating in the existing
+ledger. Final fees and unresolved exposure must be read after terminal closure.
+
+Next gate: Finish or stop the single comparison process, verify terminal cleanup
+and accounting closure, then construct neutral source packages and join independent
+patch and paired regression reviews without dropping any of the twelve assignments.
+
+References: [paired preparation](MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_REPORT.md),
+[development plan](plans/MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_V2.md).
+
+### BL-20260910-0501-paired-planner-failure -- 2026-09-10 -- Close twelve live episodes and reject the planner-checks policy
+
+Status: `Failed`
+
+Scope or hypothesis: Complete the owner-approved comparison of prepared cloud
+with one cloud plan plus public checks and local execution. All twelve assignments
+ran once; this entry closes generation and automated evaluation. Independent source
+review of the available artifacts is still being completed.
+
+Decisions: Reject advancement. All six P attempts stopped before any admitted plan,
+local request, generated check execution or patch. Zero accepted P patches makes
+cost per accepted P patch undefined. A lower raw fee from producing no patches
+does not establish savings. Retain all six assignments per arm and do not open the
+four untouched tasks or retry any failed planner request.
+
+Changes: Closed the same owned process with exit zero, six completed blocks and
+twelve terminal attempts. Final controller/history/source revalidation passed.
+Prepared six neutral candidate packages, preserving all twelve private assignment
+identities. Preserved the pre-review report and archived 38 source/test/launch
+evidence files before any future implementation changes.
+
+Evidence: C made 39 settled requests, submitted six patches and passed four of six
+frozen independent evaluations. P made six settled planner requests; every terminal
+error was Worker stopped: PlannerChecksError. All twelve cleanup receipts are true;
+there are no new unknown requests or unresolved charges. Complete terminal medians
+are 80.0595 seconds for C and 52.7945 seconds for P; the P time includes its failures
+and is not latency at preserved quality. The live operator closed at
+2026-09-10T04:55:38.234Z. Admission closure SHA-256 is
+2763d111b7a1beef1571ac848e4b2edc3c749f1dec88e0c2ebe31ada6aadac3f;
+pre-review report SHA-256 is
+47896d109eb58b6bade54654f7844497a6c8bbd77e7f8c56c1a7967ef04d30a0.
+
+Failures or blockers: P passed the outer response-envelope checks and failed the
+inner planner JSON/unittest contract. The worker retained only the exception class,
+discarding its detailed fixed diagnostic code; the raw response was not saved.
+The exact violated field or AST rule cannot be recovered. No particular syntax or
+declaration error, parser correctness, infrastructure cause or local-model failure
+is established by that class-only error. The report's conservative
+runtimeInfrastructureFailure flag is an eligibility guard, not causal diagnosis.
+Both C automated failures and all six P failures remain in the record.
+
+Limitations and non-claims: Source-review acceptance is pending, and no P artifact
+exists for paired source comparison. This profile does not establish useful local
+contribution, quality-preserving savings, generalization, owner acceptance or a
+release. Lower P runtime and fees cannot compensate for zero submitted work.
+
+Paid exposure: C accounted USD 1.509352 and P USD 0.517848, total USD 2.027200,
+from 45 settled requests, below the authorized USD 36 ceiling. These are usage-ledger
+fees under frozen input/output tariffs, not provider invoice reconciliation.
+Historical exposure is retained; the stage maximum is now USD 15.618024 including
+old unknown exposure and its old block hold. No further real inference is approved
+by this result entry. Device and operating costs remain outside these API figures.
+
+Next gate: Complete and join neutral reviews of all available patches, preserving
+missing paired evidence. Then fix the lost allowlisted planner rejection diagnostic
+and verify it with synthetic/loopback tests. A small real planner-contract calibration
+must precede another paired experiment; no retry or new model call is implied.
+
+References: [paired preparation and result](MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_REPORT.md),
+[development plan](plans/MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_V2.md).
+
+### BL-20260910-0518-paired-independent-closure -- 2026-09-10 -- Join independent patch reviews and retain the failed comparison
+
+Status: `Verified`
+
+Scope or hypothesis: Close the independent source-review and accounting evidence
+for the twelve already completed episodes. This verifies attribution and the
+failed advancement result, not routing quality or savings.
+
+Decisions: Record C as four acceptable patches out of six and P as zero out of
+six. Keep all six absent P artifact reviews incomplete and all six paired material
+regression judgments unknown. Reject advancement. Preserve every original blind
+response and label the cache follow-up as guided adjudication.
+
+Changes: Validated 467 public package files, six package/source inventories,
+twelve original and two guided response schemas, and 102 cited source lines.
+Each resolved row binds the exact bytes of a qualifying full response. The cache
+row uses reviewer two's guided full-patch rejection; reviewer one's partial guided
+response is retained without promoting its scope. Separate provenance receipts
+bind both original reviewers and both guided responses. Regenerated the report
+through the trusted report-only path, after preserving the original automatic
+report. Updated the human result, readiness and closed plan status.
+
+Evidence: Both original reviewers rejected Retry-After, identifying malformed-date
+acceptance and long-decimal failure. Both guided cache assessments found that
+copied metadata can overwrite the new cache_discard operation. The keyword-self
+hypothesis was not established as a new regression. The four other patches passed
+independent checks and source review. C cost per acceptable patch is USD 0.377338;
+P cost per acceptable patch and savings are undefined. The join retains all twelve
+rows and six pairs. Final report SHA-256 is
+0baf4faa88cf67086613e998a813f513e5c3a194016b22731ec9ca0c6cf0a3ab;
+join closure SHA-256 is
+419edf52148ec0632d4e5be1acc2332de23783d6a2de931b5d1023428bd9f3a7.
+Report regeneration exited zero. All 24 frozen code files, source response hashes
+and full historical/current ledger digest remained unchanged at join closure.
+
+Failures or blockers: All six P planner-contract failures and both C quality
+failures remain. Missing P artifacts prevent paired review. The precise original
+planner rejection reason remains unrecoverable. The earlier guided review must
+not be described as a blind rejection, and source review is not exhaustive proof.
+
+Limitations and non-claims: No useful local contribution, quality-preserving savings,
+untouched confirmation, owner acceptance or release is established. The report's
+broad runtime-failure eligibility flag is not an infrastructure diagnosis.
+
+Paid exposure: This report-only work made zero provider requests and changed no
+ledger row. The closed experiment retains USD 2.027200 accounted fees across 45
+settled requests; stage maximum exposure remains USD 15.618024 including historical
+unknown exposure and its old block hold. These are not invoice or all-in costs.
+
+Next gate: Apply the separately staged, independently reviewed narrow planner
+rejection diagnostic, then verify real parser categories, persisted continuation
+and one loopback main/Python/Docker failure path. No real inference or old-assignment
+retry is authorized by this evidence closure.
+
+References: [closed development result](MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_REPORT.md),
+[closed plan](plans/MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_V2.md).
+
+### BL-20260910-0521-planner-rejection-diagnostic -- 2026-09-10 -- Preserve exact initial planner rejection codes without raw response retention
+
+Status: `Verified`
+
+Scope or hypothesis: Correct the lost initial planner rejection detail for future
+runs after the failed live comparison and independent report are closed. This is
+an observability fix with scoped synthetic verification, not a new routing result.
+
+Decisions: Catch PlannerChecksError only at the initial parse call. Allow exactly
+seven existing fixed codes; unknown, non-string or string-subclass values become
+fixed unknown without serialization. Recognize the seven exact persisted strings
+only with one settled planner request and no admitted plan. Retain historical
+class-only error interpretation. Preserve all old live failures and evidence.
+
+Changes: Updated coding_execution.py and the routing comparison classifier, plus
+four scoped test files. No prompt, parser, limit, database schema, provider option,
+quality gate or routing-policy behavior was changed. Later artifact validation
+keeps generic exception handling. Raw provider response retention remains absent.
+
+Evidence: Independent review cleared both runtime diffs. The focused routing and
+report invocation passed 79 TypeScript tests. The host-only Python invocation
+passed 37 methods with 14 Docker skips. One actual main/HTTP/Python/Docker scenario
+passed with four other scenarios excluded. Node application typecheck passed.
+The fixture made one settled synthetic planner request before persisting
+Worker stopped: routing_plan_rejected:planner_checks_declarations. Assertions
+verified no local/solver call, admitted plan, patch or check; cleanup and exact
+SQLite replay; unchanged workspace; and absence of the raw-response sentinel in
+stored snapshots, events and request data. The 24 archived live source hashes and
+both pre-review/final report hashes remain valid. Exactly two current frozen-source
+paths differ, matching the intended diagnostic change. Verification receipt
+SHA-256 is bb95fa3aeeeb4a31592c3149429974e0a209292aa79d2468a3330e347bba65a9.
+
+Failures or blockers: The first later-artifact Python fixture failed because it
+used final_only instead of the required host_repair_window schedule. That negative
+log remains; correcting the fixture alone produced the passing run. The discarded
+live responses still cannot reveal their exact violation, and all six original
+planner failures remain unchanged. Unknown diagnostics still stop continuation.
+
+Limitations and non-claims: These tests establish rejection categorization,
+confidentiality, settlement and continuation mechanics. They do not prove that a
+real planner will satisfy the contract, useful local coding, preserved quality or
+savings. The fourteen skipped Python Docker methods and four excluded integration
+scenarios were not rerun. No current full-repository, UI or release gate is claimed.
+
+Paid exposure: Zero new real model requests or API charges. The synthetic fixture's
+USD 0.0001 ledger value is test data in its temporary database. Existing live fees
+and stage exposure remain unchanged; no new spending authority is created.
+
+Next gate: Propose a small real planner-contract calibration under separately
+bounded authority before another paired comparison. Do not rerun the closed twelve
+assignments or open untouched confirmation on the strength of diagnostics tests.
+
+References: [live result and diagnostic verification](MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_REPORT.md),
+[readiness](MVP_READINESS.md), [closed plan](plans/MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_V2.md).
+
+### BL-20260910-0651-planner-calibration-approved -- 2026-09-10 -- Authorize a two-request planner-contract calibration
+
+Status: `Approved`
+
+Scope or hypothesis: The owner explicitly requested "go for the small
+planner-contract calibration" after reviewing the failed twelve-episode result.
+Test whether the unchanged planner prompt/parser contract accepts an exposed public
+coding task, and identify the exact trusted parser rule if it rejects.
+
+Decisions: Select ordered build rules then cache discard, with at most two new
+planner-only diagnostic runs, one request each, concurrency one and USD 2 total
+new exposure (USD 1 per run). Stop at the first rejected or uncertain outcome.
+Use the existing direct OpenAI model and public-source inputs; no local, solver,
+repair, generated-check execution, retries or untouched tasks are authorized.
+A successful plan intentionally stops before local execution and is not a coding
+completion. This entry records the current owner request as bounded authority.
+
+Changes: Added the calibration plan. Prepare an isolated private worker wrapper
+and driver that reuse the actual planner/main/Python/Docker/request ledger path.
+The wrapper retains unchanged prompt/parser acceptance and adds bounded call-site
+diagnostics on rejection, with no raw rejected response or exception text retention.
+Freeze source, configuration, executable wrappers, durable approval and historical
+stage rows before dispatch. Do not mutate production runtime code for this probe.
+
+Evidence: The preceding diagnostic fix passed 79 focused TypeScript tests,
+37 host-only Python methods and one main/HTTP/Python/Docker fixture, plus the Node
+typecheck. Those results establish diagnostic mechanics only. The new calibration
+wrapper, driver and launch path still require scoped offline validation and source
+review before live use. No new inference has occurred at this approval entry.
+
+Failures or blockers: The prior policy remains failed, with six rejected planners
+and no local requests. The original rejection subtype is unrecoverable. A malformed
+or unrecognized diagnostic, uncertain usage or cleanup failure must stop this probe.
+
+Limitations and non-claims: Two exposed planner inputs cannot prove executable-test
+usefulness, code quality, local-model ability, savings, owner acceptance or release.
+Keep both assigned tasks in the result even if the second remains unrun.
+
+Paid exposure: This approval permits at most USD 2 new exposure under the existing
+USD 150 stage ceiling. Historical stage maximum exposure USD 15.618024, including
+old unknown exposure and its block hold, remains accounted in the same database.
+Use the previously authorized OpenAI session credential without printing or storing
+it. Public repository excerpts and task text may be sent to OpenAI for these calls.
+No local-model inference is part of this approval.
+
+Next gate: Pass the bounded wrapper/driver/loopback checks, freeze exact artifacts
+and fresh history, verify read-only provider metadata, then execute the one-use
+calibration and close accounting without retry or expanding scope.
+
+References: [calibration plan](plans/MVP_PLANNER_CONTRACT_CALIBRATION_V1.md),
+[failed comparison](MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_REPORT.md).
+
+### BL-20260910-0703-planner-calibration-ready -- 2026-09-10 -- Verify and freeze the bounded planner-only probe
+
+Status: `Verified`
+
+Scope or hypothesis: Prepare the owner-approved planner-contract calibration for
+at most two one-request diagnostic runs. Verify its execution boundaries before
+any real inference; this is not a planner acceptance result.
+
+Decisions: Reuse the production planner prompt, parser, source preparation,
+ExactModel transport, main-owned accounting and Docker cleanup through a private
+wrapper. Stop an accepted plan before local execution. Preserve the original
+parser exception on rejection and add only a fixed code and trusted parser
+call-site function/line, bound to the parser source hash. Leave production files
+and old comparison assignments unchanged.
+
+Changes: Implemented private wrapper, driver, session launcher and focused tests.
+Bound the two original public tasks, exact current runtime sources, private
+components, existing historical admission, reviewed evidence and durable approval.
+The frozen plan has 47 file bindings. Historical maximum exposure remains
+USD 15.618024; all old rows, including six exact accounting-only critic carriers
+and their original cleanup boundaries, remain unchanged. A fresh Docker observation
+confirmed zero SOAR-owned containers.
+
+Evidence: Nine wrapper tests, eight SQLite/claim/cancellation/receipt/gate tests,
+four launcher tests and two actual main/HTTP/Python/Docker fixtures passed. The
+private driver/test strict typecheck passed. Accepted and rejected fixtures each
+settled exactly one synthetic request, retained cleanup/replay and produced no
+local/solver calls, generated-check execution or patch. Independent source reviews
+cleared the final wrapper, launcher and driver. Preparation and freeze exited zero.
+Plan SHA-256 is 53a881b1cc50e276b54acf2c02f51e13275db63b6c767bd67ab37f4d7b881190;
+freeze SHA-256 is 58d65b4918d0acd31fb6132fb2e2025f657f24e912b071f5e209d9fbe2943c0f.
+
+Failures or blockers: Review found cancellation and source/authority validation
+gaps; the final driver latches cancellation across awaited steps, revalidates
+before each dispatch and at closure, and always releases the database and lock.
+Preserved test-only negatives include a Mock argument-index assertion, aliased
+temporary-directory setup, two TypeScript fixture types and an incomplete expected
+usage object. Corrected fixtures passed without relaxing runtime behavior.
+An initial integration log-directory error occurred before test launch.
+
+Limitations and non-claims: These scoped tests establish mechanics, not model
+contract compliance, useful tests, local coding quality, savings or release. No
+real provider request has occurred in this calibration at freeze closure. The
+completed twelve-episode comparison remains failed and untouched tasks stay reserved.
+
+Paid exposure: Zero new actual API fees during preparation. Dispatch authority
+remains at most USD 2 total, USD 1 per run and one planner call per run under the
+existing USD 150 stage ceiling. Fixture ledger amounts are synthetic test data.
+
+Next gate: Verify read-only OpenAI model access with the session credential, then
+launch the frozen one-use calibration. Stop at the first rejection or uncertain
+outcome, retain the unrun assignment if any, and close fees, diagnostics, source
+bindings and historical evidence without retry.
+
+References: [approved calibration plan](plans/MVP_PLANNER_CONTRACT_CALIBRATION_V1.md),
+[preceding failed comparison](MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_REPORT.md).
+
+### BL-20260910-0710-planner-calibration-declaration-failure -- 2026-09-10 -- Stop the small calibration at its first declaration rejection
+
+Status: `Failed`
+
+Scope or hypothesis: Execute the owner's bounded planner-only calibration. Test
+whether the unchanged prompt/parser accepts an exposed public task and locate the
+rejection rule. The diagnostic objective is achieved; planner acceptance failed.
+
+Decisions: Stop after the first request as predeclared. Ordered build rules has
+zero accepted plans; cache discard remains unrun. Retain both assigned tasks.
+Do not use the unused allowance for another request, retry or paired comparison.
+The four untouched tasks remain reserved. Leave production parser/prompt unchanged.
+
+Changes: Read-only OpenAI metadata returned HTTP 200 with the advertised model
+identity. The one-use driver created one new diagnostic run and made one planner
+request through the actual production transport. It closed on the preserved fixed
+rejection code and bounded parser call-site receipt. The launcher and driver both
+exited zero after writing closure. Archived fifty exact source/input/authority files
+and updated the human calibration report and readiness.
+
+Evidence: The request's prepared-input SHA-256 exactly matches the earlier attempt
+on the same public task. JSON/schema, text-size and Python syntax checks passed.
+The source-bound call chain is parse_planner_response line 225, _declared_tests
+line 170, _fail line 70. It emitted routing_plan_rejected:planner_checks_declarations.
+The run ended after 67.806 seconds with one settled request, no other model phase,
+no plan admission, generated-check execution, patch or unknown outcome, and confirmed
+cleanup. Independent read-only audit verified replay and all receipt/request/event
+hashes, all 47 frozen file and approval bindings, and unchanged prior 54 runs and
+549 requests. Audit SHA-256 is
+c3d5fa7cac89d17e90c4de59539b2c820dfc74f3a21694160e4879acaf31ec9d.
+Diagnostic SHA-256 is
+5bd748b4b7c63155d51f1ccfafe344dc7e1f4d154df5c5e39f7104ed938de5d8.
+
+Failures or blockers: Line 170 combines several alternatives: a remaining
+unsupported module-level statement, class decoration, class keywords or a class
+base count other than one. The raw response was not retained, so the particular
+construct and failed predicate are unknown. This is not evidence that the separate
+direct-TestCase base check or final test-count check would pass. The supplied
+visible command has path setup and a main guard that would be invalid if copied
+into generated checks; copying is a hypothesis, not an observed cause.
+
+Limitations and non-claims: The calibration identifies a generated-suite/host
+contract mismatch. It does not establish an overly strict parser, local-model
+weakness, executable-test usefulness, patch quality, savings or release. A successful
+request settlement is not an accepted plan. No original live failure is relabeled.
+
+Paid exposure: One request accounted USD 0.069244 from 1,131 input and 3,236 output
+tokens at the frozen USD 4/20 per million-token rates. The 1,904 reasoning tokens
+are included in output, not charged again. No new unknown or reserved exposure
+remains. Stage maximum exposure is USD 15.687268 including historical unknown
+exposure and its old block hold. These are usage-ledger estimates, not invoices,
+all-time project spending or all-in device economics.
+
+Next gate: Propose a concrete generated-unittest scaffold that distinguishes the
+visible command's host wrapper from checks.source, and finer fixed structural tags
+for the combined rejection branch. Validate the draft against the unchanged parser
+offline before seeking a separately bounded one-call prompt-adherence probe.
+Do not open a full comparison until planner admission works.
+
+References: [calibration result](MVP_PLANNER_CONTRACT_CALIBRATION_REPORT.md),
+[frozen approved plan](plans/MVP_PLANNER_CONTRACT_CALIBRATION_V1.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260910-0745-planner-prompt-probe-approved -- 2026-09-10 -- Bound one prompt-adherence probe after the closed calibration
+
+Status: `Approved`
+
+Scope or hypothesis: Continue the owner's authorized routing MVP iteration with
+one separately versioned planner-only prompt experiment. A complete JSON/unittest
+example and explicit separation from the host visible command may improve adherence.
+The preceding unchanged-prompt calibration remains failed and closed.
+
+Decisions: Approve at most one new planner request and USD 1 on the exposed ordered
+build-rules task, under the existing USD 150 stage ceiling. Stop after acceptance,
+rejection or uncertainty; no local/solver calls, generated-check execution, patch,
+retry, resume or full comparison. This scope implements the owner's continuing
+instruction to explore and iterate, following the explicitly requested calibration;
+it does not treat the old unused second assignment as reusable authority.
+
+Changes: Production changes only the prompt/example constants. The example uses
+self.fail until replaced with assertions for the public task. The private V2
+wrapper adds fixed structural flags and a bounded source-line integer for the
+exact combined declaration branch. Parser functions, schemas and limits remain
+unchanged. New private driver/session artifacts preserve the closed V1 evidence.
+
+Evidence: Nineteen host parser tests and four injected launcher tests pass. The
+AST comparison excludes only the two changed prompt constants and finds all other
+nodes identical to the archived parser; independent review confirms all fourteen
+function/class ASTs unchanged. Twelve wrapper tests pass. Two actual controller,
+loopback-provider, Python and Docker fixtures pass, verifying the new prompt on
+HTTP, exactly one settled synthetic request, stop before local, safe rejection
+flags, cleanup and replay. Fresh historical admission verifies 55 prior runs and
+550 requests, six exact accounting-only critic exceptions and zero owned containers.
+The receipt SHA-256 is
+852124109906ad00fd0bbf9152ea1d33656ac06b34df9dddbd4be667dbf7f62f.
+
+Failures or blockers: V1 established only the combined declaration rule, not the
+specific rejected construct. Copying host setup remains a hypothesis. The V2
+allowance cannot revive V1 or change the earlier comparison's failed result.
+
+Limitations and non-claims: Offline fixtures establish mechanics, not real model
+adherence, useful checks, accepted patches, local capability, savings or release.
+The four untouched tasks remain reserved. No real request has occurred in V2 yet.
+
+Paid exposure: Zero new actual API fees during preparation. Baseline stage maximum
+exposure is USD 15.687268, including historical unknown exposure and block hold.
+The V2 allowance is USD 1 total; usage-ledger estimates are not invoices or all-in
+hardware economics.
+
+Next gate: Finish independent driver/session review and scoped validation, freeze
+exact source/input/configuration and this approval entry, verify read-only model
+access with the session credential, then make the one-use probe. Close accounting,
+cleanup, diagnostics and historical bindings regardless of the result.
+
+References: [V2 probe plan](plans/MVP_PLANNER_CONTRACT_CALIBRATION_V2.md),
+[V1 failure](MVP_PLANNER_CONTRACT_CALIBRATION_REPORT.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260910-0746-planner-prompt-admission-verified -- 2026-09-10 -- Admit one clarified-prompt plan and close the probe
+
+Status: `Verified`
+
+Scope or hypothesis: Verify planner-contract admission on one exposed public task
+under the separately frozen V2 prompt clarification. This is a planner-interface
+milestone; the quality-preserving routing goal remains unfinished.
+
+Decisions: Close the one-call allowance after its response. The accepted plan stops
+intentionally before local coding, generated-check execution or patching. Keep V1's
+rejection and unrun assignment, the earlier failed C/P comparison and all historical
+fees intact. Reserve the four untouched tasks for later confirmation.
+
+Changes: The clarified production prompt returned an admitted implementation plan
+and nine explicit unittest methods. The model replaced the failing example with
+public-task assertions. The private one-use launcher and driver terminated cleanly.
+Archived 57 exact source/input/authority files and the approval entry; updated the
+calibration report and current readiness while preserving V1 history.
+
+Evidence: The real request settled once with 1,341 input and 2,783 output tokens,
+including 1,693 reasoning tokens. Terminal duration was 65.265 seconds. There were
+no local/solver requests, unknown outcomes, generated-check executions or patches;
+cleanup was confirmed. The intentional planner_calibration_complete status is not
+a completed coding task. Independent read-only audit verifies exact request/event
+hashes, replay, all 54 frozen file bindings, 57 archive files plus approval, and
+unchanged prior 55 runs, 550 requests and historical comparison tables. Audit SHA-256
+is b39902181b1260dddee480a748b23c6ef23e219ac1a1d9afe3a99fc12ce35cd4.
+Source inspection found nine task-specific methods and nineteen assertion calls,
+with no copied self.fail placeholder; no generated Python was executed.
+
+Failures or blockers: A root review found that a null structural diagnostic could
+be accepted at the exact combined rejection branch. The final driver requires
+structural details if and only if that trusted branch matches; nine driver tests
+and strict typechecking passed after the correction. Two preparation-only errors
+are retained: the root receipt auditor assumed an incorrect common schema, and
+a freeze invocation supplied a placeholder gate hash. Both failed before dispatch;
+corrected validation passed. The first final-log validation rejected an out-of-order
+entry timestamp; the new, uncommitted entry label was corrected without changing
+frozen approval history. The launch made one request with no inference retry.
+
+Limitations and non-claims: One admitted exposed response does not establish general
+adherence or that the prompt change caused the improvement. Parsed tests and source
+inspection do not establish executable-test usefulness, accepted patches, local
+capability, preserved quality, savings or release. Offline verification remains
+scoped: 19 parser tests, 12 wrapper tests, nine driver tests, four launcher tests,
+two actual loopback/Docker fixtures and the private driver typecheck. No full-suite
+or release gate was run for this prompt change.
+
+Paid exposure: New accounted API fee is USD 0.061024 at the unchanged USD 4/20 per
+million-token rates; reasoning is part of output, not an additional charge. Both
+planner probes together account USD 0.130268. No new reserved or unknown exposure
+remains. Stage maximum exposure is USD 15.748292, including historical unknown
+exposure and the original block hold; it is not an invoice, all-time spending or
+all-in device economics.
+
+Next gate: Prepare one separately bounded complete cloud-plan/local coding episode
+using the clarified prompt on an exposed task. Require independent patch checks
+and source review, account for all planner/local/fallback work, and stop on planner
+rejection or uncertain execution. A fresh preserved-quality comparison remains
+necessary before any savings claim. This closed calibration cannot resume.
+
+References: [calibration results](MVP_PLANNER_CONTRACT_CALIBRATION_REPORT.md),
+[V2 frozen plan](plans/MVP_PLANNER_CONTRACT_CALIBRATION_V2.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260910-0800-planner-local-execution-approved -- 2026-09-10 -- Authorize one complete coding episode after planner admission
+
+Status: `Approved`
+
+Scope or hypothesis: Continue the owner's instruction to implement routing that
+preserves quality and saves money. Test whether the clarified planner prompt can
+support one complete cloud-plan/local coding episode on an exposed public task.
+The prior one-call planner probe is complete and its allowance remains closed.
+
+Decisions: Approve one new ordered-build-rules episode at USD 3 maximum under the
+existing USD 150 stage ceiling, concurrency one, no retry or resume. Use the normal
+production cloud_plan_local policy, including its possible single cloud recovery.
+Retain 600 seconds, forty total model requests, one planner request and at most
+24 local requests. Count all costs, failures and fallback work. No previous plan,
+patch, critique or private evaluator material enters generation. The four untouched
+tasks remain reserved; no full comparison is opened by this single episode.
+
+Changes: Prepare a separately versioned one-use execution driver and session
+launcher using the production worker directly. The launcher checks both provider
+identities through read-only metadata and sends the session key only to OpenAI.
+Freeze the existing independent evaluator and its qualified controls before any
+new candidate exists. Normal runtime checks remain distinct from independent
+acceptance and a neutral source review.
+
+Evidence: The preceding audited probe admitted one plan with nine parsed tests,
+zero local requests and zero patches. Current launcher orchestration passes five
+injected tests for both metadata checks, key separation, cancellation, source drift
+and no retry. Independent evaluation preparation verifies the original qualified
+positive/negative controls and exact source/evaluator bindings without new model
+or Docker calls. Existing production integration cases cover the needed local
+repair and cloud-recovery paths and are being rechecked before the final freeze.
+
+Failures or blockers: The first read-only history helper rejected an expected-count
+copy error (560 instead of 551 requests). After correction, the cleanup gate saw
+containers belonging to concurrent integration fixtures and stopped before writing
+history. Capture the fresh 56-run/551-request baseline only after fixture completion;
+do not remove another task's containers or infer cleanup from intent.
+
+Limitations and non-claims: Preparation and planner admission do not establish
+local completion, useful checks, patch quality, savings, device payback or release.
+Even a fully accepted result from this one exposed task is development evidence,
+not a preserved-quality comparison. A fallback-produced patch alone does not
+establish the value of local work.
+
+Paid exposure: No new real model requests during preparation. The previously
+verified stage maximum exposure is USD 15.748292, including historical unknown
+exposure and block hold. New execution authority is USD 3 total; all earlier fees
+and unfinished outcomes remain in the same database. Local API charges are zero
+under the existing owned-device accounting, not proof that device operation is free.
+
+Next gate: Complete scoped runtime/driver checks and independent source review,
+obtain a fresh zero-container observation and bind all historical rows, then freeze
+this approval, exact implementation, public inputs and private evaluator identities.
+Verify fresh provider metadata and execute once. After terminal cleanup, evaluate
+only the exact submitted candidate, obtain neutral review and close full accounting
+before deciding whether a fresh comparison is warranted.
+
+References: [single-episode plan](plans/MVP_PLANNER_LOCAL_EXECUTION_V1.md),
+[planner calibration](MVP_PLANNER_CONTRACT_CALIBRATION_REPORT.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260910-0810-planner-local-accepted-latency-limit -- 2026-09-10 -- Accept one local-produced patch and retain the latency failure boundary
+
+Status: `Verified`
+
+Scope or hypothesis: Run the one approved complete production cloud-plan/local
+episode after planner admission. Establish independently accepted local work on
+one exposed task and measure complete request cost and duration. The wider routing
+quality/cost goal remains active and unfinished.
+
+Decisions: Close the one-episode allowance after one attempt, with no retry. Count
+one accepted patch only after exact runtime, independent evaluator and neutral
+source-review bindings agree. Do not call the lower historical API charge a fresh
+savings estimate. Preserve the original failed comparison and planner calibrations;
+the four untouched tasks remain reserved.
+
+Changes: The actual production worker generated a fresh cloud plan, then the local
+model changed four allowed files and submitted without cloud recovery. Public and
+nine generated final tests passed. The pre-frozen independent evaluator passed all
+five methods with cleanup, and a fresh neutral reviewer found no material defect.
+Created separate immutable acceptance and timing receipts and updated current
+readiness and the execution report. No production code changed during this probe.
+
+Evidence: One planner and nine local requests settled, with no cloud-solver/scout
+requests, unknown outcomes or reserved exposure. Runtime was 159.149 seconds.
+Independent audit verifies exact replay, source/patch/final-check freshness, 64
+frozen file bindings, 67 archive files plus approval, and unchanged prior 56 runs,
+551 requests and seven comparison tables. The stage now contains 57 runs and 561
+requests. Runtime audit SHA-256 is
+8d9a4a483252b95241d24615a0f3e647eb74c5cee937827e58e90c882e208228.
+Independent acceptance-evidence join SHA-256 is
+b5c6bda91abfc63ddc4fc3b3d9e481fef5096b84fb79600950b3f378fbbf3f55.
+The separate evaluator ran once, made no model request or database mutation, and
+kept all seventeen preparation bindings intact.
+
+Failures or blockers: The first local tool command exited two; later local work
+completed and the exact final patch passed independent evaluation. The first host
+checkpoint already passed after local call four, yet five more local requests
+occurred with unchanged source. Three commands combined unittest with status or
+listing. Their purpose is not inferred from exit codes alone. Request round trips
+consumed 74.684 seconds in planning and 72.182 seconds locally, including 15.446
+seconds after the first passing checkpoint; 12.283 seconds were outside request
+intervals. The earlier cloud episode on this same task took only 73.812 seconds.
+The native prompt's exclusive check-tool wording also needs alignment with the
+automatic host-check schedule, but it is not proven to have caused repeated actions.
+
+Limitations and non-claims: This proves one independently accepted exposed patch
+with local contribution, not general quality, necessity of the planner, an optimal
+route, savings, hardware payback or release. The historical charge was USD 0.144580;
+the new charge is 46.5 percent lower but duration is 115.6 percent higher. This is
+not a fresh pair and cannot pass the existing complete comparison/latency gate.
+Scoped preparation passed eight driver tests, five launcher tests, two production
+integration cases and strict driver typechecking. The separately bound evaluation
+runner passed twelve synthetic checks and strict typechecking. Three integration
+cases were excluded and no full-suite/release gate was run.
+
+Paid exposure: New usage-ledger API fee is USD 0.077284 from 1,341 input and 3,596
+output planner tokens at the frozen USD 4/20 per million rates. The 2,339 reasoning
+tokens are included in output. Local usage was 45,921 input and 2,816 output tokens,
+including 17,600 reported cache-read tokens, at zero API fee under the existing
+owned-device accounting. Stage maximum exposure is USD 15.825576, including prior
+unknown exposure and block hold. These are neither invoices nor all-in economics
+for the owner's USD 3,500 device.
+
+Next gate: Prepare a separately bounded local_first episode on the same exposed
+public task with fresh generation and the same independent evaluation. Test whether
+up-front cloud planning is necessary before scaling another full comparison. Also
+clarify automatic-check acknowledgment without relaxing submission guards, and
+measure any change. A complete fresh preserved-quality cost/latency comparison
+remains required before calling the routing goal achieved.
+
+References: [execution result](MVP_PLANNER_LOCAL_EXECUTION_REPORT.md),
+[frozen one-episode plan](plans/MVP_PLANNER_LOCAL_EXECUTION_V1.md),
+[planner calibration](MVP_PLANNER_CONTRACT_CALIBRATION_REPORT.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260910-0820-local-first-execution-approved -- 2026-09-10 -- Approve one local-first policy ablation
+
+Status: `Approved`
+
+Scope or hypothesis: Within the owner's continuing routing MVP implementation and
+evaluation authorization, test whether the exposed ordered-build-rules task can
+produce an independently accepted patch through the existing local_first policy.
+This is one new episode; all previous allowances remain closed.
+
+Decisions: Remove the up-front cloud plan and its generated-test feedback together.
+Keep the original public source, objective, scope, visible command, production
+code, providers, model controls, image and independent evaluator unchanged. Use
+host_repair_window, at most 24 local requests, 40 total requests, 600 seconds,
+concurrency one and one normal cloud recovery. No retry, resume or replacement.
+Reserve the four untouched confirmation tasks. Require an exact root gate and
+source/evaluator freeze, followed by both providers' metadata readiness.
+
+Changes: Prepared a private claim-once driver, session launcher and independent
+evaluation runner. The evaluator and invocation will be frozen before generation.
+Added two private production integration fixtures without changing product code.
+The new historical admission binds 57 prior runs and 561 requests, with zero owned
+containers and six exact accounting-only critic exceptions.
+
+Evidence: Nine driver tests, five launcher tests, thirteen evaluator synthetic
+checks and two production HTTP/Python/Docker integration cases passed, with scoped
+strict typechecks. Independent source review cleared all three runners and checked
+the 24 unchanged production files and 17 original evaluator bindings. Integration
+verified local completion and normal recovery, no planner/generated tests, exact
+settlement, final visible-check freshness, replay and cleanup. Review receipt hash
+is 4380bdc9a6099287a42227ea2c1e0e6d6ca66248c51f310b07e1db1ddf9ceaf5;
+integration receipt hash is
+1addcb47a2daf75c72652b873f37ef34540300409ec152135b3968f9c1c1b799.
+
+Failures or blockers: Two private fixture attempts failed before final verification:
+one retained an incompatible plannerMode setting, which production rejected; the
+other compared JSON property order after both runtime outcomes completed. Only
+fixture configuration/assertions were corrected; failure logs remain preserved.
+There is no remaining pre-freeze review blocker.
+
+Limitations and non-claims: This compares whole policies, not the separate causal
+effects of planning and generated tests. No new real inference has occurred. Scoped
+verification proves mechanics, not model quality or savings. A fresh submitted
+candidate must pass the unchanged independent evaluator and neutral source review;
+runtime completion alone does not establish acceptance. Historical cost/time are
+descriptive context, not a fresh paired comparison. No full-suite or release claim.
+
+Paid exposure: Approve at most USD 3 new exposure, including normal cloud recovery,
+under the existing USD 150 stage ceiling. Prior stage maximum exposure is USD
+15.825576, including unknown exposure and block hold. Local API fee is zero under
+the owned-device convention; device and operating costs remain separate. Metadata
+readiness must succeed before inference; credentials remain session-only.
+
+Next gate: Freeze exact reviewed inputs and this approval, then dispatch the single
+episode. Preserve every request and failure, confirm terminal cleanup, evaluate
+only its immutable submitted patch and record the independent acceptance join.
+Keep the broader preserved-quality cost/latency comparison gate unchanged.
+
+References: [local-first plan](plans/MVP_LOCAL_FIRST_EXECUTION_V1.md),
+[prior planned-local result](MVP_PLANNER_LOCAL_EXECUTION_REPORT.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260910-0833-local-first-quality-rejection -- 2026-09-10 -- Reject the fast local-first patch after independent review
+
+Status: `Verified`
+
+Scope or hypothesis: Complete the one approved local_first ablation on the exposed
+ordered-build-rules task. Measure its whole-policy cost/time and independently
+judge the submitted patch. The wider routing quality/cost goal remains active.
+
+Decisions: Close the allowance after one attempted episode, with no retry, resume
+or repair. Record zero accepted patches despite runtime completion and passing
+checks. Preserve the earlier planned-local result and all failed historical
+assignments. Keep the four untouched confirmation tasks reserved. Current check
+and progress signals are insufficient to detect this semantic failure.
+
+Changes: The unchanged production local_first policy produced a submitted patch
+in three allowed implementation files without a cloud request or generated test
+suite. Added a separate immutable acceptance receipt and result report. A fresh
+neutral source reviewer found a parser defect. The root recorded the same source
+observation before receiving that review and reproduced two variants in a separate
+network-isolated, read-only Docker diagnostic. No submitted artifact, production
+source, original evaluator or frozen input was changed.
+
+Evidence: Seven local requests settled, with no planner, cloud, scout, fallback,
+unknown request or reserved exposure. Runtime was 44.184 seconds. The final visible
+command executed two tests, and the unchanged independent evaluator passed all
+five methods with verified harness and cleanup. Exact replay, final source/check
+freshness, all 70 frozen files, 73 archived files plus approval, and the original
+57 runs/561 requests are preserved. Current ledger totals are 58 runs/568 requests.
+Runtime audit SHA-256 is
+5bc59b97c5248806e7bc5a8f68694b58cdb3c2ecd60299493386b7d53fca74a9.
+Independent source-review receipt SHA-256 is
+393ff40930ccae77cdeeefd77ec44a1ab4bd559b891b7242d882d188f8bde94c.
+Final rejection receipt SHA-256 is
+6700504d46b86dd5671c187fadb2ff7e55f16e43b3942e1e5c405633ed3fdcc9.
+The separate independent evidence join confirms the rejected verdict and preserved
+original semantic-null receipts. Its SHA-256 is
+a05a72f047a0755c884b93a273344a8b9e2ac91fedeb545d19978b0650085315.
+
+Failures or blockers: After removing a leading exclusion marker, the candidate
+parser applies leading-backslash escape handling to the remaining pattern and
+resets inclusion to true. This changes exclusions with a backslash before either
+marker into positive rules and can select paths the public requirement excludes.
+Both separately constructed semantic cases failed in Docker, with unchanged
+candidate/package hashes and confirmed cleanup. Diagnostic process exit zero
+means observations were reported, not that its cases passed. The original frozen
+five-test suite missed the interaction and remains unchanged. Earlier private
+fixture configuration/assertion failures remain recorded in the approval entry.
+The read-only evidence join initially assumed the preceding archive's map shape;
+its traversal was corrected for this archive's array before the successful audit,
+with no evidence or database mutation.
+
+Limitations and non-claims: One attempted, zero accepted. The post-generation
+public-requirement diagnostic is separate from the pre-frozen evaluator. No new
+feedback was sent to the model. Removing the planner also removes generated-check
+feedback, so this is not an isolated causal test of planning. Historical cloud and
+planned-local episodes are descriptive context only. Scoped preparation passed
+nine driver tests, five launcher tests, thirteen evaluator synthetic checks, two
+production integration fixtures and strict typechecks. No full-suite, release,
+general routing quality or savings claim. No new test file was added, but the task
+did not require one and the visible checks were nonempty.
+
+Paid exposure: New accounted API fee and reserved exposure are both USD zero.
+Local usage was 20,487 input and 1,578 output tokens, including 3,200 cache-read
+tokens. Stage maximum exposure remains USD 15.825576 including historical unknown
+exposure and block hold. Local zero API fee is not zero operating or device cost.
+Request round trips consumed 36.114 seconds; other elapsed time was 8.070 seconds.
+The fast rejected patch cannot count toward preserved-quality savings.
+
+Next gate: Qualify a separately versioned public-requirement interaction suite
+against existing candidates and controls before another live experiment. Use it
+to test a bounded feedback/repair or selective review policy. Preserve original
+results and classify changed feedback as development input, requiring fresh
+confirmation elsewhere. Do not scale the comparison or change the default route
+until complete quality, cost-per-accepted-task and latency evidence supports it.
+
+References: [local-first result](MVP_LOCAL_FIRST_EXECUTION_REPORT.md),
+[frozen local-first plan](plans/MVP_LOCAL_FIRST_EXECUTION_V1.md),
+[preceding planned-local result](MVP_PLANNER_LOCAL_EXECUTION_REPORT.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260910-0840-interaction-qualification-approved -- 2026-09-10 -- Qualify public interaction checks before another routing experiment
+
+Status: `Approved`
+
+Scope or hypothesis: Under the continuing owner goal, qualify a new public-only
+interaction suite for the exposed ordered-build-rules requirement. Determine
+whether coherent requirement combinations detect the rejected local-first patch
+and preserve valid controls before another live policy experiment.
+
+Decisions: Approve preparation, independent semantic/mechanics review and exactly
+five sequential Docker evaluations after an exact source/input/runner gate. Include
+original baseline, qualified reference, historical prepared cloud, planned-local
+and rejected local-first artifacts. Freeze the suite before executing any artifact.
+No model requests, repairs, production policy changes or old-assignment retries.
+Before freezing, clarify the control gate: an unexpected baseline pass or reference
+failure stops this batch, preserves receipts and leaves later candidates unrun.
+Only after both controls qualify do complete candidate semantic failures permit
+continuing the remaining evaluations. An incomplete/unverified harness, changed
+input or uncertain cleanup also stops this batch.
+
+Changes: Added a bounded qualification plan and delegated independent suite
+preparation and source review. Separately review existing compact-critic and repair
+mechanics/costs to select the smallest useful next policy experiment. The suite
+comes only from the public objective; gold/reference implementation bodies and
+untouched tasks are excluded from design. Reference bytes may be mechanically
+bound and applied for the isolated positive control.
+
+Evidence: Current checkout preserves the preceding negative acceptance receipt
+6700504d46b86dd5671c187fadb2ff7e55f16e43b3942e1e5c405633ed3fdcc9
+and independent join
+a05a72f047a0755c884b93a273344a8b9e2ac91fedeb545d19978b0650085315.
+The current production router escalates on observed check/progress failures; the
+last candidate submitted with passing checks, so no such signal detected its bug.
+No new qualification result exists yet.
+
+Failures or blockers: The original independent suite missed exclusion/escape
+precedence. This qualification may reveal defects in older controls too. Preserve
+all outcomes; do not adjust expected semantics or references merely to pass.
+The earlier compact-critique/repair policy accepted only four of six candidates,
+so its cost advantage remains conditional and cannot be assumed to preserve quality.
+
+Limitations and non-claims: Post-generation public interaction checks are exposed
+development evidence, not a replacement frozen evaluator or independent held-out
+quality proof. Existing candidate classifications may need separately recorded
+corrections; never rewrite original receipts. This stage does not implement a new
+selector, prove cheap critique is reliable, or establish savings or release.
+
+Paid exposure: Zero new API authority for this stage. No credentials or model
+requests. Five resource-bounded, network-disabled Docker evaluations are authorized
+with one-use batch/artifact claims and confirmed cleanup. Historical stage maximum
+exposure remains USD 15.825576; all prior 58 runs and 568 requests remain read-only.
+
+Next gate: Independently clear and freeze the exact suite, runner and five artifact
+identities, then evaluate once. Use the observed controls and cost review to choose
+a separately bounded feedback/repair or review experiment. Preserve full quality,
+cost-per-accepted-task and latency requirements before confirmation elsewhere.
+
+References: [qualification plan](plans/MVP_ROUTING_INTERACTION_QUALIFICATION_V1.md),
+[local-first rejection](MVP_LOCAL_FIRST_EXECUTION_REPORT.md),
+[earlier critique/repair failure](MVP_ROUTING_REPAIR_REPORT.md).
+
+### BL-20260910-0900-interaction-format-correction-approved -- 2026-09-10 -- Preserve the stopped qualification and approve its format correction
+
+Status: `Approved`
+
+Scope or hypothesis: The first interaction qualification evaluated only the
+baseline, then stopped before reference execution. Correct the reference patch's
+representation without changing its resulting source, reuse the completed baseline
+control, and separately evaluate the four previously unevaluated artifacts.
+
+Decisions: Close V1 without retry or resume. Approve offline canonicalization,
+source-equivalence proof, independent review and a new four-evaluation batch after
+exact root approval. Keep suite semantics and SHA unchanged. Preflight all four
+patch scopes before the new batch claim. Require reference success before C/P/L;
+stop on incomplete harness, control failure, drift or uncertain cleanup. Do not
+rerun the baseline, edit original reference bytes, relax production scope parsing
+or alter old classifications. No model request or production policy change.
+
+Changes: Added a separate correction plan. Delegate mechanical Git-diff rendering
+and full source/mode equivalence, a four-artifact runner with reused baseline
+bindings, and independent review. The proposed compact-critic pair now has neutral
+complete-source inputs prepared offline; it remains unapproved for paid dispatch
+until controls and request mechanics are qualified.
+
+Evidence: V1's owned execution handle exited one. Baseline executed twelve methods,
+with zero passing methods, fourteen failure reports, no errors/skips and confirmed
+harness/cleanup. No reference claim or log exists. Read-only inspection reports
+unsupported_or_malformed_patch: the original reference has ordinary unified-diff
+headers, while the production scope parser requires Git-diff headers. Its original
+SHA remains 9a1a9101bd06fdfe470c1a86ef9070c303d61db17955a71eae47d34d1a806876.
+The stopped V1 result SHA is
+6c3df0817737d4f328686189344c897cac3a68407d2797dd4057fb2f4fd6e9e8.
+V1 preserved all eighty-seven frozen bindings and ledger
+bcfd5709ccad0a5b33567f75f11d1c52ea4ccae71c4184e1b1c56aa3dba20ba7.
+
+Failures or blockers: V1 preparation checked model-patch scope but omitted the
+reference representation check; the runtime correctly stopped before executing it.
+The new preflight must catch this for every artifact before claiming evaluation.
+An earlier synthetic fixture wrongly expected an invalid cleanup receipt to return
+an infrastructure classification; the fixture was corrected to expect schema
+rejection. Production contracts were not relaxed. No reference behavioral result
+or completed candidate comparison exists yet.
+
+Limitations and non-claims: Canonicalization is acceptable only if complete source
+and modes are identical under both patch representations. Changing patch bytes
+alone is not evidence of equivalent behavior. Post-generation interaction coverage
+remains development input, not original held-out acceptance. The critic pair's
+seven passing preparation tests and strict typecheck verify inputs only; no critic
+response, repair or prospective routing result exists.
+
+Paid exposure: Zero new API authority. Four new bounded Docker evaluations only,
+plus reuse of the completed baseline receipt. Stage maximum exposure remains USD
+15.825576 and all fifty-eight runs/568 requests stay read-only. The proposed critic
+pair's exact reservation sum is USD 0.518396; this is a future diagnostic ceiling,
+not spending, predicted cost or authority to dispatch it.
+
+Next gate: Verify reference source equivalence and all four scopes, independently
+clear and freeze the corrected runner, then execute its single batch. If controls
+qualify, finish offline independent review of the neutral critic inputs before
+preparing a separately approved two-request signal calibration. Preserve the
+quality, cost-per-accepted-task and latency gates for an integrated fresh policy.
+
+References: [format correction plan](plans/MVP_ROUTING_INTERACTION_QUALIFICATION_V2.md),
+[original qualification plan](plans/MVP_ROUTING_INTERACTION_QUALIFICATION_V1.md),
+[proposed critic calibration](plans/MVP_POST_DRAFT_CRITIC_CALIBRATION_V1.md).
+
+### BL-20260910-0915-interaction-qualification-verified -- 2026-09-10 -- Qualify the interaction suite while preserving the stopped first batch
+
+Status: `Verified`
+
+Scope or hypothesis: Complete the separately approved public-requirement
+interaction qualification on the exposed ordered-build-rules task. Determine
+whether the added coverage detects the rejected local-first patch while preserving
+reference and previously acceptable candidate outcomes. This is development
+coverage, not an integrated routing experiment or held-out benchmark.
+
+Decisions: Close V1 without retry or resume and retain its completed negative
+baseline. Complete V2 as exactly four sequential evaluations after all four strict
+scope preflights. Preserve the original suite bytes, evaluator, model candidates,
+classifications and four untouched tasks. Qualify the added suite from the complete
+baseline/reference controls; keep C/P/L observations descriptive. Do not claim a
+new routing policy, critic reliability, repair success or savings.
+
+Changes: Mechanically canonicalized the historical reference patch representation
+without changing any resulting file bytes or executable modes. V2 binds that
+complete equivalence proof and reuses the exact V1 baseline receipt/log. Added a
+public qualification result, updated only the readiness summary and archived 123
+bound files plus the exact approval entry, covering all 103 V2 frozen bindings and
+its gate, preparation, verification, review and final results. Original and archived
+bytes were rechecked; the archive manifest SHA is
+2b326bdf212b266d75e94dcc9665ed2c4791a530abe28684a00c2b1a993fee00.
+
+Evidence: The retained baseline passed zero of twelve methods, with twelve unique
+failed methods and fourteen assertion reports. V2 reference, historical prepared
+cloud and accepted planned local each passed twelve of twelve. Rejected local
+first passed eight of twelve: four unique failed methods and five assertion
+reports. Every evaluator completed its nonempty harness with zero errors/skips and
+confirmed cleanup. V2 evaluator durations were 733, 626, 660 and 665 milliseconds,
+summing to 2,684 milliseconds; retained baseline duration was 603 milliseconds.
+These are check durations, not agent-generation latency. Twenty V1 guard tests,
+twenty-six V2 guard/metadata checks and scoped strict TypeScript checks passed.
+Independent final audit verified 103 frozen bindings, including 87 V1 and 17
+original qualified bindings, with overlapping membership, exact claims/receipts/
+logs, reference equivalence and historical identities. All 58 runs and 568 requests
+remain unchanged. Result SHA is
+ce9a6fdf5a561960e757be1479647900267d8f481abcbb3a1dce34a5d4f32394;
+independent final audit SHA is
+fe3109209d8e1a811a0891fd0daddf112621a2da30d141c552d952dd9cba0734.
+
+Failures or blockers: V1 checked only model-patch scope during preparation. Its
+runtime rejected the reference's ordinary unified-diff format before a reference
+claim, log or execution, then stopped. No V1 reference behavior or C/P/L outcome
+was measured. V2 corrected representation and preflight coverage; it did not relax
+production scope parsing or rerun the baseline. The initial invalid-cleanup fixture
+expectation was corrected to require schema rejection. Two final-audit attempts
+stopped on path/inventory assumptions; only audit assumptions were corrected, with
+no runtime artifact or database change. These failures and the stopped V1 result
+remain preserved. There are no new control failures or incomplete V2 evaluations.
+
+Limitations and non-claims: The suite was authored after a known semantic failure
+using public requirements. Its success is exposed development evidence, not a
+replacement for the original five-test evaluator or proof of complete behavioral
+coverage. No source body or expected answer from the reference informed the suite.
+There is no held-out confirmation, isolated causal planner benefit, complete fresh
+quality/cost/latency comparison, hardware payback or release claim. At this closure,
+the neutral two-request critic signal calibration has inputs prepared but remains
+Proposed, not approved for paid dispatch or executed. It has no response or repair
+result, and must not be presented as an implemented or verified selector.
+
+Paid exposure: Zero new API fee, provider/model request, database write or stage
+run. V1 executed one baseline evaluation; V2 executed four, with no retry or baseline
+rerun. Ledger SHA remains
+bcfd5709ccad0a5b33567f75f11d1c52ea4ccae71c4184e1b1c56aa3dba20ba7.
+Stage maximum exposure remains USD 15.825576 under the existing accounting
+convention. The proposed critic pair's reservation is not spending or authority.
+
+Next gate: Independently review the prepared neutral critic inputs and exact
+request/stop/accounting mechanics, then obtain and durably record any separate
+paid two-request calibration authority. Judge whether its signal distinguishes a
+known defective candidate from a better candidate before an integrated fresh
+policy experiment. Any interaction-check feedback is development input and
+requires fresh confirmation elsewhere. Preserve quality, cost per accepted task
+and latency requirements before changing or scaling the default route.
+
+References: [qualification result](MVP_ROUTING_INTERACTION_QUALIFICATION_REPORT.md),
+[format correction plan](plans/MVP_ROUTING_INTERACTION_QUALIFICATION_V2.md),
+[original qualification plan](plans/MVP_ROUTING_INTERACTION_QUALIFICATION_V1.md),
+[proposed critic calibration](plans/MVP_POST_DRAFT_CRITIC_CALIBRATION_V1.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260910-0920-postdraft-critic-signal-approved -- 2026-09-10 -- Approve two fixed post-draft critiques after control qualification
+
+Status: `Approved`
+
+Scope or hypothesis: Under the continuing owner routing implementation goal,
+test whether one compact cloud critique can distinguish the unchanged rejected
+local-first draft from the accepted planned-local control on the same exposed
+task, using complete ordinary public context. This is a diagnostic signal gate
+before integrating another routing state.
+
+Decisions: Approve exactly two independent one-response requests in the frozen
+opaque order, with no tools, repairs, format correction, retries or earlier-run
+resumption. Enforce the exact USD 0.518396 aggregate reservation ceiling. Require
+one read-only cloud metadata receipt to be no older than ninety seconds before
+each request; expiration leaves remaining work unrun without refresh. Unknown
+fees, drift, cancellation or uncertain transport stop remaining dispatch. A
+settled malformed answer remains a paid failed signal and does not erase its fee.
+
+Changes: Added a private bounded driver and session launcher using unchanged
+production request admission, accounting and one-response transport. Inputs are
+complete public objective, original visible command, patch and baseline/candidate
+source, with neutral identities. New interaction checks, prior verdicts, costs,
+route labels, diagnostic examples, evaluator gold and reference patches are absent
+from both model bodies. No production policy implementation changed in this stage.
+
+Evidence: V2 qualification result
+ce9a6fdf5a561960e757be1479647900267d8f481abcbb3a1dce34a5d4f32394
+and independent audit
+fe3109209d8e1a811a0891fd0daddf112621a2da30d141c552d952dd9cba0734
+confirm reference/C/P twelve of twelve and L eight of twelve methods. The neutral
+input preparation passed seven tests and strict typecheck; the new driver passed
+eight tests and strict typecheck; the launcher passed four orchestration tests
+and one separate exact-argument test. Independent runtime review
+bbfeb3c046f1ddc394662295b1ee0daa726080142cd31c360d4e616bf82c1991
+found no blocker. The new exact driver plan SHA is
+cde9a4f741c9cf747c1249ecbc1727a9bfe349e22c78cbc9d3ed0aca465946d5,
+with 132 source/evidence bindings. Fresh historical admission
+5d9d97a7d326b6fb1a14d828a8e26f66496ba3b73bacfb6835a3ab4f01e6919e
+verifies all prior 58 runs/568 requests and six exact accounting-only exceptions.
+No critic request has been made at this approval boundary.
+
+Failures or blockers: The earlier compact-critique/repair experiment accepted
+only four of six patches; the current pair must qualify its signal independently.
+Retained offline preparation/typecheck and qualification representation failures
+remain recorded in private verification evidence and the preceding build entries.
+The real new driver transport has not yet run; synthetic mechanics and source
+review are not a live success claim. A metadata-expired incomplete pair cannot be
+interpreted as a semantic critic success or failure.
+
+Limitations and non-claims: Two fixed artifacts on one exposed task cannot establish
+critic reliability or prospective selection quality. Source-supported findings
+and no invented defect in the valid control are required after both responses
+are frozen; a generic repair verdict alone is insufficient. Critic verdicts are
+not patch acceptance. No repair, integrated checkpoint, fresh comparison, held-out
+quality, cost-per-accepted-task savings, device economics or release is proven.
+
+Paid exposure: At most two new OpenAI gpt-5.6-sol requests, medium reasoning,
+default tier, explicit cache mode, 8,192 output tokens, frozen USD 4/20 per million
+rates, each body at most 128,000 bytes. Exact prepared reservations are USD
+0.241256 and USD 0.277140, total USD 0.518396; no request exceeds USD 0.70 and the
+stage ceiling remains USD 150. Prior maximum stage exposure USD 15.825576 remains
+accounted, including historical unknowns. Maximum stage exposure after this pair
+is USD 16.343972. Two accounting-only carriers cannot claim completed patches,
+checks or manufactured container cleanup. Use the existing user-authorized key
+only through a non-echoing session transfer; never persist or log it.
+
+Next gate: Create the root gate binding this exact durable entry, plan and review
+evidence, freeze, and dispatch once through the owned session. Settle and audit
+all fees and prior records before semantic adjudication. Advance only from a
+supported defect in L and no invented defect in P; any incomplete pair remains
+inconclusive. A successful signal permits separate integration and bounded repair
+work, followed by final independent acceptance and the full fresh comparison gate.
+
+References: [critic calibration plan](plans/MVP_POST_DRAFT_CRITIC_CALIBRATION_V1.md),
+[interaction qualification](MVP_ROUTING_INTERACTION_QUALIFICATION_REPORT.md),
+[local-first rejection](MVP_LOCAL_FIRST_EXECUTION_REPORT.md),
+[earlier critique and repair failure](MVP_ROUTING_REPAIR_REPORT.md).
+
+### BL-20260910-0930-postdraft-critic-signal-verified -- 2026-09-10 -- Compact critique distinguishes the fixed valid and defective artifacts
+
+Status: `Verified`
+
+Scope or hypothesis: Close the exact approved two-request post-draft calibration
+and determine whether the paid critic signal distinguishes the unchanged local-first
+and planned-local artifacts from complete ordinary public context.
+
+Decisions: The fixed-pair signal gate passes. The local-first critique identifies
+the supported material exclusion/escape parser defect and a correct repair
+direction. The planned-local critique accepts the control with no invented defect.
+Both judgments are independently adjudicated against actual source and the public
+requirement. This is permission to explore the smallest integrated policy, not
+approval of either a repaired artifact or general critic reliability. Preserve
+all earlier negative results and do not rerun the exposed pair.
+
+Changes: Completed two real one-response critiques through the frozen driver and
+owned non-echoing session. Added immutable accounting, archive, semantic and root
+result receipts, a public result report, and the current readiness summary. A
+separate read-only implementation review maps an opt-in local draft, one compact
+critique and optional bounded local repair to existing production seams. No
+production policy or default behavior changed during this calibration.
+
+Evidence: Owned session 64567 exited zero with two valid responses and no unrun
+assignment. Root result SHA
+4046ddd81c184620689128cc1ed4929f9853023e2de7f06f5421d1efa1456a5f
+joins accounting audit
+ee48c2f5481811806de36623f2adb99a69096cf5eaa3bb95b2d755d080887c16
+and independent semantic review
+7fafb0bd6620cadc66d1987c3769254fae34ade121cd28674b52f95f0a9c031d.
+Both request bodies, claims, usage, events, replay and terminal results match.
+All 132 plan bindings and all prior 58 runs/568 requests remain unchanged. The
+current ledger has 60 runs/570 requests and SHA
+8c59a88b4314b0fe1b6f077d7596226ec7cf8dacc6476062a9e8ead4d119d689.
+The 136-file archive plus exact approval is separately verified. Batch elapsed
+32.411 seconds; sequential request round trips were 20.497 and 11.141 seconds.
+
+Failures or blockers: No new unknown fee, transport failure, invalid response,
+metadata expiry or unrun assignment occurred. The prior local-first artifact is
+still rejected; no repair was attempted here. The earlier four-of-six acceptance
+failure of compact critique plus repair remains unchanged. A correct finding and
+repair direction do not establish that the local model will successfully execute
+that repair within useful cost and time limits.
+
+Limitations and non-claims: The pair is selected from one exposed task. Independent
+adjudication used source and prior context; it is not a new blinded or held-out
+quality estimate. No candidate code ran during this signal stage. The two new
+carriers are accounting-only and explicitly lack patch/check/cleanup completion
+claims. No new patch was accepted, no integrated routing policy was tested, and no
+fresh savings, latency advantage, device payback, full-suite gate or release is
+claimed. Earlier isolated Docker qualification remains separate evidence.
+
+Paid exposure: Two settled requests cost USD 0.038136 and USD 0.035648, total
+USD 0.073784, below the approved USD 0.518396 reservation envelope. The first
+reported 4,774 input/952 output tokens including 693 reasoning tokens; the second
+7,017 input/379 output including 289 reasoning tokens. Cache tokens were zero.
+Reasoning is included in output at the frozen USD 4/20 per million rates. No new
+unknown or reserved exposure remains. Stage maximum exposure is USD 15.899360;
+this includes retained historical unknowns and is not a provider invoice or
+all-in hardware cost. No further request authority is created by this result.
+
+Next gate: Implement the smallest opt-in same-episode policy with exact provisional
+source/context binding, one paid critique, a once-only bounded local repair grant,
+cumulative budgeting and fresh final checks. Verify admission, replay, cancellation,
+source invalidation, acceptable/no-repair and defect/repair paths offline and
+through real loopback fixtures before separately freezing a fresh live episode.
+Preserve final independent acceptance and the full fresh comparison requirements;
+the four untouched tasks remain reserved.
+
+References: [critic calibration result](MVP_POST_DRAFT_CRITIC_CALIBRATION_REPORT.md),
+[approved critic plan](plans/MVP_POST_DRAFT_CRITIC_CALIBRATION_V1.md),
+[qualified interactions](MVP_ROUTING_INTERACTION_QUALIFICATION_REPORT.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260911-0001-local-critic-repair-implementation-approved -- 2026-09-11 -- Integrate the calibrated critique signal inside one bounded coding episode
+
+Status: `Approved`
+
+Scope or hypothesis: Under the continuing owner goal, integrate local drafting,
+one compact critique and optional bounded local repair so final quality and total
+cost can be measured for one complete episode. The preceding fixed-pair signal
+was progress; it did not prove repair success or an integrated routing advantage.
+
+Decisions: Add opt-in local_critic_repair with eight draft calls, four optional
+repair calls, one critic and thirteen total model calls. Keep local usage cumulative,
+phase allowances nontransferable, two finishing calls per phase and one deadline.
+Use final-only scheduling; no implicit cloud solver, critic retry or second repair.
+Existing policies and default behavior retain their semantics. Approve implementation,
+focused unit/type checks and isolated real loopback/Docker fixtures only.
+
+Changes: Delegate Python routing/execution, TypeScript admission/store, and independent
+real-path fixtures in parallel; root owns contracts/configuration and trusted context
+construction. Require a host-bound provisional source/patch/context, a settled critic
+request, typed immutable verdict receipt, once-only repair grant, and fresh final
+checks. Reject missing/oversized context rather than claiming omitted context complete.
+A new request phase records critique separately from solver work.
+
+Evidence: Current source and build log were inspected. Prior root result
+4046ddd81c184620689128cc1ed4929f9853023e2de7f06f5421d1efa1456a5f
+binds the two settled critiques and independent source adjudication. The proposed
+implementation seams reuse existing native tools, snapshot/reconstruction, strict
+critic parser and parent-owned accounting. Current source restrictions require
+explicit changes for reduced multi-phase limits and a cloud-to-local repair return.
+No new implementation or live policy result exists at this boundary.
+
+Failures or blockers: One delegated implementation turn encountered a connection
+error and was resumed after checking its state; no model experiment was restarted.
+The current four-call repair cannot use existing five-call repair-window scheduling.
+Prior local-first semantic rejection and four-of-six critique/repair failure remain.
+No external blocker prevents offline implementation.
+
+Limitations and non-claims: A narrow repair allowance is an experiment, not evidence
+of task coverage. Fixtures will prove mechanics with synthetic responses, not real
+model reliability, accepted task quality or cost savings. No code is released and
+no held-out task or earlier failed assignment is reopened by this approval.
+
+Paid exposure: Zero new real-provider authority. Preserve the prior sixty runs/570
+requests and stage maximum exposure USD 15.899360. Test providers are local synthetic
+servers with temporary databases; historical stage records remain read-only.
+
+Next gate: Complete contracts, host/runtime integration, focused verification and
+independent source review. Record exact failures and limitations before a separately
+bounded fresh live episode with independent final acceptance. Preserve full quality,
+cost and latency gates and the four untouched tasks.
+
+References: [implementation plan](plans/MVP_LOCAL_CRITIC_REPAIR_V1.md),
+[critic signal result](MVP_POST_DRAFT_CRITIC_CALIBRATION_REPORT.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260911-0135-local-critic-repair-mechanics-verified -- 2026-09-11 -- Same-episode draft critique and repair pass synthetic production-path checks
+
+Status: `Verified`
+
+Scope or hypothesis: Close the approved implementation and synthetic runtime
+verification of an opt-in local draft, one compact cloud critique and optional
+bounded local repair. Determine whether one episode preserves context, source,
+phase limits, actual feedback, accounting and final-check authority. This status
+applies to runtime mechanics, not real-model quality, savings or release.
+
+Decisions: Keep eight draft calls, four nontransferable repair calls, one critic,
+twelve cumulative local calls, thirteen total requests and a single deadline.
+Reserve two finishing calls per local phase. Admit only the compatible live,
+final-only, zero-local-API-fee profile. Preserve conservative critic monetary
+headroom before draft admission and reserve/settle only actual provider requests.
+Retain all earlier failed model assignments and the four untouched tasks.
+
+Changes: Implemented shared policy/phase/receipt contracts, profile and controller
+admission, explicit experimental application selection, trusted complete critic
+context reconstruction, exact body/source bindings, immutable verdict replay,
+once-only actual-feedback repair and independent final patch reconstruction.
+The repaired source invalidates the earlier critique's currency. Invalid,
+insufficient or unknown critique stops without retry or full cloud solver.
+Added focused regressions and four HTTP/Python/Docker fixtures to the runtime
+test command. Extracted the unchanged strict Git patch-scope parser into its own
+module to remove an import cycle. Default cloud and older policies retain their
+meaning.
+
+Evidence: Final host/store checks passed 121 tests, including monetary headroom
+and the controller's preparation transition; focused strict TypeScript passed.
+Context and existing routing scope checks passed 78 tests. The earlier controller,
+configuration and compact parser batch passed 35 tests. Final focused Python
+checks passed 84 methods after source/response hardening; the overlapping earlier
+101-method run is separate historical evidence, not an additive final count.
+Both application typechecks and readiness metadata validation passed. Integration
+attempt two, owned session 85485, exited zero with all four cases passing in
+29.86 seconds: three-local/one-critic acceptable, three-local/one-critic/three-local
+repair, settled invalid critique, and unknown transport. All cases verified
+source immutability, exact request admission, fresh final source where submitted,
+replay, fee state, cleanup receipts and no owned containers. Independent source
+review found no remaining runtime blocker. Root receipt
+191085907a3703e90d60ee83d451ec05341a53c943bde3dc62cc14fff1460c5d
+verifies 37 unchanged source bindings and integration receipt
+8aa49e2a85a9a2ab5eb0772092a07d2617db1b69f0df3626039a8542bd99236e.
+Read-only historical verification still matches 60 runs/570 requests and ledger
+8c59a88b4314b0fe1b6f077d7596226ec7cf8dacc6476062a9e8ead4d119d689.
+
+Failures or blockers: The first application batch exposed a circular import;
+affected tests passed after the parser extraction. Cross-review corrected final
+edit/check freshness, source invalidation, duplicate verification, deadline
+reserve, exact first repair feedback and monetary headroom. Initial integration
+session 63414 failed all four cases before worker launch because preparing was
+not admitted; it made zero requests, and all finalizers completed. The corrected
+guard permits only the initial preparation event before checkpoint/phase usage,
+and cannot reset an active solver. Failure receipt
+3272920f01decd9d05ed4e2a166facf9afb0870ed735db9a7beee9fbe19ce1a0
+remains intact. Both fork and single-thread UI workers timed out before executing
+tests. Direct jsdom initialization also exceeded bounded 30- and 60-second checks
+while progressing through slow CSS dependency loads. All diagnostic processes
+terminated. The underlying I/O cause is unconfirmed; no versions, assertions or
+worker timeouts were changed. UI assertions remain unverified.
+
+Limitations and non-claims: Synthetic responses prove runtime mechanics, not
+model repair reliability, task acceptance or savings. The critic requires a small
+complete-source envelope (64 files per revision, 96 KiB bundle, 128,000-byte body)
+and stops on unsupported or oversized context. Final verification uses ordinary
+workspace limits. No fresh model episode, independently accepted patch, held-out
+result, full-suite gate, packaged UI proof or release occurred. Earlier planner,
+local-first and critique/repair failures remain unchanged. No device payback or
+all-in cost improvement is established.
+
+Paid exposure: Zero real-provider requests and zero new real API fees. Temporary
+fixtures made nineteen synthetic requests, eighteen settled and one unknown;
+they verified 2,400 synthetic microusd in settled fees and exact retained unknown
+reservation. Those values are accounting test inputs, not actual model charges.
+The conservative maximum critic headroom at the fixed USD 4/20 rates is USD
+0.675840; this is capacity, not an invented fee or request. Historical maximum
+stage exposure remains USD 15.899360, including old unknowns. The owned device's
+approximately USD 3,500 purchase and operating costs remain separate.
+
+Next gate: Freeze a fresh complete live policy episode and independent final
+acceptance under separately recorded exact authority. Do not reuse the closed
+two-critic approval. Preserve the fresh comparison requirements: no additional
+material quality regression, at least 20 percent lower API cost per accepted
+task, and no more than 25 percent median latency increase, including all failed
+work and unknown fees. Resolve the interface verification gap before claiming
+an application or release gate. The owner routing goal remains active.
+
+References: [implementation result](MVP_LOCAL_CRITIC_REPAIR_IMPLEMENTATION_REPORT.md),
+[approved plan](plans/MVP_LOCAL_CRITIC_REPAIR_V1.md),
+[critic calibration](MVP_POST_DRAFT_CRITIC_CALIBRATION_REPORT.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260911-0141-local-critic-repair-execution-approved -- 2026-09-11 -- Bound one fresh complete policy episode after runtime verification
+
+Status: `Approved`
+
+Scope or hypothesis: Continue the owner's instruction to implement and evaluate
+routing that preserves quality and saves money. Determine whether the new
+production local draft, one critique and optional local repair route can produce
+an independently acceptable patch on the exposed ordered-build-rules task.
+
+Decisions: Authorize one new episode, thirteen total model requests, eight draft
+and four optional repair local requests, one critic, 600 seconds, concurrency one
+and at most USD 0.70 new exposure under the existing USD 150 stage ceiling. Keep
+the tested final-only policy, disabled local thinking, zero local API rates,
+original local endpoint/model and direct OpenAI gpt-5.6-sol medium profile. There
+is no retry, resume, replacement or full cloud fallback. The old twelve-assignment
+and two-critic allowances stay closed; this is a separately recorded bounded
+episode within the continuing owner execution goal.
+
+Changes: Prepare a versioned claim-once driver/session and two frozen candidate
+evaluation invocations using existing machinery. Start from original public
+source/objective/scope/visible command and generate a fresh draft. Critique only
+the actual checked draft; any repair receives only its actual parsed feedback.
+Freeze original five-test and qualified twelve-method acceptance checks plus
+neutral independent source review. Do not expose evaluators, gold, prior patches,
+known findings or route/cost labels to generation. Four untouched tasks remain
+reserved. Dispatch remains gated on final code/evaluator review, focused tests,
+historical admission, immutable freeze and read-only provider readiness.
+
+Evidence: The prior implementation closure verifies all four synthetic production
+HTTP/Python/Docker cases, 121 host tests, 78 context/scope tests, 84 final focused
+Python methods and both application typechecks. Current source still matches all
+37 fixture bindings. The original six-file, 1,288-byte public source fits the
+complete critic context envelope; a generated draft can still exceed it and must
+then fail admission. Independent approval-boundary review found no requirement
+for an additional owner reply for every separately bounded probe under the
+continuing goal; the ordinary tool approval review still applies. Root receipt
+191085907a3703e90d60ee83d451ec05341a53c943bde3dc62cc14fff1460c5d
+and the new exact plan support preparation, not a live result.
+
+Failures or blockers: No new model request has run. The application UI startup
+gap remains and is not cured by this experiment. The old local-first semantic
+rejection and earlier four-of-six critic/repair acceptance failure remain intact.
+Copying the old local-first driver unchanged would impose obsolete code/history,
+call-limit, fallback and evaluator assumptions; these must be replaced explicitly
+before final review. If scoped automatic approval review rejects the new launch,
+honor and report that rejection rather than bypassing it.
+
+Limitations and non-claims: One exposed development task cannot establish general
+quality, a matched savings rate, hardware payback or release. Visible checks and
+critic verdicts are not acceptance. Both qualified suites and neutral source
+review must evaluate the exact final submitted artifact; unsuccessful runtime
+work remains unsuccessful even after diagnostic evaluation. No additional task
+or full comparison is dispatched by this approval.
+
+Paid exposure: At most USD 0.70 new exposure, with one possible paid cloud critic.
+The unchanged conservative critic maximum is USD 0.675840 at USD 4/20 per million
+input/output tokens with at most 128,000 body bytes and 8,192 output tokens. Local
+API token fees are zero, not total device cost. Prior maximum stage exposure is
+USD 15.899360; maximum with this episode is USD 16.599360, including historical
+unknowns. Exact dispatch authority must bind final evidence before any request.
+Credentials remain session-only and go only to their intended provider.
+
+Next gate: Complete and independently review the one-use driver/session and
+qualified evaluation bindings, verify current sixty-run/570-request historical
+admission and zero owned containers, then freeze final inputs and approval.
+Launch once through the scoped reviewed operator only after readiness. Follow
+that process to terminal, evaluate independent acceptance and report complete
+cost/latency without substituting a historical comparison for fresh evidence.
+
+References: [new episode plan](plans/MVP_LOCAL_CRITIC_REPAIR_EXECUTION_V1.md),
+[runtime result](MVP_LOCAL_CRITIC_REPAIR_IMPLEMENTATION_REPORT.md),
+[qualified interactions](MVP_ROUTING_INTERACTION_QUALIFICATION_REPORT.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260911-0213-local-critic-repair-episode-accepted -- 2026-09-11 -- One fresh production-policy patch passes independent acceptance
+
+Status: `Verified`
+
+Scope or hypothesis: Close the separately approved single fresh ordered-build-rules
+episode. Determine whether the implemented local draft, cloud critique and optional
+local repair route produces an acceptable final patch with complete accounting.
+This status applies to the one exposed task, not general routing or release.
+
+Decisions: Accept the exact completed candidate only after joining its fresh final
+visible checks, original independent suite, qualified interaction suite, neutral
+source review and independent runtime/accounting audit. Close the one-use allowance
+without retry or replacement. Preserve prior failures and the four untouched tasks.
+Propose a new six-task matched comparison using existing machinery; its preparation
+is within the continuing goal, while exact paid authority remains a separate freeze.
+
+Changes: Executed the previously frozen production policy once. The local model
+generated the actual patch; the one cloud critic returned acceptable, so no repair
+or full cloud solver ran. Materialized a neutral before/after source package and
+joined independent acceptance in a new root receipt. Added the episode report,
+updated readiness and wrote a proposed paired comparison design. Production code,
+policy limits, prompts and historical results were not changed in this closure.
+Archived 116 frozen files, three additional authority files and the exact approval
+entry before subsequent development.
+
+Evidence: Owned launcher 85288 exited zero under terminal chunk 19bcc2. The episode
+used seven local requests and one critic request, completed in 55.552 seconds and
+passed two current visible checks. The original independent suite passed 5/5 in
+997 ms and the qualified interaction suite passed 12/12 in 706 ms, with zero
+failures/errors/skips and verified scope, harness and cleanup. Both ran once after
+terminal submission. A new neutral reviewer independently verified patch and
+source identities and found no material defect from the public requirement.
+Root acceptance 8ab4a46d9419eb635176a7ea03125c18b46b38693b9c703f16333ec604a66267
+joins runtime audit a40d49b72aa2bfade0bb3efdd29835c0406f1e83bcf58bac7cb40b11a7df89ba,
+independent checks b2ec08b46fb5db17fdd0192572782c951813a1a95ed43f5ded5138afe65577f7
+and neutral review 2a871c5eb4add2683f3cced349a10dde70b82d4da640f5e0a96369a661e4fbf9.
+All 116 frozen files, ten gate bindings, request/event/critic/patch joins and the
+prior 60-run/570-request history passed independent audit. The current 61-run/
+578-request ledger is 83580de23f103e9dc8b811ade0d950ee4033eb0607f576aea005aafc47c988fc.
+Archive manifest 43e734b3185d068801fb43db52f58800e30719b8018803a68c1dcd39bb581d37
+and archive audit 72dae071f4d2c58668ad0aa5ee05aa06f4af3d0ab843bf6491b44e2c45b0101b
+verify all 119 original/archive pairs and approval preservation.
+
+Failures or blockers: No runtime or independent-evaluation failure occurred in
+this episode. An initial read-only audit query referenced a nonexistent request
+column, failed before any write and was corrected using event chronology; its
+diagnostic remains in the audit. A requested follow-up planning subtask hit the
+agent thread limit, so root prepared the proposed comparison locally. The neutral
+source reviewer completed independently. No process or paid request remains active.
+The prior UI dependency-initialization gap and all historical negative results remain.
+
+Limitations and non-claims: This is one exposed development task. It demonstrates
+a useful local contribution in a complete production-policy episode, not a matched
+savings rate, general quality, held-out success or real-model repair success. The
+critic accepted the draft and no repair was requested. Static source review is not
+exhaustive correctness proof. No full-suite, packaged application, release or owner
+acceptance gate passed. No electricity, utilization, total-cost or hardware-payback
+claim is supported. The continuing owner routing goal remains active.
+
+Paid exposure: Eight requests settled with USD 0.039000 in accounted API fees,
+zero remaining reservation and no new unknown request. Local recorded 21,990 input,
+1,712 output and 4,800 cached input tokens at zero API rates. Critic recorded 7,185
+input and 513 output tokens, with 427 reasoning tokens already included in output;
+frozen USD 4/20 rates reproduce the fee. The amount is below the separate USD 0.70
+ceiling and is not invoice-reconciled. Maximum stage exposure is USD 15.938360,
+including historical unknowns. The approximately USD 3,500 owned device and its
+operating costs remain separate. Evaluation, review and archival added no model fee.
+
+Next gate: Prepare and review a fresh cloud-versus-local-critic comparison on all
+six exposed tasks, with balanced order, original shared task inputs and qualified
+independent acceptance. The proposed ceiling is USD 22.20 for twelve new episodes;
+no request is authorized by reusing this closed episode's allowance. Freeze exact
+new approval, current history, profiles and evaluator bindings before dispatch.
+Require no additional material regression, at least as many accepted tasks, at
+least 20 percent lower API cost per accepted task and at most 25 percent higher
+median runtime latency; include failures and unknowns. Historical cloud episodes
+and this one-task result must not enter fresh paired totals. Untouched confirmation
+and application-release gates remain closed.
+
+References: [accepted episode](MVP_LOCAL_CRITIC_REPAIR_EXECUTION_REPORT.md),
+[executed plan](plans/MVP_LOCAL_CRITIC_REPAIR_EXECUTION_V1.md),
+[proposed comparison](plans/MVP_LOCAL_CRITIC_REPAIR_COMPARISON_V1.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260911-0222-automatic-source-admission-approved -- 2026-09-11 -- Route structurally unsupported critic contexts to cloud before generation
+
+Status: `Approved`
+
+Scope or hypothesis: Implement actual pre-request routing for the coding MVP after
+six-task preflight finds deterministic critic ineligibility. Preserve all original
+tasks and complete critic context, then compare fresh prepared cloud with an
+explicit automatic selector instead of sending every repository through critique.
+
+Decisions: Add input-only Automatic selection that resolves to existing concrete
+worker policies. Use the unchanged 64-file/98,304-byte baseline hard limits as a
+necessary eligibility test, not a learned difficulty rule or a guarantee of final
+context fit. Oversized committed baselines select prepared cloud before any local
+request. An admitted small baseline may select local-critic-repair if the profile
+and conservative fee headroom are available. Read, validation, cancellation or
+source-drift errors stop rather than become fallback reasons. Preserve explicit
+policy behavior and the default. Authorize implementation and offline fixture
+verification within the continuing owner goal, with zero real paid dispatch.
+
+Changes: Approved the automatic-routing implementation plan and an optional
+host-owned immutable selection receipt. Bind the committed source identity,
+revision, counts, selected policy, reason and episode ceiling; verify again at
+materialization. No worker protocol, production database migration, source
+truncation, hidden task filtering or after-draft cloud fallback is planned. The
+initial strict six-task comparison design is superseded before dispatch by a
+cloud-versus-Automatic design retaining all six tasks and both original inputs.
+
+Evidence: Final six-task source metadata gives cachetools 43 files/232,059 bytes,
+more-itertools 39 files/677,398 bytes and boltons 112 files/980,231 bytes. These
+exceed the production critic baseline envelope before candidate or JSON overhead.
+Independent review confirms necessary-only eligibility is appropriate and warns
+against labeling it complete-context fit. The other three baselines have six
+files/1,699 bytes, six files/1,288 bytes and five files/3,761 bytes. The preceding
+one-task acceptance and all 119 archived source/authority pairs remain separate
+evidence. Evaluator inspection finds existing qualified cache11 and Retry-After9
+checks already include known regression probes; no new gold correction is needed.
+
+Failures or blockers: The earlier proposed unconditional local-critic arm would
+predictably reject three original repositories. No new paid run was dispatched.
+Prepared-cloud policy cannot inherit the local policy's twelve-call configuration
+override; automatic selection must derive compatible concrete profiles. Cloud's
+final frozen-patch check does not emit the local policy's source/check hashes, so
+independent exact-patch verification must retain that evidence distinction. The
+prior application UI initialization gap remains.
+
+Limitations and non-claims: Baseline eligibility cannot predict draft growth,
+patch duplication, serialized body size, correctness or savings. Later context
+failure remains a failed automatic episode with its costs included and no retry.
+This entry approves implementation, not verification, paid execution or release.
+The four untouched confirmation tasks remain reserved.
+
+Paid exposure: Zero new real model requests or fees. Planned Automatic retains
+USD 0.70 local and USD 3 cloud episode ceilings, at most thirteen and forty model
+calls respectively and 600 seconds, without increasing the owner's budget. With
+three expected local and three cloud Automatic selections plus six cloud controls,
+the revised twelve-episode maximum would be USD 29.10 and 399 requests. This is a
+proposed future ceiling only; exact paid authority must be recorded separately.
+Historical stage exposure remains USD 15.938360 including old unknowns.
+
+Next gate: Implement and independently review the input/receipt/controller/source
+selection, test boundary/profile/budget/replay/drift behavior and exercise both
+routes through synthetic production runtime fixtures. Freeze actual six-task
+selection and qualified evaluators only after these pass. Retain the same full
+quality, cost-per-accepted-task and latency gates; do not claim routing savings
+from offline dispatch mechanics.
+
+References: [automatic admission plan](plans/MVP_AUTOMATIC_CRITIC_ROUTING_V1.md),
+[initial comparison design](plans/MVP_LOCAL_CRITIC_REPAIR_COMPARISON_V1.md),
+[accepted local episode](MVP_LOCAL_CRITIC_REPAIR_EXECUTION_REPORT.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260911-0234-fractional-retry-control-approved -- 2026-09-11 -- Qualify one public-contract regression before the next generation
+
+Status: `Approved`
+
+Scope or hypothesis: Close an identified acceptance-coverage gap before fresh
+generation. The qualified nine-method Retry-After suite does not test fractional
+supplied current time, although truncating that duration is a known prior defect.
+
+Decisions: Authorize exactly two offline Docker evaluations of one new separate
+method: a date at seven seconds minus an aware current time at half a second
+must return 6.5 seconds. Run the existing corrected positive reference and the
+existing submitted truncation-negative patch once each. Preserve the original
+nine-method suite, reference, model patch and all old outcomes. No model calls,
+new solver inputs, evaluator tuning after generation, retries or replacements.
+
+Changes: Freeze the new one-method supplement, two control invocations and minimal
+claim-once wrapper around the existing evaluator. Root reviewed the exact public
+requirement and added explicit confirmed-cleanup admission before classifying a
+negative result. Bind the control identity to its historical submitted artifact.
+
+Evidence: Preparation 64d6d4f431672cbbdcec705f57504420e50785750fdd146199453b115dea7df2,
+runner 0a84fd2f14df37cfc713f4862a9331fa2c720c854b3abe731fc94efb0e84ba59 and
+suite 6515d7709f53a0d3ac8cf902246d04daf1b3ddb59635e1f766dbdb6536cff4a3
+were read and hashed before approval. Strict TypeScript passed. The unchanged
+positive patch is f7c4c6bb8152d8a1339dc2ac1fbd601ed8a9b3b7a7623ec623e610d335ea5143;
+the exact historical negative is 077f466283edf7130a996fd4ccafcdbcb32210abef2ff08e79d9b642fb6f556a.
+Their outcomes on the new method remain unproven until execution.
+
+Failures or blockers: Broader preparation first encountered a public source-record
+shape mismatch, then read-only Git status timeouts at fifteen and thirty seconds.
+No evaluator or provider ran. Preparation now verifies exact committed inventory,
+bytes and modes without index refresh; an ignored existing Python bytecode file
+is preserved and excluded by committed-source materialization. Those diagnostics
+do not alter production time limits or acceptance semantics.
+
+Limitations and non-claims: A qualified method detects this one public-contract
+failure; it is neither exhaustive quality proof nor held-out evidence. Do not
+promote an incomplete or unclean negative control to a successful qualification.
+
+Paid exposure: Zero model requests and zero API fees. At most two serial evaluator
+calls, each bounded by 180 seconds plus 45 seconds cleanup, using the existing
+pinned image and Python runtime. Historical stage exposure stays USD 15.938360.
+
+Next gate: Execute the exact approved controls once, preserve both receipts and
+the unchanged ledger, and include the supplement in the fresh comparison only
+if the positive passes and the negative fails with confirmed cleanup. A failed
+qualification stops that preparation rather than silently dropping the method.
+
+References: [comparison plan](plans/MVP_LOCAL_CRITIC_REPAIR_COMPARISON_V1.md),
+[prior repair findings](MVP_ROUTING_REPAIR_REPORT.md),
+[automatic admission plan](plans/MVP_AUTOMATIC_CRITIC_ROUTING_V1.md).
+
+### BL-20260911-0246-automatic-routing-mechanics-verified -- 2026-09-11 -- Automatic source admission works through both production routes
+
+Status: `Verified`
+
+Scope or hypothesis: Close the approved source-size selector implementation and
+offline runtime verification. Determine whether Automatic records a bounded route
+before generation, stops admission drift and executes its two concrete policies.
+This status covers mechanics and evaluator qualification, not routing economics.
+
+Decisions: Preserve necessary-only 64-file/98,304-byte eligibility, exact committed
+source and nonsecret configuration binding, reduced episode ceilings and no
+after-draft cloud recovery. Retain all six original tasks; freeze cloud-versus-
+Automatic rather than the initial unconditional local-critic design. Include
+three cloud-selected tasks in Automatic totals. Qualify the fractional-current-
+time supplement separately and retain every historical suite and negative result.
+
+Changes: Added create-input Automatic selection, host-only persisted selection
+receipt and cross-field validation, shared validated Git-tree/blob inspection,
+bounded effective configuration, pre-start/materialized-source checks and app route
+reason display. Existing concrete worker policies and default remain unchanged;
+no database migration or worker protocol change. Added focused contract/lifecycle
+tests and two synthetic production fixtures to the runtime command. The future
+private paired driver and post-generation evaluator are still being prepared.
+
+Evidence: Selector/controller/workspace passed 62 tests; the separate store,
+comparison, routing and critic batch passed 108. The earlier 25-store-test check
+overlaps that batch and is not additive. Both application typechecks passed.
+Independent review 714b0dcdf6b9fc9bf16ccf0776d1a824d7b0a3bfd6ad4faa740801bbdc6e44c3
+cleared nineteen held source/test bindings. Owned runtime session 9401 exited zero
+under chunk b8a9e0: both fixtures passed, small source using three local plus one
+critic request and oversized source using three cloud requests. Both verified
+three final visible tests, submitted patch identity, request/body/phase admission,
+settlement, replay, original source and cleanup. Runtime report is
+960d7e966668f03ab114bc43028abdec99b6b0d507ae842b139d11c2d98cc483.
+Root verification c2f7145e392e01af336ff41d6683d0e066d1741c85b7c7190bc55eb20b9fab8e
+binds forty-four current source/test files and all joined evidence. Actual read-only
+selection on the six original sources chose cloud for cache, last-extremum and
+option-default, and local-critic for Retry-After, ordered rules and log redaction;
+preflight 6c0639f67d0f1782b1d5015f1fc3c6c7a683d90cfa4026d84b4706039c0393c2
+preserved the 61-run/578-request ledger. Fractional control session 50517 exited
+zero under 03d1f5: positive 1/1 in 752 ms, historical negative 0/1 in 679 ms,
+both with exact identity, harness and cleanup. Qualification proof
+10ed099f5cec7f0d97265fbf432fda822df6304f7f05fbc7b1c01e885e36c681
+leaves the original Retry9 unchanged and yields 55 methods per comparison arm.
+
+Failures or blockers: Review corrected execution-entry-point digest omission,
+original text NUL/surrogate validity and a campaign test that previously changed
+both its cap and exposure. Initial application typechecks caught the still-pending
+controller input narrowing, two legacy fixture assumptions and one redundant UI
+guard; final checks pass after those corrections. The focused UI invocation
+12046 exited one under de4559 after sixty-second worker initialization timeout,
+with zero tests executed. The first fractional-control automatic permission
+review timed out before a process or claim existed; its identical tool retry
+then ran exactly two evaluations once. Preparation's metadata/status diagnostics
+are retained in the preceding entry. No process from these checks remains active.
+
+Limitations and non-claims: Necessary baseline eligibility does not guarantee the
+future patch or serialized critic body fits, nor predict task difficulty or
+correctness. Later failure stays in the Automatic denominator. Synthetic patch
+submission is not real-model acceptance. There is no new paid comparison result,
+preserved-quality savings, repair effectiveness, held-out proof, rendered UI,
+packaged release, total-cost or hardware-payback claim. The continuing goal stays
+active; the original four untouched tasks remain reserved.
+
+Paid exposure: Zero new real model calls or API fees. Seven synthetic requests
+settled 1,100 synthetic microusd in temporary fixture databases, with no unknowns;
+these are test inputs, not actual charges. Both control evaluations added no model
+fee or historical database write. The stage ledger is unchanged at 61 runs/578
+requests and maximum exposure USD 15.938360, including historical unknowns. The
+future twelve-episode comparison's USD 29.10 ceiling is still proposed, not an
+open paid allowance.
+
+Next gate: Complete the minimal private once-only paired driver and qualified
+post-generation evaluator, review their exact source and tests, capture current
+historical admission and freeze all twelve assignments plus six Automatic
+selection receipts. Record separate exact paid authority before dispatch. Require
+no additional material regression, at least as many accepted tasks, at least
+20 percent lower API cost per accepted task and at most 25 percent higher median
+latency, including failures and unknowns. Resolve the interface verification gap
+before application or release acceptance.
+
+References: [automatic implementation result](MVP_AUTOMATIC_ROUTING_IMPLEMENTATION_REPORT.md),
+[approved implementation](plans/MVP_AUTOMATIC_CRITIC_ROUTING_V1.md),
+[revised comparison](plans/MVP_LOCAL_CRITIC_REPAIR_COMPARISON_V1.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260911-0358-privacy-first-general-agent-design -- 2026-09-11 -- Recalibrate the product around permitted end-to-end work
+
+Status: `Proposed`
+
+Scope or hypothesis: The owner approved a new product priority order, privacy >=
+quality > savings > latency, and general Manus-like agentic work. Deep research,
+file auditing, website building and PowerPoint creation are initial optimization
+priorities, not a closed set of task types. This entry records completed research
+and a proposed design, not implementation approval or a private-agent milestone.
+
+Decisions: Suspend the undispatched twelve-episode cloud-versus-Automatic comparison
+as the next experiment. Its proposed USD 29.10 ceiling is not an open or transferred
+allowance. Retire its relative latency and mandatory 20 percent savings gates for
+the new product experiment; preserve all historical decisions, results and limits.
+Make disclosure eligibility a hard constraint before provider selection. Optimize
+accepted whole sessions, not model turns or coding-only patch submission. The owner
+permits a laptop-local privacy-filter deployment if useful; the main agent remains
+on the dedicated owned GPU, subject to verified deployment trust before private use.
+
+Changes: Added the general-agent design and local privacy-tool assessment. Updated
+README, readiness and routing policy, and added a supersession notice to the pending
+comparison. Proposed one extensible goal/plan/action/observation/verification loop,
+host-owned context restrictions, isolated public research, optional cloud help on
+permitted packets, and brokered transport with no worker credentials or network
+bypass. Outputs inherit all input restrictions; redaction cannot grant disclosure.
+Permissions bind exact payload, task, recipient, purpose and version; revocation
+stops new committed dispatch after durable acknowledgement without claiming recall
+of in-flight data. Added durable progress, artifact-specific acceptance and a fresh
+composition check beyond the four priority workloads. Existing runtime code and
+persisted contracts are unchanged by this design pass.
+
+Evidence: Primary-source research covered Manus introduction, API, context
+engineering, research and browser capabilities; OpenAI Privacy Filter model card,
+implementation, output schemas and evaluation modes; Presidio, Gitleaks, Minions,
+PyroDash and agent sandbox/harness references. Static source review confirmed the
+current public-only coding admission, source-bearing planner and critic packets,
+credential-bearing Python transport and review-specific egress-policy limits.
+Independent final document review found no material inconsistency after correcting
+revocation timing, private-mode cloud behavior and per-policy acceptance semantics.
+Reviewed design SHA-256 is
+35b6d5f775e1100bc46c753ae09159a477afa967c744644abbdc2f892de9b899;
+filter assessment is
+3dcb8e6cd6b5c80f6ada7bfacf58d5c9cd77162a548600225ea6459dfcc4bb59.
+Readiness metadata validation passed; all 86 local Markdown targets in the six
+design/navigation documents resolve; diff whitespace validation passed. These are
+documentation checks, not new runtime or model-quality results.
+
+Failures or blockers: The laptop was observed as arm64, but sandbox policy denied
+the memory-capacity probe. No capacity or throughput claim follows. Existing
+API-only GPU access cannot verify its complete deployment trust boundary. Those
+gaps do not prevent synthetic boundary engineering or this design decision.
+The previously recorded UI initialization gap and failed coding evaluations remain.
+
+Limitations and non-claims: Manus documentation describes its intended behavior,
+not independent reliability proof or a SOAR implementation. Published privacy-filter
+scores do not establish Chinese business-document accuracy, confidentiality of
+non-PII facts or zero leakage. No detector was installed, downloaded or run. No
+general agent, network broker, private workflow, cross-task composition or four
+artifact acceptance gate has been implemented or verified by this pass. No private
+inputs were uploaded for research. The original four untouched coding tasks remain
+reserved and are not repurposed as general-agent confirmation.
+
+Paid exposure: Zero new real model requests, API fees or historical ledger writes
+from this design work. No previously prepared paid driver was dispatched. The
+owned device's reported approximately USD 3,500 purchase remains an economic input;
+ownership does not establish zero total operating cost or payback.
+
+Next gate: Implement and qualify the synthetic host boundary first. Compare local
+detectors on a proposed 120-case synthetic language-balanced split, then complete
+four real artifact sessions. Freeze eight fresh tasks for a sixteen-session
+local-versus-permitted-cloud comparison and an additional unfamiliar composition
+task before execution. These are proposed gates with separate bounded runtime and
+any paid authority still to be recorded. Require privacy, critical artifact quality
+and actual app/owner-task acceptance before claiming a general agentic MVP; measure
+savings and latency without trading away privacy or hiding unfinished work.
+
+References: [general-agent design](plans/MVP_PRIVACY_FIRST_AGENT_V1.md),
+[privacy-filter research](PRIVACY_FILTER_RESEARCH.md),
+[routing policy](ROUTING_POLICY.md), [readiness](MVP_READINESS.md),
+[superseded comparison](plans/MVP_LOCAL_CRITIC_REPAIR_COMPARISON_V1.md).
+
+### BL-20260911-0408-private-agent-sequence-approved -- 2026-09-11 -- Begin the owner's requested implementation and qualification sequence
+
+Status: `Approved`
+
+Scope or hypothesis: The owner instructed SOAR to complete the next sequence:
+enforced outbound privacy, actual local filter calibration, complete artifact
+sessions and fresh tasks plus an unfamiliar workflow. The entire objective remains
+active; passing a policy unit test or generating sample artifacts cannot close it.
+
+Decisions: Treat this instruction as authorization for the necessary reversible
+implementation, public dependency provisioning, synthetic offline evaluation and
+bounded local-model execution. Record initial bounds in the execution plan before
+runtime work. Do not use real private material on the GPU without verifying its
+deployment, or transfer the suspended comparison's USD 29.10 allowance. Exact paid
+Stage C authority remains a later concrete execution gate.
+
+Changes: Added an execution plan covering source and input freezes, separate
+development/confirmation data, four local sessions capped at forty calls and thirty
+minutes each, isolated tool execution and filter-resource bounds. Assigned independent
+agents to filter runtime/calibration, synthetic gold and artifact evaluators, and
+boundary architecture/review. Root owns the host integration and acceptance audit.
+
+Evidence: Current checkout, contributor instructions, build log, package scripts
+and goal were read before implementation. The current privacy design and filter
+assessment are present; no implementation or calibration result is claimed here.
+
+Failures or blockers: The prior laptop-capacity and GPU-trust gaps remain to be
+resolved or explicitly bounded. They do not block synthetic local engineering.
+
+Limitations and non-claims: This approval is not runtime verification, paid provider
+admission, a privacy guarantee or a released general agent. Legacy public coding
+policies retain their existing restrictions until an explicitly integrated route
+has its own complete qualification.
+
+Paid exposure: Zero new model requests or API fees at this entry. Initial work uses
+synthetic receivers and offline/local computation; paid comparison remains gated.
+
+Next gate: Implement and independently qualify the non-bypassable host boundary,
+provision and freeze the local detector calibration, then run the four complete
+artifact sessions with independent checks. Preserve the full fresh comparison,
+composition and app acceptance requirements through later turns.
+
+References: [execution bounds](plans/MVP_PRIVATE_AGENT_EXECUTION_V1.md),
+[design](plans/MVP_PRIVACY_FIRST_AGENT_V1.md),
+[filter calibration](PRIVACY_FILTER_RESEARCH.md).
+
+### BL-20260911-0444-private-agent-boundary-development -- 2026-09-11 -- Build and exercise the host boundary and general loop
+
+Status: `In progress`
+
+Scope or hypothesis: Begin the approved sequence with real host transport and
+OS-isolated tool execution. Determine whether denied requests stay blocked despite
+a clean detector and whether a general model/tool loop can preserve and verify
+artifacts without handing credentials or networking to generated code.
+
+Decisions: Use a separate general-agent path rather than labeling the legacy
+credential-bearing Python coding transport private. Bind exact packets and monotonic
+source restrictions at the host; keep uncertainty and fee reservations durable.
+Known credential sources cannot enter model context. Permit otherwise admitted
+local work when learned filtering is unavailable, while keeping external release
+fail-closed. Completion must bind the verified artifact snapshot and confirmed
+cleanup, not a later capture of a mutable working directory.
+
+Changes: Added host permission/context/dispatch/event tables, an exact HTTP broker,
+model adapter, restricted container adapter, content-addressed checkpoints and a
+general job loop. Added real receiver, container and combined runtime tests. Public
+phase composition, filter integration and app integration are still being built.
+The new tables have only been exercised in temporary fixture databases; no existing
+production or historical database migration has run.
+
+Evidence: Root's latest completed invocation passed sixty-six tests: forty broker
+cases, six actual synthetic model–Docker–verification/resume cases and twenty host
+sandbox admission cases. The earlier thirty-five and forty-five test runs overlap,
+not additional coverage. Nine real sandbox cases passed across the retained seven
+and corrected two-case runs, with cleanup confirmed. Current Node typechecking
+passes. Local evidence checkpoint
+ebc98c18579f3fdb13cc155949372ac021149118f74e0fde92bd665611328398
+binds the development source/test inventory and retained negatives; it is not a
+final freeze. The laptop's memory is now observed as 32 GiB. Independent agents
+authored the 120-case balanced synthetic filter corpus, sealed confirmation data
+and four task/evaluator packs before model output; no such task has run.
+
+Failures or blockers: The first receiver invocation hit loopback-listen EPERM and
+twenty-two timeouts; handling is corrected and the authorized fixture run passed.
+The first sandbox run stopped before creation at image metadata; the next passed
+seven cases but two Docker process observers omitted the required PID column.
+Those corrected observers passed separately. Review corrected artifact mutation,
+deadline/cancellation, verifier import and compressed-IPv6 admission defects.
+New review found Docker's automatic proxy environment injection could expose proxy
+credentials in the container's initial process; its correction is in progress.
+The first immutable OPF asset transfer timed out after a partial download; bounded
+same-asset range transfer is progressing with no inference or claim of completion.
+
+Limitations and non-claims: The proxy finding keeps boundary qualification open.
+Synthetic model replies establish mechanics, not local-model competence. A passing
+named artifact check is not independent semantic/visual acceptance. No OPF accuracy,
+complete private task, fresh routing benefit, app acceptance or release is established.
+GPU deployment trust remains unverified for real private data. Original four coding
+heldouts and all historical outcomes remain unchanged.
+
+Paid exposure: Zero new real model calls or API fees. Dependency/model provisioning
+uses public assets; candidate sessions remain undispatched. Tests use only synthetic
+credentials, local receivers and temporary databases, with no historical ledger write.
+
+Next gate: Close and retest the concrete proxy gap, finish isolated public-phase
+composition and independently review the joined boundary. Complete the pinned
+offline detector calibration, then execute the frozen four artifact sessions.
+Keep the fresh paired comparison, unfamiliar workflow and app/owner acceptance
+requirements active; do not close the goal on this intermediate implementation.
+
+References: [development evidence](MVP_PRIVATE_AGENT_BOUNDARY_REPORT.md),
+[approved sequence](plans/MVP_PRIVATE_AGENT_EXECUTION_V1.md),
+[requirements](plans/MVP_PRIVACY_FIRST_AGENT_V1.md).
+
+### BL-20260911-0515-private-agent-boundary-qualified -- 2026-09-11 -- Close enumerated synthetic boundary gaps and freeze local task entry
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the new host boundary and reusable session path under
+the approved synthetic execution scope before any real model task. This status
+applies to enumerated runtime mechanics, not artifact quality or the whole MVP.
+
+Decisions: Bind the entire public prompt-bearing contract and destination metadata
+to host approval. Persist one session start and exclusive context ownership across
+database connections. Recover exact owned orphan containers before uncertain
+operations are refused; never replay them. Retain a daemon-side lifetime limit and
+enforce task deadlines through final cleanup. Treat local-zero-cost as declared API
+fees only, not free owned hardware. The existing plaintext inference endpoint is
+admitted solely for independently authored synthetic inputs.
+
+Changes: Completed isolated public/private composition, immutable transferred
+evidence, hash-bound operator loading, bounded local screen entry, source review
+identity checks before effects and after closure, and durable ownership/recovery.
+Fixed proxy environment injection, cross-instance steering, completion after
+cancellation/policy drift and final-cleanup deadline expiry. The research task can
+use the previously verified immutable Python image; richer artifact tasks retain
+their separately frozen tool-image prerequisite.
+
+Evidence: Ninety-eight joined tests pass: forty-one broker, nine real synthetic
+model/tool runtime, twenty-seven sandbox admission, seventeen session/loader and
+four checkpoint cases. A separate exact operator-entry case passes, and all thirteen
+real sandbox fixtures pass together: 112 distinct current cases. Node typechecking
+passes. A real killed test host leaves an observed child in its container; recovery
+removes the orphan and sends no model request or tool replay. The proxy fixture
+first demonstrates synthetic credential injection, then verifies corrected process
+environments. Independent source review reports no remaining material issue in the
+bounded scope. Reviewed source identity is
+ff0096e6b70e3be01a3675d71f92536e5035fe30493b405020e09106f2eb3bde;
+reviewed manifest identity is
+c5373bf8d6efc8dcb90ceb185e6b392f978cce77efe0a02f1f7f5cc05d406d83.
+Raw test reports and source-review receipts remain ignored local evidence.
+
+Failures or blockers: Preserve the original proxy flaw and earlier negative tests.
+The first killed-host fixture omitted a required timeout and failed during startup;
+the corrected fixture passed. An incorrect full-sandbox opt-in skipped thirteen
+cases; that receipt contributes no coverage, and the corrected invocation passed.
+The first artifact-tool image build reached its twenty-minute bound during package
+configuration and produced no image. A separate thirty-five-minute same-source
+public provisioning attempt is authorized and underway with unchanged disk guards.
+The first offline filter run completed OPF sixty of sixty development cases but
+Presidio attempted a suffix refresh in twelve cases; network denial prevented it.
+That run is retained, unqualified and unscored. A reviewed offline-only suffix
+correction is being rerun under a new source freeze, without reading confirmation.
+
+Limitations and non-claims: No real model artifact session has run at this entry.
+Controlled transcript invariance is not live-web breadth. Detector performance,
+real private GPU trust, four accepted artifacts, fresh comparison/composition,
+desktop application acceptance and release remain open. One-time Stage B dispatch
+authority is maintained by the operator record; a fresh output directory alone
+does not authorize repeating a failed first pass.
+
+Paid exposure: Zero new real model calls or API fees. Public dependencies and
+synthetic local computation only; no cloud credential loaded by the new route and
+no historical provider ledger changed.
+
+Next gate: Close and independently score the corrected filter calibration, freeze
+its confirmation configuration, then execute the first research artifact session
+with the reviewed source and immutable Python image. Stop expansion on a critical
+task failure; preserve the other task, paired-comparison and owner acceptance gates.
+
+References: [boundary evidence](MVP_PRIVATE_AGENT_BOUNDARY_REPORT.md),
+[execution bounds](plans/MVP_PRIVATE_AGENT_EXECUTION_V1.md),
+[private general-agent requirements](plans/MVP_PRIVACY_FIRST_AGENT_V1.md).
+
+### BL-20260911-0538-independent-local-trials -- 2026-09-11 -- Run independent advisory calibration and synthetic artifact trial in parallel
+
+Status: `Approved`
+
+Scope or hypothesis: Apply the existing owner authorization to one frozen,
+wholly synthetic research first pass while the independently owned OPF confirmation
+continues. This is scheduling within the approved local sequence, not qualification
+of either result or a new disclosure allowance.
+
+Decisions: The design explicitly permits otherwise valid local work when a detector
+is unavailable or unqualified. Development scoring rejects blanket autonomous
+release: OPF covers 84.38% of labeled sensitive characters and misses five of twelve
+mandatory canaries; rules add no development coverage. Freeze OPF alone for advisory
+confirmation. No learned detector or release permission is promoted. The already
+verified host boundary, private coordinator without a public-fetch tool and separately
+approved public worker remain authoritative for the synthetic research run.
+
+Changes: Prepared exact first-pass authority, task hashes, reviewed runtime and an
+immutable artifact image. Enable a planned pause/resume in research and retain its
+shared forty-request, thirty-minute, zero-API-fee ceiling. Stage copies contain only
+job, brief and input files and are checked against pre-authored hashes; strict loader
+checks remain unchanged. All other model tasks remain undispatched pending this
+first task's critical quality result.
+
+Evidence: Artifact image
+sha256:e5c7075fac7a7a68900db45e3de06e50e7b0f6896a5ca0f82cddb4ef8ad4ac2f
+passed synthetic document round trips, editable chart/table/notes construction,
+slide rendering, encrypted-PDF handling and browser interactions, with cleanup.
+The earlier image-build timeout is preserved. All four staged input packages pass
+the exact hash-bound loader. Independent source review and the 112 synthetic
+boundary/operator checks remain applicable to the unchanged reviewed source.
+
+Failures or blockers: Direct source preparation stalled, then twice rejected
+metadata changes during reads. A copy pass observed metadata changes on twenty-five
+files while every byte digest matched its original frozen hash; stable staged copies
+pass unchanged guards. The cause is not established. Confirmation preflight is
+likewise delayed by sequential file reads, before any worker or confirmation body;
+an exact-process watchdog enforces the original one-hour outer limit. These delays
+are not model failures or positive quality evidence.
+
+Limitations and non-claims: OPF confirmation remains pending and may still fail.
+Research output remains provisional until the independent evaluator and neutral
+source review join its final bytes and runtime receipts. No real private GPU trust,
+live-web breadth, Microsoft PowerPoint compatibility or MVP completion is claimed.
+The richer image is a tooling proof only; no model artifact exists at this entry.
+
+Paid exposure: Zero real model calls before this entry. The admitted upcoming
+research first pass uses the owned local endpoint only, with no cloud provider,
+private user input, paid allowance, publication or message sending.
+
+Next gate: Execute the one frozen research first pass, retain every request and
+outcome, and stop expansion if any critical requirement fails. Complete the separate
+confirmation and report its missing/error cases honestly. Keep all remaining
+artifact, fresh comparison/composition and app/owner acceptance requirements open.
+
+References: [execution bounds](plans/MVP_PRIVATE_AGENT_EXECUTION_V1.md),
+[detector independence](plans/MVP_PRIVACY_FIRST_AGENT_V1.md),
+[boundary evidence](MVP_PRIVATE_AGENT_BOUNDARY_REPORT.md).
+
+### BL-20260911-0551-first-artifact-critical-failure -- 2026-09-11 -- Reject the first research artifact and test independent local verification
+
+Status: `Verified`
+
+Scope or hypothesis: Execute the first approved synthetic general research task
+through the real owned local endpoint, then independently judge its final artifact.
+
+Decisions: Reject an otherwise supported recommendation when a required cost
+calculation is wrong. Keep first-pass acceptance at zero of four: one failed and
+three unrun. Stop expansion. Within the owner's fail-fast learning instruction,
+authorize a separately identified development-only verification probe using the
+existing runtime: at most eight local model/tool actions, ten minutes, no web or
+cloud route, zero API fees and no repair yet. The verifier receives original inputs
+and the unchanged submission, not gold, corrected values or the known failure trace.
+
+Changes: Added immutable independent acceptance and trace-diagnosis receipts and
+the first-task report. No runtime, model setting or artifact was changed after the
+first-pass freeze. Prepared a generic verification experiment rather than replacing
+the failed task or adding a task-category controller.
+
+Evidence: The session used twenty-five local model calls and six controlled public
+fetches in 202.701 seconds. All thirty-one dispatches settled at zero declared API
+fees. One pause/resume, separate public/private contexts, exact public transfer,
+source preservation, final snapshot identity and cleanup are recorded. The critical
+checker failed annual_costs; subsequent assertions were not run. A neutral reviewer
+independently recomputed the source terms and found the same failure without gold.
+It separately confirmed both dated conflicts and the checked quotations. The trace
+shows the generated test asserted the same incorrect constant used in the artifact.
+Candidate identity c32b325dfe03b71090a498535ca55a016dee91fda95c06b18942d687917c5daf;
+acceptance identity 90d7d554f26deb61e35e60294663ab3fa07e64163aa4e568525748e849e8c018.
+Readiness metadata and build-log validators pass; the earlier mistaken validator
+filename failed before execution and was corrected to the repository's actual script.
+
+Failures or blockers: Required numerical accuracy failed despite valid files and
+the supported final option. An additional hypothetical calculation and a minor
+budget-headroom statement also need correction. OPF confirmation remains delayed
+in full-file preflight, before any inference or input read; the outer watchdog
+remains in force. Metadata diagnostics did not establish dataless files, acute OOM
+or cloud-hydration causality. Preserve these uncertainties rather than naming an
+unverified root cause.
+
+Limitations and non-claims: This is a failed controlled research task, not an
+accepted private research assistant. No real private material, live-web breadth,
+exact server-weight identity, routing improvement, artifact-family coverage or MVP
+release is established. A future correction of this exposed task cannot become a
+fresh success. The other task, paired comparison, unfamiliar workflow and app/owner
+acceptance gates remain open.
+
+Paid exposure: Thirty-one new owned-local/public-fixture requests, zero cloud calls
+and zero declared API fees. Hardware, electricity and utilization costs are not zero
+and were not measured. The upcoming local verification probe has a separate zero-fee
+allowance and does not alter the first-pass ledger.
+
+Next gate: Determine whether an isolated local verifier independently derives and
+detects the wrong numerical claim. Retain failure if it does not. Only then consider
+bounded repair and a fresh confirmation of a generic verification policy. Continue
+the separate sealed OPF confirmation without reopening or retuning its data.
+
+References: [first artifact result](MVP_PRIVATE_AGENT_FIRST_TASK_REPORT.md),
+[execution bounds](plans/MVP_PRIVATE_AGENT_EXECUTION_V1.md),
+[boundary evidence](MVP_PRIVATE_AGENT_BOUNDARY_REPORT.md).
+
+### BL-20260911-0610-verifier-budget-failure -- 2026-09-11 -- Preserve incomplete verifier and test smaller bounded actions
+
+Status: `Verified`
+
+Scope or hypothesis: Determine whether the local model can independently verify
+an immutable failed submission without receiving its known defect or expected values.
+
+Decisions: Preserve the eight-call probe as incomplete and keep the original
+first-pass ledger at zero accepted, one failed and three unrun. Under the owner's
+fail-fast iteration instruction, approve one final development-only verification
+attempt with twelve local model/tool calls, ten minutes, zero declared API fees,
+no web/cloud tool and no repair. Use the same endpoint and output/thinking settings;
+add generic batched inspection, incremental writes and call-reservation guidance.
+This adjusts process and allowance together and is not a controlled causal estimate.
+
+Changes: Added a private aggregate acceptance receipt and updated the first-task
+report. The reviewed runtime, original artifact and first-pass authority are unchanged.
+The next verifier gets only the same original inputs and submission, never the failure
+trace, evaluator gold or corrected values. No confirmation task is exposed or reused.
+
+Evidence: Eight settled local dispatches took 102.489 seconds. Provider-reported
+usage totals 46,278 input and 4,722 output tokens, including 20,800 reported cache-read
+tokens. Seven actions inspected files, planned or checked hashes. The final provider
+response reported 4,096 output tokens but supplied empty execute arguments, rejected
+before command execution. There are no review artifacts or executed calculations.
+All supplied bytes match the frozen inputs and run cleanup completed. Aggregate
+acceptance identity 5dbd1b05856f64a59b8e6fc5d03651b25f461d1696f0756a96fe52c02a1c0278.
+An independent trace reviewer confirmed the sequence and absence of a supported finding.
+
+Failures or blockers: The verifier exhausted its action allowance before producing
+useful evidence. The trace does not establish whether server generation truncation
+or tool parsing caused the empty arguments. The distinct OPF confirmation remains in
+slow preflight under its original one-hour watchdog, with no input or inference yet.
+
+Limitations and non-claims: No defect detection, artifact repair, fresh success,
+routing improvement or MVP completion is established. Additional allowance does not
+retroactively change the failed probe. Hardware costs and exact deployed weights
+remain unverified. Generality must still be tested on fresh tasks beyond this example.
+
+Paid exposure: Eight additional owned-local model calls, zero cloud calls and zero
+declared API fees. The next probe has a separately bounded zero-fee authority.
+
+Next gate: Complete the single revised verifier attempt, independently replay any
+calculation evidence and inspect false positives before deciding further work. Retain
+all negative outcomes and do not expand the four-task screen merely because files exist.
+
+References: [first artifact result](MVP_PRIVATE_AGENT_FIRST_TASK_REPORT.md),
+[execution bounds](plans/MVP_PRIVATE_AGENT_EXECUTION_V1.md).
+
+### BL-20260911-0627-verifier-partial-detection -- 2026-09-11 -- Accept a reproduced finding and reject the verifier's pass
+
+Status: `Verified`
+
+Scope or hypothesis: Complete the final bounded development verifier attempt and
+independently reproduce its calculation evidence without supplied gold or failure hints.
+
+Decisions: Accept the primary numerical finding as useful evidence but reject
+verification completeness and use of the model's verdict as an acceptance gate.
+Keep the original research artifact rejected and the first-pass ledger unchanged:
+zero accepted, one failed and three unrun. Do not run another verifier retry.
+
+Changes: Updated the first-task and readiness reports with the distinct submission,
+replay, finding and acceptance outcomes. Added independent private replay and acceptance
+receipts without changing the original candidate or evaluator requirements.
+
+Evidence: The second probe used twelve settled owned-local calls, 157.853 seconds
+inside the runner and 158.176 seconds including launch/closure. Provider usage was
+134,605 input tokens, 7,158 output tokens and 99,200 reported cache-read tokens.
+All fifteen supplied files were preserved. A fresh offline container replay took
+1.682 seconds and reproduced the saved calculation JSON byte-for-byte, preserving
+its sixteen imported files and confirming cleanup. The program derives the primary
+cost from original operands and detects the submitted mismatch. Result identity
+20099a5fe3057424e08ab52a28401329e9fe8034cf74b5f05dfa0640bb4f92b6;
+independent acceptance de8ebd1be44394f637e9bc7730bd149991ee5dc50fd2786fd546e30e4258f21a;
+replay receipt 37d268582b44e2a275cd702110b29156f6a8dcecc8bd717dc9adfa3594428299.
+
+Failures or blockers: The generated program ignores numerical comparison mismatches
+in its overall pass flag. The reviewer downgrades required arithmetic to minor and
+misses another wrong hypothetical calculation and a smaller headroom overstatement.
+It speculates about the error's cause and overclaims prior privacy from its current
+workspace isolation. Three initial inspection calls and two writes above the suggested
+size also prevent claiming that the pacing instructions were followed. A mistakenly
+named build-log validator failed before execution; the correct repository command
+then passed under Node 22, as did readiness validation.
+
+Limitations and non-claims: This is partial finding detection on an already exposed
+submission, not autonomous review quality, a repair, fresh confirmation or a product
+MVP. Prompt changes and a larger call allowance were combined, so their causal effects
+are not separated. Model verdicts do not override independently required correctness.
+
+Paid exposure: Twelve new local model calls and zero declared API fees; the isolated
+replay used no model, gold or network. Across the research first pass and both verifier
+probes, forty-five model calls and six controlled public fetches have been recorded.
+Hardware and operating costs remain separate and unmeasured.
+
+Next gate: Finish the narrow budget-feedback runtime verification. Any subsequent
+quality experiment needs source-derived executed comparisons for material numerical
+claims and rejection of contradicted requirements independent of the model's severity
+label. Keep fresh tasks sealed until a new experiment is frozen; no additional live
+allowance is granted by this outcome entry.
+
+References: [first artifact result](MVP_PRIVATE_AGENT_FIRST_TASK_REPORT.md),
+[boundary report](MVP_PRIVATE_AGENT_BOUNDARY_REPORT.md).
+
+### BL-20260911-0628-filter-confirmation-preflight-timeout -- 2026-09-11 -- Retain incomplete sealed confirmation and advisory-only detector selection
+
+Status: `Verified`
+
+Scope or hypothesis: Run the single frozen OPF confirmation under the original
+one-hour process and resource bounds, with development scoring kept separate.
+
+Decisions: Record infrastructure-incomplete confirmation: all sixty assignments
+remain unrun and unscored. Do not retry, retune or infer held-out quality. Retain OPF
+alone as the selected advisory configuration; no detector may authorize disclosure.
+
+Changes: Updated the privacy-filter research and readiness reports with independent
+development scores, the selected configuration and the failed confirmation attempt.
+The earlier OPF-plus-rules candidate recommendation is superseded because the tested
+union added no development coverage. Host credential/provenance enforcement remains
+separate and unchanged.
+
+Evidence: The corrected development pass completed all sixty cases for each of four
+configurations. OPF and its tested rule union both covered 84.38 percent of sensitive
+characters, matched forty-seven of seventy-six exact typed spans, missed five of
+twelve mandatory canaries and had three literal-mask utility failures. Six reference
+utility checks remained unevaluated per configuration. No candidate qualified for
+blanket release. Aggregate identity
+354778749e454fe725e46e8239a17d21adc6ce847bbc65433b013d7ba36b1354;
+operating selection a894605f5bae78f9ed125bf6417a51440b914b9334b78eb560f0aa73550c41ab.
+The confirmation watchdog terminated only the exact owned outer process using SIGTERM,
+closing at approximately 3,554.03 seconds within 3,600 seconds. Both owned process
+handles are terminal. Failure receipt
+94756bfc00666e2ade07704ee89f806f283e921819a130dd233600a70d00d7db;
+watchdog e039ba242e2fea020335aeadb9547bc29283f8f096230a469d7b9fabb5f72608.
+
+Failures or blockers: Full-file preflight did not finish. No output directory or
+claim was created, so the frozen wrapper never reached detector startup. There were
+zero detector calls, predictions or scored confirmation cases. No sealed-input access
+was observed and gold stayed unopened; this is not a complete file-access audit.
+No full inventory closure completed. The underlying file-read stall remains unexplained.
+
+Limitations and non-claims: Development CPU timing and memory demonstrate bounded
+local operation only. They exclude this later preflight delay and do not establish
+confirmation accuracy, production throughput, anonymization or protection of business
+context. A clean span scan never declassifies private context or admits a destination.
+
+Paid exposure: Zero confirmation model/API calls, hosted filter requests or fees.
+No real private user data entered this calibration.
+
+Next gate: Diagnose validation startup with public runtime files only before any
+separately authorized confirmation retry; retain the same sealed task independence.
+Continue to keep the detector advisory and the general-agent quality gate closed.
+
+References: [privacy-filter research](PRIVACY_FILTER_RESEARCH.md),
+[execution bounds](plans/MVP_PRIVATE_AGENT_EXECUTION_V1.md).
+
+### BL-20260911-0640-budget-and-deadline-protocol -- 2026-09-11 -- Make budgets visible and stop late unstarted actions
+
+Status: `Verified`
+
+Scope or hypothesis: Improve bounded general execution after the real verifier
+spent its allowance before a useful write; prove protocol mechanics separately from
+any empirical task-quality effect.
+
+Decisions: Expose current host budgets to each invocation, retain all charges and
+counters for invalid actions, and keep semantic acceptance external. Bind static
+prompt, tools and feedback in a versioned runtime identity. Reject incompatible old
+resumes explicitly. Stop cancelled or expired post-model responses before starting
+a tool, retaining a no-replay marker rather than fabricating tool execution.
+
+Changes: Updated the general runner and added focused budget/recovery tests. Fixed
+schema feedback contains no raw exception, argument value or host diagnostic. Added
+exact before/after source archives and independent review/test receipt joins. No
+task-category branch, larger fee/request allowance or model-verdict promotion exists.
+
+Evidence: Eleven focused tests and strict Node TypeScript pass on final runner
+620c1b421a7c4f2bcef059163162efdfa4420d34f7b89913a1d58259dd306269.
+Ten existing real HTTP/Docker runtime cases passed before the final deadline delta;
+the three affected deadline/cancellation cases subsequently passed on final source.
+The final cases took 7.307 seconds including launch. The independent budget review
+was clear; root reviewed the small final deadline/no-replay delta. Qualification
+receipt 5f9e921c0309cf15a76a4d331888e98fec04ab0461a2421b773737e76386910c.
+The current sixteen-file operator source identity is
+8c80cdea1e5f38160fe76b9e3fd4457a504755bc5bcdc191bb0d24bab5059f55.
+The original runner was reconstructed byte-for-byte against its existing frozen
+SHA before archival; both complete source inventories were hash-checked on save.
+
+Failures or blockers: The first focused suite passed but did not assert zero tool
+invocations after its simulated delayed deadline. Source review found that missing
+assertion and the corresponding timer-lag edge. The final suite adds no-invocation
+and no-replay checks. An initial integration launch used unsupported minWorkers;
+it failed before running tests and the corrected launch passed. Earlier slow CLI
+startup is retained, not attributed to a model or claimed to be fully diagnosed.
+
+Limitations and non-claims: These are protocol, accounting and isolation checks
+with synthetic model responses. They do not show that the local model follows pacing
+guidance, checks all claims or produces accepted general work. The original research
+and verifier failures, incomplete filter confirmation and three unrun task families
+remain. No application or release test and no live task ran on this new source.
+
+Paid exposure: Zero real model/provider calls or API fees for the runtime change.
+No future live allowance is transferred by this entry.
+
+Next gate: Freeze a new bounded quality experiment that requires executed evidence
+for material claims and preserves independently enforced acceptance. Diagnose the
+separate public-file validation stall before any proposed filter confirmation retry.
+Keep the later paired comparison, composition and owner/app acceptance gates open.
+
+References: [runtime evidence](MVP_PRIVATE_AGENT_BOUNDARY_REPORT.md),
+[first-task result](MVP_PRIVATE_AGENT_FIRST_TASK_REPORT.md),
+[privacy-filter evidence](PRIVACY_FILTER_RESEARCH.md).
+
+### BL-20260911-0702-public-runtime-validation-readonly -- 2026-09-11 -- Authorize one bounded public runtime byte-validation pass
+
+Status: `Approved`
+
+Scope or hypothesis: Test whether four concurrent file readers can complete the
+unchanged public privacy-filter runtime inventory within a fixed deadline, after
+the original confirmation exhausted its preflight deadline without inference.
+The proposed diagnostic is approved under the owner's continuing local diagnosis
+and fail-fast MVP instruction. This authorization covers public runtime reads only.
+
+Decisions: Permit one claim and one attempt per each of the existing 28,116 frozen
+files, using four content-hash threads, unchanged inventory exclusions and ordering,
+and every original SHA-256. Preserve both the inventory before and after the pass.
+The validation child is bounded to 600 seconds; an independent outer owner covers
+launcher startup and its entire detached process group, with termination at 602
+seconds, kill fallback at 604 seconds and bounded closure within 606 seconds.
+Do not retry files or the pass, alter assets or runtime code, or launch confirmation.
+
+Changes: Prepared separate ignored diagnostic scripts and receipts. The outer
+launcher uses asynchronous control-file I/O under an already active deadline and
+checks only its owned process group. Python uses isolated standard-library imports
+with bytecode writes disabled. No detector, model, private source, sealed input,
+gold, credential, hosted service or API is admitted by this gate.
+
+Evidence: A bounded corrected public sample enumerated 30,677 entries in 0.218
+seconds and checked metadata in 0.503 seconds; the exact eligible inventory matched.
+All 33 sampled complete-file hashes matched. Reading one 211-byte public package
+file took 5.080 seconds, while its hash computation was negligible; its metadata
+changed during the read. This isolates an observed content-read delay without
+establishing the underlying storage cause. Sample receipt identity:
+37491c4f41aaf3279a814df64abbd7dc38618f3691b2ff8dd373ed111318d2d4.
+The existing runtime freeze remains
+3533c82e98a27a24507cf7e3882385a98533c705ce79792c3d60c4bc1ed0d0b4.
+Exact approved diagnostic source identities are:
+validator 2b5fd73f94122770c263c310873da955fbcd58a98392b197c95b9e35ca03f12e;
+inner launcher 30e2f00f0f61c4e798c8bad95d3ca4897a7adaf2b3ff8bb572b0ae19b5566f7d;
+outer owner a579ff4dd39aa03b03549b011ebf4c5f1a6f57a98735d9d6cc0838386ea440dc.
+Static syntax checks pass. Independent source review cleared the public inventory
+and hash scope; outer-owner review remains a pre-dispatch requirement.
+
+Failures or blockers: Preserve the original failed one-hour confirmation preflight
+and the first diagnostic's path-sort mismatch. The latter was an instrumentation
+ordering error, corrected before the bounded content sample; it is not evidence
+that frozen runtime bytes drifted. A new full-read timeout or hash mismatch must
+remain incomplete and cannot qualify another detector run.
+
+Limitations and non-claims: This is a public-file I/O diagnostic, not a filter
+calibration retry, quality result, privacy guarantee or MVP release. Four readers
+may still encounter shared storage stalls. Full-byte validation must not be
+replaced by metadata caches or selective exclusions. The original confirmation
+remains unscored; no sealed confirmation input or gold is opened here.
+
+Paid exposure: Zero model calls, hosted requests, credentials or API fees.
+The only permitted changes are ignored diagnostic receipts and this append-only
+authorization record.
+
+Next gate: Complete and close this single read pass, retain exact process-group,
+inventory and hash results, and separately decide any unchanged-wrapper
+confirmation retry. No such retry is authorized by this entry.
+
+References: [privacy-filter research](PRIVACY_FILTER_RESEARCH.md),
+[private-agent execution bounds](plans/MVP_PRIVATE_AGENT_EXECUTION_V1.md).
+
+### BL-20260911-0708-source-evidence-mechanics -- 2026-09-11 -- Bind declared claims and replay calculations before independent acceptance
+
+Status: `Verified`
+
+Scope or hypothesis: Address the observed wrong-constant self-test and verifier
+pass-with-findings failures using a reusable source-evidence contract. Qualify
+mechanics separately from real task quality and from the unfinished general MVP.
+
+Decisions: Add optional answer-free critical requirement IDs, source and artifact
+quotations, direct numeric artifact pointers and executed comparisons. The host
+rejects every declared mismatch, missing required evidence and altered replay,
+ignoring model severity or overall verdict. Original sources and the host helper
+remain bound. Independent source interpretation and completeness still decide
+acceptance; a wrong formula or irrelevant exact quotation can pass consistency.
+Approve the separately documented one fresh local calibration after its remaining
+adapter/source/authority freeze prerequisites; no exposed verifier retry is granted.
+
+Changes: Added the general evidence module and strict optional operator-loader
+integration, plus immutable local diagnostic helper. Replay parses exact decimals,
+keeps boolean types distinct, denies calculator child/thread creation, removes
+prior results, bounds output and time, and rejects any workspace mutation. It
+runs inside the qualified offline non-root container, never on the host or beside
+evaluator gold. Public input selection does not include the generated helper.
+
+Evidence: Sixteen real Docker integration cases passed in 29.88 seconds overall,
+with source hashes unchanged and every owned fixture container removed. They cover
+valid replay, false pass summaries, decimal aliasing, forged pointers, boolean
+replay, missing comparisons/requirements, invalid excerpts, stale results, mutation,
+detached child creation, timeout, output overflow and omitted comparisons. Three
+focused operator-loader cases and strict Node TypeScript passed. Independent source
+review cleared the final module and loader. Evidence module identity
+4c8f9e3ada97ccd573d6621c24513cb9ea7e9816bd3be7f1120543d78aab40a7;
+loader ab3ff7a9224e3178efa5204a3929d89c224e116f79c10e1452db34b85ab5addb;
+integration test 8fed6a7162b6d64ee66f8d219b4f9c08f76f6cb201c003f426c67ba785e14361.
+The private qualification receipt binds terminal outputs and exact source hashes.
+
+Failures or blockers: Review found detached-child escape, decimal rounding aliases,
+Python boolean-number equality and quotation word-boundary loss. All four were
+fixed before the real test batch. A whitespace-only excerpt gap was also fixed.
+The independently prepared fresh task uses a different public snapshot layout
+from the earlier operator convention; a generic hash-bound adapter is being added
+without rewriting the task to fit the runtime. No live task has dispatched yet.
+
+Limitations and non-claims: These tests prove enumerated consistency, replay and
+isolation properties only. They do not prove truthful formulas, complete claims,
+general-agent quality, filter accuracy, routing economics or app/release acceptance.
+The original research failure and two failed/partial verifier probes remain.
+A passing host check leaves semantic acceptance explicitly independent.
+
+Paid exposure: Zero model calls, hosted requests or API fees. Synthetic fixtures
+only; hardware operating costs are not measured or represented as zero.
+
+Next gate: Finish the generic public-snapshot adapter, preserve independent task
+secrecy through the final runtime/experiment freeze, then run exactly one bounded
+fresh local calibration. Its result determines further quality work. The later
+priority families, paired comparison, composition and app/owner gates remain open.
+
+References: [fresh calibration plan](plans/MVP_PRIVATE_AGENT_QUALITY_CALIBRATION_V2.md),
+[first task and verifier failures](MVP_PRIVATE_AGENT_FIRST_TASK_REPORT.md),
+[general execution bounds](plans/MVP_PRIVATE_AGENT_EXECUTION_V1.md).
+
+### BL-20260911-0716-public-runtime-read-incomplete -- 2026-09-11 -- Preserve incomplete four-reader runtime validation
+
+Status: `Verified`
+
+Scope or hypothesis: Record the outcome of the single public-file validation
+approved in BL-20260911-0702. Verify bounded process closure and measured read
+behavior separately from full runtime integrity or detector readiness.
+
+Decisions: Keep the full public read pass incomplete. Do not retry it or start
+sealed confirmation. Matching partial hashes cannot substitute for the remaining
+files or the final complete inventory check. Retain the original confirmation
+failure and all diagnostic source variants and negative results.
+
+Changes: Executed one isolated public-file reader with four hash threads and an
+independent outer process-group watchdog. Added ignored partial-progress, closure
+and one slow/fast public-file metadata-probe receipt. No detector or inference was
+started, and no runtime, freeze, operating selection or corpus was edited.
+
+Evidence: The outer owner terminated with exit 1 after 593.729 seconds. Its
+launcher and Python child closed, the exact detached process group was confirmed
+gone, and no termination signal was needed. Initial full inventory equality passed.
+Of 28,116 frozen files, 9,518 were scheduled once and 9,515 completed with matching
+byte counts and SHA-256, totaling 3,093,363,425 bytes. Three started hashes remained
+unfinished and 18,598 files were unattempted: 18,601 remain unvalidated. Maximum
+observed concurrent started hashes was four. The final inventory check and complete
+result were not reached. Closure identity:
+b28130d2e3a164b025c7c8bd17e876709b376ca3feee86383b3da618819e7188.
+
+Failures or blockers: Small-file content reads remained slow despite four readers.
+The large checkpoint read was fast; hashing CPU and initial enumeration were not the
+observed dominant cost. The Python wrapper emitted its fixed incomplete error near
+the cooperative deadline. Timing is consistent with deadline exhaustion, but the
+sanitized error does not retain the exact underlying exception, so do not infer an
+unrecorded per-file error or claim complete byte preservation.
+
+Limitations and non-claims: One post-run metadata-only probe compared two already
+hash-matched public package files of similar size. The slow file took 6.982 seconds
+to read; the fast one took about 0.000036 seconds. Both had allocated blocks and the
+same filesystem; their only listed extended-attribute name was com.apple.provenance.
+The slow file had a hidden flag and later change time, while the fast one did not.
+No dataless label was reported. This post-read observation cannot establish or
+exclude earlier hydration and does not identify FileProvider or another storage
+service as the cause. No attribute values or further file contents were read.
+Probe identity:
+fedfeefac2ec0c96181ca5d627bf774c6e57259a728ab3cfb4226137d3f41fb0.
+There is no new held-out filter score, scanner qualification or confirmation readiness.
+
+Paid exposure: Zero inference, local/cloud model calls, hosted requests, credentials
+or API fees. No historical task database was accessed. Existing development-only
+filter measurements retain their earlier limits.
+
+Next gate: Resolve the public-file I/O bottleneck with a separately bounded,
+identity-preserving approach before proposing another full validation or confirmation
+attempt. Preserve all unscored confirmation cases; do not turn partial validation
+into a completed calibration.
+
+References: [privacy-filter research](PRIVACY_FILTER_RESEARCH.md),
+[private-agent execution bounds](plans/MVP_PRIVATE_AGENT_EXECUTION_V1.md).
+
+### BL-20260911-0718-fresh-quality-calibration-dispatch -- 2026-09-11 -- Admit one frozen general task after evidence and public-layout qualification
+
+Status: `Approved`
+
+Scope or hypothesis: Test the reviewed budget feedback and source-evidence contract
+on one independently prepared fresh general task. This is a new development
+calibration, not replacement of the failed first research assignment.
+
+Decisions: Authorize exactly one synthetic local session under the quality V2 plan,
+forty shared requests, 4,096 output tokens, 192 KiB input, thirty minutes and zero
+API-fee authority. Use the existing owned endpoint with session-only local-zero-cost
+and plaintext declarations for synthetic data; real-private admission stays closed.
+Preserve a pause/resume, every failure, immutable candidate and independent scoring.
+No task-answer hints, candidate repairs, enlarged allowance or cloud fallback.
+
+Changes: The operator now accepts separately hashed public brief and route-map
+metadata with exact original public input selection. It preserves source bytes and
+original URL paths, translates only the declared public origin to a controlled
+receiver, and binds the complete mapping and closure receipts. The older layout
+remains supported. The independently authored task was not rewritten to fit the
+launcher and its bodies remained unseen by the runtime developer until this freeze.
+
+Evidence: Twenty adapter preparation tests and strict Node TypeScript pass. One
+additional real loopback HTTP case passed on final adapter source, proving exact
+public bytes despite buffer mutation, denial of private/unmapped/query/POST paths,
+and receiver closure. Root reviewed the final adapter; independent review already
+cleared the evidence module and loader. Sixteen offline-container evidence cases
+passed. Full seventeen-file runtime archive identity:
+8bb8872e8a442f7bbf4143112e0cd3e885944a92ab7d052bf3119b66bdf2be5c.
+Plan identity 156c77c7824d140b88f2b46afc9511b24b502413081d9c13334304fddc9a1902.
+Exact execution authority 6a992db8f8733a05aa8ea3bf2ec6902c845ea221aa37a1429ab30c8b5f144dc4.
+The authority binds task, public metadata, source, image, endpoint identity, model,
+resource limits and qualification receipts. The evaluator/gold remain separate.
+
+Failures or blockers: The first authority preparation stopped before dispatch
+because the fresh shell lacked its explicit local billing declaration. It made
+zero model calls. Existing permitted session declarations were reestablished; no
+credential was printed or persisted. The adapter's initial test run had one test
+assertion error, retained and corrected without altering its runtime source.
+The separate filter's public-file validation remains incomplete and does not
+qualify a detector confirmation or relax any agent disclosure rule.
+
+Limitations and non-claims: The frozen task has not run at this authorization point.
+Only mechanics are verified. Both runtime and task changed versus the original
+failure, so this is no causal ablation or general quality estimate. Independent
+critical and neutral source reviews are mandatory after submission. Original
+failures, three unrun priority families, fresh comparisons, unfamiliar composition
+and app/owner acceptance remain open.
+
+Paid exposure: At most zero declared API fees; no hosted model/filter or paid route.
+Owned hardware and operating costs remain separate and unmeasured.
+
+Next gate: Execute once, close the owned runtime, then join immutable execution,
+privacy, all sixteen independent critical checks and neutral material-claim review.
+Retain incomplete or failed results without substituting another attempt.
+
+References: [quality V2 bounds](plans/MVP_PRIVATE_AGENT_QUALITY_CALIBRATION_V2.md),
+[general execution sequence](plans/MVP_PRIVATE_AGENT_EXECUTION_V1.md),
+[first failure evidence](MVP_PRIVATE_AGENT_FIRST_TASK_REPORT.md).
+
+### BL-20260912-0532-quality-v2-incomplete -- 2026-09-12 -- Close fresh calibration as incomplete and retain execution diagnosis
+
+Status: `Verified`
+
+Scope or hypothesis: Close the single fresh source-evidence calibration authorized
+by BL-20260911-0718 and its independent diagnostic review. Distinguish runtime
+mechanics from a usable general-agent outcome.
+
+Decisions: Record an additional incomplete task. Do not repair the candidate,
+replace the original failure, enlarge the spent allowance or start a retry.
+The owner's status question is answered with the execution failure and an explicit
+course correction: reliable tool writes and stage allocation precede another full
+artifact attempt. The overall goal is currently paused, not completed.
+
+Changes: Updated the first-task report and readiness with the terminal outcome.
+Preserved the exact candidate, event/action diagnosis and independent checker
+receipts. No production source changed during the live session or this closure.
+
+Evidence: The run ended after 637.397 seconds with forty settled requests and
+zero declared API fees: nineteen public-phase model calls, six public GETs and
+fifteen private-phase model calls. Only one of seven required output files exists.
+Three consecutive responses reached 4,096 output tokens with empty execute
+arguments; rejection happened before command execution. A later program invocation
+failed on an incorrect CSV field name. Source/configuration/public metadata bindings,
+one pause/resume and all cleanup receipts are preserved. Result identity
+91cb4e9344df20910d4be16138dab2f36ce6cc6bf11ce8f059af2f90c92e440b.
+The independent offline checker terminated normally with candidate-failure status:
+two preservation checks passed and fourteen checks failed or remained unsatisfied.
+Diagnostic summary 5334b5b156cd38d5565203ab820bcebd86911ae4f996f4c1df55d6caa8cf66d2.
+A separate source reviewer found useful partial arithmetic, a wrong comparator
+condition and evidence-schema incompatibility without running candidate code or
+reading gold. Neither review promotes the incomplete artifact to acceptance.
+
+Failures or blockers: Public retrieval spent twenty-five of forty requests before
+private execution. Repeated empty tool arguments, a failed program invocation and
+missing deliverables show that execution remains unreliable. Output truncation or
+server-side tool parsing is plausible, not established as the exclusive cause.
+The added evidence contract has not demonstrated an improvement in task completion.
+The completed test suites are not an MVP or product-quality result.
+
+Limitations and non-claims: This is a different task and revised runtime, not a
+causal comparison. The original ledger remains zero accepted, one failed and three
+unrun. The fresh calibration is additional and incomplete. Clarification to earlier
+replay wording: final inventories detect persistent changes; they do not prove the
+absence of writes that were reverted. No full app, route-economics or owner-task
+acceptance has occurred. Local OPF development remains separate from its incomplete
+confirmation and does not authorize disclosure.
+
+Paid exposure: Zero declared API fees and no paid/cloud fallback. Owned-device and
+operating costs remain unmeasured. Independent evaluation used no model calls.
+
+Next gate: A small diagnostic separating output/tool-call reliability from stage
+budget allocation, followed by one complete useful deliverable and app integration.
+No new model experiment is authorized or dispatched by this outcome entry; keep the
+paused overall goal and all later acceptance gates explicit.
+
+References: [complete task report](MVP_PRIVATE_AGENT_FIRST_TASK_REPORT.md),
+[calibration bounds](plans/MVP_PRIVATE_AGENT_QUALITY_CALIBRATION_V2.md),
+[filter evidence](PRIVACY_FILTER_RESEARCH.md).
+
+### BL-20260912-0625-small-step-approved -- 2026-09-12 -- Isolate short writes, connectivity and one deliverable
+
+Status: `Approved`
+
+Scope or hypothesis: The owner's latest instruction approves the next small step
+and explicitly asks whether the local model has internet access. Execute the
+[small-step plan](plans/MVP_LOCAL_TOOL_AND_CONNECTIVITY_V1.md) once: three exact
+write probes, at most three connectivity model calls plus one public GET, then
+one twenty-call invoice report only if all write prerequisites pass. This grants
+zero declared API fees and no cloud fallback or real-private-data disclosure.
+
+Decisions: Perform only the three bounded checks in the approved plan.
+
+Changes: The runner now distinguishes invalid execute arguments
+observed at the configured output-token limit. Its feedback requests a short
+incremental command. Two consecutive such outcomes stop with preserved progress;
+valid capped responses still execute. Protocol identity changes to version four,
+so older jobs cannot silently resume under different behavior. A new sealed task
+uses two synthetic inputs and one report without the prior evidence bundle.
+
+Evidence: Independent source review found no concrete runner issue.
+Strict TypeScript passed for runner/tests, local drivers and connectivity probe.
+The first focused test command was interrupted after silent startup and executed
+no assertions; a bounded tooling retry is pending and must pass before the live
+runner task. The checker has passed one positive and five negative controls, and
+the existing task loader accepts the package. These are mechanical preparation,
+not local-model task success. No new live effects have occurred at this entry.
+
+Bindings: Local authority
+974652dfd6dc7bd1cc54567d63220c7b3cb32c546b996b6542ed7ffa8f0e9038;
+held runtime 8e481bda15fb1d70bc08c231d1715081788f4eddef9c7fcf17f979f3172e1d5e;
+plan 844a67c703c1c14a612be3309f6cc2d6935c8ed28acfa623120a88eb751853e4.
+Authority binds actual model/endpoint identity, existing qualified offline image,
+drivers, runtime and sealed task metadata. No credential or endpoint is recorded
+in this committed documentation. Driver model calls run sequentially to avoid
+introducing contention on the owned GPU.
+
+Correction to BL-20260912-0532: The later program failure was a missing derived
+row.stock value, not an incorrect CSV input field name. The original outcome and
+negative evidence remain unchanged.
+
+Failures or blockers: The initial test launcher produced no assertions before
+interruption; the bounded retry subsequently passed all eighteen focused tests
+(45.964 seconds total, 2.50 seconds of assertions). No live failure has yet
+been observed in this allowance.
+
+Limitations and non-claims: API self-report cannot establish GPU operating-system
+network access. A real broker GET and exact unpredictable response consumption can
+establish host-tool internet access. Container probes establish only the execution
+container's restriction. A passed report is one narrow task, not general quality,
+routing economics or MVP release. The earlier failures remain in the ledger.
+
+Paid exposure: Zero declared API fees; owned hardware and operating costs remain
+separate and unmeasured.
+
+Next gate: Close connectivity, verify three writes, then run and independently
+evaluate exactly one report if the prerequisites pass.
+
+References: [small-step plan](plans/MVP_LOCAL_TOOL_AND_CONNECTIVITY_V1.md),
+[retained earlier failure](MVP_PRIVATE_AGENT_FIRST_TASK_REPORT.md).
+
+Pre-write amendment: Independent driver review found that a shell could fabricate
+the short Python case's output without running the saved program. Before any write
+probe dispatch, the host now replays that exact saved program in a fresh offline
+container with the original input and an empty output directory. Strict TypeScript
+passed after the fix. Model limits and the task/runtime remain unchanged. Revised
+local authority 3aec3d80d171c5b667f7646337050483f33092a59a465b7bb6d0b1d245eac761
+supersedes the original for write/task dispatch; the original authority is retained
+for the already closed connectivity attempt. That attempt observed denied container
+networking, but its first model request became unknown before a response; no public
+GET or follow-up model call occurred. One bounded metadata-only provider-health GET
+is admitted to distinguish endpoint transport failure; it grants no inference retry.
+
+### BL-20260912-0631-connectivity-b-continuation-approved -- 2026-09-12 -- Complete only the unspent broker internet observation
+
+Status: `Approved`
+
+Scope or hypothesis: The owner explicitly requested an internet-capability test.
+The initial connectivity procedure closed with one unknown local-model request and
+a verified generated-container network denial; no public GET or B model call ran.
+A later metadata GET reached the configured API, and the separate authorized write
+batch settled three tool-equipped calls. Neither observation establishes browsing
+inside the model server.
+
+Decisions: Authorize only the previously unspent B portion: at most two new local
+model requests with 1,024 output tokens and 16 KiB inputs, one exact public HTTPS
+UUID GET, zero declared API fees, 120 seconds of work and a 180-second outer bound.
+This retains the original total connectivity ceiling of three model attempts and
+one public GET. The first unknown A request is not retried, the container check is
+not repeated, and no cloud route or real private input is admitted. Final extraction
+retains the declared fetch tool schema and executes no further requested tool.
+
+Changes: A separate B-only driver and frozen source/input bindings preserve the prior failed attempt.
+
+Evidence: New B source 6feffabd61dda1465574f9b7b2238a87013455385860d6901a37063e430d8476.
+It binds the archived initial claim/result and untouched ledger, current matching
+endpoint/model authority, original eight-file connectivity runtime and exact
+append-only approval entry before effects. The separate result preserves both
+procedure status and whether the model used the actual response UUID. Strict
+TypeScript passed for the source. A fresh source/input freeze precedes dispatch.
+
+Failures or blockers: The initial unknown request remains unresolved and is not
+refunded or treated as an observed model response. Empty-tools API incompatibility
+is a hypothesis only.
+
+Limitations and non-claims: B success would establish the SOAR host broker and model
+tool-response path, not GPU operating-system internet access or unrestricted
+generated-container networking. There are no more retries or replacement runs.
+
+Paid exposure: Zero declared local API fees; no new paid authority.
+
+Next gate: Close this one bounded B invocation and join its receipts to the retained
+A/container results. The failed short-write prerequisite keeps the conditional
+artifact attempt on hold.
+
+References: [small-step plan](plans/MVP_LOCAL_TOOL_AND_CONNECTIVITY_V1.md).
+
+### BL-20260912-0638-small-step-closed -- 2026-09-12 -- Retain the short-write failure and identify a public-network blocker
+
+Status: `Verified`
+
+Scope or hypothesis: Close the small-step allowance and distinguish model command
+serialization, program correctness, model API reachability and usable web access.
+No full report task, artifact evaluator or paid comparison is added by this entry.
+
+Decisions: Preserve the failed first-response check and its unmet prerequisite.
+Do not start the conditional twenty-call audit, repeat the failed requests, relax
+outbound address checks or claim model browsing from tool selection alone. Record
+all live processes as terminal. The next experiment is bounded error recovery and
+host transport integration, followed by a useful report after an explicit gate.
+
+Changes: The protocol-four runner records output-limit-specific invalid execute
+feedback and a durable two-consecutive-failure stop. Valid capped calls remain
+executable; old protocol identities cannot silently resume. The short Python probe
+now independently executes the saved program in a fresh offline container. Added
+the small-step outcome report and updated readiness. No runtime source changed
+after its final preparation freeze or during any live call.
+
+Evidence: All eighteen focused unit tests and strict TypeScript pass. Independent
+source review found no remaining material issue in the narrow runner change.
+Three live write requests settled and produced complete tool arguments: 421, 483
+and 537 command characters; 162, 220 and 173 output tokens. Two of three operations
+passed in a 12.121-second process lifetime. Write result identity
+e92ec27eed94107fc207e30d75187275d444d0be475fe0473cb917f46ffb55ed.
+The Python case also passed independent saved-program execution. All owned write
+containers closed. The failed append command asserted Unicode escapes in a Python
+bytes literal against actual UTF-8 bytes and exited before writing.
+
+The network container showed only loopback, failed DNS and failed direct public
+TCP, then closed. The initial no-tools model attempt remained unknown without a
+usable response. One metadata GET later returned HTTP 200 and the configured model.
+The B continuation used one settled model call, which selected the exact admitted
+public-fetch tool and URL. Its one public HTTPS GET became unknown; response
+extraction was never called. B result identity
+f689b663adac0d208a250a9127311a200e78877be5e98d480dd55fd519f3250c.
+A final bounded DNS/TLS diagnostic sent no HTTP payload or model request: the public
+hostname resolved into the reserved benchmark address range, denied by the actual
+public-address classifier. TLS was skipped at that guard. Diagnostic identity
+2c90cfc8fd8ab16865f023c3825ba3029fe590e3ca4fcb0b9a91772b972e55d1.
+This identifies a current blocker; the failed GET did not preserve its DNS result.
+
+Failures or blockers: The write result remains two passes and one failure, not
+three passes after relabeling. The one-response design did not test recovery from
+actual stderr. Successful public retrieval and consumption remain unverified.
+The initial model failure's precise cause is unknown; empty-tool compatibility is
+only a hypothesis. The larger task remains unrun and its inputs/gold remain sealed.
+Earlier TypeScript fixture errors, silent test startup, metadata authority mismatch
+before contact and original failed dispatches are retained. Log-format checks also
+initially rejected incomplete field labels; these uncommitted entries were corrected.
+
+Limitations and non-claims: Five model attempts occurred across the step: four
+settled, one unknown. No live case reached the output cap, so the new recovery branch
+is unit-verified only. The DNS result does not establish which network component
+provided that mapping or prove the earlier failure's exclusive cause. GPU server
+operating-system connectivity remains unknown. These checks prove neither general
+agent quality, routing savings, four-family coverage nor release. The earlier
+zero-accepted artifact ledger is unchanged. No new deployed privacy detector or
+real-private-data authority was introduced.
+
+Paid exposure: Zero declared API fee allowance, no cloud fallback, zero booked
+fees on settled calls; the unknown requests remain unknown. Owned hardware and
+operating costs are separate and unmeasured.
+
+Next gate: Resolve the host's public-address/transport integration without weakening
+outbound admission. Test the existing action-observation-repair loop with the real
+append failure before recording a new complete-report execution decision. Do not
+reuse this closed allowance for retries or a larger benchmark.
+
+References: [small-step outcome](MVP_LOCAL_TOOL_AND_CONNECTIVITY_REPORT.md),
+[bounded plan](plans/MVP_LOCAL_TOOL_AND_CONNECTIVITY_V1.md),
+[retained artifact failures](MVP_PRIVATE_AGENT_FIRST_TASK_REPORT.md).
+
+Post-closure formatting record: The B approval entry's exact execution-time bytes
+were archived before normalizing its uncommitted field labels. Original entry
+identity 69ad90f549f4fe851bfb6454c37e003e218f19db5867445008a118c55dd67352
+and archive receipt f7d74328c493e61cb4a055f56816f3f85d158d233368d2092acc70ad7e49f912
+remain available in local evidence. The normalization changed no approved scope,
+limits or execution-time source binding.
+
+### BL-20260913-1648-recovery-report-approved -- 2026-09-13 -- Approve recovery, public retrieval repair and one independently evaluated report
+
+Status: `Approved`
+
+Scope or hypothesis: The owner requests the next milestone. Test the actual
+failure-observation-repair loop, resolve host public retrieval without weakening
+admission, and obtain one independently checked synthetic invoice report.
+
+Decisions: Use the new recovery/report plan. The prior 2/3 first-response batch
+remains failed and closed. The new acceptance prerequisite is observed recovery
+from the real error, not a retroactive pass. Bound model work to four recovery
+calls, twenty report calls and two web-tool calls, each in a single new attempt;
+zero declared API fees. Four bounded public DNS/TLS/DoH metadata probes and one
+public-content GET are permitted for this networking branch. No old unknown
+request, evaluator result or exhausted budget is reused. The offline report may
+proceed after recovery independently of the web branch.
+
+Changes: Prepare small drivers using the existing runner, session, sandbox and
+checker. Investigate an explicit host-selected resolver path while preserving
+public-address rejection, TLS verification, source provenance and exact origin
+admission. Do not alter the owner's operating-system or VPN settings. Source and
+runtime bindings will be captured before each live stage; independent review and
+focused mechanical checks precede the network path's live content retrieval.
+
+Evidence: The previous step established complete short tool arguments, two correct
+operations, one generated-program assertion error and a reserved-address DNS
+mapping denied by the production classifier. It did not test error recovery or
+successful web-response consumption. The invoice package and checker were prepared
+and remain unrun. Current checkout and build-log state were inspected before work.
+
+Failures or blockers: Previous API/public GET unknown receipts remain unresolved.
+The current host network requires a compatible public resolver path; GPU-server
+operating-system connectivity is still unknown. A new success is not yet observed.
+
+Limitations and non-claims: Changing from a first-response prerequisite to observed
+recovery changes the question being measured. Retain all negative results. A single
+accepted synthetic report cannot establish general agent quality, route economics,
+coverage of the four priority families or release readiness. Real private inputs
+and cloud fallback remain outside this allowance.
+
+Paid exposure: Zero declared local API fees; no cloud or paid services. Owned-device
+and operating costs remain separate and unmeasured.
+
+Next gate: Freeze and run one recovery case; on exact-byte and cleanup acceptance,
+run the sealed invoice task and independently evaluate its immutable candidate.
+Complete and qualify public retrieval as a separate bounded branch.
+
+References: [new milestone plan](plans/MVP_RECOVERY_AND_FIRST_REPORT_V1.md),
+[previous small-step result](MVP_LOCAL_TOOL_AND_CONNECTIVITY_REPORT.md).
+
+### BL-20260913-1710-host-finalization-approved -- 2026-09-13 -- Validate completed artifacts when ordinary model allowance ends
+
+Status: `Approved`
+
+Scope or hypothesis: The new recovery run corrected and read back the requested
+file, but spent its four calls before requesting finish. The user's requested
+milestone is a checked deliverable. A host can validate the frozen result after
+ordinary model/tool-budget exhaustion without buying an extra model call.
+
+Decisions: Retain the original recovery execution as incomplete, with no host
+checks and recovered=false. Independently audit its immutable corrected bytes and
+input preservation as separate recovery evidence. Implement bounded host
+finalization on ordinary allowance exhaustion only: freeze, close execution, run
+the existing trusted checks in a fresh offline verifier, then submit if those checks
+and cleanup succeed. Cancellation, deadline, unresolved/unknown operations and an
+invalid terminal action cannot take this path. Semantic acceptance still requires
+the independent task evaluator. No artificial finish tool call or extra model/tool
+charge is recorded.
+
+Changes: Add explicit durable host-validation events and a new prompt protocol
+identity. An interrupted/failed terminal verifier cannot silently replay on resume.
+The report prerequisite is superseded for this new milestone: independently
+confirmed repair of the actual file plus the qualified host-finalization behavior
+allows the one twenty-call report trial. This does not relabel the earlier
+execution or spend additional recovery calls. The total model allowance is unchanged.
+
+Evidence: Four local calls settled in a 16.36-second terminal process. The model
+read the old failure, recovered from an unavailable inspection utility, corrected
+the Unicode bytes comparison, appended exactly 37 bytes and read back the result.
+The preserved candidate has the exact requested 73-byte file and unchanged input/
+evidence hashes. Source and owned-container cleanup were confirmed. Independent
+review distinguished successful file repair from missing completion protocol.
+
+Failures or blockers: The original run's status remains incomplete because finish
+was never requested; no host critical check ran during that execution. The proposed
+finalization change is not verified at this approval point. The original first-pass
+write result remains 2/3.
+
+Limitations and non-claims: Checking a saved candidate afterward is a different
+observation from a successful original runner completion. Do not claim otherwise.
+An exhausted budget alone cannot prove completion, and passing structural checks
+only permits submission for independent quality evaluation. No extra live retry
+or report replacement is permitted by this decision.
+
+Paid exposure: Zero declared API fees. No additional model allowance or cloud route.
+
+Next gate: Verify correct and incorrect final snapshots, no-promotion stop paths,
+cleanup, accounting and replay behavior. Confirm the saved repair independently,
+then freeze the runtime and execute the single still-unrun report trial.
+
+References: [milestone plan](plans/MVP_RECOVERY_AND_FIRST_REPORT_V1.md),
+[retained initial small-step failure](MVP_LOCAL_TOOL_AND_CONNECTIVITY_REPORT.md).
+
+### BL-20260913-1714-report-network-frozen -- 2026-09-13 -- Freeze the corrected runtime for one report and one web proof
+
+Status: `Approved`
+
+Scope or hypothesis: Execute the remaining report and web proof in the owner's
+new milestone allowance. Model calls remain sequential; the offline evaluator may
+run alongside the later web proof.
+
+Decisions: Accept the separately checked corrected file as development recovery
+evidence while retaining its incomplete original execution. Advance exactly one
+twenty-call, thirty-tool, fifteen-minute invoice report. Its independent five-gate
+checker and neutral review still decide semantic acceptance. Separately permit two
+model calls, one public-content GET and its one resolver metadata exchange, within
+the current milestone's existing bounds. No automatic retry, cloud route, private
+input or OS/VPN change is admitted.
+
+Changes: Protocol five can validate a frozen artifact after ordinary model/tool
+exhaustion, with durable start/finish markers and all existing cleanup/cancel/
+deadline gates. The opt-in public DNS profile pins a fixed resolver and validates
+all returned destination addresses before original-hostname HTTPS. It is bound in
+the destination identity and restricted to wholly public contexts. Resolver started/
+finished events identify its extra metadata exchange; it is not hidden as a second
+content GET. Default DNS and private/cloud admission remain unchanged.
+
+Evidence: Thirty-two finalization tests, sixty-eight broker/resolver tests, full
+Node TypeScript and scoped driver typechecks passed. Independent reviews cleared
+both source changes. The saved recovery candidate passed four byte/preservation
+checks without another model call. The sealed task/checker hashes still match.
+Final runtime identity 98f3c7052115c727476ad225af9265c19d890cae714014de1d4df7ed2ffdf0d2 binds all eighteen
+runtime files, including the new resolver. Source edits are held through both live
+stages. The report and fresh web proof have not yet run at this entry.
+
+Failures or blockers: The old four-call recovery remains incomplete. Initial
+sandbox loopback-test EPERM and the successful permission-corrected rerun are both
+retained. Earlier public/model unknown receipts remain unchanged. The fixed path
+has passed metadata/TLS probes, but live content retrieval is not yet verified.
+
+Limitations and non-claims: Host structural validation submits a candidate; it does
+not prove invoice arithmetic or general task quality. The public resolver profile
+is provider-specific and IPv4-only and discloses the admitted public hostname to
+that resolver. It fails closed on unsupported responses. A passed web proof would
+establish host-tool retrieval and model consumption, not GPU-server OS browsing.
+No release, routing-savings or four-family success is claimed.
+
+Paid exposure: Zero declared local API fees. No cloud fallback or paid service.
+Hardware and operating costs remain separate and unmeasured.
+
+Next gate: Run the report once, close all owned execution, evaluate its immutable
+candidate, and perform neutral review. Then close the one public-response proof;
+retain failures and distinguish each outcome.
+
+References: [milestone plan](plans/MVP_RECOVERY_AND_FIRST_REPORT_V1.md),
+[prior small-step report](MVP_LOCAL_TOOL_AND_CONNECTIVITY_REPORT.md).
+
+### BL-20260913-1737-report-checker-correction -- 2026-09-13 -- Preserve the frozen checker failure and qualify a separate formatting correction
+
+Status: `Approved`
+
+Scope or hypothesis: The owner's next-milestone request includes a usable checked
+report. The single local report execution submitted unchanged output; neutral
+source review independently recomputed its correct arithmetic. Its frozen checker
+then passed three of five gates and rejected two valid Markdown constructions.
+
+Decisions: Keep V1 failed and closed. Correct the evaluator in a separately named
+V2 package, preserving V1 task, gold, checker, manifest, candidate and execution
+records. This is development on an exposed candidate, not a fresh task or a
+retroactive V1 pass. Author independent positive and negative controls, obtain a
+separate source review, and run one bounded offline qualification and evaluation
+of the unchanged candidate. No model retry, candidate repair or additional model,
+public-network or paid allowance is opened. The original plan's evaluator gate is
+superseded only for this explicit evaluator-correction stage; both verdicts must
+remain visible.
+
+Changes: The V1 total regex requires the amount to end its line, rejecting the
+correct amount followed by an explanatory parenthesis. Its rounding check counts
+a section heading and a labelled example as two examples. V2 will distinguish
+headings from actual examples and permit explanatory formatting while still
+rejecting missing, incorrect, duplicate or conflicting values. Independent review
+must confirm these are task-contract false negatives before V2 execution. Keep the
+trusted checker isolated and never execute candidate programs during acceptance.
+
+Evidence: The V1 checker completed in a pinned offline container, passed input
+preservation, readability and exact mismatch rows, and failed totals/count and
+rounding-example gates. Its receipt is
+6fe39285f59774244aec9e2df0df2e6e9deecd00e5415ca2d305fae8527107cb;
+summary c156f78857545f8e2488f39d9840ce29ef44595d02e6737a2c6b1a53629c35ec
+confirms cleanup, preserved bindings, no infrastructure failure and zero model
+calls. Independent neutral review
+7d53af8290d6aaa14d7e06591693ab7a693a65f02505f8f468f51028aec532df
+found no material report defect. Its arithmetic matches all sixteen source rows.
+
+Failures or blockers: V1 acceptance failed, so the artifact milestone is not yet
+achieved. Two automatic permission-service timeouts created no process. A root
+launch then stopped before checker/container creation because the execution adapter
+compared canonical JSON with the driver's exact-file hash. Correcting only that
+admission comparison allowed the one V1 checker invocation; original adapter and
+all startup failures are retained. These are separate from the observed checker
+formatting defects.
+
+Limitations and non-claims: A checker changed after observing a candidate is an
+exposed development evaluator. Control qualification and source adjudication can
+support acceptance of this one report, not held-out quality or generalization.
+Neither V2 approval nor neutral review alone establishes that V2 passes its controls.
+No private-data qualification, routing economics or release is established.
+
+Paid exposure: Zero. This correction performs only bounded offline trusted-checker
+work, with no model request or public retrieval.
+
+Next gate: Freeze reviewed V2 bytes. In one offline run, require all qualified
+positive and negative controls to behave correctly before evaluating the unchanged
+report once, then confirm cleanup and preserved V1/candidate/runtime bindings.
+
+References: [milestone report](MVP_RECOVERY_AND_FIRST_REPORT_REPORT.md),
+[original plan](plans/MVP_RECOVERY_AND_FIRST_REPORT_V1.md).
+
+### BL-20260913-1753-report-web-verified -- 2026-09-13 -- Verify one local audit report and host-mediated public retrieval
+
+Status: `Verified`
+
+Scope or hypothesis: Close the owner's bounded recovery/report/web milestone with
+one useful synthetic invoice audit, independently checked arithmetic and an
+observed live public response consumed by the local model.
+
+Decisions: Accept the unchanged report using its neutral source review and the
+separately reviewed V2 development evaluator. Preserve the failed V1 evaluation
+and incomplete original recovery execution. Close this allowance with twelve
+settled model calls, no model retry after evaluation and no new unknown request.
+Treat this as one exposed development task, not a held-out quality screen or
+release. The next product step is app integration of the existing general runtime.
+
+Changes: The final runtime includes protocol-five host validation after ordinary
+allowance exhaustion, with durable events, frozen snapshots, isolated checks and
+cleanup/cancellation/deadline gates. Its opt-in public resolver profile is bound
+to a wholly public destination/context, validates public addresses and original
+hostname TLS, and records the additional DNS metadata exchange. V2 corrects the
+evaluator's natural-Markdown false negatives and counts heading/numbered-list
+labels when rejecting duplicate or conflicting totals. No candidate source or
+production runtime changed during the live runs or evaluator correction.
+
+Evidence: The report audited sixteen invoices, identified all three discrepancies
+and correctly computed USD 142.18 billed versus USD 141.68 due: net USD 0.50
+overcharged. Six model calls and 45.866 seconds of execution ended with explicit
+finish, structural submission, settled accounting and confirmed cleanup. Neutral
+source review independently recomputed every row without gold or checker results.
+The reviewed V2 checker passed 28 controls and then all five report gates in the
+pinned offline container in 1.923 seconds including cleanup. Its receipt is
+d362c8a1ee97d7f0c58d601b7896ddc086536977b444b1a6bf6e588d63caaf80;
+controls receipt
+75195a0649bb6bcf8f5eff4f05c3ec00873eb8d826c564c96ab8dfe90b1c29a3.
+Final acceptance/preservation join
+bc2a299ae80a7f6d737f7f83403ee94d9c38c068d8007b0c17826354c917abe4
+binds the immutable candidate and both evaluator outcomes. Runtime identity
+98f3c7052115c727476ad225af9265c19d890cae714014de1d4df7ed2ffdf0d2
+still covers all eighteen source files. Thirty-two finalization and sixty-eight
+broker/resolver tests, Node TypeScript and readiness metadata validation passed.
+The web proof used two model calls, one public GET and one explicit DNS metadata
+exchange in 4.807 seconds; the model returned the exact fetched UUID. Web audit
+ad7a4ae731db035ce95e2c3ce1fcf0a89d19842e127811874efb237fe7f15059
+confirms settled dispatches and unchanged source/authority. Separately, four
+byte/preservation checks confirmed the repaired recovery file.
+
+Failures or blockers: V1 remains failed at three of five checks despite correct
+report arithmetic. Its explanatory-total suffix and heading/example counting
+false negatives were independently adjudicated before V2. Initial V2 controls
+exposed sentence-period parsing and review exposed duplicate-label prefixes; both
+were fixed before final freeze. Original recovery remains incomplete after four
+calls because it missed finish; its file repair is separate evidence. Initial
+loopback EPERM, missing web session declarations, two evaluator permission-service
+timeouts and the adapter exact-file/canonical-hash mismatch are retained as
+setup/development failures. Their corrected invocations did not replay any settled
+model call. No owned execution or evaluator remains running.
+
+Limitations and non-claims: The invoice used explicit finish, so the new budget
+finalization branch is unit-verified but not exercised by this live report.
+Correcting an evaluator after seeing a candidate is exposed development, not
+held-out confirmation. One synthetic report does not establish general task
+reliability, priority-family coverage, real-private-data readiness, routing savings
+or release. Public retrieval proves a SOAR host tool and model response consumption;
+GPU-server OS internet access remains unknown. The public DNS profile is opt-in,
+provider-specific and IPv4-only and discloses the admitted public hostname to its
+resolver. Earlier failures and the original four-assignment ledger are unchanged.
+
+Paid exposure: Zero booked API fees across all twelve settled owned-model calls;
+no cloud fallback or paid service. The owner's device cost and operating expenses
+remain separate, so no total-cost savings claim follows.
+
+Next gate: Implement one desktop general-task flow with a host controller, typed
+app bridge and artifact workspace, reusing the existing session/runner/checkpoints.
+Verify a fresh synthetic or public task from input selection through progress,
+restart/resume and exact-artifact preview/export. Keep submitted distinct from
+independently accepted. Real private inputs require the outstanding privacy gate;
+broader quality and route economics follow evidence of usefulness.
+
+References: [milestone outcome](MVP_RECOVERY_AND_FIRST_REPORT_REPORT.md),
+[approved plan](plans/MVP_RECOVERY_AND_FIRST_REPORT_V1.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260913-2209-desktop-general-approved -- 2026-09-13 -- Approve one desktop general-task workflow
+
+Status: `Approved`
+
+Scope or hypothesis: The owner requests the next milestone after the accepted
+synthetic report and verified host web response. Connect the existing general
+runtime to a usable desktop input, progress and artifact flow.
+
+Decisions: Implement a separate host-owned general-task controller and persisted
+contract, typed IPC/preload bridge and renderer workspace. Accept only explicitly
+public or synthetic goal/input material. Reuse GeneralAgentSession, broker, runner
+and checkpoints. Generic structural submission remains independently unevaluated.
+Native selection provides opaque import tokens; renderer code cannot select host
+paths, checker code, model settings or runtime limits. Preview is inert and export
+is bound to a job's actual snapshot path and hash.
+
+Changes: Bound each desktop job to twenty local model calls, thirty tools and
+fifteen minutes inside the existing session cap. Preserve restart identity,
+counters, original deadlines and unknown-operation no-replay rules. Use one active
+desktop general task at a time. Pause closes execution; cancellation is durable.
+The app requires a host-pinned existing Docker image and makes no automatic pull.
+Shared contracts separate queued/running/paused/submitted/incomplete/cancelled
+states and require monotonic revision and independentAcceptance=not_evaluated.
+
+Evidence: The current app wires legacy sessions and coding runs; the reusable
+general runtime exists but has no desktop controller or bridge. The prior milestone
+accepted one unchanged synthetic audit under a corrected exposed evaluator,
+qualified host public retrieval and passed scoped runtime tests. Its failures and
+limitations remain recorded. Independent implementation, UI and review work is
+assigned to separate agents; the main agent owns contracts, app wiring and closure.
+
+Failures or blockers: No desktop general-task end-to-end proof exists at approval.
+Real-private input qualification and general quality remain open. App restart and
+artifact export require actual flow verification, not only interface mocks.
+
+Limitations and non-claims: The first app flow uses offline sandbox tools and does
+not expose arbitrary public browsing. The model endpoint still receives only
+explicit public/synthetic material. Structural checks verify input preservation
+and an output's presence, not semantic correctness. No production privacy, routing
+savings or release claim is authorized by this milestone.
+
+Paid exposure: No cloud or paid services. Focused tests and up to two bounded
+scripted Electron/loopback/Docker flow scenarios make no real model requests.
+After checks, independent source review and an explicit source/task freeze, one
+fresh synthetic app task may use the owned local endpoint for at most twenty
+model calls and zero declared API fees. Hardware and operating costs are separate.
+
+Next gate: Complete and review the controller, typed bridge and UI; run focused
+checks and the actual scripted app flow. Freeze final bytes before the single real
+local task, then independently inspect its artifact, accounting, export and cleanup.
+
+References: [desktop plan](plans/MVP_GENERAL_TASK_DESKTOP_V1.md),
+[previous milestone](MVP_RECOVERY_AND_FIRST_REPORT_REPORT.md).
+
+### BL-20260913-2234-desktop-general-implemented -- 2026-09-13 -- Implement the desktop general-task workflow
+
+Status: `Implemented`
+
+Scope or hypothesis: Connect the approved general task runtime to a reviewable
+native app workflow before testing another real local-model deliverable.
+
+Decisions: Reuse the existing broker, session, checkpoint and execution ownership
+contracts. Add an independent desktop record and strict renderer bridge. Copy
+native-selected regular files once with bounded reads and an expiring single-use
+selection token. Bind consent to the exact public/synthetic goal and file hashes.
+Keep the original runtime identity, model configuration, budget and deadline on
+restart. Cleanup-only cancellation of an interrupted dead owner acquires the
+existing recovery claim and never replays an uncertain request.
+
+Changes: Added the general-task controller, shared schemas, preload and main IPC,
+app bootstrap wiring, executed-build identity and renderer workspace. The UI shows
+history, safe progress, counters, pause/resume/cancel, cleanup and independent
+acceptance separately. HTML/text previews are inert; Markdown omits active HTML,
+links and images. Native export rechecks job/path/hash and sender authority, stages
+complete bytes, rechecks the selected destination and atomically replaces only the
+native-approved regular file. The app requires a configured immutable installed
+image and never pulls one. The runtime remains offline for this app profile.
+
+Evidence: Final focused controller tests passed 23/23, IPC tests 13/13 and runtime
+identity tests 3/3. Full Node and renderer TypeScript checks passed on the held
+source. Independent review cleared the host authority, immutable input, recovery,
+preview and export implementation; its private receipt SHA-256 is
+642f8dffa50e657b7a0893ea68ae2212b8b09ef267146999f187b0946d4e419f.
+Node ABI 127 and Electron ABI 143 both opened a fresh in-memory SQLite database.
+The already installed pinned Docker image was inspected successfully. Two actual
+scripted Electron/HTTP/Docker scenarios are prepared, not yet executed.
+
+Failures or blockers: Two initial controller test-fixture type errors were fixed
+before the final checks. Eighteen renderer unit assertions have not executed:
+three attempts stopped during worker startup, including a corrected single-thread
+attempt, before test collection. A bounded Node 22 import trace measured 18.35 of
+20.01 seconds in 110 dependency readFileSync calls. The full app build currently
+waits in the separate forced credential-addon rebuild while its child loads an
+Undici dependency. No compiler or network activity was observed. The underlying
+filesystem cause is unknown. These are retained setup failures, not passing UI or
+build evidence.
+
+Limitations and non-claims: Source review and stub-based tests do not prove the
+actual Electron workflow. No new real model request has been sent. Structural
+checks establish preserved input and a nonempty named output, not quality. Real
+private inputs, general reliability, routing economics and release remain open.
+
+Paid exposure: Zero real provider calls and zero API fees during implementation.
+Read-only Docker image inspection and native/SQLite preflight only. The previously
+approved bounded scripted scenarios and one fresh local-model task remain unrun.
+
+Next gate: Finish the app build, freeze exact source and executed bytes, then run
+the two actual scripted scenarios. Resolve or explicitly supersede the blocked UI
+unit setup using actual flow evidence before admitting the single real local task.
+Retain every failed setup and candidate outcome.
+
+References: [approved desktop plan](plans/MVP_GENERAL_TASK_DESKTOP_V1.md),
+[readiness](MVP_READINESS.md).
+
+### BL-20260913-2252-desktop-build-recovery -- 2026-09-13 -- Narrow renderer dependency loading and clarify the app proof gate
+
+Status: `Implemented`
+
+Scope or hypothesis: Resolve build setup without changing the approved desktop
+behavior or treating unexecuted renderer assertions as a pass.
+
+Decisions: Replace package-wide Phosphor icon imports with supported per-icon
+exports. Retain the same 46 imported symbols and their order across four renderer
+files. Native and main/preload build stages passed before the stalled renderer
+process was explicitly stopped; its exit 143 is retained. Rebuild the entire normal
+app after the import-only change. The two actual Electron scenarios, both
+typechecks, focused host checks and independent source review must pass before the
+already approved one synthetic local-model task. The mocked UI suite remains an
+explicit gap until it actually runs; this technical verification clarification
+adds no task, paid exposure, privacy authority or retry allowance.
+
+Changes: Thirty distinct used icons now load directly through package-supported
+exports. Independent reconstruction confirmed that all non-import bytes in the
+four files are unchanged. Machine-local configuration now declares the existing
+owned local route's zero API fees and selects the already inspected immutable
+execution image. Existing endpoint and credential values were preserved; no
+machine-local values are added to shared source or documentation.
+
+Evidence: The stalled renderer's actual file handles showed unused icon modules.
+A bounded cache read reached 26 public icon files and 10.30 MB in 26.13 seconds;
+its first attempt hit a per-file size bound and changed nothing. Warm-file Python,
+cat and Node comparisons were fast, so no general filesystem cause is established.
+Renderer TypeScript passed after the import change. Independent review cleared
+its exact module equivalence; the updated receipt SHA-256 is
+a7e9547849185eb6bcd33d6001ef7e4a97bff67a232f1e7534a7dd33fc7704ba.
+The earlier review receipt remains byte-identical. A fresh full build has passed
+its native, main and preload stages and is rebuilding the renderer.
+
+Failures or blockers: A fourth mocked UI attempt outside the restricted sandbox
+and a fifth after the icon import change both timed out at worker startup after
+60.01 seconds, with zero assertions. This does not establish a sandbox cause or a
+UI assertion failure. The actual Electron scenarios and the real task are unrun.
+Build/setup failures remain part of this milestone's evidence.
+
+Limitations and non-claims: Narrow icon loading is a source-verified dependency
+reduction; no measured build speedup or final app pass is claimed in this entry.
+A structural submission still needs separate artifact acceptance. Real private
+inputs, broader reliability, routing savings and release remain unqualified.
+
+Paid exposure: Zero real model calls and zero API fees. No additional task or
+provider scope is authorized; the one fresh task remains conditional on actual
+scripted app proof and a final source/input freeze.
+
+Next gate: Finish the normal app build, freeze executed bytes, and exercise the
+two scripted scenarios. Admit the unchanged synthetic support-queue task only
+after those gates, then inspect its artifact and verify ledger/export/cleanup.
+
+References: [clarified desktop plan](plans/MVP_GENERAL_TASK_DESKTOP_V1.md),
+[desktop implementation report](MVP_GENERAL_TASK_DESKTOP_REPORT.md).
+
+### BL-20260913-2306-desktop-readiness-correction -- 2026-09-13 -- Retain failed app setup and correct optional Docker metadata
+
+Status: `Implemented`
+
+Scope or hypothesis: Complete the same two approved scripted desktop scenarios
+after actual Electron setup exposed a readiness defect. No real task is admitted.
+
+Decisions: Preserve the first full-build and source freeze, both failed scenarios,
+and their available traces. Use Docker's optional-map lookup for image Volumes,
+matching the existing execution runtime, rather than requiring the key to exist.
+Do not broaden the image policy: Linux, the exact immutable image and no declared
+volumes remain required. Rerun only the same two scripted mechanics scenarios after
+review and rebuilding. These pre-task setup failures do not consume or expand the
+single real local-model task allowance.
+
+Changes: Correct the desktop readiness metadata query. The first scripted scenario
+stopped at its 240-second setup deadline; its initially empty evidence write is
+retained as incomplete. Its surviving database was separately retained and audited.
+The second scenario reached the visible General task workspace but reported the
+runtime unavailable and stopped after 31.3 seconds, before any fixture request.
+
+Evidence: The first normal app build passed with 429 renderer modules; its frozen
+189 source/build bindings have combined SHA-256
+522f755b13cb78ba9e9e79be3c9096107a9587763bb28d387c1731521c3b62ad.
+The first failed fixture database has zero general tasks, dispatches and runtime
+events. The second has zero scripted HTTP requests and no fixture protocol errors.
+The original real Docker inspection command failed because Config.Volumes was
+absent. The corrected read-only command returned the pinned image, Linux and null
+volumes. Thus the readiness failure is reproduced, with no image pull or task run.
+
+Failures or blockers: Actual desktop mechanics remain unverified at this entry.
+A separate bounded UI setup probe stopped after 175 seconds; 257 completed jsdom
+file reads consumed 120.88 seconds and import never completed. The normal Vitest
+worker and environment modules loaded in 74 milliseconds and 1.84 seconds.
+The eighteen UI assertions remain unrun. Eager legacy SDK imports are a plausible
+cold-start contributor but are not established as the first app failure's cause;
+no speculative provider rewrite was made.
+
+Limitations and non-claims: A visible form is not a task completion proof. No new
+model artifact, semantic acceptance, real-private qualification, route savings or
+release is established. The original app/setup and unit-worker failures remain.
+
+Paid exposure: Zero real provider calls and zero API fees. Neither failed scripted
+scenario admitted a task. The one real synthetic task remains unrun and gated on
+actual scripted app proof, source review and a new source/task freeze.
+
+Next gate: Review and build the corrected readiness query, freeze the new bytes,
+and repeat the same two bounded scripted scenarios. Proceed to the unchanged
+synthetic support audit only if the actual app checks pass.
+
+References: [desktop plan](plans/MVP_GENERAL_TASK_DESKTOP_V1.md),
+[desktop report](MVP_GENERAL_TASK_DESKTOP_REPORT.md).
+
+### BL-20260913-2319-desktop-mechanics-verified -- 2026-09-13 -- Verify the actual app flow and admit one fresh synthetic task
+
+Status: `Verified`
+
+Scope or hypothesis: Actual desktop mechanics pass for the same two scripted
+scenarios. The conditional one-task local-model allowance from BL2209 is now
+admitted; model quality remains untested for this fresh task.
+
+Decisions: Keep production bytes unchanged after the readiness correction.
+Move only the test/live-driver ledger reader out of Electron's evaluation VM into
+a readonly Node SQLite connection. Preserve the same database and job-scoped
+SELECTs, with one deferred transaction and reliable close. Admit one authored
+synthetic support-queue audit, with exactly two picked input files and its frozen
+goal. The separately computed expected result is never picked or sent to the model.
+
+Changes: Corrected the test harness's unsupported dynamic import. The V2 app
+already reached pause and cancellation, but its audit reader failed. Its retained
+databases show one settled zero-fee scripted request each and released claims;
+those partial outcomes remain failed tests. The V3 test source and unchanged app
+are separately frozen and the same scenarios are rerun without test retries.
+
+Evidence: Both actual Electron/HTTP/Docker scenarios passed in 11.8 seconds:
+input consent and immutable copies; pause, process restart and resume with the
+same counters/history/deadline; exact inert HTML preview/export; cancellation
+surviving restart with resume denied; released claims and no owned containers.
+Four scripted requests settled with zero fees; the HTML canary made zero requests.
+The frozen 189 bindings are unchanged. Host tests passed 23/13/3; Node, renderer
+and test-driver TypeScript and the complete normal app build passed. Independent
+source review and a screenshot inspection are complete. Scripted proof SHA-256:
+2d85ca068eb0b083bc836fe618b0c1403a41a9a962158627ed692fb8600c5418.
+
+Failures or blockers: The first setup timeout, optional-Volumes readiness defect,
+and V2 audit-reader failure remain preserved. The eighteen mocked UI assertions
+remain unrun after the bounded startup investigation. Actual Electron proof
+satisfies the clarified gate for this single synthetic task, not that missing suite.
+
+Limitations and non-claims: Scripted scenarios prove mechanics, not model quality.
+All app submissions remain independently unevaluated. Real private inputs,
+broader workload reliability, routing savings and release remain outside this proof.
+
+Paid exposure: Zero real model calls so far. The next run is bounded to twenty
+owned-local model calls, thirty tools, fifteen minutes and zero declared API fees;
+no cloud fallback or public retrieval, and no model retry after evaluation.
+Hardware and operating costs remain separate.
+
+Next gate: Run the single admitted synthetic support audit through the actual app,
+then independently inspect its report against the inputs and verify accounting,
+exact export, source preservation and cleanup. Admission SHA-256:
+ce28b38ecf6dfa66b23067e40176c710b805e83906cc10093f4d2a5453f97ac6.
+Executed app identity: b371aeea6a3a95c68c36f75e67fc24786965d07f447b4bfae1f10f0e5336e7dd.
+Stop and retain a terminal failure; no acceptance label follows from structural
+submission alone.
+
+References: [approved desktop plan](plans/MVP_GENERAL_TASK_DESKTOP_V1.md),
+[desktop report](MVP_GENERAL_TASK_DESKTOP_REPORT.md).
+
+### BL-20260913-2328-desktop-general-complete -- 2026-09-13 -- Complete the bounded desktop milestone with one accepted report
+
+Status: `Verified`
+
+Scope or hypothesis: Complete one useful general task from native input selection
+through the actual desktop app, local tools, visible progress, artifact preview
+and export, then independently assess the unchanged result.
+
+Decisions: Accept this one authored synthetic support-queue report under separate
+source arithmetic and neutral artifact review. Keep the generic app submission
+field independently unevaluated; the app's structural check cannot grant semantic
+acceptance. Do not retry or revise the candidate after evaluation. Close this
+bounded milestone without opening a new task or paid allowance.
+
+Changes: Finalized the report, quickstart, README and current readiness. The app
+uses the verified local route and already installed immutable image. No production
+source or build byte changed after the successful scripted proof or real-task
+admission. Temporary test state, expected values, traces, databases, configuration
+and generated artifacts remain outside tracked/shared deliverables.
+
+Evidence: The real app task made six model calls and six tool actions, all requests
+settled with no unknown outcomes. Task execution took 50.796 seconds; app setup,
+execution, preview/export and close took 54.389 seconds. Native-picked input hashes
+and the exact goal match admission and the persisted task. Exported bytes match the
+submitted artifact. All 189 frozen source/build bindings remain unchanged. The app
+closed normally without forced termination, all claims were released and actual
+owned-container absence was checked. The outer watchdog did not fire.
+The 2,547-byte candidate SHA-256 is
+935bfad744ab3bbc72628b3224d907bbfd43b2d37390421deb6553683601db08.
+A neutral reviewer independently derived expectations from the two inputs and goal
+before reading the candidate; it did not read the provided expected-result file.
+All five semantic review gates passed, with no material issues. The root's earlier
+source arithmetic independently agrees. Acceptance receipt SHA-256 is
+47ce20b58d7345280ec2e803f2b1dca40af8e2f266a9ebe11d4b9301c86d1e7b.
+Both actual scripted scenarios, the full normal app build, applicable TypeScript
+checks and 39 focused host tests pass. Screenshot inspection confirms the rendered
+workspace and inert artifact surface. The earlier failures remain recorded.
+
+Failures or blockers: Eighteen mocked renderer assertions remain unrun because
+worker environment startup did not finish; the separate bounded probe measured
+slow jsdom file reads but did not establish their filesystem cause. Cold build/app
+setup, the optional-Volumes readiness defect and the test VM import failure remain
+negative evidence. They are not silently converted into passes by the later result.
+
+Limitations and non-claims: This is one accepted synthetic app report, not a
+reliability benchmark, four-family qualification, full regression suite or release.
+The small after-output table extractor aids manual review and is not a sealed
+benchmark evaluator. The app currently admits only explicitly public/synthetic
+goals and files. Its task tools run offline; GPU-server OS internet access is still
+unknown. Real-private readiness and routing savings remain unproven.
+
+Paid exposure: Zero accounted API fees across all six real owned-model requests,
+with no cloud fallback or public retrieval. The corrected scripted pass made four
+synthetic HTTP requests, while the retained intermediate run made two. Hardware,
+electricity and other operating costs are excluded; no total-cost savings follows.
+
+Next gate: Propose a small, frozen public/synthetic task set beyond file auditing
+with independent artifact checks. Research needs the verified host-fetch capability
+connected to desktop authority; website and presentation output need appropriate
+correctness and visual review. Privacy-filter qualification remains required before
+real private files. No additional inference or paid run is admitted by this entry.
+
+References: [desktop milestone report](MVP_GENERAL_TASK_DESKTOP_REPORT.md),
+[approved desktop plan](plans/MVP_GENERAL_TASK_DESKTOP_V1.md),
+[current readiness](MVP_READINESS.md).
+
+### BL-20260913-1555-desktop-research-utc-reset -- 2026-09-13 -- Correction: restore UTC IDs after the desktop milestone
+
+Status: `Implemented`
+
+Scope or hypothesis: Reconcile the completed desktop milestone's local-clock ID
+sequence with this continuation's UTC timestamps without rewriting earlier
+entries or inventing a future timestamp.
+
+Decisions:
+
+Timestamp sequence reset after: `BL-20260913-2328-desktop-general-complete`.
+
+Preserve the complete earlier ledger prefix byte-for-byte. Register only this
+exact correction/predecessor pair in the existing reset allowlist. All existing
+requirements remain: an Implemented Correction entry, one exact marker naming
+the immediate predecessor, a backward boundary, and monotonic timestamps after
+it. This correction is transparently backfilled at the continuation boundary
+after the current app-label failure was recorded; it is not a claim that the
+validator repair occurred before that failure.
+
+Changes: Correct this continuation's uncommitted approval minute from 15:45 to
+15:55 UTC, matching its first observed tool timestamp, and update only its current
+references. Give the current label-fix entry the valid Implemented status and a
+Correction title. Earlier IDs, text, failed evidence and frozen driver copies
+remain unchanged. Add two focused tests for this exact reset, its same-minute
+approval, a wrong predecessor and a later unregistered rewind.
+
+Evidence: The prior milestone ended at the immutable local-clock identifier
+BL-20260913-2328-desktop-general-complete. The continuation began at 15:55 UTC.
+The validator rejected the apparent timestamp reversal and the unsupported
+Correction status; both failures are retained here. A byte-preservation check
+covers every entry before this correction. The focused validator suite passed
+18 of 18 tests, including the two new reset-boundary tests. The ledger validates
+with 212 entries and passes append-only validation against HEAD. Whitespace
+validation also passed.
+
+Failures or blockers: The first research app run's two source-control label
+failures remain unchanged in their later entry. This chronology correction does
+not turn those failures or the unrun renderer assertions into passes.
+
+Limitations and non-claims: This changes chronological metadata only. It does not
+alter execution, source scope, budgets, consent, artifact acceptance or release.
+No additional runtime or paid authority follows from a timestamp reset.
+
+Paid exposure: Zero model, network, Docker or paid-provider calls for this repair.
+The existing approval's conditional allowance and all earlier outcomes remain.
+
+Next gate: Validate the ledger and exact reset tests, rebind the changed current
+live-driver approval identifier and source freeze, then resume the already
+approved mechanics sequence under the existing authority.
+
+References: Correction to BL-20260913-2328-desktop-general-complete;
+[research plan](plans/MVP_DESKTOP_PUBLIC_RESEARCH_V1.md),
+[chronology validator](../scripts/validate-build-log.ts).
+
+### BL-20260913-1555-desktop-research-approved -- 2026-09-13 -- Extend the app to explicit public research
+
+Status: `Approved`
+
+Scope or hypothesis: The owner's continuing MVP request authorizes a useful next
+slice: goal-only tasks and explicitly permitted public-source retrieval through
+existing host tools, retaining the offline execution container.
+
+Decisions: Approve the bounded desktop public research plan. Freeze up to three
+exact HTTPS sources and separate network consent, five GET attempts and 64 KiB per
+response; retain twenty local model calls, thirty tools and fifteen minutes.
+Preserve legacy offline task authority. Retain complete source bytes joined to
+settled dispatches. Stop on unknown network outcome; require cleanup before host
+artifact access. No new agent loop or image provisioning.
+
+Changes: Recorded the completion audit and implementation/verification sequence.
+The broader MVP still needs research, artifact quality, general routing and the
+promised private-data boundary. Public-only progress does not close those gaps.
+
+Evidence: Source review confirms the current app forces a file and has no public
+fetch tool; the existing runner/broker/session support isolated public retrieval.
+The qualified artifact image already includes website and presentation tools.
+No new runtime or model calls have occurred in this milestone.
+
+Failures or blockers: The original redesign attachment is unavailable; the audit
+uses current design/source/evidence and does not invent a new critique quotation.
+Prior runtime failures, unexecuted mocked UI assertions and private-readiness gaps
+remain recorded.
+
+Limitations and non-claims: Public/synthetic-only. Exact supplied-source research
+is not search-engine discovery or general browsing. This is implementation
+approval, not correctness, routing savings, full MVP completion or release.
+
+Paid exposure: Zero paid-provider allowance. Following passing mechanics and a
+frozen admission, one owned-local public report may use at most twenty calls,
+five GETs, thirty tools and fifteen minutes. No cloud fallback. Hardware and
+operating costs remain excluded from the declared API fee.
+
+Next gate: Implement and verify the deterministic contracts and actual scripted
+app flow, then freeze the sole live report before dispatch. Website/deck trials
+need separately recorded task identities; closed historical trials are not reused.
+
+References: [approved research plan](plans/MVP_DESKTOP_PUBLIC_RESEARCH_V1.md),
+[completion audit](MVP_COMPLETION_AUDIT.md), [build evidence](MVP_GENERAL_TASK_DESKTOP_REPORT.md).
+
+### BL-20260913-1611-desktop-research-implemented -- 2026-09-13 -- Implement explicit sources and retained retrieval evidence
+
+Status: `Implemented`
+
+Scope or hypothesis: Connect the existing host retrieval broker to the desktop
+without mandatory dummy files or ambient network authority.
+
+Decisions: Version new desktop records as 2 with exact public URL and resolver
+consent bound to the task; legacy version 1 remains offline. Add an explicitly
+public primary context to the existing session, not another agent loop. Preserve
+per-task GET caps and stop on unknown requests. Source bytes stay in host-owned
+content-addressed storage, joined to settled broker receipts. Bump the runner
+protocol to bind these semantics; historical unfinished runs cannot silently
+resume under the changed protocol. Require confirmed cleanup for host artifact
+access. Bound waiting for DNS without claiming cancellation of OS resolver work.
+
+Changes: Optional input contract/form; explicit source and DNS controls; exact URL
+broker restriction; retained source events and verified metadata projection;
+public session approval and source observations; unknown-fetch stop; durable
+request counting; host cleanup gate. A reviewer found that rejected fetch tools
+were counted as GETs in the UI; projection now uses the enforced dispatch ledger.
+
+Evidence: Normal build passes; 55 desktop host tests and 139 runtime/broker tests
+pass, with Node/renderer and scoped driver/test typechecking. Six bounded public
+preflight dispatches made zero model calls: five sources settled with exact bytes
+and one requested failure endpoint remained unknown. System DNS answered with
+nonpublic addresses; the declared Cloudflare route retrieved the sources without
+weakening address checks. Preflight aggregate is retained under ignored evidence.
+
+Failures or blockers: First preflight harness rejected an extra context field
+before any request; its retained database confirms zero dispatches. Read-only
+fixture preparation via tsx CLI hit a restricted IPC socket; the existing Node
+import loader completed it without network. Twenty-six mocked renderer cases
+are authored but not executed; prior worker-startup failures remain recorded.
+
+Limitations and non-claims: Tests prove their named contracts, not complete-task
+research quality. Received bytes do not establish source truth. The actual app
+and live report gates remain pending. Only public/synthetic goals/files/sources;
+no real-private qualification, broad browsing, paid routing or release.
+
+Paid exposure: No new model requests or paid calls. Public connectivity preflight
+is distinct from the approved one-report local inference allowance. Existing
+hardware and operating costs remain outside declared API fees.
+
+Next gate: Freeze reviewed production source, built app, test fixtures and public
+preflight evidence, then run four actual scripted-model Electron scenarios: the
+existing two offline flows and two new research flows. Only after those pass may
+the separately frozen live report run under BL-20260913-1555-desktop-research-approved.
+
+References: [research plan](plans/MVP_DESKTOP_PUBLIC_RESEARCH_V1.md),
+[research report](MVP_DESKTOP_PUBLIC_RESEARCH_REPORT.md),
+[completion audit](MVP_COMPLETION_AUDIT.md).
+
+### BL-20260913-1618-research-accessible-labels -- 2026-09-13 -- Correction: retain the first app result and correct source-control labels
+
+Status: `Implemented`
+
+Scope or hypothesis: Complete the actual scripted desktop gate for the public
+research extension approved in BL-20260913-1555-desktop-research-approved.
+
+Decisions: Retain the first four-scenario run as two passes and two failures. Both
+research cases timed out locating the source textbox before any task was created.
+Its nested hint text became part of the accessible name; the hostname selector
+had the same markup issue. Use explicit caption IDs and aria-labelledby, matching
+the existing output-filename control. Do not weaken the exact accessibility tests.
+
+Changes: Only source-URL and hostname-lookup accessible labels changed in the
+renderer. Rebuild and freeze the new app before a separately identified rerun.
+Source scope, broker, model, budgets, evaluators and test scenarios are unchanged.
+
+Evidence: The existing two offline scenarios passed in 6.4 and 4.1 seconds.
+Research scenarios failed in 32.4 and 31.2 seconds; both retained databases show
+zero tasks, dispatches and claims, zero scripted model requests and normal app
+closure. Failure audit and the original 194-file freeze remain retained. The
+original scripts and first run are not relabelled as passing.
+
+Failures or blockers: Actual public research remains unverified until the label
+fix passes the same desktop scenarios. This was a UI accessibility defect, not a
+local model or public-network quality failure.
+
+Limitations and non-claims: The successful offline regression does not stand in
+for research execution. Independent research artifact acceptance remains pending.
+
+Paid exposure: Zero real model calls or public requests from the two failed
+research scenarios. Four scripted localhost model calls occurred in the passing
+offline scenarios, with no paid provider. No live report allowance was consumed.
+
+Next gate: Review the two label changes and passing rebuild, freeze revision 2,
+then rerun the same four scenarios once under the existing mechanics scope.
+
+References: Correction to the app-verification state described in
+[implementation report](MVP_DESKTOP_PUBLIC_RESEARCH_REPORT.md) and
+BL-20260913-1611-desktop-research-implemented;
+[approved plan](plans/MVP_DESKTOP_PUBLIC_RESEARCH_V1.md).
+
+### BL-20260913-1625-desktop-research-mechanics-verified -- 2026-09-13 -- Verify the app flow and admit one frozen public memo
+
+Status: `Verified`
+
+Scope or hypothesis: Prove public retrieval, retained evidence and no-replay
+behavior in the actual desktop app before the sole real-model research task.
+
+Decisions: The corrected four-scenario pass satisfies the mechanics condition
+of BL-20260913-1555-desktop-research-approved. Admit one source-comparison memo
+using the two preflighted RFC texts, its fixed goal, no attached files and the
+explicit Cloudflare lookup choice. Root and neutral semantic criteria were
+frozen before a candidate existed; they are never included in solver inputs.
+No retry or artifact repair follows evaluation.
+
+Changes: Bound the current executable, reviewed source, source URLs and expected
+response identities, goal, driver, approval entry and passing scripted proof.
+The only later live-driver change was its corrected approval ID; byte reversal
+matches the independently reviewed driver. Runtime authority is unchanged.
+
+Evidence: All four actual Electron scenarios passed in 32.0 seconds. Public
+research retained exact bytes/receipts across pause and process restart and
+exported its cited report. An uncertain public fetch stopped the next model turn
+and remained unresumable after restart. The two existing offline scenarios also
+passed. Independent ledger recomputation finds ten scripted model requests and
+four public GET dispatches; one GET is the deliberate unknown-outcome case.
+All 194 frozen source/build bindings remain unchanged. Scripted proof SHA-256:
+2dd859ffb2026c0afa7a87584f7df17888eae75bb5efb0508b729eb186b5e82a.
+Executed app identity:
+6d0e1b46dcdf050c35ed125821aca11714b6946e62fb25b926d79220f69a204f.
+The 194 host/runtime checks, normal build and applicable TypeScript checks pass;
+the separate chronology validator passes 18 tests and preserves earlier entries.
+
+Failures or blockers: The first two research app failures remain preserved with
+zero requests. The initial preflight schema error and unresolved renderer-test
+startup history remain recorded. A passing scripted report is not a model result.
+
+Limitations and non-claims: This proves the enumerated app mechanics, not research
+quality, real-private deployment, routing savings, broad browsing or release.
+Submission remains independently unevaluated in the generic app.
+
+Paid exposure: No real model call yet in this milestone. The sole admitted memo
+may use twenty owned-local model calls, five GETs, thirty tools and fifteen minutes,
+with zero declared API fees and no cloud fallback. Hardware/operations are excluded.
+
+Next gate: Execute the unchanged admitted task once, verify retained bytes and
+all request/cleanup/export joins, and independently evaluate the final memo.
+Admission SHA-256:
+8d29379f182b50b43e6e4b49b638dfa08ff76ebc41230b557a0b55113738ecb4.
+Pre-candidate evaluation freeze SHA-256:
+078a7136995d58eaa6f7ca6bf1fdd0375fb08275f00fce84c01d57ffd719e141.
+Stop at a terminal failure and retain it; no additional model allowance is granted.
+
+References: [approved plan](plans/MVP_DESKTOP_PUBLIC_RESEARCH_V1.md),
+[research report](MVP_DESKTOP_PUBLIC_RESEARCH_REPORT.md).
+
+### BL-20260913-1632-public-research-first-result -- 2026-09-13 -- Reject the first live memo while retaining verified delivery
+
+Status: `Failed`
+
+Scope or hypothesis: Complete one useful source-grounded research memo through
+the actual app and owned local model, then judge it independently against the
+frozen goal and both retrieved sources.
+
+Decisions: Reject this first candidate on correctness. Do not repair, replace or
+retry it after evaluation. Retain the verified delivery result separately from
+failed semantic acceptance. Keep the generic app's independent-acceptance field
+unevaluated; its structural checker cannot grant factual acceptance. Continue
+broader MVP work from this evidence rather than treating source acquisition as
+research success.
+
+Changes: Updated the research report, README and readiness with the complete
+result and failure. Website and editable-deck briefs, synthetic inputs and
+independent evaluators are prepared separately as Proposed; no artifact generation
+or further model allowance is opened here. No production source/build byte changed
+after the corrected scripted proof or real-task admission.
+
+Evidence: The real task made ten owned-local model calls, ten tool actions and two
+public GETs. All twelve requests settled, with no unknown outcome and zero
+accounted API fees. App setup, execution, preview/export and normal closure took
+109.475 seconds. Both retained response bodies match their frozen preflight
+identities. All 194 source/build bindings, goal, source manifest and pre-candidate
+criteria remain unchanged. Native export matches the 2,288-byte artifact, all
+claims are released and actual owned-container absence is confirmed. No forced
+termination occurred. Candidate SHA-256:
+bf06d8db3c81abd28d1105e62b3ef090da721435e849f37165c7030c1ccb1ef7.
+Root and neutral reviewers separately checked the unchanged report against the
+sources. Assessment SHA-256:
+553589e4478c5cab02be73b5d0fbaf3c755f15c0f4bdb0ffff67ddd5a3d93f9a.
+The four actual scripted scenarios, 194 focused host/runtime tests, normal build,
+applicable TypeScript checks and eighteen chronology tests pass in their scopes.
+
+Failures or blockers: The memo's final example explanation calls a top-level
+object a standards requirement despite the source's recommendation and the memo's
+earlier correct distinction. Neutral review additionally identifies omitted
+problematic-Unicode and qualified UTF-8 comparisons. Several failed gates overlap
+this one contradiction; do not report them as six independent errors. Valid JSON,
+short length and correct source hashes do not compensate for the material claim.
+The two earlier app-label failures, first preflight schema error and unexecuted
+mocked renderer cases remain retained.
+
+Limitations and non-claims: Zero accepted memos in this one new research attempt
+is not a population reliability estimate. Earlier accepted file audits remain
+separate. The desktop source-delivery capability is verified; complete-task
+research quality, general routing, real-private deployment and release are not.
+Host retrieval does not prove GPU-server OS internet access. A future consultant
+or reviewer must demonstrate useful correction; no assumed benefit follows.
+
+Paid exposure: Zero accounted API fees under the owned-model declaration. No
+cloud fallback, extra request after evaluation or candidate repair. Hardware,
+electricity and operating costs remain excluded. Unused allowance is not carried
+to another task.
+
+Next gate: Qualify the separately prepared website/deck evaluators with positive
+and negative controls, then admit individually frozen new tasks. Implement a
+permission-aware general-task review/escalation path before making routing claims;
+paid dispatch still needs concrete provider, packet and cost authority. Preserve
+this first failed memo as the quality baseline, not a passed report.
+
+References: [research report and retained failure](MVP_DESKTOP_PUBLIC_RESEARCH_REPORT.md),
+[approved plan](plans/MVP_DESKTOP_PUBLIC_RESEARCH_V1.md),
+[completion audit](MVP_COMPLETION_AUDIT.md), [readiness](MVP_READINESS.md).
+
+### BL-20260913-1644-desktop-artifacts-approved -- 2026-09-13 -- Authorize two conditional artifact tasks and evaluator qualification
+
+Status: `Approved`
+
+Scope or hypothesis: Extend the same desktop general-agent loop to usable website
+and editable presentation delivery, following the owner's instruction to proceed
+to the next MVP milestone. Keep the first rejected research memo unchanged.
+
+Decisions: Approve the new artifact delivery plan. Qualify independent evaluators
+with correct and faulty controls before admitting either task. Each new task has
+its own frozen goal, two synthetic inputs, evaluator, driver and runtime binding;
+only goal and input files reach the model. Do not carry unused research allowance.
+A missing prerequisite or uncertain outcome stops that task without model-quality
+attribution. No candidate repair, replacement, retry or resume after evaluation.
+
+Changes: Added the bounded desktop artifact delivery plan. Independent evaluator
+qualification, actual-app driver preparation and general-routing design proceed
+in parallel. Preserve the already built app during the frozen artifact trials.
+The preparation receipt remains Proposed historical evidence; new admissions bind
+current context rather than rewriting its now-old completion-audit hash.
+
+Evidence: Current build log and completion audit were read; the prepared website
+and deck goals/criteria require interactive threshold cases and native editable
+objects with source-based arithmetic. Existing preparation records 112 independent
+quote comparisons, four AST checks and two source bindings; no candidate checker
+execution or artifact generation has yet occurred. Actual current results will be
+recorded separately, not inferred from the prepared checker source.
+
+Failures or blockers: The first research memo failed independent correctness
+review. Website/deck acceptance, actual general-task routing and real-private
+qualification remain open. The old renderer-test startup limitation is unchanged.
+
+Limitations and non-claims: Qualification controls are evaluator tests, not model
+outputs or useful-task success. The owned endpoint is not yet qualified for real
+private data. LibreOffice observation cannot establish Microsoft PowerPoint
+compatibility, and one task of each type cannot establish general reliability.
+
+Paid exposure: Zero declared API fees. Conditional allowance is twenty local
+model calls, thirty tools and fifteen minutes for each of two fresh tasks, no
+public GETs or cloud fallback. Qualification uses the existing image offline,
+bounded batches, no installation and no provider credentials. Hardware and
+operating costs remain excluded. Paid general review is not dispatched here.
+
+Next gate: Record qualified evaluator revisions and independent driver review,
+freeze and admit each task separately, then run once and evaluate unchanged exact
+exports. Append every material failure or correction and the complete outcome.
+
+References: [artifact delivery plan](plans/MVP_DESKTOP_ARTIFACT_DELIVERY_V1.md),
+[completion audit](MVP_COMPLETION_AUDIT.md), BL-20260913-1632-public-research-first-result.
+
+### BL-20260913-1701-general-consultation-proposed -- 2026-09-13 -- Reuse the general loop for exact approved consultation
+
+Status: `Proposed`
+
+Scope or hypothesis: Close the actual general-task routing gap with one bounded
+consultant call, while local work remains the coordinator and artifact author.
+
+Decisions: Propose a host-built immutable packet, exact preview/approval and one
+consultation inside the existing runner/broker, followed by local continuation.
+A model request for help grants no disclosure or spending permission. Preserve
+inherited context restrictions and count all work within the same job budgets.
+No automatic classifier, task-family controller or new agent loop is required.
+
+Changes: Added the general-task consultation plan. The parallel source audit found
+existing grant, accounting, atomic reservation and unknown-outcome recovery
+mechanisms suitable for reuse. Implementation remains pending while artifact
+trials hold their reviewed source and built app unchanged.
+
+Evidence: The source audit identifies three concrete gaps: session/controller
+fix private mode and zero fees; general cloud configuration and preview/approval
+are absent; existing exact grants do not bind the per-request maximum fee or
+pricing profile. Audit SHA-256:
+61d91ab5417912c713acddfc3a32cd34a853e7e136edbf5dd3b66437b22d7adf.
+No provider was contacted and no production/build byte was changed by the audit.
+
+Failures or blockers: The fixed local general flow is not an implemented cloud
+route. Legacy coding routing and activation-locked cloud credentials cannot
+supply silent fallback authority. The rejected memo stays a known failure, not
+a held-out task for a later consultant.
+
+Limitations and non-claims: A controlled scripted consultation can prove routing
+mechanics, never useful model correction or savings. Real-private transport,
+server trust and filter qualification remain outside this proposal's evidence.
+
+Paid exposure: Zero calls or spending. The proposal grants no paid runtime
+allowance; a real consultant requires a concrete provider/profile, current price,
+authorized credential and exact packet/cap approval before dispatch.
+
+Next gate: Finish the separately admitted artifact milestone, then implement
+versioned consultation contracts, fee-bound grants and synthetic scripted proof
+while preserving local-only and public-research behavior.
+
+References: [consultation plan](plans/MVP_GENERAL_TASK_CONSULTATION_V1.md),
+[artifact plan](plans/MVP_DESKTOP_ARTIFACT_DELIVERY_V1.md),
+[completion audit](MVP_COMPLETION_AUDIT.md).
+
+### BL-20260913-1704-artifact-office-roundtrip-limitation -- 2026-09-13 -- Retain a viewer limitation before testing a model deck
+
+Status: `Failed`
+
+Scope or hypothesis: Qualify rendering and native-object edit/save/reopen against
+an independently authored control before any model-created presentation exists.
+
+Decisions: Preserve the failed LibreOffice roundtrip as a viewer limitation,
+not a model-quality failure. Keep original-deck rendering evidence separate from
+editing evidence. Before admitting a deck, qualify an installed presentation
+library's native table/chart API edit/save/reopen on a copy, including the actual
+related embedded workbook and unchanged other data points. Do not weaken the
+check to finding the edited number somewhere in a chart cache. This remains
+within the approved offline installed-tool qualification scope and creates no
+additional model allowance or host-native Office permission.
+
+Changes: A separately versioned helper will distinguish LibreOffice rendering
+from a python-pptx library editability observation. Retain the initial helper,
+source review and failed saved-copy result. The delivered original must still
+contain a genuine native chart with matching embedded editable workbook; neither
+copy procedure may repair or change it. Microsoft PowerPoint remains untested.
+
+Evidence: The authored control rendered to three PDF/PNG pages without a repair
+or error. LibreOffice exited zero saving an edited copy, but the helper then
+rejected the missing embedded workbook. The run ended in 3.516 seconds with
+cleanup confirmed and original bytes preserved. The held initial helper SHA-256
+is 555dc621e42b0e01780c6896897a6586d68042e17eadaf2d070d2a3a8e60576d.
+Source-only helper controls had passed; that did not establish actual viewer
+roundtrip compatibility. Exact saved chart parts are retained for inspection.
+
+Failures or blockers: Original-deck rendering is verified for this authored
+control; preservation of embedded workbook data through LibreOffice save is not.
+It would be misleading to launch a model-quality trial against that unqualified
+viewer-dependent criterion and attribute its failure to the local model.
+
+Limitations and non-claims: A library-based native edit/save/reopen will establish
+only that declared tool's observed editability. It cannot establish preservation
+in LibreOffice, Microsoft PowerPoint compatibility or an accepted model artifact.
+The separate original-deck render and full independent visual/content review
+remain required. No real-private or paid-cloud qualification follows.
+
+Paid exposure: Zero model/API calls. Existing pinned offline image and synthetic
+control only; no new dependency, image change, publication or native host opening.
+
+Next gate: Review the versioned helper and qualify actual native API editing with
+both cache and workbook joins before the single separately admitted deck task.
+Complete website qualification independently so this viewer issue does not block
+its unrelated task.
+
+References: [artifact delivery plan](plans/MVP_DESKTOP_ARTIFACT_DELIVERY_V1.md),
+BL-20260913-1644-desktop-artifacts-approved.
+
+### BL-20260913-1710-website-qualified-and-admitted -- 2026-09-13 -- Admit the first exact website task after checker qualification
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the website evaluator and app launcher before the
+single website generation permitted by BL-20260913-1644-desktop-artifacts-approved.
+
+Decisions: Admit only the unchanged prepared website goal and two synthetic files.
+Keep its exact candidate unchanged after generation. Root and neutral criteria,
+qualified checker, reviews, driver, app and configuration are frozen before any
+candidate exists. The separate slide qualification and allowance remain distinct.
+
+Changes: Corrected evaluator false passes for signed/conflicting monetary values
+and CSP-blocked external-resource intent; corrected false negatives for semantic
+row headers, sentence punctuation and matching currency symbols. Preserve all
+original and intermediate control results. Fix one pre-admission launcher mismatch
+by allowing exactly its trusted sandbox-source binding; no broader source path
+or data authority was added. The app and production sources are unchanged.
+
+Evidence: The final website envelope binds 75 files and three complete positive
+controls. Ten clean negative controls from the preceding revision remain retained;
+the narrow symbol correction has 26 direct format assertions and affected browser
+reruns that reject each bad monetary case. Later screenshot errors in three
+negative reruns are excluded from clean completion counts. This is a qualified
+finite checker, not a model-quality result. Eleven launcher guard tests, eight
+helper controls and strict scoped TypeScript pass. Independent source reviews
+cover both launch/evaluation drivers and the changed checker. Root rechecked all
+75 qualified bindings and the actual admission gate without opening the app.
+Qualification SHA-256:
+4b67ee17b112b0167f1d754182e27abe2cf6c4e0e583eadd349bec202c06208c.
+Admission SHA-256:
+e81b7184ef6ee58564886c4292d5647f5800401defa125ffaebfe1b061094d30.
+Pre-candidate review freeze SHA-256:
+1a38daf5a9657005cbafd593a35999ab86d0e3f247a6512f663c2665573d27b9.
+Executed runtime remains
+6d0e1b46dcdf050c35ed125821aca11714b6946e62fb25b926d79220f69a204f.
+
+Failures or blockers: Original false passes/false negatives, partial negative
+screenshots and the separate LibreOffice/control limitation remain preserved.
+No website or deck model candidate has yet been generated in this milestone.
+
+Limitations and non-claims: The app's generic independent acceptance remains
+unevaluated. Actual website arithmetic, interactions, visual usability, exact
+export and cleanup still need live evidence. Private data and cloud routing are
+not admitted by these checker tests.
+
+Paid exposure: No real model calls yet. This single website admission allows at
+most twenty owned-local calls, thirty tools, fifteen minutes, zero declared API
+fees and zero public GETs. No retry/resume, cloud fallback or allowance transfer.
+
+Next gate: Execute the exact website once, independently join submitted/native
+export/input/request/cleanup evidence, then evaluate and inspect its three actual
+viewport images. Stop and retain any failure. Continue slide qualification in
+parallel without changing any website-bound source.
+
+References: [artifact delivery plan](plans/MVP_DESKTOP_ARTIFACT_DELIVERY_V1.md),
+[completion audit](MVP_COMPLETION_AUDIT.md).
+
+### BL-20260913-1717-first-website-request-unknown -- 2026-09-13 -- Close the first website task incomplete without a candidate
+
+Status: `Failed`
+
+Scope or hypothesis: Execute the separately admitted website through the actual
+app and owned local model, then evaluate its delivered artifact.
+
+Decisions: Close the attempt incomplete and do not replay or resume it. There is
+no artifact to judge and no model-quality conclusion. Keep all four dispatches,
+including the uncertain fourth, rather than relabelling the three short successful
+calls as a completed website. Hold the unstarted deck while assessing the request
+configuration and diagnostic gap.
+
+Changes: Retained task/ledger/checkpoint/export absence, original inputs, all
+source/build bytes and pre-candidate criteria. A separate assessment joins actual
+closure and qualified-source identities. No production source changed before
+this evidence was frozen.
+
+Evidence: Four local model requests, three settled and one unknown; three tools;
+zero public GETs or cloud calls. No named output exists. App setup, execution and
+normal closure took 55.921 seconds; the outer process ended normally in 56.146
+seconds with exit 2 and no watchdog expiry or forced kill. Inputs and all 75
+qualification bindings remain unchanged. The app is closed, claims released and
+owned-container absence confirmed. The three settled responses reported 47, 48
+and 170 output tokens. The configured per-request limit was 45 seconds, while
+configuration normally permits 300 seconds. Assessment SHA-256:
+3b00ef1528e650286afea3b38e73de0d3a32c7c674ab68490a40d74321f35295.
+
+Failures or blockers: Existing receipts collapse transport and settlement errors
+into one unknown outcome. Timing is consistent with the configured timeout, but
+no exact failure cause was retained. Do not assert that timeout or model weakness
+has been proved. Website semantic/visual acceptance was not run without a file.
+The separately authored slide control also used an invalid native table namespace;
+its false structural pass and missing rendered table are fixture/checker defects,
+not evidence of a generated deck failure. Corrected controls remain separate.
+
+Limitations and non-claims: Cleanup/input preservation passed; full delivery and
+accounting completion did not. One uncertain request remains in the ledger with
+its reservation; zero declared local fees do not establish zero hardware cost.
+No accepted website, deck or improved routing follows from these controls.
+
+Paid exposure: Zero accounted API fees under the owned-local declaration. No
+retry, fallback, additional task or post-evaluation repair. The first website
+allowance is closed; unused requests are not transferred.
+
+Next gate: Improve safe unknown-outcome diagnostics and respect a suitable
+configured request deadline while retaining the task-wide caps. Qualify the
+change before a newly admitted, explicitly labelled development iteration.
+
+References: [artifact plan](plans/MVP_DESKTOP_ARTIFACT_DELIVERY_V1.md),
+BL-20260913-1710-website-qualified-and-admitted.
+
+### BL-20260913-1717-artifact-request-recovery-approved -- 2026-09-13 -- Authorize the smallest diagnostic and timeout correction
+
+Status: `Approved`
+
+Scope or hypothesis: Learn from the incomplete website execution and make the
+next bounded artifact iteration diagnose its real failure cause.
+
+Decisions: Approve safe fixed request-failure metadata and honor configured
+request timeout up to the broker's existing 300-second ceiling. Retain original
+job deadlines, model/tool/output limits, private-data rules and unknown no-replay.
+Old receipts gain no guessed diagnostic. After regression success, allow one new
+website and one new deck attempt under separate frozen admissions and original
+qualified goals/criteria. They are development iterations, not held-out evidence.
+The unconsumed original deck allowance is superseded, not added to the new one.
+
+Changes: Added the artifact request recovery plan. Source/build hold for the
+closed website is lifted after its archived frozen copy and closure assessment;
+all qualification source bindings that remain in use stay preserved. No paid
+provider, model change, larger output allowance or new dependency is introduced.
+
+Evidence: The controller imposes 45 seconds even when configuration supplies
+300 seconds; broker transport already validates up to 300 seconds. The actual
+failed run retains one unknown request but no specific cause, so implementation
+must improve evidence before drawing a causal conclusion. All changes and the
+fresh runtime proof remain pending at this approval.
+
+Failures or blockers: The first website stays incomplete with no artifact.
+Native deck tool qualification still needs its corrected fixture and actual API
+roundtrip; neither a cached value nor source review alone can close that gate.
+
+Limitations and non-claims: Increasing a timeout does not establish quality or
+fix a proven cause. Scripted tests prove mechanics; subsequent useful artifacts
+need independent checks. Real-private operation, cloud routing and release remain
+outside this bounded correction.
+
+Paid exposure: Implementation and scripted regression use no paid model. New
+conditional limits are twenty local calls, thirty tools and fifteen minutes per
+artifact, zero API fees/public GETs, with each request at most 300 seconds and no
+same-job retry/resume. The bounded public-research scripted regression may use
+its unchanged exact public fixtures and resolver. Hardware/operation are excluded.
+
+Next gate: Implement and review the narrow correction, pass focused tests/build
+and desktop regressions, then admit each remaining artifact exactly once with
+new runtime/configuration identity and qualified immutable evaluation.
+
+References: [request recovery plan](plans/MVP_ARTIFACT_REQUEST_RECOVERY_V1.md),
+BL-20260913-1717-first-website-request-unknown.
+
+### BL-20260913-1732-request-diagnostics-verified -- 2026-09-13 -- Verify bounded request diagnostics in the rebuilt desktop
+
+Status: `Verified`
+
+Scope or hypothesis: Distinguish the next uncertain request cause without
+changing disclosure, task budgets, replay rules or historical outcomes.
+
+Decisions: Keep the configured model request timeout up to 300 seconds. The
+fifteen-minute task deadline and twenty-model/thirty-tool limits remain intact.
+Fixed transport and settlement diagnostics are optional persisted metadata;
+historical unknown rows receive no inferred cause. Unknown requests retain their
+reservation and block future dispatch. Existing uncertain-before-expired display
+precedence is unchanged; this is not a claim that deadline text always wins.
+
+Changes: Implemented first-cause timeout/cancel latching, strict code/timing
+validation, safe fixed desktop explanations, and configuration identity checks
+for queued/resumed jobs. No provider text, exception details or endpoint is added
+to diagnostic storage. Sandbox source and qualified evaluator bindings are held.
+
+Evidence: Fifty-four controlled HTTP broker tests pass, including actual timeout,
+cancellation, response failure, malformed settlement, and physical SQLite
+close/reopen with exact diagnostic and reservation retention. Controller tests
+pass 53 cases. The focused controller/session/budget/research/runtime set passes
+125 distinct cases; its first restricted run had 14 localhost-listen EPERM
+failures, retained separately, and the session file then passed all 18 cases with
+approved localhost access. Repository typecheck and normal build pass. Four real
+Electron/HTTP/Docker regression scenarios pass in 27.181 seconds, with ten
+scripted model calls and four synthetic public GETs. The intended failed GET
+retains http_rejected metadata, survives restart and cannot replay. All 152 frozen
+source/build/test files remain unchanged. Scripted proof SHA-256:
+2b79b4c182f21c8ba0cd09e0c75f242a28db6c6a4b7f4e3d9f907373817d9e1b.
+Executed runtime SHA-256:
+64643e7a2ea52c98463921bc13652458e7a2489835f2d8b7c11e38071fa637af.
+
+Failures or blockers: The original website remains incomplete without a file;
+its cause remains unknown because its historical receipt lacks metadata. The
+local-listen permission error was a test-environment limitation, not a model
+failure. Native slide-tool qualification and the new artifact admissions remain
+separate prerequisites.
+
+Limitations and non-claims: Scripted desktop success establishes enumerated
+mechanics, not useful generated website/deck quality. This is a rebuilt development
+app, not a release, routing implementation or real-private deployment proof.
+
+Paid exposure: Zero real model calls or API fees in this regression. Public
+fixture GETs used their existing exact consent/resolver scope. Conditional new
+local artifact attempts retain their separately approved limits.
+
+Next gate: Freeze the recovery driver and each qualified evaluator, then run the
+new website and deck development attempts once each; independently assess any
+actually exported output. Preserve incomplete and rejected results.
+
+References: [request recovery plan](plans/MVP_ARTIFACT_REQUEST_RECOVERY_V1.md),
+BL-20260913-1717-artifact-request-recovery-approved.
+
+### BL-20260913-1738-artifact-tools-qualified -- 2026-09-13 -- Qualify native presentation tools and admit the website development iteration
+
+Status: `Verified`
+
+Scope or hypothesis: Confirm the independent artifact checks before judging the
+fresh website and deck outputs; retain every earlier failed control and attempt.
+
+Decisions: Use the qualified website checker unchanged. For slides, require
+correct native object namespaces, exact displayed values with small storage
+representation tolerance, original LibreOffice rendering, and a separate public
+Python API copy edit/save/reopen with independent chart-to-workbook joins. These
+observations do not claim Microsoft PowerPoint or LibreOffice saved-workbook
+compatibility.
+
+Changes: Sealed slides qualification with 148 bindings, three positive controls
+and fifteen meaningful negatives. The V2 helper edits native objects through
+python-pptx without patching library output. It accepts legitimate regenerated
+worksheet representation only when the actual related workbook retains category
+order, series, other values and the unique edited datum. Original notes and
+non-table text, and all untouched table cells, remain exact.
+
+Evidence: The corrected native control rendered all three pages and retained
+native table, chart and related workbook edits through actual API save/reopen.
+The outer process ended normally in 3.008 seconds; original bytes were unchanged,
+cleanup confirmed and no owned container remained. Slides qualification SHA-256:
+1135d4dc144bf9e51f32211e5d91c9d4a7f94455e5313aa300b032f44fa9c2b3.
+Independent final checker review SHA-256:
+1e9d76c27a6caea6799ec8aaa62a776e0f916fd7d64bb11045aabaa0b6e1e265.
+All 75 website qualification bindings remain unchanged. Recovery driver/evaluator
+source review passes and thirteen focused guards plus strict TypeScript pass.
+The fresh website admission SHA-256 is
+cedb576097d0d9164323b207ff82e7a419dcc215727cf61fe4f56e55352d1c97;
+its generation is in progress, with evaluation support frozen before dispatch.
+
+Failures or blockers: Initial malformed table control and LibreOffice workbook
+loss remain preserved. The first preparation of the new slides admission was
+rejected before any run claim because its provenance includes two unchanged
+files outside the driver's allowlist: the existing supervisor and initial plan.
+All 148 hashes matched. Prepare a separate slide driver permitting exactly those
+two files; do not change the active website driver, weaken file checks or count
+this preparation error as model behavior. The unconsumed admission is retained.
+
+Limitations and non-claims: These are tool/evaluator controls, not an accepted
+model-generated deck. The website is a newly admitted development iteration,
+not a resumed old job or held-out quality result. No generated artifact is yet
+accepted at this evidence cut.
+
+Paid exposure: Qualification used no model or paid API. Fresh artifact limits
+remain those approved in the request recovery plan; the slide preparation denial
+made no request and consumed no run allowance. No fallback or extra attempt.
+
+Next gate: Complete and independently evaluate the website; correct the exact
+slide admission-reader allowlist and admit its one still-unconsumed task.
+
+References: [artifact report](MVP_DESKTOP_ARTIFACT_DELIVERY_REPORT.md),
+BL-20260913-1732-request-diagnostics-verified,
+BL-20260913-1717-artifact-request-recovery-approved.
+
+### BL-20260913-1754-desktop-artifact-results -- 2026-09-13 -- Accept one native deck and reject the website after actual desktop delivery
+
+Status: `Verified`
+
+Scope or hypothesis: Complete the two newly admitted, bounded artifact development
+attempts on the corrected runtime and judge the unchanged exported results.
+
+Decisions: Accept the synthetic deck against its original goal. Reject the website
+for independent arithmetic and required-total failures. Retain Submitted as a
+mechanical app status; the generic app still says independent acceptance is not
+evaluated. Preserve the original incomplete website and every failed control.
+No post-evaluation candidate repair, additional model attempt or cloud fallback.
+
+Changes: Completed the separate slide provenance-reader correction with exactly
+two permitted known paths and the same one-use run directory. Its source review,
+two focused tests and strict TypeScript passed; the never-dispatched original
+admission is archived. Updated README, readiness, completion audit and the artifact
+report. Archived 155 executed source/build files for later historical verification.
+
+Evidence: The fresh website completed twenty settled model requests and twenty
+tools in 438.465 seconds. Exact native export, input/source preservation, ledger,
+inert preview, app closure and cleanup passed. Its 14,137-byte HTML has SHA-256
+d94714b2a79a7b4c01525bb04316d5fe409be54f1c869ffc11ab4368539358db.
+Independent rejection receipt SHA-256:
+da1f70628a849a7e1e732837d0dd23c526966d278305744ae58d96e3dae774ea.
+The deck completed seventeen settled requests and seventeen tools in 228.521
+seconds, with the same complete preservation/accounting/export/closure joins.
+Its 46,441-byte PPTX has SHA-256
+d3f7368eb28bc826e4a575b45f08fd71de7b9ba2292860faa98310b8ed61c503.
+All nine frozen structural/source checks passed; original LibreOffice rendering
+and public native API copy edits with actual related workbook joins passed in a
+3.002-second outer evaluation. Independent review recomputed source arithmetic,
+inspected every slide and notes, and accepted the unchanged deck. Review SHA-256:
+19c8f70f410f450cfc27638d8b7c12d72fe0a4d7f417fa655accf6959aad3fb2.
+Root also inspected the three renders/notes. All original evaluator/source
+bindings remain intact, and actual label listings show no owned generation or
+evaluation containers remain. Milestone metadata SHA-256:
+cf70fd60316037cfaabab7ddde28684b221beb2ac1111bd09ee5e3b2633b4564.
+
+Failures or blockers: The website displays the default Atlas amount as USD 5.52
+instead of USD 1,103.60 and hides totals for otherwise orderable but slow options;
+its conversion also rounds too early. Its own tool output repeatedly reported
+mismatches before it submitted. The qualified browser checker stopped during
+initial semantic selection, so its matrix is incomplete, not a complete numerical
+score. Two named Recommendation regions alone are not treated as a requirement
+violation. Supplemental isolated screenshots at 390 and 768 pixels independently
+confirm wrong values; Chromium crashed at the third viewport, leaving 1280 and
+the final DOM record unavailable. That attempt remains incomplete with no retry;
+its candidate and source were unchanged and cleanup/absence confirmed.
+
+Limitations and non-claims: The accepted deck uses 30pt titles, 15pt table and
+14–24pt main narrative. Its legible 10pt repeated footnote and 12pt chart ticks are
+classified explicitly as supplemental annotations, not main body/table text.
+Actual dimensions/render are widescreen despite a stale screen-format metadata
+enum. No Microsoft PowerPoint or LibreOffice saved-workbook guarantee is claimed.
+One accepted exposed deck does not establish broad artifact reliability; the
+website and prior research remain rejected. General routing and real-private
+qualification remain incomplete. No release or full MVP completion is claimed.
+
+Paid exposure: The two fresh tasks made thirty-seven settled owned-model requests,
+zero unknowns, zero public GETs and zero cloud calls at zero declared API fees.
+The older website's three settled and one unknown request stay separately in its
+ledger. No hardware/operation cost or quality-preserving saving is inferred.
+
+Next gate: Implement the proposed exact-packet consultation in the existing
+general-task loop, first with scripted permission/accounting/recovery proof.
+Use the preserved website mismatch behavior to improve failure handling before
+another separately admitted quality trial. A real consultant dispatch still needs
+its concrete provider, packet and fee approval; no old paid proposal is revived.
+
+References: [artifact delivery report](MVP_DESKTOP_ARTIFACT_DELIVERY_REPORT.md),
+[general consultation proposal](plans/MVP_GENERAL_TASK_CONSULTATION_V1.md),
+BL-20260913-1738-artifact-tools-qualified,
+BL-20260913-1717-artifact-request-recovery-approved.
+
+### BL-20260913-1807-general-consultation-approved -- 2026-09-13 -- Implement one approved consultation in the general-task loop
+
+Status: `Approved`
+
+Scope or hypothesis: Make general-task routing real through a local coordinator,
+one user-reviewed consultant packet, and local continuation in the same job.
+
+Decisions: Approve implementation and controlled synthetic verification under the
+owner's continuing first-MVP objective. Consultation is optional and unavailable
+without an explicit host profile. Every consultant packet requires a one-use grant
+bound to proposal, context, checkpoint, destination/account/credential identity,
+price profile and maximum reserved fee, including public contexts. Original job
+time/model/tool/request allowances remain; one consultation proposal per task.
+
+Changes: Advanced the proposed consultation plan to implementation approval, with
+concrete controlled test scope. Reuse the existing runner, broker, checkpoint store
+and desktop. Add no paid auto-fallback, new task-family runner or credential access
+to model tools. Keep source/credentials out of generated tooling and telemetry.
+
+Evidence: Current source still fixes the general session to private mode and zero
+fees. Existing grants bind packet/context/destination but omit price/cap; public
+cloud contexts currently do not inherently require grants. Existing runner claims,
+no-replay checks and immutable snapshots provide the reusable boundary. The prior
+artifact milestone is archived and closed, so current implementation may change
+without relabelling its historical results.
+
+Failures or blockers: General routing remains unimplemented at this approval. The
+rejected website's repeated mismatch output also shows that process success alone
+is inadequate quality evidence; consultation is not presumed to fix it.
+
+Limitations and non-claims: Controlled HTTP responses and simulated fees prove
+routing/permission/accounting/recovery mechanics only. No real consultant quality,
+savings, private inference qualification or release follows from this admission.
+
+Paid exposure: No real model or paid API calls. Allow focused local receiver tests,
+at most eight consultation desktop scenarios using the installed offline image,
+and four existing regression scenarios with unchanged synthetic public sources.
+Any real consultant still requires the exact provider, packet and fee approval.
+
+Next gate: Implement and independently review the persisted contracts, runner
+pause/continuation, host profile and desktop controls; pass meaningful controlled
+recovery/adversarial cases and the rebuilt desktop flow before admitting paid work.
+
+References: [consultation plan](plans/MVP_GENERAL_TASK_CONSULTATION_V1.md),
+BL-20260913-1754-desktop-artifact-results.
+
+### BL-20260913-1829-general-consultation-implemented -- 2026-09-13 -- Add exact approved consultation to the existing general task
+
+Status: `Implemented`
+
+Scope or hypothesis: Let the local coordinator ask once for user-approved advice
+without creating another task loop, weakening disclosure gates or resetting cost
+and execution allowances.
+
+Decisions: Keep Local only as the default; enable the optional route only with an
+explicit session consultant profile. Require an exact priced one-use grant for
+all consultant requests, including public context. Bind the proposal, checkpoint,
+inherited context, destination/account/credential identity, model, prices, output
+limit, maximum reservation and original deadline. Approval saves permission;
+Resume performs the next action. No automatic paid fallback is added.
+
+Changes: Added the host consultant profile and tool-free request helper, atomic
+grant/proposal/fee commitment, one-proposal manager and existing-runner pause and
+continuation. Added optional versioned desktop/session contracts, exact inert
+preview, approve/decline/revoke controls and durable fee/model counters. Historical
+local-only records retain their old identity. Saved advice replays after later
+local checkpoints. Missing responses or uncertain attempts stop without replay.
+
+Evidence: The consolidated focused batch passed 270 tests across thirteen files;
+both application typechecks pass. Independent reviews found no material blocker.
+These checks cover exact public/private-context grants, profile/source/cap drift,
+one-use behavior across jobs and reopen, response validation, integer billing,
+pending/declined/revoked/unknown recovery, original budgets, session/public-source
+regressions, desktop controller and IPC. Controlled tests do not prove model
+selection or artifact quality. The detailed report records the remaining proof.
+
+Failures or blockers: Initial session tests could not bind localhost under the
+restricted sandbox; the explicit controlled-receiver rerun passed. Four manager
+fixtures initially omitted the new exact-grant destination metadata and were
+corrected without changing production admission. The initial React worker timed
+out before assertions; it remains unverified pending its separate bounded retry.
+The actual rebuilt desktop flow has not yet run. Integration review corrected
+settled-advice replay after a later local checkpoint and unified the exact purpose
+constant; neither was sent to a real provider.
+
+Limitations and non-claims: This implements a permission-aware consultation path,
+not an empirically calibrated general router. Advice is untrusted and does not
+upgrade independent acceptance. Real-private deployment and provider compatibility,
+current price qualification, accepted research/website work and release are open.
+
+Paid exposure: Zero real model or paid API calls. Local receivers and in-memory
+execution use synthetic data and simulated ledger fees. The approved desktop
+allowance is unchanged; no old paid comparison or rejected candidate is retried.
+
+Next gate: Freeze the rebuilt app and controlled desktop fixtures, verify actual
+approval/restart/continuation/export and denial/unknown paths with cleanup, then
+record outcomes before proposing any separately approved real consultation.
+
+References: [consultation report](MVP_GENERAL_TASK_CONSULTATION_REPORT.md),
+[approved plan](plans/MVP_GENERAL_TASK_CONSULTATION_V1.md),
+BL-20260913-1807-general-consultation-approved.
+
+### BL-20260913-1842-consultation-label-recovery-approved -- 2026-09-13 -- Correct consultation accessibility and requalify the desktop
+
+Status: `Approved`
+
+Scope or hypothesis: Make the consultation selector expose its visible label
+independently of explanatory text, then exercise the unchanged exact-name tests.
+
+Decisions: The continuing MVP implementation authority covers this reversible UI
+correction and a bounded controlled verification iteration. Use the remaining
+four new consultation scenarios, and admit four additional existing regressions
+on the corrected build. Retain the first batch, selectors and original accounting,
+permission, restart, export and cleanup oracles. No real or paid provider is added.
+
+Changes: The visible consultation label has an explicit id and the selector uses
+aria-labelledby, retaining its existing aria-describedby. Node and Web TypeScript
+pass. No host, broker, runner, profile, tool or task limits changed. A rebuild and
+new runtime/source binding are required before the next controlled invocation.
+
+Evidence: All four existing desktop regressions passed on the previous build.
+All four consultation cases stopped at the exact selector lookup, before creating
+a task: zero jobs, coordinator requests and consultant requests, with confirmed
+app cleanup. The visible control and help text were present. The implicit wrapping
+label included that help text in its accessible name. Closure receipt SHA-256:
+dbc4af0fd5c0cf31384a1cc55c060015976625bf80319102638b5f5161b50c28.
+
+Failures or blockers: The first consultation desktop attempt is failed and closed,
+not verified. Two mocked React worker attempts also timed out before assertions;
+their environment cause remains unknown. Do not classify either setup failure as
+model quality or silently relabel the old runtime. The unchanged 270 host/runtime
+tests and prior desktop regressions retain their actual scopes.
+
+Limitations and non-claims: The correction has TypeScript proof only at admission.
+Successful controlled consultation still needs actual app execution. Real-provider
+compatibility, useful repair, private-data support, savings and release remain open.
+
+Paid exposure: No model or paid calls in the failed new scenarios. The new allowance
+retains localhost scripted responses and the pinned offline image; the additional
+old regressions use only their existing exact synthetic URLs and resolver. No old
+paid experiment or evaluated artifact is retried.
+
+Next gate: Rebuild, freeze and run the four consultation and four regression cases;
+independently reconcile exact receipts and cleanup before milestone closure.
+
+References: [consultation plan](plans/MVP_GENERAL_TASK_CONSULTATION_V1.md),
+[implementation report](MVP_GENERAL_TASK_CONSULTATION_REPORT.md),
+BL-20260913-1829-general-consultation-implemented.
+
+### BL-20260913-1851-general-consultation-verified -- 2026-09-13 -- Verify exact consultation through the actual desktop
+
+Status: `Verified`
+
+Scope or hypothesis: Verify that the existing general-task loop can pause for one
+exact approved consultation, continue locally, and preserve permission, accounting
+and recovery boundaries through actual desktop restarts.
+
+Decisions: Close the controlled consultation milestone on the corrected build.
+Keep real-provider compatibility, useful artifact repair and routing quality open.
+Do not interpret scripted outputs or simulated ledger charges as inference quality,
+API spending or savings. The full first-MVP objective remains incomplete.
+
+Changes: Completed the normal production rebuild after the minimal accessible-name
+fix and froze 178 source/build/fixture files. Updated the consultation report,
+readiness and completion audit with the bounded verified behavior and open gaps.
+No domain, broker or runner source changed after the 270-test focused batch.
+
+Evidence: All eight actual Electron scenarios passed in 50.016 seconds with zero
+skipped or flaky cases: four consultation cases and four existing local/public
+regressions. Normal IPC, scripted localhost HTTP and the existing offline Docker
+image exercised approval, pending and settled-advice restarts, local continuation,
+export, decline, revoke and invalid-response no-replay. Independent read-only
+reconciliation of all eight retained databases matched twenty local requests,
+two consultant requests and four public GETs: twenty-four settled and two expected
+unknown receipts. Exact packet/grant/price/response joins, restart request counts,
+released claims and all admitted source bindings agree. Runtime SHA-256:
+48a73d725d1899ff92402342b79888d7f2f92acb363e09ff8f69d53abf975528.
+Admission manifest SHA-256:
+1943b2b95cd1ba51383cd94ccd087ac508ff718b988ff6cf84a49229dc32d261.
+Independent audit SHA-256:
+dff7d0de30cde30c7e2acda4d2094791e2ceded0f49f51f84800ef922798cb31.
+The earlier 270 focused tests, both TypeScript checks and production builds pass.
+Approval and submitted screens were visually inspected without a visible blocker.
+
+Failures or blockers: Preserve the first four consultation failures before task
+creation, their zero-request ledgers and original source snapshot separately from
+the corrected eight-case count. Two mocked React attempts timed out during worker
+initialization with zero assertions; their cause remains unknown and those tests
+remain unverified. The initial image-inspection template failed on an absent
+field; the existing nil-safe format verified the pinned image without pulling or
+changing it. The public 503 and invalid consultant response remain unknown rather
+than inferred successful or replayed. Earlier research and website quality failures
+remain unchanged.
+
+Limitations and non-claims: This proves consultation mechanics using controlled
+responses, not model routing decisions, useful advice, semantic artifact acceptance,
+real-private data support, broad accessibility or release readiness. No real model
+or current provider price has been qualified by this batch. The privacy filter
+remains advisory; prior accepted audit/deck results retain their original scope.
+
+Paid exposure: Zero real model or paid API calls. The successful scripted advice
+settled 64 microdollars; the invalid consultant response retains 9,887 microdollars
+of simulated reservation. These are accounting fixtures only. Earlier four old
+regressions and four failed new cases are preserved separately and are not added
+to the current eight-case totals. No old paid comparison was reopened.
+
+Next gate: Prepare one bounded real-task consultation with a concrete compatible
+provider, verified current prices and exact packet/fee approval. Preserve the local
+draft and use independent acceptance checks on the result. A repair of an already
+exposed research or website task is diagnostic, not held-out quality or savings
+evidence. Complete the remaining MVP quality and privacy gates before release.
+
+References: [consultation report](MVP_GENERAL_TASK_CONSULTATION_REPORT.md),
+[consultation plan](plans/MVP_GENERAL_TASK_CONSULTATION_V1.md),
+[completion audit](MVP_COMPLETION_AUDIT.md),
+BL-20260913-1842-consultation-label-recovery-approved.
+
+### BL-20260913-1855-consultation-trial-preparation-approved -- 2026-09-13 -- Prepare a usable session setup and diagnostic repair trial
+
+Status: `Approved`
+
+Scope or hypothesis: Move the verified consultation mechanics toward a real useful
+task by making session setup actionable and preparing an independently judged
+repair of the preserved failed synthetic website.
+
+Decisions: The continuing first-MVP objective authorizes reversible setup tooling,
+trial-driver preparation and evaluator correction/qualification. Keep the old
+website job and failed artifact unchanged. A fresh repair is exposed diagnostic
+work, not a held-out routing or savings trial. No model or paid dispatch is admitted
+by this preparation entry; the real run still needs a concrete session profile
+and exact packet/fee approval.
+
+Changes: Prepare a pure configuration-status inspection and no-network command
+that report only field names and fixed reasons. Document launch from the shell
+holding the explicit consultant profile. Reuse the actual desktop consultation
+path in a new staged driver, preserving the original task allowance and pausing
+for an exact decision. Qualify a separately versioned evaluator against synthetic
+controls before relying on it for any new artifact.
+
+Evidence: The current process has no new consultant, legacy patch, OpenAI or
+OpenRouter session key. This checks presence only and says nothing about a key in
+another shell. The computer-use tool denied Terminal access for safety reasons;
+no alternate Terminal-control path will be attempted. The profile currently
+collapses missing and invalid fields to an unavailable result. Existing live
+drivers assume local-only version-two jobs and zero fees, so cannot be reused
+unchanged for a real consultant.
+
+Failures or blockers: Current authentication cannot launch the real consultation.
+The old website has independently observed calculation/display errors and an
+ambiguous duplicate Recommendation evaluator locator. Preserve both and version
+the checker correction rather than changing the old evaluation outcome.
+
+Limitations and non-claims: Configuration validity is not provider connectivity,
+model compatibility, current pricing, permission, or quality proof. Scripted
+controls and source preparation cannot count as a completed real consultation.
+
+Paid exposure: Zero model or paid calls. Permit focused unit/CLI tests without
+network or credentials, and at most one bounded evaluator-control invocation on
+the installed pinned offline image. Any runtime remains synthetic and cannot
+modify the original evidence. No image pull or new software installation.
+
+Next gate: Verify setup diagnostics and the staged driver/evaluator, record the
+exact compatible provider proposal and concrete launch command, then obtain the
+missing session configuration and exact approval before real dispatch.
+
+References: [consultation report](MVP_GENERAL_TASK_CONSULTATION_REPORT.md),
+[consultation plan](plans/MVP_GENERAL_TASK_CONSULTATION_V1.md),
+BL-20260913-1851-general-consultation-verified.
+
+### BL-20260913-1859-consultant-standard-tier-approved -- 2026-09-13 -- Bind standard-tier pricing and retain fee inputs
+
+Status: `Approved`
+
+Scope or hypothesis: Remove a concrete provider-accounting assumption before the
+first real consultation: standard token prices require a matching service tier,
+and the durable record must retain enough validated usage to recompute the fee.
+
+Decisions: Add an optional explicit default service tier to the prepared request
+and price identity. When selected, require the provider to return that exact tier
+before settlement. Preserve the bytes and price identities of unconfigured legacy
+profiles. Save validated model and token counts with new consultation responses;
+keep historical responses readable without inventing missing evidence.
+
+Changes: Extend the helper and explicit environment parser, add strict mismatch
+and durable-reopen tests, and document a proposed direct OpenAI snapshot profile.
+No model, endpoint or credential is automatically selected or activated.
+
+Evidence: Official OpenAI Chat Completions documentation says an omitted service
+tier is auto and can follow project settings. The current helper omitted and did
+not validate it, so standard pricing was an external assumption. The helper also
+validated usage in memory but retained only the advice, response hash and fee.
+The documented nonreasoning snapshot gpt-4.1-2025-04-14 supports Chat Completions;
+its standard input/cached/output prices are USD 2/0.50/8 per million tokens.
+
+Failures or blockers: Account access and real protocol compatibility are still
+unverified; the new consultant session key remains absent. Source documentation
+is not an actual provider response or invoice proof. OpenRouter provider fallback
+and returned cost require separate qualification and are not silently substituted.
+
+Limitations and non-claims: Optional tier support does not make every generic
+provider profile qualified. Fee arithmetic still uses the explicitly configured
+schedule, and unknown or inconsistent responses retain their reservations.
+Historical scripted desktop results remain bound to their old frozen runtime.
+
+Paid exposure: Zero real model or paid calls. Approve focused synthetic response,
+accounting, persistence and configuration tests, including controlled localhost
+receivers if required. No provider probe or real task dispatch is included.
+
+Next gate: Pass the new tier and durable-usage checks, prepare the exact bounded
+profile and diagnostic trial, and obtain its session setup and required exact
+approval before real dispatch.
+
+References: [official model documentation](https://developers.openai.com/api/docs/models/gpt-4.1),
+[Chat Completions reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create),
+BL-20260913-1855-consultation-trial-preparation-approved.
+
+### BL-20260913-1906-standard-tier-desktop-approved -- 2026-09-13 -- Requalify the consultation desktop after accounting changes
+
+Status: `Approved`
+
+Scope or hypothesis: Confirm that the normal app carries the explicit default
+service tier and durable fee inputs through approval, restart and continuation.
+
+Decisions: Admit four current consultation desktop scenarios with synthetic local
+HTTP replies on a newly frozen production build. Retain the old eight-case proof
+and source snapshot separately. Do not present that prior runtime as having run
+the new accounting code or configuration parser.
+
+Changes: Set the controlled consultant fixture's tier explicitly and assert both
+the exact request field and saved usage/accounting. Preserve its existing approval,
+decline, revoke, invalid response, restart, export and cleanup oracles. Rebuild the
+normal app before dispatching these controlled tests. The staged real driver will
+require this current proof as well as the retained broader prior regressions.
+
+Evidence: Thirty-three helper tests passed, including missing/mismatched tier and
+unknown/no-replay behavior. Forty-nine manager/controller/runner tests passed,
+including fee recomputation after SQLite reopen, missing/corrupt usage and legacy
+responses without invented evidence. Ten configuration and actual CLI tests pass;
+both application typechecks passed during the setup lane. Independent source
+review found no material blocker in the current fee/persistence change.
+
+Failures or blockers: Real session configuration and exact task packet are absent.
+No actual provider, real model or useful repair is demonstrated by these tests.
+The old React worker initialization gap remains unchanged.
+
+Limitations and non-claims: This is a controlled regression of changed behavior.
+It does not revalidate unrelated old task outcomes, classify local model quality,
+prove private-data readiness, or authorize the proposed paid diagnostic.
+
+Paid exposure: At most four controlled desktop cases, using localhost scripted
+coordinator/consultant responses and the existing pinned offline image. Zero real
+model calls, zero paid API calls and zero public web fetches. Simulated usage/fees
+remain fixtures. No failed model task or prior paid comparison is retried.
+
+Next gate: Freeze and run the four cases, independently reconcile the current
+ledger/source proof, then finish the session setup and real-trial handoff.
+
+References: [real trial preparation](plans/MVP_GENERAL_CONSULTATION_REAL_TRIAL_V1.md),
+BL-20260913-1859-consultant-standard-tier-approved.
+
+### BL-20260913-1910-evaluator-screenshot-diagnosis-approved -- 2026-09-13 -- Diagnose incomplete tablet captures without accepting failed controls
+
+Status: `Approved`
+
+Scope or hypothesis: Identify the exact browser-capture failure that prevented two
+otherwise correctly rejected synthetic controls from completing qualification.
+
+Decisions: Preserve the complete first sixteen-control invocation as fourteen
+matched and two incomplete. Allow one separate bounded diagnostic invocation of
+the two affected controls, with an isolated copy of the evaluator and explicit
+capture-stage diagnostics. Do not accept infrastructure failure as a successful
+negative or silently rerun the first qualification batch.
+
+Changes: Copy only authored synthetic inputs/control pages and evaluator code into
+a separate diagnostic directory. Retain bounded exception information from the
+failed screenshot operation. No model output, real key, network or new image is
+part of this diagnosis. Production source and the original evaluator stay held.
+
+Evidence: The first control batch exited two after 42.862 seconds with confirmed
+container cleanup. Both affected controls detected their intended faults, then
+failed during the 768-pixel screenshot after completing the 1280-pixel capture.
+The generic Error record does not establish a cause. Terminal receipt SHA-256:
+a6b25324c8eda8e68a7ef975ed07c96ee3b7bef9058009a60019edc4bf3cdba8.
+
+Failures or blockers: The new evaluator is not qualified. Fourteen matched
+controls cannot support a sixteen-control pass, and the two correct semantic
+rejections do not close missing browser evidence.
+
+Limitations and non-claims: This diagnoses test infrastructure only. It cannot
+repair the rejected website, establish consultant quality or change a historical
+candidate outcome.
+
+Paid exposure: At most one two-control offline diagnostic invocation using the
+same pinned image, bounded to 120 seconds of evaluator execution and normal
+cleanup. Zero model, paid API or public retrieval calls; no image pull.
+
+Next gate: Review the concrete diagnostic before changing capture behavior or
+admitting a separately identified qualification of any justified fix.
+
+References: BL-20260913-1855-consultation-trial-preparation-approved,
+[real trial preparation](plans/MVP_GENERAL_CONSULTATION_REAL_TRIAL_V1.md).
+
+### BL-20260913-1910-desktop-current-manifest-recovery-approved -- 2026-09-13 -- Correct the build manifest before repeating bounded desktop proof
+
+Status: `Approved`
+
+Scope or hypothesis: Bind the actual rebuilt chunk filenames before qualifying
+the changed consultation runtime for a later real-task admission.
+
+Decisions: Preserve the first current four-case result as a passed diagnostic
+with an unmet pre-run manifest requirement. Admit one additional four-case
+controlled invocation after successful current-file freeze. Do not relabel a
+manifest created afterward as pre-run evidence.
+
+Changes: Enumerate the current output tree instead of copying old generated chunk
+filenames. Freeze 182 current source/build/fixture files in a new directory.
+No application, fixture or evaluator logic changes are made for this recovery.
+
+Evidence: The manifest generator failed on a removed old bootstrap chunk; the
+orchestration incorrectly continued to launch the tests after that error. The
+four scenarios passed in 21.9 seconds with zero real model calls, but did not have
+the required prior completed manifest. The corrected freeze now succeeds with
+runtime e32848d399573079cc5844eee34cc5fa4e7afa94ae3ab64d4c1ee9320dd1c5a8
+and manifest fee7f78cc3541f609fb7277c25a848dc31761b123a2bd9f43f51db4899663d90.
+
+Failures or blockers: Preserve the partial original freeze and first diagnostic
+test result. This orchestration mistake does not establish a runtime failure or
+a model quality result; it prevents the claimed pre-run provenance qualification.
+
+Limitations and non-claims: The corrected frozen build still requires execution
+and independent reconciliation. The old broader eight-case proof remains separate.
+Real authentication, exact paid approval and useful repair are still outstanding.
+
+Paid exposure: At most four additional scripted localhost desktop cases with the
+same pinned offline image, zero real model/paid calls and zero public GETs. No
+model task or paid proposal is restarted by this recovery.
+
+Next gate: Run the unchanged four cases only after this successful freeze, audit
+the exact current runtime and ledger, and retain both invocations separately.
+
+References: BL-20260913-1906-standard-tier-desktop-approved,
+[real trial preparation](plans/MVP_GENERAL_CONSULTATION_REAL_TRIAL_V1.md).
+### BL-20260913-1914-preflight-entrypoint-correction -- 2026-09-13 -- Make the safe preflight run without a CLI IPC listener
+
+Status: `Approved`
+
+Scope or hypothesis: Ensure the documented package command actually works in the
+restricted development shell instead of only testing its TypeScript module.
+
+Decisions: Replace the tsx CLI wrapper with node --import tsx. Preserve the failed
+entrypoint invocation. The correction starts no IPC listener, provider or app.
+Since runtime identity includes package metadata, freeze the final package change
+and admit four final scripted desktop cases before real-trial readiness is claimed.
+
+Changes: Changed only the package command for check:general-consultant. The
+actual command now exits two with the expected missing-field names and fixed
+reason in the current unconfigured session. No value, endpoint or key is printed.
+
+Evidence: The prior wrapper failed at its IPC pipe with EPERM before executing
+the preflight. The final command executed the intended check. The prior corrected
+four desktop scenarios passed in 20.5 seconds; their runtime remains separately
+bound and is not relabeled after the package-script change.
+
+Failures or blockers: All ten required explicit consultant fields are absent in
+this process. This does not inspect another Terminal's environment. Real runtime
+remains unadmitted and the first website evaluator batch still has two incomplete
+captures. A separate two-control diagnostic completed all screenshots without
+reproducing the error; no screenshot cause or rendering fix is established.
+
+Limitations and non-claims: The preflight proves local syntax only. The two-control
+diagnostic does not change the original fourteen-of-sixteen qualification result.
+No real consultant, quality improvement or savings is demonstrated.
+
+Paid exposure: Four additional final scripted consultation desktop scenarios,
+zero real model/paid calls and zero public GETs. Same installed offline image;
+no image build or pull. No further evaluator invocation is admitted here.
+
+Next gate: Bind and independently audit the final current desktop run, preserve
+the setup and evaluator limitations, then obtain explicit session configuration
+and complete evaluator qualification before admitting the real diagnostic.
+
+References: [session setup](MVP_GENERAL_CONSULTANT_SETUP.md),
+BL-20260913-1910-desktop-current-manifest-recovery-approved.
+
+### BL-20260913-1926-consultation-accounting-and-trial-prepared -- 2026-09-13 -- Verify standard-tier accounting and prepare one real repair
+
+Status: `Verified`
+
+Scope or hypothesis: Make the consultation path auditable under an explicit price
+schedule and usable from a configured session, then prepare one independent
+before/after diagnostic without claiming that a real consultation has run.
+
+Decisions: Close the accounting/setup implementation with its bounded controlled
+proof. Keep the real task unadmitted, the evaluator unqualified and the full MVP
+open. Require explicit session configuration, qualified evaluation and the later
+exact packet/fee decision before real dispatch. No old paid proposal is reopened.
+
+Changes: Added optional default service-tier request/response binding, validated
+usage return and durable accounting required by new proposals. Reopen recomputes
+the fee and refuses missing/corrupt evidence; historical proposals remain readable.
+Added safe configuration inspection and the working no-network package command,
+plus a concrete proposed OpenAI setup guide. Prepared a separately reviewed
+fresh-task adapter and immutable copies of four original synthetic website inputs.
+The adapter stops at a pending packet and cannot reset the deadline or manufacture
+approval. A narrow review correction checks latched cancellation before task start
+and decision effects.
+
+Evidence: Ninety-two application tests passed: thirty-three helper, forty-nine
+manager/controller/runner and ten configuration/CLI checks. Five pure adapter
+checks, strict TypeScript, both application typechecks and the normal build pass.
+The final four actual desktop scenarios passed in 21.099 seconds with no skipped
+or flaky cases. Root independently recomputed ten scripted local and two scripted
+consultant requests, eleven settled and one expected unknown, released claims,
+and the exact saved model/default tier/token counts and fee. All 182 current
+source/build/fixture bindings still match. Final runtime SHA-256:
+81045e134ff499efc88ba05a674b1f66309509bf0f356143fde12a6886444a96.
+Final pre-run manifest SHA-256:
+fc84939324ca4e6e50381687260ff3ed6367a661798a8078fe4c6fa1e023b69e.
+Independent read-only audit confirms the exact current ledger, packet, grant,
+fee/tier/usage, response, checkpoint and restart joins with no findings. It binds
+39 evidence files, all 182 source files and the preserved prior eight-case receipt.
+Audit SHA-256: 6760e83cfb4798e92c98ac32239bf4e24e2648fd9d1097933dca3652204351e5.
+
+Failures or blockers: All ten required consultant fields are missing in this
+process; Terminal access was denied by the computer-use tool, so another shell's
+key status is unknown. The first evaluator invocation matched fourteen of sixteen
+controls; two tablet screenshots were incomplete after the expected semantic
+rejections. A separate bounded two-control diagnostic completed all screenshots
+without reproducing the Error. Its success does not establish a cause, a fix or
+a sixteen-control pass. Preserve the explicit qualified=false receipt. The first
+current desktop run lacked a completed pre-run manifest despite passing; the next
+run preceded the later package command fix. Keep both separate from the final
+four-case proof. The tsx IPC failure, initial typing errors and earlier React
+worker gap remain recorded. The timestamp validator caught two new uncommitted
+entries inserted out of order; their unchanged entry bytes were put in chronology.
+No committed build-log entry was rewritten.
+
+Limitations and non-claims: No real model or paid provider was called. Documented
+OpenAI compatibility and prices do not prove account access, actual response shape
+or invoice accuracy. This verifies permission/accounting/recovery mechanics and
+prepares a known-failure repair; it does not prove model routing quality, useful
+advice, accepted website/research output, private-data readiness, savings or release.
+The accepted audit/deck and rejected research/website retain their original scopes.
+
+Paid exposure: Three separate four-case scripted desktop invocations, with only
+the last used for the final current-runtime claim. Its 64 microdollars settled
+and 9,912 reserved are simulated fees, not API spending. The sixteen-control batch
+and separate two-control diagnostic used only the existing offline image. Zero
+real model, paid API or public fetch calls in these current desktop/evaluator runs.
+
+Next gate: Obtain the explicit same-shell profile, finish evaluator qualification
+with adequate capture diagnostics, and admit one fresh synthetic website repair
+under the proposed profile and exact packet/fee approval. Preserve before/after
+artifacts and report independent acceptance or failure. Do not silently replace
+an expired, uncertain or rejected run. The full first-MVP goal remains active.
+
+References: [preparation report](MVP_GENERAL_CONSULTATION_TRIAL_PREPARATION_REPORT.md),
+[session setup](MVP_GENERAL_CONSULTANT_SETUP.md),
+[one-task proposal](plans/MVP_GENERAL_CONSULTATION_REAL_TRIAL_V1.md),
+BL-20260913-1914-preflight-entrypoint-correction.
+
+### BL-20260913-1930-observable-evaluator-qualification-approved -- 2026-09-13 -- Qualify the observable checker and preserve a complete before-repair baseline
+
+Status: `Approved`
+
+Scope or hypothesis: Close the remaining evaluator evidence gap without waiting
+for a cloud credential, then establish the unchanged failed website's full
+before-repair result using the same independently qualified checker.
+
+Decisions: The continuing MVP objective authorizes one new sixteen-control offline
+invocation on a separately frozen instrumented evaluator. Preserve both the first
+fourteen-of-sixteen result and successful two-control diagnostic. Add capture-stage,
+bounded exception and browser-state diagnostics; make no speculative rendering,
+timeout or semantic changes. Only a complete qualified control result permits
+one subsequent offline evaluation of the unchanged preserved website. Neither
+stage edits that candidate or counts as a model repair.
+
+Changes: Prepare an evaluator-qualified-v3 directory, retain all thirteen original
+controls and three selector controls with their exact expected failures, and bind
+current sources and the installed image before execution. Use a separate baseline
+adapter and independently recompute source arithmetic outside the solver workspace.
+No evaluator, gold, control or reference answer is supplied to a model.
+
+Evidence: Current receipts confirm two earlier incomplete tablet captures after
+correct semantic failures; a separate diagnostic did not reproduce the browser
+Error. Its added observations can identify the failing stage if it recurs. Current
+application/accounting proof remains closed on its existing frozen runtime. The
+real consultation profile and exact packet remain absent and unadmitted.
+
+Failures or blockers: The evaluator is still unqualified at this admission. A
+positive control that cannot complete or a negative that fails for the wrong
+reason must fail the batch; no retry or inference of success is allowed. If a
+new capture failure occurs, retain its exact diagnostic before deciding a fix.
+
+Limitations and non-claims: Control qualification is one bounded development
+proof, not a general browser reliability claim or established crash fix. A
+completed baseline can still reject the candidate. It cannot establish useful
+consultation, causal superiority, savings, private-data readiness or MVP completion.
+
+Paid exposure: One sixteen-control offline invocation, at most 360 seconds of
+sandbox execution with bounded outer cleanup, on the installed pinned image.
+If qualified, one unchanged-candidate evaluation, at most 240 seconds of execution
+with bounded cleanup. Zero real model, paid API or public fetch calls. No image
+pull, installation, new provider or replay of an old model task.
+
+Next gate: Independently reconcile control results and source bindings before the
+conditional baseline evaluation. Preserve its complete interaction/arithmetic
+matrix, screenshots, exact candidate hash and cleanup; then update the real-trial
+prerequisites without claiming a repaired artifact.
+
+References: [trial preparation report](MVP_GENERAL_CONSULTATION_TRIAL_PREPARATION_REPORT.md),
+[one-task plan](plans/MVP_GENERAL_CONSULTATION_REAL_TRIAL_V1.md),
+BL-20260913-1926-consultation-accounting-and-trial-prepared.
+
+### BL-20260913-1940-browser-resource-diagnostic-approved -- 2026-09-13 -- Observe the screenshot failure before selecting a correction
+
+Status: `Approved`
+
+Scope or hypothesis: Identify the browser resource condition behind repeated
+incomplete website evaluator captures, and prepare one local-only repair while
+the explicit cloud configuration remains pending.
+
+Decisions: Preserve the second sixteen-control result as unqualified. Admit one
+separate resource-observed invocation of all sixteen unchanged controls after
+source binding and independent diff review. Retain browser arguments, timeouts,
+container limits, checker semantics and expected failures. Capture bounded
+read-only filesystem capacity, cgroup memory/process counters and browser process
+file-descriptor counts around screenshots. No automatic retry follows this run.
+Preparation of the local-only repair adapter and plan is approved; its real
+runtime remains conditional on qualified evaluation, an unchanged baseline and a
+separate exact runtime admission.
+
+Changes: Add a separately stored diagnostic checker and resource observations.
+Prepare a local-only website repair using the four original synthetic files,
+without evaluator answers or manual candidate changes. Application runtime and
+existing proofs remain unchanged.
+
+Evidence: The second control batch exited two in 42.883 seconds with all sixteen
+controls attempted and fourteen expectations matched. The two failures occurred
+during Page.captureScreenshot and reported Unable to capture screenshot, with
+Mojo CopyOutputResultSender validation errors and GPU process exit code nine in
+Chromium stderr. The page remained open and the browser connected; this was not
+the five-second timeout. Similar stderr occurred in five completed controls,
+so the message does not establish the deeper cause. Normal page dimensions rule
+out an observed enormous-page trigger. The independent final audit joins all
+twenty-six source bindings and eighty-two exports, with confirmed cleanup.
+Audit SHA-256: e5004c1566b3e67ee67f367524ea3664397040c4239af967a42edff0128298b1.
+
+Failures or blockers: The evaluator remains unqualified and no baseline was
+launched. The bounded temporary filesystem and descriptor limits are hypotheses,
+not demonstrated exhaustion. No timeout, GPU flag or resource-limit change is
+claimed as a fix. Explicit consultant configuration remains absent in this shell.
+
+Limitations and non-claims: Resource observations are diagnostic. A passing
+invocation alone does not establish a durable browser correction. No model
+quality, repaired website, useful consultation, savings or full MVP completion
+is demonstrated by the current control work.
+
+Paid exposure: One sixteen-control offline diagnostic, at most 360 seconds of
+sandbox execution with bounded outer cleanup, using the same installed pinned
+image. Zero real model, paid API or public GET calls; no installation or pull.
+Local repair preparation makes no model or app calls.
+
+Next gate: Inspect the exact observations and preserve the outcome before
+selecting a correction or admitting another invocation. Independently qualify
+the final checker before the conditional unchanged-candidate baseline and any
+separately admitted local repair.
+
+References: [local repair plan](plans/MVP_LOCAL_WEBSITE_REPAIR_V1.md),
+BL-20260913-1930-observable-evaluator-qualification-approved.
+
+### BL-20260913-1949-website-checker-controls-qualified -- 2026-09-13 -- Qualify one complete control batch without claiming a browser fix
+
+Status: `Verified`
+
+Scope or hypothesis: Establish a complete, independently reconciled evaluator
+for the already approved unchanged-website baseline and subsequent conditional
+repair, while retaining the observed screenshot reliability limitation.
+
+Decisions: Qualify the exact resource-observed checker against its sixteen
+controls. Do not change its semantics, browser settings or limits before the
+baseline. The approval in BL-20260913-1930-observable-evaluator-qualification-approved
+now permits one unchanged-candidate observation with exact bindings and cleanup.
+An incomplete capture remains an incomplete evaluation, not an accepted artifact.
+
+Changes: Added resource and installed-version observations to the isolated
+checker. Corrected a preparation-only baseline guard that incorrectly conflated
+sixteen control pages with fourteen arithmetic cases. It now reads the bounded
+unique case IDs from the frozen fixture; the actual-fixture regression verifies
+fourteen cases. Retained the earlier source and missed-review evidence. Prepared
+and reviewed the separate local-only repair driver without launching a task.
+
+Evidence: One resource-observed batch completed in 43.299 seconds. All sixteen
+expectations matched: three positive and thirteen intended negative controls,
+including four deliberate initial-semantic rejections. Root independently
+checked each expected failure, exit state and result hash, all thirty-six PNG
+hashes/signatures, thirty-six source bindings and eighty-five exported files.
+Both audits confirm cleanup and preservation. Root audit SHA-256:
+9db5fa536d58ca6837f55e269a426e26bd7955f2576f30563bdd0c9874224836.
+Independent audit SHA-256:
+2b4a2de0a2cf053ef89df6f3de83fcc54d7edcd5309f6773f434e01bdaf4b91e.
+The corrected baseline adapter passed five pure tests and strict TypeScript;
+the local repair adapter passed fourteen pure tests and strict TypeScript.
+Its no-network preflight confirms the current runtime and existing local model
+configuration, with a credential present and no consultant environment forwarded.
+All 182 current desktop source bindings and 39 evidence bindings still match.
+
+Failures or blockers: The two earlier fourteen-of-sixteen results stay
+unqualified. Six completed controls in the current batch still logged Chromium
+CopyOutput errors. Seventy-two samples observed temporary storage as low as
+1,286,144 available bytes out of 64 MiB; shared memory remained free, memory
+peaked below one GiB with no OOM events, descriptors peaked at 130 of 256 and
+process/thread count at 184 of 256. Tight temporary storage is a plausible
+contributor, not an established transient-failure cause. No rendering fix is
+claimed. The baseline and real local repair have not yet run.
+
+Limitations and non-claims: This qualifies the exact bounded control results;
+it does not prove general browser reliability, model quality or a repaired
+website. PNG hashes are integrity checks, not human visual acceptance. Local
+configuration presence does not prove endpoint connectivity. Real consultation,
+private-data readiness, savings, release and full MVP completion remain open.
+
+Paid exposure: Zero real model, paid API or public fetch calls. One offline
+sixteen-control diagnostic used only the installed pinned image. No new runtime
+or paid allowance is introduced by this result entry.
+
+Next gate: Freeze and execute the already admitted unchanged baseline, inspect
+all views and join the complete matrix. Only then record the exact separate
+local repair admission and check the owned endpoint before its fresh task.
+
+References: [local repair plan](plans/MVP_LOCAL_WEBSITE_REPAIR_V1.md),
+BL-20260913-1940-browser-resource-diagnostic-approved.
+
+### BL-20260913-1958-local-website-repair-approved -- 2026-09-13 -- Attempt one local repair of the independently rejected website
+
+Status: `Approved`
+
+Scope or hypothesis: Produce one useful website artifact by asking the owned
+local model to repair the preserved failed draft through the current desktop
+workflow, then evaluate its exact output independently.
+
+Decisions: The continuing MVP instruction admits one fresh local-only synthetic
+website repair after the complete unchanged baseline. Admit one bounded discovery
+GET to the existing configured provider before starting the task; require the
+configured model to be advertised. Then use twenty model calls, thirty tool
+actions, forty broker requests and the original fifteen-minute task deadline.
+No consultant call, public-source fetch, same-job replay, automatic replacement,
+manual artifact repair or extension of an exhausted deadline is allowed. Exact
+source/input/configuration and evidence bindings must be sealed before dispatch.
+
+Changes: Use the reviewed prepared local driver, four immutable original inputs
+and source-only repair goal. Add a separate one-use discovery check with no
+redirects, a ten-second deadline, a 512 KiB response limit and unconditional
+transport abort on closure. It emits only fixed outcomes and identity hashes.
+Its source SHA-256 is
+dd71ea904715e00411c21242ec2c95d122b2a48f3b2ba7db9447ba561247b567.
+The generated candidate will receive the same frozen thirty-check evaluation
+and separate visual/ledger/export review; this extends the qualified checker's
+bounded use to this one post-repair observation once an exact candidate exists.
+
+Evidence: The unchanged baseline completed in 4.537 seconds outside the adapter,
+with all thirty checks and all three screenshots retained. It passed fifteen
+checks and failed all fourteen arithmetic cases plus keyboard recalculation.
+Root inspected all three views and observed the incorrect monetary scale and
+hidden Too slow total. Inputs, checker, outputs and cleanup reconcile. Baseline
+receipt SHA-256:
+b0d011ea55a11d8b25096a454a56dec85340dff0ede404e98da8a435c2e7b664.
+Root baseline audit SHA-256:
+cf7b553ffcb85e1525031d576c8a58fe2591bd9afd278632e33f89f19cda7a95.
+Final local-driver SHA-256:
+7772efe70305c1c8792694601f5aae74d32639f7b7502f196880c91e12a4815c.
+Fourteen local-driver and six after-evaluator pure checks and strict TypeScript
+pass; independent source reviews are clear. The safe renewed preflight still
+matches runtime 81045e134ff499efc88ba05a674b1f66309509bf0f356143fde12a6886444a96
+and the existing local configuration. No task has yet been launched.
+
+Failures or blockers: The old website is independently rejected and its original
+exhausted job remains closed. Intermittent Chromium capture failures are retained;
+the complete control and baseline runs do not establish a fix. Discovery can
+still fail; that stops this attempt before inference without an automatic retry.
+The cloud profile and exact consultation decision remain absent and unadmitted.
+
+Limitations and non-claims: This is an exposed repair iteration, not held-out
+quality or a cloud-versus-local comparison. Local completion and structural
+verification do not constitute artifact acceptance. No real private data,
+provider savings, total device economics, release or full MVP completion is
+proved by this admission.
+
+Paid exposure: One provider-discovery GET, then at most twenty requests to the
+existing owned local model with declared zero API fees. Maximum 4,096 output
+tokens per call and a 300-second request ceiling within the remaining task
+deadline. Zero paid cloud calls and zero public-source GETs. Same installed
+pinned offline image; no pull, installation or networked tool. The separate
+after-candidate evaluation is limited to 240 seconds plus bounded cleanup.
+
+Next gate: Freeze the exact admission, require discovery success, execute once,
+and preserve the terminal outcome. Bind any final export before the one offline
+evaluation; inspect all views and independently recompute the actual ledger and
+cleanup before accepting or rejecting the deliverable.
+
+References: [local repair plan](plans/MVP_LOCAL_WEBSITE_REPAIR_V1.md),
+BL-20260913-1949-website-checker-controls-qualified.
+
+### BL-20260913-2014-local-website-partial-observation-approved -- 2026-09-13 -- Preserve the failed run and independently inspect its exported draft
+
+Status: `Approved`
+
+Scope or hypothesis: Separate an observed execution failure from the quality of
+the draft already exported by the local task, then correct the misleading
+failure classification without replaying that task.
+
+Decisions: The admitted local repair is closed incomplete. Keep its failed
+workflow outcome permanently. Admit one separate diagnostic-only offline
+evaluation of the exact preserved draft with the same qualified checker. Its
+result cannot convert this run into a completed task. Keep the normal successful
+run evaluator's completed-mechanics prerequisite intact. Prepare a narrow
+pre-dispatch failure classification fix after preserving current source evidence;
+no further real model request or automatic retry is admitted here.
+
+Changes: Add a separately reviewed diagnostic observer, binding the incomplete
+result, exported candidate, fresh database audits, original inputs and exact
+checker. Preserve all prior adapters and failure evidence. Do not edit the draft,
+increase the packet limit, truncate conversation history or alter acceptance
+criteria to obtain a passing result.
+
+Evidence: The single local run exited two in 268.613 seconds with sixteen model
+starts, fifteen completed model responses, fifteen completed tools and fifteen
+settled broker requests. No dispatch is unknown; all fees and reservations are
+zero. Five model allowances and over ten minutes remained. App, owned process
+group and containers closed cleanly. The normal UI exported 14,157 unchanged
+bytes with SHA-256
+1dda02a69718e43b030905e461be0b5ee959565f609d0adf1fe4dea1f6c1ec99.
+Fresh read-only SQLite independently matches the saved ledger. Root audit SHA-256:
+0fdb6925ebc89ae3a8588e3341bb21f7d83a10e8e490ab03d2e649fd75f6aeee.
+Offline reconstruction matches the recorded prompt/protocol and proves request
+sixteen's body is at least 214,335 bytes, exceeding the broker's 196,608-byte cap
+before dispatch. Request fifteen's lower bound is 174,698 bytes. Tool observations
+total 184,248 bytes; recent large outputs were stdout, not browser stderr. The
+proof uses an empty model identifier as a strict lower bound and reads no key or
+configuration. Reconstruction SHA-256:
+6e1d80456e2d30dbd647cdd2a3441b4380b1368ff81ca425d7348e5a0450bd8a.
+
+Failures or blockers: The runner records model_started before preparing the
+request, then loses the specific pre-dispatch rejection in its generic catch.
+The controller treats that unmatched event as an uncertain operation. This is
+a host request-size stop and misleading classification; it is not evidence of
+a failed or uncertain sixteenth provider request. No verified structural
+submission occurred, so the successful-run evaluator correctly refuses it.
+
+Limitations and non-claims: Even a technically correct partial draft would not
+prove end-to-end completion. The original run is not resumed or relabeled.
+No context-management fix, cloud-routing benefit, savings or full MVP completion
+is proved. The prior intermittent screenshot limitation remains recorded.
+
+Paid exposure: One offline candidate observation, at most 240 seconds plus
+bounded cleanup, in the same installed pinned image. Zero additional model,
+paid API or public fetch calls. No image pull or installation.
+
+Next gate: Evaluate and inspect the exact draft, preserve the complete outcome,
+then implement and test explicit host-proven pre-dispatch failure handling.
+Keep actual unknown operations and crashes blocked from replay. Any new live
+attempt needs a separate admission after the changed runtime is verified.
+
+References: [repair report](MVP_LOCAL_WEBSITE_REPAIR_REPORT.md),
+BL-20260913-1958-local-website-repair-approved.
+
+### BL-20260913-2021-model-request-size-handling-approved -- 2026-09-13 -- Distinguish a proven unsent request from an uncertain dispatch
+
+Status: `Approved`
+
+Scope or hypothesis: Correct the product's observed pre-dispatch size failure
+classification while preserving progress, budgets and all genuine no-replay
+boundaries.
+
+Decisions: After the admitted partial-output observation closes, implement only
+a typed request-body-size rejection before broker dispatch and a durable host
+operation marker. Keep the existing 192 KiB limit and count the attempted model
+step. Do not fabricate a response or dispatch, refund an attempt, automatically
+resume, truncate history or accept an unfinished task. Show the specific unsent
+request reason; actual unknown dispatches, crashes and missing or invalid
+markers retain uncertainty and replay blocking. Label the displayed counter as
+model attempts so it does not imply that every attempt reached the provider.
+
+Changes: Export the shared unchanged broker body limit; validate the canonical
+request in the model adapter and catch only its dedicated pre-dispatch size
+error. Persist fixed code, byte count, limit, operation/context identity and
+dispatched=false. Strictly validate marker joins on recovery and in the desktop
+controller. Preserve the stop reason through the session, reject resume and
+change the protocol identity. Add meaningful model/broker/runner/controller
+regressions and one scripted desktop size-stop/restart/export scenario.
+
+Evidence: The real-run lower-bound reconstruction and independent database
+audits establish the size rejection before the sixteenth broker dispatch. All
+fifteen existing requests settled. The exact current runtime, relevant source
+and inputs were copied before edits: 192 files under the ignored failure trial,
+with manifest SHA-256
+18aff7ede6d2e154a5515ae78b50e7372b4523247f1788c28820b76a538254c0.
+The original failed run, old runtime and partial artifact remain unchanged.
+
+Failures or blockers: Implementation and new-runtime verification are pending
+at this admission. This fixes a misleading terminal state, not accumulated
+conversation growth or the local model's artifact quality. Prior actual unknown
+outcomes must not be relabeled without their original evidence.
+
+Limitations and non-claims: A deterministic local rejection does not prove a
+general method for recovering every transport error. The existing task remains
+closed. No new live repair, real consultant request, savings, release or full
+MVP completion is admitted or claimed.
+
+Paid exposure: Focused local regressions, typechecks and normal build; then one
+scripted localhost desktop scenario with the same installed offline Docker image.
+Zero real model, paid API or public-source requests. No image pull or install.
+Bind the changed build before the desktop scenario; preserve any failure before
+deciding further work.
+
+Next gate: Complete the pending partial observation, apply and review the narrow
+fix, pass relevant regressions, and bind the actual desktop result separately
+from the earlier runtime. Report both artifact quality and execution failure.
+
+References: BL-20260913-2014-local-website-partial-observation-approved,
+[repair report](MVP_LOCAL_WEBSITE_REPAIR_REPORT.md).
+
+
+### BL-20260913-2038-size-desktop-fixture-correction -- 2026-09-13 -- Correct the local-only fee assertion and finish the scripted desktop check
+
+Status: `Approved`
+
+Scope or hypothesis: Complete the already authorized request-size desktop
+regression after a test-only optional-field mistake prevented export and restart
+assertions from running.
+
+Decisions: Preserve the first failed desktop invocation and its frozen source.
+Correct only the fixture's assumption that every snapshot has a fees field;
+local-only version-two tasks omit that optional summary. Require zero fees and
+reservations from the actual dispatch ledger. Admit one separately identified
+scripted rerun after typechecking, source review and a new fixture manifest.
+Do not change production code, request limits, artifact criteria or accounting.
+
+Changes: Make the snapshot fee assertion conditional on field presence while
+retaining mandatory exact ledger assertions. Use separate result/log/terminal
+and case directories; preserve the original admission and failed invocation.
+The built runtime remains
+e4e86da0cfba76f9ac888f714229d28673ed1b5d2ca150595065d5da5611dcc3.
+
+Evidence: The first invocation exited one in 4.705 seconds. It reached the expected
+incomplete request-size stop with two model starts, one completed response, one
+settled request, one completed tool and a 219,675-byte request rejected before
+dispatch against the 196,608-byte cap. Zero unknown requests, released claim,
+closed app, absent owned container and unchanged runtime were recorded. The test
+failed when expecting the optional fees object; export/restart assertions did
+not execute. The original source and 184-file admission are retained with
+admission SHA-256
+04fd082d7f294d3c539550d3b466073305e370f536643852521631f0210d634f.
+
+Failures or blockers: The initial desktop invocation is failed, not a completed
+restart/export proof. This is a test-contract error, with no observed production
+failure at that stopping point. The corrected scenario remains unrun here.
+
+Limitations and non-claims: Neither scripted invocation assesses real model
+quality or repairs the rejected website. The old real job remains closed. No
+private-data qualification, savings, release or full MVP completion is claimed.
+
+Paid exposure: One controlled localhost response in one desktop task using the
+same installed pinned offline image. Maximum 240 seconds per test and 360 seconds
+outer deadline plus bounded cleanup. Zero real model, paid API and public-source
+calls; no image pull, installation or automatic additional retry.
+
+Next gate: Review and freeze the corrected fixture, execute once, then inspect
+both views and reconcile the final read-only ledger, exports, source identity
+and cleanup before declaring the narrow failure-handling milestone verified.
+
+References: BL-20260913-2021-model-request-size-handling-approved,
+[repair report](MVP_LOCAL_WEBSITE_REPAIR_REPORT.md).
+
+
+### BL-20260913-2045-model-size-stop-verified -- 2026-09-13 -- Verify unsent request handling while retaining the rejected website repair
+
+Status: `Verified`
+
+Scope or hypothesis: Finish the narrow host-proven request-size correction and
+independently close the failed repair observation without turning either into
+an accepted website or a completed MVP.
+
+Decisions: The real local repair remains incomplete and its exact draft is
+rejected. Both before and after drafts have the same fifteen passing and fifteen
+failing checks. Accept the new size-stop behavior only for the tested canonical
+boundary, operation recovery, accounting and actual desktop export/restart path.
+Earlier source/runtime proofs and failed fixtures remain separate evidence.
+
+Changes: The model adapter rejects a canonical body above the shared unchanged
+196,608-byte cap with a dedicated typed error before broker dispatch. The runner
+persists an exact host operation/context/protocol marker with byte counts and
+keeps the consumed attempt. Recovery strictly validates marker uniqueness, order
+and identity; missing/invalid markers and actual unknown requests remain blocked.
+The desktop preserves and displays the specific unsent reason, retains artifacts,
+blocks resume and labels the counter Model attempts. Protocol identity changed;
+no history truncation, request-limit increase, attempt refund or automatic retry
+was implemented. Reports and readiness now distinguish the completed runtime
+fix from failed artifact quality and unfinished MVP work.
+
+Evidence: The exact partial draft independently completed all thirty browser
+checks and all three views: fourteen total_wrong results plus the keyboard
+recalculation failure, with fifteen other checks passing. Root rehashed exported
+results and inspected every view; it rejected the incorrect totals and missing
+Too slow total. Partial observation root-audit SHA-256:
+7ea5fbc2af2acfbf7a3dfd5b27f3cb2e7376a0ac1328ee130aff2507f4143c79.
+The backend correction passed 173 distinct focused checks: model size three,
+runner budget thirty-five, broker fifty-five, controller fifty-seven, runner
+consultation five and session eighteen. Both application typechecks, independent
+source review and the normal production build passed. Final host receipt SHA-256:
+4d24701720f7bc0c6f9c21f783ffb3de9d2d0908f204cb6e180d6d570fcf2254.
+
+The separately corrected desktop scenario passed one of one in 5.640 seconds
+outside Playwright, with no skip, flake, forced kill or deadline expiry. Its
+184-file admission SHA-256 is
+aed132ab5532ea83716c8eaf43ca0af4b3e316b6f46773c645127f0edfd2b904.
+Runtime SHA-256:
+e4e86da0cfba76f9ac888f714229d28673ed1b5d2ca150595065d5da5611dcc3.
+A 210 KiB tool observation caused the second prepared request to reach 219,675
+bytes; the durable marker proved it unsent. Two model attempts, one response,
+one settled request and one completed tool were recorded. The exact 84-byte
+artifact exported before and after restart; source input, checkpoint and ledger
+were unchanged. Resume was denied, no extra request occurred, the owned claim
+was released and app/container cleanup was confirmed. Root independently read
+the immutable retained SQLite, rehashed every admitted source and evidence file,
+verified exports and inspected both UI screenshots. Root desktop audit SHA-256:
+20dd33f5e60a39cd35bc57d44d1462fad11a844335935dd3511bb9439a6914c4.
+
+Failures or blockers: The initial 150-case batch had four fixture failures from
+converting an artifact result object instead of its bytes; only that test
+expression changed before the 57-case controller pass. The first desktop run
+failed on the optional local-only fee-summary assertion before export/restart;
+its source, terminal and read-only failure audit remain retained. The corrected
+scenario still mandates exact ledger fee and reservation checks. The original
+real repair is unchanged: fifteen actual settled local requests, then an unsent
+oversized attempt, no verified submission and rejected partial output. The
+intermittent Chromium capture problem is not proved fixed. Real cloud consultation
+still lacks the explicit session profile and exact packet/fee decision here.
+
+Limitations and non-claims: A verified unsent marker does not establish recovery
+for arbitrary transport errors. Scripted responses prove mechanics, not local
+model quality, accepted website/research work or useful consultation. This fixes
+failure classification, not growing tool history. No private-data qualification,
+quality-preserving savings, release or full MVP completion is established.
+The earlier consultation desktop proofs belong to their original frozen builds.
+
+Paid exposure: The correction used controlled host tests and two separate
+scripted desktop invocations, each with one localhost response. Zero real model,
+paid API or public-source calls occurred in the fix verification; no image was
+pulled or installed. The preceding closed real repair used fifteen requests to
+the owned local endpoint with declared zero API fees and one discovery GET.
+The device and operating costs remain outside any proven savings claim.
+
+Next gate: Address repeated large tool observations and make failed checks drive
+bounded repair work. Keep complete local evidence available while bounding what
+is sent to the model. Verify any changed persisted contract and runtime before a
+separately identified real task; do not replay the closed repair or silently
+extend its allowance. Accepted website/research quality, useful consultation,
+practical input/output composition, private deployment and owner acceptance still
+remain necessary for the first full MVP.
+
+References: BL-20260913-2014-local-website-partial-observation-approved,
+BL-20260913-2021-model-request-size-handling-approved,
+BL-20260913-2038-size-desktop-fixture-correction,
+[repair report](MVP_LOCAL_WEBSITE_REPAIR_REPORT.md),
+[completion audit](MVP_COMPLETION_AUDIT.md).
+
+
+### BL-20260913-2055-bounded-tool-observations-approved -- 2026-09-13 -- Retain execution evidence and bound model observations
+
+Status: `Approved`
+
+Scope or hypothesis: Let the general agent inspect and act on large execution
+results without repeatedly filling the model request with complete logs.
+
+Decisions: Under the owner's continuing MVP instruction, implement the bounded
+observation contract linked below. Keep complete returned decoded execute output
+in host-only checkpoint blobs with strict job/context/operation/hash identity;
+send at most 8 KiB per observation and project eligible execution/readback
+messages into 48 KiB total. Add a bounded same-context read_observation tool.
+Keep original events, attempts, deadlines and the final 192 KiB request cap.
+No private disclosure, real consultant call or replay of a closed task follows.
+
+Changes: Add a versioned observation module, scoped retrieval and deterministic
+request projection. Integrate retention before atomic tool acknowledgement and
+validate recovery. Surface nonzero exit and preserve the distinction between
+process exit and semantic correctness. Bind the changed prompt/protocol and
+projection identity. Leave public-source, consultant and host-check observations
+unchanged. Add focused tests and controlled desktop verification on a new build.
+
+Evidence: The prior real repair retained 184,248 bytes of tool observations;
+several zero-exit commands printed hundreds of mismatches, including repeated
+identical output. The next body was at least 214,335 bytes and was not sent.
+The existing checkpoint store already verifies and fsyncs content-addressed blobs.
+Independent design review supports scoped retrieval plus an 8 KiB/48 KiB
+projection with strict authority and restart joins. The prior correction passed
+173 focused checks and one complete desktop size-stop/export/restart scenario.
+
+Failures or blockers: Implementation and controlled proof are pending. Existing
+sandbox decoding is not raw-byte capture; output lost on a timeout or capture
+limit remains unproven. A zero process exit cannot mean artifact correctness.
+Real website/research quality and actual cloud consultation remain unfinished.
+
+Limitations and non-claims: This bounds execution observations only. Goals,
+assistant commands, public sources and advice can still reach the final cap.
+No hidden evaluator gold enters model context. Scripted repair demonstrates
+execution mechanics, not real model competence, privacy readiness or release.
+
+Paid exposure: Focused local tests, typechecks, normal build and up to two
+separately frozen scripted desktop scenarios (bounded-output repair/restart and
+remaining oversized-request regression) using the existing installed offline
+image and controlled localhost responses. Zero real model, paid API or public
+fetch calls; no pull/install. Each scenario has a bounded terminal timeout and
+retained result. No real trial is admitted in this entry.
+
+Next gate: Implement and independently review the contract, pass focused checks,
+freeze the changed build, then execute the controlled cases and reconcile actual
+output/restart/ledger/cleanup. Bind any later real task separately and preserve
+its outcome. Continue toward accepted deliverables across the general agent.
+
+References: [bounded-observation plan](plans/MVP_BOUNDED_TOOL_OBSERVATIONS_V1.md),
+BL-20260913-2045-model-size-stop-verified,
+[completion audit](MVP_COMPLETION_AUDIT.md).
+
+
+### BL-20260913-2123-observation-desktop-label-correction -- 2026-09-13 -- Correct the restart status assertion and retain the failed case
+
+Status: `Approved`
+
+Scope or hypothesis: Complete controlled observation retrieval/repair/restart
+verification after a fixture-only status-label mismatch.
+
+Decisions: The continuing MVP instruction authorizes correcting the test's exact
+label and one separately recorded observation-only rerun. Keep the current
+runtime, image, host behavior, task bounds and assertions. Do not repeat the
+passing size-stop case or replay either historical real website task.
+
+Changes: Replace the expected Submitted text with the actual selected task's
+status, Submitted for review. Recheck the fixture types and freeze the changed
+fixture before one fresh controlled case with a 240-second case deadline and
+360-second outer watchdog, one worker and zero automatic retries.
+
+Evidence: The first invocation terminated in 42.978 seconds with one pass and one
+failure. The observation case made four scripted requests and four tool actions,
+retrieved the omitted detail, passed source-derived repair/projection/blob checks
+and exported once. After final restart the accessibility snapshot shows Submitted
+for review; the fixture waited for exact Submitted and failed at line 151. The
+size-stop case passed. Its original frozen admission, sources, report, trace,
+screenshots and retained state remain unchanged.
+
+Failures or blockers: The initial observation case did not complete its second
+export or final restored-state/resume assertions. Those checks remain pending;
+reaching the first export is not a complete pass.
+
+Limitations and non-claims: The application is unchanged. Scripted execution
+cannot establish real model quality, accepted website work or full MVP readiness.
+
+Paid exposure: One additional controlled localhost observation case on the same
+installed offline image, at most four scripted requests and four tools. Zero real
+model, paid API, public-source calls or image pulls. No further run is admitted.
+
+Next gate: Verify the single fixture correction, freeze its fresh evidence paths,
+execute once and independently reconcile final output, restarts and cleanup.
+Bind any later real task separately after the current runtime proof is complete.
+
+References: BL-20260913-2055-bounded-tool-observations-approved,
+[observation report](MVP_BOUNDED_TOOL_OBSERVATIONS_REPORT.md),
+[approved plan](plans/MVP_BOUNDED_TOOL_OBSERVATIONS_V1.md).
+
+
+### BL-20260913-2128-bounded-observations-verified -- 2026-09-13 -- Verify retained logs, scoped recovery and repair across restart
+
+Status: `Verified`
+
+Scope or hypothesis: Keep execution evidence usable within bounded model requests
+and preserve recovery/accounting without claiming real-model task quality.
+
+Decisions: The returned-log retention, scoped read_observation tool and 8 KiB/48
+KiB projection contract are verified for controlled execution. Keep the original
+192 KiB final cap and fail-closed treatment of unavailable or altered saved
+output. Current runtime identity is
+92f6325db666d8f0e11726a72fada267006a5147a5f21be72e81721909b4469e.
+
+Changes: Added the observation module, runner projection and strict recovery,
+atomic checkpoint/tool acknowledgement, explicit process-failure feedback and
+protocol identity bump. Updated the remaining size regression to exercise large
+assistant content. Added the controlled log retrieval/repair desktop case and
+updated readiness, completion audit and the observation report.
+
+Evidence: There are 231 distinct passing focused checks, including sixteen new
+observation checks. The exact-feedback correction passed 55 affected checks; its
+final small-output wording change passed the sixteen module checks again. Both
+application typechecks, scoped fixture types and the normal build passed.
+Independent source review is clear. The corrected observation desktop case
+passed in 8.606 seconds with four settled scripted requests and four tools. A
+215,040-byte log survived pause/restart; bytes 100,000 through 100,512 supplied
+the hidden failure used for a source-derived repair. The exact 208-byte result
+exported across a second restart. Largest request: 17,544 bytes; projected tool
+content: 9,208 bytes. The separate size case passed with two attempts, one settled
+request, one tool and a 220,975-byte request stopped before dispatch. Its exact
+84-byte artifact exported across restart and resume was denied. Root independently
+read actual SQLite/blob/export data, recalculated source totals/request sizes,
+inspected selected screenshots and verified owned-container absence. Root audit
+SHA f1e21e10174343e19c50bf9d6c15f2b986897fe05ea5d59eee5cadefa5efd51d.
+
+Failures or blockers: The original observation case failed after first export
+on a fixture label mismatch; it did not reach its last restored-state/resume and
+second-export assertions. Original sources and failed evidence remain retained.
+One locator-only corrected invocation completed those checks. The earlier real
+website remains rejected and its job remains closed.
+
+Limitations and non-claims: Retention covers returned decoded output, not lost
+raw output after sandbox timeout/capture errors. Goals, assistant content,
+public sources and advice can still reach the final request cap. Scripted
+selection does not prove local-model competence, useful consultation, accepted
+website/research work, private-data qualification, savings, release or full MVP
+completion. Earlier desktop proofs retain their own runtime identities.
+
+Paid exposure: Two controlled invocations executed three cases including the
+preserved failure: nine total settled scripted localhost requests and nine tools,
+ten model attempts, zero real inference, paid API or public-source calls. All
+claims released, zero unknowns/fees/reservations and cleanup confirmed. The same
+installed offline image was used without pull/install.
+
+Next gate: Bind a fresh real local website task to the original inputs and this
+verified runtime, then evaluate the exact exported candidate with the existing
+qualified independent checker. Preserve all outcomes and the original allowance.
+
+References: BL-20260913-2055-bounded-tool-observations-approved,
+BL-20260913-2123-observation-desktop-label-correction,
+[observation report](MVP_BOUNDED_TOOL_OBSERVATIONS_REPORT.md),
+[completion audit](MVP_COMPLETION_AUDIT.md).
+
+
+### BL-20260913-2130-local-website-repair-v2-approved -- 2026-09-13 -- Admit one fresh local repair and independent candidate evaluation
+
+Status: `Approved`
+
+Scope or hypothesis: Determine whether usable bounded execution evidence helps
+the actual local model repair the rejected website within its original allowance.
+
+Decisions: Under the owner's continuing first-MVP instruction, admit one fresh
+local-only task using the exact original generic goal and four original inputs.
+Use the independently verified bounded-observation runtime and unchanged installed
+offline image. Keep all historical jobs closed. Bind the complete operator,
+configuration and evidence in a new admission before launch; source review must
+be clear. An after-trial evaluation may inspect the exact exported candidate,
+including an explicitly diagnostic partial candidate, after its hash and saved
+outcome are known and bound. It cannot upgrade an incomplete task to completion.
+
+Changes: Version the existing operator/evaluation adapter for the fresh task and
+the exact two-case current-runtime proof. Keep the qualified evaluator's thirty
+checks, original arithmetic/source requirements and three viewport captures.
+No manual repair, reference solution, expected numerical answer or evaluator gold
+is supplied to the model. A missing candidate produces no candidate evaluation.
+
+Evidence: Current runtime
+92f6325db666d8f0e11726a72fada267006a5147a5f21be72e81721909b4469e
+passed focused checks, typechecks/build and complete observation-recovery and
+remaining-size-stop desktop cases. Root audit SHA
+f1e21e10174343e19c50bf9d6c15f2b986897fe05ea5d59eee5cadefa5efd51d.
+The new operator's sixteen pure guards and strict typecheck passed; independent
+review confirms five task files match v1, including the original starting page.
+The existing evaluator completed all sixteen qualification controls in its
+separately observed run. The unchanged original page passed fifteen of thirty
+checks; earlier capture failures remain retained.
+
+Failures or blockers: Actual local-model repair and exported candidate quality
+are unproven. The separate cloud consultant profile is not available here; this
+trial uses no consultant. The earlier v1 repair failed and is not replayed.
+
+Limitations and non-claims: This is an exposed development iteration, not a
+held-out comparison or causal estimate. Passing artifact checks alone cannot
+supply missing task completion, privacy qualification, savings or owner acceptance.
+The prior intermittent Chromium issue is not proved fixed.
+
+Paid exposure: At most twenty model attempts, thirty tools, forty broker
+requests and fifteen minutes elapsed for one task; 4096 output tokens and a
+300-second request ceiling within the task deadline. The outer process-group
+watchdog is 1140 seconds including startup/closure. Declared local API fee is zero;
+owned-device operating costs remain unmeasured. Zero consultant calls, public
+fetches, discovery calls, image pulls or installs. One separately bound offline
+candidate evaluation may run for 240 seconds with a 300-second outer watchdog;
+no candidate or task retry is admitted.
+
+Next gate: Check exact current bindings and final operator/evaluator source,
+launch the task once, retain its actual ledger/output/cleanup and then bind the
+exact candidate for unchanged evaluation. Independently inspect all three views
+and source-derived results. Preserve failure rather than repeating automatically.
+
+References: BL-20260913-2128-bounded-observations-verified,
+[original repair plan](plans/MVP_LOCAL_WEBSITE_REPAIR_V1.md),
+[observation report](MVP_BOUNDED_TOOL_OBSERVATIONS_REPORT.md),
+[completion audit](MVP_COMPLETION_AUDIT.md).
+
+
+### BL-20260913-2148-local-website-repair-v2-failed -- 2026-09-13 -- Real reader use succeeds but repeated diagnostics exhaust delivery allowance
+
+Status: `Failed`
+
+Scope or hypothesis: One fresh real local website repair on the verified bounded
+observation runtime, using the original inputs and unchanged task limits.
+
+Decisions: Retain the failed task and all evidence. The new observation tool is
+compatible with the actual provider on this task, but successful evidence access
+did not produce the requested deliverable. No candidate means no independent
+candidate evaluation; do not record a numerical quality score or replay the task.
+
+Changes: Executed the separately admitted v2 operator once. Updated the fresh
+trial report, bounded-observation report, readiness and completion audit. The
+prepared evaluator remains unrun. No production code changed after the frozen
+runtime proof, and no candidate was repaired manually.
+
+Evidence: The process terminated with exit 2 after 245.777 seconds, without
+watchdog expiry or forced kill. Twenty model attempts, twenty model responses
+and twenty tool actions joined exactly; all twenty requests settled, with zero
+unknowns, unsent markers, fees, public fetches or consultation calls. Tools were
+seventeen execute actions, two successful read_observation calls and one saved
+plan. Seventeen execution blobs and all checkpoints rehash correctly. Both reads
+match their retained source ranges. Independent review rebuilt all twenty
+projection hashes; maximum projected observation content was 37,154 bytes, and
+maximum single serialized observation was 8,191 bytes. Inputs and runtime sources
+remained unchanged; claims released and app/owned-container cleanup confirmed.
+Root independently reread actual SQLite and retained files. Root failure audit
+SHA f02029784aae6e4815e64d0ef0c79b9f7212085b6ae273e1b6ca5ac33f73994a;
+independent peer audit SHA
+48525e6d4dc17cc69337be2d04d1e0a81d3c150fe7c087fe347ccfc3ae425ab2.
+
+Failures or blockers: No checkpoint contains any output file, and no HTML was
+exported. Saved state includes only the original four inputs and three diagnostic
+Python scripts. The first command used an incorrect input path; actions 12–17
+failed on the same Decimal-plus-float error. Actions 13–16 repeated the exact same
+command and result. Actions 18–20 exited zero but printed 900 differences. The
+model never wrote the required artifact. Host allowance finalization correctly
+reported a missing artifact and did not submit. The operator's ledgerVerified
+flag is false because its completed-delivery predicate failed; request accounting
+itself was independently verified. There were no invalid tool arguments or
+output-token-limit failures.
+
+Limitations and non-claims: This exposed development trial proves neither a
+correct website nor a successful end-to-end workflow. It is not a held-out or
+causal comparison. The earlier fifteen-of-thirty website and failed repair remain
+unchanged. No candidate evaluation, three-view candidate review, useful real
+consultation, privacy qualification, savings, release or full MVP completion is
+claimed. The independent evaluator's earlier capture limitations remain retained.
+
+Paid exposure: Exactly twenty requests to the configured owned local endpoint,
+with zero declared/accounted API fee. Device operating costs remain unmeasured.
+No discovery, public-source or paid cloud call, image pull/install, task retry or
+candidate evaluation occurred. All live processes in this trial are terminal.
+
+Next gate: Implement a small routing response to repeated execution failures and
+missing deliverable progress. Require a changed approach or explicitly permitted
+consultation before repeating unchanged failures; expose available execution
+capabilities and use an early artifact checkpoint. These interventions are
+proposed, not implemented by this trial. Verify the selected change before one
+new bounded task; keep this failure closed and distinguish the next artifact's
+quality from its execution mechanics.
+
+References: BL-20260913-2130-local-website-repair-v2-approved,
+BL-20260913-2128-bounded-observations-verified,
+[fresh trial report](MVP_LOCAL_WEBSITE_REPAIR_V2_REPORT.md),
+[completion audit](MVP_COMPLETION_AUDIT.md).
+
+
+### BL-20260913-2155-execution-progress-routing-approved -- 2026-09-13 -- Respond to repeated failures and missing deliverable progress
+
+Status: `Approved`
+
+Scope or hypothesis: Give the general agent an evidence-based chance to change
+course before repeated diagnostic work consumes its task allowance.
+
+Decisions: Implement current progress guidance after two identical nonzero
+executions with unchanged checkpoint content. If the next model still selects
+that same command, stop before the tool starts with a strictly joined known-stop
+record and consumed model attempt. Changed workspace or successful execution can
+permit the same command again. Add a bounded missing-artifact reminder after one
+third of the allowance and expose only capabilities proved for the exact pinned
+image. Keep cloud consultation under its existing explicit permission boundary.
+
+Changes: Add a progress policy/helper, protocol-bound current guidance, strict
+runner/controller recovery and user-visible reason. Add a pure image-keyed
+capability descriptor backed by the retained qualification. Update focused tests
+and prepare controlled desktop cases; preserve previous runtime evidence.
+
+Evidence: The v2 trial made twenty settled requests in 245.777 seconds, used two
+valid observation reads, but never wrote the HTML artifact. Actions 13–16 repeated
+identical failing commands/results. All observation bounds and cleanup passed.
+Independent design review requires checkpoint-aware repetition, exact stop joins,
+unknown precedence and no stale guidance replay. Existing immutable-image probes
+verify Python/browser/document tools; arbitrary images remain unqualified.
+
+Failures or blockers: Implementation and new-runtime verification are pending.
+The local model may still misdiagnose errors or fail to produce correct output.
+The separate real consultation profile remains unavailable here.
+
+Limitations and non-claims: This detects exact repeated execution failure, not
+semantic loops or correctness. A working draft is not an accepted artifact.
+Static capability claims apply only to the exact qualified image. No savings,
+privacy readiness, release or full MVP claim follows from these mechanisms.
+
+Paid exposure: Local implementation, focused tests, typechecks and normal build;
+up to four separately bound scripted desktop cases on one frozen runtime using
+the installed offline image and localhost responses, with bounded timeouts and
+zero automatic retries. Zero real inference, paid calls, public fetches, image
+pulls or installs are admitted by this entry. Bind any later real task separately.
+
+Next gate: Implement and review the policy, pass focused checks, freeze the build
+and verify changed-action recovery and no-invocation stopping across restart,
+plus the existing observation and size regressions. Then identify one fresh
+bounded real task with independent evaluation of any actual output.
+
+References: [progress plan](plans/MVP_EXECUTION_PROGRESS_ROUTING_V1.md),
+BL-20260913-2148-local-website-repair-v2-failed,
+[fresh trial failure](MVP_LOCAL_WEBSITE_REPAIR_V2_REPORT.md).
+
+
+### BL-20260913-2224-progress-fixture-correction-approved -- 2026-09-13 -- Preserve the initial result and finish the known-stop restart check
+
+Status: `Approved`
+
+Scope or hypothesis: Complete the controlled known-stop restart proof after an
+incorrect fixture assumption interrupted the first desktop invocation.
+
+Decisions: Keep the production runtime frozen. Correct only the fixture's
+expectation for the generic persisted task reason; retain exact response-bound
+stop proof, displayed reason, no third execution, final restart and replay-denial
+assertions. The specific reason is derived from verified events by the controller.
+Authorize one separately bound corrected ignore-case invocation after independent
+source review; no automatic retry or replay of an existing job.
+
+Changes: The progress runtime is implemented. It binds current guidance and exact
+image capabilities, detects unchanged repeated failures, preserves missing-draft
+reminders and denies replay when an action stop cannot be reconstructed. Review
+also corrected NUL result serialization, cancellation/deadline after asynchronous
+capture and the crash window before a stop marker can be saved. Only a test
+expectation correction is pending here.
+
+Evidence: The final host suite passed 222 tests across twelve files; sixteen pure
+fixture guards, both application typechecks, scoped desktop types and the normal
+build passed. Initial four-case desktop invocation terminated normally with exit
+one after 23.029 seconds: recovery, observation and size cases passed. The ignored
+warning reached three settled responses and two tools with a valid stop marker,
+correct displayed reason and cleanup, then its raw-record assertion failed.
+All four cases together recorded thirteen model attempts, twelve settled requests
+and eleven tools, with zero unknowns and fees. Root independently reread SQLite,
+rehash-checked retained files and recomputed recovery CSV totals. Original audit
+SHA 67cd6fd61fd06636fc62d3858f0055e38d4458a2211210d6da97795043bdb2db.
+Frozen runtime e91d588115ff209f7f66327e99067114a7fbe8123eea1059141cb607ff0e5e0c;
+original admission 7fbc3f5b427d5d5673f68eb8fc693611e7faabcbb9ab2636fbd20a1b1710ccac.
+
+Failures or blockers: The ignored-warning case expected its raw task record to
+hold the specific stop code; the record stores incomplete and get() reconstructs
+the specific user reason from the durable proof. Final restart was not reached
+in that case and is not counted as verified. Preserve this failed invocation.
+Earlier localhost sandbox restrictions and pre-final test/type failures remain
+in the retained verification receipts. No real model improvement is proved.
+
+Limitations and non-claims: Scripted source-derived arithmetic and structural
+submission do not establish real end-to-end quality, useful consultation,
+private-data qualification, cost savings, release or full MVP completion.
+
+Paid exposure: One corrected scripted ignore case only, on the same installed
+offline image and unchanged runtime, with a fresh job and retained evidence.
+At most three local fixture responses and two tools; one worker, zero retries,
+240-second case timeout and 300-second total process bound including termination
+grace. Zero real inference, paid requests, public fetches, image pulls or installs.
+
+Next gate: Independently clear the narrow assertion correction, bind its exact
+source and original evidence, execute once, then audit the complete restart and
+no-replay result. Keep the original three passes and failed case separately.
+
+References: BL-20260913-2155-execution-progress-routing-approved,
+[progress plan](plans/MVP_EXECUTION_PROGRESS_ROUTING_V1.md).
+
+
+### BL-20260913-2234-execution-progress-routing-verified -- 2026-09-13 -- Verify recovery guidance and stops across desktop restart
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the bounded execution-progress intervention in the
+real desktop harness without claiming better real-model delivery quality.
+
+Decisions: Keep the exact repeated-failure rule, current missing-draft reminder,
+qualified image capabilities and strictly reconstructed stop. A real file change
+permits a retry. Reopening a known stop cannot grant replay; unknown dispatches,
+corrupt proof and responses whose actions were never recorded stay conservative.
+
+Changes: Protocol versions twelve/thirteen bind the policy and capability
+identity. Model starts retain current guidance metadata; the host stops an
+unchanged third execution before any tool event or implicit validation. The
+controller reconstructs the specific reason after restart. Added meaningful
+host and desktop checks and updated readiness/completion documentation.
+
+Evidence: Final 222 focused tests across twelve files passed, as did sixteen pure
+fixture guards, both application typechecks, scoped desktop types and the normal
+build. The first desktop invocation had three passes and one test assertion
+failure in 23.029 seconds. The approved assertion-only correction passed its
+single fresh case in 5.799 seconds on unchanged runtime
+e91d588115ff209f7f66327e99067114a7fbe8123eea1059141cb607ff0e5e0c.
+Four complete current proofs now cover recovery/export across restart, known-stop
+restart without a third tool invocation, observation retrieval/repair and the
+remaining request-size stop. The corrected stop retains exactly three settled
+responses and two tools; restored state equals pre-restart state and Resume is
+denied. Recovery CSV totals 945, 2299 and 2625 cents were independently recomputed
+and exact export bytes match across restart. Root reread all five actual SQLite
+ledgers, verified retained checkpoint/blob bytes, rehashed 197 current sources
+and 22 correction evidence bindings, and confirmed every owned Docker container
+absent. Final root audit SHA
+3f78cd36e883034b0adbfec6c3c8001107a8dcc87f769139859be617b953a0b6;
+independent corrected-case audit SHA
+e261a04ac6ff7ce3c957968bcbb36e9249ac2eb74cfbee99dfc4d55264086a6f.
+
+Failures or blockers: Preserve the original failed assertion and its unrun
+restart; it is not retroactively a pass. Host review caught and fixed NUL output,
+a deadline during capture and a crash before recording the action stop. Initial
+mock/localhost/typecheck failures and two read-only audit-script request-format
+assumptions are retained with their corrections. The older size fixture's parsed
+request bodies do not permit independent raw-wire reconstruction; its admitted
+test checks packet identity using its actual origin. Real consultation session
+configuration remains unavailable to the root process.
+
+Limitations and non-claims: Exact repetition does not detect semantic loops or
+prove that a different command is useful. Artifact existence is not correctness.
+All inference responses here are scripted; no improved real task quality,
+private-data qualification, savings, release or complete first MVP is claimed.
+The prior failed real website jobs remain closed.
+
+Paid exposure: Across both terminal desktop invocations, five cases including
+the initial failure consumed sixteen model attempts, fifteen settled scripted
+requests and thirteen tools, with zero unknowns, fees or remaining reservations.
+The four complete current proofs account for thirteen attempts, twelve settled
+requests and eleven tools. No real model, consultant, public fetch, image pull
+or install occurred. All launched app and owned-container work is terminal.
+
+Next gate: Bind one fresh real local task to this verified runtime, use original
+website inputs and unchanged allowance, then independently assess the exact
+export if a candidate exists. Retain a no-output failure without inventing an
+evaluation result. First-MVP quality and acceptance work remains open.
+
+References: BL-20260913-2155-execution-progress-routing-approved,
+BL-20260913-2224-progress-fixture-correction-approved,
+[progress report](MVP_EXECUTION_PROGRESS_REPORT.md),
+[completion audit](MVP_COMPLETION_AUDIT.md).
+
+
+### BL-20260913-2248-local-website-repair-v3-approved -- 2026-09-13 -- Admit one real website task on the verified progress runtime
+
+Status: `Approved`
+
+Scope or hypothesis: Continue the user's authorized first-MVP work with one fresh
+local website repair using the original goal and four synthetic inputs. Test
+whether the verified recovery controls support actual deliverable production.
+
+Decisions: Preserve original inputs, provider/model/settings and allowance. Use
+runtime e91d588115ff209f7f66327e99067114a7fbe8123eea1059141cb607ff0e5e0c.
+Keep both prior real failures closed. Do not feed gold, diagnostic scripts or a
+root-authored repair to the model. Exact exported bytes alone may be evaluated.
+
+Changes: Prepare version-three one-use operator and independent evaluator. Bind
+197 current runtime sources, four completed current scripted proofs and their
+retained evidence. A separate post-terminal candidate admission is required for
+the conditional offline evaluation; no candidate means evaluator unrun.
+
+Evidence: Operator nineteen pure guards and scoped TypeScript pass. Evaluator
+eleven pure guards and scoped TypeScript pass. Independent source review cleared
+operator 1f212e6fcdc65fd11c818065a0ecd5d200e387533e2c2ce524e4a2da123b51cb
+and evaluator 1b72de18f8d33f80566dd0d9f3a662afa5c4640d7f7947acf60df7a4a81347ed.
+Current proof a29482072ebae4cd2f048d5b892cfb373c54d609b976eeacacdba2e736984bad
+joins the verified progress milestone. Original task bytes and no-network
+configuration continuity were checked. The unchanged qualified checker retains
+sixteen control outcomes, thirty required checks and three rendered views.
+
+Failures or blockers: Prior v2 exhausted twenty model calls without HTML; retain
+that delivery failure without an invented evaluation score. Real consultant
+session configuration remains unavailable. Prior intermittent browser capture
+failure is not claimed fixed. This admission grants no replay or retries.
+
+Limitations and non-claims: A complete accepted export would establish one
+exposed representative task only. Incomplete-task artifacts remain diagnostic
+with workflow acceptance false, even if all artifact checks pass. No held-out
+reliability, private-data readiness, cloud routing benefit, savings, release or
+full MVP completion is established by preparation or one successful iteration.
+
+Paid exposure: One local-only task, at most twenty model attempts, thirty tools,
+forty requests, fifteen minutes, 4096 output tokens per request and a 300-second
+request ceiling inside that deadline. Zero consultant calls, public fetches or
+declared API fees. Use only the existing installed offline image; no pull,
+installation or discovery. External process-group supervision allows at most
+1140 seconds including termination grace. Conditional later offline candidate
+evaluation is separately admitted, once, with 240-second work and 300-second
+outer bounds. No additional real inference is authorized by that evaluation.
+
+Next gate: Freeze exact input/source/configuration/proof/admission bindings,
+launch once through the ordinary desktop, then inspect the actual request ledger,
+progress events, checkpoints, native export and cleanup. If a candidate exists,
+admit its exact hash to the unchanged independent checker, inspect all three
+views and record acceptance separately from mechanics and accounting.
+
+References: BL-20260913-2234-execution-progress-routing-verified,
+[website plan](plans/MVP_LOCAL_WEBSITE_REPAIR_V1.md),
+[progress report](MVP_EXECUTION_PROGRESS_REPORT.md),
+[completion audit](MVP_COMPLETION_AUDIT.md).
+
+
+### BL-20260914-0628-local-website-repair-v3-failed -- 2026-09-14 -- Retain interrupted website trial and close leftover app
+
+Status: `Failed`
+
+Scope or hypothesis: One admitted real local website task on the verified
+execution-progress runtime, using the original inputs and unchanged allowance.
+
+Decisions: Close this trial without replay. No native export exists, so the
+independent website evaluator remains unrun; no quality score is assigned.
+Preserve the uncertain request and distinguish desktop-control failure from
+model-quality failure. Move subsequent product work toward usable bundle export
+instead of another unchanged website-repair iteration.
+
+Changes: Retain original task and process results. Independently inspect only
+this job's labeled Docker scope and recorded app PID. Verify the process's exact
+trial user-data argument, terminate it with SIGTERM and retain cleanup evidence.
+No production code or held trial source changed during this close-out.
+
+Evidence: At 51.084 seconds the operator reported page.evaluate target/page/context
+closure, nine model calls, eight tools and nine dispatches with one unsettled
+outcome. No native artifact export or terminal task snapshot was captured. The
+outer watchdog terminated its driver after 1130.03 seconds, exit -9, following
+its deadline and termination grace. Terminal receipt SHA
+857c70deead803e3201bc7ab0d8183cc480fc2482a7c6544841ea5c3b0d8569a;
+original result SHA cf95546666baf7b5e74ac9df311230e88cc26ce708c65e71dae0ea859edc0ea5.
+Post-failure Docker inspection found no labeled container. The recorded app PID
+was still alive despite appClosed:true; verified trial-specific process cleanup
+then succeeded with SIGTERM and no SIGKILL. No task or request was replayed.
+
+Failures or blockers: The cause of page closure is unproved. The driver treated
+app.close completion as process closure and remained alive after writing its
+result; that lifecycle boundary needs correction before another live trial.
+Original cleanupConfirmed:false and unsettled request evidence remain unchanged.
+A mistaken check:build-log command was corrected to validate:build-log, which
+passed 251 entries before launch. Do not infer a model regression from this run.
+
+Limitations and non-claims: Retained partial task progress cannot establish a
+successful workflow, artifact acceptance, improved reasoning or full MVP.
+Later process/container absence does not retroactively prove graceful task
+cleanup or resolve the uncertain provider request. Real-private readiness,
+accepted research/website quality, practical I/O and owner acceptance remain open.
+
+Paid exposure: Exactly one local trial was launched. The retained result records
+nine requests, eight settled and one uncertain, with zero accounted API fees,
+zero consultant calls and zero public fetches. No evaluation, image pull,
+installation, retry or follow-up inference occurred. The outer driver and the
+identified leftover app process are terminal; the owned Docker scope is empty.
+
+Next gate: Audit retained task evidence without replay, repair the narrow test
+process-closure boundary and build first-class multi-file artifact export in the
+existing task flow. Require an exact file inventory and native bundle export;
+keep any later real model trial separately identified and bounded.
+
+References: BL-20260913-2248-local-website-repair-v3-approved,
+[progress report](MVP_EXECUTION_PROGRESS_REPORT.md),
+[completion audit](MVP_COMPLETION_AUDIT.md).
+
+
+### BL-20260914-0640-local-website-late-state-correction -- 2026-09-14 -- Preserve the task state after the controller lost its page
+
+Status: `Verified`
+
+Scope or hypothesis: Correct the evidence boundary of the early failed driver
+result by independently rereading the actual SQLite database after process closure.
+
+Decisions: Keep the original nine-request observation unchanged. Treat it as an
+early observation, not the final task state. No task, request or evaluator replay.
+
+Changes: Retain a separate late-state audit and verify every checkpoint and
+execution blob plus all 288 original frozen bindings before new product edits.
+
+Evidence: Final database has ten model starts, nine finishes, nine completed
+tools, nine settled requests and one unknown. A 14,238-byte HTML draft exists
+only in the checkpoint, SHA
+12040f3e8546a13993b72d127614daa3df38369161be2a603ee68f93f9c87701.
+It first appeared after model/tool nine. Missing-artifact reminders were present
+on requests eight and nine; no exact repeated-failure warning occurred. The task
+ended incomplete with cleanupConfirmed:true at 790141ms and released its claim.
+Independent audit SHA
+d470659833f8702ea74e25d89eea1b7b6d6f378141f14a5471ea50baab1b9429.
+
+Failures or blockers: The desktop controller lost its page before observing this
+later work. Its original appClosed:true was not proof of process exit. The final
+unknown request records request_timeout, configured 300000ms and elapsed737461ms;
+the reason for that timer overrun and the page closure is not established.
+
+Limitations and non-claims: No native export, rendering, independent semantic
+evaluation or accepted website exists. Later task cleanup does not rewrite the
+early failed closure. A draft after a reminder is not causal proof of improvement.
+
+Paid exposure: Actual final task exposure is ten local requests, nine settled
+and one unknown, with zero settled fees or remaining fee reservations. Zero
+consultant/public requests. This read-only audit generated no model traffic.
+
+Next gate: Continue product work from the archived source boundary, retaining
+both early and late evidence. Correct process supervision before further live
+trials; do not turn the unexported draft into a delivered or accepted result.
+
+References: BL-20260914-0628-local-website-repair-v3-failed,
+[completion audit](MVP_COMPLETION_AUDIT.md).
+
+
+### BL-20260914-0641-artifact-bundle-implemented -- 2026-09-14 -- Export complete task output folders as one ZIP
+
+Status: `Implemented`
+
+Scope or hypothesis: Remove the single-visible-artifact delivery limitation from
+the existing general-agent MVP without adding another task loop or provider call.
+
+Decisions: Keep one required primary deliverable while exposing all validated
+output files. Bind native ZIP export to the displayed complete output manifest.
+Strip only output/ from ZIP entry names, preserving relative folders. Keep
+incomplete work and independent acceptance statuses unchanged.
+
+Changes: Add bundle metadata/reference and IPC/preload API, controller checkpoint
+validation, renderer inventory/export action and deterministic ZIP STORE writer.
+Reuse atomic native-save protections for individual and bundle export. Reject
+unsafe or ambiguous portable names, stale manifests, active tasks and unconfirmed
+cleanup. Inputs and work directories are not included in the output bundle.
+
+Evidence: 81 controller/IPC assertions and 51 ZIP assertions passed; Python zipfile
+independently verified CRCs, exact binary/Unicode bytes and archive metadata.
+Both app typechecks, scoped module/renderer types and normal build passed.
+Independent integration review cleared the exact source, receipt SHA
+0ca4d982a542df950ab89b3cdd3a86b307e22ef5f91931490f46640ff7ff7746.
+Existing trial sources were archived and all 288 bindings rechecked before edits.
+
+Failures or blockers: The combined test invocation had 81 host passes but a
+renderer worker startup timeout. Isolated unrestricted forks and threads runs
+also timed out before renderer assertions. Its six new UI cases remain unrun.
+The first ZIP test command used an unsupported CLI flag; corrected execution
+passed all 51 checks. No desktop interaction or live model proof is claimed.
+
+Limitations and non-claims: This verifies host bundle construction and export
+boundaries, not a working generated multi-file website. Inert preview does not
+execute website interactions. General-agent quality, private deployment, useful
+consultation and owner acceptance remain unfinished. No release or full-MVP
+completion claim follows from this implementation.
+
+Paid exposure: Zero model requests, public fetches, cloud calls, Docker launches,
+image pulls or installations in this implementation. All host/UI test processes
+are terminal; failing renderer startup attempts performed no assertions.
+
+Next gate: Correct trial process supervision, then verify the actual desktop
+inventory/native bundle export and extracted relative assets using the existing
+runtime. Keep any later real task separately bounded; never replay the closed
+website job or treat its unexported checkpoint as accepted delivery.
+
+References: BL-20260914-0640-local-website-late-state-correction,
+[bundle report](MVP_ARTIFACT_BUNDLE_REPORT.md),
+[completion audit](MVP_COMPLETION_AUDIT.md).
+
+
+### BL-20260914-0715-mvp-course-correction-proposed -- 2026-09-14 -- Recenter the MVP on useful checked workflows
+
+Status: `Proposed`
+
+Scope or hypothesis: The owner requested an audit of completed work against the
+fail-fast general end-to-end MVP goal. Assess direction and sequencing without
+resuming the paused goal or launching another trial.
+
+Decisions: The architecture is still useful; the work sequence over-prioritized
+infrastructure qualification. Preserve the runtime and all failures, consolidate
+current status, and propose one checked owner workflow as the next milestone.
+The earlier recommendation to prioritize bundle export after the single-file
+website failure is superseded. Keep its implementation, verify its ordinary
+flow once and freeze further feature expansion until delivery is demonstrated.
+
+Changes: Updated the existing completion audit and readiness summary with a
+current scorecard, concrete code gaps, revised sequence and stopping rules.
+No production code, provider configuration, task state or permission changed.
+Older audit tables and Next gate statements remain historical, not simultaneous
+active requirements. This review does not grant future runtime/spending authority.
+
+Evidence: Three independent review lanes covered product direction, active code
+and retained results. A bounded evidence pass rehashed 43 important artifacts
+and receipts, all matching; ten current bundle source bindings also matched.
+Accepted desktop examples remain one synthetic support audit and one editable
+three-slide deck. Research was rejected; no website is accepted. Bundle host
+verification remains distinct from unrun UI assertions and desktop interaction.
+The current desktop checker preserves inputs and checks a nonempty primary file;
+its semantic evaluations are external. Research uses exact user-supplied URLs.
+The coordinator fixes thinking disabled and a 4096-token output ceiling; no
+causal model-quality conclusion follows from that constrained configuration.
+
+Failures or blockers: Useful real general-task consultation, accepted research
+and website output, ordinary setup, private deployment qualification and owner
+acceptance remain open. The latest website's early driver result and later
+incomplete database state are distinct. Page closure and timeout-overrun causes
+remain unresolved. The original critique attachment is absent, so this audit
+cannot claim a fresh line-by-line review of it.
+
+Limitations and non-claims: Rehashing retained artifacts is not rerunning their
+evaluators. Test counts measure their specified mechanics, not general-agent
+reliability. Two accepted task examples do not establish coverage or a success
+rate. An internal public-data pilot does not complete the privacy-first objective.
+No new tests, model runs, release checks or full-MVP verification occurred.
+
+Paid exposure: Zero model, consultant or public-retrieval requests. Read-only
+source/evidence inspection and documentation updates only; no app or Docker run.
+The overall goal was found paused and remains paused.
+
+Next gate: Resolve the demonstrated lifecycle/timeout observation boundary
+narrowly, then use existing tooling for one fresh task with explicit critical
+checks and exact delivered output. A substantive failure must trigger a
+materially different permitted configuration/route or supported-scope decision,
+not an unchanged rerun or another generic framework. Preserve packet/fee and
+no-replay protections while simplifying bespoke trial machinery.
+
+References: BL-20260914-0641-artifact-bundle-implemented,
+BL-20260914-0640-local-website-late-state-correction,
+[current completion audit](MVP_COMPLETION_AUDIT.md),
+[privacy-first goal](plans/MVP_PRIVACY_FIRST_AGENT_V1.md).
+
+
+### BL-20260928-1443-workspace-cleanup-handoff -- 2026-09-28 -- Consolidate current state and preserve the experiment boundary
+
+Status: `Implemented`
+
+Scope or hypothesis: The owner requested an analysis of completed work and the
+system/experiment process, safe codebase cleanup and an actionable handoff.
+This is a workspace handoff, not another model trial or MVP completion milestone.
+
+Decisions: Keep the reusable general-task runtime and negative evidence. The
+architecture remains useful, while repeated infrastructure qualification has
+displaced useful owner workflows. Preserve the September 14 course correction:
+resolve process/window observation and timeout ownership narrowly, verify the
+existing bundle flow once, then run one fresh independently checked workflow.
+No old admission, unknown request or proposed spending allowance is reusable.
+
+Changes: Added docs/HANDOFF.md with the workspace/release boundary, code map,
+accepted/rejected/incomplete result table, setup constraints, evidence index and
+ordered next actions with stop criteria. README now points to it, includes
+General task in readiness and scopes legacy review routing/credentials correctly.
+Corrected the overbroad timeout statement and stale readiness ordering; linked
+the current audit to the handoff. Removed one unused WorkspaceSnapshot test type
+import and 21 verified ignored/untracked Python bytecode cache files totaling
+925087 bytes. No production source, persisted contract, dependency, configuration
+or ignored trial evidence changed. Existing ignore rules already cover the caches.
+
+Evidence: Three independent review lanes inspected architecture, experiment
+evidence and cleanup. A bounded read-only check rehashed 24 critical artifacts,
+receipts and source bindings, all matching, including ten current bundle bindings.
+Accepted desktop examples remain one synthetic file audit and one editable deck;
+research is rejected and no website is accepted. The latest website's final state
+is ten requests, nine settled and one unknown, with an unexported 14238-byte draft;
+the early nine-request observation remains preserved separately. Fresh Node
+22.22.2 pnpm typecheck passed both configurations; validate:readiness passed.
+Build-log validation passed with 256 entries. All handoff relative links resolve
+and git diff --check passed. A second reviewer
+checked the handoff's architecture and operational guidance.
+
+Failures or blockers: The focused private-agent-progress test produced no output
+and hit its 60-second bound; its owned process was terminated and reaped, and no
+assertions ran. It was not repeatedly retried. Optional strict-unused compilation
+reported 17 diagnostics before the single test-import cleanup; those flags are
+not part of the configured passing typecheck. No unused production symbols were
+reported in the active general-task/private-agent modules. Historical renderer
+startup and live window/timeout failures remain unresolved.
+
+Limitations and non-claims: Hash checks are not evaluator reruns. No build, full
+test suite, actual desktop bundle proof, model-quality test or release/CI gate ran.
+HEAD remains 6a32777 on main, with 20 modified tracked and 227 untracked files at
+the start of this work. Most general-task work is local and uncommitted; a clone
+of HEAD does not reproduce it. No commit or push occurred. Useful consultation,
+accepted research/website work, ordinary setup, real-private qualification and
+owner acceptance remain open. Zero API fees exclude owned hardware/operating cost.
+
+Paid exposure: Zero model/consultant/public-fetch requests, GUI application or
+Docker launches. Source/evidence reads, documentation changes, cache cleanup and
+bounded local static/test commands only. No session credential was inspected or
+reused. No new runtime or spending authority was created.
+
+Next gate: Use the handoff as the current entrypoint. Review and split the
+uncommitted implementation before publishing, keeping credentials/private
+endpoints/raw evidence/evaluator gold/generated state out of Git. For subsequent
+product work, close the narrow lifecycle observation defect and existing bundle
+interaction, then evaluate one fresh useful workflow using existing tools. A
+substantive failure should produce one meaningful permitted configuration/route
+change or a narrower supported claim, not another unchanged rerun or framework.
+
+References: [handoff](HANDOFF.md), [current audit](MVP_COMPLETION_AUDIT.md),
+[readiness](MVP_READINESS.md), BL-20260914-0715-mvp-course-correction-proposed,
+BL-20260914-0640-local-website-late-state-correction,
+BL-20260914-0641-artifact-bundle-implemented.
+
+
+### BL-20260928-1458-source-checkpoint-publication -- 2026-09-28 -- Prepare the accumulated MVP source and handoff for commit and push
+
+Status: `Implemented`
+
+Scope or hypothesis: The owner explicitly requested commit and push after the
+analysis, cleanup and handoff. Publish the accumulated development source,
+tests, runtime definitions and reports without promoting it to a release.
+
+Decisions: Include the complete connected implementation rather than publishing
+only documents whose referenced runtime is absent from the repository. Retain
+all earlier negative results and open product limitations. Keep ignored local
+configuration, execution state, receipts, evaluator gold and generated artifacts
+outside the commit. No runtime trial or spending approval is renewed by this work.
+
+Changes: Prepared an explicit 248-file publication manifest. Updated README and
+HANDOFF to distinguish the forthcoming development checkpoint from the older
+6a32777 baseline and from ignored evidence/runtime installations. No production
+logic, persisted contract, model profile or dependency changed in this publication
+pass. One isolated CLI test exposed a proven budget mismatch: two 15-second
+subprocess allowances inside Vitest's default 5-second test limit. Its test-only
+deadline is now 40 seconds; both subprocess limits remain 15 seconds. The
+preceding cleanup entry remains unchanged.
+
+Evidence: Independent publication-content and integration reviews found no
+publication blocker. All candidates are text source, tests, runtime definitions,
+configuration examples or documentation. No actual credentials, private endpoints,
+owner-specific absolute paths, raw traces, generated artifacts or evaluator-gold
+files were found. Synthetic sentinels and reserved-address test fixtures remain.
+All 248 staged object IDs matched the reviewed working-file bytes; the staged
+manifest and whitespace check passed. Origin/main was refreshed successfully and
+matched the starting HEAD with no incoming changes. The destination is the
+existing public Lotus2077/SOAR repository, main branch. Package changes add scripts
+only; the unchanged JavaScript dependency lockfile remains appropriate. One
+isolated post-fix consultant-config file run passed all ten tests under Node
+22.22.2 with one worker and a sanitized environment, in 0.728 seconds overall.
+The append-only log check against HEAD and readiness validation passed again.
+
+Failures or blockers: Both bounded pnpm check attempts reached the 300-second
+limit and their owned process groups were terminated. Readiness/build-log
+validation, both TypeScript configurations and native credential-core checks
+passed before the test stage. The restricted attempt reported 36 failures in the
+loopback-attempt-runner file; that exact file subsequently passed all 36 tests
+with loopback access in 6.06 seconds. The broader unrestricted attempt reported
+the consultant-config CLI test failing after about 15 seconds and a legacy
+local-review fixture failure after about 173 seconds before the overall deadline.
+A separate pre-fix isolated run passed nine tests and failed the CLI test on
+Vitest's 5-second overall deadline after 13.433 seconds; no assertion mismatch was
+reported. The narrow deadline correction and passing rerun do not establish the
+cause or resolution of the full-suite startup failures. No full-suite or
+build-flavor success follows from these interrupted runs. A separately bounded
+staged-diff read also timed out; exact staged-byte and manifest verification plus
+the original whitespace check subsequently completed. Slow startup/contention is
+not an established root cause; the only changed deadline reconciles the proven
+test/subprocess budget mismatch rather than extending either child allowance.
+The separately bounded pnpm build reached its 180-second deadline during the
+locked-native build step, before a reported Electron/Vite or isolation result;
+its owned process group was terminated. No fresh build pass is claimed.
+
+Limitations and non-claims: This checkpoint preserves an unfinished, unreleased
+prototype. Packaged coding-worker delivery remains outside the source-pilot
+scope. Lifecycle/timeout uncertainty, accepted research/website output, useful
+real consultation, private-deployment qualification and owner acceptance remain
+open. The clean exact-head release gate and remote CI have not passed as part of
+this preparation. Historical model/desktop results were not rerun.
+
+Paid exposure: Zero model, consultant or admitted public-source requests. GitHub
+metadata/fetch operations and deterministic local checks only; no application,
+Docker, paid evaluation or real-private processing was launched. Provider keys
+and SOAR opt-ins were removed from the check subprocess environments.
+
+Next gate: Retain the completed bounded build/CLI diagnostic outcomes above,
+commit the reviewed manifest and push normally without
+force. Verify the remote main revision equals the resulting commit and inspect
+CI for that exact SHA. Report incomplete checks explicitly; publication is not a
+release or a claim of general-task reliability.
+
+References: [handoff](HANDOFF.md), [current readiness](MVP_READINESS.md),
+BL-20260928-1443-workspace-cleanup-handoff,
+[general-task setup](MVP_GENERAL_CONSULTANT_SETUP.md).

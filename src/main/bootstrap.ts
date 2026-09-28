@@ -29,9 +29,18 @@ import {
 } from "./window-security";
 import { createRuntimeProviderCatalog } from "./providers/runtime-catalog";
 import { IPC_CHANNELS } from "../shared/contracts";
+import { PATCH_RUN_IPC_CHANNELS } from "../shared/patch-run-contracts";
+import { PatchRunStore } from "./patch-runs/store";
+import { PatchRunController } from "./patch-runs/controller";
+import { loadPatchRuntimeConfig } from "./patch-runs/config";
+import { GeneralTaskController } from "./general-tasks/controller";
+import { resolveConsultantProfile } from "./general-tasks/consultant-config";
+import { registerGeneralTaskIpc } from "./general-tasks-ipc";
+import { generalTaskRuntimeIdentity } from "./general-task-runtime";
+import { GENERAL_TASK_IPC_CHANNELS } from "../shared/general-task-contracts";
 
 export interface BootstrapController {
-  close(): void;
+  close(): Promise<void>;
 }
 
 function createWindowShell(
@@ -84,6 +93,10 @@ export async function bootstrap(): Promise<BootstrapController> {
   let unregisterIpc: (() => void) | undefined;
   let mainWindow: BrowserWindow | undefined;
   let disposed = false;
+  let patchRuns: PatchRunController | undefined;
+  let generalTasks: GeneralTaskController | undefined;
+  let unregisterGeneralTaskIpc: (() => void) | undefined;
+  let closeOperation: Promise<void> | undefined;
 
   const rendererTarget = resolveRendererTarget({
     isPackaged: app.isPackaged,
@@ -133,6 +146,20 @@ export async function bootstrap(): Promise<BootstrapController> {
       config.databasePath ?? path.join(userDataPath, "soar.sqlite");
     database = createSoarDatabase(databasePath);
     const store = new EventStore(database);
+    patchRuns = new PatchRunController(new PatchRunStore(database), loadPatchRuntimeConfig({ appPath: app.getAppPath(), userDataPath }), (snapshot) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(PATCH_RUN_IPC_CHANNELS.patchRunUpdate, snapshot);
+    });
+    generalTasks = new GeneralTaskController({
+      database,
+      dataRoot: path.join(path.dirname(databasePath), "general-tasks"),
+      config: () => loadConfig({ appPath: app.getAppPath(), userDataPath }),
+      imageId: () => loadConfig({ appPath: app.getAppPath(), userDataPath }).generalTaskImageId,
+      runtimeIdentity: () => generalTaskRuntimeIdentity(app.getAppPath(), !app.isPackaged && process.env.ELECTRON_RENDERER_URL !== undefined),
+      consultantProfile: () => resolveConsultantProfile(),
+      onUpdate: snapshot => {
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(GENERAL_TASK_IPC_CHANNELS.update, snapshot);
+      },
+    });
     recoverRunningSessions(store);
     const credentialOperationJournal = new CredentialOperationJournal(database);
     // A prior process can disappear after securityd accepted a request but
@@ -198,31 +225,44 @@ export async function bootstrap(): Promise<BootstrapController> {
       config,
       credentialIpcAuthority,
       cloudCredentialStatus,
+      patchRuns,
       ...(hybridSimulationConsent === undefined
         ? {}
         : { hybridSimulationConsent }),
     });
+    unregisterGeneralTaskIpc = registerGeneralTaskIpc({ controller: generalTasks, authority: credentialIpcAuthority });
     await loadRenderer(initialWindow, rendererTarget);
     app.on("activate", activate);
 
     return Object.freeze({
-      close(): void {
-        if (disposed) return;
-        disposed = true;
-        app.removeListener("activate", activate);
-        unregisterIpc?.();
-        unregisterIpc = undefined;
-        if (mainWindow !== undefined && !mainWindow.isDestroyed()) {
-          mainWindow.destroy();
-        }
-        mainWindow = undefined;
-        database?.close();
-        database = undefined;
+      close(): Promise<void> {
+        if (closeOperation) return closeOperation;
+        closeOperation = (async () => {
+          if (disposed) return;
+          disposed = true;
+          app.removeListener("activate", activate);
+          unregisterIpc?.();
+          unregisterIpc = undefined;
+          unregisterGeneralTaskIpc?.();
+          unregisterGeneralTaskIpc = undefined;
+          await generalTasks?.close();
+          await patchRuns?.close();
+          if (mainWindow !== undefined && !mainWindow.isDestroyed()) {
+            mainWindow.destroy();
+          }
+          mainWindow = undefined;
+          database?.close();
+          database = undefined;
+        })();
+        return closeOperation;
       },
     });
   } catch (error) {
     disposed = true;
     unregisterIpc?.();
+    unregisterGeneralTaskIpc?.();
+    await generalTasks?.close();
+    await patchRuns?.close();
     if (mainWindow !== undefined && !mainWindow.isDestroyed()) {
       mainWindow.destroy();
     }

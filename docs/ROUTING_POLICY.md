@@ -1,6 +1,24 @@
 # MVP routing policy
 
-## Decision
+## Current product decision — 2026-09-11
+
+Priorities are **privacy >= quality > savings > latency**. SOAR targets general
+end-to-end agentic jobs; research, file auditing, website building and PowerPoint
+creation are priority examples, not a closed workflow list. The
+[privacy-first design](plans/MVP_PRIVACY_FIRST_AGENT_V1.md) is the current target.
+
+Enforce disclosure/action eligibility before assigning a provider. The local host
+owns canonical state; workers receive only permitted projections. A source-size,
+quality, cost or availability decision cannot authorize cloud export. Every outgoing
+request, including tool/network operations, requires host admission. Model leases
+may persist through useful work, but disclosure permissions are checked at each
+dispatch. Keep private synthesis local; use cloud only on permitted packets.
+
+The historical profiles and provider-shared state described below are superseded
+where they imply broader sharing or unconditional cloud use. Existing runtimes
+are unchanged; this new boundary requires implementation and verification.
+
+## Retained implementation and previous design
 
 SOAR will plan globally and assign provisionally. It will not run a full model-selection decision after every session event, and it will not bind the entire episode to providers before execution.
 

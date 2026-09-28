@@ -1,4 +1,6 @@
 import { z } from "zod";
+import type { SoarPatchRunApi } from "./patch-run-contracts";
+import type { SoarGeneralTaskApi } from "./general-task-contracts";
 
 import {
   APP_TASK_TRACKS,
@@ -230,7 +232,7 @@ export type SessionUpdate =
       delta: string;
     };
 
-export interface SoarRendererApi {
+export interface SoarRendererApi extends Partial<SoarPatchRunApi>, Partial<SoarGeneralTaskApi> {
   chooseWorkspace(): Promise<WorkspaceSelection | null>;
   createSession(input: z.input<typeof createSessionInputSchema>): Promise<SessionSnapshot>;
   listSessions(): Promise<SessionSummary[]>;

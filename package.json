@@ -21,6 +21,14 @@
     "pnpm": ">=10.12.4 <11"
   },
   "scripts": {
+    "check:general-consultant": "node --import tsx scripts/check-general-consultant.ts",
+    "setup:patch-pilot": "node scripts/setup-patch-pilot.mjs",
+    "dev:patch": "node scripts/run-patch-pilot.mjs --cloud-only",
+    "dev:patch:hybrid": "node scripts/run-patch-pilot.mjs",
+    "demo:patch": "node scripts/run-patch-pilot.mjs --demo",
+    "test:patch-worker": ".soar/patch-runtime/bin/python -m unittest discover -s tests/python -p 'test_*.py' -v",
+    "test:patch-runtime": "SOAR_RUN_PATCH_RUNTIME_INTEGRATION=true vitest run tests/integration/patch-runtime.test.ts tests/integration/patch-planner-runtime.test.ts tests/integration/patch-critic-runtime.test.ts tests/integration/patch-automatic-runtime.test.ts",
+    "test:e2e:patch": "SOAR_RUN_PATCH_E2E=true node scripts/run-electron-e2e.mjs tests/e2e/patch-run.spec.ts",
     "dev": "pnpm build:native:locked && electron-vite dev",
     "dev:pr6r-development-canary": "pnpm build:native:locked && electron-vite dev --config electron.vite.pr6r-development-canary.config.ts",
     "build": "pnpm build:native:locked && electron-vite build && node scripts/verify-pr6r-development-build-isolation.mjs normal",

@@ -1,5 +1,484 @@
 # MVP readiness
 
+**September 28 handoff:** use [HANDOFF.md](HANDOFF.md) for the current code map,
+experiment results, verification scope and ordered next steps. This file retains
+the chronological milestone record; older "next" statements are historical.
+
+**Current direction audit, 2026-09-14:** The architecture remains aligned, but
+execution priorities drifted toward infrastructure proof. Two synthetic desktop
+examples are accepted (file audit and editable slides); research and website
+acceptance, useful real consultation, ordinary setup and real-private readiness
+remain open. Freeze feature expansion and close one checked owner workflow using
+the existing implementation. The [consolidated current audit](MVP_COMPLETION_AUDIT.md)
+supersedes older next-step statements below; historical evidence is preserved.
+This audit performed no new inference or test run and did not resume the paused goal.
+
+**Bundle delivery, 2026-09-14:** Implemented all-output inventory and native ZIP
+export in the existing task flow, with exact manifest/bytes and cleanup checks.
+132 host assertions, both app typechecks and the normal build pass. Renderer
+assertions remain unrun because its worker times out before startup; actual
+desktop bundle interaction is not yet verified. See the
+[bundle report](MVP_ARTIFACT_BUNDLE_REPORT.md). Full MVP completion remains open.
+
+**Latest real trial, 2026-09-14:** The fresh website task hit a desktop-control
+failure after 51 seconds: the target page closed with nine requests recorded,
+eight settled and one uncertain. No native export exists and the evaluator did
+not run. The driver remained alive until its outer watchdog killed it after
+1130 seconds. Its reported appClosed flag did not establish process exit; the
+exact leftover trial app was subsequently identified and terminated, and its
+owned Docker scope was confirmed empty after cleanup. Original failure/uncertainty evidence is retained. This
+run cannot establish model quality. The proposed next step at that time was
+multi-file bundle export. Its later implementation and the course audit above
+supersede that ordering; lifecycle correction still precedes further live trials.
+Full MVP completion remains open.
+
+A subsequent read-only database audit found that the app continued after the
+controller lost its page: ten requests total, nine settled and one unknown, with
+a 14,238-byte HTML draft retained in a checkpoint. The task later ended incomplete
+and released its execution claim. The draft was never natively exported or
+evaluated. Both the early driver observation and later database state are retained.
+
+**Earlier progress milestone, 2026-09-14 (local date):** The general execution loop now
+warns after two identical failed commands with unchanged workspace content and
+stops an unchanged third command before execution. It permits retries after file
+changes, reminds the agent to produce missing artifacts after one third of its
+allowance, and exposes capabilities verified for the exact image. There are 222
+focused host tests passing, sixteen pure fixture checks, both typechecks and a
+successful build. Four complete scripted desktop scenarios verify changed-action
+recovery, exact export, stop/restart without replay, observation retrieval and
+the remaining request-size stop. One initial fixture assertion failed; its
+separate corrected case passed on the unchanged build. The original failure is
+retained. No real inference ran in this milestone, so improved model delivery
+quality remains unproved. Next is one fresh bounded real task with independent
+assessment of any exported candidate. Full MVP completion remains open. See the
+[progress report](MVP_EXECUTION_PROGRESS_REPORT.md).
+
+**Earlier observation milestone, 2026-09-14 (local date):** Large execution logs now stay in
+local storage, with 8 KiB model observations, a 48 KiB cumulative observation
+budget and scoped retrieval of omitted evidence. There are 231 distinct focused
+checks passing, both typechecks and a successful build. Two complete desktop
+cases verify retrieval and source-derived repair across restart, exact exports,
+request accounting and the remaining oversized assistant-content stop. The first
+observation case failed on a test label; its separate corrected run passed and
+the original is retained. A fresh real-model trial then consumed twenty settled requests in 245.777
+seconds without creating an HTML artifact. It used the new reader correctly but
+repeated failing diagnostic commands; no candidate evaluation was possible.
+See the [fresh trial failure](MVP_LOCAL_WEBSITE_REPAIR_V2_REPORT.md).
+The previous real website remains rejected; useful consultation, accepted
+research, practical input/output, private-data qualification and owner acceptance
+remain open. See the [observation report](MVP_BOUNDED_TOOL_OBSERVATIONS_REPORT.md).
+
+**Earlier website diagnosis, 2026-09-14 (local date):** The website evaluator completed
+all sixteen control outcomes in a separately observed batch; earlier incomplete
+captures remain retained and their cause is not proved fixed. The unchanged
+website and the subsequent local repair draft each passed fifteen of thirty
+checks. The repair task stopped incomplete: fifteen requests settled, then an
+oversized next request was rejected before dispatch. Its draft, source and
+ledger are preserved. The request-size classification fix passed 173 focused
+checks, both typechecks, the production build and one complete scripted desktop
+export/restart/no-replay scenario. The original fixture assertion failures remain
+recorded. It does not fix the arithmetic or conversation growth. No real
+consultant call or further live repair ran in this correction. See the
+[repair result](MVP_LOCAL_WEBSITE_REPAIR_REPORT.md).
+
+**Earlier consultation preparation, 2026-09-14 (local date):** Consultation can bind the default
+service tier and retain validated model/token/tier evidence for fee recomputation
+after restart. The safe session-configuration command is usable in the restricted
+shell. Ninety-two application checks, five pure trial-driver checks, both
+typechecks and four actual current desktop scenarios pass; all responses and
+fees remain scripted. At that evidence cut, the website repair was prepared,
+the cloud session profile was absent in this process, and two incomplete captures
+left its evaluator unqualified. A separate two-control diagnostic passed without
+establishing their cause. The current milestone above supersedes that preparation
+state; this earlier result establishes no real consultant, quality, privacy or release proof. See the
+[preparation report](MVP_GENERAL_CONSULTATION_TRIAL_PREPARATION_REPORT.md)
+and [session setup](MVP_GENERAL_CONSULTANT_SETUP.md).
+
+**Earlier consultation milestone, 2026-09-14 (local date):** Optional exact-packet consultation
+is implemented in the existing general-task loop. The user reviews the packet,
+destination, model and maximum fee, then approves or declines; Resume retains the
+same deadline and model/request budgets. One-use priced grants, revocation,
+durable untrusted advice and no-replay accounting pass 270 focused host/runtime
+tests. Eight actual desktop scenarios pass on the rebuilt app, covering four
+consultation cases and four local/public-source regressions. An accessible-label
+failure was corrected; the four pre-creation failed attempts remain retained.
+Both typechecks and the normal build pass. Two mocked React workers timed out
+before any assertions, so that test gap remains. All inference responses in this
+milestone are scripted and its fees simulated. Actual provider compatibility,
+useful consultation quality, private-data qualification and release remain open.
+See the [consultation milestone](MVP_GENERAL_TASK_CONSULTATION_REPORT.md).
+
+**Earlier artifact milestone, 2026-09-14 (local date):** The general desktop delivered an
+independently accepted synthetic three-slide presentation with a native editable
+table, chart and embedded workbook. Seventeen local requests and seventeen tools
+completed in 228.521 seconds; all nine structural/source checks, original
+LibreOffice rendering, copy-only native API edits, independent arithmetic/visual
+review, exact export and cleanup passed. The fresh website also completed delivery
+(twenty requests/tools, 438.465 seconds) but was rejected for incorrect monetary
+conversion and hidden required totals. Its browser matrix stopped early; two
+supplemental views confirm the wrong values, while a Chromium crash leaves the
+1280px view incomplete. No candidate was repaired after evaluation.
+
+The app now honors configured model request timeouts up to 300 seconds and retains
+safe fixed failure diagnostics. Its task deadline, call/tool limits and unknown
+no-replay rules are unchanged. Fifty-four controlled broker tests and 125 distinct
+focused host/runtime tests, typecheck, normal build and four actual desktop
+regressions pass on the rebuilt runtime. The original 45-second website attempt
+remains incomplete with one unknown request and no file. Full general routing,
+accepted research/website quality, real-private deployment and release remain
+open. See the [artifact delivery and failure report](MVP_DESKTOP_ARTIFACT_DELIVERY_REPORT.md).
+
+**Earlier public-research milestone, 2026-09-14 (local date):** General tasks can start without
+files and explicitly retrieve up to three exact public HTTPS sources through the
+host while execution stays offline. Source bytes, consent, resolver choice and
+receipts survive restart; unknown fetches stop without replay. Four actual desktop
+scenarios, 194 focused host/runtime tests, both typechecks and the normal app build
+pass. Twenty-six mocked renderer cases remain unexecuted. The first live public
+memo completed delivery in 109.475 seconds, using ten local model calls and two
+GETs with twelve settled requests, exact source/export identity and confirmed
+cleanup. **Independent review rejected its correctness:** it mislabeled a
+recommendation as a requirement and omitted two requested distinctions. The
+unchanged candidate and all failed attempts are retained. This verifies delivery
+mechanics, not accepted research quality, private-data readiness, routing savings
+or release. See the [public research report and usage](MVP_DESKTOP_PUBLIC_RESEARCH_REPORT.md).
+
+**Desktop foundation, 2026-09-13:** one synthetic support audit through the same
+app was independently accepted, with six local calls and exact input/export and
+cleanup checks. The earlier [desktop report](MVP_GENERAL_TASK_DESKTOP_REPORT.md)
+retains that evidence, its two original scripted passes and setup failures.
+The newer research attempt does not rewrite that result.
+
+**Previous milestone, 2026-09-13:** the local agent submitted a complete synthetic
+invoice audit in six calls and 45.866 seconds. Neutral review independently
+confirmed its arithmetic. The frozen checker passed three of five gates; its
+natural-Markdown false negatives were corrected in a separately versioned
+development evaluator. V2 passed 28 controls and all five report gates in the
+offline container. This one unchanged synthetic report is independently accepted
+under the exposed development correction; V1's failure remains. Public retrieval
+passes a live host-tool/model-consumption proof. The runtime changes pass 100 focused
+tests and Node TypeScript; this is not a full application or release gate. See the
+[milestone report](MVP_RECOVERY_AND_FIRST_REPORT_REPORT.md).
+
+**Product direction, established 2026-09-11:** the owner prioritizes privacy >= quality >
+savings > latency for a general end-to-end agent. Deep research, file auditing,
+website building and PowerPoint creation are initial optimization targets, not
+the product's scope boundary. The [recalibrated design](plans/MVP_PRIVACY_FIRST_AGENT_V1.md)
+defines a local coordinator, isolated permitted-context workers, mandatory host
+outbound admission, durable jobs and artifact-specific verification. The
+[filter research](PRIVACY_FILTER_RESEARCH.md) recommends a local OPF calibration,
+with laptop deployment as an option, before integration. The owner has now authorized
+the [execution sequence](plans/MVP_PRIVATE_AGENT_EXECUTION_V1.md). The broker,
+restricted execution and general loop pass the enumerated synthetic runtime checks,
+including the corrected Docker proxy-environment gap, exact orphan recovery and
+isolated public/private composition. Real-model task qualification remains open.
+See the [development boundary report](MVP_PRIVATE_AGENT_BOUNDARY_REPORT.md).
+The [first real artifact trial](MVP_PRIVATE_AGENT_FIRST_TASK_REPORT.md) reached
+submission but failed independent arithmetic verification. Zero of four initial
+assignments are accepted; one failed and three remain unrun. Expansion is paused
+after two verification development probes: the second detected the main error but
+failed as an acceptance mechanism. OPF's sixty-case confirmation attempt stopped
+before inference at its preflight deadline; all confirmation cases remain unrun.
+A separately frozen fresh calibration subsequently exhausted forty requests and
+saved only one of seven required outputs. Its diagnostic checker passed two
+preservation checks and failed fourteen remaining checks. At that stage there was
+no accepted general-agent task. That runtime and evaluator are closed; no retry of
+that assignment began. The goal was paused at the September 12 status check; the
+owner subsequently requested the separate milestone recorded above. See the updated
+[first-task report](MVP_PRIVATE_AGENT_FIRST_TASK_REPORT.md).
+
+The subsequent [small tool/connectivity check](MVP_LOCAL_TOOL_AND_CONNECTIVITY_REPORT.md)
+closed on September 12. All three short model commands serialized correctly, but
+only two operations passed; the append command failed its own Unicode bytes
+assertion before writing. Its conditional report task did not run in that closed
+allowance. The model
+selected the correct public-fetch tool, but no web content arrived. A later DNS
+probe found a reserved-address mapping denied by SOAR's outbound policy. GPU-server
+internet access remains unknown. The output-limit feedback/two-strike runner change
+passes eighteen focused unit tests; these live cases did not reach the token cap.
+That closed step established no independently accepted general-agent task or release.
+The subsequent milestone above is separate evidence; the earlier failures remain.
+
+The pending twelve-episode cloud-versus-Automatic comparison is **superseded as the
+next experiment and remains undispatched**. Its proposed USD 29.10 allowance is not
+open. The previous 25% relative latency and 20% savings advancement conditions no
+longer gate the new product experiment; privacy and quality do. Historical results
+below are preserved, including their original criteria and limitations. That next
+product step is now verified in the desktop milestone above. The next proposed
+experiment broadens public or synthetic task coverage with explicit artifact checks.
+Privacy qualification remains necessary before real private inputs; permitted-route
+comparisons and transfer outside the initial four families still require evidence.
+
+An explicit experimental **Automatic selector is implemented and its runtime
+mechanics are verified**. It sends committed baselines beyond the critic's source
+limits directly to prepared cloud and can use local drafting plus critique for
+eligible sources. A host-owned receipt binds source, configuration, reason and
+budget; admission drift stops dispatch. All six original tasks were inspected:
+three select cloud and three select local draft/critique. Sixty-two focused and
+108 adjacent tests pass, as do both typechecks. Both real controller/HTTP/Python/
+Docker fixtures pass, with seven synthetic requests and no real provider calls.
+A new fractional-time check is separately qualified against valid and defective
+controls. UI assertions still did not execute because worker initialization timed
+out. Fresh paired quality and savings remain unproven. See the
+[implementation result](MVP_AUTOMATIC_ROUTING_IMPLEMENTATION_REPORT.md) and
+[revised six-task comparison](plans/MVP_LOCAL_CRITIC_REPAIR_COMPARISON_V1.md).
+
+The opt-in local draft, one cloud critique and optional local repair policy has
+**one independently accepted patch from one fresh exposed-task episode**. Seven
+local calls and one acceptable cloud critique produced the ordered-build-rules
+patch in 55.552 seconds for USD 0.039000 in accounted API fees. No repair ran.
+Final visible checks, the original five independent tests, the qualified twelve
+interaction methods and a neutral source review all passed. Accounting and cleanup
+are verified; all sixty prior runs/570 requests are preserved, and the ledger now
+contains 61 runs/578 requests. This proves a useful local contribution in one
+complete production-policy episode, not general quality or matched savings.
+The [fresh six-task comparison](plans/MVP_LOCAL_CRITIC_REPAIR_COMPARISON_V1.md) is
+the proposed next experiment. See the [episode result](MVP_LOCAL_CRITIC_REPAIR_EXECUTION_REPORT.md).
+
+The preceding implementation verified runtime mechanics. Four synthetic
+controller/HTTP/Python/Docker cases passed: acceptable without repair, actual
+feedback followed by repair, invalid settled critique, and unknown transport.
+Source/check binding, cumulative limits, fee accounting, replay and cleanup are
+verified. The initial fixture invocation failed before any request because of a
+preparation-phase guard; that failure is retained and the correction has a
+regression test. Final host checks passed 121 tests, context/scope checks passed
+78, final focused Python checks passed 84, and both application typechecks pass.
+The UI assertions did not run because dependency initialization timed out; that
+gap remains. The implementation-only stage made no real model requests and left
+its then-current 60-run/570-request ledger unchanged. Its synthetic tests prove
+mechanics; the subsequent real episode is separate evidence above. See the
+[implementation report](MVP_LOCAL_CRITIC_REPAIR_IMPLEMENTATION_REPORT.md).
+
+The post-draft critic calibration **passed its fixed-pair signal gate**. Two
+independent critiques identified the exact material bug in the rejected local
+draft and accepted the valid planned-local control without an invented defect.
+Independent source adjudication supports both judgments. Actual API fees were
+USD 0.073784, all settled; batch elapsed time was 32.411 seconds. Prior records
+and 132 frozen bindings are preserved. This produced no repair or newly accepted
+patch. The subsequent runtime implementation and verification are recorded
+above; a fresh live comparison remains outstanding. General routing quality and savings
+remain unproven. See the [critic result](MVP_POST_DRAFT_CRITIC_CALIBRATION_REPORT.md).
+
+The separately versioned public interaction suite is **qualified development
+coverage** on the exposed ordered-build-rules task. The reference, historical
+prepared-cloud patch and accepted planned-local patch pass all twelve methods;
+the rejected local-first patch passes eight and fails four, with five assertion
+reports. V1 stopped after its baseline because the reference's patch format failed
+scope admission, before reference execution. V2 proved equivalent source/modes
+under a canonical patch representation and reused the completed baseline. All
+checks, cleanup, 103 frozen bindings and the unchanged 58-run/568-request ledger
+are independently verified, with zero new model calls or API fees. The original
+evaluator, classifications and four reserved tasks remain unchanged. Its
+subsequent separately approved critic calibration is recorded above. General
+routing quality and preserved-quality savings remain unproven. See the
+[qualification result](MVP_ROUTING_INTERACTION_QUALIFICATION_REPORT.md).
+
+The new local-first episode is closed with **zero accepted patches out of one**.
+It submitted in 44.184 seconds using seven local calls, no cloud recovery and zero
+API fees. Both visible tests and all five frozen independent tests passed, but a
+fresh blind source reviewer found an exclusion-to-inclusion parser defect; a
+separate isolated Docker diagnostic reproduced both marker variants. Accounting,
+cleanup and prior records are verified. The low fee is not preserved-quality
+savings. Current check/progress signals did not trigger recovery for this semantic
+defect. The subsequent public-requirement interaction qualification above now
+detects this failure; a bounded feedback/repair or review policy still needs its
+own evidence. See the [local-first result](MVP_LOCAL_FIRST_EXECUTION_REPORT.md).
+
+The preceding cloud-plan/local route has one independently accepted patch on one
+exposed task: one planner request, nine local requests, no fallback, and USD 0.077284
+in accounted API fees. Runtime public/generated checks passed, followed by five
+frozen independent tests and a neutral source review. Cleanup, accounting and all
+prior records are verified. This episode took 159.149 seconds; the earlier cloud
+run on the same task took 73.812 seconds and cost USD 0.144580. The historical
+comparison shows a latency concern, not a fresh savings result. The subsequent
+local-first experiment above removed the planner and generated checks together;
+its faster submitted patch failed independent acceptance. See the
+[complete execution result](MVP_PLANNER_LOCAL_EXECUTION_REPORT.md).
+
+The clarified planner prompt produced one accepted plan with nine parsed tests
+in a separately bounded one-call probe. Accounted API cost was USD 0.061024, with
+confirmed cleanup and no local/solver request, test execution or patch. The parser
+logic and limits are unchanged. Source inspection found no copied placeholder;
+that plan-only probe did not test usefulness. The complete episode above is
+separate evidence. The preceding unchanged-prompt calibration stays
+closed with its first rejection and second task unrun. See the
+[calibration results](MVP_PLANNER_CONTRACT_CALIBRATION_REPORT.md).
+
+The approved twelve-episode public-checks comparison is closed and **Failed**.
+Prepared cloud produced four acceptable patches out of six; cloud-plan/local
+produced zero. All six planner responses failed the inner output contract before
+any local model request. Total accounted API cost was USD 2.027200 across 45
+settled requests, with no new unknowns and confirmed cleanup for all twelve runs.
+Two independent source reviews, including separately labeled guided cache
+adjudication, confirm two material cloud patch defects. Missing P artifacts leave
+all paired regression judgments unknown. Lower fees from failing to produce work
+are not savings. See the [completed development result](MVP_ROUTING_PUBLIC_CHECKS_DEVELOPMENT_REPORT.md).
+
+The planner's missing rejection detail is now corrected and verified: 79 focused
+TypeScript tests, 37 host-only Python methods, one actual loopback main/Python/
+Docker fixture and the Node typecheck pass. Fourteen Python Docker methods and
+four existing integration scenarios were not rerun. This preserves diagnostic
+codes without changing planner acceptance or rewriting the live failures. That diagnostic
+fix enabled the V1 calibration. V2 then clarified the host-command boundary and
+added a concrete suite example, passing 19 host parser tests, 12 wrapper tests,
+nine driver tests, four launcher tests, two actual loopback/Docker fixtures and a
+private driver typecheck. Its single real planner response was admitted. The
+subsequent complete coding episode and independent patch checks are recorded above;
+planner admission alone proves neither quality nor savings. No failed assignment
+is retried and the four untouched tasks remain reserved. The original permission rejection and retired undispatched freeze are
+preserved in the build log. The executed replacement had 128 passing scoped tests,
+a passing Node typecheck and independent source review before dispatch.
+
+Earlier runtime verification: host-owned checkpoints and public-requirement
+planner checks passed scoped tests. Four actual controller/HTTP/Python/Docker
+fixtures passed after a terminal-source correction; twelve other runtime fixtures
+passed before that correction. That invocation passed 312 scoped TypeScript tests
+and both application typechecks. The Python invocation passed 152 methods
+including 27 Docker cases; the corrected router subsequently passed 53 methods,
+including three added regressions. The UI invocation executed zero tests because
+its worker failed to start. This is not a current full-suite or release gate.
+Those fixtures establish mechanics. The later twelve-episode live comparison
+above failed; quality-preserving savings remain unproven. See the
+[offline result](MVP_ROUTING_PUBLIC_CHECKS_REPORT.md).
+
+Earlier development result: the two earlier-check attempts are closed and neither
+repair qualifies for acceptance. Cache stopped after returning a command outside
+the restricted checkpoint tools, before any early check ran. Retry submitted and
+passed the original tests but failed both stronger date probes; source review also
+found incorrect long-decimal parsing. Ten local requests settled, with zero new
+cloud/API fees, no unknown outcome and confirmed cleanup. The profile gate failed.
+See the [earlier-check result](MVP_ROUTING_EARLY_CHECK_REPORT.md).
+
+The prerequisite original-reference precheck also failed one stronger case per
+task. Those negatives remain. Separately versioned corrected positive controls
+passed all four suites (seventeen methods) before generation; none of the corrected
+reference or added probe content entered model inputs.
+
+The preceding paired native reasoning comparison stopped with
+zero submitted candidates out of four assigned episodes. Disabled reasoning failed
+a visible checkpoint test; medium reasoning timed out on its sixth request, and
+the two Retry-After assignments remain unrun. Accounting reconciles thirteen local
+requests (twelve settled, one unknown), zero new API fees and confirmed cleanup of
+both attempted runs. The post-generation evaluator separately stopped before its
+first result; no independent evaluations or blind reviews completed for this batch.
+The profile advancement gate failed. See the [reasoning report](MVP_ROUTING_REASONING_REPORT.md).
+
+An explicit earlier-check local profile is now implemented and verified in scoped
+mechanics tests. With eight calls it can require a check on call five, preserving
+edit/check/submit capacity after a failure. Its subsequent real-model development
+test failed the quality gate described above. See the
+[early-check plan](plans/MVP_ROUTING_EARLY_CHECK_V1.md).
+
+The preceding implementation passed 237 TypeScript assertions, 114 Python methods including
+27 Docker cases in one invocation, ten actual main/runtime integration cases, and
+node/web typechecks. The integration covers both successful repair after early
+feedback and rejection of a later regression after an early pass. Future evaluator
+objective attribution now uses the actual create schema; a separate read-only
+receipt verifies both prior run objectives without rerunning failed evaluations.
+The default routing comparison again accepts current explicit default settings
+while retaining historical configuration bytes. Thirty-one earlier UI assertions
+remain unexecuted; this is not a current clean full-suite or release gate.
+
+The preceding compact critique plus bounded local repair has four
+accepted candidates out of six assigned and fails its advancement gate. Five final
+submissions passed independent tests, but Retry-After failed blind review and cache
+never submitted. The same counterexamples reveal defects in two original cloud
+controls, correcting the earlier six-of-six assessment. Tool filtering now has
+focused runtime verification; no fresh confirmation or preserved-quality savings is
+established. See the [repair report](MVP_ROUTING_REPAIR_REPORT.md).
+
+The preceding tool-filtering change passed 100 Python tests including 27 Docker
+cases, 213 TypeScript unit assertions, and all seven main/runtime integration
+cases across two focused runs. Independent source review found no runtime blocker.
+The broader unit invocation also reported a UI worker startup error; 31 UI tests
+did not execute. Final node and web typechecks passed.
+These are scoped mechanics results, not a clean current full-suite or release gate.
+
+The additive **coding MVP** is **Implemented with local mechanics, unfinished-work
+recovery and real OpenAI execution verified**, not Released. The completed
+36-episode screen produced 11/12 review-acceptable Cloud patches and 10/12 each
+for prepared Cloud and Hybrid. Every original local phase fell back, so no local
+contribution or hybrid saving is established. The later partial-handoff repair
+is separate and has no live quality/cost calibration. Owner acceptance remains
+unmeasured. See the [screen report](MVP_HYBRID_SCREEN_REPORT.md) and preserved
+[development pilot](MVP_CODING_PILOT_REPORT.md).
+It has a separate `patch-run-v1` store, main-owned
+per-request admission, a pinned mini-swe-agent worker, credential-free Docker
+execution, OpenRouter and direct OpenAI session-key paths, fixed and experimental native policies, and app
+preview/export/Keep/Reject. Its route is explicitly enabled with
+`SOAR_PATCH_MODE=live` or `scripted`; the legacy review/Keychain/PR6R contracts
+below retain their own boundaries. Mechanics tests and loopback fixtures are
+not provider, model-quality, savings, routing-benefit or release evidence.
+See [coding quickstart](MVP_CODING_QUICKSTART.md) and the latest build-log entry.
+
+The separate [local capability diagnosis](LOCAL_CAPABILITY_DIAGNOSIS.md) preserves
+the original hybrid result and documents direct coding success, protocol failures,
+unfinished autonomous tasks and unresolved timeouts. The scout now uses the exact
+format example that passed six first-turn controls. That is not a verified full
+scout or hybrid improvement. The subsequent [native coding calibration](NATIVE_LOCAL_CALIBRATION.md)
+verifies an isolated adapter: 60 complete requests, two of four exposed tasks
+submitted and independently accepted, two unfinished tasks, and no new paid cloud
+calls. The later app-integrated native policies now have fixture/Docker/HTTP proof,
+including trusted checks, bounded checkpoints and one patch-preserving cloud
+recovery. A subsequent six-episode app-integrated calibration completed: local-only
+and local-first each passed one of two exposed tasks, while cloud-plan/local passed
+both. All 97 requests settled, with USD 0.096508 accounted API fees and no unknown
+exposure. See [app routing calibration](MVP_ROUTING_CALIBRATION.md) for the retained
+quality and finishing failures. The frozen 48-assignment fresh comparison stopped
+after 24 assignments when the local server returned HTTP 500. That request remains
+unknown with zero reserved API fees; worker cleanup is confirmed. The unused
+continuation was subsequently retired without dispatch after review established
+quality losses. The original blind-review join accepted six cloud, two local-only,
+three local-first and four cloud-plan/local patches among the six attempted tasks
+per policy. The later identical-counterexample audit found material defects in two
+cloud controls and supersedes that six-of-six assessment. Twenty-four assignments
+remain unrun. Preserved quality remains unproven; the interrupted screen also cannot pass its original
+no-unknown advancement gate. See the [partial comparison report](MVP_ROUTING_SCREEN_REPORT.md).
+The original calibration results
+remain separate from this new implementation; [the routing plan](plans/MVP_ROUTING_V1.md)
+records its limits, exact cloud control and evaluation requirements.
+
+The distinct `cloud_plan_local_review` experiment is **Implemented with runtime
+and app mechanics verified**, but its live development cost gate **Failed**. Local
+submission is provisional and requires one cloud review/repair phase before final
+submission, with time and model-call reserves. Its pre-dispatch verification covered 89 Python
+runtime tests, the full 1,485-test repository gate (12 existing skips), six Electron
+workflows and 13 private driver tests. Application typechecks, native checks and
+both build flavors pass. Earlier dependency and Git-fixture delays remain recorded;
+the passing runs retain the original test timeouts. Cloud repairs now mark the local
+check stale while final checks bind the repaired source. The six-task development
+batch stopped after three completed runs already exceeded the maximum total fee
+compatible with 20 percent savings, even assuming six accepted patches and no further
+fees. One later run was cancelled; two remain unrun. Known new fees are USD 1.288388
+plus USD 0.301480 unknown exposure from the cancellation. All containers were removed.
+Two independent blind reviews now agree on all four available artifacts. One of
+the three completed runs is accepted; two contain material regressions despite
+passing tests. The source-review-acceptable cancelled patch cannot count as a
+completed success. The final denominator is one accepted out of six assigned,
+including the cancellation and two unrun tasks. The join remains incomplete;
+the separate cost rejection is conclusive. No fresh confirmation has run. The
+[review policy plan](plans/MVP_ROUTING_REVIEW_V2.md) retains its original bounds;
+the failed result does not establish quality improvement or savings.
+
+A subsequent compact-critique diagnostic completed six one-response cloud critiques
+for USD 0.491912, with no new unknowns. It marks the same two original P candidates
+for repair and accepts the other four. This is binary classification agreement on
+exposed artifacts; it does not establish exhaustive defect detection, repaired-patch
+quality or fresh routing savings. The known cache keyword-forwarding defect was not
+explicitly identified. The subsequent bounded local repair is now closed with four
+of six final candidates accepted; see the latest result above. The implementation
+is a private diagnostic using shared admission, separate from app policy defaults.
+See [latest routing results](MVP_ROUTING_SCREEN_REPORT.md) and the
+[compact-critique plan](plans/MVP_ROUTING_CRITIC_V1.md).
+
+The eight-call local-repair limit, two deterministic repair seeds and frozen driver
+were verified before inference with 235 TypeScript tests, 99 Python tests including
+27 Docker cases, eight private driver tests, twelve seed tests and typechecks.
+Both repairs ran once, making thirteen settled local requests with zero new API
+fees. Five submitted patches passed independent checks; blind review accepted four.
+The failed batch is closed. Earlier full-suite and Electron results above belong
+to the earlier runtime, before subsequent native-runtime changes.
+See the [local repair plan](plans/MVP_ROUTING_CRITIC_REPAIR_V1.md).
+
 This file records the repository-level readiness contract. It deliberately does
 not describe any maintainer's endpoint, credential, account balance, or local
 machine configuration.

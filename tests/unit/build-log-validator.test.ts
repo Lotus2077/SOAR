@@ -179,7 +179,7 @@ describe("build-log validator", () => {
     expect(result.errors).toEqual([]);
   });
 
-  it("allows only both exact committed UTC correction pairs", () => {
+  it("allows the two earlier committed UTC correction pairs", () => {
     const result = validateBuildLog(
       log(
         entry({ id: "BL-0001", date: "2026-08-27" }),
@@ -215,6 +215,34 @@ describe("build-log validator", () => {
     );
 
     expect(result.errors).toEqual([]);
+  });
+
+  it("allows the exact desktop UTC correction and a same-minute approval", () => {
+    const result = validateBuildLog(log(
+      entry({ id: "BL-20260913-2328-desktop-general-complete", date: "2026-09-13" }),
+      entry({ id: "BL-20260913-1555-desktop-research-utc-reset", date: "2026-09-13",
+        title: "Correction: restore UTC after the desktop milestone",
+        decisions: "Timestamp sequence reset after: `BL-20260913-2328-desktop-general-complete`." }),
+      entry({ id: "BL-20260913-1555-desktop-research-approved", date: "2026-09-13", status: "Approved" }),
+      entry({ id: "BL-20260913-1611-desktop-research-implemented", date: "2026-09-13" }),
+    ));
+    expect(result.errors).toEqual([]);
+  });
+
+  it("does not extend the desktop reset to another predecessor or a later rewind", () => {
+    const prior = entry({ id: "BL-20260913-2328-desktop-general-complete", date: "2026-09-13" });
+    const reset = entry({ id: "BL-20260913-1555-desktop-research-utc-reset", date: "2026-09-13",
+      title: "Correction: restore UTC after the desktop milestone",
+      decisions: "Timestamp sequence reset after: `BL-20260913-2328-desktop-general-complete`." });
+    const wrongPredecessor = validateBuildLog(log(prior,
+      entry({ id: "BL-20260913-2329-unrelated", date: "2026-09-13" }), reset));
+    expect(wrongPredecessor.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining("timestamp sequence reset marker is invalid"),
+      expect.stringContaining("timestamp precedes"),
+    ]));
+    const laterRewind = validateBuildLog(log(prior, reset,
+      entry({ id: "BL-20260913-1554-unregistered-rewind", date: "2026-09-13" })));
+    expect(laterRewind.errors).toEqual(expect.arrayContaining([expect.stringContaining("timestamp precedes")]));
   });
 
   it.each([

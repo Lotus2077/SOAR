@@ -2,6 +2,8 @@ import { createHash } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import BetterSqlite3 from "better-sqlite3";
+import { PATCH_COMPARISON_EVALUATION_CLAIM_SCHEMA, PATCH_COMPARISON_SCHEMA } from "./patch-runs/comparison-schema";
+import { PATCH_ROUTING_COMPARISON_SCHEMA } from "./patch-runs/routing-comparison-schema";
 
 export type SoarDatabase = BetterSqlite3.Database;
 
@@ -715,6 +717,42 @@ const CREDENTIAL_OPERATION_JOURNAL_SCHEMA = `
   END;
 `;
 
+const PATCH_RUN_STORE_SCHEMA = `
+  CREATE TABLE patch_runs (
+    id TEXT PRIMARY KEY,
+    workspace_root TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('created','running','completed','failed','cancelled','interrupted','blocked')),
+    started_at TEXT,
+    updated_at TEXT NOT NULL,
+    snapshot_json TEXT NOT NULL
+  );
+  CREATE INDEX patch_runs_updated_at ON patch_runs(updated_at DESC);
+  CREATE TABLE patch_run_events (
+    run_id TEXT NOT NULL REFERENCES patch_runs(id),
+    sequence INTEGER NOT NULL CHECK (sequence > 0),
+    type TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (run_id, sequence)
+  );
+  CREATE TRIGGER patch_run_events_no_update BEFORE UPDATE ON patch_run_events
+  BEGIN SELECT RAISE(ABORT, 'patch_run_events is append-only'); END;
+  CREATE TRIGGER patch_run_events_no_delete BEFORE DELETE ON patch_run_events
+  BEGIN SELECT RAISE(ABORT, 'patch_run_events is append-only'); END;
+  CREATE TABLE patch_run_requests (
+    request_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL REFERENCES patch_runs(id),
+    state TEXT NOT NULL CHECK (state IN ('reserved','started','succeeded','failed','not_sent','unknown')),
+    reservation_microusd INTEGER NOT NULL CHECK (typeof(reservation_microusd) = 'integer' AND reservation_microusd >= 0),
+    actual_microusd INTEGER CHECK (actual_microusd IS NULL OR (typeof(actual_microusd) = 'integer' AND actual_microusd >= 0)),
+    admission_json TEXT NOT NULL,
+    finish_json TEXT
+  );
+  CREATE UNIQUE INDEX patch_run_one_inflight ON patch_run_requests(run_id)
+    WHERE state IN ('reserved','started');
+`;
+
 interface DatabaseMigration {
   version: number;
   name: string;
@@ -742,6 +780,10 @@ const DATABASE_MIGRATIONS: readonly DatabaseMigration[] = [
     name: "credential-operation-journal-v1",
     sql: CREDENTIAL_OPERATION_JOURNAL_SCHEMA,
   },
+  { version: 5, name: "patch-run-store-v1", sql: PATCH_RUN_STORE_SCHEMA },
+  { version: 6, name: "patch-comparison-screen-v1", sql: PATCH_COMPARISON_SCHEMA },
+  { version: 7, name: "patch-comparison-evaluation-claims-v1", sql: PATCH_COMPARISON_EVALUATION_CLAIM_SCHEMA },
+  { version: 8, name: "patch-routing-comparison-v1", sql: PATCH_ROUTING_COMPARISON_SCHEMA },
 ];
 
 // Applied migration SQL is checksummed. Never edit an existing migration after

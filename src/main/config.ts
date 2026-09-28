@@ -50,6 +50,7 @@ const environmentSchema = z.object({
     .default("success"),
   SOAR_FAKE_DELAY_MS: z.coerce.number().int().min(0).max(5_000).default(12),
   SOAR_DB_PATH: z.string().optional(),
+  SOAR_GENERAL_TASK_IMAGE_ID: z.string().optional(),
   SOAR_TEST_WORKSPACE: z.string().optional(),
   SOAR_TEST_CREDENTIAL_OPERATION_STATE: z
     .enum([
@@ -88,6 +89,8 @@ export interface SoarConfig {
     timeoutMs: number;
   };
   databasePath?: string;
+  /** Main-owned immutable Docker image selection; invalid/missing IDs disable General task. */
+  generalTaskImageId?: string;
   testWorkspace?: string;
   /**
    * Deterministic renderer proof fixture. It is admitted only for Fake mode
@@ -114,7 +117,7 @@ export interface LoadConfigOptions {
   environment?: NodeJS.ProcessEnv;
 }
 
-function loadEnvironmentFiles(options: LoadConfigOptions): NodeJS.ProcessEnv {
+export function loadEnvironmentFiles(options: LoadConfigOptions): NodeJS.ProcessEnv {
   const environment = { ...(options.environment ?? process.env) };
   const cwd = options.cwd ?? process.cwd();
   const appPath = options.appPath ?? cwd;
@@ -202,6 +205,7 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
       timeoutMs: env.SOAR_REQUEST_TIMEOUT_MS,
     },
     databasePath: env.SOAR_DB_PATH,
+    generalTaskImageId: env.SOAR_GENERAL_TASK_IMAGE_ID,
     testWorkspace: env.SOAR_TEST_WORKSPACE,
     ...(env.SOAR_TEST_CREDENTIAL_OPERATION_STATE === undefined
       ? {}

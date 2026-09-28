@@ -798,3 +798,15 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## mini-swe-agent coding worker
+
+The opt-in coding pilot installs mini-swe-agent 2.4.6 and borrows its default
+agent loop. The wheel and imported core sources are hash-verified against
+`runtime/patch-worker/runtime-lock.json`. Its MIT license is reproduced in
+[runtime/patch-worker/LICENSE.mini-swe-agent.md](runtime/patch-worker/LICENSE.mini-swe-agent.md).
+Source: https://github.com/SWE-agent/mini-swe-agent
+
+The pilot runtime is separately installed for developer use; it is not bundled
+into the current macOS application package. Other pinned Python dependencies
+retain their distribution license notices in the installed virtual environment.

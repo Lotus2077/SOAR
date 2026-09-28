@@ -1,0 +1,16 @@
+# Deliberately install with --no-deps: only the borrowed core is used.
+# LiteLLM, CLI/UI, benchmark-download and provider SDK packages are not loaded.
+mini-swe-agent==2.4.6
+annotated-types==0.8.0
+Jinja2==3.1.6
+markdown-it-py==4.2.0
+MarkupSafe==3.0.3
+mdurl==0.1.2
+platformdirs==4.5.1
+pydantic==2.12.5
+pydantic_core==2.41.5
+Pygments==2.21.0
+python-dotenv==1.2.1
+rich==14.2.0
+typing_extensions==4.16.0
+typing-inspection==0.4.4

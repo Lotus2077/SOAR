@@ -1,11 +1,9 @@
-import {
-  ArrowLeft,
-  CheckCircle,
-  Cloud,
-  Key,
-  LockKey,
-  WarningCircle,
-} from "@phosphor-icons/react";
+import { ArrowLeft } from "@phosphor-icons/react/dist/csr/ArrowLeft";
+import { CheckCircle } from "@phosphor-icons/react/dist/csr/CheckCircle";
+import { Cloud } from "@phosphor-icons/react/dist/csr/Cloud";
+import { Key } from "@phosphor-icons/react/dist/csr/Key";
+import { LockKey } from "@phosphor-icons/react/dist/csr/LockKey";
+import { WarningCircle } from "@phosphor-icons/react/dist/csr/WarningCircle";
 import React from "react";
 import { useEffect, useRef } from "react";
 

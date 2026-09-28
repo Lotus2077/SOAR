@@ -1,0 +1,53 @@
+import { randomUUID } from "node:crypto";
+import { describe, expect, it, vi } from "vitest";
+import { BROKER_MAX_BODY_BYTES, type PrivateAgentBroker } from "../../src/main/private-agent/broker";
+import { digest } from "../../src/main/private-agent/contracts";
+import { PrivateAgentModel, ModelRequestBodyTooLarge, modelRequestSizeStop, hasInvalidModelRequestSizeStop } from "../../src/main/private-agent/model";
+
+describe("model request size before dispatch", () => {
+  it("admits exactly the UTF-8 byte cap and rejects one byte over without calling the broker", async () => {
+    const bodies: string[] = [];
+    const request = vi.fn(async (input, settle) => {
+      bodies.push(input.body);
+      const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+      return { bytes, receipt: { feeMicrousd: settle(bytes) } };
+    });
+    const model = new PrivateAgentModel({ request } as unknown as PrivateAgentBroker,
+      { destinationId: "fixture", model: "synthetic", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" }, "job", "context");
+    const send = (content: string) => model.complete([{ role: "user", content }], [], new AbortController().signal);
+    await send("");
+    const capacity = BROKER_MAX_BODY_BYTES - Buffer.byteLength(bodies[0]!);
+    const atLimit = "é".repeat(Math.floor(capacity / 2)) + "x".repeat(capacity % 2);
+    await send(atLimit);
+    expect(Buffer.byteLength(bodies[1]!)).toBe(BROKER_MAX_BODY_BYTES);
+    await expect(send(`${atLimit}x`)).rejects.toMatchObject({ bodyBytes: BROKER_MAX_BODY_BYTES + 1, limitBytes: BROKER_MAX_BODY_BYTES, message: "request_body_size_exceeded" });
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(() => new ModelRequestBodyTooLarge(BROKER_MAX_BODY_BYTES)).toThrow("model_request_size_error_invalid");
+  });
+
+  it("does not relabel invalid text or an ordinary broker error as the typed size stop", async () => {
+    const request = vi.fn(async () => { throw new Error("transport_or_settlement_unknown"); });
+    const model = new PrivateAgentModel({ request } as unknown as PrivateAgentBroker,
+      { destinationId: "fixture", model: "synthetic", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" }, "job", "context");
+    await expect(model.complete([{ role: "user", content: "\0" }], [], new AbortController().signal)).rejects.toThrow("private_agent_invalid_text");
+    expect(request).not.toHaveBeenCalled();
+    await expect(model.complete([{ role: "user", content: "synthetic" }], [], new AbortController().signal)).rejects.toThrow("transport_or_settlement_unknown");
+  });
+
+  it("requires one strictly validated marker after its exact operation/context/protocol start", () => {
+    const start = { type: "model_started", operationId: randomUUID(), contextId: "context", promptProtocolSha256: digest("protocol") };
+    const marker = { ...start, type: "model_request_not_dispatched", reason: "request_body_size_exceeded", dispatched: false, bodyBytes: BROKER_MAX_BODY_BYTES + 1, limitBytes: BROKER_MAX_BODY_BYTES };
+    expect(modelRequestSizeStop([start, marker], start)).toEqual(marker);
+    expect(hasInvalidModelRequestSizeStop([start, marker])).toBe(false);
+    for (const events of [
+      [start], [marker], [marker, start], [start, marker, marker], [start, start, marker],
+      [start, { ...marker, contextId: "other" }], [start, { ...marker, promptProtocolSha256: digest("other") }],
+      [start, { ...marker, dispatched: true }], [start, { ...marker, bodyBytes: BROKER_MAX_BODY_BYTES }],
+      [start, { ...marker, limitBytes: BROKER_MAX_BODY_BYTES + 1 }], [start, { ...marker, extra: "not admitted" }],
+      [start, marker, { ...start, type: "model_finished" }],
+    ]) {
+      expect(modelRequestSizeStop(events, start)).toBeUndefined();
+      expect(hasInvalidModelRequestSizeStop(events)).toBe(events.length !== 1 || events[0] === marker);
+    }
+  });
+});

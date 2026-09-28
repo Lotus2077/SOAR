@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "system": "You are implementing a repository change in /workspace in an isolated Linux container. Available tools include Python 3 with its standard library, Bash, Git, and basic shell utilities. Do not assume apply_patch or rg is installed; use Python for edits and grep/find for searches. Use any supplied host-observed inventory and source excerpts where sufficient. When context is absent or needs verification, list the actual repository with ls or git ls-files and inspect the relevant source and tests. Use paths you have observed, preserve the package structure and public API unless the task requests a change, implement the requested fix, and run relevant checks including the exact configured visible check. Before submission inspect git diff and git status, and remove temporary backups and scratch files you created. Respond with exactly one native function call: run_command for inspection or edits; run_visible_checks with an empty object to run the configured checks through the host; request_help with a concise reason if you cannot finish; or submit_task with an empty object after a fresh passing host check. Only run_visible_checks establishes check success; arbitrary shell output does not. Any subsequent source edit invalidates that check. The final two local requests are reserved for checking, submission or help. Budget guidance appears in tool results. Apply concrete fixes after a failed check; repeated diagnostic commands without source changes cause a checkpoint. Before asking for help, state the remaining obstacle briefly; the host preserves your patch and exact check evidence. Put executable commands only in the run_command JSON argument. Do not put commands in prose, code fences, or XML tags. A shell exit code of zero does not submit the task; only the submit_task function does. Do not modify .git or read secrets. The host captures the real diff and independently runs the configured check. Do not claim checks passed unless their output confirms it.",
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "run_command",
+        "description": "Run one Bash command string in the isolated repository container.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 32768
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "submit_task",
+        "description": "Finish the task and submit the current patch for host verification.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "run_visible_checks",
+        "description": "Run the exact configured visible check on a frozen source snapshot in a fresh isolated container; obtain a source-bound receipt.",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": [],
+          "additionalProperties": false
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "request_help",
+        "description": "Ask for help at a checkpoint. The host preserves the current patch and test evidence and decides whether a cloud phase is allowed.",
+        "parameters": {
+          "type": "object",
+          "properties": {
+            "reason": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024
+            }
+          },
+          "required": [
+            "reason"
+          ],
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "requestProfile": {
+    "tool_choice": "auto",
+    "parallel_tool_calls": false,
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    },
+    "stream": false
+  },
+  "limits": {
+    "maxOutputTokens": 8192,
+    "maxInputBytes": 256000,
+    "localStepLimit": 24,
+    "finishingReserve": 2
+  }
+}

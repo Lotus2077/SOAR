@@ -1,5 +1,73 @@
 # SOAR
 
+**Start here:** the [current handoff](docs/HANDOFF.md) consolidates the architecture,
+accepted and failed experiments, setup constraints and next actions. Reviewed on
+2026-09-28; the latest product experiment remains September 14. This development
+checkpoint includes the general-agent implementation and reports; ignored local
+evidence and runtime installations are separate. Two synthetic desktop examples
+are accepted; the full MVP is unfinished and unreleased.
+
+**Current product direction (2026-09-11):** a privacy-first general agent that
+plans, executes, verifies and delivers end-to-end work. Deep research, file auditing,
+website building and PowerPoint creation are the first optimization priorities,
+not a closed list of task types. Priorities are **privacy >= quality > savings >
+latency**. See the [recalibrated design](docs/plans/MVP_PRIVACY_FIRST_AGENT_V1.md)
+and [local privacy-filter assessment](docs/PRIVACY_FILTER_RESEARCH.md).
+Implementation and synthetic qualification are now in progress under the
+[approved sequence](docs/plans/MVP_PRIVATE_AGENT_EXECUTION_V1.md); see the
+[boundary evidence](docs/MVP_PRIVATE_AGENT_BOUNDARY_REPORT.md). The new privacy
+guarantees are not yet qualified. The old paid comparison is suspended.
+
+**General-task MVP:** the desktop now supports a goal with optional public or
+synthetic files, explicitly approved public source URLs, saved progress,
+pause/resume, cancellation and artifact preview/export. Four actual app scenarios
+pass. One earlier synthetic file audit was independently accepted; the first live
+research memo completed delivery but failed factual review. The latest artifact
+trial produced an independently accepted editable three-slide deck; its website
+was rejected for wrong monetary conversion despite successful export. Request
+timeout classification and safe failure diagnostics have focused proofs; the
+latest live trial still has an unexplained timeout overrun and a window/process
+observation failure. Source receipts
+and a Submitted status do not establish correctness. Read the
+[artifact results](docs/MVP_DESKTOP_ARTIFACT_DELIVERY_REPORT.md),
+[research evidence](docs/MVP_DESKTOP_PUBLIC_RESEARCH_REPORT.md) and
+[desktop setup](docs/MVP_GENERAL_TASK_DESKTOP_REPORT.md). An optional
+**Ask before consulting** route now freezes an exact packet for approval and
+continues the same local task after one consultation. Priced grants, revocation,
+restart and unknown-response accounting pass 270 focused tests and eight actual
+desktop scenarios with scripted providers. See the
+[consultation milestone](docs/MVP_GENERAL_TASK_CONSULTATION_REPORT.md).
+The [session setup guide](docs/MVP_GENERAL_CONSULTANT_SETUP.md) provides a safe
+configuration check; [real-trial preparation](docs/MVP_GENERAL_CONSULTATION_TRIAL_PREPARATION_REPORT.md)
+records the subsequent standard-tier and durable fee checks and remaining gaps.
+Real routing quality, accepted research/website work and real-private deployment
+remain unfinished; no paid consultant was used in this milestone.
+
+**Coding MVP:** the opt-in **Fix a repository** flow now creates patches in
+isolated containers, runs visible checks, and offers preview/export and
+Keep/Reject. Start with `pnpm setup:patch-pilot` and `pnpm demo:patch`, or use
+`pnpm dev:patch` with a session OpenRouter or explicitly selected OpenAI key. See the
+[coding quickstart](docs/MVP_CODING_QUICKSTART.md) for scope and evidence limits.
+Local mechanics, recovery and real cloud execution are verified. A completed
+36-run comparison found 11/12 review-acceptable Cloud patches, 10/12 with host
+preparation, and 10/12 Hybrid patches. Every local stage fell back; Hybrid cost
+4.93% more than prepared Cloud. A separate partial-handoff repair is implemented
+but its live benefit is unproven. See the [screen report](docs/MVP_HYBRID_SCREEN_REPORT.md)
+and preserved [development failures](docs/MVP_CODING_PILOT_REPORT.md).
+This is not a released product or a demonstrated hybrid cost/quality improvement.
+
+A separate [local capability study](docs/LOCAL_CAPABILITY_DIAGNOSIS.md) found
+useful direct coding ability alongside action-format and autonomous execution
+failures. The measured scout format example is now implemented. A subsequent
+[native coding calibration](docs/NATIVE_LOCAL_CALIBRATION.md) completed 60 local
+requests without protocol failures and accepted two of four exposed tasks; two
+remained unfinished. The app now includes experimental local-only, local-first
+with one cloud recovery, and cloud-plan/local policies. Native HTTP, trusted checks,
+source-preserving handoff and recovery pass fixture integration tests; live quality
+and savings for these new policies remain unverified. See the
+[routing research and next experiment](docs/ROUTING_POLICY_RESEARCH.md) for
+local-first escalation, MinionCode and PyroDash tradeoffs.
+
 SOAR is a macOS-first agentic task router. Its first product surface is an
 Electron desktop app for long-running research and repository-to-patch
 sessions. It keeps one canonical session record; the project is designed to
@@ -7,7 +75,7 @@ assign individual phases to a local vLLM model or a paid cloud model as the
 routing runtime matures.
 
 > [!IMPORTANT]
-> SOAR is an experimental, pre-release project. The checked-in runtime is a
+> SOAR is an experimental, pre-release project. The retained review runtime is a
 > local-only repository investigator plus a local-only **Review Current
 > Changes** slice. An explicitly enabled fake development/test configuration
 > also exposes an app-visible **Hybrid simulation** that uses two in-process
@@ -15,8 +83,9 @@ routing runtime matures.
 > is Implemented with automated exact-SHA closure, not Verified or Released:
 > the simulation reads no
 > credential, contacts neither the configured vLLM nor an external provider,
-> and has `$0` actual external spend. Cloud execution, write tools, and learned
-> routing remain design targets. PR6B1-B is **Implemented with automated
+> and has `$0` actual external spend. The separate opt-in coding pilot adds
+> cloud execution and isolated write tools; learned routing remains a design
+> target. PR6B1-B is **Implemented with automated
 > exact-SHA closure**, not Verified, Activated, or Released: it replaces secret
 > entry with a status-only, activation-locked native credential boundary.
 > Deterministic, committed-head, package, canary, Electron, independent-review,
@@ -28,15 +97,20 @@ routing runtime matures.
 > recovery, but the path is not wired into the app or package and is not a
 > configured-provider or paid-model result.
 
-The MVP optimizes a constrained trade-off rather than promising an impossible per-task optimum:
+The current design uses ordered constraints rather than promising a per-task optimum:
 
-1. meet a defined quality floor on the target workload;
-2. minimize paid-model cost subject to that floor;
-3. minimize end-to-end latency subject to the same floor and a deadline.
+1. enforce the user's data-disclosure and action permissions;
+2. meet a defined quality floor on complete agentic jobs;
+3. minimize cost among permitted routes meeting that floor;
+4. report latency and respect operational limits and user deadlines.
+
+The earlier relative-latency and mandatory savings gates remain historical
+experiment criteria; they do not govern the new privacy-first product experiment.
 
 ## Current readiness
 
-- App tracks: Repository Investigator and Review Current Changes.
+- App tracks: General task (the current MVP focus), Repository Investigator,
+  Review Current Changes, and the opt-in Fix a repository coding pilot.
 - App target: Electron on macOS.
 - Runtime provider: one configured OpenAI-compatible vLLM endpoint classified
   as local by operator attestation. For a non-loopback endpoint, the operator
@@ -45,14 +119,18 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   independently verify the endpoint's external billing or infrastructure cost.
   The endpoint may run on this Mac or another machine, so “local” is not a
   loopback-placement or privacy guarantee.
-- Locked cloud candidate: OpenRouter DeepSeek V4 Flash 0731 remains
+- Retained review path's locked cloud candidate: OpenRouter DeepSeek V4 Flash 0731 remains
   metadata-only product intent, separate from the runtime provider registry.
   The PR6B1-B implementation removes credential entry and mutation from renderer,
   preload, and IPC. **Cloud credential** shows only strict, non-secret native
   identity, legacy-item metadata, operation-recovery, provider-not-run, and
   dispatch-locked status. The locked package has no protected-item locator,
   secure-entry sheet, lease consumer, provider transport, or cloud authority.
-- Routing runtime: Repository Investigator retains its deterministic v1 local
+- General-task routing: one local coordinator, optionally one exact-packet
+  consultation approved in the app. Configuration, budgets and evidence are
+  separate from the retained review and coding routes below. Useful real
+  consultation and quality-preserving savings remain unproved.
+- Retained review routing: Repository Investigator retains its deterministic v1 local
   assignment. Review Current Changes creates an app-owned v2
   `local_only_v1` session and keeps inspection and synthesis on the same
   configured provider in normal vLLM mode. With `SOAR_PROVIDER_MODE=fake` and
@@ -76,13 +154,14 @@ The MVP optimizes a constrained trade-off rather than promising an impossible pe
   `9495d6bcbaa8cef5d3342e0d53ab02efe28d0002`. The manual accessibility record
   remains outstanding. This status proves no real Hybrid request, model
   quality, cost saving, or latency improvement.
-- Future paid-campaign design: a proposed USD 100 ceiling and USD 90 automatic
+- Retained review campaign design: a proposed USD 100 ceiling and USD 90 automatic
   stop. These values are not active runtime configuration and authorize no paid
   call.
-- Selected paid exposure for the production app remains USD 0
-  under the operator's local-zero-cost attestation. The app constructs no
-  separately configured metered or OpenRouter provider, and paid benchmark
-  calls are not authorized. The implemented PR6B1-B status boundary has no
+- Selected paid exposure for the retained review tracks remains USD 0
+  under the operator's local-zero-cost attestation. Those review paths construct
+  no separately configured metered or OpenRouter provider; their paid benchmark
+  calls are not authorized. The opt-in coding MVP has separate real cloud
+  execution, request admission and the recorded screen exposure above. The implemented PR6B1-B status boundary has no
   cloud transport or paid-attempt path. PR6B0's `$0.25` figure is a simulated
   maximum reservation excluded from actual spend. This is not proof that an
   incorrectly classified

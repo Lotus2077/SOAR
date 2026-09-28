@@ -1,6 +1,8 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 import type { SessionUpdate, SoarRendererApi } from "../shared/contracts";
+import type { PatchRunSnapshot } from "../shared/patch-run-contracts";
+import type { GeneralTaskSnapshot } from "../shared/general-task-contracts";
 
 // Keep the sandboxed preload dependency-free. Runtime channel validation lives
 // in the main process; importing contracts here would pull Zod into a context
@@ -24,6 +26,38 @@ const IPC_CHANNELS = {
 } as const;
 
 const api: SoarRendererApi = {
+  getGeneralTaskAvailability: () => ipcRenderer.invoke("soar:general-task-availability"),
+  chooseGeneralTaskInputs: () => ipcRenderer.invoke("soar:general-task-choose-inputs"),
+  createGeneralTask: input => ipcRenderer.invoke("soar:general-task-create", input),
+  listGeneralTasks: () => ipcRenderer.invoke("soar:general-task-list"),
+  getGeneralTask: id => ipcRenderer.invoke("soar:general-task-get", id),
+  startGeneralTask: id => ipcRenderer.invoke("soar:general-task-start", id),
+  pauseGeneralTask: id => ipcRenderer.invoke("soar:general-task-pause", id),
+  resumeGeneralTask: id => ipcRenderer.invoke("soar:general-task-resume", id),
+  cancelGeneralTask: id => ipcRenderer.invoke("soar:general-task-cancel", id),
+  previewGeneralTaskConsultation: input => ipcRenderer.invoke("soar:general-task-preview-consultation", input),
+  decideGeneralTaskConsultation: input => ipcRenderer.invoke("soar:general-task-decide-consultation", input),
+  readGeneralTaskArtifact: input => ipcRenderer.invoke("soar:general-task-read-artifact", input),
+  exportGeneralTaskArtifact: input => ipcRenderer.invoke("soar:general-task-export-artifact", input),
+  exportGeneralTaskBundle: input => ipcRenderer.invoke("soar:general-task-export-bundle", input),
+  subscribeGeneralTasks: listener => {
+    const handler = (_event: Electron.IpcRendererEvent, snapshot: GeneralTaskSnapshot): void => listener(snapshot);
+    ipcRenderer.on("soar:general-task-update", handler);
+    return () => ipcRenderer.removeListener("soar:general-task-update", handler);
+  },
+  getPatchRunAvailability: () => ipcRenderer.invoke("soar:patch-run-availability"),
+  createPatchRun: (input) => ipcRenderer.invoke("soar:patch-run-create", input),
+  listPatchRuns: () => ipcRenderer.invoke("soar:patch-run-list"),
+  getPatchRun: (id) => ipcRenderer.invoke("soar:patch-run-get", id),
+  startPatchRun: (id) => ipcRenderer.invoke("soar:patch-run-start", id),
+  cancelPatchRun: (id) => ipcRenderer.invoke("soar:patch-run-cancel", id),
+  exportPatchRun: (id) => ipcRenderer.invoke("soar:patch-run-export", id),
+  decidePatchRun: (input) => ipcRenderer.invoke("soar:patch-run-decide", input),
+  subscribePatchRuns: (listener) => {
+    const handler = (_event: Electron.IpcRendererEvent, snapshot: PatchRunSnapshot): void => listener(snapshot);
+    ipcRenderer.on("soar:patch-run-update", handler);
+    return () => ipcRenderer.removeListener("soar:patch-run-update", handler);
+  },
   chooseWorkspace: () => ipcRenderer.invoke(IPC_CHANNELS.chooseWorkspace),
   createSession: (input) => ipcRenderer.invoke(IPC_CHANNELS.createSession, input),
   listSessions: () => ipcRenderer.invoke(IPC_CHANNELS.listSessions),

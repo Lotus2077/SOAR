@@ -123,11 +123,20 @@ export function localScreenSourceFreeze() {
   return { files, sha256: digest(canonical(files)) };
 }
 
+export type LocalScreenProfile = "standard" | "heavy";
+export const LOCAL_SCREEN_PROFILES: Readonly<Record<LocalScreenProfile, { maxOutputTokens: number; thinking: "disabled" | "medium" }>> = Object.freeze({
+  standard: { maxOutputTokens: 4096, thinking: "disabled" },
+  // 8192 tokens stays within the 300 s request timeout at the measured ~35 tok/s prose decode.
+  heavy: { maxOutputTokens: 8192, thinking: "medium" },
+});
+
 /** Bounded synthetic local evaluation only; no cloud route or disclosure grant. */
 export async function runLocalArtifactScreen(input: {
   taskDirectory: string; expectedJobSha256: string; expectedBriefSha256: string;
   syntheticAuthoritySha256: string; expectedRuntimeSha256: string; imageId: string; outputDirectory: string;
   publicRetrieval?: boolean; publicSnapshot?: PublicSnapshotOptions; pauseAfterTools?: number;
+  /** "standard" is the September desktop coordinator setting; "heavy" enables thinking with a larger output limit. */
+  profile?: LocalScreenProfile;
 }) {
   if (![input.expectedJobSha256, input.expectedBriefSha256, input.syntheticAuthoritySha256, input.expectedRuntimeSha256].every(hash => /^[a-f0-9]{64}$/u.test(hash)) ||
       !/^sha256:[a-f0-9]{64}$/u.test(input.imageId) ||
@@ -190,8 +199,9 @@ export async function runLocalArtifactScreen(input: {
     }
     const scanner = new RulePacketScanner();
     const broker = new PrivateAgentBroker(store, destinations, scanner);
-    const modelConfig = { destinationId: "owned_local_model", model: config.vllm.model, maxOutputTokens: 4096,
-      inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" as const };
+    const profile = LOCAL_SCREEN_PROFILES[input.profile ?? "standard"];
+    const modelConfig = { destinationId: "owned_local_model", model: config.vllm.model, maxOutputTokens: profile.maxOutputTokens,
+      inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: profile.thinking };
     const freeze = { version: 1, jobId, sourceFreeze: sourceFreeze.files, sourceFreezeSha256: sourceFreeze.sha256, imageId: input.imageId,
       modelConfig, endpointIdentitySha256: digest(destinations[0]!.endpoint), deployment: "synthetic_only_unverified_for_private_data",
       taskBinding: task.binding, sourceBindingSha256: task.sourceBindingSha256,
@@ -199,7 +209,8 @@ export async function runLocalArtifactScreen(input: {
       publicPhaseSha256: publicPhase ? sessionPhaseIdentity(publicPhase) : null,
       publicSnapshot: publicSnapshot?.binding ?? null,
       scanner: "rules_only_not_a_privacy_classifier", pauseAfterTools: input.pauseAfterTools ?? null,
-      limits: { requests: 40, outputTokens: 4096, inputBytes: 196608, elapsedMs: 1800000, feeMicrousd: 0 },
+      profile: input.profile ?? "standard",
+      limits: { requests: 40, outputTokens: modelConfig.maxOutputTokens, inputBytes: 196608, elapsedMs: 1800000, feeMicrousd: 0 },
       startedAt: new Date().toISOString(), artifactAccepted: null };
     save("freeze.json", freeze);
     session = new GeneralAgentSession({ jobId, imageId: input.imageId, store, broker, checkpoints,
@@ -251,17 +262,19 @@ export async function runLocalArtifactScreen(input: {
 
 export function parseLocalArtifactScreenArguments(args: string[]): Parameters<typeof runLocalArtifactScreen>[0] {
     const snapshotNames = ["--public-snapshot-directory", "--public-snapshot-brief-sha256", "--public-snapshot-map-sha256", "--public-snapshot-index-path"];
-    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", ...snapshotNames];
+    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", ...snapshotNames];
     if (args[0] !== "--execute-synthetic-local" || args.length % 2 !== 1 || args.slice(1).some((arg, i) => i % 2 === 0 && !names.includes(arg)) ||
         new Set(args.filter((_, i) => i % 2 === 1)).size !== (args.length - 1) / 2) throw new Error("local_screen_cli_invalid");
     const values = new Map(args.slice(1).filter((_, i) => i % 2 === 0).map(name => [name, args[args.indexOf(name) + 1]!]));
-    if (names.slice(0, 7).some(name => !values.has(name)) || (values.has("--public-retrieval") && values.get("--public-retrieval") !== "true")) throw new Error("local_screen_cli_invalid");
+    if (names.slice(0, 7).some(name => !values.has(name)) || (values.has("--public-retrieval") && values.get("--public-retrieval") !== "true") ||
+        (values.has("--profile") && !Object.hasOwn(LOCAL_SCREEN_PROFILES, values.get("--profile")!))) throw new Error("local_screen_cli_invalid");
     const snapshotCount = snapshotNames.filter(name => values.has(name)).length;
     if (snapshotCount && (snapshotCount !== snapshotNames.length || values.get("--public-retrieval") !== "true")) throw new Error("local_screen_cli_invalid");
     return { taskDirectory: values.get("--task-directory")!, expectedJobSha256: values.get("--job-sha256")!,
       expectedBriefSha256: values.get("--brief-sha256")!, syntheticAuthoritySha256: values.get("--authority-sha256")!, imageId: values.get("--image-id")!,
       outputDirectory: values.get("--output-directory")!, expectedRuntimeSha256: values.get("--runtime-sha256")!, publicRetrieval: values.get("--public-retrieval") === "true",
       pauseAfterTools: values.has("--pause-after-tools") ? Number(values.get("--pause-after-tools")) : undefined,
+      profile: values.has("--profile") ? values.get("--profile") as LocalScreenProfile : undefined,
       ...(snapshotCount ? { publicSnapshot: { directory: values.get(snapshotNames[0]!)!, expectedBriefSha256: values.get(snapshotNames[1]!)!,
         expectedMapSha256: values.get(snapshotNames[2]!)!, indexPath: values.get(snapshotNames[3]!)! } } : {}) };
 }

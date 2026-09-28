@@ -17997,3 +17997,85 @@ and the first owner verdict.
 
 References: [plan](PLAN.md), [docs index](README.md),
 BL-20260928-1812-ci-fixture-pin, BL-20260928-1811-phase0-owner-decisions.
+
+
+### BL-20260928-1836-phase0-discriminator-scope -- 2026-09-28 -- Narrow the Phase 0 discriminator to local Standard versus Heavy
+
+Status: `In progress`
+
+Scope or hypothesis: Phase 0 step 5 in docs/PLAN.md planned a "near-zero engineering"
+discriminator: four failed, already-seen tasks, local-fixed versus a `gpt-6-sol`
+coordinator through the headless path. Its purpose is to order Phase 1. This is an
+agent decision taken under the owner's standing instruction to keep building Phase
+0 and log every critical decision. It is subject to owner review.
+
+Decisions:
+
+- **Why the cloud arm moves to Phase 1.** Its premise was wrong. The broker admits a
+  `cloud_model` destination only when the job policy mode is `cloud_help`
+  (src/main/private-agent/broker.ts:190). The session sets that mode only when
+  consultation is configured (src/main/private-agent/session.ts:160). Restricted
+  contexts need exact grants, and the model adapter has no OpenAI request shape.
+  Adding a cloud coordinator is a security-sensitive session change, which is
+  Phase 1 work (PR-E/PR-G), not a Phase 0 tweak. The cloud ceiling stays in the
+  Phase 2 fair test as designed, and the USD 15 is unspent.
+- **Phase 0 discriminator.** Local only, through the committed headless driver
+  (scripts/private-agent-local-screen.ts). The Standard profile (thinking off,
+  4,096 output tokens) runs against a Heavy profile (thinking medium, 8,192 output
+  tokens, which stays under the 300 s request timeout at the measured ~35 tokens/s
+  prose decode). The other session caps are unchanged: 40 requests, 30 minutes,
+  192 KiB body.
+- **Tasks.** Four failed, already-seen tasks, each rebuilt with the original goal
+  and inputs:
+  - T1: procurement website (15/30 in September);
+  - T2: RFC 8259/7493 memo, with both RFC texts attached rather than fetched
+    (hashes match the September freeze);
+  - T3: website repair (September v3 inputs);
+  - T4: Quality V2 two-phase research (original job, brief and public snapshot,
+    hashes identical).
+
+  The results are labelled diagnostic and exposed. They order Phase 1 work and do
+  not establish capability.
+- **Serving evidence already collected** (scripts/serving-probe.py, public or
+  synthetic prompts only), against the owner's endpoint (vLLM 0.30.0):
+  - **P2 effort:** top-level `reasoning_effort` produces the same template as
+    `chat_template_kwargs`.
+  - **P3 decode:** prose about 35 tokens/s without thinking, code about 58, and
+    thinking about 56-67.
+  - **P4 prefix cache:** 44.8K of 47.3K prompt tokens reused on a repeated prompt,
+    with first token in 1.8 s.
+  - **P5 tool arguments:** 11 KB escaped tool argument exact.
+  - **P6 abort:** an abort leaves no running generation, and the next request's
+    first token arrives in 0.12 s.
+  - **P7 concurrency:** two concurrent streams about 35 tokens/s each.
+  - **P9 context guard:** a clean 400 in 0.04 s when prompt plus output exceeds
+    262,144.
+  - **P8:** a request longer than 300 s is still running at the time of writing.
+
+Changes:
+
+- `MAX_MODEL_OUTPUT_TOKENS` = 32768 in src/main/private-agent/model.ts. The desktop
+  controller still clamps to 4,096, so product behaviour is unchanged.
+- A `--profile standard|heavy` option in the headless driver, with the profile
+  recorded in its freeze.
+- scripts/prepare-operator-task.py, a synthetic-only operator task builder.
+- Tests for the new ceiling, the thinking request field and profile parsing.
+
+Evidence: The focused tests passed (the private-agent model size suite and the
+public snapshot suite, 25 passed and 1 skipped). Typecheck passed. The rebuilt
+task hashes match their September sources.
+
+Failures or blockers: The cloud ceiling is deferred. A Heavy-profile call longer
+than 300 s would still end as an unknown dispatch until Phase 1 PR-B/PR-C.
+
+Limitations and non-claims: n = 4 exposed tasks with one sample each. The server
+is shared, with unexplained external load. Results cannot separate model from
+harness limits without the Phase 2 cloud arm.
+
+Paid exposure: USD 0 (local, zero fee).
+
+Next gate: Run the 8 local runs and record registry rows, then a result entry. The
+owner's key for the Phase 2 cloud arm is requested separately.
+
+References: [plan](PLAN.md), BL-20260928-1811-phase0-owner-decisions,
+BL-20260928-1826-phase0-cleanup.

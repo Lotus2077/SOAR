@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { BROKER_MAX_BODY_BYTES, type PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { digest } from "../../src/main/private-agent/contracts";
-import { PrivateAgentModel, ModelRequestBodyTooLarge, modelRequestSizeStop, hasInvalidModelRequestSizeStop } from "../../src/main/private-agent/model";
+import { MAX_MODEL_OUTPUT_TOKENS, PrivateAgentModel, ModelRequestBodyTooLarge, modelRequestSizeStop, hasInvalidModelRequestSizeStop } from "../../src/main/private-agent/model";
 
 describe("model request size before dispatch", () => {
   it("admits exactly the UTF-8 byte cap and rejects one byte over without calling the broker", async () => {
@@ -23,6 +23,22 @@ describe("model request size before dispatch", () => {
     await expect(send(`${atLimit}x`)).rejects.toMatchObject({ bodyBytes: BROKER_MAX_BODY_BYTES + 1, limitBytes: BROKER_MAX_BODY_BYTES, message: "request_body_size_exceeded" });
     expect(request).toHaveBeenCalledTimes(2);
     expect(() => new ModelRequestBodyTooLarge(BROKER_MAX_BODY_BYTES)).toThrow("model_request_size_error_invalid");
+  });
+
+  it("accepts a larger profile output limit up to the adapter ceiling and requests thinking when enabled", async () => {
+    const bodies: string[] = [];
+    const request = vi.fn(async (input, settle) => {
+      bodies.push(input.body);
+      const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+      return { bytes, receipt: { feeMicrousd: settle(bytes) } };
+    });
+    const config = { destinationId: "fixture", model: "synthetic", inputUsdPerMillion: 0, outputUsdPerMillion: 0 };
+    const heavy = new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, { ...config, maxOutputTokens: 8192, thinking: "medium" }, "job", "context");
+    await heavy.complete([{ role: "user", content: "synthetic" }], [], new AbortController().signal);
+    expect(JSON.parse(bodies[0]!)).toMatchObject({ max_tokens: 8192, reasoning_effort: "medium" });
+    expect(JSON.parse(bodies[0]!)).not.toHaveProperty("chat_template_kwargs");
+    expect(() => new PrivateAgentModel({ request } as unknown as PrivateAgentBroker,
+      { ...config, maxOutputTokens: MAX_MODEL_OUTPUT_TOKENS + 1, thinking: "disabled" }, "job", "context")).toThrow("private_model_configuration_invalid");
   });
 
   it("does not relabel invalid text or an ordinary broker error as the typed size stop", async () => {

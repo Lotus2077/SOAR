@@ -112,6 +112,9 @@ const proofEvaluatorRecordProvenance = {
 } as const;
 const proofMethodologyDisclosure =
   "Evaluator-owned paths and source substrings are agent-visible. The persisted session model result is copied separately before artifact path redaction; evaluator records are not appended to it. The runtime may normalize citation paths before persistence, and the result is not graded for semantic quality or serialization. Evaluator manifests supply claim IDs, summaries, and evidence requirements; the host binds claims to distinct citations present in both successful parsed tool observations and the accepted completion check. Symbol occurrences come only from the exact successful global search and are independently cross-checked against the filesystem oracle. This run proves bounded execution, evidence verification, and accepted-answer context retention; it is not blind repository discovery or a quality benchmark.";
+// Fixture tests archive a fixed revision, not HEAD: the growing append-only
+// build log exceeded search_text's per-file cap once it was committed.
+const LEGACY_FIXTURE_REVISION = "6a32777fb2efcb4b1f24e5d5163f8d3235d84abb";
 const evaluatorExcludedPaths = [
   "tests/integration/local-repository-investigator.test.ts",
 ] as const;
@@ -3284,12 +3287,7 @@ describe("Local Repository Investigator evaluator contract", () => {
       throw new Error("symbol-references task must define claim coverage");
     }
     const claimCoverage = task.claimCoverage;
-    const revision = (
-      await execFileAsync("git", ["rev-parse", "--verify", "HEAD"], {
-        cwd: projectRoot,
-        encoding: "utf8",
-      })
-    ).stdout.trim();
+    const revision = LEGACY_FIXTURE_REVISION;
     const fixture = await createPinnedRepositoryFixture(projectRoot, revision);
 
     try {
@@ -4453,12 +4451,7 @@ describe("Local Repository Investigator evaluator contract", () => {
   });
 
   it("copies a content-addressed Git fixture without exposing evaluator source", async () => {
-    const revisionResult = await execFileAsync(
-      "git",
-      ["rev-parse", "--verify", "HEAD"],
-      { cwd: projectRoot, encoding: "utf8" },
-    );
-    const revision = revisionResult.stdout.trim();
+    const revision = LEGACY_FIXTURE_REVISION;
     const fixture = await createPinnedRepositoryFixture(projectRoot, revision);
     try {
       expect(fixture.sourceRevision).toBe(revision);

@@ -107,7 +107,7 @@ section 4. Local runs are unlimited.
 | Change | **Research reliability comes from host checks:** a claims ledger, verbatim-quote verification against sources, and a local entailment pass. Unsupported claims are shown, not hidden. | Owner answer ("deep and reliable"); design §4 |
 | Stop | Per-trial approval entries for zero-fee work; n=1 reruns of already-seen tasks; building new evaluators or qualification layers per task; new routers or export features before the fair test reports. | W8 |
 | Stop | Treating API savings as a design driver; leading documents with the "Hybrid +4.93%" figure. | W10 |
-| Defer | Deleting legacy code (flag it off now, delete after a tagged archive); build-log rotation (needs a validator redesign); moving the runner to an always-on host; research search tooling; visual feedback. Each is triggered by a result below. | W6, W9 |
+| Defer | Deleting *wired* legacy code (flag it off in PR-F, delete later; dead and unshipped code was already removed on 2026-09-29 at the owner's direction); build-log rotation (needs a validator redesign); moving the runner to an always-on host; research search tooling; visual feedback. Each is triggered by a result below. | W6, W9 |
 
 ## 3. Phases
 
@@ -183,7 +183,13 @@ one day. Non-gated engineering continues regardless.
    - Use the result only to order Phase 1:
      - Sol succeeds and local fails: prioritize profile and model levers.
      - Both fail: prioritize harness levers, and bring the harness spike forward.
-6. **First owner verdict.**
+6. **Owner-directed cleanup** (*done 2026-09-29*, BL-20260928-1826-phase0-cleanup).
+   - Tagged `archive/router-era-2026-09-28`, then removed the PR6R development
+     canary, the held-out benchmark evaluator (`src/benchmark`) and the dead
+     `run-session-v2`: about 26k source lines and 23k test lines.
+   - Wired legacy tracks stay, and are flagged off in PR-F.
+   - Added a docs index and a concise README; archived the old README.
+7. **First owner verdict.**
    - The owner runs one small real public job on the current build, with the window
      visible and `caffeinate` held, and records a verdict.
    - Ask the owner why work stopped for 14 days and what would make them delegate.
@@ -500,8 +506,8 @@ a real requirement (see Later).
 
 **Always, once the window ends:**
 
-- Tag `archive/router-era-2026-09-28`, then delete the dead legacy modules (PR6R,
-  held-out evaluator, `run-session-v2`).
+- Remove the wired legacy tracks once they have been flagged off and unused for a
+  full phase. The dead modules were already removed in Phase 0.
 - Redesign the build-log validator to allow monthly rotation.
 
 ## 4. Process reset (effective on approval)

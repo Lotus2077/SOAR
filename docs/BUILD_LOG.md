@@ -17997,3 +17997,172 @@ and the first owner verdict.
 
 References: [plan](PLAN.md), [docs index](README.md),
 BL-20260928-1812-ci-fixture-pin, BL-20260928-1811-phase0-owner-decisions.
+
+
+### BL-20260928-1836-phase0-discriminator-scope -- 2026-09-28 -- Narrow the Phase 0 discriminator to local Standard versus Heavy
+
+Status: `In progress`
+
+Scope or hypothesis: Phase 0 step 5 in docs/PLAN.md planned a "near-zero engineering"
+discriminator: four failed, already-seen tasks, local-fixed versus a `gpt-6-sol`
+coordinator through the headless path. Its purpose is to order Phase 1. This is an
+agent decision taken under the owner's standing instruction to keep building Phase
+0 and log every critical decision. It is subject to owner review.
+
+Decisions:
+
+- **Why the cloud arm moves to Phase 1.** Its premise was wrong. The broker admits a
+  `cloud_model` destination only when the job policy mode is `cloud_help`
+  (src/main/private-agent/broker.ts:190). The session sets that mode only when
+  consultation is configured (src/main/private-agent/session.ts:160). Restricted
+  contexts need exact grants, and the model adapter has no OpenAI request shape.
+  Adding a cloud coordinator is a security-sensitive session change, which is
+  Phase 1 work (PR-E/PR-G), not a Phase 0 tweak. The cloud ceiling stays in the
+  Phase 2 fair test as designed, and the USD 15 is unspent.
+- **Phase 0 discriminator.** Local only, through the committed headless driver
+  (scripts/private-agent-local-screen.ts). The Standard profile (thinking off,
+  4,096 output tokens) runs against a Heavy profile (thinking medium, 8,192 output
+  tokens, which stays under the 300 s request timeout at the measured ~35 tokens/s
+  prose decode). The other session caps are unchanged: 40 requests, 30 minutes,
+  192 KiB body.
+- **Tasks.** Four failed, already-seen tasks, each rebuilt with the original goal
+  and inputs:
+  - T1: procurement website (15/30 in September);
+  - T2: RFC 8259/7493 memo, with both RFC texts attached rather than fetched
+    (hashes match the September freeze);
+  - T3: website repair (September v3 inputs);
+  - T4: Quality V2 two-phase research (original job, brief and public snapshot,
+    hashes identical).
+
+  The results are labelled diagnostic and exposed. They order Phase 1 work and do
+  not establish capability.
+- **Serving evidence already collected** (scripts/serving-probe.py, public or
+  synthetic prompts only), against the owner's endpoint (vLLM 0.30.0):
+  - **P2 effort:** top-level `reasoning_effort` produces the same template as
+    `chat_template_kwargs`.
+  - **P3 decode:** prose about 35 tokens/s without thinking, code about 58, and
+    thinking about 56-67.
+  - **P4 prefix cache:** 44.8K of 47.3K prompt tokens reused on a repeated prompt,
+    with first token in 1.8 s.
+  - **P5 tool arguments:** 11 KB escaped tool argument exact.
+  - **P6 abort:** an abort leaves no running generation, and the next request's
+    first token arrives in 0.12 s.
+  - **P7 concurrency:** two concurrent streams about 35 tokens/s each.
+  - **P9 context guard:** a clean 400 in 0.04 s when prompt plus output exceeds
+    262,144.
+  - **P8:** a request longer than 300 s is still running at the time of writing.
+
+Changes:
+
+- `MAX_MODEL_OUTPUT_TOKENS` = 32768 in src/main/private-agent/model.ts. The desktop
+  controller still clamps to 4,096, so product behaviour is unchanged.
+- A `--profile standard|heavy` option in the headless driver, with the profile
+  recorded in its freeze.
+- scripts/prepare-operator-task.py, a synthetic-only operator task builder.
+- Tests for the new ceiling, the thinking request field and profile parsing.
+
+Evidence: The focused tests passed (the private-agent model size suite and the
+public snapshot suite, 25 passed and 1 skipped). Typecheck passed. The rebuilt
+task hashes match their September sources.
+
+Failures or blockers: The cloud ceiling is deferred. A Heavy-profile call longer
+than 300 s would still end as an unknown dispatch until Phase 1 PR-B/PR-C.
+
+Limitations and non-claims: n = 4 exposed tasks with one sample each. The server
+is shared, with unexplained external load. Results cannot separate model from
+harness limits without the Phase 2 cloud arm.
+
+Paid exposure: USD 0 (local, zero fee).
+
+Next gate: Run the 8 local runs and record registry rows, then a result entry. The
+owner's key for the Phase 2 cloud arm is requested separately.
+
+References: [plan](PLAN.md), BL-20260928-1811-phase0-owner-decisions,
+BL-20260928-1826-phase0-cleanup.
+
+
+### BL-20260928-1921-phase0-discriminator-result -- 2026-09-28 -- Local Standard versus Heavy on four exposed tasks
+
+Status: `Verified`
+
+Scope or hypothesis: The narrowed Phase 0 discriminator
+(BL-20260928-1836-phase0-discriminator-scope) was run: Standard (thinking off, 4,096
+output tokens) against Heavy (thinking medium, 8,192 output tokens) on four failed,
+already-seen synthetic or public tasks. It ran through the committed headless driver
+at e4f55aa with runtime freeze 6b045753..., the qualified image e5c7075f..., and the
+owner's endpoint (vLLM 0.30.0, speculative decoding). Each pair ran concurrently.
+Zero fee.
+
+Decisions:
+
+- **Phase 1 order**, set from the evidence below:
+  1. PR-A (Heavy profile at every cap layer) together with PR-D (tolerant loop:
+     `length` and text-only replies become observations, per-phase request budgets);
+  2. PR-J (research claims ledger, host quote check and entailment pass);
+  3. PR-C (recoverable local and public dispatch) and PR-F (owner surface);
+  4. PR-E (cloud correctness, required before the Phase 2 cloud arm);
+  5. PR-B (streaming);
+  6. PR-I (redline image).
+
+  PR-B moves later because no run approached a timeout at these sizes. It is still
+  required before hour-scale jobs, since the serving card shows long non-streaming
+  requests cut at about 947 s.
+- **Product guidance.** When an output fails its checks, prefer regenerating from
+  the requirements with the failure as feedback over patching the flawed artifact
+  (T3). This applies to the planned Revise feature.
+
+Changes:
+
+- Eight registry rows in docs/experiments/registry.jsonl.
+- scripts/registry-row.py, which builds sanitized rows from a run's own database.
+- docs/PLAN.md Phase 0 and Phase 1 updated.
+- The September website checker (the qualified v3 evaluate.py) is reused unchanged
+  through a local Docker wrapper with networking off. Checker and gold data stay in
+  ignored storage.
+
+Evidence: Website scores use the qualified checker. It was calibrated in this run on
+the September rejected website and reproduced the recorded 15/30 exactly. The T2
+memos were scored blind (labels A and B) by one independent agent reviewer against
+the 12 critical gates written in September before any candidate existed.
+
+| Task | Standard | Heavy |
+| --- | --- | --- |
+| T1 website, fresh write | Submitted. 12 calls, 288 s, **26/30**. The four EUR/CNY conversions were wrong. | Submitted. 11 calls, 378 s, **30/30** technical checks. Screenshot review is still required for acceptance. |
+| T2 RFC memo | Submitted. 17 calls, 186 s, **9/12** gates. Rejected: UTF-8 scope, precision modality, a wrong section cite. | Submitted. 14 calls, 252 s, **7/12**. Rejected: the example contradicts the prose, and recommendations are labelled as mandatory. |
+| T3 website repair of the 15/30 draft | Submitted after all 40 calls, 1,091 s, **15/30**. No improvement. | Submitted. 14 calls, 654 s, **18/30**. Most totals still wrong. |
+| T4 Quality V2 (public plus private phases) | **Incomplete.** The public phase used 34 of the session's shared 40 requests (`bounded_allowance_exhausted`). | **Incomplete.** One response reached the 8,192-token `length` stop, which `runner.ts:335` treats as terminal (review W3). |
+
+Across all 8 runs: no unknown dispatch, no request timeout, no infrastructure-invalid
+run.
+
+Failures or blockers:
+
+- Research quality was rejected under both profiles.
+- T4 failed on harness rules under both profiles.
+- The cloud ceiling is still unmeasured (Phase 2).
+
+Limitations and non-claims:
+
+- Each cell is n = 1 on already-seen tasks, with no second seed. The server is shared
+  with unexplained external load.
+- The headless driver's caps (40 calls, 30 minutes) differ from the desktop's
+  (20 calls, 15 minutes). T1 Standard's 26/30 against September's 15/30 therefore
+  mixes budget, driver and run variance.
+- Directional reading only: thinking on helped the arithmetic-heavy build task and
+  used fewer calls. It did not help the research memo. Harness terminal rules caused
+  both T4 failures.
+- Nothing here is an owner verdict or an acceptance.
+
+Paid exposure: USD 0 (local, zero fee). One blind-review agent read only the public
+RFC texts and the two synthetic memos.
+
+Next gate:
+
+- The owner merges PR #1 and PR #2; this change follows as PR #3.
+- The owner's first verdict: recommended on the T1 Heavy website and its screenshots,
+  and ideally one small real public job in the app.
+- Phase 1 then proceeds in the order above.
+
+References: [registry](experiments/registry.jsonl),
+[serving card](experiments/serving-card-2026-09-28.md), [plan](PLAN.md),
+BL-20260928-1836-phase0-discriminator-scope.

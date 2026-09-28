@@ -239,9 +239,15 @@ tokens/s SOAR observed therefore implies one of:
 - a 27B NVFP4 build with a drafter (42.3 tokens/s on Thor, coding);
 - a different model.
 
-Research, review and email drafting are prose-heavy and may run **2-5× slower**
-than 42 tokens/s. Serving probe P3 must report prose, code and long-context
-numbers separately.
+*Measured 2026-09-28* ([serving card](../experiments/serving-card-2026-09-28.md)):
+
+- prose without thinking: about 35 tokens/s;
+- code: about 58 tokens/s;
+- thinking text: 56-67 tokens/s;
+- prefill of a fresh 47K-token prompt: about 1,790 tokens/s, with 44.8K tokens
+  reused from cache on a repeat.
+
+Prose-heavy work is therefore about 1.2-1.7× slower than code, not 2-5×.
 
 **Candidates if the fair test is throughput-limited (plan rule R2):**
 

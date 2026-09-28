@@ -61,6 +61,8 @@ def get(path: str, timeout: float = 15) -> tuple[int, str]:
             return response.status, response.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as error:
         return error.code, error.read().decode("utf-8", "replace")[:500]
+    except Exception as error:  # a transient reset must not abort the whole probe
+        return -1, f"{type(error).__name__}: {str(error)[:200]}"
 
 
 def metric(name: str) -> float | None:

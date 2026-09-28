@@ -4,6 +4,8 @@ import { BROKER_MAX_BODY_BYTES, PrivateAgentBroker } from "./broker";
 import { canonical, privateAgentId, sha256Schema } from "./contracts";
 
 export const MODEL_REQUEST_SIZE_STOP = "request_body_size_exceeded";
+/** Adapter ceiling. Callers choose their own lower profile limit (the desktop clamps to 4096). */
+export const MAX_MODEL_OUTPUT_TOKENS = 32768;
 /** Constructed only from the completed canonical body, before any broker call. */
 export class ModelRequestBodyTooLarge extends Error {
   readonly limitBytes = BROKER_MAX_BODY_BYTES;
@@ -75,7 +77,7 @@ export class PrivateAgentModel {
   readonly config: PrivateModelConfig;
   constructor(private readonly broker: PrivateAgentBroker, config: PrivateModelConfig,
     readonly jobId: string, readonly contextId: string) {
-    if (!Number.isSafeInteger(config.maxOutputTokens) || config.maxOutputTokens < 128 || config.maxOutputTokens > 4096 ||
+    if (!Number.isSafeInteger(config.maxOutputTokens) || config.maxOutputTokens < 128 || config.maxOutputTokens > MAX_MODEL_OUTPUT_TOKENS ||
         ![config.inputUsdPerMillion, config.outputUsdPerMillion].every(value => Number.isFinite(value) && value >= 0)) {
       throw new Error("private_model_configuration_invalid");
     }

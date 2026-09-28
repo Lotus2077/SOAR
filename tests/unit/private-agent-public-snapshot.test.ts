@@ -154,6 +154,12 @@ describe("public snapshot CLI", () => {
     expect(parseLocalArtifactScreenArguments([...base, "--public-retrieval", "true", ...extra]).publicSnapshot).toEqual({ directory: "synthetic-public",
       expectedBriefSha256: "f".repeat(64), expectedMapSha256: "1".repeat(64), indexPath: "/sources/index.html" });
   });
+  it("parses the optional coordinator profile and rejects unknown ones", () => {
+    expect(parseLocalArtifactScreenArguments(base).profile).toBeUndefined();
+    expect(parseLocalArtifactScreenArguments([...base, "--profile", "heavy"]).profile).toBe("heavy");
+    expect(parseLocalArtifactScreenArguments([...base, "--profile", "standard"]).profile).toBe("standard");
+    expect(() => parseLocalArtifactScreenArguments([...base, "--profile", "extreme"])).toThrow("local_screen_cli_invalid");
+  });
   it("rejects partial, duplicate or disabled adapter arguments", () => {
     expect(() => parseLocalArtifactScreenArguments([...base, ...extra])).toThrow("local_screen_cli_invalid");
     expect(() => parseLocalArtifactScreenArguments([...base, "--public-retrieval", "true", ...extra.slice(0, 6)])).toThrow("local_screen_cli_invalid");

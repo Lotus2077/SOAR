@@ -17569,3 +17569,335 @@ checks have passed.
 
 References: BL-20260928-1504-public-push-approval-blocked,
 BL-20260928-1458-source-checkpoint-publication, [handoff](HANDOFF.md).
+
+
+### BL-20260928-1640-project-review-plan-v2 -- 2026-09-28 -- Verified whole-project review and a proposed revised plan
+
+Status: `Proposed`
+
+Scope or hypothesis: The owner asked for the latest codebase to be pulled, the
+whole project reviewed against its ultimate goal, and the plan revised if needed.
+This entry records a completed review and a proposed plan. It changes no runtime,
+contract, provider, permission or budget, and it does not approve any work.
+
+Decisions:
+
+- Proposed: replace the handoff's next-milestone ordering with a fair
+  local-versus-cloud test, owner verdicts from week one, and a gated local-only
+  tier for the owner's own files (Tier O). The north star becomes owner-accepted
+  real jobs per week.
+- Proposed: a Heavy coordinator profile that follows the Qwen3.8 guidance, with caps
+  raised together at every enforcing layer. Zero-fee local and public-GET dispatches
+  become recoverable, while strict at-most-once stays for cloud and consultant
+  dispatches.
+- Proposed: a `gpt-6-sol` cloud reference with cached-token ledger pricing, a
+  standing spending envelope in place of per-trial approvals, a trial registry, and
+  a lighter build-log and document process.
+- Proposed supersessions, effective only on recorded owner approval:
+  - the stop rule at MVP_COMPLETION_AUDIT.md:107-110;
+  - the handoff's next-milestone ordering;
+  - the Stage B/C/D ladder;
+  - the 40-call / 4,096-token / 192 KiB / 30-minute bound at
+    MVP_PRIVATE_AGENT_EXECUTION_V1.md:42-43.
+
+Changes: Added docs/PROJECT_REVIEW_2026-09-28.md (verified findings, corrections
+and owner questions) and docs/PLAN.md (the proposed plan: phases, pre-registered
+decision rules, owner decisions D1-D12 with non-authorizing defaults, risks). Added
+one-paragraph Proposed pointers to README.md and docs/HANDOFF.md. No source, test,
+configuration, dependency or ignored evidence changed.
+
+Evidence:
+
+- Review method: nine read-only review lanes, each re-checked by an adversarial
+  verifier (113 of 207 checked items confirmed outright; the rest corrected before
+  use). Three independent plan drafts were then scored by two critics.
+- Orchestrator spot checks:
+  - docs/BUILD_LOG.md is 1,064,131 bytes, over the search_text 1 MiB cap
+    (src/main/tools/search-text.ts:19);
+  - the default renderer surface is the legacy investigator
+    (src/renderer/src/App.tsx:2906-2908);
+  - cap layers are at controller.ts:29,145,148,233-235, runner.ts:24-26,
+    session.ts:49 and model.ts:78,88;
+  - ledger settlement ignores cached tokens (model.ts:92,99);
+  - the qualified image is bound at capabilities.ts:4;
+  - the OpenAI pricing page lists gpt-6-sol at USD 2/0.20/10 per 1M tokens;
+  - the vLLM Qwen3.8-27B recipe sets effort through chat_template_kwargs.
+- GitHub CI run 36442008166 on 47e3c6f failed 1 of 2,376 tests
+  (local-repository-investigator retention scenario); 2,305 passed and 70 were
+  skipped. The build step was not reached.
+
+Failures or blockers:
+
+- Main CI remains red. The fixture pin is proposed, not applied.
+- The repository still sits in an iCloud-synced folder with most dependency and
+  evidence files evicted.
+- The served device and weights are unverified. The alias "RM-01 VLM" suggests a
+  vendor appliance; this is an inference.
+- No test, build, app, Docker or model run occurred in this review.
+
+Limitations and non-claims: Code findings are static reads. Web facts are as of
+2026-09-28, and some vendor scores are self-reported. The proposed rules are
+investment decisions for n = 12 paired tasks, not significance claims. Nothing here
+establishes model capability, owner need, privacy qualification or release
+readiness.
+
+Paid exposure: USD 0 of SOAR provider spend. No SOAR model, consultant, public-fetch
+or paid request. Read-only GitHub CI queries and public web pages only.
+
+Next gate: Owner review of docs/PLAN.md and answers to D1-D12. Approval must be
+recorded as a new `Approved` entry quoting the owner before any superseded gate
+lapses or any live, paid, Tier-O or publication action begins.
+
+References: [review](PROJECT_REVIEW_2026-09-28.md), [plan](PLAN.md),
+[handoff](HANDOFF.md), BL-20260914-0715-mvp-course-correction-proposed,
+BL-20260928-1443-workspace-cleanup-handoff,
+[privacy-first design](plans/MVP_PRIVACY_FIRST_AGENT_V1.md).
+
+
+### BL-20260928-1745-owner-answers-plan-approved -- 2026-09-28 -- Owner approves the revised plan with a USD 300 envelope and sets the privacy rule
+
+Status: `Approved`
+
+Scope or hypothesis: Record the owner's answers to the plan's owner decisions and
+the approvals they contain. Amend the plan and add a private-work design that
+applies those answers. Timestamps are UTC; the owner's local date is 2026-09-29.
+
+Decisions:
+
+- The owner's reply, quoted verbatim:
+  - Jobs: "deep and reliable research, document review and amend, website
+    building, slides generating and my day to day administrative tasks (email
+    replying, calendar management etc)".
+  - Privacy: "I don't want any of my personal data leak to the cloud, and for more
+    strict data protection, think of the need from lawyers, doctors and scientific
+    researchers."
+  - Spending: "approval of the spending limits (unlimited local runs; small GPT-6
+    Sol caps): 300 USD".
+  - Device: "It's a jetson GPU module from Nvidia; I have shell access to it".
+  - Coding: "yes but not as important".
+  - Gates: "approval to replace the old gates; approve".
+  - Pause: "travel abroad for other reasons".
+  - A later message: "no API key will be leaked".
+- Approved (D8): superseded and replaced by docs/PLAN.md and the standing
+  envelope:
+  - the stop rule at MVP_COMPLETION_AUDIT.md:107-110;
+  - the handoff's next-milestone ordering;
+  - the Stage B/C/D ladder (MVP_PRIVACY_FIRST_AGENT_V1.md:343-370,
+    MVP_PRIVATE_AGENT_EXECUTION_V1.md:24-34);
+  - the 40-call / 4,096-token / 192 KiB / 30-minute bound at
+    MVP_PRIVATE_AGENT_EXECUTION_V1.md:42-43.
+- Approved (D3): unlimited zero-fee local runs on public or synthetic inputs, and
+  `gpt-6-sol` on public or synthetic tasks only, with USD 300 in total and at most
+  USD 8 per task. The allocation is in PLAN.md section 4. Cloud never receives
+  personal or professional data.
+- Recorded (D1, D6, D12):
+  - the job families and the privacy rule;
+  - coding stays in scope at lower priority;
+  - the September 14-28 pause was travel, not a process failure.
+- Recorded (D5, partial): the device is an NVIDIA Jetson module and the owner has
+  shell access. The box checklist is still to be run. Tier O stays blocked until
+  the checklist results and a separate `Approved` entry exist.
+- Still open: D2, D4, D9-D11 and D13-D19. Defaults never authorize live, paid,
+  private-data, connector or publication actions.
+
+Changes:
+
+- docs/PLAN.md: status set to Approved; answers applied.
+  - New job families: document review and amendment, and admin.
+  - Phase 2 task mix: research 3, review 3, deck 2, website 1, admin 2, coding 1,
+    all public or synthetic.
+  - New Phase 1 items: PR-I (artifact image v2 for redlines) and PR-J (research
+    claims ledger).
+  - Tier-O preconditions and first jobs; the USD 300 allocation; D13-D19.
+  - Revised speed-lever candidates, risks and the travel-aware adoption rule.
+- Added docs/plans/PRIVATE_WORK_DESIGN_V1.md (Proposed). It covers the strict
+  privacy profile P1-P17, the staged draft-only admin assistant, research
+  reliability and document redlining, the device, and a do-not-claim list.
+- Added scripts/box-checklist.py: read-only and summary-only; it prints no IPs,
+  hostnames, usernames, keys or raw command lines.
+- docs/PROJECT_REVIEW_2026-09-28.md (uncommitted, from the preceding entry) gained
+  these corrections:
+  - the September pause was travel;
+  - the device was confirmed as a Jetson;
+  - Flash-Next may fit a 128 GB Thor through a community build;
+  - prose throughput is lower than the observed figure.
+- No runtime source, test, persisted contract, provider setting or dependency
+  changed.
+
+Evidence:
+
+- Four research lanes and one fact-checker. The checker confirmed 45 of 72
+  load-bearing claims outright and corrected the rest before use.
+- Sources included ABA Formal Opinion 512, Law Society of Ontario and CCBE
+  guidance, 45 CFR 164.312 and 164.514, GDPR Arts 9 and 32, PIPL Arts 28-32, NIH
+  NOT-OD-24-157 and NOT-OD-25-081, and NIST SP 800-171r3.
+- Also: the vLLM usage-stats and security documents, the RMinte RM-01 developer
+  guide, Gmail and Microsoft Graph scope references, RFC 6638, the SafeBreach,
+  EchoLeak and ShadowLeak reports, and the postmark-mcp disclosure.
+- Community Qwen3.8-27B throughput studies at 273 GB/s, and the Python-Redlines
+  and docx-revisions package pages.
+- `python3 scripts/box-checklist.py --self-test` passed. It covers argument
+  parsing, redaction of paths, keys and addresses, and address classes. A dry run
+  on macOS degraded cleanly.
+
+Failures or blockers:
+
+- The checklist has not run on Linux or the device.
+- The device module, its memory and the served weights are unconfirmed.
+- Main CI is still red, and the repository still sits in an iCloud-synced folder.
+- The research lanes' proposed shell redaction filter was refuted by the
+  fact-checker: it leaked compressed IPv6 addresses and keys in JSON form. It was
+  replaced by the summary-only script rather than used.
+
+Limitations and non-claims:
+
+- This approval establishes no model capability, privacy qualification, Tier-O
+  readiness, compliance with any regime, or release readiness.
+- The private-work design is Proposed.
+- Throughput and device facts are community or vendor reports until the probe
+  runs.
+
+Paid exposure: USD 0 of SOAR provider spend. Public web research and fetch only; no
+SOAR model, consultant, connector or paid request. The approved envelope has USD
+300 remaining.
+
+Next gate:
+
+- Phase 0 of docs/PLAN.md: move the working copy off iCloud, pin the CI fixture,
+  and have the owner run the box checklist.
+- Serving probe and the USD 15 discriminator.
+- First owner verdict.
+- Public pushes still need D10.
+
+References: [plan](PLAN.md),
+[private work design](plans/PRIVATE_WORK_DESIGN_V1.md),
+[review](PROJECT_REVIEW_2026-09-28.md),
+BL-20260928-1640-project-review-plan-v2.
+
+
+### BL-20260928-1811-phase0-owner-decisions -- 2026-09-28 -- Owner answers remaining decisions and starts Phase 0
+
+Status: `Approved`
+
+Scope or hypothesis: Record the owner's second set of answers (local date
+2026-09-29) and the instruction "start Phase 0". Record one security observation
+about the local inference endpoint the owner supplied.
+
+Decisions:
+
+- The owner's reply, quoted verbatim:
+  - Endpoint: "you can ignore the box's config and I'll provide the details later
+    on (for now, just use [the endpoint] for local inference)".
+  - Wait time: "acceptable wait per job: not a concern yet".
+  - Retries: "whether failed local model and web requests may be retried: yes".
+  - Publication: "approval to push to the public repo: yes".
+  - Mail and calendar: "which email and calendar accounts: forget about these yet
+    (need connectors to do the authentication)".
+  - Third-party data: "real jobs will include other people's data".
+  - Cloud rule: "whether 'never to the cloud' is absolute: yes unless the result is
+    bad and it really needs help from cloud (not a big concern yet, the system is
+    still in developing)".
+  - Start: "start Phase 0".
+- Approved: D4 recoverable semantics for zero-fee local inference and idempotent
+  public GETs. Cloud and consultant dispatches stay strictly at-most-once.
+- Approved: D10 pushes of reviewed work to the public repository. Credentials,
+  private endpoints, raw traces and evaluator gold remain excluded.
+- D2: no wall-time constraint for now.
+- D13: mail and calendar are deferred until connectors exist.
+- D14: real jobs will include third parties' data. The strict profile therefore
+  applies, and household-use exemptions cannot be assumed.
+- D15: cloud help for labelled data is never automatic. It may be used only by an
+  explicit owner decision for a specific task after a bad local result, through
+  the exact-packet approval. Where third parties' data is involved, the approval
+  screen must remind the owner that client or patient consent may be required. No
+  such use is planned during development.
+- The box checklist is deferred at the owner's request. The owner supplied the
+  inference endpoint. It is kept only in ignored local configuration, never in Git.
+
+Changes: None beyond this record.
+
+Evidence: Read-only requests to the supplied endpoint (model list, version,
+health, metrics, a CORS preflight) showed:
+
+- It is reachable on a public internet address over plain HTTP.
+- It answers the model list **without any API key**.
+- It returns `access-control-allow-origin: *`.
+- It reports vLLM 0.30.0, which is newer than the 0.28.0 recorded earlier.
+- It serves alias "RM-01 VLM" from a model directory named `Qwen3.8-27B` under an
+  `rm01` home directory, consistent with an RMinte RM-01 appliance, with
+  max_model_len 262,144.
+- Speculative decoding is active: 3.50M accepted of 4.79M drafted tokens (73%).
+  This explains the ~42-44 tokens/s observed earlier.
+- The prefix cache has hit 366M of 386M queried tokens.
+- Since the server started about 3.9 days earlier, it has completed 3,914 requests
+  totalling 386M prompt tokens (about 99K per request) and 5.09M generated tokens.
+  SOAR sent none of these.
+
+Failures or blockers:
+
+- An unauthenticated, publicly reachable inference endpoint means any internet
+  host that finds it can use the device's GPU.
+- Prompts and outputs cross the public internet unencrypted.
+- The observed load may be the owner's own tools or third parties; this is
+  unresolved.
+- Until the endpoint is authenticated and tunnelled, it may carry only public or
+  synthetic data. Tier O remains blocked, as the plan already requires.
+
+Limitations and non-claims: Metrics were read once. No control endpoint, weight
+file or configuration was touched. The source of the observed load is unknown.
+Nothing here verifies the served weights' precision or the device module.
+
+Paid exposure: USD 0. Read-only GET/OPTIONS requests to the owner's endpoint only.
+
+Next gate: Phase 0 of docs/PLAN.md. Environment move, green CI, serving probe
+(zero fee), discriminator (needs an OpenAI key in the owner's environment, never in
+chat or Git), first owner verdict. Recommend that the owner add `--api-key` and
+restrict network access to the endpoint.
+
+References: [plan](PLAN.md), BL-20260928-1745-owner-answers-plan-approved,
+[private work design](plans/PRIVATE_WORK_DESIGN_V1.md).
+
+
+### BL-20260928-1812-ci-fixture-pin -- 2026-09-28 -- Pin the legacy investigator fixture tests to a fixed revision
+
+Status: `Implemented`
+
+Scope or hypothesis: Main CI failed on 47e3c6f. Two legacy Repository Investigator
+tests archive the repository's own `HEAD` as a fixture. After the September 28
+checkpoint, docs/BUILD_LOG.md (1,064,131 bytes) exceeds search_text's 1 MiB
+per-file cap, so the exact-symbol search can no longer return a complete,
+untruncated occurrence set.
+
+Decisions: Pin both fixture sources to 6a32777fb2efcb4b1f24e5d5163f8d3235d84abb,
+the last revision with green CI. That uncouples the tests from repository growth
+without changing the tool's caps. The gated live-proof identity check, which must
+bind the real HEAD and a clean worktree, is deliberately left on HEAD.
+
+Changes:
+
+- tests/integration/local-repository-investigator.test.ts: add
+  `LEGACY_FIXTURE_REVISION`.
+- Use it in "retains the real symbol schedule with 250-byte objective drift at
+  18,432 tokens" and in "copies a content-addressed Git fixture without exposing
+  evaluator source".
+- `readRepositoryProofIdentity` is unchanged.
+- No production source changed.
+
+Evidence: CI run 36442008166 on 47e3c6f failed only this retention test. CI on
+6a32777 (September 2) was green. The CI check job checks out with fetch-depth 0, so
+the pinned commit is reachable. Local and CI results for this change are recorded
+in the pull request that carries it.
+
+Failures or blockers: None known. Verification is pending the pull request's CI
+run.
+
+Limitations and non-claims: This keeps a legacy test meaningful against a fixed
+tree. It does not validate the current tree's search behaviour on files over
+1 MiB, which remains capped by design.
+
+Paid exposure: USD 0.
+
+Next gate: The pull request's CI is green; then merge.
+
+References: BL-20260928-1640-project-review-plan-v2,
+[review W9](PROJECT_REVIEW_2026-09-28.md).

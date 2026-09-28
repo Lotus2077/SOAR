@@ -18079,3 +18079,90 @@ owner's key for the Phase 2 cloud arm is requested separately.
 
 References: [plan](PLAN.md), BL-20260928-1811-phase0-owner-decisions,
 BL-20260928-1826-phase0-cleanup.
+
+
+### BL-20260928-1921-phase0-discriminator-result -- 2026-09-28 -- Local Standard versus Heavy on four exposed tasks
+
+Status: `Verified`
+
+Scope or hypothesis: The narrowed Phase 0 discriminator
+(BL-20260928-1836-phase0-discriminator-scope) was run: Standard (thinking off, 4,096
+output tokens) against Heavy (thinking medium, 8,192 output tokens) on four failed,
+already-seen synthetic or public tasks. It ran through the committed headless driver
+at e4f55aa with runtime freeze 6b045753..., the qualified image e5c7075f..., and the
+owner's endpoint (vLLM 0.30.0, speculative decoding). Each pair ran concurrently.
+Zero fee.
+
+Decisions:
+
+- **Phase 1 order**, set from the evidence below:
+  1. PR-A (Heavy profile at every cap layer) together with PR-D (tolerant loop:
+     `length` and text-only replies become observations, per-phase request budgets);
+  2. PR-J (research claims ledger, host quote check and entailment pass);
+  3. PR-C (recoverable local and public dispatch) and PR-F (owner surface);
+  4. PR-E (cloud correctness, required before the Phase 2 cloud arm);
+  5. PR-B (streaming);
+  6. PR-I (redline image).
+
+  PR-B moves later because no run approached a timeout at these sizes. It is still
+  required before hour-scale jobs, since the serving card shows long non-streaming
+  requests cut at about 947 s.
+- **Product guidance.** When an output fails its checks, prefer regenerating from
+  the requirements with the failure as feedback over patching the flawed artifact
+  (T3). This applies to the planned Revise feature.
+
+Changes:
+
+- Eight registry rows in docs/experiments/registry.jsonl.
+- scripts/registry-row.py, which builds sanitized rows from a run's own database.
+- docs/PLAN.md Phase 0 and Phase 1 updated.
+- The September website checker (the qualified v3 evaluate.py) is reused unchanged
+  through a local Docker wrapper with networking off. Checker and gold data stay in
+  ignored storage.
+
+Evidence: Website scores use the qualified checker. It was calibrated in this run on
+the September rejected website and reproduced the recorded 15/30 exactly. The T2
+memos were scored blind (labels A and B) by one independent agent reviewer against
+the 12 critical gates written in September before any candidate existed.
+
+| Task | Standard | Heavy |
+| --- | --- | --- |
+| T1 website, fresh write | Submitted. 12 calls, 288 s, **26/30**. The four EUR/CNY conversions were wrong. | Submitted. 11 calls, 378 s, **30/30** technical checks. Screenshot review is still required for acceptance. |
+| T2 RFC memo | Submitted. 17 calls, 186 s, **9/12** gates. Rejected: UTF-8 scope, precision modality, a wrong section cite. | Submitted. 14 calls, 252 s, **7/12**. Rejected: the example contradicts the prose, and recommendations are labelled as mandatory. |
+| T3 website repair of the 15/30 draft | Submitted after all 40 calls, 1,091 s, **15/30**. No improvement. | Submitted. 14 calls, 654 s, **18/30**. Most totals still wrong. |
+| T4 Quality V2 (public plus private phases) | **Incomplete.** The public phase used 34 of the session's shared 40 requests (`bounded_allowance_exhausted`). | **Incomplete.** One response reached the 8,192-token `length` stop, which `runner.ts:335` treats as terminal (review W3). |
+
+Across all 8 runs: no unknown dispatch, no request timeout, no infrastructure-invalid
+run.
+
+Failures or blockers:
+
+- Research quality was rejected under both profiles.
+- T4 failed on harness rules under both profiles.
+- The cloud ceiling is still unmeasured (Phase 2).
+
+Limitations and non-claims:
+
+- Each cell is n = 1 on already-seen tasks, with no second seed. The server is shared
+  with unexplained external load.
+- The headless driver's caps (40 calls, 30 minutes) differ from the desktop's
+  (20 calls, 15 minutes). T1 Standard's 26/30 against September's 15/30 therefore
+  mixes budget, driver and run variance.
+- Directional reading only: thinking on helped the arithmetic-heavy build task and
+  used fewer calls. It did not help the research memo. Harness terminal rules caused
+  both T4 failures.
+- Nothing here is an owner verdict or an acceptance.
+
+Paid exposure: USD 0 (local, zero fee). One blind-review agent read only the public
+RFC texts and the two synthetic memos.
+
+Next gate:
+
+- The owner merges PR #1 and PR #2; this change follows as PR #3.
+- The owner's first verdict: recommended on the T1 Heavy website and its screenshots,
+  and ideally one small real public job in the app.
+- Phase 1 then proceeds in the order above.
+
+References: [registry](experiments/registry.jsonl),
+[serving card](experiments/serving-card-2026-09-28.md), [plan](PLAN.md),
+BL-20260928-1836-phase0-discriminator-scope.

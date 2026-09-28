@@ -17531,3 +17531,41 @@ the exact remote revision and inspect CI for that revision.
 
 References: BL-20260928-1458-source-checkpoint-publication,
 [handoff](HANDOFF.md), c0fbd08642687c366fcb18fe0493ec7c9009de17.
+
+
+### BL-20260928-1512-public-main-push-approved -- 2026-09-28 -- Record explicit approval for the prepared public checkpoint
+
+Status: `Approved`
+
+Scope or hypothesis: Publish the reviewed 248-file development checkpoint and
+its status records to the existing public Lotus2077/SOAR repository, main branch.
+
+Decisions: The owner replied "push to main" after the explicit public-payload
+approval request. This supplies the publication authorization required by the
+previous automatic approval rejection. Proceed with a normal, non-force push.
+
+Changes: Append this approval record without rewriting the blocked-push entry.
+No source, runtime setting, dependency, artifact or model permission changed.
+
+Evidence: Checkpoint c0fbd08642687c366fcb18fe0493ec7c9009de17 and status commit
+7f5e6ae4db87fc776be0a44536308130c7d78466 are committed locally. The worktree was
+clean when approval was received. The source payload and destination remain the
+ones disclosed in the approval request.
+
+Failures or blockers: The earlier public-push authorization block is superseded
+by the owner's explicit response. Previously recorded check/build timeouts and
+product limitations remain open.
+
+Limitations and non-claims: Permission to publish does not establish successful
+push, green CI, release readiness, model quality or private-data qualification.
+Ignored evidence, credentials and generated runtime state remain outside Git.
+
+Paid exposure: No inference, consultant, paid trial or real-private processing.
+Only ordinary Git/GitHub publication and read-only revision/CI checks are in scope.
+
+Next gate: Commit this authorization record, push the prepared main branch,
+verify the exact remote SHA and report the CI state without claiming pending
+checks have passed.
+
+References: BL-20260928-1504-public-push-approval-blocked,
+BL-20260928-1458-source-checkpoint-publication, [handoff](HANDOFF.md).

@@ -31,12 +31,15 @@ endpoint credential, benchmark gold data, or generated run artifacts.
 
 ## Repository map
 
-- `src/main`: Electron lifecycle, configuration, persistence, IPC, routing,
-  providers, tools, and the session runner;
+- `src/main/private-agent` and `src/main/general-tasks`: the current General
+  task runtime (broker, sandbox, durable loop, consultation, artifact export);
+- `src/main/patch-runs` and `runtime/patch-worker`: the opt-in coding pilot;
+- `src/main` (other modules): Electron lifecycle, configuration, persistence,
+  IPC, providers, tools, and the legacy Repository Investigator, Review Current
+  Changes and hybrid-simulation paths (frozen; see [docs/PLAN.md](docs/PLAN.md));
 - `src/preload`: the narrow renderer-to-main bridge;
 - `src/renderer`: the React desktop interface;
 - `src/shared`: schemas, event contracts, context construction, and reducers;
-- `src/benchmark`: fixture, workspace, preflight, evaluator, and result logic;
 - `native`: version-pinned, platform-specific native modules. PR6B1-B permits
   only the activation-locked macOS credential broker flavor;
 - `tests`: unit, integration, live opt-in, and Electron end-to-end coverage;
@@ -85,62 +88,6 @@ development-canary build followed by a production build. The dual-flavor gate
 requires the normal package policy to reject the special output and leaves
 `out/` restored to the normal application.
 
-### PR6R-A development-only checks
-
-PR6R-A1 is an unpackaged `$0` structural checkpoint, and A2 adds backend/test-
-only sealed loopback transport plus simulation accounting/recovery. Neither is
-a production Cloud path. They must never receive a real credential, configured
-provider endpoint, repository-egress permission, or paid authority. Run the
-build checks explicitly with:
-
-```sh
-pnpm build:pr6r-development-canary
-pnpm verify:pr6r-development-build-flavors
-```
-
-The first command intentionally leaves the special flavor in `out/`. Do not
-package or publish that output. The second command builds and verifies the
-special flavor, confirms that the normal policy rejects it, then rebuilds and
-verifies the normal flavor. `pnpm check` includes that dual-flavor sequence.
-If the dual-flavor command is interrupted, treat `out/` as unknown and possibly
-special. Run `pnpm build` to rebuild and verify the normal flavor before running,
-packaging, or publishing anything from `out/`.
-These A1/A2 gates have no external-network dependency: dependencies and fixture
-objects must already be present locally, and any outbound connection is a
-failed proof. A2 tests bind only ephemeral `127.0.0.1`/`::1` fixture listeners;
-restricted CI or local sandboxes must explicitly permit that loopback bind, not
-general egress. The tests assert exact zero/one observed request counts and scan
-file-backed SQLite/safe projections for raw request and response markers.
-Any change to a persisted PR6R campaign, comparison, safe-projection, fallback,
-transition, or chronology contract must deliberately update the payload-contract
-descriptor/version and its migration tests; the fingerprint is an explicit
-contributor ratchet, not an automatic digest of the Zod implementation. The A1
-store intentionally accepts only its one fresh schema because it is unshipped.
-Do not treat a version/fingerprint bump alone as a migration: the first
-post-A1 persisted-contract change must add an ordered schema migration and a
-compatibility test that opens the immediately preceding committed database.
-
-The exact frozen public fixture proof additionally requires an already-present
-local Flask Git repository containing the pinned objects:
-
-```sh
-SOAR_PR6R_FLASK_REPO=/absolute/path/to/local/flask \
-  pnpm test:pr6r-development-fixture
-```
-
-The fixture command accepts a local repository root only. It may make its
-bounded local shared clone, but it must not clone from a URL, fetch, contact a
-model provider, or read a secret; missing objects fail closed.
-Keep the source path in the untracked environment only and never paste a private
-path, endpoint, credential, raw trace, or generated database into a commit or
-review artifact. A successful materialization returns a caller-owned cleanup
-handle; the explicit proof invokes it in `finally` and verifies that its
-temporary workspace is gone. A future app coordinator must preserve that rule
-on success, failure, and cancellation. After an interrupted run, inspect and
-remove only the exact leftover temporary directory—never use a broad recursive
-cleanup target. `$0` here means zero external provider spend; local compute and
-storage are not measured.
-
 After committing a release candidate, or before citing an integration test that
 builds its fixture from `git archive HEAD`, run the committed-head gate:
 
@@ -168,13 +115,13 @@ Use live checks only when the change touches the corresponding integration:
 ```sh
 pnpm test:live-vllm
 pnpm test:live-repository
-pnpm benchmark:preflight
 ```
 
-Live tests may contact the configured provider. Benchmark evaluation may spend
-money or require Docker and official evaluator dependencies; read
-[benchmarks/README.md](benchmarks/README.md) first. A blocked preflight is a
-missing prerequisite, not a model result.
+Live tests may contact the configured provider. Never send personal or
+professional data to any cloud model, search engine, telemetry service or
+development agent (see the privacy rule in [docs/PLAN.md](docs/PLAN.md)).
+The held-out benchmark evaluator and PR6R development canary were removed on
+2026-09-28; they remain available at tag `archive/router-era-2026-09-28`.
 
 ## Pull request expectations
 

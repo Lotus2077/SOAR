@@ -17901,3 +17901,99 @@ Next gate: The pull request's CI is green; then merge.
 
 References: BL-20260928-1640-project-review-plan-v2,
 [review W9](PROJECT_REVIEW_2026-09-28.md).
+
+
+### BL-20260928-1826-phase0-cleanup -- 2026-09-28 -- Move off iCloud, remove dead legacy code and consolidate docs
+
+Status: `Implemented`
+
+Scope or hypothesis: The owner instructed (local date 2026-09-29), verbatim: "clean
+up the codebase before it gets too messy (it should be maintainable); log every
+critical decision you made and always verify that you are still on the right track
+before starting next critical implementation; keep pushing for phase 0 building and
+do not stop until you hit the phase 0 milestone". This entry covers the Phase 0
+environment move and a bounded cleanup.
+
+Decisions:
+
+- **On-track check before the cleanup.** Phase 0 exit criteria were re-read from
+  docs/PLAN.md. The cleanup was timeboxed and limited to code that nothing in the
+  running app imports. It must not displace the serving probe, the discriminator
+  or the first owner verdict.
+- **Scope.**
+  - Removed: the PR6R development canary (a separate build flavor, not in the
+    default app), the held-out and local-review benchmark evaluator (`src/benchmark`
+    and its scripts; readiness validation reads only `benchmarks/` data), and the
+    production-dead fake-only `run-session-v2`.
+  - Kept: the wired legacy tracks (Repository Investigator, Review Current Changes,
+    hybrid simulation, native credential lease) and the `benchmarks/` manifests.
+    The wired tracks will be flagged off in Phase 1 PR-F and deleted only later,
+    which supersedes the plan's "delete after the window" for dead code only.
+- **Recoverability.** Everything removed stays reachable at the annotated tag
+  `archive/router-era-2026-09-28` (pointing at 47e3c6f), which was pushed to origin.
+- **Build verification.** The removed flavor check had been the step that built
+  the app inside `pnpm check` and before CI's e2e job. It is replaced by an ordinary
+  `pnpm build` in both places.
+- **Documents.** No document was moved, so append-only log links keep working.
+  Added a docs index. Replaced the 683-line README with a concise current one and
+  kept the old text at docs/history/README-2026-09-28.md with its links fixed.
+  CONTRIBUTING and ARCHITECTURE got removal notes.
+- **Environment.** Working copy is now a fresh clone outside iCloud. Node 22.22.2
+  is installed through nvm with a verified checksum, and pnpm 10.12.4 through
+  corepack. Ignored local configuration was recreated there with the owner-supplied
+  endpoint; it is never committed. `.soar` evidence is being copied from the iCloud
+  copy, and the iCloud copy stays untouched.
+
+Changes:
+
+- Removed:
+  - `src/main/pr6r-development/`, `src/shared/pr6r-development-*.ts`,
+    `src/renderer/pr6r-development-canary/`, `src/main/index.pr6r-development-canary.ts`,
+    `electron.vite.pr6r-development-canary.config.ts`, and the PR6R build scripts;
+  - `src/benchmark/`, `src/shared/heldout-review-runner-contracts.ts`,
+    `scripts/benchmark*.ts`;
+  - `src/main/agent/run-session-v2.ts`;
+  - 31 test and helper files tied only to the above.
+- Edited `package.json` (8 scripts removed; `build` and `check` simplified),
+  `tsconfig.node.json`, `electron.vite.config.ts` (removed the PR6R graph guard),
+  the CI e2e job (Build step), `tests/helpers/scripted-provider.ts`, README,
+  docs/README.md, CONTRIBUTING, ARCHITECTURE and PLAN.
+- Added scripts/serving-probe.py, a zero-fee endpoint probe. It never prints the
+  endpoint or key.
+- Size: tracked source went from 82,144 to 56,075 lines and tests from 85,913 to
+  62,478.
+
+Evidence:
+
+- **iCloud.** Off iCloud, with Node 22.22.2:
+  - `tests/unit/private-agent-progress.test.ts`, which had hit a 60 s startup
+    deadline on the iCloud copy (BL-20260928-1443), passed 17/17 in 1.18 s;
+  - the pinned investigator tests passed 2/2 in 4.3 s;
+  - the full `pnpm check` before cleanup passed in 65 s (148 files, 2,307 tests,
+    build), where the iCloud copy had hit 300 s caps.
+
+  That settles the earlier "cause not established" local timeouts as an
+  environment effect of evicted iCloud files.
+- **After cleanup.** Typecheck passed. Full `pnpm check` passed in 38 s: 119 files
+  and 1,858 tests passed, 67 skipped, and the main, preload and renderer builds
+  succeeded.
+
+Failures or blockers:
+
+- Merging PR #1 was refused by the harness's automatic-approval classifier
+  ("Merge Without Review"). The owner must merge it or allow merges. This
+  cleanup is stacked on it.
+- Docker (OrbStack) is not running, so the qualified image has not been saved yet.
+
+Limitations and non-claims: Removal was verified by typecheck, unit and integration
+tests and the build. The Electron e2e suite runs in CI. Wired legacy code remains.
+This is not a behaviour change for the General task path.
+
+Paid exposure: USD 0.
+
+Next gate: CI green on this change. Owner merges PR #1 and this change. Then the
+serving card, the discriminator (the owner puts the OpenAI key in the Keychain),
+and the first owner verdict.
+
+References: [plan](PLAN.md), [docs index](README.md),
+BL-20260928-1812-ci-fixture-pin, BL-20260928-1811-phase0-owner-decisions.

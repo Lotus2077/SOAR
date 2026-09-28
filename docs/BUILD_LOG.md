@@ -17490,3 +17490,44 @@ release or a claim of general-task reliability.
 References: [handoff](HANDOFF.md), [current readiness](MVP_READINESS.md),
 BL-20260928-1443-workspace-cleanup-handoff,
 [general-task setup](MVP_GENERAL_CONSULTANT_SETUP.md).
+
+
+### BL-20260928-1504-public-push-approval-blocked -- 2026-09-28 -- Record the automatic publication approval block
+
+Status: `Blocked`
+
+Scope or hypothesis: Publish the reviewed development checkpoint to the existing
+public origin/main after the owner's commit-and-push request.
+
+Decisions: Respect the automatic approval rejection. Do not retry the same public
+publication through a different transport, branch, tool or repository. Request
+explicit approval for the concrete public payload and destination.
+
+Changes: Committed the 248 reviewed source/test/runtime/documentation files as
+c0fbd08642687c366fcb18fe0493ec7c9009de17. Record this permission boundary in a
+separate local documentation commit; no production source changed.
+
+Evidence: The local checkpoint commit completed and the worktree was clean.
+Automatic approval review rejected git push origin main before execution, stating
+that the general push request did not explicitly authorize this entire payload
+to a public destination. The reviewed destination is Lotus2077/SOAR on GitHub.
+The starting remote revision is 6a32777fb2efcb4b1f24e5d5163f8d3235d84abb.
+
+Failures or blockers: Explicit public-publication approval is required by the
+automatic reviewer. Source review found no actual credentials/private endpoints
+or ignored artifacts in the payload, but that did not satisfy its authorization
+requirement. The push has not occurred and no checkpoint CI run is claimed.
+
+Limitations and non-claims: The source remains a development checkpoint with the
+full-check/build limitations recorded in the preceding entry. A local commit is
+not remote publication, green CI or a release.
+
+Paid exposure: No model, consultant or paid runtime request. The rejected push
+was not executed; only read-only GitHub metadata verification followed it.
+
+Next gate: Obtain explicit approval to publish the reviewed 248-file checkpoint
+and this status record to public Lotus2077/SOAR main. Then push normally, verify
+the exact remote revision and inspect CI for that revision.
+
+References: BL-20260928-1458-source-checkpoint-publication,
+[handoff](HANDOFF.md), c0fbd08642687c366fcb18fe0493ec7c9009de17.

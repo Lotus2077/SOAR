@@ -3,7 +3,7 @@ import http from "node:http";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
@@ -69,6 +69,10 @@ function options(f: Awaited<ReturnType<typeof fixture>>, jobId: string, secret: 
       }
       const files = [...input.files, ...input.contract.requiredArtifacts.map(a => ({ path: a.path, bytes: Buffer.from(a.path.endsWith(".json") ? "[]" : "synthetic result") }))];
       const snapshot = checkpoints.save(files), checks = input.checks.map(c => ({ id: c.id, passed: true }));
+      // The private phase records what the finish-time claims check verified, as the real runner does.
+      if (!input.webDestinations?.length && jobId.startsWith("judged")) f.store.append(jobId, { type: "claims_verified", contextId: input.contextId, version: 1,
+        claims: [{ id: "C1", sentence: "s1", quote: "q1 long enough", context: "c1" }, { id: "C2", sentence: "s2", quote: "q2 long enough", context: "c2" }],
+        ...(jobId === "judged-invalid" ? { invalidClaimIds: ["C9"] } : {}) });
       f.store.append(jobId, { type: "completed", contextId: input.contextId, snapshot, checks, verifiedSnapshotSha256: checkpoints.fingerprint(snapshot) });
       return { status: "completed", reason: "fixture", snapshot, checks, modelCalls: 0 };
     } }) };
@@ -88,6 +92,57 @@ describe("general isolated phase session", () => {
     expect(f.requests.filter(row => row.method === "GET")).toEqual([{ path: "/index.html", method: "GET", body: "" }, { path: "/index.html", method: "GET", body: "" }]);
   });
 
+  it("judges the verified claims once, after the private completion is durable, and records verdicts as evidence", async () => {
+    const f = await fixture(), judge: unknown[][] = [];
+    const spy = vi.spyOn(PrivateAgentModel.prototype, "complete").mockImplementation(async function (this: PrivateAgentModel, messages, tools, _signal, overrides) {
+      expect(tools).toEqual([]); expect(overrides).toMatchObject({ thinking: "disabled", maxOutputTokens: 256, purpose: "claims entailment judgement" });
+      judge.push(messages); return { content: judge.length === 1 ? '{"verdict":"supported","reason":"fixture"}' : "garbage", toolCalls: [], finishReason: "stop", costUsd: 0, durationMs: 1 };
+    });
+    try {
+      expect((await new GeneralAgentSession(options(f, "judged", "PRIVATE-JUDGE")).run()).status).toBe("submitted");
+      const events = f.store.events("judged"), completedAt = events.findIndex(e => e.type === "completed" && e.contextId === String(events.find(x => x.type === "session_started")!.privateContextId));
+      const judgedAt = events.findIndex(e => e.type === "claims_entailment");
+      expect(completedAt).toBeGreaterThan(-1); expect(judgedAt).toBeGreaterThan(completedAt);
+      expect(events[judgedAt]).toMatchObject({ version: 1, entailmentCalls: 2, truncated: false, counts: { supported: 1, partial: 0, unsupported: 0, contradicted: 0, not_judged: 1 },
+        verdicts: [{ id: "C1", verdict: "supported", reason: "fixture" }, { id: "C2", verdict: "not_judged", reason: "judge_reply_invalid" }], protocol: { version: 1 } });
+      expect(judge).toHaveLength(2); expect(String((judge[0] as { content: string }[])[1]!.content)).not.toContain("PRIVATE-JUDGE");
+      // Resuming a submitted session never judges again.
+      expect((await new GeneralAgentSession(options(f, "judged", "PRIVATE-JUDGE")).run()).status).toBe("submitted");
+      expect(judge).toHaveLength(2); expect(f.store.events("judged").filter(e => e.type === "claims_entailment")).toHaveLength(1);
+    } finally { spy.mockRestore(); }
+  });
+  it("submits before the pass, so a judge that outlives the session deadline cannot revoke the submission", async () => {
+    const f = await fixture();
+    const spy = vi.spyOn(PrivateAgentModel.prototype, "complete").mockImplementation(async () => { await new Promise(resolve => setTimeout(resolve, 700)); return { content: '{"verdict":"supported"}', toolCalls: [], finishReason: "stop", costUsd: 0, durationMs: 1 }; });
+    try {
+      const config = { ...options(f, "judged-slow", "PRIVATE-SLOW"), limits: { maxRequests: 40, maxElapsedMs: 600 } };
+      expect((await new GeneralAgentSession(config).run()).status).toBe("submitted");
+      const types = f.store.events("judged-slow").map(e => e.type);
+      expect(types.indexOf("session_submitted")).toBeGreaterThan(types.indexOf("completed")); expect(types.indexOf("claims_entailment")).toBeGreaterThan(types.indexOf("session_submitted"));
+      expect(f.store.events("judged-slow").find(e => e.type === "claims_entailment")).toMatchObject({ counts: { supported: 2 }, truncated: false });
+    } finally { spy.mockRestore(); }
+  });
+  it("a pause during the pass stops it at a claim boundary without recording, and the next run judges from the start", async () => {
+    const f = await fixture(), config = options(f, "judged-pause", "PRIVATE-PAUSE");
+    const session = new GeneralAgentSession(config); let calls = 0;
+    const spy = vi.spyOn(PrivateAgentModel.prototype, "complete").mockImplementation(async () => { calls++; if (calls === 1) session.pause(); return { content: '{"verdict":"partial"}', toolCalls: [], finishReason: "stop", costUsd: 0, durationMs: 1 }; });
+    try {
+      expect(await session.run()).toMatchObject({ status: "paused", reason: "session_stopped" });
+      expect(f.store.events("judged-pause").some(e => e.type === "session_submitted")).toBe(true);
+      expect(f.store.events("judged-pause").some(e => e.type === "claims_entailment")).toBe(false); expect(calls).toBe(1);
+      expect((await new GeneralAgentSession(config).run()).status).toBe("submitted");
+      expect(f.store.events("judged-pause").find(e => e.type === "claims_entailment")).toMatchObject({ entailmentCalls: 2, truncated: false, counts: { partial: 2 } });
+    } finally { spy.mockRestore(); }
+  });
+  it("lists claims the runner could not validate as not judged", async () => {
+    const f = await fixture();
+    const spy = vi.spyOn(PrivateAgentModel.prototype, "complete").mockResolvedValue({ content: '{"verdict":"supported"}', toolCalls: [], finishReason: "stop", costUsd: 0, durationMs: 1 });
+    try {
+      expect((await new GeneralAgentSession(options(f, "judged-invalid", "PRIVATE-INVALID")).run()).status).toBe("submitted");
+      expect(f.store.events("judged-invalid").find(e => e.type === "claims_entailment")).toMatchObject({ entailmentCalls: 2, counts: { supported: 2, not_judged: 1 },
+        verdicts: [{ id: "C1", verdict: "supported" }, { id: "C2", verdict: "supported" }, { id: "C9", verdict: "not_judged", reason: "claim_text_invalid" }] });
+    } finally { spy.mockRestore(); }
+  });
   it("a private-derived public fetch is denied before transport despite clean scan", async () => {
     const f = await fixture(); await new GeneralAgentSession(options(f, "blocked", "PRIVATE-CANARY")).run();
     const contextId = String(f.store.events("blocked").find(e => e.type === "session_started")!.privateContextId);

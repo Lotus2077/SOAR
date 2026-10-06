@@ -18776,3 +18776,100 @@ Next gate: J2 restructured as BL-20261006-1230 decides; owner verdicts.
 
 References: BL-20261006-1150-pr-j1-claims-ledger-implemented,
 BL-20261006-1230-pr-j2-review-findings, [registry](experiments/registry.jsonl).
+
+
+### BL-20261007-0120-pr-j2-entailment-implemented -- 2026-10-07 -- Entailment pass implemented at the session level, after two reviews
+
+Status: `Implemented`
+
+Scope or hypothesis: PR-J2 as designed in BL-20261006-1158, restructured as
+decided in BL-20261006-1230. Branch `phase1-claims-entailment`, pull request #6,
+stacked on #5. On-track check: PR #5 is green again; the ledger dry runs
+(BL-20261006-1240) showed the local model producing passing ledgers on both
+seen tasks, with one visibly unsupported sentence (T2 C19) that only a
+judgement can flag; the pass therefore has a measured need.
+
+Decisions:
+
+- **Where the pass runs (deviation from the design).** Not in the runner's
+  finish branch. The runner's finish-time verifier run asks the claims check for
+  source windows (`SOAR_CLAIMS_CONTEXT=1`) and records a `claims_verified` event
+  (each claim validated as exact text; a hostile window loses only its own
+  claim, listed in `invalidClaimIds`). The session judges only after the private
+  context's `completed` event and the `session_submitted` event are both
+  durable, so nothing the judge does can revoke a completion or a submission.
+- **Own clock, caller cancel, pause at claim boundaries.** The pass is bounded
+  by `ENTAILMENT_MAX_MS` (15 min) and the caller's cancel signal, never by the
+  session wall deadline. A pause (owner Pause, app quit) aborts the in-flight
+  judge call, stops at the next claim boundary, records nothing and returns
+  `paused`; the next resume judges from the start. A durable private completion
+  is always finalisable: the session's wall-deadline gate and the desktop's
+  deadline and allowance gates exempt it (`finalising`).
+- **Judge dispatches never gate anything.** Requests with purpose
+  `claims entailment judgement` are excluded from the unresolved-dispatch rules
+  in the runner, the session and the controller's `uncertain`; they are never
+  replayed. The controller no longer lets a deadline abort or a cancel that
+  arrives after `session_submitted` downgrade the status.
+- **Judge call shape.** `model.complete` accepts narrowing overrides only
+  (thinking off, 256 tokens, purpose); the prompt holds the sentence, the quote
+  and the window and nothing else; replies are parsed defensively, reasons must
+  be exact text or are dropped; verdicts are supported, partial, unsupported,
+  contradicted, or not_judged with a reason.
+- **Output bounds.** Windows are trimmed by escaped bytes around the quote
+  (quote always kept), the whole check output is held under 240,000 escaped
+  bytes by blanking windows from the end and then dropping sentence and quote
+  from trailing claims, so the finish-time run can never fail the critical
+  check on size. TS bounds count code points like the python check.
+- **Surface.** `claims_entailment` event (verdicts, counts, calls, truncated,
+  protocol hash) copied into the task record and snapshot as `entailment`; a
+  summary line; `registry-row.py` reports `entailment.supportRate`. No UI
+  control (PR-F).
+
+Changes: `claims.ts` (judgeClaims, schemas, prompt, python windows and budget),
+`model.ts` (overrides), `runner.ts` (`claims_verified`, `unsettledDispatch`,
+`checkCommand` context flag), `session.ts` (`entailment()`, `passAbort`,
+finalising rule, submission before the pass), `controller.ts` (`entailment`
+field, summary, `uncertain`, `submitted`, `canResume` and deadline exemptions),
+shared contract, `registry-row.py`, experiments README; tests across claims,
+runner, session and controller.
+
+Evidence:
+
+- `pnpm check`: 120 files, 1,907 tests passed, 72 skipped, typecheck and build.
+  Docker-gated suites on the qualified runtime image, final tree: 4 files,
+  43 tests passed (claims locators through the real command, sandbox isolation,
+  evidence replay, the full loop through real containers).
+- Unit tests cover: window emission only under the finish flag; window keeps
+  its quote at a non-ASCII line edge; code-point bounds; two-stage output
+  budget; judgeClaims verdict parsing, invalid replies, hostile reason text,
+  transport failure, clock reserve, cancellation, pause; runner `claims_verified`
+  with per-claim validation and an unknown judge dispatch after completion;
+  session ordering (completed, session_submitted, claims_entailment), a judge
+  outliving the session deadline, pause-and-resume of the pass, invalid ids
+  listed as not judged; controller mapping, deadline abort during the pass
+  keeping `submitted`, pause during the pass leaving a resumable task.
+- Reviews. First implementation (BL-20261006-1230): three real findings, one
+  cause. Second review of the restructure (2 lenses, 8 verifiers, all
+  confirmed): the pass still ran under the session wall clock before
+  `session_submitted` (high, two variants); pause was a no-op during the pass;
+  one hostile claim voided every judgement; a crash during the pass after an
+  allowance-exhaustion completion was unresumable; window trimming could cut
+  the quote; TS bounds counted UTF-16 units; blank windows could still exceed
+  the stdout cap. All eight fixed before this entry, each with a test.
+
+Failures or blockers: None open. No live run has exercised the judge; the
+first will be a research dry run on this tree.
+
+Limitations and non-claims: A local-model verdict is evidence, not acceptance.
+The judge is the model that wrote the report. A paused pass restarts rather
+than resumes. Support rates compare only across runs with the same judge and
+prompt (protocol hash recorded).
+
+Paid exposure: USD 0.
+
+Next gate: Docker-gated suites on the final tree; a research dry run with the
+judge (T2 heavy) recorded in the registry with its support rate; then PR-C and
+PR-F per the Phase 1 order.
+
+References: BL-20261006-1158-pr-j2-entailment-design,
+BL-20261006-1230-pr-j2-review-findings, BL-20261006-1240-phase1-ledger-v1-results.

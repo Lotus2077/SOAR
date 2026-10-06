@@ -32,7 +32,7 @@ day-to-day administration, and (at lower priority) coding.
 | --- | --- |
 | General task (desktop) | A goal with optional files and exact public URLs, saved progress, pause/resume/cancel, preview and export. Accepted examples: two synthetic audits and one three-slide deck. Research tasks with public sources require a host-checked claims ledger (verbatim quotes against retained source bytes). Research and websites are not yet accepted. |
 | Local model profile | `heavy` (thinking on, 16K output, 80 calls / 90 min) is the default since 2026-10-06; `standard` (the September profile: thinking off, 4,096 tokens, 20 calls / 15 min) stays selectable with `SOAR_GENERAL_TASK_PROFILE=standard`. Every result before that date used `standard`. |
-| Cloud comparison | Not yet run. The Phase 2 fair test compares local and `gpt-6-sol` through the same loop, on public or synthetic tasks. |
+| Cloud comparison | Not yet run. The Phase 2 fair test compares local and `gpt-6-sol` through the same loop, on public or synthetic tasks; the headless driver's `--arm cloud` (OpenAI request shape, cached-rate settlement, USD 8 cap per task, key from the launching shell only) is implemented but has made no live call. |
 | Tier O (private data) | Blocked until the box checklist, an encrypted tunnel, telemetry-off checks and an owner approval are recorded. |
 | Coding pilot | Opt-in "Fix a repository" flow with cloud execution in isolated containers. |
 | Legacy tracks | Repository Investigator, Review Current Changes, the coding pilot and the hybrid simulation stay wired but are hidden unless `SOAR_ENABLE_LABS=true`; the general task is the default surface and the ⌘N target. The PR6R canary and held-out evaluator were removed; they remain at tag `archive/router-era-2026-09-28`. |

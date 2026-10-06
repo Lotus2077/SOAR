@@ -134,6 +134,32 @@ const LOCAL_SCREEN_BUDGETS: Readonly<Record<LocalScreenProfile, { maxModelCalls:
     maxElapsedMs: GENERAL_TASK_BUDGETS.heavy.elapsedMs, maxRequests: GENERAL_TASK_BUDGETS.heavy.sessionRequests },
 });
 
+/** Phase 2 cloud arm (PR-E): the key comes from the process environment only and never reaches the freeze, the result or the registry. */
+export const CLOUD_ARM_MAX_FEE_USD = 8;
+export const CLOUD_ARM_KEY_VARIABLE = "SOAR_PHASE2_CLOUD_API_KEY";
+export interface CloudArmInput { model: string; endpoint: string; prices: { input: number; output: number; cached: number }; maxFeeUsd: number }
+export function parseCloudPrices(value: string): CloudArmInput["prices"] {
+  const parts = value.split(",").map(part => Number(part));
+  if (parts.length !== 3 || parts.some(part => !Number.isFinite(part) || part < 0) || parts[2]! > parts[0]!) throw new Error("local_screen_cli_invalid");
+  return { input: parts[0]!, output: parts[1]!, cached: parts[2]! };
+}
+export function buildCloudArm(input: CloudArmInput, environment: NodeJS.ProcessEnv, coordinator: { maxOutputTokens: number; thinking: "disabled" | "medium"; maxRequestBytes: number }) {
+  const endpoint = new URL(input.endpoint);
+  if (endpoint.protocol !== "https:" || !(input.maxFeeUsd > 0 && input.maxFeeUsd <= CLOUD_ARM_MAX_FEE_USD)) throw new Error("local_screen_cloud_arm_invalid");
+  const apiKey = environment[CLOUD_ARM_KEY_VARIABLE];
+  if (!apiKey || !/^[\x21-\x7e]{8,512}$/u.test(apiKey)) throw new Error("local_screen_cloud_key_missing");
+  const credentialVersion = Number(environment.SOAR_PHASE2_CLOUD_CREDENTIAL_VERSION ?? "1");
+  if (!Number.isSafeInteger(credentialVersion) || credentialVersion < 0) throw new Error("local_screen_cloud_arm_invalid");
+  const accountId = environment.SOAR_PHASE2_CLOUD_ACCOUNT_ID ?? "owner_cloud_account";
+  const destination: BrokerDestination = { id: "cloud_coordinator", kind: "cloud_model", endpoint: endpoint.href, apiKey, accountId, credentialVersion,
+    privateDataAdmitted: false, maxResponseBytes: 512 * 1024, timeoutMs: 600_000, maxRequestBytes: coordinator.maxRequestBytes };
+  // Same output limit, thinking mode and body cap as the local arm; only the API shape, the prices and the timeout differ.
+  const modelConfig = { destinationId: "cloud_coordinator", model: input.model, api: "openai" as const, maxOutputTokens: coordinator.maxOutputTokens, thinking: coordinator.thinking,
+    inputUsdPerMillion: input.prices.input, outputUsdPerMillion: input.prices.output, cachedInputUsdPerMillion: input.prices.cached, maxRequestBytes: coordinator.maxRequestBytes };
+  const maxFeeMicrousd = Math.round(input.maxFeeUsd * 1_000_000);
+  return { destination, modelConfig, maxFeeMicrousd, freeze: { arm: "cloud" as const, accountId, credentialVersion, endpointSha256: digest(endpoint.href), maxFeeMicrousd, modelConfig } };
+}
+
 /** Adds the claims ledger requirement: sources are the job's input files plus, for two-phase runs, the public sources the host retained (never the model-authored context files). */
 export function withClaimsLedger(phase: SessionPhase, publicRetrieval: boolean): SessionPhase {
   const report = phase.contract.requiredArtifacts.find(artifact => artifact.path.endsWith(".md"))?.path ?? phase.contract.requiredArtifacts[0]!.path;
@@ -153,6 +179,8 @@ export async function runLocalArtifactScreen(input: {
   profile?: LocalScreenProfile;
   /** Require output/claims.json, verified by the host against the job's input and transferred context files. */
   claimsLedger?: boolean;
+  /** Phase 2 cloud arm: the coordinator is a cloud model; the local model still judges claims. */
+  cloudArm?: CloudArmInput;
 }) {
   if (![input.expectedJobSha256, input.expectedBriefSha256, input.syntheticAuthoritySha256, input.expectedRuntimeSha256].every(hash => /^[a-f0-9]{64}$/u.test(hash)) ||
       !/^sha256:[a-f0-9]{64}$/u.test(input.imageId) ||
@@ -218,11 +246,14 @@ export async function runLocalArtifactScreen(input: {
       publicPhase = buildPublicRetrievalPhase({ brief, expectedBriefSha256: brief.boundHash,
         destinationId: "approved_public_snapshots", indexUrl: `${receiver.endpoint}index.html` });
     }
+    const cloud = input.cloudArm ? buildCloudArm(input.cloudArm, process.env, coordinator) : undefined;
+    if (cloud) destinations.push(cloud.destination);
     const scanner = new RulePacketScanner();
     const broker = new PrivateAgentBroker(store, destinations, scanner);
-    const modelConfig = { destinationId: "owned_local_model", model: config.vllm.model, maxOutputTokens: coordinator.maxOutputTokens,
+    const localModelConfig = { destinationId: "owned_local_model", model: config.vllm.model, maxOutputTokens: coordinator.maxOutputTokens,
       inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: coordinator.thinking, maxRequestBytes: coordinator.maxRequestBytes,
       ...(coordinator.sampling ? { sampling: { ...coordinator.sampling } } : {}) };
+    const modelConfig = cloud ? cloud.modelConfig : localModelConfig;
     const freeze = { version: 1, jobId, sourceFreeze: sourceFreeze.files, sourceFreezeSha256: sourceFreeze.sha256, imageId: input.imageId,
       modelConfig, endpointIdentitySha256: digest(destinations[0]!.endpoint), deployment: "synthetic_only_unverified_for_private_data",
       taskBinding: task.binding, sourceBindingSha256: task.sourceBindingSha256,
@@ -230,13 +261,15 @@ export async function runLocalArtifactScreen(input: {
       publicPhaseSha256: publicPhase ? sessionPhaseIdentity(publicPhase) : null,
       publicSnapshot: publicSnapshot?.binding ?? null,
       scanner: "rules_only_not_a_privacy_classifier", pauseAfterTools: input.pauseAfterTools ?? null,
-      profile: profileName, claimsLedger: input.claimsLedger === true,
+      profile: profileName, claimsLedger: input.claimsLedger === true, arm: cloud ? cloud.freeze : { arm: "local" as const },
       limits: { requests: budget.maxRequests, modelCalls: budget.maxModelCalls, toolCalls: budget.maxToolCalls, outputTokens: modelConfig.maxOutputTokens,
-        inputBytes: coordinator.maxRequestBytes, requestTimeoutMs: coordinator.requestTimeoutMs, elapsedMs: budget.maxElapsedMs, feeMicrousd: 0 },
+        inputBytes: coordinator.maxRequestBytes, requestTimeoutMs: cloud ? cloud.destination.timeoutMs : coordinator.requestTimeoutMs, elapsedMs: budget.maxElapsedMs, feeMicrousd: cloud?.maxFeeMicrousd ?? 0 },
       startedAt: new Date().toISOString(), artifactAccepted: null };
     save("freeze.json", freeze);
     session = new GeneralAgentSession({ jobId, imageId: input.imageId, store, broker, checkpoints,
       trustedHostModelFactory: contextId => new PrivateAgentModel(broker, modelConfig, jobId, contextId),
+      ...(cloud ? { cloudArm: { destinationId: cloud.destination.id, maxFeeMicrousd: cloud.maxFeeMicrousd },
+        judgeModelFactory: (contextId: string) => new PrivateAgentModel(broker, localModelConfig, jobId, contextId) } : {}),
       privatePhase, publicPhase, limits: { maxRequests: budget.maxRequests, maxElapsedMs: budget.maxElapsedMs },
       syntheticInputApproval: { privatePhaseSha256: sessionPhaseIdentity(privatePhase), authoritySha256: input.syntheticAuthoritySha256 } });
     let requestedPause = false, lastReported = -1;
@@ -284,13 +317,18 @@ export async function runLocalArtifactScreen(input: {
 
 export function parseLocalArtifactScreenArguments(args: string[]): Parameters<typeof runLocalArtifactScreen>[0] {
     const snapshotNames = ["--public-snapshot-directory", "--public-snapshot-brief-sha256", "--public-snapshot-map-sha256", "--public-snapshot-index-path"];
-    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", ...snapshotNames];
+    const cloudNames = ["--cloud-model", "--cloud-endpoint", "--cloud-prices", "--max-fee-usd"];
+    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", "--arm", ...cloudNames, ...snapshotNames];
     if (args[0] !== "--execute-synthetic-local" || args.length % 2 !== 1 || args.slice(1).some((arg, i) => i % 2 === 0 && !names.includes(arg)) ||
         new Set(args.filter((_, i) => i % 2 === 1)).size !== (args.length - 1) / 2) throw new Error("local_screen_cli_invalid");
     const values = new Map(args.slice(1).filter((_, i) => i % 2 === 0).map(name => [name, args[args.indexOf(name) + 1]!]));
     if (names.slice(0, 7).some(name => !values.has(name)) || (values.has("--public-retrieval") && values.get("--public-retrieval") !== "true") ||
         (values.has("--profile") && !Object.hasOwn(LOCAL_SCREEN_PROFILES, values.get("--profile")!)) ||
-        (values.has("--claims-ledger") && values.get("--claims-ledger") !== "true")) throw new Error("local_screen_cli_invalid");
+        (values.has("--claims-ledger") && values.get("--claims-ledger") !== "true") ||
+        (values.has("--arm") && !["local", "cloud"].includes(values.get("--arm")!))) throw new Error("local_screen_cli_invalid");
+    const cloudCount = cloudNames.filter(name => values.has(name)).length, cloudArm = values.get("--arm") === "cloud";
+    // The cloud arm needs every cloud flag and the local arm none of them; the key itself is never a flag.
+    if ((cloudArm && cloudCount !== cloudNames.length) || (!cloudArm && cloudCount)) throw new Error("local_screen_cli_invalid");
     const snapshotCount = snapshotNames.filter(name => values.has(name)).length;
     if (snapshotCount && (snapshotCount !== snapshotNames.length || values.get("--public-retrieval") !== "true")) throw new Error("local_screen_cli_invalid");
     return { taskDirectory: values.get("--task-directory")!, expectedJobSha256: values.get("--job-sha256")!,
@@ -299,6 +337,7 @@ export function parseLocalArtifactScreenArguments(args: string[]): Parameters<ty
       pauseAfterTools: values.has("--pause-after-tools") ? Number(values.get("--pause-after-tools")) : undefined,
       profile: values.has("--profile") ? values.get("--profile") as LocalScreenProfile : undefined,
       claimsLedger: values.get("--claims-ledger") === "true" ? true : undefined,
+      ...(cloudArm ? { cloudArm: { model: values.get("--cloud-model")!, endpoint: values.get("--cloud-endpoint")!, prices: parseCloudPrices(values.get("--cloud-prices")!), maxFeeUsd: Number(values.get("--max-fee-usd")) } } : {}),
       ...(snapshotCount ? { publicSnapshot: { directory: values.get(snapshotNames[0]!)!, expectedBriefSha256: values.get(snapshotNames[1]!)!,
         expectedMapSha256: values.get(snapshotNames[2]!)!, indexPath: values.get(snapshotNames[3]!)! } } : {}) };
 }

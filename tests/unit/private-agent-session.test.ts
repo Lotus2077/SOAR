@@ -143,6 +143,20 @@ describe("general isolated phase session", () => {
         verdicts: [{ id: "C1", verdict: "supported" }, { id: "C2", verdict: "supported" }, { id: "C9", verdict: "not_judged", reason: "claim_text_invalid" }] });
     } finally { spy.mockRestore(); }
   });
+  it("a cloud arm makes the policy cloud_help with its fee cap, needs a synthetic or public approval, and judges with the separate model", async () => {
+    const f = await fixture(), base = options(f, "cloud-arm", "PRIVATE-CLOUD");
+    expect(() => new GeneralAgentSession({ ...base, syntheticInputApproval: undefined, cloudArm: { destinationId: "model", maxFeeMicrousd: 8_000_000 } })).toThrow("session_cloud_arm_invalid");
+    expect(() => new GeneralAgentSession({ ...base, cloudArm: { destinationId: "model", maxFeeMicrousd: 0 } })).toThrow("session_cloud_arm_invalid");
+    const judge: string[] = [];
+    const config = { ...base, cloudArm: { destinationId: "model", maxFeeMicrousd: 8_000_000 },
+      judgeModelFactory: (contextId: string) => { judge.push(contextId); return base.trustedHostModelFactory(contextId); } };
+    expect((await new GeneralAgentSession(config).run()).status).toBe("submitted");
+    expect(f.store.policy("cloud-arm")).toMatchObject({ mode: "cloud_help", maxFeeMicrousd: 8_000_000 });
+    expect(judge.length).toBeGreaterThan(0);
+    // The arm is part of the session identity: the same options without it would not resume this job.
+    const identity = String(f.store.events("cloud-arm").find(e => e.type === "session_started")!.identity);
+    expect((await new GeneralAgentSession({ ...base }).run()).reason).toMatch(/^session_(policy|contract)_drift$/u); expect(identity).toMatch(/^[a-f0-9]{64}$/u);
+  });
   it("a private-derived public fetch is denied before transport despite clean scan", async () => {
     const f = await fixture(); await new GeneralAgentSession(options(f, "blocked", "PRIVATE-CANARY")).run();
     const contextId = String(f.store.events("blocked").find(e => e.type === "session_started")!.privateContextId);

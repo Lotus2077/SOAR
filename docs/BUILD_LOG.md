@@ -19363,3 +19363,54 @@ Next gate: PR-E implemented with tests and reviewed; then PR-B and PR-I.
 
 References: [plan](PLAN.md) Phase 1 PR-E and Phase 2 arms,
 docs/PROJECT_REVIEW_2026-09-28.md W7, BL-20261007-0640-pr-f-owner-surface-implemented.
+
+
+### BL-20261007-0905-pr-e-review-findings -- 2026-10-07 -- PR-E first implementation reviewed: two fixed, four open
+
+Status: `Implemented`
+
+Scope or hypothesis: First PR-E implementation on `phase1-cloud-correctness`
+(uncommitted until this entry): OpenAI request shape, cached-rate settlement,
+`cloudArm` session option with a separate judge model, headless `--arm cloud`
+with the key from the process environment only, consultant on
+`max_completion_tokens`. `pnpm check` 1,932 tests and the 43 Docker-gated
+tests passed before review.
+
+Decisions:
+
+- Review (2 lenses, 6 verifiers, all completed): six findings, all confirmed.
+  Fixed here: (1) the session identity hashed `cloudArm: null` and
+  `judgeModel: null` for every session, which would have stranded every
+  pre-upgrade paused desktop task with `session_contract_drift`; the keys are
+  now spread only when set. (2) The token-estimate envelope `ceil(bytes/2)`
+  also governed the zero-fee local path, where digit-dense prompts exceed it
+  and would have left dispatches unknown; the envelope and the reservation are
+  back to the byte bound (prompt tokens never exceed bytes), and the review
+  showed reservations never accumulate across calls, so the estimate bought
+  nothing. The design entry's reservation decision is superseded by this one.
+- Open, to fix before PR #9: (3) the cloud arm cannot dispatch at all, because
+  the driver's synthetic private context is a restricted context and the
+  broker denies a cloud destination without an exact grant; the admission rule
+  for a synthetic-only context under a `cloud_help` policy needs a decision,
+  not a bypass. (4) Reaching the fee cap raises a plain budget error out of the
+  model call, leaving `model_started` open and the task unresumable; it needs a
+  `model_request_not_dispatched` marker with reason `fee_cap_reached`,
+  mirroring the size stop. (5) The driver aborts without `result.json` on that
+  error, so paid spend is never summarized. (6) A regression test pinning the
+  pre-PR session identity key set is still to be written.
+
+Changes: as described; committed as work in progress, no pull request yet.
+
+Evidence: review transcript wf_b2177565; unit suites re-run after the two fixes.
+
+Failures or blockers: PR-E is not complete; the session's usage limit ended
+the work after the two fixes.
+
+Limitations and non-claims: No live cloud call; the cloud arm has not run.
+
+Paid exposure: USD 0.
+
+Next gate: fix (3)-(6), review again, then PR #9; PR-B design drafted in the
+session scratchpad (`pr-b-design-entry.md`) to be appended on its branch.
+
+References: BL-20261007-0745-pr-e-cloud-correctness-design.

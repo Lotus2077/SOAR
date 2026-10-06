@@ -63,7 +63,8 @@ export function prepareConsultantRequest(raw: ConsultantTextConfig,
   for (const message of parsed.data) exactText(message.content);
   // This method is deliberately text-only and nonstreaming. No tool schema,
   // provider-specific Qwen setting, credential or caller-controlled parameter.
-  const body = canonical({ model: config.model, messages: parsed.data, stream: false, max_tokens: config.maxOutputTokens,
+  // max_completion_tokens: the field reasoning models accept (PR-E); the packet identity changed with it, never used live before.
+  const body = canonical({ model: config.model, messages: parsed.data, stream: false, max_completion_tokens: config.maxOutputTokens,
     ...(config.serviceTier === undefined ? {} : { service_tier: config.serviceTier }) });
   const inputBound = Buffer.byteLength(body);
   if (inputBound > 192 * 1024) invalid("consultant_body_exceeded");
@@ -97,7 +98,7 @@ export async function dispatchConsultantText(input: {
   const saved = parsed.data;
   let packet: unknown;
   try { packet = JSON.parse(saved.body); } catch { invalid("consultant_prepared_invalid"); }
-  const packetSchema = z.object({ model: z.string(), messages: messagesSchema, stream: z.literal(false), max_tokens: integer,
+  const packetSchema = z.object({ model: z.string(), messages: messagesSchema, stream: z.literal(false), max_completion_tokens: integer,
     service_tier: z.literal("default").optional() }).strict();
   const decodedPacket = packetSchema.safeParse(packet);
   if (!decodedPacket.success) invalid("consultant_prepared_invalid");

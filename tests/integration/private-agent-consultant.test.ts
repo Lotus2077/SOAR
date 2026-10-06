@@ -55,7 +55,7 @@ async function fixture(options: { scanner?: LocalPacketScanner; body?: string; d
 describe("priced exact consultation", () => {
   it("prepares deterministic text-only bytes and conservative exact integer fee ceilings", () => {
     const prepared = prepareConsultantRequest(config, messages);
-    expect(JSON.parse(prepared.body)).toEqual({ model: config.model, messages, stream: false, max_tokens: 128 });
+    expect(JSON.parse(prepared.body)).toEqual({ model: config.model, messages, stream: false, max_completion_tokens: 128 });
     expect(prepared.bodySha256).toBe(digest(prepared.body));
     expect(prepared.maxFeeMicrousd).toBe(Buffer.byteLength(prepared.body) + 256);
     const rates = { ...config, inputMicrousdPerMillion: 3, outputMicrousdPerMillion: 7, cachedInputMicrousdPerMillion: 11 };
@@ -88,7 +88,7 @@ describe("priced exact consultation", () => {
 
   it("binds an optional standard tier without changing unconfigured bytes or price identity", () => {
     const legacy = prepareConsultantRequest(config, messages), tiered = prepareConsultantRequest({ ...config, serviceTier: "default" }, messages);
-    expect(legacy.body).toBe(canonical({ model: config.model, messages, stream: false, max_tokens: 128 }));
+    expect(legacy.body).toBe(canonical({ model: config.model, messages, stream: false, max_completion_tokens: 128 }));
     expect(legacy.priceProfileSha256).toBe(digest(canonical({ schemaVersion: 1, algorithm: "ceil_linear_token_microusd_v1", config })));
     expect(prepareConsultantRequest({ ...config, serviceTier: undefined }, messages)).toEqual(legacy);
     expect(JSON.parse(tiered.body)).toEqual({ ...JSON.parse(legacy.body), service_tier: "default" });

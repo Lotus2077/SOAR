@@ -86,7 +86,8 @@ function state(store: PrivateAgentStore, jobId: string) {
     receipt.approval?.proposalSha256 === value.sha256 && receipt.approval?.priceProfileSha256 === value.base.priceProfileSha256 && receipt.approval?.maxFeeMicrousd === value.base.maxFeeMicrousd &&
     receipt.contextSha256 === value.base.contextSha256 && receipt.packetSha256 === value.base.packetSha256 && receipt.destinationSha256 === value.base.destinationSha256 && receipt.purpose === CONSULTATION_PURPOSE &&
     accountingBound(value.base, response));
-  const uncertain = Boolean((attempts.length || receipt || responses.length) && !responseBound);
+  // A row resolved as `failed` (a confirmed abort, nothing sent or an error answer) is not uncertain; only an unknown or open one is.
+  const uncertain = Boolean((attempts.length || receipt || responses.length) && !responseBound && receipt?.status !== "failed");
   let status: ConsultationView["status"] = decision?.decision === "revoke" ? "revoked" : decision?.decision === "decline" ? "declined" : responseBound ? "settled" : attempts.length ? (receipt && receipt.status !== "committed" && receipt.status !== "settled" ? "failed" : "dispatching") : decision?.decision === "approve" ? "approved" : "pending";
   return { ...value, decision, attempts, response, receipt, uncertain, status };
 }

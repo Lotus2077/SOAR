@@ -248,9 +248,11 @@ export class PrivateAgentBroker {
     }
     if (frozen.signal?.aborted) deny("request_cancelled");
     const { text: _text, ...identity } = packet.preview;
-    // D4: only a zero-fee local request or a public GET without a grant may be re-sent, and only after a confirmed abort.
-    const recoverable = packet.destination.recoverable === true && frozen.grantId === undefined && !packet.preview.approval &&
+    // A zero-risk packet can be re-sent without cost or side effect: a zero-fee local request or a public GET without a grant.
+    const zeroRisk = frozen.grantId === undefined && !packet.preview.approval &&
       ((packet.destination.kind === "local_model" && frozen.maxFeeMicrousd === 0) || (packet.destination.kind === "public_web" && frozen.method === "GET"));
+    // D4: only such a packet, on a destination flagged recoverable, is retried, and only after a confirmed abort.
+    const recoverable = packet.destination.recoverable === true && zeroRisk;
     for (let attempt = 1; ; attempt++) {
       if (attempt > 1 && frozen.signal?.aborted) deny("request_cancelled");
       // Each attempt is its own committed row: it re-checks eligibility and consumes one session request.
@@ -278,22 +280,24 @@ export class PrivateAgentBroker {
         // hour rather than admitting arbitrary numeric diagnostics into storage.
         const timing = { elapsedMs: Math.min(3_600_000, Math.max(0, Math.floor(performance.now() - started))), timeoutMs: packet.destination.timeoutMs,
           ...(recoverable ? { attempt } : {}) };
+        // Only a status the diagnostic schema admits is recorded; a malformed one leaves no status.
+        const status = error instanceof TransportFailure && error.status !== undefined && error.status >= 100 && error.status <= 599 ? { status: error.status } : {};
         const failure: UnknownRequestDiagnostic = phase === "transport"
-          ? { phase: "transport", code: error instanceof TransportFailure ? error.code : "transport_failed",
-            ...(error instanceof TransportFailure && error.status !== undefined ? { status: error.status } : {}), ...timing }
+          ? { phase: "transport", code: error instanceof TransportFailure ? error.code : "transport_failed", ...status, ...timing }
           : { phase: "settlement", code: phase === "response_validation" ? "response_or_usage_invalid" : "fee_settlement_failed", ...timing };
-        if (!isConfirmedAbort(failure)) {
+        if (!isConfirmedAbort(failure, zeroRisk)) {
           this.store.unknown(receipt.id, failure);
           // Never expose provider text, private URL, system exception or API key.
           return deny("transport_or_settlement_unknown");
         }
-        if (recoverable && isRetryableAbort(failure) && attempt < BROKER_MAX_ATTEMPTS && !frozen.signal?.aborted) {
-          this.store.resolveFailure(receipt.id, "superseded", failure);
+        // Another attempt needs a free session request; the committed row only becomes `superseded` once the retry is certain.
+        const admissible = this.store.dispatches(frozen.jobId).length < this.store.policy(frozen.jobId).maxRequests;
+        if (recoverable && isRetryableAbort(failure) && attempt < BROKER_MAX_ATTEMPTS && admissible && !frozen.signal?.aborted) {
           await backoff(BROKER_RETRY_BACKOFF_MS[attempt - 1] ?? BROKER_RETRY_BACKOFF_MS.at(-1)!, frozen.signal);
-          continue;
+          if (!frozen.signal?.aborted) { this.store.resolveFailure(receipt.id, "superseded", failure, zeroRisk); continue; }
         }
-        // A confirmed abort with no attempt left is a resolved failure: the ledger stays replay-safe and never blocks.
-        this.store.resolveFailure(receipt.id, "failed", failure);
+        // A confirmed abort with no attempt to follow is a resolved failure: the ledger stays replay-safe and never blocks.
+        this.store.resolveFailure(receipt.id, "failed", failure, zeroRisk);
         return deny("request_failed");
       } finally {
         frozen.signal?.removeEventListener("abort", cancel);
@@ -340,9 +344,16 @@ async function transport(destination: BrokerDestination, url: URL, method: "GET"
     const host = url.hostname.replace(/^\[|\]$/gu, "");
     // Resolve once, validate every answer and pin the selected address to prevent
     // re-resolution/DNS rebinding between policy evaluation and connection.
-    const addresses = destination.publicDnsResolver === "cloudflare_v1"
-      ? await resolvePublicV4(host, joined, isPublicAddress, recordDns)
-      : isIP(host) ? [{ address: host, family: isIP(host) }] : await systemLookup(host, joined);
+    let addresses: { address: string; family: number }[];
+    try {
+      addresses = destination.publicDnsResolver === "cloudflare_v1"
+        ? await resolvePublicV4(host, joined, isPublicAddress, recordDns)
+        : isIP(host) ? [{ address: host, family: isIP(host) }] : await systemLookup(host, joined);
+    } catch (error) {
+      // Nothing was sent: a failed lookup is a confirmed non-dispatch unless SOAR itself aborted it.
+      if (error instanceof TransportFailure) throw error;
+      throw abortCause ? transportError() : new TransportFailure("connection_failed");
+    }
     if (joined.aborted) throw transportError();
     const allowPrivate = destination.kind === "local_model" || destination.loopbackFixture;
     // Nothing was sent, so a denied address is a confirmed non-dispatch.
@@ -374,9 +385,9 @@ async function transport(destination: BrokerDestination, url: URL, method: "GET"
           else chunks.push(Buffer.from(chunk));
         });
         response.on("end", () => resolve(Buffer.concat(chunks)));
-        // The peer closed after the request was written: a confirmed abort unless SOAR itself aborted.
-        response.on("error", () => reject(abortCause ? transportError() : new TransportFailure("upstream_closed")));
-        response.on("aborted", () => reject(abortCause ? transportError() : new TransportFailure("upstream_closed")));
+        // The response had started: the upstream executed the request, so this is confirmed only for a zero-risk packet.
+        response.on("error", () => reject(abortCause ? transportError() : new TransportFailure("response_interrupted")));
+        response.on("aborted", () => reject(abortCause ? transportError() : new TransportFailure("response_interrupted")));
       });
       let sent = false;
       request.on("socket", socket => socket.once("connect", () => { sent = true; }));

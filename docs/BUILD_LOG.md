@@ -18647,8 +18647,7 @@ Next gate: J2 restructured as BL-20261006-1230 decides; owner verdicts.
 References: BL-20261006-1150-pr-j1-claims-ledger-implemented,
 BL-20261006-1230-pr-j2-review-findings, [registry](experiments/registry.jsonl).
 
-
-### BL-20261006-1158-pr-j2-entailment-design -- 2026-10-06 -- Research claims entailment pass designed (PR-J2)
+### BL-20261006-1241-pr-j2-entailment-design -- 2026-10-06 -- Research claims entailment pass designed (PR-J2)
 
 Status: `Proposed`
 
@@ -18722,8 +18721,10 @@ reviewed.
 References: BL-20261006-1058-pr-j-claims-ledger-design,
 BL-20261006-1150-pr-j1-claims-ledger-implemented, [plan](PLAN.md).
 
+Identifier note: authored 2026-10-06 11:58 UTC as BL-20261006-1241-pr-j2-entailment-design; re-identified as BL-20261006-1241-pr-j2-entailment-design so the
+branch stays append-only after its base gained BL-20261006-1240. The body is unchanged.
 
-### BL-20261006-1230-pr-j2-review-findings -- 2026-10-06 -- J2 first implementation reviewed: pass must move after durable completion
+### BL-20261006-1242-pr-j2-review-findings -- 2026-10-06 -- J2 first implementation reviewed: pass must move after durable completion
 
 Status: `Implemented`
 
@@ -18776,9 +18777,11 @@ then record the ledger batch (`phase1-ledger-v1`: T2 heavy 27 calls, 19 claims
 verified at the first check, both critical checks passed; T4 heavy submitted at
 77 calls, not yet inspected; T2 row drafted in the scratchpad).
 
-References: BL-20261006-1158-pr-j2-entailment-design,
+References: BL-20261006-1241-pr-j2-entailment-design,
 BL-20261006-1150-pr-j1-claims-ledger-implemented.
 
+Identifier note: authored 2026-10-06 12:30 UTC as BL-20261006-1242-pr-j2-review-findings; re-identified as BL-20261006-1242-pr-j2-review-findings so the
+branch stays append-only after its base gained BL-20261006-1240. The body is unchanged.
 
 ### BL-20261007-0120-pr-j2-entailment-implemented -- 2026-10-07 -- Entailment pass implemented at the session level, after two reviews
 
@@ -18873,9 +18876,8 @@ Next gate: Docker-gated suites on the final tree; a research dry run with the
 judge (T2 heavy) recorded in the registry with its support rate; then PR-C and
 PR-F per the Phase 1 order.
 
-References: BL-20261006-1158-pr-j2-entailment-design,
-BL-20261006-1230-pr-j2-review-findings, BL-20261006-1240-phase1-ledger-v1-results.
-
+References: BL-20261006-1241-pr-j2-entailment-design,
+BL-20261006-1242-pr-j2-review-findings, BL-20261006-1240-phase1-ledger-v1-results.
 
 ### BL-20261007-0210-entailment-v1-judge-rejected -- 2026-10-07 -- First judge dry run: ledger passed, judge request rejected upstream (fixed)
 
@@ -18923,8 +18925,48 @@ Next gate: a judge dry run with verdicts recorded; then PR-C and PR-F designs.
 References: BL-20261007-0120-pr-j2-entailment-implemented,
 [registry](experiments/registry.jsonl).
 
+### BL-20261007-0320-entailment-v2-judged -- 2026-10-07 -- Judge dry run v2: 19 of 20 claims supported, one partial
 
-### BL-20261007-0245-pr-c-recoverable-dispatch-design -- 2026-10-07 -- Recoverable dispatch designed (PR-C)
+Status: `Verified`
+
+Scope or hypothesis: Next gate of BL-20261007-0210: the judge must produce
+verdicts live. Batch `phase1-entailment-v2`, T2 heavy with `--claims-ledger` on
+the fixed J2 tree (d8322ee), registry row `p1e-t2-rfc-memo-heavy-v2`.
+
+Decisions: None new. Correction to BL-20261007-0210: its unit-test count on the
+fixed tree was 1,908, not 1,909.
+
+Changes: one registry row.
+
+Evidence:
+
+- Run `submitted`, 21 agent calls, 292 s; 20 claims, all verified verbatim at the
+  single `check_claims` call; both critical checks passed; event order
+  `completed`, `session_submitted`, `claims_entailment`.
+- Judge: 20 calls (purpose `claims entailment judgement`, all settled), 19
+  `supported`, 1 `partial`, 0 unsupported or contradicted, not truncated;
+  support rate 0.95. The partial verdict is fair: C1 reads "a JSON text is a
+  serialized value" as "any value is acceptable at the top level", which the
+  quote does not say; RFC 8259 section 2 does, so the claim chose the weaker
+  quote.
+- Cost of the pass: 20 short thinking-off calls inside the 292 s wall time
+  (the previous unjudged run took 503 s with 29 agent calls, so run-to-run
+  variance dominates; the judge itself is under a minute).
+
+Failures or blockers: None.
+
+Limitations and non-claims: One run, one seen task; the judge is the model that
+wrote the memo, so systematic blind spots remain possible; a verdict is evidence
+for the owner, not acceptance.
+
+Paid exposure: USD 0.
+
+Next gate: PR-C (recoverable dispatch) implemented and reviewed; PR-F.
+
+References: BL-20261007-0210-entailment-v1-judge-rejected,
+BL-20261007-0120-pr-j2-entailment-implemented, [registry](experiments/registry.jsonl).
+
+### BL-20261007-0321-pr-c-recoverable-dispatch-design -- 2026-10-07 -- Recoverable dispatch designed (PR-C)
 
 Status: `Proposed`
 
@@ -18997,8 +19039,10 @@ kinds, reviewed; a dry run with an induced local abort.
 
 References: [plan](PLAN.md) Phase 1 PR-C and D4, BL-20261007-0210-entailment-v1-judge-rejected.
 
+Identifier note: authored 2026-10-07 02:45 UTC as BL-20261007-0321-pr-c-recoverable-dispatch-design; re-identified as BL-20261007-0321-pr-c-recoverable-dispatch-design so the
+branch stays append-only after its base gained BL-20261007-0320. The body is unchanged.
 
-### BL-20261007-0250-pr-f-owner-surface-design -- 2026-10-07 -- Owner surface designed (PR-F)
+### BL-20261007-0322-pr-f-owner-surface-design -- 2026-10-07 -- Owner surface designed (PR-F)
 
 Status: `Proposed`
 
@@ -19065,43 +19109,100 @@ an e2e run with Labs off; then PR-E.
 
 References: [plan](PLAN.md) Phase 1 PR-F, BL-20261006-1055-phase1-pr-a-d-implemented,
 BL-20261007-0120-pr-j2-entailment-implemented.
-### BL-20261007-0320-entailment-v2-judged -- 2026-10-07 -- Judge dry run v2: 19 of 20 claims supported, one partial
 
-Status: `Verified`
+Identifier note: authored 2026-10-07 02:50 UTC as BL-20261007-0322-pr-f-owner-surface-design; re-identified as BL-20261007-0322-pr-f-owner-surface-design so the
+branch stays append-only after its base gained BL-20261007-0320. The body is unchanged.
 
-Scope or hypothesis: Next gate of BL-20261007-0210: the judge must produce
-verdicts live. Batch `phase1-entailment-v2`, T2 heavy with `--claims-ledger` on
-the fixed J2 tree (d8322ee), registry row `p1e-t2-rfc-memo-heavy-v2`.
 
-Decisions: None new. Correction to BL-20261007-0210: its unit-test count on the
-fixed tree was 1,908, not 1,909.
+### BL-20261007-0530-pr-c-recoverable-dispatch-implemented -- 2026-10-07 -- Recoverable dispatch implemented and reviewed (PR-C)
 
-Changes: one registry row.
+Status: `Implemented`
+
+Scope or hypothesis: PR-C as designed in BL-20261007-0321 (owner decision D4).
+Branch `phase1-recoverable-dispatch`, pull request #7, stacked on #6. On-track
+check: J2 is live and judged (BL-20261007-0320); the first judge run showed a
+single 400 ending a pass, and a box restart during a long task still ended the
+task without resume, which this change removes for confirmed aborts.
+
+Decisions:
+
+- **Classification.** `transport()` records why a dispatch failed:
+  `connection_failed` (nothing sent: refused, unreachable, DNS or address
+  denied), `upstream_closed` (the peer closed after the request was written,
+  before a response), `response_interrupted` (closed after a response
+  started), `http_rejected` now with the HTTP status when it is 100-599; a
+  timeout, an oversize response and settlement failures stay as they were.
+- **Confirmed is destination-aware (review).** Never sent or answered with an
+  error is confirmed for every destination. A peer close is confirmed only for a
+  zero-risk packet (a zero-fee local request or a public GET without a grant),
+  which may have been executed but can be re-sent without cost or side effect;
+  for a priced or cloud destination it stays `unknown`, so a cloud or consultant
+  row can never be released as `failed` after the upstream may have charged.
+- **Ledger.** Two resolved statuses: `superseded` (another attempt followed)
+  and `failed` (a confirmed abort with no attempt to follow); both reserve no
+  fee and never block commits, resume, submission or the controller's
+  `uncertain`. `superseded` is written only once the retry is certain: the
+  backoff runs first, and a cancel during it or an exhausted session allowance
+  resolves the row as `failed` instead (review: the last admissible attempt
+  used to leave a superseded row with no successor and a plain budget error
+  that made the job unresumable).
+- **Retry.** `PrivateAgentBroker.request` loops at most three attempts, 1 s then
+  3 s apart, only for a destination flagged `recoverable` and a zero-risk packet,
+  only on a retryable confirmed abort (a close, a 5xx or 429; a deterministic 4xx
+  is final), only while a session request remains and the caller has not
+  cancelled. Each attempt is its own committed row and consumes a session
+  request; the public-fetch allowance ignores superseded rows. Cloud and
+  consultant destinations reject the flag at normalisation.
+- **Runner and session.** A model request whose attempts all end confirmed
+  records `model_request_failed`, closing the operation, and stops with
+  `model_unavailable`, which the controller treats as resumable (also its
+  `public_` form from a two-phase session). A failed public GET returns to the
+  model as a `public_fetch_failed` observation. A consultant row resolved as
+  `failed` no longer reads as uncertain.
+- **Flag.** `SOAR_RECOVERABLE_DISPATCH` (default on, D4) spreads `recoverable:
+  true` into the desktop local and public destinations and the headless
+  driver's local destination; absent, fingerprints and receipts are byte-identical
+  to before.
+
+Changes: `broker.ts`, `store.ts`, `model.ts` (`modelRequestFailed`), `runner.ts`,
+`session.ts`, `consultation.ts`, `controller.ts`, `config.ts`,
+`scripts/private-agent-local-screen.ts`, `scripts/registry-row.py`
+(`retriedDispatches`, `failedDispatches`); tests across the broker integration
+suite, public DNS, runner, public research and controller.
 
 Evidence:
 
-- Run `submitted`, 21 agent calls, 292 s; 20 claims, all verified verbatim at the
-  single `check_claims` call; both critical checks passed; event order
-  `completed`, `session_submitted`, `claims_entailment`.
-- Judge: 20 calls (purpose `claims entailment judgement`, all settled), 19
-  `supported`, 1 `partial`, 0 unsupported or contradicted, not truncated;
-  support rate 0.95. The partial verdict is fair: C1 reads "a JSON text is a
-  serialized value" as "any value is acceptable at the top level", which the
-  quote does not say; RFC 8259 section 2 does, so the claim chose the weaker
-  quote.
-- Cost of the pass: 20 short thinking-off calls inside the 292 s wall time
-  (the previous unjudged run took 503 s with 29 agent calls, so run-to-run
-  variance dominates; the judge itself is under a minute).
+- `pnpm check`: 120 files, 1,919 tests passed, 72 skipped. Docker-gated suites on
+  the qualified runtime image, this tree: 4 files, 43 tests passed.
+- Broker tests through a real loopback server: retry after a destroyed socket,
+  a 503 and a 429 with one row per attempt and the backoff observed; give-up
+  after the third attempt; no retry for a 400, a timeout, a priced request or a
+  flagless destination; a public GET retried; the cloud kind rejecting the flag;
+  the session allowance and a cancel during backoff resolving the last row as
+  failed; a peer close uncertain for a cloud packet and confirmed for a zero-risk
+  one, before and after a response started; a 999 status recorded without the
+  status; a redirect as a confirmed rejection; DNS and address denial as
+  `connection_failed`. Runner: a confirmed model failure stops resumably and
+  completes on the next run, an unknown one still does not; an unknown judge
+  dispatch after completion changes nothing. Public research: a failed fetch
+  becomes an observation. Controller: `model_unavailable` resumable, a resolved
+  failed row not uncertain.
+- Review (2 lenses, 1 confirmed finding, 9 verifiers lost to the session limit
+  and re-judged by reading the code): confirmed and fixed, the superseded row
+  without a successor; judged real and fixed, peer closes for priced and cloud
+  rows, the HTTP status range, lookup failures, cancel during backoff, the
+  public-phase reason and the consultant row; judged not real, a retry commit
+  refused by admission change (the job is cancelled in that case).
 
-Failures or blockers: None.
+Failures or blockers: None open.
 
-Limitations and non-claims: One run, one seen task; the judge is the model that
-wrote the memo, so systematic blind spots remain possible; a verdict is evidence
-for the owner, not acceptance.
+Limitations and non-claims: Recovery covers confirmed aborts only; a timeout
+still ends the task without replay. No live run with an induced abort yet.
 
 Paid exposure: USD 0.
 
-Next gate: PR-C (recoverable dispatch) implemented and reviewed; PR-F.
+Next gate: Docker-gated suites on this tree; a dry run with an induced local
+abort recorded in the registry; PR-F.
 
-References: BL-20261007-0210-entailment-v1-judge-rejected,
-BL-20261007-0120-pr-j2-entailment-implemented, [registry](experiments/registry.jsonl).
+References: BL-20261007-0321-pr-c-recoverable-dispatch-design, [plan](PLAN.md)
+D4, BL-20261007-0320-entailment-v2-judged.

@@ -36,13 +36,15 @@ function fixture(configOverrides: Partial<ConsultantTextConfig> = {}) {
   acquire();
   const propose = (artifactPaths = ["input.txt"]) => manager.propose({ question: "Check this synthetic result without running tools.", artifactPaths }, snapshot);
   const approve = () => { release(); const p = manager.view()!; manager.decide({ proposalId: p.proposalId, proposalSha256: p.proposalSha256, decision: "approve" }); acquire(); };
-  let beforeCommit: () => void = () => {}, afterCommit: () => void = () => {}, unknown = false;
+  let beforeCommit: () => void = () => {}, afterCommit: () => void = () => {}, unknown = false, failed = false;
   const request = vi.spyOn(broker, "request").mockImplementation(async (input, settle = () => 0, validate) => {
     await Promise.resolve(); beforeCommit();
     const { text: _text, ...preview } = broker.preview(input);
     const receipt = store.commit({ ...preview, reservedFeeMicrousd: input.maxFeeMicrousd, scan: { status: "complete", detector: "fixture" } }, () => validate?.(), input.grantId);
     afterCommit();
     if (unknown) { store.unknown(receipt.id); throw new Error("transport_unknown"); }
+    // PR-C: a confirmed abort (nothing sent) resolves the consultant row as failed; it reserves nothing and is not uncertain.
+    if (failed) { store.resolveFailure(receipt.id, "failed", { phase: "transport", code: "connection_failed", elapsedMs: 1, timeoutMs: 1000 }); throw new Error("request_failed"); }
     const bytes = Buffer.from(canonical({ model: config.model, ...(config.serviceTier ? { service_tier: config.serviceTier } : {}),
       choices: [{ finish_reason: "stop", message: { role: "assistant", content: "Check the arithmetic. Untrusted fixture advice." } }],
       usage: { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120,
@@ -50,7 +52,7 @@ function fixture(configOverrides: Partial<ConsultantTextConfig> = {}) {
     store.settle(receipt.id, settle(bytes), digest(bytes)); return { bytes, receipt: store.dispatch(receipt.id) };
   });
   return { args, manager, store, checkpoints, jobId, contextId, database, directory, snapshot, propose, approve, acquire, release, request,
-    drift: () => { drift = true; }, beforeCommit: (fn: () => void) => { beforeCommit = fn; }, unknown: () => { unknown = true; }, afterCommit: (fn: () => void) => { afterCommit = fn; } };
+    drift: () => { drift = true; }, beforeCommit: (fn: () => void) => { beforeCommit = fn; }, unknown: () => { unknown = true; }, failed: () => { failed = true; }, afterCommit: (fn: () => void) => { afterCommit = fn; } };
 }
 const signal = () => new AbortController().signal;
 
@@ -150,6 +152,13 @@ describe("one durable exact-packet consultation", () => {
     });
     await expect(f.manager.resume(signal())).rejects.toThrow(); expect(f.store.dispatches(f.jobId)).toHaveLength(0);
     expect(consultationModelCalls(f.store, f.jobId)).toBe(1); await expect(f.manager.resume(signal())).rejects.toThrow("consultation_response_missing_no_replay"); expect(f.request).toHaveBeenCalledTimes(1);
+  });
+  it("a confirmed abort resolves the consultant row as failed: no reservation, not uncertain, never replayed", async () => {
+    const f = fixture(); f.propose(); f.approve(); f.failed(); await expect(f.manager.resume(signal())).rejects.toThrow();
+    expect(f.manager.view()).toMatchObject({ uncertain: false, status: "failed", disclosureCommitted: true });
+    expect(f.store.dispatches(f.jobId)[0]).toMatchObject({ status: "failed", failure: { code: "connection_failed" } });
+    expect(f.store.dispatches(f.jobId).filter(row => row.status === "committed" || row.status === "unknown")).toHaveLength(0);
+    expect(f.request).toHaveBeenCalledTimes(1);
   });
   it("unknown dispatch preserves fee exposure and blocks replay after restart", async () => {
     const f = fixture(); f.propose(); f.approve(); f.unknown(); await expect(f.manager.resume(signal())).rejects.toThrow();

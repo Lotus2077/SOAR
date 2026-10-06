@@ -17,7 +17,7 @@ const diagnosticTiming = {
  */
 export const UnknownRequestDiagnosticSchema = z.discriminatedUnion("phase", [
   z.object({ phase: z.literal("transport"),
-    code: z.enum(["request_timeout", "cancelled", "http_rejected", "response_oversize", "transport_failed", "connection_failed", "upstream_closed"]),
+    code: z.enum(["request_timeout", "cancelled", "http_rejected", "response_oversize", "transport_failed", "connection_failed", "upstream_closed", "response_interrupted"]),
     status: z.number().int().min(100).max(599).optional(), attempt: z.number().int().min(1).max(3).optional(),
     ...diagnosticTiming }).strict(),
   z.object({ phase: z.literal("settlement"),
@@ -26,13 +26,20 @@ export const UnknownRequestDiagnosticSchema = z.discriminatedUnion("phase", [
     ...diagnosticTiming }).strict(),
 ]);
 export type UnknownRequestDiagnostic = z.infer<typeof UnknownRequestDiagnosticSchema>;
-/** A transport failure that proves the upstream accepted nothing it could act on or charge for: never sent, closed by the peer, or answered with an error. */
-export function isConfirmedAbort(failure: UnknownRequestDiagnostic | undefined): boolean {
-  return failure?.phase === "transport" && (failure.code === "connection_failed" || failure.code === "upstream_closed" || failure.code === "http_rejected");
+/**
+ * A transport failure that leaves nothing uncertain. Never sent, or answered with an error: confirmed for every
+ * destination. Closed by the peer after the request was written (before or after a response started): confirmed
+ * only for a zero-risk packet (a zero-fee local request or a public GET), which may have been executed but can be
+ * re-sent without cost or side effect; for a priced or cloud destination it stays unknown.
+ */
+export function isConfirmedAbort(failure: UnknownRequestDiagnostic | undefined, zeroRisk = false): boolean {
+  if (failure?.phase !== "transport") return false;
+  if (failure.code === "connection_failed" || failure.code === "http_rejected") return true;
+  return zeroRisk && (failure.code === "upstream_closed" || failure.code === "response_interrupted");
 }
-/** Of the confirmed aborts, only transient ones are worth another attempt; a 4xx other than 429 is deterministic. */
+/** Of the confirmed aborts of a zero-risk packet, only transient ones are worth another attempt; a 4xx other than 429 is deterministic. */
 export function isRetryableAbort(failure: UnknownRequestDiagnostic | undefined): boolean {
-  return isConfirmedAbort(failure) && (failure!.phase === "transport" && failure!.code !== "http_rejected" || (failure!.phase === "transport" && ((failure!.status ?? 0) >= 500 || failure!.status === 429)));
+  return isConfirmedAbort(failure, true) && failure!.phase === "transport" && (failure!.code !== "http_rejected" || (failure!.status ?? 0) >= 500 || failure!.status === 429);
 }
 /** `settled` has a response; `superseded` (retried) and `failed` (confirmed abort, no retry left) are resolved without one and never block the ledger. */
 export type DispatchStatus = "committed" | "settled" | "unknown" | "superseded" | "failed";
@@ -219,8 +226,8 @@ export class PrivateAgentStore {
   unknown(id: string, failure?: UnknownRequestDiagnostic): void { this.close(id, "unknown", failure); }
 
   /** A confirmed abort resolves the row without a response: `superseded` when another attempt follows, `failed` when none does. */
-  resolveFailure(id: string, status: "superseded" | "failed", failure: UnknownRequestDiagnostic): void {
-    if (!isConfirmedAbort(failure)) throw new Error("private_agent_failure_not_confirmed");
+  resolveFailure(id: string, status: "superseded" | "failed", failure: UnknownRequestDiagnostic, zeroRisk = false): void {
+    if (!isConfirmedAbort(failure, zeroRisk)) throw new Error("private_agent_failure_not_confirmed");
     this.close(id, status, failure);
   }
 

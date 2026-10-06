@@ -1,4 +1,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /** Builds a minimal DOCX or PDF with one paragraph or page per entry, using only the python stdlib. A "|" inside a DOCX paragraph splits it into runs. */
 export function buildBinarySource(kind: "pdf" | "docx", paragraphs: string[]): Buffer {
@@ -22,7 +25,10 @@ xref = len(out)
 out += ('xref' + NL + '0 %d' % (len(objs) + 1) + NL + '0000000000 65535 f ' + NL).encode() + ''.join('%010d 00000 n ' % o + NL for o in offsets).encode()
 out += ('trailer' + NL + '<< /Size %d /Root 1 0 R >>' % (len(objs) + 1) + NL + 'startxref' + NL + str(xref) + NL + '%%EOF' + NL).encode()
 open(target, 'wb').write(out)`;
-  return execFileSync("python3", ["-c", script, "/dev/stdout", ...paragraphs], { maxBuffer: 1 << 20 });
+  // A temp file, not /dev/stdout: CI runners hand python a stdout that zipfile cannot open for writing.
+  const dir = mkdtempSync(join(tmpdir(), "soar-claims-fixture-")), target = join(dir, `source.${kind}`);
+  try { execFileSync("python3", ["-c", script, target, ...paragraphs]); return readFileSync(target); }
+  finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
 /** The check runs under `python3 -I`, so pypdf must be importable in isolated mode (true in the sandbox image, usually not on a workstation). */

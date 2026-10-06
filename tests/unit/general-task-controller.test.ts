@@ -37,6 +37,10 @@ function fixture() {
       store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
       const status = cancelled || signal?.aborted ? "incomplete" : paused ? "paused" : "completed";
       const checks = [{ id: "desktop_artifact_structure", passed: true }];
+      // A research phase (claims check configured) records the host's entailment verdicts before completion, as the runner does.
+      if (status === "completed" && args.checks.some(check => check.id === "research_claims_ledger")) store.append(jobId, { type: "claims_entailment", contextId, version: 1,
+        verdicts: [{ id: "C1", verdict: "supported", reason: "fixture" }, { id: "C2", verdict: "not_judged", reason: "deadline_or_cancelled" }],
+        counts: { supported: 1, partial: 0, unsupported: 0, contradicted: 0, not_judged: 1 }, entailmentCalls: 1, truncated: true });
       if (status === "completed") store.append(jobId, { type: "completed", contextId, snapshot, checks, verifiedSnapshotSha256: checkpoints.fingerprint(snapshot) });
       store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
       return { status, reason: "unit_fixture", snapshot, checks, modelCalls: executions.length };
@@ -228,8 +232,13 @@ describe("desktop general-task host controller", () => {
     // Public sources are cited by their retrieved URL and resolved by the host at check time; no workspace path is promised in advance.
     expect(args.contract.goal).toContain("exact url that fetch_public reported");
     expect(args.contract.goal).not.toMatch(/sources\/[a-f0-9]{16}\.bin/u);
+    // The host's verdicts reach the task snapshot as evidence with a summary line; a plain task has none.
+    expect(f.controller.get(task.id).entailment).toEqual({ counts: { supported: 1, partial: 0, unsupported: 0, contradicted: 0, not_judged: 1 }, entailmentCalls: 1, truncated: true,
+      claims: [{ id: "C1", verdict: "supported", reason: "fixture" }, { id: "C2", verdict: "not_judged", reason: "deadline_or_cancelled" }] });
+    expect(f.controller.get(task.id).events.some(event => event.type === "claims_entailment" && event.summary.includes("judged by the local model"))).toBe(true);
     const plain = f.create(); f.controller.start(plain.id); await f.controller.wait(plain.id);
     expect(f.executions[1]!.contract.requiredChecks).toEqual(["desktop_artifact_structure"]);
+    expect(f.controller.get(plain.id).entailment).toBeUndefined();
     // The claims check reads the deliverable for citations and headings, so a research task needs a document deliverable.
     expect(() => f.controller.create({ goal: "Summarize the source.", inputSelectionId: f.controller.selectInputs([f.input]).id, outputName: "deck.pptx", publicOrSynthetic: true,
       publicSources: { urls: [url], allowPublicRetrieval: true, dnsResolver: "system" } })).toThrow("general_task_research_output_unsupported");

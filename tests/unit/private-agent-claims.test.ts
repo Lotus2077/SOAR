@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, CLAIMS_RETAINED_ENV, ClaimsLedgerSchema, claimsInstructions, claimsLedgerCheck, encodeRetainedClaimsSources, publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
+import { CLAIMS_CONTEXT_CHARS, CLAIMS_CONTEXT_ENV, CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, CLAIMS_RETAINED_ENV, CheckClaimsOutputSchema, ClaimsLedgerSchema, ENTAILMENT_SYSTEM_PROMPT, EntailmentReplySchema, claimsInstructions, claimsLedgerCheck, encodeRetainedClaimsSources, entailmentMessages, publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
 import { digest } from "../../src/main/private-agent/contracts";
 import { buildBinarySource, hasIsolatedPypdf } from "../helpers/claims-fixtures";
 
@@ -15,12 +15,12 @@ const page = "<html><head><style>p{color:red}</style></head><body><h1>Bravo &amp
 const sources = [{ id: "input/notes.txt", path: "input/notes.txt" }, { id: "https://example.test/page", path: "sources/page.bin" }];
 
 /** Runs the host-owned check with the local python against a temporary workspace, exactly as the verifier container would. */
-function run(files: Record<string, string | Buffer>, extra: { sources?: typeof sources; publicSources?: boolean; retained?: Parameters<typeof encodeRetainedClaimsSources>[0]; reportPath?: string } = {}) {
+function run(files: Record<string, string | Buffer>, extra: { sources?: typeof sources; publicSources?: boolean; retained?: Parameters<typeof encodeRetainedClaimsSources>[0]; reportPath?: string; context?: boolean } = {}) {
   const root = mkdtempSync(join(tmpdir(), "soar-claims-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   for (const [path, content] of Object.entries(files)) { mkdirSync(join(root, path, ".."), { recursive: true }); writeFileSync(join(root, path), content); }
   const check = claimsLedgerCheck({ reportPath: extra.reportPath ?? "output/report.md", sources: extra.sources ?? sources, publicSources: extra.publicSources, root });
   expect(check.id).toBe(CLAIMS_LEDGER_CHECK_ID);
-  const env = extra.retained ? { ...process.env, [CLAIMS_RETAINED_ENV]: encodeRetainedClaimsSources(extra.retained) } : process.env;
+  const env = { ...process.env, ...(extra.retained ? { [CLAIMS_RETAINED_ENV]: encodeRetainedClaimsSources(extra.retained) } : {}), ...(extra.context ? { [CLAIMS_CONTEXT_ENV]: "1" } : {}) };
   try { return { exitCode: 0, result: JSON.parse(execFileSync("python3", ["-I", "-c", check.python], { encoding: "utf8", env })) }; }
   catch (error) { const failure = error as { status: number; stdout: string }; return { exitCode: failure.status, result: JSON.parse(failure.stdout) }; }
 }
@@ -152,5 +152,32 @@ describe("research claims ledger check on binary sources", () => {
     writeFileSync(join(root, CLAIMS_LEDGER_PATH), ledger([{ id: "C1", sentence: "Claim.", sourceId: "doc", quote: "anything" }]));
     const run = spawnSync("python3", ["-I", "-c", claimsLedgerCheck({ reportPath: "output/report.md", sources: [{ id: "doc", path: "input/source.docx" }], root }).python], { encoding: "utf8" });
     expect(run.status).toBe(1); expect(JSON.parse(run.stdout)).toMatchObject({ passed: false, code: "ledger_invalid" });
+  });
+});
+
+describe("research claims entailment inputs", () => {
+  const one = (quote: string) => ledger([{ id: "C1", sentence: "The reactor produced 42 units in May 2026.", sourceId: "input/notes.txt", quote }]);
+  const single = report.replace(" Output fell by 12 percent after the outage [C2].", "");
+  it("emits sentence, quote and a bounded source window per verified claim only when the host asks for it", () => {
+    const plain = run({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": single, [CLAIMS_LEDGER_PATH]: one("produced 42 units in May 2026") });
+    expect(plain.result.claims[0]).not.toHaveProperty("context"); expect(plain.result.claims[0]).not.toHaveProperty("sentence");
+    const long = "Filler sentence number %d that pads the source well beyond the window. ";
+    const padded = Array.from({ length: 40 }, (_, i) => long.replace("%d", String(i))).join("") + notes + Array.from({ length: 40 }, (_, i) => long.replace("%d", String(100 + i))).join("");
+    const judged = run({ "input/notes.txt": padded, "sources/page.bin": page, "output/report.md": single, [CLAIMS_LEDGER_PATH]: one("produced 42 units in May 2026") }, { context: true });
+    const claim = judged.result.claims[0] as { found: boolean; sentence: string; quote: string; context: string };
+    expect(claim).toMatchObject({ found: true, sentence: "The reactor produced 42 units in May 2026.", quote: "produced 42 units in May 2026" });
+    expect(claim.context).toContain("produced 42 units in May 2026"); expect(claim.context.length).toBeLessThanOrEqual(CLAIMS_CONTEXT_CHARS);
+    expect(claim.context.length).toBeGreaterThan(CLAIMS_CONTEXT_CHARS - 40);
+    expect(CheckClaimsOutputSchema.parse(judged.result).claims[0]!.context).toBe(claim.context);
+    const fabricated = run({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": single, [CLAIMS_LEDGER_PATH]: one("produced 43 units in May 2026") }, { context: true });
+    expect(fabricated.result.claims[0]).toMatchObject({ found: false }); expect(fabricated.result.claims[0]).not.toHaveProperty("context");
+  });
+  it("builds a fresh two-message judge prompt and accepts only the four verdicts", () => {
+    const messages = entailmentMessages({ id: "C1", sentence: "s", quote: "q", context: "ctx" });
+    expect(messages.map(message => message.role)).toEqual(["system", "user"]);
+    expect(messages[0]!.content).toBe(ENTAILMENT_SYSTEM_PROMPT); expect(messages[1]!.content).toContain("\"s\""); expect(messages[1]!.content).toContain("ctx");
+    expect(EntailmentReplySchema.safeParse({ verdict: "partial", reason: "r" }).success).toBe(true);
+    expect(EntailmentReplySchema.safeParse({ verdict: "maybe" }).success).toBe(false);
+    expect(EntailmentReplySchema.safeParse({ verdict: "supported", extra: 1 }).success).toBe(false);
   });
 });

@@ -26,8 +26,10 @@ The following stay outside Git, under the ignored `.soar/experiments/`:
 | `family` | research, document_review, website, deck, admin, coding or audit |
 | `exposure` | `fresh` (never seen by any run or prompt tuning) or `exposed` |
 | `arm` | Route and profile, for example `local-standard` or `local-heavy` |
+| `profile`, `thinking`, `maxOutputTokens` | Coordinator profile the run was frozen with |
 | `modelCalls`, `toolCalls`, `wallSeconds` | Counts from the run's own ledger |
-| `outputTokens`, `usd` | Accounting (`usd` is API fees only; local is zero-fee) |
+| `inputTokens`, `outputTokens`, `lengthStops`, `usd` | Accounting (`usd` is API fees only; local is zero-fee); `lengthStops` counts replies cut at the output limit |
+| `entailment` | Research tasks with a claims ledger: the host's entailment counts, `entailmentCalls`, `truncated` and `supportRate` (supported / judged claims), or `null`; a local-model judgement is evidence, not acceptance |
 | `unknownDispatches` | Unsettled dispatches (never replayed) |
 | `outcome` | `accepted`, `rejected`, `incomplete` or `infra_invalid` |
 | `terminalCause` | Why the run ended, for example `submitted`, `session_deadline`, `request_body_size_exceeded` |

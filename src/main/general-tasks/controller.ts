@@ -9,7 +9,7 @@ import { GeneralTaskCreateInputSchema, GeneralTaskArtifactRefSchema, GeneralTask
   GeneralTaskConsultationRefSchema, GeneralTaskConsultationDecisionSchema, GeneralTaskBundleRefSchema,
   type GeneralTaskCreateInput, type GeneralTaskSnapshot, type GeneralTaskInputSelection, type GeneralTaskInputFile,
   type GeneralTaskAvailability, type GeneralTaskArtifactRef, type GeneralTaskPublicSources, type GeneralTaskBundleRef,
-  type GeneralTaskConsultationRef, type GeneralTaskConsultationDecision, type GeneralTaskConsultationPreview } from "../../shared/general-task-contracts";
+  type GeneralTaskConsultationRef, type GeneralTaskConsultationDecision, type GeneralTaskConsultationPreview, type GeneralTaskEntailment } from "../../shared/general-task-contracts";
 import { canonical, digest, exactText } from "../private-agent/contracts";
 import { PrivateAgentStore, UnknownRequestDiagnosticSchema } from "../private-agent/store";
 import { PrivateAgentBroker, isPublicAddress, type BrokerDestination } from "../private-agent/broker";
@@ -66,6 +66,7 @@ const summaries: Record<string, string> = {
   public_source_retained: "Public source bytes and retrieval receipt saved.",
   consultation_proposed: "Consultation packet frozen. Nothing has been sent to the consultant.",
   consultation_decision: "Consultation decision recorded.", consultation_attempted: "Using the approved consultation allowance.",
+  claims_entailment: "Claim support judged by the local model and recorded as evidence.",
   consultation_response: "Consultant response saved as untrusted advice.",
 };
 interface TaskRecord {
@@ -73,6 +74,7 @@ interface TaskRecord {
   status: GeneralTaskSnapshot["status"]; reason: string; inputs: GeneralTaskInputFile[]; inputSnapshot: WorkspaceSnapshot;
   snapshot: WorkspaceSnapshot; phaseIdentity: string; configurationIdentity: string; attestationIdentity: string;
   startedAt: number | null; checks: { id: string; passed: boolean }[];
+  entailment?: GeneralTaskEntailment;
   publicSources?: GeneralTaskPublicSources;
   routing?: "ask_before_consulting";
   consultantIdentity?: string;
@@ -383,7 +385,7 @@ export class GeneralTaskController {
       elapsedMs: Math.min(this.budget().elapsedMs, record.startedAt === null ? 0 : record.version === 3 ?
         (["queued", "running", "paused"].includes(record.status) || record.reason === "interrupted" ? Date.now() : record.updatedAt) - record.startedAt :
         active ? Date.now() - record.startedAt : ended.reduce((sum, event) => sum + Number(event.elapsedMs ?? 0), 0)),
-      checks: structuredClone(record.checks), cleanupConfirmed, independentAcceptance: "not_evaluated", canResume,
+      checks: structuredClone(record.checks), ...(record.entailment ? { entailment: structuredClone(record.entailment) } : {}), cleanupConfirmed, independentAcceptance: "not_evaluated", canResume,
       events: events.map((event, i) => ({ sequence: i + 1, type: String(event.type),
         summary: event.type === "model_action_not_started" && event.reason === EXECUTION_PROGRESS_STOP ?
           progressStopped && canonical(event) === canonical(progressStopped) ? "The unchanged failed command was stopped before execution." :
@@ -481,6 +483,8 @@ export class GeneralTaskController {
         ended.at(-1)?.cleanupConfirmed === true && !this.uncertain(events, id) && events.some(event => event.type === "session_submitted");
       next.snapshot = result.finalSnapshot.length ? result.finalSnapshot : next.snapshot;
       next.checks = ([...events].reverse().find(event => event.type === "completed")?.checks as TaskRecord["checks"] | undefined) ?? [];
+      const judged = [...events].reverse().find(event => event.type === "claims_entailment") as { verdicts: GeneralTaskEntailment["claims"]; counts: GeneralTaskEntailment["counts"]; entailmentCalls: number; truncated: boolean } | undefined;
+      if (judged) next.entailment = { counts: judged.counts, entailmentCalls: judged.entailmentCalls, truncated: judged.truncated, claims: judged.verdicts };
       next.status = active.cancelRequested ? "cancelled" : submitted ? "submitted" : result.status === "paused" ? "paused" : "incomplete";
       next.reason = !preserved ? "configuration_changed" : result.reason === "consultation_pending" ? "consultation_pending" :
         result.reason === MODEL_REQUEST_SIZE_STOP ? MODEL_REQUEST_SIZE_STOP : next.status; this.save(next);

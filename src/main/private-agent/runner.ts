@@ -13,7 +13,9 @@ import { EXECUTION_OBSERVATION_MAX_BYTES, EXECUTION_OBSERVATION_BUDGET_BYTES, RE
   readObservationArguments, ObservationIntegrityError, retainExecutionObservation, readExecutionObservation,
   projectExecutionObservations, verifyExecutionObservations } from "./observations";
 import { capabilitiesForImage } from "./capabilities";
-import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_RETAINED_ENV, encodeRetainedClaimsSources, publicSourceWorkspacePath, type RetainedClaimsSource } from "./claims";
+import { CLAIMS_CONTEXT_CHARS, CLAIMS_CONTEXT_ENV, CLAIMS_LEDGER_CHECK_ID, CLAIMS_RETAINED_ENV, CheckClaimsOutputSchema, ENTAILMENT_OUTPUT_TOKENS,
+  ENTAILMENT_PROMPT_VERSION, ENTAILMENT_RESERVE_MS, ENTAILMENT_SYSTEM_PROMPT, EntailmentReplySchema, encodeRetainedClaimsSources, entailmentMessages,
+  publicSourceWorkspacePath, type EntailmentVerdict, type RetainedClaimsSource } from "./claims";
 import { EXECUTION_PROGRESS_POLICY, EXECUTION_PROGRESS_STOP, deriveExecutionProgress, executionProgressBlocks,
   executionProgressStop, readExecutionProgressStop, hasUnresolvedExecutionProgressAction } from "./progress";
 
@@ -86,11 +88,13 @@ const consultationArguments = z.object({ question: z.string().min(1).max(4000), 
 const CLAIMS_TOOL: GeneralToolDefinition = { type: "function", function: { name: "check_claims", description: "Run the host's claims-ledger check on output/claims.json and the report without changing any file. Returns each claim's quote verification and host-computed locator plus citation and section results, so you can repair before finish.",
   parameters: { type: "object", properties: {}, additionalProperties: false } } };
 const noArguments = z.object({}).strict();
-/** A host-owned check as one sandbox command; the script is a host value, never a workspace file. The claims check also receives the host's retained sources. */
-export function checkCommand(check: ArtifactCheck, retained?: RetainedClaimsSource[]): string {
-  const env = check.id === CLAIMS_LEDGER_CHECK_ID ? `${CLAIMS_RETAINED_ENV}='${encodeRetainedClaimsSources(retained ?? [])}' ` : "";
+/** A host-owned check as one sandbox command; the script is a host value, never a workspace file. The claims check also receives the host's retained sources, and at finish asks for source windows. */
+export function checkCommand(check: ArtifactCheck, retained?: RetainedClaimsSource[], context = false): string {
+  const env = check.id === CLAIMS_LEDGER_CHECK_ID ? `${CLAIMS_RETAINED_ENV}='${encodeRetainedClaimsSources(retained ?? [])}' ${context ? `${CLAIMS_CONTEXT_ENV}='1' ` : ""}` : "";
   return `${env}python3 -I -c '${exactText(check.python).replace(/'/gu, "'\\''")}'`;
 }
+const ENTAILMENT_OUTPUT_BYTES = 256 * 1024;
+type EntailmentRecord = { id: string; verdict: EntailmentVerdict | "not_judged"; reason?: string };
 
 const BUDGET_GUIDANCE = "Current host budget (remaining model/tool calls include this turn; broker requests are shared with public fetches; milliseconds cover this runner's remaining active time). Earlier cancellation or session limits still apply. Invalid actions consume their model and tool allowances. Use finish to request early host checks. At ordinary model/tool allowance exhaustion after a valid action, the host may check the frozen artifacts once without another model call. Reserve enough active time for host checks; these values grant no additional authority.";
 interface RemainingBudget {
@@ -246,7 +250,8 @@ export class GeneralAgentRunner {
         ...(claimsCheck ? [CLAIMS_TOOL] : [])];
       // Bind the actual static prompt and protocol, not just the owner's task.
       // Historical runs under the earlier prompt must not silently resume here.
-      const promptProtocolSha256 = digest(canonical({ version: this.options.consultation ? 17 : 16, prompt, definitions,
+      const promptProtocolSha256 = digest(canonical({ version: this.options.consultation ? 19 : 18, prompt, definitions,
+        entailment: { version: ENTAILMENT_PROMPT_VERSION, prompt: ENTAILMENT_SYSTEM_PROMPT, outputTokens: ENTAILMENT_OUTPUT_TOKENS, contextChars: CLAIMS_CONTEXT_CHARS },
         executionProgressPolicy: EXECUTION_PROGRESS_POLICY, capabilitiesIdentity: capabilities.identity,
         executionObservationPolicy: { version: 1, maxBytes: EXECUTION_OBSERVATION_MAX_BYTES, budgetBytes: EXECUTION_OBSERVATION_BUDGET_BYTES },
         publicSourceObservationBytes: PUBLIC_SOURCE_OBSERVATION_BYTES,
@@ -505,9 +510,11 @@ export class GeneralAgentRunner {
             // exactly these immutable bytes, never a second mutable capture.
             await execution.close(); sandbox = undefined;
             const missing = contract.requiredArtifacts.filter(artifact => !files.some(file => file.path === artifact.path && file.bytes.length));
-            checks = missing.length ? [] : await this.verify(files, boundedSignal, endpoint);
+            const verified = missing.length ? { checks: [] } : await this.verify(files, boundedSignal, endpoint);
+            checks = verified.checks;
             complete = !missing.length && checks.length === contract.requiredChecks.length && checks.every(check => check.passed);
             output = canonical({ complete, missingArtifacts: missing.map(artifact => artifact.path), checks });
+            if (complete) await this.entail(verified.claimsOutput, boundedSignal, () => contract.maxElapsedMs - elapsed - (performance.now() - started));
             if (!complete) sandbox = await DockerSandbox.create({ imageId, jobId, contextId, endpoint, files,
               lifetimeSeconds: sandboxLifetime(contract.maxElapsedMs - elapsed - (performance.now() - started)) });
           } else throw new Error("tool_unknown");
@@ -572,10 +579,12 @@ export class GeneralAgentRunner {
         await sandbox.close(); sandbox = undefined;
         if (boundedSignal.aborted || store.policy(jobId).cancelled || elapsed + performance.now() - started >= contract.maxElapsedMs) return finish("incomplete", "cancelled_or_deadline");
         const missing = contract.requiredArtifacts.filter(artifact => !files.some(file => file.path === artifact.path && file.bytes.length));
-        checks = missing.length ? [] : await this.verify(files, boundedSignal, endpoint);
+        const verified = missing.length ? { checks: [] } : await this.verify(files, boundedSignal, endpoint);
+        checks = verified.checks;
         const passed = !missing.length && checks.length === contract.requiredChecks.length && checks.every(check => check.passed);
         this.record({ type: "host_validation_finished", operationId, passed, checks,
           missingArtifacts: missing.map(artifact => artifact.path), verifiedSnapshotSha256: checkpoints.fingerprint(snapshot) });
+        if (passed) await this.entail(verified.claimsOutput, boundedSignal, () => contract.maxElapsedMs - elapsed - (performance.now() - started));
         if (passed) { readPublicSources(store, checkpoints, jobId, contextId); verifyExecutionObservations(observationScope); completionPending = true; return finish("completed", "critical_checks_passed_at_allowance"); }
       }
       return finish("incomplete", "bounded_allowance_exhausted");
@@ -628,21 +637,56 @@ export class GeneralAgentRunner {
       .map(source => ({ url: source.url, path: publicSourceWorkspacePath(source.url), sha256: source.sha256, bytes: source.bytes }));
   }
 
-  private async verify(files: { path: string; bytes: Buffer }[], signal: AbortSignal, endpoint: string): Promise<GeneralJobResult["checks"]> {
+  /**
+   * Entailment pass (PR-J2): one thinking-off judgement per verified claim, after every critical check passed.
+   * Evidence only: verdicts never change the result. The pass stops at the deadline reserve, on a transport
+   * failure or when the session allowance runs out, and records the rest as not judged.
+   */
+  private async entail(claimsOutput: string | undefined, signal: AbortSignal, remainingMs: () => number): Promise<void> {
+    if (claimsOutput === undefined) return;
+    const zero = { supported: 0, partial: 0, unsupported: 0, contradicted: 0, not_judged: 0 };
+    let parsed: ReturnType<typeof CheckClaimsOutputSchema.parse>;
+    try { parsed = CheckClaimsOutputSchema.parse(JSON.parse(claimsOutput)); }
+    catch { this.record({ type: "claims_entailment", version: 1, verdicts: [], counts: zero, entailmentCalls: 0, truncated: true, reason: "claims_output_invalid" }); return; }
+    const verdicts: EntailmentRecord[] = []; let calls = 0, truncated = false;
+    for (const claim of parsed.claims) {
+      if (!claim.found || claim.sentence === undefined || claim.quote === undefined || claim.context === undefined) continue;
+      if (truncated || signal.aborted || remainingMs() < ENTAILMENT_RESERVE_MS) { truncated = true; verdicts.push({ id: claim.id, verdict: "not_judged", reason: "deadline_or_cancelled" }); continue; }
+      let reply: string;
+      try {
+        calls++;
+        reply = (await this.options.model.complete(entailmentMessages({ id: claim.id, sentence: claim.sentence, quote: claim.quote, context: claim.context }), [], signal,
+          { thinking: "disabled", maxOutputTokens: ENTAILMENT_OUTPUT_TOKENS, purpose: "claims entailment judgement" })).content;
+      } catch { truncated = true; verdicts.push({ id: claim.id, verdict: "not_judged", reason: "judge_request_failed" }); continue; }
+      try {
+        const text = reply.trim(), json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
+        const verdict = EntailmentReplySchema.parse(JSON.parse(json));
+        verdicts.push({ id: claim.id, verdict: verdict.verdict, ...(verdict.reason ? { reason: verdict.reason } : {}) });
+      } catch { verdicts.push({ id: claim.id, verdict: "not_judged", reason: "judge_reply_invalid" }); }
+    }
+    const counts = { ...zero };
+    for (const row of verdicts) counts[row.verdict]++;
+    this.record({ type: "claims_entailment", version: 1, verdicts, counts, entailmentCalls: calls, truncated });
+  }
+
+  private async verify(files: { path: string; bytes: Buffer }[], signal: AbortSignal, endpoint: string): Promise<{ checks: GeneralJobResult["checks"]; claimsOutput?: string }> {
     // The frozen snapshot's sources/ copies are replaced by the host's retained bytes: a model edit there never reaches a check.
     const retained = this.retainedSources(), retainedPaths = new Set(retained.map(source => source.path));
     const verified = [...files.filter(file => !retainedPaths.has(file.path)), ...retained.map(source => ({ path: source.path, bytes: source.bytes }))];
     const verifier = await DockerSandbox.create({ imageId: this.options.imageId, jobId: this.options.jobId,
       contextId: this.options.contextId, endpoint, files: verified, lifetimeSeconds: Math.min(PRIVATE_SANDBOX_LIMITS.lifetimeSeconds, 120 + 110 * this.options.checks.length) });
     try {
-      const results: GeneralJobResult["checks"] = [];
+      const results: GeneralJobResult["checks"] = []; let claimsOutput: string | undefined;
       for (const check of this.options.checks) {
         // -I excludes candidate modules/PYTHONPATH and user-site packages. The
         // embedded script is a host-owned value, not a mutable workspace file.
-        try { const response = await verifier.execute(checkCommand(check, retained), { signal, timeoutMs: 90000 }); results.push({ id: check.id, passed: response.exitCode === 0 }); }
-        catch { results.push({ id: check.id, passed: false }); }
+        try {
+          const response = await verifier.execute(checkCommand(check, retained, check.id === CLAIMS_LEDGER_CHECK_ID), { signal, timeoutMs: 90000 });
+          results.push({ id: check.id, passed: response.exitCode === 0 });
+          if (check.id === CLAIMS_LEDGER_CHECK_ID && response.exitCode === 0) claimsOutput = response.stdout.slice(0, ENTAILMENT_OUTPUT_BYTES);
+        } catch { results.push({ id: check.id, passed: false }); }
       }
-      return results;
+      return { checks: results, ...(claimsOutput === undefined ? {} : { claimsOutput }) };
     } finally { await verifier.close(); }
   }
 }

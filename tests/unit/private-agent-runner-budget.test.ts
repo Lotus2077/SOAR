@@ -21,7 +21,9 @@ type Action = { name: string; arguments: string; outputTokens?: number; reply?: 
 const write: Action = { name: "execute", arguments: '{"command":"write result"}' };
 const finish: Action = { name: "finish", arguments: '{"summary":"Artifacts are ready for host checks."}' };
 
-function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "maxModelCalls" | "maxToolCalls" | "maxElapsedMs">> & { maxRequests?: number; checkExitCode?: number; toolStdout?: string; claimsLedger?: boolean } = {}) {
+function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "maxModelCalls" | "maxToolCalls" | "maxElapsedMs">> & { maxRequests?: number; checkExitCode?: number; toolStdout?: string; claimsLedger?: boolean;
+  /** Replies for the host's entailment judge, one per call; a function may also move the clock. */
+  judge?: (call: number) => string } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "soar-runner-budget-"));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const dbPath = join(directory, "state.sqlite"), db = new Database(dbPath); cleanup.push(() => db.close());
@@ -78,7 +80,17 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
   });
   const requests: GeneralMessage[][] = [];
   let afterResponse: (count: number) => void = () => {};
-  const complete = vi.spyOn(model, "complete").mockImplementation(async messages => {
+  const judgeRequests: GeneralMessage[][] = [];
+  const complete = vi.spyOn(model, "complete").mockImplementation(async (messages, tools, _signal, overrides) => {
+    if (tools.length === 0 && overrides?.thinking === "disabled") {
+      // The host's entailment judge: fresh prompt, no tools, thinking off; it uses the same accounting as any model call.
+      judgeRequests.push(structuredClone(messages)); clock += 100;
+      const { text: _judgeText, ...judgePreview } = broker.preview({ jobId, contextId, destinationId: "model", purpose: "claims entailment judgement", method: "POST", body: canonical(messages), maxFeeMicrousd: 0 });
+      const judgeRow = store.commit({ ...judgePreview, reservedFeeMicrousd: 0, scan: { status: "not_required_inside_boundary" } }, () => {});
+      const reply = (limits.judge ?? (() => '{"verdict":"supported","reason":"fixture"}'))(judgeRequests.length);
+      store.settle(judgeRow.id, 0, digest(reply));
+      return { content: reply, toolCalls: [], finishReason: "stop", costUsd: 0, durationMs: 100 };
+    }
     requests.push(structuredClone(messages)); clock += 100;
     const index = requests.length - 1, action = actions[index];
     if (!action) throw new Error("Unexpected model invocation.");
@@ -93,7 +105,7 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
       finishReason: action.reply === "length" ? "length" : "tool_calls", costUsd: 0, durationMs: 100,
       ...(action.outputTokens === undefined ? {} : { usage: { inputTokens: 100, outputTokens: action.outputTokens, totalTokens: 100 + action.outputTokens } }) };
   });
-  return { options, dbPath, requests, complete, create, commands, advance: (ms: number) => { clock += ms; },
+  return { options, dbPath, requests, judgeRequests, complete, create, commands, advance: (ms: number) => { clock += ms; },
     mutateWorkspace: (path: string, bytes: Buffer) => { currentContents.set(path, Buffer.from(bytes)); },
     beforeListFiles: (callback: () => void) => { beforeListFiles = callback; },
     afterExecute: (callback: (command: string) => void) => { afterExecute = callback; },
@@ -749,6 +761,45 @@ describe("general runner claims ledger tool", () => {
     expect(g.commands.filter(command => command.includes(CLAIMS_LEDGER_CHECK_ID))).toEqual([]);
     const refused = g.options.store.events(g.options.jobId).filter(event => event.type === "tool_finished").map(event => JSON.parse(String(event.output)));
     expect(refused[0]).toMatchObject({ error: "action_failed_or_not_permitted", completed: false });
+  });
+  const judged = JSON.stringify({ passed: true, claims: [
+    { id: "C1", found: true, locator: "line 1", sentence: "The input is synthetic.", quote: "synthetic input", context: "synthetic input" },
+    { id: "C2", found: true, locator: "line 1", sentence: "The input is real.", quote: "synthetic input", context: "synthetic input" },
+    { id: "C3", found: false, code: "quote_not_found" }], report: { citations: { missing: [], unknown: [] }, sections: {} } });
+  it("judges every verified claim after the critical checks pass and records the verdict counts as evidence", async () => {
+    // The fixture's default 10 s deadline sits under the judge's 30 s reserve; give the pass room.
+    const f = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4, maxRequests: 20, maxElapsedMs: 600_000, claimsLedger: true, toolStdout: judged,
+      judge: call => call === 1 ? '{"verdict":"supported","reason":"the quote states it"}' : 'Sure: {"verdict":"contradicted","reason":"the quote says synthetic"}' });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "completed", reason: "critical_checks_passed", modelCalls: 2 });
+    expect(f.judgeRequests).toHaveLength(2);
+    expect(f.judgeRequests[0]![0]).toMatchObject({ role: "system" }); expect(f.judgeRequests[0]![1]!.content).toContain("The input is synthetic.");
+    // The finish-time run asks for source windows; the model-callable check_claims never does.
+    expect(f.commands.filter(command => command.includes("SOAR_CLAIMS_CONTEXT='1'"))).toHaveLength(1);
+    const event = f.options.store.events(f.options.jobId).find(row => row.type === "claims_entailment")!;
+    expect(event).toMatchObject({ version: 1, entailmentCalls: 2, truncated: false, counts: { supported: 1, partial: 0, unsupported: 0, contradicted: 1, not_judged: 0 },
+      verdicts: [{ id: "C1", verdict: "supported", reason: "the quote states it" }, { id: "C2", verdict: "contradicted" }] });
+    // Judge calls are session requests, not agent model calls.
+    expect(f.options.store.dispatches(f.options.jobId).filter(row => row.purpose === "claims entailment judgement")).toHaveLength(2);
+    expect(f.options.store.events(f.options.jobId).filter(row => row.type === "model_started")).toHaveLength(2);
+  });
+  it("does not judge when the ledger check fails, and records invalid judge replies as not judged without stopping", async () => {
+    const failed = fixture([write, finish], { maxModelCalls: 2, maxToolCalls: 4, claimsLedger: true, toolStdout: judged, checkExitCode: 1 });
+    expect((await new GeneralAgentRunner(failed.options).run()).status).toBe("incomplete");
+    expect(failed.judgeRequests).toHaveLength(0);
+    expect(failed.options.store.events(failed.options.jobId).some(row => row.type === "claims_entailment")).toBe(false);
+    const garbled = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4, maxRequests: 20, maxElapsedMs: 600_000, claimsLedger: true, toolStdout: judged, judge: call => call === 1 ? "no json here" : '{"verdict":"partial"}' });
+    expect((await new GeneralAgentRunner(garbled.options).run()).status).toBe("completed");
+    expect(garbled.options.store.events(garbled.options.jobId).find(row => row.type === "claims_entailment")).toMatchObject({
+      entailmentCalls: 2, truncated: false, counts: { partial: 1, not_judged: 1 }, verdicts: [{ id: "C1", verdict: "not_judged", reason: "judge_reply_invalid" }, { id: "C2", verdict: "partial" }] });
+  });
+  it("stops judging at the deadline reserve and marks the remaining claims not judged", async () => {
+    const f = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4, maxRequests: 20, maxElapsedMs: 100_000, claimsLedger: true, toolStdout: judged,
+      judge: () => { f.advance(90_000); return '{"verdict":"supported"}'; } });
+    expect((await new GeneralAgentRunner(f.options).run()).status).toBe("completed");
+    expect(f.judgeRequests).toHaveLength(1);
+    expect(f.options.store.events(f.options.jobId).find(row => row.type === "claims_entailment")).toMatchObject({
+      entailmentCalls: 1, truncated: true, counts: { supported: 1, not_judged: 1 }, verdicts: [{ id: "C1", verdict: "supported" }, { id: "C2", verdict: "not_judged", reason: "deadline_or_cancelled" }] });
   });
   it("verifies the ledger as a critical check at finish", async () => {
     // Two calls only: the failed finish must not be followed by another scripted reply.

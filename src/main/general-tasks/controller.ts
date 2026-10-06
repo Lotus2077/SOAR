@@ -15,7 +15,7 @@ import { PrivateAgentStore, UnknownRequestDiagnosticSchema } from "../private-ag
 import { PrivateAgentBroker, isPublicAddress, type BrokerDestination } from "../private-agent/broker";
 import { isIP } from "node:net";
 import { readPublicSources } from "../private-agent/public-sources";
-import { PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop } from "../private-agent/model";
+import { MODEL_UNAVAILABLE_STOP, modelRequestFailed, PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop } from "../private-agent/model";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "../private-agent/checkpoints";
 import { GeneralAgentSession, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../private-agent/session";
 import { DockerSandbox } from "../private-agent/sandbox";
@@ -27,6 +27,7 @@ import { bundleManifest, buildArtifactBundle } from "./artifact-bundle";
 import { EXECUTION_PROGRESS_STOP, readExecutionProgressStop, hasUnresolvedExecutionProgressAction } from "../private-agent/progress";
 import { COORDINATOR_PROFILES, DEFAULT_COORDINATOR_PROFILE, GENERAL_TASK_BUDGETS, type CoordinatorProfileName } from "../private-agent/profiles";
 import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, claimsInstructions, claimsLedgerCheck, isEntailmentDispatch } from "../private-agent/claims";
+import { isResolvedDispatch } from "../private-agent/store";
 
 /** The September desktop budget; the active budget comes from the configured profile. */
 export const GENERAL_TASK_LIMITS = GENERAL_TASK_BUDGETS.standard;
@@ -48,6 +49,7 @@ const fixedReasons: Record<string, string> = {
   request_body_size_exceeded: "The next model request exceeded the request size limit and was not sent. Saved progress is retained; this task cannot resume.",
   repeated_identical_execution_failure: "The agent selected the same failed command after a recovery warning. The command was stopped before execution. Saved progress is retained; this task cannot resume.",
   deadline: "The task reached its time limit.",
+  model_unavailable: "The local model could not be reached after the permitted attempts. Nothing is uncertain; resume when the model is back.",
   cleanup_blocked: "Cancellation is recorded, but interrupted execution cleanup could not be confirmed. No request will be replayed.",
   consultation_pending: "Progress saved. Review the exact consultation packet before deciding whether to send it.",
   consultation_ready: "Your consultation decision is saved. Resume continues within the original task allowance.",
@@ -257,6 +259,7 @@ export class GeneralTaskController {
     return (record.publicSources?.urls ?? []).map((url, i) => ({ id: `desktop_web_${i + 1}`, kind: "public_web", endpoint: url, exactUrl: url,
       accountId: "user_approved_public_source", credentialVersion: 0, privateDataAdmitted: false,
       ...(record.publicSources?.dnsResolver === "cloudflare_v1" ? { publicDnsResolver: "cloudflare_v1" as const } : {}),
+      ...(this.profile().config.recoverableDispatch ? { recoverable: true } : {}),
       maxResponseBytes: GENERAL_TASK_WEB_LIMITS.maxResponseBytes, timeoutMs: 15000 }));
   }
   create(raw: GeneralTaskCreateInput): GeneralTaskSnapshot {
@@ -289,10 +292,10 @@ export class GeneralTaskController {
 
   private uncertain(events: Record<string, unknown>[], id: string): boolean {
     const stopped = this.progressStop(events, id);
-    return readConsultation(this.runtime, id)?.uncertain === true || this.runtime.dispatches(id).some(row => row.status !== "settled" && !isEntailmentDispatch(row)) || hasInvalidModelRequestSizeStop(events) ||
+    return readConsultation(this.runtime, id)?.uncertain === true || this.runtime.dispatches(id).some(row => !isResolvedDispatch(row) && !isEntailmentDispatch(row)) || hasInvalidModelRequestSizeStop(events) ||
       this.unresolvedProgressAction(events, id) || events.some(event => event.type === "model_action_not_started" &&
       (!stopped || canonical(event) !== canonical(stopped)) ||
-      ["model_started", "tool_started", "host_validation_started"].includes(String(event.type)) && !modelRequestSizeStop(events, event) &&
+      ["model_started", "tool_started", "host_validation_started"].includes(String(event.type)) && !modelRequestSizeStop(events, event) && !modelRequestFailed(events, event) &&
       !events.some(other => other.type === String(event.type).replace("_started", "_finished") && other.operationId === event.operationId));
   }
   private unresolvedProgressAction(events: Record<string, unknown>[], id: string): boolean {
@@ -335,6 +338,8 @@ export class GeneralTaskController {
       transport_failed: "The request transport failed before completion was confirmed.",
       response_or_usage_invalid: "The response or its usage could not be validated.",
       fee_settlement_failed: "The request charge could not be verified within its reserved limit.",
+      connection_failed: "The local model or source could not be reached (nothing was sent).",
+      upstream_closed: "The connection was closed by the other side before a response arrived.",
     };
     return `${descriptions[failure.code]} Its outcome remains uncertain. Resume is blocked; the request will not be replayed.`;
   }
@@ -353,7 +358,7 @@ export class GeneralTaskController {
     const progressStopped = this.progressStop(events, id);
     // A durable private completion only needs finalisation (submission and the evidence pass), which no allowance or deadline gates.
     const finalising = contextId !== undefined && events.some(event => event.type === "completed" && event.contextId === contextId);
-    const canResume = !this.closing && !active && (record.status === "paused" || record.status === "incomplete" && record.reason === "interrupted") &&
+    const canResume = !this.closing && !active && (record.status === "paused" || record.status === "incomplete" && (record.reason === "interrupted" || record.reason === MODEL_UNAVAILABLE_STOP)) &&
       (finalising || models < this.budget().modelCalls && tools < this.budget().toolCalls && !expired) && !uncertain && !sizeStopped && !progressStopped && consultation?.status !== "pending" &&
       !(consultation?.status === "approved" && models > this.budget().modelCalls - 2);
     const reason = !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : progressStopped ? EXECUTION_PROGRESS_STOP : expired ? "deadline" :
@@ -378,7 +383,7 @@ export class GeneralTaskController {
       ...(consultation ? { consultation: { proposalId: consultation.proposalId, proposalSha256: consultation.proposalSha256,
         state: consultationState(consultation, active), model: consultation.model, maxFeeMicrousd: consultation.maxFeeMicrousd,
         ...(consultation.feeMicrousd !== undefined ? { feeMicrousd: consultation.feeMicrousd } : {}) } } : {}),
-      ...(record.version === 3 ? { fees: { reservedMicrousd: dispatches.filter(row => row.status !== "settled").reduce((sum, row) => sum + row.reservedFeeMicrousd, 0),
+      ...(record.version === 3 ? { fees: { reservedMicrousd: dispatches.filter(row => !isResolvedDispatch(row)).reduce((sum, row) => sum + row.reservedFeeMicrousd, 0),
         settledMicrousd: dispatches.filter(row => row.status === "settled").reduce((sum, row) => sum + (row.feeMicrousd ?? 0), 0) } } : {}),
       ...(record.publicSources ? { network: { urls: [...record.publicSources.urls], dnsResolver: record.publicSources.dnsResolver, ...GENERAL_TASK_WEB_LIMITS },
         sources: readPublicSources(this.runtime, this.checkpoints(id), id, contextId),
@@ -399,7 +404,8 @@ export class GeneralTaskController {
     const profile = this.profile();
     return new PrivateAgentBroker(this.runtime, [{ id: "desktop_local", kind: "local_model", endpoint: profile.endpoint, apiKey: profile.config.vllm.apiKey,
       accountId: "owner_declared_local_server", credentialVersion: 1, privateDataAdmitted: false, syntheticOnly: true,
-      maxResponseBytes: 256 * 1024, timeoutMs: profile.timeoutMs, maxRequestBytes: profile.model.maxRequestBytes }, ...this.webDestinations(record),
+      maxResponseBytes: 256 * 1024, timeoutMs: profile.timeoutMs, maxRequestBytes: profile.model.maxRequestBytes,
+      ...(profile.config.recoverableDispatch ? { recoverable: true } : {}) }, ...this.webDestinations(record),
       ...(record.version === 3 ? [this.consultant(record).destination] : [])], new RulePacketScanner());
   }
   private consultationManager(record: TaskRecord, contextId: string, broker = this.broker(record)): GeneralConsultation {
@@ -491,7 +497,7 @@ export class GeneralTaskController {
       if (judged) next.entailment = { counts: judged.counts, entailmentCalls: judged.entailmentCalls, truncated: judged.truncated, claims: judged.verdicts };
       next.status = submitted ? "submitted" : active.cancelRequested ? "cancelled" : result.status === "paused" ? "paused" : "incomplete";
       next.reason = !preserved ? "configuration_changed" : result.reason === "consultation_pending" ? "consultation_pending" :
-        result.reason === MODEL_REQUEST_SIZE_STOP ? MODEL_REQUEST_SIZE_STOP : next.status; this.save(next);
+        result.reason === MODEL_REQUEST_SIZE_STOP ? MODEL_REQUEST_SIZE_STOP : result.reason === MODEL_UNAVAILABLE_STOP && next.status === "incomplete" ? MODEL_UNAVAILABLE_STOP : next.status; this.save(next);
     } catch (error) {
       const record = this.record(id); record.status = active.cancelRequested ? "cancelled" : "incomplete";
       record.reason = error instanceof Error && error.message === "general_task_configuration_changed" ? "configuration_changed" : "runtime_unavailable"; this.save(record);

@@ -58,7 +58,10 @@ def main() -> int:
         "outputTokens": sum(item.get("outputTokens", 0) for item in usage),
         "lengthStops": sum(1 for event in finished if event.get("finishReason") == "length"),
         "usd": sum(item.get("feeMicrousd") or 0 for item in dispatches) / 1_000_000,
-        "unknownDispatches": sum(1 for item in dispatches if item.get("status") != "settled"),
+        "unknownDispatches": sum(1 for item in dispatches if item.get("status") in ("unknown", "committed")),
+        # PR-C: attempts superseded by a retry and confirmed failures are resolved rows, never uncertain ones.
+        "retriedDispatches": sum(1 for item in dispatches if item.get("status") == "superseded"),
+        "failedDispatches": sum(1 for item in dispatches if item.get("status") == "failed"),
         "runStatus": result.get("status"), "terminalCause": result.get("reason"),
         "outcome": args.outcome, "criticalChecks": args.critical_checks, "verdictBy": args.verdict_by,
         "ownerMinutes": args.owner_minutes, "interventions": args.interventions, "lesson": args.lesson,

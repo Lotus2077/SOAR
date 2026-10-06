@@ -10,21 +10,41 @@ const diagnosticTiming = {
   elapsedMs: z.number().int().nonnegative().max(3_600_000),
   timeoutMs: z.number().int().min(1).max(900_000),
 };
+/**
+ * Fixed host diagnostics for a dispatch that did not settle. `connection_failed` (never sent) and `upstream_closed`
+ * (the peer closed after the request was written) are confirmed aborts, as is a 5xx `http_rejected`; the rest leave
+ * the upstream state uncertain. `attempt` numbers the tries of one recoverable packet.
+ */
 export const UnknownRequestDiagnosticSchema = z.discriminatedUnion("phase", [
   z.object({ phase: z.literal("transport"),
-    code: z.enum(["request_timeout", "cancelled", "http_rejected", "response_oversize", "transport_failed"]),
+    code: z.enum(["request_timeout", "cancelled", "http_rejected", "response_oversize", "transport_failed", "connection_failed", "upstream_closed"]),
+    status: z.number().int().min(100).max(599).optional(), attempt: z.number().int().min(1).max(3).optional(),
     ...diagnosticTiming }).strict(),
   z.object({ phase: z.literal("settlement"),
     code: z.enum(["response_or_usage_invalid", "fee_settlement_failed"]),
+    attempt: z.number().int().min(1).max(3).optional(),
     ...diagnosticTiming }).strict(),
 ]);
 export type UnknownRequestDiagnostic = z.infer<typeof UnknownRequestDiagnosticSchema>;
+/** A transport failure that proves the upstream accepted nothing it could act on or charge for: never sent, closed by the peer, or answered with an error. */
+export function isConfirmedAbort(failure: UnknownRequestDiagnostic | undefined): boolean {
+  return failure?.phase === "transport" && (failure.code === "connection_failed" || failure.code === "upstream_closed" || failure.code === "http_rejected");
+}
+/** Of the confirmed aborts, only transient ones are worth another attempt; a 4xx other than 429 is deterministic. */
+export function isRetryableAbort(failure: UnknownRequestDiagnostic | undefined): boolean {
+  return isConfirmedAbort(failure) && (failure!.phase === "transport" && failure!.code !== "http_rejected" || (failure!.phase === "transport" && ((failure!.status ?? 0) >= 500 || failure!.status === 429)));
+}
+/** `settled` has a response; `superseded` (retried) and `failed` (confirmed abort, no retry left) are resolved without one and never block the ledger. */
+export type DispatchStatus = "committed" | "settled" | "unknown" | "superseded" | "failed";
+export function isResolvedDispatch(receipt: { status: DispatchStatus }): boolean {
+  return receipt.status === "settled" || receipt.status === "superseded" || receipt.status === "failed";
+}
 
 export interface DispatchReceipt {
   id: string; jobId: string; contextId: string; contextSha256: string;
   packetSha256: string; destinationId: string; destinationSha256: string;
   purpose: string; policyRevision: number; committedAt: number;
-  reservedFeeMicrousd: number; status: "committed" | "settled" | "unknown";
+  reservedFeeMicrousd: number; status: DispatchStatus;
   scan: { status: "not_required_inside_boundary" | "not_required_for_synthetic_local_test" } | { status: "complete"; detector: string };
   feeMicrousd?: number; responseSha256?: string;
   /** Fixed host diagnostics only. Absence on historical unknown rows is meaningful. */
@@ -158,10 +178,10 @@ export class PrivateAgentStore {
       }
       validate(policy, context);
       const history = this.dispatches(policy.id);
-      if (history.some(receipt => receipt.status !== "settled")) throw new Error("private_agent_unresolved_dispatch");
+      if (history.some(receipt => !isResolvedDispatch(receipt))) throw new Error("private_agent_unresolved_dispatch");
       if (approval && this.db.prepare("SELECT 1 FROM private_agent_dispatches WHERE json_extract(value, '$.approval.proposalId') = ? LIMIT 1")
         .get(approval.proposalId)) throw new Error("private_agent_proposal_already_dispatched");
-      const exposure = history.reduce((sum, receipt) => sum + (receipt.status === "settled" ? receipt.feeMicrousd! : receipt.reservedFeeMicrousd), 0);
+      const exposure = history.reduce((sum, receipt) => sum + (receipt.status === "settled" ? receipt.feeMicrousd! : isResolvedDispatch(receipt) ? 0 : receipt.reservedFeeMicrousd), 0);
       if (!Number.isSafeInteger(input.reservedFeeMicrousd) || input.reservedFeeMicrousd < 0 ||
           history.length >= policy.maxRequests || exposure + input.reservedFeeMicrousd > policy.maxFeeMicrousd) {
         throw new Error("private_agent_budget_denied");
@@ -196,14 +216,22 @@ export class PrivateAgentStore {
     }).immediate();
   }
 
-  unknown(id: string, failure?: UnknownRequestDiagnostic): void {
+  unknown(id: string, failure?: UnknownRequestDiagnostic): void { this.close(id, "unknown", failure); }
+
+  /** A confirmed abort resolves the row without a response: `superseded` when another attempt follows, `failed` when none does. */
+  resolveFailure(id: string, status: "superseded" | "failed", failure: UnknownRequestDiagnostic): void {
+    if (!isConfirmedAbort(failure)) throw new Error("private_agent_failure_not_confirmed");
+    this.close(id, status, failure);
+  }
+
+  private close(id: string, status: "unknown" | "superseded" | "failed", failure?: UnknownRequestDiagnostic): void {
     const parsed = failure === undefined ? undefined : UnknownRequestDiagnosticSchema.safeParse(failure);
     if (parsed && !parsed.success) throw new Error("private_agent_unknown_diagnostic_invalid");
     this.db.transaction(() => {
       const receipt = this.dispatch(id);
       if (receipt.status !== "committed") return;
       this.db.prepare("UPDATE private_agent_dispatches SET value = ? WHERE id = ?")
-        .run(canonical({ ...receipt, status: "unknown", ...(parsed?.success ? { failure: parsed.data } : {}) }), id);
+        .run(canonical({ ...receipt, status, ...(parsed?.success ? { failure: parsed.data } : {}) }), id);
     }).immediate();
   }
 

@@ -87,7 +87,7 @@ function state(store: PrivateAgentStore, jobId: string) {
     receipt.contextSha256 === value.base.contextSha256 && receipt.packetSha256 === value.base.packetSha256 && receipt.destinationSha256 === value.base.destinationSha256 && receipt.purpose === CONSULTATION_PURPOSE &&
     accountingBound(value.base, response));
   const uncertain = Boolean((attempts.length || receipt || responses.length) && !responseBound);
-  let status: ConsultationView["status"] = decision?.decision === "revoke" ? "revoked" : decision?.decision === "decline" ? "declined" : responseBound ? "settled" : attempts.length ? (receipt?.status === "unknown" ? "failed" : "dispatching") : decision?.decision === "approve" ? "approved" : "pending";
+  let status: ConsultationView["status"] = decision?.decision === "revoke" ? "revoked" : decision?.decision === "decline" ? "declined" : responseBound ? "settled" : attempts.length ? (receipt && receipt.status !== "committed" && receipt.status !== "settled" ? "failed" : "dispatching") : decision?.decision === "approve" ? "approved" : "pending";
   return { ...value, decision, attempts, response, receipt, uncertain, status };
 }
 /** Historical projection does not need the current profile or credentials. */

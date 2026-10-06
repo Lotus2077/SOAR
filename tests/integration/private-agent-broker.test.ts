@@ -14,7 +14,7 @@ afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) awai
 
 async function fixture(options: { mode?: "private" | "cloud_help" | "offline"; classification?: "private" | "public";
   scanner?: LocalPacketScanner; synthetic?: boolean; kind?: BrokerDestination["kind"]; privateDataAdmitted?: boolean;
-  databasePath?: string; handler?: http.RequestListener; timeoutMs?: number; maxResponseBytes?: number } = {}) {
+  databasePath?: string; handler?: http.RequestListener; timeoutMs?: number; maxResponseBytes?: number; recoverable?: boolean; maxRequests?: number } = {}) {
   const requests: { body: string; authorization?: string; url?: string }[] = [];
   const server = http.createServer((request, response) => {
     let body = ""; request.on("data", chunk => { body += chunk; });
@@ -27,11 +27,12 @@ async function fixture(options: { mode?: "private" | "cloud_help" | "offline"; c
   const port = (server.address() as { port: number }).port;
   const db = new Database(options.databasePath ?? ":memory:"); cleanups.push(() => { if (db.open) db.close(); });
   const store = new PrivateAgentStore(db);
-  store.createJob({ id: "job", version: 1, revision: 0, cancelled: false, mode: options.mode ?? "cloud_help", destinations: ["target"], maxRequests: 10, maxFeeMicrousd: 1000 });
+  store.createJob({ id: "job", version: 1, revision: 0, cancelled: false, mode: options.mode ?? "cloud_help", destinations: ["target"], maxRequests: options.maxRequests ?? 10, maxFeeMicrousd: 1000 });
   store.createContext({ id: "context", jobId: "job", sources: [{ id: "input", version: digest("private input"), classification: options.classification ?? "private", synthetic: options.synthetic ?? true }] });
   const destination: BrokerDestination = { id: "target", kind: options.kind ?? "cloud_model", endpoint: `http://127.0.0.1:${port}/v1/chat/completions`,
     accountId: "synthetic-account", credentialVersion: 1, privateDataAdmitted: options.privateDataAdmitted ?? false,
     loopbackFixture: true, maxResponseBytes: options.maxResponseBytes ?? 2048, timeoutMs: options.timeoutMs ?? 1000,
+    ...(options.recoverable ? { recoverable: true } : {}),
     ...(options.kind === "public_web" ? {} : { apiKey: "synthetic-host-only-credential" }) };
   const broker = new PrivateAgentBroker(store, [destination], options.scanner ?? clean);
   const input: BrokerRequest = { jobId: "job", contextId: "context", destinationId: "target", purpose: "bounded consultation",
@@ -131,14 +132,20 @@ describe("private agent real host transport", () => {
     expect(f.requests).toEqual([]);
   });
 
-  it("does not follow redirects or retry an unknown result after store reopening", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "soar-private-broker-")); cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
-    const f = await fixture({ classification: "public", databasePath: join(dir, "state.sqlite"), handler: (_request, response) => {
+  it("does not follow redirects: a redirect is a confirmed rejection, resolved without retry", async () => {
+    const f = await fixture({ classification: "public", handler: (_request, response) => {
       response.writeHead(302, { location: "/canary-exfiltration" }); response.end();
     } });
+    await expect(f.broker.request(f.input)).rejects.toThrow("request_failed");
+    expect(f.store.dispatches("job")[0]).toMatchObject({ status: "failed", reservedFeeMicrousd: 100,
+      failure: { phase: "transport", code: "http_rejected", status: 302, timeoutMs: 1000 } });
+    expect(f.requests).toHaveLength(1); expect(f.requests[0]!.url).not.toContain("canary");
+  });
+  it("never retries an unknown result after store reopening", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "soar-private-broker-")); cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
+    const f = await fixture({ classification: "public", databasePath: join(dir, "state.sqlite"), timeoutMs: 200, handler: () => {} });
     await expect(f.broker.request(f.input)).rejects.toThrow("transport_or_settlement_unknown");
-    expect(f.store.dispatches("job")[0]).toMatchObject({ status: "unknown", reservedFeeMicrousd: 100,
-      failure: { phase: "transport", code: "http_rejected", timeoutMs: 1000 } });
+    expect(f.store.dispatches("job")[0]).toMatchObject({ status: "unknown", reservedFeeMicrousd: 100, failure: { phase: "transport", code: "request_timeout", timeoutMs: 200 } });
     const reopened = new Database(join(dir, "state.sqlite")); cleanups.push(() => { reopened.close(); });
     const second = new PrivateAgentBroker(new PrivateAgentStore(reopened), [f.destination], clean);
     expect(new PrivateAgentStore(reopened).dispatches("job")).toEqual(f.store.dispatches("job"));
@@ -233,17 +240,29 @@ describe("unknown request diagnostics", () => {
     expect(f.requests).toHaveLength(1);
   });
 
-  it.each(["http", "declared_oversize", "streamed_oversize", "socket_failure"] as const)("classifies controlled %s without storing provider text", async kind => {
-    const f = await fixture({ classification: "public", maxResponseBytes: 8, handler: (request, response) => {
-      if (kind === "http") { response.writeHead(503); response.end(sensitive); }
-      else if (kind === "declared_oversize") { response.writeHead(200, { "content-length": String(sensitive.length) }); response.end(sensitive); }
-      else if (kind === "streamed_oversize") { response.write(sensitive); response.end(); }
-      else request.socket.destroy(new Error(sensitive));
+  it.each(["declared_oversize", "streamed_oversize"] as const)("classifies controlled %s as uncertain without storing provider text", async kind => {
+    const f = await fixture({ classification: "public", maxResponseBytes: 8, handler: (_request, response) => {
+      if (kind === "declared_oversize") { response.writeHead(200, { "content-length": String(sensitive.length) }); response.end(sensitive); }
+      else { response.write(sensitive); response.end(); }
     } });
     await expect(f.broker.request(f.input)).rejects.toThrow("transport_or_settlement_unknown");
-    diagnostic(f, "transport", kind === "http" ? "http_rejected" : kind === "socket_failure" ? "transport_failed" : "response_oversize");
+    diagnostic(f, "transport", "response_oversize");
     await expect(f.broker.request(f.input)).rejects.toThrow("private_agent_unresolved_dispatch");
     expect(f.requests).toHaveLength(1);
+  });
+  it.each(["http", "socket_failure"] as const)("classifies a controlled %s as a confirmed abort: resolved, never retried without the flag, never blocking", async kind => {
+    const f = await fixture({ classification: "public", maxResponseBytes: 8, handler: (request, response) => {
+      if (kind === "http") { response.writeHead(503); response.end(sensitive); } else request.socket.destroy(new Error(sensitive));
+    } });
+    await expect(f.broker.request(f.input)).rejects.toThrow("request_failed");
+    const receipt = f.store.dispatches("job")[0]!;
+    expect(receipt).toMatchObject({ status: "failed", reservedFeeMicrousd: 100, failure: { phase: "transport", code: kind === "http" ? "http_rejected" : "upstream_closed", timeoutMs: f.destination.timeoutMs } });
+    if (kind === "http") expect(receipt.failure).toMatchObject({ status: 503 }); else expect(receipt.failure).not.toHaveProperty("status");
+    expect(receipt.failure).not.toHaveProperty("attempt"); expect(JSON.stringify(receipt)).not.toContain(sensitive);
+    expect(UnknownRequestDiagnosticSchema.safeParse(receipt.failure).success).toBe(true);
+    // A resolved failure does not block the job: the next request is admitted (and fails the same way here).
+    await expect(f.broker.request(f.input)).rejects.toThrow("request_failed");
+    expect(f.requests).toHaveLength(kind === "http" ? 2 : 2);
   });
 
   it.each(["invalid_json", "invalid_usage", "spoofed_transport"] as const)("settlement validation %s cannot impersonate transport failure", async kind => {
@@ -300,4 +319,68 @@ describe("public address admission", () => {
     }
     expect(() => new PrivateAgentBroker(f.store, [{ ...f.destination, timeoutMs: 900_000, maxRequestBytes: 4 * 1024 * 1024 }], scanner)).not.toThrow();
   });
+});
+
+describe("recoverable dispatch (owner decision D4)", () => {
+  const local = { kind: "local_model" as const, privateDataAdmitted: true, classification: "public" as const, recoverable: true };
+  const zeroFee = (f: Awaited<ReturnType<typeof fixture>>) => ({ ...f.input, maxFeeMicrousd: 0, purpose: "agent reasoning and tool selection" });
+  function flaky(failures: number, mode: "socket" | "503" | "400" | "429") {
+    let count = 0;
+    const handler: http.RequestListener = (request, response) => {
+      count++;
+      if (count > failures) { response.end('{"ok":true}'); return; }
+      if (mode === "socket") request.socket.destroy(new Error("synthetic reset"));
+      else { response.writeHead(Number(mode)); response.end("synthetic provider error"); }
+    };
+    return handler;
+  }
+  it.each(["socket", "503", "429"] as const)("retries a zero-fee local request after a confirmed %s abort, at most twice, one row per attempt", async mode => {
+    const f = await fixture({ ...local, handler: flaky(2, mode) });
+    const started = Date.now();
+    const result = await f.broker.request(zeroFee(f));
+    expect(result.receipt.status).toBe("settled"); expect(f.requests).toHaveLength(3);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(3_900);
+    const rows = f.store.dispatches("job");
+    expect(rows.map(row => row.status)).toEqual(["superseded", "superseded", "settled"]);
+    expect(rows[0]!.failure).toMatchObject({ phase: "transport", code: mode === "socket" ? "upstream_closed" : "http_rejected", attempt: 1, ...(mode === "socket" ? {} : { status: Number(mode) }) });
+    expect(rows[1]!.failure).toMatchObject({ attempt: 2 });
+    expect(rows.every(row => JSON.stringify(row).includes("synthetic provider error") === false)).toBe(true);
+    // Every attempt consumed a session request; superseded rows reserve no fee.
+    expect(rows.every(row => row.reservedFeeMicrousd === 0)).toBe(true);
+  }, 20_000);
+  it("gives up after the third confirmed abort with a resolved failed row and a distinct error", async () => {
+    const f = await fixture({ ...local, handler: flaky(3, "socket") });
+    await expect(f.broker.request(zeroFee(f))).rejects.toThrow("request_failed");
+    expect(f.store.dispatches("job").map(row => row.status)).toEqual(["superseded", "superseded", "failed"]);
+    expect(f.store.dispatches("job")[2]!.failure).toMatchObject({ code: "upstream_closed", attempt: 3 });
+    await f.broker.request(zeroFee(f)); // a later request is admitted: nothing is unresolved
+    expect(f.store.dispatches("job").at(-1)!.status).toBe("settled");
+  }, 20_000);
+  it("does not retry a deterministic 4xx, a timeout, a priced request or a flagless destination", async () => {
+    const bad = await fixture({ ...local, handler: flaky(1, "400") });
+    await expect(bad.broker.request(zeroFee(bad))).rejects.toThrow("request_failed");
+    expect(bad.store.dispatches("job").map(row => row.status)).toEqual(["failed"]); expect(bad.requests).toHaveLength(1);
+    const slow = await fixture({ ...local, timeoutMs: 200, handler: () => {} });
+    await expect(slow.broker.request(zeroFee(slow))).rejects.toThrow("transport_or_settlement_unknown");
+    expect(slow.store.dispatches("job").map(row => row.status)).toEqual(["unknown"]);
+    const priced = await fixture({ ...local, handler: flaky(1, "socket") });
+    await expect(priced.broker.request({ ...zeroFee(priced), maxFeeMicrousd: 1 })).rejects.toThrow("request_failed");
+    expect(priced.store.dispatches("job").map(row => row.status)).toEqual(["failed"]); expect(priced.requests).toHaveLength(1);
+    const flagless = await fixture({ ...local, recoverable: false, handler: flaky(1, "socket") });
+    await expect(flagless.broker.request(zeroFee(flagless))).rejects.toThrow("request_failed");
+    expect(flagless.store.dispatches("job").map(row => row.status)).toEqual(["failed"]); expect(flagless.requests).toHaveLength(1);
+  });
+  it("retries an idempotent public GET but never a cloud destination, and stops at the session request allowance or on cancel", async () => {
+    const web = await fixture({ kind: "public_web", classification: "public", recoverable: true, handler: flaky(1, "503") });
+    const result = await web.broker.request({ ...web.input, maxFeeMicrousd: 0, purpose: "public source retrieval" });
+    expect(result.receipt.status).toBe("settled"); expect(web.store.dispatches("job").map(row => row.status)).toEqual(["superseded", "settled"]);
+    await expect(fixture({ kind: "cloud_model", recoverable: true })).rejects.toThrow("destination_recoverable_invalid");
+    const capped = await fixture({ ...local, maxRequests: 2, handler: flaky(3, "socket") });
+    await expect(capped.broker.request(zeroFee(capped))).rejects.toThrow("private_agent_budget_denied");
+    expect(capped.store.dispatches("job").map(row => row.status)).toEqual(["superseded", "superseded"]);
+    const cancel = new AbortController(), cancelled = await fixture({ ...local, handler: flaky(3, "socket") });
+    setTimeout(() => cancel.abort(), 300);
+    await expect(cancelled.broker.request({ ...zeroFee(cancelled), signal: cancel.signal })).rejects.toThrow("request_cancelled");
+    expect(cancelled.store.dispatches("job").map(row => row.status)).toEqual(["superseded"]);
+  }, 20_000);
 });

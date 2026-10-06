@@ -1,11 +1,11 @@
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { canonical, digest, exactText, contextFingerprint } from "./contracts";
-import { PrivateAgentStore } from "./store";
-import { PrivateAgentBroker } from "./broker";
+import { PrivateAgentStore, isResolvedDispatch } from "./store";
+import { PrivateAgentBroker, BrokerError } from "./broker";
 import { DockerSandbox, PRIVATE_SANDBOX_LIMITS, type SandboxExecution } from "./sandbox";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "./checkpoints";
-import { PrivateAgentModel, ModelRequestBodyTooLarge, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop,
+import { PrivateAgentModel, ModelRequestBodyTooLarge, MODEL_REQUEST_SIZE_STOP, MODEL_UNAVAILABLE_STOP, modelRequestSizeStop, modelRequestFailed, hasInvalidModelRequestSizeStop,
   type GeneralMessage, type GeneralToolDefinition } from "./model";
 import { readPublicSources, readPublicSourceFiles, retainPublicSource, PUBLIC_SOURCE_OBSERVATION_BYTES } from "./public-sources";
 import { GeneralConsultation } from "./consultation";
@@ -227,7 +227,9 @@ export class GeneralAgentRunner {
     let endpoint = "";
     let completionPending = false;
     // Judge dispatches (the session's entailment pass) are never replayed and never gate completion.
-    const unsettledDispatch = () => store.dispatches(jobId).some(receipt => receipt.status !== "settled" && !isEntailmentDispatch(receipt));
+    const unsettledDispatch = () => store.dispatches(jobId).some(receipt => !isResolvedDispatch(receipt) && !isEntailmentDispatch(receipt));
+    // Public fetch allowance: attempts superseded by a retry do not count against the five fetches.
+    const publicFetches = () => store.dispatches(jobId).filter(row => row.purpose === "public source retrieval" && row.status !== "superseded").length;
     const started = performance.now();
     const finish = (status: GeneralJobResult["status"], reason: string): GeneralJobResult => ({ status, reason, snapshot, checks, modelCalls: this.options.consultation ? this.history().filter(event => event.type === "model_started").length + this.options.consultation.modelCalls() : calls });
     try {
@@ -278,7 +280,7 @@ export class GeneralAgentRunner {
       const progressStopped = readExecutionProgressStop({ ...observationScope, snapshot });
       if (hasUnresolvedExecutionProgressAction({ ...observationScope, snapshot }) || history.some(event => event.type === "model_action_not_started" &&
           (!progressStopped || canonical(event) !== canonical(progressStopped))) || hasInvalidModelRequestSizeStop(history) ||
-          history.some(event => event.type === "model_started" && !modelRequestSizeStop(history, event) && !history.some(other => other.type === "model_finished" && other.operationId === event.operationId)) ||
+          history.some(event => event.type === "model_started" && !modelRequestSizeStop(history, event) && !modelRequestFailed(history, event) && !history.some(other => other.type === "model_finished" && other.operationId === event.operationId)) ||
           history.some(event => event.type === "tool_started" && !history.some(other => other.type === "tool_finished" && other.operationId === event.operationId)) ||
           history.some(event => event.type === "host_validation_started" && !history.some(other => other.type === "host_validation_finished" && other.operationId === event.operationId))) {
         return finish("incomplete", "unresolved_operation_no_replay");
@@ -349,7 +351,7 @@ export class GeneralAgentRunner {
           remainingBrokerRequests: Math.max(0, store.policy(jobId).maxRequests - store.dispatches(jobId).length),
           remainingActiveMs: Math.max(0, Math.floor(contract.maxElapsedMs - elapsed - (performance.now() - started))),
           ...(this.options.maxPublicFetches === undefined ? {} : { remainingPublicFetches: Math.max(0, this.options.maxPublicFetches -
-            store.dispatches(jobId).filter(row => row.purpose === "public source retrieval").length) }) };
+            publicFetches()) }) };
         if (!budget.remainingActiveMs) return finish("incomplete", "cancelled_or_deadline");
         if (!budget.remainingBrokerRequests) return finish("incomplete", "bounded_allowance_exhausted");
         // Derive the same bounded view from immutable host observations on each
@@ -365,10 +367,17 @@ export class GeneralAgentRunner {
         let response: Awaited<ReturnType<PrivateAgentModel["complete"]>>;
         try { response = await model.complete([{ role: "system", content: `${prompt}\n${progress.guidance}\n${budgetMessage(budget)}` }, ...projected.messages.slice(1)], definitions, boundedSignal); }
         catch (error) {
-          if (!(error instanceof ModelRequestBodyTooLarge)) throw error;
-          this.record({ type: "model_request_not_dispatched", operationId, promptProtocolSha256,
-            reason: MODEL_REQUEST_SIZE_STOP, dispatched: false, bodyBytes: error.bodyBytes, limitBytes: error.limitBytes });
-          return finish("incomplete", MODEL_REQUEST_SIZE_STOP);
+          if (error instanceof ModelRequestBodyTooLarge) {
+            this.record({ type: "model_request_not_dispatched", operationId, promptProtocolSha256,
+              reason: MODEL_REQUEST_SIZE_STOP, dispatched: false, bodyBytes: error.bodyBytes, limitBytes: error.limitBytes });
+            return finish("incomplete", MODEL_REQUEST_SIZE_STOP);
+          }
+          // Every attempt ended in a confirmed abort: no row is unknown, the operation is closed, and the task can resume later.
+          if (error instanceof BrokerError && error.code === "request_failed") {
+            this.record({ type: "model_request_failed", operationId, promptProtocolSha256, reason: MODEL_UNAVAILABLE_STOP, dispatched: true });
+            return finish("incomplete", MODEL_UNAVAILABLE_STOP);
+          }
+          throw error;
         }
         const nudgeKind: "length" | "no_action" | undefined = response.finishReason === "length" ? "length" : response.toolCalls.length !== 1 ? "no_action" : undefined;
         // A nudged reply executes nothing, so its tool calls stay out of the replayed
@@ -476,7 +485,7 @@ export class GeneralAgentRunner {
           } else if (action.function.name === "fetch_public") {
             const request = validatedArguments(action.function.arguments, fetchArguments, "fetch_public");
             if (!this.options.webDestinations?.includes(request.destinationId)) throw new Error("destination_denied");
-            if (this.options.maxPublicFetches !== undefined && store.dispatches(jobId).filter(row => row.purpose === "public source retrieval").length >= this.options.maxPublicFetches) {
+            if (this.options.maxPublicFetches !== undefined && publicFetches() >= this.options.maxPublicFetches) {
               throw new Error("public_fetch_limit_reached");
             }
             const response = await this.options.broker.request({ jobId, contextId, destinationId: request.destinationId, purpose: "public source retrieval",
@@ -532,6 +541,8 @@ export class GeneralAgentRunner {
           output = canonical(invalidExecuteAtOutputLimit ? outputLimitFeedback(model.config.maxOutputTokens) :
             error instanceof InvalidToolArguments ? argumentFeedback(error.tool) :
               error instanceof Error && error.message === "public_fetch_limit_reached" ? { error: "public_fetch_limit_reached", completed: false, actionInvoked: false } :
+              error instanceof BrokerError && error.code === "request_failed" ? { error: "public_fetch_failed", completed: false, actionInvoked: true,
+                instruction: "The source could not be retrieved after the permitted attempts. State the resulting evidence limit or use another permitted source; do not invent its content." } :
                 { error: "action_failed_or_not_permitted", completed: false });
         }
         if (executionResult) {

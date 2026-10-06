@@ -52,6 +52,8 @@ const environmentSchema = z.object({
   SOAR_DB_PATH: z.string().optional(),
   SOAR_GENERAL_TASK_IMAGE_ID: z.string().optional(),
   SOAR_GENERAL_TASK_PROFILE: z.enum(["standard", "heavy"]).default("heavy"),
+  /** Owner decision D4 (approved 2026-09-29): bounded retries after confirmed aborts for zero-fee local requests and public GETs. */
+  SOAR_RECOVERABLE_DISPATCH: z.enum(["true", "false"]).default("true"),
   SOAR_TEST_WORKSPACE: z.string().optional(),
   SOAR_TEST_CREDENTIAL_OPERATION_STATE: z
     .enum([
@@ -94,6 +96,7 @@ export interface SoarConfig {
   generalTaskImageId?: string;
   /** Coordinator profile for General task; "heavy" follows vendor guidance, "standard" is the September configuration. */
   generalTaskProfile?: "standard" | "heavy";
+  recoverableDispatch?: boolean;
   testWorkspace?: string;
   /**
    * Deterministic renderer proof fixture. It is admitted only for Fake mode
@@ -210,6 +213,7 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
     databasePath: env.SOAR_DB_PATH,
     generalTaskImageId: env.SOAR_GENERAL_TASK_IMAGE_ID,
     generalTaskProfile: env.SOAR_GENERAL_TASK_PROFILE,
+    recoverableDispatch: env.SOAR_RECOVERABLE_DISPATCH === "true",
     testWorkspace: env.SOAR_TEST_WORKSPACE,
     ...(env.SOAR_TEST_CREDENTIAL_OPERATION_STATE === undefined
       ? {}

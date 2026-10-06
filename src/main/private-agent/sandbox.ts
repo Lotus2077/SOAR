@@ -3,8 +3,10 @@ import { randomUUID } from "node:crypto";
 
 export const PRIVATE_SANDBOX_LIMITS = Object.freeze({
   files: 1024, fileBytes: 64 * 1024 * 1024, importBytes: 128 * 1024 * 1024,
-  outputBytes: 256 * 1024, commandBytes: 64 * 1024, commandMs: 600_000,
+  outputBytes: 256 * 1024, commandBytes: 64 * 1024, commandMs: 600_000, lifetimeSeconds: 7200,
 });
+/** A command the model runs is stopped inside the container at this exit code; the container survives. */
+export const SANDBOX_COMMAND_TIMEOUT_EXIT_CODE = 124;
 
 export type SandboxErrorCode = "invalid_input" | "unavailable" | "command_timeout" | "cancelled"
   | "output_limit" | "unsafe_file" | "unusable" | "busy" | "cleanup_failed";
@@ -25,6 +27,7 @@ export interface DockerSandboxInput {
   lifetimeSeconds?: number;
 }
 export interface SandboxExecution { exitCode: number; stdout: string; stderr: string }
+export interface SandboxEdit { ok: boolean; reason?: string; bytes?: number; occurrences?: number }
 
 function validPath(value: string): boolean {
   return typeof value === "string" && value.length > 0 && Buffer.byteLength(value) <= 240
@@ -40,7 +43,7 @@ function checkedInput(input: DockerSandboxInput): DockerSandboxInput {
   if (!/^sha256:[a-f0-9]{64}$/u.test(input.imageId)
     || ![input.jobId, input.contextId].every(validIdentity)
     || (input.endpoint !== undefined && !validEndpoint(input.endpoint))
-    || (input.lifetimeSeconds !== undefined && (!Number.isInteger(input.lifetimeSeconds) || input.lifetimeSeconds < 1 || input.lifetimeSeconds > 1800))
+    || (input.lifetimeSeconds !== undefined && (!Number.isInteger(input.lifetimeSeconds) || input.lifetimeSeconds < 1 || input.lifetimeSeconds > PRIVATE_SANDBOX_LIMITS.lifetimeSeconds))
     || !Array.isArray(input.files) || input.files.length > PRIVATE_SANDBOX_LIMITS.files) throw new SandboxError("invalid_input");
   let total = 0;
   const names = new Set<string>();
@@ -221,6 +224,71 @@ except BaseException:
     die()
 `;
 
+const EDIT_FILE = FILE_HELPERS + String.raw`
+def soft(reason, **extra):
+    print(json.dumps(dict(ok=False, reason=reason, **extra)))
+    sys.exit(54)
+def read_exact(n):
+    buf = bytearray()
+    while len(buf) < n:
+        data = sys.stdin.buffer.read(min(65536, n - len(buf)))
+        if not data: die()
+        buf += data
+    return bytes(buf)
+try:
+    spec = json.loads(sys.argv[1])
+    mode, p = spec[0], spec[1]
+    if mode not in ('write', 'append', 'replace') or not valid(p): die()
+    try: fd, name = parent(p, True)
+    except (NotADirectoryError, FileExistsError, PermissionError): soft('path_not_writable')
+    try:
+        try:
+            st = os.stat(name, dir_fd=fd, follow_symlinks=False)
+            exists = True
+            if not regular(st): soft('path_not_regular_file')
+        except FileNotFoundError:
+            exists, st = False, None
+        if mode == 'replace':
+            n_old, n_new = spec[2], spec[3]
+            if type(n_old) is not int or type(n_new) is not int or n_old < 1 or n_new < 0 or n_old + n_new > 2097152: die()
+            old, new = read_exact(n_old), read_exact(n_new)
+            if sys.stdin.buffer.read(1): die()
+            if not exists: soft('file_missing')
+            if st.st_size > 67108864: soft('file_too_large')
+            src = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=fd)
+            with os.fdopen(src, 'rb') as stream: data = stream.read()
+            count = data.count(old)
+            if count != 1: soft('occurrences_not_one', occurrences=count)
+            data = data.replace(old, new, 1)
+            if len(data) > 67108864: soft('file_too_large')
+            tmp = name + '.soar-edit-tmp'
+            try:
+                out = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=fd)
+                with os.fdopen(out, 'wb') as stream: stream.write(data)
+                os.replace(tmp, name, src_dir_fd=fd, dst_dir_fd=fd)
+            except OSError:
+                try: os.unlink(tmp, dir_fd=fd)
+                except OSError: pass
+                soft('write_failed')
+            print(json.dumps(dict(ok=True, bytes=len(data)))); sys.exit(0)
+        n = spec[2]
+        if type(n) is not int or n < 0 or n > 67108864: die()
+        payload = read_exact(n)
+        if sys.stdin.buffer.read(1): die()
+        if mode == 'append' and exists and st.st_size + n > 67108864: soft('file_too_large')
+        flags = os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW | (os.O_APPEND if mode == 'append' else os.O_TRUNC)
+        try:
+            out = os.open(name, flags, 0o600, dir_fd=fd)
+            with os.fdopen(out, 'wb') as stream: stream.write(payload)
+        except OSError: soft('write_failed')
+        print(json.dumps(dict(ok=True, bytes=os.stat(name, dir_fd=fd, follow_symlinks=False).st_size))); sys.exit(0)
+    finally: os.close(fd)
+except SystemExit:
+    raise
+except BaseException:
+    die()
+`;
+
 export class DockerSandbox {
   readonly imageId: string;
   readonly jobId: string;
@@ -344,11 +412,20 @@ export class DockerSandbox {
       || Buffer.byteLength(command) > PRIVATE_SANDBOX_LIMITS.commandBytes || !Number.isInteger(options.timeoutMs)
       || options.timeoutMs < 1 || options.timeoutMs > PRIVATE_SANDBOX_LIMITS.commandMs) throw new SandboxError("invalid_input");
     return this.operation(async () => {
+      // coreutils timeout stops the command inside the container (exit 124) so a slow
+      // command becomes an observation; the Docker-side deadline is only a backstop.
+      const seconds = Math.max(1, Math.floor(options.timeoutMs / 1000));
+      const startedAt = performance.now();
       const result = await this.call(["exec", "-i", "--user", "65534:65534", "--workdir", "/workspace", this.name,
         "/usr/bin/env", "-i", "PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/tmp", "LANG=C.UTF-8", "PYTHONDONTWRITEBYTECODE=1",
-        "/bin/sh", "-c", command], { timeoutMs: options.timeoutMs, maxBytes: PRIVATE_SANDBOX_LIMITS.outputBytes, signal: options.signal });
+        "/usr/bin/timeout", "-k", "5", String(seconds), "/bin/sh", "-c", command],
+      { timeoutMs: options.timeoutMs + 15_000, maxBytes: PRIVATE_SANDBOX_LIMITS.outputBytes, signal: options.signal });
       if (!this.usable) throw new SandboxError("unusable");
-      return { exitCode: result.exitCode, stdout: result.stdout.toString("utf8"), stderr: result.stderr.toString("utf8") };
+      // 137 after the deadline means the command ignored SIGTERM and took the SIGKILL.
+      const killed = result.exitCode === 137 && performance.now() - startedAt >= seconds * 1000;
+      const note = result.exitCode === SANDBOX_COMMAND_TIMEOUT_EXIT_CODE ? `\n[host] The command was stopped after ${seconds} s (exit ${SANDBOX_COMMAND_TIMEOUT_EXIT_CODE}); the workspace remains usable.`
+        : killed ? `\n[host] The command ignored the stop signal and was killed after ${seconds} s (exit 137); the workspace remains usable.` : "";
+      return { exitCode: result.exitCode, stdout: result.stdout.toString("utf8"), stderr: result.stderr.toString("utf8") + note };
     });
   }
 
@@ -371,6 +448,32 @@ export class DockerSandbox {
         || !paths.every(item => typeof item === "string" && validPath(item)) || new Set(paths).size !== paths.length) throw new SandboxError("unsafe_file");
       if (!this.usable) throw new SandboxError("unusable");
       return paths;
+    });
+  }
+
+  /**
+   * Write, append or replace exactly one occurrence through the fixed host
+   * protocol: no shell quoting, intermediate directories created, symlinks and
+   * special files refused. Soft refusals return ok=false without closing the sandbox.
+   */
+  async editFile(mode: "write" | "append" | "replace", relativePath: string, payload: Buffer, replacement?: Buffer): Promise<SandboxEdit> {
+    if (!["write", "append", "replace"].includes(mode) || !validPath(relativePath) || !Buffer.isBuffer(payload) || payload.length > PRIVATE_SANDBOX_LIMITS.fileBytes
+      || (mode === "replace" ? (!Buffer.isBuffer(replacement) || payload.length < 1 || payload.length + replacement.length > 2 * 1024 * 1024) : replacement !== undefined)) {
+      throw new SandboxError("invalid_input");
+    }
+    const spec = mode === "replace" ? [mode, relativePath, payload.length, replacement!.length] : [mode, relativePath, payload.length];
+    const chunks = mode === "replace" ? [payload, replacement!] : [payload];
+    async function* input() { for (const chunk of chunks) for (let offset = 0; offset < chunk.length; offset += 65536) yield chunk.subarray(offset, offset + 65536); }
+    return this.operation(async () => {
+      const result = await this.call(this.python(EDIT_FILE, JSON.stringify(spec)), { timeoutMs: 60_000, maxBytes: 4096, input: input() });
+      if (!this.usable) throw new SandboxError("unusable");
+      if (result.exitCode !== 0 && result.exitCode !== 54) throw new SandboxError("unsafe_file");
+      let parsed: { ok?: unknown; reason?: unknown; bytes?: unknown; occurrences?: unknown };
+      try { parsed = JSON.parse(result.stdout.toString("utf8")); } catch { throw new SandboxError("unsafe_file"); }
+      if (typeof parsed.ok !== "boolean" || parsed.ok !== (result.exitCode === 0)) throw new SandboxError("unsafe_file");
+      return { ok: parsed.ok, ...(typeof parsed.reason === "string" ? { reason: parsed.reason.slice(0, 64) } : {}),
+        ...(Number.isSafeInteger(parsed.bytes) ? { bytes: parsed.bytes as number } : {}),
+        ...(Number.isSafeInteger(parsed.occurrences) ? { occurrences: parsed.occurrences as number } : {}) };
     });
   }
 

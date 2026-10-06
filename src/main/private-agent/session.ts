@@ -36,6 +36,8 @@ export interface GeneralSessionOptions {
     factory: (contextId: string) => GeneralConsultation };
   /** Tests may substitute the local executor. Production uses the real runner. */
   trustedHostRunnerFactory?: (options: GeneralJobOptions) => Pick<GeneralAgentRunner, "run" | "pause" | "cancel">;
+  /** Session-wide broker request and time allowance; absent keeps SESSION_LIMITS. Part of the session identity. */
+  limits?: { maxRequests: number; maxElapsedMs: number };
 }
 export interface GeneralSessionResult {
   status: "submitted" | "paused" | "incomplete";
@@ -157,8 +159,12 @@ export class GeneralAgentSession {
       const destinations = [...new Set([privateModel.config.destinationId, ...(publicModel ? [publicModel.config.destinationId] : []),
         ...(options.publicPhase?.webDestinations ?? []), ...(options.publicInputApproval?.webDestinations ?? []),
         ...(options.consultation ? [options.consultation.destinationId] : [])])];
+      const limits = { maxRequests: options.limits?.maxRequests ?? SESSION_LIMITS.maxRequests, maxElapsedMs: options.limits?.maxElapsedMs ?? SESSION_LIMITS.maxElapsedMs,
+        maxFeeMicrousd: SESSION_LIMITS.maxFeeMicrousd };
+      if (!Number.isSafeInteger(limits.maxRequests) || limits.maxRequests < 1 || limits.maxRequests > 1000 ||
+          !Number.isSafeInteger(limits.maxElapsedMs) || limits.maxElapsedMs < 1 || limits.maxElapsedMs > 7_200_000) return result("incomplete", "session_limits_invalid");
       const expectedPolicy = { version: 1 as const, id: jobId, mode: options.consultation ? "cloud_help" as const : "private" as const, revision: 0, cancelled: false,
-        destinations, maxRequests: SESSION_LIMITS.maxRequests, maxFeeMicrousd: options.consultation?.maxFeeMicrousd ?? 0 };
+        destinations, maxRequests: limits.maxRequests, maxFeeMicrousd: options.consultation?.maxFeeMicrousd ?? 0 };
       if (!policy) {
         try { store.createJob(expectedPolicy); }
         catch (error) { if (!String((error as { code?: string }).code).startsWith("SQLITE_CONSTRAINT")) throw error; }
@@ -174,7 +180,7 @@ export class GeneralAgentSession {
         ...(options.publicInputApproval ? { primaryClassification: "public", publicInputApproval: options.publicInputApproval, maxPublicFetches: 5 } : {}),
         ...(options.consultation ? { consultation: { version: 1, identity: options.consultation.identity,
           destinationId: options.consultation.destinationId, maxFeeMicrousd: options.consultation.maxFeeMicrousd } } : {}),
-        syntheticInputApproval: options.syntheticInputApproval ?? null, privateModel: privateModel.config, publicModel: publicModel?.config ?? null, limits: SESSION_LIMITS }));
+        syntheticInputApproval: options.syntheticInputApproval ?? null, privateModel: privateModel.config, publicModel: publicModel?.config ?? null, limits }));
       if (old && old.identity !== identity) return result("incomplete", "session_contract_drift");
       if (!old && this.events().length) return result("incomplete", "session_missing_start_identity");
       const start = store.ensureSessionStart(jobId, { type: "session_started", identity,
@@ -188,7 +194,7 @@ export class GeneralAgentSession {
       }
       const startedAt = start.startedAt;
       if (!Number.isSafeInteger(startedAt) || startedAt > Date.now()) return result("incomplete", "session_start_invalid");
-      const remaining = SESSION_LIMITS.maxElapsedMs - (Date.now() - startedAt);
+      const remaining = limits.maxElapsedMs - (Date.now() - startedAt);
       if (remaining <= 0) return result("incomplete", "session_deadline");
       const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(remaining)]);
       const runPhase = async (phase: SessionPhase, contextId: string, model: PrivateAgentModel, webDestinations?: string[], maxPublicFetches?: number) => {

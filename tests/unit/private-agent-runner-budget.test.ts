@@ -16,7 +16,7 @@ import { EXECUTION_PROGRESS_STOP, readExecutionProgressStop } from "../../src/ma
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const done of cleanup.splice(0).reverse()) done(); });
-type Action = { name: string; arguments: string; outputTokens?: number };
+type Action = { name: string; arguments: string; outputTokens?: number; reply?: "text" | "multi" | "length" };
 const write: Action = { name: "execute", arguments: '{"command":"write result"}' };
 const finish: Action = { name: "finish", arguments: '{"summary":"Artifacts are ready for host checks."}' };
 
@@ -62,6 +62,16 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
       return { exitCode: command.startsWith("fail ") ? 1 : command.startsWith("python3 -I -c") ? limits.checkExitCode ?? 0 : 0, stdout: limits.toolStdout ?? "synthetic evidence", stderr: "" };
     }, async listFiles() { beforeListFiles(); return [...contents.keys()].sort(); },
     async readFile(path: string) { return Buffer.from(contents.get(path)!); },
+    async editFile(mode: "write" | "append" | "replace", path: string, payload: Buffer, replacement?: Buffer) {
+      clock += 10; commands.push(`${mode}:${path}`);
+      if (mode === "replace") {
+        const current = contents.get(path); if (!current) return { ok: false, reason: "file_missing" };
+        const count = current.toString("utf8").split(payload.toString("utf8")).length - 1;
+        if (count !== 1) return { ok: false, reason: "occurrences_not_one", occurrences: count };
+        const next = Buffer.from(current.toString("utf8").replace(payload.toString("utf8"), replacement!.toString("utf8"))); contents.set(path, Buffer.from(next)); return { ok: true, bytes: next.length };
+      }
+      const next = Buffer.from(mode === "append" ? Buffer.concat([contents.get(path) ?? Buffer.alloc(0), payload]) : payload); contents.set(path, Buffer.from(next)); return { ok: true, bytes: next.length };
+    },
     async close() { clock += 5; } } as unknown as DockerSandbox;
   });
   const requests: GeneralMessage[][] = [];
@@ -75,8 +85,10 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
     const row = store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_inside_boundary" } }, () => {});
     store.settle(row.id, 0, digest(canonical(action)));
     afterResponse(requests.length);
-    return { content: "", toolCalls: [{ id: `tool_${index}`, type: "function", function: { name: action.name, arguments: action.arguments } }],
-      finishReason: "tool_calls", costUsd: 0, durationMs: 100,
+    const call = (suffix = "") => ({ id: `tool_${index}${suffix}`, type: "function" as const, function: { name: action.name, arguments: action.arguments } });
+    return { content: action.reply === "text" ? "I will write the result now." : "",
+      toolCalls: action.reply === "text" ? [] : action.reply === "multi" ? [call(), call("b")] : [call()],
+      finishReason: action.reply === "length" ? "length" : "tool_calls", costUsd: 0, durationMs: 100,
       ...(action.outputTokens === undefined ? {} : { usage: { inputTokens: 100, outputTokens: action.outputTokens, totalTokens: 100 + action.outputTokens } }) };
   });
   return { options, dbPath, requests, complete, create, commands, advance: (ms: number) => { clock += ms; },
@@ -595,5 +607,124 @@ describe("general runner host budget and argument recovery", () => {
     expect(events.find(event => event.type === "host_validation_finished")).toMatchObject({ passed: true });
     expect(events.some(event => event.type === "completed")).toBe(false);
     expect(f.options.store.runClaim(f.options.contextId)?.state).toBe("cleanup_required");
+  });
+
+});
+
+describe("general runner tolerant loop", () => {
+  const text: Action = { ...write, reply: "text" };
+  it("nudges a reply without a tool call up to three times, then stops without executing anything", async () => {
+    const f = fixture([text, text, text, text, write, finish], { maxModelCalls: 8, maxToolCalls: 5 });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "incomplete", reason: "one_complete_tool_action_required", modelCalls: 4 });
+    expect(f.commands).toEqual([]);
+    const nudges = f.options.store.events(f.options.jobId).filter(event => event.type === "nudge");
+    expect(nudges).toHaveLength(3);
+    expect(nudges.every(event => event.kind === "no_action")).toBe(true);
+    expect(f.requests[3]!.at(-1)).toMatchObject({ role: "user", content: expect.stringContaining("exactly one tool call") });
+  });
+  it("recovers after a nudge and treats a multi-call reply as nothing executed", async () => {
+    const f = fixture([{ ...write, reply: "multi" }, text, write, finish], { maxModelCalls: 6 });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed", modelCalls: 4 });
+    expect(f.commands.filter(command => command === "write result")).toHaveLength(1);
+    expect(f.options.store.events(f.options.jobId).filter(event => event.type === "nudge").map(event => event.message)).toEqual([
+      expect.stringContaining("More than one tool call"), expect.stringContaining("No tool was called")]);
+  });
+  it("turns an output-limit reply into durable feedback and continues, stopping only after three in a row", async () => {
+    const cut: Action = { ...write, reply: "length", outputTokens: 4096 };
+    const f = fixture([cut, write, finish], { maxModelCalls: 6 });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 3 });
+    expect(f.options.store.events(f.options.jobId).filter(event => event.type === "nudge")).toEqual([expect.objectContaining({ kind: "length", message: expect.stringContaining("4096-token output limit") })]);
+    expect(f.requests[1]!.at(-1)).toMatchObject({ role: "user", content: expect.stringContaining("write_file and append_file") });
+    const g = fixture([cut, cut, cut, write], { maxModelCalls: 6 });
+    expect(await new GeneralAgentRunner(g.options).run()).toMatchObject({ status: "incomplete", reason: "model_output_incomplete", modelCalls: 3 });
+    expect(g.commands).toEqual([]);
+  });
+  it("writes, appends and replaces file content through the sandbox protocol and reports soft refusals", async () => {
+    const f = fixture([
+      { name: "write_file", arguments: JSON.stringify({ path: "output.txt", content: "abcdef" }) },
+      { name: "append_file", arguments: JSON.stringify({ path: "output.txt", content: "ghi" }) },
+      { name: "str_replace", arguments: JSON.stringify({ path: "output.txt", old: "zzz", new: "y" }) },
+      { name: "str_replace", arguments: JSON.stringify({ path: "output.txt", old: "cde", new: "XY" }) },
+      { name: "write_file", arguments: JSON.stringify({ path: "../escape.txt" }) },
+      finish], { maxModelCalls: 8, maxToolCalls: 8 });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "completed", modelCalls: 6 });
+    expect(f.commands.slice(0, 4)).toEqual(["write:output.txt", "append:output.txt", "replace:output.txt", "replace:output.txt"]);
+    expect(f.commands.slice(4)).toEqual([expect.stringMatching(/^python3 -I -c/u)]);
+    const outputs = f.options.store.events(f.options.jobId).filter(event => event.type === "tool_finished").map(event => JSON.parse(String(event.output)));
+    expect(outputs[0]).toMatchObject({ ok: true, bytes: 6, path: "output.txt", completed: true });
+    expect(outputs[2]).toMatchObject({ ok: false, reason: "occurrences_not_one", occurrences: 0, completed: false });
+    expect(outputs[3]).toMatchObject({ ok: true, bytes: 8 });
+    expect(outputs[4]).toMatchObject({ error: "invalid_tool_arguments", actionInvoked: false });
+    expect(f.options.checkpoints.load(result.snapshot).find(file => file.path === "output.txt")!.bytes.toString("utf8")).toBe("abXYfghi");
+  });
+
+  it("resumes after a nudge instead of reporting an unresolved action: multi-call, output-limit and warned text replies", async () => {
+    const cases: { name: string; actions: Action[]; pauseAt: number; nudges: number }[] = [
+      { name: "multi-call with execute", actions: [{ ...write, reply: "multi" }, write, finish], pauseAt: 1, nudges: 1 },
+      { name: "output limit with a partial execute", actions: [{ ...write, reply: "length", outputTokens: 4096 }, write, finish], pauseAt: 1, nudges: 1 },
+      { name: "warned text-only reply", actions: [{ name: "execute", arguments: '{"command":"fail same"}' }, { name: "execute", arguments: '{"command":"fail same"}' },
+        { ...write, reply: "text" }, write, finish], pauseAt: 3, nudges: 1 },
+    ];
+    for (const item of cases) {
+      const f = fixture(item.actions, { maxModelCalls: 8, maxToolCalls: 8 });
+      const first = new GeneralAgentRunner(f.options);
+      f.afterResponse(count => { if (count === item.pauseAt) first.pause(); });
+      expect(await first.run(), item.name).toMatchObject({ status: "paused" });
+      expect(f.options.store.events(f.options.jobId).filter(event => event.type === "nudge"), item.name).toHaveLength(item.nudges);
+      const reopened = new Database(f.dbPath); cleanup.push(() => reopened.close());
+      const resumed = await new GeneralAgentRunner({ ...f.options, store: new PrivateAgentStore(reopened) }).run();
+      expect(resumed, item.name).toMatchObject({ status: "completed", reason: "critical_checks_passed" });
+      expect(f.commands.filter(command => command === "write result"), item.name).toHaveLength(1);
+    }
+  });
+  it("restores nudge streaks exactly as the live loop counts them, so a resumed run ends where a continuous run would", async () => {
+    const cut: Action = { ...write, reply: "length", outputTokens: 4096 }, text: Action = { ...write, reply: "text" };
+    const script: Action[] = [cut, cut, text, cut, write, finish];
+    const continuous = fixture(script, { maxModelCalls: 10 });
+    expect(await new GeneralAgentRunner(continuous.options).run()).toMatchObject({ status: "completed", modelCalls: 6 });
+    const f = fixture(script, { maxModelCalls: 10 });
+    const first = new GeneralAgentRunner(f.options);
+    f.afterResponse(count => { if (count === 3) first.pause(); });
+    expect(await first.run()).toMatchObject({ status: "paused" });
+    const reopened = new Database(f.dbPath); cleanup.push(() => reopened.close());
+    expect(await new GeneralAgentRunner({ ...f.options, store: new PrivateAgentStore(reopened) }).run()).toMatchObject({ status: "completed", modelCalls: 6 });
+    const g = fixture([text, text, text, text], { maxModelCalls: 10 });
+    const paused = new GeneralAgentRunner(g.options);
+    g.afterResponse(count => { if (count === 3) paused.pause(); });
+    expect(await paused.run()).toMatchObject({ status: "paused" });
+    const again = new Database(g.dbPath); cleanup.push(() => again.close());
+    expect(await new GeneralAgentRunner({ ...g.options, store: new PrivateAgentStore(again) }).run()).toMatchObject({ status: "incomplete", reason: "one_complete_tool_action_required", modelCalls: 4 });
+  });
+  it("keeps nudged replies out of the replayed conversation while retaining the unexecuted calls for audit", async () => {
+    const f = fixture([{ ...write, reply: "multi" }, write, finish], { maxModelCalls: 6 });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed" });
+    const events = f.options.store.events(f.options.jobId);
+    const nudgedReply = events.find(event => event.type === "model_finished" && event.nudged === "no_action")!;
+    expect((nudgedReply.message as { tool_calls?: unknown }).tool_calls).toBeUndefined();
+    expect(nudgedReply.unexecutedToolCalls).toHaveLength(2);
+    const replayed = f.requests[1]!;
+    expect(replayed.filter(message => message.role === "assistant" && message.tool_calls)).toHaveLength(0);
+    expect(replayed.at(-1)).toMatchObject({ role: "user", content: expect.stringContaining("More than one tool call") });
+  });
+  it("runs a heavy-profile contract end to end through the real loop: 47 calls with nudges, edits and a time jump", async () => {
+    const script: Action[] = [];
+    for (let i = 0; i < 40; i++) {
+      script.push({ name: "append_file", arguments: JSON.stringify({ path: "output.txt", content: `line ${i}\n` }) });
+      if (i === 5 || i === 20) script.push({ ...write, reply: "text" });
+      if (i === 12) script.push({ ...write, reply: "length", outputTokens: 16_384 });
+      if (i === 30) script.push({ ...write, reply: "multi" });
+    }
+    script.push({ name: "str_replace", arguments: JSON.stringify({ path: "output.txt", old: "line 39\n", new: "last line\n" }) }, { ...write, reply: "length", outputTokens: 16_384 }, finish);
+    const f = fixture(script, { maxModelCalls: 80, maxToolCalls: 120, maxElapsedMs: 5_400_000, maxRequests: 200 });
+    f.afterResponse(count => { if (count === 25) f.advance(1_000_000); });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "completed", reason: "critical_checks_passed", modelCalls: 47 });
+    expect(f.options.store.policy(f.options.jobId).maxRequests).toBe(200);
+    expect(f.options.store.events(f.options.jobId).filter(event => event.type === "nudge").map(event => event.kind)).toEqual(["no_action", "length", "no_action", "no_action", "length"]);
+    const text = f.options.checkpoints.load(result.snapshot).find(file => file.path === "output.txt")!.bytes.toString("utf8");
+    expect(text.split("\n").filter(Boolean)).toHaveLength(40);
+    expect(text.endsWith("last line\n")).toBe(true);
   });
 });

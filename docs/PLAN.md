@@ -245,6 +245,19 @@ build-log entry.
 When an output fails its checks, regenerate from the requirements with the failure
 as feedback instead of patching the flawed artifact (T3).
 
+**Status 2026-10-06 (BL-20261006-1008): PR-A and PR-D implemented** on branch
+`phase1-heavy-loop` (PR #4), with these recorded deviations from the bullets
+below:
+- the token-estimate guard is folded into the 640 KiB body cap (3 bytes per
+  token plus 16,384 output tokens stays under the 262,144 context);
+- thinking effort is fixed at `medium` (probe P2 showed no monotone effort
+  effect) and reasoning is not carried between turns;
+- vendor sampling is sent only when thinking is on, so `standard` stays
+  byte-comparable with September;
+- the per-command limit is 180 s, stopped inside the container;
+- per-task profile selection in the UI is left to PR-F; the desktop profile comes
+  from `SOAR_GENERAL_TASK_PROFILE` (default `heavy`).
+
 - **PR-A, Heavy profile at every cap layer.** Raise, together:
   - [controller.ts](../src/main/general-tasks/controller.ts):29, :145, :148 and the
     `phase()` literals at :233-235;

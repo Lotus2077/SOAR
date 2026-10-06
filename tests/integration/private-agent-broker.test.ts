@@ -269,7 +269,7 @@ describe("unknown request diagnostics", () => {
     const row = f.store.commit({ ...preview, reservedFeeMicrousd: 100, scan: { status: "complete", detector: "synthetic" } }, () => {});
     const valid = { phase: "transport", code: "request_timeout", elapsedMs: 101, timeoutMs: 100 } as const;
     for (const change of [{ code: sensitive }, { phase: "settlement" }, { elapsedMs: -1 }, { elapsedMs: 3_600_001 },
-      { elapsedMs: Number.NaN }, { elapsedMs: 0.5 }, { timeoutMs: 300001 }, { timeoutMs: 0 }, { detail: sensitive }]) {
+      { elapsedMs: Number.NaN }, { elapsedMs: 0.5 }, { timeoutMs: 900_001 }, { timeoutMs: 0 }, { detail: sensitive }]) {
       expect(() => f.store.unknown(row.id, { ...valid, ...change } as UnknownRequestDiagnostic)).toThrow("private_agent_unknown_diagnostic_invalid");
       expect(f.store.dispatch(row.id)).toEqual(row);
     }
@@ -284,4 +284,20 @@ describe("unknown request diagnostics", () => {
 describe("public address admission", () => {
   it.each(["127.0.0.1", "10.0.0.1", "169.254.169.254", "100.64.0.1", "192.168.1.1", "::1", "::ffff:127.0.0.1", "fc00::1", "fe80::1", "2001:db8::1", "2001:0db8:0000::1", "2001::1", "2001:0000::1", "3fff::1"])("rejects %s", address => expect(isPublicAddress(address)).toBe(false));
   it.each(["8.8.8.8", "1.1.1.1", "2606:4700:4700::1111"])("accepts global address %s", address => expect(isPublicAddress(address)).toBe(true));
+
+  it("admits a per-destination request body cap only within the ceiling and applies it to packets", async () => {
+    const f = await fixture({ classification: "public" });
+    const larger = { ...f.destination, id: "larger", maxRequestBytes: 640 * 1024 };
+    const scanner: LocalPacketScanner = { scan: async () => ({ complete: true, blocked: false, detector: "fixture" }) };
+    const broker = new PrivateAgentBroker(f.store, [f.destination, larger], scanner);
+    const base = { jobId: "job", contextId: "context", purpose: "cap fixture", method: "POST" as const, maxFeeMicrousd: 0 };
+    const body = "x".repeat(BROKER_MAX_BODY_BYTES + 1);
+    expect(() => broker.preview({ ...base, destinationId: f.destination.id, body })).toThrow("packet_size_exceeded");
+    expect(broker.preview({ ...base, destinationId: "larger", body }).packetSha256).toMatch(/^[a-f0-9]{64}$/u);
+    expect(() => broker.preview({ ...base, destinationId: "larger", body: "x".repeat(640 * 1024 + 1) })).toThrow("packet_size_exceeded");
+    for (const bad of [{ maxRequestBytes: 4095 }, { maxRequestBytes: 4 * 1024 * 1024 + 1 }, { maxRequestBytes: 1.5 }, { timeoutMs: 900_001 }]) {
+      expect(() => new PrivateAgentBroker(f.store, [{ ...f.destination, ...bad }], scanner)).toThrow();
+    }
+    expect(() => new PrivateAgentBroker(f.store, [{ ...f.destination, timeoutMs: 900_000, maxRequestBytes: 4 * 1024 * 1024 }], scanner)).not.toThrow();
+  });
 });

@@ -25,7 +25,7 @@ function fixture() {
     SOAR_GENERAL_CONSULTANT_MAX_OUTPUT_TOKENS: "256", SOAR_GENERAL_CONSULTANT_INPUT_MICROUSD_PER_MILLION: "1000000",
     SOAR_GENERAL_CONSULTANT_OUTPUT_MICROUSD_PER_MILLION: "2000000", SOAR_GENERAL_CONSULTANT_TIMEOUT_MS: "5000",
     SOAR_GENERAL_CONSULTANT_MAX_FEE_MICROUSD: "100000" };
-  const config: SoarConfig = { providerMode: "local", hybridSimulationEnabled: false, fakeCloudScenario: "success", fakeDelayMs: 0,
+  const config: SoarConfig = { providerMode: "local", hybridSimulationEnabled: false, fakeCloudScenario: "success", fakeDelayMs: 0, generalTaskProfile: "standard",
     vllm: { baseUrl: "http://127.0.0.1:9999/v1", apiKey: "synthetic-local-token", model: "unit-coordinator", costPolicy: "local_zero_cost", maxOutputTokens: 4096, timeoutMs: 300000 },
     limits: { inferenceRounds: 24, toolCalls: 24 }, context: { maxInputTokens: 32000, safetyMargin: 0.2 } };
   const executions: GeneralJobOptions[] = [];
@@ -112,6 +112,21 @@ describe("desktop consultation authority and continuity", () => {
     expect(() => f.controller.decideConsultation({ ...ref, decision: "approve" })).toThrow();
     expect(args.store.dispatches(task.id)).toEqual([]);
     expect(f.controller.get(task.id).fees).toEqual({ reservedMicrousd: 0, settledMicrousd: 0 });
+  });
+  it("keeps an approved consultation resumable under the heavy budget after more than eighteen calls", async () => {
+    const f = fixture(); f.options.config().generalTaskProfile = "heavy";
+    const task = await f.start(), args = f.executions[0]!;
+    for (let i = 0; i < 30; i++) {
+      args.store.append(task.id, { type: "model_started", operationId: `heavy_${i}`, contextId: args.contextId });
+      args.store.append(task.id, { type: "model_finished", operationId: `heavy_${i}`, contextId: args.contextId });
+    }
+    f.controller.previewConsultation(f.ref(task));
+    const approved = f.controller.decideConsultation({ ...f.ref(task), decision: "approve" });
+    expect(approved).toMatchObject({ status: "paused", canResume: true, modelCalls: 31, consultation: { state: "approved" } });
+    f.finish(); f.controller.resume(task.id); await f.controller.wait(task.id);
+    // Resume was admitted and the worker ran a second time with the approved allowance; the
+    // fixture's consultant endpoint is unreachable by design, so the outcome of that attempt is not asserted.
+    expect(f.executions).toHaveLength(2);
   });
   it.each(["context", "profile", "deadline", "allowance"])("blocks %s drift at approval", async changed => {
     const f = fixture(), task = await f.start(), args = f.executions[0]!;

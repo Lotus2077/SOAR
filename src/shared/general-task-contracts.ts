@@ -69,6 +69,8 @@ export interface GeneralTaskAvailability {
   available: boolean;
   reason: string;
   limits: { modelCalls: number; toolCalls: number; elapsedMs: number };
+  /** Coordinator profile in effect for new tasks. */
+  profile?: "standard" | "heavy";
   publicOrSyntheticOnly: true;
   executionMode: "local" | "scripted" | "unavailable";
   consultation?: { available: boolean; reason: string; model?: string };

@@ -10,6 +10,10 @@ import {
 import { PrivateAgentStore, type DispatchReceipt, type UnknownRequestDiagnostic } from "./store";
 
 export const BROKER_MAX_BODY_BYTES = 192 * 1024;
+/** Ceiling for a destination's own request body cap; profiles choose values below it. */
+export const BROKER_MAX_DESTINATION_BODY_BYTES = 4 * 1024 * 1024;
+/** Ceiling for a destination's transport timeout. The measured remote cut for one long request was about 947 s. */
+export const BROKER_MAX_TIMEOUT_MS = 900_000;
 
 export interface BrokerDestination {
   id: string;
@@ -30,6 +34,8 @@ export interface BrokerDestination {
   exactUrl?: string;
   maxResponseBytes: number;
   timeoutMs: number;
+  /** Optional per-destination request body cap; absent means BROKER_MAX_BODY_BYTES. */
+  maxRequestBytes?: number;
   requireExactGrant?: boolean;
   approvalPriceProfileSha256?: string;
 }
@@ -108,7 +114,8 @@ function normalizeDestination(value: BrokerDestination): BrokerDestination {
   if (endpoint.username || endpoint.password || endpoint.hash ||
       !["https:", "http:"].includes(endpoint.protocol) ||
       !Number.isSafeInteger(value.maxResponseBytes) || value.maxResponseBytes < 1 || value.maxResponseBytes > 16 * 1024 * 1024 ||
-      !Number.isSafeInteger(value.timeoutMs) || value.timeoutMs < 1 || value.timeoutMs > 300000 ||
+      !Number.isSafeInteger(value.timeoutMs) || value.timeoutMs < 1 || value.timeoutMs > BROKER_MAX_TIMEOUT_MS ||
+      (value.maxRequestBytes !== undefined && (!Number.isSafeInteger(value.maxRequestBytes) || value.maxRequestBytes < 4096 || value.maxRequestBytes > BROKER_MAX_DESTINATION_BODY_BYTES)) ||
       !Number.isSafeInteger(value.credentialVersion) || value.credentialVersion < 0 || !value.accountId) deny("destination_invalid");
   if (endpoint.protocol !== "https:" && !(value.loopbackFixture && isLoopback(endpoint.hostname)) &&
       !(value.kind === "local_model" && value.syntheticOnly)) deny("destination_tls_required");
@@ -163,7 +170,7 @@ export class PrivateAgentBroker {
     const approval = parsedApproval?.success ? parsedApproval.data : undefined;
     if (approval && (!destination.requireExactGrant || approval.priceProfileSha256 !== destination.approvalPriceProfileSha256 ||
         approval.maxFeeMicrousd !== input.maxFeeMicrousd)) deny("packet_approval_mismatch");
-    if (Buffer.byteLength(body) > BROKER_MAX_BODY_BYTES || url.href.length > 8192) deny("packet_size_exceeded");
+    if (Buffer.byteLength(body) > (destination.maxRequestBytes ?? BROKER_MAX_BODY_BYTES) || url.href.length > 8192) deny("packet_size_exceeded");
     // All custom headers are host-owned and serialized into the grant preview.
     // The broker injects a service credential only after admission, never as data.
     const text = canonical({ method: input.method, url: url.href,

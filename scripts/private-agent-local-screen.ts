@@ -10,9 +10,10 @@ import { PrivateAgentBroker, type BrokerDestination } from "../src/main/private-
 import { canonical, digest } from "../src/main/private-agent/contracts";
 import { PrivateCheckpointStore } from "../src/main/private-agent/checkpoints";
 import { PrivateAgentModel } from "../src/main/private-agent/model";
-import { GeneralAgentSession, sessionFileManifest, sessionPhaseIdentity } from "../src/main/private-agent/session";
+import { GeneralAgentSession, SESSION_LIMITS, sessionFileManifest, sessionPhaseIdentity } from "../src/main/private-agent/session";
 import { RulePacketScanner } from "../src/main/private-agent/scanner";
 import { PrivateAgentStore } from "../src/main/private-agent/store";
+import { COORDINATOR_PROFILES, GENERAL_TASK_BUDGETS, type CoordinatorProfileName } from "../src/main/private-agent/profiles";
 import { buildPublicRetrievalPhase, loadPreparedOperatorTask, selectPreparedPublicInputs, startControlledSnapshotReceiver,
   type PreparedOperatorTask } from "./private-agent-run";
 
@@ -123,11 +124,13 @@ export function localScreenSourceFreeze() {
   return { files, sha256: digest(canonical(files)) };
 }
 
-export type LocalScreenProfile = "standard" | "heavy";
-export const LOCAL_SCREEN_PROFILES: Readonly<Record<LocalScreenProfile, { maxOutputTokens: number; thinking: "disabled" | "medium" }>> = Object.freeze({
-  standard: { maxOutputTokens: 4096, thinking: "disabled" },
-  // 8192 tokens stays within the 300 s request timeout at the measured ~35 tok/s prose decode.
-  heavy: { maxOutputTokens: 8192, thinking: "medium" },
+export type LocalScreenProfile = CoordinatorProfileName;
+export const LOCAL_SCREEN_PROFILES = COORDINATOR_PROFILES;
+/** Headless budgets: "standard" keeps the Phase 0 driver values so earlier rows stay comparable. */
+const LOCAL_SCREEN_BUDGETS: Readonly<Record<LocalScreenProfile, { maxModelCalls: number; maxToolCalls: number; maxElapsedMs: number; maxRequests: number }>> = Object.freeze({
+  standard: { maxModelCalls: 40, maxToolCalls: 80, maxElapsedMs: SESSION_LIMITS.maxElapsedMs, maxRequests: SESSION_LIMITS.maxRequests },
+  heavy: { maxModelCalls: GENERAL_TASK_BUDGETS.heavy.modelCalls, maxToolCalls: GENERAL_TASK_BUDGETS.heavy.toolCalls,
+    maxElapsedMs: GENERAL_TASK_BUDGETS.heavy.elapsedMs, maxRequests: GENERAL_TASK_BUDGETS.heavy.sessionRequests },
 });
 
 /** Bounded synthetic local evaluation only; no cloud route or disclosure grant. */
@@ -145,6 +148,9 @@ export async function runLocalArtifactScreen(input: {
   const sourceFreeze = localScreenSourceFreeze();
   if (sourceFreeze.sha256 !== input.expectedRuntimeSha256) throw new Error("local_screen_reviewed_source_changed");
   const task = loadPreparedOperatorTask(input.taskDirectory, { jobSha256: input.expectedJobSha256, briefSha256: input.expectedBriefSha256 });
+  const profileName: LocalScreenProfile = input.profile ?? "standard", coordinator = COORDINATOR_PROFILES[profileName], budget = LOCAL_SCREEN_BUDGETS[profileName];
+  // The prepared task binds the September contract caps; the profile's budget replaces them for this run only.
+  const privatePhase = { ...task.phase, contract: { ...task.phase.contract, maxModelCalls: budget.maxModelCalls, maxToolCalls: budget.maxToolCalls, maxElapsedMs: budget.maxElapsedMs } };
   // Bind all explicit public metadata and original public bytes before receiver/model/DB effects.
   const publicSnapshot = input.publicSnapshot ? preparePublicSnapshot(task, input.publicSnapshot) : undefined;
   const config = loadConfig();
@@ -169,7 +175,7 @@ export async function runLocalArtifactScreen(input: {
     const destinations: BrokerDestination[] = [{ id: "owned_local_model", kind: "local_model",
       endpoint: `${config.vllm.baseUrl}/chat/completions`, accountId: "operator_owned_local_server", credentialVersion: 1,
       apiKey: config.vllm.apiKey, privateDataAdmitted: false, syntheticOnly: true,
-      maxResponseBytes: 512 * 1024, timeoutMs: Math.min(config.vllm.timeoutMs, 300000) }];
+      maxResponseBytes: 512 * 1024, timeoutMs: coordinator.requestTimeoutMs, maxRequestBytes: coordinator.maxRequestBytes }];
     let publicPhase: ReturnType<typeof buildPublicRetrievalPhase> | undefined;
     if (publicSnapshot) {
       receiver = await startExplicitPublicSnapshotReceiver(publicSnapshot);
@@ -199,24 +205,25 @@ export async function runLocalArtifactScreen(input: {
     }
     const scanner = new RulePacketScanner();
     const broker = new PrivateAgentBroker(store, destinations, scanner);
-    const profile = LOCAL_SCREEN_PROFILES[input.profile ?? "standard"];
-    const modelConfig = { destinationId: "owned_local_model", model: config.vllm.model, maxOutputTokens: profile.maxOutputTokens,
-      inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: profile.thinking };
+    const modelConfig = { destinationId: "owned_local_model", model: config.vllm.model, maxOutputTokens: coordinator.maxOutputTokens,
+      inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: coordinator.thinking, maxRequestBytes: coordinator.maxRequestBytes,
+      ...(coordinator.sampling ? { sampling: { ...coordinator.sampling } } : {}) };
     const freeze = { version: 1, jobId, sourceFreeze: sourceFreeze.files, sourceFreezeSha256: sourceFreeze.sha256, imageId: input.imageId,
       modelConfig, endpointIdentitySha256: digest(destinations[0]!.endpoint), deployment: "synthetic_only_unverified_for_private_data",
       taskBinding: task.binding, sourceBindingSha256: task.sourceBindingSha256,
-      syntheticAuthoritySha256: input.syntheticAuthoritySha256, privatePhaseSha256: sessionPhaseIdentity(task.phase),
+      syntheticAuthoritySha256: input.syntheticAuthoritySha256, privatePhaseSha256: sessionPhaseIdentity(privatePhase),
       publicPhaseSha256: publicPhase ? sessionPhaseIdentity(publicPhase) : null,
       publicSnapshot: publicSnapshot?.binding ?? null,
       scanner: "rules_only_not_a_privacy_classifier", pauseAfterTools: input.pauseAfterTools ?? null,
-      profile: input.profile ?? "standard",
-      limits: { requests: 40, outputTokens: modelConfig.maxOutputTokens, inputBytes: 196608, elapsedMs: 1800000, feeMicrousd: 0 },
+      profile: profileName,
+      limits: { requests: budget.maxRequests, modelCalls: budget.maxModelCalls, toolCalls: budget.maxToolCalls, outputTokens: modelConfig.maxOutputTokens,
+        inputBytes: coordinator.maxRequestBytes, requestTimeoutMs: coordinator.requestTimeoutMs, elapsedMs: budget.maxElapsedMs, feeMicrousd: 0 },
       startedAt: new Date().toISOString(), artifactAccepted: null };
     save("freeze.json", freeze);
     session = new GeneralAgentSession({ jobId, imageId: input.imageId, store, broker, checkpoints,
       trustedHostModelFactory: contextId => new PrivateAgentModel(broker, modelConfig, jobId, contextId),
-      privatePhase: task.phase, publicPhase,
-      syntheticInputApproval: { privatePhaseSha256: sessionPhaseIdentity(task.phase), authoritySha256: input.syntheticAuthoritySha256 } });
+      privatePhase, publicPhase, limits: { maxRequests: budget.maxRequests, maxElapsedMs: budget.maxElapsedMs },
+      syntheticInputApproval: { privatePhaseSha256: sessionPhaseIdentity(privatePhase), authoritySha256: input.syntheticAuthoritySha256 } });
     let requestedPause = false, lastReported = -1;
     interval = setInterval(() => {
       const events = store.events(jobId), calls = store.dispatches(jobId).length;

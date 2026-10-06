@@ -8,7 +8,7 @@ import {
 
 const diagnosticTiming = {
   elapsedMs: z.number().int().nonnegative().max(3_600_000),
-  timeoutMs: z.number().int().min(1).max(300_000),
+  timeoutMs: z.number().int().min(1).max(900_000),
 };
 export const UnknownRequestDiagnosticSchema = z.discriminatedUnion("phase", [
   z.object({ phase: z.literal("transport"),

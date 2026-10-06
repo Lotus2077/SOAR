@@ -18,7 +18,7 @@ function fixture() {
   const root = mkdtempSync(join(tmpdir(), "soar-general-controller-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   const db = new Database(join(root, "desktop.sqlite")); cleanup.push(() => { db.close(); });
   const input = join(root, "source.csv"); writeFileSync(input, "value\n21\n");
-  const config: SoarConfig = { providerMode: "local", hybridSimulationEnabled: false, fakeCloudScenario: "success", fakeDelayMs: 0,
+  const config: SoarConfig = { providerMode: "local", hybridSimulationEnabled: false, fakeCloudScenario: "success", fakeDelayMs: 0, generalTaskProfile: "standard",
     vllm: { baseUrl: "http://127.0.0.1:9999/v1", apiKey: "host-key-a", model: "unit-fixture", costPolicy: "local_zero_cost", maxOutputTokens: 8192, timeoutMs: 300000 },
     limits: { inferenceRounds: 24, toolCalls: 24 }, context: { maxInputTokens: 32000, safetyMargin: 0.2 } };
   let runtimeIdentity = digest("runtime-v1"), imageId: string | undefined = `sha256:${"a".repeat(64)}`;
@@ -183,8 +183,8 @@ describe("desktop general-task host controller", () => {
     expect(f.executions[0]!.store.dispatches(task.id)).toHaveLength(variant === "unknown" ? 1 : 0);
   });
 
-  it.each([[120000, 120000], [300000, 300000], [900000, 300000], [15000, 15000]])(
-    "binds configured model timeout %i as %i without raising job or output limits", async (configured, expected) => {
+  it.each([120000, 300000, 900000, 15000])(
+    "binds the profile request timeout, not the legacy configured timeout %i, without raising job or output limits", async configured => {
       const f = fixture(); f.config.vllm.timeoutMs = configured;
       const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
       const args = f.executions[0]!;
@@ -192,23 +192,39 @@ describe("desktop general-task host controller", () => {
         purpose: "test timeout identity", method: "POST", body: "{}", maxFeeMicrousd: 0 });
       expect(preview.destinationSha256).toBe(digest(canonical({ id: "desktop_local", kind: "local_model",
         endpoint: `${f.config.vllm.baseUrl}/chat/completions`, accountId: "owner_declared_local_server",
-        credentialVersion: 1, privateDataAdmitted: false, syntheticOnly: true, maxResponseBytes: 256 * 1024, timeoutMs: expected })));
+        credentialVersion: 1, privateDataAdmitted: false, syntheticOnly: true, maxResponseBytes: 256 * 1024, timeoutMs: 300000, maxRequestBytes: 192 * 1024 })));
       expect(args.contract).toMatchObject({ maxModelCalls: 20, maxToolCalls: 30, maxElapsedMs: 900000 });
-      expect(args.model.config.maxOutputTokens).toBe(4096);
-      expect(args.store.policy(task.id).maxFeeMicrousd).toBe(0);
+      expect(args.model.config).toMatchObject({ maxOutputTokens: 4096, thinking: "disabled", maxRequestBytes: 192 * 1024 });
+      expect(args.model.config).not.toHaveProperty("sampling");
+      expect(args.store.policy(task.id)).toMatchObject({ maxRequests: 40, maxFeeMicrousd: 0 });
     });
-  it("refuses a queued task after its frozen request timeout changes", () => {
-    const f = fixture(); f.config.vllm.timeoutMs = 45000;
-    const task = f.create(); f.config.vllm.timeoutMs = 300000;
+  it("binds the heavy profile at every layer: contract, model, destination and session allowance", async () => {
+    const f = fixture(); f.config.generalTaskProfile = "heavy";
+    expect(await f.controller.availability()).toMatchObject({ available: true, profile: "heavy", limits: { modelCalls: 80, toolCalls: 120, elapsedMs: 5_400_000 } });
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    const args = f.executions[0]!;
+    expect(args.contract).toMatchObject({ maxModelCalls: 80, maxToolCalls: 120, maxElapsedMs: 5_400_000 });
+    expect(args.model.config).toMatchObject({ maxOutputTokens: 16_384, thinking: "medium", maxRequestBytes: 640 * 1024, sampling: { temperature: 1, top_p: 0.95, top_k: 20 } });
+    expect(args.store.policy(task.id)).toMatchObject({ maxRequests: 200, maxFeeMicrousd: 0 });
+    const preview = args.broker.preview({ jobId: task.id, contextId: args.contextId, destinationId: "desktop_local",
+      purpose: "test timeout identity", method: "POST", body: "{}", maxFeeMicrousd: 0 });
+    expect(preview.destinationSha256).toBe(digest(canonical({ id: "desktop_local", kind: "local_model",
+      endpoint: `${f.config.vllm.baseUrl}/chat/completions`, accountId: "owner_declared_local_server",
+      credentialVersion: 1, privateDataAdmitted: false, syntheticOnly: true, maxResponseBytes: 256 * 1024, timeoutMs: 900_000, maxRequestBytes: 640 * 1024 })));
+    expect(f.controller.get(task.id)).toMatchObject({ status: "submitted" });
+  });
+  it("refuses a queued task after the coordinator profile changes", () => {
+    const f = fixture();
+    const task = f.create(); f.config.generalTaskProfile = "heavy";
     expect(() => f.controller.start(task.id)).toThrow("general_task_configuration_changed");
     expect(f.executions).toEqual([]);
   });
-  it("does not resume a paused task with a longer timeout or reset its deadline", async () => {
-    const f = fixture(); f.config.vllm.timeoutMs = 45000;
+  it("does not resume a paused task under a different profile or reset its deadline", async () => {
+    const f = fixture();
     const task = f.create(); f.hold(); f.controller.start(task.id);
     await vi.waitFor(() => expect(f.executions).toHaveLength(1));
     f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
-    const paused = f.controller.get(task.id); f.config.vllm.timeoutMs = 300000;
+    const paused = f.controller.get(task.id); f.config.generalTaskProfile = "heavy";
     expect(() => f.controller.resume(task.id)).toThrow("general_task_configuration_changed");
     expect(f.controller.get(task.id)).toMatchObject({ status: "paused", modelCalls: paused.modelCalls, elapsedMs: paused.elapsedMs });
     expect(f.executions).toHaveLength(1);
@@ -428,7 +444,7 @@ describe("desktop general-task host controller", () => {
     const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
     await vi.waitFor(() => expect(f.executions).toHaveLength(1)); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
     const future = Date.now() + 900001; vi.spyOn(Date, "now").mockReturnValue(future);
-    expect(f.controller.get(task.id)).toMatchObject({ canResume: false, reason: "The task reached its fifteen-minute deadline." });
+    expect(f.controller.get(task.id)).toMatchObject({ canResume: false, reason: "The task reached its time limit." });
     expect(() => f.controller.resume(task.id)).toThrow("resume_denied"); expect(f.executions).toHaveLength(1);
   });
   it("denies artifact reads during cancellation until the active session has closed", async () => {

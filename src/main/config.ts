@@ -51,6 +51,7 @@ const environmentSchema = z.object({
   SOAR_FAKE_DELAY_MS: z.coerce.number().int().min(0).max(5_000).default(12),
   SOAR_DB_PATH: z.string().optional(),
   SOAR_GENERAL_TASK_IMAGE_ID: z.string().optional(),
+  SOAR_GENERAL_TASK_PROFILE: z.enum(["standard", "heavy"]).default("heavy"),
   SOAR_TEST_WORKSPACE: z.string().optional(),
   SOAR_TEST_CREDENTIAL_OPERATION_STATE: z
     .enum([
@@ -91,6 +92,8 @@ export interface SoarConfig {
   databasePath?: string;
   /** Main-owned immutable Docker image selection; invalid/missing IDs disable General task. */
   generalTaskImageId?: string;
+  /** Coordinator profile for General task; "heavy" follows vendor guidance, "standard" is the September configuration. */
+  generalTaskProfile?: "standard" | "heavy";
   testWorkspace?: string;
   /**
    * Deterministic renderer proof fixture. It is admitted only for Fake mode
@@ -206,6 +209,7 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
     },
     databasePath: env.SOAR_DB_PATH,
     generalTaskImageId: env.SOAR_GENERAL_TASK_IMAGE_ID,
+    generalTaskProfile: env.SOAR_GENERAL_TASK_PROFILE,
     testWorkspace: env.SOAR_TEST_WORKSPACE,
     ...(env.SOAR_TEST_CREDENTIAL_OPERATION_STATE === undefined
       ? {}

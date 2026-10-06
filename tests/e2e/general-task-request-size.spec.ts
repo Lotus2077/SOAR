@@ -23,7 +23,8 @@ const goal = "Preserve the selected synthetic input and write report.md. This fi
 const assistantContentBytes = 210 * 1024;
 const toolStdout = "Saved progress.\n";
 const bodyLimit = 192 * 1024;
-const sizeReason = "The next model request exceeded the 192 KiB request limit and was not sent. Saved progress is retained; this task cannot resume.";
+// The standard profile keeps the 192 KiB cap this fixture exceeds; the heavy profile would admit it.
+const sizeReason = "The next model request exceeded the request size limit and was not sent. Saved progress is retained; this task cannot resume.";
 const python = (source: string) => `python3 -c '${source.replaceAll("'", "'\\''")}'`;
 const command = python(`from pathlib import Path; import base64,hashlib,sys; assert hashlib.sha256(Path("input/01-source.txt").read_bytes()).hexdigest()=="${digest(input)}"; Path("output").mkdir(exist_ok=True); Path("output/report.md").write_bytes(base64.b64decode("${Buffer.from(output).toString("base64")}")); sys.stdout.write(${JSON.stringify(toolStdout)}); sys.stdout.flush()`);
 type Event = Record<string, unknown>;
@@ -36,7 +37,7 @@ function environment(root: string, origin: string): Record<string, string> {
   return { ...inherited, SOAR_PROVIDER_MODE: "local", SOAR_ENABLE_HYBRID_SIMULATION: "false",
     SOAR_DB_PATH: path.join(root, "desktop.sqlite"), SOAR_VLLM_BASE_URL: `${origin}/v1`,
     SOAR_VLLM_MODEL: "synthetic-general-tools", SOAR_VLLM_API_KEY: "", SOAR_VLLM_COST_POLICY: "local_zero_cost",
-    SOAR_ALLOW_INSECURE_VLLM_HTTP: "true", SOAR_MAX_OUTPUT_TOKENS: "4096", SOAR_REQUEST_TIMEOUT_MS: "30000",
+    SOAR_ALLOW_INSECURE_VLLM_HTTP: "true", SOAR_MAX_OUTPUT_TOKENS: "4096", SOAR_REQUEST_TIMEOUT_MS: "30000", SOAR_GENERAL_TASK_PROFILE: "standard",
     SOAR_GENERAL_TASK_IMAGE_ID: imageId, SOAR_PATCH_MODE: "scripted", SOAR_PATCH_API_KEY: "", SOAR_PATCH_LOCAL_API_KEY: "",
     SOAR_TEST_WORKSPACE: "" };
 }

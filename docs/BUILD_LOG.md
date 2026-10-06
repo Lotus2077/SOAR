@@ -19293,3 +19293,73 @@ first real public jobs on the owner build.
 
 References: BL-20261007-0322-pr-f-owner-surface-design,
 BL-20261007-0530-pr-c-recoverable-dispatch-implemented, [plan](PLAN.md).
+
+
+### BL-20261007-0745-pr-e-cloud-correctness-design -- 2026-10-07 -- Cloud correctness designed (PR-E)
+
+Status: `Proposed`
+
+Scope or hypothesis: Phase 1 item 4 (docs/PLAN.md PR-E), required before the
+Phase 2 cloud arm (C-Sol, `gpt-6-sol`, public or synthetic tasks only, at most
+USD 8 per task): settle cost with `cached_tokens` at the cached rate, reserve
+from a token estimate, add a separate OpenAI request shape, retire the
+`gpt-4.1` / 2,048-token consultant. On-track check: PR-C and PR-F are implemented
+and reviewed (PR #7, #8); the review's W7 finding (the permitted-cloud half has
+never run) is the gap this closes. Branch `phase1-cloud-correctness`, stacked
+on #8.
+
+Decisions:
+
+- **Request shape per API.** `PrivateModelConfig.api` is `"vllm"` (default,
+  unchanged) or `"openai"`. The OpenAI shape sends `max_completion_tokens`, the
+  tools unchanged, `stream: false`, and top-level `reasoning_effort` only when
+  thinking is on; never `chat_template_kwargs`, `top_k`, `temperature` or
+  `top_p`, which reasoning models reject. The judge's narrowing overrides apply
+  to both shapes.
+- **Reservation from a token estimate.** The broker reservation becomes
+  `ceil(bodyBytes / 2) × input rate + maxOutputTokens × output rate`: two bytes
+  per token is a safe upper bound for text, code and CJK, and halves the former
+  bytes-based reservation, which exhausted a fee cap long before any charge. The
+  settlement envelope checks `prompt_tokens ≤ ceil(bodyBytes / 2)`,
+  `completion_tokens ≤ maxOutputTokens` and `cached_tokens ≤ prompt_tokens`;
+  outside it the dispatch is unknown, as before.
+- **Cached-rate settlement.** Fee = `(prompt − cached) × input +
+  cached × cachedInput + completion × output`, with `cachedInputUsdPerMillion`
+  optional (absent means the input rate). Receipts keep the actual fee; the
+  registry's `usd` already sums settled fees.
+- **Cloud arm in the session.** `GeneralSessionOptions.cloudArm` names the cloud
+  destination and the per-task fee cap; the session policy is then `cloud_help`
+  with that cap, and the private phase must carry the synthetic-input approval
+  (the broker already denies a cloud destination to a restricted context without
+  an exact grant). The desktop builds no cloud destination in Phase 1; only the
+  headless driver uses the arm.
+- **Headless driver.** `--arm cloud` with `--cloud-model`, `--cloud-endpoint`
+  (https only), `--cloud-prices` (input, output and cached micro-USD per million,
+  public figures) and `--max-fee-usd` (at most 8). The API key is read from
+  `SOAR_PHASE2_CLOUD_API_KEY` in the process environment only: never from any
+  `.env` file, never written to the freeze, the result or the registry; the
+  freeze records the model configuration, the account label and a credential
+  version. Caps are the profile's (symmetric with the local arm); only the
+  timeout and the fee differ.
+- **Consultant.** The consultant request moves to `max_completion_tokens` (its
+  packet identity changes; it has never been used live), its documented
+  configuration becomes `gpt-6-sol` with 4,096 output tokens, and `.env.example`
+  and the README say so. The `gpt-4.1` / 2,048 setup is retired.
+
+Changes: This entry. Implementation follows in PR #9.
+
+Evidence: PROJECT_REVIEW W7; model.ts, consultant-model.ts, session.ts and the
+driver read in full on 2026-10-07.
+
+Failures or blockers: None. Live cloud calls need the owner's key and are
+Phase 2 work.
+
+Limitations and non-claims: No cloud request is made in Phase 1; shapes are
+pinned by tests against the published API, not by a live call.
+
+Paid exposure: USD 0.
+
+Next gate: PR-E implemented with tests and reviewed; then PR-B and PR-I.
+
+References: [plan](PLAN.md) Phase 1 PR-E and Phase 2 arms,
+docs/PROJECT_REVIEW_2026-09-28.md W7, BL-20261007-0640-pr-f-owner-surface-implemented.

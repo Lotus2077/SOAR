@@ -18729,3 +18729,50 @@ verified at the first check, both critical checks passed; T4 heavy submitted at
 
 References: BL-20261006-1158-pr-j2-entailment-design,
 BL-20261006-1150-pr-j1-claims-ledger-implemented.
+### BL-20261006-1240-phase1-ledger-v1-results -- 2026-10-06 -- First claims-ledger dry runs: both heavy tasks pass the host quote check
+
+Status: `Verified`
+
+Scope or hypothesis: Next gate of BL-20261006-1150: can the local model, under
+the heavy profile, produce a claims ledger that passes the host's verbatim quote
+check on the two seen research tasks? Batch `phase1-ledger-v1` on the J1 tree
+(2301cd0, `--claims-ledger true`), registry rows `p1l-*`.
+
+Decisions: Gate reads are mine; owner verdicts stay pending. The `.bin` content
+sniffing and the host-only `sources/` rules from the J1 review were in force.
+
+Changes: two registry rows; the binary test fixture now builds through a temp
+file because CI runners refuse `/dev/stdout` for zip output (the PR #5 CI
+failure).
+
+Evidence:
+
+- T2 heavy: `submitted`, 27 model calls, 617 s, 441 K input and 17 K output
+  tokens; 19 claims, every quote verified verbatim by the host at the single
+  `check_claims` call, every claim cited, both critical checks passed at finish;
+  380 words with the two required sections. Claim C19 pairs a correct-looking
+  sentence with an introductory quote that does not support it: the exact case
+  the J2 entailment judge is for.
+- T4 heavy (two-phase, controlled public snapshots): `submitted`, 71 model
+  calls, 2,275 s; 34 claims, all citing the job's input source files, all
+  verified at the single `check_claims` call; all four critical checks passed at
+  finish (`source_preserved_and_artifacts_readable`,
+  `source_evidence_replayed_and_consistent`, `research_claims_ledger`,
+  `session_transfer_integrity`); no nudge, timeout or soft refusal. Six public
+  sources were retained in the public phase but no claim cited a URL: the same
+  bytes sit under `input/sources`, which the model preferred.
+- Cost of the ledger: T2 went from 21 to 27 calls and 439 s to 617 s; T4 from
+  61 to 71 calls and 1,517 s to 2,275 s, with one check round each.
+
+Failures or blockers: None in the runs. PR #5 CI was red on the fixture's
+`/dev/stdout` use only; fixed in this change.
+
+Limitations and non-claims: Two runs, both on seen tasks; verbatim quotes
+prove existence, not support (J2). No owner acceptance yet.
+
+Paid exposure: USD 0.
+
+Next gate: J2 restructured as BL-20261006-1230 decides; owner verdicts.
+
+References: BL-20261006-1150-pr-j1-claims-ledger-implemented,
+BL-20261006-1230-pr-j2-review-findings, [registry](experiments/registry.jsonl).

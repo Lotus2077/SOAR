@@ -265,6 +265,16 @@ harness-terminal cause; registry rows `p1d-*`); PR-J1 is implemented on
 `sources/` owned by the host; J2 (entailment) is next. Exit criterion 3 is
 owner-only and open.
 
+**Status 2026-10-07 (BL-20261007-0120 to BL-20261007-0320):** PR-J2 implemented
+on `phase1-claims-entailment` (PR #6): the judge runs after submission is
+durable; first live judgement 19 of 20 claims supported, 1 partial. PR-C
+(recoverable dispatch, D4) and PR-F (owner surface: general task default and
+⌘N target, Labs flag for legacy tracks, plan/action/finish projections
+labelled untrusted, "Submitted with reported issues", per-task profile,
+`pnpm setup:general`) are implemented on `phase1-recoverable-dispatch` and
+`phase1-owner-surface`, stacked on #6, pending review. PR-E, PR-B and PR-I
+remain; the owner build and exit criterion 3 are owner-only.
+
 - **PR-A, Heavy profile at every cap layer.** Raise, together:
   - [controller.ts](../src/main/general-tasks/controller.ts):29, :145, :148 and the
     `phase()` literals at :233-235;

@@ -68,6 +68,8 @@ function launchEnvironment(
   return {
       ...inheritedEnvironment,
       SOAR_PROVIDER_MODE: "fake",
+      // Legacy tracks (investigator, change review, hybrid) sit behind the Labs flag since PR-F.
+      SOAR_ENABLE_LABS: "true",
       SOAR_ENABLE_HYBRID_SIMULATION: String(
         options.hybridSimulation ?? false,
       ),

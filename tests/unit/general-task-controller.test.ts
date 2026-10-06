@@ -23,7 +23,7 @@ function fixture() {
     vllm: { baseUrl: "http://127.0.0.1:9999/v1", apiKey: "host-key-a", model: "unit-fixture", costPolicy: "local_zero_cost", maxOutputTokens: 8192, timeoutMs: 300000 },
     limits: { inferenceRounds: 24, toolCalls: 24 }, context: { maxInputTokens: 32000, safetyMargin: 0.2 } };
   let runtimeIdentity = digest("runtime-v1"), imageId: string | undefined = `sha256:${"a".repeat(64)}`;
-  let paused = false, cancelled = false, failModel = false, release: (() => void) | undefined;
+  let paused = false, cancelled = false, failModel = false, narrate = false, release: (() => void) | undefined;
   let hold: Promise<void> | undefined;
   const executions: GeneralJobOptions[] = [];
   const factory: NonNullable<NonNullable<GeneralTaskControllerOptions["testing"]>["runnerFactory"]> = args => ({
@@ -48,6 +48,19 @@ function fixture() {
       const status = cancelled || signal?.aborted ? "incomplete" : paused ? "paused" : "completed";
       const checks = [{ id: "desktop_artifact_structure", passed: true }];
       // A research phase (claims check configured) records what the finish-time check verified, as the runner does; the session judges after completion.
+      if (narrate) {
+        // The agent's own words and actions, as the runner records them: a plan, one execute action, a failed finish, then the passing finish.
+        store.append(jobId, { type: "plan", contextId, plan: "1. Read the input. 2. Write the memo." });
+        store.append(jobId, { type: "model_finished", contextId, operationId: op, message: { role: "assistant", content: "", tool_calls: [{ id: "call_exec", type: "function", function: { name: "execute", arguments: JSON.stringify({ command: "python3 compute.py --all" }) } }] } });
+        store.append(jobId, { type: "tool_started", contextId, operationId: "unit_exec", toolCallId: "call_exec", name: "execute" });
+        store.append(jobId, { type: "tool_finished", contextId, operationId: "unit_exec", toolCallId: "call_exec", output: '{"exitCode":0}' });
+        store.append(jobId, { type: "model_finished", contextId, operationId: `${op}_f1`, message: { role: "assistant", content: "", tool_calls: [{ id: "call_f1", type: "function", function: { name: "finish", arguments: JSON.stringify({ summary: "First try." }) } }] } });
+        store.append(jobId, { type: "tool_started", contextId, operationId: "unit_f1", toolCallId: "call_f1", name: "finish" });
+        store.append(jobId, { type: "tool_finished", contextId, operationId: "unit_f1", toolCallId: "call_f1", output: '{"complete":false,"missingArtifacts":[],"checks":[{"id":"desktop_artifact_structure","passed":false}]}' });
+        store.append(jobId, { type: "model_finished", contextId, operationId: `${op}_f2`, message: { role: "assistant", content: "", tool_calls: [{ id: "call_f2", type: "function", function: { name: "finish", arguments: JSON.stringify({ summary: "Wrote the memo from the input; see output/report.md." }) } }] } });
+        store.append(jobId, { type: "tool_started", contextId, operationId: "unit_f2", toolCallId: "call_f2", name: "finish" });
+        store.append(jobId, { type: "tool_finished", contextId, operationId: "unit_f2", toolCallId: "call_f2", output: '{"complete":true,"missingArtifacts":[],"checks":[{"id":"desktop_artifact_structure","passed":true}]}' });
+      }
       if (status === "completed" && args.checks.some(check => check.id === "research_claims_ledger")) store.append(jobId, { type: "claims_verified", contextId, version: 1,
         claims: [{ id: "C1", sentence: "s1", quote: "q1 long enough", context: "c1" }, { id: "C2", sentence: "s2", quote: "q2 long enough", context: "c2" }] });
       if (status === "completed") store.append(jobId, { type: "completed", contextId, snapshot, checks, verifiedSnapshotSha256: checkpoints.fingerprint(snapshot) });
@@ -64,7 +77,7 @@ function fixture() {
     imageId: () => imageId, runtimeIdentity: () => runtimeIdentity, testing: { readiness: async () => {}, runnerFactory: factory } };
   const controller = new GeneralTaskController(options); cleanup.push(() => controller.close());
   const create = () => controller.create({ goal: "Make a small report.", inputSelectionId: controller.selectInputs([input]).id, outputName: "report.md", publicOrSynthetic: true });
-  return { root, db, input, config, controller, options, executions, create, set failModel(value: boolean) { failModel = value; },
+  return { root, db, input, config, controller, options, executions, create, set failModel(value: boolean) { failModel = value; }, set narrate(value: boolean) { narrate = value; },
     changeRuntime() { runtimeIdentity = digest("runtime-v2"); }, removeImage() { imageId = undefined; },
     hold() { hold = new Promise<void>(yes => { release = yes; }); }, release() { release?.(); hold = undefined; }, resetPaused() { paused = false; } };
 }
@@ -295,6 +308,32 @@ describe("desktop general-task host controller", () => {
     f.failModel = false;
     f.controller.resume(task.id); await f.controller.wait(task.id);
     expect(f.controller.get(task.id).status).toBe("submitted");
+  });
+  it("projects the agent's plan, one line per action and the finish summary as untrusted text, and reports host-derived issues on a submission", async () => {
+    const f = fixture(); f.narrate = true;
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    const view = f.controller.get(task.id);
+    expect(view).toMatchObject({ status: "submitted", plan: "1. Read the input. 2. Write the memo.", finishSummary: "Wrote the memo from the input; see output/report.md." });
+    expect(view.events.filter(event => event.detail).map(event => event.detail)).toEqual(["execute: python3 compute.py --all", "finish: First try.", "finish: Wrote the memo from the input; see output/report.md."]);
+    expect(view.reportedIssues).toEqual(["1 finish attempt failed the host checks before the final one passed."]);
+    // A clean run carries no issues and no projected text.
+    f.narrate = false;
+    const plain = f.create(); f.controller.start(plain.id); await f.controller.wait(plain.id);
+    expect(f.controller.get(plain.id)).toMatchObject({ status: "submitted", reportedIssues: [] });
+    expect(f.controller.get(plain.id).plan).toBeUndefined(); expect(f.controller.get(plain.id).finishSummary).toBeUndefined();
+  });
+  it("binds a per-task profile into the contract and the identity, and advertises the profiles and the Labs flag", async () => {
+    const f = fixture();
+    const heavy = f.controller.create({ goal: "Make a small report.", inputSelectionId: f.controller.selectInputs([f.input]).id, outputName: "report.md", publicOrSynthetic: true, profile: "heavy" });
+    f.controller.start(heavy.id); await f.controller.wait(heavy.id);
+    expect(f.executions[0]!.contract).toMatchObject({ maxModelCalls: 80, maxToolCalls: 120, maxElapsedMs: 5_400_000 });
+    expect(f.controller.get(heavy.id)).toMatchObject({ status: "submitted", profile: "heavy" });
+    const standard = f.create(); f.controller.start(standard.id); await f.controller.wait(standard.id);
+    expect(f.executions[1]!.contract.maxModelCalls).toBe(20); expect(f.controller.get(standard.id).profile).toBeUndefined();
+    const availability = await f.controller.availability();
+    expect(availability).toMatchObject({ profile: "standard", profiles: ["standard", "heavy"], labs: false });
+    f.config.labsEnabled = true;
+    expect((await f.controller.availability()).labs).toBe(true);
   });
   it("refuses a queued task after the coordinator profile changes", () => {
     const f = fixture();

@@ -44,6 +44,8 @@ export const GeneralTaskCreateInputSchema = z.object({
     .regex(/^[\p{L}\p{N}][\p{L}\p{N} ._-]*$/u)
     .refine(value => !value.includes("..") && new TextEncoder().encode(value).length <= 200),
   publicOrSynthetic: z.literal(true),
+  /** Coordinator profile for this task; absent means the configured default. Bound into the task identity. */
+  profile: z.enum(["standard", "heavy"]).optional(),
 }).strict();
 export type GeneralTaskCreateInput = z.infer<typeof GeneralTaskCreateInputSchema>;
 
@@ -71,6 +73,10 @@ export interface GeneralTaskAvailability {
   limits: { modelCalls: number; toolCalls: number; elapsedMs: number };
   /** Coordinator profile in effect for new tasks. */
   profile?: "standard" | "heavy";
+  /** Profiles a task may select at creation. */
+  profiles?: ("standard" | "heavy")[];
+  /** Legacy tracks (investigator, change review, coding pilot, hybrid simulation) are shown only when the Labs flag is on. */
+  labs?: boolean;
   publicOrSyntheticOnly: true;
   executionMode: "local" | "scripted" | "unavailable";
   consultation?: { available: boolean; reason: string; model?: string };
@@ -104,9 +110,17 @@ export interface GeneralTaskSnapshot {
   checks: { id: string; passed: boolean }[];
   /** Research tasks: the host's per-claim entailment verdicts (local model, thinking off). Evidence, not acceptance. */
   entailment?: GeneralTaskEntailment;
+  /** Profile the task was created under. */
+  profile?: "standard" | "heavy";
+  /** Model-authored text, projected by the host, bounded and untrusted: the latest plan and the finish summary. */
+  plan?: string;
+  finishSummary?: string;
+  /** Host-derived facts that qualify a submission: a failed finish before the final one, or judged claims that were not supported. */
+  reportedIssues?: string[];
   cleanupConfirmed: boolean;
   independentAcceptance: "not_evaluated";
-  events: { sequence: number; type: string; summary: string }[];
+  /** `detail` is a one-line, untrusted description of the agent's action derived from its own tool call. */
+  events: { sequence: number; type: string; summary: string; detail?: string }[];
   canResume: boolean;
   routing?: GeneralTaskRouting;
   consultation?: GeneralTaskConsultationSummary;

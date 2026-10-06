@@ -66,7 +66,7 @@ function ArtifactContent({ preview }: { preview: GeneralTaskArtifactPreview }) {
   </>;
 }
 
-export function GeneralTaskWorkspace({ api: suppliedApi }: { api?: SoarGeneralTaskApi }) {
+export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0 }: { api?: SoarGeneralTaskApi; /** Bumped by the shell (⌘N) to open a fresh task form. */ newTaskRequest?: number }) {
   const candidate = suppliedApi ?? window.soar;
   const api = hasApi(candidate) ? candidate : null;
   const [availability, setAvailability] = useState<GeneralTaskAvailability | null>(null);
@@ -82,6 +82,7 @@ export function GeneralTaskWorkspace({ api: suppliedApi }: { api?: SoarGeneralTa
   const [dnsResolver, setDnsResolver] = useState<"system" | "cloudflare_v1">("system");
   const [retrievalAllowed, setRetrievalAllowed] = useState(false);
   const [routing, setRouting] = useState<GeneralTaskRouting>("local_only");
+  const [profile, setProfile] = useState<"" | "standard" | "heavy">("");
   const [action, setAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -170,6 +171,8 @@ export function GeneralTaskWorkspace({ api: suppliedApi }: { api?: SoarGeneralTa
     selectionEpoch.current += 1; selected.current = null; setSelectedId(null); setLoadingTask(false);
     setError(null); setNotice(null); resetPreview(); resetConsultation();
   };
+  const newTaskRequests = useRef(newTaskRequest);
+  useEffect(() => { if (newTaskRequest !== newTaskRequests.current) { newTaskRequests.current = newTaskRequest; newTask(); } });
   const selectTask = async (id: string) => {
     if (!api) return;
     const epoch = ++selectionEpoch.current;
@@ -188,6 +191,7 @@ export function GeneralTaskWorkspace({ api: suppliedApi }: { api?: SoarGeneralTa
   const urls = sourceUrls.split(/\r?\n/u).map(value => value.trim()).filter(Boolean);
   const createInput = {
     goal, outputName, publicOrSynthetic: attested,
+    ...(profile ? { profile } : {}),
     ...(routing === "ask_before_consulting" ? { routing } : {}),
     ...(selection ? { inputSelectionId: selection.id } : {}),
     ...(urls.length ? { publicSources: { urls, dnsResolver, allowPublicRetrieval: retrievalAllowed } } : {}),
@@ -339,6 +343,10 @@ export function GeneralTaskWorkspace({ api: suppliedApi }: { api?: SoarGeneralTa
               <label className="general-ack"><input type="checkbox" checked={retrievalAllowed} disabled={!!action || !validSources} onChange={event => setRetrievalAllowed(event.target.checked)} /><span>Allow SOAR to retrieve only these public URLs through the host, with up to five GET attempts and 64 KiB per response. This permits no other browsing or publication.</span></label>
             </> : <p className="general-hint">No public retrieval will be permitted for this task.</p>}
           </div>
+          {availability?.profiles?.length ? <label className="general-field"><span id="general-profile-label">Model profile</span>
+            <select value={profile} disabled={!!action} aria-labelledby="general-profile-label" onChange={event => setProfile(event.target.value as "" | "standard" | "heavy")}>
+              <option value="">Default ({availability.profile ?? "heavy"})</option>{availability.profiles.map(name => <option key={name} value={name}>{name === "heavy" ? "heavy — thinking on, long outputs" : "standard — thinking off, short outputs"}</option>)}
+            </select><small>The profile sets the model's thinking mode, output limit and the task's allowances. It is fixed once the task is created.</small></label> : null}
           <label className="general-field"><span id="general-output-label">Output filename</span><input value={outputName} maxLength={120} disabled={!!action} aria-labelledby="general-output-label" aria-invalid={!validOutputName} aria-describedby="general-output-hint" onChange={event => { setOutputName(event.target.value); setAttested(false); }} /><small id="general-output-hint">{validOutputName ? "A single filename, such as report.md or presentation.pptx." : "Use one filename starting with a letter or number, with no folders or '..'."}</small></label>
           <label className="general-ack"><input type="checkbox" checked={attested} disabled={!!action} onChange={event => setAttested(event.target.checked)} /><span>I confirm that my task goal, any selected files and source URLs contain only public or synthetic material. Real private data is not qualified for this pilot.</span></label>
           <button className="general-button general-button-primary" type="submit" disabled={!api || !availability?.available || checkingAvailability || !!action || !validInput}><Play aria-hidden="true" />{action === "create" ? "Saving and starting…" : "Create and start task"}</button>
@@ -347,6 +355,18 @@ export function GeneralTaskWorkspace({ api: suppliedApi }: { api?: SoarGeneralTa
           <h2>{title(task)}</h2><p className="general-goal">{task.goal}</p>
           <div className="general-state" role="status">{task.status === "submitted" ? <CheckCircle aria-hidden="true" /> : <Clock aria-hidden="true" />}{statuses[task.status]}{loadingTask ? " · refreshing…" : ""}</div>
           {task.reason && <p className="general-hint">{task.reason.replaceAll("_", " ")}</p>}
+          {task.profile && <p className="general-hint">Model profile: {task.profile}</p>}
+          {task.status === "submitted" && task.reportedIssues?.length ? <section className="general-section general-issues" aria-label="Reported issues"><h3>Submitted with reported issues</h3>
+            <p className="general-hint">Host-derived facts about this submission. They do not change its status; judge the deliverable with them in mind.</p>
+            <ul>{task.reportedIssues.map(issue => <li key={issue}>{issue}</li>)}</ul></section> : null}
+          {(task.plan || task.finishSummary) && <section className="general-section" aria-label="What the agent did"><h3>What the agent did</h3>
+            <p className="general-hint">Written by the local model. Untrusted: it is not evidence that the work is correct.</p>
+            {task.plan && <><h4>Plan</h4><pre className="general-agent-text">{task.plan}</pre></>}
+            {task.finishSummary && <><h4>Finish summary</h4><pre className="general-agent-text">{task.finishSummary}</pre></>}</section>}
+          {task.entailment && <section className="general-section" aria-label="Claim judgements"><h3>Claim judgements</h3>
+            <p className="general-hint">The host asked the local model, once per verified claim, whether the cited quote supports the sentence. Evidence, not acceptance.{task.entailment.truncated ? " The pass stopped early; some claims were not judged." : ""}</p>
+            <dl className="general-metrics">{(["supported", "partial", "unsupported", "contradicted", "not_judged"] as const).map(key => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{task.entailment!.counts[key]}</dd></div>)}</dl>
+            {task.entailment.claims.some(claim => claim.verdict !== "supported") && <ul className="general-claims">{task.entailment.claims.filter(claim => claim.verdict !== "supported").map(claim => <li key={claim.id}><strong>{claim.id}</strong> · {claim.verdict.replaceAll("_", " ")}{claim.reason ? ` · ${claim.reason}` : ""}</li>)}</ul>}</section>}
           <dl className="general-metrics"><div><dt>Model attempts</dt><dd>{task.modelCalls}</dd></div><div><dt>Tool actions</dt><dd>{task.toolCalls}</dd></div><div><dt>Task time (includes approval wait)</dt><dd>{duration(task.elapsedMs)}</dd></div></dl>
           {task.fees && <dl className="general-metrics"><div><dt>Reserved fees</dt><dd>{money(task.fees.reservedMicrousd)}</dd></div><div><dt>Settled fees</dt><dd>{money(task.fees.settledMicrousd)}</dd></div></dl>}
           <section className="general-section general-consultation" aria-label="Task consultation"><h3>Consultation</h3>
@@ -410,7 +430,7 @@ export function GeneralTaskWorkspace({ api: suppliedApi }: { api?: SoarGeneralTa
             {!task.artifacts.length ? <p className="general-hint">No saved artifacts yet. They will appear after a workspace checkpoint.</p> : <><ul className="general-artifact-list">{task.artifacts.map(file => <li key={`${file.path}:${file.sha256}`}><div><button className="general-button general-button-quiet" disabled={task.status === "running" || !task.cleanupConfirmed} aria-label={`Preview ${file.path}`} onClick={() => void readArtifact(file)}>{file.path}</button><small>{size(file.bytes)} · SHA {file.sha256.slice(0, 12)}</small></div><button className="general-button" disabled={!!action || task.status === "running" || !task.cleanupConfirmed} aria-label={`Export ${file.path}`} onClick={() => void exportArtifact(file)}><DownloadSimple aria-hidden="true" />Export</button></li>)}</ul>{(task.status === "running" || !task.cleanupConfirmed) && <p className="general-hint">Preview and export become available after the task stops and cleanup is confirmed.</p>}</>}
             {previewPath && <section className="general-preview" aria-label="Artifact preview"><header><strong>{previewPath}</strong></header>{loadingPreview ? <p className="general-preview-empty" role="status">Loading verified preview…</p> : preview ? <ArtifactContent preview={preview} /> : <p className="general-preview-empty">No verified preview is available.</p>}</section>}
           </section>
-          <details className="general-section"><summary>Progress · {task.events.length} events</summary><ol className="general-progress">{task.events.map(event => <li key={event.sequence}><span>{event.summary}</span></li>)}</ol></details>
+          <details className="general-section"><summary>Progress · {task.events.length} events</summary><ol className="general-progress">{task.events.map(event => <li key={event.sequence}><span>{event.summary}</span>{event.detail && <code className="general-action-detail" title="Untrusted: the agent's own action text">{event.detail}</code>}</li>)}</ol></details>
           <details className="general-section"><summary>Inputs and structural checks</summary>{!task.inputs.length && <p className="general-hint">No input files were attached.</p>}<ul className="general-selected-files">{task.inputs.map(file => <li className="general-file-row" key={file.path}><span>{file.name}</span><small>{size(file.bytes)}</small></li>)}</ul>
             <ul>{task.checks.map(check => <li key={check.id}>{check.id.replaceAll("_", " ")}: {check.passed ? "passed" : "failed"}</li>)}</ul><p className="general-hint">Independent acceptance: not evaluated. Cleanup: {task.cleanupConfirmed ? "confirmed" : "not yet confirmed"}.</p></details>
         </article> : <p role="status">Loading saved task…</p>}

@@ -414,15 +414,52 @@ describe("general task workspace", () => {
     render(<GeneralTaskWorkspace api={api} />); expect(await screen.findByText(/Scripted test/u)).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Export output/report.md" })); expect(await screen.findByText("Export cancelled.")).toBeVisible(); expect(screen.queryByText("Artifact exported.")).not.toBeInTheDocument();
   });
+  it("sends the chosen model profile with the create request and leaves it out by default", async () => {
+    const user = userEvent.setup(), { api } = fixture([], { ...ready, profile: "heavy", profiles: ["standard", "heavy"] });
+    render(<GeneralTaskWorkspace api={api} />);
+    await user.type(await screen.findByLabelText("Task goal"), "Make a memo.");
+    await user.click(screen.getByRole("checkbox")); await user.click(screen.getByRole("button", { name: "Create and start task" }));
+    expect(api.createGeneralTask.mock.calls[0]![0]).not.toHaveProperty("profile");
+    await user.click(screen.getByRole("button", { name: "New general task" }));
+    await user.type(await screen.findByLabelText("Task goal"), "Make a memo.");
+    await user.selectOptions(screen.getByLabelText("Model profile"), "standard");
+    await user.click(screen.getByRole("checkbox")); await user.click(screen.getByRole("button", { name: "Create and start task" }));
+    expect(api.createGeneralTask.mock.calls[1]![0]).toMatchObject({ profile: "standard" });
+  });
+  it("shows the agent's plan and finish summary as untrusted, reported issues, claim judgements and per-action details", async () => {
+    const judged: GeneralTaskSnapshot = { ...submitted(), profile: "heavy", plan: "1. Read. 2. Write.", finishSummary: "Wrote the memo.", reportedIssues: ["1 finish attempt failed the host checks before the final one passed."],
+      entailment: { counts: { supported: 3, partial: 1, unsupported: 0, contradicted: 0, not_judged: 0 }, entailmentCalls: 4, truncated: false, claims: [{ id: "C1", verdict: "supported" }, { id: "C2", verdict: "partial", reason: "weaker form" }] },
+      events: [{ sequence: 1, type: "tool_started", summary: "Executing an admitted action.", detail: "execute: python3 compute.py" }] };
+    const { api } = fixture([judged]);
+    render(<GeneralTaskWorkspace api={api} />);
+    expect(await screen.findByRole("heading", { name: "Submitted with reported issues" })).toBeVisible();
+    expect(screen.getByText("1 finish attempt failed the host checks before the final one passed.")).toBeVisible();
+    expect(screen.getByRole("region", { name: "What the agent did" })).toHaveTextContent("Untrusted");
+    expect(screen.getByText("1. Read. 2. Write.")).toBeVisible(); expect(screen.getByText("Wrote the memo.")).toBeVisible();
+    expect(screen.getByRole("region", { name: "Claim judgements" })).toHaveTextContent("C2 · partial · weaker form");
+    expect(screen.getByText("Model profile: heavy")).toBeVisible();
+    // Progress details are collapsed by default; the action line is present and labelled untrusted.
+    expect(screen.getByText("execute: python3 compute.py")).toBeInTheDocument(); expect(screen.getByText("execute: python3 compute.py")).toHaveAttribute("title", expect.stringContaining("Untrusted"));
+  });
   it("unsubscribes and ignores a history response after unmount", async () => {
     const pending = deferred<GeneralTaskSnapshot[]>(), { api, unsubscribe } = fixture(); api.listGeneralTasks.mockReturnValue(pending.promise);
     const view = render(<GeneralTaskWorkspace api={api} />); view.unmount(); await act(async () => pending.resolve([submitted()])); expect(unsubscribe).toHaveBeenCalledOnce();
   });
-  it("opens in the existing shell while preserving legacy task navigation", async () => {
+  it("opens on the general task by default, keeps ⌘N there, and shows the legacy tracks only with Labs on", async () => {
     const user = userEvent.setup(), { api } = fixture(); const legacyCreate = vi.fn();
-    Object.defineProperty(window, "soar", { configurable: true, value: { ...api, listSessions: vi.fn().mockResolvedValue([]), subscribeSessionEvents: vi.fn().mockReturnValue(() => undefined), createSession: legacyCreate, getCloudCredentialStatus: vi.fn(), invalidateHybridSimulationConsentChallenges: vi.fn().mockResolvedValue(undefined) } });
-    render(<App />); await user.click(screen.getByTestId("general-task-entry"));
-    expect(await screen.findByRole("form", { name: "New general task" })).toBeVisible(); expect(legacyCreate).not.toHaveBeenCalled();
-    await user.click(screen.getByRole("button", { name: /^New task/u })); expect(screen.getByRole("form", { name: "New task" })).toBeVisible();
+    const shell = { ...api, listSessions: vi.fn().mockResolvedValue([]), subscribeSessionEvents: vi.fn().mockReturnValue(() => undefined), createSession: legacyCreate,
+      getReviewAvailability: vi.fn().mockResolvedValue({ local: { enabled: false, label: "Local model", reason: "x", declaredTokenFeeMicrousd: 0, costAccountingSummary: "", evidenceTransportSummary: "" }, hybrid: { enabled: false, reason: "", separatelyConfiguredPaidProviderReachable: false, reachabilitySummary: "", consent: "none" } }) };
+    Object.defineProperty(window, "soar", { configurable: true, value: shell });
+    render(<App />);
+    expect(await screen.findByRole("form", { name: "New general task" })).toBeVisible();
+    expect(screen.queryByTestId("review-current-changes")).toBeNull(); expect(screen.queryByTestId("coding-task-entry")).toBeNull(); expect(screen.queryByTestId("legacy-task-entry")).toBeNull();
+    await user.keyboard("{Meta>}n{/Meta}");
+    expect(screen.getByRole("form", { name: "New general task" })).toBeVisible(); expect(legacyCreate).not.toHaveBeenCalled();
+    // Labs on: the legacy entries return and the legacy "New task" opens the investigator composer.
+    api.getGeneralTaskAvailability.mockResolvedValue({ ...ready, labs: true });
+    Object.defineProperty(window, "soar", { configurable: true, value: { ...shell, getGeneralTaskAvailability: api.getGeneralTaskAvailability } });
+    render(<App />);
+    expect(await screen.findByTestId("review-current-changes")).toBeVisible();
+    await user.click(screen.getByTestId("legacy-task-entry")); expect(screen.getByRole("form", { name: "New task" })).toBeVisible();
   });
 });

@@ -55,6 +55,7 @@ function launchEnvironment(root: string, workspace: string): Record<string, stri
     ...environment,
     SOAR_PROVIDER_MODE: "fake",
     SOAR_ENABLE_HYBRID_SIMULATION: "false",
+    SOAR_ENABLE_LABS: "true",
     SOAR_DB_PATH: path.join(root, "coding-e2e.sqlite"),
     SOAR_TEST_WORKSPACE: workspace,
     SOAR_VLLM_BASE_URL: "http://127.0.0.1:1/v1",

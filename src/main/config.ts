@@ -45,6 +45,8 @@ const environmentSchema = z.object({
   SOAR_ALLOW_INSECURE_VLLM_HTTP: booleanString,
   SOAR_PROVIDER_MODE: z.enum(["local", "fake"]).default("local"),
   SOAR_ENABLE_HYBRID_SIMULATION: booleanString,
+  /** Shows the legacy tracks (investigator, change review, coding pilot, hybrid simulation); off by default since PR-F. */
+  SOAR_ENABLE_LABS: booleanString,
   SOAR_HYBRID_SIMULATION_FAKE_CLOUD_SCENARIO: z
     .enum(["success", "provider_error"])
     .default("success"),
@@ -79,6 +81,7 @@ export interface SoarConfig {
   providerMode: "local" | "fake";
   /** Main-process-only authority. Valid only with the deterministic fake catalog. */
   hybridSimulationEnabled: boolean;
+  labsEnabled?: boolean;
   fakeCloudScenario: "success" | "provider_error";
   fakeDelayMs: number;
   vllm: {
@@ -196,6 +199,7 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
   return {
     providerMode: env.SOAR_PROVIDER_MODE,
     hybridSimulationEnabled: env.SOAR_ENABLE_HYBRID_SIMULATION,
+    labsEnabled: env.SOAR_ENABLE_LABS,
     fakeCloudScenario:
       env.SOAR_HYBRID_SIMULATION_FAKE_CLOUD_SCENARIO,
     fakeDelayMs: env.SOAR_FAKE_DELAY_MS,

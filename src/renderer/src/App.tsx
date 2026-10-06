@@ -803,8 +803,11 @@ interface SessionSidebarProps {
   open: boolean;
   modal: boolean;
   runtimeActive: boolean;
+  /** Legacy tracks are rendered only when the Labs flag is on. */
+  labs: boolean;
   onSelect: (id: string) => void;
   onNew: () => void;
+  onNewGeneral: () => void;
   onReview: () => void;
   onCoding: () => void;
   onGeneral: () => void;
@@ -825,8 +828,7 @@ function SessionSidebar({
   onCoding,
   onGeneral,
   onSettings,
-  onClose,
-}: SessionSidebarProps) {
+  onClose, labs, onNewGeneral }: SessionSidebarProps) {
   const [query, setQuery] = useState("");
   const sidebarRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -867,31 +869,40 @@ function SessionSidebar({
         <X />
       </button>
 
-      <button className="new-task-button" onClick={onNew}>
-        <Sparkle />
-        <span>New task</span>
-        <kbd>⌘ N</kbd>
-      </button>
       <button className="new-task-button" data-testid="general-task-entry" onClick={onGeneral}>
         <Files />
         <span>General task</span>
       </button>
-      <button
-        className="new-task-button review-changes-entry"
-        data-testid="review-current-changes"
-        onClick={onReview}
-      >
-        <GitDiff />
-        <span>Review Current Changes</span>
+      <button className="new-task-button" data-testid="new-general-task" onClick={onNewGeneral}>
+        <Sparkle />
+        <span>New general task</span>
+        {labs ? null : <kbd>⌘ N</kbd>}
       </button>
-      <button
-        className="new-task-button"
-        data-testid="coding-task-entry"
-        onClick={onCoding}
-      >
-        <Code />
-        <span>Fix a repository</span>
-      </button>
+      {labs ? (
+        <>
+          <button className="new-task-button" data-testid="legacy-task-entry" onClick={onNew}>
+            <Sparkle />
+            <span>New task</span>
+            <kbd>⌘ N</kbd>
+          </button>
+          <button
+            className="new-task-button review-changes-entry"
+            data-testid="review-current-changes"
+            onClick={onReview}
+          >
+            <GitDiff />
+            <span>Review Current Changes</span>
+          </button>
+          <button
+            className="new-task-button"
+            data-testid="coding-task-entry"
+            onClick={onCoding}
+          >
+            <Code />
+            <span>Fix a repository</span>
+          </button>
+        </>
+      ) : null}
 
       <label className="session-search">
         <MagnifyingGlass aria-hidden="true" />
@@ -2903,9 +2914,14 @@ export function App() {
   const [loadingSession, setLoadingSession] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // PR-F: the general task is the default surface; legacy tracks stay behind the Labs flag. A shell without the
+  // general API (older fixtures) keeps the legacy surface, which is all it has.
+  const hasGeneralApi = typeof (window.soar as { getGeneralTaskAvailability?: unknown } | undefined)?.getGeneralTaskAvailability === "function";
   const [surface, setSurface] = useState<
     "task" | "review_setup" | "settings" | "coding" | "general"
-  >("task");
+  >(hasGeneralApi ? "general" : "task");
+  const [labs, setLabs] = useState(!hasGeneralApi);
+  const [generalNewTask, setGeneralNewTask] = useState(0);
   const [reviewAvailability, setReviewAvailability] = useState<ReviewAvailability>(
     defaultReviewAvailability,
   );
@@ -2942,7 +2958,7 @@ export function App() {
   const reviewRequestOrdinalRef = useRef(0);
   const simulationChallengeOrdinalRef = useRef(0);
   const cloudCredentialRequestOrdinalRef = useRef(0);
-  const settingsReturnSurfaceRef = useRef<"task" | "review_setup" | "coding" | "general">("task");
+  const settingsReturnSurfaceRef = useRef<"task" | "review_setup" | "coding" | "general">(hasGeneralApi ? "general" : "task");
   const settingsReturnFocusRef = useRef<"sidebar" | "review" | null>(null);
   const settingsFocusRestorePendingRef = useRef(false);
   const notifiedSimulationTerminalsRef = useRef(new Set<string>());
@@ -3544,7 +3560,16 @@ export function App() {
     }
   }, [busy, snapshot]);
 
-  const newTask = useCallback(() => {
+  const newGeneralTask = useCallback(() => {
+    setSurface("general");
+    setGeneralNewTask((count) => count + 1);
+    setSidebarOpen(false);
+    setTraceOpen(false);
+    setError(null);
+    void invalidateSimulationConsent();
+  }, [invalidateSimulationConsent]);
+
+  const newLegacyTask = useCallback(() => {
     selectedIdRef.current = null;
     setSelectedId(null);
     setSnapshot(null);
@@ -3558,6 +3583,19 @@ export function App() {
     void invalidateSimulationConsent();
     setSidebarOpen(false);
   }, [invalidateSimulationConsent]);
+
+  // ⌘N: a new general task, unless Labs is on and a legacy surface is in front.
+  const newTask = useCallback(() => {
+    if (!labs || surface === "general") newGeneralTask(); else newLegacyTask();
+  }, [labs, surface, newGeneralTask, newLegacyTask]);
+
+  useEffect(() => {
+    const probe = (window.soar as { getGeneralTaskAvailability?: () => Promise<{ labs?: boolean }> } | undefined)?.getGeneralTaskAvailability;
+    if (typeof probe !== "function") return;
+    let active = true;
+    void probe().then((availability) => { if (active) setLabs(availability.labs === true); }).catch(() => { /* Labs stays off. */ });
+    return () => { active = false; };
+  }, [hasGeneralApi]);
 
   const selectSession = useCallback((id: string) => {
     selectedIdRef.current = id;
@@ -3607,8 +3645,10 @@ export function App() {
         open={sidebarOpen}
         modal={compactLayout}
         runtimeActive={running}
+        labs={labs}
         onSelect={selectSession}
-        onNew={newTask}
+        onNew={newLegacyTask}
+        onNewGeneral={newGeneralTask}
         onReview={openReviewSetup}
         onCoding={() => {
           setSurface("coding");
@@ -3693,7 +3733,7 @@ export function App() {
 
         <section className="conversation-panel">
           {surface === "general" ? (
-            <GeneralTaskWorkspace />
+            <GeneralTaskWorkspace newTaskRequest={generalNewTask} />
           ) : surface === "coding" ? (
             <PatchRunWorkspace />
           ) : surface === "settings" ? (

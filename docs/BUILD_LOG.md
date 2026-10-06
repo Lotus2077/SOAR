@@ -18352,3 +18352,78 @@ causes; the owner merges PRs #1 to #4; PR-J.
 
 References: BL-20261006-1008-box-checklist-and-phase1-start, [plan](PLAN.md),
 [box card](experiments/box-card-2026-10-06.md).
+
+
+### BL-20261006-1058-pr-j-claims-ledger-design -- 2026-10-06 -- Research claims ledger designed (PR-J)
+
+Status: `Proposed`
+
+Scope or hypothesis: Phase 1 item 2 in docs/PLAN.md. Research was rejected under
+both profiles in Phase 0 for unsupported or misread claims, and hosted
+deep-research products still leave 6-22% of citations unsupported, so SOAR's
+research reliability must come from host checks rather than the model judging
+itself (docs/plans/PRIVATE_WORK_DESIGN_V1.md section 4). On-track check before
+implementation: PR-A/PR-D are implemented and reviewed (BL-20261006-1055); the
+existing evidence module (`src/main/private-agent/evidence.ts`) is a calculation
+replay contract for numeric tasks and stays as it is; the claims ledger is a
+separate, lighter contract for prose research.
+
+Decisions:
+
+- **Split.** PR-J1: the ledger contract, the host quote check, an agent-callable
+  check and full public sources in the workspace. PR-J2: the local entailment
+  pass. J1 ships first; J2 follows in its own pull request.
+- **Ledger contract (J1).** A research task with the ledger enabled requires
+  `output/claims.json`: `{version: 1, claims: [{id, sentence, sourceId, quote,
+  locator?}]}` with at most 40 claims, quotes of 1-300 characters, and source
+  ids that the host declared: `input/...` files, transferred `context/...`
+  files, or `public:<dispatchId>` for retained public sources. The report must
+  cite claims as `[C<n>]` markers and contain "Conflicting evidence" and
+  "Unanswered questions" sections.
+- **Host quote check (J1).** A host-owned python check (an `ArtifactCheck`, so it
+  runs in the fresh verifier container at finish and at allowance exhaustion)
+  normalizes source text (NFKC, collapsed whitespace; PDF pages through pypdf,
+  DOCX paragraphs through python-docx, otherwise lines) and requires every quote
+  to occur verbatim in its source. It computes the locator itself (page,
+  paragraph or line range) and ignores the model's. It also requires every claim
+  to be cited in the report and every citation to resolve. Zero fabricated quotes
+  is a critical check; the model's own locator is never trusted.
+- **Agent-callable check (J1).** A `check_claims` tool runs the same host-owned
+  script in the agent's sandbox and returns the per-claim result so the model can
+  repair before finishing. It costs one tool call and never changes files.
+- **Full sources in the workspace (J1).** When a public source is retained, the
+  host also writes its complete bytes into the workspace as
+  `sources/<dispatchId>.bin` through the sandbox edit protocol, so the model can
+  search the whole source (the observation still shows the 32 KiB prefix) and the
+  check can read it in both containers. This removes the prefix-only limitation
+  recorded in the review (W6) without widening retrieval.
+- **Entailment pass (J2).** After the quote check passes at finish, the host asks
+  the local model once per claim, in a fresh prompt holding only the claim, the
+  quote and about 1 KB of surrounding source, with thinking off and a short JSON
+  answer: supported, partial, unsupported or contradicted. Verdicts are
+  host-authored events shown in the task result and recorded as the registry's
+  support rate; artifacts are not rewritten. Calls count against the session
+  allowance, so the ledger is capped at 40 claims.
+- **Scope limits.** No web search is added. The desktop UI gains no new control
+  in J1; the headless driver takes `--claims-ledger`, and the desktop enables the
+  ledger for tasks with public sources (per-task control is PR-F).
+
+Changes: This entry. Implementation follows on branch `phase1-claims-ledger`
+stacked on `phase1-heavy-loop`.
+
+Evidence: Phase 0 research results (BL-20260928-1921: 9/12 and 7/12 gates, both
+rejected on reasoning and citation errors); the design's cited citation-accuracy
+figures; `evidence.ts` read in full.
+
+Failures or blockers: None. PR #4 CI and the Phase 1 dry runs are still running.
+
+Limitations and non-claims: A verbatim quote proves the text exists, not that the
+sentence follows from it; that is what J2's entailment pass estimates, and even
+then it is a local-model judgement, not acceptance.
+
+Paid exposure: USD 0.
+
+Next gate: J1 implemented with tests and reviewed; then J2.
+
+References: [plan](PLAN.md), [design section 4](plans/PRIVATE_WORK_DESIGN_V1.md),
+BL-20261006-1055-phase1-pr-a-d-implemented.

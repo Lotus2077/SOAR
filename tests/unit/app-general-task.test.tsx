@@ -436,10 +436,37 @@ describe("general task workspace", () => {
     expect(screen.getByText("1 finish attempt failed the host checks before the final one passed.")).toBeVisible();
     expect(screen.getByRole("region", { name: "What the agent did" })).toHaveTextContent("Untrusted");
     expect(screen.getByText("1. Read. 2. Write.")).toBeVisible(); expect(screen.getByText("Wrote the memo.")).toBeVisible();
-    expect(screen.getByRole("region", { name: "Claim judgements" })).toHaveTextContent("C2 · partial · weaker form");
+    expect(screen.getByRole("region", { name: "Claim judgements" })).toHaveTextContent("C2 · partial · judge says: “weaker form”");
+    expect(screen.getByText(/Monospace action lines are the agent's own tool-call text/u)).toHaveTextContent("Untrusted");
     expect(screen.getByText("Model profile: heavy")).toBeVisible();
     // Progress details are collapsed by default; the action line is present and labelled untrusted.
     expect(screen.getByText("execute: python3 compute.py")).toBeInTheDocument(); expect(screen.getByText("execute: python3 compute.py")).toHaveAttribute("title", expect.stringContaining("Untrusted"));
+  });
+  it("treats a pending new-task request as one-shot: it opens the form over a saved task and is acknowledged", async () => {
+    const { api } = fixture([submitted()]); const handled = vi.fn();
+    render(<GeneralTaskWorkspace api={api} newTaskRequest={1} onNewTaskRequestHandled={handled} />);
+    expect(await screen.findByRole("form", { name: "New general task" })).toBeVisible(); expect(handled).toHaveBeenCalledOnce();
+    // Plain navigation (no request) still opens on the latest saved task.
+    render(<GeneralTaskWorkspace api={fixture([submitted()]).api} />);
+    expect(await screen.findByRole("article", { name: "Selected general task" })).toBeVisible();
+  });
+  it("hides every legacy entry point with Labs off, including saved investigator sessions", async () => {
+    const user = userEvent.setup(), { api } = fixture(); const legacyCreate = vi.fn();
+    const legacy = { id: "s-legacy", title: "Old investigation", status: "completed", updatedAt: new Date().toISOString(), workspaceRoot: "/tmp/repo" };
+    const shell = { ...api, listSessions: vi.fn().mockResolvedValue([legacy]), getSession: vi.fn().mockRejectedValue(new Error("gone")), subscribeSessionEvents: vi.fn().mockReturnValue(() => undefined), createSession: legacyCreate,
+      getReviewAvailability: vi.fn().mockResolvedValue({ local: { enabled: false, label: "Local model", reason: "x", declaredTokenFeeMicrousd: 0, costAccountingSummary: "", evidenceTransportSummary: "" }, hybrid: { enabled: false, reason: "", separatelyConfiguredPaidProviderReachable: false, reachabilitySummary: "", consent: "none" } }) };
+    Object.defineProperty(window, "soar", { configurable: true, value: shell });
+    const view = render(<App />);
+    expect(await screen.findByRole("form", { name: "New general task" })).toBeVisible();
+    await new Promise(resolve => setTimeout(resolve, 20));
+    expect(screen.queryByText("Old investigation")).toBeNull(); expect(screen.queryByRole("form", { name: "New task" })).toBeNull(); expect(legacyCreate).not.toHaveBeenCalled();
+    view.unmount();
+    // Labs on: the saved session is listed and opens the legacy surface.
+    api.getGeneralTaskAvailability.mockResolvedValue({ ...ready, labs: true });
+    Object.defineProperty(window, "soar", { configurable: true, value: { ...shell, getGeneralTaskAvailability: api.getGeneralTaskAvailability } });
+    render(<App />);
+    await user.click(await screen.findByText("Old investigation"));
+    expect(screen.queryByRole("form", { name: "New general task" })).toBeNull();
   });
   it("unsubscribes and ignores a history response after unmount", async () => {
     const pending = deferred<GeneralTaskSnapshot[]>(), { api, unsubscribe } = fixture(); api.listGeneralTasks.mockReturnValue(pending.promise);

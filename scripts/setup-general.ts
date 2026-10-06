@@ -5,15 +5,18 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { dirname } from "node:path";
 import { QUALIFIED_IMAGE } from "../src/main/private-agent/capabilities";
 import { DockerSandbox } from "../src/main/private-agent/sandbox";
+import { loadEnvironmentFiles, vllmEndpointPolicyIssue } from "../src/main/config";
+import { COORDINATOR_PROFILES, DEFAULT_COORDINATOR_PROFILE, isCoordinatorProfileName } from "../src/main/private-agent/profiles";
 
 /**
  * `pnpm setup:general`: a read-only doctor for the general task runtime, plus `--write` to record the
  * qualified image id and the profile in the app's user-data `.env.local` without touching present keys.
  * The report never prints the endpoint or a key; the endpoint appears only as a digest.
  */
-export const GENERAL_SETUP_KEYS = ["SOAR_VLLM_BASE_URL", "SOAR_VLLM_MODEL", "SOAR_VLLM_API_KEY", "SOAR_GENERAL_TASK_IMAGE_ID", "SOAR_GENERAL_TASK_PROFILE"] as const;
+export const GENERAL_SETUP_KEYS = ["SOAR_VLLM_BASE_URL", "SOAR_VLLM_MODEL", "SOAR_VLLM_API_KEY", "SOAR_VLLM_COST_POLICY", "SOAR_ALLOW_INSECURE_VLLM_HTTP", "SOAR_GENERAL_TASK_IMAGE_ID", "SOAR_GENERAL_TASK_PROFILE"] as const;
 export type GeneralSetupKey = typeof GENERAL_SETUP_KEYS[number];
 export const REQUIRED_NODE_MAJOR = 22;
 export const SETUP_PROBE_TIMEOUT_MS = 30_000;
@@ -44,11 +47,11 @@ export function parseEnvFile(text: string): Partial<Record<GeneralSetupKey, stri
   }
   return values;
 }
-/** Precedence mirrors the app: process env, then the user-data file, then the working directory's `.env.local`. */
+/** Exactly the app's own loader and precedence (SOAR_ENV_FILE, user data, cwd, app path), so the doctor sees what the app sees. */
 export function resolveSettings(env: NodeJS.ProcessEnv, userDataFile: string, cwdFile: string): Partial<Record<GeneralSetupKey, string>> {
-  const files = [userDataFile, cwdFile].map(file => existsSync(file) ? parseEnvFile(readFileSync(file, "utf8")) : {});
+  const merged = loadEnvironmentFiles({ cwd: dirname(cwdFile), appPath: dirname(cwdFile), userDataPath: dirname(userDataFile), environment: env });
   const resolved: Partial<Record<GeneralSetupKey, string>> = {};
-  for (const key of GENERAL_SETUP_KEYS) resolved[key] = env[key] ?? files[0]![key] ?? files[1]![key];
+  for (const key of GENERAL_SETUP_KEYS) if (merged[key] !== undefined) resolved[key] = merged[key];
   return resolved;
 }
 export function userDataEnvFile(home = homedir(), platform = process.platform): string {
@@ -67,7 +70,10 @@ export async function runGeneralSetup(input: { env: NodeJS.ProcessEnv; cwd: stri
   if (endpoint) { try { installed = (await input.probes.imageId(endpoint, QUALIFIED_IMAGE)) === QUALIFIED_IMAGE; } catch { installed = false; } }
   const image = { qualifiedId: QUALIFIED_IMAGE, installed, configuredMatchesQualified: settings.SOAR_GENERAL_TASK_IMAGE_ID === QUALIFIED_IMAGE };
   const model: GeneralSetupReport["model"] = { configured: Boolean(settings.SOAR_VLLM_BASE_URL && settings.SOAR_VLLM_MODEL), modelsOk: false, modelListed: false, completionOk: false };
-  if (model.configured) {
+  // The app's endpoint acknowledgments apply before any request or key leaves this machine.
+  const policyIssue = model.configured ? vllmEndpointPolicyIssue(settings) : undefined;
+  if (policyIssue) model.reason = policyIssue;
+  else if (model.configured) {
     const base = settings.SOAR_VLLM_BASE_URL!.replace(/\/+$/u, ""), headers: Record<string, string> = { accept: "application/json" };
     if (settings.SOAR_VLLM_API_KEY) headers.authorization = `Bearer ${settings.SOAR_VLLM_API_KEY}`;
     model.endpointSha256 = createHash("sha256").update(base).digest("hex");
@@ -79,8 +85,14 @@ export async function runGeneralSetup(input: { env: NodeJS.ProcessEnv; cwd: stri
     if (model.modelsOk) {
       const started = Date.now();
       try {
+        // The exact shape the agent loop sends for the profile in effect: one tool definition and the profile's thinking settings.
+        const profileName = isCoordinatorProfileName(settings.SOAR_GENERAL_TASK_PROFILE) ? settings.SOAR_GENERAL_TASK_PROFILE : DEFAULT_COORDINATOR_PROFILE;
+        const coordinator = COORDINATOR_PROFILES[profileName];
         const completion = await input.probes.fetchJson(`${base}/chat/completions`, { method: "POST", headers: { ...headers, "content-type": "application/json" },
-          body: JSON.stringify({ model: settings.SOAR_VLLM_MODEL, messages: [{ role: "user", content: "Reply with the word ok." }], max_tokens: 1, stream: false, chat_template_kwargs: { enable_thinking: false } }) });
+          body: JSON.stringify({ model: settings.SOAR_VLLM_MODEL, messages: [{ role: "user", content: "Reply with the word ok." }],
+            tools: [{ type: "function", function: { name: "noop", description: "Does nothing.", parameters: { type: "object", properties: {}, additionalProperties: false } } }],
+            tool_choice: "auto", parallel_tool_calls: false, stream: false, max_tokens: 1,
+            ...(coordinator.thinking === "disabled" ? { chat_template_kwargs: { enable_thinking: false } } : { reasoning_effort: "medium", ...(coordinator.sampling ?? {}) }) }) });
         const usage = (completion.json as { usage?: { completion_tokens?: unknown } })?.usage;
         model.completionOk = completion.status === 200 && typeof usage?.completion_tokens === "number" && usage.completion_tokens <= 1;
         model.completionMs = Date.now() - started;

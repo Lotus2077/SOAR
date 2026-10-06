@@ -19206,3 +19206,90 @@ abort recorded in the registry; PR-F.
 
 References: BL-20261007-0321-pr-c-recoverable-dispatch-design, [plan](PLAN.md)
 D4, BL-20261007-0320-entailment-v2-judged.
+
+
+### BL-20261007-0640-pr-f-owner-surface-implemented -- 2026-10-07 -- Owner surface implemented and reviewed (PR-F)
+
+Status: `Implemented`
+
+Scope or hypothesis: PR-F as designed in BL-20261007-0322, plus the items earlier
+entries deferred to it (per-task profile, entailment counts in the UI). Branch
+`phase1-owner-surface`, pull request #8, stacked on #7. On-track check: the
+runtime now records host evidence (checks, claims, verdicts, recoverable
+dispatch) that the owner could not see; exit criterion 3 (the owner's own public
+jobs) needs a surface that opens on the general task and says plainly what the
+agent did and when a submission carries issues.
+
+Decisions:
+
+- **Opening view (deviation).** With Labs off (the owner build) the shell opens on
+  the general task and ⌘N opens a new general task. With Labs on (the developer
+  shell) the probe keeps the legacy-first opening view so the legacy e2e specs
+  and workflows are unchanged; it never moves a surface the owner has already
+  acted on (review: a click or keystroke before the probe resolved used to be
+  undone). ⌘N is a one-shot request the workspace acknowledges, so plain
+  navigation still opens on the latest saved task (review).
+- **Labs off hides every legacy entry point** (review): the three sidebar
+  entries, the saved investigator and review sessions in the sidebar, the
+  empty-state "Review Current Changes" button and the startup auto-select;
+  `selectSession` ignores calls with Labs off. IPC stays registered. A shell
+  without the general API keeps the legacy surface, which is all it has.
+- **Model text is marked where it appears.** The plan and the finish summary
+  sit under "What the agent did" with an untrusted caption; per-action lines
+  in Progress carry a visible caption and a tooltip (review: a tooltip alone
+  was not a label); a judge model's free-text reason is quoted as "judge says"
+  and marked untrusted, while a host reason code is shown plain (review: the
+  two shared one field and looked alike).
+- **Reported issues** are host-derived only: a failed finish or host validation
+  before the final success, and judged claims that are contradicted, unsupported,
+  partial or not judged; shown as "Submitted with reported issues" without
+  changing the status.
+- **Per-task profile** chosen at creation, persisted on the record and bound into
+  the task identity through `profile(record)`; an old record without one keeps
+  the configured default and its identity.
+- **Doctor** (`pnpm setup:general`): reuses the app's environment loader and
+  precedence and the app's endpoint acknowledgments (`vllmEndpointPolicyIssue`,
+  now shared with `loadConfig`) before any request or key leaves the machine
+  (review: it used to probe a remote plaintext endpoint the app would refuse and
+  report ready); the completion probe sends the profile's real request shape
+  (one tool, thinking per profile) (review); `--write` adds only absent keys to
+  the user-data `.env.local`; the report never prints the endpoint or a key.
+- **Known effect.** Dev-mode task identity hashes `src/renderer`, so existing dev
+  tasks report `configuration_changed` after this change.
+
+Changes: shared contracts (`profile`, `profiles`, `labs`, `plan`,
+`finishSummary`, `reportedIssues`, `events[].detail`); `config.ts`
+(`SOAR_ENABLE_LABS`, `vllmEndpointPolicyIssue`); controller projections and
+per-task profile; `App.tsx`; `GeneralTaskWorkspace.tsx`;
+`scripts/setup-general.ts` and `pnpm setup:general`; `.env.example`, README,
+HANDOFF, PLAN; tests for the controller, the renderer, the doctor and the e2e
+launch environment (`SOAR_ENABLE_LABS` for legacy specs).
+
+Evidence:
+
+- `pnpm check`: 121 files, 1,929 tests passed, 72 skipped. Electron e2e: the
+  legacy spec passed 12 of 12 with Labs on after the opening-view fix; the full
+  suite result on the final tree is recorded in the pull request.
+- Unit tests: default surface and ⌘N with Labs off, legacy entries and the
+  legacy composer with Labs on, saved investigator sessions hidden with Labs
+  off and opening with Labs on, the one-shot new-task request, profile sent
+  only when chosen, the plan/finish/issues/judgement/detail sections with
+  their captions; controller projections, reported issues, profile binding,
+  availability; doctor precedence, redaction, write-once, policy gate before
+  any request, probe shape per profile.
+- Review (2 lenses, 9 verifiers, all completed): eight confirmed findings
+  (one duplicated), all fixed before this entry, listed above.
+
+Failures or blockers: None open.
+
+Limitations and non-claims: The surface shows evidence; it does not judge
+quality. Mail and calendar (D13) remain out of scope. The owner build
+(`owner-v0.1`) and exit criterion 3 are owner-only.
+
+Paid exposure: USD 0.
+
+Next gate: PR-E (cloud correctness) before the Phase 2 cloud arm; the owner's
+first real public jobs on the owner build.
+
+References: BL-20261007-0322-pr-f-owner-surface-design,
+BL-20261007-0530-pr-c-recoverable-dispatch-implemented, [plan](PLAN.md).

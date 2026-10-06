@@ -66,7 +66,9 @@ function ArtifactContent({ preview }: { preview: GeneralTaskArtifactPreview }) {
   </>;
 }
 
-export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0 }: { api?: SoarGeneralTaskApi; /** Bumped by the shell (⌘N) to open a fresh task form. */ newTaskRequest?: number }) {
+export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onNewTaskRequestHandled }: { api?: SoarGeneralTaskApi;
+  /** A pending request from the shell (⌘N) to open a fresh task form; acknowledged through the callback so plain navigation still opens on the latest task. */
+  newTaskRequest?: number; onNewTaskRequestHandled?: () => void }) {
   const candidate = suppliedApi ?? window.soar;
   const api = hasApi(candidate) ? candidate : null;
   const [availability, setAvailability] = useState<GeneralTaskAvailability | null>(null);
@@ -171,8 +173,8 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0 }: {
     selectionEpoch.current += 1; selected.current = null; setSelectedId(null); setLoadingTask(false);
     setError(null); setNotice(null); resetPreview(); resetConsultation();
   };
-  const newTaskRequests = useRef(newTaskRequest);
-  useEffect(() => { if (newTaskRequest !== newTaskRequests.current) { newTaskRequests.current = newTaskRequest; newTask(); } });
+  // Runs during mount too, before the history load can auto-select the latest task.
+  useEffect(() => { if (newTaskRequest) { newTask(); onNewTaskRequestHandled?.(); } }, [newTaskRequest]); // eslint-disable-line react-hooks/exhaustive-deps
   const selectTask = async (id: string) => {
     if (!api) return;
     const epoch = ++selectionEpoch.current;
@@ -364,9 +366,9 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0 }: {
             {task.plan && <><h4>Plan</h4><pre className="general-agent-text">{task.plan}</pre></>}
             {task.finishSummary && <><h4>Finish summary</h4><pre className="general-agent-text">{task.finishSummary}</pre></>}</section>}
           {task.entailment && <section className="general-section" aria-label="Claim judgements"><h3>Claim judgements</h3>
-            <p className="general-hint">The host asked the local model, once per verified claim, whether the cited quote supports the sentence. Evidence, not acceptance.{task.entailment.truncated ? " The pass stopped early; some claims were not judged." : ""}</p>
+            <p className="general-hint">The host asked the local model, once per verified claim, whether the cited quote supports the sentence. Evidence, not acceptance. A quoted reason is the judge model's own words and is untrusted; an unquoted status is the host's.{task.entailment.truncated ? " The pass stopped early; some claims were not judged." : ""}</p>
             <dl className="general-metrics">{(["supported", "partial", "unsupported", "contradicted", "not_judged"] as const).map(key => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{task.entailment!.counts[key]}</dd></div>)}</dl>
-            {task.entailment.claims.some(claim => claim.verdict !== "supported") && <ul className="general-claims">{task.entailment.claims.filter(claim => claim.verdict !== "supported").map(claim => <li key={claim.id}><strong>{claim.id}</strong> · {claim.verdict.replaceAll("_", " ")}{claim.reason ? ` · ${claim.reason}` : ""}</li>)}</ul>}</section>}
+            {task.entailment.claims.some(claim => claim.verdict !== "supported") && <ul className="general-claims">{task.entailment.claims.filter(claim => claim.verdict !== "supported").map(claim => <li key={claim.id}><strong>{claim.id}</strong> · {claim.verdict.replaceAll("_", " ")}{claim.reason ? claim.verdict === "not_judged" ? ` · ${claim.reason.replaceAll("_", " ")}` : <> · <span className="general-agent-text" title="The judge model's own words. Untrusted.">judge says: “{claim.reason}”</span></> : null}</li>)}</ul>}</section>}
           <dl className="general-metrics"><div><dt>Model attempts</dt><dd>{task.modelCalls}</dd></div><div><dt>Tool actions</dt><dd>{task.toolCalls}</dd></div><div><dt>Task time (includes approval wait)</dt><dd>{duration(task.elapsedMs)}</dd></div></dl>
           {task.fees && <dl className="general-metrics"><div><dt>Reserved fees</dt><dd>{money(task.fees.reservedMicrousd)}</dd></div><div><dt>Settled fees</dt><dd>{money(task.fees.settledMicrousd)}</dd></div></dl>}
           <section className="general-section general-consultation" aria-label="Task consultation"><h3>Consultation</h3>
@@ -430,7 +432,7 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0 }: {
             {!task.artifacts.length ? <p className="general-hint">No saved artifacts yet. They will appear after a workspace checkpoint.</p> : <><ul className="general-artifact-list">{task.artifacts.map(file => <li key={`${file.path}:${file.sha256}`}><div><button className="general-button general-button-quiet" disabled={task.status === "running" || !task.cleanupConfirmed} aria-label={`Preview ${file.path}`} onClick={() => void readArtifact(file)}>{file.path}</button><small>{size(file.bytes)} · SHA {file.sha256.slice(0, 12)}</small></div><button className="general-button" disabled={!!action || task.status === "running" || !task.cleanupConfirmed} aria-label={`Export ${file.path}`} onClick={() => void exportArtifact(file)}><DownloadSimple aria-hidden="true" />Export</button></li>)}</ul>{(task.status === "running" || !task.cleanupConfirmed) && <p className="general-hint">Preview and export become available after the task stops and cleanup is confirmed.</p>}</>}
             {previewPath && <section className="general-preview" aria-label="Artifact preview"><header><strong>{previewPath}</strong></header>{loadingPreview ? <p className="general-preview-empty" role="status">Loading verified preview…</p> : preview ? <ArtifactContent preview={preview} /> : <p className="general-preview-empty">No verified preview is available.</p>}</section>}
           </section>
-          <details className="general-section"><summary>Progress · {task.events.length} events</summary><ol className="general-progress">{task.events.map(event => <li key={event.sequence}><span>{event.summary}</span>{event.detail && <code className="general-action-detail" title="Untrusted: the agent's own action text">{event.detail}</code>}</li>)}</ol></details>
+          <details className="general-section" aria-label="Progress"><summary>Progress · {task.events.length} events</summary><p className="general-hint">Monospace action lines are the agent's own tool-call text. Untrusted: they are not host facts and do not report check results.</p><ol className="general-progress">{task.events.map(event => <li key={event.sequence}><span>{event.summary}</span>{event.detail && <code className="general-action-detail" title="Untrusted: the agent's own action text">{event.detail}</code>}</li>)}</ol></details>
           <details className="general-section"><summary>Inputs and structural checks</summary>{!task.inputs.length && <p className="general-hint">No input files were attached.</p>}<ul className="general-selected-files">{task.inputs.map(file => <li className="general-file-row" key={file.path}><span>{file.name}</span><small>{size(file.bytes)}</small></li>)}</ul>
             <ul>{task.checks.map(check => <li key={check.id}>{check.id.replaceAll("_", " ")}: {check.passed ? "passed" : "failed"}</li>)}</ul><p className="general-hint">Independent acceptance: not evaluated. Cleanup: {task.cleanupConfirmed ? "confirmed" : "not yet confirmed"}.</p></details>
         </article> : <p role="status">Loading saved task…</p>}

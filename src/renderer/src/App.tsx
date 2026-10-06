@@ -904,6 +904,7 @@ function SessionSidebar({
         </>
       ) : null}
 
+      {labs ? (<>
       <label className="session-search">
         <MagnifyingGlass aria-hidden="true" />
         <span className="sr-only">Search sessions</span>
@@ -964,6 +965,7 @@ function SessionSidebar({
             })
           : null}
       </nav>
+      </>) : null}
 
       <div className="sidebar-footer">
         <span className={`runtime-dot ${runtimeActive ? "is-working" : ""}`} aria-hidden="true" />
@@ -1021,7 +1023,8 @@ function Transcript({
   streamedText: string;
   loading: boolean;
   onPromptSelect: (prompt: string) => void;
-  onReview: () => void;
+  /** Absent when Labs is off: the review track is not offered. */
+  onReview?: () => void;
 }) {
   const items = useMemo(() => transcriptFrom(snapshot), [snapshot]);
   const persistedDraft = useMemo(() => persistedAssistantDraft(snapshot), [snapshot]);
@@ -1065,11 +1068,11 @@ function Transcript({
         <div className="empty-watermark" aria-hidden="true">S</div>
         <h1 className="soar-wordmark">SOAR</h1>
         <p>Choose a workspace, then ask SOAR to inspect a specific text file.</p>
-        <button type="button" className="empty-review-action" onClick={onReview}>
+        {onReview ? <button type="button" className="empty-review-action" onClick={onReview}>
           <GitDiff />
           Review Current Changes
           <CaretRight />
-        </button>
+        </button> : null}
         <div className="starter-prompts" aria-label="Starter tasks">
           {[
             "Read README.md and summarize its purpose",
@@ -2921,6 +2924,10 @@ export function App() {
     "task" | "review_setup" | "settings" | "coding" | "general"
   >(hasGeneralApi ? "general" : "task");
   const [labs, setLabs] = useState(!hasGeneralApi);
+  const labsRef = useRef(!hasGeneralApi);
+  const sessionsRef = useRef<SoarSessionSummary[]>([]);
+  // Set by the first pointer or key event: the Labs probe must not move a surface the owner already acted on.
+  const ownerActedRef = useRef(false);
   const [generalNewTask, setGeneralNewTask] = useState(0);
   const [reviewAvailability, setReviewAvailability] = useState<ReviewAvailability>(
     defaultReviewAvailability,
@@ -3107,7 +3114,9 @@ export function App() {
           (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
         );
         setSessions(sorted);
-        if (sorted[0]) setSelectedId(sorted[0].id);
+        sessionsRef.current = sorted;
+        // The owner build never pre-selects a legacy session; the Labs probe does so when it turns Labs on.
+        if (sorted[0] && (!hasGeneralApi || labsRef.current)) setSelectedId(sorted[0].id);
       })
       .catch((reason: unknown) => {
         if (active) setError(reason instanceof Error ? reason.message : "Sessions could not load.");
@@ -3593,16 +3602,25 @@ export function App() {
     const probe = (window.soar as { getGeneralTaskAvailability?: () => Promise<{ labs?: boolean }> } | undefined)?.getGeneralTaskAvailability;
     if (typeof probe !== "function") return;
     let active = true;
+    const acted = () => { ownerActedRef.current = true; };
+    window.addEventListener("pointerdown", acted, { capture: true, once: true });
+    window.addEventListener("keydown", acted, { capture: true, once: true });
     void probe().then((availability) => {
       if (!active) return;
-      setLabs(availability.labs === true);
-      // Labs on is the developer shell: it keeps the legacy-first opening view (and its e2e specs) unchanged.
-      if (availability.labs === true) setSurface((current) => (current === "general" ? "task" : current));
+      const enabled = availability.labs === true;
+      labsRef.current = enabled; setLabs(enabled);
+      if (enabled) {
+        // Labs on is the developer shell: it keeps the legacy-first opening view (and its e2e specs) unless the owner already acted.
+        if (!ownerActedRef.current) setSurface((current) => (current === "general" ? "task" : current));
+        const newest = sessionsRef.current[0];
+        if (newest && selectedIdRef.current === null) { selectedIdRef.current = newest.id; setSelectedId(newest.id); }
+      }
     }).catch(() => { /* Labs stays off. */ });
-    return () => { active = false; };
+    return () => { active = false; window.removeEventListener("pointerdown", acted, { capture: true }); window.removeEventListener("keydown", acted, { capture: true }); };
   }, [hasGeneralApi]);
 
   const selectSession = useCallback((id: string) => {
+    if (!labs) return; // Legacy sessions are reachable only through Labs.
     selectedIdRef.current = id;
     setSelectedId(id);
     setSnapshot(null);
@@ -3612,7 +3630,7 @@ export function App() {
     setError(null);
     setSurface("task");
     void invalidateSimulationConsent();
-  }, [invalidateSimulationConsent]);
+  }, [labs, invalidateSimulationConsent]);
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -3644,9 +3662,9 @@ export function App() {
   return (
     <div className="app-shell">
       <SessionSidebar
-        sessions={sessions}
+        sessions={labs ? sessions : []}
         selectedId={selectedId}
-        loading={loadingSessions}
+        loading={labs && loadingSessions}
         open={sidebarOpen}
         modal={compactLayout}
         runtimeActive={running}
@@ -3738,7 +3756,7 @@ export function App() {
 
         <section className="conversation-panel">
           {surface === "general" ? (
-            <GeneralTaskWorkspace newTaskRequest={generalNewTask} />
+            <GeneralTaskWorkspace newTaskRequest={generalNewTask} onNewTaskRequestHandled={() => setGeneralNewTask(0)} />
           ) : surface === "coding" ? (
             <PatchRunWorkspace />
           ) : surface === "settings" ? (
@@ -3785,7 +3803,7 @@ export function App() {
                 streamedText={streamedText}
                 loading={loadingSession}
                 onPromptSelect={setTask}
-                onReview={openReviewSetup}
+                onReview={labs ? openReviewSetup : undefined}
               />
               <Composer
                 task={task}

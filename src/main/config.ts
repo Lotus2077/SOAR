@@ -126,6 +126,25 @@ export interface LoadConfigOptions {
   environment?: NodeJS.ProcessEnv;
 }
 
+/**
+ * The operator acknowledgments a non-loopback model endpoint needs before the app (or any tool acting for it)
+ * sends a key or a request to it. Shared with `pnpm setup:general` so the doctor cannot report ready for a
+ * configuration the app refuses.
+ */
+export function vllmEndpointPolicyIssue(raw: { SOAR_VLLM_BASE_URL?: string; SOAR_VLLM_COST_POLICY?: string; SOAR_ALLOW_INSECURE_VLLM_HTTP?: string }): string | undefined {
+  if (!raw.SOAR_VLLM_BASE_URL) return;
+  let url: URL;
+  try { url = new URL(raw.SOAR_VLLM_BASE_URL); } catch { return "SOAR_VLLM_BASE_URL is not a valid URL."; }
+  const isLoopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname);
+  if (!isLoopback && raw.SOAR_VLLM_COST_POLICY !== "local_zero_cost") {
+    return "Remote vLLM requires an explicit SOAR_VLLM_COST_POLICY=local_zero_cost operator declaration; SOAR cannot independently verify endpoint billing.";
+  }
+  if (url.protocol === "http:" && !isLoopback && raw.SOAR_ALLOW_INSECURE_VLLM_HTTP !== "true") {
+    return "Remote plaintext vLLM requires SOAR_ALLOW_INSECURE_VLLM_HTTP=true in the machine-local environment.";
+  }
+  return;
+}
+
 export function loadEnvironmentFiles(options: LoadConfigOptions): NodeJS.ProcessEnv {
   const environment = { ...(options.environment ?? process.env) };
   const cwd = options.cwd ?? process.cwd();
@@ -176,25 +195,8 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
       "SOAR_TEST_CREDENTIAL_OPERATION_STATE requires SOAR_PROVIDER_MODE=fake and SOAR_TEST_WORKSPACE.",
     );
   }
-  const url = new URL(env.SOAR_VLLM_BASE_URL);
-  const isLoopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(
-    url.hostname,
-  );
-
-  if (
-    !isLoopback &&
-    rawEnvironment.SOAR_VLLM_COST_POLICY !== "local_zero_cost"
-  ) {
-    throw new Error(
-      "Remote vLLM requires an explicit SOAR_VLLM_COST_POLICY=local_zero_cost operator declaration; SOAR cannot independently verify endpoint billing.",
-    );
-  }
-
-  if (url.protocol === "http:" && !isLoopback && !env.SOAR_ALLOW_INSECURE_VLLM_HTTP) {
-    throw new Error(
-      "Remote plaintext vLLM requires SOAR_ALLOW_INSECURE_VLLM_HTTP=true in the machine-local environment.",
-    );
-  }
+  const endpointIssue = vllmEndpointPolicyIssue(rawEnvironment);
+  if (endpointIssue) throw new Error(endpointIssue);
 
   return {
     providerMode: env.SOAR_PROVIDER_MODE,

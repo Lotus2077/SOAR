@@ -46,7 +46,8 @@ export function entailmentMessages(claim: EntailmentClaim): GeneralMessage[] {
     { role: "user", content: `Sentence: ${JSON.stringify(claim.sentence)}\nQuote: ${JSON.stringify(claim.quote)}\nSource passage around the quote:\n${claim.context}` }];
 }
 export type EntailmentRecord = { id: string; verdict: EntailmentVerdict | "not_judged"; reason?: string };
-export interface EntailmentOutcome { verdicts: EntailmentRecord[]; counts: Record<EntailmentVerdict | "not_judged", number>; entailmentCalls: number; truncated: boolean }
+export type EntailmentStopReason = "request_failed" | "deadline_or_cancelled" | "paused";
+export interface EntailmentOutcome { verdicts: EntailmentRecord[]; counts: Record<EntailmentVerdict | "not_judged", number>; entailmentCalls: number; truncated: boolean; stopReason?: EntailmentStopReason }
 export type EntailmentComplete = (messages: GeneralMessage[], tools: [], signal: AbortSignal,
   overrides: { thinking: "disabled"; maxOutputTokens: number; purpose: string }) => Promise<{ content: string }>;
 
@@ -58,16 +59,18 @@ export type EntailmentComplete = (messages: GeneralMessage[], tools: [], signal:
 export async function judgeClaims(input: { claims: EntailmentClaim[]; complete: EntailmentComplete; signal: AbortSignal; remainingMs: () => number;
   /** A pause request: honoured at the next claim boundary, so the session can leave the rest for a resume. */
   stop?: () => boolean }): Promise<EntailmentOutcome> {
-  const verdicts: EntailmentRecord[] = []; let calls = 0, truncated = false;
+  const verdicts: EntailmentRecord[] = []; let calls = 0, stopReason: EntailmentStopReason | undefined;
   for (const claim of input.claims) {
     if (!claim.context) { verdicts.push({ id: claim.id, verdict: "not_judged", reason: "context_omitted" }); continue; }
-    if (input.stop?.()) { truncated = true; verdicts.push({ id: claim.id, verdict: "not_judged", reason: "paused" }); continue; }
-    if (truncated || input.signal.aborted || input.remainingMs() < ENTAILMENT_RESERVE_MS) { truncated = true; verdicts.push({ id: claim.id, verdict: "not_judged", reason: "deadline_or_cancelled" }); continue; }
+    // Once the pass has stopped, the remaining claims say so rather than repeating the first claim's failure.
+    if (stopReason) { verdicts.push({ id: claim.id, verdict: "not_judged", reason: "pass_stopped" }); continue; }
+    if (input.stop?.()) { stopReason = "paused"; verdicts.push({ id: claim.id, verdict: "not_judged", reason: "paused" }); continue; }
+    if (input.signal.aborted || input.remainingMs() < ENTAILMENT_RESERVE_MS) { stopReason = "deadline_or_cancelled"; verdicts.push({ id: claim.id, verdict: "not_judged", reason: "deadline_or_cancelled" }); continue; }
     let reply: string;
     try {
       calls++;
       reply = (await input.complete(entailmentMessages(claim), [], input.signal, { thinking: "disabled", maxOutputTokens: ENTAILMENT_OUTPUT_TOKENS, purpose: ENTAILMENT_PURPOSE })).content;
-    } catch { truncated = true; verdicts.push({ id: claim.id, verdict: "not_judged", reason: "judge_request_failed" }); continue; }
+    } catch { stopReason = "request_failed"; verdicts.push({ id: claim.id, verdict: "not_judged", reason: "judge_request_failed" }); continue; }
     try {
       const text = String(reply).trim(), json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
       const verdict = EntailmentReplySchema.parse(JSON.parse(json));
@@ -79,7 +82,7 @@ export async function judgeClaims(input: { claims: EntailmentClaim[]; complete: 
   }
   const counts = { supported: 0, partial: 0, unsupported: 0, contradicted: 0, not_judged: 0 };
   for (const row of verdicts) counts[row.verdict]++;
-  return { verdicts, counts, entailmentCalls: calls, truncated };
+  return { verdicts, counts, entailmentCalls: calls, truncated: stopReason !== undefined, ...(stopReason ? { stopReason } : {}) };
 }
 export const CLAIMS_SENTENCE_MAX_CHARS = 600;
 export const REQUIRED_REPORT_SECTIONS = Object.freeze(["Conflicting evidence", "Unanswered questions"]);

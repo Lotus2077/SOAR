@@ -95,8 +95,9 @@ export class PrivateAgentModel {
   async complete(messages: GeneralMessage[], tools: GeneralToolDefinition[], signal: AbortSignal,
     overrides?: { thinking?: "disabled"; maxOutputTokens?: number; purpose?: string }): Promise<ProviderResult> {
     const thinking = overrides?.thinking ?? this.config.thinking, maxOutputTokens = Math.min(this.config.maxOutputTokens, overrides?.maxOutputTokens ?? this.config.maxOutputTokens);
-    const body = canonical({ model: this.config.model, messages, tools, tool_choice: "auto",
-      parallel_tool_calls: false, stream: false, max_tokens: maxOutputTokens,
+    // An OpenAI-compatible server rejects an empty `tools` array, so a tool-less call (the entailment judge) omits the tool fields.
+    const body = canonical({ model: this.config.model, messages, ...(tools.length ? { tools, tool_choice: "auto", parallel_tool_calls: false } : {}),
+      stream: false, max_tokens: maxOutputTokens,
       ...(thinking === "disabled" ? { chat_template_kwargs: { enable_thinking: false } } : { reasoning_effort: "medium", ...(this.config.sampling ?? {}) }),
     });
     const bodyBytes = Buffer.byteLength(body), limitBytes = this.config.maxRequestBytes ?? BROKER_MAX_BODY_BYTES;

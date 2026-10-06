@@ -18873,3 +18873,50 @@ PR-F per the Phase 1 order.
 
 References: BL-20261006-1158-pr-j2-entailment-design,
 BL-20261006-1230-pr-j2-review-findings, BL-20261006-1240-phase1-ledger-v1-results.
+
+
+### BL-20261007-0210-entailment-v1-judge-rejected -- 2026-10-07 -- First judge dry run: ledger passed, judge request rejected upstream (fixed)
+
+Status: `Implemented`
+
+Scope or hypothesis: Next gate of BL-20261007-0120: the first live run of the
+entailment pass. Batch `phase1-entailment-v1`, T2 heavy with `--claims-ledger`
+on the J2 tree (de2755b), registry row `p1e-t2-rfc-memo-heavy`.
+
+Decisions:
+
+- The negative result stands in the registry (support rate 0.0, one unknown
+  dispatch) and is not re-labelled; the fixed tree gets its own batch and row.
+- Cause: the judge sends no tools, and `model.complete` still sent
+  `tools: []` with `tool_choice: "auto"`; the server answers 400 ("tools must
+  not be an empty array"), reproduced with a one-line probe with and without
+  the fields. The agent loop always has tools, so no earlier run could hit it.
+  Fix: the tool fields are omitted for a tool-less call; a unit test pins both
+  request shapes and that overrides only narrow the output limit.
+- Labels: claims after a stopped pass now read `pass_stopped`, and the event
+  carries `stopReason` (`request_failed`, `deadline_or_cancelled`, `paused`),
+  instead of repeating `deadline_or_cancelled` for a transport failure.
+- Also learned from the run: the ordering held (`completed`,
+  `session_submitted`, `claims_entailment`); the unknown judge dispatch did not
+  touch the submission; the store's own commit rule still refuses any later
+  dispatch of a job with an unknown row, which only shortens a pass.
+
+Changes: `model.ts` request shape; `claims.ts` stop reasons; tests; registry
+row `p1e-*`.
+
+Evidence: run `submitted`, 29 calls, 503 s, 21 claims verified at the first
+`check_claims`, 2/2 critical checks; `claims_entailment`: 1 call, 21
+`not_judged`, `truncated`, dispatch failure `http_rejected` after 31 ms (phase
+transport). `pnpm check` on the fixed tree: 1,909 tests passed.
+
+Failures or blockers: the judge has still not produced a verdict live; batch
+`phase1-entailment-v2` on the fixed tree follows.
+
+Limitations and non-claims: none beyond the above.
+
+Paid exposure: USD 0.
+
+Next gate: a judge dry run with verdicts recorded; then PR-C and PR-F designs.
+
+References: BL-20261007-0120-pr-j2-entailment-implemented,
+[registry](experiments/registry.jsonl).

@@ -203,18 +203,20 @@ describe("research claims entailment pass", () => {
     // The JSON escape reaches the parser as text, so the reason decodes to a NUL and is dropped as invalid exact text.
     const { complete } = stub(["no json", '{"verdict":"supported","reason":"bad\\u0000text"}', new Error("transport_or_settlement_unknown")]);
     const outcome = await judgeClaims({ claims, complete, signal: new AbortController().signal, remainingMs: far });
-    expect(outcome).toMatchObject({ entailmentCalls: 3, truncated: true, counts: { supported: 1, not_judged: 2 },
+    expect(outcome).toMatchObject({ entailmentCalls: 3, truncated: true, stopReason: "request_failed", counts: { supported: 1, not_judged: 2 },
       verdicts: [{ id: "C1", verdict: "not_judged", reason: "judge_reply_invalid" }, { id: "C2", verdict: "supported" }, { id: "C3", verdict: "not_judged", reason: "judge_request_failed" }] });
     expect(outcome.verdicts[1]).not.toHaveProperty("reason");
     const more = stub([new Error("x"), '{"verdict":"supported"}']);
     const stopped = await judgeClaims({ claims, complete: more.complete, signal: new AbortController().signal, remainingMs: far });
-    expect(more.calls).toHaveLength(1); expect(stopped.verdicts.map(row => row.verdict)).toEqual(["not_judged", "not_judged", "not_judged"]);
+    expect(more.calls).toHaveLength(1);
+    expect(stopped.verdicts).toEqual([{ id: "C1", verdict: "not_judged", reason: "judge_request_failed" }, { id: "C2", verdict: "not_judged", reason: "pass_stopped" }, { id: "C3", verdict: "not_judged", reason: "pass_stopped" }]);
   });
   it("stops at its clock reserve or on cancellation and skips claims whose window was dropped", async () => {
     let remaining = 60_000;
     const { calls, complete } = stub(['{"verdict":"supported"}', '{"verdict":"supported"}']);
     const outcome = await judgeClaims({ claims, complete: async (...args) => { remaining = 10_000; return complete(...args); }, signal: new AbortController().signal, remainingMs: () => remaining });
-    expect(calls).toHaveLength(1); expect(outcome).toMatchObject({ truncated: true, counts: { supported: 1, not_judged: 2 } });
+    expect(calls).toHaveLength(1); expect(outcome).toMatchObject({ truncated: true, stopReason: "deadline_or_cancelled", counts: { supported: 1, not_judged: 2 } });
+    expect(outcome.verdicts.map(row => row.reason)).toEqual([undefined, "deadline_or_cancelled", "pass_stopped"]);
     const aborted = new AbortController(); aborted.abort();
     expect(await judgeClaims({ claims, complete, signal: aborted.signal, remainingMs: far })).toMatchObject({ entailmentCalls: 0, truncated: true, counts: { not_judged: 3 } });
     expect(await judgeClaims({ claims: [{ ...claims[0]!, context: "" }], complete, signal: new AbortController().signal, remainingMs: far }))
@@ -273,6 +275,6 @@ describe("research claims entailment hardening", () => {
     let paused = false;
     const outcome = await judgeClaims({ claims, signal: new AbortController().signal, remainingMs: () => 600_000, stop: () => paused,
       complete: async () => { paused = true; return { content: '{"verdict":"supported"}' }; } });
-    expect(outcome).toMatchObject({ entailmentCalls: 1, truncated: true, verdicts: [{ id: "C1", verdict: "supported" }, { id: "C2", verdict: "not_judged", reason: "paused" }] });
+    expect(outcome).toMatchObject({ entailmentCalls: 1, truncated: true, stopReason: "paused", verdicts: [{ id: "C1", verdict: "supported" }, { id: "C2", verdict: "not_judged", reason: "paused" }] });
   });
 });

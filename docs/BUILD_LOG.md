@@ -18645,8 +18645,7 @@ Paid exposure: USD 0.
 Next gate: J2 restructured as BL-20261006-1230 decides; owner verdicts.
 
 References: BL-20261006-1150-pr-j1-claims-ledger-implemented,
-BL-20261006-1242-pr-j2-review-findings, [registry](experiments/registry.jsonl).
-
+BL-20261006-1230-pr-j2-review-findings, [registry](experiments/registry.jsonl).
 
 ### BL-20261006-1241-pr-j2-entailment-design -- 2026-10-06 -- Research claims entailment pass designed (PR-J2)
 
@@ -18724,6 +18723,7 @@ BL-20261006-1150-pr-j1-claims-ledger-implemented, [plan](PLAN.md).
 
 Identifier note: authored 2026-10-06 11:58 UTC as BL-20261006-1241-pr-j2-entailment-design; re-identified as BL-20261006-1241-pr-j2-entailment-design so the
 branch stays append-only after its base gained BL-20261006-1240. The body is unchanged.
+
 ### BL-20261006-1242-pr-j2-review-findings -- 2026-10-06 -- J2 first implementation reviewed: pass must move after durable completion
 
 Status: `Implemented`
@@ -18782,6 +18782,7 @@ BL-20261006-1150-pr-j1-claims-ledger-implemented.
 
 Identifier note: authored 2026-10-06 12:30 UTC as BL-20261006-1242-pr-j2-review-findings; re-identified as BL-20261006-1242-pr-j2-review-findings so the
 branch stays append-only after its base gained BL-20261006-1240. The body is unchanged.
+
 ### BL-20261007-0120-pr-j2-entailment-implemented -- 2026-10-07 -- Entailment pass implemented at the session level, after two reviews
 
 Status: `Implemented`
@@ -18878,7 +18879,6 @@ PR-F per the Phase 1 order.
 References: BL-20261006-1241-pr-j2-entailment-design,
 BL-20261006-1242-pr-j2-review-findings, BL-20261006-1240-phase1-ledger-v1-results.
 
-
 ### BL-20261007-0210-entailment-v1-judge-rejected -- 2026-10-07 -- First judge dry run: ledger passed, judge request rejected upstream (fixed)
 
 Status: `Implemented`
@@ -18924,7 +18924,6 @@ Next gate: a judge dry run with verdicts recorded; then PR-C and PR-F designs.
 
 References: BL-20261007-0120-pr-j2-entailment-implemented,
 [registry](experiments/registry.jsonl).
-
 
 ### BL-20261007-0320-entailment-v2-judged -- 2026-10-07 -- Judge dry run v2: 19 of 20 claims supported, one partial
 

@@ -3593,7 +3593,12 @@ export function App() {
     const probe = (window.soar as { getGeneralTaskAvailability?: () => Promise<{ labs?: boolean }> } | undefined)?.getGeneralTaskAvailability;
     if (typeof probe !== "function") return;
     let active = true;
-    void probe().then((availability) => { if (active) setLabs(availability.labs === true); }).catch(() => { /* Labs stays off. */ });
+    void probe().then((availability) => {
+      if (!active) return;
+      setLabs(availability.labs === true);
+      // Labs on is the developer shell: it keeps the legacy-first opening view (and its e2e specs) unchanged.
+      if (availability.labs === true) setSurface((current) => (current === "general" ? "task" : current));
+    }).catch(() => { /* Labs stays off. */ });
     return () => { active = false; };
   }, [hasGeneralApi]);
 

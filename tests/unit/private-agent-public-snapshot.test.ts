@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { sessionPhaseIdentity } from "../../src/main/private-agent/session";
 import { loadPreparedOperatorTask } from "../../scripts/private-agent-run";
-import { buildExplicitPublicSnapshotPhase, parseLocalArtifactScreenArguments, preparePublicSnapshot, startExplicitPublicSnapshotReceiver } from "../../scripts/private-agent-local-screen";
+import { withClaimsLedger, buildExplicitPublicSnapshotPhase, parseLocalArtifactScreenArguments, preparePublicSnapshot, startExplicitPublicSnapshotReceiver } from "../../scripts/private-agent-local-screen";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -154,6 +154,11 @@ describe("public snapshot CLI", () => {
     expect(parseLocalArtifactScreenArguments([...base, "--public-retrieval", "true", ...extra]).publicSnapshot).toEqual({ directory: "synthetic-public",
       expectedBriefSha256: "f".repeat(64), expectedMapSha256: "1".repeat(64), indexPath: "/sources/index.html" });
   });
+  it("parses the claims-ledger flag and refuses any value other than true", () => {
+    expect(parseLocalArtifactScreenArguments(base).claimsLedger).toBeUndefined();
+    expect(parseLocalArtifactScreenArguments([...base, "--claims-ledger", "true"]).claimsLedger).toBe(true);
+    expect(() => parseLocalArtifactScreenArguments([...base, "--claims-ledger", "yes"])).toThrow("local_screen_cli_invalid");
+  });
   it("parses the optional coordinator profile and rejects unknown ones", () => {
     expect(parseLocalArtifactScreenArguments(base).profile).toBeUndefined();
     expect(parseLocalArtifactScreenArguments([...base, "--profile", "heavy"]).profile).toBe("heavy");
@@ -164,5 +169,23 @@ describe("public snapshot CLI", () => {
     expect(() => parseLocalArtifactScreenArguments([...base, ...extra])).toThrow("local_screen_cli_invalid");
     expect(() => parseLocalArtifactScreenArguments([...base, "--public-retrieval", "true", ...extra.slice(0, 6)])).toThrow("local_screen_cli_invalid");
     expect(() => parseLocalArtifactScreenArguments([...base, "--public-retrieval", "true", ...extra, ...extra.slice(0, 2)])).toThrow("local_screen_cli_invalid");
+  });
+
+  it("attaches the claims ledger to a prepared phase: input file sources, retained public sources for two-phase runs, check and artifact", () => {
+    const phase = { files: [{ path: "job.json", bytes: Buffer.from("{}") }, { path: "brief.md", bytes: Buffer.from("brief") },
+      { path: "input/notes.txt", bytes: Buffer.from("notes") }, { path: "input/data.csv", bytes: Buffer.from("a,b") }],
+      checks: [{ id: "structure", python: "# fixture" }],
+      contract: { version: 1 as const, goal: "Write the memo.", requiredArtifacts: [{ path: "output/memo.md", description: "memo" }, { path: "output/table.csv", description: "table" }],
+        requiredChecks: ["structure"], maxModelCalls: 40, maxToolCalls: 80, maxElapsedMs: 1_800_000 } };
+    const single = withClaimsLedger(phase, false), twoPhase = withClaimsLedger(phase, true);
+    expect(single.contract.requiredArtifacts.map(artifact => artifact.path)).toEqual(["output/memo.md", "output/table.csv", "output/claims.json"]);
+    expect(single.contract.requiredChecks).toEqual(["structure", "research_claims_ledger"]);
+    expect(single.checks.map(check => check.id)).toEqual(["structure", "research_claims_ledger"]);
+    expect(single.contract.goal).toContain("input/notes.txt"); expect(single.contract.goal).not.toContain("context/public-research.md");
+    // Two-phase runs cite the host-retained public sources by URL, never the model-authored context files.
+    expect(twoPhase.contract.goal).not.toContain("context/public-research.md");
+    expect(twoPhase.contract.goal).toContain("exact url that fetch_public reported");
+    expect(single.contract.goal).not.toContain("exact url that fetch_public reported");
+    expect(phase.checks).toHaveLength(1);
   });
 });

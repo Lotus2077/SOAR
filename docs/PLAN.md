@@ -258,6 +258,13 @@ below:
 - per-task profile selection in the UI is left to PR-F; the desktop profile comes
   from `SOAR_GENERAL_TASK_PROFILE` (default `heavy`).
 
+**Status 2026-10-06, later (BL-20261006-1141, BL-20261006-1150):** exit
+criterion 2 is met for the heavy arm (T4 and T2 completed with no
+harness-terminal cause; registry rows `p1d-*`); PR-J1 is implemented on
+`phase1-claims-ledger` (PR #5) with public sources cited by retrieved URL and
+`sources/` owned by the host; J2 (entailment) is next. Exit criterion 3 is
+owner-only and open.
+
 - **PR-A, Heavy profile at every cap layer.** Raise, together:
   - [controller.ts](../src/main/general-tasks/controller.ts):29, :145, :148 and the
     `phase()` literals at :233-235;

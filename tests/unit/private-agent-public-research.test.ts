@@ -13,6 +13,7 @@ import { GeneralAgentRunner, type GeneralJobOptions } from "../../src/main/priva
 import { DockerSandbox } from "../../src/main/private-agent/sandbox";
 import { GeneralAgentSession, sessionPhaseIdentity, type GeneralSessionOptions } from "../../src/main/private-agent/session";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
+import { CLAIMS_LEDGER_CHECK_ID, claimsLedgerCheck, publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const close of cleanup.splice(0).reverse()) close(); });
@@ -92,14 +93,21 @@ describe("exact public URL authority and host-retained sources", () => {
   });
 });
 
-function runnerFixture(actions: string[], options: { unknown?: boolean; body?: Buffer; maxPublicFetches?: number } = {}) {
+function runnerFixture(actions: string[], options: { unknown?: boolean; body?: Buffer; maxPublicFetches?: number; claimsLedger?: boolean } = {}) {
   const f = fixture();
+  if (options.claimsLedger) {
+    f.phase.checks.push(claimsLedgerCheck({ reportPath: "output/report.md", sources: [], publicSources: true }));
+    f.phase.contract = { ...f.phase.contract, requiredChecks: [...f.phase.contract.requiredChecks, CLAIMS_LEDGER_CHECK_ID] };
+    f.store.addSources(f.contextId, [{ id: "ledger_contract", version: digest(canonical(f.phase.contract)), classification: "public", synthetic: true }]);
+  }
   vi.spyOn(DockerSandbox, "currentEndpoint").mockResolvedValue("unix:///tmp/public-research-unit.sock");
   vi.spyOn(DockerSandbox, "cleanupOwnedContext").mockResolvedValue();
-  const workspaceFiles: string[][] = [];
+  const workspaceFiles: string[][] = [], writes: string[] = [], commands: string[] = [], snapshots: Map<string, Buffer>[] = [];
   vi.spyOn(DockerSandbox, "create").mockImplementation(async input => {
     workspaceFiles.push(input.files.map(file => file.path)); const files = new Map(input.files.map(file => [file.path, file.bytes]));
-    return { async execute(command: string) { if (command === "write report") files.set("output/report.md", Buffer.from("Public report with citation.")); return { exitCode: 0, stdout: "", stderr: "" }; },
+    snapshots.push(new Map(input.files.map(file => [file.path, Buffer.from(file.bytes)])));
+    return { async execute(command: string) { commands.push(command); if (command === "write report") files.set("output/report.md", Buffer.from("Public report with citation.")); return { exitCode: 0, stdout: "", stderr: "" }; },
+      async editFile(mode: string, path: string, payload: Buffer) { if (mode !== "write") throw new Error("unexpected edit mode"); files.set(path, Buffer.from(payload)); writes.push(path); return { ok: true, bytes: payload.length }; },
       async listFiles() { return [...files.keys()]; }, async readFile(name: string) { return files.get(name)!; }, async close() {} } as unknown as DockerSandbox;
   });
   const messages: GeneralMessage[][] = [];
@@ -110,7 +118,8 @@ function runnerFixture(actions: string[], options: { unknown?: boolean; body?: B
     f.settled(Buffer.from(name), { ...f.request, destinationId: "model", purpose: "synthetic model fixture", method: "POST", url: f.modelDestination.endpoint, body: canonical(input) });
     afterResponse();
     return { content: "", finishReason: "tool_calls", toolCalls: [{ id: `tool_${index}`, type: "function", function: { name,
-      arguments: canonical(name === "fetch_public" ? { destinationId: "web", url } : name === "execute" ? { command: "write report" } : { summary: "Submit the public report." }) } }], costUsd: 0, durationMs: 1 };
+      arguments: canonical(name === "fetch_public" ? { destinationId: "web", url } : name === "execute" ? { command: "write report" }
+        : name === "write_file" ? { path: publicSourceWorkspacePath(url), content: "forged source text" } : name === "check_claims" ? {} : { summary: "Submit the public report." }) } }], costUsd: 0, durationMs: 1 };
   });
   const requests = vi.spyOn(f.broker, "request").mockImplementation(async request => {
     const response = f.settled(options.body ?? Buffer.from("Public source body."), request, options.unknown);
@@ -119,7 +128,7 @@ function runnerFixture(actions: string[], options: { unknown?: boolean; body?: B
   });
   const args: GeneralJobOptions = { ...f.phase, jobId: f.jobId, contextId: f.contextId, imageId: `sha256:${"a".repeat(64)}`,
     store: f.store, broker: f.broker, model: f.model, checkpoints: f.checkpoints, webDestinations: ["web"], maxPublicFetches: options.maxPublicFetches ?? 2 };
-  return { ...f, args, requests, messages, workspaceFiles, afterResponse: (fn: () => void) => { afterResponse = fn; } };
+  return { ...f, args, requests, messages, writes, workspaceFiles, commands, snapshots, afterResponse: (fn: () => void) => { afterResponse = fn; } };
 }
 
 describe("public retrieval through the single bounded runner", () => {
@@ -145,9 +154,22 @@ describe("public retrieval through the single bounded runner", () => {
     f.store.addSources(f.contextId, [{ id: "bounded_contract", version: digest(canonical(f.args.contract)), classification: "public", synthetic: true }]);
     await new GeneralAgentRunner(f.args).run();
     const output = JSON.parse(String(f.store.events(f.jobId).find(row => row.type === "tool_finished")!.output));
-    expect(output).toMatchObject({ truncated: true, bytes: body.length, sha256: digest(body), observedBytes: 32766 });
+    expect(output).toMatchObject({ truncated: true, bytes: body.length, sha256: digest(body), observedBytes: 32766, workspaceCopy: true, workspacePath: expect.stringMatching(/^sources\/[a-f0-9]{16}\.bin$/u) });
+    expect(f.writes).toEqual([output.workspacePath]);
     expect(output.text).not.toContain("�"); expect(output.instruction).toContain("unseen content");
     expect(readPublicSources(f.store, f.checkpoints, f.jobId)[0]!.bytes).toBe(body.length);
+  });
+  it("restores the host's retained bytes over a forged sources/ copy before check_claims and in the verifier, and passes the digest to the check", async () => {
+    const f = runnerFixture(["fetch_public", "write_file", "check_claims", "execute", "finish"], { claimsLedger: true });
+    expect((await new GeneralAgentRunner(f.args).run()).status).toBe("completed");
+    const path = publicSourceWorkspacePath(url), hostBytes = Buffer.from("Public source body.");
+    // Host copy at fetch, the model's forgery, then the host's restore before the check.
+    expect(f.writes).toEqual([path, path, path]);
+    const command = f.commands.find(entry => entry.includes("SOAR_CLAIMS_RETAINED="))!;
+    expect(JSON.parse(Buffer.from(command.match(/^SOAR_CLAIMS_RETAINED='([^']*)'/u)![1]!, "base64").toString("utf8"))).toEqual([{ url, path, sha256: digest(hostBytes) }]);
+    // The verifier container receives the retained bytes, never the workspace copy.
+    expect(f.snapshots.at(-1)!.get(path)!.equals(hostBytes)).toBe(true);
+    expect(f.commands.filter(entry => entry.includes("SOAR_CLAIMS_RETAINED="))).toHaveLength(2);
   });
   it("stops immediately after an unknown fetch and never retries it on resume", async () => {
     const f = runnerFixture(["fetch_public", "execute"], { unknown: true });

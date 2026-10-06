@@ -213,6 +213,27 @@ describe("desktop general-task host controller", () => {
       credentialVersion: 1, privateDataAdmitted: false, syntheticOnly: true, maxResponseBytes: 256 * 1024, timeoutMs: 900_000, maxRequestBytes: 640 * 1024 })));
     expect(f.controller.get(task.id)).toMatchObject({ status: "submitted" });
   });
+  it("requires a host-checked claims ledger for research tasks with exact public sources", async () => {
+    const f = fixture();
+    const url = "https://public.example.test/facts";
+    const task = f.controller.create({ goal: "Summarize the source.", inputSelectionId: f.controller.selectInputs([f.input]).id, outputName: "memo.md", publicOrSynthetic: true,
+      publicSources: { urls: [url], allowPublicRetrieval: true, dnsResolver: "system" } });
+    f.controller.start(task.id); await f.controller.wait(task.id);
+    const args = f.executions[0]!;
+    expect(args.contract.requiredArtifacts.map(artifact => artifact.path)).toEqual(["output/memo.md", "output/claims.json"]);
+    expect(args.contract.requiredChecks).toEqual(["desktop_artifact_structure", "research_claims_ledger"]);
+    expect(args.checks.map(check => check.id)).toEqual(["research_claims_ledger", "desktop_artifact_structure"]);
+    expect(args.contract.goal).toContain("Claims ledger requirement");
+    expect(args.contract.goal).toContain(url);
+    // Public sources are cited by their retrieved URL and resolved by the host at check time; no workspace path is promised in advance.
+    expect(args.contract.goal).toContain("exact url that fetch_public reported");
+    expect(args.contract.goal).not.toMatch(/sources\/[a-f0-9]{16}\.bin/u);
+    const plain = f.create(); f.controller.start(plain.id); await f.controller.wait(plain.id);
+    expect(f.executions[1]!.contract.requiredChecks).toEqual(["desktop_artifact_structure"]);
+    // The claims check reads the deliverable for citations and headings, so a research task needs a document deliverable.
+    expect(() => f.controller.create({ goal: "Summarize the source.", inputSelectionId: f.controller.selectInputs([f.input]).id, outputName: "deck.pptx", publicOrSynthetic: true,
+      publicSources: { urls: [url], allowPublicRetrieval: true, dnsResolver: "system" } })).toThrow("general_task_research_output_unsupported");
+  });
   it("refuses a queued task after the coordinator profile changes", () => {
     const f = fixture();
     const task = f.create(); f.config.generalTaskProfile = "heavy";

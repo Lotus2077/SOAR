@@ -9,9 +9,11 @@ import { PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
 import { canonical, digest, restrictedContext } from "../../src/main/private-agent/contracts";
-import { GeneralAgentSession, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../../src/main/private-agent/session";
+import { GeneralAgentSession, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase, SESSION_TRANSFER_CHECK_ID } from "../../src/main/private-agent/session";
 import { buildPublicRetrievalPhase, commonStructuralCheck, inspectPreparedTask, loadPreparedOperatorTask, runPreparedOperatorSession, selectPreparedPublicInputs, startControlledSnapshotReceiver } from "../../scripts/private-agent-run";
 import { EVIDENCE_HELPER_PATH } from "../../src/main/private-agent/evidence";
+import { retainPublicSource } from "../../src/main/private-agent/public-sources";
+import { publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const done of cleanups.splice(0).reverse()) await done(); });
@@ -51,10 +53,18 @@ function options(f: Awaited<ReturnType<typeof fixture>>, jobId: string, secret: 
       if (input.webDestinations?.length) {
         expect(input.contract.goal).not.toContain(secret); expect(input.files.every(file => !file.bytes.includes(secret))).toBe(true);
         expect(restrictedContext(f.store.context(input.contextId))).toBe(false);
-        await f.broker.request({ jobId, contextId: input.contextId, destinationId: "public", purpose: "public source retrieval", method: "GET", url: `${f.endpoint}/index.html`, maxFeeMicrousd: 0, signal });
+        const response = await f.broker.request({ jobId, contextId: input.contextId, destinationId: "public", purpose: "public source retrieval", method: "GET", url: `${f.endpoint}/index.html`, maxFeeMicrousd: 0, signal });
+        retainPublicSource(f.store, checkpoints, { jobId, contextId: input.contextId, url: `${f.endpoint}/index.html`, bytes: response.bytes, receipt: response.receipt });
       } else {
         expect(restrictedContext(f.store.context(input.contextId))).toBe(true);
         expect(input.files.map(file => file.path)).toContain("context/public-research.md");
+        // The host's retained public source travels with the findings, and every transferred file is pinned by a critical check.
+        const copy = input.files.find(file => file.path === publicSourceWorkspacePath(`${f.endpoint}/index.html`));
+        expect(copy?.bytes.toString("utf8")).toBe("public synthetic page");
+        expect(input.checks.map(check => check.id)).toContain(SESSION_TRANSFER_CHECK_ID);
+        expect(input.contract.requiredChecks).toContain(SESSION_TRANSFER_CHECK_ID);
+        const pinned = JSON.parse(Buffer.from(input.checks.find(check => check.id === SESSION_TRANSFER_CHECK_ID)!.python.match(/b64decode\('([^']+)'\)/u)![1]!, "base64").toString("utf8"));
+        expect(pinned).toContainEqual({ path: copy!.path, sha256: digest(Buffer.from("public synthetic page")) });
         await f.broker.request({ jobId, contextId: input.contextId, destinationId: "model", purpose: "synthetic local fixture", method: "POST", body: canonical({ value: secret }), maxFeeMicrousd: 0, signal });
       }
       const files = [...input.files, ...input.contract.requiredArtifacts.map(a => ({ path: a.path, bytes: Buffer.from(a.path.endsWith(".json") ? "[]" : "synthetic result") }))];
@@ -73,6 +83,7 @@ describe("general isolated phase session", () => {
       expect(f.store.policy(id!)).toMatchObject({ maxRequests: 40, maxFeeMicrousd: 0, mode: "private" });
       const transfer = f.store.events(id!).find(row => row.type === "session_public_transfer")!;
       expect(transfer.binding).toMatchObject({ dispatchesSha256: expect.stringMatching(/^[a-f0-9]{64}$/), contextSha256: expect.stringMatching(/^[a-f0-9]{64}$/), files: expect.any(Array) });
+      expect((transfer.binding as { files: { path: string }[] }).files.map(file => file.path)).toEqual(["context/public-research.md", "context/public-sources.json", publicSourceWorkspacePath(`${f.endpoint}/index.html`)]);
     }
     expect(f.requests.filter(row => row.method === "GET")).toEqual([{ path: "/index.html", method: "GET", body: "" }, { path: "/index.html", method: "GET", body: "" }]);
   });

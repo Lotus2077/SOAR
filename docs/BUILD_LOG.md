@@ -18427,3 +18427,173 @@ Next gate: J1 implemented with tests and reviewed; then J2.
 
 References: [plan](PLAN.md), [design section 4](plans/PRIVATE_WORK_DESIGN_V1.md),
 BL-20261006-1055-phase1-pr-a-d-implemented.
+
+
+### BL-20261006-1141-phase1-dryrun-v2-results -- 2026-10-06 -- Phase 1 dry runs on the committed tree: two seen tasks, both profiles
+
+Status: `Verified`
+
+Scope or hypothesis: Phase 1 exit criterion 2 (docs/PLAN.md): dry runs on two
+already-seen tasks per arm complete without harness-terminal causes. Batch
+`phase1-dryrun-v2` ran the headless driver on the committed tree 4806282
+(branch `phase1-heavy-loop`, PR #4) against the local endpoint, tasks T4
+(`t4-quality-v2`, two-phase research with controlled public snapshots) and T2
+(`t2-rfc-memo`, single-phase memo from two attached RFC texts), under `standard`
+and `heavy`. Registry rows `p1d-*` in docs/experiments/registry.jsonl.
+
+Decisions:
+
+- The heavy arm is the runtime under test; the standard arm is the September
+  control and keeps the September budget by design.
+- Verdicts here are my gate reads against each brief plus the host checks. They
+  are recorded as such (`verdictBy`), and owner acceptance stays pending. The
+  README's "research not yet accepted" line therefore stands.
+
+Changes: four registry rows; no code.
+
+Evidence:
+
+- T4 heavy: `submitted`, 61 model calls, 61 tool calls, 1,517 s, 1.26 M input and
+  49.8 K output tokens; both critical checks passed at finish
+  (`source_preserved_and_artifacts_readable`,
+  `source_evidence_replayed_and_consistent`); no nudge, no command timeout, no
+  soft refusal, no length stop. I re-derived the batch counts, the Q2 whole-order
+  tier, eligibility and both savings from the report's own inputs and they hold.
+  This is the first research run to pass every host check since the September
+  rejections.
+- T4 standard: `incomplete`, `bounded_allowance_exhausted` after 34 model calls
+  when the shared 40-request session budget ran out, exactly as in Phase 0; no
+  nudge, timeout or refusal. The cause is the September budget, which the heavy
+  profile raises; it is not a loop defect.
+- T2 heavy: `submitted`, 21 calls, 439 s, 352 words; every section citation I
+  checked against the RFC texts held (7493 sections 2.1-2.3 and 4.1-4.2; 8259
+  sections 2, 4, 6-8); mandatory rules, recommendations and the memo's own
+  policy are kept apart; the "7493 predates 8259" requirement is met.
+- T2 standard: `submitted`, 22 calls, 274 s, 377 words; all brief topics covered;
+  one imprecise citation (the top-level-value rule credited to RFC 8259 section 3
+  where section 2 holds the grammar).
+- Harness-terminal causes in the heavy arm: none in 2 of 2 tasks. Exit criterion 2
+  is met for the heavy arm. The pre-review T4 heavy run on an uncommitted tree
+  (62 calls, same two checks passed) is not registered because the runtime hash
+  changed during the batch; it is consistent with the registered run.
+
+Failures or blockers: None in this batch. Exit criterion 3 (owner jobs on
+`owner-v0.1`) is still open and owner-only.
+
+Limitations and non-claims: Two tasks, one run each per arm, both seen before;
+no claim about fresh tasks or variance. Gate reads are not owner acceptance. The
+claims ledger (next entry) was not enabled for these runs.
+
+Paid exposure: USD 0.
+
+Next gate: Owner verdicts on T4 heavy and T2 heavy outputs; PR-J1 merged; a
+research dry run with the ledger enabled.
+
+References: BL-20261006-1055-phase1-pr-a-d-implemented, [plan](PLAN.md),
+[registry](experiments/registry.jsonl).
+
+
+### BL-20261006-1150-pr-j1-claims-ledger-implemented -- 2026-10-06 -- Research claims ledger J1 implemented, hardened after review
+
+Status: `Implemented`
+
+Scope or hypothesis: PR-J1 as designed in BL-20261006-1058: the ledger contract,
+the host quote check, an agent-callable check and full public sources in the
+workspace. Branch `phase1-claims-ledger`, pull request #5, stacked on #4.
+On-track check before starting: PR-A/PR-D dry runs recorded (previous entry).
+
+Decisions:
+
+- **Source identity (deviation).** File sources are cited by workspace path
+  (`input/...`). A retained public source is cited by the exact URL that
+  `fetch_public` reported, not `public:<dispatchId>`: the model never sees the
+  dispatch id, and the URL is what it already cites. The host's full copy sits at
+  `sources/<sha256(href)[:16]>.bin`.
+- **`sources/` is host-owned.** The review reproduced a complete spoof: the model
+  could `write_file` the predictable `sources/` path with any text and both
+  `check_claims` and the finish check passed. Now the finish verifier is built
+  from the frozen snapshot with every retained source replaced by the host's
+  retained bytes; `check_claims` restores those bytes before running; the check
+  receives the retained `{url, path, sha256}` list through the command
+  environment (`SOAR_CLAIMS_RETAINED`, base64 JSON) and reports `source_tampered`
+  on a digest mismatch and `unknown_source` for any URL the host did not retain.
+  Without the environment nothing public resolves, so the model running the
+  script itself proves nothing.
+- **Two-phase sessions.** The private phase used to cite the model-authored
+  `context/public-research.md`, which no check pinned (review, high). Now the
+  host's retained public sources travel into the private phase as `sources/`
+  files and a new critical check `session_transfer_integrity` pins the digest of
+  every transferred file; the claims check cites only input files and retained
+  URLs.
+- **Checker rules.** Minimum quote 12 characters after normalization (design said
+  1); PDF and DOCX detected by content, not name, so `.bin` copies work; DOCX
+  read with zipfile and a regex that joins runs inside a paragraph (no
+  python-docx); section headings must match exactly after stripping heading and
+  emphasis marks; citations inside code fences or HTML comments do not count; a
+  DOCX or PDF deliverable is read through the same extraction. The desktop
+  refuses a research task whose deliverable is not md, txt, html, docx or pdf
+  (`general_task_research_output_unsupported`).
+- **Protocol.** Prompt protocol 16/17 (the `check_claims` tool and the
+  `sources/` guidance are in the bound prompt); older runs cannot resume into
+  this loop, by design.
+- Deferred, recorded: a sentence-in-report check (the sentence field is
+  informational until J2); projecting the retained list into the check payload
+  at phase-build time is impossible because fetches happen later, hence the
+  environment channel.
+
+Changes:
+
+- New `src/main/private-agent/claims.ts` (schema, instructions, check,
+  `encodeRetainedClaimsSources`); `readPublicSourceFiles` in
+  `public-sources.ts`; runner `check_claims`, `checkCommand` exported, verifier
+  overlay, retained-source restore, UTF-8 validation before the workspace copy;
+  session transfer of retained sources plus `SESSION_TRANSFER_CHECK_ID`;
+  controller ledger wiring and deliverable rule; driver `--claims-ledger` and
+  `withClaimsLedger`; shared test fixture builders for DOCX and PDF
+  (`tests/helpers/claims-fixtures.ts`); Docker-gated
+  `tests/integration/private-agent-claims.test.ts` on the qualified runtime image.
+
+Evidence:
+
+- `pnpm check`: 120 test files, 1,890 tests passed, 72 skipped, typecheck and
+  build passed. Docker-gated suites on the qualified runtime image
+  `sha256:e5c7075f…`: 43 passed, including PDF page and DOCX paragraph locators
+  through the real `python3 -I` command and the full loop through real
+  containers. The unit PDF case is skipped on this workstation because pypdf is
+  not importable under `-I` there; the test image `sha256:95be0fd…` (the
+  September patch fixture) has no pypdf at all, which is why the integration
+  test binds the runtime image.
+- Unit tests: verbatim match across whitespace, NFKC and HTML; line, line-range,
+  page, paragraph and paragraph-span locators; fabricated quote, unknown source,
+  missing and unknown citations, missing section, short quote, hidden citations,
+  exact headings, retained-URL resolution with digest check and tampering,
+  oversized and duplicate-id ledgers, unsafe paths, corrupt binaries; runner
+  `check_claims` gating, command shape and finish-time criticality; an
+  end-to-end runner test where the model forges the `sources/` copy and the host
+  restores its bytes before `check_claims` and in the verifier; controller
+  wiring and the deliverable refusal; driver flag and phase construction.
+- Adversarial review (three lenses, 15 agents): confirmed and fixed: forgeable
+  `sources/` copy (high); model-authored context cited as a source in two-phase
+  runs (high); transferred evidence not pinned; prefix-matched section headings;
+  citations inside fences and comments; the "oversized ledger" test that never
+  tested size; unsatisfiable check for non-document deliverables. Judged not
+  required: a sentence-in-report check; UTF-8 validation order (moved anyway);
+  a DOCX wording note (the run-joining defect it mentioned is fixed). Found
+  outside the review: the `.bin` name defeated PDF and DOCX detection.
+
+Failures or blockers: None open. No live run has used the ledger yet.
+
+Limitations and non-claims: A verbatim quote shows the text exists, not that the
+sentence follows from it (J2). `check_claims` inside the agent sandbox is
+advisory; only the finish verifier is authoritative. The check reads at most 64
+MiB per source and 256 KiB of ledger. Quality of ledgers produced by the local
+model is unmeasured until a research dry run with `--claims-ledger`.
+
+Paid exposure: USD 0.
+
+Next gate: A research dry run (T2 and T4, heavy) with the ledger enabled,
+recorded in the registry; then J2 (entailment pass).
+
+References: BL-20261006-1058-pr-j-claims-ledger-design,
+BL-20261006-1141-phase1-dryrun-v2-results, [plan](PLAN.md),
+[design section 4](plans/PRIVATE_WORK_DESIGN_V1.md).

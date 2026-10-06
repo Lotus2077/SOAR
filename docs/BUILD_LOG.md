@@ -19063,3 +19063,43 @@ an e2e run with Labs off; then PR-E.
 
 References: [plan](PLAN.md) Phase 1 PR-F, BL-20261006-1055-phase1-pr-a-d-implemented,
 BL-20261007-0120-pr-j2-entailment-implemented.
+### BL-20261007-0320-entailment-v2-judged -- 2026-10-07 -- Judge dry run v2: 19 of 20 claims supported, one partial
+
+Status: `Verified`
+
+Scope or hypothesis: Next gate of BL-20261007-0210: the judge must produce
+verdicts live. Batch `phase1-entailment-v2`, T2 heavy with `--claims-ledger` on
+the fixed J2 tree (d8322ee), registry row `p1e-t2-rfc-memo-heavy-v2`.
+
+Decisions: None new. Correction to BL-20261007-0210: its unit-test count on the
+fixed tree was 1,908, not 1,909.
+
+Changes: one registry row.
+
+Evidence:
+
+- Run `submitted`, 21 agent calls, 292 s; 20 claims, all verified verbatim at the
+  single `check_claims` call; both critical checks passed; event order
+  `completed`, `session_submitted`, `claims_entailment`.
+- Judge: 20 calls (purpose `claims entailment judgement`, all settled), 19
+  `supported`, 1 `partial`, 0 unsupported or contradicted, not truncated;
+  support rate 0.95. The partial verdict is fair: C1 reads "a JSON text is a
+  serialized value" as "any value is acceptable at the top level", which the
+  quote does not say; RFC 8259 section 2 does, so the claim chose the weaker
+  quote.
+- Cost of the pass: 20 short thinking-off calls inside the 292 s wall time
+  (the previous unjudged run took 503 s with 29 agent calls, so run-to-run
+  variance dominates; the judge itself is under a minute).
+
+Failures or blockers: None.
+
+Limitations and non-claims: One run, one seen task; the judge is the model that
+wrote the memo, so systematic blind spots remain possible; a verdict is evidence
+for the owner, not acceptance.
+
+Paid exposure: USD 0.
+
+Next gate: PR-C (recoverable dispatch) implemented and reviewed; PR-F.
+
+References: BL-20261007-0210-entailment-v1-judge-rejected,
+BL-20261007-0120-pr-j2-entailment-implemented, [registry](experiments/registry.jsonl).

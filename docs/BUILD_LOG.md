@@ -19112,3 +19112,97 @@ BL-20261007-0120-pr-j2-entailment-implemented.
 
 Identifier note: authored 2026-10-07 02:50 UTC as BL-20261007-0322-pr-f-owner-surface-design; re-identified as BL-20261007-0322-pr-f-owner-surface-design so the
 branch stays append-only after its base gained BL-20261007-0320. The body is unchanged.
+
+
+### BL-20261007-0530-pr-c-recoverable-dispatch-implemented -- 2026-10-07 -- Recoverable dispatch implemented and reviewed (PR-C)
+
+Status: `Implemented`
+
+Scope or hypothesis: PR-C as designed in BL-20261007-0321 (owner decision D4).
+Branch `phase1-recoverable-dispatch`, pull request #7, stacked on #6. On-track
+check: J2 is live and judged (BL-20261007-0320); the first judge run showed a
+single 400 ending a pass, and a box restart during a long task still ended the
+task without resume, which this change removes for confirmed aborts.
+
+Decisions:
+
+- **Classification.** `transport()` records why a dispatch failed:
+  `connection_failed` (nothing sent: refused, unreachable, DNS or address
+  denied), `upstream_closed` (the peer closed after the request was written,
+  before a response), `response_interrupted` (closed after a response
+  started), `http_rejected` now with the HTTP status when it is 100-599; a
+  timeout, an oversize response and settlement failures stay as they were.
+- **Confirmed is destination-aware (review).** Never sent or answered with an
+  error is confirmed for every destination. A peer close is confirmed only for a
+  zero-risk packet (a zero-fee local request or a public GET without a grant),
+  which may have been executed but can be re-sent without cost or side effect;
+  for a priced or cloud destination it stays `unknown`, so a cloud or consultant
+  row can never be released as `failed` after the upstream may have charged.
+- **Ledger.** Two resolved statuses: `superseded` (another attempt followed)
+  and `failed` (a confirmed abort with no attempt to follow); both reserve no
+  fee and never block commits, resume, submission or the controller's
+  `uncertain`. `superseded` is written only once the retry is certain: the
+  backoff runs first, and a cancel during it or an exhausted session allowance
+  resolves the row as `failed` instead (review: the last admissible attempt
+  used to leave a superseded row with no successor and a plain budget error
+  that made the job unresumable).
+- **Retry.** `PrivateAgentBroker.request` loops at most three attempts, 1 s then
+  3 s apart, only for a destination flagged `recoverable` and a zero-risk packet,
+  only on a retryable confirmed abort (a close, a 5xx or 429; a deterministic 4xx
+  is final), only while a session request remains and the caller has not
+  cancelled. Each attempt is its own committed row and consumes a session
+  request; the public-fetch allowance ignores superseded rows. Cloud and
+  consultant destinations reject the flag at normalisation.
+- **Runner and session.** A model request whose attempts all end confirmed
+  records `model_request_failed`, closing the operation, and stops with
+  `model_unavailable`, which the controller treats as resumable (also its
+  `public_` form from a two-phase session). A failed public GET returns to the
+  model as a `public_fetch_failed` observation. A consultant row resolved as
+  `failed` no longer reads as uncertain.
+- **Flag.** `SOAR_RECOVERABLE_DISPATCH` (default on, D4) spreads `recoverable:
+  true` into the desktop local and public destinations and the headless
+  driver's local destination; absent, fingerprints and receipts are byte-identical
+  to before.
+
+Changes: `broker.ts`, `store.ts`, `model.ts` (`modelRequestFailed`), `runner.ts`,
+`session.ts`, `consultation.ts`, `controller.ts`, `config.ts`,
+`scripts/private-agent-local-screen.ts`, `scripts/registry-row.py`
+(`retriedDispatches`, `failedDispatches`); tests across the broker integration
+suite, public DNS, runner, public research and controller.
+
+Evidence:
+
+- `pnpm check`: 120 files, 1,919 tests passed, 72 skipped. Docker-gated suites on
+  the qualified runtime image, this tree: 4 files, 43 tests passed.
+- Broker tests through a real loopback server: retry after a destroyed socket,
+  a 503 and a 429 with one row per attempt and the backoff observed; give-up
+  after the third attempt; no retry for a 400, a timeout, a priced request or a
+  flagless destination; a public GET retried; the cloud kind rejecting the flag;
+  the session allowance and a cancel during backoff resolving the last row as
+  failed; a peer close uncertain for a cloud packet and confirmed for a zero-risk
+  one, before and after a response started; a 999 status recorded without the
+  status; a redirect as a confirmed rejection; DNS and address denial as
+  `connection_failed`. Runner: a confirmed model failure stops resumably and
+  completes on the next run, an unknown one still does not; an unknown judge
+  dispatch after completion changes nothing. Public research: a failed fetch
+  becomes an observation. Controller: `model_unavailable` resumable, a resolved
+  failed row not uncertain.
+- Review (2 lenses, 1 confirmed finding, 9 verifiers lost to the session limit
+  and re-judged by reading the code): confirmed and fixed, the superseded row
+  without a successor; judged real and fixed, peer closes for priced and cloud
+  rows, the HTTP status range, lookup failures, cancel during backoff, the
+  public-phase reason and the consultant row; judged not real, a retry commit
+  refused by admission change (the job is cancelled in that case).
+
+Failures or blockers: None open.
+
+Limitations and non-claims: Recovery covers confirmed aborts only; a timeout
+still ends the task without replay. No live run with an induced abort yet.
+
+Paid exposure: USD 0.
+
+Next gate: Docker-gated suites on this tree; a dry run with an induced local
+abort recorded in the registry; PR-F.
+
+References: BL-20261007-0321-pr-c-recoverable-dispatch-design, [plan](PLAN.md)
+D4, BL-20261007-0320-entailment-v2-judged.

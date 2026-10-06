@@ -250,19 +250,39 @@ describe("unknown request diagnostics", () => {
     await expect(f.broker.request(f.input)).rejects.toThrow("private_agent_unresolved_dispatch");
     expect(f.requests).toHaveLength(1);
   });
-  it.each(["http", "socket_failure"] as const)("classifies a controlled %s as a confirmed abort: resolved, never retried without the flag, never blocking", async kind => {
-    const f = await fixture({ classification: "public", maxResponseBytes: 8, handler: (request, response) => {
-      if (kind === "http") { response.writeHead(503); response.end(sensitive); } else request.socket.destroy(new Error(sensitive));
-    } });
+  it("classifies an error answer as a confirmed abort for any destination: resolved, never retried without the flag, never blocking", async () => {
+    const f = await fixture({ classification: "public", maxResponseBytes: 8, handler: (_request, response) => { response.writeHead(503); response.end(sensitive); } });
     await expect(f.broker.request(f.input)).rejects.toThrow("request_failed");
     const receipt = f.store.dispatches("job")[0]!;
-    expect(receipt).toMatchObject({ status: "failed", reservedFeeMicrousd: 100, failure: { phase: "transport", code: kind === "http" ? "http_rejected" : "upstream_closed", timeoutMs: f.destination.timeoutMs } });
-    if (kind === "http") expect(receipt.failure).toMatchObject({ status: 503 }); else expect(receipt.failure).not.toHaveProperty("status");
+    expect(receipt).toMatchObject({ status: "failed", reservedFeeMicrousd: 100, failure: { phase: "transport", code: "http_rejected", status: 503, timeoutMs: f.destination.timeoutMs } });
     expect(receipt.failure).not.toHaveProperty("attempt"); expect(JSON.stringify(receipt)).not.toContain(sensitive);
     expect(UnknownRequestDiagnosticSchema.safeParse(receipt.failure).success).toBe(true);
     // A resolved failure does not block the job: the next request is admitted (and fails the same way here).
     await expect(f.broker.request(f.input)).rejects.toThrow("request_failed");
-    expect(f.requests).toHaveLength(kind === "http" ? 2 : 2);
+    expect(f.requests).toHaveLength(2);
+    // A status outside the schema's range is still an answer, recorded without the status.
+    const odd = await fixture({ classification: "public", handler: (_request, response) => { response.writeHead(999); response.end(); } });
+    await expect(odd.broker.request(odd.input)).rejects.toThrow("request_failed");
+    expect(odd.store.dispatches("job")[0]).toMatchObject({ status: "failed", failure: { code: "http_rejected" } }); expect(odd.store.dispatches("job")[0]!.failure).not.toHaveProperty("status");
+  });
+  it("keeps a peer close uncertain for a priced or cloud packet, and confirmed only for a zero-risk one", async () => {
+    const cloud = await fixture({ classification: "public", handler: request => request.socket.destroy(new Error(sensitive)) });
+    await expect(cloud.broker.request(cloud.input)).rejects.toThrow("transport_or_settlement_unknown");
+    expect(cloud.store.dispatches("job")[0]).toMatchObject({ status: "unknown", failure: { phase: "transport", code: "upstream_closed" } });
+    expect(JSON.stringify(cloud.store.dispatches("job")[0])).not.toContain(sensitive);
+    await expect(cloud.broker.request(cloud.input)).rejects.toThrow("private_agent_unresolved_dispatch");
+    const local = await fixture({ kind: "local_model", privateDataAdmitted: true, classification: "public", handler: request => request.socket.destroy(new Error(sensitive)) });
+    await expect(local.broker.request({ ...local.input, maxFeeMicrousd: 0 })).rejects.toThrow("request_failed");
+    expect(local.store.dispatches("job")[0]).toMatchObject({ status: "failed", failure: { code: "upstream_closed" } });
+    // A close after the response started is its own code; confirmed only for the zero-risk packet.
+    // Headers and a first byte reach the client before the peer drops the connection.
+    const interrupted = (request: http.IncomingMessage, response: http.ServerResponse) => { response.writeHead(200); response.write("{"); setTimeout(() => request.socket.destroy(), 80); };
+    const cloudMid = await fixture({ classification: "public", handler: interrupted });
+    await expect(cloudMid.broker.request(cloudMid.input)).rejects.toThrow("transport_or_settlement_unknown");
+    expect(cloudMid.store.dispatches("job")[0]).toMatchObject({ status: "unknown", failure: { code: "response_interrupted" } });
+    const localMid = await fixture({ kind: "local_model", privateDataAdmitted: true, classification: "public", handler: interrupted });
+    await expect(localMid.broker.request({ ...localMid.input, maxFeeMicrousd: 0 })).rejects.toThrow("request_failed");
+    expect(localMid.store.dispatches("job")[0]).toMatchObject({ status: "failed", failure: { code: "response_interrupted" } });
   });
 
   it.each(["invalid_json", "invalid_usage", "spoofed_transport"] as const)("settlement validation %s cannot impersonate transport failure", async kind => {
@@ -363,9 +383,10 @@ describe("recoverable dispatch (owner decision D4)", () => {
     const slow = await fixture({ ...local, timeoutMs: 200, handler: () => {} });
     await expect(slow.broker.request(zeroFee(slow))).rejects.toThrow("transport_or_settlement_unknown");
     expect(slow.store.dispatches("job").map(row => row.status)).toEqual(["unknown"]);
+    // A priced request is not zero-risk: a peer close stays uncertain and is never retried.
     const priced = await fixture({ ...local, handler: flaky(1, "socket") });
-    await expect(priced.broker.request({ ...zeroFee(priced), maxFeeMicrousd: 1 })).rejects.toThrow("request_failed");
-    expect(priced.store.dispatches("job").map(row => row.status)).toEqual(["failed"]); expect(priced.requests).toHaveLength(1);
+    await expect(priced.broker.request({ ...zeroFee(priced), maxFeeMicrousd: 1 })).rejects.toThrow("transport_or_settlement_unknown");
+    expect(priced.store.dispatches("job").map(row => row.status)).toEqual(["unknown"]); expect(priced.requests).toHaveLength(1);
     const flagless = await fixture({ ...local, recoverable: false, handler: flaky(1, "socket") });
     await expect(flagless.broker.request(zeroFee(flagless))).rejects.toThrow("request_failed");
     expect(flagless.store.dispatches("job").map(row => row.status)).toEqual(["failed"]); expect(flagless.requests).toHaveLength(1);
@@ -375,12 +396,14 @@ describe("recoverable dispatch (owner decision D4)", () => {
     const result = await web.broker.request({ ...web.input, maxFeeMicrousd: 0, purpose: "public source retrieval" });
     expect(result.receipt.status).toBe("settled"); expect(web.store.dispatches("job").map(row => row.status)).toEqual(["superseded", "settled"]);
     await expect(fixture({ kind: "cloud_model", recoverable: true })).rejects.toThrow("destination_recoverable_invalid");
+    // No session request left for another attempt: the last admissible attempt resolves as failed, never a superseded row without a successor.
     const capped = await fixture({ ...local, maxRequests: 2, handler: flaky(3, "socket") });
-    await expect(capped.broker.request(zeroFee(capped))).rejects.toThrow("private_agent_budget_denied");
-    expect(capped.store.dispatches("job").map(row => row.status)).toEqual(["superseded", "superseded"]);
+    await expect(capped.broker.request(zeroFee(capped))).rejects.toThrow("request_failed");
+    expect(capped.store.dispatches("job").map(row => row.status)).toEqual(["superseded", "failed"]);
+    // Cancelled during the backoff: the row is resolved as failed and the caller sees the confirmed failure.
     const cancel = new AbortController(), cancelled = await fixture({ ...local, handler: flaky(3, "socket") });
     setTimeout(() => cancel.abort(), 300);
-    await expect(cancelled.broker.request({ ...zeroFee(cancelled), signal: cancel.signal })).rejects.toThrow("request_cancelled");
-    expect(cancelled.store.dispatches("job").map(row => row.status)).toEqual(["superseded"]);
+    await expect(cancelled.broker.request({ ...zeroFee(cancelled), signal: cancel.signal })).rejects.toThrow("request_failed");
+    expect(cancelled.store.dispatches("job").map(row => row.status)).toEqual(["failed"]);
   }, 20_000);
 });

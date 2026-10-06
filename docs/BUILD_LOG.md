@@ -18645,10 +18645,10 @@ Paid exposure: USD 0.
 Next gate: J2 restructured as BL-20261006-1230 decides; owner verdicts.
 
 References: BL-20261006-1150-pr-j1-claims-ledger-implemented,
-BL-20261006-1230-pr-j2-review-findings, [registry](experiments/registry.jsonl).
+BL-20261006-1242-pr-j2-review-findings, [registry](experiments/registry.jsonl).
 
 
-### BL-20261006-1158-pr-j2-entailment-design -- 2026-10-06 -- Research claims entailment pass designed (PR-J2)
+### BL-20261006-1241-pr-j2-entailment-design -- 2026-10-06 -- Research claims entailment pass designed (PR-J2)
 
 Status: `Proposed`
 
@@ -18722,8 +18722,9 @@ reviewed.
 References: BL-20261006-1058-pr-j-claims-ledger-design,
 BL-20261006-1150-pr-j1-claims-ledger-implemented, [plan](PLAN.md).
 
-
-### BL-20261006-1230-pr-j2-review-findings -- 2026-10-06 -- J2 first implementation reviewed: pass must move after durable completion
+Identifier note: authored 2026-10-06 11:58 UTC as BL-20261006-1241-pr-j2-entailment-design; re-identified as BL-20261006-1241-pr-j2-entailment-design so the
+branch stays append-only after its base gained BL-20261006-1240. The body is unchanged.
+### BL-20261006-1242-pr-j2-review-findings -- 2026-10-06 -- J2 first implementation reviewed: pass must move after durable completion
 
 Status: `Implemented`
 
@@ -18776,10 +18777,11 @@ then record the ledger batch (`phase1-ledger-v1`: T2 heavy 27 calls, 19 claims
 verified at the first check, both critical checks passed; T4 heavy submitted at
 77 calls, not yet inspected; T2 row drafted in the scratchpad).
 
-References: BL-20261006-1158-pr-j2-entailment-design,
+References: BL-20261006-1241-pr-j2-entailment-design,
 BL-20261006-1150-pr-j1-claims-ledger-implemented.
 
-
+Identifier note: authored 2026-10-06 12:30 UTC as BL-20261006-1242-pr-j2-review-findings; re-identified as BL-20261006-1242-pr-j2-review-findings so the
+branch stays append-only after its base gained BL-20261006-1240. The body is unchanged.
 ### BL-20261007-0120-pr-j2-entailment-implemented -- 2026-10-07 -- Entailment pass implemented at the session level, after two reviews
 
 Status: `Implemented`
@@ -18873,8 +18875,8 @@ Next gate: Docker-gated suites on the final tree; a research dry run with the
 judge (T2 heavy) recorded in the registry with its support rate; then PR-C and
 PR-F per the Phase 1 order.
 
-References: BL-20261006-1158-pr-j2-entailment-design,
-BL-20261006-1230-pr-j2-review-findings, BL-20261006-1240-phase1-ledger-v1-results.
+References: BL-20261006-1241-pr-j2-entailment-design,
+BL-20261006-1242-pr-j2-review-findings, BL-20261006-1240-phase1-ledger-v1-results.
 
 
 ### BL-20261007-0210-entailment-v1-judge-rejected -- 2026-10-07 -- First judge dry run: ledger passed, judge request rejected upstream (fixed)

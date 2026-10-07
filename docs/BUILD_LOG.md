@@ -20077,10 +20077,11 @@ BL-20261007-1302-pr-i-document-review-design.
 
 ### BL-20261007-1449-phase1-close-out -- 2026-10-07 -- Phase 1 runtime items complete; exit criteria 2 and 3 wait on the owner
 
-Status: `Implemented` (all six runtime items, each with a dry run); the Phase 1
-exit is **not** met.
+Status: `Implemented`
 
 Scope or hypothesis: the Phase 1 close-out at the plan's 7 October hard stop.
+All six runtime items are implemented, each with a dry run; the Phase 1 exit is
+**not** met.
 It records which exit criteria hold, which fallbacks applied, and what Phase 2
 still needs. On-track check: the order set by the Phase 0 discriminator was
 followed, as listed below.

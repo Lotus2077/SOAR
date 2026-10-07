@@ -19711,3 +19711,51 @@ review) and Phase 2 task authoring.
 References: BL-20261007-1045-pr-b-liveness-design,
 BL-20261007-0530-pr-c-recoverable-dispatch-implemented, [plan](PLAN.md)
 Phase 1 PR-B, serving card 2026-09-28 P8.
+
+### BL-20261007-1301-pr-b-streaming-dry-run -- 2026-10-07 -- Streaming dry run: every turn settled; memo rejected on one gate
+
+Status: `Verified`
+
+Scope or hypothesis: the dry-run gate of BL-20261007-1247 (PR-B). One zero-fee
+local run of the seen task T2 (RFC memo) on the heavy profile with the claims
+ledger, streaming on (the default), on commit `7fa7c56` with a clean tree
+(authority record bound to BL-20260928-1745 and BL-20261007-1247). Expected:
+streamed turns assemble and settle, no unknown dispatch, the judge pass runs.
+Not capability evidence.
+
+Decisions:
+
+- **Liveness gate met.** The run reached `submitted` after 29 streamed agent
+  turns (thinking on, 16,384-token limit) and 22 judge requests; all 51
+  dispatches settled; none was unknown, retried or failed; no length stop.
+- **Outcome recorded as rejected.** Host checks passed (2 of 2), and the
+  entailment pass judged 21 of 22 claims supported and 1 partial. The memo
+  meets the brief's gates except one: its illustrative JSON object is invalid
+  (`{{...}}`). The trace shows the agent first wrote a valid object with
+  `write_file`, then rewrote the memo through a Python `execute` command that
+  doubled the braces and replaced "Édition" with "Edition". The defect is model
+  output, not the stream; the host checks do not parse fenced JSON, so nothing
+  caught it. A host check that parses fenced `json` blocks in Markdown outputs
+  is a candidate for a later PR.
+
+Changes: registry row `p1b-t2-rfc-memo-heavy-streaming` in
+[registry.jsonl](experiments/registry.jsonl); this entry.
+
+Evidence: run `phase1-streaming-v1/t2-rfc-memo-heavy` (local, ignored): result
+`submitted` with `independent_acceptance_pending`; 529.6 s; 463,424 input and
+28,145 output tokens; the freeze records `streaming: true`; 0 `host_heartbeat`
+events (the headless driver has no heartbeat; it is a desktop feature).
+
+Failures or blockers: None for PR-B. The quality defect is recorded above.
+
+Limitations and non-claims: One run of one seen task. It shows that streaming
+works end to end on the owned server at heavy sizes, not that streaming
+improves any outcome. The desktop paths (power-save blocker, heartbeat, quit
+sheet) were not exercised by this run.
+
+Paid exposure: USD 0.
+
+Next gate: PR-I design and implementation.
+
+References: BL-20261007-1247-pr-b-liveness-implemented,
+BL-20261007-1045-pr-b-liveness-design.

@@ -87,6 +87,8 @@ export interface PrivateModelConfig {
   cachedInputUsdPerMillion?: number;
   /** Request shape: the owned vLLM server (default) or the OpenAI API (`max_completion_tokens`, no vLLM-only fields). */
   api?: "vllm" | "openai";
+  /** PR-B: stream the reply from the owned server (assembled by the transport); the cloud shape stays non-streaming in Phase 1. */
+  streaming?: boolean;
   thinking: "disabled" | "medium";
   /** Request body cap in bytes; defaults to the broker's packet cap. Profiles raise it for the local model. */
   maxRequestBytes?: number;
@@ -108,6 +110,12 @@ const responseSchema = z.object({
     total_tokens: nonnegativeInt.optional(), prompt_tokens_details: z.object({ cached_tokens: nonnegativeInt.optional() }).optional() }),
 });
 
+/** The model configuration as bound into session and task identities: streaming is a transport mode, never an identity change. */
+export function modelIdentity(config: PrivateModelConfig): Omit<PrivateModelConfig, "streaming"> {
+  const { streaming: _streaming, ...identity } = config;
+  return identity;
+}
+
 /** Models get only the context bound by the host; transport is always brokered. */
 export class PrivateAgentModel {
   readonly config: PrivateModelConfig;
@@ -120,7 +128,8 @@ export class PrivateAgentModel {
           config.sampling !== undefined && !Number.isSafeInteger(config.sampling.top_k)) ||
         ![config.inputUsdPerMillion, config.outputUsdPerMillion].every(value => Number.isFinite(value) && value >= 0) ||
         (config.cachedInputUsdPerMillion !== undefined && !(Number.isFinite(config.cachedInputUsdPerMillion) && config.cachedInputUsdPerMillion >= 0 && config.cachedInputUsdPerMillion <= config.inputUsdPerMillion)) ||
-        (config.api !== undefined && config.api !== "vllm" && config.api !== "openai")) {
+        (config.api !== undefined && config.api !== "vllm" && config.api !== "openai") ||
+        (config.streaming !== undefined && (typeof config.streaming !== "boolean" || (config.streaming && config.api === "openai")))) {
       throw new Error("private_model_configuration_invalid");
     }
     this.config = Object.freeze({ ...config, maxRequestBytes, ...(config.sampling ? { sampling: Object.freeze({ ...config.sampling }) } : {}) });
@@ -134,7 +143,8 @@ export class PrivateAgentModel {
     // An OpenAI-compatible server rejects an empty `tools` array, so a tool-less call (the entailment judge) omits the tool fields.
     // The OpenAI shape uses max_completion_tokens and top-level reasoning_effort only; vLLM-only fields never leave for a cloud API.
     const body = canonical({ model: this.config.model, messages, ...(tools.length ? { tools, tool_choice: "auto", parallel_tool_calls: false } : {}),
-      stream: false, ...(openai ? { max_completion_tokens: maxOutputTokens } : { max_tokens: maxOutputTokens }),
+      ...(this.config.streaming && !openai ? { stream: true, stream_options: { include_usage: true } } : { stream: false }),
+      ...(openai ? { max_completion_tokens: maxOutputTokens } : { max_tokens: maxOutputTokens }),
       ...(openai ? (thinking === "disabled" ? {} : { reasoning_effort: "medium" })
         : thinking === "disabled" ? { chat_template_kwargs: { enable_thinking: false } } : { reasoning_effort: "medium", ...(this.config.sampling ?? {}) }),
     });

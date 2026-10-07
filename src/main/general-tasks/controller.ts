@@ -15,7 +15,7 @@ import { PrivateAgentStore, UnknownRequestDiagnosticSchema } from "../private-ag
 import { PrivateAgentBroker, isPublicAddress, type BrokerDestination } from "../private-agent/broker";
 import { isIP } from "node:net";
 import { readPublicSources } from "../private-agent/public-sources";
-import { MODEL_FEE_CAP_STOP, MODEL_UNAVAILABLE_STOP, modelRequestFailed, modelRequestFeeStop, PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop } from "../private-agent/model";
+import { MODEL_FEE_CAP_STOP, MODEL_UNAVAILABLE_STOP, modelRequestFailed, modelRequestFeeStop, PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop, modelIdentity } from "../private-agent/model";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "../private-agent/checkpoints";
 import { GeneralAgentSession, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../private-agent/session";
 import { DockerSandbox } from "../private-agent/sandbox";
@@ -28,7 +28,10 @@ import { EXECUTION_PROGRESS_STOP, readExecutionProgressStop, hasUnresolvedExecut
 import { COORDINATOR_PROFILES, DEFAULT_COORDINATOR_PROFILE, GENERAL_TASK_BUDGETS, type CoordinatorProfileName } from "../private-agent/profiles";
 import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, claimsInstructions, claimsLedgerCheck, isEntailmentDispatch } from "../private-agent/claims";
 import { isResolvedDispatch } from "../private-agent/store";
+import { HEARTBEAT_INTERVAL_MS, heartbeatLateness, localStreamSettings } from "../liveness";
 
+/** Cap on one assembled local model reply. */
+const LOCAL_MAX_RESPONSE_BYTES = 256 * 1024;
 /** The September desktop budget; the active budget comes from the configured profile. */
 export const GENERAL_TASK_LIMITS = GENERAL_TASK_BUDGETS.standard;
 export const GENERAL_TASK_WEB_LIMITS = Object.freeze({ maxFetches: 5, maxResponseBytes: 64 * 1024 });
@@ -71,6 +74,7 @@ const summaries: Record<string, string> = {
   consultation_proposed: "Consultation packet frozen. Nothing has been sent to the consultant.",
   consultation_decision: "Consultation decision recorded.", consultation_attempted: "Using the approved consultation allowance.",
   claims_entailment: "Claim support judged by the local model and recorded as evidence.",
+  host_heartbeat: "A host heartbeat fired late: the machine slept or the app was starved. The gap on each clock is recorded.",
   consultation_response: "Consultant response saved as untrusted advice.",
 };
 /** Bounded, exact-text projections of model-authored text for the owner surface; never instructions, never trusted. */
@@ -149,6 +153,8 @@ export interface GeneralTaskControllerOptions {
   runtimeIdentity: () => string;
   consultantProfile?: () => ConsultantProfile | undefined;
   onUpdate?: (snapshot: GeneralTaskSnapshot) => void;
+  /** PR-B: fires with true when the first task becomes active and false when the last one ends (the shell keeps the machine awake). */
+  onActivity?: (active: boolean) => void;
   /** Host-only test dependencies. Never accepted through IPC. */
   testing?: { readiness?: (imageId: string) => Promise<void>; runnerFactory?: GeneralSessionOptions["trustedHostRunnerFactory"] };
 }
@@ -161,7 +167,31 @@ export class GeneralTaskController {
   private readonly selections = new Map<string, { files: { path: string; bytes: Buffer }[]; metadata: GeneralTaskInputFile[]; expiresAt: number }>();
   private readonly consultationPreviews = new Map<string, string>();
   private readonly active = new Map<string, Active>();
+  private heartbeat?: { timer: ReturnType<typeof setInterval>; expectedWallMs: number; expectedMonotonicMs: number };
+  /** Called after every change to `active`: reports the transition and runs the late-heartbeat watch while tasks run. */
+  private trackActivity(): void {
+    const running = this.active.size > 0;
+    if (running && !this.heartbeat) {
+      const schedule = { timer: setInterval(() => this.tick(), HEARTBEAT_INTERVAL_MS), expectedWallMs: Date.now() + HEARTBEAT_INTERVAL_MS, expectedMonotonicMs: performance.now() + HEARTBEAT_INTERVAL_MS };
+      this.heartbeat = schedule;
+      try { this.options.onActivity?.(true); } catch { /* The shell's power-save hook never affects a task. */ }
+    } else if (!running && this.heartbeat) {
+      clearInterval(this.heartbeat.timer); this.heartbeat = undefined;
+      try { this.options.onActivity?.(false); } catch { /* idem */ }
+    }
+  }
+  private tick(): void {
+    if (!this.heartbeat) return;
+    const late = heartbeatLateness(this.heartbeat.expectedWallMs, this.heartbeat.expectedMonotonicMs, Date.now(), performance.now());
+    this.heartbeat.expectedWallMs = Date.now() + HEARTBEAT_INTERVAL_MS; this.heartbeat.expectedMonotonicMs = performance.now() + HEARTBEAT_INTERVAL_MS;
+    if (!late) return;
+    for (const id of this.active.keys()) {
+      try { const contextId = this.contextId(id); this.runtime.append(id, { type: "host_heartbeat", ...(contextId ? { contextId } : {}), ...late }); } catch { /* A task without a context yet has nothing to annotate. */ }
+    }
+  }
   private closing = false;
+  /** True while any task runs or cleans up: a quit then waits for it to reach a resumable boundary. */
+  busy(): boolean { return this.active.size > 0; }
 
   constructor(private readonly options: GeneralTaskControllerOptions) {
     const selectedRoot = resolve(options.dataRoot); mkdirSync(selectedRoot, { recursive: true, mode: 0o700 });
@@ -214,11 +244,13 @@ export class GeneralTaskController {
     const name = this.profileName(record), coordinator = COORDINATOR_PROFILES[name], limits = GENERAL_TASK_BUDGETS[name];
     const endpoint = `${config.vllm.baseUrl}/chat/completions`, model = { destinationId: "desktop_local", model: config.vllm.model,
       maxOutputTokens: coordinator.maxOutputTokens, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: coordinator.thinking,
-      maxRequestBytes: coordinator.maxRequestBytes, ...(coordinator.sampling ? { sampling: { ...coordinator.sampling } } : {}) };
+      maxRequestBytes: coordinator.maxRequestBytes, ...(coordinator.sampling ? { sampling: { ...coordinator.sampling } } : {}),
+      // PR-B: spread only when on, so an existing task's model identity is unchanged while streaming stays off.
+      ...(config.streamingEnabled ? { streaming: true } : {}) };
     // The profile owns the request timeout; the legacy SOAR_REQUEST_TIMEOUT_MS belongs to the review adapter.
     const timeoutMs = coordinator.requestTimeoutMs;
     return { config, endpoint, imageId, model, timeoutMs, name, limits, identity: digest(canonical({ version: 2, profile: name, runtimeIdentity, imageId,
-      endpointSha256: digest(endpoint), model, timeoutMs, limits })) };
+      endpointSha256: digest(endpoint), model: modelIdentity(model), timeoutMs, limits })) };
   }
   private consultant(record?: TaskRecord): ConsultantProfile {
     const profile = this.options.consultantProfile?.();
@@ -402,6 +434,9 @@ export class GeneralTaskController {
       connection_failed: "The local model or source could not be reached (nothing was sent).",
       upstream_closed: "The connection was closed by the other side before a response arrived.",
       response_interrupted: "The connection was closed after the response had started.",
+      inactivity_timeout: "The streamed reply stopped arriving for longer than the inactivity limit.",
+      stream_invalid: "The streamed reply could not be assembled into a complete response.",
+      stream_error: "The streamed reply ended with an error from the model server.",
     };
     return `${descriptions[failure.code]} Its outcome remains uncertain. Resume is blocked; the request will not be replayed.`;
   }
@@ -464,11 +499,12 @@ export class GeneralTaskController {
   }
   list(): GeneralTaskSnapshot[] { return this.records().map(record => this.get(record.id)); }
 
-  private broker(record: TaskRecord): PrivateAgentBroker {
-    const profile = this.profile(record);
+  /** `profile` is the snapshot the model was built from: the streaming flag is outside the identity, so it must not be re-read. */
+  private broker(record: TaskRecord, profile = this.profile(record)): PrivateAgentBroker {
     return new PrivateAgentBroker(this.runtime, [{ id: "desktop_local", kind: "local_model", endpoint: profile.endpoint, apiKey: profile.config.vllm.apiKey,
       accountId: "owner_declared_local_server", credentialVersion: 1, privateDataAdmitted: false, syntheticOnly: true,
-      maxResponseBytes: 256 * 1024, timeoutMs: profile.timeoutMs, maxRequestBytes: profile.model.maxRequestBytes,
+      maxResponseBytes: LOCAL_MAX_RESPONSE_BYTES, timeoutMs: profile.timeoutMs, maxRequestBytes: profile.model.maxRequestBytes,
+      ...(profile.config.streamingEnabled ? { stream: localStreamSettings(profile.timeoutMs, LOCAL_MAX_RESPONSE_BYTES, profile.model.maxOutputTokens) } : {}),
       ...(profile.config.recoverableDispatch ? { recoverable: true } : {}) }, ...this.webDestinations(record),
       ...(record.version === 3 ? [this.consultant(record).destination] : [])], new RulePacketScanner());
   }
@@ -520,7 +556,7 @@ export class GeneralTaskController {
     if (record.configurationIdentity !== this.configurationIdentity(record)) throw new Error("general_task_configuration_changed");
     record.status = "running"; record.reason = "running"; record.startedAt ??= Date.now(); this.save(record);
     const active: Active = { promise: Promise.resolve(), abort: new AbortController(), pauseRequested: false, cancelRequested: false };
-    this.active.set(id, active); active.promise = this.execute(id, active); this.publish(id); return this.get(id);
+    this.active.set(id, active); this.trackActivity(); active.promise = this.execute(id, active); this.publish(id); return this.get(id);
   }
   private async execute(id: string, active: Active): Promise<void> {
     const poll = setInterval(() => this.publish(id), 250);
@@ -537,7 +573,7 @@ export class GeneralTaskController {
       const checkpoints = this.checkpoints(id), phase = this.phase(record, checkpoints.load(record.inputSnapshot));
       if (sessionPhaseIdentity(phase) !== record.phaseIdentity || this.attestation(record) !== record.attestationIdentity) throw new Error("general_task_input_changed");
       const consultant = record.version === 3 ? this.consultant(record) : undefined;
-      const broker = this.broker(record);
+      const broker = this.broker(record, profile);
       const session = new GeneralAgentSession({ jobId: id, imageId: profile.imageId, store: this.runtime, broker, checkpoints, privatePhase: phase,
         limits: { maxRequests: profile.limits.sessionRequests, maxElapsedMs: profile.limits.elapsedMs },
         ...(record.publicSources ? { publicInputApproval: { phaseSha256: record.phaseIdentity, authoritySha256: record.attestationIdentity,
@@ -566,7 +602,7 @@ export class GeneralTaskController {
       const record = this.record(id); record.status = active.cancelRequested ? "cancelled" : "incomplete";
       record.reason = error instanceof Error && error.message === "general_task_configuration_changed" ? "configuration_changed" : "runtime_unavailable"; this.save(record);
     } finally {
-      clearInterval(poll); clearTimeout(deadline); this.active.delete(id); this.publish(id);
+      clearInterval(poll); clearTimeout(deadline); this.active.delete(id); this.trackActivity(); this.publish(id);
     }
   }
   pause(id: string): GeneralTaskSnapshot {
@@ -582,9 +618,9 @@ export class GeneralTaskController {
       const contextId = this.contextId(id), claim = contextId ? this.runtime.runClaim(contextId) : undefined;
       if (claim && claim.state !== "released") {
         const cleanup: Active = { promise: Promise.resolve(), abort: new AbortController(), pauseRequested: false, cancelRequested: true };
-        this.active.set(id, cleanup);
+        this.active.set(id, cleanup); this.trackActivity();
         // Schedule after the cancelled projection is durably saved below.
-        cleanup.promise = Promise.resolve().then(() => this.cleanupInterrupted(id, contextId!)).finally(() => { this.active.delete(id); this.publish(id); });
+        cleanup.promise = Promise.resolve().then(() => this.cleanupInterrupted(id, contextId!)).finally(() => { this.active.delete(id); this.trackActivity(); this.publish(id); });
       }
     }
     record.status = "cancelled"; record.reason = "cancelled"; this.save(record); this.publish(id); return this.get(id);

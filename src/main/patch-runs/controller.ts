@@ -208,6 +208,9 @@ export class PatchRunController {
   }
 
   /** Called before closing SQLite. No asynchronous worker callback may touch a closed database. */
+  /** True while a coding run is active: its cancellation and container cleanup outlast the idle quit bound. */
+  busy(): boolean { return this.active.size > 0; }
+
   close(): Promise<void> {
     if (this.closePromise) return this.closePromise;
     this.closed = true;

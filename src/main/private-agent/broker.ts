@@ -40,6 +40,13 @@ export interface BrokerDestination {
   exactUrl?: string;
   maxResponseBytes: number;
   timeoutMs: number;
+  /**
+   * PR-B: this local model destination may answer with a streamed chat completion, which the transport assembles into
+   * the non-streaming shape. The stream is aborted (unknown outcome, never retried) when no bytes arrive for
+   * `inactivityTimeoutMs` after the first one, and refused as oversize beyond `maxRawBytes`. Undeclared destinations
+   * never assemble: their bytes are returned as received.
+   */
+  stream?: { inactivityTimeoutMs: number; maxRawBytes: number };
   /** Optional per-destination request body cap; absent means BROKER_MAX_BODY_BYTES. */
   maxRequestBytes?: number;
   /**
@@ -90,6 +97,82 @@ type TransportFailureCode = Extract<UnknownRequestDiagnostic, { phase: "transpor
 class TransportFailure extends Error {
   constructor(readonly code: TransportFailureCode, readonly status?: number) { super(code); }
 }
+/** Upper bound on any declared raw stream cap. */
+export const STREAM_MAX_RAW_BYTES = 64 * 1024 * 1024;
+/** The stream ended with the server's own error chunk; `status` is the chunk's HTTP-style code when it carries one. */
+export class SseStreamError extends Error {
+  constructor(readonly status?: number) { super("sse_error_chunk"); }
+}
+/** The stream stopped before its `[DONE]` marker (possibly mid-line): the upstream ended the response early. */
+export class SseTruncated extends Error {
+  constructor() { super("sse_truncated"); }
+}
+type SseChoice = { index?: unknown; delta?: { content?: unknown; tool_calls?: unknown }; finish_reason?: unknown };
+type SseToolFragment = { index?: unknown; id?: unknown; type?: unknown; function?: { name?: unknown; arguments?: unknown } };
+/**
+ * Rebuilds a streamed OpenAI-compatible chat completion (SSE `data:` chunks ending in `[DONE]`) into the exact
+ * non-streaming response object: content concatenated, tool-call fragments joined by index, the finish reason and
+ * the usage block of the final chunk. Reasoning deltas are dropped. Throws `SseStreamError` for an in-band error,
+ * `SseTruncated` for a stream that stopped early, and a plain error for anything out of protocol: a choice other
+ * than index 0, text or tool fragments after the finish reason, any chunk after the usage chunk, a non-object payload.
+ */
+export function assembleSseChatCompletion(raw: string): Buffer {
+  let id: string | undefined, model: string | undefined, content = "", finishReason: string | null = null, usage: unknown, sawDone = false;
+  const calls = new Map<number, { id: string; type: "function"; function: { name: string; arguments: string } }>();
+  const lines = raw.split(/\r?\n/u);
+  // Text after the last newline is a line the stream never finished; it matters only if no `[DONE]` preceded it.
+  const partial = lines.pop() ?? "";
+  for (const line of lines) {
+    if (!line.startsWith("data:")) { if (line.trim() && !line.startsWith(":")) throw new Error("sse_line_invalid"); continue; }
+    if (sawDone) throw new Error("sse_after_done");
+    const payload = line.slice(5).trim();
+    if (payload === "[DONE]") { sawDone = true; continue; }
+    const parsed: unknown = JSON.parse(payload);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("sse_chunk_invalid");
+    const chunk = parsed as { id?: unknown; model?: unknown; choices?: unknown; usage?: unknown; error?: unknown };
+    if (chunk.error !== undefined) {
+      const code = typeof chunk.error === "object" && chunk.error !== null ? (chunk.error as { code?: unknown }).code : undefined;
+      throw new SseStreamError(typeof code === "number" && Number.isInteger(code) && code >= 400 && code <= 599 ? code : undefined);
+    }
+    // The usage chunk closes the reply: only `[DONE]` may follow it.
+    if (usage !== undefined) throw new Error("sse_after_usage");
+    if (typeof chunk.id === "string") id ??= chunk.id;
+    if (typeof chunk.model === "string") model ??= chunk.model;
+    if (chunk.choices !== undefined && !Array.isArray(chunk.choices)) throw new Error("sse_choices_invalid");
+    const choices = (chunk.choices ?? []) as SseChoice[];
+    if (choices.length > 1) throw new Error("sse_choices_invalid");
+    for (const choice of choices) {
+      if (typeof choice !== "object" || choice === null || choice.index !== 0) throw new Error("sse_choice_index_invalid");
+      const text = typeof choice.delta?.content === "string" ? choice.delta.content : "";
+      const fragments = choice.delta?.tool_calls === undefined || choice.delta.tool_calls === null ? [] : choice.delta.tool_calls;
+      if (!Array.isArray(fragments)) throw new Error("sse_tool_call_invalid");
+      if (finishReason !== null && (text || fragments.length)) throw new Error("sse_after_finish");
+      content += text;
+      for (const fragment of fragments as SseToolFragment[]) {
+        if (typeof fragment !== "object" || fragment === null || typeof fragment.index !== "number" || !Number.isInteger(fragment.index) || fragment.index < 0 ||
+            (fragment.type !== undefined && fragment.type !== "function")) throw new Error("sse_tool_call_invalid");
+        const current = calls.get(fragment.index) ?? { id: "", type: "function" as const, function: { name: "", arguments: "" } };
+        if (typeof fragment.id === "string") {
+          if (current.id && current.id !== fragment.id) throw new Error("sse_tool_call_invalid");
+          current.id = fragment.id;
+        }
+        if (typeof fragment.function?.name === "string") current.function.name += fragment.function.name;
+        if (typeof fragment.function?.arguments === "string") current.function.arguments += fragment.function.arguments;
+        calls.set(fragment.index, current);
+      }
+      if (typeof choice.finish_reason === "string") finishReason = choice.finish_reason;
+    }
+    if (chunk.usage !== undefined && chunk.usage !== null) usage = chunk.usage;
+  }
+  if (!sawDone) throw new SseTruncated();
+  if (partial.trim()) throw new Error("sse_after_done");
+  if (usage === undefined) throw new Error("sse_incomplete");
+  const toolCalls = [...calls.entries()].sort((left, right) => left[0] - right[0]).map(([, call]) => call);
+  if (toolCalls.some(call => !call.id || !call.function.name)) throw new Error("sse_tool_call_invalid");
+  const message = { role: "assistant", content: content || null, ...(toolCalls.length ? { tool_calls: toolCalls } : {}) };
+  return Buffer.from(JSON.stringify({ ...(id ? { id } : {}), object: "chat.completion", ...(model ? { model } : {}), choices: [{ index: 0, message, finish_reason: finishReason }], usage }));
+}
+
 /** Retries of one recoverable packet: the first attempt plus at most two more, with a short pause between them. */
 export const BROKER_MAX_ATTEMPTS = 3;
 export const BROKER_RETRY_BACKOFF_MS: readonly number[] = Object.freeze([1000, 3000]);
@@ -155,6 +238,10 @@ function normalizeDestination(value: BrokerDestination): BrokerDestination {
       (value.approvalPriceProfileSha256 !== undefined && !sha256Schema.safeParse(value.approvalPriceProfileSha256).success)) deny("destination_approval_invalid");
   if (value.kind === "public_web" && value.apiKey) deny("web_ambient_credential_denied");
   if (value.recoverable !== undefined && (typeof value.recoverable !== "boolean" || value.kind === "cloud_model")) deny("destination_recoverable_invalid");
+  if (value.stream !== undefined && (value.kind !== "local_model" || typeof value.stream !== "object" || value.stream === null ||
+      Object.keys(value.stream).sort().join() !== "inactivityTimeoutMs,maxRawBytes" ||
+      !Number.isSafeInteger(value.stream.inactivityTimeoutMs) || value.stream.inactivityTimeoutMs < 1000 || value.stream.inactivityTimeoutMs > value.timeoutMs ||
+      !Number.isSafeInteger(value.stream.maxRawBytes) || value.stream.maxRawBytes < value.maxResponseBytes || value.stream.maxRawBytes > STREAM_MAX_RAW_BYTES)) deny("destination_stream_invalid");
   if (value.grantFreeSynthetic !== undefined && (value.grantFreeSynthetic !== true || value.kind !== "cloud_model" || !value.syntheticOnly || value.requireExactGrant ||
       value.approvalPriceProfileSha256 !== undefined || value.privateDataAdmitted)) deny("destination_grant_free_invalid");
   if (value.publicDnsResolver !== undefined && (value.publicDnsResolver !== "cloudflare_v1" || value.kind !== "public_web" ||
@@ -351,7 +438,7 @@ async function transport(destination: BrokerDestination, url: URL, method: "GET"
   const controller = new AbortController();
   // Latch the first abort source. A later task cancel cannot relabel an already
   // fired request timer, and an external signal's arbitrary reason is ignored.
-  let abortCause: "request_timeout" | "cancelled" | undefined;
+  let abortCause: "request_timeout" | "cancelled" | "inactivity_timeout" | undefined;
   const externalAbort = () => { abortCause ??= "cancelled"; controller.abort(); };
   signal.addEventListener("abort", externalAbort, { once: true });
   if (signal.aborted) externalAbort();
@@ -392,17 +479,41 @@ async function transport(destination: BrokerDestination, url: URL, method: "GET"
         if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
           reject(new TransportFailure("http_rejected", response.statusCode)); response.destroy(); return;
         }
+        // PR-B: a declared streaming destination's chat completion is assembled into the non-streaming shape before it
+        // leaves the transport. The raw stream carries per-event overhead and discarded reasoning, so it has its own cap.
+        // The inactivity clock starts at the first byte: prefill before it is governed by the request deadline.
+        const stream = destination.stream && /^text\/event-stream/iu.test(String(response.headers["content-type"] ?? "")) ? destination.stream : undefined;
+        const rawCap = stream ? stream.maxRawBytes : destination.maxResponseBytes;
         const length = response.headers["content-length"];
-        if (length && (!/^\d+$/u.test(length) || Number(length) > destination.maxResponseBytes)) {
+        if (length && (!/^\d+$/u.test(length) || Number(length) > rawCap)) {
           reject(new TransportFailure("response_oversize")); response.destroy(); return;
         }
+        let inactivity: ReturnType<typeof setTimeout> | undefined;
+        const armInactivity = () => {
+          if (!stream) return;
+          clearTimeout(inactivity);
+          inactivity = setTimeout(() => { abortCause ??= "inactivity_timeout"; controller.abort(); }, stream.inactivityTimeoutMs);
+        };
         const chunks: Buffer[] = []; let count = 0;
         response.on("data", (chunk: Buffer) => {
-          count += chunk.length;
-          if (count > destination.maxResponseBytes) { reject(new TransportFailure("response_oversize")); response.destroy(); }
+          count += chunk.length; armInactivity();
+          if (count > rawCap) { reject(new TransportFailure("response_oversize")); response.destroy(); }
           else chunks.push(Buffer.from(chunk));
         });
-        response.on("end", () => resolve(Buffer.concat(chunks)));
+        response.on("end", () => {
+          clearTimeout(inactivity);
+          if (!stream) { resolve(Buffer.concat(chunks)); return; }
+          let assembled: Buffer;
+          try { assembled = assembleSseChatCompletion(Buffer.concat(chunks).toString("utf8")); } catch (error) {
+            // The server's own error and an early end are answers like an HTTP error or a cut connection (confirmed for a
+            // zero-risk packet); only an out-of-protocol stream stays uncertain.
+            reject(error instanceof SseStreamError ? new TransportFailure("stream_error", error.status)
+              : error instanceof SseTruncated ? new TransportFailure("response_interrupted") : new TransportFailure("stream_invalid"));
+            return;
+          }
+          if (assembled.length > destination.maxResponseBytes) reject(new TransportFailure("response_oversize")); else resolve(assembled);
+        });
+        response.on("close", () => clearTimeout(inactivity));
         // The response had started: the upstream executed the request, so this is confirmed only for a zero-risk packet.
         response.on("error", () => reject(abortCause ? transportError() : new TransportFailure("response_interrupted")));
         response.on("aborted", () => reject(abortCause ? transportError() : new TransportFailure("response_interrupted")));

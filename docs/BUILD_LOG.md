@@ -19565,3 +19565,149 @@ a dry run with streaming on the local box.
 
 References: [plan](PLAN.md) Phase 1 PR-B, serving card 2026-09-28 P8,
 BL-20261007-0530-pr-c-recoverable-dispatch-implemented.
+
+### BL-20261007-1247-pr-b-liveness-implemented -- 2026-10-07 -- Liveness implemented and reviewed (PR-B)
+
+Status: `Implemented`
+
+Scope or hypothesis: PR-B as designed in BL-20261007-1045: streamed local
+replies with an inactivity timeout, the machine kept awake while a task runs,
+late-heartbeat evidence, and a quit that cannot strand a task. Branch
+`phase1-liveness`, pull request #10, stacked on #9.
+
+Decisions:
+
+- **Streaming is declared per destination and assembled at the transport.**
+  With `SOAR_STREAMING` (default on) the desktop and the headless driver send
+  the vLLM request with `stream: true` and `stream_options.include_usage`, and
+  declare the local destination's `stream: { inactivityTimeoutMs, maxRawBytes
+  }` (local model destinations only; `destination_stream_invalid` otherwise).
+  For a declared destination answering `text/event-stream` the transport
+  assembles the chunks (content concatenated, reasoning dropped, tool-call
+  fragments joined by index, the finish reason, the final usage) into the exact
+  non-streaming response before the fee is settled, so the adapter, usage
+  envelope and settlement are unchanged. An undeclared destination returns an
+  event stream's bytes as received, and a declared one's JSON answer is handled
+  as before. The OpenAI shape refuses streaming, so the cloud arm and the
+  consultant stay non-streaming.
+- **Raw stream cap from the token limit (deviation, after measurement and
+  review).** The owned server streamed 64-70 bytes per output token (about 230
+  bytes per event, several tokens per event) on 2026-10-07. The first
+  implementation capped the raw stream at four times the 256 KiB reply cap,
+  which a heavy 16,384-token turn exceeds; that would have turned long turns
+  into unknown `response_oversize` rows. `maxRawBytes` is now `maxResponseBytes
+  + maxOutputTokens × 512`; the assembled reply keeps the destination's cap.
+- **Inactivity clock from the first byte (deviation).** The server writes the
+  headers at once and the first chunk only after prefill, so the 120 s clock
+  (`min(120 s, request timeout)`) starts at the first body byte and re-arms on
+  every chunk; prefill stays under the absolute request deadline, as before.
+  `inactivity_timeout` is an unknown outcome, never retried.
+- **Stream outcomes match their non-streaming twins.** The assembler is strict
+  (choice index 0, nothing after the finish reason or the usage chunk but
+  `[DONE]`, object payloads, consistent tool-call ids). The server's in-band
+  error chunk is the new diagnostic `stream_error` with the chunk's code as
+  status: confirmed for a zero-risk packet and retried like `http_rejected`
+  (5xx and 429), so an engine failure mid-stream ends as `model_unavailable`
+  and resumes, as an HTTP 500 does without streaming. A stream that ends before
+  `[DONE]` is `response_interrupted`, like a cut connection. Only an
+  out-of-protocol stream is `stream_invalid`, which stays unknown like a
+  malformed non-streaming body.
+- **Streaming is not an identity.** `modelIdentity()` strips the flag from the
+  runner's started identity, the session identity and the task configuration
+  identity, so a task paused before this change resumes with streaming on
+  (review findings, high: the first implementation hashed it in all three, and
+  then in the runner after the first fix).
+- **Keep the machine awake.** The controller reports the first active task and
+  the last one ending; the shell starts and stops
+  `powerSaveBlocker("prevent-app-suspension")` on those edges.
+- **Timer lateness.** While any task runs, a 30 s heartbeat compares scheduled
+  and actual firing on the wall and the monotonic clock; a gap of 5 s or more
+  is appended to each running task as a `host_heartbeat` event with both gaps.
+  It is evidence only: no resume predicate or projection reads it.
+- **Quit never strands a task by default (deviation).** The design bounded the
+  quit at 20 s on the claim that the runner pauses at an action boundary. The
+  reviews showed a pause takes effect only at the top of the runner loop: after
+  the in-flight reply (up to three attempts under D4) and the action it
+  selected (a command up to 180 s, finish verification up to 90 s per check).
+  Any fixed cut before that leaves an unknown operation and a task that cannot
+  resume, and no computed bound is sensible (50 checks would be 75 minutes).
+  So an idle quit stays bounded at 20 s, and a busy quit (a general task or a
+  Labs patch run active) waits for the task's own deadlines with no fixed cut,
+  while the owner is offered "Keep waiting" or "Quit now" with the consequence
+  stated; a second quit request re-offers it. The offer always has a visible
+  parent so it is a sheet: the open window is restored and shown, or a small
+  host window is created when none is open, because a box without a visible
+  parent is a synchronous modal on macOS that holds the main loop the task
+  needs (the second review reproduced the resulting false
+  `inactivity_timeout`). Making a pause take effect between the reply and its
+  action is a runner protocol change left for a later PR.
+- **One configuration snapshot per start.** The model and its destination are
+  built from the same profile read, because the streaming flag is outside the
+  identity and a second read could disagree.
+- **Reviewed-source freeze.** The driver's source freeze includes
+  `src/main/liveness.ts`, which it imports.
+
+Changes: `broker.ts`, `store.ts` (diagnostic codes `inactivity_timeout`,
+`stream_invalid`, `stream_error`; persisted schema, no migration), `model.ts`,
+`runner.ts`, `session.ts`, `controller.ts`, `bootstrap.ts`, `index.ts`,
+`config.ts`, new `src/main/liveness.ts`, the headless driver, `.env.example`;
+tests in the broker, model, runner, session, controller and new liveness
+suites.
+
+Evidence:
+
+- `pnpm check`: 122 files, 1,955 tests passed, 72 skipped. Docker-gated
+  runtime and claims suites on the qualified runtime image: 11 passed.
+- Live probes of the owned server (synthetic prompts, zero fee): a 300-token
+  thinking stream (`reasoning` deltas, 83 events, 19,108 bytes), a 111-token
+  plain stream, and a streamed `write_file` tool call whose exact chunk shape
+  the tests replay.
+- Loopback tests: the server's tool-call stream assembled exactly; a heavy
+  turn of 16,384 one-token chunks (3.8 MB raw) settled with a 2 KB assembled
+  reply; prefill longer than the inactivity limit settled; a mid-stream stall
+  recorded one unknown `inactivity_timeout`; raw and assembled caps each
+  recorded unknown oversize; an in-band 500 retried twice then failed, a 400
+  failed once, an early end failed as `response_interrupted`, a priced
+  in-band error stayed unknown, a malformed stream stayed unknown; declaration
+  bounds; identical identities with the flag on and off and a paused job
+  resumed through the real runner with it on; a 90 s wall-clock jump recorded
+  one `host_heartbeat`; activity edges and `busy()`; the quit runs once for
+  idle, busy-then-paused and owner-quit cases, an idle close is cut at 20 s and a
+  busy one is never cut.
+- Reviews: first (three lenses, eleven agents) confirmed five defects, the raw
+  cap, the inactivity start, the runner identity, the in-band error class and
+  the quit bound; all fixed as above. Unverified low findings: assembly on
+  undeclared destinations and out-of-protocol acceptance (both fixed), the
+  heartbeat wording (fixed), and cancel cleanup cut by a quit (now only on the
+  owner's "Quit now"; recorded below). Second review, on the fixes (two
+  lenses; its verify stage failed on a script error, so the agent judged the
+  findings from the code): the busy bound shorter than a turn's path to its
+  pause boundary (real, both lenses; resolved by removing the fixed busy cut),
+  a minimized or hidden window turning the offer into a blocking modal (real;
+  resolved by the visible parent), Labs patch runs not counted as busy (real;
+  fixed), and two configuration reads for the model and its destination (real;
+  fixed).
+- Dry run: not yet run; it follows on this commit and is recorded in its own
+  entry.
+
+Failures or blockers: None open.
+
+Limitations and non-claims: Streaming changes no model output; a remote cut at
+the serving card's 947 s still ends the request. The lateness record is
+diagnostic only. The power-save blocker and the quit offer have unit coverage
+of their policy, not a sleep or quit test on the owner's machine. A busy quit
+can wait as long as the running step's own deadlines (up to the request
+deadline per attempt and the action after it); the owner's "Quit now" is the
+only early exit, and macOS shutdown waits for it as it did before PR-B. "Quit now"
+during a cancel cleanup leaves that cleanup unconfirmed until the task is
+cleaned another way (pre-existing; nothing re-runs cleanup at startup).
+
+Paid exposure: USD 0.
+
+Next gate: the streaming dry run (one zero-fee heavy run of the seen task T2
+with the claims ledger, on this commit); then PR-I (image v2 for document
+review) and Phase 2 task authoring.
+
+References: BL-20261007-1045-pr-b-liveness-design,
+BL-20261007-0530-pr-c-recoverable-dispatch-implemented, [plan](PLAN.md)
+Phase 1 PR-B, serving card 2026-09-28 P8.

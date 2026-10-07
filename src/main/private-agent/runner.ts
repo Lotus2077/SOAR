@@ -6,7 +6,7 @@ import { PrivateAgentBroker, BrokerError } from "./broker";
 import { DockerSandbox, PRIVATE_SANDBOX_LIMITS, type SandboxExecution } from "./sandbox";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "./checkpoints";
 import { PrivateAgentModel, ModelRequestBodyTooLarge, MODEL_FEE_CAP_STOP, MODEL_REQUEST_SIZE_STOP, MODEL_UNAVAILABLE_STOP, modelRequestSizeStop, modelRequestFeeStop, modelRequestFailed, hasInvalidModelRequestSizeStop,
-  type GeneralMessage, type GeneralToolDefinition } from "./model";
+  type GeneralMessage, type GeneralToolDefinition, modelIdentity } from "./model";
 import { readPublicSources, readPublicSourceFiles, retainPublicSource, PUBLIC_SOURCE_OBSERVATION_BYTES } from "./public-sources";
 import { GeneralConsultation } from "./consultation";
 import { EXECUTION_OBSERVATION_MAX_BYTES, EXECUTION_OBSERVATION_BUDGET_BYTES, READ_OBSERVATION_TOOL,
@@ -264,7 +264,7 @@ export class GeneralAgentRunner {
         incompleteExecuteStop: INCOMPLETE_EXECUTE_STOP,
         nudges: { noAction: NUDGE_NO_ACTION, multi: NUDGE_MULTI, limit: NUDGE_LIMIT, length: lengthFeedback(model.config.maxOutputTokens), lengthLimit: LENGTH_LIMIT },
         commandTimeoutMs: COMMAND_TIMEOUT_MS }));
-      const identity = digest(canonical({ contract, imageId, checks: this.options.checks, model: this.options.model.config,
+      const identity = digest(canonical({ contract, imageId, checks: this.options.checks, model: modelIdentity(this.options.model.config),
         webDestinations: this.options.webDestinations ?? [], maxPublicFetches: this.options.maxPublicFetches ?? null, promptProtocolSha256,
         ...(this.options.consultation ? { consultationIdentity: this.options.consultation.identity } : {}) }));
       const history = this.history();

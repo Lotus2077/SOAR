@@ -20238,3 +20238,111 @@ Next gate: both tools implemented with tests (loopback critic, a synthetic
 failed run) and reviewed; one L′ repair dry run on a synthetic failed draft.
 
 References: BL-20261007-1449-phase1-close-out, [plan](PLAN.md) Phase 2.
+
+### BL-20261007-1522-phase2-harness-implemented -- 2026-10-07 -- Phase 2 harness implemented and reviewed: blind bundles and the repair pair
+
+Status: `Implemented`
+
+Scope or hypothesis: the design BL-20261007-1451. Branch `phase2-harness`,
+pull request #12, stacked on #11.
+
+Decisions:
+
+- **Blind bundles** (`scripts/phase2-blind.py`).
+  - What is copied: every run's deliverables, under random labels. That is
+    the job's required artifacts plus those its host-checked mode adds: the
+    claims ledger, or the document-review redline, clean copy, issues list,
+    hygiene report and edit plan.
+  - What is refused:
+    - runs not bound to the task's job and brief;
+    - runs whose modes differ;
+    - a repair placed beside the draft it started from (repair pairs get
+      their own bundle);
+    - roots outside `.soar`;
+    - any overwrite.
+  - How it is built: aside, then renamed into place, so a failure leaves
+    nothing. A run with no outputs gets a full missing list. The key is
+    written with owner-only permissions outside the bundle.
+- **Repair pair.**
+  - `scripts/phase2-repair.ts --critique` freezes a failed L-Heavy draft into
+    one packet of at most 64 KiB. The packet holds the brief (up to 24 KiB),
+    each deliverable as text with a fair share of the room, and the private
+    phase's last `finish` and `check_claims` results. One critic answers: the
+    cloud model for H, the local model for L′.
+  - The source must be a local heavy run of the same job and brief. Cloud,
+    Standard, repair or public-phase runs are refused.
+  - The output directory holds the packet, the critique, the frozen draft and
+    a binding: packet, critique, draft and source hashes, the critic and its
+    token cap.
+  - `--repair-from` on the headless driver checks the binding against the run
+    (job, brief, profile and mode, local only). It seeds the identical draft
+    and `context/critique.md` and appends a fixed repair instruction. The
+    freeze records the binding.
+  - Office files and PDFs are rendered to text by a host-owned script in the
+    qualified image, within a byte budget under the sandbox's 256 KiB output
+    cap.
+- **Deviation: critic cap 8,192 tokens, not 4,096.** Both APIs count
+  reasoning inside the cap, and a thinking critic could otherwise return
+  nothing. The cap is the same for both critics and is recorded in the
+  binding.
+
+Changes:
+- New `src/main/private-agent/repair.ts` (covered by the driver's
+  reviewed-source freeze), `scripts/phase2-repair.ts` and
+  `scripts/phase2-blind.py`.
+- `--repair-from` added to the driver.
+- Unit tests for blinding, the packet, seeding, source loading and a
+  loopback critic through the real broker; Docker-gated rendering tests.
+
+Evidence:
+
+- `pnpm check`: 125 files, 1,971 tests passed, 80 skipped. Docker-gated
+  runtime, claims, document-review and rendering suites on the qualified
+  image: 19 passed.
+- Unit tests:
+  - Blinding: bundles carry no freeze, result, model, arm or timing; mode
+    deliverables are included; a run with no outputs is handled; the
+    refusals listed above hold; the key is owner-only.
+  - The packet is at most 64 KiB, deterministic and UTF-8-safe, and splits
+    the room fairly. The self-check comes from the private phase only.
+  - Seeding checks every byte of the draft and critique, refuses `..`
+    paths, and refuses symlinks on read-back.
+  - The source and binding checks refuse a mismatched job, brief, profile
+    or mode.
+  - A loopback critic sent exactly the system prompt and the packet, with
+    no tools and an 8,192-token cap.
+- Docker-gated tests: DOCX (with tables), PPTX, XLSX and PDF rendered to
+  text, and two 1,500-clause DOCX drafts stayed under the cap.
+- Review (two lenses, eight agents). It confirmed two high and four medium
+  findings, all fixed:
+  - the bundle left out mode deliverables;
+  - a run with no outputs crashed the bundle and blocked re-runs;
+  - rendered output could overflow the sandbox cap;
+  - the brief was not bound, by repair or by bundles.
+  Of its unverified low findings, these were fixed:
+  - the source arm, profile and public phase are now enforced;
+  - draft paths refuse `..`, and read-back refuses symlinks;
+  - the packet is split fairly;
+  - NUL is stripped before the request;
+  - the key is owner-only under `.soar`;
+  - a repair cannot be bundled with its own source;
+  - the self-check reads only the private phase.
+
+  Two remain as limitations: a redline is critiqued through its accepted
+  text plus the edit plan, and a critique cut at the cap is used as is (its
+  finish reason is recorded).
+
+Failures or blockers: None. Live H critiques need the owner's key.
+
+Limitations and non-claims:
+- No live critic has run yet.
+- The blind cannot hide style.
+- An end-to-end `critique()` run needs the owned model, so CI covers its
+  parts, not the whole.
+
+Paid exposure: USD 0.
+
+Next gate: one L′ repair dry run on a real failed draft. Then Phase 2
+waits on the separate-session task authoring and the owner's key.
+
+References: BL-20261007-1451-phase2-harness-design, [plan](PLAN.md) Phase 2.

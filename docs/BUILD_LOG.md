@@ -20153,3 +20153,88 @@ Next gate: the Phase 2 repair-pair harness (design entry first). Then the
 task freeze and tag tooling, and the separate-session task authoring.
 
 References: [plan](PLAN.md) Phase 1 exit and fallbacks, Phase 2 arms.
+
+### BL-20261007-1451-phase2-harness-design -- 2026-10-07 -- Phase 2 harness: blind verdict bundles and the repair pair
+
+Status: `Proposed`
+
+Scope or hypothesis: the two Phase 2 harness pieces the close-out
+(BL-20261007-1449) found missing. Both are needed before Phase 2 is counted:
+
+- blind bundles, because the owner's blind verdict on every output is the
+  outcome of record;
+- the repair pair (H and L′), which runs on up to 6 failed L-Heavy drafts.
+
+Task authoring is not part of this: it belongs to a separate session, per the
+plan. On-track check: the plan's Phase 2 acceptance needs the blind verdict
+and lists the repair pair among the arms. Neither changes the runner, prompts
+or caps the arms share.
+
+Decisions:
+
+- **Blind bundles** (`scripts/phase2-blind.py`, standard-library Python, host
+  side).
+  - For one frozen task, it takes the run directories of every arm and seed.
+    Each run's required artifacts are copied byte for byte into
+    `blind/<task>/<label>/`, where labels are random letters drawn with
+    `secrets`.
+  - No freeze, result, model name, arm or timing goes in the bundle.
+  - The label-to-run key goes to `blind/<task>/key.json` under the ignored
+    `.soar/` and never into Git. The build log records only the key's
+    SHA-256 when the bundle is made, so the key cannot be changed afterwards
+    without notice.
+  - An owner verdict sheet (`verdicts.csv`) lists the labels, with columns for
+    accept or reject, notes, and the owner's guess of the arm.
+  - Artifacts are not rewritten. Metadata inside them that might hint at the
+    arm is reported, not stripped, and the arm guess measures whether the
+    blinding held.
+- **Repair pair** (`scripts/phase2-repair.ts`, plus `--repair-from` on the
+  headless driver).
+  - *Packet.* It is built deterministically from a failed run, at most
+    64 KiB, and is identical for both halves:
+    - the brief;
+    - a text rendering of each required artifact: text formats verbatim;
+      DOCX, PPTX, XLSX and PDF rendered to text by a host-owned script in
+      the sandbox on the qualified image;
+    - the agent-visible self-check: the host's last `finish` result and the
+      last `check_claims` result, as the agent saw them.
+
+    Every part is byte-bounded, and the canonical packet is hashed.
+  - *Critique.* One request with a fixed, versioned prompt and no tools, at
+    most 4,096 output tokens. H sends it to the cloud coordinator destination
+    (OpenAI shape, synthetic-only, key from the launching shell, fee cap
+    USD 1 per critique). L′ sends it to the local model on the heavy profile.
+    The critique, its usage and fee and the packet hash are saved.
+  - *Repair.* A new local heavy run of the same task. Its workspace starts
+    from the failed draft: the draft's output files at their paths, plus
+    `context/critique.md`, marked untrusted advice. The brief is extended by
+    a fixed repair instruction. Budgets, checks and the git SHA are the
+    task's own.
+  - The freeze binds the source run's result, the draft file hashes, the
+    packet hash and the critique hash. Both halves therefore provably start
+    from the identical draft and differ only in the critic.
+- **Privacy.** Phase 2 inputs are public or synthetic, so a cloud critique is
+  allowed. The repair tool refuses a source run whose freeze is not synthetic
+  or public, and the broker's synthetic-only admission still applies.
+
+Changes: This entry. Implementation follows on `phase2-harness`, stacked on
+PR #11.
+
+Evidence: [plan](PLAN.md) Phase 2 arms and acceptance; the consultant and
+claims-judge request paths (tool-less `complete`, OpenAI shape, fee cap) read
+on 2026-10-07.
+
+Failures or blockers: None for building and testing. Live H critiques need
+the owner's key.
+
+Limitations and non-claims: A text rendering of a deck or a spreadsheet
+loses layout; the critic sees the text, as the plan specifies. Blinding
+cannot hide every stylistic tell, which is why the owner's arm guess is
+recorded.
+
+Paid exposure: USD 0. Building and loopback tests make no live cloud call.
+
+Next gate: both tools implemented with tests (loopback critic, a synthetic
+failed run) and reviewed; one L′ repair dry run on a synthetic failed draft.
+
+References: BL-20261007-1449-phase1-close-out, [plan](PLAN.md) Phase 2.

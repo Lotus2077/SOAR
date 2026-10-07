@@ -19759,3 +19759,74 @@ Next gate: PR-I design and implementation.
 
 References: BL-20261007-1247-pr-b-liveness-implemented,
 BL-20261007-1045-pr-b-liveness-design.
+
+### BL-20261007-1302-pr-i-document-review-design -- 2026-10-07 -- Document review designed on the qualified image (PR-I)
+
+Status: `Proposed`
+
+Scope or hypothesis: Phase 1 item 6 ([plan](PLAN.md) PR-I; design §4 "Document
+review and amend"): the model writes an edit plan, a deterministic host-owned
+script turns it into native tracked changes, comments, an issues list and a
+clean amended copy, and host fidelity checks prove the result. On-track check:
+PR-A to PR-B are implemented (PRs #4 to #10); Phase 1 exit criterion 1 is met,
+criterion 2 is met for the local arm and waits on the owner's key for the
+cloud arm, and criterion 3 is owner-only; PR-I is the last runtime item and
+the document-review family is the second family the owner chose (D-table
+"Start").
+
+Decisions:
+
+- **No image rebuild (deviation from the plan, in the safer direction).** The
+  plan assumed one rebuild adding `docx-revisions` and possibly
+  `python-redlines`. The qualified image `e5c7075f…` already pins lxml 6.1.3,
+  python-docx 1.2.0 (comments), openpyxl 3.1.5, pypdf 6.18.0 and LibreOffice
+  Writer 25.2.3 (qualified headless rendering). A host-authored applier on
+  lxml writes `w:ins`/`w:del` directly, so PR-I adds no dependency, downloads
+  nothing and needs no re-qualification; the capability binding is unchanged.
+- **Edit plan, not markup.** The agent writes `review/edits.json`: at most 200
+  edits, each `{id, anchor, action, newText?, rationale, severity}` with
+  `action` one of `replace`, `delete`, `insert_after`, `comment`. The anchor is
+  a verbatim quote that must occur exactly once in the body text and lie inside
+  one paragraph; overlapping anchors are refused. The model never writes OOXML.
+- **Deterministic applier, host-owned and pinned.** `review/soar_redline.py` is
+  placed in the workspace by the host and pinned by hash (a critical check).
+  The agent runs it; it splits runs at the anchor (run properties kept),
+  writes tracked changes authored "SOAR draft" with unique revision ids, adds a
+  comment with the rationale for every edit, and writes `output/redline.docx`,
+  `output/clean.docx` (all edits accepted, no revisions), `output/issues.xlsx`
+  (one row per edit, paragraph ordinal as location) and
+  `output/hygiene.json` (authors, comment authors, remaining revisions, hidden
+  text).
+- **Fidelity checks prove the result (critical, at finish).** The check
+  re-applies the plan with the pinned applier to the original in a scratch
+  directory and requires: reject-all text equals the original; accept-all text
+  equals the plan applied as text; every non-body part equals the original
+  byte for byte; every revision maps to exactly one edit and revision ids are
+  unique; the clean copy equals accept-all and has no revisions; the issues
+  list equals the plan; the agent's outputs equal the re-derived ones; both
+  documents render to PDF under LibreOffice with a `/tmp` profile.
+- **Scope.** DOCX only. PDF annotation, rendered clause numbers and the export
+  hygiene gate in the desktop are later steps; the hygiene report is produced
+  and checked here. Closed corpus: document-review tasks get no search, fetch
+  or consultation tools.
+
+Changes: This entry. Implementation follows on `phase1-document-review`,
+stacked on PR-B.
+
+Evidence: the qualified image's Dockerfile, requirements lock and capability
+binding read on 2026-10-07; design §4.
+
+Failures or blockers: None.
+
+Limitations and non-claims: The applier covers single-paragraph anchors; edits
+that span paragraphs, tables of changes and moved text are refused, not
+approximated. Microsoft Word rendering is not tested; LibreOffice rendering
+is.
+
+Paid exposure: USD 0.
+
+Next gate: PR-I implemented with Docker-gated tests on the qualified image and
+reviewed; a synthetic document-review dry run.
+
+References: [plan](PLAN.md) Phase 1 PR-I, [design](plans/PRIVATE_WORK_DESIGN_V1.md)
+§4, BL-20261007-1247-pr-b-liveness-implemented.

@@ -20394,3 +20394,69 @@ Paid exposure: USD 0.
 Next gate: the L′ dry run with the corrected cap.
 
 References: BL-20261007-1522-phase2-harness-implemented.
+
+### BL-20261007-1535-lprime-repair-dry-run -- 2026-10-07 -- L′ repair dry run: critique missed the defect, the repair fixed it anyway
+
+Status: `Verified`
+
+Scope or hypothesis: the dry-run gate of BL-20261007-1522 and
+BL-20261007-1529, on commit `61acfce` with a clean tree. The source is a real
+failed draft: the streamed T2 memo of BL-20261007-1301, rejected for an
+invalid JSON example (doubled braces). The run measures whether the packet,
+the local critique, identical-draft seeding and the repair run work end to
+end. It is not a Phase 2 counted run, and the source draft came from an
+earlier SHA (`7fa7c56`), so it is not a fair-pair measurement.
+
+Decisions:
+
+- **Critique.**
+  - The first attempt at the 8,192-token cap was empty (corrected in
+    BL-20261007-1529).
+  - The attempt on the committed tree, at 16,384 tokens, finished. It used a
+    13,358-byte packet and the two draft files (`output/research-report.md`,
+    `output/claims.json`).
+  - It **missed the planted defect**: it called the JSON example present
+    without noticing it is invalid. It raised three wording points:
+    - C21 calls a MUST a recommendation;
+    - ISO 8601 has no rationale;
+    - C16's paraphrase omits string encoding.
+- **Repair.** The local heavy run reached `submitted` after 17 agent calls in
+  158 s; all 40 dispatches settled. Both critical checks passed (source
+  preserved, claims ledger). The freeze binds the critique, packet and draft
+  hashes.
+  - The repaired memo **fixes the invalid JSON**, which the critique never
+    mentioned, and applies all three critique points. C21 now says
+    "requires (MUST)", and ISO 8601 gains a rationale and its own claim, C23.
+  - It stays at 379 words, under the 380-word limit.
+- **Outcome recorded as accepted** by the host checks and the brief's gates;
+  the owner's verdict is pending.
+  - The entailment pass judged 20 supported, 2 partial and 1 unsupported.
+    The draft had 21 supported and 1 partial.
+  - The new unsupported claim, C8, has text the repair did not change, so it
+    reads as variance in the judge's sampling, not a regression. Judge
+    verdicts are evidence, not acceptance.
+- **What this shows and does not show.** The harness works end to end. A
+  critique can miss the main defect, and a repair agent re-reading its own
+  draft can still find it. This single run cannot say whether the critique
+  helped; that is what the H and L′ pair in Phase 2 measures.
+
+Changes: registry row `p2r-t2-rfc-memo-heavy-repair-local` in
+[registry.jsonl](experiments/registry.jsonl); this entry.
+
+Evidence: `phase2-repair-v1/critique-local-2` (packet, critique, binding)
+and `phase2-repair-v1/runs/t2-repair-local` (local, ignored).
+
+Failures or blockers: None.
+
+Limitations and non-claims: This is one sample. The critic sampled at the
+heavy profile's temperature; of three critiques on this packet, one found
+the defect and one contained a factual error. Not capability evidence.
+
+Paid exposure: USD 0.
+
+Next gate: Phase 2 waits on the separate-session task authoring and the
+owner's key (for C-Sol and H), and on the owner merging #1 to #12 and cutting
+`owner-v0.1`.
+
+References: BL-20261007-1522-phase2-harness-implemented,
+BL-20261007-1529-critic-cap-correction, BL-20261007-1301-pr-b-streaming-dry-run.

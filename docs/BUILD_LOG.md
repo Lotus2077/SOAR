@@ -19999,3 +19999,78 @@ Phase 1 close-out and Phase 2 task authoring.
 References: BL-20261007-1302-pr-i-document-review-design,
 [design](plans/PRIVATE_WORK_DESIGN_V1.md) section 4, [plan](PLAN.md) Phase 1
 PR-I.
+
+### BL-20261007-1448-pr-i-document-review-dry-run -- 2026-10-07 -- Document-review dry run: 12 of 13 planted issues, fidelity check passed
+
+Status: `Verified`
+
+Scope or hypothesis: the dry-run gate of BL-20261007-1439 (PR-I). One zero-fee
+local run on the heavy profile, with `--document-review true`, on commit
+`aaec323` with a clean tree. The authority record is bound to BL-20260928-1745
+and BL-20261007-1439. The task is fresh and synthetic: a two-page services
+agreement written for this run, reviewed for the Client. It contains planted
+problems (inconsistent term, payment and defined-term usage, a wrong
+cross-reference, a typo, one-sided clauses and a law/forum mismatch). The
+planted-issue list is evaluator gold and is kept out of the repository. The
+run measures whether the edit plan, applier and fidelity check work end to
+end with the local model. It is not capability evidence.
+
+Decisions:
+
+- **End-to-end gate met.** The run reached `submitted` after 20 streamed
+  agent turns. All 20 dispatches settled: none unknown, retried or failed,
+  and no length stop. Both critical checks passed: source preservation and
+  `document_review_fidelity`, including LibreOffice rendering of both files.
+- **How the agent worked.** It listed the paragraphs through the paged
+  `--list` (redirected to a file), read the applier's source, and wrote a
+  19-edit plan: 16 replacements and 3 comment-only edits. The plan applied on
+  the first try with no refusal. The redline holds 32 revisions and 19
+  comments, all by "SOAR draft". The clean copy has no revisions, comments or
+  hidden runs.
+- **Outcome recorded as accepted** by the host checks, the brief's gates and
+  the planted-issue list; the owner's verdict is pending.
+  - It found 12 of 13 planted issues. It missed that 7.2 lets the Provider
+    terminate at once on expiry: it corrected the term in that sentence
+    without flagging the one-sided right.
+  - It found 2 of 3 lower items; it did not note the missing data-protection
+    clause.
+  - The summary meets the brief: 274 words, grouped by severity, with clause
+    numbers and edit ids, a recommendation and the not-legal-advice line.
+  - Reservations:
+    - Some business decisions, such as the cap amount and the notice period,
+      were proposed as replacements where the brief asked for comments.
+    - One edit's severity differs between the plan and the summary.
+
+Changes: registry row `p1i-d1-services-agreement-heavy` in
+[registry.jsonl](experiments/registry.jsonl); this entry.
+
+Evidence: run `phase1-document-review-v1/d1-services-agreement-heavy`
+(local, ignored):
+
+| Measure | Value |
+| --- | --- |
+| Wall time | 423.4 s |
+| Input tokens | 248,719 |
+| Output tokens | 26,727 |
+| Revisions in the redline | 32 |
+| Comments in the redline | 19 |
+
+The hygiene report names the synthetic creator and shows no hidden text.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This is one run of one fresh synthetic document, scored by the agent that
+  wrote the planted list, so it is not independent evidence of review
+  quality.
+- The model read the applier's source, which is allowed and harmless: the
+  check, not the instructions, decides acceptance.
+- The desktop does not offer document review yet.
+
+Paid exposure: USD 0.
+
+Next gate: Phase 1 close-out (exit criteria and owner items); Phase 2 task
+authoring.
+
+References: BL-20261007-1439-pr-i-document-review-implemented,
+BL-20261007-1302-pr-i-document-review-design.

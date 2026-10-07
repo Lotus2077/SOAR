@@ -151,8 +151,9 @@ export function buildCloudArm(input: CloudArmInput, environment: NodeJS.ProcessE
   const credentialVersion = Number(environment.SOAR_PHASE2_CLOUD_CREDENTIAL_VERSION ?? "1");
   if (!Number.isSafeInteger(credentialVersion) || credentialVersion < 0) throw new Error("local_screen_cloud_arm_invalid");
   const accountId = environment.SOAR_PHASE2_CLOUD_ACCOUNT_ID ?? "owner_cloud_account";
+  // Synthetic-only and explicitly grant-free: the broker admits this destination to a wholly synthetic lineage and nothing else.
   const destination: BrokerDestination = { id: "cloud_coordinator", kind: "cloud_model", endpoint: endpoint.href, apiKey, accountId, credentialVersion,
-    privateDataAdmitted: false, maxResponseBytes: 512 * 1024, timeoutMs: 600_000, maxRequestBytes: coordinator.maxRequestBytes };
+    privateDataAdmitted: false, syntheticOnly: true, grantFreeSynthetic: true, maxResponseBytes: 512 * 1024, timeoutMs: 600_000, maxRequestBytes: coordinator.maxRequestBytes };
   // Same output limit, thinking mode and body cap as the local arm; only the API shape, the prices and the timeout differ.
   const modelConfig = { destinationId: "cloud_coordinator", model: input.model, api: "openai" as const, maxOutputTokens: coordinator.maxOutputTokens, thinking: coordinator.thinking,
     inputUsdPerMillion: input.prices.input, outputUsdPerMillion: input.prices.output, cachedInputUsdPerMillion: input.prices.cached, maxRequestBytes: coordinator.maxRequestBytes };
@@ -280,8 +281,11 @@ export async function runLocalArtifactScreen(input: {
       }
       if (calls !== lastReported) { lastReported = calls; process.stdout.write(`${canonical({ state: "running", requests: calls, completedTools: events.filter(event => event.type === "tool_finished").length })}\n`); }
     }, 1000);
-    let result = await session.run(abort.signal);
-    if (result.status === "paused") { save("pause.json", result); result = await session.run(abort.signal); }
+    // A failure outside the runner's own handling still ends with a result record, so paid spend is always summarized.
+    const guarded = async () => { try { return await session!.run(abort.signal); }
+      catch { return { status: "incomplete" as const, reason: "session_failure", jobId, finalSnapshot: [], requests: store.dispatches(jobId).length, artifactAccepted: null, independentAcceptanceRequired: true as const }; } };
+    let result = await guarded();
+    if (result.status === "paused") { save("pause.json", result); result = await guarded(); }
     clearInterval(interval); interval = undefined;
     const files = checkpoints.load(result.finalSnapshot);
     const candidate = join(directory, "candidate"); mkdirSync(candidate, { mode: 0o700 });

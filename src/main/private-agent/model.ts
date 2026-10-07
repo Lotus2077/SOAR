@@ -20,17 +20,31 @@ const sizeStopSchema = z.object({
   bodyBytes: z.number().int().safe().positive(), limitBytes: z.number().int().safe().positive(),
 }).strict().refine(value => value.bodyBytes > value.limitBytes);
 export type ModelRequestSizeStop = z.infer<typeof sizeStopSchema>;
+/** PR-E: the fee cap refused the next request before any row existed; like the size stop, provably not dispatched and never resumable. */
+export const MODEL_FEE_CAP_STOP = "fee_cap_reached";
+const feeStopSchema = z.object({
+  type: z.literal("model_request_not_dispatched"), contextId: privateAgentId, operationId: z.string().uuid(),
+  promptProtocolSha256: sha256Schema, reason: z.literal(MODEL_FEE_CAP_STOP), dispatched: z.literal(false),
+  maxFeeMicrousd: z.number().int().safe().nonnegative(), settledFeeMicrousd: z.number().int().safe().nonnegative(),
+}).strict();
+export type ModelRequestFeeStop = z.infer<typeof feeStopSchema>;
 
-/** A receipt's absence never proves non-dispatch. Require one exact host marker/start join. */
-export function modelRequestSizeStop(events: Record<string, unknown>[], start: Record<string, unknown>): ModelRequestSizeStop | undefined {
+function notDispatchedJoin(events: Record<string, unknown>[], start: Record<string, unknown>): Record<string, unknown> | undefined {
   if (start.type !== "model_started") return;
   const starts = events.filter(event => event.type === "model_started" && event.operationId === start.operationId);
   const markers = events.filter(event => event.type === "model_request_not_dispatched" && event.operationId === start.operationId);
   if (starts.length !== 1 || markers.length !== 1 || events.some(event => event.type === "model_finished" && event.operationId === start.operationId)) return;
-  const parsed = sizeStopSchema.safeParse(markers[0]);
-  if (!parsed.success || parsed.data.contextId !== start.contextId || parsed.data.promptProtocolSha256 !== start.promptProtocolSha256 ||
-      events.indexOf(markers[0]!) <= events.indexOf(starts[0]!)) return;
-  return parsed.data;
+  if (markers[0]!.contextId !== start.contextId || markers[0]!.promptProtocolSha256 !== start.promptProtocolSha256 || events.indexOf(markers[0]!) <= events.indexOf(starts[0]!)) return;
+  return markers[0];
+}
+/** A receipt's absence never proves non-dispatch. Require one exact host marker/start join. */
+export function modelRequestSizeStop(events: Record<string, unknown>[], start: Record<string, unknown>): ModelRequestSizeStop | undefined {
+  const marker = notDispatchedJoin(events, start); if (!marker) return;
+  const parsed = sizeStopSchema.safeParse(marker); return parsed.success ? parsed.data : undefined;
+}
+export function modelRequestFeeStop(events: Record<string, unknown>[], start: Record<string, unknown>): ModelRequestFeeStop | undefined {
+  const marker = notDispatchedJoin(events, start); if (!marker) return;
+  const parsed = feeStopSchema.safeParse(marker); return parsed.success ? parsed.data : undefined;
 }
 
 export const MODEL_UNAVAILABLE_STOP = "model_unavailable";
@@ -50,7 +64,7 @@ export function modelRequestFailed(events: Record<string, unknown>[], start: Rec
 
 export function hasInvalidModelRequestSizeStop(events: Record<string, unknown>[]): boolean {
   return events.some(marker => marker.type === "model_request_not_dispatched" &&
-    !events.some(start => modelRequestSizeStop(events, start)?.operationId === marker.operationId));
+    !events.some(start => (modelRequestSizeStop(events, start) ?? modelRequestFeeStop(events, start))?.operationId === marker.operationId));
 }
 
 export interface GeneralMessage {

@@ -28,6 +28,12 @@ export interface BrokerDestination {
   syntheticOnly?: boolean;
   /** Explicit controlled-receiver fixture allowance, never a general HTTP setting. */
   loopbackFixture?: boolean;
+  /**
+   * Phase 2 headless cloud arm only: a synthetic-only cloud destination that serves a wholly synthetic lineage without an
+   * exact grant. Refused at construction on any other kind, without syntheticOnly, or together with requireExactGrant,
+   * so the desktop consultant (synthetic-only, exact grant required) can never become grant-free by omission.
+   */
+  grantFreeSynthetic?: boolean;
   /** Explicit host-approved public DNS metadata route; never model-controlled. */
   publicDnsResolver?: "cloudflare_v1";
   /** Optional exact public URL authority, including its path and query. */
@@ -149,6 +155,8 @@ function normalizeDestination(value: BrokerDestination): BrokerDestination {
       (value.approvalPriceProfileSha256 !== undefined && !sha256Schema.safeParse(value.approvalPriceProfileSha256).success)) deny("destination_approval_invalid");
   if (value.kind === "public_web" && value.apiKey) deny("web_ambient_credential_denied");
   if (value.recoverable !== undefined && (typeof value.recoverable !== "boolean" || value.kind === "cloud_model")) deny("destination_recoverable_invalid");
+  if (value.grantFreeSynthetic !== undefined && (value.grantFreeSynthetic !== true || value.kind !== "cloud_model" || !value.syntheticOnly || value.requireExactGrant ||
+      value.approvalPriceProfileSha256 !== undefined || value.privateDataAdmitted)) deny("destination_grant_free_invalid");
   if (value.publicDnsResolver !== undefined && (value.publicDnsResolver !== "cloudflare_v1" || value.kind !== "public_web" ||
       endpoint.protocol !== "https:" || value.loopbackFixture || isIP(endpoint.hostname.replace(/^\[|\]$/gu, "")))) deny("destination_public_dns_invalid");
   if (value.syntheticOnly && value.privateDataAdmitted) deny("destination_trust_conflict");
@@ -224,7 +232,10 @@ export class PrivateAgentBroker {
     if (destination.kind === "local_model") {
       if (restrictedContext(context) && !destination.privateDataAdmitted &&
           !(destination.syntheticOnly && syntheticContext(context))) deny("local_destination_unverified");
-    } else if (restrictedContext(context) && !grantId) deny("private_disclosure_requires_exact_grant");
+    } else if (restrictedContext(context) && !grantId &&
+        // Only a destination constructed as grant-free (the headless Phase 2 arm) serves a wholly synthetic lineage without a grant;
+        // the desktop consultant is synthetic-only too but carries an exact-grant binding and is denied above and here.
+        !(destination.grantFreeSynthetic === true && syntheticContext(context))) deny("private_disclosure_requires_exact_grant");
   }
 
   async request(input: BrokerRequest, settleFee: (bytes: Buffer) => number = () => 0, validateAtCommit?: () => void): Promise<{ bytes: Buffer; receipt: DispatchReceipt }> {
@@ -256,8 +267,15 @@ export class PrivateAgentBroker {
     for (let attempt = 1; ; attempt++) {
       if (attempt > 1 && frozen.signal?.aborted) deny("request_cancelled");
       // Each attempt is its own committed row: it re-checks eligibility and consumes one session request.
-      const receipt = this.store.commit({ ...identity, reservedFeeMicrousd: frozen.maxFeeMicrousd, scan: scanReceipt },
-        (policy, context) => { this.eligible(policy, context, packet.destination, frozen.grantId); validateAtCommit?.(); }, frozen.grantId);
+      let receipt: DispatchReceipt;
+      try {
+        receipt = this.store.commit({ ...identity, reservedFeeMicrousd: frozen.maxFeeMicrousd, scan: scanReceipt },
+          (policy, context) => { this.eligible(policy, context, packet.destination, frozen.grantId); validateAtCommit?.(); }, frozen.grantId);
+      } catch (error) {
+        // The fee or request allowance refused the row inside the transaction: nothing was inserted or sent.
+        if (error instanceof Error && error.message === "private_agent_budget_denied") deny("budget_denied");
+        throw error;
+      }
       const controller = new AbortController();
       const group = this.active.get(frozen.jobId) ?? new Set<AbortController>();
       group.add(controller); this.active.set(frozen.jobId, group);

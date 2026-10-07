@@ -168,7 +168,8 @@ describe("public snapshot CLI", () => {
     expect(() => buildCloudArm({ ...input, endpoint: "http://api.example.test/v1/chat/completions" }, { SOAR_PHASE2_CLOUD_API_KEY: "sk-synthetic-key-0001" }, coordinator)).toThrow("local_screen_cloud_arm_invalid");
     expect(() => buildCloudArm({ ...input, maxFeeUsd: 9 }, { SOAR_PHASE2_CLOUD_API_KEY: "sk-synthetic-key-0001" }, coordinator)).toThrow("local_screen_cloud_arm_invalid");
     const arm = buildCloudArm(input, { SOAR_PHASE2_CLOUD_API_KEY: "sk-synthetic-key-0001", SOAR_PHASE2_CLOUD_CREDENTIAL_VERSION: "3" }, coordinator);
-    expect(arm.destination).toMatchObject({ id: "cloud_coordinator", kind: "cloud_model", apiKey: "sk-synthetic-key-0001", credentialVersion: 3, privateDataAdmitted: false });
+    expect(arm.destination).toMatchObject({ id: "cloud_coordinator", kind: "cloud_model", apiKey: "sk-synthetic-key-0001", credentialVersion: 3, privateDataAdmitted: false, syntheticOnly: true, grantFreeSynthetic: true });
+    expect(arm.destination).not.toHaveProperty("requireExactGrant");
     expect(arm.modelConfig).toMatchObject({ api: "openai", maxOutputTokens: 16_384, thinking: "medium", inputUsdPerMillion: 2, cachedInputUsdPerMillion: 0.5 });
     expect(arm.modelConfig).not.toHaveProperty("sampling");
     expect(arm.maxFeeMicrousd).toBe(8_000_000); expect(arm.freeze).toMatchObject({ arm: "cloud", credentialVersion: 3, maxFeeMicrousd: 8_000_000 });

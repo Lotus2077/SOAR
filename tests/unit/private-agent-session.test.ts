@@ -143,6 +143,16 @@ describe("general isolated phase session", () => {
         verdicts: [{ id: "C1", verdict: "supported" }, { id: "C2", verdict: "supported" }, { id: "C9", verdict: "not_judged", reason: "claim_text_invalid" }] });
     } finally { spy.mockRestore(); }
   });
+  it("keeps the no-arm session identity byte-identical to the pre-cloud-arm key set, so upgraded desktop tasks still resume", async () => {
+    const f = await fixture(), config = options(f, "identity-pin", "PRIVATE-PIN");
+    await new GeneralAgentSession(config).run();
+    const start = f.store.events("identity-pin").find(e => e.type === "session_started")!;
+    const model = config.trustedHostModelFactory(String(start.privateContextId)).config;
+    const expected = digest(canonical({ imageId: config.imageId, privatePhase: sessionPhaseIdentity(config.privatePhase),
+      publicPhase: { identity: sessionPhaseIdentity(config.publicPhase!), approval: config.publicPhase!.approval, transfer: config.publicPhase!.transfer, webDestinations: config.publicPhase!.webDestinations },
+      syntheticInputApproval: config.syntheticInputApproval, privateModel: model, publicModel: model, limits: { maxRequests: 40, maxElapsedMs: 1_800_000, maxFeeMicrousd: 0 } }));
+    expect(start.identity).toBe(expected);
+  });
   it("a cloud arm makes the policy cloud_help with its fee cap, needs a synthetic or public approval, and judges with the separate model", async () => {
     const f = await fixture(), base = options(f, "cloud-arm", "PRIVATE-CLOUD");
     expect(() => new GeneralAgentSession({ ...base, syntheticInputApproval: undefined, cloudArm: { destinationId: "model", maxFeeMicrousd: 8_000_000 } })).toThrow("session_cloud_arm_invalid");

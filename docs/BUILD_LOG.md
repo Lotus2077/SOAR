@@ -19414,3 +19414,95 @@ Next gate: fix (3)-(6), review again, then PR #9; PR-B design drafted in the
 session scratchpad (`pr-b-design-entry.md`) to be appended on its branch.
 
 References: BL-20261007-0745-pr-e-cloud-correctness-design.
+
+
+### BL-20261007-1040-pr-e-cloud-correctness-implemented -- 2026-10-07 -- Cloud correctness implemented and reviewed (PR-E)
+
+Status: `Implemented`
+
+Scope or hypothesis: PR-E as designed in BL-20261007-0745, with the review
+findings of BL-20261007-0905 closed. Branch `phase1-cloud-correctness`, pull
+request #9, stacked on #8.
+
+Decisions:
+
+- **Request shape per API.** `PrivateModelConfig.api` is `vllm` (default,
+  byte-identical to before) or `openai`: `max_completion_tokens`, top-level
+  `reasoning_effort` only with thinking on, tools unchanged, no
+  `chat_template_kwargs`, `top_k`, `temperature` or `top_p`. The judge's
+  narrowing overrides apply to both.
+- **Reservation and settlement.** Reservation stays `bodyBytes × input rate +
+  maxOutputTokens × output rate` (deviation from the design's token estimate:
+  the first review showed digit-dense prompts exceed `ceil(bytes/2)` tokens, and
+  reservations never accumulate across calls because the store admits one open
+  row at a time, so the estimate bought nothing and endangered the local path).
+  Settlement is `(prompt − cached) × input + cached × cachedInput +
+  completion × output` with `cachedInputUsdPerMillion` optional and at most the
+  input rate; the envelope `prompt ≤ bytes`, `completion ≤ maxOutputTokens`,
+  `cached ≤ prompt` leaves the dispatch unknown when breached, as before.
+- **Fee cap as a modelled stop.** The store's budget denial inside the commit
+  transaction (no row inserted, nothing sent) becomes `BrokerError
+  ("budget_denied")`; the runner records `model_request_not_dispatched` with
+  reason `fee_cap_reached`, the cap and the settled spend, and stops; resume,
+  the controller's `uncertain`, `canResume` and reason text, and the driver all
+  treat it like the size stop. The request allowance cannot reach that branch:
+  the runner stops at zero remaining requests before calling, and the retry
+  loop checks admissibility before another attempt.
+- **Cloud arm.** `GeneralSessionOptions.cloudArm` makes the policy `cloud_help`
+  with the per-task cap (added to any consultation cap) and requires a synthetic
+  or public input approval; `judgeModelFactory` lets the local model judge both
+  Phase 2 arms; both are bound into the session identity only when set, so every
+  pre-existing session keeps its identity (first review, high: the unconditional
+  keys would have stranded every paused desktop task; a test now pins the
+  no-arm identity to the exact key set). The broker admits a cloud destination
+  declared `syntheticOnly` to a wholly synthetic lineage under `cloud_help`
+  without an exact grant only when the destination is constructed as
+  `grantFreeSynthetic` (refused with `requireExactGrant`, a price-profile
+  binding, admitted private data or any other kind), which only the headless
+  driver builds. The desktop consultant is synthetic-only too but carries an
+  exact-grant binding and stays denied at the grant check (second review: the
+  first form of the exemption rested on check ordering).
+- **Headless driver.** `--arm cloud` with `--cloud-model`, `--cloud-endpoint`
+  (https), `--cloud-prices in,out,cached` and `--max-fee-usd` (≤ 8); the key is
+  read from `SOAR_PHASE2_CLOUD_API_KEY` in the process environment only and
+  appears in no freeze, result or registry record; the local model judges; any
+  error escaping the session still yields a result record so paid spend is
+  summarized.
+- **Consultant.** `max_completion_tokens`; documented configuration
+  `gpt-6-sol` with 4,096 output tokens; the `gpt-4.1` / 2,048 setup is retired.
+
+Changes: `model.ts`, `broker.ts`, `store.ts` (no schema change), `runner.ts`,
+`session.ts`, `consultant-model.ts`, `controller.ts`, the headless driver,
+`.env.example`, README; tests in the model, broker, session, consultant,
+runner, public-snapshot (driver) suites.
+
+Evidence:
+
+- `pnpm check`: 121 files, 1,936 tests passed, 72 skipped. Docker-gated suites
+  on the qualified runtime image: 4 files, 43 tests passed (re-run on the final
+  tree).
+- Unit tests: OpenAI shape with and without thinking and for the judge;
+  reservation and cached-rate settlement arithmetic; envelope breaches; cloud
+  admission matrix (synthetic-only cloud under cloud_help admitted, missing
+  declaration or a non-synthetic source or a private policy denied); budget
+  denial as a broker code with no row; fee-cap stop recorded, not resumable,
+  nothing sent; cloud-arm policy and judge; no-arm identity pin; driver flags,
+  key handling and freeze redaction; consultant packet.
+- Reviews: first (BL-20261007-0905) six findings, all fixed; second, on the
+  fixes (3 agents): one confirmed and fixed (grant-free admission made an
+  explicit construction-time declaration, tested against the consultant's real
+  destination shape), one rejected (the driver guard keeps `session_failure`
+  distinct and the runner already maps Docker and integrity failures).
+
+Failures or blockers: None open. No live cloud call has been made.
+
+Limitations and non-claims: The OpenAI shape is pinned by tests against the
+published API, not by a live request; Phase 2 is the first live use and needs
+the owner's key in the launching shell.
+
+Paid exposure: USD 0.
+
+Next gate: PR-B (liveness), then PR-I; Phase 2 task authoring.
+
+References: BL-20261007-0745-pr-e-cloud-correctness-design,
+BL-20261007-0905-pr-e-review-findings, [plan](PLAN.md) Phase 2 arms.

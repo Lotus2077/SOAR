@@ -15,6 +15,7 @@ import { RulePacketScanner } from "../src/main/private-agent/scanner";
 import { PrivateAgentStore } from "../src/main/private-agent/store";
 import { COORDINATOR_PROFILES, GENERAL_TASK_BUDGETS, type CoordinatorProfileName } from "../src/main/private-agent/profiles";
 import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, claimsInstructions, claimsLedgerCheck } from "../src/main/private-agent/claims";
+import { withDocumentReview } from "../src/main/private-agent/document-review";
 import { buildPublicRetrievalPhase, loadPreparedOperatorTask, selectPreparedPublicInputs, startControlledSnapshotReceiver,
   type PreparedOperatorTask } from "./private-agent-run";
 import { localStreamSettings } from "../src/main/liveness";
@@ -183,6 +184,8 @@ export async function runLocalArtifactScreen(input: {
   profile?: LocalScreenProfile;
   /** Require output/claims.json, verified by the host against the job's input and transferred context files. */
   claimsLedger?: boolean;
+  /** PR-I: the job reviews its one input .docx through an edit plan, the pinned applier and the fidelity check (closed corpus). */
+  documentReview?: boolean;
   /** Phase 2 cloud arm: the coordinator is a cloud model; the local model still judges claims. */
   cloudArm?: CloudArmInput;
 }) {
@@ -196,7 +199,9 @@ export async function runLocalArtifactScreen(input: {
   const profileName: LocalScreenProfile = input.profile ?? "standard", coordinator = COORDINATOR_PROFILES[profileName], budget = LOCAL_SCREEN_BUDGETS[profileName];
   // The prepared task binds the September contract caps; the profile's budget replaces them for this run only.
   const budgetedPhase = { ...task.phase, contract: { ...task.phase.contract, maxModelCalls: budget.maxModelCalls, maxToolCalls: budget.maxToolCalls, maxElapsedMs: budget.maxElapsedMs } };
-  const privatePhase = input.claimsLedger ? withClaimsLedger(budgetedPhase, input.publicRetrieval === true) : budgetedPhase;
+  if (input.documentReview && (input.claimsLedger || input.publicRetrieval)) throw new Error("local_screen_document_review_closed_corpus");
+  const privatePhase = input.claimsLedger ? withClaimsLedger(budgetedPhase, input.publicRetrieval === true)
+    : input.documentReview ? withDocumentReview(budgetedPhase) : budgetedPhase;
   // Bind all explicit public metadata and original public bytes before receiver/model/DB effects.
   const publicSnapshot = input.publicSnapshot ? preparePublicSnapshot(task, input.publicSnapshot) : undefined;
   const config = loadConfig();
@@ -266,7 +271,7 @@ export async function runLocalArtifactScreen(input: {
       publicPhaseSha256: publicPhase ? sessionPhaseIdentity(publicPhase) : null,
       publicSnapshot: publicSnapshot?.binding ?? null,
       scanner: "rules_only_not_a_privacy_classifier", pauseAfterTools: input.pauseAfterTools ?? null,
-      profile: profileName, claimsLedger: input.claimsLedger === true, arm: cloud ? cloud.freeze : { arm: "local" as const },
+      profile: profileName, claimsLedger: input.claimsLedger === true, ...(input.documentReview ? { documentReview: true } : {}), arm: cloud ? cloud.freeze : { arm: "local" as const },
       limits: { requests: budget.maxRequests, modelCalls: budget.maxModelCalls, toolCalls: budget.maxToolCalls, outputTokens: modelConfig.maxOutputTokens,
         inputBytes: coordinator.maxRequestBytes, requestTimeoutMs: cloud ? cloud.destination.timeoutMs : coordinator.requestTimeoutMs, elapsedMs: budget.maxElapsedMs, feeMicrousd: cloud?.maxFeeMicrousd ?? 0 },
       startedAt: new Date().toISOString(), artifactAccepted: null };
@@ -326,13 +331,14 @@ export async function runLocalArtifactScreen(input: {
 export function parseLocalArtifactScreenArguments(args: string[]): Parameters<typeof runLocalArtifactScreen>[0] {
     const snapshotNames = ["--public-snapshot-directory", "--public-snapshot-brief-sha256", "--public-snapshot-map-sha256", "--public-snapshot-index-path"];
     const cloudNames = ["--cloud-model", "--cloud-endpoint", "--cloud-prices", "--max-fee-usd"];
-    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", "--arm", ...cloudNames, ...snapshotNames];
+    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", "--document-review", "--arm", ...cloudNames, ...snapshotNames];
     if (args[0] !== "--execute-synthetic-local" || args.length % 2 !== 1 || args.slice(1).some((arg, i) => i % 2 === 0 && !names.includes(arg)) ||
         new Set(args.filter((_, i) => i % 2 === 1)).size !== (args.length - 1) / 2) throw new Error("local_screen_cli_invalid");
     const values = new Map(args.slice(1).filter((_, i) => i % 2 === 0).map(name => [name, args[args.indexOf(name) + 1]!]));
     if (names.slice(0, 7).some(name => !values.has(name)) || (values.has("--public-retrieval") && values.get("--public-retrieval") !== "true") ||
         (values.has("--profile") && !Object.hasOwn(LOCAL_SCREEN_PROFILES, values.get("--profile")!)) ||
         (values.has("--claims-ledger") && values.get("--claims-ledger") !== "true") ||
+        (values.has("--document-review") && (values.get("--document-review") !== "true" || values.has("--claims-ledger") || values.has("--public-retrieval"))) ||
         (values.has("--arm") && !["local", "cloud"].includes(values.get("--arm")!))) throw new Error("local_screen_cli_invalid");
     const cloudCount = cloudNames.filter(name => values.has(name)).length, cloudArm = values.get("--arm") === "cloud";
     // The cloud arm needs every cloud flag and the local arm none of them; the key itself is never a flag.
@@ -345,6 +351,7 @@ export function parseLocalArtifactScreenArguments(args: string[]): Parameters<ty
       pauseAfterTools: values.has("--pause-after-tools") ? Number(values.get("--pause-after-tools")) : undefined,
       profile: values.has("--profile") ? values.get("--profile") as LocalScreenProfile : undefined,
       claimsLedger: values.get("--claims-ledger") === "true" ? true : undefined,
+      ...(values.get("--document-review") === "true" ? { documentReview: true } : {}),
       ...(cloudArm ? { cloudArm: { model: values.get("--cloud-model")!, endpoint: values.get("--cloud-endpoint")!, prices: parseCloudPrices(values.get("--cloud-prices")!), maxFeeUsd: Number(values.get("--max-fee-usd")) } } : {}),
       ...(snapshotCount ? { publicSnapshot: { directory: values.get(snapshotNames[0]!)!, expectedBriefSha256: values.get(snapshotNames[1]!)!,
         expectedMapSha256: values.get(snapshotNames[2]!)!, indexPath: values.get(snapshotNames[3]!)! } } : {}) };

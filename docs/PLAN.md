@@ -284,6 +284,14 @@ and a quit that waits for a running task to pause and offers "Quit now") is PR
 #10, stacked on #9. PR-I remains; the owner build and exit criterion 3 are
 owner-only.
 
+**Status 2026-10-07, later (BL-20261007-1302, BL-20261007-1439):** PR-I (document
+review) is implemented on the qualified image with no rebuild, as PR #11
+stacked on #10. It covers the edit plan, the host-owned applier for tracked
+changes and comments, the clean copy, the issues list, the hygiene report and
+the fidelity check. It runs in the headless driver only for now. All six
+Phase 1 runtime items are implemented; the owner build and exit criterion 3
+are owner-only.
+
 - **PR-A, Heavy profile at every cap layer.** Raise, together:
   - [controller.ts](../src/main/general-tasks/controller.ts):29, :145, :148 and the
     `phase()` literals at :233-235;

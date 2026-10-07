@@ -19830,3 +19830,172 @@ reviewed; a synthetic document-review dry run.
 
 References: [plan](PLAN.md) Phase 1 PR-I, [design](plans/PRIVATE_WORK_DESIGN_V1.md)
 §4, BL-20261007-1247-pr-b-liveness-implemented.
+
+### BL-20261007-1439-pr-i-document-review-implemented -- 2026-10-07 -- Document review implemented and reviewed (PR-I)
+
+Status: `Implemented`
+
+Scope or hypothesis: PR-I as designed in BL-20261007-1302: document review on
+the qualified image with no rebuild. Branch `phase1-document-review`, pull
+request #11, stacked on #10. Headless driver only; the desktop does not offer
+it yet.
+
+Decisions:
+
+- **Module.** `src/main/private-agent/document-review.ts` holds the host-owned
+  applier (`review/soar_redline.py`, about 39 KB of Python) and the finish check
+  as raw literals. `withDocumentReview(phase)` adds the pinned applier file, the
+  edit plan and the four outputs as required artifacts, the agent instructions
+  and the critical check `document_review_fidelity`. It requires exactly one
+  `.docx` under `input/`, at the top level, and validates the job contract's
+  limits before any caller writes state. The driver flag is
+  `--document-review true`; it is refused with `--claims-ledger` or
+  `--public-retrieval`, because document review is a closed corpus.
+- **Applier.** It edits only `word/document.xml`. It adds or extends
+  `word/comments.xml` and registers it where the link is missing, and copies
+  every other part byte for byte with fixed zip timestamps, so outputs are
+  deterministic.
+  - An anchor is a quote inside one paragraph. It must be unique: a match lying
+    wholly inside a field, such as a table of contents entry, does not count.
+    Text found only there gets `anchor_inside_field`.
+  - Text to replace or delete must be plain text runs plus harmless markup
+    (bookmarks, proofing marks). Otherwise the refusal is `anchor_not_editable`
+    and names the blocker: a field, a hyperlink, a content control or smart
+    tag, someone's comment, a footnote mark, an image or a symbol.
+  - A run mixing text with tabs, breaks or special hyphens is split piecewise
+    first, so text beside a tab can be edited.
+  - Comments and insertions change nothing they cover, so they may span such
+    content; their ends must sit at clean boundaries, and an insertion needs
+    plain text at its end.
+  - The listing (`--list`) marks objects as U+FFFC, flags hidden text resolved
+    through styles, and pages at 48 KB with a `{"next": N}` line.
+  - `anchor_not_found` gives the exact `documentText` when only a look-alike
+    quote, dash or space differs.
+  - New text carries an explicit "not hidden", which beats any hidden style.
+    Layout caches in deleted runs are dropped.
+  - The source is refused for any of these:
+    - tracked changes in any story part
+    - macros
+    - more than 24 MB on disk or 64 MB unpacked
+  - The agent's run stops at 30 s with `source_too_complex`. The check
+    re-derives without that wall-clock deadline, under its own 40 s process
+    limit, so its verdict depends only on the inputs.
+  - Every failure is a structured `{"ok": false, "errors": [...]}`, never a
+    traceback.
+  - The issues list stores model text as text, never as a formula.
+- **Check.** It verifies the source and applier hashes and re-runs the
+  embedded, compressed applier copy. It requires all four outputs to be byte
+  for byte the re-derived ones. It then proves the result independently:
+  - reject-all text equals the original, per paragraph;
+  - accept-all text and the clean copy equal the plan applied as strings;
+  - every other part is unchanged, except the comments registration;
+  - new text is explicitly visible;
+  - every revision maps to exactly one edit, its deleted text equals the
+    anchor and its inserted text equals the plan;
+  - deletions and insertions hold nothing but text;
+  - both documents render to PDF under LibreOffice.
+  Its scratch space is the verifier's workspace (its `/tmp` is 64 MiB). The
+  whole command is about 29 KB of the sandbox's 64 KiB cap; a unit test keeps
+  it under 40 KiB.
+- **Hygiene report.** It lists what would leave with the files and removes
+  nothing:
+  - core, app and custom properties, people, document variable names, and
+    the attached template;
+  - comment authors and revision counts, computed from the produced parts;
+  - hidden runs and hidden styles.
+
+Changes: new `document-review.ts`, the headless driver, tests (unit, driver
+flags, Docker-gated integration with synthetic fixtures), README, plan
+status.
+
+Evidence:
+
+- `pnpm check`: 123 files, 1,960 tests passed, 78 skipped. Docker-gated
+  runtime, claims and document-review suites on the qualified image: 17
+  passed.
+- Docker-gated document-review tests. Each item ran in the real sandbox:
+  - an eight-edit plan over a synthetic agreement covered a bold run inside
+    an anchor, a table cell, Chinese text, a bookmark inside a deletion and
+    text after a field; it passed every fidelity check and rendered, well
+    inside the 90 s check limit;
+  - two runs of the same plan gave identical bytes, and a formula-like
+    rationale stayed text;
+  - each of these was caught: a hand-edited redline, an added spreadsheet
+    sheet, an altered hygiene report, a changed applier and a changed
+    source;
+  - every plan error code was reported;
+  - sources with tracked changes in the body or a header were refused;
+  - an anchor across a symbol or across a comment was refused;
+  - text inserted next to hidden text stayed visible;
+  - existing comments were preserved and extended;
+  - Word-like content: text beside a tab, a page-break cache in a deleted run,
+    and a heading repeated in a table of contents all applied and passed;
+    text only in the table of contents got `anchor_inside_field`, and a
+    straight-apostrophe anchor got the curly `documentText`;
+  - a hidden paragraph style left new text visible;
+  - the listing of a 900-clause contract paged under 48 KB.
+- Review regression kit (the reviewers' probe builders, run under the
+  verifier's container limits): fourteen defect cases and five size and time
+  cases behave as above. Measured: a 200-edit plan applied in 0.4 s and
+  checked in 4.2 s; a 22 MB document with images was checked in 3.0 s; a
+  pathological 5,000-run paragraph with 199 edits hit the 30 s deadline and
+  was refused.
+- Reviews:
+  - The first review used two lenses and eight agents. It confirmed seven
+    findings, three high and four medium, all fixed:
+    - deletions swallowed footnote marks, images, other people's comments
+      and hyphens, while the check passed;
+    - the issues list and hygiene report were spoofable;
+    - the verifier's `/tmp` and time limits were too small;
+    - the hygiene report was incomplete;
+    - inserted text inherited hidden formatting.
+  - The first review's unverified low findings were all fixed: the command
+    size, the contract limits, source detection, path quoting,
+    multi-paragraph fields and crash inputs.
+  - The second review, on the fixes, used two lenses and eight agents. It
+    confirmed two high defects and several medium ones. The highs:
+    - a page-break cache inside a wholly deleted run made the check fail a
+      valid plan;
+    - the unpaged listing of a long contract exceeded the sandbox's output cap
+      and destroyed the sandbox.
+    The mediums:
+    - text sharing a run with a tab or break could never be anchored;
+    - a table of contents made every heading ambiguous;
+    - hidden formatting resolved through basedOn and paragraph styles, and the
+      removal of an explicit un-hide, still hid new text.
+  - The second review's low findings:
+    - comments and insertions were refused across content they do not change;
+    - there was no look-alike hint;
+    - document variables and the glossary part were missing from hygiene;
+    - the deadline made the verdict timing-dependent;
+    - smart tags and content controls were refused;
+    - deleting a whole clause leaves an empty item.
+  - Every finding is fixed as above, except two that stay limitations:
+    - smart tags and content controls are refused, with the blocker named;
+    - whole paragraphs cannot be removed, and the instructions say so.
+  - This third round of fixes was verified by re-running both reviews' probe
+    kits (about 45 cases) under the verifier's container limits, all as
+    intended, and by the tests above. It did not get a fresh third review.
+- Dry run: DRYRUN.
+
+Failures or blockers: None open.
+
+Limitations and non-claims:
+- Changes are single-paragraph plain text. Edits across paragraphs, removing
+  a whole paragraph, formatting-only changes, moved text, and changes inside
+  fields, hyperlinks, smart tags, content controls or text boxes are refused,
+  not approximated.
+- PDF inputs are not handled, and clause numbers are paragraph ordinals, not
+  rendered numbering.
+- Microsoft Word rendering is not tested; LibreOffice rendering is.
+- Paragraphs with thousands of runs may hit the deadline.
+- The desktop export hygiene gate is not built; the report is evidence only.
+
+Paid exposure: USD 0.
+
+Next gate: the synthetic document-review dry run on this commit; then the
+Phase 1 close-out and Phase 2 task authoring.
+
+References: BL-20261007-1302-pr-i-document-review-design,
+[design](plans/PRIVATE_WORK_DESIGN_V1.md) section 4, [plan](PLAN.md) Phase 1
+PR-I.

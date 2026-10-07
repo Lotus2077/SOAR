@@ -19506,3 +19506,62 @@ Next gate: PR-B (liveness), then PR-I; Phase 2 task authoring.
 
 References: BL-20261007-0745-pr-e-cloud-correctness-design,
 BL-20261007-0905-pr-e-review-findings, [plan](PLAN.md) Phase 2 arms.
+
+
+### BL-20261007-1045-pr-b-liveness-design -- 2026-10-07 -- Liveness designed (PR-B)
+
+Status: `Proposed`
+
+Scope or hypothesis: Phase 1 item 5 (docs/PLAN.md PR-B): streaming with an
+inactivity timeout plus an absolute deadline, `powerSaveBlocker` while a task
+runs, timer-lateness logging and a bounded quit. On-track check: the serving
+card's P8 shows the remote end closing a long non-streaming request at about
+947 s while the heavy profile allows 900 s per request and 16,384 output
+tokens; with thinking on, a single long turn can approach that cut, and a
+timed-out request is an unknown dispatch that ends the task without replay
+(PR-C leaves timeouts uncertain by design). Streaming turns "no reply for 15
+minutes" into "no bytes for N seconds", which is what the host can judge.
+
+Decisions:
+
+- **Streaming at the transport, same ledger.** The local destination may send
+  `stream: true` with `stream_options: {include_usage: true}`; the broker's
+  transport assembles the SSE deltas (content, reasoning content discarded,
+  tool-call fragments by index, finish reason, final usage) into the exact
+  non-streaming response object before the fee is settled, so the model
+  adapter, the usage envelope and the settlement are unchanged. The packet
+  hash includes the streaming fields; prompt-protocol identity does not change.
+  Cloud and consultant requests stay non-streaming in Phase 1.
+- **Two clocks per request.** An inactivity timeout (no bytes for 120 s)
+  aborts a streaming request with its own diagnostic code `inactivity_timeout`;
+  the absolute per-request deadline stays the profile's. Both remain unknown
+  outcomes (never retried), as PR-C decided for timeouts.
+- **Keep the machine awake.** `powerSaveBlocker.start("prevent-app-suspension")`
+  while any general task is running or finalising; stopped when none is.
+- **Timer lateness.** A host heartbeat every 30 s records, as a `host_heartbeat`
+  event only when late, the gap between scheduled and actual firing (monotonic
+  and wall clock); a gap over 5 s means the machine slept or the process was
+  starved, and the task record shows it beside the elapsed time.
+- **Bounded quit.** `before-quit` waits for `controller.close()` at most 20 s;
+  the runner already pauses at an action boundary and the entailment pass
+  aborts on pause (J2), so a quit leaves a resumable task; after the bound the
+  app quits with the interrupted state recorded as today.
+
+Changes: This entry. Implementation follows on `phase1-liveness`, stacked on
+PR #9.
+
+Evidence: serving card P3/P8; broker transport, model adapter and index.ts quit
+path read on 2026-10-07.
+
+Failures or blockers: None.
+
+Limitations and non-claims: Streaming changes nothing about model quality; a
+remote cut at 947 s still ends the request. The lateness record is diagnostic.
+
+Paid exposure: USD 0.
+
+Next gate: PR-B implemented with a loopback SSE fixture test suite and reviewed;
+a dry run with streaming on the local box.
+
+References: [plan](PLAN.md) Phase 1 PR-B, serving card 2026-09-28 P8,
+BL-20261007-0530-pr-c-recoverable-dispatch-implemented.

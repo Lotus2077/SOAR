@@ -20074,3 +20074,81 @@ authoring.
 
 References: BL-20261007-1439-pr-i-document-review-implemented,
 BL-20261007-1302-pr-i-document-review-design.
+
+### BL-20261007-1449-phase1-close-out -- 2026-10-07 -- Phase 1 runtime items complete; exit criteria 2 and 3 wait on the owner
+
+Status: `Implemented` (all six runtime items, each with a dry run); the Phase 1
+exit is **not** met.
+
+Scope or hypothesis: the Phase 1 close-out at the plan's 7 October hard stop.
+It records which exit criteria hold, which fallbacks applied, and what Phase 2
+still needs. On-track check: the order set by the Phase 0 discriminator was
+followed, as listed below.
+
+| Plan item | Pull request | Implemented | Dry run |
+| --- | --- | --- | --- |
+| PR-A + PR-D | #4 | BL-20261006-1055 | BL-20261006-1141 |
+| PR-J (claims ledger J1, entailment J2) | #5, #6 | BL-20261006-1150, BL-20261007-0120 | entailment runs |
+| PR-C | #7 | BL-20261007-0530 | — |
+| PR-F | #8 | BL-20261007-0640 | — |
+| PR-E | #9 | BL-20261007-1040 | — |
+| PR-B | #10 | BL-20261007-1247 | BL-20261007-1301 |
+| PR-I | #11 | BL-20261007-1439 | BL-20261007-1448 |
+
+PR-E has had no live cloud call.
+
+Decisions:
+
+- **Exit 1, the Heavy contract test passes: met** (PR-A, BL-20261006-1055).
+- **Exit 2, dry runs on two seen tasks per arm without harness-terminal
+  causes: met for the local arm, open for the cloud arm.**
+  - Local arm: T4 and T2 on the heavy profile (BL-20261006-1141). T2 also ran
+    again with the claims ledger and entailment, and with streaming
+    (BL-20261007-1301: 51 dispatches settled).
+  - Cloud arm: implemented (`--arm cloud`, BL-20261007-1040) but never run.
+    It needs the owner's key, exported as `SOAR_PHASE2_CLOUD_API_KEY` in the
+    launching shell only, and paid runs within the approved envelope.
+- **Exit 3, two or more real owner jobs on `owner-v0.1` with verdicts:
+  owner-only, open.** The tag should be cut from `main` after the owner
+  merges #1 to #11 in order, so the owner build includes PR-B's safe quit and
+  streaming.
+- **Fallbacks.**
+  - Streaming is finished, so no timeout fallback was needed.
+  - File tools are finished (PR-D).
+  - **Reasoning replay is unfinished; deviation recorded.** The runner never
+    sends a turn's reasoning back to the model: the non-streaming response
+    schema ignores it, and the stream assembler drops it. Whether replaying it
+    helps the local model is untested.
+- **Phase 2 readiness.**
+  - Tasks must be authored by a separate agent session, per the plan, with
+    gold kept outside Git. This session does not author them.
+  - The harness supports L-Heavy, including two seeds as two independent
+    runs, and C-Sol once the key is present.
+  - The repair pair (H and L′: one critique of a packet of at most 64 KiB,
+    then local repair from an identical draft) is **not built**. It is the
+    next harness item.
+  - The blind pre-score and the task freeze tag are also not built.
+- **Follow-ups recorded elsewhere:**
+  - pause between a reply and its action (a separate-session task was
+    offered);
+  - a host check that parses fenced JSON in Markdown outputs (BL-20261007-1301);
+  - desktop wiring for document review (BL-20261007-1439).
+
+Changes: This entry.
+
+Evidence: the entries cited above; the registry rows `p1b-t2-rfc-memo-heavy-streaming`
+and `p1i-d1-services-agreement-heavy`.
+
+Failures or blockers:
+- The cloud arm and exit 3 need the owner.
+- The owner must also merge #1 to #11, which the agent cannot do.
+
+Limitations and non-claims: The dry runs are exposure or engineering
+records, not capability evidence. Phase 2 is the first fair comparison.
+
+Paid exposure: USD 0 so far in Phase 1.
+
+Next gate: the Phase 2 repair-pair harness (design entry first). Then the
+task freeze and tag tooling, and the separate-session task authoring.
+
+References: [plan](PLAN.md) Phase 1 exit and fallbacks, Phase 2 arms.

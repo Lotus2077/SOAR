@@ -54,7 +54,7 @@ describe("Phase 2 repair pair: packet and seeding", () => {
     checks: [{ id: "c", python: "pass" }], contract: { version: 1, goal: "Do the task.", requiredArtifacts: [{ path: "output/report.md", description: "r" }],
       requiredChecks: ["c"], maxModelCalls: 5, maxToolCalls: 5, maxElapsedMs: 60_000 } });
   const draft = [{ path: "output/report.md", bytes: Buffer.from("draft report") }], critique = Buffer.from("1. Fix the example.\n");
-  const binding = (): RepairBinding => ({ version: 1, critic: "local", criticModel: "m", promptVersion: 1, criticMaxOutputTokens: 8192, packetSha256: h("a"), critiqueSha256: digest(critique),
+  const binding = (): RepairBinding => ({ version: 1, critic: "local", criticModel: "m", promptVersion: 1, criticMaxOutputTokens: 16_384, packetSha256: h("a"), critiqueSha256: digest(critique),
     source: { taskJobSha256: h("b"), taskBriefSha256: h("f"), resultSha256: h("c"), freezeSha256: h("d"), profile: "heavy", claimsLedger: false, documentReview: false },
     draft: [{ path: "output/report.md", sha256: digest(Buffer.from("draft report")) }] });
   it("seeds the identical draft and the critique and appends the repair instruction, checking every byte", () => {
@@ -131,7 +131,7 @@ describe("Phase 2 repair pair: the failed run and the critic", () => {
     expect(answer).toMatchObject({ text: "1. The JSON example is invalid: fix the braces.\n", finishReason: "stop", feeMicrousd: 0 });
     const sent = JSON.parse(bodies[0]!) as { messages: { role: string; content: string }[]; tools?: unknown; max_tokens: number };
     expect(sent.messages).toEqual([{ role: "system", content: CRITIC_SYSTEM_PROMPT }, { role: "user", content: packet.text }]);
-    expect(sent).not.toHaveProperty("tools"); expect(sent.max_tokens).toBe(8192);
+    expect(sent).not.toHaveProperty("tools"); expect(sent.max_tokens).toBe(16_384);
     expect(store.dispatches(answer.jobId)).toMatchObject([{ status: "settled", purpose: CRITIC_PURPOSE }]);
   });
   it("parses the critique command line, and the driver's --repair-from, which is local only", () => {

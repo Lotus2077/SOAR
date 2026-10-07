@@ -82,7 +82,7 @@ export async function runCritique(input: { store: PrivateAgentStore; broker: Pri
   const model = new PrivateAgentModel(input.broker, input.modelConfig, jobId, contextId);
   const reply = await model.complete(criticMessages(input.packet.text), [], input.signal, { maxOutputTokens: CRITIC_MAX_OUTPUT_TOKENS, purpose: CRITIC_PURPOSE });
   const feeMicrousd = input.store.dispatches(jobId).reduce((sum, row) => sum + (row.feeMicrousd ?? 0), 0);
-  if (!reply.content.trim()) throw new Error("repair_critique_empty");
+  if (!reply.content.trim()) throw Object.assign(new Error("repair_critique_empty"), { finishReason: reply.finishReason, usage: reply.usage ?? null, feeMicrousd });
   return { jobId, text: reply.content.trim() + "\n", finishReason: reply.finishReason, usage: reply.usage ?? null, servedModel: reply.servedModel ?? null, feeMicrousd };
 }
 
@@ -115,14 +115,23 @@ export async function critique(input: CritiqueArguments) {
   try {
     const store = new PrivateAgentStore(database);
     const broker = new PrivateAgentBroker(store, [destination], new RulePacketScanner());
-    const answer = await runCritique({ store, broker, destination, modelConfig, packet, maxFeeMicrousd: cloud?.maxFeeMicrousd ?? 0, signal: AbortSignal.timeout(heavy.requestTimeoutMs + 60_000) });
+    const write = (name: string, bytes: string | Buffer) => { mkdirSync(dirname(join(directory, name)), { recursive: true, mode: 0o700 }); writeFileSync(join(directory, name), bytes, { flag: "wx", mode: 0o600 }); };
+    write("packet.txt", packet.text);
+    let answer: Awaited<ReturnType<typeof runCritique>>;
+    try {
+      answer = await runCritique({ store, broker, destination, modelConfig, packet, maxFeeMicrousd: cloud?.maxFeeMicrousd ?? 0, signal: AbortSignal.timeout(heavy.requestTimeoutMs + 60_000) });
+    } catch (error) {
+      // A refused critique is a recorded outcome too: what stopped it, and what it cost.
+      const detail = error as { message?: string; finishReason?: unknown; usage?: unknown; feeMicrousd?: unknown };
+      write("critique-failure.json", `${canonical({ critic: input.critic, packetSha256: packet.sha256, code: detail.message ?? "repair_critique_failed",
+        finishReason: detail.finishReason ?? null, usage: detail.usage ?? null, feeMicrousd: detail.feeMicrousd ?? null })}\n`);
+      throw error;
+    }
     const binding: RepairBinding = RepairBindingSchema.parse({ version: 1, critic: input.critic, criticModel: modelConfig.model, promptVersion: CRITIC_PROMPT_VERSION,
       criticMaxOutputTokens: CRITIC_MAX_OUTPUT_TOKENS, packetSha256: packet.sha256, critiqueSha256: digest(answer.text),
       source: { taskJobSha256: task.binding.jobSha256, taskBriefSha256: task.binding.briefSha256, resultSha256: run.resultSha256, freezeSha256: run.freezeSha256,
         profile: "heavy", claimsLedger: run.freeze.claimsLedger === true, documentReview: run.freeze.documentReview === true },
       draft: run.draft.map(file => ({ path: file.path, sha256: digest(file.bytes) })) });
-    const write = (name: string, bytes: string | Buffer) => { mkdirSync(dirname(join(directory, name)), { recursive: true, mode: 0o700 }); writeFileSync(join(directory, name), bytes, { flag: "wx", mode: 0o600 }); };
-    write("packet.txt", packet.text);
     write("critique.md", answer.text);
     for (const file of run.draft) write(join("draft", file.path), file.bytes);
     write("critique.json", `${canonical({ ...binding, finishReason: answer.finishReason, usage: answer.usage, servedModel: answer.servedModel, feeMicrousd: answer.feeMicrousd })}\n`);

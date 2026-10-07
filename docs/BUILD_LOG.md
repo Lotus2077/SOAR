@@ -20346,3 +20346,51 @@ Next gate: one L′ repair dry run on a real failed draft. Then Phase 2
 waits on the separate-session task authoring and the owner's key.
 
 References: BL-20261007-1451-phase2-harness-design, [plan](PLAN.md) Phase 2.
+
+### BL-20261007-1529-critic-cap-correction -- 2026-10-07 -- Correction: critic cap 16,384, not 8,192 (first L′ critique was empty)
+
+Status: `Implemented`
+
+Scope or hypothesis: corrects one decision of BL-20261007-1522 (critic cap
+8,192 tokens) after the first L′ dry-run critique.
+
+Decisions:
+
+- **The 8,192 cap failed.** The local critic on the heavy profile spent all
+  8,192 tokens on reasoning and returned no critique (finish reason `length`).
+  The tool refused it with `repair_critique_empty`, as designed.
+- **Diagnosis.** The same request was repeated by hand, on the same packet
+  (13,358 bytes) with zero fee. At 8,192 tokens it again gave no content. At
+  16,384 tokens, two attempts finished:
+  - one used 16,143 tokens, 15,469 of them reasoning;
+  - one used 9,497 tokens, 8,642 of them reasoning;
+  - each took 77 to 127 s.
+- **The cap is now 16,384 for both critics.** That is the heavy profile's own
+  limit, and the cloud critic gets the same value. It is still bound in the
+  repair binding.
+- **A refused critique is now recorded.** The tool writes the packet and a
+  `critique-failure.json` (finish reason, usage, fee) before refusing, so a
+  failed attempt stays on record.
+- **Observed in the hand attempts.** One of the two critiques was factually
+  wrong: it called RFC 8259 Section 4 "Strings", but it is "Objects". The
+  other found the planted defect, the invalid JSON example. Critiques reach
+  the repair as untrusted advice for this reason.
+
+Changes: `CRITIC_MAX_OUTPUT_TOKENS` in `repair.ts`; the failure record in
+`scripts/phase2-repair.ts`; tests.
+
+Evidence: the empty dispatch in the first attempt's `state.sqlite` (settled,
+zero fee), and the hand requests above.
+
+Failures or blockers: None.
+
+Limitations and non-claims: Even 16,384 tokens can be exhausted by reasoning
+(the first hand attempt used 98.5% of it). If a critique comes back empty,
+it is recorded and the operator may run a new attempt, which the build log
+counts.
+
+Paid exposure: USD 0.
+
+Next gate: the L′ dry run with the corrected cap.
+
+References: BL-20261007-1522-phase2-harness-implemented.

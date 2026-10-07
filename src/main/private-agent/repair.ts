@@ -20,8 +20,11 @@ export const REPAIR_BRIEF_MAX_BYTES = 24 * 1024;
 export const REPAIR_SELF_CHECK_MAX_BYTES = 8 * 1024;
 export const CRITIC_PROMPT_VERSION = 1;
 export const CRITIC_PURPOSE = "phase 2 repair critique";
-/** Both APIs count reasoning inside this cap, so it leaves room for thinking before the critique. */
-export const CRITIC_MAX_OUTPUT_TOKENS = 8192;
+/**
+ * Both APIs count reasoning inside this cap. At 8,192 the local critic spent every token reasoning and wrote nothing
+ * (BL-20261007 L′ dry run); 16,384 is the heavy profile's own limit and the same for both critics.
+ */
+export const CRITIC_MAX_OUTPUT_TOKENS = 16_384;
 export const CRITIC_MAX_FEE_USD = 1;
 export const REPAIR_CRITIQUE_PATH = "context/critique.md";
 export const CRITIC_SYSTEM_PROMPT = "You review a draft deliverable against its task brief. The packet holds the brief, a text rendering of each required " +

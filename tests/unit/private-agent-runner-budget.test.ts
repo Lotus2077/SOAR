@@ -13,6 +13,7 @@ import { DockerSandbox } from "../../src/main/private-agent/sandbox";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { EXECUTION_OBSERVATION_MAX_BYTES, EXECUTION_OBSERVATION_BUDGET_BYTES } from "../../src/main/private-agent/observations";
 import { EXECUTION_PROGRESS_STOP, readExecutionProgressStop } from "../../src/main/private-agent/progress";
+import { CLAIMS_LEDGER_CHECK_ID, claimsLedgerCheck } from "../../src/main/private-agent/claims";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const done of cleanup.splice(0).reverse()) done(); });
@@ -20,14 +21,15 @@ type Action = { name: string; arguments: string; outputTokens?: number; reply?: 
 const write: Action = { name: "execute", arguments: '{"command":"write result"}' };
 const finish: Action = { name: "finish", arguments: '{"summary":"Artifacts are ready for host checks."}' };
 
-function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "maxModelCalls" | "maxToolCalls" | "maxElapsedMs">> & { maxRequests?: number; checkExitCode?: number; toolStdout?: string } = {}) {
+function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "maxModelCalls" | "maxToolCalls" | "maxElapsedMs">> & { maxRequests?: number; checkExitCode?: number; toolStdout?: string; claimsLedger?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "soar-runner-budget-"));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const dbPath = join(directory, "state.sqlite"), db = new Database(dbPath); cleanup.push(() => db.close());
   const store = new PrivateAgentStore(db), jobId = randomUUID(), contextId = randomUUID();
   store.createJob({ version: 1, id: jobId, mode: "private", revision: 0, cancelled: false, destinations: ["model"], maxRequests: limits.maxRequests ?? 10, maxFeeMicrousd: 0 });
+  const claimsCheck = limits.claimsLedger ? claimsLedgerCheck({ reportPath: "output.txt", sources: [{ id: "input.txt", path: "input.txt" }] }) : undefined;
   const contract: GeneralJobContract = { version: 1, goal: "Compute a synthetic result from the input and save it.",
-    requiredArtifacts: [{ path: "output.txt", description: "Computed output" }], requiredChecks: ["fixture_check"],
+    requiredArtifacts: [{ path: "output.txt", description: "Computed output" }], requiredChecks: ["fixture_check", ...(claimsCheck ? [CLAIMS_LEDGER_CHECK_ID] : [])],
     maxModelCalls: limits.maxModelCalls ?? 4, maxToolCalls: limits.maxToolCalls ?? 5, maxElapsedMs: limits.maxElapsedMs ?? 10000 };
   const files = [{ path: "input.txt", bytes: Buffer.from("synthetic input") }];
   store.createContext({ id: contextId, jobId, sources: [canonical(contract), canonical(files.map(file => ({ path: file.path, sha256: digest(file.bytes) }))), ...files.map(file => file.bytes)]
@@ -39,7 +41,7 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
     inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" }, jobId, contextId);
   const options: GeneralJobOptions = { jobId, contextId, store, broker, model, files, contract,
     imageId: `sha256:${"a".repeat(64)}`, checkpoints: new PrivateCheckpointStore(join(directory, "checkpoints"), jobId),
-    checks: [{ id: "fixture_check", python: "# fixed synthetic host check" }] };
+    checks: [{ id: "fixture_check", python: "# fixed synthetic host check" }, ...(claimsCheck ? [claimsCheck] : [])] };
   let clock = 0;
   vi.spyOn(performance, "now").mockImplementation(() => clock);
   vi.spyOn(DockerSandbox, "currentEndpoint").mockResolvedValue("unix:///tmp/synthetic-docker.sock");
@@ -59,7 +61,7 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
       if (command === "fail with progress") contents.set("diagnostic.txt", Buffer.from(String(commands.length)));
       if (command === "throw failure") throw new Error("PRIVATE-HOST-PATH-AND-DIAGNOSTIC");
       afterExecute(command);
-      return { exitCode: command.startsWith("fail ") ? 1 : command.startsWith("python3 -I -c") ? limits.checkExitCode ?? 0 : 0, stdout: limits.toolStdout ?? "synthetic evidence", stderr: "" };
+      return { exitCode: command.startsWith("fail ") ? 1 : command.includes("python3 -I -c") ? limits.checkExitCode ?? 0 : 0, stdout: limits.toolStdout ?? "synthetic evidence", stderr: "" };
     }, async listFiles() { beforeListFiles(); return [...contents.keys()].sort(); },
     async readFile(path: string) { return Buffer.from(contents.get(path)!); },
     async editFile(mode: "write" | "append" | "replace", path: string, payload: Buffer, replacement?: Buffer) {
@@ -726,5 +728,33 @@ describe("general runner tolerant loop", () => {
     const text = f.options.checkpoints.load(result.snapshot).find(file => file.path === "output.txt")!.bytes.toString("utf8");
     expect(text.split("\n").filter(Boolean)).toHaveLength(40);
     expect(text.endsWith("last line\n")).toBe(true);
+  });
+
+});
+
+describe("general runner claims ledger tool", () => {
+  it("offers check_claims only with a claims check configured and runs the host script as one read-only command", async () => {
+    const f = fixture([{ name: "check_claims", arguments: "{}" }, write, finish], { maxModelCalls: 6, maxToolCalls: 6, claimsLedger: true, toolStdout: '{"passed":true,"claims":[]}' });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "completed" });
+    // The host's retained public sources ride along in the environment (none here: base64 of []).
+    expect(f.commands[0]).toMatch(/^SOAR_CLAIMS_RETAINED='W10=' python3 -I -c '/u);
+    expect(f.commands[0]).toContain("ledgerPath");
+    const outputs = f.options.store.events(f.options.jobId).filter(event => event.type === "tool_finished").map(event => JSON.parse(String(event.output)));
+    // `passed` follows the exit code (the host script exits 0 iff it passed); stdout is relayed verbatim for the model.
+    expect(outputs[0]).toMatchObject({ passed: true, exitCode: 0, result: '{"passed":true,"claims":[]}' });
+    // Without the check the tool is neither advertised nor runnable.
+    const g = fixture([{ name: "check_claims", arguments: "{}" }, write, finish], { maxModelCalls: 6, maxToolCalls: 6 });
+    expect(await new GeneralAgentRunner(g.options).run()).toMatchObject({ status: "completed" });
+    expect(g.commands.filter(command => command.includes(CLAIMS_LEDGER_CHECK_ID))).toEqual([]);
+    const refused = g.options.store.events(g.options.jobId).filter(event => event.type === "tool_finished").map(event => JSON.parse(String(event.output)));
+    expect(refused[0]).toMatchObject({ error: "action_failed_or_not_permitted", completed: false });
+  });
+  it("verifies the ledger as a critical check at finish", async () => {
+    // Two calls only: the failed finish must not be followed by another scripted reply.
+    const f = fixture([write, finish], { maxModelCalls: 2, maxToolCalls: 4, claimsLedger: true, checkExitCode: 1 });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "bounded_allowance_exhausted" });
+    const finished = f.options.store.events(f.options.jobId).filter(event => event.type === "tool_finished").map(event => JSON.parse(String(event.output)));
+    expect(finished.at(-1)).toMatchObject({ complete: false, checks: [{ id: "fixture_check", passed: false }, { id: CLAIMS_LEDGER_CHECK_ID, passed: false }] });
   });
 });

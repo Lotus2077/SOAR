@@ -39,6 +39,17 @@ export function readPublicSources(store: PrivateAgentStore, checkpoints: Private
   return sources;
 }
 
+export interface PublicSourceFile { dispatchId: string; url: string; sha256: string; bytes: Buffer }
+/** Retained sources with their bytes, for host-owned checks and for carrying them into a later phase; never a model-written file. */
+export function readPublicSourceFiles(store: PrivateAgentStore, checkpoints: PrivateCheckpointStore, jobId: string, contextId?: string): PublicSourceFile[] {
+  return readPublicSources(store, checkpoints, jobId, contextId).map(source => {
+    const event = store.events(jobId).find(row => row.type === "public_source_retained" && row.dispatchId === source.dispatchId);
+    const file = checkpoints.load(SourceEventSchema.parse(event).snapshot)[0]!;
+    if (digest(file.bytes) !== source.sha256) throw new Error("public_source_identity_invalid");
+    return { dispatchId: source.dispatchId, url: source.url, sha256: source.sha256, bytes: file.bytes };
+  });
+}
+
 export function retainPublicSource(store: PrivateAgentStore, checkpoints: PrivateCheckpointStore, input: {
   jobId: string; contextId: string; url: string; bytes: Buffer; receipt: DispatchReceipt;
 }): PublicSource {

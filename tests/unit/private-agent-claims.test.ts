@@ -1,0 +1,156 @@
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, CLAIMS_RETAINED_ENV, ClaimsLedgerSchema, claimsInstructions, claimsLedgerCheck, encodeRetainedClaimsSources, publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
+import { digest } from "../../src/main/private-agent/contracts";
+import { buildBinarySource, hasIsolatedPypdf } from "../helpers/claims-fixtures";
+
+const cleanup: (() => void)[] = [];
+afterEach(() => { for (const done of cleanup.splice(0).reverse()) done(); });
+
+const notes = "Alpha report, first edition.\nThe reactor produced 42 units in May 2026.\nMaintenance   was deferred\nuntil June.\n";
+const page = "<html><head><style>p{color:red}</style></head><body><h1>Bravo &amp; Charlie</h1><p>Output fell by <b>12 percent</b> after the outage.</p><script>var x=1;</script></body></html>";
+const sources = [{ id: "input/notes.txt", path: "input/notes.txt" }, { id: "https://example.test/page", path: "sources/page.bin" }];
+
+/** Runs the host-owned check with the local python against a temporary workspace, exactly as the verifier container would. */
+function run(files: Record<string, string | Buffer>, extra: { sources?: typeof sources; publicSources?: boolean; retained?: Parameters<typeof encodeRetainedClaimsSources>[0]; reportPath?: string } = {}) {
+  const root = mkdtempSync(join(tmpdir(), "soar-claims-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+  for (const [path, content] of Object.entries(files)) { mkdirSync(join(root, path, ".."), { recursive: true }); writeFileSync(join(root, path), content); }
+  const check = claimsLedgerCheck({ reportPath: extra.reportPath ?? "output/report.md", sources: extra.sources ?? sources, publicSources: extra.publicSources, root });
+  expect(check.id).toBe(CLAIMS_LEDGER_CHECK_ID);
+  const env = extra.retained ? { ...process.env, [CLAIMS_RETAINED_ENV]: encodeRetainedClaimsSources(extra.retained) } : process.env;
+  try { return { exitCode: 0, result: JSON.parse(execFileSync("python3", ["-I", "-c", check.python], { encoding: "utf8", env })) }; }
+  catch (error) { const failure = error as { status: number; stdout: string }; return { exitCode: failure.status, result: JSON.parse(failure.stdout) }; }
+}
+const ledger = (claims: object[]) => JSON.stringify({ version: 1, claims });
+const report = "# Findings\n\nThe reactor produced 42 units in May 2026 [C1]. Output fell by 12 percent after the outage [C2].\n\n## Conflicting evidence\n\nnone found\n\n## Unanswered questions\n\nnone\n";
+
+describe("research claims ledger check", () => {
+  it("verifies verbatim quotes across whitespace and HTML, computes locators and resolves citations", () => {
+    const { exitCode, result } = run({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": report,
+      [CLAIMS_LEDGER_PATH]: ledger([
+        { id: "C1", sentence: "The reactor produced 42 units in May 2026.", sourceId: "input/notes.txt", quote: "produced 42 units in May 2026" },
+        { id: "C2", sentence: "Output fell by 12 percent after the outage.", sourceId: "https://example.test/page", quote: "Output fell by 12 percent after the outage.", locator: "ignored model locator" }]) });
+    expect(exitCode).toBe(0);
+    expect(result).toMatchObject({ passed: true, claims: [{ id: "C1", found: true, locator: "line 2" }, { id: "C2", found: true, locator: "html text" }],
+      report: { citations: { missing: [], unknown: [] }, sections: { "Conflicting evidence": true, "Unanswered questions": true } } });
+  });
+  it("locates a quote that spans lines and ignores NFKC and whitespace differences", () => {
+    const { result } = run({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": report.replace("[C2]", "[C1]"),
+      [CLAIMS_LEDGER_PATH]: ledger([{ id: "C1", sentence: "Maintenance was deferred until June.", sourceId: "input/notes.txt", quote: "Maintenance was  deferred until June" }]) });
+    expect(result).toMatchObject({ passed: true, claims: [{ id: "C1", found: true, locator: "lines 3-4" }] });
+  });
+  it("fails on a fabricated quote, an unknown source, a missing citation, an unknown citation or a missing section", () => {
+    const fabricated = run({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": report,
+      [CLAIMS_LEDGER_PATH]: ledger([{ id: "C1", sentence: "x", sourceId: "input/notes.txt", quote: "produced 42 units" }, { id: "C2", sentence: "y", sourceId: "https://example.test/page", quote: "Output rose by 12 percent" }]) });
+    expect(fabricated.exitCode).toBe(1);
+    expect(fabricated.result).toMatchObject({ passed: false, claims: [{ id: "C1", found: true }, { id: "C2", found: false, code: "quote_not_found" }] });
+    const unknownSource = run({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": report,
+      [CLAIMS_LEDGER_PATH]: ledger([{ id: "C1", sentence: "x", sourceId: "input/notes.txt", quote: "produced 42 units" }, { id: "C2", sentence: "y", sourceId: "input/other.txt", quote: "anything whatsoever" }]) });
+    expect(unknownSource.result.claims[1]).toMatchObject({ found: false, code: "unknown_source" });
+    const citations = run({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": report.replace("[C2]", "[C7]"),
+      [CLAIMS_LEDGER_PATH]: ledger([{ id: "C1", sentence: "x", sourceId: "input/notes.txt", quote: "produced 42 units" }, { id: "C2", sentence: "y", sourceId: "https://example.test/page", quote: "fell by 12 percent" }]) });
+    expect(citations.result).toMatchObject({ passed: false, report: { citations: { missing: ["C2"], unknown: ["C7"] } } });
+    const sections = run({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": report.replace("## Unanswered questions", "## Open points"),
+      [CLAIMS_LEDGER_PATH]: ledger([{ id: "C1", sentence: "x", sourceId: "input/notes.txt", quote: "produced 42 units" }, { id: "C2", sentence: "y", sourceId: "https://example.test/page", quote: "fell by 12 percent" }]) });
+    expect(sections.result).toMatchObject({ passed: false, report: { sections: { "Conflicting evidence": true, "Unanswered questions": false } } });
+  });
+  it("rejects a malformed, oversized or duplicate-id ledger and refuses unsafe source paths without crashing", () => {
+    expect(run({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": report, [CLAIMS_LEDGER_PATH]: "{\"version\":2}" }).result).toMatchObject({ passed: false, code: "ledger_schema" });
+    const oversized = JSON.stringify({ version: 1, claims: [{ id: "C1", sentence: "x", sourceId: "input/notes.txt", quote: "produced 42 units" }], padding: "p".repeat(262144) });
+    expect(run({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": report, [CLAIMS_LEDGER_PATH]: oversized }).result).toMatchObject({ passed: false, code: "ledger_size_limit" });
+    expect(run({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": report,
+      [CLAIMS_LEDGER_PATH]: ledger([{ id: "C1", sentence: "x", sourceId: "input/notes.txt", quote: "produced 42 units" }, { id: "C1", sentence: "y", sourceId: "input/notes.txt", quote: "x" }]) }).result).toMatchObject({ passed: false, code: "claim_id" });
+    expect(run({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": report,
+      [CLAIMS_LEDGER_PATH]: ledger([{ id: "C1", sentence: "x", sourceId: "escape", quote: "produced 42 units" }]) }, { sources: [{ id: "escape", path: "../outside.txt" }] }).result)
+      .toMatchObject({ passed: false, code: "invalid_path" });
+    expect(() => claimsLedgerCheck({ reportPath: "output/report.md", sources: [] })).toThrow("claims_sources_invalid");
+    expect(claimsLedgerCheck({ reportPath: "output/report.md", sources: [], publicSources: true }).id).toBe(CLAIMS_LEDGER_CHECK_ID);
+    expect(() => claimsLedgerCheck({ reportPath: "output/report.md", sources: [sources[0]!, sources[0]!] })).toThrow("claims_sources_invalid");
+  });
+  it("exposes a strict ledger schema, deterministic workspace paths for public sources and host instructions", () => {
+    const quote = "a quote of twelve or more characters";
+    expect(ClaimsLedgerSchema.safeParse({ version: 1, claims: [{ id: "C1", sentence: "s", sourceId: "a", quote }] }).success).toBe(true);
+    expect(ClaimsLedgerSchema.safeParse({ version: 1, claims: [{ id: "C1", sentence: "s", sourceId: "a", quote }, { id: "C1", sentence: "t", sourceId: "a", quote }] }).success).toBe(false);
+    expect(ClaimsLedgerSchema.safeParse({ version: 1, claims: [{ id: "claim-1", sentence: "s", sourceId: "a", quote }] }).success).toBe(false);
+    expect(ClaimsLedgerSchema.safeParse({ version: 1, claims: [{ id: "C1", sentence: "s", sourceId: "a", quote: "too short" }] }).success).toBe(false);
+    expect(publicSourceWorkspacePath("https://example.test/a?b=1")).toMatch(/^sources\/[a-f0-9]{16}\.bin$/u);
+    expect(publicSourceWorkspacePath("https://example.test/a?b=1")).toBe(publicSourceWorkspacePath("HTTPS://example.test/a?b=1"));
+    expect(publicSourceWorkspacePath("https://example.test/a?b=2")).not.toBe(publicSourceWorkspacePath("https://example.test/a?b=1"));
+    const text = claimsInstructions("output/report.md", sources);
+    expect(text).toContain(CLAIMS_LEDGER_PATH); expect(text).toContain("[C1]"); expect(text).toContain("check_claims"); expect(text).toContain("Conflicting evidence");
+    expect(text).not.toContain("fetch_public reported"); expect(claimsInstructions("output/report.md", [], true)).toContain("exact url that fetch_public reported");
+  });
+});
+
+describe("research claims ledger check hardening", () => {
+  const one = (quote: string, sourceId = "input/notes.txt") => ledger([{ id: "C1", sentence: "s", sourceId, quote }]);
+  const single = report.replace(" Output fell by 12 percent after the outage [C2].", "");
+  it("rejects a quote shorter than the minimum after normalisation", () => {
+    expect(run({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": single, [CLAIMS_LEDGER_PATH]: one("42   units") }).result)
+      .toMatchObject({ passed: false, claims: [{ id: "C1", found: false, code: "quote_too_short" }] });
+  });
+  it("ignores citations inside code fences and HTML comments and requires an exact heading line", () => {
+    const hidden = "# Findings\n\nThe reactor produced 42 units.\n\n```\n[C1]\n```\n<!-- [C1] -->\nConflicting evidence was weighed carefully.\n\n**Unanswered questions:**\n\nnone\n";
+    expect(run({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": hidden, [CLAIMS_LEDGER_PATH]: one("produced 42 units") }).result)
+      .toMatchObject({ passed: false, report: { citations: { missing: ["C1"], unknown: [] }, sections: { "Conflicting evidence": false, "Unanswered questions": true } } });
+  });
+  it("resolves a retained public source by its exact URL, verifies the host digest and refuses anything else", () => {
+    const url = "https://example.test/page", path = "sources/0123456789abcdef.bin";
+    const retained = [{ url, path, sha256: digest(Buffer.from(page)) }];
+    const files = { "input/notes.txt": notes, [path]: page, "output/report.md": single, [CLAIMS_LEDGER_PATH]: one("fell by 12 percent", url) };
+    expect(run(files, { sources: [], publicSources: true, retained }).result).toMatchObject({ passed: true, claims: [{ id: "C1", found: true, locator: "html text" }] });
+    // A model edit of the workspace copy is detected by the digest the host passed in.
+    expect(run({ ...files, [path]: page.replace("fell by", "rose by") }, { sources: [], publicSources: true, retained }).result).toMatchObject({ passed: false, claims: [{ found: false, code: "source_tampered" }] });
+    // A URL the host never retained, and a URL cited when public sources are not enabled, are unknown.
+    expect(run(files, { sources: [], publicSources: true, retained: [{ ...retained[0]!, url: "https://example.test/other" }] }).result).toMatchObject({ passed: false, claims: [{ found: false, code: "unknown_source" }] });
+    expect(run(files, { sources: [sources[0]!], publicSources: false, retained }).result).toMatchObject({ passed: false, claims: [{ found: false, code: "unknown_source" }] });
+    // Without the environment (a model running the script itself) nothing public resolves.
+    expect(run(files, { sources: [], publicSources: true }).result).toMatchObject({ passed: false, claims: [{ found: false, code: "unknown_source" }] });
+  });
+  it("detects PDF and DOCX bytes by content under any file name and joins DOCX runs inside a paragraph", () => {
+    const docx = buildBinarySource("docx", ["Alpha paragraph.", "The reactor produ|ced 42 units in May 2026."]);
+    expect(run({ "input/notes.txt": notes, "sources/abc.bin": docx, "output/report.md": single, [CLAIMS_LEDGER_PATH]: one("produced 42 units in May 2026", "doc") },
+      { sources: [{ id: "doc", path: "sources/abc.bin" }] }).result).toMatchObject({ passed: true, claims: [{ found: true, locator: "paragraph 2" }] });
+  });
+  it("reads a DOCX deliverable for citations and headings", () => {
+    const deliverable = buildBinarySource("docx", ["The reactor produced 42 units [C1].", "Conflicting evidence", "none found", "Unanswered questions", "none"]);
+    expect(run({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.docx": deliverable, [CLAIMS_LEDGER_PATH]: one("produced 42 units") }, { reportPath: "output/report.docx" }).result)
+      .toMatchObject({ passed: true, report: { citations: { missing: [], unknown: [] }, sections: { "Conflicting evidence": true, "Unanswered questions": true } } });
+  });
+});
+
+function runBinary(kind: "pdf" | "docx", paragraphs: string[], quote: string) {
+  const root = mkdtempSync(join(tmpdir(), "soar-claims-bin-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+  const path = `input/source.${kind}`; mkdirSync(join(root, "input")); mkdirSync(join(root, "output"));
+  writeFileSync(join(root, path), buildBinarySource(kind, paragraphs));
+  writeFileSync(join(root, "output/report.md"), "Claim [C1].\n\n## Conflicting evidence\n\nnone\n\n## Unanswered questions\n\nnone\n");
+  writeFileSync(join(root, CLAIMS_LEDGER_PATH), ledger([{ id: "C1", sentence: "Claim.", sourceId: "doc", quote }]));
+  const check = claimsLedgerCheck({ reportPath: "output/report.md", sources: [{ id: "doc", path }], root });
+  const run = spawnSync("python3", ["-I", "-c", check.python], { encoding: "utf8" });
+  return { exitCode: run.status, result: JSON.parse(run.stdout) as { passed: boolean; claims: { locator?: string; code?: string }[] } };
+}
+
+describe("research claims ledger check on binary sources", () => {
+  it("reads DOCX paragraphs from the document XML and names the paragraph or the paragraph span", () => {
+    const paragraphs = ["Alpha paragraph about the plant.", "The reactor produced 42 units in May 2026.", "Closing remarks."];
+    expect(runBinary("docx", paragraphs, "produced 42 units in May")).toMatchObject({ exitCode: 0, result: { passed: true, claims: [{ locator: "paragraph 2" }] } });
+    expect(runBinary("docx", paragraphs, "about the plant. The reactor")).toMatchObject({ exitCode: 0, result: { passed: true, claims: [{ locator: "paragraph 1 to paragraph 2" }] } });
+    expect(runBinary("docx", paragraphs, "produced 43 units")).toMatchObject({ exitCode: 1, result: { passed: false, claims: [{ code: "quote_not_found" }] } });
+  });
+  it.skipIf(!hasIsolatedPypdf())("reads PDF pages through pypdf and names the page", () => {
+    const pages = ["Alpha page about the plant.", "The reactor produced 42 units in May 2026."];
+    expect(runBinary("pdf", pages, "produced 42 units in May 2026")).toMatchObject({ exitCode: 0, result: { passed: true, claims: [{ locator: "page 2" }] } });
+    expect(runBinary("pdf", pages, "produced 43 units")).toMatchObject({ exitCode: 1, result: { passed: false, claims: [{ code: "quote_not_found" }] } });
+  });
+  it("reports a corrupt binary source as invalid rather than crashing", () => {
+    const root = mkdtempSync(join(tmpdir(), "soar-claims-bad-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
+    mkdirSync(join(root, "input")); mkdirSync(join(root, "output")); writeFileSync(join(root, "input/source.docx"), "not a zip");
+    writeFileSync(join(root, "output/report.md"), "Claim [C1].\n## Conflicting evidence\nnone\n## Unanswered questions\nnone\n");
+    writeFileSync(join(root, CLAIMS_LEDGER_PATH), ledger([{ id: "C1", sentence: "Claim.", sourceId: "doc", quote: "anything" }]));
+    const run = spawnSync("python3", ["-I", "-c", claimsLedgerCheck({ reportPath: "output/report.md", sources: [{ id: "doc", path: "input/source.docx" }], root }).python], { encoding: "utf8" });
+    expect(run.status).toBe(1); expect(JSON.parse(run.stdout)).toMatchObject({ passed: false, code: "ledger_invalid" });
+  });
+});

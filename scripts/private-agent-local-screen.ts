@@ -10,10 +10,11 @@ import { PrivateAgentBroker, type BrokerDestination } from "../src/main/private-
 import { canonical, digest } from "../src/main/private-agent/contracts";
 import { PrivateCheckpointStore } from "../src/main/private-agent/checkpoints";
 import { PrivateAgentModel } from "../src/main/private-agent/model";
-import { GeneralAgentSession, SESSION_LIMITS, sessionFileManifest, sessionPhaseIdentity } from "../src/main/private-agent/session";
+import { GeneralAgentSession, SESSION_LIMITS, sessionFileManifest, sessionPhaseIdentity, type SessionPhase } from "../src/main/private-agent/session";
 import { RulePacketScanner } from "../src/main/private-agent/scanner";
 import { PrivateAgentStore } from "../src/main/private-agent/store";
 import { COORDINATOR_PROFILES, GENERAL_TASK_BUDGETS, type CoordinatorProfileName } from "../src/main/private-agent/profiles";
+import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, claimsInstructions, claimsLedgerCheck } from "../src/main/private-agent/claims";
 import { buildPublicRetrievalPhase, loadPreparedOperatorTask, selectPreparedPublicInputs, startControlledSnapshotReceiver,
   type PreparedOperatorTask } from "./private-agent-run";
 
@@ -133,6 +134,16 @@ const LOCAL_SCREEN_BUDGETS: Readonly<Record<LocalScreenProfile, { maxModelCalls:
     maxElapsedMs: GENERAL_TASK_BUDGETS.heavy.elapsedMs, maxRequests: GENERAL_TASK_BUDGETS.heavy.sessionRequests },
 });
 
+/** Adds the claims ledger requirement: sources are the job's input files plus, for two-phase runs, the public sources the host retained (never the model-authored context files). */
+export function withClaimsLedger(phase: SessionPhase, publicRetrieval: boolean): SessionPhase {
+  const report = phase.contract.requiredArtifacts.find(artifact => artifact.path.endsWith(".md"))?.path ?? phase.contract.requiredArtifacts[0]!.path;
+  const sources = phase.files.filter(file => file.path.startsWith("input/")).map(file => ({ id: file.path, path: file.path }));
+  const check = claimsLedgerCheck({ reportPath: report, sources, publicSources: publicRetrieval });
+  return { ...phase, checks: [...phase.checks, check], contract: { ...phase.contract, goal: `${phase.contract.goal}\n${claimsInstructions(report, sources, publicRetrieval)}`,
+    requiredArtifacts: [...phase.contract.requiredArtifacts, { path: CLAIMS_LEDGER_PATH, description: "Claims ledger: one verbatim source quote per material claim." }],
+    requiredChecks: [...phase.contract.requiredChecks, CLAIMS_LEDGER_CHECK_ID] } };
+}
+
 /** Bounded synthetic local evaluation only; no cloud route or disclosure grant. */
 export async function runLocalArtifactScreen(input: {
   taskDirectory: string; expectedJobSha256: string; expectedBriefSha256: string;
@@ -140,6 +151,8 @@ export async function runLocalArtifactScreen(input: {
   publicRetrieval?: boolean; publicSnapshot?: PublicSnapshotOptions; pauseAfterTools?: number;
   /** "standard" is the September desktop coordinator setting; "heavy" enables thinking with a larger output limit. */
   profile?: LocalScreenProfile;
+  /** Require output/claims.json, verified by the host against the job's input and transferred context files. */
+  claimsLedger?: boolean;
 }) {
   if (![input.expectedJobSha256, input.expectedBriefSha256, input.syntheticAuthoritySha256, input.expectedRuntimeSha256].every(hash => /^[a-f0-9]{64}$/u.test(hash)) ||
       !/^sha256:[a-f0-9]{64}$/u.test(input.imageId) ||
@@ -150,7 +163,8 @@ export async function runLocalArtifactScreen(input: {
   const task = loadPreparedOperatorTask(input.taskDirectory, { jobSha256: input.expectedJobSha256, briefSha256: input.expectedBriefSha256 });
   const profileName: LocalScreenProfile = input.profile ?? "standard", coordinator = COORDINATOR_PROFILES[profileName], budget = LOCAL_SCREEN_BUDGETS[profileName];
   // The prepared task binds the September contract caps; the profile's budget replaces them for this run only.
-  const privatePhase = { ...task.phase, contract: { ...task.phase.contract, maxModelCalls: budget.maxModelCalls, maxToolCalls: budget.maxToolCalls, maxElapsedMs: budget.maxElapsedMs } };
+  const budgetedPhase = { ...task.phase, contract: { ...task.phase.contract, maxModelCalls: budget.maxModelCalls, maxToolCalls: budget.maxToolCalls, maxElapsedMs: budget.maxElapsedMs } };
+  const privatePhase = input.claimsLedger ? withClaimsLedger(budgetedPhase, input.publicRetrieval === true) : budgetedPhase;
   // Bind all explicit public metadata and original public bytes before receiver/model/DB effects.
   const publicSnapshot = input.publicSnapshot ? preparePublicSnapshot(task, input.publicSnapshot) : undefined;
   const config = loadConfig();
@@ -215,7 +229,7 @@ export async function runLocalArtifactScreen(input: {
       publicPhaseSha256: publicPhase ? sessionPhaseIdentity(publicPhase) : null,
       publicSnapshot: publicSnapshot?.binding ?? null,
       scanner: "rules_only_not_a_privacy_classifier", pauseAfterTools: input.pauseAfterTools ?? null,
-      profile: profileName,
+      profile: profileName, claimsLedger: input.claimsLedger === true,
       limits: { requests: budget.maxRequests, modelCalls: budget.maxModelCalls, toolCalls: budget.maxToolCalls, outputTokens: modelConfig.maxOutputTokens,
         inputBytes: coordinator.maxRequestBytes, requestTimeoutMs: coordinator.requestTimeoutMs, elapsedMs: budget.maxElapsedMs, feeMicrousd: 0 },
       startedAt: new Date().toISOString(), artifactAccepted: null };
@@ -269,12 +283,13 @@ export async function runLocalArtifactScreen(input: {
 
 export function parseLocalArtifactScreenArguments(args: string[]): Parameters<typeof runLocalArtifactScreen>[0] {
     const snapshotNames = ["--public-snapshot-directory", "--public-snapshot-brief-sha256", "--public-snapshot-map-sha256", "--public-snapshot-index-path"];
-    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", ...snapshotNames];
+    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", ...snapshotNames];
     if (args[0] !== "--execute-synthetic-local" || args.length % 2 !== 1 || args.slice(1).some((arg, i) => i % 2 === 0 && !names.includes(arg)) ||
         new Set(args.filter((_, i) => i % 2 === 1)).size !== (args.length - 1) / 2) throw new Error("local_screen_cli_invalid");
     const values = new Map(args.slice(1).filter((_, i) => i % 2 === 0).map(name => [name, args[args.indexOf(name) + 1]!]));
     if (names.slice(0, 7).some(name => !values.has(name)) || (values.has("--public-retrieval") && values.get("--public-retrieval") !== "true") ||
-        (values.has("--profile") && !Object.hasOwn(LOCAL_SCREEN_PROFILES, values.get("--profile")!))) throw new Error("local_screen_cli_invalid");
+        (values.has("--profile") && !Object.hasOwn(LOCAL_SCREEN_PROFILES, values.get("--profile")!)) ||
+        (values.has("--claims-ledger") && values.get("--claims-ledger") !== "true")) throw new Error("local_screen_cli_invalid");
     const snapshotCount = snapshotNames.filter(name => values.has(name)).length;
     if (snapshotCount && (snapshotCount !== snapshotNames.length || values.get("--public-retrieval") !== "true")) throw new Error("local_screen_cli_invalid");
     return { taskDirectory: values.get("--task-directory")!, expectedJobSha256: values.get("--job-sha256")!,
@@ -282,6 +297,7 @@ export function parseLocalArtifactScreenArguments(args: string[]): Parameters<ty
       outputDirectory: values.get("--output-directory")!, expectedRuntimeSha256: values.get("--runtime-sha256")!, publicRetrieval: values.get("--public-retrieval") === "true",
       pauseAfterTools: values.has("--pause-after-tools") ? Number(values.get("--pause-after-tools")) : undefined,
       profile: values.has("--profile") ? values.get("--profile") as LocalScreenProfile : undefined,
+      claimsLedger: values.get("--claims-ledger") === "true" ? true : undefined,
       ...(snapshotCount ? { publicSnapshot: { directory: values.get(snapshotNames[0]!)!, expectedBriefSha256: values.get(snapshotNames[1]!)!,
         expectedMapSha256: values.get(snapshotNames[2]!)!, indexPath: values.get(snapshotNames[3]!)! } } : {}) };
 }

@@ -23,16 +23,25 @@ function fixture() {
     vllm: { baseUrl: "http://127.0.0.1:9999/v1", apiKey: "host-key-a", model: "unit-fixture", costPolicy: "local_zero_cost", maxOutputTokens: 8192, timeoutMs: 300000 },
     limits: { inferenceRounds: 24, toolCalls: 24 }, context: { maxInputTokens: 32000, safetyMargin: 0.2 } };
   let runtimeIdentity = digest("runtime-v1"), imageId: string | undefined = `sha256:${"a".repeat(64)}`;
-  let paused = false, cancelled = false, release: (() => void) | undefined;
+  let paused = false, cancelled = false, failModel = false, release: (() => void) | undefined;
   let hold: Promise<void> | undefined;
   const executions: GeneralJobOptions[] = [];
   const factory: NonNullable<NonNullable<GeneralTaskControllerOptions["testing"]>["runnerFactory"]> = args => ({
     pause() { paused = true; }, cancel() { cancelled = true; },
     async run(signal) {
       executions.push(args); const { store, jobId, contextId, checkpoints } = args;
-      const op = `unit_${executions.length}`;
-      store.append(jobId, { type: "model_started", contextId, operationId: op });
+      // The failed-request marker is schema-checked (a real operation id); the ordinary fixture id stays readable.
+      const op = failModel ? randomUUID() : `unit_${executions.length}`;
+      store.append(jobId, { type: "model_started", contextId, operationId: op, promptProtocolSha256: digest("fixture-protocol") });
       if (hold) await hold;
+      if (failModel) {
+        // Every attempt ended in a confirmed abort: the row is resolved as failed, the operation closed, the task resumable.
+        const { text: _text, ...preview } = args.broker.preview({ jobId, contextId, destinationId: "desktop_local", purpose: "agent reasoning and tool selection", method: "POST", body: "{}", maxFeeMicrousd: 0 });
+        store.resolveFailure(store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_inside_boundary" } }, () => {}).id, "failed", { phase: "transport", code: "connection_failed", elapsedMs: 1, timeoutMs: 1000 });
+        store.append(jobId, { type: "model_request_failed", contextId, operationId: op, promptProtocolSha256: digest("fixture-protocol"), reason: "model_unavailable", dispatched: true });
+        store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
+        return { status: "incomplete", reason: "model_unavailable", snapshot: [], checks: [], modelCalls: executions.length };
+      }
       store.append(jobId, { type: "model_finished", contextId, operationId: op });
       const snapshot = checkpoints.save([...args.files, { path: args.contract.requiredArtifacts[0]!.path, bytes: Buffer.from("unit artifact") }]);
       store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
@@ -55,7 +64,7 @@ function fixture() {
     imageId: () => imageId, runtimeIdentity: () => runtimeIdentity, testing: { readiness: async () => {}, runnerFactory: factory } };
   const controller = new GeneralTaskController(options); cleanup.push(() => controller.close());
   const create = () => controller.create({ goal: "Make a small report.", inputSelectionId: controller.selectInputs([input]).id, outputName: "report.md", publicOrSynthetic: true });
-  return { root, db, input, config, controller, options, executions, create,
+  return { root, db, input, config, controller, options, executions, create, set failModel(value: boolean) { failModel = value; },
     changeRuntime() { runtimeIdentity = digest("runtime-v2"); }, removeImage() { imageId = undefined; },
     hold() { hold = new Promise<void>(yes => { release = yes; }); }, release() { release?.(); hold = undefined; }, resetPaused() { paused = false; } };
 }
@@ -276,6 +285,16 @@ describe("desktop general-task host controller", () => {
       f.controller.resume(paused.id); await f.controller.wait(paused.id);
       expect(f.controller.get(paused.id)).toMatchObject({ status: "submitted", entailment: { truncated: false, entailmentCalls: 2, counts: { supported: 2 } } });
     } finally { spy.mockRestore(); }
+  });
+  it("treats a confirmed model-request failure as resumable and a resolved failed dispatch as settled evidence", async () => {
+    const f = fixture();
+    f.failModel = true;
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    expect(f.controller.get(task.id)).toMatchObject({ status: "incomplete", canResume: true, reason: expect.stringContaining("could not be reached") });
+    expect(f.controller.get(task.id).events.some(event => event.type === "model_request_failed")).toBe(true);
+    f.failModel = false;
+    f.controller.resume(task.id); await f.controller.wait(task.id);
+    expect(f.controller.get(task.id).status).toBe("submitted");
   });
   it("refuses a queued task after the coordinator profile changes", () => {
     const f = fixture();

@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BROKER_MAX_BODY_BYTES, PrivateAgentBroker } from "../../src/main/private-agent/broker";
+import { BROKER_MAX_BODY_BYTES, PrivateAgentBroker, BrokerError } from "../../src/main/private-agent/broker";
 import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel, type GeneralMessage } from "../../src/main/private-agent/model";
@@ -730,6 +730,25 @@ describe("general runner tolerant loop", () => {
     expect(text.endsWith("last line\n")).toBe(true);
   });
 
+});
+
+describe("general runner recoverable dispatch (PR-C)", () => {
+  it("stops resumably when every attempt at the model request ended in a confirmed abort, then resumes and completes", async () => {
+    const f = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    f.complete.mockImplementationOnce(async () => { throw new BrokerError("request_failed"); });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "model_unavailable" });
+    const events = f.options.store.events(f.options.jobId);
+    expect(events.filter(row => row.type === "model_started")).toHaveLength(1);
+    expect(events.find(row => row.type === "model_request_failed")).toMatchObject({ reason: "model_unavailable", dispatched: true });
+    // Nothing is unknown and the operation is closed, so a second run proceeds with the next scripted reply.
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed" });
+    expect(f.requests).toHaveLength(2);
+    // Any other broker failure still stops without resume, as before.
+    const g = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    g.complete.mockImplementationOnce(async () => { throw new BrokerError("transport_or_settlement_unknown"); });
+    expect((await new GeneralAgentRunner(g.options).run()).reason).toBe("runtime_failure_progress_preserved");
+    expect((await new GeneralAgentRunner(g.options).run()).reason).toBe("unresolved_operation_no_replay");
+  });
 });
 
 describe("general runner claims ledger tool", () => {

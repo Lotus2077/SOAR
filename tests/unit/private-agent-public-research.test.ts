@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PrivateAgentBroker, type BrokerDestination, type BrokerRequest } from "../../src/main/private-agent/broker";
+import { PrivateAgentBroker, type BrokerDestination, type BrokerRequest, BrokerError } from "../../src/main/private-agent/broker";
 import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
 import { canonical, digest, restrictedContext } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel, type GeneralMessage } from "../../src/main/private-agent/model";
@@ -170,6 +170,14 @@ describe("public retrieval through the single bounded runner", () => {
     // The verifier container receives the retained bytes, never the workspace copy.
     expect(f.snapshots.at(-1)!.get(path)!.equals(hostBytes)).toBe(true);
     expect(f.commands.filter(entry => entry.includes("SOAR_CLAIMS_RETAINED="))).toHaveLength(2);
+  });
+  it("returns a confirmed fetch failure to the model as an observation and keeps running", async () => {
+    const f = runnerFixture(["fetch_public", "execute", "finish"]);
+    f.requests.mockImplementationOnce(async () => { throw new BrokerError("request_failed"); });
+    expect((await new GeneralAgentRunner(f.args).run()).status).toBe("completed");
+    const outputs = f.store.events(f.jobId).filter(row => row.type === "tool_finished").map(row => JSON.parse(String(row.output)));
+    expect(outputs[0]).toMatchObject({ error: "public_fetch_failed", completed: false, actionInvoked: true });
+    expect(f.messages).toHaveLength(3);
   });
   it("stops immediately after an unknown fetch and never retries it on resume", async () => {
     const f = runnerFixture(["fetch_public", "execute"], { unknown: true });

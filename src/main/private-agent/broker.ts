@@ -7,7 +7,7 @@ import {
   canonical, contextFingerprint, digest, exactText, restrictedContext, syntheticContext,
   privateAgentId, ExactApprovalSchema, sha256Schema, type ExactApproval, type PrivateAgentContext, type PrivateJobPolicy,
 } from "./contracts";
-import { PrivateAgentStore, type DispatchReceipt, type UnknownRequestDiagnostic } from "./store";
+import { isConfirmedAbort, isRetryableAbort, PrivateAgentStore, type DispatchReceipt, type UnknownRequestDiagnostic } from "./store";
 
 export const BROKER_MAX_BODY_BYTES = 192 * 1024;
 /** Ceiling for a destination's own request body cap; profiles choose values below it. */
@@ -36,6 +36,11 @@ export interface BrokerDestination {
   timeoutMs: number;
   /** Optional per-destination request body cap; absent means BROKER_MAX_BODY_BYTES. */
   maxRequestBytes?: number;
+  /**
+   * Owner decision D4: a zero-fee local request or a public GET may be retried at most twice after a confirmed upstream
+   * abort. Never valid on a cloud destination; absent keeps every receipt and fingerprint identical to before.
+   */
+  recoverable?: boolean;
   requireExactGrant?: boolean;
   approvalPriceProfileSha256?: string;
 }
@@ -77,7 +82,26 @@ export class BrokerError extends Error {
 
 type TransportFailureCode = Extract<UnknownRequestDiagnostic, { phase: "transport" }>["code"];
 class TransportFailure extends Error {
-  constructor(readonly code: TransportFailureCode) { super(code); }
+  constructor(readonly code: TransportFailureCode, readonly status?: number) { super(code); }
+}
+/** Retries of one recoverable packet: the first attempt plus at most two more, with a short pause between them. */
+export const BROKER_MAX_ATTEMPTS = 3;
+export const BROKER_RETRY_BACKOFF_MS: readonly number[] = Object.freeze([1000, 3000]);
+const CONNECTION_FAILURE_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EAI_FAIL", "EAI_NONAME", "ENETUNREACH", "EHOSTUNREACH", "EADDRNOTAVAIL"]);
+const UPSTREAM_CLOSED_CODES = new Set(["ECONNRESET", "EPIPE", "ECONNABORTED"]);
+/** Only fixed socket error codes are classified; anything else stays the generic failure. */
+function classifySocketError(error: unknown, sent: boolean): TransportFailureCode {
+  const code = typeof error === "object" && error !== null && typeof (error as { code?: unknown }).code === "string" ? (error as { code: string }).code : "";
+  if (CONNECTION_FAILURE_CODES.has(code)) return "connection_failed";
+  if (UPSTREAM_CLOSED_CODES.has(code)) return sent ? "upstream_closed" : "connection_failed";
+  return "transport_failed";
+}
+function backoff(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise(resolve => {
+    const timer = setTimeout(() => { signal?.removeEventListener("abort", stop); resolve(); }, ms);
+    const stop = () => { clearTimeout(timer); resolve(); };
+    signal?.addEventListener("abort", stop, { once: true });
+  });
 }
 
 function deny(code: string): never { throw new BrokerError(code); }
@@ -124,6 +148,7 @@ function normalizeDestination(value: BrokerDestination): BrokerDestination {
       (value.requireExactGrant === true) !== (value.approvalPriceProfileSha256 !== undefined) ||
       (value.approvalPriceProfileSha256 !== undefined && !sha256Schema.safeParse(value.approvalPriceProfileSha256).success)) deny("destination_approval_invalid");
   if (value.kind === "public_web" && value.apiKey) deny("web_ambient_credential_denied");
+  if (value.recoverable !== undefined && (typeof value.recoverable !== "boolean" || value.kind === "cloud_model")) deny("destination_recoverable_invalid");
   if (value.publicDnsResolver !== undefined && (value.publicDnsResolver !== "cloudflare_v1" || value.kind !== "public_web" ||
       endpoint.protocol !== "https:" || value.loopbackFixture || isIP(endpoint.hostname.replace(/^\[|\]$/gu, "")))) deny("destination_public_dns_invalid");
   if (value.syntheticOnly && value.privateDataAdmitted) deny("destination_trust_conflict");
@@ -223,39 +248,62 @@ export class PrivateAgentBroker {
     }
     if (frozen.signal?.aborted) deny("request_cancelled");
     const { text: _text, ...identity } = packet.preview;
-    const receipt = this.store.commit({ ...identity, reservedFeeMicrousd: frozen.maxFeeMicrousd, scan: scanReceipt },
-      (policy, context) => { this.eligible(policy, context, packet.destination, frozen.grantId); validateAtCommit?.(); }, frozen.grantId);
-    const controller = new AbortController();
-    const group = this.active.get(frozen.jobId) ?? new Set<AbortController>();
-    group.add(controller); this.active.set(frozen.jobId, group);
-    const cancel = () => controller.abort();
-    frozen.signal?.addEventListener("abort", cancel, { once: true });
-    if (frozen.signal?.aborted) controller.abort();
-    const started = performance.now();
-    let phase: "transport" | "response_validation" | "fee_settlement" = "transport";
-    try {
-      const bytes = await transport(packet.destination, packet.url, frozen.method, frozen.body, controller.signal, event => {
-        this.store.append(frozen.jobId, { ...event, contextId: frozen.contextId, dispatchId: receipt.id });
-      });
-      phase = "response_validation";
-      const fee = settleFee(bytes);
-      phase = "fee_settlement";
-      this.store.settle(receipt.id, fee, digest(bytes));
-      return { bytes, receipt: this.store.dispatch(receipt.id) };
-    } catch (error) {
-      // Timing is monotonic, excludes pre-commit scanning, and saturates at one
-      // hour rather than admitting arbitrary numeric diagnostics into storage.
-      const timing = { elapsedMs: Math.min(3_600_000, Math.max(0, Math.floor(performance.now() - started))), timeoutMs: packet.destination.timeoutMs };
-      const failure: UnknownRequestDiagnostic = phase === "transport"
-        ? { phase: "transport", code: error instanceof TransportFailure ? error.code : "transport_failed", ...timing }
-        : { phase: "settlement", code: phase === "response_validation" ? "response_or_usage_invalid" : "fee_settlement_failed", ...timing };
-      this.store.unknown(receipt.id, failure);
-      // Never expose provider text, private URL, system exception or API key.
-      return deny("transport_or_settlement_unknown");
-    } finally {
-      frozen.signal?.removeEventListener("abort", cancel);
-      group.delete(controller);
-      if (!group.size) this.active.delete(frozen.jobId);
+    // A zero-risk packet can be re-sent without cost or side effect: a zero-fee local request or a public GET without a grant.
+    const zeroRisk = frozen.grantId === undefined && !packet.preview.approval &&
+      ((packet.destination.kind === "local_model" && frozen.maxFeeMicrousd === 0) || (packet.destination.kind === "public_web" && frozen.method === "GET"));
+    // D4: only such a packet, on a destination flagged recoverable, is retried, and only after a confirmed abort.
+    const recoverable = packet.destination.recoverable === true && zeroRisk;
+    for (let attempt = 1; ; attempt++) {
+      if (attempt > 1 && frozen.signal?.aborted) deny("request_cancelled");
+      // Each attempt is its own committed row: it re-checks eligibility and consumes one session request.
+      const receipt = this.store.commit({ ...identity, reservedFeeMicrousd: frozen.maxFeeMicrousd, scan: scanReceipt },
+        (policy, context) => { this.eligible(policy, context, packet.destination, frozen.grantId); validateAtCommit?.(); }, frozen.grantId);
+      const controller = new AbortController();
+      const group = this.active.get(frozen.jobId) ?? new Set<AbortController>();
+      group.add(controller); this.active.set(frozen.jobId, group);
+      const cancel = () => controller.abort();
+      frozen.signal?.addEventListener("abort", cancel, { once: true });
+      if (frozen.signal?.aborted) controller.abort();
+      const started = performance.now();
+      let phase: "transport" | "response_validation" | "fee_settlement" = "transport";
+      try {
+        const bytes = await transport(packet.destination, packet.url, frozen.method, frozen.body, controller.signal, event => {
+          this.store.append(frozen.jobId, { ...event, contextId: frozen.contextId, dispatchId: receipt.id });
+        });
+        phase = "response_validation";
+        const fee = settleFee(bytes);
+        phase = "fee_settlement";
+        this.store.settle(receipt.id, fee, digest(bytes));
+        return { bytes, receipt: this.store.dispatch(receipt.id) };
+      } catch (error) {
+        // Timing is monotonic, excludes pre-commit scanning, and saturates at one
+        // hour rather than admitting arbitrary numeric diagnostics into storage.
+        const timing = { elapsedMs: Math.min(3_600_000, Math.max(0, Math.floor(performance.now() - started))), timeoutMs: packet.destination.timeoutMs,
+          ...(recoverable ? { attempt } : {}) };
+        // Only a status the diagnostic schema admits is recorded; a malformed one leaves no status.
+        const status = error instanceof TransportFailure && error.status !== undefined && error.status >= 100 && error.status <= 599 ? { status: error.status } : {};
+        const failure: UnknownRequestDiagnostic = phase === "transport"
+          ? { phase: "transport", code: error instanceof TransportFailure ? error.code : "transport_failed", ...status, ...timing }
+          : { phase: "settlement", code: phase === "response_validation" ? "response_or_usage_invalid" : "fee_settlement_failed", ...timing };
+        if (!isConfirmedAbort(failure, zeroRisk)) {
+          this.store.unknown(receipt.id, failure);
+          // Never expose provider text, private URL, system exception or API key.
+          return deny("transport_or_settlement_unknown");
+        }
+        // Another attempt needs a free session request; the committed row only becomes `superseded` once the retry is certain.
+        const admissible = this.store.dispatches(frozen.jobId).length < this.store.policy(frozen.jobId).maxRequests;
+        if (recoverable && isRetryableAbort(failure) && attempt < BROKER_MAX_ATTEMPTS && admissible && !frozen.signal?.aborted) {
+          await backoff(BROKER_RETRY_BACKOFF_MS[attempt - 1] ?? BROKER_RETRY_BACKOFF_MS.at(-1)!, frozen.signal);
+          if (!frozen.signal?.aborted) { this.store.resolveFailure(receipt.id, "superseded", failure, zeroRisk); continue; }
+        }
+        // A confirmed abort with no attempt to follow is a resolved failure: the ledger stays replay-safe and never blocks.
+        this.store.resolveFailure(receipt.id, "failed", failure, zeroRisk);
+        return deny("request_failed");
+      } finally {
+        frozen.signal?.removeEventListener("abort", cancel);
+        group.delete(controller);
+        if (!group.size) this.active.delete(frozen.jobId);
+      }
     }
   }
 
@@ -296,12 +344,20 @@ async function transport(destination: BrokerDestination, url: URL, method: "GET"
     const host = url.hostname.replace(/^\[|\]$/gu, "");
     // Resolve once, validate every answer and pin the selected address to prevent
     // re-resolution/DNS rebinding between policy evaluation and connection.
-    const addresses = destination.publicDnsResolver === "cloudflare_v1"
-      ? await resolvePublicV4(host, joined, isPublicAddress, recordDns)
-      : isIP(host) ? [{ address: host, family: isIP(host) }] : await systemLookup(host, joined);
+    let addresses: { address: string; family: number }[];
+    try {
+      addresses = destination.publicDnsResolver === "cloudflare_v1"
+        ? await resolvePublicV4(host, joined, isPublicAddress, recordDns)
+        : isIP(host) ? [{ address: host, family: isIP(host) }] : await systemLookup(host, joined);
+    } catch (error) {
+      // Nothing was sent: a failed lookup is a confirmed non-dispatch unless SOAR itself aborted it.
+      if (error instanceof TransportFailure) throw error;
+      throw abortCause ? transportError() : new TransportFailure("connection_failed");
+    }
     if (joined.aborted) throw transportError();
     const allowPrivate = destination.kind === "local_model" || destination.loopbackFixture;
-    if (!addresses.length || (!allowPrivate && addresses.some(item => !isPublicAddress(item.address)))) deny("transport_address_denied");
+    // Nothing was sent, so a denied address is a confirmed non-dispatch.
+    if (!addresses.length || (!allowPrivate && addresses.some(item => !isPublicAddress(item.address)))) throw new TransportFailure("connection_failed");
     const selected = addresses[0]!;
     return await new Promise<Buffer>((resolve, reject) => {
       const headers: Record<string, string> = {};
@@ -316,7 +372,7 @@ async function transport(destination: BrokerDestination, url: URL, method: "GET"
         },
       }, response => {
         if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
-          reject(new TransportFailure("http_rejected")); response.destroy(); return;
+          reject(new TransportFailure("http_rejected", response.statusCode)); response.destroy(); return;
         }
         const length = response.headers["content-length"];
         if (length && (!/^\d+$/u.test(length) || Number(length) > destination.maxResponseBytes)) {
@@ -329,15 +385,19 @@ async function transport(destination: BrokerDestination, url: URL, method: "GET"
           else chunks.push(Buffer.from(chunk));
         });
         response.on("end", () => resolve(Buffer.concat(chunks)));
-        response.on("error", () => reject(transportError()));
-        response.on("aborted", () => reject(transportError()));
+        // The response had started: the upstream executed the request, so this is confirmed only for a zero-risk packet.
+        response.on("error", () => reject(abortCause ? transportError() : new TransportFailure("response_interrupted")));
+        response.on("aborted", () => reject(abortCause ? transportError() : new TransportFailure("response_interrupted")));
       });
-      request.on("error", () => reject(transportError()));
+      let sent = false;
+      request.on("socket", socket => socket.once("connect", () => { sent = true; }));
+      request.on("error", error => reject(abortCause ? transportError() : new TransportFailure(classifySocketError(error, sent))));
       request.end(body);
     });
   } catch (error) {
     // Preserve a fixed error observed at the transport boundary; never map an
     // arbitrary exception message or a later settlement error into this phase.
-    throw error instanceof TransportFailure ? error : transportError();
+    if (error instanceof TransportFailure) throw error;
+    throw abortCause ? transportError() : new TransportFailure(classifySocketError(error, false));
   } finally { clearTimeout(timeout); signal.removeEventListener("abort", externalAbort); }
 }

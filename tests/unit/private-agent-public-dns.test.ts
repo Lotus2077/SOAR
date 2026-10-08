@@ -106,9 +106,10 @@ describe("bounded public DNS resolver", () => {
       { type: "public_dns_finished", status: "settled", responseSha256: digest(encoded(answer())), addressCount: 1, dispatchId: response.receipt.id }]);
     expect(canonical(f.store.events("job"))).not.toContain("public_nonce"); expect(canonical(f.store.events("job"))).not.toContain("93.184.216.34");
   });
-  it("retains system-DNS rejection when the resolver option is absent", async () => {
+  it("retains system-DNS rejection when the resolver option is absent, as a confirmed non-dispatch", async () => {
     const calls = transportMock(), f = fixture("public", false);
-    await expect(f.broker.request(f.input)).rejects.toThrow("transport_or_settlement_unknown");
+    await expect(f.broker.request(f.input)).rejects.toThrow("request_failed");
+    expect(f.store.dispatches("job")).toMatchObject([{ status: "failed", failure: { phase: "transport", code: "connection_failed" } }]);
     expect(lookup).toHaveBeenCalledOnce(); expect(calls).toEqual([]); expect(f.store.events("job")).toEqual([]);
   });
   it("never discloses a private-context hostname to DoH even with an exact content grant", async () => {
@@ -129,13 +130,15 @@ describe("bounded public DNS resolver", () => {
   });
   it("records failed metadata and never connects to any target if one DNS answer is nonpublic", async () => {
     const calls = transportMock({ dnsBody: answer([...answer().Answer, { name: "httpbin.org.", type: 1, TTL: 60, data: "10.0.0.1" }]) }), f = fixture();
-    await expect(f.broker.request(f.input)).rejects.toThrow("transport_or_settlement_unknown"); expect(calls).toHaveLength(1);
+    // Nothing was sent to the target: a confirmed non-dispatch, resolved as failed rather than left uncertain.
+    await expect(f.broker.request(f.input)).rejects.toThrow("request_failed"); expect(calls).toHaveLength(1);
+    expect(f.store.dispatches("job")).toMatchObject([{ status: "failed", failure: { phase: "transport", code: "connection_failed" } }]);
     expect(f.store.events("job")[1]).toMatchObject({ status: "failed", errorCode: "public_dns_address_denied" });
-    expect(f.store.dispatches("job")[0]!.status).toBe("unknown");
+    expect(f.store.dispatches("job")[0]!.status).toBe("failed");
   });
   it.each([{ dnsStatus: 302 }, { dnsContentType: "text/html" }])("does not follow a resolver redirect or accept an unrecognized response %j", options => {
     const calls = transportMock(options), f = fixture();
-    return expect(f.broker.request(f.input)).rejects.toThrow("transport_or_settlement_unknown").then(() => {
+    return expect(f.broker.request(f.input)).rejects.toThrow("request_failed").then(() => {
       expect(calls).toHaveLength(1); expect(f.store.events("job")[1]).toMatchObject({ status: "failed", errorCode: "public_dns_transport_failed" });
     });
   });
@@ -151,7 +154,8 @@ describe("bounded public DNS resolver", () => {
   });
   it("does not follow a content redirect after successful metadata resolution", async () => {
     const calls = transportMock({ contentStatus: 302 }), f = fixture();
-    await expect(f.broker.request(f.input)).rejects.toThrow("transport_or_settlement_unknown"); expect(calls).toHaveLength(2);
+    await expect(f.broker.request(f.input)).rejects.toThrow("request_failed"); expect(calls).toHaveLength(2);
+    expect(f.store.dispatches("job")).toMatchObject([{ status: "failed", failure: { code: "http_rejected", status: 302 } }]);
     expect(f.store.events("job")[1]).toMatchObject({ status: "settled" });
   });
 });

@@ -33,6 +33,20 @@ export function modelRequestSizeStop(events: Record<string, unknown>[], start: R
   return parsed.data;
 }
 
+export const MODEL_UNAVAILABLE_STOP = "model_unavailable";
+const failedRequestSchema = z.object({
+  type: z.literal("model_request_failed"), contextId: privateAgentId, operationId: z.string().uuid(),
+  promptProtocolSha256: sha256Schema, reason: z.literal(MODEL_UNAVAILABLE_STOP), dispatched: z.literal(true),
+}).strict();
+/** The model request ended in a confirmed abort (every row resolved, nothing unknown); the open operation is closed and the task may resume. */
+export function modelRequestFailed(events: Record<string, unknown>[], start: Record<string, unknown>): boolean {
+  if (start.type !== "model_started") return false;
+  const markers = events.filter(event => event.type === "model_request_failed" && event.operationId === start.operationId);
+  if (markers.length !== 1 || events.some(event => event.type === "model_finished" && event.operationId === start.operationId)) return false;
+  const parsed = failedRequestSchema.safeParse(markers[0]);
+  return parsed.success && parsed.data.contextId === start.contextId && parsed.data.promptProtocolSha256 === start.promptProtocolSha256;
+}
+
 export function hasInvalidModelRequestSizeStop(events: Record<string, unknown>[]): boolean {
   return events.some(marker => marker.type === "model_request_not_dispatched" &&
     !events.some(start => modelRequestSizeStop(events, start)?.operationId === marker.operationId));

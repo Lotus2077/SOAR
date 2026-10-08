@@ -9,6 +9,7 @@ import { readPublicSources } from "./public-sources";
 import type { GeneralConsultation } from "./consultation";
 import { readPublicSourceFiles } from "./public-sources";
 import { ClaimsVerifiedSchema, ENTAILMENT_MAX_MS, ENTAILMENT_PROMPT_VERSION, ENTAILMENT_SYSTEM_PROMPT, isEntailmentDispatch, judgeClaims, publicSourceWorkspacePath, type EntailmentOutcome } from "./claims";
+import { isResolvedDispatch } from "./store";
 
 export interface SessionFile { path: string; bytes: Buffer }
 export interface SessionPhase {
@@ -250,7 +251,7 @@ export class GeneralAgentSession {
         if (policyChanged()) return result("incomplete", policyReason());
         if (publicResult.status !== "completed") return result(publicResult.status, `public_${publicResult.reason}`);
         const receipts = store.dispatches(jobId).filter(row => row.contextId === publicContextId);
-        if (!receipts.length || receipts.some(row => row.status !== "settled") || !receipts.some(row => options.publicPhase!.webDestinations.includes(row.destinationId) && row.purpose === "public source retrieval")) return result("incomplete", "public_retrieval_receipt_missing");
+        if (!receipts.length || receipts.some(row => !isResolvedDispatch(row)) || !receipts.some(row => row.status === "settled" && options.publicPhase!.webDestinations.includes(row.destinationId) && row.purpose === "public source retrieval")) return result("incomplete", "public_retrieval_receipt_missing");
         const declared = options.publicPhase.transfer.map(row => {
           const item = publicResult.snapshot.find(file => file.path === row.from);
           if (!item?.bytes) throw new Error("session_transfer_missing");
@@ -282,7 +283,7 @@ export class GeneralAgentSession {
       finalSnapshot = privateResult.snapshot;
       if (policyChanged()) return result("incomplete", policyReason());
       if (privateResult.status !== "completed") return result(privateResult.status, privateResult.reason);
-      if (store.dispatches(jobId).some(row => row.status !== "settled" && !isEntailmentDispatch(row)) || signal.aborted) return result("incomplete", "session_unresolved_or_deadline");
+      if (store.dispatches(jobId).some(row => !isResolvedDispatch(row) && !isEntailmentDispatch(row)) || signal.aborted) return result("incomplete", "session_unresolved_or_deadline");
       if (!this.events().some(event => event.type === "session_submitted")) store.append(jobId, { type: "session_submitted", snapshotSha256: checkpoints.fingerprint(finalSnapshot), independentAcceptanceRequired: true });
       // Evidence after the fact: submission is durable, so the pass can only add verdicts; a pause leaves it for the next resume.
       if (await this.entailment(privateContextId, privateModel, signal) === "paused") return result("paused", "session_stopped");

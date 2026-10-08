@@ -18965,3 +18965,244 @@ Next gate: PR-C (recoverable dispatch) implemented and reviewed; PR-F.
 
 References: BL-20261007-0210-entailment-v1-judge-rejected,
 BL-20261007-0120-pr-j2-entailment-implemented, [registry](experiments/registry.jsonl).
+
+### BL-20261007-0321-pr-c-recoverable-dispatch-design -- 2026-10-07 -- Recoverable dispatch designed (PR-C)
+
+Status: `Proposed`
+
+Scope or hypothesis: Phase 1 item 3 (docs/PLAN.md): zero-fee local inference
+and idempotent public GETs may be retried at most twice, only after a
+confirmed upstream abort; public failures return to the model as observations;
+cloud and consultant destinations stay at-most-once. Owner decision D4 is
+recorded as approved on 2026-09-29, so the behaviour may be on for the local
+arm. On-track check: J1 and J2 are implemented and reviewed (PR #5, #6); the
+judge dry run showed the cost of a non-recoverable failure (one 400 ended the
+pass; a box restart during a long task ends the task with
+`unresolved_dispatch_no_replay` and no resume). Branch
+`phase1-recoverable-dispatch`, stacked on #6.
+
+Decisions:
+
+- **Classification first.** `transport()` in broker.ts discards the socket
+  error today, so "never sent" cannot be told from "reset mid-response". The
+  diagnostic gains a `cause`: `not_sent` (connection refused, DNS, address
+  denied, request error before headers), `upstream_closed` (reset, hang-up or
+  `aborted` after the request was written), `upstream_rejected` (non-2xx with
+  status), `oversize`, `cancelled`, and `timeout` (SOAR's own timer). Only
+  `not_sent`, `upstream_closed` and a 5xx `upstream_rejected` count as confirmed
+  aborts; `timeout` and settlement failures stay unknown because the server
+  may still have produced or charged a result (a serving-specific "abort
+  leaves no generation" observation is not a contract).
+- **Retry inside `PrivateAgentBroker.request`.** When the destination is
+  `local_model` with `maxFeeMicrousd === 0` and no grant, or `public_web` with
+  `GET`, the failed attempt's row is closed with a new terminal status
+  `superseded` (diagnostic retained, never blocking) and a fresh row is
+  committed for the next attempt, at most twice, with 1 s then 3 s backoff,
+  never after the external signal aborts. Each attempt consumes a session
+  request; the public-fetch allowance counts only rows that are not
+  `superseded`. Cloud and consultant destinations never enter this path; the
+  existing at-most-once tests are kept and extended with a guard test per
+  kind.
+- **Terminal failures become observations or resumable stops.** A public GET
+  whose attempts all end in confirmed aborts returns to the model as a
+  `public_fetch_failed` observation with the cause; a model request whose
+  attempts all fail records `model_request_failed` (closing the
+  `model_started` operation) and returns `incomplete` with reason
+  `model_unavailable`, which `canResume` admits because no dispatch is unknown
+  and no operation is open. The entailment judge inherits recovery for free.
+- **Flag.** Per-destination `recoverable: true`, spread in only when on so
+  fingerprints and receipts stay byte-identical when off; env
+  `SOAR_RECOVERABLE_DISPATCH` (`booleanString`), default `true` for the desktop
+  local destination and public GETs given D4, never for cloud. Turning the flag
+  on changes the destination fingerprint, so paused tasks created before it
+  report `configuration_changed`; recorded, not hidden.
+- **Every non-settled predicate is enumerated and updated** (store commit
+  rule, runner `unsettledDispatch`, session, controller `uncertain` and fee
+  projection, consultation, registry script), with `superseded` treated as
+  resolved everywhere and `unknown` unchanged.
+
+Changes: This entry. Implementation follows in PR #7.
+
+Evidence: code map of broker.ts, store.ts, runner.ts, session.ts, controller.ts
+(read 2026-10-07); the `phase1-entailment-v1` failure record; serving card P6.
+
+Failures or blockers: None.
+
+Limitations and non-claims: Recovery does not make the local box reliable; it
+removes the harness-terminal cause for confirmed aborts only. A timeout still
+ends the task without replay.
+
+Paid exposure: USD 0.
+
+Next gate: PR-C implemented with at-most-once tests for cloud and consultant
+kinds, reviewed; a dry run with an induced local abort.
+
+References: [plan](PLAN.md) Phase 1 PR-C and D4, BL-20261007-0210-entailment-v1-judge-rejected.
+
+Identifier note: authored 2026-10-07 02:45 UTC as BL-20261007-0321-pr-c-recoverable-dispatch-design; re-identified as BL-20261007-0321-pr-c-recoverable-dispatch-design so the
+branch stays append-only after its base gained BL-20261007-0320. The body is unchanged.
+
+### BL-20261007-0322-pr-f-owner-surface-design -- 2026-10-07 -- Owner surface designed (PR-F)
+
+Status: `Proposed`
+
+Scope or hypothesis: Phase 1 item 3 (docs/PLAN.md PR-F) plus the items earlier
+entries deferred to it: per-task profile selection (BL-20261006-1055), showing
+the entailment counts (BL-20261007-0120). On-track check: the runtime now
+survives real jobs and records host evidence the owner cannot see; the owner's
+first real jobs (exit criterion 3) need a surface that opens on the general
+task, explains what the agent did and says when checks were not clean. Branch
+`phase1-owner-surface`, stacked on PR-C.
+
+Decisions:
+
+- **Default surface and ⌘N.** `App.tsx` starts on `general`; ⌘N opens a new
+  general task through a request nonce prop on `GeneralTaskWorkspace`; the
+  legacy auto-select of the newest investigator session no longer decides the
+  opening view.
+- **Labs flag.** `SOAR_ENABLE_LABS` (`booleanString`, default false) reaches
+  the renderer through the availability contract; when off, the Repository
+  Investigator, Review Current Changes, the hybrid simulation and the coding
+  pilot entries are not rendered and their IPC stays registered but unused.
+  Legacy e2e specs set the flag. Nothing is deleted.
+- **What the agent did, labelled untrusted.** The controller projects, for the
+  private context only and bounded by `exactText` and size: the latest `plan`
+  text; one line per `tool_started` derived from the joined tool-call
+  arguments (`execute: <first 120 chars>`, `write_file: <path>`,
+  `fetch_public: <url>`, `check_claims`, `finish`); the finish summary from the
+  finish call's arguments. No runner or prompt-protocol change, so no identity
+  drift for running tasks.
+- **"Submitted with reported issues."** Derived in the controller, never from
+  a model claim: a failed `finish` or host validation before the final success,
+  or entailment counts with `contradicted` or `unsupported` claims. The
+  snapshot carries `reportedIssues: string[]`; the UI shows the label and the
+  list beside the entailment counts.
+- **Per-task profile.** The create form offers `standard` or `heavy`; the
+  record persists the choice, bound into the task identity; the default stays
+  the configured profile.
+- **`pnpm setup:general` doctor.** A TypeScript script that checks Node 22,
+  finds the Docker endpoint, locates the qualified image by digest (the pinned
+  id in capabilities.ts, verified with `docker image inspect`), writes
+  `SOAR_GENERAL_TASK_IMAGE_ID` and the profile into the app's user-data
+  `.env.local` without overwriting present keys, probes `/v1/models` with the
+  existing availability check and sends one 1-token completion in the exact
+  request shape; it prints a redacted JSON report and never prints the endpoint
+  or keys.
+- **Known effect.** Dev-mode task identity hashes `src/renderer`, so existing
+  dev tasks report `configuration_changed` after this PR; the owner build is a
+  separate worktree per the plan.
+
+Changes: This entry. Implementation follows in PR #8.
+
+Evidence: code map of App.tsx, GeneralTaskWorkspace.tsx, controller.ts,
+ipc/preload/contracts, scripts and config (read 2026-10-07).
+
+Failures or blockers: None.
+
+Limitations and non-claims: The surface shows evidence; it does not judge
+quality. Mail and calendar connectors (D13) remain out of scope.
+
+Paid exposure: USD 0.
+
+Next gate: PR-F implemented with renderer tests updated for the new default and
+an e2e run with Labs off; then PR-E.
+
+References: [plan](PLAN.md) Phase 1 PR-F, BL-20261006-1055-phase1-pr-a-d-implemented,
+BL-20261007-0120-pr-j2-entailment-implemented.
+
+Identifier note: authored 2026-10-07 02:50 UTC as BL-20261007-0322-pr-f-owner-surface-design; re-identified as BL-20261007-0322-pr-f-owner-surface-design so the
+branch stays append-only after its base gained BL-20261007-0320. The body is unchanged.
+
+
+### BL-20261007-0530-pr-c-recoverable-dispatch-implemented -- 2026-10-07 -- Recoverable dispatch implemented and reviewed (PR-C)
+
+Status: `Implemented`
+
+Scope or hypothesis: PR-C as designed in BL-20261007-0321 (owner decision D4).
+Branch `phase1-recoverable-dispatch`, pull request #7, stacked on #6. On-track
+check: J2 is live and judged (BL-20261007-0320); the first judge run showed a
+single 400 ending a pass, and a box restart during a long task still ended the
+task without resume, which this change removes for confirmed aborts.
+
+Decisions:
+
+- **Classification.** `transport()` records why a dispatch failed:
+  `connection_failed` (nothing sent: refused, unreachable, DNS or address
+  denied), `upstream_closed` (the peer closed after the request was written,
+  before a response), `response_interrupted` (closed after a response
+  started), `http_rejected` now with the HTTP status when it is 100-599; a
+  timeout, an oversize response and settlement failures stay as they were.
+- **Confirmed is destination-aware (review).** Never sent or answered with an
+  error is confirmed for every destination. A peer close is confirmed only for a
+  zero-risk packet (a zero-fee local request or a public GET without a grant),
+  which may have been executed but can be re-sent without cost or side effect;
+  for a priced or cloud destination it stays `unknown`, so a cloud or consultant
+  row can never be released as `failed` after the upstream may have charged.
+- **Ledger.** Two resolved statuses: `superseded` (another attempt followed)
+  and `failed` (a confirmed abort with no attempt to follow); both reserve no
+  fee and never block commits, resume, submission or the controller's
+  `uncertain`. `superseded` is written only once the retry is certain: the
+  backoff runs first, and a cancel during it or an exhausted session allowance
+  resolves the row as `failed` instead (review: the last admissible attempt
+  used to leave a superseded row with no successor and a plain budget error
+  that made the job unresumable).
+- **Retry.** `PrivateAgentBroker.request` loops at most three attempts, 1 s then
+  3 s apart, only for a destination flagged `recoverable` and a zero-risk packet,
+  only on a retryable confirmed abort (a close, a 5xx or 429; a deterministic 4xx
+  is final), only while a session request remains and the caller has not
+  cancelled. Each attempt is its own committed row and consumes a session
+  request; the public-fetch allowance ignores superseded rows. Cloud and
+  consultant destinations reject the flag at normalisation.
+- **Runner and session.** A model request whose attempts all end confirmed
+  records `model_request_failed`, closing the operation, and stops with
+  `model_unavailable`, which the controller treats as resumable (also its
+  `public_` form from a two-phase session). A failed public GET returns to the
+  model as a `public_fetch_failed` observation. A consultant row resolved as
+  `failed` no longer reads as uncertain.
+- **Flag.** `SOAR_RECOVERABLE_DISPATCH` (default on, D4) spreads `recoverable:
+  true` into the desktop local and public destinations and the headless
+  driver's local destination; absent, fingerprints and receipts are byte-identical
+  to before.
+
+Changes: `broker.ts`, `store.ts`, `model.ts` (`modelRequestFailed`), `runner.ts`,
+`session.ts`, `consultation.ts`, `controller.ts`, `config.ts`,
+`scripts/private-agent-local-screen.ts`, `scripts/registry-row.py`
+(`retriedDispatches`, `failedDispatches`); tests across the broker integration
+suite, public DNS, runner, public research and controller.
+
+Evidence:
+
+- `pnpm check`: 120 files, 1,919 tests passed, 72 skipped. Docker-gated suites on
+  the qualified runtime image, this tree: 4 files, 43 tests passed.
+- Broker tests through a real loopback server: retry after a destroyed socket,
+  a 503 and a 429 with one row per attempt and the backoff observed; give-up
+  after the third attempt; no retry for a 400, a timeout, a priced request or a
+  flagless destination; a public GET retried; the cloud kind rejecting the flag;
+  the session allowance and a cancel during backoff resolving the last row as
+  failed; a peer close uncertain for a cloud packet and confirmed for a zero-risk
+  one, before and after a response started; a 999 status recorded without the
+  status; a redirect as a confirmed rejection; DNS and address denial as
+  `connection_failed`. Runner: a confirmed model failure stops resumably and
+  completes on the next run, an unknown one still does not; an unknown judge
+  dispatch after completion changes nothing. Public research: a failed fetch
+  becomes an observation. Controller: `model_unavailable` resumable, a resolved
+  failed row not uncertain.
+- Review (2 lenses, 1 confirmed finding, 9 verifiers lost to the session limit
+  and re-judged by reading the code): confirmed and fixed, the superseded row
+  without a successor; judged real and fixed, peer closes for priced and cloud
+  rows, the HTTP status range, lookup failures, cancel during backoff, the
+  public-phase reason and the consultant row; judged not real, a retry commit
+  refused by admission change (the job is cancelled in that case).
+
+Failures or blockers: None open.
+
+Limitations and non-claims: Recovery covers confirmed aborts only; a timeout
+still ends the task without replay. No live run with an induced abort yet.
+
+Paid exposure: USD 0.
+
+Next gate: Docker-gated suites on this tree; a dry run with an induced local
+abort recorded in the registry; PR-F.
+
+References: BL-20261007-0321-pr-c-recoverable-dispatch-design, [plan](PLAN.md)
+D4, BL-20261007-0320-entailment-v2-judged.

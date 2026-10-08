@@ -189,7 +189,8 @@ export async function runLocalArtifactScreen(input: {
     const destinations: BrokerDestination[] = [{ id: "owned_local_model", kind: "local_model",
       endpoint: `${config.vllm.baseUrl}/chat/completions`, accountId: "operator_owned_local_server", credentialVersion: 1,
       apiKey: config.vllm.apiKey, privateDataAdmitted: false, syntheticOnly: true,
-      maxResponseBytes: 512 * 1024, timeoutMs: coordinator.requestTimeoutMs, maxRequestBytes: coordinator.maxRequestBytes }];
+      maxResponseBytes: 512 * 1024, timeoutMs: coordinator.requestTimeoutMs, maxRequestBytes: coordinator.maxRequestBytes,
+      ...(config.recoverableDispatch ? { recoverable: true } : {}) }];
     let publicPhase: ReturnType<typeof buildPublicRetrievalPhase> | undefined;
     if (publicSnapshot) {
       receiver = await startExplicitPublicSnapshotReceiver(publicSnapshot);

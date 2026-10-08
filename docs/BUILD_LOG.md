@@ -20568,3 +20568,48 @@ the frozen task set and on the key being in the Keychain.
 References: BL-20261007-1449-phase1-close-out,
 BL-20261007-1451-phase2-harness-design, BL-20261007-1535-lprime-repair-dry-run,
 [plan](PLAN.md) Phase 1 owner build and exit.
+
+### BL-20261008-0925-keychain-prompt-truncation -- 2026-10-08 -- Correction: the `security -w` prompt truncates keys to 128 characters; store through the helper instead
+
+Status: `Implemented`
+
+Scope or hypothesis: corrects the key-handling decision of
+BL-20261008-0910-owner-v0-1-released, which had the owner paste the key into
+the `security add-generic-password -w` prompt.
+
+Decisions:
+
+- **Finding.**
+  - The owner pasted the key at that prompt, and the item was created. The
+    helper then read back exactly 128 characters, and a free `GET /v1/models`
+    with it returned HTTP 401.
+  - macOS truncates prompted passwords to 128 characters, and OpenAI project
+    keys are longer. The value was neither printed nor compared; only its
+    length and its `sk-` prefix were read.
+- **Fix.** `scripts/with-cloud-key.sh --store` reads the key with echo off
+  and accepts only `[A-Za-z0-9_-]`. It passes the key to `security -i` on
+  stdin, so the value is never in any process's argv, and it reports only
+  the stored length.
+  - Tested with a dummy 164-character value in a throwaway Keychain item,
+    through a pseudo-terminal: it read back intact and the item was deleted.
+  - Piped stdin is refused.
+- **Check.** `scripts/with-cloud-key.sh --check` makes one free models
+  request and prints only the HTTP status.
+- **Re-store.** The owner re-stores the key with `--store`. The 128-character
+  item is overwritten in place (`-U`).
+
+Changes: `scripts/with-cloud-key.sh` (`--store`, `--check`, header
+corrected); this entry.
+
+Evidence: helper outputs (lengths and HTTP status only).
+
+Failures or blockers: the first stored key was unusable (truncated).
+
+Limitations and non-claims: `--check` shows that the key authenticates. It
+shows nothing about model access, quota or spend limits.
+
+Paid exposure: USD 0.
+
+Next gate: `--check` returns 200 after the owner re-stores the key.
+
+References: BL-20261008-0910-owner-v0-1-released.

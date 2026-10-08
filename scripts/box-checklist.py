@@ -28,6 +28,15 @@ import sys
 import urllib.request
 
 TIMEOUT_S = 10
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Never follow redirects from a local port (a redirect could point off the box)."""
+    def redirect_request(self, *args, **kwargs):  # noqa: D401
+        return None
+
+
+_OPENER = urllib.request.build_opener(_NoRedirect)
 ENGINE_PATTERN = re.compile(r"vllm|sglang|trtllm|tensorrt_llm|llama-server|llama_cpp|ollama|tritonserver", re.I)
 SAFE_VALUE = re.compile(r"^[A-Za-z0-9_.:+\-]{1,40}$")
 VALUE_FLAGS = (
@@ -158,7 +167,7 @@ def parse_engine_args(argv: list[str]) -> dict[str, object]:
 
 
 def identity() -> None:
-    emit("script", "soar-box-checklist v1 (summary only; review before sharing)")
+    emit("script", "soar-box-checklist v2 (summary only; review before sharing)")
     emit("running as root", "yes" if hasattr(os, "geteuid") and os.geteuid() == 0 else "no (some checks skipped)")
     emit("os family", platform.system())
     if platform.system() != "Linux":
@@ -276,7 +285,7 @@ def engine_version(facts: dict[str, object]) -> None:
         host = "127.0.0.1"
     url_host = f"[{host}]" if ":" in host else host
     try:
-        with urllib.request.urlopen(f"http://{url_host}:{port}/version", timeout=5) as response:
+        with _OPENER.open(f"http://{url_host}:{port}/version", timeout=5) as response:
             version = json.loads(response.read(2048)).get("version", "unknown")
             emit("  engine version (/version)", safe(version))
     except (OSError, ValueError):
@@ -312,6 +321,98 @@ def sockets() -> None:
         emit("established connections", "none")
     for (klass, port, name), count in sorted(counts.items()):
         emit("established", f"{count} x to {klass} port {port} by {name}")
+
+
+def listening_sockets() -> list[tuple[str, str, int | None, str]]:
+    """(port, address class, pid, process name) for each listening TCP socket."""
+    code, out = run(["ss", "-H", "-tlnp"])
+    rows: list[tuple[str, str, int | None, str]] = []
+    if code is None:
+        return rows
+    for row in out.splitlines():
+        cols = row.split()
+        if len(cols) < 4:
+            continue
+        host, port = split_host_port(cols[3])
+        proc = re.search(r'users:\(\("([^"]+)",pid=(\d+)', row)
+        rows.append((port, address_class(host), int(proc.group(2)) if proc else None, proc.group(1) if proc else "?"))
+    return rows
+
+
+def probe_models(port: str) -> dict | None:
+    try:
+        with _OPENER.open(f"http://127.0.0.1:{port}/v1/models", timeout=3) as response:
+            payload = json.loads(response.read(65536))
+            return payload if isinstance(payload, dict) and "data" in payload else None
+    except (OSError, ValueError):
+        return None
+
+
+def read_argv(pid: int) -> list[str]:
+    try:
+        with open(f"/proc/{pid}/cmdline", "rb") as handle:
+            return [part.decode("utf-8", "replace") for part in handle.read().split(b"\0") if part]
+    except OSError:
+        return []
+
+
+def parent_and_children(pid: int) -> tuple[int | None, list[int]]:
+    """Parent pid and child pids from /proc/<pid>/stat (field after the comm closing paren)."""
+    def ppid_of(entry: str) -> int | None:
+        try:
+            with open(f"/proc/{entry}/stat", "r", encoding="utf-8", errors="replace") as handle:
+                return int(handle.read().rsplit(")", 1)[1].split()[1])
+        except (OSError, ValueError, IndexError):
+            return None
+    parent = ppid_of(str(pid))
+    children = [int(entry) for entry in (os.listdir("/proc") if os.path.isdir("/proc") else [])
+                if entry.isdigit() and ppid_of(entry) == pid]
+    return parent, children
+
+
+def api_servers() -> set[int]:
+    """Report the process that actually answers /v1/models: its flags, environment and children."""
+    found: set[int] = set()
+    for port, klass, pid, name in listening_sockets():
+        if pid is None or not port.isdigit():
+            continue
+        models = probe_models(port)
+        if models is None:
+            continue
+        found.add(pid)
+        emit("api server", f"pid {pid} process {name} listening on {klass}")
+        for model in models.get("data", []):
+            emit("  served model id", safe(model.get("id", "?")))
+            emit("  model root basename", safe(os.path.basename(str(model.get("root", "")).rstrip("/"))))
+            emit("  max_model_len", safe(model.get("max_model_len", "?")))
+        argv = read_argv(pid)
+        emit("  argv length", len(argv))
+        emit("  entry", safe(os.path.basename(argv[0])) if argv else "?")
+        if len(argv) > 1:
+            emit("  script or module", safe(os.path.basename(argv[1])))
+        facts = parse_engine_args(argv)
+        for key, value in facts.items():
+            if not key.startswith("_"):
+                emit(f"  {key}", value)
+        process_env(pid)
+        if isinstance(facts.get("_model_ref"), str):
+            model_config(pid, str(facts["_model_ref"]))
+        try:
+            with _OPENER.open(f"http://127.0.0.1:{port}/version", timeout=3) as response:
+                emit("  engine version (/version)", safe(json.loads(response.read(2048)).get("version", "unknown")))
+        except (OSError, ValueError):
+            emit("  engine version (/version)", "no /version endpoint")
+        parent, children = parent_and_children(pid)
+        if parent is not None:
+            parent_argv = read_argv(parent)
+            emit("  parent process", safe(os.path.basename(parent_argv[0])) if parent_argv else "?")
+        emit("  child processes", len(children))
+        for child in children[:8]:
+            child_argv = read_argv(child)
+            emit("    child", safe(os.path.basename(child_argv[0])[:40]) if child_argv else "?")
+    if not found:
+        emit("api server", "no listening port answered /v1/models from this machine")
+    return found
 
 
 def services() -> None:
@@ -421,8 +522,11 @@ def main() -> int:
     if "--self-test" in sys.argv:
         return self_test()
     identity()
+    reported = api_servers()
     for pid, facts in engine_processes():
-        emit("inference process", f"pid {pid} engine {facts['engine']}")
+        if pid in reported:
+            continue
+        emit("engine-pattern process (not the API server)", f"pid {pid} engine {facts['engine']}")
         for key, value in facts.items():
             if not key.startswith("_") and key != "engine":
                 emit(f"  {key}", value)

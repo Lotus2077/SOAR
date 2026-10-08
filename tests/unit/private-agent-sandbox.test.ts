@@ -33,7 +33,7 @@ describe("private sandbox host admission", () => {
   it("reports only a fixed safe error", () => {
     expect(new SandboxError("unsafe_file").message).toBe("Private sandbox: unsafe_file");
   });
-  it.each([0, 1801, 1.5, Number.NaN])("rejects invalid independent lifetime %s before Docker", async lifetimeSeconds => {
+  it.each([0, 7201, 1.5, Number.NaN])("rejects invalid independent lifetime %s before Docker", async lifetimeSeconds => {
     await expect(DockerSandbox.create({ ...input(), lifetimeSeconds })).rejects.toMatchObject({ code: "invalid_input" });
     expect(spawn).not.toHaveBeenCalled();
   });

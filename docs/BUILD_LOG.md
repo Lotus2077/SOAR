@@ -18166,3 +18166,189 @@ Next gate:
 References: [registry](experiments/registry.jsonl),
 [serving card](experiments/serving-card-2026-09-28.md), [plan](PLAN.md),
 BL-20260928-1836-phase0-discriminator-scope.
+
+
+### BL-20261006-1008-box-checklist-and-phase1-start -- 2026-10-06 -- Device confirmed, Phase 1 re-anchored, Heavy profile and tolerant loop designed
+
+Status: `In progress`
+
+Scope or hypothesis: Review the state after a one-week pause, record the owner's
+box checklist result, and start Phase 1 of docs/PLAN.md with PR-A (Heavy profile at
+every cap layer) and PR-D (tolerant loop), the order the Phase 0 discriminator set.
+
+Decisions:
+
+- **Pause.** PRs #1, #2 and #3 are still open with green CI; the owner has not
+  merged them or given the first verdict. Phase 1 dates move by one week: hard stop
+  2026-10-13, Phase 2 verdict 2026-10-22. The adoption clocks were paused by owner
+  unavailability, as the plan allows.
+- **Device confirmed** from `scripts/box-checklist.py` run as root on the box:
+  NVIDIA Jetson AGX Thor Developer Kit, 122.9 GiB RAM, 14 CPUs, JetPack R39.2.1
+  (Ubuntu 24.04.5), MAXN, Docker 29.8.1 present. The vendor account `rm01` exists,
+  so it is an RMinte RM-01 built on the Thor dev kit, and the owner has root on the
+  Jetson itself. Consequences: the 128 GB class is confirmed, so the Flash-Next
+  community build is a valid later speed lever; running SOAR's aarch64 sandbox on
+  the box (always-on host) is feasible later; Tier O hardening is a short list of
+  owner actions rather than a vendor-trust problem.
+- **The server load is the owner's own.** `opencode`, `codex` and a VS Code server
+  run on the box; the 3,914 requests seen in September were almost certainly those
+  tools using the local model. The "unexplained load" caveat is withdrawn.
+- **vLLM launch flags remain unverified.** The checklist matched vLLM's engine-core
+  subprocess, not the API server (a `python3` wrapper on another port), so every
+  flag read "no" and `/version` was unreachable. The script now finds the process
+  that owns the listening port that answers `/v1/models`, reports its flags, its
+  environment flags and its children, and the owner should rerun it.
+- **Hardening list for Tier O**, all owner actions on the box: bind the agent
+  server (`opencode`) and the inference server to loopback or put them behind the
+  tunnel; set `PasswordAuthentication no`; remove or lock the vendor account; add an
+  nftables input policy (deny by default, allow SSH and the tunnel); disable apport
+  autoreport, motd-news and update-notifier; set `VLLM_NO_USAGE_STATS=1`,
+  `HF_HUB_OFFLINE=1` and `HF_HUB_DISABLE_TELEMETRY=1` on the server; disable or
+  encrypt swap; consider disk encryption. Until then the endpoint carries only
+  public or synthetic data (unchanged).
+- **PR-A design.** One profiles module is the single source of truth:
+  - Standard: thinking off, 4,096 output tokens, 300 s request timeout, 192 KiB
+    request body; desktop caps 20 calls / 30 tools / 15 min, session 40 requests.
+  - Heavy: thinking medium, 16,384 output tokens, 900 s request timeout (under the
+    ~947 s remote cut measured in P8), 640 KiB request body; desktop caps 80 calls /
+    120 tools / 90 min, session 200 requests.
+  - The plan's token-estimate guard is folded into the body cap: at a conservative
+    3 bytes per token, 640 KiB plus 16,384 output tokens stays under the 262,144
+    context limit, so no separate estimator is needed.
+  - Vendor sampling (temperature 1.0, top_p 0.95, top_k 20) is sent only when
+    thinking is on, so Standard stays byte-comparable with September.
+  - Schema ceilings rise (200 calls, 400 tools, 2 h, 900 s broker timeout, 4 MiB
+    destination body cap, 7,200 s sandbox lifetime); profiles choose values below.
+  - The desktop profile comes from `SOAR_GENERAL_TASK_PROFILE` (default `heavy`);
+    per-task selection in the UI is PR-F. The profile enters the configuration
+    identity, so existing paused tasks report `configuration_changed`, as the
+    identity rules already require.
+- **PR-D design.** A text-only or multi-call reply gets a durable nudge (at most 3
+  consecutive, each costing a model call) before the terminal
+  `one_complete_tool_action_required`. A `length` finish executes nothing and
+  becomes a durable observation (at most 2 consecutive) before `model_output_incomplete`.
+  New host tools `write_file`, `append_file` and `str_replace` write through a
+  fixed sandbox protocol (no shell quoting). Sandbox commands run under coreutils
+  `timeout -k 5` (confirmed present in the qualified image) so a timeout returns
+  exit 124 as an observation instead of destroying the container. The prompt
+  protocol version rises, so runs started under the old protocol cannot resume.
+
+Changes: This entry; docs/experiments/box-card-2026-10-06.md; the checklist script.
+Code changes follow in the same branch and are recorded on completion.
+
+Evidence: The owner's pasted checklist output (kept in ignored local storage, no
+addresses). `docker run` of the qualified image: `timeout (GNU coreutils) 9.7`,
+and `timeout -k 1 1 sh -c "sleep 5"` exits 124.
+
+Failures or blockers: The `.soar` evidence copy to the new clone had not completed
+(the copy tool stalled on an iCloud duplicate folder); it was restarted with the
+venvs and duplicates excluded. Merges and the first owner verdict remain pending.
+
+Limitations and non-claims: The box facts come from one run of a summary-only
+script; weights, precision and the real launch flags are still unverified. Nothing
+here is a Tier-O approval.
+
+Paid exposure: USD 0.
+
+Next gate: Implement PR-A and PR-D with tests, pass an adversarial review, full
+check, open PR #4. Then PR-J.
+
+References: [plan](PLAN.md), [box card](experiments/box-card-2026-10-06.md),
+[serving card](experiments/serving-card-2026-09-28.md),
+BL-20260928-1921-phase0-discriminator-result.
+
+
+### BL-20261006-1055-phase1-pr-a-d-implemented -- 2026-10-06 -- Heavy coordinator profile and tolerant loop implemented and reviewed
+
+Status: `Implemented`
+
+Scope or hypothesis: Deliver Phase 1 PR-A (Heavy profile at every cap layer) and
+PR-D (tolerant loop) as designed in BL-20261006-1008, so that the runtime no longer
+ends tasks on harness rules and the local model can run at vendor-recommended
+settings. Branch `phase1-heavy-loop`, pull request #4, stacked on #3.
+
+Decisions:
+
+- Everything in the BL-20261006-1008 design was implemented, with these recorded
+  deviations: the token-estimate guard is the 640 KiB body cap (3 bytes per token
+  plus 16,384 output tokens stays under 262,144); thinking effort is fixed at
+  `medium`; reasoning is not carried between turns; vendor sampling is sent only
+  when thinking is on; one `write_file`/`append_file`/`str_replace` call carries
+  at most 32 KiB because arguments are replayed in every later request; the
+  per-command limit is 180 s; the desktop profile comes from
+  `SOAR_GENERAL_TASK_PROFILE` (default `heavy`) and per-task selection waits for PR-F.
+- A nudged reply (no single tool call, or cut at the output limit) is stored
+  without its tool calls in the replayed conversation, with the unexecuted calls
+  retained in the event for audit. A strict OpenAI-compatible server rejects an
+  assistant tool call that has no tool reply, so this keeps the history valid for
+  the Phase 2 cloud arm.
+- Deferred, recorded here rather than silently dropped: projecting older file-tool
+  arguments to hashes in the replayed conversation (the 32 KiB cap bounds the
+  growth for now); a uid-scoped process sweep after a command ignores SIGTERM
+  (exit 137 is annotated as a timeout instead); judging an existing task by the
+  profile it was created under rather than the live profile (PR-F persists the
+  profile per task); the headless driver's public retrieval phase keeps the
+  September caps (40 calls, 80 tools) while its private phase takes the profile
+  budget; streaming (PR-B) is unchanged.
+
+Changes:
+
+- New `src/main/private-agent/profiles.ts`; `SOAR_GENERAL_TASK_PROFILE` in
+  config; `profile` in the availability contract.
+- Ceilings: runner contract 200 calls / 400 tools / 2 h; broker timeout 900 s and
+  optional per-destination `maxRequestBytes` (4 MiB ceiling); store diagnostic
+  timeout 900 s; sandbox lifetime 7,200 s; model adapter output 32,768 with
+  per-config `maxRequestBytes` and optional sampling; session `limits` option
+  bound into the policy and identity.
+- Runner: durable `nudge` events (3 consecutive for no-action, 2 for length);
+  file tools through the sandbox `editFile` protocol (atomic replace via a
+  temporary file, soft refusals as observations); commands under coreutils
+  `timeout -k 5` with exit 124/137 annotated; sandbox lifetimes sized from the
+  remaining task time; prompt protocol 14/15.
+- Desktop controller: every former literal (20/30/900000/4096/300000/18) now
+  derives from the configured profile; `nudge` event summaries; reason texts no
+  longer name a fixed limit.
+- Headless driver: `--profile` applies the profile's model settings and budget.
+- Box checklist v2 finds the process that answers `/v1/models` and never follows
+  redirects. Docs: handoff constraints, README status, plan status, `.env.example`.
+
+Evidence:
+
+- `pnpm check` on the final tree: 119 test files, 1,872 tests passed, 70 skipped,
+  typecheck and build passed, 38 s.
+- Docker-gated suites on the locally built test image: 26 passed, including a
+  timed-out `sleep 60 & wait` returning exit 124 with no surviving descendant and
+  a usable container, the write/append/replace round trip with byte counts, soft
+  refusals (zero occurrences, missing file, directory target, path under a file,
+  escape attempt), and the 7,200 s lifetime boundary.
+- New unit tests: resume after each nudge kind (multi-call, output limit, warned
+  text reply); streak restoration matching the live loop; nudged replies kept out
+  of the replayed conversation; a 47-call heavy contract run through the real loop
+  with nudges, edits and a 1,000 s time jump; profile binding at every layer;
+  profile-change refusal for queued and paused tasks; an approved consultation
+  staying resumable under the heavy budget; session allowance drift; the
+  per-destination body cap.
+- Adversarial review (three lenses, 14 agents): four verified findings, all fixed
+  before this entry: nudged replies were classified as unresolved actions on
+  resume (`progress.ts`); streak restoration did not mirror the live reset rule;
+  `canResume` still hard-coded the consultation threshold 18; two replay-invariant
+  controller tests had been deleted by a mis-anchored test edit and are restored
+  verbatim. Minor findings fixed: `write_failed` as a soft refusal and atomic
+  replace; SIGKILL annotation; length-nudge summary; `.env.example`; the opt-in
+  request-size e2e spec pinned to `standard`; checklist redirect handling; a
+  session identity-drift case. Minor findings deferred are listed under Decisions.
+
+Failures or blockers: None open in this change. The Phase 1 dry runs on the final
+tree are recorded in the next entry.
+
+Limitations and non-claims: Heavy settings are verified by tests and probes, not
+by accepted output. The real desktop was not launched. The cloud arm is still
+Phase 2.
+
+Paid exposure: USD 0.
+
+Next gate: Dry runs on two already-seen tasks per arm without harness-terminal
+causes; the owner merges PRs #1 to #4; PR-J.
+
+References: BL-20261006-1008-box-checklist-and-phase1-start, [plan](PLAN.md),
+[box card](experiments/box-card-2026-10-06.md).

@@ -132,12 +132,20 @@ not transfer to General task.
 
 Important current constraints:
 
-- One active desktop general task; 20 model calls, 30 tool actions, 15 minutes.
-  Resume retains the original deadline and counters. Shared broker session cap:
-  40 requests. Legacy inference/tool environment limits do not change these caps.
-- Coordinator thinking is forced disabled; output is capped at the smaller of
-  4,096 tokens and configuration, and request timeout at 300 seconds. Results
-  characterize this profile, not the owner's model in every configuration.
+- One active desktop general task. Budgets come from the configured coordinator
+  profile (`SOAR_GENERAL_TASK_PROFILE`, see
+  [`profiles.ts`](../src/main/private-agent/profiles.ts)): `standard` is the
+  September configuration (20 model calls, 30 tool actions, 15 minutes, 40 session
+  requests, thinking off, 4,096 output tokens, 300 s per request); `heavy`, the
+  default since 2026-10-06, is 80 calls, 120 tools, 90 minutes, 200 session
+  requests, thinking on, 16,384 output tokens, 900 s per request. Resume retains
+  the original deadline and counters. Every result recorded before 2026-10-06 was
+  measured under `standard`.
+- Since 2026-10-06 a reply without exactly one tool call, or one cut at the output
+  limit, is nudged (durably, at most 3 or 2 times in a row) instead of ending the
+  task, and a command that exceeds its 180 s limit returns exit 124 as an
+  observation instead of destroying the workspace. `write_file`, `append_file`
+  and `str_replace` write files without shell quoting.
 - Docker tools are offline, non-root and isolated. Internet access is a host
   broker capability, not an intrinsic capability of the local model/container.
   Public retrieval permits up to three exact admitted URLs and five fetches,

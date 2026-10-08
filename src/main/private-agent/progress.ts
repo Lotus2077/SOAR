@@ -167,6 +167,12 @@ export function hasUnresolvedExecutionProgressAction(scope: ExecutionProgressSco
       const selected = actions(response), starts = events.filter(e => e.type === "model_started" && e.operationId === response.operationId);
       const progress = starts[0]?.executionProgress as Partial<ExecutionProgressManifest> | undefined;
       const warned = progress?.repeatedFailure !== undefined && progress.repeatedFailure !== null;
+      if (response.nudged !== undefined) {
+        // A nudged reply executed nothing by construction; its unexecuted calls must never have started.
+        const unexecuted = Array.isArray(response.unexecutedToolCalls) ? response.unexecutedToolCalls as { id?: unknown }[] : [];
+        if (unexecuted.some(call => events.some(e => e.type === "tool_started" && e.toolCallId === call.id))) return true;
+        continue;
+      }
       if (!warned && !selected.some(a => a.function.name === "execute")) continue;
       if (starts.length !== 1 || events.indexOf(starts[0]!) >= events.indexOf(response) ||
           events.filter(e => e.type === "model_finished" && e.operationId === response.operationId).length !== 1 || selected.length !== 1) return true;

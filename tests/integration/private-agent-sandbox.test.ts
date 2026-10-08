@@ -148,17 +148,31 @@ describe.skipIf(!enabled)("real credential-free isolated private-agent tools", (
     } finally { await sandbox.close(); }
   }, 60_000);
 
-  it.each(["timeout", "cancel"])("kills observed command descendants on %s and confirms cleanup", async reason => {
+  it("kills observed command descendants on cancel and confirms cleanup", async () => {
     const jobId = randomUUID(), sandbox = await make(jobId), controller = new AbortController();
     try {
-      const completion = sandbox.execute("sleep 60 & wait", { timeoutMs: reason === "timeout" ? 4000 : 20_000, signal: controller.signal }).catch(error => error);
+      const completion = sandbox.execute("sleep 60 & wait", { timeoutMs: 20_000, signal: controller.signal }).catch(error => error);
       expect(await sawDescendant(jobId)).toBe(true);
       await expect(sandbox.listFiles()).rejects.toMatchObject({ code: "busy" });
-      if (reason === "cancel") controller.abort();
-      expect(await completion).toMatchObject({ code: reason === "timeout" ? "command_timeout" : "cancelled" });
+      controller.abort();
+      expect(await completion).toMatchObject({ code: "cancelled" });
       expect(await containers(jobId)).toEqual([]);
       await expect(sandbox.execute("true", { timeoutMs: 1000 })).rejects.toMatchObject({ code: "unusable" });
     } finally { await sandbox.close(); }
+  }, 60_000);
+
+  it("stops a timed-out command and its descendants inside the container, which stays usable", async () => {
+    const jobId = randomUUID(), sandbox = await make(jobId);
+    try {
+      const completion = sandbox.execute("sleep 60 & wait", { timeoutMs: 4000 });
+      expect(await sawDescendant(jobId)).toBe(true);
+      await expect(sandbox.listFiles()).rejects.toMatchObject({ code: "busy" });
+      expect(await completion).toMatchObject({ exitCode: 124 });
+      expect(await sawDescendant(jobId)).toBe(false);
+      expect(await containers(jobId)).toHaveLength(1);
+      expect(await sandbox.execute("echo alive", { timeoutMs: 5000 })).toMatchObject({ exitCode: 0, stdout: "alive\n" });
+    } finally { await sandbox.close(); }
+    expect(await containers(jobId)).toEqual([]);
   }, 60_000);
 
   it("bounds output and removes the emitting process before reporting overflow", async () => {
@@ -220,4 +234,42 @@ describe.skipIf(!enabled)("real credential-free isolated private-agent tools", (
       expect(await containers(jobId)).toEqual([]);
     } finally { await sandbox.close(); }
   }, 60_000);
+
+  it("stops an overlong command inside the container and keeps the sandbox usable", async () => {
+    const jobId = randomUUID(), sandbox = await make(jobId);
+    try {
+      const stopped = await sandbox.execute("sleep 20; echo late", { timeoutMs: 1000 });
+      expect(stopped.exitCode).toBe(124);
+      expect(stopped.stdout).not.toContain("late");
+      expect(stopped.stderr).toContain("[host] The command was stopped after 1 s");
+      const after = await sandbox.execute("echo still-usable", { timeoutMs: 10_000 });
+      expect(after).toMatchObject({ exitCode: 0, stdout: "still-usable\n" });
+    } finally { await sandbox.close(); }
+    expect(await containers(jobId)).toEqual([]);
+  });
+  it("writes, appends and replaces through the fixed protocol with soft refusals that keep the sandbox", async () => {
+    const jobId = randomUUID(), sandbox = await make(jobId, [{ path: "dir/keep.txt", bytes: Buffer.from("keep") }]);
+    try {
+      expect(await sandbox.editFile("write", "out/notes.txt", Buffer.from("alpha \"quoted\" $HOME `x` 中文\n"))).toEqual({ ok: true, bytes: 32 });
+      expect(await sandbox.editFile("append", "out/notes.txt", Buffer.from("beta\n"))).toEqual({ ok: true, bytes: 37 });
+      expect(await sandbox.editFile("replace", "out/notes.txt", Buffer.from("beta"), Buffer.from("gamma"))).toEqual({ ok: true, bytes: 38 });
+      expect((await sandbox.readFile("out/notes.txt", 4096)).toString("utf8")).toBe("alpha \"quoted\" $HOME `x` 中文\ngamma\n");
+      expect(await sandbox.editFile("replace", "out/notes.txt", Buffer.from("missing"), Buffer.from("x"))).toEqual({ ok: false, reason: "occurrences_not_one", occurrences: 0 });
+      expect(await sandbox.editFile("replace", "absent.txt", Buffer.from("a"), Buffer.from("b"))).toEqual({ ok: false, reason: "file_missing" });
+      expect(await sandbox.editFile("write", "dir", Buffer.from("x"))).toEqual({ ok: false, reason: "path_not_regular_file" });
+      expect(await sandbox.editFile("write", "dir/keep.txt/child.txt", Buffer.from("x"))).toEqual({ ok: false, reason: "path_not_writable" });
+      await expect(sandbox.editFile("write", "../escape.txt", Buffer.from("x"))).rejects.toMatchObject({ code: "invalid_input" });
+      expect(await sandbox.listFiles()).toEqual(["dir/keep.txt", "out/notes.txt"]);
+      expect(await sandbox.execute("cat out/notes.txt | wc -c", { timeoutMs: 10_000 })).toMatchObject({ exitCode: 0, stdout: "38\n" });
+    } finally { await sandbox.close(); }
+    expect(await containers(jobId)).toEqual([]);
+  });
+  it("accepts a container lifetime up to the raised ceiling and refuses one above it", async () => {
+    const jobId = randomUUID();
+    await expect(DockerSandbox.create({ imageId, jobId, contextId: randomUUID(), files: [], lifetimeSeconds: PRIVATE_SANDBOX_LIMITS.lifetimeSeconds + 1 }))
+      .rejects.toMatchObject({ code: "invalid_input" });
+    const sandbox = await DockerSandbox.create({ imageId, jobId, contextId: randomUUID(), files: [], lifetimeSeconds: PRIVATE_SANDBOX_LIMITS.lifetimeSeconds });
+    try { expect(await sandbox.execute("echo ok", { timeoutMs: 10_000 })).toMatchObject({ exitCode: 0 }); } finally { await sandbox.close(); }
+    expect(await containers(jobId)).toEqual([]);
+  });
 });

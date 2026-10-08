@@ -259,4 +259,19 @@ describe("operator loader", () => {
     writeFileSync(join(root, "input", "unexpected.txt"), "new");
     expect(() => loadPreparedOperatorTask(root, binding)).toThrow("operator_input_inventory_changed");
   });
+
+  it("binds a larger session allowance into the policy and identity, so another allowance cannot resume the job", async () => {
+    const f = await fixture();
+    const first = new GeneralAgentSession({ ...options(f, "allowance", "PRIVATE-GAMMA"), limits: { maxRequests: 200, maxElapsedMs: 5_400_000 } });
+    expect((await first.run()).status).toBe("submitted");
+    expect(f.store.policy("allowance")).toMatchObject({ maxRequests: 200, maxFeeMicrousd: 0, mode: "private" });
+    const second = new GeneralAgentSession({ ...options(f, "allowance", "PRIVATE-GAMMA"), limits: { maxRequests: 40, maxElapsedMs: 1_800_000 } });
+    // The durable policy already carries the first allowance, so the mismatch is refused before any work.
+    expect(await second.run()).toMatchObject({ status: "incomplete", reason: "session_policy_drift" });
+    // The same request allowance with a different time allowance passes the policy check and fails the identity check.
+    const third = new GeneralAgentSession({ ...options(f, "allowance", "PRIVATE-GAMMA"), limits: { maxRequests: 200, maxElapsedMs: 1_800_000 } });
+    expect(await third.run()).toMatchObject({ status: "incomplete", reason: "session_contract_drift" });
+    const invalid = new GeneralAgentSession({ ...options(f, "invalid-allowance", "PRIVATE-DELTA"), limits: { maxRequests: 0, maxElapsedMs: 1 } });
+    expect(await invalid.run()).toMatchObject({ status: "incomplete", reason: "session_limits_invalid" });
+  });
 });

@@ -8,18 +8,17 @@ export const MODEL_REQUEST_SIZE_STOP = "request_body_size_exceeded";
 export const MAX_MODEL_OUTPUT_TOKENS = 32768;
 /** Constructed only from the completed canonical body, before any broker call. */
 export class ModelRequestBodyTooLarge extends Error {
-  readonly limitBytes = BROKER_MAX_BODY_BYTES;
-  constructor(readonly bodyBytes: number) {
+  constructor(readonly bodyBytes: number, readonly limitBytes: number = BROKER_MAX_BODY_BYTES) {
     super(MODEL_REQUEST_SIZE_STOP);
-    if (!Number.isSafeInteger(bodyBytes) || bodyBytes <= BROKER_MAX_BODY_BYTES) throw new Error("model_request_size_error_invalid");
+    if (!Number.isSafeInteger(bodyBytes) || !Number.isSafeInteger(limitBytes) || limitBytes < 1 || bodyBytes <= limitBytes) throw new Error("model_request_size_error_invalid");
   }
 }
 
 const sizeStopSchema = z.object({
   type: z.literal("model_request_not_dispatched"), contextId: privateAgentId, operationId: z.string().uuid(),
   promptProtocolSha256: sha256Schema, reason: z.literal(MODEL_REQUEST_SIZE_STOP), dispatched: z.literal(false),
-  bodyBytes: z.number().int().safe().gt(BROKER_MAX_BODY_BYTES), limitBytes: z.literal(BROKER_MAX_BODY_BYTES),
-}).strict();
+  bodyBytes: z.number().int().safe().positive(), limitBytes: z.number().int().safe().positive(),
+}).strict().refine(value => value.bodyBytes > value.limitBytes);
 export type ModelRequestSizeStop = z.infer<typeof sizeStopSchema>;
 
 /** A receipt's absence never proves non-dispatch. Require one exact host marker/start join. */
@@ -56,6 +55,10 @@ export interface PrivateModelConfig {
   inputUsdPerMillion: number;
   outputUsdPerMillion: number;
   thinking: "disabled" | "medium";
+  /** Request body cap in bytes; defaults to the broker's packet cap. Profiles raise it for the local model. */
+  maxRequestBytes?: number;
+  /** Sampling sent only with thinking enabled; absent keeps the server defaults. */
+  sampling?: { temperature: number; top_p: number; top_k: number };
 }
 
 const nonnegativeInt = z.number().int().nonnegative().safe();
@@ -77,20 +80,24 @@ export class PrivateAgentModel {
   readonly config: PrivateModelConfig;
   constructor(private readonly broker: PrivateAgentBroker, config: PrivateModelConfig,
     readonly jobId: string, readonly contextId: string) {
+    const maxRequestBytes = config.maxRequestBytes ?? BROKER_MAX_BODY_BYTES;
     if (!Number.isSafeInteger(config.maxOutputTokens) || config.maxOutputTokens < 128 || config.maxOutputTokens > MAX_MODEL_OUTPUT_TOKENS ||
+        !Number.isSafeInteger(maxRequestBytes) || maxRequestBytes < 4096 || maxRequestBytes > 4 * 1024 * 1024 ||
+        (config.sampling !== undefined && ![config.sampling.temperature, config.sampling.top_p].every(value => Number.isFinite(value) && value >= 0 && value <= 2) ||
+          config.sampling !== undefined && !Number.isSafeInteger(config.sampling.top_k)) ||
         ![config.inputUsdPerMillion, config.outputUsdPerMillion].every(value => Number.isFinite(value) && value >= 0)) {
       throw new Error("private_model_configuration_invalid");
     }
-    this.config = Object.freeze({ ...config });
+    this.config = Object.freeze({ ...config, maxRequestBytes, ...(config.sampling ? { sampling: Object.freeze({ ...config.sampling }) } : {}) });
   }
 
   async complete(messages: GeneralMessage[], tools: GeneralToolDefinition[], signal: AbortSignal): Promise<ProviderResult> {
     const body = canonical({ model: this.config.model, messages, tools, tool_choice: "auto",
       parallel_tool_calls: false, stream: false, max_tokens: this.config.maxOutputTokens,
-      ...(this.config.thinking === "disabled" ? { chat_template_kwargs: { enable_thinking: false } } : { reasoning_effort: "medium" }),
+      ...(this.config.thinking === "disabled" ? { chat_template_kwargs: { enable_thinking: false } } : { reasoning_effort: "medium", ...(this.config.sampling ?? {}) }),
     });
-    const bodyBytes = Buffer.byteLength(body);
-    if (bodyBytes > BROKER_MAX_BODY_BYTES) throw new ModelRequestBodyTooLarge(bodyBytes);
+    const bodyBytes = Buffer.byteLength(body), limitBytes = this.config.maxRequestBytes ?? BROKER_MAX_BODY_BYTES;
+    if (bodyBytes > limitBytes) throw new ModelRequestBodyTooLarge(bodyBytes, limitBytes);
     const reservation = Math.ceil(bodyBytes * this.config.inputUsdPerMillion + this.config.maxOutputTokens * this.config.outputUsdPerMillion);
     let decoded: z.infer<typeof responseSchema> | undefined;
     const started = performance.now();

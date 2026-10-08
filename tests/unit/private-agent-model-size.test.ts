@@ -39,6 +39,16 @@ describe("model request size before dispatch", () => {
     expect(JSON.parse(bodies[0]!)).not.toHaveProperty("chat_template_kwargs");
     expect(() => new PrivateAgentModel({ request } as unknown as PrivateAgentBroker,
       { ...config, maxOutputTokens: MAX_MODEL_OUTPUT_TOKENS + 1, thinking: "disabled" }, "job", "context")).toThrow("private_model_configuration_invalid");
+    const sampled = new PrivateAgentModel({ request } as unknown as PrivateAgentBroker,
+      { ...config, maxOutputTokens: 16_384, thinking: "medium", maxRequestBytes: 640 * 1024, sampling: { temperature: 1, top_p: 0.95, top_k: 20 } }, "job", "context");
+    await sampled.complete([{ role: "user", content: "synthetic" }], [], new AbortController().signal);
+    expect(JSON.parse(bodies[1]!)).toMatchObject({ max_tokens: 16_384, reasoning_effort: "medium", temperature: 1, top_p: 0.95, top_k: 20 });
+    const big = "x".repeat(640 * 1024);
+    await expect(sampled.complete([{ role: "user", content: big }], [], new AbortController().signal))
+      .rejects.toMatchObject({ limitBytes: 640 * 1024, message: "request_body_size_exceeded" });
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(() => new PrivateAgentModel({ request } as unknown as PrivateAgentBroker,
+      { ...config, maxOutputTokens: 4096, thinking: "disabled", maxRequestBytes: 5 * 1024 * 1024 }, "job", "context")).toThrow("private_model_configuration_invalid");
   });
 
   it("does not relabel invalid text or an ordinary broker error as the typed size stop", async () => {

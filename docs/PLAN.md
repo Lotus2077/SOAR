@@ -275,6 +275,15 @@ labelled untrusted, "Submitted with reported issues", per-task profile,
 BL-20261007-0640) as PR #7 and PR #8, stacked on #6. PR-E, PR-B and PR-I
 remain; the owner build and exit criterion 3 are owner-only.
 
+**Status 2026-10-07, later (BL-20261007-1040, BL-20261007-1247):** PR-E (cloud
+correctness: OpenAI request shape, cached-rate settlement, fee-cap stop,
+headless `--arm cloud`) is PR #9, and PR-B (liveness: streamed local replies
+assembled at the transport with an inactivity clock from the first byte and a
+raw cap from the token limit, the power-save blocker, late-heartbeat events,
+and a quit that waits for a running task to pause and offers "Quit now") is PR
+#10, stacked on #9. PR-I remains; the owner build and exit criterion 3 are
+owner-only.
+
 - **PR-A, Heavy profile at every cap layer.** Raise, together:
   - [controller.ts](../src/main/general-tasks/controller.ts):29, :145, :148 and the
     `phase()` literals at :233-235;

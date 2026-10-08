@@ -153,6 +153,18 @@ describe("general isolated phase session", () => {
       syntheticInputApproval: config.syntheticInputApproval, privateModel: model, publicModel: model, limits: { maxRequests: 40, maxElapsedMs: 1_800_000, maxFeeMicrousd: 0 } }));
     expect(start.identity).toBe(expected);
   });
+  it("binds the model into the identity without its streaming flag, so a task paused before streaming resumes with it on", async () => {
+    const f = await fixture();
+    const model = (streaming: boolean, maxOutputTokens: number) => (jobId: string) => (contextId: string) => new PrivateAgentModel(f.broker,
+      { destinationId: "model", model: "fixture", maxOutputTokens, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled", ...(streaming ? { streaming: true } : {}) }, jobId, contextId);
+    const identity = async (jobId: string, streaming: boolean, maxOutputTokens = 128) => {
+      await new GeneralAgentSession({ ...options(f, jobId, "PRIVATE-STREAM"), trustedHostModelFactory: model(streaming, maxOutputTokens)(jobId) }).run();
+      return String(f.store.events(jobId).find(e => e.type === "session_started")!.identity);
+    };
+    const plain = await identity("stream-off", false);
+    expect(await identity("stream-on", true)).toBe(plain);
+    expect(await identity("stream-other", true, 256)).not.toBe(plain);
+  });
   it("a cloud arm makes the policy cloud_help with its fee cap, needs a synthetic or public approval, and judges with the separate model", async () => {
     const f = await fixture(), base = options(f, "cloud-arm", "PRIVATE-CLOUD");
     expect(() => new GeneralAgentSession({ ...base, syntheticInputApproval: undefined, cloudArm: { destinationId: "model", maxFeeMicrousd: 8_000_000 } })).toThrow("session_cloud_arm_invalid");

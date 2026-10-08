@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { BROKER_MAX_BODY_BYTES, BrokerError, PrivateAgentBroker, isPublicAddress, type BrokerDestination, type BrokerRequest, type LocalPacketScanner } from "../../src/main/private-agent/broker";
+import { STREAM_BYTES_PER_TOKEN_BOUND, localStreamSettings } from "../../src/main/liveness";
+import { BROKER_MAX_BODY_BYTES, BrokerError, PrivateAgentBroker, STREAM_MAX_RAW_BYTES, SseStreamError, SseTruncated, assembleSseChatCompletion, isPublicAddress, type BrokerDestination, type BrokerRequest, type LocalPacketScanner } from "../../src/main/private-agent/broker";
 import { PrivateAgentStore, UnknownRequestDiagnosticSchema, type UnknownRequestDiagnostic } from "../../src/main/private-agent/store";
 import { digest } from "../../src/main/private-agent/contracts";
 
@@ -440,4 +441,141 @@ describe("recoverable dispatch (owner decision D4)", () => {
     await expect(cancelled.broker.request({ ...zeroFee(cancelled), signal: cancel.signal })).rejects.toThrow("request_failed");
     expect(cancelled.store.dispatches("job").map(row => row.status)).toEqual(["failed"]);
   }, 20_000);
+});
+
+describe("streamed replies (PR-B)", () => {
+  // The exact chunk shape the owned vLLM server sent on 2026-10-07 (one probe each for text, reasoning and a tool call).
+  const chunk = (delta: Record<string, unknown>, finish: string | null = null) => ({ id: "chatcmpl-8e9db066ff8ab022", object: "chat.completion.chunk", created: 1791375149,
+    model: "served-model", choices: [{ index: 0, delta, logprobs: null, finish_reason: finish, ...(finish ? { stop_reason: null } : {}), token_ids: null }] });
+  const usage = (prompt: number, completion: number) => ({ id: "chatcmpl-8e9db066ff8ab022", object: "chat.completion.chunk", created: 1791375149, model: "served-model", choices: [],
+    usage: { prompt_tokens: prompt, total_tokens: prompt + completion, completion_tokens: completion, prompt_tokens_details: { cached_tokens: 0, created_cache_tokens: 0 },
+      completion_tokens_details: { reasoning_tokens: 0 } }, system_fingerprint: "fixture" });
+  const sse = (chunks: unknown[], done = true) => chunks.map(item => `data: ${JSON.stringify(item)}\n\n`).join("") + (done ? "data: [DONE]\n\n" : "");
+  const toolStream = [chunk({ role: "assistant", content: "" }),
+    chunk({ tool_calls: [{ id: "chatcmpl-tool-bffa86f0f2505cde", type: "function", index: 0, function: { name: "write_file" } }] }),
+    chunk({ tool_calls: [{ index: 0, function: { arguments: '{"path": "' } }] }), chunk({ tool_calls: [{ index: 0, function: { arguments: 'notes.txt", "content": "alpha beta gamma' } }] }),
+    chunk({ tool_calls: [{ index: 0, function: { arguments: '"}' } }] }, "tool_calls"), usage(351, 41)];
+  const parse = (raw: string) => JSON.parse(assembleSseChatCompletion(raw).toString("utf8"));
+  const local = { kind: "local_model" as const, privateDataAdmitted: true, classification: "public" as const };
+  const declared = (f: Awaited<ReturnType<typeof fixture>>, stream: { inactivityTimeoutMs: number; maxRawBytes: number }) =>
+    new PrivateAgentBroker(f.store, [{ ...f.destination, stream }], clean);
+  const zeroFee = (f: Awaited<ReturnType<typeof fixture>>) => ({ ...f.input, maxFeeMicrousd: 0, purpose: "agent reasoning and tool selection" });
+  const streamed = (body: string, options: { gapMs?: number; firstByteMs?: number; batch?: number } = {}): http.RequestListener => (_request, response) => {
+    response.writeHead(200, { "content-type": "text/event-stream; charset=utf-8" });
+    const events = body.split(/(?<=\n\n)/u).filter(Boolean), batch = options.batch ?? 1;
+    let index = 0;
+    const send = () => {
+      if (index >= events.length) { response.end(); return; }
+      response.write(events.slice(index, index + batch).join("")); index += batch; setTimeout(send, options.gapMs ?? 0);
+    };
+    setTimeout(send, options.firstByteMs ?? 0);
+  };
+
+  it("assembles the server's exact tool-call stream and an empty reply into the non-streaming shape", () => {
+    expect(parse(sse(toolStream))).toEqual({ id: "chatcmpl-8e9db066ff8ab022", object: "chat.completion", model: "served-model",
+      choices: [{ index: 0, message: { role: "assistant", content: null, tool_calls: [{ id: "chatcmpl-tool-bffa86f0f2505cde", type: "function",
+        function: { name: "write_file", arguments: '{"path": "notes.txt", "content": "alpha beta gamma"}' } }] }, finish_reason: "tool_calls" }],
+      usage: usage(351, 41).usage });
+    const text = parse(sse([chunk({ role: "assistant", content: "" }), chunk({ reasoning: "dropped" }), chunk({ content: "Hel" }), chunk({ content: "lo" }, "stop"), usage(3, 4)]));
+    expect(text.choices[0]).toEqual({ index: 0, message: { role: "assistant", content: "Hello" }, finish_reason: "stop" });
+    expect(parse(sse([chunk({ content: "" }, "stop"), usage(1, 0)])).choices[0].message.content).toBeNull();
+    // CRLF framing and SSE comments are protocol.
+    expect(parse(": keep-alive\r\n" + sse([chunk({ content: "x" }, "stop"), usage(1, 1)]).replaceAll("\n", "\r\n")).choices[0].message.content).toBe("x");
+  });
+  it("refuses out-of-protocol streams, and types the server's own error and an early end", () => {
+    const invalid = [
+      sse([chunk({ content: "x" }, "stop")]),                                                     // [DONE] without usage
+      sse([{ ...chunk({ content: "a" }), choices: [{ index: 1, delta: { content: "b" }, finish_reason: null }] }, usage(1, 1)]), // a second choice index
+      sse([chunk({ content: "a" }, "stop"), chunk({ content: "late" }), usage(1, 2)]),            // text after the finish reason
+      sse([chunk({ content: "a" }, "stop"), usage(1, 1), chunk({ content: "" })]),                // a chunk after the usage chunk
+      sse([5, chunk({ content: "" }, "stop"), usage(1, 0)]), sse([[], usage(1, 0)]),              // non-object payloads
+      "garbage line\n" + sse([usage(1, 0)]),                                                       // a line that is not SSE
+      sse([chunk({ tool_calls: [{ index: 0, id: "a", function: { name: "n", arguments: "" } }] }), chunk({ tool_calls: [{ index: 0, id: "b", function: { arguments: "{}" } }] }, "tool_calls"), usage(1, 1)]),
+      sse([chunk({ tool_calls: [{ id: "c", function: { name: "n", arguments: "" } }] }, "tool_calls"), usage(1, 1)]), // a fragment without an index
+      sse([chunk({ content: "x" }, "stop"), usage(1, 1)]) + "data: {}\n\n",                        // anything after [DONE]
+    ];
+    for (const raw of invalid) {
+      expect(() => assembleSseChatCompletion(raw)).toThrow();
+      try { assembleSseChatCompletion(raw); } catch (error) { expect(error).not.toBeInstanceOf(SseStreamError); expect(error).not.toBeInstanceOf(SseTruncated); }
+    }
+    const typed = (raw: string) => { try { assembleSseChatCompletion(raw); } catch (error) { return error; } throw new Error("expected a throw"); };
+    const failure = typed(sse([chunk({ content: "partial" }), { error: { object: "error", message: "EngineDeadError", type: "InternalServerError", param: null, code: 500 } }]));
+    expect(failure).toBeInstanceOf(SseStreamError); expect((failure as SseStreamError).status).toBe(500);
+    expect((typed(sse([{ error: { message: "no code" } }])) as SseStreamError).status).toBeUndefined();
+    expect(typed(sse([chunk({ content: "a" })], false))).toBeInstanceOf(SseTruncated);
+    expect(typed(sse([chunk({ content: "a" })], false) + 'data: {"id":"chatcmpl-8e9d')).toBeInstanceOf(SseTruncated); // cut mid-line
+  });
+  it("settles a heavy-profile turn of one-token chunks under the token-derived raw cap, assembled far below the reply cap", async () => {
+    const reasoning = Array.from({ length: 16_000 }, (_, index) => chunk({ reasoning: ` r${index % 10}` }));
+    const answer = Array.from({ length: 384 }, () => chunk({ content: " w" }));
+    const raw = sse([chunk({ role: "assistant", content: "" }), ...reasoning, ...answer.slice(0, -1), chunk({ content: " w" }, "length"), usage(9000, 16_384)]);
+    const settings = localStreamSettings(900_000, 256 * 1024, 16_384);
+    expect(raw.length).toBeGreaterThan(256 * 1024 * 4); expect(raw.length).toBeLessThan(settings.maxRawBytes);
+    const f = await fixture({ ...local, maxResponseBytes: 256 * 1024, timeoutMs: 20_000, handler: streamed(raw, { batch: 512 }) });
+    let assembled = 0;
+    const result = await declared(f, { ...settings, inactivityTimeoutMs: 5000 }).request(zeroFee(f), bytes => { assembled = bytes.length; expect(JSON.parse(bytes.toString("utf8")).choices[0].finish_reason).toBe("length"); return 0; });
+    expect(result.receipt.status).toBe("settled"); expect(assembled).toBeLessThan(4096);
+  }, 30_000);
+  it("returns an undeclared destination's event stream as received, and a declared one's JSON answer as before", async () => {
+    const raw = sse([chunk({ content: "ok" }, "stop"), usage(1, 1)]);
+    const undeclared = await fixture({ ...local, maxResponseBytes: 64 * 1024, handler: streamed(raw) });
+    await undeclared.broker.request(zeroFee(undeclared), bytes => { expect(bytes.toString("utf8")).toBe(raw); return 0; });
+    const json = await fixture({ ...local, handler: (_request, response) => { response.writeHead(200, { "content-type": "application/json" }); response.end('{"ok":true}'); } });
+    await declared(json, { inactivityTimeoutMs: 1000, maxRawBytes: 4096 }).request(zeroFee(json), bytes => { expect(bytes.toString("utf8")).toBe('{"ok":true}'); return 0; });
+  });
+  it("starts the inactivity clock at the first byte, and records a mid-stream stall as an unknown inactivity_timeout that is never retried", async () => {
+    const body = sse([chunk({ content: "a" }), chunk({ content: "b" }, "stop"), usage(1, 2)]);
+    // Prefill: headers at once, the first byte 1.5 s later, past the 1 s inactivity limit but inside the request deadline.
+    const prefill = await fixture({ ...local, recoverable: true, timeoutMs: 5000, handler: streamed(body, { firstByteMs: 1500 }) });
+    expect((await declared(prefill, { inactivityTimeoutMs: 1000, maxRawBytes: 64 * 1024 }).request(zeroFee(prefill), () => 0)).receipt.status).toBe("settled");
+    const stalled = await fixture({ ...local, recoverable: true, timeoutMs: 5000, handler: streamed(body, { gapMs: 1500 }) });
+    await expect(declared(stalled, { inactivityTimeoutMs: 1000, maxRawBytes: 64 * 1024 }).request(zeroFee(stalled))).rejects.toThrow("transport_or_settlement_unknown");
+    expect(stalled.store.dispatches("job").map(row => [row.status, row.failure?.code])).toEqual([["unknown", "inactivity_timeout"]]); expect(stalled.requests).toHaveLength(1);
+  }, 20_000);
+  it("caps the raw stream and the assembled reply separately, both as unknown oversize", async () => {
+    const chatty = sse([...Array.from({ length: 40 }, () => chunk({ reasoning: "x".repeat(40) })), chunk({ content: "ok" }, "stop"), usage(1, 41)]);
+    const raw = await fixture({ ...local, maxResponseBytes: 2048, handler: streamed(chatty) });
+    await expect(declared(raw, { inactivityTimeoutMs: 1000, maxRawBytes: 4096 }).request(zeroFee(raw))).rejects.toThrow("transport_or_settlement_unknown");
+    expect(raw.store.dispatches("job")[0]).toMatchObject({ status: "unknown", failure: { code: "response_oversize" } });
+    const long = sse([chunk({ content: "y".repeat(3000) }, "stop"), usage(1, 1)]);
+    const assembled = await fixture({ ...local, maxResponseBytes: 2048, handler: streamed(long) });
+    await expect(declared(assembled, { inactivityTimeoutMs: 1000, maxRawBytes: 64 * 1024 }).request(zeroFee(assembled))).rejects.toThrow("transport_or_settlement_unknown");
+    expect(assembled.store.dispatches("job")[0]).toMatchObject({ status: "unknown", failure: { code: "response_oversize" } });
+  });
+  it("treats the server's in-band error like an HTTP error and an early end like a cut connection; only a malformed stream stays unknown", async () => {
+    const stream = { inactivityTimeoutMs: 1000, maxRawBytes: 64 * 1024 };
+    const error = (code?: number) => sse([chunk({ role: "assistant", content: "" }), { error: { object: "error", message: "synthetic engine failure", type: "InternalServerError", param: null, ...(code ? { code } : {}) } }]);
+    const engine = await fixture({ ...local, recoverable: true, handler: streamed(error(500)) });
+    await expect(declared(engine, stream).request(zeroFee(engine))).rejects.toThrow("request_failed");
+    expect(engine.store.dispatches("job").map(row => [row.status, row.failure?.code, row.failure && "status" in row.failure ? row.failure.status : undefined]))
+      .toEqual([["superseded", "stream_error", 500], ["superseded", "stream_error", 500], ["failed", "stream_error", 500]]);
+    expect(engine.store.dispatches("job").some(row => JSON.stringify(row).includes("synthetic engine failure"))).toBe(false);
+    const rejected = await fixture({ ...local, recoverable: true, handler: streamed(error(400)) });
+    await expect(declared(rejected, stream).request(zeroFee(rejected))).rejects.toThrow("request_failed");
+    expect(rejected.store.dispatches("job").map(row => row.status)).toEqual(["failed"]); expect(rejected.requests).toHaveLength(1);
+    const uncoded = await fixture({ ...local, recoverable: true, handler: streamed(error()) });
+    await expect(declared(uncoded, stream).request(zeroFee(uncoded))).rejects.toThrow("request_failed");
+    expect(uncoded.store.dispatches("job").map(row => row.status)).toEqual(["failed"]);
+    const cut = await fixture({ ...local, handler: streamed(sse([chunk({ content: "a" })], false)) });
+    await expect(declared(cut, stream).request(zeroFee(cut))).rejects.toThrow("request_failed");
+    expect(cut.store.dispatches("job")[0]).toMatchObject({ status: "failed", failure: { code: "response_interrupted" } });
+    // Priced, the same in-band error is not zero-risk and stays uncertain.
+    const priced = await fixture({ ...local, handler: streamed(error(500)) });
+    await expect(declared(priced, stream).request({ ...zeroFee(priced), maxFeeMicrousd: 1 })).rejects.toThrow("transport_or_settlement_unknown");
+    const broken = await fixture({ ...local, recoverable: true, handler: streamed(sse([chunk({ content: "x" }, "stop")])) });
+    await expect(declared(broken, stream).request(zeroFee(broken))).rejects.toThrow("transport_or_settlement_unknown");
+    expect(broken.store.dispatches("job").map(row => [row.status, row.failure?.code])).toEqual([["unknown", "stream_invalid"]]);
+  }, 20_000);
+  it("admits a stream declaration only on a local model destination with sane bounds", async () => {
+    const f = await fixture(local);
+    const make = (change: Partial<BrokerDestination>) => () => new PrivateAgentBroker(f.store, [{ ...f.destination, ...change }], clean);
+    expect(make({ stream: { inactivityTimeoutMs: 1000, maxRawBytes: 4096 } })).not.toThrow();
+    for (const stream of [{ inactivityTimeoutMs: 999, maxRawBytes: 4096 }, { inactivityTimeoutMs: 1001, maxRawBytes: 4096 }, { inactivityTimeoutMs: 1000, maxRawBytes: 2047 },
+      { inactivityTimeoutMs: 1000, maxRawBytes: STREAM_MAX_RAW_BYTES + 1 }, { inactivityTimeoutMs: 1000, maxRawBytes: 4096, extra: 1 }]) {
+      expect(make({ stream: stream as BrokerDestination["stream"] })).toThrow("destination_stream_invalid");
+    }
+    expect(make({ kind: "cloud_model", privateDataAdmitted: false, stream: { inactivityTimeoutMs: 1000, maxRawBytes: 4096 } })).toThrow("destination_stream_invalid");
+    expect(localStreamSettings(300_000, 256 * 1024, 4096)).toEqual({ inactivityTimeoutMs: 120_000, maxRawBytes: 256 * 1024 + 4096 * STREAM_BYTES_PER_TOKEN_BOUND });
+    expect(localStreamSettings(60_000, 1024, 1).inactivityTimeoutMs).toBe(60_000);
+  });
 });

@@ -17,8 +17,11 @@ import { COORDINATOR_PROFILES, GENERAL_TASK_BUDGETS, type CoordinatorProfileName
 import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, claimsInstructions, claimsLedgerCheck } from "../src/main/private-agent/claims";
 import { buildPublicRetrievalPhase, loadPreparedOperatorTask, selectPreparedPublicInputs, startControlledSnapshotReceiver,
   type PreparedOperatorTask } from "./private-agent-run";
+import { localStreamSettings } from "../src/main/liveness";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
+/** Cap on one assembled reply from the owned model. */
+const LOCAL_SCREEN_MAX_RESPONSE_BYTES = 512 * 1024;
 const safeSnapshotFile = (value: string) => value.length > 0 && Buffer.byteLength(value) <= 240 && Buffer.from(value).toString("utf8") === value
   && !/[\\\x00-\x1f\x7f]/u.test(value) && value.split("/").every(part => part && part !== "." && part !== "..");
 function safeRoute(value: string): boolean {
@@ -119,7 +122,7 @@ export async function startExplicitPublicSnapshotReceiver(snapshot: PreparedPubl
 
 export function localScreenSourceFreeze() {
   const paths = [...readdirSync("src/main/private-agent").filter(name => name.endsWith(".ts")).map(name => `src/main/private-agent/${name}`),
-    "scripts/private-agent-run.ts", "scripts/private-agent-local-screen.ts", "scripts/secret-patterns.mjs", "src/main/config.ts", "pnpm-lock.yaml",
+    "scripts/private-agent-run.ts", "scripts/private-agent-local-screen.ts", "scripts/secret-patterns.mjs", "src/main/config.ts", "src/main/liveness.ts", "pnpm-lock.yaml",
     "runtime/private-agent/Dockerfile", "runtime/private-agent/requirements.txt"];
   const files = paths.sort().map(path => ({ path, sha256: digest(readFileSync(path)) }));
   return { files, sha256: digest(canonical(files)) };
@@ -218,8 +221,9 @@ export async function runLocalArtifactScreen(input: {
     const destinations: BrokerDestination[] = [{ id: "owned_local_model", kind: "local_model",
       endpoint: `${config.vllm.baseUrl}/chat/completions`, accountId: "operator_owned_local_server", credentialVersion: 1,
       apiKey: config.vllm.apiKey, privateDataAdmitted: false, syntheticOnly: true,
-      maxResponseBytes: 512 * 1024, timeoutMs: coordinator.requestTimeoutMs, maxRequestBytes: coordinator.maxRequestBytes,
-      ...(config.recoverableDispatch ? { recoverable: true } : {}) }];
+      maxResponseBytes: LOCAL_SCREEN_MAX_RESPONSE_BYTES, timeoutMs: coordinator.requestTimeoutMs, maxRequestBytes: coordinator.maxRequestBytes,
+      ...(config.recoverableDispatch ? { recoverable: true } : {}),
+      ...(config.streamingEnabled ? { stream: localStreamSettings(coordinator.requestTimeoutMs, LOCAL_SCREEN_MAX_RESPONSE_BYTES, coordinator.maxOutputTokens) } : {}) }];
     let publicPhase: ReturnType<typeof buildPublicRetrievalPhase> | undefined;
     if (publicSnapshot) {
       receiver = await startExplicitPublicSnapshotReceiver(publicSnapshot);
@@ -253,7 +257,7 @@ export async function runLocalArtifactScreen(input: {
     const broker = new PrivateAgentBroker(store, destinations, scanner);
     const localModelConfig = { destinationId: "owned_local_model", model: config.vllm.model, maxOutputTokens: coordinator.maxOutputTokens,
       inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: coordinator.thinking, maxRequestBytes: coordinator.maxRequestBytes,
-      ...(coordinator.sampling ? { sampling: { ...coordinator.sampling } } : {}) };
+      ...(coordinator.sampling ? { sampling: { ...coordinator.sampling } } : {}), ...(config.streamingEnabled ? { streaming: true } : {}) };
     const modelConfig = cloud ? cloud.modelConfig : localModelConfig;
     const freeze = { version: 1, jobId, sourceFreeze: sourceFreeze.files, sourceFreezeSha256: sourceFreeze.sha256, imageId: input.imageId,
       modelConfig, endpointIdentitySha256: digest(destinations[0]!.endpoint), deployment: "synthetic_only_unverified_for_private_data",

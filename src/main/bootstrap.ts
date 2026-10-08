@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import { app, BrowserWindow } from "electron";
+import { app, BrowserWindow, powerSaveBlocker } from "electron";
 
 import { SessionRunner, type RuntimeUpdate } from "./agent/run-session";
 import { CloudCredentialStatusService } from "./cloud-credential-service";
@@ -41,6 +41,8 @@ import { GENERAL_TASK_IPC_CHANNELS } from "../shared/general-task-contracts";
 
 export interface BootstrapController {
   close(): Promise<void>;
+  /** True while a general task or a Labs patch run is running or cleaning up. */
+  busy(): boolean;
 }
 
 function createWindowShell(
@@ -149,6 +151,7 @@ export async function bootstrap(): Promise<BootstrapController> {
     patchRuns = new PatchRunController(new PatchRunStore(database), loadPatchRuntimeConfig({ appPath: app.getAppPath(), userDataPath }), (snapshot) => {
       if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(PATCH_RUN_IPC_CHANNELS.patchRunUpdate, snapshot);
     });
+    let powerSave: number | undefined;
     generalTasks = new GeneralTaskController({
       database,
       dataRoot: path.join(path.dirname(databasePath), "general-tasks"),
@@ -156,6 +159,11 @@ export async function bootstrap(): Promise<BootstrapController> {
       imageId: () => loadConfig({ appPath: app.getAppPath(), userDataPath }).generalTaskImageId,
       runtimeIdentity: () => generalTaskRuntimeIdentity(app.getAppPath(), !app.isPackaged && process.env.ELECTRON_RENDERER_URL !== undefined),
       consultantProfile: () => resolveConsultantProfile(),
+      // PR-B: keep the machine from suspending while a task runs.
+      onActivity: active => {
+        if (active && powerSave === undefined) powerSave = powerSaveBlocker.start("prevent-app-suspension");
+        else if (!active && powerSave !== undefined) { powerSaveBlocker.stop(powerSave); powerSave = undefined; }
+      },
       onUpdate: snapshot => {
         if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(GENERAL_TASK_IPC_CHANNELS.update, snapshot);
       },
@@ -235,6 +243,7 @@ export async function bootstrap(): Promise<BootstrapController> {
     app.on("activate", activate);
 
     return Object.freeze({
+      busy: () => (generalTasks?.busy() ?? false) || (patchRuns?.busy() ?? false),
       close(): Promise<void> {
         if (closeOperation) return closeOperation;
         closeOperation = (async () => {

@@ -3,7 +3,7 @@ import { canonical, contextFingerprint, digest, privateAgentId, type PrivateAgen
 import type { PrivateAgentStore } from "./store";
 import type { PrivateAgentBroker } from "./broker";
 import type { PrivateCheckpointStore, WorkspaceSnapshot } from "./checkpoints";
-import type { PrivateAgentModel } from "./model";
+import { modelIdentity, type PrivateAgentModel } from "./model";
 import { GeneralAgentRunner, GeneralJobContractSchema, type ArtifactCheck, type GeneralJobContract, type GeneralJobOptions, type GeneralJobResult } from "./runner";
 import { readPublicSources } from "./public-sources";
 import type { GeneralConsultation } from "./consultation";
@@ -227,9 +227,9 @@ export class GeneralAgentSession {
         ...(options.publicInputApproval ? { primaryClassification: "public", publicInputApproval: options.publicInputApproval, maxPublicFetches: 5 } : {}),
         ...(options.consultation ? { consultation: { version: 1, identity: options.consultation.identity,
           destinationId: options.consultation.destinationId, maxFeeMicrousd: options.consultation.maxFeeMicrousd } } : {}),
-        syntheticInputApproval: options.syntheticInputApproval ?? null, privateModel: privateModel.config, publicModel: publicModel?.config ?? null, limits,
+        syntheticInputApproval: options.syntheticInputApproval ?? null, privateModel: modelIdentity(privateModel.config), publicModel: publicModel ? modelIdentity(publicModel.config) : null, limits,
         // Spread only when set, so the identity of every pre-existing (no-arm) session stays byte-identical.
-        ...(options.cloudArm ? { cloudArm: options.cloudArm } : {}), ...(judgeModel ? { judgeModel: judgeModel.config } : {}) }));
+        ...(options.cloudArm ? { cloudArm: options.cloudArm } : {}), ...(judgeModel ? { judgeModel: modelIdentity(judgeModel.config) } : {}) }));
       if (old && old.identity !== identity) return result("incomplete", "session_contract_drift");
       if (!old && this.events().length) return result("incomplete", "session_missing_start_identity");
       const start = store.ensureSessionStart(jobId, { type: "session_started", identity,

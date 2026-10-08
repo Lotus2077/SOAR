@@ -81,6 +81,21 @@ describe("model request size before dispatch", () => {
     expect(() => new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, { destinationId: "c", model: "m", maxOutputTokens: 256, inputUsdPerMillion: 1, outputUsdPerMillion: 1, cachedInputUsdPerMillion: 2, thinking: "disabled" }, "job", "context")).toThrow("private_model_configuration_invalid");
   });
 
+  it("streams only the owned server's reply when configured, with usage included, and never the cloud shape", async () => {
+    const bodies: string[] = [];
+    const request = vi.fn(async (input, settle) => {
+      bodies.push(input.body);
+      const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+      return { bytes, receipt: { feeMicrousd: settle(bytes) } };
+    });
+    const base = { destinationId: "fixture", model: "synthetic", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" as const };
+    await new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, { ...base, streaming: true }, "job", "context").complete([{ role: "user", content: "x" }], [], new AbortController().signal);
+    expect(JSON.parse(bodies[0]!)).toMatchObject({ stream: true, stream_options: { include_usage: true }, max_tokens: 4096 });
+    await new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, base, "job", "context").complete([{ role: "user", content: "x" }], [], new AbortController().signal);
+    expect(JSON.parse(bodies[1]!)).toMatchObject({ stream: false }); expect(JSON.parse(bodies[1]!)).not.toHaveProperty("stream_options");
+    expect(() => new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, { ...base, api: "openai", streaming: true }, "job", "context")).toThrow("private_model_configuration_invalid");
+  });
+
   it("accepts a larger profile output limit up to the adapter ceiling and requests thinking when enabled", async () => {
     const bodies: string[] = [];
     const request = vi.fn(async (input, settle) => {

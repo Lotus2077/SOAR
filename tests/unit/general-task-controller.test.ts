@@ -335,6 +335,47 @@ describe("desktop general-task host controller", () => {
     f.config.labsEnabled = true;
     expect((await f.controller.availability()).labs).toBe(true);
   });
+  it("reports activity once when the first task starts and once when the last ends, and streams the local model when enabled", async () => {
+    const f = fixture(); const activity: boolean[] = [];
+    const controller = new GeneralTaskController({ ...f.options, onActivity: active => activity.push(active) });
+    try {
+      const a = controller.create({ goal: "Make a small report.", inputSelectionId: controller.selectInputs([f.input]).id, outputName: "report.md", publicOrSynthetic: true });
+      controller.start(a.id); expect(controller.busy()).toBe(true); await controller.wait(a.id);
+      expect(activity).toEqual([true, false]); expect(controller.busy()).toBe(false);
+      expect(f.executions.at(-1)!.model.config).not.toHaveProperty("streaming");
+      f.config.streamingEnabled = true;
+      const b = controller.create({ goal: "Make a small report.", inputSelectionId: controller.selectInputs([f.input]).id, outputName: "report.md", publicOrSynthetic: true });
+      controller.start(b.id); await controller.wait(b.id);
+      expect(f.executions.at(-1)!.model.config).toMatchObject({ streaming: true });
+    } finally { controller.close(); }
+  });
+  it("resumes a task paused before streaming was switched on, and streams from then on", async () => {
+    const f = fixture(); f.config.streamingEnabled = false;
+    const task = f.create(); f.hold(); f.controller.start(task.id);
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1));
+    f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
+    expect(f.controller.get(task.id).status).toBe("paused");
+    f.config.streamingEnabled = true; f.resetPaused();
+    f.controller.resume(task.id); await f.controller.wait(task.id);
+    expect(f.controller.get(task.id).status).toBe("submitted");
+    expect(f.executions[1]!.model.config).toMatchObject({ streaming: true });
+  });
+  it("records a late heartbeat against the running task as a host_heartbeat event", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    try {
+      const f = fixture(); const task = f.create(); f.hold(); f.controller.start(task.id);
+      await vi.waitFor(() => expect(f.executions).toHaveLength(1));
+      // The wall clock jumps 90 s past the schedule (the machine slept); the monotonic clock did not move.
+      vi.setSystemTime(Date.now() + 90_000); vi.advanceTimersByTime(30_000);
+      const late = f.executions[0]!.store.events(task.id).filter(event => event.type === "host_heartbeat");
+      expect(late).toHaveLength(1);
+      expect(late[0]).toMatchObject({ contextId: f.executions[0]!.contextId, wallLateMs: 90_000, monotonicLateMs: 0 });
+      vi.advanceTimersByTime(30_000);
+      expect(f.executions[0]!.store.events(task.id).filter(event => event.type === "host_heartbeat")).toHaveLength(1);
+      f.release(); await f.controller.wait(task.id);
+      expect(f.controller.get(task.id).status).toBe("submitted");
+    } finally { vi.useRealTimers(); }
+  });
   it("refuses a queued task after the coordinator profile changes", () => {
     const f = fixture();
     const task = f.create(); f.config.generalTaskProfile = "heavy";

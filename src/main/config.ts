@@ -56,6 +56,8 @@ const environmentSchema = z.object({
   SOAR_GENERAL_TASK_PROFILE: z.enum(["standard", "heavy"]).default("heavy"),
   /** Owner decision D4 (approved 2026-09-29): bounded retries after confirmed aborts for zero-fee local requests and public GETs. */
   SOAR_RECOVERABLE_DISPATCH: z.enum(["true", "false"]).default("true"),
+  /** PR-B: stream local replies with an inactivity timeout; off keeps the September non-streaming request. */
+  SOAR_STREAMING: z.enum(["true", "false"]).default("true"),
   SOAR_TEST_WORKSPACE: z.string().optional(),
   SOAR_TEST_CREDENTIAL_OPERATION_STATE: z
     .enum([
@@ -100,6 +102,7 @@ export interface SoarConfig {
   /** Coordinator profile for General task; "heavy" follows vendor guidance, "standard" is the September configuration. */
   generalTaskProfile?: "standard" | "heavy";
   recoverableDispatch?: boolean;
+  streamingEnabled?: boolean;
   testWorkspace?: string;
   /**
    * Deterministic renderer proof fixture. It is admitted only for Fake mode
@@ -220,6 +223,7 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
     generalTaskImageId: env.SOAR_GENERAL_TASK_IMAGE_ID,
     generalTaskProfile: env.SOAR_GENERAL_TASK_PROFILE,
     recoverableDispatch: env.SOAR_RECOVERABLE_DISPATCH === "true",
+    streamingEnabled: env.SOAR_STREAMING === "true",
     testWorkspace: env.SOAR_TEST_WORKSPACE,
     ...(env.SOAR_TEST_CREDENTIAL_OPERATION_STATE === undefined
       ? {}

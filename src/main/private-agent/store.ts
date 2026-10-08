@@ -17,7 +17,7 @@ const diagnosticTiming = {
  */
 export const UnknownRequestDiagnosticSchema = z.discriminatedUnion("phase", [
   z.object({ phase: z.literal("transport"),
-    code: z.enum(["request_timeout", "cancelled", "http_rejected", "response_oversize", "transport_failed", "connection_failed", "upstream_closed", "response_interrupted"]),
+    code: z.enum(["request_timeout", "cancelled", "http_rejected", "response_oversize", "transport_failed", "connection_failed", "upstream_closed", "response_interrupted", "inactivity_timeout", "stream_invalid", "stream_error"]),
     status: z.number().int().min(100).max(599).optional(), attempt: z.number().int().min(1).max(3).optional(),
     ...diagnosticTiming }).strict(),
   z.object({ phase: z.literal("settlement"),
@@ -35,11 +35,11 @@ export type UnknownRequestDiagnostic = z.infer<typeof UnknownRequestDiagnosticSc
 export function isConfirmedAbort(failure: UnknownRequestDiagnostic | undefined, zeroRisk = false): boolean {
   if (failure?.phase !== "transport") return false;
   if (failure.code === "connection_failed" || failure.code === "http_rejected") return true;
-  return zeroRisk && (failure.code === "upstream_closed" || failure.code === "response_interrupted");
+  return zeroRisk && (failure.code === "upstream_closed" || failure.code === "response_interrupted" || failure.code === "stream_error");
 }
 /** Of the confirmed aborts of a zero-risk packet, only transient ones are worth another attempt; a 4xx other than 429 is deterministic. */
 export function isRetryableAbort(failure: UnknownRequestDiagnostic | undefined): boolean {
-  return isConfirmedAbort(failure, true) && failure!.phase === "transport" && (failure!.code !== "http_rejected" || (failure!.status ?? 0) >= 500 || failure!.status === 429);
+  return isConfirmedAbort(failure, true) && failure!.phase === "transport" && ((failure!.code !== "http_rejected" && failure!.code !== "stream_error") || (failure!.status ?? 0) >= 500 || failure!.status === 429);
 }
 /** `settled` has a response; `superseded` (retried) and `failed` (confirmed abort, no retry left) are resolved without one and never block the ledger. */
 export type DispatchStatus = "committed" | "settled" | "unknown" | "superseded" | "failed";

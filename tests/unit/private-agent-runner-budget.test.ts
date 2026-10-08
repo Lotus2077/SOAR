@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { BROKER_MAX_BODY_BYTES, PrivateAgentBroker, BrokerError } from "../../src/main/private-agent/broker";
 import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
-import { PrivateAgentModel, type GeneralMessage } from "../../src/main/private-agent/model";
+import { PrivateAgentModel, type GeneralMessage, type PrivateModelConfig } from "../../src/main/private-agent/model";
 import { GeneralAgentRunner, type GeneralJobContract, type GeneralJobOptions } from "../../src/main/private-agent/runner";
 import { DockerSandbox } from "../../src/main/private-agent/sandbox";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
@@ -459,6 +459,16 @@ describe("general runner host budget and argument recovery", () => {
     expect(output).not.toContain("PRIVATE-HOST"); expect(f.commands.slice(0, 2)).toEqual(["throw failure", "write result"]);
   });
 
+  it("resumes a paused job when only the model's streaming flag changed, and still refuses any other model change", async () => {
+    const f = fixture([write, finish]);
+    const first = new GeneralAgentRunner(f.options); f.afterExecute(() => first.pause());
+    expect(await first.run()).toMatchObject({ status: "paused", modelCalls: 1 });
+    // The mocked complete() lives on the fixture model; a variant inherits it with a different configuration.
+    const variant = (change: Partial<PrivateModelConfig>) => Object.create(f.options.model, { config: { value: Object.freeze({ ...f.options.model.config, ...change }) } }) as PrivateAgentModel;
+    expect((await new GeneralAgentRunner({ ...f.options, model: variant({ maxOutputTokens: 2048 }) }).run()).reason).toBe("runtime_contract_drift");
+    f.afterExecute(() => {});
+    expect(await new GeneralAgentRunner({ ...f.options, model: variant({ streaming: true }) }).run()).toMatchObject({ status: "completed" });
+  });
   it("stops an old unbound prompt identity before sandbox creation or another model/tool effect", async () => {
     const f = fixture([write]);
     const { contract, imageId, checks, model } = f.options;

@@ -20460,3 +20460,263 @@ owner's key (for C-Sol and H), and on the owner merging #1 to #12 and cutting
 
 References: BL-20261007-1522-phase2-harness-implemented,
 BL-20261007-1529-critic-cap-correction, BL-20261007-1301-pr-b-streaming-dry-run.
+
+### BL-20261008-0910-phase2-tasks-design -- 2026-10-08 -- Phase 2 task authoring: twelve fresh tasks, checks before the freeze
+
+Status: `Proposed`
+
+Scope or hypothesis: the separate-session task authoring that the plan's
+Phase 2 requires and that BL-20261007-1449 and BL-20261007-1535 left open.
+This session authors the 12 fresh tasks of the plan's table, each sized for
+30 to 80 agent actions, with 5 to 8 critical checks written before the
+freeze. It did not build the harness and changes none of it: nothing under
+`src/`, `scripts/private-agent-*.ts` or `scripts/phase2-*`. It runs no SOAR
+agent and no model on any task, makes no cloud model call and no paid run,
+and reads no key. On-track check: the plan's Phase 2 needs frozen tasks
+before the first counted run; the harness (#12) is merged and waits on them.
+
+Decisions:
+
+- **Task set** (family, mode the operator must pass, inputs):
+
+  | Id | Family | Driver mode | Inputs |
+  | --- | --- | --- | --- |
+  | `r1`, `r2`, `r3` | research | `--claims-ledger true` | closed corpus of 15 to 30 pre-fetched public documents, one planted conflict |
+  | `d1` | document review | `--document-review true` | a public CC BY 4.0 contract, edited as a counterparty draft |
+  | `d2` | document review | `--document-review true` | a synthetic clinical note |
+  | `d3` | document review | `--document-review true` | a synthetic unpublished-style manuscript |
+  | `k1`, `k2` | deck | plain | public data (`k1`), synthetic data (`k2`) |
+  | `w1` | website | plain | synthetic data |
+  | `a1`, `a2` | admin | plain | synthetic mbox and `.ics` |
+  | `c1` | coding | plain | a synthetic standard-library-only Python repository |
+
+  Each document-review task holds exactly one top-level `.docx`, as the
+  document-review mode requires, with 5 to 8 planted issues.
+- **Layout.** Everything stays under the ignored
+  `.soar/experiments/phase2-v1/` of the authoring worktree:
+  - `tasks/<id>/`: `job.json`, `brief.md` and `input/`, written only by
+    `scripts/prepare-operator-task.py`, which prints the job and brief
+    SHA-256 values;
+  - `gold/<id>/`: the critical checks, planted-issue lists, key facts,
+    expected slots, hidden test suites and reference solutions;
+  - `build/` and `sources/`: generators, fetched originals and their
+    provenance (URL, retrieval date, licence, SHA-256).
+
+  Git receives only a hashes-only manifest under `docs/experiments/` (task
+  id, family, mode, job and brief SHA-256, every input file's SHA-256, every
+  gold file's SHA-256, check count) and build-log entries.
+- **Critical checks.** Each task gets 5 to 8 checks in
+  `gold/<id>/checks.json`, written before the freeze and never changed after
+  any candidate has been seen. All are automated: one standard-library
+  scorer kept with the gold reads a run's `candidate/` directory and
+  `result.json`. It is an evaluation aid outside the harness, and its hash
+  is in the manifest. Hidden suites that execute candidate code (the coding
+  task's `unittest` suites, the website's behaviour script) run in the
+  qualified image with `--network none`. Check shapes by family:
+  - research: the host's claims-ledger check (0 fabricated quotes), an
+    independent re-verification of every quote, the planted conflict
+    surfaced under "Conflicting evidence" with both sides cited, the
+    support rate reported, and key facts from the corpus;
+  - document review: the host's fidelity check, planted-issue recall by
+    anchor location, the most serious planted issues individually, protected
+    facts unchanged in the clean copy (no unintended changes), and the
+    summary contract;
+  - deck: the file opens, 10 to 15 slides, native charts and tables, chart
+    values equal to the data, computed figures;
+  - website: the required behaviours, exercised by a browser script on the
+    qualified image's Chromium;
+  - admin: 0 canary leaks, 0 injected recipients, correct slots including
+    DST edges, valid threading and a valid calendar file;
+  - coding: hidden suites pass, visible tests still pass, inputs untouched.
+- **Mechanics validation only.** Allowed and planned:
+  - hidden tests fail on the starting repository and pass on the reference
+    solution;
+  - the website script fails on a stub and passes on a reference site;
+  - each `.docx` opens and renders under LibreOffice in the qualified image
+    and lists without refusal;
+  - the scorer passes the reference outputs and fails empty or naive ones.
+
+  No task is tuned against harness or model behaviour.
+- **Inputs and privacy.** Every input is public or synthetic:
+  - public documents carry a recorded licence (public domain, CC0, CC BY,
+    or the IETF Trust provisions for unmodified RFC text);
+  - the planted research conflicts are added as synthetic documents, so no
+    public document is altered, except the CC BY contract, which the brief
+    presents as a counterparty edit;
+  - synthetic people, organizations and mailboxes are invented by this
+    session, with no seed from the owner.
+- **Freeze.** After authoring, a freeze entry records the manifest hash. The
+  proposed tag is `phase2-tasks-v1` on the merge commit, cut by the owner;
+  this session pushes no tag and merges nothing.
+
+Changes: This entry. Authoring follows on branch `phase2-tasks`.
+
+Evidence: [plan](PLAN.md) Phase 2 (task table, checks, gold outside Git);
+`scripts/prepare-operator-task.py`, the job schema in
+`scripts/private-agent-run.ts`, the claims-ledger and document-review modes,
+and the Phase 0 and Phase 1 task layouts, read on 2026-10-08.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- The 30 to 80 action sizing is the author's estimate; no task is run here.
+- The author writes the gold and the checks, so the checks share the
+  author's blind spots; the owner's blind verdict remains the outcome of
+  record.
+- Automated proxies (anchor location for issue recall, patterns for key
+  facts) can miss a correct answer phrased unexpectedly. Their rules are
+  fixed at the freeze and reported as written.
+
+Paid exposure: USD 0.
+
+Next gate: the 12 tasks prepared, the gold and checks written and validated
+as above, then the freeze entry and the hashes-only manifest in a pull
+request.
+
+References: [plan](PLAN.md) Phase 2, BL-20261007-1449-phase1-close-out,
+BL-20261007-1522-phase2-harness-implemented,
+BL-20261007-1535-lprime-repair-dry-run.
+
+### BL-20261008-1025-phase2-tasks-freeze -- 2026-10-08 -- Phase 2 tasks authored and frozen: twelve tasks, 82 critical checks
+
+Status: `Implemented`
+
+Scope or hypothesis: implements the design BL-20261008-0910 on branch
+`phase2-tasks`. Twelve fresh tasks for the plan's Phase 2 are authored,
+prepared and frozen, with 82 critical checks written before any candidate
+exists. Freezing here means the hashes are fixed in a committed manifest; the
+freeze takes effect for counted runs once the owner merges and tags it. On-track
+check: this was the last authoring item before the first counted Phase 2 run;
+harness code was not changed.
+
+Decisions:
+
+- **Task set** (full hashes in the manifest; driver mode in brackets):
+
+  | Id | Family | What it tests | Checks |
+  | --- | --- | --- | --- |
+  | `r1-python-packaging` | research [`--claims-ledger true`] | packaging decision report from 20 PEPs and one other document | 7 |
+  | `r2-email-auth` | research [`--claims-ledger true`] | domain email-authentication memo from 17 RFCs and one other document | 7 |
+  | `r3-grid-batteries` | research [`--claims-ledger true`] | battery-storage briefing from 23 EIA articles and one other document | 7 |
+  | `d1-contract-psa` | document review [`--document-review true`] | customer-side review of a counterparty-edited CC BY services agreement | 5 |
+  | `d2-discharge-note` | document review [`--document-review true`] | documentation and medication-safety review of a synthetic discharge summary | 6 |
+  | `d3-manuscript-stats` | document review [`--document-review true`] | statistical and editorial review of a synthetic manuscript | 6 |
+  | `k1-climate-deck` | deck | editable 10 to 15 slide deck from public NOAA series | 7 |
+  | `k2-qbr-deck` | deck | editable business review deck from synthetic order data that needs checking | 7 |
+  | `w1-conference-planner` | website | static planner with 12 specified behaviours across a DST change | 8 |
+  | `a1-scheduling-dst` | admin | scheduling replies and holds across the European and US DST changes, with an injection and confidential mail | 7 |
+  | `a2-inbox-policy` | admin | policy-bound triage, replies and holds across three DST regimes, with a lookalike request and confidential mail | 8 |
+  | `c1-ledger-valuation` | coding | multi-file feature and bug fix in a synthetic standard-library Python package with hidden `unittest` suites | 7 |
+
+- **Freeze.** The hashes-only manifest is
+  [phase2-tasks-v1.json](experiments/phase2-tasks-v1.json). Its file SHA-256 is
+  `18a97f086f0bb0cf667479c4cd28be1c6b7a5d9c5f458606d4c325f9f0fe9ed1`; the task
+  list digest (`tasksSha256`) is
+  `aa8cbae51ec1ca01eac99013b0785f2d88af11044554cb48482c041b17ecc4a0`. It records,
+  per task, the job and brief SHA-256, every input file's SHA-256, every gold
+  file's SHA-256 and the check count, plus the scorer's file hashes. The proposed
+  tag is `phase2-tasks-v1` on the merge commit, cut by the owner. No checker may
+  change after any candidate has been seen; a defect found later is recorded as
+  a correction and the original check is still reported.
+- **Where things are.** Task directories are at
+  `.soar/experiments/phase2-v1/tasks/<id>` in the authoring worktree, prepared
+  only with `scripts/prepare-operator-task.py`. Gold, hidden suites, reference
+  outputs, the scorer and its README are under `.soar/experiments/phase2-v1/gold/`.
+  Generators, fetched originals with provenance, and self-test runs are under
+  `build/` and `sources/` there. None of it is in Git.
+- **Scorer.** `gold/scorer/score.py` (standard library, version 1) evaluates every
+  check of a task against a run directory (`result.json`, `state.sqlite`,
+  `candidate/`). It runs in the qualified image with `--network none`, and it
+  refuses a task whose `job.json` does not match `checks.json`. Hidden suites
+  run only as subprocesses inside that container: the coding `unittest` suites
+  through a nonce-checked runner, the website behaviour script on the image's
+  Chromium.
+- **Changes made before the freeze, after self-tests and two independent
+  reviews.** No candidate existed when they were made.
+  - The first document-review briefs listed issue categories that mapped
+    almost one-to-one onto the planted issues. They were replaced with neutral
+    reviewer instructions.
+  - Two documents contained unplanted errors of comparable severity. Both were
+    removed, and those documents were regenerated.
+  - One deck dataset had coincidental near-duplicate rows. A field was added so
+    that only the planted problem remains.
+  - Checks that would fail correct outputs were widened:
+    - chart series are matched by category label where order is unspecified,
+      and in unit scales the brief permits;
+    - slide text keeps line breaks;
+    - transposed tables are accepted;
+    - browser tests poll instead of waiting a fixed time, and select the
+      visible dialog;
+    - several answer patterns accept more correct phrasings, including a
+      second corpus figure that the brief's source rule allows;
+    - word limits count words, not punctuation or citation markers;
+    - RFC 5545 durations and date-valued exclusions are understood;
+    - the claim-count floor was lowered to a minimal level that the briefs do
+      not need to state.
+  - Three briefs were made more precise where a check relied on an unstated
+    convention: test files byte-for-byte, IANA time-zone identifiers, and a
+    domain that neither sends nor receives mail.
+  - Superseded task directories were moved aside, not deleted.
+
+Changes: This entry; [phase2-tasks-v1.json](experiments/phase2-tasks-v1.json);
+one line in [experiments/README.md](experiments/README.md).
+
+Evidence:
+
+- Harness loader (read-only use, no model and no sandbox): all 12 tasks load
+  through `loadPreparedOperatorTask` with their job and brief hashes, and their
+  mode wrappers (`withClaimsLedger`, `withDocumentReview`) produce contracts that
+  pass `GeneralJobContractSchema`. Goals are 1,200 to 3,921 characters.
+- Scorer self-test in the qualified image, offline:
+  - Every task's reference output scores full marks.
+  - A deliberately flawed output of each task fails at least two checks
+    (scores from 1/6 to 5/7).
+  - Correct outputs written with other conventions also score full marks: a
+    deck in other units, orders and chart types; a website with a debounced
+    search and an extra closed dialog; holds using durations and date
+    exclusions.
+- Coding task: the 43 hidden tests fail on the starting repository (three
+  suites fail at import, the fourth fails 3 of 4) and pass on the reference
+  solution. The 26 existing tests pass on both. Run under the image's Python
+  3.11.
+- Document review: each `.docx` lists through the pinned applier without
+  refusal and renders under LibreOffice (14, 3 and 5 pages). Reference edit
+  plans apply on the first try.
+- Admin slots: computed by a brute-force solver from the same rules and
+  calendar, and re-derived independently by a reviewer. Each expected slot is
+  the unique earliest valid one, and an unhandled DST change gives a different
+  or no slot.
+- Reviews: two independent review agents read briefs, inputs, gold and scorer.
+  They reported three blockers and 14 should-fix items, all fixed as listed
+  above, plus notes that were accepted as limitations.
+
+Failures or blockers: None for authoring. Counted runs need the owner: merging
+this PR, cutting the tag, writing the run authority record, and the key for
+C-Sol.
+
+Limitations and non-claims:
+- The tasks were never run. The 30 to 80 action sizing is the author's
+  estimate, and difficulty is unmeasured.
+- One session wrote both the gold and the checks, and its reviewers were agents
+  of the same session. They share blind spots, and the owner's blind verdict
+  remains the outcome of record.
+- Automated checks are proxies:
+  - pattern-based facts can still miss an unusual correct phrasing;
+  - document-review recall is credited by anchor location;
+  - deck checks verify data, not visual quality;
+  - the website suite requires the specified hooks.
+- Research corpora are public texts that models may have seen in training. The
+  closed-corpus ledger limits, but does not remove, that advantage. The one
+  synthetic document in each corpus can be told apart by its name.
+- EIA articles were reduced to their text verbatim; chart images are
+  represented only by their titles.
+
+Paid exposure: USD 0. No model or agent run, no cloud call, no key read.
+
+Next gate: the owner merges the PR and tags `phase2-tasks-v1`. The operator
+writes the run authority record and starts the first counted runs with each
+task's mode flags.
+
+References: BL-20261008-0910-phase2-tasks-design, [plan](PLAN.md) Phase 2,
+BL-20261007-1522-phase2-harness-implemented,
+BL-20261007-1439-pr-i-document-review-implemented.

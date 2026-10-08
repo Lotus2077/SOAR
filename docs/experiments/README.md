@@ -7,6 +7,9 @@ This folder holds the committed, sanitized record of live trials (see
 - `serving-card-*.md`: measured behaviour of the inference endpoint.
 - Experiment cards, one per batch: hypothesis, arms, budget, decision rule and stop
   rule.
+- `phase2-tasks-v1.json`: the hashes-only manifest of the frozen Phase 2 tasks (task
+  ids, families, driver modes, job, brief, input and gold-file SHA-256 values, check
+  counts). The tasks, gold, hidden suites and scorer stay under the ignored `.soar/`.
 
 The following stay outside Git, under the ignored `.soar/experiments/`:
 

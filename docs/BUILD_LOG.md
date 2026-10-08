@@ -20873,3 +20873,61 @@ Paid exposure: USD 0.
 Next gate: `--check` returns 200 after the owner re-stores the key.
 
 References: BL-20261008-1210-owner-v0-1-released.
+
+### BL-20261008-1215-proxy-fake-ip-blocks-egress -- 2026-10-08 -- On the owner's Mac every outside request is refused: the proxy's fake-IP DNS meets SOAR's address guard
+
+Status: `Verified`
+
+Scope or hypothesis: why exit-3 job 1 and the first cloud dry run failed.
+
+Decisions:
+
+- **Cause.**
+  - The owner's Mac runs a system proxy (Shadowrocket) in fake-IP mode.
+    Every hostname resolves to `198.18.0.0/15`: `api.openai.com` gives
+    `198.18.0.251` and `raw.githubusercontent.com` gives `198.18.0.250`.
+  - The broker refuses non-public addresses for every destination except
+    the local model (`isPublicAddress`). So each cloud call and each public
+    GET stops at the address check, before anything is sent
+    (`connection_failed`, 7-21 ms).
+  - Outside SOAR, the network reaches both hosts: through the fake IP and
+    through the local HTTP proxy, where an unauthenticated request gets 401.
+- **Exit-3 job 1 (D11 memo, owner app).** It ended `Incomplete` after
+  80/80 model attempts, 76 tool actions and 33 min 36 s. All 15 GET attempts
+  failed, so no source was retained and no memo could pass the claims
+  ledger. This is a harness-terminal cause on the owner's network, not a
+  model result.
+- **Cloud dry run T2.** Two attempts, at 09:30 and 12:06 UTC (the second at
+  the owner's request), each ended `model_unavailable` after one failed
+  dispatch. Nothing was sent, and the reservation was released. T4 was not
+  started.
+- **Not done.** A check that bypassed the proxy (DoH plus a direct real-IP
+  connection) was blocked by the session's safety classifier. Routing around
+  the owner's proxy is the owner's call.
+- **Open owner decision.**
+  1. An opt-in that admits `198.18.0.0/15` for cloud and approved public
+     destinations. TLS still verifies the host.
+  2. Explicit CONNECT through the loopback proxy.
+  3. A proxy configuration change by the owner.
+
+  Options 1 and 2 let the proxy's upstream see hostnames, not content, and
+  are for public or synthetic work only. The local-model path is unchanged.
+
+Changes: this entry.
+
+Evidence: job 1 in the owner app (task `02110e47`); `phase1-cloud-dryrun-v1`
+results (local, ignored).
+
+Failures or blockers: Public retrieval and the cloud arm cannot run on the
+owner's network until the decision.
+
+Limitations and non-claims: The finding applies to this Mac's proxy mode;
+other networks are untested. Job 1's 80 attempts say nothing about memo
+quality.
+
+Paid exposure: USD 0.
+
+Next gate: the owner's choice, then the re-runs (job 1 and the two cloud dry
+runs).
+
+References: BL-20261008-1210-owner-v0-1-released.

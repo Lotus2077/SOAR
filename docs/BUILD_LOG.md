@@ -21159,3 +21159,85 @@ Next gate: the T2 and T4 cloud dry runs on this branch with
 References: BL-20261008-1300-cloud-arm-tools-reasoning-rejected,
 BL-20261007-1040-pr-e-cloud-correctness-implemented,
 BL-20260913-1859-consultant-standard-tier-approved.
+
+### BL-20261008-1330-phase1-cloud-dry-runs-and-exit-jobs -- 2026-10-08 -- Cloud dry runs on T2 and T4 complete; exit criterion 2 met; both exit-3 jobs submitted in the owner build
+
+Status: `Verified`
+
+Scope or hypothesis: Phase 1 exit criterion 2 (cloud arm) and the state of
+criterion 3.
+- The cloud runs used branch `phase2-openai-responses` at `797a981`, clean
+  tree, runtime `09bcde22…`.
+- Their flags: `--cloud-endpoint https://api.openai.com/v1/responses`,
+  `--cloud-prices 2,10,0.2`, `--cloud-long-context 272000,4,15,0.4`,
+  `--max-fee-usd 8`, `--proxy-fake-ip true`, heavy profile, claims ledger,
+  local judge.
+- Authority: the standing envelope and the owner's "approve the cloud dry
+  runs".
+
+Decisions:
+
+- **T2 cloud: accepted (agent diagnostic).**
+  - Submitted after 25 cloud calls in 232 s, for USD 0.72; all dispatches
+    settled.
+  - Both critical checks passed.
+  - The memo meets every gate in the brief: 356 words, all six
+    dimensions, rules versus recommendations versus policy, valid JSON,
+    URLs with sections, the evidence limitation.
+  - Entailment: 10 supported, 10 partial, 1 unsupported, 1 contradicted.
+    The contradicted C8 reads as judge strictness: RFC 8259 §8.2 does
+    discuss escaped unpaired surrogates. The local heavy T2 runs judged 19
+    or 20 of about 20 supported.
+- **T4 cloud: accepted (agent diagnostic).**
+  - Submitted after 51 cloud calls, 6 snapshot GETs and 23 judge calls, in
+    463 s, for USD 1.85.
+  - All four critical checks passed: structure, evidence replay, claims
+    ledger, transfer integrity.
+  - Both scenario decisions (base R, saving 40.00; annex Q, saving 190.00)
+    and the Quill volume effect (−20.00) match the accepted local heavy
+    answer exactly.
+  - Entailment: 19 supported, 2 partial, 1 unsupported, 1 contradicted.
+- **Exit criterion 2 is met.** Local was met earlier (BL-20261006-1141).
+  The cloud arm now has dry runs on both seen tasks with no
+  harness-terminal cause. Three earlier T2 attempts were `infra_invalid` and
+  sent nothing billable: two stopped at the address guard, one was refused
+  by chat completions. They are recorded in the registry.
+- **Exit criterion 3: jobs run, verdicts pending.** Both jobs were chosen by
+  the agent, the recorded deviation of BL-20261008-1210.
+  - D11 serving memo: the run on `owner-v0.1` ended `Incomplete` (the
+    fake-IP block). The re-run on `owner-v0.2` was submitted after 35 model
+    calls, 34 tool actions and 21 min 46 s. All 3 sources were retained,
+    the memo is 1,357 words, and entailment found 38 supported, 1 partial
+    and 1 unsupported.
+  - Pilot briefing deck, on `owner-v0.1`: submitted, 9 slides, 21 calls,
+    7 min 7 s. Slide 2 calls research "accepted"; the README and slide 6 say
+    it is not.
+  - The owner's verdicts are the outcome of record.
+- **Adoption clock.** The plan's kill rule needs an owner-run job by Oct 9.
+  The two jobs above were run by the agent at the owner's request, which may
+  not satisfy it.
+
+Changes: registry rows `p1c-t2-rfc-memo-cloud-a1`, `-a2`, `-a3`,
+`p1c-t2-rfc-memo-cloud` and `p1c-t4-quality-v2-cloud`; this entry.
+
+Evidence: `phase1-cloud-dryrun-v1`, `-v2` and `-v3` (local, ignored); the
+owner app's task records.
+
+Failures or blockers: None in the v3 runs.
+
+Limitations and non-claims:
+
+- These are dry runs on seen tasks, not capability evidence and not Phase 2
+  counted runs.
+- Agent-diagnostic acceptance is not owner acceptance.
+- The cloud arm's costs carry the cache-unfriendly prompt layout recorded in
+  BL-20261008-1312.
+
+Paid exposure: USD 2.57 for the two runs, plus under USD 0.01 for the
+probes. Envelope used: about USD 2.58 of 300.
+
+Next gate: the owner's verdicts for exit criterion 3; merge PR #16; Phase 2
+counted runs on `phase2-tasks-v1`.
+
+References: BL-20261008-1312-openai-responses-cloud-arm,
+BL-20261008-1210-owner-v0-1-released, BL-20261007-1449-phase1-close-out.

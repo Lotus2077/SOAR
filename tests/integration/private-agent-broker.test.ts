@@ -341,6 +341,40 @@ describe("public address admission", () => {
   });
 });
 
+describe("cloud arm admission and fee cap (PR-E)", () => {
+  it("admits only an explicitly grant-free synthetic-only cloud destination to a wholly synthetic lineage under cloud_help", async () => {
+    const grantFree = { syntheticOnly: true, grantFreeSynthetic: true };
+    const f = await fixture({ kind: "cloud_model", synthetic: true, classification: "private", mode: "cloud_help" });
+    const broker = new PrivateAgentBroker(f.store, [{ ...f.destination, ...grantFree }], clean);
+    expect((await broker.request({ ...f.input, purpose: "agent reasoning and tool selection" })).receipt.status).toBe("settled");
+    expect(f.requests).toHaveLength(1);
+    // Synthetic-only alone (no grant-free declaration) still needs an exact grant; so does a plain cloud destination.
+    const plain = await fixture({ kind: "cloud_model", synthetic: true, classification: "private", mode: "cloud_help" });
+    await expect(plain.broker.request(plain.input)).rejects.toThrow("private_disclosure_requires_exact_grant");
+    await expect(new PrivateAgentBroker(plain.store, [{ ...plain.destination, syntheticOnly: true }], clean).request(plain.input)).rejects.toThrow("private_disclosure_requires_exact_grant");
+    // The desktop consultant's real shape (synthetic-only with an exact-grant binding) is denied at the grant check, never admitted.
+    const consultantShape = { ...plain.destination, syntheticOnly: true, requireExactGrant: true, approvalPriceProfileSha256: "a".repeat(64) };
+    await expect(new PrivateAgentBroker(plain.store, [consultantShape], clean).request(plain.input)).rejects.toThrow("exact_grant_required");
+    // The declaration is refused at construction anywhere it could widen access.
+    for (const bad of [{ ...consultantShape, grantFreeSynthetic: true }, { ...plain.destination, grantFreeSynthetic: true }, { ...plain.destination, syntheticOnly: true, grantFreeSynthetic: true, privateDataAdmitted: true }]) {
+      expect(() => new PrivateAgentBroker(plain.store, [bad as BrokerDestination], clean)).toThrow("destination_grant_free_invalid");
+    }
+    const local = await fixture({ kind: "local_model", synthetic: true, classification: "private", mode: "cloud_help", privateDataAdmitted: true });
+    expect(() => new PrivateAgentBroker(local.store, [{ ...local.destination, ...grantFree }], clean)).toThrow("destination_grant_free_invalid");
+    // A non-synthetic private source is denied before anything else, and a private policy denies cloud outright.
+    const real = await fixture({ kind: "cloud_model", synthetic: false, classification: "private", mode: "cloud_help" });
+    await expect(new PrivateAgentBroker(real.store, [{ ...real.destination, ...grantFree }], clean).request(real.input)).rejects.toThrow("synthetic_destination_private_data_denied");
+    const offline = await fixture({ kind: "cloud_model", synthetic: true, classification: "private", mode: "private" });
+    await expect(new PrivateAgentBroker(offline.store, [{ ...offline.destination, ...grantFree }], clean).request(offline.input)).rejects.toThrow("cloud_mode_denied");
+    expect(plain.requests).toHaveLength(0); expect(real.requests).toHaveLength(0); expect(offline.requests).toHaveLength(0);
+  });
+  it("refuses a request the fee cap cannot cover with a broker code and no row", async () => {
+    const f = await fixture({ classification: "public" });
+    await expect(f.broker.request({ ...f.input, maxFeeMicrousd: 1001 })).rejects.toThrow("budget_denied");
+    expect(f.store.dispatches("job")).toEqual([]); expect(f.requests).toHaveLength(0);
+  });
+});
+
 describe("recoverable dispatch (owner decision D4)", () => {
   const local = { kind: "local_model" as const, privateDataAdmitted: true, classification: "public" as const, recoverable: true };
   const zeroFee = (f: Awaited<ReturnType<typeof fixture>>) => ({ ...f.input, maxFeeMicrousd: 0, purpose: "agent reasoning and tool selection" });

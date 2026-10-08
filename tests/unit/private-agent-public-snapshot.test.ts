@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { sessionPhaseIdentity } from "../../src/main/private-agent/session";
 import { loadPreparedOperatorTask } from "../../scripts/private-agent-run";
-import { withClaimsLedger, buildExplicitPublicSnapshotPhase, parseLocalArtifactScreenArguments, preparePublicSnapshot, startExplicitPublicSnapshotReceiver } from "../../scripts/private-agent-local-screen";
+import { withClaimsLedger, buildCloudArm, buildExplicitPublicSnapshotPhase, parseCloudPrices, parseLocalArtifactScreenArguments, preparePublicSnapshot, startExplicitPublicSnapshotReceiver } from "../../scripts/private-agent-local-screen";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -153,6 +153,27 @@ describe("public snapshot CLI", () => {
     expect(parseLocalArtifactScreenArguments([...base, "--public-retrieval", "true"])).not.toHaveProperty("publicSnapshot");
     expect(parseLocalArtifactScreenArguments([...base, "--public-retrieval", "true", ...extra]).publicSnapshot).toEqual({ directory: "synthetic-public",
       expectedBriefSha256: "f".repeat(64), expectedMapSha256: "1".repeat(64), indexPath: "/sources/index.html" });
+  });
+  it("parses the cloud arm only with every cloud flag, builds its destination from the environment key and keeps the key out of the freeze", () => {
+    const cloud = ["--arm", "cloud", "--cloud-model", "gpt-6-sol", "--cloud-endpoint", "https://api.openai.com/v1/chat/completions", "--cloud-prices", "2,8,0.5", "--max-fee-usd", "8"];
+    expect(parseLocalArtifactScreenArguments([...base, ...cloud]).cloudArm).toEqual({ model: "gpt-6-sol", endpoint: "https://api.openai.com/v1/chat/completions", prices: { input: 2, output: 8, cached: 0.5 }, maxFeeUsd: 8 });
+    expect(parseLocalArtifactScreenArguments([...base, "--arm", "local"]).cloudArm).toBeUndefined();
+    expect(() => parseLocalArtifactScreenArguments([...base, ...cloud.slice(0, 6)])).toThrow("local_screen_cli_invalid");
+    expect(() => parseLocalArtifactScreenArguments([...base, "--cloud-model", "x"])).toThrow("local_screen_cli_invalid");
+    expect(() => parseLocalArtifactScreenArguments([...base, "--arm", "sky"])).toThrow("local_screen_cli_invalid");
+    expect(() => parseCloudPrices("2,8,3")).toThrow("local_screen_cli_invalid");
+    const coordinator = { maxOutputTokens: 16_384, thinking: "medium" as const, maxRequestBytes: 640 * 1024 };
+    const input = { model: "gpt-6-sol", endpoint: "https://api.openai.com/v1/chat/completions", prices: { input: 2, output: 8, cached: 0.5 }, maxFeeUsd: 8 };
+    expect(() => buildCloudArm(input, {}, coordinator)).toThrow("local_screen_cloud_key_missing");
+    expect(() => buildCloudArm({ ...input, endpoint: "http://api.example.test/v1/chat/completions" }, { SOAR_PHASE2_CLOUD_API_KEY: "sk-synthetic-key-0001" }, coordinator)).toThrow("local_screen_cloud_arm_invalid");
+    expect(() => buildCloudArm({ ...input, maxFeeUsd: 9 }, { SOAR_PHASE2_CLOUD_API_KEY: "sk-synthetic-key-0001" }, coordinator)).toThrow("local_screen_cloud_arm_invalid");
+    const arm = buildCloudArm(input, { SOAR_PHASE2_CLOUD_API_KEY: "sk-synthetic-key-0001", SOAR_PHASE2_CLOUD_CREDENTIAL_VERSION: "3" }, coordinator);
+    expect(arm.destination).toMatchObject({ id: "cloud_coordinator", kind: "cloud_model", apiKey: "sk-synthetic-key-0001", credentialVersion: 3, privateDataAdmitted: false, syntheticOnly: true, grantFreeSynthetic: true });
+    expect(arm.destination).not.toHaveProperty("requireExactGrant");
+    expect(arm.modelConfig).toMatchObject({ api: "openai", maxOutputTokens: 16_384, thinking: "medium", inputUsdPerMillion: 2, cachedInputUsdPerMillion: 0.5 });
+    expect(arm.modelConfig).not.toHaveProperty("sampling");
+    expect(arm.maxFeeMicrousd).toBe(8_000_000); expect(arm.freeze).toMatchObject({ arm: "cloud", credentialVersion: 3, maxFeeMicrousd: 8_000_000 });
+    expect(JSON.stringify(arm.freeze)).not.toContain("sk-synthetic"); expect(JSON.stringify(arm.freeze)).not.toContain("apiKey");
   });
   it("parses the claims-ledger flag and refuses any value other than true", () => {
     expect(parseLocalArtifactScreenArguments(base).claimsLedger).toBeUndefined();

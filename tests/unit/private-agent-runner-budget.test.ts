@@ -733,6 +733,15 @@ describe("general runner tolerant loop", () => {
 });
 
 describe("general runner recoverable dispatch (PR-C)", () => {
+  it("records a provably undispatched fee-cap stop and never resumes past it", async () => {
+    const f = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    f.complete.mockImplementationOnce(async () => { throw new BrokerError("budget_denied"); });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "fee_cap_reached" });
+    expect(f.options.store.events(f.options.jobId).find(row => row.type === "model_request_not_dispatched")).toMatchObject({ reason: "fee_cap_reached", dispatched: false, maxFeeMicrousd: 0, settledFeeMicrousd: 0 });
+    expect((await new GeneralAgentRunner(f.options).run()).reason).toBe("fee_cap_reached");
+    // Nothing was sent on either run: the stop is recorded before any request and never replayed.
+    expect(f.requests).toHaveLength(0); expect(f.options.store.dispatches(f.options.jobId)).toEqual([]);
+  });
   it("stops resumably when every attempt at the model request ended in a confirmed abort, then resumes and completes", async () => {
     const f = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
     f.complete.mockImplementationOnce(async () => { throw new BrokerError("request_failed"); });

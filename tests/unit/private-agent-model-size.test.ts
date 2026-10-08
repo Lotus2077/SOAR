@@ -48,6 +48,39 @@ describe("model request size before dispatch", () => {
     expect(JSON.parse(requests[2]!.body).max_tokens).toBe(16_384);
   });
 
+  it("sends the OpenAI shape for a cloud model, reserves from a token estimate and settles cached tokens at the cached rate", async () => {
+    const requests: { body: string; maxFeeMicrousd: number }[] = []; let settledFee = 0;
+    const request = vi.fn(async (input, settle) => {
+      requests.push({ body: input.body, maxFeeMicrousd: input.maxFeeMicrousd });
+      // Report exactly the byte bound as prompt tokens: the upper edge of the envelope.
+      const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: Buffer.byteLength(input.body), completion_tokens: 10, prompt_tokens_details: { cached_tokens: 40 } } }));
+      settledFee = settle(bytes); return { bytes, receipt: { feeMicrousd: settledFee } };
+    });
+    const cloud = new PrivateAgentModel({ request } as unknown as PrivateAgentBroker,
+      { destinationId: "cloud", model: "gpt-6-sol", api: "openai", maxOutputTokens: 16_384, inputUsdPerMillion: 2, outputUsdPerMillion: 8, cachedInputUsdPerMillion: 0.5, thinking: "medium",
+        sampling: { temperature: 1, top_p: 0.95, top_k: 20 } }, "job", "context");
+    const tool = { type: "function" as const, function: { name: "finish", description: "d", parameters: { type: "object", properties: {} } } };
+    await cloud.complete([{ role: "user", content: "agent turn" }], [tool], new AbortController().signal);
+    const body = JSON.parse(requests[0]!.body);
+    expect(body).toMatchObject({ model: "gpt-6-sol", max_completion_tokens: 16_384, reasoning_effort: "medium", tool_choice: "auto", parallel_tool_calls: false, stream: false });
+    for (const key of ["max_tokens", "chat_template_kwargs", "top_k", "temperature", "top_p"]) expect(body).not.toHaveProperty(key);
+    // Reservation: the byte bound at the input rate plus the full output allowance at the output rate (micro-USD).
+    const bound = Buffer.byteLength(requests[0]!.body);
+    expect(requests[0]!.maxFeeMicrousd).toBe(Math.ceil(bound * 2 + 16_384 * 8));
+    // Settlement: (bound − 40) uncached × 2 + 40 cached × 0.5 + 10 output × 8 micro-USD, within the reservation.
+    expect(settledFee).toBe(Math.ceil((bound - 40) * 2 + 40 * 0.5 + 10 * 8)); expect(settledFee).toBeLessThanOrEqual(requests[0]!.maxFeeMicrousd);
+    // The judge's narrowing applies to the OpenAI shape too: thinking off drops reasoning_effort, nothing vLLM-only appears.
+    await cloud.complete([{ role: "user", content: "judge" }], [], new AbortController().signal, { thinking: "disabled", maxOutputTokens: 256 });
+    const judge = JSON.parse(requests[1]!.body);
+    expect(judge).toMatchObject({ max_completion_tokens: 256 }); for (const key of ["reasoning_effort", "chat_template_kwargs", "tools", "max_tokens"]) expect(judge).not.toHaveProperty(key);
+    // Envelope: prompt tokens above the estimate, or cached above prompt, leave the dispatch unsettled.
+    const over = vi.fn(async (_input, settle) => { settle(Buffer.from(JSON.stringify({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 10_000_000, completion_tokens: 1 } }))); return { bytes: Buffer.alloc(0), receipt: {} }; });
+    const strict = new PrivateAgentModel({ request: over } as unknown as PrivateAgentBroker, { destinationId: "cloud", model: "m", api: "openai", maxOutputTokens: 256, inputUsdPerMillion: 1, outputUsdPerMillion: 1, thinking: "disabled" }, "job", "context");
+    await expect(strict.complete([{ role: "user", content: "x" }], [], new AbortController().signal)).rejects.toThrow("model_usage_outside_envelope");
+    expect(() => new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, { destinationId: "c", model: "m", maxOutputTokens: 256, inputUsdPerMillion: 1, outputUsdPerMillion: 1, cachedInputUsdPerMillion: 2, thinking: "disabled" }, "job", "context")).toThrow("private_model_configuration_invalid");
+  });
+
   it("accepts a larger profile output limit up to the adapter ceiling and requests thinking when enabled", async () => {
     const bodies: string[] = [];
     const request = vi.fn(async (input, settle) => {

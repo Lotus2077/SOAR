@@ -5,7 +5,7 @@ import { PrivateAgentStore, isResolvedDispatch } from "./store";
 import { PrivateAgentBroker, BrokerError } from "./broker";
 import { DockerSandbox, PRIVATE_SANDBOX_LIMITS, type SandboxExecution } from "./sandbox";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "./checkpoints";
-import { PrivateAgentModel, ModelRequestBodyTooLarge, MODEL_REQUEST_SIZE_STOP, MODEL_UNAVAILABLE_STOP, modelRequestSizeStop, modelRequestFailed, hasInvalidModelRequestSizeStop,
+import { PrivateAgentModel, ModelRequestBodyTooLarge, MODEL_FEE_CAP_STOP, MODEL_REQUEST_SIZE_STOP, MODEL_UNAVAILABLE_STOP, modelRequestSizeStop, modelRequestFeeStop, modelRequestFailed, hasInvalidModelRequestSizeStop,
   type GeneralMessage, type GeneralToolDefinition } from "./model";
 import { readPublicSources, readPublicSourceFiles, retainPublicSource, PUBLIC_SOURCE_OBSERVATION_BYTES } from "./public-sources";
 import { GeneralConsultation } from "./consultation";
@@ -280,7 +280,7 @@ export class GeneralAgentRunner {
       const progressStopped = readExecutionProgressStop({ ...observationScope, snapshot });
       if (hasUnresolvedExecutionProgressAction({ ...observationScope, snapshot }) || history.some(event => event.type === "model_action_not_started" &&
           (!progressStopped || canonical(event) !== canonical(progressStopped))) || hasInvalidModelRequestSizeStop(history) ||
-          history.some(event => event.type === "model_started" && !modelRequestSizeStop(history, event) && !modelRequestFailed(history, event) && !history.some(other => other.type === "model_finished" && other.operationId === event.operationId)) ||
+          history.some(event => event.type === "model_started" && !modelRequestSizeStop(history, event) && !modelRequestFeeStop(history, event) && !modelRequestFailed(history, event) && !history.some(other => other.type === "model_finished" && other.operationId === event.operationId)) ||
           history.some(event => event.type === "tool_started" && !history.some(other => other.type === "tool_finished" && other.operationId === event.operationId)) ||
           history.some(event => event.type === "host_validation_started" && !history.some(other => other.type === "host_validation_finished" && other.operationId === event.operationId))) {
         return finish("incomplete", "unresolved_operation_no_replay");
@@ -292,6 +292,7 @@ export class GeneralAgentRunner {
       verifyExecutionObservations(observationScope);
       if (progressStopped) return finish("incomplete", EXECUTION_PROGRESS_STOP);
       if (history.some(event => modelRequestSizeStop(history, event))) return finish("incomplete", MODEL_REQUEST_SIZE_STOP);
+      if (history.some(event => modelRequestFeeStop(history, event))) return finish("incomplete", MODEL_FEE_CAP_STOP);
       // Only host-authored completion metadata counts, never model text or tool stdout.
       for (const event of history) if (event.type === "tool_finished") {
         incompleteExecuteStreak = event.invalidExecuteAtOutputLimit === true ? incompleteExecuteStreak + 1 : 0;
@@ -371,6 +372,13 @@ export class GeneralAgentRunner {
             this.record({ type: "model_request_not_dispatched", operationId, promptProtocolSha256,
               reason: MODEL_REQUEST_SIZE_STOP, dispatched: false, bodyBytes: error.bodyBytes, limitBytes: error.limitBytes });
             return finish("incomplete", MODEL_REQUEST_SIZE_STOP);
+          }
+          // The fee cap refused the request before any row existed: provably not dispatched, like the size stop; not resumable.
+          if (error instanceof BrokerError && error.code === "budget_denied") {
+            const settledFeeMicrousd = store.dispatches(jobId).reduce((sum, row) => sum + (row.feeMicrousd ?? 0), 0);
+            this.record({ type: "model_request_not_dispatched", operationId, promptProtocolSha256, reason: MODEL_FEE_CAP_STOP, dispatched: false,
+              maxFeeMicrousd: store.policy(jobId).maxFeeMicrousd, settledFeeMicrousd });
+            return finish("incomplete", MODEL_FEE_CAP_STOP);
           }
           // Every attempt ended in a confirmed abort: no row is unknown, the operation is closed, and the task can resume later.
           if (error instanceof BrokerError && error.code === "request_failed") {

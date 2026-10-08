@@ -41,6 +41,13 @@ export interface GeneralSessionOptions {
   trustedHostRunnerFactory?: (options: GeneralJobOptions) => Pick<GeneralAgentRunner, "run" | "pause" | "cancel">;
   /** Session-wide broker request and time allowance; absent keeps SESSION_LIMITS. Part of the session identity. */
   limits?: { maxRequests: number; maxElapsedMs: number };
+  /**
+   * PR-E: the coordinator itself is a cloud model (Phase 2 C-Sol arm). The policy becomes `cloud_help` with this
+   * per-task fee cap; only a session with a synthetic or public input approval may carry it.
+   */
+  cloudArm?: { destinationId: string; maxFeeMicrousd: number };
+  /** The model that judges claims after submission; absent uses the private phase's model. Phase 2 judges both arms locally. */
+  judgeModelFactory?: (contextId: string) => PrivateAgentModel;
 }
 export interface GeneralSessionResult {
   status: "submitted" | "paused" | "incomplete";
@@ -104,6 +111,8 @@ export class GeneralAgentSession {
         throw new Error("session_public_approval_invalid");
       }
     }
+    if (raw.cloudArm && (!privateAgentId.safeParse(raw.cloudArm.destinationId).success || !Number.isSafeInteger(raw.cloudArm.maxFeeMicrousd) ||
+        raw.cloudArm.maxFeeMicrousd < 1 || (!raw.syntheticInputApproval && !raw.publicInputApproval))) throw new Error("session_cloud_arm_invalid");
     if (raw.syntheticInputApproval && (raw.syntheticInputApproval.privatePhaseSha256 !== sessionPhaseIdentity(privatePhase) ||
         !/^[a-f0-9]{64}$/u.test(raw.syntheticInputApproval.authoritySha256))) throw new Error("session_synthetic_approval_invalid");
     const publicInputApproval = raw.publicInputApproval ? { ...raw.publicInputApproval, webDestinations: [...raw.publicInputApproval.webDestinations] } : undefined;
@@ -192,15 +201,17 @@ export class GeneralAgentSession {
       let publicContextId = old ? String(old.publicContextId) : randomUUID();
       let privateModel = options.trustedHostModelFactory(privateContextId);
       let publicModel = options.publicPhase ? options.trustedHostModelFactory(publicContextId) : undefined;
+      const judgeModel = options.judgeModelFactory?.(privateContextId);
       const destinations = [...new Set([privateModel.config.destinationId, ...(publicModel ? [publicModel.config.destinationId] : []),
+        ...(judgeModel ? [judgeModel.config.destinationId] : []), ...(options.cloudArm ? [options.cloudArm.destinationId] : []),
         ...(options.publicPhase?.webDestinations ?? []), ...(options.publicInputApproval?.webDestinations ?? []),
         ...(options.consultation ? [options.consultation.destinationId] : [])])];
       const limits = { maxRequests: options.limits?.maxRequests ?? SESSION_LIMITS.maxRequests, maxElapsedMs: options.limits?.maxElapsedMs ?? SESSION_LIMITS.maxElapsedMs,
         maxFeeMicrousd: SESSION_LIMITS.maxFeeMicrousd };
       if (!Number.isSafeInteger(limits.maxRequests) || limits.maxRequests < 1 || limits.maxRequests > 1000 ||
           !Number.isSafeInteger(limits.maxElapsedMs) || limits.maxElapsedMs < 1 || limits.maxElapsedMs > 7_200_000) return result("incomplete", "session_limits_invalid");
-      const expectedPolicy = { version: 1 as const, id: jobId, mode: options.consultation ? "cloud_help" as const : "private" as const, revision: 0, cancelled: false,
-        destinations, maxRequests: limits.maxRequests, maxFeeMicrousd: options.consultation?.maxFeeMicrousd ?? 0 };
+      const expectedPolicy = { version: 1 as const, id: jobId, mode: options.consultation || options.cloudArm ? "cloud_help" as const : "private" as const, revision: 0, cancelled: false,
+        destinations, maxRequests: limits.maxRequests, maxFeeMicrousd: (options.consultation?.maxFeeMicrousd ?? 0) + (options.cloudArm?.maxFeeMicrousd ?? 0) };
       if (!policy) {
         try { store.createJob(expectedPolicy); }
         catch (error) { if (!String((error as { code?: string }).code).startsWith("SQLITE_CONSTRAINT")) throw error; }
@@ -216,7 +227,9 @@ export class GeneralAgentSession {
         ...(options.publicInputApproval ? { primaryClassification: "public", publicInputApproval: options.publicInputApproval, maxPublicFetches: 5 } : {}),
         ...(options.consultation ? { consultation: { version: 1, identity: options.consultation.identity,
           destinationId: options.consultation.destinationId, maxFeeMicrousd: options.consultation.maxFeeMicrousd } } : {}),
-        syntheticInputApproval: options.syntheticInputApproval ?? null, privateModel: privateModel.config, publicModel: publicModel?.config ?? null, limits }));
+        syntheticInputApproval: options.syntheticInputApproval ?? null, privateModel: privateModel.config, publicModel: publicModel?.config ?? null, limits,
+        // Spread only when set, so the identity of every pre-existing (no-arm) session stays byte-identical.
+        ...(options.cloudArm ? { cloudArm: options.cloudArm } : {}), ...(judgeModel ? { judgeModel: judgeModel.config } : {}) }));
       if (old && old.identity !== identity) return result("incomplete", "session_contract_drift");
       if (!old && this.events().length) return result("incomplete", "session_missing_start_identity");
       const start = store.ensureSessionStart(jobId, { type: "session_started", identity,
@@ -286,7 +299,7 @@ export class GeneralAgentSession {
       if (store.dispatches(jobId).some(row => !isResolvedDispatch(row) && !isEntailmentDispatch(row)) || signal.aborted) return result("incomplete", "session_unresolved_or_deadline");
       if (!this.events().some(event => event.type === "session_submitted")) store.append(jobId, { type: "session_submitted", snapshotSha256: checkpoints.fingerprint(finalSnapshot), independentAcceptanceRequired: true });
       // Evidence after the fact: submission is durable, so the pass can only add verdicts; a pause leaves it for the next resume.
-      if (await this.entailment(privateContextId, privateModel, signal) === "paused") return result("paused", "session_stopped");
+      if (await this.entailment(privateContextId, judgeModel ?? privateModel, signal) === "paused") return result("paused", "session_stopped");
       return result("submitted", "independent_acceptance_pending");
     } finally { this.running = false; this.active = undefined; }
   }

@@ -15,7 +15,7 @@ import { PrivateAgentStore, UnknownRequestDiagnosticSchema } from "../private-ag
 import { PrivateAgentBroker, isPublicAddress, type BrokerDestination } from "../private-agent/broker";
 import { isIP } from "node:net";
 import { readPublicSources } from "../private-agent/public-sources";
-import { MODEL_UNAVAILABLE_STOP, modelRequestFailed, PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop } from "../private-agent/model";
+import { MODEL_FEE_CAP_STOP, MODEL_UNAVAILABLE_STOP, modelRequestFailed, modelRequestFeeStop, PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop } from "../private-agent/model";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "../private-agent/checkpoints";
 import { GeneralAgentSession, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../private-agent/session";
 import { DockerSandbox } from "../private-agent/sandbox";
@@ -49,6 +49,7 @@ const fixedReasons: Record<string, string> = {
   request_body_size_exceeded: "The next model request exceeded the request size limit and was not sent. Saved progress is retained; this task cannot resume.",
   repeated_identical_execution_failure: "The agent selected the same failed command after a recovery warning. The command was stopped before execution. Saved progress is retained; this task cannot resume.",
   deadline: "The task reached its time limit.",
+  fee_cap_reached: "The task reached its cloud fee cap before the next request; nothing more was sent. Saved progress is retained; this task cannot resume.",
   model_unavailable: "The local model could not be reached after the permitted attempts. Nothing is uncertain; resume when the model is back.",
   public_model_unavailable: "The local model could not be reached during public retrieval after the permitted attempts. Nothing is uncertain; resume when the model is back.",
   cleanup_blocked: "Cancellation is recorded, but interrupted execution cleanup could not be confirmed. No request will be replayed.",
@@ -355,7 +356,7 @@ export class GeneralTaskController {
     return readConsultation(this.runtime, id)?.uncertain === true || this.runtime.dispatches(id).some(row => !isResolvedDispatch(row) && !isEntailmentDispatch(row)) || hasInvalidModelRequestSizeStop(events) ||
       this.unresolvedProgressAction(events, id) || events.some(event => event.type === "model_action_not_started" &&
       (!stopped || canonical(event) !== canonical(stopped)) ||
-      ["model_started", "tool_started", "host_validation_started"].includes(String(event.type)) && !modelRequestSizeStop(events, event) && !modelRequestFailed(events, event) &&
+      ["model_started", "tool_started", "host_validation_started"].includes(String(event.type)) && !modelRequestSizeStop(events, event) && !modelRequestFeeStop(events, event) && !modelRequestFailed(events, event) &&
       !events.some(other => other.type === String(event.type).replace("_started", "_finished") && other.operationId === event.operationId));
   }
   private unresolvedProgressAction(events: Record<string, unknown>[], id: string): boolean {
@@ -415,14 +416,14 @@ export class GeneralTaskController {
     const cleanupConfirmed = !active && (!claim || claim.state === "released") &&
       (ended.at(-1)?.cleanupConfirmed === true || events.some(event => event.type === "desktop_cleanup_confirmed"));
     const uncertain = this.uncertain(events, id), expired = record.startedAt !== null && Date.now() - record.startedAt >= this.budget(record).elapsedMs;
-    const sizeStopped = events.some(event => modelRequestSizeStop(events, event));
+    const sizeStopped = events.some(event => modelRequestSizeStop(events, event)), feeStopped = events.some(event => modelRequestFeeStop(events, event));
     const progressStopped = this.progressStop(events, id);
     // A durable private completion only needs finalisation (submission and the evidence pass), which no allowance or deadline gates.
     const finalising = contextId !== undefined && events.some(event => event.type === "completed" && event.contextId === contextId);
     const canResume = !this.closing && !active && (record.status === "paused" || record.status === "incomplete" && (record.reason === "interrupted" || record.reason === MODEL_UNAVAILABLE_STOP || record.reason === `public_${MODEL_UNAVAILABLE_STOP}`)) &&
-      (finalising || models < this.budget(record).modelCalls && tools < this.budget(record).toolCalls && !expired) && !uncertain && !sizeStopped && !progressStopped && consultation?.status !== "pending" &&
+      (finalising || models < this.budget(record).modelCalls && tools < this.budget(record).toolCalls && !expired) && !uncertain && !sizeStopped && !feeStopped && !progressStopped && consultation?.status !== "pending" &&
       !(consultation?.status === "approved" && models > this.budget(record).modelCalls - 2);
-    const reason = !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : progressStopped ? EXECUTION_PROGRESS_STOP : expired ? "deadline" :
+    const reason = !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : feeStopped ? MODEL_FEE_CAP_STOP : progressStopped ? EXECUTION_PROGRESS_STOP : expired ? "deadline" :
       consultation?.status === "pending" ? "consultation_pending" : record.reason : record.reason;
     const dispatches = this.runtime.dispatches(id);
     const artifacts = snapshot.filter(file => GeneralTaskArtifactRefSchema.safeParse({ id, path: file.path, sha256: file.sha256 }).success)
@@ -560,7 +561,7 @@ export class GeneralTaskController {
       if (judged) next.entailment = { counts: judged.counts, entailmentCalls: judged.entailmentCalls, truncated: judged.truncated, claims: judged.verdicts };
       next.status = submitted ? "submitted" : active.cancelRequested ? "cancelled" : result.status === "paused" ? "paused" : "incomplete";
       next.reason = !preserved ? "configuration_changed" : result.reason === "consultation_pending" ? "consultation_pending" :
-        result.reason === MODEL_REQUEST_SIZE_STOP ? MODEL_REQUEST_SIZE_STOP : (result.reason === MODEL_UNAVAILABLE_STOP || result.reason === `public_${MODEL_UNAVAILABLE_STOP}`) && next.status === "incomplete" ? result.reason : next.status; this.save(next);
+        result.reason === MODEL_REQUEST_SIZE_STOP ? MODEL_REQUEST_SIZE_STOP : result.reason === MODEL_FEE_CAP_STOP ? MODEL_FEE_CAP_STOP : (result.reason === MODEL_UNAVAILABLE_STOP || result.reason === `public_${MODEL_UNAVAILABLE_STOP}`) && next.status === "incomplete" ? result.reason : next.status; this.save(next);
     } catch (error) {
       const record = this.record(id); record.status = active.cancelRequested ? "cancelled" : "incomplete";
       record.reason = error instanceof Error && error.message === "general_task_configuration_changed" ? "configuration_changed" : "runtime_unavailable"; this.save(record);

@@ -20460,3 +20460,111 @@ owner's key (for C-Sol and H), and on the owner merging #1 to #12 and cutting
 
 References: BL-20261007-1522-phase2-harness-implemented,
 BL-20261007-1529-critic-cap-correction, BL-20261007-1301-pr-b-streaming-dry-run.
+
+### BL-20261008-0910-owner-v0-1-released -- 2026-10-08 -- PRs #1-#12 merged on the owner's authorization; `owner-v0.1` tagged; exit-3 jobs launched in the owner build
+
+Status: `Released`
+
+Scope or hypothesis: the owner wrote, in the agent chat on 2026-10-08: "I
+authorize you to do the merge" and "Cut owner-v0.1 from main after merging,
+then run your two real public jobs". The owner also supplied the Phase 2
+cloud key, asked for it to be stored and injected securely, and asked for the
+separate task-authoring session to be started. This entry records the merge,
+the owner build, the key handling, the authoring session and the choice of
+the exit-3 jobs. It does not record the jobs' results or verdicts.
+
+Decisions:
+
+- **Merge.**
+  - The stack was checked first: all twelve PRs had green `check` and
+    `electron-e2e`, and each branch head was an ancestor of the next.
+  - PRs #1 to #12 were merged in order with merge commits. Squash would have
+    duplicated the stacked commits. Each later PR was retargeted to `main`
+    before its merge.
+  - `main` is now `5dbf886`. Its tree is byte-identical to the
+    `phase2-harness` head `11b8e4d`. Branch protection is off on `main`;
+    the gate is CI plus the owner's authorization.
+- **Owner build.**
+  - The annotated tag `owner-v0.1` is on `5dbf886` and pushed.
+  - Per the plan, it is checked out in its own detached worktree. It has its
+    own `pnpm install --frozen-lockfile`, not a symlink to the development
+    `node_modules`, so development rebuilds of native modules cannot change
+    it.
+  - `pnpm check` passed on that worktree: readiness and the build-log
+    validator, typecheck, 1,971 tests passed with 80 skipped, and the build.
+  - `pnpm setup:general` reported `ready` (Docker, the qualified image
+    `sha256:e5c7075f…`, model listed, a completion in 218 ms).
+  - The desktop app runs from that worktree (`electron .` on the built
+    `out/`).
+- **Cloud key handling.**
+  - The key is stored only in the macOS login Keychain, as the generic
+    password item `soar-phase2-cloud-api-key`. The owner pastes it into the
+    `security add-generic-password -w` prompt, so the agent never types,
+    prints or writes it.
+  - New `scripts/with-cloud-key.sh` reads the item at launch, exports
+    `SOAR_PHASE2_CLOUD_API_KEY` for one command only, and `exec`s it. The key
+    stays out of files, `.env` files, history and command lines, as
+    BL-20261007-1451 requires.
+  - The owner first pasted the key into the agent chat, so it exists in that
+    conversation's transcript. The agent copied it nowhere and advised the
+    owner to rotate it and store the replacement through the Keychain prompt.
+    After a rotation, raise `SOAR_PHASE2_CLOUD_CREDENTIAL_VERSION`.
+- **Separate authoring session.**
+  - The desktop app gives the agent no tool to open a new session, so the
+    task-authoring session was started as a background agent with a fresh
+    context. It got only the authoring brief, the same brief as the earlier
+    chip, and no harness conversation.
+  - It works in its own worktree (branch `phase2-tasks`) and is barred from
+    harness code, model runs and cloud calls. It keeps gold under `.soar/`,
+    opens a PR without merging, and reports no gold to the harness author.
+  - The earlier chip is withdrawn so the tasks cannot be authored twice.
+- **Exit-3 jobs: chosen by the agent, at the owner's request.**
+  - The owner asked the agent to run "your two real public jobs". The OAJ
+    rule counts a job only if the owner chose it and ran it in the normal
+    app. These two are run in the normal app build, `owner-v0.1`, through
+    its UI, but **the agent chose them**. That is a recorded deviation.
+    Whether they count toward exit 3 is the owner's call with the verdicts.
+  - Each job serves an open owner decision, using public material only, and
+    runs local-only on the heavy profile, one at a time, so they do not
+    share the box's throughput:
+    1. **D11 serving memo.** Should prefix caching, `--reasoning-parser
+       qwen3` and `--tool-call-parser qwen3_xml` be enabled? The sources are
+       three vLLM docs pinned to commit `7d47ac2`, all under the app's
+       64 KiB-per-source and three-URL limits: `design/prefix_caching.md`,
+       `features/reasoning_outputs.md` and `features/tool_calling.md`. The
+       output is `d11-serving-memo.md`. Research with public sources, so the
+       claims ledger applies.
+    2. **Pilot-user briefing deck.** An editable deck for a prospective pilot
+       user (lawyer, doctor or researcher), from two files of this public
+       repository at `owner-v0.1`: `README.md` and
+       `docs/plans/PRIVATE_WORK_DESIGN_V1.md`. The output is a `.pptx`.
+  - D18 (Mac data protection) was considered first. Apple's support pages are
+    165-710 KB, over the 64 KiB per-source limit, so it was dropped rather
+    than pre-fetched into files.
+
+Changes: `scripts/with-cloud-key.sh` (new); `.env.example` (points to it);
+this entry.
+
+Evidence: GitHub PRs #1-#12 (merged), tag `owner-v0.1`; the gate log and the
+setup doctor output (local, ignored).
+
+Failures or blockers: None in the merge or the gate.
+
+Limitations and non-claims:
+
+- A green gate and a ready doctor show the build is intact. They are not
+  evidence of capability.
+- The exit-3 jobs are not yet run to completion, and exit 3 needs the
+  owner's verdicts.
+- The authoring agent's independence rests on a fresh context and a fixed
+  brief. It is not a separate desktop session.
+
+Paid exposure: USD 0.
+
+Next gate: the exit-3 jobs reach `submitted` or stop, and are recorded with
+their host checks; then the owner's verdicts. Phase 2 counted runs wait on
+the frozen task set and on the key being in the Keychain.
+
+References: BL-20261007-1449-phase1-close-out,
+BL-20261007-1451-phase2-harness-design, BL-20261007-1535-lprime-repair-dry-run,
+[plan](PLAN.md) Phase 1 owner build and exit.

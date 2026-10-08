@@ -36,6 +36,13 @@ export interface BrokerDestination {
   grantFreeSynthetic?: boolean;
   /** Explicit host-approved public DNS metadata route; never model-controlled. */
   publicDnsResolver?: "cloudflare_v1";
+  /**
+   * Owner opt-in for a system proxy in fake-IP mode: its DNS answers every hostname with an address in 198.18.0.0/15
+   * and its tunnel forwards the connection by name. Set, those addresses are admitted besides public ones; every other
+   * non-public address stays refused. HTTPS to a hostname only, never on a local model, a fixture or the DoH resolver
+   * route, and the certificate is verified for the URL's hostname. Absent keeps every fingerprint identical to before.
+   */
+  proxyFakeIp?: true;
   /** Optional exact public URL authority, including its path and query. */
   exactUrl?: string;
   maxResponseBytes: number;
@@ -209,6 +216,14 @@ for (const [network, prefix] of [["0.0.0.0", 8], ["10.0.0.0", 8], ["100.64.0.0",
 const globalV6 = new BlockList(), nonPublicV6 = new BlockList();
 globalV6.addSubnet("2000::", 3, "ipv6");
 for (const [network, prefix] of [["2001::", 23], ["2001:db8::", 32], ["2002::", 16], ["3fff::", 20]] as const) nonPublicV6.addSubnet(network, prefix, "ipv6");
+/** RFC 2544 benchmarking range, which fake-IP proxies hand out as placeholder answers. */
+const proxyFakeIpV4 = new BlockList();
+proxyFakeIpV4.addSubnet("198.18.0.0", 15, "ipv4");
+export function isProxyFakeIpAddress(raw: string): boolean {
+  const address = raw.toLowerCase().replace(/^\[|\]$/gu, "");
+  return isIP(address) === 4 && proxyFakeIpV4.check(address, "ipv4");
+}
+
 export function isPublicAddress(raw: string): boolean {
   const address = raw.toLowerCase().replace(/^\[|\]$/gu, "");
   if (isIP(address) === 4) return !nonPublicV4.check(address, "ipv4");
@@ -246,6 +261,8 @@ function normalizeDestination(value: BrokerDestination): BrokerDestination {
       value.approvalPriceProfileSha256 !== undefined || value.privateDataAdmitted)) deny("destination_grant_free_invalid");
   if (value.publicDnsResolver !== undefined && (value.publicDnsResolver !== "cloudflare_v1" || value.kind !== "public_web" ||
       endpoint.protocol !== "https:" || value.loopbackFixture || isIP(endpoint.hostname.replace(/^\[|\]$/gu, "")))) deny("destination_public_dns_invalid");
+  if (value.proxyFakeIp !== undefined && (value.proxyFakeIp !== true || value.kind === "local_model" || endpoint.protocol !== "https:" ||
+      value.loopbackFixture || value.publicDnsResolver !== undefined || isIP(endpoint.hostname.replace(/^\[|\]$/gu, "")))) deny("destination_proxy_fake_ip_invalid");
   if (value.syntheticOnly && value.privateDataAdmitted) deny("destination_trust_conflict");
   let exactUrl: string | undefined;
   if (value.exactUrl !== undefined) {
@@ -461,8 +478,9 @@ async function transport(destination: BrokerDestination, url: URL, method: "GET"
     }
     if (joined.aborted) throw transportError();
     const allowPrivate = destination.kind === "local_model" || destination.loopbackFixture;
+    const admitted = (address: string) => isPublicAddress(address) || (destination.proxyFakeIp === true && isProxyFakeIpAddress(address));
     // Nothing was sent, so a denied address is a confirmed non-dispatch.
-    if (!addresses.length || (!allowPrivate && addresses.some(item => !isPublicAddress(item.address)))) throw new TransportFailure("connection_failed");
+    if (!addresses.length || (!allowPrivate && addresses.some(item => !admitted(item.address)))) throw new TransportFailure("connection_failed");
     const selected = addresses[0]!;
     return await new Promise<Buffer>((resolve, reject) => {
       const headers: Record<string, string> = {};
@@ -470,7 +488,7 @@ async function transport(destination: BrokerDestination, url: URL, method: "GET"
       if (destination.apiKey) headers.authorization = `Bearer ${destination.apiKey}`;
       const request = (url.protocol === "https:" ? https : http).request(url, {
         method, headers, signal: joined, agent: false,
-        ...(destination.publicDnsResolver ? { servername: host, rejectUnauthorized: true } : {}),
+        ...(destination.publicDnsResolver || destination.proxyFakeIp ? { servername: host, rejectUnauthorized: true } : {}),
         lookup: (_hostname, options, callback) => {
           if (typeof options === "object" && options.all) callback(null, [{ address: selected.address, family: selected.family }]);
           else callback(null, selected.address, selected.family);

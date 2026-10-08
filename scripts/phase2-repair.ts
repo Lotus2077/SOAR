@@ -3,7 +3,7 @@
  * from the cloud critic (H) or the local critic (L′). Step 2 is the headless driver with --repair-from <this output>.
  *
  *   node --import tsx scripts/phase2-repair.ts --critique --run-directory RUN --task-directory TASK --job-sha256 H --brief-sha256 H \
- *     --image-id sha256:... --output-directory OUT --critic local|cloud [--cloud-model M --cloud-endpoint https://... --cloud-prices in,out,cached --max-fee-usd 1]
+ *     --image-id sha256:... --output-directory OUT --critic local|cloud [--cloud-model M --cloud-endpoint https://... --cloud-prices in,out,cached --max-fee-usd 1 [--proxy-fake-ip true]]
  *
  * The cloud key is read from the launching shell only (as for --arm cloud); nothing records it.
  */
@@ -109,6 +109,8 @@ export async function critique(input: CritiqueArguments) {
   if (input.critic === "cloud" && (!input.cloudArm || !(input.cloudArm.maxFeeUsd > 0 && input.cloudArm.maxFeeUsd <= CRITIC_MAX_FEE_USD))) throw new Error("repair_cloud_critic_invalid");
   const cloud = input.critic === "cloud" ? buildCloudArm(input.cloudArm!, process.env, heavy) : undefined;
   const destination = cloud ? cloud.destination : local, modelConfig = cloud ? cloud.modelConfig : localConfig;
+  // The network posture is recorded beside the binding, never in it, so the binding identity is unchanged.
+  const proxyRecord = cloud?.destination.proxyFakeIp ? { proxyFakeIp: true as const } : {};
   const directory = resolve(input.outputDirectory);
   mkdirSync(directory, { mode: 0o700 });
   const database = new Database(join(directory, "state.sqlite"));
@@ -124,7 +126,7 @@ export async function critique(input: CritiqueArguments) {
       // A refused critique is a recorded outcome too: what stopped it, and what it cost.
       const detail = error as { message?: string; finishReason?: unknown; usage?: unknown; feeMicrousd?: unknown };
       write("critique-failure.json", `${canonical({ critic: input.critic, packetSha256: packet.sha256, code: detail.message ?? "repair_critique_failed",
-        finishReason: detail.finishReason ?? null, usage: detail.usage ?? null, feeMicrousd: detail.feeMicrousd ?? null })}\n`);
+        finishReason: detail.finishReason ?? null, usage: detail.usage ?? null, feeMicrousd: detail.feeMicrousd ?? null, ...proxyRecord })}\n`);
       throw error;
     }
     const binding: RepairBinding = RepairBindingSchema.parse({ version: 1, critic: input.critic, criticModel: modelConfig.model, promptVersion: CRITIC_PROMPT_VERSION,
@@ -134,7 +136,7 @@ export async function critique(input: CritiqueArguments) {
       draft: run.draft.map(file => ({ path: file.path, sha256: digest(file.bytes) })) });
     write("critique.md", answer.text);
     for (const file of run.draft) write(join("draft", file.path), file.bytes);
-    write("critique.json", `${canonical({ ...binding, finishReason: answer.finishReason, usage: answer.usage, servedModel: answer.servedModel, feeMicrousd: answer.feeMicrousd })}\n`);
+    write("critique.json", `${canonical({ ...binding, finishReason: answer.finishReason, usage: answer.usage, servedModel: answer.servedModel, feeMicrousd: answer.feeMicrousd, ...proxyRecord })}\n`);
     return { binding, feeMicrousd: answer.feeMicrousd, finishReason: answer.finishReason };
   } finally { database.close(); }
 }
@@ -145,17 +147,18 @@ export function parseCritiqueArguments(args: string[]): CritiqueArguments {
   if (args[0] !== "--critique" || args.length % 2 !== 1) throw new Error("repair_cli_invalid");
   const values = new Map<string, string>();
   for (let i = 1; i < args.length; i += 2) {
-    if (![...required, ...cloudNames].includes(args[i]!) || values.has(args[i]!)) throw new Error("repair_cli_invalid");
+    if (![...required, ...cloudNames, "--proxy-fake-ip"].includes(args[i]!) || values.has(args[i]!)) throw new Error("repair_cli_invalid");
     values.set(args[i]!, args[i + 1]!);
   }
   const critic = values.get("--critic");
   const cloudCount = cloudNames.filter(name => values.has(name)).length;
   if (required.some(name => !values.has(name)) || (critic !== "local" && critic !== "cloud") || ![values.get("--job-sha256"), values.get("--brief-sha256")].every(h => /^[a-f0-9]{64}$/u.test(h!)) ||
-      !/^sha256:[a-f0-9]{64}$/u.test(values.get("--image-id")!) || (critic === "cloud" ? cloudCount !== cloudNames.length : cloudCount !== 0)) throw new Error("repair_cli_invalid");
+      !/^sha256:[a-f0-9]{64}$/u.test(values.get("--image-id")!) || (critic === "cloud" ? cloudCount !== cloudNames.length : cloudCount !== 0) ||
+      (values.has("--proxy-fake-ip") && (critic !== "cloud" || values.get("--proxy-fake-ip") !== "true"))) throw new Error("repair_cli_invalid");
   return { runDirectory: values.get("--run-directory")!, taskDirectory: values.get("--task-directory")!, expectedJobSha256: values.get("--job-sha256")!,
     expectedBriefSha256: values.get("--brief-sha256")!, imageId: values.get("--image-id")!, outputDirectory: values.get("--output-directory")!, critic,
     ...(critic === "cloud" ? { cloudArm: { model: values.get("--cloud-model")!, endpoint: values.get("--cloud-endpoint")!, prices: parseCloudPrices(values.get("--cloud-prices")!),
-      maxFeeUsd: Number(values.get("--max-fee-usd")) } } : {}) };
+      maxFeeUsd: Number(values.get("--max-fee-usd")), ...(values.get("--proxy-fake-ip") === "true" ? { proxyFakeIp: true as const } : {}) } } : {}) };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

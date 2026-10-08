@@ -20153,3 +20153,310 @@ Next gate: the Phase 2 repair-pair harness (design entry first). Then the
 task freeze and tag tooling, and the separate-session task authoring.
 
 References: [plan](PLAN.md) Phase 1 exit and fallbacks, Phase 2 arms.
+
+### BL-20261007-1451-phase2-harness-design -- 2026-10-07 -- Phase 2 harness: blind verdict bundles and the repair pair
+
+Status: `Proposed`
+
+Scope or hypothesis: the two Phase 2 harness pieces the close-out
+(BL-20261007-1449) found missing. Both are needed before Phase 2 is counted:
+
+- blind bundles, because the owner's blind verdict on every output is the
+  outcome of record;
+- the repair pair (H and L′), which runs on up to 6 failed L-Heavy drafts.
+
+Task authoring is not part of this: it belongs to a separate session, per the
+plan. On-track check: the plan's Phase 2 acceptance needs the blind verdict
+and lists the repair pair among the arms. Neither changes the runner, prompts
+or caps the arms share.
+
+Decisions:
+
+- **Blind bundles** (`scripts/phase2-blind.py`, standard-library Python, host
+  side).
+  - For one frozen task, it takes the run directories of every arm and seed.
+    Each run's required artifacts are copied byte for byte into
+    `blind/<task>/<label>/`, where labels are random letters drawn with
+    `secrets`.
+  - No freeze, result, model name, arm or timing goes in the bundle.
+  - The label-to-run key goes to `blind/<task>/key.json` under the ignored
+    `.soar/` and never into Git. The build log records only the key's
+    SHA-256 when the bundle is made, so the key cannot be changed afterwards
+    without notice.
+  - An owner verdict sheet (`verdicts.csv`) lists the labels, with columns for
+    accept or reject, notes, and the owner's guess of the arm.
+  - Artifacts are not rewritten. Metadata inside them that might hint at the
+    arm is reported, not stripped, and the arm guess measures whether the
+    blinding held.
+- **Repair pair** (`scripts/phase2-repair.ts`, plus `--repair-from` on the
+  headless driver).
+  - *Packet.* It is built deterministically from a failed run, at most
+    64 KiB, and is identical for both halves:
+    - the brief;
+    - a text rendering of each required artifact: text formats verbatim;
+      DOCX, PPTX, XLSX and PDF rendered to text by a host-owned script in
+      the sandbox on the qualified image;
+    - the agent-visible self-check: the host's last `finish` result and the
+      last `check_claims` result, as the agent saw them.
+
+    Every part is byte-bounded, and the canonical packet is hashed.
+  - *Critique.* One request with a fixed, versioned prompt and no tools, at
+    most 4,096 output tokens. H sends it to the cloud coordinator destination
+    (OpenAI shape, synthetic-only, key from the launching shell, fee cap
+    USD 1 per critique). L′ sends it to the local model on the heavy profile.
+    The critique, its usage and fee and the packet hash are saved.
+  - *Repair.* A new local heavy run of the same task. Its workspace starts
+    from the failed draft: the draft's output files at their paths, plus
+    `context/critique.md`, marked untrusted advice. The brief is extended by
+    a fixed repair instruction. Budgets, checks and the git SHA are the
+    task's own.
+  - The freeze binds the source run's result, the draft file hashes, the
+    packet hash and the critique hash. Both halves therefore provably start
+    from the identical draft and differ only in the critic.
+- **Privacy.** Phase 2 inputs are public or synthetic, so a cloud critique is
+  allowed. The repair tool refuses a source run whose freeze is not synthetic
+  or public, and the broker's synthetic-only admission still applies.
+
+Changes: This entry. Implementation follows on `phase2-harness`, stacked on
+PR #11.
+
+Evidence: [plan](PLAN.md) Phase 2 arms and acceptance; the consultant and
+claims-judge request paths (tool-less `complete`, OpenAI shape, fee cap) read
+on 2026-10-07.
+
+Failures or blockers: None for building and testing. Live H critiques need
+the owner's key.
+
+Limitations and non-claims: A text rendering of a deck or a spreadsheet
+loses layout; the critic sees the text, as the plan specifies. Blinding
+cannot hide every stylistic tell, which is why the owner's arm guess is
+recorded.
+
+Paid exposure: USD 0. Building and loopback tests make no live cloud call.
+
+Next gate: both tools implemented with tests (loopback critic, a synthetic
+failed run) and reviewed; one L′ repair dry run on a synthetic failed draft.
+
+References: BL-20261007-1449-phase1-close-out, [plan](PLAN.md) Phase 2.
+
+### BL-20261007-1522-phase2-harness-implemented -- 2026-10-07 -- Phase 2 harness implemented and reviewed: blind bundles and the repair pair
+
+Status: `Implemented`
+
+Scope or hypothesis: the design BL-20261007-1451. Branch `phase2-harness`,
+pull request #12, stacked on #11.
+
+Decisions:
+
+- **Blind bundles** (`scripts/phase2-blind.py`).
+  - What is copied: every run's deliverables, under random labels. That is
+    the job's required artifacts plus those its host-checked mode adds: the
+    claims ledger, or the document-review redline, clean copy, issues list,
+    hygiene report and edit plan.
+  - What is refused:
+    - runs not bound to the task's job and brief;
+    - runs whose modes differ;
+    - a repair placed beside the draft it started from (repair pairs get
+      their own bundle);
+    - roots outside `.soar`;
+    - any overwrite.
+  - How it is built: aside, then renamed into place, so a failure leaves
+    nothing. A run with no outputs gets a full missing list. The key is
+    written with owner-only permissions outside the bundle.
+- **Repair pair.**
+  - `scripts/phase2-repair.ts --critique` freezes a failed L-Heavy draft into
+    one packet of at most 64 KiB. The packet holds the brief (up to 24 KiB),
+    each deliverable as text with a fair share of the room, and the private
+    phase's last `finish` and `check_claims` results. One critic answers: the
+    cloud model for H, the local model for L′.
+  - The source must be a local heavy run of the same job and brief. Cloud,
+    Standard, repair or public-phase runs are refused.
+  - The output directory holds the packet, the critique, the frozen draft and
+    a binding: packet, critique, draft and source hashes, the critic and its
+    token cap.
+  - `--repair-from` on the headless driver checks the binding against the run
+    (job, brief, profile and mode, local only). It seeds the identical draft
+    and `context/critique.md` and appends a fixed repair instruction. The
+    freeze records the binding.
+  - Office files and PDFs are rendered to text by a host-owned script in the
+    qualified image, within a byte budget under the sandbox's 256 KiB output
+    cap.
+- **Deviation: critic cap 8,192 tokens, not 4,096.** Both APIs count
+  reasoning inside the cap, and a thinking critic could otherwise return
+  nothing. The cap is the same for both critics and is recorded in the
+  binding.
+
+Changes:
+- New `src/main/private-agent/repair.ts` (covered by the driver's
+  reviewed-source freeze), `scripts/phase2-repair.ts` and
+  `scripts/phase2-blind.py`.
+- `--repair-from` added to the driver.
+- Unit tests for blinding, the packet, seeding, source loading and a
+  loopback critic through the real broker; Docker-gated rendering tests.
+
+Evidence:
+
+- `pnpm check`: 125 files, 1,971 tests passed, 80 skipped. Docker-gated
+  runtime, claims, document-review and rendering suites on the qualified
+  image: 19 passed.
+- Unit tests:
+  - Blinding: bundles carry no freeze, result, model, arm or timing; mode
+    deliverables are included; a run with no outputs is handled; the
+    refusals listed above hold; the key is owner-only.
+  - The packet is at most 64 KiB, deterministic and UTF-8-safe, and splits
+    the room fairly. The self-check comes from the private phase only.
+  - Seeding checks every byte of the draft and critique, refuses `..`
+    paths, and refuses symlinks on read-back.
+  - The source and binding checks refuse a mismatched job, brief, profile
+    or mode.
+  - A loopback critic sent exactly the system prompt and the packet, with
+    no tools and an 8,192-token cap.
+- Docker-gated tests: DOCX (with tables), PPTX, XLSX and PDF rendered to
+  text, and two 1,500-clause DOCX drafts stayed under the cap.
+- Review (two lenses, eight agents). It confirmed two high and four medium
+  findings, all fixed:
+  - the bundle left out mode deliverables;
+  - a run with no outputs crashed the bundle and blocked re-runs;
+  - rendered output could overflow the sandbox cap;
+  - the brief was not bound, by repair or by bundles.
+  Of its unverified low findings, these were fixed:
+  - the source arm, profile and public phase are now enforced;
+  - draft paths refuse `..`, and read-back refuses symlinks;
+  - the packet is split fairly;
+  - NUL is stripped before the request;
+  - the key is owner-only under `.soar`;
+  - a repair cannot be bundled with its own source;
+  - the self-check reads only the private phase.
+
+  Two remain as limitations: a redline is critiqued through its accepted
+  text plus the edit plan, and a critique cut at the cap is used as is (its
+  finish reason is recorded).
+
+Failures or blockers: None. Live H critiques need the owner's key.
+
+Limitations and non-claims:
+- No live critic has run yet.
+- The blind cannot hide style.
+- An end-to-end `critique()` run needs the owned model, so CI covers its
+  parts, not the whole.
+
+Paid exposure: USD 0.
+
+Next gate: one L′ repair dry run on a real failed draft. Then Phase 2
+waits on the separate-session task authoring and the owner's key.
+
+References: BL-20261007-1451-phase2-harness-design, [plan](PLAN.md) Phase 2.
+
+### BL-20261007-1529-critic-cap-correction -- 2026-10-07 -- Correction: critic cap 16,384, not 8,192 (first L′ critique was empty)
+
+Status: `Implemented`
+
+Scope or hypothesis: corrects one decision of BL-20261007-1522 (critic cap
+8,192 tokens) after the first L′ dry-run critique.
+
+Decisions:
+
+- **The 8,192 cap failed.** The local critic on the heavy profile spent all
+  8,192 tokens on reasoning and returned no critique (finish reason `length`).
+  The tool refused it with `repair_critique_empty`, as designed.
+- **Diagnosis.** The same request was repeated by hand, on the same packet
+  (13,358 bytes) with zero fee. At 8,192 tokens it again gave no content. At
+  16,384 tokens, two attempts finished:
+  - one used 16,143 tokens, 15,469 of them reasoning;
+  - one used 9,497 tokens, 8,642 of them reasoning;
+  - each took 77 to 127 s.
+- **The cap is now 16,384 for both critics.** That is the heavy profile's own
+  limit, and the cloud critic gets the same value. It is still bound in the
+  repair binding.
+- **A refused critique is now recorded.** The tool writes the packet and a
+  `critique-failure.json` (finish reason, usage, fee) before refusing, so a
+  failed attempt stays on record.
+- **Observed in the hand attempts.** One of the two critiques was factually
+  wrong: it called RFC 8259 Section 4 "Strings", but it is "Objects". The
+  other found the planted defect, the invalid JSON example. Critiques reach
+  the repair as untrusted advice for this reason.
+
+Changes: `CRITIC_MAX_OUTPUT_TOKENS` in `repair.ts`; the failure record in
+`scripts/phase2-repair.ts`; tests.
+
+Evidence: the empty dispatch in the first attempt's `state.sqlite` (settled,
+zero fee), and the hand requests above.
+
+Failures or blockers: None.
+
+Limitations and non-claims: Even 16,384 tokens can be exhausted by reasoning
+(the first hand attempt used 98.5% of it). If a critique comes back empty,
+it is recorded and the operator may run a new attempt, which the build log
+counts.
+
+Paid exposure: USD 0.
+
+Next gate: the L′ dry run with the corrected cap.
+
+References: BL-20261007-1522-phase2-harness-implemented.
+
+### BL-20261007-1535-lprime-repair-dry-run -- 2026-10-07 -- L′ repair dry run: critique missed the defect, the repair fixed it anyway
+
+Status: `Verified`
+
+Scope or hypothesis: the dry-run gate of BL-20261007-1522 and
+BL-20261007-1529, on commit `61acfce` with a clean tree. The source is a real
+failed draft: the streamed T2 memo of BL-20261007-1301, rejected for an
+invalid JSON example (doubled braces). The run measures whether the packet,
+the local critique, identical-draft seeding and the repair run work end to
+end. It is not a Phase 2 counted run, and the source draft came from an
+earlier SHA (`7fa7c56`), so it is not a fair-pair measurement.
+
+Decisions:
+
+- **Critique.**
+  - The first attempt at the 8,192-token cap was empty (corrected in
+    BL-20261007-1529).
+  - The attempt on the committed tree, at 16,384 tokens, finished. It used a
+    13,358-byte packet and the two draft files (`output/research-report.md`,
+    `output/claims.json`).
+  - It **missed the planted defect**: it called the JSON example present
+    without noticing it is invalid. It raised three wording points:
+    - C21 calls a MUST a recommendation;
+    - ISO 8601 has no rationale;
+    - C16's paraphrase omits string encoding.
+- **Repair.** The local heavy run reached `submitted` after 17 agent calls in
+  158 s; all 40 dispatches settled. Both critical checks passed (source
+  preserved, claims ledger). The freeze binds the critique, packet and draft
+  hashes.
+  - The repaired memo **fixes the invalid JSON**, which the critique never
+    mentioned, and applies all three critique points. C21 now says
+    "requires (MUST)", and ISO 8601 gains a rationale and its own claim, C23.
+  - It stays at 379 words, under the 380-word limit.
+- **Outcome recorded as accepted** by the host checks and the brief's gates;
+  the owner's verdict is pending.
+  - The entailment pass judged 20 supported, 2 partial and 1 unsupported.
+    The draft had 21 supported and 1 partial.
+  - The new unsupported claim, C8, has text the repair did not change, so it
+    reads as variance in the judge's sampling, not a regression. Judge
+    verdicts are evidence, not acceptance.
+- **What this shows and does not show.** The harness works end to end. A
+  critique can miss the main defect, and a repair agent re-reading its own
+  draft can still find it. This single run cannot say whether the critique
+  helped; that is what the H and L′ pair in Phase 2 measures.
+
+Changes: registry row `p2r-t2-rfc-memo-heavy-repair-local` in
+[registry.jsonl](experiments/registry.jsonl); this entry.
+
+Evidence: `phase2-repair-v1/critique-local-2` (packet, critique, binding)
+and `phase2-repair-v1/runs/t2-repair-local` (local, ignored).
+
+Failures or blockers: None.
+
+Limitations and non-claims: This is one sample. The critic sampled at the
+heavy profile's temperature; of three critiques on this packet, one found
+the defect and one contained a factual error. Not capability evidence.
+
+Paid exposure: USD 0.
+
+Next gate: Phase 2 waits on the separate-session task authoring and the
+owner's key (for C-Sol and H), and on the owner merging #1 to #12 and cutting
+`owner-v0.1`.
+
+References: BL-20261007-1522-phase2-harness-implemented,
+BL-20261007-1529-critic-cap-correction, BL-20261007-1301-pr-b-streaming-dry-run.

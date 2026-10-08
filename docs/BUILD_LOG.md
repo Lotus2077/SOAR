@@ -20802,3 +20802,60 @@ build for the job 1 re-run.
 
 References: BL-20261008-1215-proxy-fake-ip-blocks-egress,
 BL-20261008-1210-owner-v0-1-released.
+
+### BL-20261008-1300-cloud-arm-tools-reasoning-rejected -- 2026-10-08 -- First live cloud call: gpt-6-sol refuses function tools with reasoning on chat completions
+
+Status: `Verified`
+
+Scope or hypothesis: the T2 cloud dry run from `651a844` with
+`--proxy-fake-ip true`, the first live use of the PR-E cloud arm.
+
+Decisions:
+
+- **The fake-IP opt-in works.** The request reached OpenAI in 2.3 s.
+  Earlier attempts had stopped at the address guard.
+- **OpenAI returned HTTP 400.** Nothing was charged and the reservation was
+  released. SOAR does not keep error bodies, so the cause was isolated with
+  four minimal probes, each a few tokens:
+  - plain: 200;
+  - with `reasoning_effort: "medium"`: 200;
+  - with tools and reasoning, with or without `parallel_tool_calls`: 400,
+    `param: reasoning_effort`, "Function tools with reasoning_effort are not
+    supported for gpt-6-sol in /v1/chat/completions. To use function tools,
+    use /v1/responses or set reasoning_effort to 'none'";
+  - `gpt-6.1-sol` behaves the same;
+  - tools with `reasoning_effort: "none"`: 200.
+- **Consequence.** The PR-E request shape cannot run the cloud arm at
+  thinking parity with local heavy. The unit tests matched the published
+  chat-completions shape, but this restriction applies per model, on the
+  server. The cloud critic (H) sends no tools, so it is unaffected.
+- **Decision: add the Responses API for the cloud arm.** The alternative,
+  `reasoning_effort: "none"`, keeps chat completions working but runs the
+  cloud arm without thinking against a thinking local arm. That breaks the
+  fair test's same-thinking-mode rule.
+  - The new shape uses `store: false`, so OpenAI keeps no conversation state.
+  - Reasoning is carried between turns as encrypted items, as the API
+    documents.
+  - The destination stays api.openai.com, so there is no new egress
+    destination.
+- **No T4 run** until the new shape lands; it would fail the same way.
+
+Changes: this entry.
+
+Evidence: `phase1-cloud-dryrun-v2/runs/t2-rfc-memo-cloud` (local, ignored)
+and the probe outputs above.
+
+Failures or blockers: The cloud arm, and with it exit criterion 2's cloud
+half, is blocked until the Responses API shape exists.
+
+Limitations and non-claims: The probes used tiny prompts. They show which
+parameter combinations are accepted, not agent behaviour.
+
+Paid exposure: under USD 0.01 for the probes. The dry run itself was not
+charged (HTTP 400).
+
+Next gate: the Responses API request shape for the cloud arm, then the T2
+and T4 cloud dry runs.
+
+References: BL-20261008-1240-proxy-fake-ip-opt-in,
+BL-20261007-1040-pr-e-cloud-correctness-implemented.

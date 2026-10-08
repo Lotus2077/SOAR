@@ -21070,3 +21070,92 @@ and T4 cloud dry runs.
 
 References: BL-20261008-1240-proxy-fake-ip-opt-in,
 BL-20261007-1040-pr-e-cloud-correctness-implemented.
+
+### BL-20261008-1312-openai-responses-cloud-arm -- 2026-10-08 -- The cloud arm speaks the OpenAI Responses API, with the standard tier pinned and long-context pricing settled
+
+Status: `Implemented`
+
+Scope or hypothesis: the gate set by
+BL-20261008-1300-cloud-arm-tools-reasoning-rejected. The cloud arm needs a
+request shape that serves function tools with reasoning at parity with the
+local heavy arm. Branch `phase2-openai-responses`.
+
+Decisions:
+
+- **Shape.** `PrivateModelConfig.api` gains `openai_responses`.
+  - The request carries `input` items: chat messages map to `message` items,
+    and tool calls and results map to `function_call` and
+    `function_call_output`. No reasoning items are sent, as on the local arm,
+    so the recorded reasoning-replay deviation applies to both arms equally.
+  - Tools are sent with `strict: false`; the Responses default is strict.
+  - Reasoning is `{ effort: "medium" }`, or `"none"` for a narrowed call.
+  - Every request has `store: false` and `service_tier: "default"`.
+  - The reply is parsed from `reasoning`, `message` and `function_call`
+    items. Any other item or content part is refused. An incomplete reply
+    for `max_output_tokens` becomes `length`, a refusal becomes
+    `content_filter`, and at most eight calls are accepted.
+- **Live probes before code** (a few hundred tokens). On `/v1/responses`,
+  tools with reasoning return 200. A follow-up turn of `function_call` plus
+  `function_call_output`, with no reasoning items, returns 200. Reasoning
+  items can arrive with `encrypted_content` and are ignored. Both endpoints
+  accept `service_tier: "default"` and echo it.
+- **Selection.** The cloud arm's endpoint path chooses the shape exactly:
+  `/v1/responses` or `/v1/chat/completions`. Any other path, or a query
+  string, is refused rather than guessed (review finding).
+- **Review** (two agents, protocol and money). The protocol reviewer
+  compared the `vllm` and `openai` shapes over 256 configuration
+  combinations: identical bodies, reservations, fees and results. Every
+  conversation shape the runner produces maps to valid input. The money
+  reviewer's findings, all fixed:
+  - **medium, long context.** Heavy bodies of up to 640 KiB can exceed the
+    272K-input-token tier (4 / 0.40 / 15 per 1M for gpt-6-sol, read from
+    OpenAI's pricing page on 2026-10-08), but were settled at the standard
+    rates.
+    - `longContext { aboveTokens, rates }` now settles a reply whose prompt
+      exceeds the threshold at the long rates. A body larger than the
+      threshold is reserved at them.
+    - The driver requires
+      `--cloud-long-context above,in,out,cached`; it is optional for the
+      critic.
+  - **medium, service tier.** An omitted tier is `auto` and can follow
+    project settings to a dearer tier. Both cloud shapes now pin
+    `"default"`, and a reply served at another tier leaves the dispatch
+    unknown (`model_service_tier_mismatch`). This also closes the gap in the
+    PR-E chat shape.
+  - **low, cache writes.** `cache_write_tokens` must fit within the uncached
+    prompt. They settle at the input rate; no write premium is published for
+    these models.
+  - **low, critic record.** `critique.json` and `critique-failure.json` now
+    record `requestShape` beside the binding.
+- **Recorded, not changed (pre-existing).** The runner rebuilds the system
+  message every turn with the remaining budget. Provider prompt caching
+  therefore covers only the static prefix, so long cloud runs pay full input
+  rates on most of the history and may reach the USD 8 cap sooner. This
+  affects the cloud arm's cost and completion in Phase 2. Changing the
+  prompt layout touches the local arm's identities, so it is a follow-up.
+
+Changes: `model.ts`, the headless driver, `phase2-repair.ts`, README; tests in
+the new `private-agent-model-responses` suite and in the public-snapshot,
+fake-IP and model-size suites.
+
+Evidence: typecheck clean; 2,010 tests passed, 80 skipped.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+
+- Not yet run as an agent loop against the live API. The T2 and T4 cloud dry
+  runs are the check.
+- Long-context and tier pricing are read from today's pricing page; recheck
+  them before Phase 2.
+- That cache writes carry no premium is an assumption.
+
+Paid exposure: under USD 0.01 for the probes.
+
+Next gate: the T2 and T4 cloud dry runs on this branch with
+`--cloud-endpoint https://api.openai.com/v1/responses`,
+`--cloud-long-context 272000,4,15,0.4` and `--proxy-fake-ip true`.
+
+References: BL-20261008-1300-cloud-arm-tools-reasoning-rejected,
+BL-20261007-1040-pr-e-cloud-correctness-implemented,
+BL-20260913-1859-consultant-standard-tier-approved.

@@ -85,8 +85,18 @@ export interface PrivateModelConfig {
   outputUsdPerMillion: number;
   /** Rate for prompt tokens the provider reports as cached; absent means the input rate. */
   cachedInputUsdPerMillion?: number;
-  /** Request shape: the owned vLLM server (default) or the OpenAI API (`max_completion_tokens`, no vLLM-only fields). */
-  api?: "vllm" | "openai";
+  /**
+   * Long-context tier: a request whose prompt exceeds `aboveTokens` is billed at these rates for the whole request. Prompt
+   * tokens never exceed body bytes, so a body of at most `aboveTokens` bytes is reserved at the base rates and a larger one
+   * at these. Absent means a single tier (and keeps every identity unchanged).
+   */
+  longContext?: { aboveTokens: number; inputUsdPerMillion: number; outputUsdPerMillion: number; cachedInputUsdPerMillion?: number };
+  /**
+   * Request shape: the owned vLLM server (default), OpenAI chat completions (`max_completion_tokens`, no vLLM-only fields),
+   * or the OpenAI Responses API, which is the only OpenAI shape that serves function tools with reasoning for the sol models.
+   * The Responses shape is stateless (`store: false`) and, like the local arm, never replays a turn's reasoning.
+   */
+  api?: "vllm" | "openai" | "openai_responses";
   /** PR-B: stream the reply from the owned server (assembled by the transport); the cloud shape stays non-streaming in Phase 1. */
   streaming?: boolean;
   thinking: "disabled" | "medium";
@@ -99,6 +109,7 @@ export interface PrivateModelConfig {
 const nonnegativeInt = z.number().int().nonnegative().safe();
 const responseSchema = z.object({
   model: z.string().optional(),
+  service_tier: z.string().nullable().optional(),
   choices: z.array(z.object({
     message: z.object({
       content: z.string().nullable().optional(),
@@ -109,6 +120,64 @@ const responseSchema = z.object({
   usage: z.object({ prompt_tokens: nonnegativeInt, completion_tokens: nonnegativeInt,
     total_tokens: nonnegativeInt.optional(), prompt_tokens_details: z.object({ cached_tokens: nonnegativeInt.optional() }).optional() }),
 });
+
+const responsesSchema = z.object({
+  model: z.string().optional(),
+  service_tier: z.string().nullable().optional(),
+  status: z.enum(["completed", "incomplete"]),
+  incomplete_details: z.object({ reason: z.string().optional() }).passthrough().nullable().optional(),
+  output: z.array(z.discriminatedUnion("type", [
+    z.object({ type: z.literal("reasoning") }).passthrough(),
+    z.object({ type: z.literal("message"), role: z.literal("assistant"),
+      content: z.array(z.object({ type: z.string(), text: z.string().optional() }).passthrough()) }).passthrough(),
+    z.object({ type: z.literal("function_call"), call_id: z.string().min(1), name: z.string().min(1), arguments: z.string() }).passthrough(),
+  ])).max(64),
+  usage: z.object({ input_tokens: nonnegativeInt, output_tokens: nonnegativeInt, total_tokens: nonnegativeInt.optional(),
+    input_tokens_details: z.object({ cached_tokens: nonnegativeInt.optional(), cache_write_tokens: nonnegativeInt.optional() }).passthrough().optional() }).passthrough(),
+});
+type DecodedReply = { model?: string; serviceTier?: string | null; content: string; toolCalls: { id: string; type: "function"; function: { name: string; arguments: string } }[];
+  finishReason: string | null; promptTokens: number; completionTokens: number; cachedTokens: number; cacheWriteTokens: number };
+
+/** Chat-completion messages as Responses input items: tool calls and results become function_call items; no reasoning items. */
+export function responsesInput(messages: GeneralMessage[]): Record<string, unknown>[] {
+  return messages.flatMap((message): Record<string, unknown>[] => {
+    if (message.role === "tool") {
+      if (!message.tool_call_id) throw new Error("private_model_message_invalid");
+      return [{ type: "function_call_output", call_id: message.tool_call_id, output: message.content ?? "" }];
+    }
+    const text = message.content ? [{ type: "message", role: message.role, content: message.content }] : [];
+    if (message.role !== "assistant") {
+      if (message.tool_calls?.length) throw new Error("private_model_message_invalid");
+      return text;
+    }
+    return [...text, ...(message.tool_calls ?? []).map(call => ({ type: "function_call", call_id: call.id, name: call.function.name, arguments: call.function.arguments }))];
+  });
+}
+
+function decodeReply(api: PrivateModelConfig["api"], bytes: Uint8Array): DecodedReply {
+  const json: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  if (api !== "openai_responses") {
+    const decoded = responseSchema.parse(json), choice = decoded.choices[0]!;
+    return { model: decoded.model, serviceTier: decoded.service_tier, content: choice.message.content ?? "", toolCalls: choice.message.tool_calls ?? [], finishReason: choice.finish_reason,
+      promptTokens: decoded.usage.prompt_tokens, completionTokens: decoded.usage.completion_tokens, cachedTokens: decoded.usage.prompt_tokens_details?.cached_tokens ?? 0, cacheWriteTokens: 0 };
+  }
+  const decoded = responsesSchema.parse(json);
+  let refused = false;
+  const content = decoded.output.flatMap(item => item.type !== "message" ? [] : item.content.flatMap(part => {
+    if (part.type === "output_text" && typeof part.text === "string") return [part.text];
+    if (part.type === "refusal") { refused = true; return []; }
+    throw new Error("private_model_response_invalid");
+  })).join("");
+  const toolCalls = decoded.output.flatMap(item => item.type === "function_call"
+    ? [{ id: item.call_id, type: "function" as const, function: { name: item.name, arguments: item.arguments } }] : []);
+  if (toolCalls.length > 8) throw new Error("private_model_response_invalid");
+  // The runner keys on "length"; an incomplete reply for any other reason keeps the provider's own reason.
+  const finishReason = decoded.status === "incomplete"
+    ? (decoded.incomplete_details?.reason === "max_output_tokens" ? "length" : decoded.incomplete_details?.reason ?? "incomplete")
+    : refused ? "content_filter" : toolCalls.length ? "tool_calls" : "stop";
+  return { model: decoded.model, serviceTier: decoded.service_tier, content, toolCalls, finishReason, promptTokens: decoded.usage.input_tokens, completionTokens: decoded.usage.output_tokens,
+    cachedTokens: decoded.usage.input_tokens_details?.cached_tokens ?? 0, cacheWriteTokens: decoded.usage.input_tokens_details?.cache_write_tokens ?? 0 };
+}
 
 /** The model configuration as bound into session and task identities: streaming is a transport mode, never an identity change. */
 export function modelIdentity(config: PrivateModelConfig): Omit<PrivateModelConfig, "streaming"> {
@@ -128,51 +197,74 @@ export class PrivateAgentModel {
           config.sampling !== undefined && !Number.isSafeInteger(config.sampling.top_k)) ||
         ![config.inputUsdPerMillion, config.outputUsdPerMillion].every(value => Number.isFinite(value) && value >= 0) ||
         (config.cachedInputUsdPerMillion !== undefined && !(Number.isFinite(config.cachedInputUsdPerMillion) && config.cachedInputUsdPerMillion >= 0 && config.cachedInputUsdPerMillion <= config.inputUsdPerMillion)) ||
-        (config.api !== undefined && config.api !== "vllm" && config.api !== "openai") ||
-        (config.streaming !== undefined && (typeof config.streaming !== "boolean" || (config.streaming && config.api === "openai")))) {
+        (config.longContext !== undefined && !(Number.isSafeInteger(config.longContext.aboveTokens) && config.longContext.aboveTokens > 0 &&
+          Number.isFinite(config.longContext.inputUsdPerMillion) && config.longContext.inputUsdPerMillion >= config.inputUsdPerMillion &&
+          Number.isFinite(config.longContext.outputUsdPerMillion) && config.longContext.outputUsdPerMillion >= config.outputUsdPerMillion &&
+          (config.longContext.cachedInputUsdPerMillion === undefined || (Number.isFinite(config.longContext.cachedInputUsdPerMillion) &&
+            config.longContext.cachedInputUsdPerMillion >= (config.cachedInputUsdPerMillion ?? config.inputUsdPerMillion) &&
+            config.longContext.cachedInputUsdPerMillion <= config.longContext.inputUsdPerMillion)))) ||
+        (config.api !== undefined && config.api !== "vllm" && config.api !== "openai" && config.api !== "openai_responses") ||
+        (config.streaming !== undefined && (typeof config.streaming !== "boolean" || (config.streaming && config.api !== undefined && config.api !== "vllm")))) {
       throw new Error("private_model_configuration_invalid");
     }
-    this.config = Object.freeze({ ...config, maxRequestBytes, ...(config.sampling ? { sampling: Object.freeze({ ...config.sampling }) } : {}) });
+    this.config = Object.freeze({ ...config, maxRequestBytes, ...(config.sampling ? { sampling: Object.freeze({ ...config.sampling }) } : {}),
+      ...(config.longContext ? { longContext: Object.freeze({ ...config.longContext }) } : {}) });
   }
 
   /** Host-side calls (the entailment judge) narrow the same destination to thinking off and a short reply; they never widen anything. */
   async complete(messages: GeneralMessage[], tools: GeneralToolDefinition[], signal: AbortSignal,
     overrides?: { thinking?: "disabled"; maxOutputTokens?: number; purpose?: string }): Promise<ProviderResult> {
     const thinking = overrides?.thinking ?? this.config.thinking, maxOutputTokens = Math.min(this.config.maxOutputTokens, overrides?.maxOutputTokens ?? this.config.maxOutputTokens);
-    const openai = this.config.api === "openai";
+    const openai = this.config.api === "openai", openaiShape = openai || this.config.api === "openai_responses";
     // An OpenAI-compatible server rejects an empty `tools` array, so a tool-less call (the entailment judge) omits the tool fields.
     // The OpenAI shape uses max_completion_tokens and top-level reasoning_effort only; vLLM-only fields never leave for a cloud API.
-    const body = canonical({ model: this.config.model, messages, ...(tools.length ? { tools, tool_choice: "auto", parallel_tool_calls: false } : {}),
-      ...(this.config.streaming && !openai ? { stream: true, stream_options: { include_usage: true } } : { stream: false }),
-      ...(openai ? { max_completion_tokens: maxOutputTokens } : { max_tokens: maxOutputTokens }),
-      ...(openai ? (thinking === "disabled" ? {} : { reasoning_effort: "medium" })
-        : thinking === "disabled" ? { chat_template_kwargs: { enable_thinking: false } } : { reasoning_effort: "medium", ...(this.config.sampling ?? {}) }),
-    });
+    // The Responses shape sends non-strict function tools (its default is strict), an explicit effort and no stored state.
+    const body = this.config.api === "openai_responses"
+      ? canonical({ model: this.config.model, input: responsesInput(messages),
+        ...(tools.length ? { tools: tools.map(tool => ({ type: "function", name: tool.function.name, description: tool.function.description,
+          parameters: tool.function.parameters, strict: false })), tool_choice: "auto", parallel_tool_calls: false } : {}),
+        max_output_tokens: maxOutputTokens, reasoning: { effort: thinking === "disabled" ? "none" : "medium" }, store: false, service_tier: "default" })
+      : canonical({ model: this.config.model, messages, ...(tools.length ? { tools, tool_choice: "auto", parallel_tool_calls: false } : {}),
+        ...(this.config.streaming && !openai ? { stream: true, stream_options: { include_usage: true } } : { stream: false }),
+        // An omitted tier is "auto" and can follow project settings to a dearer tier, so a cloud shape pins the standard one.
+        ...(openai ? { max_completion_tokens: maxOutputTokens, service_tier: "default" } : { max_tokens: maxOutputTokens }),
+        ...(openai ? (thinking === "disabled" ? {} : { reasoning_effort: "medium" })
+          : thinking === "disabled" ? { chat_template_kwargs: { enable_thinking: false } } : { reasoning_effort: "medium", ...(this.config.sampling ?? {}) }),
+      });
     const bodyBytes = Buffer.byteLength(body), limitBytes = this.config.maxRequestBytes ?? BROKER_MAX_BODY_BYTES;
     if (bodyBytes > limitBytes) throw new ModelRequestBodyTooLarge(bodyBytes, limitBytes);
     // Prompt tokens never exceed bytes, so bytes stay the reservation and settlement envelope (a token estimate was reviewed
     // out: digit-dense prompts exceed ceil(bytes/2) tokens, and reservations never accumulate across calls anyway).
-    const promptBound = bodyBytes, cachedRate = this.config.cachedInputUsdPerMillion ?? this.config.inputUsdPerMillion;
-    const reservation = Math.ceil(promptBound * this.config.inputUsdPerMillion + maxOutputTokens * this.config.outputUsdPerMillion);
-    let decoded: z.infer<typeof responseSchema> | undefined;
+    const promptBound = bodyBytes, long = this.config.longContext;
+    const rates = (promptTokens: number) => long && promptTokens > long.aboveTokens
+      ? { input: long.inputUsdPerMillion, output: long.outputUsdPerMillion, cached: long.cachedInputUsdPerMillion ?? long.inputUsdPerMillion }
+      : { input: this.config.inputUsdPerMillion, output: this.config.outputUsdPerMillion, cached: this.config.cachedInputUsdPerMillion ?? this.config.inputUsdPerMillion };
+    // The reservation takes the tier the byte bound could reach, so it covers either tier the reply settles at.
+    const reserveRates = rates(promptBound);
+    const reservation = Math.ceil(promptBound * reserveRates.input + maxOutputTokens * reserveRates.output);
+    let decoded: DecodedReply | undefined;
     const started = performance.now();
     const result = await this.broker.request({ jobId: this.jobId, contextId: this.contextId, destinationId: this.config.destinationId,
       purpose: overrides?.purpose ?? "agent reasoning and tool selection", method: "POST", body, maxFeeMicrousd: reservation, signal }, bytes => {
-      decoded = responseSchema.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
-      const cached = decoded.usage.prompt_tokens_details?.cached_tokens ?? 0;
-      if (decoded.usage.completion_tokens > maxOutputTokens || decoded.usage.prompt_tokens > promptBound || cached > decoded.usage.prompt_tokens) throw new Error("model_usage_outside_envelope");
-      // Cached prompt tokens settle at the cached rate; the result stays within the reservation because cached ≤ prompt ≤ bound.
-      return Math.ceil((decoded.usage.prompt_tokens - cached) * this.config.inputUsdPerMillion + cached * cachedRate + decoded.usage.completion_tokens * this.config.outputUsdPerMillion);
+      decoded = decodeReply(this.config.api, bytes);
+      const cached = decoded.cachedTokens;
+      if (decoded.completionTokens > maxOutputTokens || decoded.promptTokens > promptBound || cached > decoded.promptTokens ||
+          decoded.cacheWriteTokens > decoded.promptTokens - cached) throw new Error("model_usage_outside_envelope");
+      // Prices assume the standard tier the request pinned; a reply served at another tier leaves the spend unknown.
+      if ((openaiShape) && decoded.serviceTier !== undefined && decoded.serviceTier !== null && decoded.serviceTier !== "default") throw new Error("model_service_tier_mismatch");
+      // Cached prompt tokens settle at the cached rate; cache writes are uncached input and settle at the input rate (no
+      // write premium is published for these models). The result stays within the reservation because cached ≤ prompt ≤ bound.
+      const settle = rates(decoded.promptTokens);
+      return Math.ceil((decoded.promptTokens - cached) * settle.input + cached * settle.cached + decoded.completionTokens * settle.output);
     });
     if (!decoded) throw new Error("private_model_response_invalid");
-    const choice = decoded.choices[0]!;
-    const calls = choice.message.tool_calls ?? [];
+    const calls = decoded.toolCalls;
     if (new Set(calls.map(call => call.id)).size !== calls.length) throw new Error("private_model_duplicate_tool_id");
-    return { content: choice.message.content ?? "", toolCalls: calls, finishReason: choice.finish_reason,
+    return { content: decoded.content, toolCalls: calls, finishReason: decoded.finishReason,
       servedModel: decoded.model,
-      usage: { inputTokens: decoded.usage.prompt_tokens, outputTokens: decoded.usage.completion_tokens,
-        totalTokens: decoded.usage.prompt_tokens + decoded.usage.completion_tokens,
-        cacheReadTokens: decoded.usage.prompt_tokens_details?.cached_tokens ?? 0 },
+      usage: { inputTokens: decoded.promptTokens, outputTokens: decoded.completionTokens,
+        totalTokens: decoded.promptTokens + decoded.completionTokens,
+        cacheReadTokens: decoded.cachedTokens },
       costUsd: (result.receipt.feeMicrousd ?? 0) / 1000000, durationMs: performance.now() - started };
   }
 }

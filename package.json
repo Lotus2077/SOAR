@@ -22,6 +22,7 @@
   },
   "scripts": {
     "check:general-consultant": "node --import tsx scripts/check-general-consultant.ts",
+    "setup:general": "node --import tsx scripts/setup-general.ts",
     "setup:patch-pilot": "node scripts/setup-patch-pilot.mjs",
     "dev:patch": "node scripts/run-patch-pilot.mjs --cloud-only",
     "dev:patch:hybrid": "node scripts/run-patch-pilot.mjs",

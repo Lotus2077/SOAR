@@ -1,7 +1,7 @@
 import { canonical, digest } from "./contracts";
 
 export const SANDBOX_CAPABILITIES_VERSION = 1;
-const QUALIFIED_IMAGE = "sha256:e5c7075fac7a7a68900db45e3de06e50e7b0f6896a5ca0f82cddb4ef8ad4ac2f";
+export const QUALIFIED_IMAGE = "sha256:e5c7075fac7a7a68900db45e3de06e50e7b0f6896a5ca0f82cddb4ef8ad4ac2f";
 
 // Retained public synthetic qualification, not a new probe or a claim for another image.
 // Evidence identities contain no local evidence paths or environment values.

@@ -803,8 +803,11 @@ interface SessionSidebarProps {
   open: boolean;
   modal: boolean;
   runtimeActive: boolean;
+  /** Legacy tracks are rendered only when the Labs flag is on. */
+  labs: boolean;
   onSelect: (id: string) => void;
   onNew: () => void;
+  onNewGeneral: () => void;
   onReview: () => void;
   onCoding: () => void;
   onGeneral: () => void;
@@ -825,8 +828,7 @@ function SessionSidebar({
   onCoding,
   onGeneral,
   onSettings,
-  onClose,
-}: SessionSidebarProps) {
+  onClose, labs, onNewGeneral }: SessionSidebarProps) {
   const [query, setQuery] = useState("");
   const sidebarRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -867,32 +869,42 @@ function SessionSidebar({
         <X />
       </button>
 
-      <button className="new-task-button" onClick={onNew}>
-        <Sparkle />
-        <span>New task</span>
-        <kbd>⌘ N</kbd>
-      </button>
       <button className="new-task-button" data-testid="general-task-entry" onClick={onGeneral}>
         <Files />
         <span>General task</span>
       </button>
-      <button
-        className="new-task-button review-changes-entry"
-        data-testid="review-current-changes"
-        onClick={onReview}
-      >
-        <GitDiff />
-        <span>Review Current Changes</span>
+      <button className="new-task-button" data-testid="new-general-task" onClick={onNewGeneral}>
+        <Sparkle />
+        <span>New general task</span>
+        {labs ? null : <kbd>⌘ N</kbd>}
       </button>
-      <button
-        className="new-task-button"
-        data-testid="coding-task-entry"
-        onClick={onCoding}
-      >
-        <Code />
-        <span>Fix a repository</span>
-      </button>
+      {labs ? (
+        <>
+          <button className="new-task-button" data-testid="legacy-task-entry" onClick={onNew}>
+            <Sparkle />
+            <span>New task</span>
+            <kbd>⌘ N</kbd>
+          </button>
+          <button
+            className="new-task-button review-changes-entry"
+            data-testid="review-current-changes"
+            onClick={onReview}
+          >
+            <GitDiff />
+            <span>Review Current Changes</span>
+          </button>
+          <button
+            className="new-task-button"
+            data-testid="coding-task-entry"
+            onClick={onCoding}
+          >
+            <Code />
+            <span>Fix a repository</span>
+          </button>
+        </>
+      ) : null}
 
+      {labs ? (<>
       <label className="session-search">
         <MagnifyingGlass aria-hidden="true" />
         <span className="sr-only">Search sessions</span>
@@ -953,6 +965,7 @@ function SessionSidebar({
             })
           : null}
       </nav>
+      </>) : null}
 
       <div className="sidebar-footer">
         <span className={`runtime-dot ${runtimeActive ? "is-working" : ""}`} aria-hidden="true" />
@@ -1010,7 +1023,8 @@ function Transcript({
   streamedText: string;
   loading: boolean;
   onPromptSelect: (prompt: string) => void;
-  onReview: () => void;
+  /** Absent when Labs is off: the review track is not offered. */
+  onReview?: () => void;
 }) {
   const items = useMemo(() => transcriptFrom(snapshot), [snapshot]);
   const persistedDraft = useMemo(() => persistedAssistantDraft(snapshot), [snapshot]);
@@ -1054,11 +1068,11 @@ function Transcript({
         <div className="empty-watermark" aria-hidden="true">S</div>
         <h1 className="soar-wordmark">SOAR</h1>
         <p>Choose a workspace, then ask SOAR to inspect a specific text file.</p>
-        <button type="button" className="empty-review-action" onClick={onReview}>
+        {onReview ? <button type="button" className="empty-review-action" onClick={onReview}>
           <GitDiff />
           Review Current Changes
           <CaretRight />
-        </button>
+        </button> : null}
         <div className="starter-prompts" aria-label="Starter tasks">
           {[
             "Read README.md and summarize its purpose",
@@ -2903,9 +2917,18 @@ export function App() {
   const [loadingSession, setLoadingSession] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // PR-F: the general task is the default surface; legacy tracks stay behind the Labs flag. A shell without the
+  // general API (older fixtures) keeps the legacy surface, which is all it has.
+  const hasGeneralApi = typeof (window.soar as { getGeneralTaskAvailability?: unknown } | undefined)?.getGeneralTaskAvailability === "function";
   const [surface, setSurface] = useState<
     "task" | "review_setup" | "settings" | "coding" | "general"
-  >("task");
+  >(hasGeneralApi ? "general" : "task");
+  const [labs, setLabs] = useState(!hasGeneralApi);
+  const labsRef = useRef(!hasGeneralApi);
+  const sessionsRef = useRef<SoarSessionSummary[]>([]);
+  // Set by the first pointer or key event: the Labs probe must not move a surface the owner already acted on.
+  const ownerActedRef = useRef(false);
+  const [generalNewTask, setGeneralNewTask] = useState(0);
   const [reviewAvailability, setReviewAvailability] = useState<ReviewAvailability>(
     defaultReviewAvailability,
   );
@@ -2942,7 +2965,7 @@ export function App() {
   const reviewRequestOrdinalRef = useRef(0);
   const simulationChallengeOrdinalRef = useRef(0);
   const cloudCredentialRequestOrdinalRef = useRef(0);
-  const settingsReturnSurfaceRef = useRef<"task" | "review_setup" | "coding" | "general">("task");
+  const settingsReturnSurfaceRef = useRef<"task" | "review_setup" | "coding" | "general">(hasGeneralApi ? "general" : "task");
   const settingsReturnFocusRef = useRef<"sidebar" | "review" | null>(null);
   const settingsFocusRestorePendingRef = useRef(false);
   const notifiedSimulationTerminalsRef = useRef(new Set<string>());
@@ -3091,7 +3114,9 @@ export function App() {
           (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
         );
         setSessions(sorted);
-        if (sorted[0]) setSelectedId(sorted[0].id);
+        sessionsRef.current = sorted;
+        // The owner build never pre-selects a legacy session; the Labs probe does so when it turns Labs on.
+        if (sorted[0] && (!hasGeneralApi || labsRef.current)) setSelectedId(sorted[0].id);
       })
       .catch((reason: unknown) => {
         if (active) setError(reason instanceof Error ? reason.message : "Sessions could not load.");
@@ -3544,7 +3569,16 @@ export function App() {
     }
   }, [busy, snapshot]);
 
-  const newTask = useCallback(() => {
+  const newGeneralTask = useCallback(() => {
+    setSurface("general");
+    setGeneralNewTask((count) => count + 1);
+    setSidebarOpen(false);
+    setTraceOpen(false);
+    setError(null);
+    void invalidateSimulationConsent();
+  }, [invalidateSimulationConsent]);
+
+  const newLegacyTask = useCallback(() => {
     selectedIdRef.current = null;
     setSelectedId(null);
     setSnapshot(null);
@@ -3559,7 +3593,34 @@ export function App() {
     setSidebarOpen(false);
   }, [invalidateSimulationConsent]);
 
+  // ⌘N: a new general task, unless Labs is on and a legacy surface is in front.
+  const newTask = useCallback(() => {
+    if (!labs || surface === "general") newGeneralTask(); else newLegacyTask();
+  }, [labs, surface, newGeneralTask, newLegacyTask]);
+
+  useEffect(() => {
+    const probe = (window.soar as { getGeneralTaskAvailability?: () => Promise<{ labs?: boolean }> } | undefined)?.getGeneralTaskAvailability;
+    if (typeof probe !== "function") return;
+    let active = true;
+    const acted = () => { ownerActedRef.current = true; };
+    window.addEventListener("pointerdown", acted, { capture: true, once: true });
+    window.addEventListener("keydown", acted, { capture: true, once: true });
+    void probe().then((availability) => {
+      if (!active) return;
+      const enabled = availability.labs === true;
+      labsRef.current = enabled; setLabs(enabled);
+      if (enabled) {
+        // Labs on is the developer shell: it keeps the legacy-first opening view (and its e2e specs) unless the owner already acted.
+        if (!ownerActedRef.current) setSurface((current) => (current === "general" ? "task" : current));
+        const newest = sessionsRef.current[0];
+        if (newest && selectedIdRef.current === null) { selectedIdRef.current = newest.id; setSelectedId(newest.id); }
+      }
+    }).catch(() => { /* Labs stays off. */ });
+    return () => { active = false; window.removeEventListener("pointerdown", acted, { capture: true }); window.removeEventListener("keydown", acted, { capture: true }); };
+  }, [hasGeneralApi]);
+
   const selectSession = useCallback((id: string) => {
+    if (!labs) return; // Legacy sessions are reachable only through Labs.
     selectedIdRef.current = id;
     setSelectedId(id);
     setSnapshot(null);
@@ -3569,7 +3630,7 @@ export function App() {
     setError(null);
     setSurface("task");
     void invalidateSimulationConsent();
-  }, [invalidateSimulationConsent]);
+  }, [labs, invalidateSimulationConsent]);
 
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -3601,14 +3662,16 @@ export function App() {
   return (
     <div className="app-shell">
       <SessionSidebar
-        sessions={sessions}
+        sessions={labs ? sessions : []}
         selectedId={selectedId}
-        loading={loadingSessions}
+        loading={labs && loadingSessions}
         open={sidebarOpen}
         modal={compactLayout}
         runtimeActive={running}
+        labs={labs}
         onSelect={selectSession}
-        onNew={newTask}
+        onNew={newLegacyTask}
+        onNewGeneral={newGeneralTask}
         onReview={openReviewSetup}
         onCoding={() => {
           setSurface("coding");
@@ -3693,7 +3756,7 @@ export function App() {
 
         <section className="conversation-panel">
           {surface === "general" ? (
-            <GeneralTaskWorkspace />
+            <GeneralTaskWorkspace newTaskRequest={generalNewTask} onNewTaskRequestHandled={() => setGeneralNewTask(0)} />
           ) : surface === "coding" ? (
             <PatchRunWorkspace />
           ) : surface === "settings" ? (
@@ -3740,7 +3803,7 @@ export function App() {
                 streamedText={streamedText}
                 loading={loadingSession}
                 onPromptSelect={setTask}
-                onReview={openReviewSetup}
+                onReview={labs ? openReviewSetup : undefined}
               />
               <Composer
                 task={task}

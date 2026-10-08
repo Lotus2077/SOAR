@@ -45,6 +45,8 @@ const environmentSchema = z.object({
   SOAR_ALLOW_INSECURE_VLLM_HTTP: booleanString,
   SOAR_PROVIDER_MODE: z.enum(["local", "fake"]).default("local"),
   SOAR_ENABLE_HYBRID_SIMULATION: booleanString,
+  /** Shows the legacy tracks (investigator, change review, coding pilot, hybrid simulation); off by default since PR-F. */
+  SOAR_ENABLE_LABS: booleanString,
   SOAR_HYBRID_SIMULATION_FAKE_CLOUD_SCENARIO: z
     .enum(["success", "provider_error"])
     .default("success"),
@@ -79,6 +81,7 @@ export interface SoarConfig {
   providerMode: "local" | "fake";
   /** Main-process-only authority. Valid only with the deterministic fake catalog. */
   hybridSimulationEnabled: boolean;
+  labsEnabled?: boolean;
   fakeCloudScenario: "success" | "provider_error";
   fakeDelayMs: number;
   vllm: {
@@ -121,6 +124,25 @@ export interface LoadConfigOptions {
   userDataPath?: string;
   cwd?: string;
   environment?: NodeJS.ProcessEnv;
+}
+
+/**
+ * The operator acknowledgments a non-loopback model endpoint needs before the app (or any tool acting for it)
+ * sends a key or a request to it. Shared with `pnpm setup:general` so the doctor cannot report ready for a
+ * configuration the app refuses.
+ */
+export function vllmEndpointPolicyIssue(raw: { SOAR_VLLM_BASE_URL?: string; SOAR_VLLM_COST_POLICY?: string; SOAR_ALLOW_INSECURE_VLLM_HTTP?: string }): string | undefined {
+  if (!raw.SOAR_VLLM_BASE_URL) return;
+  let url: URL;
+  try { url = new URL(raw.SOAR_VLLM_BASE_URL); } catch { return "SOAR_VLLM_BASE_URL is not a valid URL."; }
+  const isLoopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(url.hostname);
+  if (!isLoopback && raw.SOAR_VLLM_COST_POLICY !== "local_zero_cost") {
+    return "Remote vLLM requires an explicit SOAR_VLLM_COST_POLICY=local_zero_cost operator declaration; SOAR cannot independently verify endpoint billing.";
+  }
+  if (url.protocol === "http:" && !isLoopback && raw.SOAR_ALLOW_INSECURE_VLLM_HTTP !== "true") {
+    return "Remote plaintext vLLM requires SOAR_ALLOW_INSECURE_VLLM_HTTP=true in the machine-local environment.";
+  }
+  return;
 }
 
 export function loadEnvironmentFiles(options: LoadConfigOptions): NodeJS.ProcessEnv {
@@ -173,29 +195,13 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
       "SOAR_TEST_CREDENTIAL_OPERATION_STATE requires SOAR_PROVIDER_MODE=fake and SOAR_TEST_WORKSPACE.",
     );
   }
-  const url = new URL(env.SOAR_VLLM_BASE_URL);
-  const isLoopback = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(
-    url.hostname,
-  );
-
-  if (
-    !isLoopback &&
-    rawEnvironment.SOAR_VLLM_COST_POLICY !== "local_zero_cost"
-  ) {
-    throw new Error(
-      "Remote vLLM requires an explicit SOAR_VLLM_COST_POLICY=local_zero_cost operator declaration; SOAR cannot independently verify endpoint billing.",
-    );
-  }
-
-  if (url.protocol === "http:" && !isLoopback && !env.SOAR_ALLOW_INSECURE_VLLM_HTTP) {
-    throw new Error(
-      "Remote plaintext vLLM requires SOAR_ALLOW_INSECURE_VLLM_HTTP=true in the machine-local environment.",
-    );
-  }
+  const endpointIssue = vllmEndpointPolicyIssue(rawEnvironment);
+  if (endpointIssue) throw new Error(endpointIssue);
 
   return {
     providerMode: env.SOAR_PROVIDER_MODE,
     hybridSimulationEnabled: env.SOAR_ENABLE_HYBRID_SIMULATION,
+    labsEnabled: env.SOAR_ENABLE_LABS,
     fakeCloudScenario:
       env.SOAR_HYBRID_SIMULATION_FAKE_CLOUD_SCENARIO,
     fakeDelayMs: env.SOAR_FAKE_DELAY_MS,

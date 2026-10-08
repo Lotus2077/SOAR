@@ -35,7 +35,7 @@ day-to-day administration, and (at lower priority) coding.
 | Cloud comparison | Not yet run. The Phase 2 fair test compares local and `gpt-6-sol` through the same loop, on public or synthetic tasks. |
 | Tier O (private data) | Blocked until the box checklist, an encrypted tunnel, telemetry-off checks and an owner approval are recorded. |
 | Coding pilot | Opt-in "Fix a repository" flow with cloud execution in isolated containers. |
-| Legacy tracks | Repository Investigator, Review Current Changes and the hybrid simulation are still wired but frozen. They will be flagged off. The PR6R canary and held-out evaluator were removed; they remain at tag `archive/router-era-2026-09-28`. |
+| Legacy tracks | Repository Investigator, Review Current Changes, the coding pilot and the hybrid simulation stay wired but are hidden unless `SOAR_ENABLE_LABS=true`; the general task is the default surface and the ⌘N target. The PR6R canary and held-out evaluator were removed; they remain at tag `archive/router-era-2026-09-28`. |
 
 ## Setup
 
@@ -78,6 +78,7 @@ Two read-only diagnostics are available:
 | `pnpm dev` | Run the desktop app |
 | `pnpm check` | Readiness and build-log validation, typecheck, tests, build (about 40 s) |
 | `pnpm test:e2e` | Electron end-to-end tests (after `pnpm build`) |
+| `pnpm setup:general` | Doctor for the general task runtime: Node, Docker, the qualified image, the model endpoint; `--write` records the image id and profile in the app's user-data settings |
 | `pnpm check:general-consultant` | Check the optional consultant environment without printing values |
 | `pnpm setup:patch-pilot` / `pnpm dev:patch` | Coding pilot setup and cloud-only launch |
 | `pnpm check:release-head` | Release-only gate on a clean committed head |

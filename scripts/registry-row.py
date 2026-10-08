@@ -62,6 +62,10 @@ def main() -> int:
         "runStatus": result.get("status"), "terminalCause": result.get("reason"),
         "outcome": args.outcome, "criticalChecks": args.critical_checks, "verdictBy": args.verdict_by,
         "ownerMinutes": args.owner_minutes, "interventions": args.interventions, "lesson": args.lesson,
+        # Research tasks: the host's entailment pass (PR-J2), counts only; a judge verdict is evidence, not acceptance.
+        "entailment": next(({"counts": event.get("counts"), "entailmentCalls": event.get("entailmentCalls"), "truncated": event.get("truncated"),
+            "supportRate": round(event["counts"]["supported"] / max(1, sum(event["counts"].values())), 3) if isinstance(event.get("counts"), dict) else None}
+            for event in reversed(events) if event.get("type") == "claims_entailment"), None),
     }
     print(json.dumps(row, sort_keys=True))
     return 0

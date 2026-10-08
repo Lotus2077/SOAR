@@ -9,7 +9,7 @@ import { GeneralTaskCreateInputSchema, GeneralTaskArtifactRefSchema, GeneralTask
   GeneralTaskConsultationRefSchema, GeneralTaskConsultationDecisionSchema, GeneralTaskBundleRefSchema,
   type GeneralTaskCreateInput, type GeneralTaskSnapshot, type GeneralTaskInputSelection, type GeneralTaskInputFile,
   type GeneralTaskAvailability, type GeneralTaskArtifactRef, type GeneralTaskPublicSources, type GeneralTaskBundleRef,
-  type GeneralTaskConsultationRef, type GeneralTaskConsultationDecision, type GeneralTaskConsultationPreview } from "../../shared/general-task-contracts";
+  type GeneralTaskConsultationRef, type GeneralTaskConsultationDecision, type GeneralTaskConsultationPreview, type GeneralTaskEntailment } from "../../shared/general-task-contracts";
 import { canonical, digest, exactText } from "../private-agent/contracts";
 import { PrivateAgentStore, UnknownRequestDiagnosticSchema } from "../private-agent/store";
 import { PrivateAgentBroker, isPublicAddress, type BrokerDestination } from "../private-agent/broker";
@@ -26,7 +26,7 @@ import type { ConsultantProfile } from "./consultant-config";
 import { bundleManifest, buildArtifactBundle } from "./artifact-bundle";
 import { EXECUTION_PROGRESS_STOP, readExecutionProgressStop, hasUnresolvedExecutionProgressAction } from "../private-agent/progress";
 import { COORDINATOR_PROFILES, DEFAULT_COORDINATOR_PROFILE, GENERAL_TASK_BUDGETS, type CoordinatorProfileName } from "../private-agent/profiles";
-import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, claimsInstructions, claimsLedgerCheck } from "../private-agent/claims";
+import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, claimsInstructions, claimsLedgerCheck, isEntailmentDispatch } from "../private-agent/claims";
 
 /** The September desktop budget; the active budget comes from the configured profile. */
 export const GENERAL_TASK_LIMITS = GENERAL_TASK_BUDGETS.standard;
@@ -66,6 +66,7 @@ const summaries: Record<string, string> = {
   public_source_retained: "Public source bytes and retrieval receipt saved.",
   consultation_proposed: "Consultation packet frozen. Nothing has been sent to the consultant.",
   consultation_decision: "Consultation decision recorded.", consultation_attempted: "Using the approved consultation allowance.",
+  claims_entailment: "Claim support judged by the local model and recorded as evidence.",
   consultation_response: "Consultant response saved as untrusted advice.",
 };
 interface TaskRecord {
@@ -73,6 +74,7 @@ interface TaskRecord {
   status: GeneralTaskSnapshot["status"]; reason: string; inputs: GeneralTaskInputFile[]; inputSnapshot: WorkspaceSnapshot;
   snapshot: WorkspaceSnapshot; phaseIdentity: string; configurationIdentity: string; attestationIdentity: string;
   startedAt: number | null; checks: { id: string; passed: boolean }[];
+  entailment?: GeneralTaskEntailment;
   publicSources?: GeneralTaskPublicSources;
   routing?: "ask_before_consulting";
   consultantIdentity?: string;
@@ -287,7 +289,7 @@ export class GeneralTaskController {
 
   private uncertain(events: Record<string, unknown>[], id: string): boolean {
     const stopped = this.progressStop(events, id);
-    return readConsultation(this.runtime, id)?.uncertain === true || this.runtime.dispatches(id).some(row => row.status !== "settled") || hasInvalidModelRequestSizeStop(events) ||
+    return readConsultation(this.runtime, id)?.uncertain === true || this.runtime.dispatches(id).some(row => row.status !== "settled" && !isEntailmentDispatch(row)) || hasInvalidModelRequestSizeStop(events) ||
       this.unresolvedProgressAction(events, id) || events.some(event => event.type === "model_action_not_started" &&
       (!stopped || canonical(event) !== canonical(stopped)) ||
       ["model_started", "tool_started", "host_validation_started"].includes(String(event.type)) && !modelRequestSizeStop(events, event) &&
@@ -349,8 +351,10 @@ export class GeneralTaskController {
     const uncertain = this.uncertain(events, id), expired = record.startedAt !== null && Date.now() - record.startedAt >= this.budget().elapsedMs;
     const sizeStopped = events.some(event => modelRequestSizeStop(events, event));
     const progressStopped = this.progressStop(events, id);
+    // A durable private completion only needs finalisation (submission and the evidence pass), which no allowance or deadline gates.
+    const finalising = contextId !== undefined && events.some(event => event.type === "completed" && event.contextId === contextId);
     const canResume = !this.closing && !active && (record.status === "paused" || record.status === "incomplete" && record.reason === "interrupted") &&
-      models < this.budget().modelCalls && tools < this.budget().toolCalls && !uncertain && !sizeStopped && !progressStopped && !expired && consultation?.status !== "pending" &&
+      (finalising || models < this.budget().modelCalls && tools < this.budget().toolCalls && !expired) && !uncertain && !sizeStopped && !progressStopped && consultation?.status !== "pending" &&
       !(consultation?.status === "approved" && models > this.budget().modelCalls - 2);
     const reason = !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : progressStopped ? EXECUTION_PROGRESS_STOP : expired ? "deadline" :
       consultation?.status === "pending" ? "consultation_pending" : record.reason : record.reason;
@@ -383,7 +387,7 @@ export class GeneralTaskController {
       elapsedMs: Math.min(this.budget().elapsedMs, record.startedAt === null ? 0 : record.version === 3 ?
         (["queued", "running", "paused"].includes(record.status) || record.reason === "interrupted" ? Date.now() : record.updatedAt) - record.startedAt :
         active ? Date.now() - record.startedAt : ended.reduce((sum, event) => sum + Number(event.elapsedMs ?? 0), 0)),
-      checks: structuredClone(record.checks), cleanupConfirmed, independentAcceptance: "not_evaluated", canResume,
+      checks: structuredClone(record.checks), ...(record.entailment ? { entailment: structuredClone(record.entailment) } : {}), cleanupConfirmed, independentAcceptance: "not_evaluated", canResume,
       events: events.map((event, i) => ({ sequence: i + 1, type: String(event.type),
         summary: event.type === "model_action_not_started" && event.reason === EXECUTION_PROGRESS_STOP ?
           progressStopped && canonical(event) === canonical(progressStopped) ? "The unchanged failed command was stopped before execution." :
@@ -457,8 +461,9 @@ export class GeneralTaskController {
       if (active.cancelRequested || active.abort.signal.aborted) return;
       if (active.pauseRequested) { record.status = "paused"; record.reason = "paused"; this.save(record); return; }
       const remaining = this.budget().elapsedMs - (Date.now() - record.startedAt!);
-      if (remaining <= 0) { record.status = "incomplete"; record.reason = "deadline"; this.save(record); return; }
-      deadline = setTimeout(() => active.abort.abort(), remaining);
+      const priorContext = this.contextId(id), finalising = priorContext !== undefined && this.runtime.events(id).some(event => event.type === "completed" && event.contextId === priorContext);
+      if (remaining <= 0 && !finalising) { record.status = "incomplete"; record.reason = "deadline"; this.save(record); return; }
+      if (remaining > 0) deadline = setTimeout(() => active.abort.abort(), remaining);
       const checkpoints = this.checkpoints(id), phase = this.phase(record, checkpoints.load(record.inputSnapshot));
       if (sessionPhaseIdentity(phase) !== record.phaseIdentity || this.attestation(record) !== record.attestationIdentity) throw new Error("general_task_input_changed");
       const consultant = record.version === 3 ? this.consultant(record) : undefined;
@@ -477,11 +482,14 @@ export class GeneralTaskController {
       const result = await session.run(active.abort.signal), next = this.record(id);
       const events = this.runtime.events(id), ended = events.filter(event => event.type === "run_ended");
       const preserved = next.configurationIdentity === this.configurationIdentity(next);
-      const submitted = result.status === "submitted" && preserved && !active.cancelRequested && !active.abort.signal.aborted &&
+      // The session writes session_submitted only after its own synchronous deadline and cancel checks; a later abort or cancel can only shorten the evidence pass.
+      const submitted = result.status === "submitted" && preserved &&
         ended.at(-1)?.cleanupConfirmed === true && !this.uncertain(events, id) && events.some(event => event.type === "session_submitted");
       next.snapshot = result.finalSnapshot.length ? result.finalSnapshot : next.snapshot;
       next.checks = ([...events].reverse().find(event => event.type === "completed")?.checks as TaskRecord["checks"] | undefined) ?? [];
-      next.status = active.cancelRequested ? "cancelled" : submitted ? "submitted" : result.status === "paused" ? "paused" : "incomplete";
+      const judged = [...events].reverse().find(event => event.type === "claims_entailment") as { verdicts: GeneralTaskEntailment["claims"]; counts: GeneralTaskEntailment["counts"]; entailmentCalls: number; truncated: boolean } | undefined;
+      if (judged) next.entailment = { counts: judged.counts, entailmentCalls: judged.entailmentCalls, truncated: judged.truncated, claims: judged.verdicts };
+      next.status = submitted ? "submitted" : active.cancelRequested ? "cancelled" : result.status === "paused" ? "paused" : "incomplete";
       next.reason = !preserved ? "configuration_changed" : result.reason === "consultation_pending" ? "consultation_pending" :
         result.reason === MODEL_REQUEST_SIZE_STOP ? MODEL_REQUEST_SIZE_STOP : next.status; this.save(next);
     } catch (error) {

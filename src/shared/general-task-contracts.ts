@@ -75,6 +75,13 @@ export interface GeneralTaskAvailability {
   executionMode: "local" | "scripted" | "unavailable";
   consultation?: { available: boolean; reason: string; model?: string };
 }
+export type GeneralTaskEntailmentVerdict = "supported" | "partial" | "unsupported" | "contradicted" | "not_judged";
+export interface GeneralTaskEntailment {
+  counts: Record<GeneralTaskEntailmentVerdict, number>;
+  entailmentCalls: number;
+  truncated: boolean;
+  claims: { id: string; verdict: GeneralTaskEntailmentVerdict; reason?: string }[];
+}
 export interface GeneralTaskSnapshot {
   id: string;
   goal: string;
@@ -95,6 +102,8 @@ export interface GeneralTaskSnapshot {
   toolCalls: number;
   elapsedMs: number;
   checks: { id: string; passed: boolean }[];
+  /** Research tasks: the host's per-claim entailment verdicts (local model, thinking off). Evidence, not acceptance. */
+  entailment?: GeneralTaskEntailment;
   cleanupConfirmed: boolean;
   independentAcceptance: "not_evaluated";
   events: { sequence: number; type: string; summary: string }[];

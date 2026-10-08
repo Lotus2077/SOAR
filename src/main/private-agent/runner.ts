@@ -13,7 +13,8 @@ import { EXECUTION_OBSERVATION_MAX_BYTES, EXECUTION_OBSERVATION_BUDGET_BYTES, RE
   readObservationArguments, ObservationIntegrityError, retainExecutionObservation, readExecutionObservation,
   projectExecutionObservations, verifyExecutionObservations } from "./observations";
 import { capabilitiesForImage } from "./capabilities";
-import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_RETAINED_ENV, encodeRetainedClaimsSources, publicSourceWorkspacePath, type RetainedClaimsSource } from "./claims";
+import { CLAIMS_CONTEXT_CHARS, CLAIMS_CONTEXT_ENV, CLAIMS_LEDGER_CHECK_ID, CLAIMS_RETAINED_ENV, CheckClaimsOutputSchema, ClaimsVerifiedClaimSchema,
+  encodeRetainedClaimsSources, isEntailmentDispatch, publicSourceWorkspacePath, type RetainedClaimsSource } from "./claims";
 import { EXECUTION_PROGRESS_POLICY, EXECUTION_PROGRESS_STOP, deriveExecutionProgress, executionProgressBlocks,
   executionProgressStop, readExecutionProgressStop, hasUnresolvedExecutionProgressAction } from "./progress";
 
@@ -86,11 +87,12 @@ const consultationArguments = z.object({ question: z.string().min(1).max(4000), 
 const CLAIMS_TOOL: GeneralToolDefinition = { type: "function", function: { name: "check_claims", description: "Run the host's claims-ledger check on output/claims.json and the report without changing any file. Returns each claim's quote verification and host-computed locator plus citation and section results, so you can repair before finish.",
   parameters: { type: "object", properties: {}, additionalProperties: false } } };
 const noArguments = z.object({}).strict();
-/** A host-owned check as one sandbox command; the script is a host value, never a workspace file. The claims check also receives the host's retained sources. */
-export function checkCommand(check: ArtifactCheck, retained?: RetainedClaimsSource[]): string {
-  const env = check.id === CLAIMS_LEDGER_CHECK_ID ? `${CLAIMS_RETAINED_ENV}='${encodeRetainedClaimsSources(retained ?? [])}' ` : "";
+/** A host-owned check as one sandbox command; the script is a host value, never a workspace file. The claims check also receives the host's retained sources, and at finish asks for source windows. */
+export function checkCommand(check: ArtifactCheck, retained?: RetainedClaimsSource[], context = false): string {
+  const env = check.id === CLAIMS_LEDGER_CHECK_ID ? `${CLAIMS_RETAINED_ENV}='${encodeRetainedClaimsSources(retained ?? [])}' ${context ? `${CLAIMS_CONTEXT_ENV}='1' ` : ""}` : "";
   return `${env}python3 -I -c '${exactText(check.python).replace(/'/gu, "'\\''")}'`;
 }
+const CLAIMS_OUTPUT_MAX_BYTES = 256 * 1024;
 
 const BUDGET_GUIDANCE = "Current host budget (remaining model/tool calls include this turn; broker requests are shared with public fetches; milliseconds cover this runner's remaining active time). Earlier cancellation or session limits still apply. Invalid actions consume their model and tool allowances. Use finish to request early host checks. At ordinary model/tool allowance exhaustion after a valid action, the host may check the frozen artifacts once without another model call. Reserve enough active time for host checks; these values grant no additional authority.";
 interface RemainingBudget {
@@ -224,6 +226,8 @@ export class GeneralAgentRunner {
     let ownsClaim = false;
     let endpoint = "";
     let completionPending = false;
+    // Judge dispatches (the session's entailment pass) are never replayed and never gate completion.
+    const unsettledDispatch = () => store.dispatches(jobId).some(receipt => receipt.status !== "settled" && !isEntailmentDispatch(receipt));
     const started = performance.now();
     const finish = (status: GeneralJobResult["status"], reason: string): GeneralJobResult => ({ status, reason, snapshot, checks, modelCalls: this.options.consultation ? this.history().filter(event => event.type === "model_started").length + this.options.consultation.modelCalls() : calls });
     try {
@@ -246,7 +250,8 @@ export class GeneralAgentRunner {
         ...(claimsCheck ? [CLAIMS_TOOL] : [])];
       // Bind the actual static prompt and protocol, not just the owner's task.
       // Historical runs under the earlier prompt must not silently resume here.
-      const promptProtocolSha256 = digest(canonical({ version: this.options.consultation ? 17 : 16, prompt, definitions,
+      const promptProtocolSha256 = digest(canonical({ version: this.options.consultation ? 19 : 18, prompt, definitions,
+        claimsVerified: { version: 1, contextChars: CLAIMS_CONTEXT_CHARS },
         executionProgressPolicy: EXECUTION_PROGRESS_POLICY, capabilitiesIdentity: capabilities.identity,
         executionObservationPolicy: { version: 1, maxBytes: EXECUTION_OBSERVATION_MAX_BYTES, budgetBytes: EXECUTION_OBSERVATION_BUDGET_BYTES },
         publicSourceObservationBytes: PUBLIC_SOURCE_OBSERVATION_BYTES,
@@ -278,7 +283,7 @@ export class GeneralAgentRunner {
           history.some(event => event.type === "host_validation_started" && !history.some(other => other.type === "host_validation_finished" && other.operationId === event.operationId))) {
         return finish("incomplete", "unresolved_operation_no_replay");
       }
-      if (store.dispatches(jobId).some(receipt => receipt.status !== "settled")) return finish("incomplete", "unresolved_dispatch_no_replay");
+      if (unsettledDispatch()) return finish("incomplete", "unresolved_dispatch_no_replay");
       readPublicSources(store, checkpoints, jobId, contextId);
       calls = history.filter(event => event.type === "model_started").length + (this.options.consultation?.modelCalls() ?? 0);
       tools = history.filter(event => event.type === "tool_started").length;
@@ -338,7 +343,7 @@ export class GeneralAgentRunner {
         if (!sandbox) return finish("incomplete", "execution_context_unavailable");
         if (this.pauseRequested) { this.record({ type: "paused" }); return finish("paused", "checkpoint_saved"); }
         if (boundedSignal.aborted || store.policy(jobId).cancelled) return finish("incomplete", "cancelled_or_deadline");
-        if (store.dispatches(jobId).some(receipt => receipt.status !== "settled")) return finish("incomplete", "unresolved_dispatch_no_replay");
+        if (unsettledDispatch()) return finish("incomplete", "unresolved_dispatch_no_replay");
         const budget: RemainingBudget = { remainingModelCalls: contract.maxModelCalls - calls,
           remainingToolCalls: contract.maxToolCalls - tools,
           remainingBrokerRequests: Math.max(0, store.policy(jobId).maxRequests - store.dispatches(jobId).length),
@@ -505,9 +510,11 @@ export class GeneralAgentRunner {
             // exactly these immutable bytes, never a second mutable capture.
             await execution.close(); sandbox = undefined;
             const missing = contract.requiredArtifacts.filter(artifact => !files.some(file => file.path === artifact.path && file.bytes.length));
-            checks = missing.length ? [] : await this.verify(files, boundedSignal, endpoint);
+            const verified = missing.length ? { checks: [] } : await this.verify(files, boundedSignal, endpoint);
+            checks = verified.checks;
             complete = !missing.length && checks.length === contract.requiredChecks.length && checks.every(check => check.passed);
             output = canonical({ complete, missingArtifacts: missing.map(artifact => artifact.path), checks });
+            if (complete) this.recordVerifiedClaims(verified.claimsOutput);
             if (!complete) sandbox = await DockerSandbox.create({ imageId, jobId, contextId, endpoint, files,
               lifetimeSeconds: sandboxLifetime(contract.maxElapsedMs - elapsed - (performance.now() - started)) });
           } else throw new Error("tool_unknown");
@@ -516,7 +523,7 @@ export class GeneralAgentRunner {
           allowanceFinalizationEligible = action.function.name !== "finish" && action.function.name !== "request_consultation";
         } catch (error) {
           if (error instanceof ObservationIntegrityError) throw error;
-          if (store.dispatches(jobId).some(receipt => receipt.status !== "settled")) return finish("incomplete", "unresolved_dispatch_no_replay");
+          if (unsettledDispatch()) return finish("incomplete", "unresolved_dispatch_no_replay");
           if (publicResponseReceived) return finish("incomplete", "public_source_retention_or_text_failed");
           if (!sandbox) throw new Error("verification_or_cleanup_incomplete");
           // Never return host paths, raw exceptions, provider diagnostics or verifier gold.
@@ -562,7 +569,7 @@ export class GeneralAgentRunner {
       // another model call on finish. All early failure/unknown returns bypass this.
       if (this.pauseRequested) { this.record({ type: "paused" }); return finish("paused", "checkpoint_saved"); }
       if (boundedSignal.aborted || store.policy(jobId).cancelled || elapsed + performance.now() - started >= contract.maxElapsedMs) return finish("incomplete", "cancelled_or_deadline");
-      if (store.dispatches(jobId).some(receipt => receipt.status !== "settled")) return finish("incomplete", "unresolved_dispatch_no_replay");
+      if (unsettledDispatch()) return finish("incomplete", "unresolved_dispatch_no_replay");
       if (sandbox && allowanceFinalizationEligible) {
         const operationId = randomUUID();
         this.record({ type: "host_validation_started", operationId, trigger: "model_or_tool_allowance_exhausted" });
@@ -572,10 +579,12 @@ export class GeneralAgentRunner {
         await sandbox.close(); sandbox = undefined;
         if (boundedSignal.aborted || store.policy(jobId).cancelled || elapsed + performance.now() - started >= contract.maxElapsedMs) return finish("incomplete", "cancelled_or_deadline");
         const missing = contract.requiredArtifacts.filter(artifact => !files.some(file => file.path === artifact.path && file.bytes.length));
-        checks = missing.length ? [] : await this.verify(files, boundedSignal, endpoint);
+        const verified = missing.length ? { checks: [] } : await this.verify(files, boundedSignal, endpoint);
+        checks = verified.checks;
         const passed = !missing.length && checks.length === contract.requiredChecks.length && checks.every(check => check.passed);
         this.record({ type: "host_validation_finished", operationId, passed, checks,
           missingArtifacts: missing.map(artifact => artifact.path), verifiedSnapshotSha256: checkpoints.fingerprint(snapshot) });
+        if (passed) this.recordVerifiedClaims(verified.claimsOutput);
         if (passed) { readPublicSources(store, checkpoints, jobId, contextId); verifyExecutionObservations(observationScope); completionPending = true; return finish("completed", "critical_checks_passed_at_allowance"); }
       }
       return finish("incomplete", "bounded_allowance_exhausted");
@@ -596,7 +605,7 @@ export class GeneralAgentRunner {
         if (ownsClaim) {
           this.record({ type: "run_ended", elapsedMs: Math.ceil(performance.now() - started), cleanupConfirmed });
           if (completionPending && cleanupConfirmed && !store.policy(jobId).cancelled && !signal.aborted &&
-              elapsed + performance.now() - started < contract.maxElapsedMs && store.dispatches(jobId).every(receipt => receipt.status === "settled")) {
+              elapsed + performance.now() - started < contract.maxElapsedMs && !unsettledDispatch()) {
             this.record({ type: "completed", snapshot, checks, verifiedSnapshotSha256: checkpoints.fingerprint(snapshot) });
           }
           store.releaseRun(contextId, ownerId, cleanupConfirmed);
@@ -604,7 +613,7 @@ export class GeneralAgentRunner {
         this.running = false; this.activeAbort = undefined;
       }
       if (ownsClaim && !cleanupConfirmed) return finish("incomplete", "cleanup_required");
-      if (completionPending && store.dispatches(jobId).some(receipt => receipt.status !== "settled")) return finish("incomplete", "unresolved_dispatch_no_replay");
+      if (completionPending && unsettledDispatch()) return finish("incomplete", "unresolved_dispatch_no_replay");
       if (completionPending && (store.policy(jobId).cancelled || signal.aborted)) return finish("incomplete", "cancelled_before_completion");
       if (completionPending && elapsed + performance.now() - started >= contract.maxElapsedMs) return finish("incomplete", "deadline_before_completion");
     }
@@ -628,21 +637,43 @@ export class GeneralAgentRunner {
       .map(source => ({ url: source.url, path: publicSourceWorkspacePath(source.url), sha256: source.sha256, bytes: source.bytes }));
   }
 
-  private async verify(files: { path: string; bytes: Buffer }[], signal: AbortSignal, endpoint: string): Promise<GeneralJobResult["checks"]> {
+  /**
+   * Records the claims the finish-time check verified (with their source windows) for the session's entailment
+   * pass, which runs only after this job's completion is durable. Judging never happens inside the loop.
+   */
+  private recordVerifiedClaims(claimsOutput: string | undefined): void {
+    if (claimsOutput === undefined) return;
+    try {
+      const parsed = CheckClaimsOutputSchema.parse(JSON.parse(claimsOutput));
+      // Validated claim by claim: one hostile sentence or source window loses only its own judgement.
+      const claims: ReturnType<typeof ClaimsVerifiedClaimSchema.parse>[] = [], invalid: string[] = [];
+      for (const claim of parsed.claims) {
+        if (!claim.found || claim.sentence === undefined || claim.quote === undefined || claim.context === undefined) continue;
+        try { claims.push(ClaimsVerifiedClaimSchema.parse({ id: claim.id, sentence: exactText(claim.sentence), quote: exactText(claim.quote), context: exactText(claim.context), ...(claim.locator ? { locator: exactText(claim.locator) } : {}) })); }
+        catch { invalid.push(claim.id); }
+      }
+      this.record({ type: "claims_verified", version: 1, claims, ...(invalid.length ? { invalidClaimIds: invalid } : {}) });
+    } catch { this.record({ type: "claims_verified", version: 1, claims: [], reason: "claims_output_invalid" }); }
+  }
+
+  private async verify(files: { path: string; bytes: Buffer }[], signal: AbortSignal, endpoint: string): Promise<{ checks: GeneralJobResult["checks"]; claimsOutput?: string }> {
     // The frozen snapshot's sources/ copies are replaced by the host's retained bytes: a model edit there never reaches a check.
     const retained = this.retainedSources(), retainedPaths = new Set(retained.map(source => source.path));
     const verified = [...files.filter(file => !retainedPaths.has(file.path)), ...retained.map(source => ({ path: source.path, bytes: source.bytes }))];
     const verifier = await DockerSandbox.create({ imageId: this.options.imageId, jobId: this.options.jobId,
       contextId: this.options.contextId, endpoint, files: verified, lifetimeSeconds: Math.min(PRIVATE_SANDBOX_LIMITS.lifetimeSeconds, 120 + 110 * this.options.checks.length) });
     try {
-      const results: GeneralJobResult["checks"] = [];
+      const results: GeneralJobResult["checks"] = []; let claimsOutput: string | undefined;
       for (const check of this.options.checks) {
         // -I excludes candidate modules/PYTHONPATH and user-site packages. The
         // embedded script is a host-owned value, not a mutable workspace file.
-        try { const response = await verifier.execute(checkCommand(check, retained), { signal, timeoutMs: 90000 }); results.push({ id: check.id, passed: response.exitCode === 0 }); }
-        catch { results.push({ id: check.id, passed: false }); }
+        try {
+          const response = await verifier.execute(checkCommand(check, retained, check.id === CLAIMS_LEDGER_CHECK_ID), { signal, timeoutMs: 90000 });
+          results.push({ id: check.id, passed: response.exitCode === 0 });
+          if (check.id === CLAIMS_LEDGER_CHECK_ID && response.exitCode === 0) claimsOutput = response.stdout.slice(0, CLAIMS_OUTPUT_MAX_BYTES);
+        } catch { results.push({ id: check.id, passed: false }); }
       }
-      return results;
+      return { checks: results, ...(claimsOutput === undefined ? {} : { claimsOutput }) };
     } finally { await verifier.close(); }
   }
 }

@@ -91,20 +91,24 @@ export class PrivateAgentModel {
     this.config = Object.freeze({ ...config, maxRequestBytes, ...(config.sampling ? { sampling: Object.freeze({ ...config.sampling }) } : {}) });
   }
 
-  async complete(messages: GeneralMessage[], tools: GeneralToolDefinition[], signal: AbortSignal): Promise<ProviderResult> {
-    const body = canonical({ model: this.config.model, messages, tools, tool_choice: "auto",
-      parallel_tool_calls: false, stream: false, max_tokens: this.config.maxOutputTokens,
-      ...(this.config.thinking === "disabled" ? { chat_template_kwargs: { enable_thinking: false } } : { reasoning_effort: "medium", ...(this.config.sampling ?? {}) }),
+  /** Host-side calls (the entailment judge) narrow the same destination to thinking off and a short reply; they never widen anything. */
+  async complete(messages: GeneralMessage[], tools: GeneralToolDefinition[], signal: AbortSignal,
+    overrides?: { thinking?: "disabled"; maxOutputTokens?: number; purpose?: string }): Promise<ProviderResult> {
+    const thinking = overrides?.thinking ?? this.config.thinking, maxOutputTokens = Math.min(this.config.maxOutputTokens, overrides?.maxOutputTokens ?? this.config.maxOutputTokens);
+    // An OpenAI-compatible server rejects an empty `tools` array, so a tool-less call (the entailment judge) omits the tool fields.
+    const body = canonical({ model: this.config.model, messages, ...(tools.length ? { tools, tool_choice: "auto", parallel_tool_calls: false } : {}),
+      stream: false, max_tokens: maxOutputTokens,
+      ...(thinking === "disabled" ? { chat_template_kwargs: { enable_thinking: false } } : { reasoning_effort: "medium", ...(this.config.sampling ?? {}) }),
     });
     const bodyBytes = Buffer.byteLength(body), limitBytes = this.config.maxRequestBytes ?? BROKER_MAX_BODY_BYTES;
     if (bodyBytes > limitBytes) throw new ModelRequestBodyTooLarge(bodyBytes, limitBytes);
-    const reservation = Math.ceil(bodyBytes * this.config.inputUsdPerMillion + this.config.maxOutputTokens * this.config.outputUsdPerMillion);
+    const reservation = Math.ceil(bodyBytes * this.config.inputUsdPerMillion + maxOutputTokens * this.config.outputUsdPerMillion);
     let decoded: z.infer<typeof responseSchema> | undefined;
     const started = performance.now();
     const result = await this.broker.request({ jobId: this.jobId, contextId: this.contextId, destinationId: this.config.destinationId,
-      purpose: "agent reasoning and tool selection", method: "POST", body, maxFeeMicrousd: reservation, signal }, bytes => {
+      purpose: overrides?.purpose ?? "agent reasoning and tool selection", method: "POST", body, maxFeeMicrousd: reservation, signal }, bytes => {
       decoded = responseSchema.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)));
-      if (decoded.usage.completion_tokens > this.config.maxOutputTokens || decoded.usage.prompt_tokens > Buffer.byteLength(body)) throw new Error("model_usage_outside_envelope");
+      if (decoded.usage.completion_tokens > maxOutputTokens || decoded.usage.prompt_tokens > Buffer.byteLength(body)) throw new Error("model_usage_outside_envelope");
       return Math.ceil(decoded.usage.prompt_tokens * this.config.inputUsdPerMillion + decoded.usage.completion_tokens * this.config.outputUsdPerMillion);
     });
     if (!decoded) throw new Error("private_model_response_invalid");

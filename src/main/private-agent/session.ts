@@ -8,7 +8,7 @@ import { GeneralAgentRunner, GeneralJobContractSchema, type ArtifactCheck, type 
 import { readPublicSources } from "./public-sources";
 import type { GeneralConsultation } from "./consultation";
 import { readPublicSourceFiles } from "./public-sources";
-import { publicSourceWorkspacePath } from "./claims";
+import { ClaimsVerifiedSchema, ENTAILMENT_MAX_MS, ENTAILMENT_PROMPT_VERSION, ENTAILMENT_SYSTEM_PROMPT, isEntailmentDispatch, judgeClaims, publicSourceWorkspacePath, type EntailmentOutcome } from "./claims";
 
 export interface SessionFile { path: string; bytes: Buffer }
 export interface SessionPhase {
@@ -115,8 +115,10 @@ export class GeneralAgentSession {
       syntheticInputApproval: raw.syntheticInputApproval ? { ...raw.syntheticInputApproval } : undefined };
   }
 
-  pause(): void { this.pauseRequested = true; this.active?.pause(); }
-  cancel(): void { this.options.broker.cancelJob(this.options.jobId); this.active?.cancel(); }
+  pause(): void { this.pauseRequested = true; this.active?.pause(); this.passAbort?.abort(); }
+  cancel(): void { this.options.broker.cancelJob(this.options.jobId); this.active?.cancel(); this.passAbort?.abort(); }
+  /** Aborts the entailment pass's in-flight judge call on pause or cancel; the pass itself is otherwise bounded by its own clock. */
+  private passAbort?: AbortController;
 
   private events(): Record<string, unknown>[] { return this.options.store.events(this.options.jobId); }
   private context(phase: SessionPhase, contextId: string, classification: "private" | "public", lineage?: string): void {
@@ -129,6 +131,35 @@ export class GeneralAgentSession {
     if (existing) {
       if (existing.jobId !== this.options.jobId || sources.some(source => !existing.sources.some(item => canonical(item) === canonical(source)))) throw new Error("session_context_drift");
     } else this.options.store.createContext({ id: contextId, jobId: this.options.jobId, sources });
+  }
+
+  /**
+   * Entailment pass (PR-J2): judges the claims the runner recorded as verified, once per context, after the
+   * `completed` event exists. Verdicts are evidence beside the result; the pass is bounded by its own clock and
+   * the session signal, and a judge failure only leaves claims not judged.
+   */
+  private async entailment(contextId: string, model: PrivateAgentModel, cancel: AbortSignal): Promise<"judged" | "paused" | "skipped"> {
+    const events = this.events();
+    if (!events.some(event => event.type === "completed" && event.contextId === contextId)) return "skipped";
+    if (events.some(event => event.type === "claims_entailment" && event.contextId === contextId)) return "skipped";
+    const verified = [...events].reverse().find(event => event.type === "claims_verified" && event.contextId === contextId);
+    if (!verified) return "skipped";
+    let claims: ReturnType<typeof ClaimsVerifiedSchema.parse>["claims"];
+    try { claims = ClaimsVerifiedSchema.parse({ claims: verified.claims }).claims; } catch { return "skipped"; }
+    const invalid = Array.isArray(verified.invalidClaimIds) ? verified.invalidClaimIds.filter((id): id is string => typeof id === "string") : [];
+    if (!claims.length && !invalid.length) return "skipped";
+    // The pass runs on its own clock plus the caller's cancel; a pause stops it at a claim boundary and leaves the whole pass for the next resume.
+    const startedAt = performance.now(), passAbort = new AbortController(); this.passAbort = passAbort;
+    let outcome: EntailmentOutcome;
+    try {
+      outcome = await judgeClaims({ claims, signal: AbortSignal.any([cancel, passAbort.signal, AbortSignal.timeout(ENTAILMENT_MAX_MS)]), stop: () => this.pauseRequested,
+        remainingMs: () => ENTAILMENT_MAX_MS - (performance.now() - startedAt), complete: (messages, tools, judgeSignal, overrides) => model.complete(messages, tools, judgeSignal, overrides) });
+    } finally { this.passAbort = undefined; }
+    if (this.pauseRequested && outcome.truncated) return "paused";
+    for (const id of invalid) { outcome.verdicts.push({ id, verdict: "not_judged", reason: "claim_text_invalid" }); outcome.counts.not_judged++; }
+    this.options.store.append(this.options.jobId, { type: "claims_entailment", contextId, version: 1,
+      protocol: { version: ENTAILMENT_PROMPT_VERSION, promptSha256: digest(ENTAILMENT_SYSTEM_PROMPT) }, ...outcome });
+    return "judged";
   }
 
   private completed(contextId: string): GeneralJobResult | undefined {
@@ -199,8 +230,10 @@ export class GeneralAgentSession {
       const startedAt = start.startedAt;
       if (!Number.isSafeInteger(startedAt) || startedAt > Date.now()) return result("incomplete", "session_start_invalid");
       const remaining = limits.maxElapsedMs - (Date.now() - startedAt);
-      if (remaining <= 0) return result("incomplete", "session_deadline");
-      const boundedSignal = AbortSignal.any([signal, AbortSignal.timeout(remaining)]);
+      // A durable private completion only needs finalisation (submission, then the evidence pass); the wall deadline gates runner work.
+      const finalising = this.events().some(event => event.type === "completed" && event.contextId === privateContextId);
+      if (remaining <= 0 && !finalising) return result("incomplete", "session_deadline");
+      const boundedSignal = remaining > 0 ? AbortSignal.any([signal, AbortSignal.timeout(remaining)]) : signal;
       const runPhase = async (phase: SessionPhase, contextId: string, model: PrivateAgentModel, webDestinations?: string[], maxPublicFetches?: number) => {
         if (policyChanged()) return { status: "incomplete" as const, reason: policyReason(), snapshot: [], checks: [], modelCalls: 0 };
         const prior = this.completed(contextId); if (prior) return prior;
@@ -249,8 +282,10 @@ export class GeneralAgentSession {
       finalSnapshot = privateResult.snapshot;
       if (policyChanged()) return result("incomplete", policyReason());
       if (privateResult.status !== "completed") return result(privateResult.status, privateResult.reason);
-      if (store.dispatches(jobId).some(row => row.status !== "settled") || boundedSignal.aborted) return result("incomplete", "session_unresolved_or_deadline");
+      if (store.dispatches(jobId).some(row => row.status !== "settled" && !isEntailmentDispatch(row)) || signal.aborted) return result("incomplete", "session_unresolved_or_deadline");
       if (!this.events().some(event => event.type === "session_submitted")) store.append(jobId, { type: "session_submitted", snapshotSha256: checkpoints.fingerprint(finalSnapshot), independentAcceptanceRequired: true });
+      // Evidence after the fact: submission is durable, so the pass can only add verdicts; a pause leaves it for the next resume.
+      if (await this.entailment(privateContextId, privateModel, signal) === "paused") return result("paused", "session_stopped");
       return result("submitted", "independent_acceptance_pending");
     } finally { this.running = false; this.active = undefined; }
   }

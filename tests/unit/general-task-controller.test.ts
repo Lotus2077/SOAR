@@ -11,6 +11,7 @@ import { canonical, digest, contextFingerprint } from "../../src/main/private-ag
 import { GeneralAgentRunner, type GeneralJobOptions } from "../../src/main/private-agent/runner";
 import { DockerSandbox } from "../../src/main/private-agent/sandbox";
 import { EXECUTION_PROGRESS_STOP } from "../../src/main/private-agent/progress";
+import { PrivateAgentModel } from "../../src/main/private-agent/model";
 
 const cleanup: (() => Promise<void> | void)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const fn of cleanup.splice(0).reverse()) await fn(); });
@@ -37,7 +38,15 @@ function fixture() {
       store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
       const status = cancelled || signal?.aborted ? "incomplete" : paused ? "paused" : "completed";
       const checks = [{ id: "desktop_artifact_structure", passed: true }];
+      // A research phase (claims check configured) records what the finish-time check verified, as the runner does; the session judges after completion.
+      if (status === "completed" && args.checks.some(check => check.id === "research_claims_ledger")) store.append(jobId, { type: "claims_verified", contextId, version: 1,
+        claims: [{ id: "C1", sentence: "s1", quote: "q1 long enough", context: "c1" }, { id: "C2", sentence: "s2", quote: "q2 long enough", context: "c2" }] });
       if (status === "completed") store.append(jobId, { type: "completed", contextId, snapshot, checks, verifiedSnapshotSha256: checkpoints.fingerprint(snapshot) });
+      // One judge request of the entailment pass ended unknown: evidence only, it must not make the task uncertain.
+      if (status === "completed" && args.checks.some(check => check.id === "research_claims_ledger")) {
+        const { text: _text, ...preview } = args.broker.preview({ jobId, contextId, destinationId: "desktop_local", purpose: "claims entailment judgement", method: "POST", body: "{}", maxFeeMicrousd: 0 });
+        store.unknown(store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_inside_boundary" } }, () => {}).id);
+      }
       store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
       return { status, reason: "unit_fixture", snapshot, checks, modelCalls: executions.length };
     },
@@ -228,11 +237,45 @@ describe("desktop general-task host controller", () => {
     // Public sources are cited by their retrieved URL and resolved by the host at check time; no workspace path is promised in advance.
     expect(args.contract.goal).toContain("exact url that fetch_public reported");
     expect(args.contract.goal).not.toMatch(/sources\/[a-f0-9]{16}\.bin/u);
+    // The host's verdicts reach the task snapshot as evidence with a summary line; a plain task has none; an unknown judge dispatch leaves the task submitted.
+    expect(f.controller.get(task.id).status).toBe("submitted");
+    // No judge is reachable in this fixture: the pass records every claim as not judged and the task is still submitted with the evidence attached.
+    expect(f.controller.get(task.id).entailment).toMatchObject({ counts: { supported: 0, not_judged: 2 }, truncated: true, claims: [{ id: "C1", verdict: "not_judged" }, { id: "C2", verdict: "not_judged" }] });
+    expect(f.controller.get(task.id).events.some(event => event.type === "claims_entailment" && event.summary.includes("judged by the local model"))).toBe(true);
     const plain = f.create(); f.controller.start(plain.id); await f.controller.wait(plain.id);
     expect(f.executions[1]!.contract.requiredChecks).toEqual(["desktop_artifact_structure"]);
+    expect(f.controller.get(plain.id).entailment).toBeUndefined();
     // The claims check reads the deliverable for citations and headings, so a research task needs a document deliverable.
     expect(() => f.controller.create({ goal: "Summarize the source.", inputSelectionId: f.controller.selectInputs([f.input]).id, outputName: "deck.pptx", publicOrSynthetic: true,
       publicSources: { urls: [url], allowPublicRetrieval: true, dnsResolver: "system" } })).toThrow("general_task_research_output_unsupported");
+  });
+  it("keeps a submitted research task submitted when the deadline timer fires during the evidence pass, and pauses the pass on request", async () => {
+    const f = fixture();
+    const url = "https://public.example.test/facts";
+    const research = () => f.controller.create({ goal: "Summarize the source.", inputSelectionId: f.controller.selectInputs([f.input]).id, outputName: "memo.md", publicOrSynthetic: true,
+      publicSources: { urls: [url], allowPublicRetrieval: true, dnsResolver: "system" } });
+    // The desktop's deadline timer aborting mid-pass only shortens the pass: submission was already durable.
+    const aborted = research();
+    let spy = vi.spyOn(PrivateAgentModel.prototype, "complete").mockImplementation(async () => {
+      (f.controller as unknown as { active: Map<string, { abort: AbortController }> }).active.get(aborted.id)!.abort.abort();
+      throw new Error("aborted");
+    });
+    try {
+      f.controller.start(aborted.id); await f.controller.wait(aborted.id);
+      expect(f.controller.get(aborted.id)).toMatchObject({ status: "submitted", entailment: { truncated: true, counts: { not_judged: 2 } } });
+    } finally { spy.mockRestore(); }
+    // A pause during the pass leaves the task paused and resumable; the resume judges and submits.
+    const paused = research(); let calls = 0;
+    spy = vi.spyOn(PrivateAgentModel.prototype, "complete").mockImplementation(async () => {
+      calls++; if (calls === 1) f.controller.pause(paused.id);
+      return { content: '{"verdict":"supported"}', toolCalls: [], finishReason: "stop", costUsd: 0, durationMs: 1 };
+    });
+    try {
+      f.controller.start(paused.id); await f.controller.wait(paused.id);
+      expect(f.controller.get(paused.id)).toMatchObject({ status: "paused", canResume: true }); expect(f.controller.get(paused.id).entailment).toBeUndefined();
+      f.controller.resume(paused.id); await f.controller.wait(paused.id);
+      expect(f.controller.get(paused.id)).toMatchObject({ status: "submitted", entailment: { truncated: false, entailmentCalls: 2, counts: { supported: 2 } } });
+    } finally { spy.mockRestore(); }
   });
   it("refuses a queued task after the coordinator profile changes", () => {
     const f = fixture();

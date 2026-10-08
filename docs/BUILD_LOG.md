@@ -18646,3 +18646,322 @@ Next gate: J2 restructured as BL-20261006-1230 decides; owner verdicts.
 
 References: BL-20261006-1150-pr-j1-claims-ledger-implemented,
 BL-20261006-1230-pr-j2-review-findings, [registry](experiments/registry.jsonl).
+
+### BL-20261006-1241-pr-j2-entailment-design -- 2026-10-06 -- Research claims entailment pass designed (PR-J2)
+
+Status: `Proposed`
+
+Scope or hypothesis: Second half of PR-J (BL-20261006-1058). The J1 quote check
+proves that each quoted text exists in a retained source; it says nothing about
+whether the report's sentence follows from it. J2 adds a host-run local-model
+judgement per claim and records it as evidence beside the task result, so a
+research deliverable carries a support rate that neither the agent nor the
+owner has to compute by hand. On-track check: J1 is implemented and reviewed
+(BL-20261006-1150, PR #5); the Phase 1 heavy-arm dry runs are recorded
+(BL-20261006-1141); the ledger dry-run batch `phase1-ledger-v1` is running on
+the J1 tree and will show whether the local model can produce a passing ledger
+at all before J2 adds cost on top of it. Branch `phase1-claims-entailment`,
+worktree separate from the frozen batch tree.
+
+Decisions:
+
+- **When.** After every critical check has passed at finish or at allowance
+  exhaustion, before the `completed` event, in the runner. A failed ledger never
+  reaches J2. The pass runs only when the claims check is configured.
+- **What the judge sees.** One fresh request per claim, no conversation history:
+  the sentence, the quote, and about 1 KB of normalized source text around the
+  host-located quote (the J1 script gains a `context` field per claim, emitted
+  only by the finish-time run, bounded to 1,200 characters each), plus the
+  instruction to answer with one JSON object `{"verdict": "supported" |
+  "partial" | "unsupported" | "contradicted", "reason": "<one sentence>"}`.
+  Thinking off, 256 output tokens, temperature default. Nothing from the private
+  task goal or other files enters the judge prompt; the claim and its source
+  window are already in the deliverable.
+- **Budget and time.** Each judge call is a broker request against the session's
+  shared allowance (`sessionRequests`, 200 under `heavy`) and is counted in a
+  dedicated `entailmentCalls` figure, not against the contract's model-call
+  allowance that governs the agent loop. The ledger cap of 40 claims bounds the
+  pass. If the task deadline, the session allowance or a transport failure
+  interrupts it, the remaining claims are recorded as `not_judged` and the task
+  still completes: J2 is evidence, not a gate.
+- **Recording.** A host-authored event `claims_entailment` with per-claim
+  verdicts and reasons, counts per verdict, `entailmentCalls`, and
+  `truncated: boolean`; the controller copies the counts into the task record and
+  snapshot as `entailment` and adds a summary line; the registry-row script
+  reports the support rate. The desktop shows the counts in PR-F's owner surface;
+  J2 itself adds no UI control.
+- **Not decided by the judge.** Verdicts never rewrite artifacts, never fail the
+  task and never change the acceptance state; "contradicted" claims are listed
+  for the owner's verdict. The judge is the same local model that wrote the
+  report, so a systematic blind spot is possible; the Phase 2 fair test will
+  include the support rate as a reported figure, not as the acceptance rule.
+- **Identity.** The judge prompt and the verdict schema are part of the bound
+  prompt protocol (version bump), so an older run cannot resume into a loop whose
+  finish behaviour changed.
+
+Changes: This entry. Implementation follows in PR #6 stacked on #5.
+
+Evidence: J1 code read in full (runner finish and allowance paths, verify(),
+claims.ts); profile budgets; the September design (docs/plans/
+PRIVATE_WORK_DESIGN_V1.md section 4) which already named the entailment pass.
+
+Failures or blockers: None. The ledger dry-run batch result (next entry) may
+change the context size or the verdict set if the local model's ledgers are
+poor.
+
+Limitations and non-claims: A local-model verdict is not acceptance and is not
+an independent judge. Support rates across arms are comparable only when the
+same judge model and prompt are used.
+
+Paid exposure: USD 0.
+
+Next gate: Ledger dry-run batch recorded; J2 implemented with tests and
+reviewed.
+
+References: BL-20261006-1058-pr-j-claims-ledger-design,
+BL-20261006-1150-pr-j1-claims-ledger-implemented, [plan](PLAN.md).
+
+Identifier note: authored 2026-10-06 11:58 UTC as BL-20261006-1241-pr-j2-entailment-design; re-identified as BL-20261006-1241-pr-j2-entailment-design so the
+branch stays append-only after its base gained BL-20261006-1240. The body is unchanged.
+
+### BL-20261006-1242-pr-j2-review-findings -- 2026-10-06 -- J2 first implementation reviewed: pass must move after durable completion
+
+Status: `Implemented`
+
+Scope or hypothesis: First J2 implementation (worktree `phase1-claims-entailment`,
+uncommitted on top of 2301cd0): python check emits sentence, quote and a
+1,200-character source window under `SOAR_CLAIMS_CONTEXT=1`; `model.complete`
+takes narrowing overrides (thinking off, 256 tokens, purpose); the runner judges
+each verified claim inside the finish branch and records `claims_entailment`;
+the controller and snapshot carry `entailment`; `registry-row.py` reports a
+support rate. `pnpm check` 1,895 tests and the 43 Docker-gated tests pass.
+
+Decisions:
+
+- The two-lens review produced eight findings; every verifier agent failed on
+  the session limit, so I verified them against the code myself. Three are real
+  and share one cause: the pass runs between the verified `finish` and the
+  durable `completed` event (runner.ts finally block records `completed` only
+  when every dispatch is settled and the deadline holds). An unknown judge
+  dispatch, a judge call overrunning the deadline, or a judge reply whose reason
+  carries a NUL or lone surrogate (`exactText` throws in `record`) each turns a
+  verified completion into a permanently unresumable incomplete job.
+- Decided fix, not yet implemented: the runner records a `claims_verified`
+  event (bounded claims with windows) when the ledger check passes at finish
+  and judges nothing; the session runs the pass after `completed` is durable
+  (skipping it when `claims_entailment` already exists), judge dispatches carry
+  purpose `claims entailment judgement` and are excluded from the
+  unresolved-dispatch rules in the runner, the session and the controller's
+  `uncertain`; the reason text is validated with `exactText` inside the parse
+  guard; the pass has its own wall-time bound.
+- Also real: the finish-time output can exceed the sandbox's 256 KiB stdout cap
+  on non-ASCII sources (`ensure_ascii` escapes multiply bytes), which would fail
+  the critical ledger check only at finish. Fix: trim each window by encoded
+  length and cap the total.
+- Not real: the remaining variants restate the three above.
+
+Changes: none committed; the J2 worktree holds the first implementation.
+
+Evidence: code reading of runner.ts lines 600-618 (completed recording and the
+three post-loop rules), contracts.ts `exactText`, sandbox.ts `outputBytes`.
+
+Failures or blockers: Session usage limit reached before the restructure; the
+worktree is left uncommitted with the findings above open.
+
+Limitations and non-claims: No live run has exercised the judge.
+
+Paid exposure: USD 0.
+
+Next gate: Restructure as decided, tests for the three failure paths, review,
+then record the ledger batch (`phase1-ledger-v1`: T2 heavy 27 calls, 19 claims
+verified at the first check, both critical checks passed; T4 heavy submitted at
+77 calls, not yet inspected; T2 row drafted in the scratchpad).
+
+References: BL-20261006-1241-pr-j2-entailment-design,
+BL-20261006-1150-pr-j1-claims-ledger-implemented.
+
+Identifier note: authored 2026-10-06 12:30 UTC as BL-20261006-1242-pr-j2-review-findings; re-identified as BL-20261006-1242-pr-j2-review-findings so the
+branch stays append-only after its base gained BL-20261006-1240. The body is unchanged.
+
+### BL-20261007-0120-pr-j2-entailment-implemented -- 2026-10-07 -- Entailment pass implemented at the session level, after two reviews
+
+Status: `Implemented`
+
+Scope or hypothesis: PR-J2 as designed in BL-20261006-1158, restructured as
+decided in BL-20261006-1230. Branch `phase1-claims-entailment`, pull request #6,
+stacked on #5. On-track check: PR #5 is green again; the ledger dry runs
+(BL-20261006-1240) showed the local model producing passing ledgers on both
+seen tasks, with one visibly unsupported sentence (T2 C19) that only a
+judgement can flag; the pass therefore has a measured need.
+
+Decisions:
+
+- **Where the pass runs (deviation from the design).** Not in the runner's
+  finish branch. The runner's finish-time verifier run asks the claims check for
+  source windows (`SOAR_CLAIMS_CONTEXT=1`) and records a `claims_verified` event
+  (each claim validated as exact text; a hostile window loses only its own
+  claim, listed in `invalidClaimIds`). The session judges only after the private
+  context's `completed` event and the `session_submitted` event are both
+  durable, so nothing the judge does can revoke a completion or a submission.
+- **Own clock, caller cancel, pause at claim boundaries.** The pass is bounded
+  by `ENTAILMENT_MAX_MS` (15 min) and the caller's cancel signal, never by the
+  session wall deadline. A pause (owner Pause, app quit) aborts the in-flight
+  judge call, stops at the next claim boundary, records nothing and returns
+  `paused`; the next resume judges from the start. A durable private completion
+  is always finalisable: the session's wall-deadline gate and the desktop's
+  deadline and allowance gates exempt it (`finalising`).
+- **Judge dispatches never gate anything.** Requests with purpose
+  `claims entailment judgement` are excluded from the unresolved-dispatch rules
+  in the runner, the session and the controller's `uncertain`; they are never
+  replayed. The controller no longer lets a deadline abort or a cancel that
+  arrives after `session_submitted` downgrade the status.
+- **Judge call shape.** `model.complete` accepts narrowing overrides only
+  (thinking off, 256 tokens, purpose); the prompt holds the sentence, the quote
+  and the window and nothing else; replies are parsed defensively, reasons must
+  be exact text or are dropped; verdicts are supported, partial, unsupported,
+  contradicted, or not_judged with a reason.
+- **Output bounds.** Windows are trimmed by escaped bytes around the quote
+  (quote always kept), the whole check output is held under 240,000 escaped
+  bytes by blanking windows from the end and then dropping sentence and quote
+  from trailing claims, so the finish-time run can never fail the critical
+  check on size. TS bounds count code points like the python check.
+- **Surface.** `claims_entailment` event (verdicts, counts, calls, truncated,
+  protocol hash) copied into the task record and snapshot as `entailment`; a
+  summary line; `registry-row.py` reports `entailment.supportRate`. No UI
+  control (PR-F).
+
+Changes: `claims.ts` (judgeClaims, schemas, prompt, python windows and budget),
+`model.ts` (overrides), `runner.ts` (`claims_verified`, `unsettledDispatch`,
+`checkCommand` context flag), `session.ts` (`entailment()`, `passAbort`,
+finalising rule, submission before the pass), `controller.ts` (`entailment`
+field, summary, `uncertain`, `submitted`, `canResume` and deadline exemptions),
+shared contract, `registry-row.py`, experiments README; tests across claims,
+runner, session and controller.
+
+Evidence:
+
+- `pnpm check`: 120 files, 1,907 tests passed, 72 skipped, typecheck and build.
+  Docker-gated suites on the qualified runtime image, final tree: 4 files,
+  43 tests passed (claims locators through the real command, sandbox isolation,
+  evidence replay, the full loop through real containers).
+- Unit tests cover: window emission only under the finish flag; window keeps
+  its quote at a non-ASCII line edge; code-point bounds; two-stage output
+  budget; judgeClaims verdict parsing, invalid replies, hostile reason text,
+  transport failure, clock reserve, cancellation, pause; runner `claims_verified`
+  with per-claim validation and an unknown judge dispatch after completion;
+  session ordering (completed, session_submitted, claims_entailment), a judge
+  outliving the session deadline, pause-and-resume of the pass, invalid ids
+  listed as not judged; controller mapping, deadline abort during the pass
+  keeping `submitted`, pause during the pass leaving a resumable task.
+- Reviews. First implementation (BL-20261006-1230): three real findings, one
+  cause. Second review of the restructure (2 lenses, 8 verifiers, all
+  confirmed): the pass still ran under the session wall clock before
+  `session_submitted` (high, two variants); pause was a no-op during the pass;
+  one hostile claim voided every judgement; a crash during the pass after an
+  allowance-exhaustion completion was unresumable; window trimming could cut
+  the quote; TS bounds counted UTF-16 units; blank windows could still exceed
+  the stdout cap. All eight fixed before this entry, each with a test.
+
+Failures or blockers: None open. No live run has exercised the judge; the
+first will be a research dry run on this tree.
+
+Limitations and non-claims: A local-model verdict is evidence, not acceptance.
+The judge is the model that wrote the report. A paused pass restarts rather
+than resumes. Support rates compare only across runs with the same judge and
+prompt (protocol hash recorded).
+
+Paid exposure: USD 0.
+
+Next gate: Docker-gated suites on the final tree; a research dry run with the
+judge (T2 heavy) recorded in the registry with its support rate; then PR-C and
+PR-F per the Phase 1 order.
+
+References: BL-20261006-1241-pr-j2-entailment-design,
+BL-20261006-1242-pr-j2-review-findings, BL-20261006-1240-phase1-ledger-v1-results.
+
+### BL-20261007-0210-entailment-v1-judge-rejected -- 2026-10-07 -- First judge dry run: ledger passed, judge request rejected upstream (fixed)
+
+Status: `Implemented`
+
+Scope or hypothesis: Next gate of BL-20261007-0120: the first live run of the
+entailment pass. Batch `phase1-entailment-v1`, T2 heavy with `--claims-ledger`
+on the J2 tree (de2755b), registry row `p1e-t2-rfc-memo-heavy`.
+
+Decisions:
+
+- The negative result stands in the registry (support rate 0.0, one unknown
+  dispatch) and is not re-labelled; the fixed tree gets its own batch and row.
+- Cause: the judge sends no tools, and `model.complete` still sent
+  `tools: []` with `tool_choice: "auto"`; the server answers 400 ("tools must
+  not be an empty array"), reproduced with a one-line probe with and without
+  the fields. The agent loop always has tools, so no earlier run could hit it.
+  Fix: the tool fields are omitted for a tool-less call; a unit test pins both
+  request shapes and that overrides only narrow the output limit.
+- Labels: claims after a stopped pass now read `pass_stopped`, and the event
+  carries `stopReason` (`request_failed`, `deadline_or_cancelled`, `paused`),
+  instead of repeating `deadline_or_cancelled` for a transport failure.
+- Also learned from the run: the ordering held (`completed`,
+  `session_submitted`, `claims_entailment`); the unknown judge dispatch did not
+  touch the submission; the store's own commit rule still refuses any later
+  dispatch of a job with an unknown row, which only shortens a pass.
+
+Changes: `model.ts` request shape; `claims.ts` stop reasons; tests; registry
+row `p1e-*`.
+
+Evidence: run `submitted`, 29 calls, 503 s, 21 claims verified at the first
+`check_claims`, 2/2 critical checks; `claims_entailment`: 1 call, 21
+`not_judged`, `truncated`, dispatch failure `http_rejected` after 31 ms (phase
+transport). `pnpm check` on the fixed tree: 1,909 tests passed.
+
+Failures or blockers: the judge has still not produced a verdict live; batch
+`phase1-entailment-v2` on the fixed tree follows.
+
+Limitations and non-claims: none beyond the above.
+
+Paid exposure: USD 0.
+
+Next gate: a judge dry run with verdicts recorded; then PR-C and PR-F designs.
+
+References: BL-20261007-0120-pr-j2-entailment-implemented,
+[registry](experiments/registry.jsonl).
+
+### BL-20261007-0320-entailment-v2-judged -- 2026-10-07 -- Judge dry run v2: 19 of 20 claims supported, one partial
+
+Status: `Verified`
+
+Scope or hypothesis: Next gate of BL-20261007-0210: the judge must produce
+verdicts live. Batch `phase1-entailment-v2`, T2 heavy with `--claims-ledger` on
+the fixed J2 tree (d8322ee), registry row `p1e-t2-rfc-memo-heavy-v2`.
+
+Decisions: None new. Correction to BL-20261007-0210: its unit-test count on the
+fixed tree was 1,908, not 1,909.
+
+Changes: one registry row.
+
+Evidence:
+
+- Run `submitted`, 21 agent calls, 292 s; 20 claims, all verified verbatim at the
+  single `check_claims` call; both critical checks passed; event order
+  `completed`, `session_submitted`, `claims_entailment`.
+- Judge: 20 calls (purpose `claims entailment judgement`, all settled), 19
+  `supported`, 1 `partial`, 0 unsupported or contradicted, not truncated;
+  support rate 0.95. The partial verdict is fair: C1 reads "a JSON text is a
+  serialized value" as "any value is acceptable at the top level", which the
+  quote does not say; RFC 8259 section 2 does, so the claim chose the weaker
+  quote.
+- Cost of the pass: 20 short thinking-off calls inside the 292 s wall time
+  (the previous unjudged run took 503 s with 29 agent calls, so run-to-run
+  variance dominates; the judge itself is under a minute).
+
+Failures or blockers: None.
+
+Limitations and non-claims: One run, one seen task; the judge is the model that
+wrote the memo, so systematic blind spots remain possible; a verdict is evidence
+for the owner, not acceptance.
+
+Paid exposure: USD 0.
+
+Next gate: PR-C (recoverable dispatch) implemented and reviewed; PR-F.
+
+References: BL-20261007-0210-entailment-v1-judge-rejected,
+BL-20261007-0120-pr-j2-entailment-implemented, [registry](experiments/registry.jsonl).

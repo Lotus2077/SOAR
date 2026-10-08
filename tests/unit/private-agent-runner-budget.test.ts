@@ -750,6 +750,49 @@ describe("general runner claims ledger tool", () => {
     const refused = g.options.store.events(g.options.jobId).filter(event => event.type === "tool_finished").map(event => JSON.parse(String(event.output)));
     expect(refused[0]).toMatchObject({ error: "action_failed_or_not_permitted", completed: false });
   });
+  const judged = JSON.stringify({ passed: true, claims: [
+    { id: "C1", found: true, locator: "line 1", sentence: "The input is synthetic.", quote: "synthetic input", context: "synthetic input" },
+    { id: "C2", found: true, locator: "line 1", sentence: "The input is real.", quote: "synthetic input", context: "synthetic input" },
+    { id: "C3", found: false, code: "quote_not_found" }], report: { citations: { missing: [], unknown: [] }, sections: {} } });
+  it("records the verified claims with their source windows at finish, for the session's entailment pass, and judges nothing itself", async () => {
+    const f = fixture([{ name: "check_claims", arguments: "{}" }, write, finish], { maxModelCalls: 4, maxToolCalls: 4, claimsLedger: true, toolStdout: judged });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed", modelCalls: 3 });
+    // Only the finish-time verifier run asks for source windows; the model-callable check never does.
+    expect(f.commands.filter(command => command.includes("SOAR_CLAIMS_CONTEXT='1'"))).toHaveLength(1);
+    expect(f.commands.find(command => command.includes("SOAR_CLAIMS_RETAINED="))).not.toMatch(/^SOAR_CLAIMS_RETAINED='[^']*' SOAR_CLAIMS_CONTEXT=/u);
+    const events = f.options.store.events(f.options.jobId);
+    expect(events.find(row => row.type === "claims_verified")).toMatchObject({ version: 1, claims: [
+      { id: "C1", sentence: "The input is synthetic.", quote: "synthetic input", context: "synthetic input", locator: "line 1" }, { id: "C2", sentence: "The input is real." }] });
+    expect(events.some(row => row.type === "claims_entailment")).toBe(false);
+    expect(f.options.store.dispatches(f.options.jobId).every(row => row.purpose === "unit fixture")).toBe(true);
+    // A failed ledger records nothing; a verifier output that is not the check's JSON records an empty, reasoned list.
+    const failed = fixture([write, finish], { maxModelCalls: 2, maxToolCalls: 4, claimsLedger: true, toolStdout: judged, checkExitCode: 1 });
+    expect((await new GeneralAgentRunner(failed.options).run()).status).toBe("incomplete");
+    expect(failed.options.store.events(failed.options.jobId).some(row => row.type === "claims_verified")).toBe(false);
+    const garbled = fixture([write, finish], { maxModelCalls: 2, maxToolCalls: 4, claimsLedger: true, toolStdout: "not json" });
+    expect((await new GeneralAgentRunner(garbled.options).run()).status).toBe("completed");
+    expect(garbled.options.store.events(garbled.options.jobId).find(row => row.type === "claims_verified")).toMatchObject({ claims: [], reason: "claims_output_invalid" });
+    // One hostile window (a NUL) loses only its own claim; the rest are still judged later.
+    const hostile = JSON.stringify({ passed: true, claims: [{ id: "C1", found: true, sentence: "ok", quote: "synthetic input", context: "bad\u0000window" }, { id: "C2", found: true, sentence: "fine", quote: "synthetic input", context: "clean" }] });
+    const partial = fixture([write, finish], { maxModelCalls: 2, maxToolCalls: 4, claimsLedger: true, toolStdout: hostile });
+    expect((await new GeneralAgentRunner(partial.options).run()).status).toBe("completed");
+    expect(partial.options.store.events(partial.options.jobId).find(row => row.type === "claims_verified")).toMatchObject({ claims: [{ id: "C2", context: "clean" }], invalidClaimIds: ["C1"] });
+  });
+  it("an unknown judge dispatch after completion never revokes or blocks the completed job", async () => {
+    const f = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4, maxRequests: 20, claimsLedger: true, toolStdout: judged });
+    const { store, broker, jobId, contextId } = f.options;
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed" });
+    // The session's judge ran after `completed` and one of its requests ended unknown.
+    const { text: _text, ...preview } = broker.preview({ jobId, contextId, destinationId: "model", purpose: "claims entailment judgement", method: "POST", body: "{}", maxFeeMicrousd: 0 });
+    store.unknown(store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_inside_boundary" } }, () => {}).id);
+    expect((await new GeneralAgentRunner(f.options).run()).reason).toBe("job_already_completed");
+    expect(store.events(jobId).filter(row => row.type === "completed")).toHaveLength(1);
+    // Any other unknown dispatch still stops the loop before it starts, as before.
+    const g = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4, maxRequests: 20 });
+    const { text: _t, ...agentPreview } = g.options.broker.preview({ jobId: g.options.jobId, contextId: g.options.contextId, destinationId: "model", purpose: "agent reasoning and tool selection", method: "POST", body: "{}", maxFeeMicrousd: 0 });
+    g.options.store.unknown(g.options.store.commit({ ...agentPreview, reservedFeeMicrousd: 0, scan: { status: "not_required_inside_boundary" } }, () => {}).id);
+    expect((await new GeneralAgentRunner(g.options).run()).reason).toBe("unresolved_dispatch_no_replay");
+  });
   it("verifies the ledger as a critical check at finish", async () => {
     // Two calls only: the failed finish must not be followed by another scripted reply.
     const f = fixture([write, finish], { maxModelCalls: 2, maxToolCalls: 4, claimsLedger: true, checkExitCode: 1 });

@@ -1,5 +1,6 @@
 .DS_Store
-node_modules/
+# A directory or a symlink: worktrees share one install through a link.
+node_modules
 .pnpm-store/
 dist/
 out/

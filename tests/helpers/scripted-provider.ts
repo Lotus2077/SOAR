@@ -2,7 +2,6 @@ import {
   parseProviderDescriptor,
   type ProviderDescriptor,
 } from "../../src/main/providers/provider-descriptor";
-import { FAKE_ONLY_PROVIDER_V0 } from "../../src/main/agent/run-session-v2";
 import type {
   CompleteInput,
   DescribedInferenceProvider,
@@ -24,7 +23,6 @@ export type ScriptedProviderStep = (
 ) => ProviderResult | Promise<ProviderResult>;
 
 export class ScriptedProvider implements DescribedInferenceProvider {
-  readonly [FAKE_ONLY_PROVIDER_V0] = true as const;
   readonly id: string;
   readonly model: string;
   readonly costPolicy?: "local_zero_cost";

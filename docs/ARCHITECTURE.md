@@ -1,5 +1,11 @@
 # Architecture
 
+> **Note (2026-09-28 cleanup):** this document also describes code that was
+> removed: the PR6R development canary, the held-out benchmark evaluator
+> (`src/benchmark`) and the fake-only `run-session-v2` coordinator. They remain at
+> tag `archive/router-era-2026-09-28`. The current plan is in [PLAN.md](PLAN.md);
+> the general-task code map is in [HANDOFF.md](HANDOFF.md).
+
 SOAR is a local Electron application organized around one invariant: every
 observable task transition is persisted before the UI treats it as state. Model
 providers can change over time; the canonical event history must remain

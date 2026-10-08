@@ -5,7 +5,9 @@ accepted and failed experiments, setup constraints and next actions. Reviewed on
 2026-09-28; the latest product experiment remains September 14. This development
 checkpoint includes the general-agent implementation and reports; ignored local
 evidence and runtime installations are separate. Two synthetic desktop examples
-are accepted; the full MVP is unfinished and unreleased.
+are accepted; the full MVP is unfinished and unreleased. A 2026-09-28
+[whole-project review](docs/PROJECT_REVIEW_2026-09-28.md) and a revised
+[plan](docs/PLAN.md) now govern next steps. The plan was **approved by the owner on 2026-09-29**, with a USD 300 cloud envelope.
 
 **Current product direction (2026-09-11):** a privacy-first general agent that
 plans, executes, verifies and delivers end-to-end work. Deep research, file auditing,

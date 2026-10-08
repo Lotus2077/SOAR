@@ -8,6 +8,17 @@ an editable three-slide presentation**. Research was rejected; no website has
 been accepted. Useful real cloud consultation, ordinary owner usability and
 real-private deployment remain unproved. **The MVP is unfinished and unreleased.**
 
+**Superseded next steps (owner approval 2026-09-29,
+BL-20260928-1745-owner-answers-plan-approved):** the revised [plan](PLAN.md) now
+replaces the next-milestone ordering below. It is based on a verified
+[whole-project review](PROJECT_REVIEW_2026-09-28.md) and comes with a
+[private work design](plans/PRIVATE_WORK_DESIGN_V1.md). The plan sets out:
+- a fair local-versus-cloud test;
+- the owner's own verdicts from week one;
+- a gated local-only tier for the owner's files.
+
+The rest of this handoff remains accurate as a record of the September state.
+
 This is the current entrypoint for a successor. It consolidates the
 [course audit](MVP_COMPLETION_AUDIT.md), [readiness history](MVP_READINESS.md) and
 [append-only build log](BUILD_LOG.md). Older reports remain evidence for their

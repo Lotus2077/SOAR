@@ -170,8 +170,20 @@ one day. Non-gated engineering continues regardless.
    - **P8** one non-streaming request over 300 s, to detect an appliance gateway
      timeout;
    - **P9** a context guard: prompt tokens + `max_tokens` ≤ 262,144.
-5. **Fast discriminator.** Near-zero engineering, ≤ USD 15 of the approved
-   envelope, public/synthetic data only:
+5. **Fast discriminator.** *Done 2026-09-28, narrowed to local Standard vs Heavy*
+   (BL-20260928-1836, result in BL-20260928-1921, rows in
+   [experiments/registry.jsonl](experiments/registry.jsonl)). The cloud arm moved
+   to Phase 2: a cloud coordinator needs session policy changes, so it wasn't
+   near-zero engineering.
+
+   | Task | Standard | Heavy |
+   | --- | --- | --- |
+   | Website, fresh write | 26/30 | 30/30 |
+   | RFC memo | 9/12, reject | 7/12, reject |
+   | Website repair | 15/30 | 18/30 |
+   | Quality V2 | incomplete (shared request budget) | incomplete (`length` treated as terminal) |
+
+   The resulting Phase 1 order is below. The original design, kept for reference:
    - Use the existing headless path (`scripts/private-agent-run.ts`, which already
      allows 40 calls / 80 tools / 30 minutes).
    - Make two changes: send effort through `chat_template_kwargs`, and admit a
@@ -218,7 +230,20 @@ one day. Non-gated engineering continues regardless.
 ### Phase 1: A runtime that survives real jobs at full strength (Oct 1 – Oct 7, hard stop)
 
 Work lands as one pull request per item, each with a single reviewer, CI and one
-build-log entry. The Phase 0 discriminator sets the order.
+build-log entry.
+
+**Order set by the Phase 0 discriminator:**
+1. PR-A and PR-D together (thinking helped build tasks; harness rules caused both
+   T4 failures);
+2. PR-J (research was rejected under both profiles);
+3. PR-C and PR-F;
+4. PR-E (before the Phase 2 cloud arm);
+5. PR-B (no timeouts at current sizes, but long non-streaming requests are cut at
+   about 947 s);
+6. PR-I.
+
+When an output fails its checks, regenerate from the requirements with the failure
+as feedback instead of patching the flawed artifact (T3).
 
 - **PR-A, Heavy profile at every cap layer.** Raise, together:
   - [controller.ts](../src/main/general-tasks/controller.ts):29, :145, :148 and the

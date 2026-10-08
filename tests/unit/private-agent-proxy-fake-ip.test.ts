@@ -106,7 +106,7 @@ describe("fake-IP system proxy opt-in", () => {
     const h = (c: string) => c.repeat(64);
     const driver = ["--execute-synthetic-local", "--task-directory", "t", "--job-sha256", h("a"), "--brief-sha256", h("b"), "--authority-sha256", h("c"),
       "--image-id", `sha256:${h("d")}`, "--output-directory", "o", "--runtime-sha256", h("e")];
-    const cloud = ["--arm", "cloud", "--cloud-model", "m", "--cloud-endpoint", "https://e.invalid/v1", "--cloud-prices", "1,1,1", "--max-fee-usd", "1"];
+    const cloud = ["--arm", "cloud", "--cloud-model", "m", "--cloud-endpoint", "https://e.invalid/v1", "--cloud-prices", "1,1,1", "--max-fee-usd", "1", "--cloud-long-context", "272000,2,2,1"];
     expect(parseLocalArtifactScreenArguments([...driver, ...cloud]).cloudArm).not.toHaveProperty("proxyFakeIp");
     expect(parseLocalArtifactScreenArguments([...driver, ...cloud, "--proxy-fake-ip", "true"]).cloudArm?.proxyFakeIp).toBe(true);
     expect(() => parseLocalArtifactScreenArguments([...driver, "--proxy-fake-ip", "true"])).toThrow("local_screen_cli_invalid");

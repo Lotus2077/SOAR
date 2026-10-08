@@ -21070,3 +21070,174 @@ and T4 cloud dry runs.
 
 References: BL-20261008-1240-proxy-fake-ip-opt-in,
 BL-20261007-1040-pr-e-cloud-correctness-implemented.
+
+### BL-20261008-1312-openai-responses-cloud-arm -- 2026-10-08 -- The cloud arm speaks the OpenAI Responses API, with the standard tier pinned and long-context pricing settled
+
+Status: `Implemented`
+
+Scope or hypothesis: the gate set by
+BL-20261008-1300-cloud-arm-tools-reasoning-rejected. The cloud arm needs a
+request shape that serves function tools with reasoning at parity with the
+local heavy arm. Branch `phase2-openai-responses`.
+
+Decisions:
+
+- **Shape.** `PrivateModelConfig.api` gains `openai_responses`.
+  - The request carries `input` items: chat messages map to `message` items,
+    and tool calls and results map to `function_call` and
+    `function_call_output`. No reasoning items are sent, as on the local arm,
+    so the recorded reasoning-replay deviation applies to both arms equally.
+  - Tools are sent with `strict: false`; the Responses default is strict.
+  - Reasoning is `{ effort: "medium" }`, or `"none"` for a narrowed call.
+  - Every request has `store: false` and `service_tier: "default"`.
+  - The reply is parsed from `reasoning`, `message` and `function_call`
+    items. Any other item or content part is refused. An incomplete reply
+    for `max_output_tokens` becomes `length`, a refusal becomes
+    `content_filter`, and at most eight calls are accepted.
+- **Live probes before code** (a few hundred tokens). On `/v1/responses`,
+  tools with reasoning return 200. A follow-up turn of `function_call` plus
+  `function_call_output`, with no reasoning items, returns 200. Reasoning
+  items can arrive with `encrypted_content` and are ignored. Both endpoints
+  accept `service_tier: "default"` and echo it.
+- **Selection.** The cloud arm's endpoint path chooses the shape exactly:
+  `/v1/responses` or `/v1/chat/completions`. Any other path, or a query
+  string, is refused rather than guessed (review finding).
+- **Review** (two agents, protocol and money). The protocol reviewer
+  compared the `vllm` and `openai` shapes over 256 configuration
+  combinations: identical bodies, reservations, fees and results. Every
+  conversation shape the runner produces maps to valid input. The money
+  reviewer's findings, all fixed:
+  - **medium, long context.** Heavy bodies of up to 640 KiB can exceed the
+    272K-input-token tier (4 / 0.40 / 15 per 1M for gpt-6-sol, read from
+    OpenAI's pricing page on 2026-10-08), but were settled at the standard
+    rates.
+    - `longContext { aboveTokens, rates }` now settles a reply whose prompt
+      exceeds the threshold at the long rates. A body larger than the
+      threshold is reserved at them.
+    - The driver requires
+      `--cloud-long-context above,in,out,cached`; it is optional for the
+      critic.
+  - **medium, service tier.** An omitted tier is `auto` and can follow
+    project settings to a dearer tier. Both cloud shapes now pin
+    `"default"`, and a reply served at another tier leaves the dispatch
+    unknown (`model_service_tier_mismatch`). This also closes the gap in the
+    PR-E chat shape.
+  - **low, cache writes.** `cache_write_tokens` must fit within the uncached
+    prompt. They settle at the input rate; no write premium is published for
+    these models.
+  - **low, critic record.** `critique.json` and `critique-failure.json` now
+    record `requestShape` beside the binding.
+- **Recorded, not changed (pre-existing).** The runner rebuilds the system
+  message every turn with the remaining budget. Provider prompt caching
+  therefore covers only the static prefix, so long cloud runs pay full input
+  rates on most of the history and may reach the USD 8 cap sooner. This
+  affects the cloud arm's cost and completion in Phase 2. Changing the
+  prompt layout touches the local arm's identities, so it is a follow-up.
+
+Changes: `model.ts`, the headless driver, `phase2-repair.ts`, README; tests in
+the new `private-agent-model-responses` suite and in the public-snapshot,
+fake-IP and model-size suites.
+
+Evidence: typecheck clean; 2,010 tests passed, 80 skipped.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+
+- Not yet run as an agent loop against the live API. The T2 and T4 cloud dry
+  runs are the check.
+- Long-context and tier pricing are read from today's pricing page; recheck
+  them before Phase 2.
+- That cache writes carry no premium is an assumption.
+
+Paid exposure: under USD 0.01 for the probes.
+
+Next gate: the T2 and T4 cloud dry runs on this branch with
+`--cloud-endpoint https://api.openai.com/v1/responses`,
+`--cloud-long-context 272000,4,15,0.4` and `--proxy-fake-ip true`.
+
+References: BL-20261008-1300-cloud-arm-tools-reasoning-rejected,
+BL-20261007-1040-pr-e-cloud-correctness-implemented,
+BL-20260913-1859-consultant-standard-tier-approved.
+
+### BL-20261008-1330-phase1-cloud-dry-runs-and-exit-jobs -- 2026-10-08 -- Cloud dry runs on T2 and T4 complete; exit criterion 2 met; both exit-3 jobs submitted in the owner build
+
+Status: `Verified`
+
+Scope or hypothesis: Phase 1 exit criterion 2 (cloud arm) and the state of
+criterion 3.
+- The cloud runs used branch `phase2-openai-responses` at `797a981`, clean
+  tree, runtime `09bcde22…`.
+- Their flags: `--cloud-endpoint https://api.openai.com/v1/responses`,
+  `--cloud-prices 2,10,0.2`, `--cloud-long-context 272000,4,15,0.4`,
+  `--max-fee-usd 8`, `--proxy-fake-ip true`, heavy profile, claims ledger,
+  local judge.
+- Authority: the standing envelope and the owner's "approve the cloud dry
+  runs".
+
+Decisions:
+
+- **T2 cloud: accepted (agent diagnostic).**
+  - Submitted after 25 cloud calls in 232 s, for USD 0.72; all dispatches
+    settled.
+  - Both critical checks passed.
+  - The memo meets every gate in the brief: 356 words, all six
+    dimensions, rules versus recommendations versus policy, valid JSON,
+    URLs with sections, the evidence limitation.
+  - Entailment: 10 supported, 10 partial, 1 unsupported, 1 contradicted.
+    The contradicted C8 reads as judge strictness: RFC 8259 §8.2 does
+    discuss escaped unpaired surrogates. The local heavy T2 runs judged 19
+    or 20 of about 20 supported.
+- **T4 cloud: accepted (agent diagnostic).**
+  - Submitted after 51 cloud calls, 6 snapshot GETs and 23 judge calls, in
+    463 s, for USD 1.85.
+  - All four critical checks passed: structure, evidence replay, claims
+    ledger, transfer integrity.
+  - Both scenario decisions (base R, saving 40.00; annex Q, saving 190.00)
+    and the Quill volume effect (−20.00) match the accepted local heavy
+    answer exactly.
+  - Entailment: 19 supported, 2 partial, 1 unsupported, 1 contradicted.
+- **Exit criterion 2 is met.** Local was met earlier (BL-20261006-1141).
+  The cloud arm now has dry runs on both seen tasks with no
+  harness-terminal cause. Three earlier T2 attempts were `infra_invalid` and
+  sent nothing billable: two stopped at the address guard, one was refused
+  by chat completions. They are recorded in the registry.
+- **Exit criterion 3: jobs run, verdicts pending.** Both jobs were chosen by
+  the agent, the recorded deviation of BL-20261008-1210.
+  - D11 serving memo: the run on `owner-v0.1` ended `Incomplete` (the
+    fake-IP block). The re-run on `owner-v0.2` was submitted after 35 model
+    calls, 34 tool actions and 21 min 46 s. All 3 sources were retained,
+    the memo is 1,357 words, and entailment found 38 supported, 1 partial
+    and 1 unsupported.
+  - Pilot briefing deck, on `owner-v0.1`: submitted, 9 slides, 21 calls,
+    7 min 7 s. Slide 2 calls research "accepted"; the README and slide 6 say
+    it is not.
+  - The owner's verdicts are the outcome of record.
+- **Adoption clock.** The plan's kill rule needs an owner-run job by Oct 9.
+  The two jobs above were run by the agent at the owner's request, which may
+  not satisfy it.
+
+Changes: registry rows `p1c-t2-rfc-memo-cloud-a1`, `-a2`, `-a3`,
+`p1c-t2-rfc-memo-cloud` and `p1c-t4-quality-v2-cloud`; this entry.
+
+Evidence: `phase1-cloud-dryrun-v1`, `-v2` and `-v3` (local, ignored); the
+owner app's task records.
+
+Failures or blockers: None in the v3 runs.
+
+Limitations and non-claims:
+
+- These are dry runs on seen tasks, not capability evidence and not Phase 2
+  counted runs.
+- Agent-diagnostic acceptance is not owner acceptance.
+- The cloud arm's costs carry the cache-unfriendly prompt layout recorded in
+  BL-20261008-1312.
+
+Paid exposure: USD 2.57 for the two runs, plus under USD 0.01 for the
+probes. Envelope used: about USD 2.58 of 300.
+
+Next gate: the owner's verdicts for exit criterion 3; merge PR #16; Phase 2
+counted runs on `phase2-tasks-v1`.
+
+References: BL-20261008-1312-openai-responses-cloud-arm,
+BL-20261008-1210-owner-v0-1-released, BL-20261007-1449-phase1-close-out.

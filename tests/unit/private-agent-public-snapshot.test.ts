@@ -180,6 +180,13 @@ describe("public snapshot CLI", () => {
     expect(parseLocalArtifactScreenArguments([...base, "--claims-ledger", "true"]).claimsLedger).toBe(true);
     expect(() => parseLocalArtifactScreenArguments([...base, "--claims-ledger", "yes"])).toThrow("local_screen_cli_invalid");
   });
+  it("parses the document-review flag and keeps document review a closed corpus", () => {
+    expect(parseLocalArtifactScreenArguments(base)).not.toHaveProperty("documentReview");
+    expect(parseLocalArtifactScreenArguments([...base, "--document-review", "true"]).documentReview).toBe(true);
+    expect(() => parseLocalArtifactScreenArguments([...base, "--document-review", "yes"])).toThrow("local_screen_cli_invalid");
+    expect(() => parseLocalArtifactScreenArguments([...base, "--document-review", "true", "--claims-ledger", "true"])).toThrow("local_screen_cli_invalid");
+    expect(() => parseLocalArtifactScreenArguments([...base, "--document-review", "true", "--public-retrieval", "true"])).toThrow("local_screen_cli_invalid");
+  });
   it("parses the optional coordinator profile and rejects unknown ones", () => {
     expect(parseLocalArtifactScreenArguments(base).profile).toBeUndefined();
     expect(parseLocalArtifactScreenArguments([...base, "--profile", "heavy"]).profile).toBe("heavy");

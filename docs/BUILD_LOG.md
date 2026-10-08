@@ -19759,3 +19759,397 @@ Next gate: PR-I design and implementation.
 
 References: BL-20261007-1247-pr-b-liveness-implemented,
 BL-20261007-1045-pr-b-liveness-design.
+
+### BL-20261007-1302-pr-i-document-review-design -- 2026-10-07 -- Document review designed on the qualified image (PR-I)
+
+Status: `Proposed`
+
+Scope or hypothesis: Phase 1 item 6 ([plan](PLAN.md) PR-I; design §4 "Document
+review and amend"): the model writes an edit plan, a deterministic host-owned
+script turns it into native tracked changes, comments, an issues list and a
+clean amended copy, and host fidelity checks prove the result. On-track check:
+PR-A to PR-B are implemented (PRs #4 to #10); Phase 1 exit criterion 1 is met,
+criterion 2 is met for the local arm and waits on the owner's key for the
+cloud arm, and criterion 3 is owner-only; PR-I is the last runtime item and
+the document-review family is the second family the owner chose (D-table
+"Start").
+
+Decisions:
+
+- **No image rebuild (deviation from the plan, in the safer direction).** The
+  plan assumed one rebuild adding `docx-revisions` and possibly
+  `python-redlines`. The qualified image `e5c7075f…` already pins lxml 6.1.3,
+  python-docx 1.2.0 (comments), openpyxl 3.1.5, pypdf 6.18.0 and LibreOffice
+  Writer 25.2.3 (qualified headless rendering). A host-authored applier on
+  lxml writes `w:ins`/`w:del` directly, so PR-I adds no dependency, downloads
+  nothing and needs no re-qualification; the capability binding is unchanged.
+- **Edit plan, not markup.** The agent writes `review/edits.json`: at most 200
+  edits, each `{id, anchor, action, newText?, rationale, severity}` with
+  `action` one of `replace`, `delete`, `insert_after`, `comment`. The anchor is
+  a verbatim quote that must occur exactly once in the body text and lie inside
+  one paragraph; overlapping anchors are refused. The model never writes OOXML.
+- **Deterministic applier, host-owned and pinned.** `review/soar_redline.py` is
+  placed in the workspace by the host and pinned by hash (a critical check).
+  The agent runs it; it splits runs at the anchor (run properties kept),
+  writes tracked changes authored "SOAR draft" with unique revision ids, adds a
+  comment with the rationale for every edit, and writes `output/redline.docx`,
+  `output/clean.docx` (all edits accepted, no revisions), `output/issues.xlsx`
+  (one row per edit, paragraph ordinal as location) and
+  `output/hygiene.json` (authors, comment authors, remaining revisions, hidden
+  text).
+- **Fidelity checks prove the result (critical, at finish).** The check
+  re-applies the plan with the pinned applier to the original in a scratch
+  directory and requires: reject-all text equals the original; accept-all text
+  equals the plan applied as text; every non-body part equals the original
+  byte for byte; every revision maps to exactly one edit and revision ids are
+  unique; the clean copy equals accept-all and has no revisions; the issues
+  list equals the plan; the agent's outputs equal the re-derived ones; both
+  documents render to PDF under LibreOffice with a `/tmp` profile.
+- **Scope.** DOCX only. PDF annotation, rendered clause numbers and the export
+  hygiene gate in the desktop are later steps; the hygiene report is produced
+  and checked here. Closed corpus: document-review tasks get no search, fetch
+  or consultation tools.
+
+Changes: This entry. Implementation follows on `phase1-document-review`,
+stacked on PR-B.
+
+Evidence: the qualified image's Dockerfile, requirements lock and capability
+binding read on 2026-10-07; design §4.
+
+Failures or blockers: None.
+
+Limitations and non-claims: The applier covers single-paragraph anchors; edits
+that span paragraphs, tables of changes and moved text are refused, not
+approximated. Microsoft Word rendering is not tested; LibreOffice rendering
+is.
+
+Paid exposure: USD 0.
+
+Next gate: PR-I implemented with Docker-gated tests on the qualified image and
+reviewed; a synthetic document-review dry run.
+
+References: [plan](PLAN.md) Phase 1 PR-I, [design](plans/PRIVATE_WORK_DESIGN_V1.md)
+§4, BL-20261007-1247-pr-b-liveness-implemented.
+
+### BL-20261007-1439-pr-i-document-review-implemented -- 2026-10-07 -- Document review implemented and reviewed (PR-I)
+
+Status: `Implemented`
+
+Scope or hypothesis: PR-I as designed in BL-20261007-1302: document review on
+the qualified image with no rebuild. Branch `phase1-document-review`, pull
+request #11, stacked on #10. Headless driver only; the desktop does not offer
+it yet.
+
+Decisions:
+
+- **Module.** `src/main/private-agent/document-review.ts` holds the host-owned
+  applier (`review/soar_redline.py`, about 39 KB of Python) and the finish check
+  as raw literals. `withDocumentReview(phase)` adds the pinned applier file, the
+  edit plan and the four outputs as required artifacts, the agent instructions
+  and the critical check `document_review_fidelity`. It requires exactly one
+  `.docx` under `input/`, at the top level, and validates the job contract's
+  limits before any caller writes state. The driver flag is
+  `--document-review true`; it is refused with `--claims-ledger` or
+  `--public-retrieval`, because document review is a closed corpus.
+- **Applier.** It edits only `word/document.xml`. It adds or extends
+  `word/comments.xml` and registers it where the link is missing, and copies
+  every other part byte for byte with fixed zip timestamps, so outputs are
+  deterministic.
+  - An anchor is a quote inside one paragraph. It must be unique: a match lying
+    wholly inside a field, such as a table of contents entry, does not count.
+    Text found only there gets `anchor_inside_field`.
+  - Text to replace or delete must be plain text runs plus harmless markup
+    (bookmarks, proofing marks). Otherwise the refusal is `anchor_not_editable`
+    and names the blocker: a field, a hyperlink, a content control or smart
+    tag, someone's comment, a footnote mark, an image or a symbol.
+  - A run mixing text with tabs, breaks or special hyphens is split piecewise
+    first, so text beside a tab can be edited.
+  - Comments and insertions change nothing they cover, so they may span such
+    content; their ends must sit at clean boundaries, and an insertion needs
+    plain text at its end.
+  - The listing (`--list`) marks objects as U+FFFC, flags hidden text resolved
+    through styles, and pages at 48 KB with a `{"next": N}` line.
+  - `anchor_not_found` gives the exact `documentText` when only a look-alike
+    quote, dash or space differs.
+  - New text carries an explicit "not hidden", which beats any hidden style.
+    Layout caches in deleted runs are dropped.
+  - The source is refused for any of these:
+    - tracked changes in any story part
+    - macros
+    - more than 24 MB on disk or 64 MB unpacked
+  - The agent's run stops at 30 s with `source_too_complex`. The check
+    re-derives without that wall-clock deadline, under its own 40 s process
+    limit, so its verdict depends only on the inputs.
+  - Every failure is a structured `{"ok": false, "errors": [...]}`, never a
+    traceback.
+  - The issues list stores model text as text, never as a formula.
+- **Check.** It verifies the source and applier hashes and re-runs the
+  embedded, compressed applier copy. It requires all four outputs to be byte
+  for byte the re-derived ones. It then proves the result independently:
+  - reject-all text equals the original, per paragraph;
+  - accept-all text and the clean copy equal the plan applied as strings;
+  - every other part is unchanged, except the comments registration;
+  - new text is explicitly visible;
+  - every revision maps to exactly one edit, its deleted text equals the
+    anchor and its inserted text equals the plan;
+  - deletions and insertions hold nothing but text;
+  - both documents render to PDF under LibreOffice.
+  Its scratch space is the verifier's workspace (its `/tmp` is 64 MiB). The
+  whole command is about 29 KB of the sandbox's 64 KiB cap; a unit test keeps
+  it under 40 KiB.
+- **Hygiene report.** It lists what would leave with the files and removes
+  nothing:
+  - core, app and custom properties, people, document variable names, and
+    the attached template;
+  - comment authors and revision counts, computed from the produced parts;
+  - hidden runs and hidden styles.
+
+Changes: new `document-review.ts`, the headless driver, tests (unit, driver
+flags, Docker-gated integration with synthetic fixtures), README, plan
+status.
+
+Evidence:
+
+- `pnpm check`: 123 files, 1,960 tests passed, 78 skipped. Docker-gated
+  runtime, claims and document-review suites on the qualified image: 17
+  passed.
+- Docker-gated document-review tests. Each item ran in the real sandbox:
+  - an eight-edit plan over a synthetic agreement covered a bold run inside
+    an anchor, a table cell, Chinese text, a bookmark inside a deletion and
+    text after a field; it passed every fidelity check and rendered, well
+    inside the 90 s check limit;
+  - two runs of the same plan gave identical bytes, and a formula-like
+    rationale stayed text;
+  - each of these was caught: a hand-edited redline, an added spreadsheet
+    sheet, an altered hygiene report, a changed applier and a changed
+    source;
+  - every plan error code was reported;
+  - sources with tracked changes in the body or a header were refused;
+  - an anchor across a symbol or across a comment was refused;
+  - text inserted next to hidden text stayed visible;
+  - existing comments were preserved and extended;
+  - Word-like content: text beside a tab, a page-break cache in a deleted run,
+    and a heading repeated in a table of contents all applied and passed;
+    text only in the table of contents got `anchor_inside_field`, and a
+    straight-apostrophe anchor got the curly `documentText`;
+  - a hidden paragraph style left new text visible;
+  - the listing of a 900-clause contract paged under 48 KB.
+- Review regression kit (the reviewers' probe builders, run under the
+  verifier's container limits): fourteen defect cases and five size and time
+  cases behave as above. Measured: a 200-edit plan applied in 0.4 s and
+  checked in 4.2 s; a 22 MB document with images was checked in 3.0 s; a
+  pathological 5,000-run paragraph with 199 edits hit the 30 s deadline and
+  was refused.
+- Reviews:
+  - The first review used two lenses and eight agents. It confirmed seven
+    findings, three high and four medium, all fixed:
+    - deletions swallowed footnote marks, images, other people's comments
+      and hyphens, while the check passed;
+    - the issues list and hygiene report were spoofable;
+    - the verifier's `/tmp` and time limits were too small;
+    - the hygiene report was incomplete;
+    - inserted text inherited hidden formatting.
+  - The first review's unverified low findings were all fixed: the command
+    size, the contract limits, source detection, path quoting,
+    multi-paragraph fields and crash inputs.
+  - The second review, on the fixes, used two lenses and eight agents. It
+    confirmed two high defects and several medium ones. The highs:
+    - a page-break cache inside a wholly deleted run made the check fail a
+      valid plan;
+    - the unpaged listing of a long contract exceeded the sandbox's output cap
+      and destroyed the sandbox.
+    The mediums:
+    - text sharing a run with a tab or break could never be anchored;
+    - a table of contents made every heading ambiguous;
+    - hidden formatting resolved through basedOn and paragraph styles, and the
+      removal of an explicit un-hide, still hid new text.
+  - The second review's low findings:
+    - comments and insertions were refused across content they do not change;
+    - there was no look-alike hint;
+    - document variables and the glossary part were missing from hygiene;
+    - the deadline made the verdict timing-dependent;
+    - smart tags and content controls were refused;
+    - deleting a whole clause leaves an empty item.
+  - Every finding is fixed as above, except two that stay limitations:
+    - smart tags and content controls are refused, with the blocker named;
+    - whole paragraphs cannot be removed, and the instructions say so.
+  - This third round of fixes was verified by re-running both reviews' probe
+    kits (about 45 cases) under the verifier's container limits, all as
+    intended, and by the tests above. It did not get a fresh third review.
+- Dry run: DRYRUN.
+
+Failures or blockers: None open.
+
+Limitations and non-claims:
+- Changes are single-paragraph plain text. Edits across paragraphs, removing
+  a whole paragraph, formatting-only changes, moved text, and changes inside
+  fields, hyperlinks, smart tags, content controls or text boxes are refused,
+  not approximated.
+- PDF inputs are not handled, and clause numbers are paragraph ordinals, not
+  rendered numbering.
+- Microsoft Word rendering is not tested; LibreOffice rendering is.
+- Paragraphs with thousands of runs may hit the deadline.
+- The desktop export hygiene gate is not built; the report is evidence only.
+
+Paid exposure: USD 0.
+
+Next gate: the synthetic document-review dry run on this commit; then the
+Phase 1 close-out and Phase 2 task authoring.
+
+References: BL-20261007-1302-pr-i-document-review-design,
+[design](plans/PRIVATE_WORK_DESIGN_V1.md) section 4, [plan](PLAN.md) Phase 1
+PR-I.
+
+### BL-20261007-1448-pr-i-document-review-dry-run -- 2026-10-07 -- Document-review dry run: 12 of 13 planted issues, fidelity check passed
+
+Status: `Verified`
+
+Scope or hypothesis: the dry-run gate of BL-20261007-1439 (PR-I). One zero-fee
+local run on the heavy profile, with `--document-review true`, on commit
+`aaec323` with a clean tree. The authority record is bound to BL-20260928-1745
+and BL-20261007-1439. The task is fresh and synthetic: a two-page services
+agreement written for this run, reviewed for the Client. It contains planted
+problems (inconsistent term, payment and defined-term usage, a wrong
+cross-reference, a typo, one-sided clauses and a law/forum mismatch). The
+planted-issue list is evaluator gold and is kept out of the repository. The
+run measures whether the edit plan, applier and fidelity check work end to
+end with the local model. It is not capability evidence.
+
+Decisions:
+
+- **End-to-end gate met.** The run reached `submitted` after 20 streamed
+  agent turns. All 20 dispatches settled: none unknown, retried or failed,
+  and no length stop. Both critical checks passed: source preservation and
+  `document_review_fidelity`, including LibreOffice rendering of both files.
+- **How the agent worked.** It listed the paragraphs through the paged
+  `--list` (redirected to a file), read the applier's source, and wrote a
+  19-edit plan: 16 replacements and 3 comment-only edits. The plan applied on
+  the first try with no refusal. The redline holds 32 revisions and 19
+  comments, all by "SOAR draft". The clean copy has no revisions, comments or
+  hidden runs.
+- **Outcome recorded as accepted** by the host checks, the brief's gates and
+  the planted-issue list; the owner's verdict is pending.
+  - It found 12 of 13 planted issues. It missed that 7.2 lets the Provider
+    terminate at once on expiry: it corrected the term in that sentence
+    without flagging the one-sided right.
+  - It found 2 of 3 lower items; it did not note the missing data-protection
+    clause.
+  - The summary meets the brief: 274 words, grouped by severity, with clause
+    numbers and edit ids, a recommendation and the not-legal-advice line.
+  - Reservations:
+    - Some business decisions, such as the cap amount and the notice period,
+      were proposed as replacements where the brief asked for comments.
+    - One edit's severity differs between the plan and the summary.
+
+Changes: registry row `p1i-d1-services-agreement-heavy` in
+[registry.jsonl](experiments/registry.jsonl); this entry.
+
+Evidence: run `phase1-document-review-v1/d1-services-agreement-heavy`
+(local, ignored):
+
+| Measure | Value |
+| --- | --- |
+| Wall time | 423.4 s |
+| Input tokens | 248,719 |
+| Output tokens | 26,727 |
+| Revisions in the redline | 32 |
+| Comments in the redline | 19 |
+
+The hygiene report names the synthetic creator and shows no hidden text.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This is one run of one fresh synthetic document, scored by the agent that
+  wrote the planted list, so it is not independent evidence of review
+  quality.
+- The model read the applier's source, which is allowed and harmless: the
+  check, not the instructions, decides acceptance.
+- The desktop does not offer document review yet.
+
+Paid exposure: USD 0.
+
+Next gate: Phase 1 close-out (exit criteria and owner items); Phase 2 task
+authoring.
+
+References: BL-20261007-1439-pr-i-document-review-implemented,
+BL-20261007-1302-pr-i-document-review-design.
+
+### BL-20261007-1449-phase1-close-out -- 2026-10-07 -- Phase 1 runtime items complete; exit criteria 2 and 3 wait on the owner
+
+Status: `Implemented`
+
+Scope or hypothesis: the Phase 1 close-out at the plan's 7 October hard stop.
+All six runtime items are implemented, each with a dry run; the Phase 1 exit is
+**not** met.
+It records which exit criteria hold, which fallbacks applied, and what Phase 2
+still needs. On-track check: the order set by the Phase 0 discriminator was
+followed, as listed below.
+
+| Plan item | Pull request | Implemented | Dry run |
+| --- | --- | --- | --- |
+| PR-A + PR-D | #4 | BL-20261006-1055 | BL-20261006-1141 |
+| PR-J (claims ledger J1, entailment J2) | #5, #6 | BL-20261006-1150, BL-20261007-0120 | entailment runs |
+| PR-C | #7 | BL-20261007-0530 | — |
+| PR-F | #8 | BL-20261007-0640 | — |
+| PR-E | #9 | BL-20261007-1040 | — |
+| PR-B | #10 | BL-20261007-1247 | BL-20261007-1301 |
+| PR-I | #11 | BL-20261007-1439 | BL-20261007-1448 |
+
+PR-E has had no live cloud call.
+
+Decisions:
+
+- **Exit 1, the Heavy contract test passes: met** (PR-A, BL-20261006-1055).
+- **Exit 2, dry runs on two seen tasks per arm without harness-terminal
+  causes: met for the local arm, open for the cloud arm.**
+  - Local arm: T4 and T2 on the heavy profile (BL-20261006-1141). T2 also ran
+    again with the claims ledger and entailment, and with streaming
+    (BL-20261007-1301: 51 dispatches settled).
+  - Cloud arm: implemented (`--arm cloud`, BL-20261007-1040) but never run.
+    It needs the owner's key, exported as `SOAR_PHASE2_CLOUD_API_KEY` in the
+    launching shell only, and paid runs within the approved envelope.
+- **Exit 3, two or more real owner jobs on `owner-v0.1` with verdicts:
+  owner-only, open.** The tag should be cut from `main` after the owner
+  merges #1 to #11 in order, so the owner build includes PR-B's safe quit and
+  streaming.
+- **Fallbacks.**
+  - Streaming is finished, so no timeout fallback was needed.
+  - File tools are finished (PR-D).
+  - **Reasoning replay is unfinished; deviation recorded.** The runner never
+    sends a turn's reasoning back to the model: the non-streaming response
+    schema ignores it, and the stream assembler drops it. Whether replaying it
+    helps the local model is untested.
+- **Phase 2 readiness.**
+  - Tasks must be authored by a separate agent session, per the plan, with
+    gold kept outside Git. This session does not author them.
+  - The harness supports L-Heavy, including two seeds as two independent
+    runs, and C-Sol once the key is present.
+  - The repair pair (H and L′: one critique of a packet of at most 64 KiB,
+    then local repair from an identical draft) is **not built**. It is the
+    next harness item.
+  - The blind pre-score and the task freeze tag are also not built.
+- **Follow-ups recorded elsewhere:**
+  - pause between a reply and its action (a separate-session task was
+    offered);
+  - a host check that parses fenced JSON in Markdown outputs (BL-20261007-1301);
+  - desktop wiring for document review (BL-20261007-1439).
+
+Changes: This entry.
+
+Evidence: the entries cited above; the registry rows `p1b-t2-rfc-memo-heavy-streaming`
+and `p1i-d1-services-agreement-heavy`.
+
+Failures or blockers:
+- The cloud arm and exit 3 need the owner.
+- The owner must also merge #1 to #11, which the agent cannot do.
+
+Limitations and non-claims: The dry runs are exposure or engineering
+records, not capability evidence. Phase 2 is the first fair comparison.
+
+Paid exposure: USD 0 so far in Phase 1.
+
+Next gate: the Phase 2 repair-pair harness (design entry first). Then the
+task freeze and tag tooling, and the separate-session task authoring.
+
+References: [plan](PLAN.md) Phase 1 exit and fallbacks, Phase 2 arms.

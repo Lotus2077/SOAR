@@ -58,6 +58,8 @@ const environmentSchema = z.object({
   SOAR_RECOVERABLE_DISPATCH: z.enum(["true", "false"]).default("true"),
   /** PR-B: stream local replies with an inactivity timeout; off keeps the September non-streaming request. */
   SOAR_STREAMING: z.enum(["true", "false"]).default("true"),
+  /** Owner opt-in: admit a fake-IP system proxy's 198.18.0.0/15 answers for approved public sources (HTTPS, certificate verified). */
+  SOAR_PROXY_FAKE_IP: z.enum(["true", "false"]).default("false"),
   SOAR_TEST_WORKSPACE: z.string().optional(),
   SOAR_TEST_CREDENTIAL_OPERATION_STATE: z
     .enum([
@@ -103,6 +105,7 @@ export interface SoarConfig {
   generalTaskProfile?: "standard" | "heavy";
   recoverableDispatch?: boolean;
   streamingEnabled?: boolean;
+  proxyFakeIp?: boolean;
   testWorkspace?: string;
   /**
    * Deterministic renderer proof fixture. It is admitted only for Fake mode
@@ -224,6 +227,7 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
     generalTaskProfile: env.SOAR_GENERAL_TASK_PROFILE,
     recoverableDispatch: env.SOAR_RECOVERABLE_DISPATCH === "true",
     streamingEnabled: env.SOAR_STREAMING === "true",
+    proxyFakeIp: env.SOAR_PROXY_FAKE_IP === "true",
     testWorkspace: env.SOAR_TEST_WORKSPACE,
     ...(env.SOAR_TEST_CREDENTIAL_OPERATION_STATE === undefined
       ? {}

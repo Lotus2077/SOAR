@@ -12,6 +12,7 @@ import { GeneralAgentRunner, type GeneralJobOptions } from "../../src/main/priva
 import { DockerSandbox } from "../../src/main/private-agent/sandbox";
 import { EXECUTION_PROGRESS_STOP } from "../../src/main/private-agent/progress";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
+import type { BrokerDestination } from "../../src/main/private-agent/broker";
 
 const cleanup: (() => Promise<void> | void)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const fn of cleanup.splice(0).reverse()) await fn(); });
@@ -404,6 +405,21 @@ describe("desktop general-task host controller", () => {
     f.controller.start(task.id); await f.controller.wait(task.id);
     expect(f.executions[0]!.store.policy(task.id).destinations).toEqual(["desktop_local"]);
     expect(f.executions[0]!.webDestinations).toBeUndefined();
+  });
+  it.each([
+    ["system", true, "https://example.com/data", true],
+    ["cloudflare_v1", true, "https://example.com/data", false],
+    ["system", false, "https://example.com/data", false],
+    ["system", true, "https://1.1.1.1/data", false],
+  ] as const)("applies the fake-IP proxy opt-in only to a hostname source on the system resolver (%s, opt-in %s, %s)", async (dnsResolver, optIn, url, expected) => {
+    const f = fixture(); f.config.proxyFakeIp = optIn;
+    const publicSources = { urls: [url], allowPublicRetrieval: true as const, dnsResolver };
+    const task = f.controller.create({ goal: "Research the admitted public source.", outputName: "report.md", publicOrSynthetic: true, publicSources });
+    f.controller.start(task.id); await f.controller.wait(task.id);
+    expect(f.executions).toHaveLength(1);
+    const destinations = (f.executions[0]!.broker as unknown as { destinations: Map<string, BrokerDestination> }).destinations;
+    expect(Object.hasOwn(destinations.get("desktop_web_1")!, "proxyFakeIp")).toBe(expected);
+    expect(destinations.get("desktop_local")).not.toHaveProperty("proxyFakeIp");
   });
   it("freezes explicit exact sources and makes the primary context public without host paths", async () => {
     const f = fixture(), publicSources = { urls: ["https://example.com/data?q=one"], allowPublicRetrieval: true as const, dnsResolver: "system" as const };

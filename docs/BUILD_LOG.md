@@ -20931,3 +20931,142 @@ Next gate: the owner's choice, then the re-runs (job 1 and the two cloud dry
 runs).
 
 References: BL-20261008-1210-owner-v0-1-released.
+
+### BL-20261008-1240-proxy-fake-ip-opt-in -- 2026-10-08 -- Owner-approved opt-in admits a fake-IP proxy's 198.18.0.0/15 answers for cloud and public destinations
+
+Status: `Implemented`
+
+Scope or hypothesis: the owner's decision on the blocker in
+BL-20261008-1215-proxy-fake-ip-blocks-egress. The owner chose, in chat on
+2026-10-08: "Accept Shadowrocket's placeholder addresses behind an opt-in
+setting". Branch `phase2-proxy-fake-ip`.
+
+Decisions:
+
+- **Broker.**
+  - The new destination field `proxyFakeIp: true` admits addresses in
+    `198.18.0.0/15` alongside public ones. Every other non-public address is
+    still refused, including a mixed answer with a fake address and a
+    private one.
+  - It is refused at construction on a local model, plain HTTP, an
+    IP-literal endpoint, a loopback fixture or the DoH resolver route.
+  - When set, the request pins `servername` to the URL's hostname with
+    `rejectUnauthorized: true`, so the certificate is verified for the real
+    host before anything is sent.
+  - Absent, every destination, fingerprint and identity is unchanged.
+- **Where it applies.**
+  - Desktop: `SOAR_PROXY_FAKE_IP=true` (default `false`) adds it to approved
+    public sources that use the system resolver and have a hostname.
+  - Scripts: `--proxy-fake-ip true` is accepted only with `--arm cloud` in the
+    driver, where it is recorded in the run freeze, and only with
+    `--critic cloud` in the Phase 2 critic, where it is recorded in
+    `critique.json` and `critique-failure.json` outside the repair binding.
+  - The desktop consultant is not covered: it reads launch-environment
+    settings only, and it is not configured.
+- **Review** (two agents, security and correctness). Four findings, all fixed:
+  - medium: a public IP-literal source with the opt-in on would fail the
+    whole task. Fixed by applying the opt-in to hostnames only.
+  - low: no test that the desktop opt-in is off by default. Added.
+  - low: the critic did not record the flag. Fixed.
+  - low: the README overstated the default. Fixed; see the next item.
+- **Pre-existing behaviour, recorded rather than changed.** The local model
+  destination accepts any resolved address, including a fake-IP answer, with
+  no opt-in. Behind such a proxy, a local model given by hostname would send
+  its traffic into the proxy's tunnel. The owner's endpoint is an IP literal,
+  so it is unaffected. The README and `.env.example` now tell users to
+  configure the local model by IP literal.
+
+Changes: `broker.ts`, `config.ts`, `general-tasks/controller.ts`, the
+headless driver, `phase2-repair.ts`, README, `.env.example`; tests in the new
+`private-agent-proxy-fake-ip` suite and the controller suite.
+
+Evidence:
+
+- Typecheck clean; 1,994 tests passed, 80 skipped; the broker integration
+  suite passed 73 of 73.
+- New tests cover the range boundaries, refusal by default with nothing
+  sent, admission with the address pinned and the certificate pinned to the
+  hostname, private addresses still refused with the opt-in, mixed answers,
+  construction refusals, the freeze record, the CLI rules, the config
+  default, and the desktop wiring for the system resolver, DoH, opt-in off
+  and IP-literal cases.
+- The reviewers' mutation runs confirmed that the broker tests fail when the
+  transport check, the servername pin or the construction rule is removed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+
+- Not yet exercised against the owner's real proxy. The cloud dry runs and
+  the job 1 re-run are the live check.
+- The proxy's upstream sees hostnames. This is for public or synthetic work
+  only, and Tier O stays blocked.
+- `198.18.0.0/15` answers are admitted for the opted-in destinations on any
+  network, not only behind a fake-IP proxy. TLS verification is the remaining
+  guarantee.
+
+Paid exposure: USD 0.
+
+Next gate: the cloud dry runs from this branch with `--proxy-fake-ip true`.
+Merge after PR #13: its entries are stamped earlier. Then cut a new owner
+build for the job 1 re-run.
+
+References: BL-20261008-1215-proxy-fake-ip-blocks-egress,
+BL-20261008-1210-owner-v0-1-released.
+
+### BL-20261008-1300-cloud-arm-tools-reasoning-rejected -- 2026-10-08 -- First live cloud call: gpt-6-sol refuses function tools with reasoning on chat completions
+
+Status: `Verified`
+
+Scope or hypothesis: the T2 cloud dry run from `651a844` with
+`--proxy-fake-ip true`, the first live use of the PR-E cloud arm.
+
+Decisions:
+
+- **The fake-IP opt-in works.** The request reached OpenAI in 2.3 s.
+  Earlier attempts had stopped at the address guard.
+- **OpenAI returned HTTP 400.** Nothing was charged and the reservation was
+  released. SOAR does not keep error bodies, so the cause was isolated with
+  four minimal probes, each a few tokens:
+  - plain: 200;
+  - with `reasoning_effort: "medium"`: 200;
+  - with tools and reasoning, with or without `parallel_tool_calls`: 400,
+    `param: reasoning_effort`, "Function tools with reasoning_effort are not
+    supported for gpt-6-sol in /v1/chat/completions. To use function tools,
+    use /v1/responses or set reasoning_effort to 'none'";
+  - `gpt-6.1-sol` behaves the same;
+  - tools with `reasoning_effort: "none"`: 200.
+- **Consequence.** The PR-E request shape cannot run the cloud arm at
+  thinking parity with local heavy. The unit tests matched the published
+  chat-completions shape, but this restriction applies per model, on the
+  server. The cloud critic (H) sends no tools, so it is unaffected.
+- **Decision: add the Responses API for the cloud arm.** The alternative,
+  `reasoning_effort: "none"`, keeps chat completions working but runs the
+  cloud arm without thinking against a thinking local arm. That breaks the
+  fair test's same-thinking-mode rule.
+  - The new shape uses `store: false`, so OpenAI keeps no conversation state.
+  - Reasoning is carried between turns as encrypted items, as the API
+    documents.
+  - The destination stays api.openai.com, so there is no new egress
+    destination.
+- **No T4 run** until the new shape lands; it would fail the same way.
+
+Changes: this entry.
+
+Evidence: `phase1-cloud-dryrun-v2/runs/t2-rfc-memo-cloud` (local, ignored)
+and the probe outputs above.
+
+Failures or blockers: The cloud arm, and with it exit criterion 2's cloud
+half, is blocked until the Responses API shape exists.
+
+Limitations and non-claims: The probes used tiny prompts. They show which
+parameter combinations are accepted, not agent behaviour.
+
+Paid exposure: under USD 0.01 for the probes. The dry run itself was not
+charged (HTTP 400).
+
+Next gate: the Responses API request shape for the cloud arm, then the T2
+and T4 cloud dry runs.
+
+References: BL-20261008-1240-proxy-fake-ip-opt-in,
+BL-20261007-1040-pr-e-cloud-correctness-implemented.

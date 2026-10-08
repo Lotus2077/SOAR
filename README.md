@@ -66,6 +66,15 @@ SOAR_GENERAL_TASK_IMAGE_ID=sha256:<tool sandbox image built from runtime/private
 A plain-HTTP endpoint on a network is acceptable only for public or synthetic
 data.
 
+If a system proxy runs in fake-IP mode (every hostname resolves to
+`198.18.0.0/15`), SOAR refuses those answers for cloud and public destinations
+by default. Set `SOAR_PROXY_FAKE_IP=true` to admit them for approved public
+sources, and pass `--proxy-fake-ip true` to the headless driver's cloud arm or
+the Phase 2 critic. Certificates are still verified, and the proxy sees
+hostnames, not content. The local model destination accepts any resolved
+address, so give it an IP literal: a hostname behind such a proxy would send
+model traffic into the proxy's tunnel.
+
 Two read-only diagnostics are available:
 
 - `python3 scripts/box-checklist.py`: run on the inference device. It prints a

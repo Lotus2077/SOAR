@@ -142,7 +142,11 @@ const LOCAL_SCREEN_BUDGETS: Readonly<Record<LocalScreenProfile, { maxModelCalls:
 /** Phase 2 cloud arm (PR-E): the key comes from the process environment only and never reaches the freeze, the result or the registry. */
 export const CLOUD_ARM_MAX_FEE_USD = 8;
 export const CLOUD_ARM_KEY_VARIABLE = "SOAR_PHASE2_CLOUD_API_KEY";
-export interface CloudArmInput { model: string; endpoint: string; prices: { input: number; output: number; cached: number }; maxFeeUsd: number }
+export interface CloudArmInput {
+  model: string; endpoint: string; prices: { input: number; output: number; cached: number }; maxFeeUsd: number;
+  /** Owner opt-in (`--proxy-fake-ip true`): admit a fake-IP system proxy's 198.18.0.0/15 answer for the cloud endpoint. */
+  proxyFakeIp?: true;
+}
 export function parseCloudPrices(value: string): CloudArmInput["prices"] {
   const parts = value.split(",").map(part => Number(part));
   if (parts.length !== 3 || parts.some(part => !Number.isFinite(part) || part < 0) || parts[2]! > parts[0]!) throw new Error("local_screen_cli_invalid");
@@ -158,12 +162,14 @@ export function buildCloudArm(input: CloudArmInput, environment: NodeJS.ProcessE
   const accountId = environment.SOAR_PHASE2_CLOUD_ACCOUNT_ID ?? "owner_cloud_account";
   // Synthetic-only and explicitly grant-free: the broker admits this destination to a wholly synthetic lineage and nothing else.
   const destination: BrokerDestination = { id: "cloud_coordinator", kind: "cloud_model", endpoint: endpoint.href, apiKey, accountId, credentialVersion,
-    privateDataAdmitted: false, syntheticOnly: true, grantFreeSynthetic: true, maxResponseBytes: 512 * 1024, timeoutMs: 600_000, maxRequestBytes: coordinator.maxRequestBytes };
+    privateDataAdmitted: false, syntheticOnly: true, grantFreeSynthetic: true, maxResponseBytes: 512 * 1024, timeoutMs: 600_000, maxRequestBytes: coordinator.maxRequestBytes,
+    ...(input.proxyFakeIp ? { proxyFakeIp: true as const } : {}) };
   // Same output limit, thinking mode and body cap as the local arm; only the API shape, the prices and the timeout differ.
   const modelConfig = { destinationId: "cloud_coordinator", model: input.model, api: "openai" as const, maxOutputTokens: coordinator.maxOutputTokens, thinking: coordinator.thinking,
     inputUsdPerMillion: input.prices.input, outputUsdPerMillion: input.prices.output, cachedInputUsdPerMillion: input.prices.cached, maxRequestBytes: coordinator.maxRequestBytes };
   const maxFeeMicrousd = Math.round(input.maxFeeUsd * 1_000_000);
-  return { destination, modelConfig, maxFeeMicrousd, freeze: { arm: "cloud" as const, accountId, credentialVersion, endpointSha256: digest(endpoint.href), maxFeeMicrousd, modelConfig } };
+  return { destination, modelConfig, maxFeeMicrousd, freeze: { arm: "cloud" as const, accountId, credentialVersion, endpointSha256: digest(endpoint.href), maxFeeMicrousd, modelConfig,
+    ...(input.proxyFakeIp ? { proxyFakeIp: true as const } : {}) } };
 }
 
 /** Adds the claims ledger requirement: sources are the job's input files plus, for two-phase runs, the public sources the host retained (never the model-authored context files). */
@@ -339,7 +345,7 @@ export async function runLocalArtifactScreen(input: {
 export function parseLocalArtifactScreenArguments(args: string[]): Parameters<typeof runLocalArtifactScreen>[0] {
     const snapshotNames = ["--public-snapshot-directory", "--public-snapshot-brief-sha256", "--public-snapshot-map-sha256", "--public-snapshot-index-path"];
     const cloudNames = ["--cloud-model", "--cloud-endpoint", "--cloud-prices", "--max-fee-usd"];
-    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", "--document-review", "--repair-from", "--arm", ...cloudNames, ...snapshotNames];
+    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", "--document-review", "--repair-from", "--arm", ...cloudNames, "--proxy-fake-ip", ...snapshotNames];
     if (args[0] !== "--execute-synthetic-local" || args.length % 2 !== 1 || args.slice(1).some((arg, i) => i % 2 === 0 && !names.includes(arg)) ||
         new Set(args.filter((_, i) => i % 2 === 1)).size !== (args.length - 1) / 2) throw new Error("local_screen_cli_invalid");
     const values = new Map(args.slice(1).filter((_, i) => i % 2 === 0).map(name => [name, args[args.indexOf(name) + 1]!]));
@@ -351,7 +357,8 @@ export function parseLocalArtifactScreenArguments(args: string[]): Parameters<ty
         (values.has("--arm") && !["local", "cloud"].includes(values.get("--arm")!))) throw new Error("local_screen_cli_invalid");
     const cloudCount = cloudNames.filter(name => values.has(name)).length, cloudArm = values.get("--arm") === "cloud";
     // The cloud arm needs every cloud flag and the local arm none of them; the key itself is never a flag.
-    if ((cloudArm && cloudCount !== cloudNames.length) || (!cloudArm && cloudCount)) throw new Error("local_screen_cli_invalid");
+    if ((cloudArm && cloudCount !== cloudNames.length) || (!cloudArm && cloudCount) ||
+        (values.has("--proxy-fake-ip") && (!cloudArm || values.get("--proxy-fake-ip") !== "true"))) throw new Error("local_screen_cli_invalid");
     const snapshotCount = snapshotNames.filter(name => values.has(name)).length;
     if (snapshotCount && (snapshotCount !== snapshotNames.length || values.get("--public-retrieval") !== "true")) throw new Error("local_screen_cli_invalid");
     return { taskDirectory: values.get("--task-directory")!, expectedJobSha256: values.get("--job-sha256")!,
@@ -362,7 +369,8 @@ export function parseLocalArtifactScreenArguments(args: string[]): Parameters<ty
       claimsLedger: values.get("--claims-ledger") === "true" ? true : undefined,
       ...(values.get("--document-review") === "true" ? { documentReview: true } : {}),
       ...(values.has("--repair-from") ? { repairFrom: values.get("--repair-from")! } : {}),
-      ...(cloudArm ? { cloudArm: { model: values.get("--cloud-model")!, endpoint: values.get("--cloud-endpoint")!, prices: parseCloudPrices(values.get("--cloud-prices")!), maxFeeUsd: Number(values.get("--max-fee-usd")) } } : {}),
+      ...(cloudArm ? { cloudArm: { model: values.get("--cloud-model")!, endpoint: values.get("--cloud-endpoint")!, prices: parseCloudPrices(values.get("--cloud-prices")!), maxFeeUsd: Number(values.get("--max-fee-usd")),
+        ...(values.get("--proxy-fake-ip") === "true" ? { proxyFakeIp: true as const } : {}) } } : {}),
       ...(snapshotCount ? { publicSnapshot: { directory: values.get(snapshotNames[0]!)!, expectedBriefSha256: values.get(snapshotNames[1]!)!,
         expectedMapSha256: values.get(snapshotNames[2]!)!, indexPath: values.get(snapshotNames[3]!)! } } : {}) };
 }

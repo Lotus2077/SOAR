@@ -351,6 +351,10 @@ export class GeneralTaskController {
     return (record.publicSources?.urls ?? []).map((url, i) => ({ id: `desktop_web_${i + 1}`, kind: "public_web", endpoint: url, exactUrl: url,
       accountId: "user_approved_public_source", credentialVersion: 0, privateDataAdmitted: false,
       ...(record.publicSources?.dnsResolver === "cloudflare_v1" ? { publicDnsResolver: "cloudflare_v1" as const } : {}),
+      // The DoH route returns real addresses and an IP literal is never resolved, so the fake-IP opt-in applies only to a
+      // hostname on the system resolver.
+      ...(this.profile().config.proxyFakeIp && record.publicSources?.dnsResolver !== "cloudflare_v1" && !isIP(new URL(url).hostname.replace(/^\[|\]$/gu, ""))
+        ? { proxyFakeIp: true as const } : {}),
       ...(this.profile().config.recoverableDispatch ? { recoverable: true } : {}),
       maxResponseBytes: GENERAL_TASK_WEB_LIMITS.maxResponseBytes, timeoutMs: 15000 }));
   }

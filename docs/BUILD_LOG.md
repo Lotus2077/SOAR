@@ -21241,3 +21241,64 @@ counted runs on `phase2-tasks-v1`.
 
 References: BL-20261008-1312-openai-responses-cloud-arm,
 BL-20261008-1210-owner-v0-1-released, BL-20261007-1449-phase1-close-out.
+
+### BL-20261012-1610-first-owner-accepted-job -- 2026-10-12 -- First owner-run real job on owner-v0.2, accepted with no edits
+
+Status: `Verified`
+
+Scope or hypothesis: Phase 1 exit criterion 3 and the north-star count (OAJ).
+The owner asked for the `owner-v0.2` app to be opened, ran one real public
+job they chose themselves, and reported in chat: "ran the task, accept the
+result (no edit needed)".
+
+Decisions:
+
+- **The job.** It is recorded from host metadata only. The development
+  agent did not read its goal, inputs or output: the owner's real work is
+  never read by a cloud agent, even when it is declared public.
+  - Task `93d31448`, attestation `491d9b416bd574f6…`, local only, heavy
+    profile, one input file, no public URLs, a Markdown deliverable.
+  - Submitted after 19 model calls and 19 tool actions in 493 s. The host
+    structural check passed.
+  - A task created four minutes earlier was cancelled by the owner at
+    creation.
+- **Verdict: Accept, no edits, 0 interventions, within 72 h.** It meets the
+  OAJ conditions:
+  - the owner chose it and ran it in the normal app build;
+  - it cleared the heavy floor (at least 15 agent actions);
+  - it was accepted within 72 h with at most one intervention.
+  - Export through the app is owner-reported: the app does not record
+    exports.
+- **OAJ this week: 1.**
+- **Exit criterion 3: 1 of 2.** The criterion needs two or more real
+  public jobs run by the owner, with verdicts. The two agent-chosen jobs of
+  BL-20261008-1330 are still without verdicts and were not run by the owner.
+- **Adoption clock: tripped, then recovered.** The plan's kill rule ("no
+  owner-run job by Oct 9: pause and talk; do not build more") was triggered:
+  the first owner-run job came on Oct 12. It is recorded here rather than
+  dropped. No feature work was started between Oct 9 and this job.
+  Continuing is the owner's call, and the owner's engagement on Oct 12 is
+  taken as that call unless the owner says otherwise.
+
+Changes: this entry.
+
+Evidence: the owner app's task record (local, never committed); the owner's
+chat verdict.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+
+- One accepted job is not a capability claim.
+- The job's family is not recorded: the agent does not read the job. The
+  owner can name it (research, document review, deck, website, admin,
+  coding or other).
+
+Paid exposure: USD 0 (local).
+
+Next gate: a second owner-run job with a verdict closes exit criterion 3;
+verdicts on the two agent-chosen jobs; merge PR #16; Phase 2 counted runs.
+
+References: BL-20261008-1330-phase1-cloud-dry-runs-and-exit-jobs,
+BL-20261008-1210-owner-v0-1-released, [plan](PLAN.md) north star and
+Phase 4 adoption kill rule.

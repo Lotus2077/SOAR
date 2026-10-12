@@ -21339,7 +21339,7 @@ Next gate: merge PR #16; Phase 2 counted runs.
 
 References: BL-20261012-1610-first-owner-accepted-job.
 
-### BL-20261012-1620-phase2-batch-start -- 2026-10-12 -- Phase 2 counted runs start: 36 runs, one SHA, one sequential queue
+### BL-20261012-1630-phase2-batch-start -- 2026-10-12 -- Phase 2 counted runs start: 36 runs, one SHA, one sequential queue
 
 Status: `Approved`
 

@@ -21302,3 +21302,39 @@ verdicts on the two agent-chosen jobs; merge PR #16; Phase 2 counted runs.
 References: BL-20261008-1330-phase1-cloud-dry-runs-and-exit-jobs,
 BL-20261008-1210-owner-v0-1-released, [plan](PLAN.md) north star and
 Phase 4 adoption kill rule.
+
+### BL-20261012-1625-owner-job-classified -- 2026-10-12 -- The owner classifies the first accepted job as document review and confirms the export
+
+Status: `Verified`
+
+Scope or hypothesis: closes the two open points of
+BL-20261012-1610-first-owner-accepted-job.
+
+Decisions:
+
+- **Family.** The owner reported "document review, translate and edit". It
+  is recorded as family `document_review`. This is the first accepted owner
+  job in that family.
+- **Export.** The owner reported "exported with the export button". All OAJ
+  conditions are now owner-confirmed.
+- **Registry.** Row `oaj-20261012-document-review-1` is hash and count only.
+  It binds the attestation identity as `taskJobSha256`. Token counts are
+  null because the desktop task record does not keep them.
+- **Merge authority.** The same message says "merge Lotus2077/SOAR#16". That
+  starts Phase 2 under the offer recorded in chat: counted runs on
+  `phase2-tasks-v1`, C-Sol within the approved USD 100 Phase 2 cap.
+
+Changes: this entry; one registry row.
+
+Evidence: the owner's chat reply; the owner app's task metadata.
+
+Failures or blockers: None.
+
+Limitations and non-claims: The family is the owner's own label. The agent
+did not read the job.
+
+Paid exposure: USD 0.
+
+Next gate: merge PR #16; Phase 2 counted runs.
+
+References: BL-20261012-1610-first-owner-accepted-job.

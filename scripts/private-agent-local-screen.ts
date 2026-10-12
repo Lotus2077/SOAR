@@ -146,7 +146,16 @@ export interface CloudArmInput {
   model: string; endpoint: string; prices: { input: number; output: number; cached: number }; maxFeeUsd: number;
   /** Owner opt-in (`--proxy-fake-ip true`): admit a fake-IP system proxy's 198.18.0.0/15 answer for the cloud endpoint. */
   proxyFakeIp?: true;
+  /** Long-context tier (`--cloud-long-context above,in,out,cached`): required by the driver, whose heavy bodies can exceed it. */
+  longContext?: { aboveTokens: number; input: number; output: number; cached: number };
 }
+export function parseCloudLongContext(value: string): NonNullable<CloudArmInput["longContext"]> {
+  const parts = value.split(",").map(part => Number(part));
+  if (parts.length !== 4 || !Number.isSafeInteger(parts[0]) || parts[0]! <= 0 || parts.slice(1).some(part => !Number.isFinite(part) || part < 0) || parts[3]! > parts[1]!) throw new Error("local_screen_cli_invalid");
+  return { aboveTokens: parts[0]!, input: parts[1]!, output: parts[2]!, cached: parts[3]! };
+}
+/** The endpoint path selects the request shape exactly; any other path is refused rather than guessed. */
+const CLOUD_API_BY_PATH: Readonly<Record<string, "openai" | "openai_responses">> = Object.freeze({ "/v1/chat/completions": "openai", "/v1/responses": "openai_responses" });
 export function parseCloudPrices(value: string): CloudArmInput["prices"] {
   const parts = value.split(",").map(part => Number(part));
   if (parts.length !== 3 || parts.some(part => !Number.isFinite(part) || part < 0) || parts[2]! > parts[0]!) throw new Error("local_screen_cli_invalid");
@@ -154,7 +163,8 @@ export function parseCloudPrices(value: string): CloudArmInput["prices"] {
 }
 export function buildCloudArm(input: CloudArmInput, environment: NodeJS.ProcessEnv, coordinator: { maxOutputTokens: number; thinking: "disabled" | "medium"; maxRequestBytes: number }) {
   const endpoint = new URL(input.endpoint);
-  if (endpoint.protocol !== "https:" || !(input.maxFeeUsd > 0 && input.maxFeeUsd <= CLOUD_ARM_MAX_FEE_USD)) throw new Error("local_screen_cloud_arm_invalid");
+  const api = Object.hasOwn(CLOUD_API_BY_PATH, endpoint.pathname) ? CLOUD_API_BY_PATH[endpoint.pathname]! : undefined;
+  if (endpoint.protocol !== "https:" || !(input.maxFeeUsd > 0 && input.maxFeeUsd <= CLOUD_ARM_MAX_FEE_USD) || !api || endpoint.search) throw new Error("local_screen_cloud_arm_invalid");
   const apiKey = environment[CLOUD_ARM_KEY_VARIABLE];
   if (!apiKey || !/^[\x21-\x7e]{8,512}$/u.test(apiKey)) throw new Error("local_screen_cloud_key_missing");
   const credentialVersion = Number(environment.SOAR_PHASE2_CLOUD_CREDENTIAL_VERSION ?? "1");
@@ -165,8 +175,11 @@ export function buildCloudArm(input: CloudArmInput, environment: NodeJS.ProcessE
     privateDataAdmitted: false, syntheticOnly: true, grantFreeSynthetic: true, maxResponseBytes: 512 * 1024, timeoutMs: 600_000, maxRequestBytes: coordinator.maxRequestBytes,
     ...(input.proxyFakeIp ? { proxyFakeIp: true as const } : {}) };
   // Same output limit, thinking mode and body cap as the local arm; only the API shape, the prices and the timeout differ.
-  const modelConfig = { destinationId: "cloud_coordinator", model: input.model, api: "openai" as const, maxOutputTokens: coordinator.maxOutputTokens, thinking: coordinator.thinking,
-    inputUsdPerMillion: input.prices.input, outputUsdPerMillion: input.prices.output, cachedInputUsdPerMillion: input.prices.cached, maxRequestBytes: coordinator.maxRequestBytes };
+  // /v1/responses is the only OpenAI shape that serves tools with reasoning (BL-20261008-1300).
+  const modelConfig = { destinationId: "cloud_coordinator", model: input.model, api, maxOutputTokens: coordinator.maxOutputTokens, thinking: coordinator.thinking,
+    inputUsdPerMillion: input.prices.input, outputUsdPerMillion: input.prices.output, cachedInputUsdPerMillion: input.prices.cached, maxRequestBytes: coordinator.maxRequestBytes,
+    ...(input.longContext ? { longContext: { aboveTokens: input.longContext.aboveTokens, inputUsdPerMillion: input.longContext.input,
+      outputUsdPerMillion: input.longContext.output, cachedInputUsdPerMillion: input.longContext.cached } } : {}) };
   const maxFeeMicrousd = Math.round(input.maxFeeUsd * 1_000_000);
   return { destination, modelConfig, maxFeeMicrousd, freeze: { arm: "cloud" as const, accountId, credentialVersion, endpointSha256: digest(endpoint.href), maxFeeMicrousd, modelConfig,
     ...(input.proxyFakeIp ? { proxyFakeIp: true as const } : {}) } };
@@ -344,7 +357,7 @@ export async function runLocalArtifactScreen(input: {
 
 export function parseLocalArtifactScreenArguments(args: string[]): Parameters<typeof runLocalArtifactScreen>[0] {
     const snapshotNames = ["--public-snapshot-directory", "--public-snapshot-brief-sha256", "--public-snapshot-map-sha256", "--public-snapshot-index-path"];
-    const cloudNames = ["--cloud-model", "--cloud-endpoint", "--cloud-prices", "--max-fee-usd"];
+    const cloudNames = ["--cloud-model", "--cloud-endpoint", "--cloud-prices", "--cloud-long-context", "--max-fee-usd"];
     const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", "--document-review", "--repair-from", "--arm", ...cloudNames, "--proxy-fake-ip", ...snapshotNames];
     if (args[0] !== "--execute-synthetic-local" || args.length % 2 !== 1 || args.slice(1).some((arg, i) => i % 2 === 0 && !names.includes(arg)) ||
         new Set(args.filter((_, i) => i % 2 === 1)).size !== (args.length - 1) / 2) throw new Error("local_screen_cli_invalid");
@@ -370,6 +383,7 @@ export function parseLocalArtifactScreenArguments(args: string[]): Parameters<ty
       ...(values.get("--document-review") === "true" ? { documentReview: true } : {}),
       ...(values.has("--repair-from") ? { repairFrom: values.get("--repair-from")! } : {}),
       ...(cloudArm ? { cloudArm: { model: values.get("--cloud-model")!, endpoint: values.get("--cloud-endpoint")!, prices: parseCloudPrices(values.get("--cloud-prices")!), maxFeeUsd: Number(values.get("--max-fee-usd")),
+        longContext: parseCloudLongContext(values.get("--cloud-long-context")!),
         ...(values.get("--proxy-fake-ip") === "true" ? { proxyFakeIp: true as const } : {}) } } : {}),
       ...(snapshotCount ? { publicSnapshot: { directory: values.get(snapshotNames[0]!)!, expectedBriefSha256: values.get(snapshotNames[1]!)!,
         expectedMapSha256: values.get(snapshotNames[2]!)!, indexPath: values.get(snapshotNames[3]!)! } } : {}) };

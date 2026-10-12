@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { sessionPhaseIdentity } from "../../src/main/private-agent/session";
 import { loadPreparedOperatorTask } from "../../scripts/private-agent-run";
-import { withClaimsLedger, buildCloudArm, buildExplicitPublicSnapshotPhase, parseCloudPrices, parseLocalArtifactScreenArguments, preparePublicSnapshot, startExplicitPublicSnapshotReceiver } from "../../scripts/private-agent-local-screen";
+import { withClaimsLedger, buildCloudArm, buildExplicitPublicSnapshotPhase, parseCloudPrices, parseLocalArtifactScreenArguments, preparePublicSnapshot, startExplicitPublicSnapshotReceiver, parseCloudLongContext } from "../../scripts/private-agent-local-screen";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -155,8 +155,15 @@ describe("public snapshot CLI", () => {
       expectedBriefSha256: "f".repeat(64), expectedMapSha256: "1".repeat(64), indexPath: "/sources/index.html" });
   });
   it("parses the cloud arm only with every cloud flag, builds its destination from the environment key and keeps the key out of the freeze", () => {
-    const cloud = ["--arm", "cloud", "--cloud-model", "gpt-6-sol", "--cloud-endpoint", "https://api.openai.com/v1/chat/completions", "--cloud-prices", "2,8,0.5", "--max-fee-usd", "8"];
-    expect(parseLocalArtifactScreenArguments([...base, ...cloud]).cloudArm).toEqual({ model: "gpt-6-sol", endpoint: "https://api.openai.com/v1/chat/completions", prices: { input: 2, output: 8, cached: 0.5 }, maxFeeUsd: 8 });
+    const cloud = ["--arm", "cloud", "--cloud-model", "gpt-6-sol", "--cloud-endpoint", "https://api.openai.com/v1/chat/completions", "--cloud-prices", "2,8,0.5", "--max-fee-usd", "8",
+      "--cloud-long-context", "272000,4,15,0.4"];
+    expect(parseLocalArtifactScreenArguments([...base, ...cloud]).cloudArm).toEqual({ model: "gpt-6-sol", endpoint: "https://api.openai.com/v1/chat/completions", prices: { input: 2, output: 8, cached: 0.5 }, maxFeeUsd: 8,
+      longContext: { aboveTokens: 272_000, input: 4, output: 15, cached: 0.4 } });
+    // The long-context tier is a required cloud flag on the driver, whose heavy bodies can cross it.
+    expect(() => parseLocalArtifactScreenArguments([...base, ...cloud.slice(0, 10)])).toThrow("local_screen_cli_invalid");
+    expect(() => parseCloudLongContext("272000,4,15")).toThrow("local_screen_cli_invalid");
+    expect(() => parseCloudLongContext("0,4,15,0.4")).toThrow("local_screen_cli_invalid");
+    expect(() => parseCloudLongContext("272000,4,15,5")).toThrow("local_screen_cli_invalid");
     expect(parseLocalArtifactScreenArguments([...base, "--arm", "local"]).cloudArm).toBeUndefined();
     expect(() => parseLocalArtifactScreenArguments([...base, ...cloud.slice(0, 6)])).toThrow("local_screen_cli_invalid");
     expect(() => parseLocalArtifactScreenArguments([...base, "--cloud-model", "x"])).toThrow("local_screen_cli_invalid");
@@ -167,6 +174,11 @@ describe("public snapshot CLI", () => {
     expect(() => buildCloudArm(input, {}, coordinator)).toThrow("local_screen_cloud_key_missing");
     expect(() => buildCloudArm({ ...input, endpoint: "http://api.example.test/v1/chat/completions" }, { SOAR_PHASE2_CLOUD_API_KEY: "sk-synthetic-key-0001" }, coordinator)).toThrow("local_screen_cloud_arm_invalid");
     expect(() => buildCloudArm({ ...input, maxFeeUsd: 9 }, { SOAR_PHASE2_CLOUD_API_KEY: "sk-synthetic-key-0001" }, coordinator)).toThrow("local_screen_cloud_arm_invalid");
+    // The endpoint path selects the request shape exactly; a near miss is refused, never guessed.
+    for (const endpoint of ["https://api.openai.com/v1/responses/", "https://api.openai.com/v1/Responses", "https://api.openai.com/v1/responses/compact",
+      "https://api.openai.com/v1", "https://api.openai.com/v1/responses?x=1"]) {
+      expect(() => buildCloudArm({ ...input, endpoint }, { SOAR_PHASE2_CLOUD_API_KEY: "sk-synthetic-key-0001" }, coordinator)).toThrow("local_screen_cloud_arm_invalid");
+    }
     const arm = buildCloudArm(input, { SOAR_PHASE2_CLOUD_API_KEY: "sk-synthetic-key-0001", SOAR_PHASE2_CLOUD_CREDENTIAL_VERSION: "3" }, coordinator);
     expect(arm.destination).toMatchObject({ id: "cloud_coordinator", kind: "cloud_model", apiKey: "sk-synthetic-key-0001", credentialVersion: 3, privateDataAdmitted: false, syntheticOnly: true, grantFreeSynthetic: true });
     expect(arm.destination).not.toHaveProperty("requireExactGrant");

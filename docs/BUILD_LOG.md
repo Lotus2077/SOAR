@@ -21338,3 +21338,76 @@ Paid exposure: USD 0.
 Next gate: merge PR #16; Phase 2 counted runs.
 
 References: BL-20261012-1610-first-owner-accepted-job.
+
+### BL-20261012-1620-phase2-batch-start -- 2026-10-12 -- Phase 2 counted runs start: 36 runs, one SHA, one sequential queue
+
+Status: `Approved`
+
+Scope or hypothesis: the Phase 2 fair test on the frozen set
+`phase2-tasks-v1` (12 tasks, 82 critical checks, manifest `tasksSha256`
+`aa8cbae5…`).
+- Arms: L-Heavy seed a, L-Heavy seed b, C-Sol.
+- The repair pair (H and L′) runs afterwards on at most six failed L-Heavy
+  drafts.
+- Authority: the plan approval (BL-20260928-1745), the frozen tasks
+  (BL-20261008-1025), the cloud shape (BL-20261008-1312), and the owner's
+  "merge Lotus2077/SOAR#16" in reply to the offer to start Phase 2
+  (BL-20261012-1625).
+
+Decisions:
+
+- **One SHA for every arm:** `8e5c6aa` (main after #16), runtime
+  `09bcde22…`. That is the same runtime as the Phase 1 cloud dry runs. It
+  runs in its own detached worktree; the tasks are read from the authoring
+  worktree by absolute path, and their hashes were re-checked against the
+  manifest before launch.
+- **One sequential queue of 36 runs.** Nothing runs in parallel: no local
+  run shares the box with another run or with a cloud run's judge calls.
+  - Arms rotate per task in sorted task order (a, cloud, b; then cloud, b,
+    a; then b, a, cloud), so no arm always runs first or last.
+  - The queue skips finished output directories, so a stopped queue resumes
+    without re-running anything.
+  - It stops itself after two consecutive `model_unavailable` results, so an
+    outage cannot burn the queue.
+- **Flags.** Every run: `--profile heavy`, plus the task's own mode flags
+  (`--claims-ledger true` for r1-r3, `--document-review true` for d1-d3).
+  C-Sol adds:
+  - `--cloud-endpoint https://api.openai.com/v1/responses` and
+    `--cloud-model gpt-6-sol`;
+  - `--cloud-prices 2,10,0.2` and `--cloud-long-context 272000,4,15,0.4`;
+  - `--max-fee-usd 8` and `--proxy-fake-ip true`.
+
+  The key comes from the Keychain helper. Worst-case C-Sol spend is USD 96,
+  under the USD 100 Phase 2 cap.
+- **Known asymmetry, accepted and recorded before any result.** The runner's
+  per-turn system message defeats provider prompt caching
+  (BL-20261008-1312). The cloud arm therefore pays full input rates on most
+  of its history and may reach the USD 8 cap on long tasks. A fee-cap stop
+  counts against C-Sol as a harness-terminal cause, and R0 applies if more
+  than 3 of 12 C-Sol runs end `infra_invalid`.
+- **Scoring and blinding.** The scorer under the task set's ignored `gold/`
+  runs after the batch. The harness author does not read gold. The owner's
+  blind verdicts are the outcome of record. Blind bundles are built with
+  `scripts/phase2-blind.py`.
+
+Changes: this entry.
+
+Evidence: `phase2-v1-runs/authority.json` (sha256 `f72fb6f6…`) and
+`queue.tsv` (local, ignored).
+
+Failures or blockers: None at launch.
+
+Limitations and non-claims:
+
+- n = 12 detects only large gaps; the decision rules are investment rules.
+- The plan's window was Oct 8-15. The batch starts Oct 12, and the verdict
+  moves to about Oct 17-19 with the owner's grading.
+
+Paid exposure: none yet. C-Sol is capped at USD 96.
+
+Next gate: the batch finishes (an estimated 12-36 h), then scoring, the
+repair pair and the blind bundles.
+
+References: BL-20261008-1025-phase2-tasks-freeze,
+BL-20261008-1312-openai-responses-cloud-arm,
+BL-20261012-1625-owner-job-classified, [plan](PLAN.md) Phase 2.

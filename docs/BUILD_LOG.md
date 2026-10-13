@@ -21338,3 +21338,60 @@ Paid exposure: USD 0.
 Next gate: merge PR #16; Phase 2 counted runs.
 
 References: BL-20261012-1610-first-owner-accepted-job.
+
+### BL-20261013-0205-fake-ip-ipv4-only -- 2026-10-13 -- R0: the fake-IP proxy began answering with an IPv6 form; opted-in destinations now resolve IPv4 only
+
+Status: `Implemented`
+
+Scope or hypothesis: the top `infra_invalid` cause in the Phase 2 C-Sol arm,
+under pre-registered rule R0.
+
+Decisions:
+
+- **Finding.**
+  - The first two C-Sol runs (a1 at 16:38, a2 at 17:22 UTC) submitted. Every
+    later C-Sol run (c1 at 18:40 onward) failed its first dispatch with
+    `connection_failed` in 9-11 ms. Nothing was sent and nothing billed.
+  - The owner's proxy now answers AAAA as well as A: `api.openai.com` gives
+    `198.18.0.169` and `::ffff:0:c612:a9`, an IPv4-translated form of the
+    same placeholder.
+  - The broker requires every answer to be admitted. The fake-IP opt-in
+    admits only IPv4 in `198.18.0.0/15`, so every request was refused.
+  - The queue's stop rule (two consecutive `model_unavailable`) never fired:
+    local runs between the cloud runs reset the count. That is a harness
+    flaw in the queue, recorded here.
+- **R0 applies:** 10 of 12 C-Sol runs are `infra_invalid`, with the 11th
+  certain to fail the same way.
+  - Fix: for `proxyFakeIp` destinations only, the system lookup passes
+    `family: 4`, so only A records are considered. Every admission rule is
+    unchanged.
+  - Destinations without the opt-in, the DoH route, the local model, fixtures
+    and IP literals are untouched.
+  - Live check on the owner's Mac: Node's `lookup(..., { family: 4 })`
+    returns only `198.18.0.169`.
+- **Review.** One agent, security and correctness lens: no findings.
+- **Re-runs.** Only the invalid C-Sol runs are re-run, flagged as re-runs,
+  from this commit.
+  - Their SHA differs from the batch SHA `8e5c6aa` by this transport-only
+    change; the agent loop, tools, prompts and caps are unchanged.
+  - The re-run queue stops after two consecutive cloud failures regardless
+    of interleaving.
+  - The failed directories are kept under `invalid/` as evidence.
+
+Changes: `broker.ts` (IPv4-only lookup for opted-in destinations, doc
+comment); a test in the fake-IP suite.
+
+Evidence: typecheck clean; 2,011 tests passed, 80 skipped; broker
+integration suite 73 of 73.
+
+Failures or blockers: The C-Sol arm is invalid until the re-runs.
+
+Limitations and non-claims: Proxy behaviour can change again. The next
+failure mode is logged rather than predicted.
+
+Paid exposure: USD 0 (all failed dispatches were unsent).
+
+Next gate: the C-Sol re-runs after the local queue ends.
+
+References: BL-20261012-1630-phase2-batch-start,
+BL-20261008-1240-proxy-fake-ip-opt-in, [plan](PLAN.md) Phase 2 R0.

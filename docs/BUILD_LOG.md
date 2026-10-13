@@ -21694,3 +21694,55 @@ grading of the 12 task bundles and the repair bundles.
 
 References: BL-20261013-1627-phase2-scoring-protocol,
 BL-20261013-1630-phase2-blind-bundles, [plan](PLAN.md) Phase 2 rules R0-R5.
+
+### BL-20261013-1642-repair-loader-regression -- 2026-10-13 -- Correction: critiques recorded by #15 and #16 could not be loaded for repair; loader fixed, repairs move to the fix commit
+
+Status: `Implemented`
+
+Scope or hypothesis: a regression in BL-20261008-1240-proxy-fake-ip-opt-in
+and BL-20261008-1312-openai-responses-cloud-arm, found when the first Phase 2
+repair runs stopped at once with `local_screen_failed_no_replay`.
+
+Decisions:
+
+- **Cause.** Those entries made `critique()` record `requestShape` and
+  `proxyFakeIp` beside the repair binding in `critique.json`. But
+  `loadRepairDirectory` still stripped only `finishReason`, `usage`,
+  `servedModel` and `feeMicrousd` before the strict `RepairBindingSchema`.
+  So every new critique was refused ("Unrecognized key: requestShape"). The
+  #16 review checked that the field stays out of the binding, not that the
+  directory still loads, and the unit test wrote `critique.json` by hand
+  without the new fields.
+- **Fix.** The loader strips both record fields and checks them:
+  `requestShape` must be `vllm`, `openai` or `openai_responses`, and
+  `proxyFakeIp` must be `true` if present. Any other unexpected key is still
+  refused.
+  - The test now writes the record exactly as `critique()` does, and checks
+    the refusals.
+  - Both real a1 critiques (H and L′) load with the fix.
+  - 2,011 tests pass.
+- **Placement.** The fix is on the batch-record branch (PR #17), so build-log
+  timestamps stay ordered. Repairs run from that branch's clean commit, not
+  the batch SHA `8e5c6aa`. The difference is this loader fix and records
+  only: the agent loop, tools, prompts and caps are unchanged.
+- **Critiques are unaffected.** They had already run: a1 H (USD 0.016) and
+  L′, a2 H (USD 0.016). The failed repair attempts created no output
+  directory and are retried from the fix commit.
+
+Changes: `src/main/private-agent/repair.ts` (loader); the
+`tests/unit/phase2-repair.test.ts` round trip.
+
+Evidence: the loader probe on the real critique directories; the test suite.
+
+Failures or blockers: None after the fix.
+
+Limitations and non-claims: The repair arm's SHA differs from the batch SHA
+by this change.
+
+Paid exposure: USD 0.03 so far for the H critiques.
+
+Next gate: the repair runs from the fix commit.
+
+References: BL-20261008-1240-proxy-fake-ip-opt-in,
+BL-20261008-1312-openai-responses-cloud-arm,
+BL-20261013-1640-phase2-automated-scores-and-repair-selection.

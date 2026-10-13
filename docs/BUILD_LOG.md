@@ -21469,7 +21469,7 @@ References: BL-20261008-1025-phase2-tasks-freeze,
 BL-20261008-1312-openai-responses-cloud-arm,
 BL-20261012-1625-owner-job-classified, [plan](PLAN.md) Phase 2.
 
-### BL-20261013-0210-phase2-scoring-protocol -- 2026-10-13 -- Phase 2 scoring, repair selection, planted defect and blind pre-score, fixed before any score is seen
+### BL-20261013-1627-phase2-scoring-protocol -- 2026-10-13 -- Phase 2 scoring, repair selection, planted defect and blind pre-score, fixed before any score is seen
 
 Status: `Implemented`
 

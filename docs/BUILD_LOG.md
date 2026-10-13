@@ -21746,3 +21746,46 @@ Next gate: the repair runs from the fix commit.
 References: BL-20261008-1240-proxy-fake-ip-opt-in,
 BL-20261008-1312-openai-responses-cloud-arm,
 BL-20261013-1640-phase2-automated-scores-and-repair-selection.
+
+### BL-20261013-1650-phase2-grading-package -- 2026-10-13 -- Blind grading package for the owner: briefs added, timestamps flattened
+
+Status: `Implemented`
+
+Scope or hypothesis: making the 12 task bundles of
+BL-20261013-1630-phase2-blind-bundles ready for the owner.
+
+Decisions:
+
+- Each task's `brief.md` is copied into its bundle as `BRIEF.md`. A
+  `GRADING.md` at the bundle root explains the grading:
+  - Accept: usable as delivered, or with at most 10 minutes of edits.
+  - Reject: otherwise.
+  - The owner also records an arm guess (`local`, `cloud` or `unsure`).
+  - One planted defect exists somewhere, unnamed.
+  - Verdicts go in each `verdicts.csv` or in chat.
+- **Blinding fix before release.** Every file and directory in the bundles is
+  set to one timestamp. Two tells were removed:
+  - The tool copied runs in arm order, so modification times could order
+    the labels by arm.
+  - The decoy's edited report was newer than its neighbours.
+
+  The zip sent to the owner (`phase2-blind-bundles.zip`, 1.45 MB) contains
+  no `keys/`.
+- The repair-pair bundles follow when the repair runs finish. The owner may
+  grade the task bundles meanwhile.
+
+Changes: this entry.
+
+Evidence: the bundle directory and zip (local, ignored).
+
+Failures or blockers: None.
+
+Limitations and non-claims: File sizes and writing style can still hint at
+the arm. The owner's arm guess measures how far the blinding held.
+
+Paid exposure: USD 0.
+
+Next gate: the owner's verdicts. Unblinding and the decision rules follow.
+
+References: BL-20261013-1630-phase2-blind-bundles,
+BL-20261013-1640-phase2-automated-scores-and-repair-selection.

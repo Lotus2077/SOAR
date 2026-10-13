@@ -21597,3 +21597,100 @@ Next gate: the scorer counts and the arm-blind pre-scores (running), the
 repair selection, then the owner's blind grading.
 
 References: BL-20261013-1627-phase2-scoring-protocol.
+
+### BL-20261013-1640-phase2-automated-scores-and-repair-selection -- 2026-10-13 -- Phase 2 automated scores: C-Sol 10/12, L-Heavy 7/12 and 6/12; six drafts selected for the repair pair
+
+Status: `Verified`
+
+Scope or hypothesis: automated scoring and the arm-blind pre-score of the 36
+valid runs, and the repair selection, all under
+BL-20261013-1627-phase2-scoring-protocol. This is not the outcome of record:
+the owner's blind verdicts are still to come.
+
+Decisions:
+
+- **Automated scorer** (a separate agent ran the task set's scorer
+  offline in the pinned image, read-only mounts, all 36 exited 0). A run
+  passes only if every check passes and it submitted.
+
+  | Task | L-Heavy-1 | L-Heavy-2 | C-Sol |
+  | --- | --- | --- | --- |
+  | a1 | 6/7 | pass | pass |
+  | a2 | pass | 5/8 | pass |
+  | c1 | 6/7, not submitted | 6/7 | pass |
+  | d1 | pass | 4/5 | pass |
+  | d2 | pass | pass | pass |
+  | d3 | pass | pass | pass |
+  | k1 | pass | pass | pass |
+  | k2 | pass | pass | pass |
+  | r1 | 0/7, no deliverable | pass | 5/7, not submitted |
+  | r2 | 4/7, not submitted | 4/7, not submitted | pass |
+  | r3 | 0/7, no deliverable | 0/7, no deliverable | 3/7, not submitted |
+  | w1 | pass | 8/8, not submitted (90-min limit) | pass |
+
+  - Passes: **C-Sol 10/12, L-Heavy-1 7/12, L-Heavy-2 6/12.**
+  - Per-check detail is in `phase2-v1-runs/scores-detail.json` (local,
+    ignored). The harness author has seen counts only.
+- **Provisional reading of the pre-registered rules, on automated scores
+  only.**
+  - R3 (L ≥ C−2 on both seeds) is not met.
+  - R4 (C ≥ 8 and L ≤ C−4 on both seeds) is not met: seed 1 is at C−3,
+    seed 2 at C−4.
+  - The automated reading is therefore R5 (A-narrow). The families where
+    L-Heavy came within 1 of C-Sol on both seeds are document review (d2,
+    d3), deck (k1, k2) and website (w1, with seed 2 at the time limit).
+    Research, admin and coding are behind.
+  - R2 applies: 7 of the 11 L-Heavy failures were budget or time
+    exhaustion (`bounded_allowance_exhausted` or the 90-min deadline),
+    at least 50%. Speed levers must be tested before any "not viable"
+    verdict.
+  - These readings change if the owner's verdicts differ.
+- **Arm-blind pre-score.** Six agents, two tasks each, gave 37 label
+  verdicts with reasons and arm guesses. They are saved to
+  `phase2-v1-blind/prescores.json` (sha256 `c74a37fa01c2bd20…`, ignored,
+  0600) before unblinding.
+  - One agent returned w1's three labels under r3's task name. They were
+    split by content: the last three describe the website.
+  - The pre-scores stay sealed from the owner until the owner's verdicts
+    are in.
+  - Their reasons contain task-specific findings that the harness author
+    has read in part. The author grades nothing.
+- **Repair selection, by the fixed rule.** Eligible: an L-Heavy run that
+  failed and whose final snapshot holds every required artifact. Order:
+  tasks sorted; seed 1 before seed 2; at most one run per task.
+  - Selected:
+    1. a1 L-Heavy-1;
+    2. a2 L-Heavy-2;
+    3. c1 L-Heavy-2 (L-Heavy-1's rerun lacks one of three artifacts);
+    4. d1 L-Heavy-2;
+    5. r2 L-Heavy-2 (L-Heavy-1 has one of two);
+    6. w1 L-Heavy-2.
+  - Not eligible: r1 L-Heavy-1 (0 of 2) and r3 (0 of 2 on both seeds).
+  - Each gets H (gpt-6-sol via `/v1/responses`, fee cap USD 0.80 per
+    critique, so 6 × 0.80 = 4.80 stays inside the plan's USD 5 repair cap)
+    and L′ (local heavy), then one local heavy repair per critique from the
+    identical draft. Repairs run on the batch SHA `8e5c6aa`; critiques run
+    from `main` (`8b69228`), which carries the IPv4 fix the cloud critic
+    needs.
+
+Changes: this entry.
+
+Evidence: `scores-detail.json`, `prescores.json` and the run directories
+(local, ignored).
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+
+- The automated scorer and the tasks share an author.
+- With n = 12, only large gaps are detectable.
+- Automated passes are not acceptance.
+
+Paid exposure: Phase 2 C-Sol spend so far is about USD 17.70, under the
+USD 100 cap.
+
+Next gate: the repair pair batch, its blind bundles, then the owner's blind
+grading of the 12 task bundles and the repair bundles.
+
+References: BL-20261013-1627-phase2-scoring-protocol,
+BL-20261013-1630-phase2-blind-bundles, [plan](PLAN.md) Phase 2 rules R0-R5.

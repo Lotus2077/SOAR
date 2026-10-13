@@ -78,6 +78,15 @@ describe("Phase 2 repair pair: packet and seeding", () => {
     writeFileSync(join(dir, "critique.md"), critique); writeFileSync(join(dir, "draft", "output", "report.md"), "draft report");
     const loaded = loadRepairDirectory(dir);
     expect(loaded.binding).toEqual(binding()); expect(loaded.draft[0]!.bytes.toString()).toBe("draft report");
+    // The records critique() writes beside the binding (request shape, proxy posture) read back; bad values are refused.
+    const record = { ...binding(), finishReason: "stop", usage: null, servedModel: "gpt-6-sol", feeMicrousd: 16_400, requestShape: "openai_responses", proxyFakeIp: true };
+    writeFileSync(join(dir, "critique.json"), JSON.stringify(record));
+    expect(loadRepairDirectory(dir).binding).toEqual(binding());
+    for (const bad of [{ requestShape: "chat" }, { proxyFakeIp: false }, { unexpected: 1 }]) {
+      writeFileSync(join(dir, "critique.json"), JSON.stringify({ ...record, ...bad }));
+      expect(() => loadRepairDirectory(dir)).toThrow();
+    }
+    writeFileSync(join(dir, "critique.json"), JSON.stringify({ ...binding(), finishReason: "stop", usage: null, servedModel: null, feeMicrousd: 0 }));
     rmSync(join(dir, "draft", "output", "report.md")); writeFileSync(join(dir, "outside.md"), "draft report");
     symlinkSync(join(dir, "outside.md"), join(dir, "draft", "output", "report.md"));
     expect(() => loadRepairDirectory(dir)).toThrow("repair_directory_invalid");

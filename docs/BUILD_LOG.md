@@ -21395,3 +21395,397 @@ Next gate: the C-Sol re-runs after the local queue ends.
 
 References: BL-20261012-1630-phase2-batch-start,
 BL-20261008-1240-proxy-fake-ip-opt-in, [plan](PLAN.md) Phase 2 R0.
+
+### BL-20261013-0206-phase2-batch-start -- 2026-10-13 -- Phase 2 counted runs start: 36 runs, one SHA, one sequential queue
+
+Status: `Approved`
+
+Scope or hypothesis: written at the batch launch, 2026-10-12 16:30 UTC, on PR #17, and restamped after #18 merged first so timestamps stay monotonic; the text is unchanged. The Phase 2 fair test on the frozen set
+`phase2-tasks-v1` (12 tasks, 82 critical checks, manifest `tasksSha256`
+`aa8cbae5…`).
+- Arms: L-Heavy seed a, L-Heavy seed b, C-Sol.
+- The repair pair (H and L′) runs afterwards on at most six failed L-Heavy
+  drafts.
+- Authority: the plan approval (BL-20260928-1745), the frozen tasks
+  (BL-20261008-1025), the cloud shape (BL-20261008-1312), and the owner's
+  "merge Lotus2077/SOAR#16" in reply to the offer to start Phase 2
+  (BL-20261012-1625).
+
+Decisions:
+
+- **One SHA for every arm:** `8e5c6aa` (main after #16), runtime
+  `09bcde22…`. That is the same runtime as the Phase 1 cloud dry runs. It
+  runs in its own detached worktree; the tasks are read from the authoring
+  worktree by absolute path, and their hashes were re-checked against the
+  manifest before launch.
+- **One sequential queue of 36 runs.** Nothing runs in parallel: no local
+  run shares the box with another run or with a cloud run's judge calls.
+  - Arms rotate per task in sorted task order (a, cloud, b; then cloud, b,
+    a; then b, a, cloud), so no arm always runs first or last.
+  - The queue skips finished output directories, so a stopped queue resumes
+    without re-running anything.
+  - It stops itself after two consecutive `model_unavailable` results, so an
+    outage cannot burn the queue.
+- **Flags.** Every run: `--profile heavy`, plus the task's own mode flags
+  (`--claims-ledger true` for r1-r3, `--document-review true` for d1-d3).
+  C-Sol adds:
+  - `--cloud-endpoint https://api.openai.com/v1/responses` and
+    `--cloud-model gpt-6-sol`;
+  - `--cloud-prices 2,10,0.2` and `--cloud-long-context 272000,4,15,0.4`;
+  - `--max-fee-usd 8` and `--proxy-fake-ip true`.
+
+  The key comes from the Keychain helper. Worst-case C-Sol spend is USD 96,
+  under the USD 100 Phase 2 cap.
+- **Known asymmetry, accepted and recorded before any result.** The runner's
+  per-turn system message defeats provider prompt caching
+  (BL-20261008-1312). The cloud arm therefore pays full input rates on most
+  of its history and may reach the USD 8 cap on long tasks. A fee-cap stop
+  counts against C-Sol as a harness-terminal cause, and R0 applies if more
+  than 3 of 12 C-Sol runs end `infra_invalid`.
+- **Scoring and blinding.** The scorer under the task set's ignored `gold/`
+  runs after the batch. The harness author does not read gold. The owner's
+  blind verdicts are the outcome of record. Blind bundles are built with
+  `scripts/phase2-blind.py`.
+
+Changes: this entry.
+
+Evidence: `phase2-v1-runs/authority.json` (sha256 `f72fb6f6…`) and
+`queue.tsv` (local, ignored).
+
+Failures or blockers: None at launch.
+
+Limitations and non-claims:
+
+- n = 12 detects only large gaps; the decision rules are investment rules.
+- The plan's window was Oct 8-15. The batch starts Oct 12, and the verdict
+  moves to about Oct 17-19 with the owner's grading.
+
+Paid exposure: none yet. C-Sol is capped at USD 96.
+
+Next gate: the batch finishes (an estimated 12-36 h), then scoring, the
+repair pair and the blind bundles.
+
+References: BL-20261008-1025-phase2-tasks-freeze,
+BL-20261008-1312-openai-responses-cloud-arm,
+BL-20261012-1625-owner-job-classified, [plan](PLAN.md) Phase 2.
+
+### BL-20261013-1627-phase2-scoring-protocol -- 2026-10-13 -- Phase 2 scoring, repair selection, planted defect and blind pre-score, fixed before any score is seen
+
+Status: `Implemented`
+
+Scope or hypothesis: the procedural details the plan and BL-20261007-1451
+leave open. They are fixed here, after the runs and before any automated
+score, pre-score or verdict exists. The entry the R0 fix's references call
+BL-20261012-1630-phase2-batch-start is now
+BL-20261013-0206-phase2-batch-start.
+
+Decisions:
+
+- **The valid run set: 36 runs**, one per task and arm.
+  - L-Heavy-1 is `local-a`, or `local-a-rerun1` for c1.
+  - L-Heavy-2 is `local-b`.
+  - C-Sol is `cloud` for a1 and a2, `cloud-rerun1` for the other R0
+    re-runs, and `cloud-rerun2` for w1.
+  - Re-runs of infra failures were made one per arm, symmetrically: c1
+    local-a (local stream `inactivity_timeout`) and w1 C-Sol
+    (`upstream_closed`), at the owner's request ("try the cloud re-run
+    again").
+  - Every superseded directory is kept under `runs/invalid/`. Incomplete
+    runs that stopped at their call or time budget are results, not re-runs.
+- **Automated scoring.** A separate agent runs the task set's gold scorer on
+  every valid run. It reports to the harness author only counts and a
+  pass bit per run: critical checks passed of total, all checks passed of
+  total, and whether every critical check passed. It reports no check
+  names, expected values or gold content. Not submitted counts as not
+  passed.
+- **Repair selection** (at most 6, pre-declared).
+  - Eligible: an L-Heavy run, either seed, that did not pass every critical
+    check, and whose final snapshot holds every required artifact, since the
+    repair starts from a draft.
+  - Order: tasks sorted by id; within a task, seed 1 before seed 2; at most
+    one run per task. The first six eligible are taken.
+  - Each selected draft gets H (`gpt-6-sol` critique, at most USD 1) and L′
+    (local critique), each followed by a local heavy repair from the
+    identical draft. The repaired outputs go in their own blind bundles.
+- **Planted defect** (one decoy, not counted for any arm).
+  - It is a copy of the C-Sol output of the first research task, in sorted
+    order, whose C-Sol run submitted.
+  - One sentence's key number or normative keyword is changed so that it
+    contradicts the claims-ledger quote that sentence cites, and the ledger
+    is left as is.
+  - It is added to that task's bundle under its own random label. The key
+    marks it as planted. The owner should reject it.
+- **Agent pre-score, blind to arm.** One agent per task gets only the brief,
+  the task inputs and that task's blind bundle: never run directories, keys,
+  scores or gold. For each label it records Accept or Reject, a one-line
+  reason and an arm guess. All of this is written before unblinding. Owner
+  and agent disagreements are logged, never resolved in the agent's favour.
+- **Outcome of record:** the owner's blind verdict per label. The decision
+  rules R0-R5 of the plan are then applied.
+
+Changes: this entry.
+
+Evidence: `phase2-v1-runs/runs/log.txt` (local, ignored).
+
+Failures or blockers: None.
+
+Limitations and non-claims: The scorer was written in the same session as
+the tasks; the owner's verdict stays the outcome of record.
+
+Paid exposure: none in this step. H critiques are at most USD 1 each.
+
+Next gate: the bundles, the scoring and the pre-score.
+
+References: BL-20261013-0206-phase2-batch-start,
+BL-20261013-0205-fake-ip-ipv4-only, BL-20261007-1451-phase2-harness-design,
+[plan](PLAN.md) Phase 2.
+
+### BL-20261013-1630-phase2-blind-bundles -- 2026-10-13 -- Phase 2 blind bundles built, decoy planted, key hashes recorded
+
+Status: `Implemented`
+
+Scope or hypothesis: the blind verdict bundles for the 36 valid runs, under
+the protocol of BL-20261013-1627-phase2-scoring-protocol.
+
+Decisions:
+
+- **Bundles.** `scripts/phase2-blind.py` ran once per task with L-Heavy-1,
+  L-Heavy-2 and C-Sol as that protocol defines them, at
+  `phase2-v1-blind/bundles/<job>/` (ignored).
+  - Labels are random letters; required artifacts are copied byte for byte.
+  - A run with no deliverable for a required file shows `MISSING.txt`.
+  - Each task has its own owner sheet, `verdicts.csv`.
+- **Key SHA-256** (first 16 hex digits; keys are under
+  `phase2-v1-blind/keys/`, ignored, mode 0600):
+  - a1 `56990327bda5187a`
+  - a2 `115e49f8c6285e3a`
+  - c1 `4b0717c55c912fd9`
+  - d1 `58c4fb60e2aa3ba6`
+  - d2 `cdec319026a21b03`
+  - d3 `ce3697f3832b023e`
+  - k1 `bc12784990a3a592`
+  - k2 `6a103489079196ee`
+  - r1 `7afcbd3f72266741`
+  - r2 `c6e6a10ca361d7d3`, after the decoy; it was `fda1507fbef4e2cb` before
+  - r3 `cf41996a99cd4e0a`
+  - w1 `282d927e006b3e73`
+- **Decoy.** r2 is the first research task in sorted order whose C-Sol run
+  submitted (r1's did not).
+  - It is a copy of that output with one change to the C7 sentence of the
+    report: verifiers "MUST" became "MAY" for Ed25519-SHA256, contradicting
+    the cited RFC 8463 quote. The claims ledger is unchanged.
+  - The four labels were then reshuffled with `secrets`. The new key marks
+    the decoy as planted and maps the other labels to their pre-decoy
+    labels.
+  - The harness author did not print the label mapping.
+- **Exposure note.** Choosing the decoy sentence meant reading part of r2's
+  C-Sol output, including a sentence on the task's guide-versus-RFC
+  difference. The harness author grades nothing and changes no checker.
+
+Changes: this entry.
+
+Evidence: the bundle and key files (local, ignored).
+
+Failures or blockers: None.
+
+Limitations and non-claims: Incomplete runs show `MISSING.txt`, which reveals
+that a run did not finish, though not its arm.
+
+Paid exposure: USD 0.
+
+Next gate: the scorer counts and the arm-blind pre-scores (running), the
+repair selection, then the owner's blind grading.
+
+References: BL-20261013-1627-phase2-scoring-protocol.
+
+### BL-20261013-1640-phase2-automated-scores-and-repair-selection -- 2026-10-13 -- Phase 2 automated scores: C-Sol 10/12, L-Heavy 7/12 and 6/12; six drafts selected for the repair pair
+
+Status: `Verified`
+
+Scope or hypothesis: automated scoring and the arm-blind pre-score of the 36
+valid runs, and the repair selection, all under
+BL-20261013-1627-phase2-scoring-protocol. This is not the outcome of record:
+the owner's blind verdicts are still to come.
+
+Decisions:
+
+- **Automated scorer** (a separate agent ran the task set's scorer
+  offline in the pinned image, read-only mounts, all 36 exited 0). A run
+  passes only if every check passes and it submitted.
+
+  | Task | L-Heavy-1 | L-Heavy-2 | C-Sol |
+  | --- | --- | --- | --- |
+  | a1 | 6/7 | pass | pass |
+  | a2 | pass | 5/8 | pass |
+  | c1 | 6/7, not submitted | 6/7 | pass |
+  | d1 | pass | 4/5 | pass |
+  | d2 | pass | pass | pass |
+  | d3 | pass | pass | pass |
+  | k1 | pass | pass | pass |
+  | k2 | pass | pass | pass |
+  | r1 | 0/7, no deliverable | pass | 5/7, not submitted |
+  | r2 | 4/7, not submitted | 4/7, not submitted | pass |
+  | r3 | 0/7, no deliverable | 0/7, no deliverable | 3/7, not submitted |
+  | w1 | pass | 8/8, not submitted (90-min limit) | pass |
+
+  - Passes: **C-Sol 10/12, L-Heavy-1 7/12, L-Heavy-2 6/12.**
+  - Per-check detail is in `phase2-v1-runs/scores-detail.json` (local,
+    ignored). The harness author has seen counts only.
+- **Provisional reading of the pre-registered rules, on automated scores
+  only.**
+  - R3 (L ≥ C−2 on both seeds) is not met.
+  - R4 (C ≥ 8 and L ≤ C−4 on both seeds) is not met: seed 1 is at C−3,
+    seed 2 at C−4.
+  - The automated reading is therefore R5 (A-narrow). The families where
+    L-Heavy came within 1 of C-Sol on both seeds are document review (d2,
+    d3), deck (k1, k2) and website (w1, with seed 2 at the time limit).
+    Research, admin and coding are behind.
+  - R2 applies: 7 of the 11 L-Heavy failures were budget or time
+    exhaustion (`bounded_allowance_exhausted` or the 90-min deadline),
+    at least 50%. Speed levers must be tested before any "not viable"
+    verdict.
+  - These readings change if the owner's verdicts differ.
+- **Arm-blind pre-score.** Six agents, two tasks each, gave 37 label
+  verdicts with reasons and arm guesses. They are saved to
+  `phase2-v1-blind/prescores.json` (sha256 `c74a37fa01c2bd20…`, ignored,
+  0600) before unblinding.
+  - One agent returned w1's three labels under r3's task name. They were
+    split by content: the last three describe the website.
+  - The pre-scores stay sealed from the owner until the owner's verdicts
+    are in.
+  - Their reasons contain task-specific findings that the harness author
+    has read in part. The author grades nothing.
+- **Repair selection, by the fixed rule.** Eligible: an L-Heavy run that
+  failed and whose final snapshot holds every required artifact. Order:
+  tasks sorted; seed 1 before seed 2; at most one run per task.
+  - Selected:
+    1. a1 L-Heavy-1;
+    2. a2 L-Heavy-2;
+    3. c1 L-Heavy-2 (L-Heavy-1's rerun lacks one of three artifacts);
+    4. d1 L-Heavy-2;
+    5. r2 L-Heavy-2 (L-Heavy-1 has one of two);
+    6. w1 L-Heavy-2.
+  - Not eligible: r1 L-Heavy-1 (0 of 2) and r3 (0 of 2 on both seeds).
+  - Each gets H (gpt-6-sol via `/v1/responses`, fee cap USD 0.80 per
+    critique, so 6 × 0.80 = 4.80 stays inside the plan's USD 5 repair cap)
+    and L′ (local heavy), then one local heavy repair per critique from the
+    identical draft. Repairs run on the batch SHA `8e5c6aa`; critiques run
+    from `main` (`8b69228`), which carries the IPv4 fix the cloud critic
+    needs.
+
+Changes: this entry.
+
+Evidence: `scores-detail.json`, `prescores.json` and the run directories
+(local, ignored).
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+
+- The automated scorer and the tasks share an author.
+- With n = 12, only large gaps are detectable.
+- Automated passes are not acceptance.
+
+Paid exposure: Phase 2 C-Sol spend so far is about USD 17.70, under the
+USD 100 cap.
+
+Next gate: the repair pair batch, its blind bundles, then the owner's blind
+grading of the 12 task bundles and the repair bundles.
+
+References: BL-20261013-1627-phase2-scoring-protocol,
+BL-20261013-1630-phase2-blind-bundles, [plan](PLAN.md) Phase 2 rules R0-R5.
+
+### BL-20261013-1642-repair-loader-regression -- 2026-10-13 -- Correction: critiques recorded by #15 and #16 could not be loaded for repair; loader fixed, repairs move to the fix commit
+
+Status: `Implemented`
+
+Scope or hypothesis: a regression in BL-20261008-1240-proxy-fake-ip-opt-in
+and BL-20261008-1312-openai-responses-cloud-arm, found when the first Phase 2
+repair runs stopped at once with `local_screen_failed_no_replay`.
+
+Decisions:
+
+- **Cause.** Those entries made `critique()` record `requestShape` and
+  `proxyFakeIp` beside the repair binding in `critique.json`. But
+  `loadRepairDirectory` still stripped only `finishReason`, `usage`,
+  `servedModel` and `feeMicrousd` before the strict `RepairBindingSchema`.
+  So every new critique was refused ("Unrecognized key: requestShape"). The
+  #16 review checked that the field stays out of the binding, not that the
+  directory still loads, and the unit test wrote `critique.json` by hand
+  without the new fields.
+- **Fix.** The loader strips both record fields and checks them:
+  `requestShape` must be `vllm`, `openai` or `openai_responses`, and
+  `proxyFakeIp` must be `true` if present. Any other unexpected key is still
+  refused.
+  - The test now writes the record exactly as `critique()` does, and checks
+    the refusals.
+  - Both real a1 critiques (H and L′) load with the fix.
+  - 2,011 tests pass.
+- **Placement.** The fix is on the batch-record branch (PR #17), so build-log
+  timestamps stay ordered. Repairs run from that branch's clean commit, not
+  the batch SHA `8e5c6aa`. The difference is this loader fix and records
+  only: the agent loop, tools, prompts and caps are unchanged.
+- **Critiques are unaffected.** They had already run: a1 H (USD 0.016) and
+  L′, a2 H (USD 0.016). The failed repair attempts created no output
+  directory and are retried from the fix commit.
+
+Changes: `src/main/private-agent/repair.ts` (loader); the
+`tests/unit/phase2-repair.test.ts` round trip.
+
+Evidence: the loader probe on the real critique directories; the test suite.
+
+Failures or blockers: None after the fix.
+
+Limitations and non-claims: The repair arm's SHA differs from the batch SHA
+by this change.
+
+Paid exposure: USD 0.03 so far for the H critiques.
+
+Next gate: the repair runs from the fix commit.
+
+References: BL-20261008-1240-proxy-fake-ip-opt-in,
+BL-20261008-1312-openai-responses-cloud-arm,
+BL-20261013-1640-phase2-automated-scores-and-repair-selection.
+
+### BL-20261013-1650-phase2-grading-package -- 2026-10-13 -- Blind grading package for the owner: briefs added, timestamps flattened
+
+Status: `Implemented`
+
+Scope or hypothesis: making the 12 task bundles of
+BL-20261013-1630-phase2-blind-bundles ready for the owner.
+
+Decisions:
+
+- Each task's `brief.md` is copied into its bundle as `BRIEF.md`. A
+  `GRADING.md` at the bundle root explains the grading:
+  - Accept: usable as delivered, or with at most 10 minutes of edits.
+  - Reject: otherwise.
+  - The owner also records an arm guess (`local`, `cloud` or `unsure`).
+  - One planted defect exists somewhere, unnamed.
+  - Verdicts go in each `verdicts.csv` or in chat.
+- **Blinding fix before release.** Every file and directory in the bundles is
+  set to one timestamp. Two tells were removed:
+  - The tool copied runs in arm order, so modification times could order
+    the labels by arm.
+  - The decoy's edited report was newer than its neighbours.
+
+  The zip sent to the owner (`phase2-blind-bundles.zip`, 1.45 MB) contains
+  no `keys/`.
+- The repair-pair bundles follow when the repair runs finish. The owner may
+  grade the task bundles meanwhile.
+
+Changes: this entry.
+
+Evidence: the bundle directory and zip (local, ignored).
+
+Failures or blockers: None.
+
+Limitations and non-claims: File sizes and writing style can still hint at
+the arm. The owner's arm guess measures how far the blinding held.
+
+Paid exposure: USD 0.
+
+Next gate: the owner's verdicts. Unblinding and the decision rules follow.
+
+References: BL-20261013-1630-phase2-blind-bundles,
+BL-20261013-1640-phase2-automated-scores-and-repair-selection.

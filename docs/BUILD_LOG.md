@@ -21539,3 +21539,61 @@ Next gate: the bundles, the scoring and the pre-score.
 References: BL-20261013-0206-phase2-batch-start,
 BL-20261013-0205-fake-ip-ipv4-only, BL-20261007-1451-phase2-harness-design,
 [plan](PLAN.md) Phase 2.
+
+### BL-20261013-1630-phase2-blind-bundles -- 2026-10-13 -- Phase 2 blind bundles built, decoy planted, key hashes recorded
+
+Status: `Implemented`
+
+Scope or hypothesis: the blind verdict bundles for the 36 valid runs, under
+the protocol of BL-20261013-1627-phase2-scoring-protocol.
+
+Decisions:
+
+- **Bundles.** `scripts/phase2-blind.py` ran once per task with L-Heavy-1,
+  L-Heavy-2 and C-Sol as that protocol defines them, at
+  `phase2-v1-blind/bundles/<job>/` (ignored).
+  - Labels are random letters; required artifacts are copied byte for byte.
+  - A run with no deliverable for a required file shows `MISSING.txt`.
+  - Each task has its own owner sheet, `verdicts.csv`.
+- **Key SHA-256** (first 16 hex digits; keys are under
+  `phase2-v1-blind/keys/`, ignored, mode 0600):
+  - a1 `56990327bda5187a`
+  - a2 `115e49f8c6285e3a`
+  - c1 `4b0717c55c912fd9`
+  - d1 `58c4fb60e2aa3ba6`
+  - d2 `cdec319026a21b03`
+  - d3 `ce3697f3832b023e`
+  - k1 `bc12784990a3a592`
+  - k2 `6a103489079196ee`
+  - r1 `7afcbd3f72266741`
+  - r2 `c6e6a10ca361d7d3`, after the decoy; it was `fda1507fbef4e2cb` before
+  - r3 `cf41996a99cd4e0a`
+  - w1 `282d927e006b3e73`
+- **Decoy.** r2 is the first research task in sorted order whose C-Sol run
+  submitted (r1's did not).
+  - It is a copy of that output with one change to the C7 sentence of the
+    report: verifiers "MUST" became "MAY" for Ed25519-SHA256, contradicting
+    the cited RFC 8463 quote. The claims ledger is unchanged.
+  - The four labels were then reshuffled with `secrets`. The new key marks
+    the decoy as planted and maps the other labels to their pre-decoy
+    labels.
+  - The harness author did not print the label mapping.
+- **Exposure note.** Choosing the decoy sentence meant reading part of r2's
+  C-Sol output, including a sentence on the task's guide-versus-RFC
+  difference. The harness author grades nothing and changes no checker.
+
+Changes: this entry.
+
+Evidence: the bundle and key files (local, ignored).
+
+Failures or blockers: None.
+
+Limitations and non-claims: Incomplete runs show `MISSING.txt`, which reveals
+that a run did not finish, though not its arm.
+
+Paid exposure: USD 0.
+
+Next gate: the scorer counts and the arm-blind pre-scores (running), the
+repair selection, then the owner's blind grading.
+
+References: BL-20261013-1627-phase2-scoring-protocol.

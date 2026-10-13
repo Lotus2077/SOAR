@@ -66,6 +66,22 @@ describe("fake-IP system proxy opt-in", () => {
     expect(f.store.dispatches("job")).toMatchObject([{ status: "settled" }]);
   });
 
+  it("resolves IPv4 only when opted in, so an IPv6 form of the placeholder never blocks or reaches the connection", async () => {
+    // A fake-IP proxy may answer AAAA with an IPv4-translated form of the same placeholder.
+    vi.mocked(lookup).mockImplementation((async (_host: string, options: { family?: number }) => options.family === 4
+      ? [{ address: "198.18.0.169", family: 4 }]
+      : [{ address: "198.18.0.169", family: 4 }, { address: "::ffff:0:c612:a9", family: 6 }]) as never);
+    const opted = transportMock(), f = fixture(web({ proxyFakeIp: true }));
+    await expect(f.broker.request(f.input)).resolves.toBeDefined();
+    expect((vi.mocked(lookup).mock.calls.at(-1) as unknown[])[1]).toMatchObject({ all: true, family: 4 });
+    expect(opted).toHaveLength(1);
+    vi.restoreAllMocks();
+    const plain = transportMock(), g = fixture(web());
+    await expect(g.broker.request(g.input)).rejects.toThrow();
+    expect((vi.mocked(lookup).mock.calls.at(-1) as unknown[])[1]).not.toHaveProperty("family");
+    expect(plain).toEqual([]);
+  });
+
   it.each([["10.0.0.1"], ["127.0.0.1"], ["192.168.1.1"], ["100.64.0.1"], ["169.254.169.254"], ["fc00::1"]])("still refuses %s when opted in", async address => {
     vi.mocked(lookup).mockResolvedValue([{ address, family: 4 }] as never);
     const calls = transportMock(), f = fixture(web({ proxyFakeIp: true }));

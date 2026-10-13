@@ -40,7 +40,9 @@ export interface BrokerDestination {
    * Owner opt-in for a system proxy in fake-IP mode: its DNS answers every hostname with an address in 198.18.0.0/15
    * and its tunnel forwards the connection by name. Set, those addresses are admitted besides public ones; every other
    * non-public address stays refused. HTTPS to a hostname only, never on a local model, a fixture or the DoH resolver
-   * route, and the certificate is verified for the URL's hostname. Absent keeps every fingerprint identical to before.
+   * route, and the certificate is verified for the URL's hostname. The hostname is resolved for IPv4 only: such a proxy
+   * may also answer with an IPv6 form of the same placeholder, which is never admitted. Absent keeps every fingerprint
+   * identical to before.
    */
   proxyFakeIp?: true;
   /** Optional exact public URL authority, including its path and query. */
@@ -436,13 +438,13 @@ export class PrivateAgentBroker {
   }
 }
 
-async function systemLookup(host: string, signal: AbortSignal) {
+async function systemLookup(host: string, signal: AbortSignal, family?: 4) {
   if (signal.aborted) deny("transport_cancelled");
   let abort: (() => void) | undefined;
   try {
     // The OS lookup itself is not cancellable. Stop awaiting it at the request
     // boundary and consume any late result/rejection without dispatch or retry.
-    return await Promise.race([lookup(host, { all: true, verbatim: true }), new Promise<never>((_, reject) => {
+    return await Promise.race([lookup(host, { all: true, verbatim: true, ...(family ? { family } : {}) }), new Promise<never>((_, reject) => {
       abort = () => reject(new BrokerError("transport_cancelled"));
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted) abort();
@@ -470,7 +472,7 @@ async function transport(destination: BrokerDestination, url: URL, method: "GET"
     try {
       addresses = destination.publicDnsResolver === "cloudflare_v1"
         ? await resolvePublicV4(host, joined, isPublicAddress, recordDns)
-        : isIP(host) ? [{ address: host, family: isIP(host) }] : await systemLookup(host, joined);
+        : isIP(host) ? [{ address: host, family: isIP(host) }] : await systemLookup(host, joined, destination.proxyFakeIp ? 4 : undefined);
     } catch (error) {
       // Nothing was sent: a failed lookup is a confirmed non-dispatch unless SOAR itself aborted it.
       if (error instanceof TransportFailure) throw error;

@@ -21789,3 +21789,59 @@ Next gate: the owner's verdicts. Unblinding and the decision rules follow.
 
 References: BL-20261013-1630-phase2-blind-bundles,
 BL-20261013-1640-phase2-automated-scores-and-repair-selection.
+
+### BL-20261019-0410-blind-bundle-omissions -- 2026-10-19 -- Correction: the blind bundles held only the manifest's required artifacts; six tasks were graded on incomplete deliverables and are re-graded
+
+Status: `Implemented`
+
+Scope or hypothesis: a flaw in BL-20261013-1630-phase2-blind-bundles found
+by the first grading round.
+
+Decisions:
+
+- **The owner delegated the grading.** On 2026-10-19 the owner asked for
+  twelve independent agents, one per task, to grade the deliverables as the
+  professional who commissioned each one would, then to unblind. Owner
+  decision D9 allows blind agent grading, labelled provisional. Each agent
+  saw only the brief, the inputs and its task's bundle.
+- **Finding.** `scripts/phase2-blind.py` copies the required artifacts named
+  in the task manifest (plus the mode artifacts). Several briefs ask for
+  more files than the manifest names, and the runs produced them:
+  - a1 and a2: `output/drafts/*.eml`, the reply drafts (up to 15 files);
+  - c1: the full `output/repo/` tree (39 files beyond the three named);
+  - w1: `output/site/app.js`, `data.js`, `program.js`, `styles.css` and
+    screenshots;
+  - k1 and k2: one computed-data JSON each.
+
+  The first round therefore rejected all three a1 labels for "drafts
+  missing", and w1's label B for an "HTML shell" without its scripts. The
+  graders themselves suspected a bundling omission.
+- **Fix.** The six bundles were topped up with each run's complete
+  `candidate/output/` tree under the same labels (`__pycache__` excluded),
+  so the keys are unchanged. Every file that already existed was
+  byte-identical. Timestamps were flattened again.
+- **Re-grade.** Six fresh agents re-grade those tasks on the complete
+  bundles with the same instructions. Their verdicts replace round one for
+  those tasks; round one is kept as `grades-round1.json` (sealed, 0600).
+  The six unaffected tasks keep their round-one verdicts.
+- **Also affected.** The arm-blind pre-scores of BL-20261013-1640 for these
+  six tasks were made on the same incomplete bundles; they are reported with
+  that caveat. The automated scorer read the run directories directly and is
+  unaffected. The repair-pair bundles will be built with complete trees.
+
+Changes: this entry.
+
+Evidence: the bundle directories and `grades-round1.json` (local, ignored).
+
+Failures or blockers: None after the top-up.
+
+Limitations and non-claims: The tool's behaviour matched its design entry;
+the design was too narrow for multi-file deliverables. A later PR should
+make the tool copy the whole output tree.
+
+Paid exposure: USD 0.
+
+Next gate: the re-grade, then unblinding.
+
+References: BL-20261013-1630-phase2-blind-bundles,
+BL-20261013-1640-phase2-automated-scores-and-repair-selection.

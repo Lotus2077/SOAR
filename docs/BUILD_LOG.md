@@ -21984,3 +21984,73 @@ confirmation of the branch.
 References: BL-20261013-1627-phase2-scoring-protocol,
 BL-20261013-1640-phase2-automated-scores-and-repair-selection,
 BL-20261019-0410-blind-bundle-omissions, [plan](PLAN.md) Phase 2 rules.
+
+### BL-20261019-0838-phase2-repair-pair-and-close -- 2026-10-19 -- Repair pair: cloud and local critiques tie at 4 of 6; the cloud-critique mechanism is not adopted; Phase 2 closes provisionally on Branch B
+
+Status: `Verified`
+
+Scope or hypothesis: the repair pair of the plan's Phase 2, on the six
+failed L-Heavy drafts selected in BL-20261013-1640, and the close of the
+Phase 2 fair test. Grading was blind and agent-performed under D9
+(provisional), as for the task bundles.
+
+Decisions:
+
+- **Runs.** Each draft received H (one `gpt-6-sol` critique via
+  `/v1/responses`, at most USD 0.80, actual USD 0.013-0.040) and L′ (one
+  local heavy critique), then one local heavy repair per critique from the
+  identical draft. The batch died on 2026-10-13 when the app's terminal
+  tabs were reset mid-run and resumed on 2026-10-19; the partial a2 L′
+  repair is kept under `repairs/invalid/`. The first two repair attempts
+  stopped on the loader regression of BL-20261013-1642; repairs ran from
+  the fix commit. All 12 repairs submitted.
+- **Bundles.** Six repair bundles with complete output trees, flat
+  timestamps, random labels; key SHA-256 (first 16): a1 `e8e067e08a87de91`,
+  a2 `9ccf78078960c032`, c1 `53ab1c396ad19bf8`, d1 `f0e517a7b1baeb4f`,
+  r2 `7b6ac4c7f9fed0b9`, w1 `9fd4b6e68b9c01b1`.
+- **Verdicts (accept / 6).** Grader: **H 4, L′ 4.** Automated scorer:
+  H 6, L′ 4. Per task (H / L′): a1 accept / accept; a2 accept / accept;
+  c1 reject / reject; d1 accept / reject; r2 reject / accept; w1
+  accept / accept.
+- **Rule.** The plan adopts a minimised-packet cloud critique as the hybrid
+  mechanism only if H beats L′ by 2 or more. The difference is 0. **Not
+  adopted.**
+- **What the pair shows.** The repair loop itself is the finding: six
+  drafts the graders rejected became four accepted ones under either
+  critic, at zero marginal cost for L′. Local critique plus local repair
+  recovered a2, a1, r2 and w1. H's advantage on the automated checks (6
+  versus 4) did not survive the graders, who found a fee-arithmetic miss in
+  the L′ d1 repair and an SPF error in the H r2 repair.
+- **Phase 2 close, provisional.** Branch B (BL-20261019-0432) stands at the
+  R4 boundary, with the family pattern recorded. The repair-pair rule is not
+  met, so Branch B's public-work routing proceeds without a cloud-critique
+  step for labelled work; the privacy filter v2 design (BL-20261019-0806)
+  is therefore not motivated by this result and waits on the owner's
+  decisions on its own merits. The variance finding (at least one local
+  sample accepted on 8 of 12 tasks) and this repair result together argue
+  for a local selection-and-repair loop as the first Phase 4 harness item.
+- **Owner-verified facts folded in:** three decks needed PowerPoint repair
+  (BL-20261019-0431), one per arm.
+
+Changes: 12 registry rows (`phase2-v1-repair`); this entry.
+
+Evidence: `phase2-v1-blind-repair/{grades-repair,unblinded-repair}.json`,
+`phase2-v1-repair/scores-detail-repairs.json` (local, ignored).
+
+Failures or blockers: None.
+
+Limitations and non-claims: n = 6 pairs; the pair tests one critique each
+at the heavy profile; H critiques were cheap (USD 0.13 in total) and their
+packets were the raw 64 KiB renderings, which the filter design would
+narrow. Provisional, agent-graded; the owner may overrule any verdict.
+
+Paid exposure: Phase 2 total USD 18.55 of the USD 100 cap; envelope used
+about USD 21 of 300.
+
+Next gate: the owner's confirmation of Branch B and of any overruled
+verdicts; merge of PR #17; Phase 3 preconditions (box checklist, tunnel,
+Mac state) and the Phase 4 week.
+
+References: BL-20261019-0432-phase2-result-provisional,
+BL-20261013-1640-phase2-automated-scores-and-repair-selection,
+BL-20261013-1642-repair-loader-regression, [plan](PLAN.md) Phase 2 R4.

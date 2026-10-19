@@ -21845,3 +21845,142 @@ Next gate: the re-grade, then unblinding.
 
 References: BL-20261013-1630-phase2-blind-bundles,
 BL-20261013-1640-phase2-automated-scores-and-repair-selection.
+
+### BL-20261019-0431-office-render-check -- 2026-10-19 -- Owner finding: three of six Phase 2 decks need repair in PowerPoint; every Word document opens clean
+
+Status: `Verified`
+
+Scope or hypothesis: while grading, the owner reported that PowerPoint
+repaired deliverables "a lot" and showed a repaired deck with a blank slide.
+The agent graders inspect XML and cannot see this, so every Office
+deliverable was opened in the real applications on the owner's Mac.
+
+Decisions:
+
+- **PowerPoint, six decks.** Repaired on open, with charts dropped:
+  - k1 L-Heavy-1: all five chart frames carry non-integer EMU coordinates
+    (inch values written where integers are required); slides 4-6 blank.
+  - k2 L-Heavy-2: a line chart's data labels use `outEnd`, a bar-only
+    position; slide 4 blank.
+  - k2 C-Sol: five bar charts use `t`, a line-only position; four chart
+    slides blank.
+
+  Opened clean: k1 L-Heavy-2, k1 C-Sol, k2 L-Heavy-1. k1 L-Heavy-2 has a
+  misordered axis element that PowerPoint tolerates.
+- **Word, eighteen documents** (redline and clean copy for d1-d3, every
+  arm): none repaired. The host-owned redline applier's files are sound.
+- **What missed this.** The automated scorer passed all six decks (7/7
+  each). The round-one graders, reading XML, accepted decks that PowerPoint
+  cannot open cleanly. A static schema-order check written for this entry
+  found two of the three defects and raised one false alarm; it is not a
+  substitute. The round-two graders for k1 and k2 did open the files in
+  PowerPoint and rejected the three repaired decks.
+- **Consequence for the harness.** A deck is not delivered until the
+  owner's application opens it without repair. The sandbox has no
+  PowerPoint, so a strict OOXML validator in the qualified image is the
+  follow-up; python-pptx read-back is not enough. The deck family's
+  critical checks should include it before any further counted run.
+
+Changes: this entry.
+
+Evidence: PowerPoint and Word title bars and thumbnails on the owner's Mac
+(screenshots in the session), the owner's two screenshots, and the chart
+XML of the six decks.
+
+Failures or blockers: None.
+
+Limitations and non-claims: PowerPoint for Mac was the only renderer
+checked; Keynote and LibreOffice may differ.
+
+Paid exposure: USD 0.
+
+Next gate: none; feeds the Phase 2 result below.
+
+References: BL-20261019-0410-blind-bundle-omissions,
+BL-20261013-1640-phase2-automated-scores-and-repair-selection.
+
+### BL-20261019-0432-phase2-result-provisional -- 2026-10-19 -- Phase 2 result, provisional (agent-graded): C-Sol 10/12, L-Heavy 6/12 and 4/12; rule R4 selects Branch B at its boundary
+
+Status: `Verified`
+
+Scope or hypothesis: the Phase 2 fair test on `phase2-tasks-v1`, graded
+blind by twelve independent agents standing in for the owner (D9:
+provisional), unblinded on 2026-10-19. The owner's own verdicts, where given,
+override these.
+
+Decisions:
+
+- **Verdicts (accept / 12).** C-Sol **10**, L-Heavy seed 1 **6**, L-Heavy
+  seed 2 **4**. Automated scorer: 10, 7, 6. Arm-blind pre-score: 11, 4, 4.
+  Grader and automated agree on 27 of 36 runs.
+- **By family (accepts, L1 / L2 / C):**
+  - admin 1/2, 1/2, 2/2;
+  - coding 0/1, 0/1, 1/1;
+  - document review **3/3**, 1/3, 2/3;
+  - deck 1/2, 1/2, 1/2;
+  - research 0/3, 0/3, 3/3;
+  - website 1/1, 1/1, 1/1.
+- **Pre-registered rules on these verdicts.**
+  - R0: 11 C-Sol runs and 1 L-Heavy run were `infra_invalid` and re-run
+    once each (BL-20261013-0205). All 36 valid.
+  - R1: C-Sol 10 ≥ 6, no harness spike needed.
+  - R3 (L ≥ C−2 on both seeds): not met (6 and 4 against 8).
+  - **R4 (C ≥ 8 and L ≤ C−4 on both seeds): met**, with seed 1 exactly at
+    the boundary (6 ≤ 6). **Branch B, hybrid-led:** cloud serves public
+    work within the envelope; local serves Tier O. Whether a cloud critique
+    becomes the hybrid mechanism waits on the repair pair.
+  - R2: 6 of the 14 L-Heavy failures were budget or time exhaustion
+    (43%), under the 50% trigger. Speed levers are still worth testing:
+    local never finished a research task in its 80 calls.
+- **Fragility, stated before the owner decides.**
+  - One more seed-1 local acceptance (the k1 deck, had its coordinates been
+    integers) moves the result to R5, A-narrow.
+  - Two C-Sol accepts are borderline: r1 (5/7 automated, grader accept at
+    5 minutes of edits) and r3 (3/7 automated, the run never submitted, the
+    grader accepted the draft at 10 minutes). If the owner rejects either,
+    C-Sol is 9 or 8 and R4 fails on seed 1; the result becomes R5.
+  - On the family table, local matched or beat cloud on document review,
+    decks and websites, and lost on research, coding and admin. That is the
+    A-narrow shape. The rule still says B; the family pattern is recorded as
+    information for Branch B's routing of public work.
+- **Verdict quality checks.**
+  - The planted decoy (r2 label D) was rejected and identified as
+    byte-identical to its neighbour except one word.
+  - Arm guesses were right 22 of 25 times when the graders guessed; the
+    blinding held poorly, since style gives the arm away. The graders'
+    reasons are concrete and verifiable, and they rejected a C-Sol redline
+    for over-editing, so the bias risk is noted rather than assumed.
+- **Notable failures.**
+  - Local research: five of six runs exhausted their 80 calls without a
+    report; the sixth (r1 seed 2) submitted with two factual errors.
+  - Three decks needed PowerPoint repair, one per arm (previous entry).
+  - C-Sol's d1 redline turned about 18 commercial points into tracked
+    changes against the brief; its own research memos were the strongest
+    outputs of the batch.
+- **Cost.** C-Sol runs USD 18.41, H critiques USD 0.13 so far: Phase 2
+  USD 18.55 of the USD 100 cap. Envelope used: about USD 21 of 300.
+
+Changes: 48 registry rows (36 valid, 12 `infra_invalid`); this entry.
+
+Evidence: `phase2-v1-blind/{grades-round1,grades-round2,grades-final,
+prescores,unblinded}.json` and `scores-detail.json` (local, ignored).
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+
+- Provisional: agent-graded under D9. The owner has graded part of the set
+  and can overrule any label.
+- n = 12; only large gaps are detectable; the rules are investment
+  decisions.
+- The pre-scores for six tasks were made on incomplete bundles
+  (BL-20261019-0410).
+
+Paid exposure: USD 18.55 in Phase 2.
+
+Next gate: the repair pair (running), its blind grading, and the owner's
+confirmation of the branch.
+
+References: BL-20261013-1627-phase2-scoring-protocol,
+BL-20261013-1640-phase2-automated-scores-and-repair-selection,
+BL-20261019-0410-blind-bundle-omissions, [plan](PLAN.md) Phase 2 rules.

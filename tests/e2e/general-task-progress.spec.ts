@@ -12,7 +12,7 @@ import { canonical } from "../../src/main/private-agent/contracts";
 import type { DispatchReceipt, PrivateRunClaim } from "../../src/main/private-agent/store";
 import { DockerSandbox } from "../../src/main/private-agent/sandbox";
 import { currentProgressGuidance, digest, failureResult, failingCommand, generalTaskProgressFixture, progressGoal, progressHeading,
-  progressInput, progressModel, progressStop, progressStopReason, progressFinishSummary, repairCommand, type ProgressScenario } from "../helpers/general-task-progress-fixture";
+  progressInput, progressModel, progressStop, progressStopReason, progressFinishSummary, repairCommand, currentTurnMessage, type ProgressScenario } from "../helpers/general-task-progress-fixture";
 
 const projectRoot = path.resolve(import.meta.dirname, "../..");
 const imageId = process.env.SOAR_GENERAL_TASK_IMAGE_ID ?? "";
@@ -199,7 +199,7 @@ async function auditProgress(root: string, scenario: ProgressScenario, task: Gen
   const starts = rows("model_started"), finished = rows("model_finished"), toolStarts = rows("tool_started"), toolFinishes = rows("tool_finished");
   expect(starts).toHaveLength(count); expect(finished).toHaveLength(count); expect(toolStarts).toHaveLength(tools); expect(toolFinishes).toHaveLength(tools);
   expect(value.dispatches).toHaveLength(count); expect(rows("model_request_not_dispatched")).toEqual([]);
-  expect(rows("session_started")).toHaveLength(1); expect(rows("started")[0]).toMatchObject({ executionProgressPolicyVersion: 1 });
+  expect(rows("session_started")).toHaveLength(1); expect(rows("started")[0]).toMatchObject({ executionProgressPolicyVersion: 1, promptLayoutVersion: 2, executionObservationPolicyVersion: 2 });
   expect(value.record).toMatchObject({ id: task.id, goal: progressGoal, outputName: "report.json", status: task.status,
     inputSnapshot: [{ path: "input/01-source.csv", bytes: Buffer.byteLength(progressInput), sha256: digest(progressInput) }] });
   expect(value.claims).toHaveLength(1); expect(value.claims[0]!.state).toBe("released");
@@ -214,8 +214,11 @@ async function auditProgress(root: string, scenario: ProgressScenario, task: Gen
     const guidanceText = currentProgressGuidance(request.body);
     expect(starts[i]!.executionProgress.guidanceSha256).toBe(digest(guidanceText));
     expect(Buffer.byteLength(JSON.stringify(guidanceText))).toBeLessThanOrEqual(8192);
-    const system = String(request.body.messages[0].content);
-    expect(system).toContain(`\n${canonical(starts[i]!.budget)}`);
+    // Layout 2: the system message is the static prompt, byte-identical on every turn; the budget closes the trailing user message.
+    expect(request.body.messages[0]).toEqual(model.requests[0]!.body.messages[0]);
+    expect(currentTurnMessage(request.body).endsWith(`\n${canonical(starts[i]!.budget)}`)).toBe(true);
+    expect(request.body.messages.at(-1)).toEqual({ role: "user", content: currentTurnMessage(request.body) });
+    if (i) expect(request.body.messages.at(-2)).toMatchObject({ role: "tool" });
     expect(starts[i]!.budget).toMatchObject({ remainingModelCalls: 20 - i, remainingBrokerRequests: 40 - i, remainingToolCalls: 30 - Math.min(i, tools) });
     if (i) expect(starts[i]!.budget.remainingActiveMs).toBeLessThan(starts[i - 1]!.budget.remainingActiveMs);
   }
@@ -247,9 +250,9 @@ async function auditProgress(root: string, scenario: ProgressScenario, task: Gen
     missingArtifacts: { paths: ["output/report.json"], total: 1, reminder: false } });
   expect(guidance.policySha256).toMatch(/^[a-f0-9]{64}$/u); expect(guidance.guidanceSha256).toMatch(/^[a-f0-9]{64}$/u);
   expect(starts[0]!.executionProgress.repeatedFailure).toBeNull(); expect(starts[1]!.executionProgress.repeatedFailure).toBeNull();
-  const system = String(model.requests[2]!.body.messages[0].content);
-  expect(system.split(progressHeading)).toHaveLength(2);
-  expect(system).toContain(`Prior execution IDs: ${canonical(guidance.repeatedFailure.operationIds)}.`);
+  const turn = currentTurnMessage(model.requests[2]!.body);
+  expect(turn.split(progressHeading)).toHaveLength(2);
+  expect(turn).toContain(`Prior execution IDs: ${canonical(guidance.repeatedFailure.operationIds)}.`);
   expect(model.decisions.map(x => x.guidanceObserved)).toEqual(scenario === "recover" ? [false, false, true, false] : [false, false, true]);
   if (scenario === "recover") {
     expect(paused).toBeDefined(); expect(value.events.slice(0, paused!.events.length)).toEqual(paused!.events); expect(value.dispatches.slice(0, 2)).toEqual(paused!.dispatches);

@@ -37,14 +37,21 @@ print("SOURCE_CHECK_PASS rows="+str(len(rows)))`);
 export type ProgressScenario = "recover" | "ignore";
 export interface ProgressRequest { method: string; path: string; rawBody: string; body: Record<string, any>; bytes: number; sha256: string }
 type Message = { role: string; content?: string; tool_call_id?: string };
-export function currentProgressGuidance(body: Record<string, any>): string {
-  if (!Array.isArray(body.messages)) throw new Error("fixture_messages_invalid");
+/** Prompt layout 2: the progress guidance and the budget line travel in a trailing user message; the system message is the static prompt. */
+export function currentTurnMessage(body: Record<string, any>): string {
+  if (!Array.isArray(body.messages) || body.messages.length === 0) throw new Error("fixture_messages_invalid");
   const system = body.messages.filter((row: Message) => row.role === "system");
-  if (system.length !== 1 || typeof system[0].content !== "string") throw new Error("fixture_current_system_missing");
-  const text: string = system[0].content, start = text.indexOf(progressHeading);
+  if (system.length !== 1 || typeof system[0].content !== "string" || body.messages[0] !== system[0]) throw new Error("fixture_current_system_missing");
+  if (system[0].content.includes(progressHeading) || system[0].content.includes("Current host budget")) throw new Error("fixture_turn_text_inside_system");
+  const last: Message = body.messages[body.messages.length - 1];
+  if (last.role !== "user" || typeof last.content !== "string" || !last.content.includes("Current host budget")) throw new Error("fixture_turn_message_missing");
+  return last.content;
+}
+export function currentProgressGuidance(body: Record<string, any>): string {
+  const text = currentTurnMessage(body), start = text.indexOf(progressHeading);
   if (start === -1) return "";
   const end = text.indexOf("\nCurrent host budget", start);
-  if (text.indexOf(progressHeading, start + 1) !== -1 || end === -1) throw new Error("fixture_guidance_boundaries_invalid");
+  if (start !== 0 || text.indexOf(progressHeading, start + 1) !== -1 || end === -1) throw new Error("fixture_guidance_boundaries_invalid");
   return text.slice(start, end);
 }
 function toolResult(body: Record<string, any>, id: string): Record<string, any> {
@@ -62,12 +69,9 @@ function requireFailure(body: Record<string, any>, id: string): void {
  * it has no host filesystem, SQLite, checkpoint or production test override. */
 export function selectProgressAction(scenario: ProgressScenario, ordinal: number, body: Record<string, any>) {
   if (body.model !== progressModel || !Array.isArray(body.messages)) throw new Error("fixture_model_or_messages_invalid");
-  const system = body.messages.filter((row: Message) => row.role === "system");
-  if (system.length !== 1 || typeof system[0].content !== "string") throw new Error("fixture_current_system_missing");
-  const systemContent: string = system[0].content;
   const guidance = currentProgressGuidance(body);
   if (ordinal === 1 || ordinal === 2) {
-    if (systemContent.includes(progressHeading)) throw new Error("fixture_guidance_before_two_failures");
+    if (guidance) throw new Error("fixture_guidance_before_two_failures");
     if (ordinal === 2) requireFailure(body, "progress-action-1");
     return { name: "execute", arguments: { command: failingCommand }, guidanceObserved: false };
   }
@@ -82,7 +86,7 @@ export function selectProgressAction(scenario: ProgressScenario, ordinal: number
   if (ordinal === 4 && scenario === "recover") {
     const result = toolResult(body, "progress-action-3");
     if (result.exitCode !== 0 || typeof result.stdout !== "string" || !result.stdout.includes("SOURCE_CHECK_PASS rows=3")) throw new Error("fixture_source_check_not_observed");
-    if (systemContent.includes(progressHeading)) throw new Error("fixture_stale_failure_guidance_after_repair");
+    if (guidance) throw new Error("fixture_stale_failure_guidance_after_repair");
     return { name: "finish", arguments: { summary: progressFinishSummary }, guidanceObserved: false };
   }
   throw new Error("fixture_unplanned_request");

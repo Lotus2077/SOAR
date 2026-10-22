@@ -5,9 +5,24 @@ import type { PrivateAgentStore } from "./store";
 import type { GeneralMessage, GeneralToolDefinition } from "./model";
 import type { SandboxExecution } from "./sandbox";
 
-export const EXECUTION_OBSERVATION_POLICY_VERSION = 1;
+/**
+ * Projection policies, recorded in the `started` event and fixed for the task's lifetime. Version 1 (rolling) refills the
+ * window from the newest observation backwards on every turn. Version 2 (batched, H1 of BL-20261022-0834) replays the
+ * observations in arrival order: each enters in full, and when the window overflows the budget the oldest full
+ * observations are demoted until the window is at or under the demote mark, so the rendered history changes only on an
+ * overflow, every few observations rather than every turn, and a provider's prefix cache can serve the rest.
+ */
+export const EXECUTION_OBSERVATION_POLICY_VERSIONS = [1, 2] as const;
+export type ExecutionObservationPolicyVersion = (typeof EXECUTION_OBSERVATION_POLICY_VERSIONS)[number];
 export const EXECUTION_OBSERVATION_MAX_BYTES = 8 * 1024;
 export const EXECUTION_OBSERVATION_BUDGET_BYTES = 48 * 1024;
+/** Policy 2 only: an overflowing window is cut back to this mark, oldest full observations first. */
+export const EXECUTION_OBSERVATION_DEMOTE_TO_BYTES = 24 * 1024;
+/** The policy's identity as the runner binds it into promptProtocolSha256; version 1 is byte-identical to the pre-H1 runner. */
+export function executionObservationPolicyIdentity(version: ExecutionObservationPolicyVersion): Record<string, number> {
+  return version === 1 ? { version: 1, maxBytes: EXECUTION_OBSERVATION_MAX_BYTES, budgetBytes: EXECUTION_OBSERVATION_BUDGET_BYTES }
+    : { version: 2, maxBytes: EXECUTION_OBSERVATION_MAX_BYTES, budgetBytes: EXECUTION_OBSERVATION_BUDGET_BYTES, demoteToBytes: EXECUTION_OBSERVATION_DEMOTE_TO_BYTES };
+}
 const MAX_BLOB_BYTES = 2 * 1024 * 1024;
 const integer = z.number().int().nonnegative().safe();
 const decodedText = z.string().refine(text => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/u.test(text));
@@ -129,7 +144,7 @@ function validated(scope: ExecutionObservationScope): { retained: Map<string, Ve
     privateAgentId.parse(scope.jobId); privateAgentId.parse(scope.contextId);
     integrity(scope.store.context(scope.contextId).jobId === scope.jobId);
     const events = scope.store.events(scope.jobId).filter(e => e.contextId === scope.contextId);
-    const policy = events.some(e => e.type === "started" && e.executionObservationPolicyVersion === EXECUTION_OBSERVATION_POLICY_VERSION);
+    const policy = events.some(e => e.type === "started" && (EXECUTION_OBSERVATION_POLICY_VERSIONS as readonly unknown[]).includes(e.executionObservationPolicyVersion));
     const retained = new Map<string, Verified>(), eligible = new Map<string, Eligible>();
     const join = (event: Record<string, unknown>, index: number, name: string): number => {
       privateAgentId.parse(event.operationId); toolCallIdSchema.parse(event.toolCallId);
@@ -189,24 +204,53 @@ export function readExecutionObservation(scope: ExecutionObservationScope, args:
   return readOutput(original.reference, original.result, parsed);
 }
 
-export function projectExecutionObservations(scope: ExecutionObservationScope, messages: GeneralMessage[]): { messages: GeneralMessage[]; manifest: { version: 1; bytes: number; sha256: string } } {
+export interface ExecutionObservationProjection { messages: GeneralMessage[]; manifest: { version: ExecutionObservationPolicyVersion; bytes: number; sha256: string } }
+/** The cheaper of the full output and its reference; a small output is never replaced by a larger reference. */
+function cheaperRendering(item: Eligible): string { return wireSize(item.output) <= wireSize(item.compact) ? item.output : item.compact; }
+
+/**
+ * A pure function of the immutable history, so every turn and every restart derive the same bounded view. `policyVersion`
+ * is the one the task's `started` event recorded; version 1 keeps its exact pre-H1 behaviour.
+ */
+export function projectExecutionObservations(scope: ExecutionObservationScope, messages: GeneralMessage[], policyVersion: ExecutionObservationPolicyVersion = 1): ExecutionObservationProjection {
   const { eligible } = validated(scope), seen = new Set<string>();
   const selected: { index: number; item: Eligible }[] = [];
   const projected = messages.map((message, index) => {
     const item = message.role === "tool" && message.tool_call_id ? eligible.get(message.tool_call_id) : undefined;
     if (!item) return message;
     integrity(message.content === item.output && !seen.has(item.toolCallId)); seen.add(item.toolCallId); selected.push({ index, item });
-    return { ...message, content: wireSize(item.output) <= wireSize(item.compact) ? item.output : item.compact };
+    return { ...message, content: cheaperRendering(item) };
   });
   integrity(seen.size === eligible.size);
   const cost = wireSize;
   let bytes = selected.reduce((sum, { index }) => sum + cost(projected[index]!.content!), 0);
   integrity(bytes <= EXECUTION_OBSERVATION_BUDGET_BYTES);
-  for (const { index, item } of [...selected].reverse()) {
-    const difference = cost(item.output) - cost(projected[index]!.content!);
-    if (bytes + difference <= EXECUTION_OBSERVATION_BUDGET_BYTES) { projected[index] = { ...projected[index]!, content: item.output }; bytes += difference; }
+  if (policyVersion === 1) {
+    for (const { index, item } of [...selected].reverse()) {
+      const difference = cost(item.output) - cost(projected[index]!.content!);
+      if (bytes + difference <= EXECUTION_OBSERVATION_BUDGET_BYTES) { projected[index] = { ...projected[index]!, content: item.output }; bytes += difference; }
+    }
+  } else {
+    // Arrival-order replay. Demotion is monotone and oldest-first, so the full observations are always the newest ones
+    // from `cut` on; the newest itself is demoted only when it cannot fit beside the compacted history (as under policy 1).
+    const demote = (position: number) => {
+      const { index, item } = selected[position]!, cheaper = cheaperRendering(item);
+      bytes -= cost(projected[index]!.content!) - cost(cheaper); projected[index] = { ...projected[index]!, content: cheaper };
+    };
+    // The window is rebuilt from the observations that have arrived so far, never counting a later one's reference.
+    let cut = 0; bytes = 0;
+    for (const [position, { index, item }] of selected.entries()) {
+      bytes += cost(item.output); projected[index] = { ...projected[index]!, content: item.output };
+      if (bytes <= EXECUTION_OBSERVATION_BUDGET_BYTES) continue;
+      while (cut < position && bytes > EXECUTION_OBSERVATION_DEMOTE_TO_BYTES) demote(cut++);
+      if (bytes > EXECUTION_OBSERVATION_BUDGET_BYTES) demote(cut++);
+      integrity(bytes <= EXECUTION_OBSERVATION_BUDGET_BYTES);
+    }
   }
-  const sha256 = digest(encode({ version: 1, observationMaxBytes: EXECUTION_OBSERVATION_MAX_BYTES, budgetBytes: EXECUTION_OBSERVATION_BUDGET_BYTES,
-    selected: selected.map(({ index, item }) => ({ index, toolCallId: item.toolCallId, reference: item.reference, outputSha256: digest(projected[index]!.content!) })) }));
-  return { messages: projected, manifest: { version: 1, bytes, sha256 } };
+  const selection = selected.map(({ index, item }) => ({ index, toolCallId: item.toolCallId, reference: item.reference, outputSha256: digest(projected[index]!.content!) }));
+  // Version 1 keeps its exact pre-H1 encoding; the key order is the wire contract (e2e audits recompute it).
+  const sha256 = digest(encode(policyVersion === 1
+    ? { version: 1, observationMaxBytes: EXECUTION_OBSERVATION_MAX_BYTES, budgetBytes: EXECUTION_OBSERVATION_BUDGET_BYTES, selected: selection }
+    : { version: 2, observationMaxBytes: EXECUTION_OBSERVATION_MAX_BYTES, budgetBytes: EXECUTION_OBSERVATION_BUDGET_BYTES, demoteToBytes: EXECUTION_OBSERVATION_DEMOTE_TO_BYTES, selected: selection }));
+  return { messages: projected, manifest: { version: policyVersion, bytes, sha256 } };
 }

@@ -143,7 +143,9 @@ describe("public retrieval through the single bounded runner", () => {
     expect(readPublicSources(store, f.checkpoints, f.jobId)[0]).toEqual(first[0]);
     const observations = store.events(f.jobId).filter(row => row.type === "tool_finished").map(row => JSON.parse(String(row.output)));
     expect(observations[2]).toMatchObject({ error: "public_fetch_limit_reached", actionInvoked: false });
-    expect(f.messages.map(items => JSON.parse(items[0]!.content!.split("\n").at(-1)!)).map(budget => budget.remainingPublicFetches)).toEqual([2, 1, 0, 0, 0]);
+    // Layout 2: the budget line closes the trailing user message of every request.
+    expect(f.messages.map(items => JSON.parse(items.at(-1)!.content!.split("\n").at(-1)!)).map(budget => budget.remainingPublicFetches)).toEqual([2, 1, 0, 0, 0]);
+    expect(f.messages.every(items => items.at(-1)!.role === "user" && !items[0]!.content!.includes("Current host budget"))).toBe(true);
     expect(f.workspaceFiles.flat().some(name => name.startsWith("public-sources/"))).toBe(false);
     expect(store.dispatches(f.jobId)).toHaveLength(7);
   });

@@ -142,24 +142,27 @@ const LOCAL_SCREEN_BUDGETS: Readonly<Record<LocalScreenProfile, { maxModelCalls:
 /** Phase 2 cloud arm (PR-E): the key comes from the process environment only and never reaches the freeze, the result or the registry. */
 export const CLOUD_ARM_MAX_FEE_USD = 8;
 export const CLOUD_ARM_KEY_VARIABLE = "SOAR_PHASE2_CLOUD_API_KEY";
+/** OpenAI's published 30-minute cache-write price for GPT-5.6-and-later models is 1.25× the input price; a fourth value in `--cloud-prices` overrides it. */
+export const CLOUD_CACHE_WRITE_FACTOR = 1.25;
 export interface CloudArmInput {
-  model: string; endpoint: string; prices: { input: number; output: number; cached: number }; maxFeeUsd: number;
+  /** `--cloud-prices in,out,cached[,write]` per million tokens; an absent write price means CLOUD_CACHE_WRITE_FACTOR × input. */
+  model: string; endpoint: string; prices: { input: number; output: number; cached: number; write?: number }; maxFeeUsd: number;
   /** Owner opt-in (`--proxy-fake-ip true`): admit a fake-IP system proxy's 198.18.0.0/15 answer for the cloud endpoint. */
   proxyFakeIp?: true;
-  /** Long-context tier (`--cloud-long-context above,in,out,cached`): required by the driver, whose heavy bodies can exceed it. */
-  longContext?: { aboveTokens: number; input: number; output: number; cached: number };
+  /** Long-context tier (`--cloud-long-context above,in,out,cached[,write]`): required by the driver, whose heavy bodies can exceed it. */
+  longContext?: { aboveTokens: number; input: number; output: number; cached: number; write?: number };
 }
 export function parseCloudLongContext(value: string): NonNullable<CloudArmInput["longContext"]> {
   const parts = value.split(",").map(part => Number(part));
-  if (parts.length !== 4 || !Number.isSafeInteger(parts[0]) || parts[0]! <= 0 || parts.slice(1).some(part => !Number.isFinite(part) || part < 0) || parts[3]! > parts[1]!) throw new Error("local_screen_cli_invalid");
-  return { aboveTokens: parts[0]!, input: parts[1]!, output: parts[2]!, cached: parts[3]! };
+  if (![4, 5].includes(parts.length) || !Number.isSafeInteger(parts[0]) || parts[0]! <= 0 || parts.slice(1).some(part => !Number.isFinite(part) || part < 0) || parts[3]! > parts[1]!) throw new Error("local_screen_cli_invalid");
+  return { aboveTokens: parts[0]!, input: parts[1]!, output: parts[2]!, cached: parts[3]!, ...(parts.length === 5 ? { write: parts[4]! } : {}) };
 }
 /** The endpoint path selects the request shape exactly; any other path is refused rather than guessed. */
 const CLOUD_API_BY_PATH: Readonly<Record<string, "openai" | "openai_responses">> = Object.freeze({ "/v1/chat/completions": "openai", "/v1/responses": "openai_responses" });
 export function parseCloudPrices(value: string): CloudArmInput["prices"] {
   const parts = value.split(",").map(part => Number(part));
-  if (parts.length !== 3 || parts.some(part => !Number.isFinite(part) || part < 0) || parts[2]! > parts[0]!) throw new Error("local_screen_cli_invalid");
-  return { input: parts[0]!, output: parts[1]!, cached: parts[2]! };
+  if (![3, 4].includes(parts.length) || parts.some(part => !Number.isFinite(part) || part < 0) || parts[2]! > parts[0]!) throw new Error("local_screen_cli_invalid");
+  return { input: parts[0]!, output: parts[1]!, cached: parts[2]!, ...(parts.length === 4 ? { write: parts[3]! } : {}) };
 }
 export function buildCloudArm(input: CloudArmInput, environment: NodeJS.ProcessEnv, coordinator: { maxOutputTokens: number; thinking: "disabled" | "medium"; maxRequestBytes: number }) {
   const endpoint = new URL(input.endpoint);
@@ -176,10 +179,17 @@ export function buildCloudArm(input: CloudArmInput, environment: NodeJS.ProcessE
     ...(input.proxyFakeIp ? { proxyFakeIp: true as const } : {}) };
   // Same output limit, thinking mode and body cap as the local arm; only the API shape, the prices and the timeout differ.
   // /v1/responses is the only OpenAI shape that serves tools with reasoning (BL-20261008-1300).
+  // The Responses shape places explicit breakpoints and settles its reported cache writes at the published write price
+  // (default 1.25× input) (H1). The chat-completions shape reports no write counts, so it keeps its previous configuration
+  // and identity unchanged; a write price given for it is ignored.
+  const responses = api === "openai_responses";
   const modelConfig = { destinationId: "cloud_coordinator", model: input.model, api, maxOutputTokens: coordinator.maxOutputTokens, thinking: coordinator.thinking,
-    inputUsdPerMillion: input.prices.input, outputUsdPerMillion: input.prices.output, cachedInputUsdPerMillion: input.prices.cached, maxRequestBytes: coordinator.maxRequestBytes,
+    inputUsdPerMillion: input.prices.input, outputUsdPerMillion: input.prices.output, cachedInputUsdPerMillion: input.prices.cached,
+    ...(responses ? { cacheWriteUsdPerMillion: input.prices.write ?? CLOUD_CACHE_WRITE_FACTOR * input.prices.input } : {}), maxRequestBytes: coordinator.maxRequestBytes,
     ...(input.longContext ? { longContext: { aboveTokens: input.longContext.aboveTokens, inputUsdPerMillion: input.longContext.input,
-      outputUsdPerMillion: input.longContext.output, cachedInputUsdPerMillion: input.longContext.cached } } : {}) };
+      outputUsdPerMillion: input.longContext.output, cachedInputUsdPerMillion: input.longContext.cached,
+      ...(responses ? { cacheWriteUsdPerMillion: input.longContext.write ?? CLOUD_CACHE_WRITE_FACTOR * input.longContext.input } : {}) } } : {}),
+    ...(responses ? { promptCaching: "responses_explicit_v1" as const } : {}) };
   const maxFeeMicrousd = Math.round(input.maxFeeUsd * 1_000_000);
   return { destination, modelConfig, maxFeeMicrousd, freeze: { arm: "cloud" as const, accountId, credentialVersion, endpointSha256: digest(endpoint.href), maxFeeMicrousd, modelConfig,
     ...(input.proxyFakeIp ? { proxyFakeIp: true as const } : {}) } };

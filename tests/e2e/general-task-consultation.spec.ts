@@ -212,9 +212,11 @@ function assertLedgerJoin(f: Fixture, task: GeneralTaskSnapshot, preview: Genera
   return audit;
 }
 function budget(body: Record<string, unknown>) {
+  // Layout 2: the budget line closes the trailing user message; the system message never carries it.
   const messages = body.messages as { role: string; content?: string }[];
-  const text = [...messages].reverse().find(row => row.role === "system" && row.content?.includes("Current host budget"))?.content;
-  expect(text).toBeDefined(); return JSON.parse(text!.slice(text!.lastIndexOf("\n") + 1));
+  expect(messages[0]!.role).toBe("system"); expect(messages[0]!.content).not.toContain("Current host budget");
+  const text = messages.at(-1)!.role === "user" ? messages.at(-1)!.content : undefined;
+  expect(text).toContain("Current host budget"); return JSON.parse(text!.slice(text!.lastIndexOf("\n") + 1));
 }
 async function submittedAndExported(f: Fixture, page: Page, modelCalls: number, tools: number) {
   await expect.poll(async () => (await first(page)).status, { timeout: 60000 }).toBe("submitted");

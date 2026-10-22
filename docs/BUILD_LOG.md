@@ -22054,3 +22054,252 @@ Mac state) and the Phase 4 week.
 References: BL-20261019-0432-phase2-result-provisional,
 BL-20261013-1640-phase2-automated-scores-and-repair-selection,
 BL-20261013-1642-repair-loader-regression, [plan](PLAN.md) Phase 2 R4.
+
+### BL-20261022-0834-phase4-division-of-labour-design -- 2026-10-22 -- Phase 4 harness design: local reads, extracts, writes, checks and repairs; cloud plans and synthesises on a packet
+
+Status: `Proposed`
+
+Scope or hypothesis: a harness track beside the plan's Phase 4 real week
+(Oct 21-27). The owner's direction of 2026-10-22, in chat: keep all three
+goals at once, "privacy first, good result and save money (tokens)";
+"context intensive and mechanical work should be done by local free models
+and the cloud models only needs to deal with the hardest part of the
+problem". This entry turns the provisional Phase 2 result
+(BL-20261019-0432, BL-20261019-0838) into a design for Branch B's
+public-work routing and for a local loop every family gets. It assumes the
+owner confirms Branch B; the same design holds under R5/A-narrow for the
+same families. **It asks for no change to the owner build, the box, or the
+owner's jobs during the real week**: development happens on branches with
+synthetic or already-exposed tasks, and every run that needs the box waits
+for the Oct 27 review or an owner-declared idle window, logged per use.
+Three rounds of adversarial refutation (38 findings) were applied before
+this entry was committed.
+
+Decisions:
+
+- **What the Phase 2 numbers say.** The three C-Sol research runs cost
+  USD 3.05-3.77 each: 78-80 calls, 1.46-1.79M input tokens, 14-20k output
+  tokens; about 95% of each run's cost was input. On r2, 39 of 78 calls
+  were `execute` (33 corpus reads, 6 self-checks); writing was 2
+  `write_file`, 29 `str_replace` and 4 `check_claims`. Two of the three
+  cloud research runs (r1, r3) ended at the 80-call cap unsubmitted and were
+  accepted as drafts. Of the six local research runs, three produced no
+  deliverable at 80 calls (r1 repeat 1, r3 both), two wrote a memo with a
+  missing or mis-anchored claims ledger (r2 both), and one submitted with
+  factual errors (r1 repeat 2). The Thor's measured profile: prefill about
+  1,790 tokens/s; decode about 35 tokens/s for prose, 56-67 for thinking
+  text, 58 for code (serving card 2026-09-28). The motivation for a cloud
+  step in research is the quality gap (local 0 of 6 accepted, cloud 3 of
+  3), not throughput.
+- **Zero cache reads, cause inferred.** `cached_tokens` was 0 on every
+  cloud call: all 14 cloud agent runs of Phases 1 and 2 and the invalid w1
+  rerun settled at exactly input × 2 + output × 10, and the r2 trace
+  records 0 cache reads on 78 replies. Cache writes are not recorded by the
+  harness and are unknown. Measured on 2026-10-22: the static system prompt
+  renders to about 2.5 KB, roughly 640 tokens (bytes/4), and OpenAI's
+  minimum cacheable prefix is 1,024 tokens (prompt-caching guide, read
+  2026-10-22: "The minimum cacheable prompt length is 1,024 tokens for
+  GPT-5.6 and later"; "Cache reuse requires the entire rendered prefix to
+  match"). Inferred, and what the probe confirms: the system message is
+  rendered ahead of the tool definitions, and the runner appends the
+  progress guidance and the budget line inside it (`runner.ts:369`), so the
+  per-turn budget line falls inside the first 1,024 tokens and no hit is
+  possible. BL-20261008-1312's "covers only the static prefix" was an
+  overestimate: it covered nothing.
+- **H1, prompt layout for caching (both arms).** The system message holds
+  only the static prompt; the tool definitions and the brief follow it
+  unchanged across turns (stable prefix well over 1,024 tokens); the
+  progress guidance and the budget line move to a trailing user message
+  after the latest tool result. The observation projector
+  (`observations.ts:9-10`, 8 KiB per observation, 48 KiB rolling budget,
+  recomputed every turn) bounds H1's gain: it demotes the oldest full
+  observation almost every turn once the window is full (on r2 the window
+  sat at or above 45 KiB on 66 of 78 calls), so only history older than
+  the window can hit; at r2's scale that is roughly 40% of input. H1 adds
+  the cheap mitigation, demotion in batches with hysteresis (when the
+  window overflows, demote the oldest full observations down to about
+  24 KiB), so the prefix changes every few reads rather than every turn.
+  Append-only growth is not the default: a late research body past
+  272,000 bytes is reserved at the long-context rates (about USD 1.85 for
+  a 400 KB body, `model.ts` reservation) although the prompt (about 100K
+  tokens on r2) would settle at the standard rate, and it approaches the
+  heavy profile's 640 KiB body cap; append-only capped below both is a
+  measured option. The `started` event records a layout version that
+  selects both the system-message builder and the observation projector
+  (policy version 2); the hard-coded check at `runner.ts:272` becomes a
+  per-version switch and `promptProtocolSha256` is computed per version, so
+  paused tasks resume under their own layout instead of ending
+  `runtime_contract_drift`. H1 adds `cachedTokens` to the registry row.
+  **Verification, which doubles as the diagnosis:** a two-turn
+  identical-prefix probe on `/v1/responses` whose criterion is
+  `cached_tokens` above 0 on the second call (`cache_write_tokens`
+  informational if present), then one all-cloud run on r3 (exposed) per
+  projector option (rolling, batched, append-only capped), fee cap USD 5
+  so an uncached run can still finish, with per-call cached tokens
+  recorded; the option is chosen on measured cached fraction and cost.
+- **H2, the local reader.** Prefix caching is already on at the box: the
+  serving card's P4 reused 44,800 of 47,299 tokens, and the box identity
+  entry (BL-20260928-1811, 2026-09-28) records 366M cache hits of 386M
+  queried tokens. H2a is therefore a client-side change only: the runner
+  sends a per-job `cache_salt` so no two jobs share cache blocks (design
+  principle P6, isolation between matters). Verified 2026-10-22: the box
+  reports vLLM 0.31.0 (newer again than the 0.30.0 in the log; serving
+  stays "unpinned" per D11) and its OpenAPI schema lists `cache_salt`.
+  Every D11 item stays as it is; any server flag is a separate D11
+  decision with a scheduled restart.
+  - H2b: a structured pipeline, not the free agent loop, in this order:
+    (1) local source index (one gist per source, counts); (2) cloud plan
+    (H3, call 1); (3) local extraction guided by the plan: verbatim quotes
+    with host-computed locators, verified against the retained bytes by the
+    claims-ledger check before they enter the **evidence packet** (cap
+    64 KiB), plus the conflicts the extractor detects; (4) cloud synthesis
+    (H3, call 2); (5) local write. Sources are the job's inputs or the
+    host-retained public fetches. H2b's locators and verification address
+    the r2 failures (missing and mis-anchored ledgers).
+  - H2c: the reader's call budget is separate from the writer's, so a long
+    corpus cannot exhaust the writing budget. H2c addresses the
+    no-deliverable failures (r1 repeat 1, r3 both).
+- **H3, the cloud planner and synthesiser: public and synthetic contexts
+  only.** Two calls per task on the Responses API with the standard tier
+  pinned, each with a per-call `maxOutputTokens` override of 8,192 so the
+  broker's reservation leaves room: the plan from the brief and the source
+  index; the synthesis from the evidence packet into the argument, citing
+  the packet's quote ids. Fee cap USD 0.60 per task. Until the owner build
+  gains a label gate (a separate entry), H3 is reachable only from the
+  headless driver under its public/synthetic approval flags. **Labelled
+  contexts run H2 and H4 only.** D15 is unchanged and is not part of this
+  design; any cloud path for labelled work is outside this entry.
+- **H4, the local writer, checks and the select-and-repair loop (every
+  family).** The local model writes from the plan and the packet; the host
+  runs the family's checks; then two local samples (at least one was
+  accepted on 8 of 12 Phase 2 tasks), a host-checked selection, one local
+  critique and one local repair from the identical draft (the repair pair
+  recovered 4 of 6 rejected drafts under the local critic at zero fee).
+  Expected wall time about 3-4 times a single sample; the owner's real-week
+  jobs stay single-sample on `owner-v0.2` until Oct 27. The no-cloud
+  route goes to the families where local matched or beat the cloud on at
+  least one repeat and was within 1 on the other (accepts, repeat 1 /
+  repeat 2 / cloud): document review 3/3, 1/3, 2/3; decks 1/2, 1/2, 1/2;
+  websites 1/1, 1/1, 1/1. Admin (1/2, 1/2, 2/2) and coding (0/1, 0/1, 1/1)
+  are also within 1 on both repeats but stay on the cloud route for now:
+  coding is n = 1, and admin's failures were a double-booked hold and a
+  DST-shifted recurrence, errors the local repair loop must first show it
+  corrects; their routing is a later entry. The deck family's checks gain
+  an OOXML validity check in the qualified image: three of six Phase 2
+  decks needed PowerPoint repair (BL-20261019-0431).
+- **Projected cost, the hypothesis H5 tests.** A research task under
+  H1-H4: two cloud calls on a 20-60 KB packet, about USD 0.15-0.40, against
+  USD 3-4 today; the local half is zero fee.
+- **H5, the pre-registered experiment.** Counted runs use **three fresh
+  research tasks**, authored by a separate session with 5-8 critical
+  checks each and frozen by hash before any pipeline run, because the plan
+  forbids re-running already-seen tasks as fresh evidence. r1-r3 are
+  `exposed` and serve only as calibration, reported separately, on the
+  zero-fee all-local arm and the split arm. The pipeline's prompts and
+  conflict logic are frozen (hash recorded) before any fresh-task input is
+  read. Arms on the fresh tasks, two labelled repeats each, 18 runs:
+  - all-cloud with H1 only (fee cap USD 2.50 per run);
+  - all-local with H1, H2 and H4 (no cloud call);
+  - split with H1-H4 (fee cap USD 0.60 per run).
+
+  **H5 starts only if** the measured cost per input token on the H1
+  verification run, scaled to r1's 1.79M input tokens at the Phase 2 call
+  count, fits under USD 2.50 with one late-run reservation (about USD 0.44)
+  of headroom; otherwise a new entry resets the caps and the envelope line.
+  Grading as in Phase 2: blind, by the owner or under D9 by owner-proxy
+  agents, same decoy procedure, arm guesses recorded; a result with arm
+  guesses at least 80% right is labelled "weakly blinded". A run that did
+  not submit, or that stopped at its fee cap, counts as rejected for its
+  arm and stays in every count; only `infra_invalid` causes exclude a task,
+  as R0 defines. The harness-terminal rate per arm is reported as the
+  plan's secondary metric. Cost per run from the receipts. **Decision
+  rules, fixed now, applied in this order: ceiling, S2, S1, S3, S4.**
+  - Ceiling: if the all-cloud arm accepts fewer than 2 of 3 on either
+    repeat, the round is harness-limited; no routing changes, and any
+    retry needs a new entry. Applied to the Phase 2 data with the rules
+    above, the cloud would have scored 1 of 3 (two unsubmitted drafts), so
+    this floor, not the comparison, carries the decision.
+  - S2: if all-local accepts at least 2 of 3 on both repeats and reaches
+    the all-cloud count minus 1 on both, research joins the local-first
+    families and H3 is not used for it.
+  - S1: otherwise, adopt the split for public research if it accepts at
+    least 2 of 3 on both repeats, reaches the all-cloud count minus 1 on
+    both, and no split run reached its USD 0.60 cap.
+  - S3: if the split fails S1 on quality, a separate scorer session
+    measures the evidence packet's quote recall against the fresh tasks'
+    planted conflicts before any other change; the designing session reads
+    no gold.
+  - S4: if the ceiling holds and S1 and S2 both fail, all-cloud remains the
+    Branch B default for public research.
+  - Stop rule: one round of 18 runs. Any rerun needs a new entry and new
+    fresh tasks. Adoption under S1 or S2 is `Proposed` until the owner
+    confirms the grades.
+
+  R2 of the plan was not triggered in Phase 2 (6 of 14 failures) and is
+  not claimed here; H5 records wall time and tokens/s per run as
+  descriptive data only.
+- **Cost and the envelope.** H5 counted runs at most USD 18.60 (6 × 2.50 +
+  6 × 0.60); r1-r3 split calibration at most USD 3.60; the H1 probe and
+  verification runs at most USD 5; H3 development dry runs on r1-r3 or
+  synthetic tasks at most USD 5. Total at most **USD 32.20**. The plan's
+  allocation table has no line for this, and its weekly "public-work cloud
+  route" line (USD 25) is what the owner's own Branch B jobs draw on. This
+  entry asks for a named amendment: a new line "Phase 4 harness track |
+  33", reallocated from the "harness spike or re-runs of invalid runs"
+  line (40 → 7), which was never drawn (R1 was not triggered; the R0
+  re-runs were charged to the Phase 2 line). Running total after approval:
+  about USD 21 used + 33 = 54 of 300; the owner's real-week jobs keep the
+  route line.
+- **Rules this entry asks the owner to waive or amend, for the harness
+  track only:** the Phase 4 rule that agents fix only observed blockers
+  (this track builds on branches and touches no owner build or box during
+  the week); the trial-first and one-lever rule of the process reset (H2b,
+  H2c, H4 and the validator are host work, time-boxed to the track); the
+  envelope amendment above; and the assumption that Branch B is confirmed.
+- **Order and timing.** H1 first (small; its gain is bounded by the
+  projector and is measured), with its probe and verification runs; then
+  H2a with its schema check, H2b-H2c and H4 on synthetic tasks, H3 dry
+  runs on r1-r3 or synthetic tasks, the fresh tasks, then H5. Nothing runs
+  on the box before Oct 27 except in an owner-declared idle window, logged
+  per use. Nothing ships to any owner build before Oct 27; after that, H1
+  ships to an owner build only with the layout version in, or when no
+  owner job is paused.
+
+Changes: this entry.
+
+Evidence: registry rows `p2-r1..r3-*`, `p2-c1-*`, `p1c-*` and the invalid
+w1 rerun row; the r2 cloud run's event log; the serving card and the box
+identity entry; BL-20261008-1312; `runner.ts:142-150, 255-272, 360-369`;
+`observations.ts:9-10, 192`; `model.ts` reservation and settlement; the
+box's `/version` and OpenAPI schema on 2026-10-22; OpenAI's prompt-caching
+guide on 2026-10-22.
+
+Failures or blockers: None in writing it. H3 dry runs need the owner's
+key, already in the Keychain.
+
+Limitations and non-claims:
+
+- The cost projection is an estimate from Phase 2 token counts; the H1
+  verification runs and H5 measure it. The reader's extraction recall on
+  long corpora is unmeasured; the claims-ledger check verifies quotes, not
+  recall.
+- The token estimate for the prompt (bytes/4) is approximate; the probe
+  measures the real boundary. The cache-miss cause is inferred until the
+  probe confirms it.
+- n = 3 fresh tasks, 2 repeats, 3 arms: only large gaps are detectable;
+  S1-S4 are investment rules.
+- The split adds a hand-off: a poor evidence packet bounds the cloud's
+  synthesis. S3 names that failure mode in advance.
+- Privacy posture is unchanged: labelled contexts get no cloud call under
+  this entry.
+
+Paid exposure: USD 0 now; at most USD 32.20 once approved.
+
+Next gate: the owner's approval of this entry (an `Approved` entry quoting
+it) before any implementation; then H1 as the first PR.
+
+References: BL-20261019-0432-phase2-result-provisional,
+BL-20261019-0838-phase2-repair-pair-and-close,
+BL-20261008-1312-openai-responses-cloud-arm, BL-20261019-0431-office-render-check,
+BL-20260928-1811-phase0-owner-decisions, [plan](PLAN.md) Phase 4, Later,
+section 4 process reset, D11, D15, R0-R2, section 7.

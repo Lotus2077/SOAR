@@ -22383,3 +22383,118 @@ Appendix A; then an `Approved` entry before any implementation.
 
 References: BL-20261019-0432-phase2-result-provisional,
 [plan](PLAN.md) D15, [private work design](plans/PRIVATE_WORK_DESIGN_V1.md).
+
+### BL-20261022-0940-phase4-harness-approved -- 2026-10-22 -- Owner approves the Phase 4 harness design, its waivers and envelope line, and confirms Branch B
+
+Status: `Approved`
+
+Scope or hypothesis: BL-20261022-0834-phase4-division-of-labour-design asked
+the owner for four things. The owner replied in chat on 2026-10-22: "approve
+either now", in answer to the offer "If you want to approve either now, say
+so in a sentence", covering that design and the privacy filter v2 design
+(next entry).
+
+Decisions:
+
+- **The design is approved:** H1 prompt layout for caching with layout
+  versioning and the probe and verification runs; H2 the local reader with
+  per-job `cache_salt` and the verified evidence packet; H3 the two cloud
+  calls per task for public and synthetic contexts only; H4 the local
+  select-and-repair loop and the OOXML deck check; H5 the pre-registered
+  three-arm experiment on three fresh research tasks, with its ceiling,
+  floors, order, stop rule and the condition on the H1 verification.
+- **Waivers, for the harness track only:** the Phase 4 rule that agents
+  fix only observed blockers, and the trial-first and one-lever rule of the
+  process reset. The track builds on branches; no owner build, box or
+  owner job changes before the Oct 27 review, except in an owner-declared
+  idle window, logged per use.
+- **Envelope amendment:** a new line "Phase 4 harness track | 33",
+  reallocated from the "harness spike or re-runs of invalid runs" line
+  (40 → 7). The plan's table is amended in this commit. Running total:
+  about USD 21 used of 300.
+- **Branch B is confirmed** on the provisional, agent-graded Phase 2
+  result; the owner may still overrule any label, and the family pattern
+  stands as recorded.
+- **D11 amended:** prefix caching was already on at the box; the runner
+  will send a per-job `cache_salt`; server flags stay separate decisions.
+- **First work:** H1, as its own PR, with the two-turn probe and the
+  verification run on r3 inside the USD 5 sub-line.
+
+Changes: `docs/PLAN.md` (envelope table, D11, the Phase 2 and Phase 4
+status paragraphs); this entry.
+
+Evidence: the owner's chat message of 2026-10-22, quoted above.
+
+Failures or blockers: None.
+
+Limitations and non-claims: Approval of a design, not of any result. Paid
+work stays inside the named line and its sub-lines.
+
+Paid exposure: USD 0 at approval; at most USD 33 under the line.
+
+Next gate: the H1 PR with its measured cached fraction and cost.
+
+References: BL-20261022-0834-phase4-division-of-labour-design,
+BL-20261019-0432-phase2-result-provisional, [plan](PLAN.md) section 4.
+
+### BL-20261022-0941-privacy-filter-v2-approved -- 2026-10-22 -- Owner approves the privacy filter v2 design at its stated defaults: synthetic-first stages, no labelled packet, "never" for all regime tags
+
+Status: `Approved`
+
+Scope or hypothesis: the same owner message ("approve either now") applied to
+BL-20261022-0934-privacy-filter-v2-design, whose section 12 lists decisions
+with defaults that "apply only to planning" and "never authorise live, paid,
+private or publication actions".
+
+Decisions:
+
+- **Approved as the direction, at its defaults.** The owner gave no
+  per-decision answers, so each decision takes the default the design
+  states, which the owner may replace at any time with a recorded answer:
+  - D15-rev: cloud help for a labelled context becomes planned, through
+    the named templates only, one packet per task, exact-byte approval and
+    the recorded form; the trigger stays "after an insufficient local
+    result"; stages run on synthetic material first. The plan's D15 row is
+    amended in this commit.
+  - D20: "never" for all five regime tags.
+  - D14: the regulatory frame stays generic.
+  - D21: no labelled packet until the provider posture is verified.
+  - D22: 30-day retention.
+  - D23: **nothing paid runs** under this design until the owner allocates
+    its line (at most USD 49 proposed); the synthetic trial and the utility
+    study wait on that.
+  - D24: nonce tracer and response-echo scan only.
+  - D25: OPF on the Mac, alone.
+  - D26: suites authored without the data-class bridge, and they say so.
+  - D27: the record answers only while the install's key exists.
+- **Appendix A stays a gate.** Its two medium and eight low findings must
+  be resolved, or declined with reasons, in the first implementation
+  entry; the `thor_filter` destination in particular needs the broker's
+  TLS rule satisfied, which ties to the endpoint hardening the owner has
+  deferred.
+- **Ordering against the harness track.** The Phase 4 track (previous
+  entry) comes first; the filter's build stages start after H1 and H4
+  exist, since its packets and checks reuse them. The repair-pair result
+  (BL-20261019-0838) does not motivate the filter, so its build is not
+  urgent.
+- **Nothing changes for the owner's real week.** Labelled contexts still
+  get no cloud call.
+
+Changes: `docs/PLAN.md` (D15 row); this entry.
+
+Evidence: the owner's chat message of 2026-10-22.
+
+Failures or blockers: None.
+
+Limitations and non-claims: An approval at defaults is an approval to
+build toward the gates on synthetic material; it releases no packet, no
+payment and no private data. The regulatory section remains a frame for
+counsel.
+
+Paid exposure: USD 0; none authorised under this entry.
+
+Next gate: the owner's allocation (D23) and any per-decision answers; the
+first implementation entry resolving Appendix A.
+
+References: BL-20261022-0934-privacy-filter-v2-design,
+BL-20261022-0940-phase4-harness-approved, [plan](PLAN.md) D15, D20.

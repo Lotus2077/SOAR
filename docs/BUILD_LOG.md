@@ -22691,8 +22691,9 @@ copied from the session terminal); the replay harness and probe scripts
 in the session scratchpad (reconstruction, replay, cadence, key and
 retention, breakpoint chains); `pmset -g log` for 2026-10-22 18:22 to
 19:08 local; OpenAI's prompt caching guide and pricing page as read on
-2026-10-22; `vitest run` after the follow-up commit: 2,027 passed, 80 skipped, the 5 pre-existing failures below (counts
-from the session terminal); both typechecks clean.
+2026-10-22; `vitest run` after the follow-up commit: 2,027 passed, 80
+skipped, the 5 pre-existing failures below (counts from the session
+terminal); both typechecks clean.
 
 Failures or blockers: the first run was lost to host sleep (keep-awake
 prevents idle sleep only; a closed lid still sleeps, so long paid runs

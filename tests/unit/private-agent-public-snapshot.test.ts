@@ -169,6 +169,10 @@ describe("public snapshot CLI", () => {
     expect(() => parseLocalArtifactScreenArguments([...base, "--cloud-model", "x"])).toThrow("local_screen_cli_invalid");
     expect(() => parseLocalArtifactScreenArguments([...base, "--arm", "sky"])).toThrow("local_screen_cli_invalid");
     expect(() => parseCloudPrices("2,8,3")).toThrow("local_screen_cli_invalid");
+    // H1: an optional fourth price is the cache-write rate; the long-context tier takes an optional fifth.
+    expect(parseCloudPrices("2,8,0.5,2.5")).toEqual({ input: 2, output: 8, cached: 0.5, write: 2.5 });
+    expect(() => parseCloudPrices("2,8,0.5,2.5,1")).toThrow("local_screen_cli_invalid");
+    expect(parseCloudLongContext("272000,4,15,0.4,5")).toEqual({ aboveTokens: 272_000, input: 4, output: 15, cached: 0.4, write: 5 });
     const coordinator = { maxOutputTokens: 16_384, thinking: "medium" as const, maxRequestBytes: 640 * 1024 };
     const input = { model: "gpt-6-sol", endpoint: "https://api.openai.com/v1/chat/completions", prices: { input: 2, output: 8, cached: 0.5 }, maxFeeUsd: 8 };
     expect(() => buildCloudArm(input, {}, coordinator)).toThrow("local_screen_cloud_key_missing");

@@ -190,6 +190,8 @@ describe("general runner host budget and argument recovery", () => {
     f.afterResponse(count => { if (count === 3) f.beforeListFiles(() => { throw new Error("synthetic capture failure"); }); });
     expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "runtime_failure_progress_preserved", modelCalls: 3 });
     expect(f.options.store.events(f.options.jobId).some(event => event.type === "model_action_not_started")).toBe(false);
+    // H1 completion: the failure class is recorded (a name or sandbox code only), so a hang or host sleep can be told from a code fault.
+    expect(f.options.store.events(f.options.jobId).filter(event => event.type === "runtime_failure")).toMatchObject([{ code: "Error" }]);
     expect(f.commands).toEqual(["fail same", "fail same"]);
     const reopened = new Database(f.dbPath); cleanup.push(() => reopened.close());
     expect(await new GeneralAgentRunner({ ...f.options, store: new PrivateAgentStore(reopened) }).run()).toMatchObject({ reason: "unresolved_operation_no_replay" });

@@ -16,6 +16,8 @@ export interface ProviderUsage {
   inputTokens: number;
   /** Input tokens served from a provider cache when the transport reports them. */
   cacheReadTokens?: number;
+  /** Input tokens the provider reports as newly written to its cache, when the transport reports them. */
+  cacheWriteTokens?: number;
   /** Visible completion tokens, excluding reasoning tokens when reported separately. */
   outputTokens: number;
   totalTokens: number;

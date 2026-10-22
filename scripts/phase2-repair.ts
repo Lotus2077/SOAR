@@ -3,7 +3,7 @@
  * from the cloud critic (H) or the local critic (L′). Step 2 is the headless driver with --repair-from <this output>.
  *
  *   node --import tsx scripts/phase2-repair.ts --critique --run-directory RUN --task-directory TASK --job-sha256 H --brief-sha256 H \
- *     --image-id sha256:... --output-directory OUT --critic local|cloud [--cloud-model M --cloud-endpoint https://... --cloud-prices in,out,cached --max-fee-usd 1 [--cloud-long-context above,in,out,cached] [--proxy-fake-ip true]]
+ *     --image-id sha256:... --output-directory OUT --critic local|cloud [--cloud-model M --cloud-endpoint https://... --cloud-prices in,out,cached[,write] --max-fee-usd 1 [--cloud-long-context above,in,out,cached] [--proxy-fake-ip true]]
  *
  * The cloud key is read from the launching shell only (as for --arm cloud); nothing records it.
  */

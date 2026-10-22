@@ -58,6 +58,8 @@ def main() -> int:
         "outputTokens": sum(item.get("outputTokens", 0) for item in usage),
         # H1 (BL-20261022-0834): prompt tokens the provider reported as served from its cache; 0 when unreported.
         "cachedTokens": sum(item.get("cacheReadTokens") or 0 for item in usage),
+        # H1 completion: prompt tokens the provider reported as newly written to its cache (billed at the write rate); 0 when unreported.
+        "cacheWriteTokens": sum(item.get("cacheWriteTokens") or 0 for item in usage),
         "lengthStops": sum(1 for event in finished if event.get("finishReason") == "length"),
         "usd": sum(item.get("feeMicrousd") or 0 for item in dispatches) / 1_000_000,
         "unknownDispatches": sum(1 for item in dispatches if item.get("status") in ("unknown", "committed")),

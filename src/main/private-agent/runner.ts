@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { canonical, digest, exactText, contextFingerprint } from "./contracts";
 import { PrivateAgentStore, isResolvedDispatch } from "./store";
 import { PrivateAgentBroker, BrokerError } from "./broker";
-import { DockerSandbox, PRIVATE_SANDBOX_LIMITS, type SandboxExecution } from "./sandbox";
+import { DockerSandbox, PRIVATE_SANDBOX_LIMITS, SandboxError, type SandboxExecution } from "./sandbox";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "./checkpoints";
 import { PrivateAgentModel, ModelRequestBodyTooLarge, MODEL_FEE_CAP_STOP, MODEL_REQUEST_SIZE_STOP, MODEL_UNAVAILABLE_STOP, modelRequestSizeStop, modelRequestFeeStop, modelRequestFailed, hasInvalidModelRequestSizeStop,
   type GeneralMessage, type GeneralToolDefinition, modelIdentity } from "./model";
@@ -656,7 +656,10 @@ export class GeneralAgentRunner {
         if (passed) { readPublicSources(store, checkpoints, jobId, contextId); verifyExecutionObservations(observationScope); completionPending = true; return finish("completed", "critical_checks_passed_at_allowance"); }
       }
       return finish("incomplete", "bounded_allowance_exhausted");
-    } catch {
+    } catch (error) {
+      // Only the failure class is kept (a sandbox code, an abort, an error name): never a message, command or path.
+      // Recording it must not mask the preserved-progress outcome, so a failing store is swallowed here.
+      try { this.record({ type: "runtime_failure", code: error instanceof SandboxError ? `sandbox_${error.code}` : error instanceof Error ? error.name : "unknown" }); } catch { /* store unavailable */ }
       return finish("incomplete", "runtime_failure_progress_preserved");
     } finally {
       let cleanupConfirmed = false;

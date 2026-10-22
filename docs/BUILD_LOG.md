@@ -22303,3 +22303,83 @@ BL-20261019-0838-phase2-repair-pair-and-close,
 BL-20261008-1312-openai-responses-cloud-arm, BL-20261019-0431-office-render-check,
 BL-20260928-1811-phase0-owner-decisions, [plan](PLAN.md) Phase 4, Later,
 section 4 process reset, D11, D15, R0-R2, section 7.
+
+### BL-20261022-0934-privacy-filter-v2-design -- 2026-10-22 -- Privacy filter v2 design proposed: layered packet sanitisation for owner-approved cloud exposure
+
+Status: `Proposed`
+
+Scope or hypothesis: written on 2026-10-19 and restamped on merge (2026-10-22) so that it follows the Phase 2 and Phase 4 entries merged first; the text is otherwise unchanged. The owner's direction of 2026-10-19, in chat: "the
+privacy filter needs an upgrade: explore ways to build a filter that fits
+the system's need (pretty sure the cloud exposure is necessary); the filter
+could be more than just the OPF, it could be a multilayered system (for
+example OPF for first pass of filtering, then the local model kicks in for
+second round of check and then there is a rule-based check for the third
+pass; this is just an example)". The Phase 2 provisional result
+(BL-20261019-0432) motivates it: cloud 10/12, local 6/12 and 4/12.
+
+Decisions:
+
+- **Method.** Four independent lens analyses (architecture inside SOAR;
+  adversary and regulation; evaluation and gating; 2026 state of the art
+  with web research), one synthesis in the style of the private-work
+  design, then three rounds of adversarial refutation and revision:
+  20 findings, then 16, then 10 (two medium, eight low). The residue is
+  attached to the design as Appendix A and must be resolved before
+  approval. The lenses and change logs are committed beside it.
+- **The design, in one paragraph.** A cloud packet for a labelled context
+  is built, not scanned: a versioned purpose template admits only derived
+  material (outlines, diffs, signatures, failed-check excerpts), and refuses
+  regime-tagged contexts before reading content. Seven layers run in a
+  fixed order with monotone, fail-closed verdicts, and no layer approves:
+  a deterministic pre-pass with rules v2 and a per-job identifier registry
+  harvested locally; OPF as a sandboxed span detector; the local 27B as a
+  contextual checker with a fixed prompt, pinned sampling and a structured
+  verdict; a deterministic post-pass with an originals-absent invariant and
+  salted placeholders; the owner's diff view with a recorded four-answer
+  form and a one-use grant bound to the packet hash; a composite wire gate
+  proving the bytes leaving equal the bytes approved; and an on-device
+  encrypted restoration map with a screened return path. Evaluation is a
+  gold-by-construction corpus of profession suites in three language
+  classes, a sealed confirmation, a utility study, continuous canaries and
+  pre-registered rules F0-F7; automatic use is declared unreachable under
+  this evidence model.
+- **Boundary kept.** The owner's exact-byte approval, "never for
+  regime-tagged data" unless the owner changes it, the audit chain, no
+  automatic fallback, derived material only. The design states what it does
+  not promise: a packet is pseudonymised personal data, never anonymous or
+  privilege-preserving; quasi-identifiers, structure, style and linkage can
+  still identify; Chinese completeness is unmeasured; the 27B checker is
+  unmeasured.
+- **Owner decisions it needs** (§12): D15-rev (cloud help becomes planned,
+  through named templates, one packet per task, a recorded form), D20
+  (per-regime-tag rule), D14 completion (jurisdictions), D21 (provider
+  account posture: retention, BAA, DPA), D22 (retention), D23 (an
+  allocation of at most USD 49 inside the envelope), D24 (honeytoken
+  domain), D25 (OPF placement and union detectors), D26 (about five owner
+  hours), D27 (key recovery).
+- **Nothing is implemented.** No code changes, no runtime, no paid run, no
+  private data.
+
+Changes: `docs/plans/PRIVACY_FILTER_V2_DESIGN.md` (2,347 lines plus the
+appendix), `docs/plans/privacy-filter-v2/` (four lenses, three change
+logs), the docs index; this entry.
+
+Evidence: the design's section 13 lists its sources; the refutations are
+in the change logs and Appendix A.
+
+Failures or blockers: Appendix A items A.1 (reply-screen tiers versus
+reveal exemptions) and A.2 (the checker destination must satisfy the
+broker's TLS rule on a plain-HTTP tunnel endpoint) are open design
+defects.
+
+Limitations and non-claims: An agent-written design, reviewed by agents.
+The regulatory section is a frame for counsel, not legal advice. The
+device and latency figures are estimates until R3 and R4 measure them.
+
+Paid exposure: USD 0.
+
+Next gate: the owner's decisions D15-rev and D20-D27; resolution of
+Appendix A; then an `Approved` entry before any implementation.
+
+References: BL-20261019-0432-phase2-result-provisional,
+[plan](PLAN.md) D15, [private work design](plans/PRIVATE_WORK_DESIGN_V1.md).

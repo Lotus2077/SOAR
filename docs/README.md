@@ -11,6 +11,7 @@ not active requirements.
 | --- | --- |
 | [PLAN.md](PLAN.md) | The single living plan: phases, decision rules, envelope, owner decisions |
 | [plans/PRIVATE_WORK_DESIGN_V1.md](plans/PRIVATE_WORK_DESIGN_V1.md) | Private-work design (Proposed): strict privacy profile, admin assistant, research and document review, device |
+| [plans/PRIVACY_FILTER_V2_DESIGN.md](plans/PRIVACY_FILTER_V2_DESIGN.md) | Privacy filter v2 (Proposed, 2026-10-19): layered packet sanitisation for owner-approved cloud exposure; lenses and change logs under `plans/privacy-filter-v2/` |
 | [PROJECT_REVIEW_2026-09-28.md](PROJECT_REVIEW_2026-09-28.md) | Verified whole-project review behind the plan |
 | [BUILD_LOG.md](BUILD_LOG.md) | Append-only decision and evidence ledger |
 | [HANDOFF.md](HANDOFF.md) | Code map and operational boundaries of the general-task runtime (September state) |

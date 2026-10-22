@@ -158,19 +158,21 @@ describe("H1: explicit prompt-cache breakpoints and cache-write settlement", () 
   ];
   const block = (text: string) => [{ type: "input_text", text, prompt_cache_breakpoint: { mode: "explicit" } }];
 
-  it("marks the static prompt, the brief and the latest two non-empty tool results, never the trailing per-turn message", () => {
+  it("marks the static prompt, the brief and the latest two non-empty tool results, never the final message", () => {
     const input = responsesInput(history, true);
     expect(input[0]).toEqual({ type: "message", role: "system", content: block("You are an agent.") });
     expect(input[1]).toEqual({ type: "message", role: "user", content: block("The brief.") });
-    expect(input[3]).toEqual({ type: "function_call_output", call_id: "call_1", output: "first result" });
+    // The empty third result cannot carry a block, so the two latest non-empty results are marked.
+    expect(input[3]).toEqual({ type: "function_call_output", call_id: "call_1", output: block("first result") });
     expect(input[5]).toEqual({ type: "function_call_output", call_id: "call_2", output: block("second result") });
-    // An empty output cannot carry a block: it stays a plain string although it is one of the latest two.
     expect(input[7]).toEqual({ type: "function_call_output", call_id: "call_3", output: "" });
     expect(input.at(-1)).toEqual({ type: "message", role: "user", content: "Current host budget ..." });
     expect(responsesInput(history)).toEqual(responsesInput(history, false));
     expect(JSON.stringify(responsesInput(history))).not.toContain("prompt_cache_breakpoint");
     // Without a leading system message only the latest tool results are marked.
     expect(responsesInput(history.slice(1), true)[0]).toEqual({ type: "message", role: "user", content: "The brief." });
+    // A one-shot [system, user] call (the cloud critic) marks the system message only: its packet is never re-read.
+    expect(responsesInput(history.slice(0, 2), true)).toEqual([{ type: "message", role: "system", content: block("You are an agent.") }, { type: "message", role: "user", content: "The brief." }]);
   });
 
   it("sends explicit-mode caching with the marked input and settles writes at the write rate inside the reservation", async () => {
@@ -202,6 +204,12 @@ describe("H1: explicit prompt-cache breakpoints and cache-write settlement", () 
     expect(() => fixture(() => ({}), { ...config, promptCaching: "responses_explicit_v1", api: "openai" })).toThrow("private_model_configuration_invalid");
     expect(() => fixture(() => ({}), { ...config, cacheWriteUsdPerMillion: 9 })).toThrow("private_model_configuration_invalid");
     expect(() => fixture(() => ({}), { ...caching, longContext: { ...longContext, cacheWriteUsdPerMillion: 17 } })).toThrow("private_model_configuration_invalid");
+    // A long-tier reservation can settle at the base tier, so the long tier's write rate (default: its input rate) must cover the base one.
+    expect(() => fixture(() => ({}), { ...config, cacheWriteUsdPerMillion: 6, longContext: { aboveTokens: 300, inputUsdPerMillion: 4, outputUsdPerMillion: 15 } })).toThrow("private_model_configuration_invalid");
+    expect(() => fixture(() => ({}), { ...config, cacheWriteUsdPerMillion: 6, longContext: { aboveTokens: 300, inputUsdPerMillion: 4, outputUsdPerMillion: 15, cacheWriteUsdPerMillion: 6 } })).not.toThrow();
+    // A usage block with no prompt tokens for a non-empty body never settles as a free call.
+    await expect(fixture(body => ({ status: "completed", output: [], usage: usage(body, { input_tokens: 0, output_tokens: 0, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 } }) }), caching)
+      .model.complete(history, [tool], new AbortController().signal)).rejects.toThrow("model_usage_outside_envelope");
   });
 
   it("is switched on by the cloud arm for the Responses shape with the published write price, and recorded in the freeze", () => {
@@ -210,8 +218,11 @@ describe("H1: explicit prompt-cache breakpoints and cache-write settlement", () 
     const responses = buildCloudArm({ model: "gpt-6-sol", endpoint: "https://api.openai.com/v1/responses", prices: { input: 2, output: 10, cached: 0.2 }, maxFeeUsd: 8,
       longContext: { aboveTokens: 272_000, input: 4, output: 15, cached: 0.4 } }, environment, coordinator);
     expect(responses.freeze.modelConfig).toMatchObject({ promptCaching: "responses_explicit_v1", cacheWriteUsdPerMillion: 2.5, longContext: { cacheWriteUsdPerMillion: 5 } });
+    const explicit = buildCloudArm({ model: "gpt-6-sol", endpoint: "https://api.openai.com/v1/responses", prices: { input: 2, output: 10, cached: 0.2, write: 2 }, maxFeeUsd: 8 }, environment, coordinator);
+    expect(explicit.freeze.modelConfig.cacheWriteUsdPerMillion).toBe(2);
+    // The chat-completions shape reports no write counts: its configuration and identity stay as before, a write price is ignored.
     const chat = buildCloudArm({ model: "gpt-6-sol", endpoint: "https://api.openai.com/v1/chat/completions", prices: { input: 2, output: 10, cached: 0.2, write: 2 }, maxFeeUsd: 8 }, environment, coordinator);
     expect(chat.freeze.modelConfig).not.toHaveProperty("promptCaching");
-    expect(chat.freeze.modelConfig.cacheWriteUsdPerMillion).toBe(2);
+    expect(chat.freeze.modelConfig).not.toHaveProperty("cacheWriteUsdPerMillion");
   });
 });

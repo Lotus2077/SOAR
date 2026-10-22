@@ -179,14 +179,17 @@ export function buildCloudArm(input: CloudArmInput, environment: NodeJS.ProcessE
     ...(input.proxyFakeIp ? { proxyFakeIp: true as const } : {}) };
   // Same output limit, thinking mode and body cap as the local arm; only the API shape, the prices and the timeout differ.
   // /v1/responses is the only OpenAI shape that serves tools with reasoning (BL-20261008-1300).
-  // Cache writes settle at the published write price (default 1.25× input); the Responses shape places explicit breakpoints (H1).
+  // The Responses shape places explicit breakpoints and settles its reported cache writes at the published write price
+  // (default 1.25× input) (H1). The chat-completions shape reports no write counts, so it keeps its previous configuration
+  // and identity unchanged; a write price given for it is ignored.
+  const responses = api === "openai_responses";
   const modelConfig = { destinationId: "cloud_coordinator", model: input.model, api, maxOutputTokens: coordinator.maxOutputTokens, thinking: coordinator.thinking,
     inputUsdPerMillion: input.prices.input, outputUsdPerMillion: input.prices.output, cachedInputUsdPerMillion: input.prices.cached,
-    cacheWriteUsdPerMillion: input.prices.write ?? CLOUD_CACHE_WRITE_FACTOR * input.prices.input, maxRequestBytes: coordinator.maxRequestBytes,
+    ...(responses ? { cacheWriteUsdPerMillion: input.prices.write ?? CLOUD_CACHE_WRITE_FACTOR * input.prices.input } : {}), maxRequestBytes: coordinator.maxRequestBytes,
     ...(input.longContext ? { longContext: { aboveTokens: input.longContext.aboveTokens, inputUsdPerMillion: input.longContext.input,
       outputUsdPerMillion: input.longContext.output, cachedInputUsdPerMillion: input.longContext.cached,
-      cacheWriteUsdPerMillion: input.longContext.write ?? CLOUD_CACHE_WRITE_FACTOR * input.longContext.input } } : {}),
-    ...(api === "openai_responses" ? { promptCaching: "responses_explicit_v1" as const } : {}) };
+      ...(responses ? { cacheWriteUsdPerMillion: input.longContext.write ?? CLOUD_CACHE_WRITE_FACTOR * input.longContext.input } : {}) } } : {}),
+    ...(responses ? { promptCaching: "responses_explicit_v1" as const } : {}) };
   const maxFeeMicrousd = Math.round(input.maxFeeUsd * 1_000_000);
   return { destination, modelConfig, maxFeeMicrousd, freeze: { arm: "cloud" as const, accountId, credentialVersion, endpointSha256: digest(endpoint.href), maxFeeMicrousd, modelConfig,
     ...(input.proxyFakeIp ? { proxyFakeIp: true as const } : {}) } };

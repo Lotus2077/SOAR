@@ -152,22 +152,24 @@ type DecodedReply = { model?: string; serviceTier?: string | null; content: stri
 const PROMPT_CACHE_BREAKPOINT = Object.freeze({ mode: "explicit" });
 /**
  * Chat-completion messages as Responses input items: tool calls and results become function_call items; no reasoning items.
- * With `breakpoints`, the leading system message, a user message directly after it and the latest two tool results carry
- * an explicit prompt-cache breakpoint (their text as an input_text block), so the next turn's lookup matches the prefix
- * this turn wrote; the trailing per-turn message never carries one and so is never written.
+ * With `breakpoints`, the leading system message, a user message directly after it when more messages follow (the brief)
+ * and the latest two non-empty tool results carry an explicit prompt-cache breakpoint (their text as an input_text block),
+ * so the next turn's lookup matches the prefix this turn wrote. The final message never carries one (a one-shot
+ * [system, user] call such as the cloud critic would otherwise pay the write rate on a packet nothing re-reads), so a
+ * trailing per-turn message is never written.
  */
 export function responsesInput(messages: GeneralMessage[], breakpoints = false): Record<string, unknown>[] {
   const marked = new Set<number>();
   if (breakpoints) {
-    if (messages[0]?.role === "system") { marked.add(0); if (messages[1]?.role === "user") marked.add(1); }
-    for (const index of messages.flatMap((message, index) => message.role === "tool" ? [index] : []).slice(-2)) marked.add(index);
+    if (messages[0]?.role === "system") { marked.add(0); if (messages[1]?.role === "user" && messages.length > 2) marked.add(1); }
+    for (const index of messages.flatMap((message, index) => message.role === "tool" && message.content ? [index] : []).slice(-2)) marked.add(index);
   }
   const block = (text: string) => [{ type: "input_text", text, prompt_cache_breakpoint: PROMPT_CACHE_BREAKPOINT }];
   return messages.flatMap((message, index): Record<string, unknown>[] => {
     if (message.role === "tool") {
       if (!message.tool_call_id) throw new Error("private_model_message_invalid");
       const output = message.content ?? "";
-      return [{ type: "function_call_output", call_id: message.tool_call_id, output: marked.has(index) && output ? block(output) : output }];
+      return [{ type: "function_call_output", call_id: message.tool_call_id, output: marked.has(index) ? block(output) : output }];
     }
     const text = message.content ? [{ type: "message", role: message.role, content: marked.has(index) ? block(message.content) : message.content }] : [];
     if (message.role !== "assistant") {
@@ -229,7 +231,9 @@ export class PrivateAgentModel {
             config.longContext.cachedInputUsdPerMillion >= (config.cachedInputUsdPerMillion ?? config.inputUsdPerMillion) &&
             config.longContext.cachedInputUsdPerMillion <= config.longContext.inputUsdPerMillion)) &&
           (config.longContext.cacheWriteUsdPerMillion === undefined || (Number.isFinite(config.longContext.cacheWriteUsdPerMillion) &&
-            config.longContext.cacheWriteUsdPerMillion >= 0 && config.longContext.cacheWriteUsdPerMillion <= 4 * config.longContext.inputUsdPerMillion)))) ||
+            config.longContext.cacheWriteUsdPerMillion >= 0 && config.longContext.cacheWriteUsdPerMillion <= 4 * config.longContext.inputUsdPerMillion)) &&
+          // A body bound reserved at the long tier can settle at the base tier, so the long tier's write rate must cover the base one.
+          (config.longContext.cacheWriteUsdPerMillion ?? config.longContext.inputUsdPerMillion) >= (config.cacheWriteUsdPerMillion ?? config.inputUsdPerMillion))) ||
         (config.api !== undefined && config.api !== "vllm" && config.api !== "openai" && config.api !== "openai_responses") ||
         (config.promptCaching !== undefined && (config.promptCaching !== "responses_explicit_v1" || config.api !== "openai_responses")) ||
         (config.streaming !== undefined && (typeof config.streaming !== "boolean" || (config.streaming && config.api !== undefined && config.api !== "vllm")))) {
@@ -279,7 +283,9 @@ export class PrivateAgentModel {
       purpose: overrides?.purpose ?? "agent reasoning and tool selection", method: "POST", body, maxFeeMicrousd: reservation, signal }, bytes => {
       decoded = decodeReply(this.config.api, bytes);
       const cached = decoded.cachedTokens;
-      if (decoded.completionTokens > maxOutputTokens || decoded.promptTokens > promptBound || cached > decoded.promptTokens ||
+      // A usage block reporting no prompt tokens for a non-empty body is a provider reporting failure (seen once in a replay
+      // chain, where the next turn's cache hit proved the call was processed); it must not settle as a free call.
+      if (decoded.promptTokens === 0 || decoded.completionTokens > maxOutputTokens || decoded.promptTokens > promptBound || cached > decoded.promptTokens ||
           decoded.cacheWriteTokens > decoded.promptTokens - cached) throw new Error("model_usage_outside_envelope");
       // Prices assume the standard tier the request pinned; a reply served at another tier leaves the spend unknown.
       if ((openaiShape) && decoded.serviceTier !== undefined && decoded.serviceTier !== null && decoded.serviceTier !== "default") throw new Error("model_service_tier_mismatch");

@@ -22498,3 +22498,323 @@ first implementation entry resolving Appendix A.
 
 References: BL-20261022-0934-privacy-filter-v2-design,
 BL-20261022-0940-phase4-harness-approved, [plan](PLAN.md) D15, D20.
+
+### BL-20261022-1156-h1-prompt-caching-implemented -- 2026-10-22 -- H1 implemented and measured: the Responses cache needs explicit breakpoints; layout v2 alone cached only the developer block; the first verification run died when the host slept
+
+Status: `Implemented`
+
+Scope or hypothesis: H1 of BL-20261022-0834-phase4-division-of-labour-design
+(prompt layout v2, observation policy v2, `cachedTokens` in the registry
+row), approved by BL-20261022-0940-phase4-harness-approved with "the H1
+probe and verification runs at most USD 5". Hypothesis from the design: a
+stable prefix over 1,024 tokens lets each cloud turn read the previous
+turn's prompt from the provider cache. Result: the layout change was
+necessary but not sufficient on `gpt-6-sol`. With the per-turn budget
+message at the tail, the provider's cache write never ended where a later
+request could match it; explicit cache breakpoints are the fix chosen and
+now sent, and the run that measures them is below.
+
+Decisions:
+
+- **What the first verification run showed (r3-cloud-v2, commit d37a2ee,
+  runtime 85691f81).** 39 cloud calls, 444,910 input tokens, 48,032
+  reported cached (10.8%): exactly 1,264 cached tokens on every call from
+  the second on, never more, although consecutive requests shared most of
+  their prompt. The run ended `runtime_failure_progress_preserved` 49.4
+  minutes after start with the 39th `execute` never finishing and an empty
+  stderr file beside the run directory. The power log explains it: the
+  Mac entered clamshell sleep at 18:22:35 local, 3.4 minutes after the
+  start, and woke at 19:08:34, the
+  second the run ended; the in-flight sandbox call failed on wake. The
+  runner's catch block recorded nothing, which cost an hour of diagnosis;
+  it now records a `runtime_failure` event carrying only the failure class
+  (a sandbox code, an abort or an error name, never a message, command or
+  path).
+- **The miss was server-side, not ours.** A scratch harness rebuilt all 39
+  request bodies from the run's event log with the runner's own builders:
+  `promptProtocolSha256`, the task identity and every turn's projection
+  and guidance hashes matched the recorded values, and consecutive bodies
+  share byte-identical prefixes (turn 2 to 3: the first four input items,
+  about 16.5 KB). So the prompt was stable; the provider still did not
+  reuse it.
+- **Why, by replay and by the provider's own documentation.** Replaying
+  the rebuilt bodies (synthetic r3 content only, output capped at 64
+  tokens; the raw lines are retained in `probes-2026-10-22.md` beside the
+  run directories): an identical body resent is served almost entirely
+  from cache (4,562 of 4,565 tokens); turn 3 sent after turn 2 gets 1,264;
+  turn 2 with only its trailing budget message changed gets 1,264; chains
+  of seven turns stay at 1,264 with or without 10-second pauses and with
+  `prompt_cache_retention: "24h"`, and with `prompt_cache_key` (0 on the
+  first call under the new key, then 1,264); the static prompt plus tools
+  plus a one-word user message measures 1,272 tokens, so 1,264 is the end
+  of the developer block. OpenAI's prompt caching guide
+  (developers.openai.com, read 2026-10-22) gives the rule for GPT-5.6 and
+  later: a write is reusable only if it ends at a boundary the next
+  request also looks up. Lookup boundaries are the request's explicit
+  breakpoints, the end of the initial developer block and, in the default
+  implicit mode, the implicit breakpoint at the end of the latest
+  eligible message plus up to 20 earlier eligible message endings (user
+  messages, the last tool response of a group). Our per-turn budget
+  message was the latest eligible message in every request, so each
+  implicit write ended at a position no later request contained; the
+  developer block was the only recurring write point. The probes confirm
+  the rule in both directions: a body sent without its budget message
+  (ending on a tool result) left a write that two later, longer prompts
+  reused at exactly that tool result (4,548 cached) with no explicit
+  breakpoint. So explicit breakpoints are the fix chosen, not the only
+  conceivable one; an implicit-mode layout that ends every prompt on the
+  tool result and carries the budget elsewhere was not run as a chain.
+  Two probe anomalies stay unexplained or are reporting failures: the
+  body without tool definitions (1,938 tokens) was not served from cache
+  on an identical resend; and one call in the implicit comparison chain
+  returned a usage block of all zeros although the next turn's hit shows
+  it was processed and written. The design's two-turn probe
+  (BL-20261022-0834), run at 17:42 local after the approval and recorded
+  nowhere until now (about six calls, roughly USD 0.03, output not
+  retained): a short synthetic prefix (about 640 tokens) cached 0 on the
+  second call; a long one (about 2,450 tokens) cached 2,424 of 2,443 on
+  a second call with a new user message and 0 once a budget line was
+  appended inside the system text. Its criterion ("cached_tokens above 0
+  on the second call") cannot distinguish a developer-block hit from
+  prefix reuse, and its diagnosis (the budget line inside the first 1,024
+  tokens) was incomplete: moving the budget line to the tail still left
+  no reusable write. The commit message of ba57d1d states the rule more
+  narrowly than this paragraph; this entry is the record.
+- **The fix, measured before being wired in.** Explicit breakpoints
+  (`prompt_cache_breakpoint: {mode: "explicit"}` on an `input_text` block)
+  on the static prompt, the brief and the latest two tool results, with
+  `prompt_cache_options.mode: "explicit"` so the trailing budget message
+  is never written: a seven-turn chain of the rebuilt bodies then read
+  1,264, 4,442, 4,553, 6,589, 6,773, 8,029 and 9,771 cached tokens of
+  4,570 to 11,796 (83% at the seventh), writing 3,178 tokens on the first
+  turn (the brief and the history after the developer block) and 111 to
+  2,036 per turn after that, the new tool result and call only. The same
+  chain in implicit mode read the same and wrote about 125 more tokens per
+  turn (the tail), apart from the zero usage block above.
+- **Implemented (ba57d1d, then the review follow-up commit on the same
+  branch).** `model.ts`: `promptCaching: "responses_explicit_v1"`
+  (Responses shape only, refused elsewhere) marks the leading system
+  message, the user message directly after it when more messages follow
+  (the brief; never a final message, so a one-shot critic call marks only
+  the system text) and the latest two non-empty tool results, and sends
+  explicit mode; `cacheWriteUsdPerMillion` (base and long-context tiers,
+  the long tier's rate required to cover the base one because a body
+  bound reserved at the long tier can settle at the base tier) settles
+  `cache_write_tokens` at the write rate and the reservation takes the
+  dearer of the input and write rates; a usage block with no prompt
+  tokens is refused rather than settled as a free call;
+  `usage.cacheWriteTokens` is returned and recorded per call. The cloud
+  arm switches caching on for `/v1/responses` only, takes an optional
+  fourth price (`--cloud-prices in,out,cached[,write]`, fifth for the long
+  tier) and otherwise uses the published 1.25× write price; the freeze
+  records all of it; the chat-completions shape, which reports no write
+  counts, keeps its configuration and identity. `registry-row.py` adds
+  `cacheWriteTokens` (defined in the experiments README; 0 means
+  unrecorded for every earlier run). Older runs and the local arm are
+  untouched: layout v1 resumes under v1, the vLLM shape sends no cache
+  fields, and a configuration without `promptCaching` produces the
+  previous body (by inspection and the breakpoint-absent assertion; no
+  pinned pre-change body hash). A Responses-shape cloud task frozen
+  before ba57d1d cannot resume under the new identity; none is pending
+  (r3-cloud-v2 is closed as `infra_invalid`).
+- **Verification re-run (r3-cloud-v3, commit ba57d1d, runtime 8e1587b8,
+  fee cap USD 3, the host kept awake).** 80 calls (the heavy profile's
+  allowance; the same terminal cause as the baseline,
+  `bounded_allowance_exhausted`), 80 tool calls, 533 s wall, no
+  `runtime_failure` event, fee cap not reached. Input 1,282,609 tokens:
+  945,417 read from cache (73.7%), 323,511 written (25.2%), 13,681
+  neither; output 15,396. Fee USD 1.179 at published prices (reads about
+  0.19, writes 0.81, uncached input 0.03, output 0.15). Baseline, the
+  Phase 2 r3 cloud rerun (layout v1, nothing cached): 80 calls, 1,457,488
+  input, USD 3.054 settled at the input rate, that is USD 2.096 per
+  million input tokens against 0.919 now (56% less per token; 61% less
+  per run). The per-call pattern is the projector's: reads climb for four
+  to seven calls early and three late (references count toward the demote
+  mark), to 25,808 of 26,948 on the last call, and fall back to 2,327
+  (the developer block plus the brief, the two fixed breakpoints) each
+  time a demotion batch rewrites the window: 18 batches in 80 calls, one
+  for one with the drops in the recorded projection bytes (the second
+  call reads the same 2,327 because only those two breakpoints exist
+  after the first call). Each batch turn rewrites the history from the
+  brief, 4,979 to 20,841 tokens, growing with the run apart from one dip,
+  224,771 of the 323,511 written tokens; writes are 69% of the fee. The
+  run produced `output/report.md` (488 words) and `output/claims.json`;
+  the host check at allowance passed
+  `source_preserved_and_artifacts_readable` and failed
+  `research_claims_ledger`; the baseline's output had been accepted in
+  the Phase 2 grading. One run each: no quality inference is drawn. The
+  output is not graded and the gold scorer was not run; the measurement
+  is cost and cache behaviour only.
+  **Follow-up, not done here:** keep an explicit breakpoint at every past
+  demotion frontier (the projector demotes oldest-first, so the frontiers
+  are monotone, about 20 per 80-call run, inside the provider's lookup
+  window of the latest 50 explicit breakpoints). At a batch turn the
+  previous frontier's write still matches the unchanged history before
+  it, and the turn's writes are the new frontier plus the two latest tool
+  results, three of the four writes a request may make; the rewrite is
+  then bounded by the post-demotion window (full observations at most
+  24 KiB plus the new references, about 4,500 to 8,500 tokens on this
+  run) instead of the whole history, worth about USD 0.25 to 0.28 of the
+  1.18 here. It needs the projector to hand positions to the model and one
+  more paid run; proposed for the H2b/H4 slot.
+- **H5 gate arithmetic (BL-20261022-0834: cost per input token on this
+  run, scaled to r1's 1.79M input tokens at the Phase 2 call count, plus
+  one late-run reservation of headroom, must fit under USD 2.50).** All
+  fees over input tokens: USD 1.179 / 1,282,609 = 0.919 per million,
+  times 1.79M = USD 1.65. Input-only fees: 0.799 per million, 1.43, plus
+  r1's output at the baseline's rate (0.14 to 0.20). The design's USD 0.44
+  headroom was a 138 KB late body reserved at the input rate; the same
+  body now reserves at the write rate, about USD 0.51 (the largest v3
+  reservation was 0.416). Gate: 1.65 + 0.51 = USD 2.16 (input-only
+  2.08 to 2.14), under 2.50: **passes on this measurement.** At the
+  baseline's 2.096 per million it would have been 4.19. The pass is thin
+  rather than comfortable: batch-turn rewrites grow with the history and
+  r1's prompts average 40% longer (22,400 against 16,000 tokens per
+  call), so a write share of 32% instead of 25% projects r1 to about USD
+  2.42; the frontier breakpoints above are what would restore the margin.
+
+Changes: `src/main/private-agent/model.ts`, `src/main/private-agent/runner.ts`,
+`src/main/providers/types.ts`, `scripts/private-agent-local-screen.ts`,
+`scripts/phase2-repair.ts` (usage text), `scripts/registry-row.py`,
+`docs/experiments/README.md`; tests `private-agent-model-responses`
+(four cases), `private-agent-public-snapshot`, `private-agent-runner-budget`;
+the review follow-up commit (cross-tier write-rate rule, final message
+never marked, non-empty selection, zero usage refused, chat shape left
+unchanged); registry rows
+`p4h1-r3-grid-batteries-cloud-gpt-6-sol-heavy-layout2-v2`
+(`infra_invalid`) and `-v3`; this entry.
+
+Evidence: run directories `phase4-h1-verification/runs/r3-cloud-v2` and
+`-v3` (local, ignored) with `authority.json`, `authority-rerun.json`,
+`log.txt` and `probes-2026-10-22.md` (the raw probe lines and spend,
+copied from the session terminal); the replay harness and probe scripts
+in the session scratchpad (reconstruction, replay, cadence, key and
+retention, breakpoint chains); `pmset -g log` for 2026-10-22 18:22 to
+19:08 local; OpenAI's prompt caching guide and pricing page as read on
+2026-10-22; `vitest run` after the follow-up commit: 2,027 passed, 80 skipped, the 5 pre-existing failures below (counts
+from the session terminal); both typechecks clean.
+
+Failures or blockers: the first run was lost to host sleep (keep-awake
+prevents idle sleep only; a closed lid still sleeps, so long paid runs
+need the lid open or a non-laptop host). Five tests in
+`patch-native-budget` and `patch-run-worker-lifecycle` fail on this Mac
+under Node 26 with and without this change (identical with the change
+stashed); CI on Node 22 is the gate.
+
+Limitations and non-claims: one task, one run, `exposed`; only the
+batched projector option (policy v2) was built and measured, so the
+design's choice among the rolling, batched and append-only-capped
+options on measured cached fraction is not made here (the approval's
+wording was one verification run on r3). The cached fraction depends on
+the projector's demotion cadence and on tool-result sizes, so other
+tasks will differ. Reads and writes are priced at the published rates;
+whether the provider billed the earlier implicit writes is the subject of
+the next entry. No local-arm (vLLM) caching is claimed; H2a covers it.
+The run's result quality is not graded and is not evidence for Branch B
+either way. Adversarial review before the follow-up commit: three
+refuters (code and contracts, evidence against claims, mechanism and
+method), 28 findings applied or recorded here; the "explicit breakpoints
+are required" wording of the first draft was the one overclaim.
+
+Paid exposure: design-time probe about USD 0.03 (estimate, not
+retained); r3-cloud-v2 USD 0.847 settled (about USD 1.05 if its implicit
+writes bill at 1.25×); replay probes about USD 0.67 as printed (about
+USD 0.80 at the write rate); r3-cloud-v3 USD 1.18 settled at published
+prices. Total on the USD 5 sub-line: about USD 2.73 (about 3.06 at the
+write rate for the first run and the probes).
+
+Next gate: owner review of this PR (stacked on the approvals PR); H2a
+(per-job `cache_salt` on vLLM) next in the track order; the cost
+correction in the next entry needs the owner's dashboard check.
+
+References: BL-20261022-0834-phase4-division-of-labour-design,
+BL-20261022-0940-phase4-harness-approved, BL-20261008-1300 (Responses
+shape), BL-20261013-1627 (the scoring protocol that selects the Phase 2
+r3 cloud rerun used here as the baseline).
+
+### BL-20261022-1157-cloud-cache-write-price-correction -- 2026-10-22 -- Cost correction: gpt-6-sol cache writes bill at 1.25× input; past cloud settlements may be low by up to USD 4.7, owner dashboard check requested
+
+Status: `Implemented`
+
+Scope or hypothesis: the broker's cloud settlement (`model.ts`, since
+BL-20261008-1300) priced cache writes at the input rate, with the comment
+"no write premium is published for these models". That reading was wrong
+for the model in use. This entry corrects the settlement for new runs and
+estimates the exposure of the recorded ledger; it changes no past row.
+
+Decisions:
+
+- **What the provider publishes.** OpenAI's pricing page (read 2026-10-22)
+  lists `gpt-6-sol` at USD 2.00 input, 10.00 output, 0.20 cached input,
+  2.50 cache write (30-minute lifetime) and 5.00 (12-hour) per million
+  tokens, and USD 4.00 / 15.00 / 0.40 / 5.00 / 10.00 above 272K input
+  tokens. The prompt caching guide says that for GPT-5.6 and later "cache
+  writes cost 1.25× the standard, uncached input-token rate" and that in
+  the default implicit mode every request places its breakpoint at the
+  end of its latest eligible message and writes the part of its prompt
+  not already served from cache. Every replayed request (layout-v2
+  bodies rebuilt from the H1 first run; no layout-v1 Phase 2 body was
+  replayed) reported `cache_write_tokens` equal to its input minus the
+  cached part minus three. The Phase 2 requests are taken to have written
+  the same way: nothing in them opted out, and layout v1 also ended every
+  prompt on a message no later request repeated.
+- **Exposure of the ledger.** The registry's 15 fee-bearing cloud rows
+  (13 `phase2-v1`, one of them an invalid rerun that reached the API, and
+  2 `phase1-cloud-dryrun-v3`; the other 13 cloud rows are zero-fee
+  `infra_invalid`): 9,443,021 input tokens, no cached reads recorded
+  (BL-20261022-0834: `cached_tokens` 0 on every cloud call), USD 20.985
+  settled. If the provider billed all uncached input of those requests as
+  30-minute writes, the true charge is up to USD 4.72 higher (about USD
+  25.7). The H1 first attempt settled USD 0.847 and would be about USD
+  1.05; its row carries `cacheWriteTokens` 0 because that run did not
+  record writes. The Phase 2 critique and repair rows and the probes are
+  small and scale the same way. This is an estimate from published prices
+  and the replay's reported write counts, not a statement of what was
+  invoiced.
+- **Owner check requested.** Compare the OpenAI usage dashboard for
+  2026-10-06 to 2026-10-22 against the settled totals above. If the
+  dashboard confirms the write price, the plan's running total ("about
+  USD 21 used") is low by about USD 5 and should be corrected by a new
+  entry, and the Phase 2 cost comparison (BL-20261019-0432: C-Sol USD
+  18.41, Phase 2 USD 18.55 with critiques) understates the cloud arm by
+  about a quarter of its input cost.
+  If the dashboard shows the input rate only, this entry's settlement
+  change over-reserves slightly and the default write price should be set
+  to the input rate by a correcting entry.
+- **New runs settle correctly either way.** The broker now settles
+  reported writes at `cacheWriteUsdPerMillion` (Responses-shape cloud arm
+  default 1.25× input, overridable per run; the long tier's rate must
+  cover the base one), reserves at the dearer of the input and write
+  rates, and the Responses shape no longer writes the per-turn tail at
+  all (explicit mode, previous entry). A run's `usd` in the registry is
+  therefore the published-price charge for that run from now on; rows
+  before this entry carry the input-rate figure and say nothing about
+  writes (`cacheWriteTokens` 0 means unrecorded for them). The
+  chat-completions shape reports no write counts, so its settlement stays
+  at the input rate and its configuration is unchanged; it is not used
+  for agent runs (BL-20261008-1300).
+
+Changes: `src/main/private-agent/model.ts` (settlement and reservation,
+the previous entry's commits); this entry.
+
+Evidence: OpenAI pricing page and prompt caching guide as read on
+2026-10-22; `docs/experiments/registry.jsonl` cloud rows; replay probe
+usage blocks (session scratchpad).
+
+Failures or blockers: the dashboard is owner-only; nothing here can be
+confirmed by the agent.
+
+Limitations and non-claims: no past registry row or build-log figure is
+rewritten; the exposure is an upper bound (requests over 272K tokens were
+reserved at the long tier but settled at the standard tier where the
+prompt was under it, and chat-completions dry runs may have cached
+differently). The vLLM arm is zero-fee and unaffected.
+
+Paid exposure: USD 0 new under this entry.
+
+Next gate: the owner's dashboard comparison; a correcting entry for the
+plan's running total if confirmed.
+
+References: BL-20261008-1300, BL-20261019-0432,
+BL-20261022-0834-phase4-division-of-labour-design,
+BL-20261022-1156-h1-prompt-caching-implemented.

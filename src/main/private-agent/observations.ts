@@ -238,6 +238,8 @@ export function projectExecutionObservations(scope: ExecutionObservationScope, m
       bytes -= cost(projected[index]!.content!) - cost(cheaper); projected[index] = { ...projected[index]!, content: cheaper };
     };
     // The window is rebuilt from the observations that have arrived so far, never counting a later one's reference.
+    // The demote mark counts reference bytes too, so the batch cadence shortens as references accumulate (about every
+    // four observations early on, every turn after roughly 85 retained observations); H5's research runs stay well below.
     let cut = 0; bytes = 0;
     for (const [position, { index, item }] of selected.entries()) {
       bytes += cost(item.output); projected[index] = { ...projected[index]!, content: item.output };

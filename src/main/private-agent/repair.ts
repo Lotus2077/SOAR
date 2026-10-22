@@ -138,7 +138,11 @@ export function loadRepairDirectory(directory: string): { binding: RepairBinding
     return readFileSync(path);
   };
   const raw = JSON.parse(inside(join(root, "critique.json"), root).toString("utf8")) as Record<string, unknown>;
-  const { finishReason: _finish, usage: _usage, servedModel: _served, feeMicrousd: _fee, ...bindingFields } = raw;
+  // critique() records the outcome and the request posture beside the binding (BL-20261008-1240, BL-20261008-1312); only the
+  // binding is identity, and the posture fields are checked rather than ignored.
+  const { finishReason: _finish, usage: _usage, servedModel: _served, feeMicrousd: _fee, requestShape, proxyFakeIp, ...bindingFields } = raw;
+  if ((requestShape !== undefined && !["vllm", "openai", "openai_responses"].includes(requestShape as string)) ||
+      (proxyFakeIp !== undefined && proxyFakeIp !== true)) throw new Error("repair_directory_invalid");
   const binding = RepairBindingSchema.parse(bindingFields);
   return { binding, critique: inside(join(root, "critique.md"), root),
     draft: binding.draft.map(item => ({ path: item.path, bytes: inside(join(drafts, item.path), realpathSync(drafts)) })) };

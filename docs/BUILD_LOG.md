@@ -23380,3 +23380,106 @@ block rule investigated on the server side.
 References: BL-20261025-0939-h2a-vllm-cache-salt-implemented,
 BL-20261022-0834-phase4-division-of-labour-design, BL-20260928-1811 (box
 identity), [plan](PLAN.md) D11.
+
+### BL-20261025-2055-h2b-h2c-all-local-calibration-r3 -- 2026-10-25 -- H2b/H2c first live run, all-local on r3 (calibration): the local model submitted a cited research report in 10.4 minutes at zero fee, where Phase 2's local runs exhausted 80 calls without one
+
+Status: `Verified`
+
+Scope or hypothesis: the calibration run
+BL-20261025-1321-h2b-h2c-research-pipeline-implemented left pending, in
+the owner's declared idle window (previous entry's
+`authority.json`): one all-local research-pipeline run on r3-grid-batteries
+(`exposed`, calibration only, never fresh evidence), `--pipeline research
+--profile heavy --claims-ledger true --arm local`, commit 5574262, runtime
+06404f61, zero fee. Hypothesis under test (design entry): a host-bounded
+reading stage with host-verified quotes lets the local model write a
+cited report where the free agent loop could not. What this run verifies:
+that the stage runs end to end on the box and that the writer submitted;
+what it does not: graded quality (one run, exposed task, no blind grading).
+
+Decisions:
+
+- **The stage on the box.** Index: 8 calls over 24 sources (three per
+  batch), no invalid reply, no batch skipped. Plan: 1 call, 5 questions,
+  no unknown source id. Extract: 32 of 32 planned pairs within the
+  40-call budget, one unparseable reply, 147 quotes verified by the host,
+  3 dropped as unverified or duplicate, none left out by the cap (packet
+  46,736 bytes of 65,536), 2 conflicts noted and kept. Synthesise: 1 call,
+  13,539-byte argument, no citation stripped. Reader total: 42 calls,
+  69,589 input tokens, 21,398 output tokens, 0 cached (the per-call prompts
+  of the reader are short and distinct; see the block rule in the previous
+  entry).
+- **The writer.** 29 model calls and 29 tool calls (of 80 and 120),
+  463,512 input tokens of which 350,400 were served from the server's
+  cache under the job's salt (75.6%; reads climb in 1,600-token steps to
+  24,000 of 26,426 on the last call), 29,679 output tokens. It submitted
+  `output/report.md` (998 words, the 1,000-word cap respected; five
+  numbered sections, the two required sections, a 12-row table; 64
+  citations naming all 40 claims; 16 of 24 sources cited) and
+  `output/claims.json` (40 claims, the maximum) and all three finish
+  checks passed: `source_preserved_and_artifacts_readable`,
+  `research_claims_ledger`, `research_transfer_integrity`.
+- **Evidence after the fact.** The host's entailment pass judged all 40
+  claims: 36 supported, 4 partial, 0 unsupported, 0 contradicted (40 judge
+  calls, not truncated). The gold scorer's automated critical checks, run by
+  a separate agent that reports counts only: 7 of 7 passed, all critical
+  (`gold-score.json`; scorer `score.py` sha256 bdbb52cd…, Phase 2 rule:
+  every check passed and status submitted; run on the host with `python3
+  -I`, standard library only, rather than inside the qualified image as the
+  gold README prescribes, so a host-run reproduction of the Phase 2
+  scoring). Phase 2's cloud run scored 3 of 7 on the same checks, the local
+  runs 0 of 7. The registry row's `accepted` rests on these automated checks
+  and the entailment counts, by a scoring agent, not on a blind grading or
+  an owner verdict.
+- **Against the earlier r3 runs (registry rows).** Phase 2 local, two
+  seeds: 80 calls each, 1,631,630 and 1,646,160 input tokens, 1,513 and
+  1,597 s, no report, 0 of 7 critical checks. Phase 2 cloud: 80 calls,
+  1,457,488 input, 498 s, USD 3.05, 3 of 7, accepted by graders. H1 cloud
+  re-run: 80 calls, 1,282,609 input (74% cached), 533 s, USD 1.18, the
+  claims check failed at allowance. This run: 71 calls (42 reader, 29
+  writer) plus 40 judge calls, 533,101 input tokens (69,589 reader,
+  463,512 writer), 625 s, USD 0, submitted with the claims check passed.
+  One run each; the comparison is descriptive.
+- **Reading the H2c claim.** The reader used 42 of its 68 calls and the
+  writer 29 of 80; the session's 200-request pool held 111 dispatches.
+  The writer's cached fraction is the first local `cachedTokens` figure
+  in the registry and is not comparable with any unsalted baseline (none
+  exists).
+- **Box contention.** The previous entry's unidentified client was
+  active at 20:31 UTC; this run started at 20:35:57 UTC. Whether it
+  shared the server is unknown; wall time is therefore a lower bound on
+  nothing and an upper bound on the pipeline's own cost.
+
+Changes: `phase4-live-2026-10-26/runs/r3-pipeline-local` (local,
+ignored; `freeze.json`, `result.json`, `state.sqlite`, `candidate/`,
+`gold-score.json`); registry row
+`p4h2-r3-grid-batteries-local-heavy-pipeline-s1`; this entry. No code.
+
+Evidence: the run directory above; `log.txt` in the experiment directory
+(start 20:35:57 UTC, end 20:52:43 UTC); the analysis script in the
+session scratchpad (`analyze-pipeline.py`); the registry rows named.
+
+Failures or blockers: None in the run. The owner's verdict on the report
+and a blind grading are not sought for a calibration run on an exposed
+task.
+
+Limitations and non-claims: one run, one exposed task, local arm only; the
+split arm needs H3's entry before a paid run; the gold checks are
+automated counts, not acceptance; the entailment pass is the host's own
+judgement, evidence beside the result; the 998-word report and 40-claim
+ledger meet the brief's form, which says nothing about its truth beyond
+the quotes' verbatim presence. The pipeline's prompts and limits are
+unchanged from the frozen protocol; nothing was tuned on this run.
+
+Paid exposure: USD 0.
+
+Next gate: H3's entry (cloud planner caps and prompts) before any split
+run; the fresh research tasks from a separate session; H4. The owner may
+read `output/report.md` in the run directory and record a verdict in a
+later entry.
+
+References: BL-20261025-1242-h2b-h2c-research-pipeline-design,
+BL-20261025-1321-h2b-h2c-research-pipeline-implemented,
+BL-20261025-2037-h2a-cache-salt-verified,
+BL-20261019-0432-phase2-result-provisional,
+BL-20261022-1156-h1-prompt-caching-implemented.

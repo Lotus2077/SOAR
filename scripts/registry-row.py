@@ -42,6 +42,7 @@ def main() -> int:
     db.close()
     finished = [event for event in events if event.get("type") == "model_finished"]
     usage = [event.get("usage") or {} for event in finished]
+    research = [event for event in events if event.get("type") == "research_stage"]
     started = datetime.datetime.fromisoformat(freeze["startedAt"].replace("Z", "+00:00"))
     ended = datetime.datetime.fromisoformat(result["finishedAt"].replace("Z", "+00:00"))
     dispatches = result.get("dispatches", [])
@@ -52,14 +53,17 @@ def main() -> int:
         "family": args.family, "exposure": args.exposure, "arm": args.arm,
         "profile": freeze.get("profile", "standard"), "maxOutputTokens": freeze["modelConfig"]["maxOutputTokens"],
         "thinking": freeze["modelConfig"]["thinking"],
-        "modelCalls": len(finished), "toolCalls": sum(1 for event in events if event.get("type") == "tool_finished"),
+        # H2b: the research stage's calls and tokens come from its content-free stage events, beside the write loop's model events.
+        "modelCalls": len(finished) + sum(int(event.get("calls") or 0) for event in research),
+        "pipeline": (freeze.get("pipeline") or {}).get("name"), "pipelinePlanner": (freeze.get("pipeline") or {}).get("planner"),
+        "toolCalls": sum(1 for event in events if event.get("type") == "tool_finished"),
         "wallSeconds": round((ended - started).total_seconds(), 1),
-        "inputTokens": sum(item.get("inputTokens", 0) for item in usage),
-        "outputTokens": sum(item.get("outputTokens", 0) for item in usage),
+        "inputTokens": sum(item.get("inputTokens", 0) for item in usage) + sum(int((event.get("usage") or {}).get("inputTokens") or 0) for event in research),
+        "outputTokens": sum(item.get("outputTokens", 0) for item in usage) + sum(int((event.get("usage") or {}).get("outputTokens") or 0) for event in research),
         # H1 (BL-20261022-0834): prompt tokens the provider reported as served from its cache; 0 when unreported.
-        "cachedTokens": sum(item.get("cacheReadTokens") or 0 for item in usage),
+        "cachedTokens": sum(item.get("cacheReadTokens") or 0 for item in usage) + sum(int((event.get("usage") or {}).get("cacheReadTokens") or 0) for event in research),
         # H1 completion: prompt tokens the provider reported as newly written to its cache (billed at the write rate); 0 when unreported.
-        "cacheWriteTokens": sum(item.get("cacheWriteTokens") or 0 for item in usage),
+        "cacheWriteTokens": sum(item.get("cacheWriteTokens") or 0 for item in usage) + sum(int((event.get("usage") or {}).get("cacheWriteTokens") or 0) for event in research),
         "lengthStops": sum(1 for event in finished if event.get("finishReason") == "length"),
         "usd": sum(item.get("feeMicrousd") or 0 for item in dispatches) / 1_000_000,
         "unknownDispatches": sum(1 for item in dispatches if item.get("status") in ("unknown", "committed")),

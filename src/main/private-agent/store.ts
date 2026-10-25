@@ -67,6 +67,8 @@ export type PrivateRunClaim = z.infer<typeof RunClaimSchema>;
 const SessionStartSchema = z.object({ type: z.literal("session_started"),
   identity: z.string().regex(/^[a-f0-9]{64}$/u), startedAt: z.number().int().nonnegative().safe(),
   privateContextId: privateAgentId, publicContextId: privateAgentId,
+  /** H2b: the research stage's own context; optional so every earlier start stays valid. */
+  readerContextId: privateAgentId.optional(),
 }).strict();
 export type PrivateSessionStart = z.infer<typeof SessionStartSchema>;
 
@@ -270,7 +272,7 @@ export class PrivateAgentStore {
   /** Concurrent hosts must adopt one pair of phase context IDs before dispatch. */
   ensureSessionStart(jobId: string, proposal: PrivateSessionStart): PrivateSessionStart {
     const checked = SessionStartSchema.parse(proposal);
-    if (checked.privateContextId === checked.publicContextId) throw new Error("private_agent_session_context_collision");
+    if (checked.privateContextId === checked.publicContextId || checked.readerContextId === checked.privateContextId || checked.readerContextId === checked.publicContextId) throw new Error("private_agent_session_context_collision");
     return this.db.transaction(() => {
       this.policy(jobId);
       const events = this.events(jobId);

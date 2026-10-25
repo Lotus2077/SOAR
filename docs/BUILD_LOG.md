@@ -22819,3 +22819,150 @@ plan's running total if confirmed.
 References: BL-20261008-1300, BL-20261019-0432,
 BL-20261022-0834-phase4-division-of-labour-design,
 BL-20261022-1156-h1-prompt-caching-implemented.
+
+### BL-20261025-0939-h2a-vllm-cache-salt-implemented -- 2026-10-25 -- H2a implemented: a per-job prefix-cache salt for the owned vLLM server, gated in the desktop, with a schema-check script; live box checks wait for the Oct 27 window
+
+Status: `Implemented`
+
+Scope or hypothesis: H2a of BL-20261022-0834-phase4-division-of-labour-design
+(approved by BL-20261022-0940-phase4-harness-approved): "a client-side
+change only: the runner sends a per-job `cache_salt` so no two jobs share
+cache blocks (design principle P6, isolation between matters)". The box's
+prefix caching is already on and stays a server setting (D11 unchanged);
+H2a buys isolation, not speed. Started on the owner's instruction of
+2026-10-25 after PRs #21 and #22 merged.
+
+Decisions:
+
+- **What is sent.** With `promptCaching: "vllm_job_salt_v1"` on the owned
+  vLLM shape, every chat-completions body of a job carries
+  `cache_salt`: the SHA-256 digest of a canonical record holding the job
+  id, 64 hex characters. vLLM's request rule: the schema's `cache_salt`
+  bound is 1 to 1,024 characters, and `validate_cache_salt`
+  (`vllm/entrypoints/generate/base/protocol.py` lines 29-33 at tag
+  v0.31.0) also rejects more than 128 characters and the characters `@`,
+  `/`, `\` and NUL; hex satisfies both. The digest, not the id, leaves the
+  host: the server cannot recover the job id from the salt (122 bits of
+  UUID randomness behind SHA-256), though the derivation has no secret, so
+  anyone already holding the task table can recompute the digest and join
+  a server log to it. The salt is as random as the job id, the same for
+  every call of the job (the entailment judge and a streamed reply
+  included) and different for every job. vLLM's own field text
+  (`vllm/entrypoints/openai/chat_completion/protocol.py` line 456 at tag
+  v0.31.0, commit db9527a, the box's served version; identical on `main`
+  as read 2026-10-25): "the prefix cache will be salted with the provided
+  string to prevent an attacker to guess prompts in multi-user
+  environments"; its design page: "only requests with the same salt can
+  reuse cached KV blocks", a guard against timing inference across
+  tenants. Cost of isolation: each job prefills the static prompt and
+  tool definitions once more instead of sharing them with other jobs, and
+  repeats of one task also stop sharing the brief and any identical early
+  turns. The size is unmeasured on the box: the cloud model's tokenizer
+  put the developer block at 1,264 tokens (BL-20261022-1156); the box
+  serves a Qwen3 model whose tokenizer and chat template (which renders
+  the tools) differ, so the local figure is read from the probe's
+  first-call `prompt_tokens`. Within a job nothing changes.
+- **Where it is on.** The harness-track driver
+  (`scripts/private-agent-local-screen.ts`) sets it on the single local
+  model configuration used for both the coordinator and the judge unless
+  `--cache-salt false` is given (the control arm of the probe below);
+  `freeze.json` records it on local-arm runs, and on cloud-arm runs the
+  salted judge configuration is recorded both in the session identity
+  event (`judgeModel`) and in a new `judgeModelConfig` field of the
+  freeze. The Phase 2 critic driver (`scripts/phase2-repair.ts`) salts
+  its local critiques the same way; the critique record itself is
+  unchanged. The desktop sets it only when `SOAR_PROMPT_CACHE_SALT=true`
+  (default false, documented in `.env.example` and the README), spread
+  like the streaming flag so an existing task's model identity is
+  unchanged while it stays off; switching it on changes the identity, so
+  a paused task started under the other setting is refused with
+  `general_task_configuration_changed` rather than resumed silently
+  (tested). The flag is refused on either cloud shape
+  (`private_model_configuration_invalid`); cloud bodies are unchanged.
+- **Schema check.** `pnpm check:vllm-schema` (`scripts/check-vllm-schema.ts`)
+  reads the app's own endpoint configuration, fetches the server's
+  OpenAPI document and prints one line: served version, whether
+  `cache_salt` is a `ChatCompletionRequest` property, and the schema's
+  length bounds (not the validator's stricter 128-character rule). It
+  prints no endpoint and sends no prompt; exit 1 when the field is
+  absent. The design entry recorded on 2026-10-22 that the box (vLLM
+  0.31.0) lists the field; the script makes that check repeatable before
+  any salted run.
+- **Not done here, by the approved rule.** No request has reached the box
+  under this entry ("Nothing runs on the box before Oct 27 except in an
+  owner-declared idle window, logged per use"). Two live checks are
+  pending. First, the schema check above: a metadata GET, which the
+  design entry made on 2026-10-22 without a declared window, but this
+  entry treats every request to the box as a box use and waits. Second,
+  an isolation probe on a synthetic task with zero-fee jobs, in two pairs:
+  (1) unsalted jobs D then E (`--cache-salt false`): E's first call should
+  report `cached_tokens` above 0, the cross-job sharing earlier runs had;
+  (2) salted jobs A then C: A's second call should report above 0
+  (same-salt reuse within a job) and C's first call 0 (cross-job
+  isolation). Each call's `prompt_tokens` and `cached_tokens` are
+  recorded; the unsalted pair is the control that separates "the salt
+  isolates" from "nothing was cached". The reading comes from
+  `usage.prompt_tokens_details.cached_tokens`, which vLLM emits only when
+  the server was started with `--enable-prompt-tokens-details` (default
+  false: `launchers/cli_args.py` line 145 and
+  `chat_completion/serving.py` lines 97 and 136 at v0.31.0). The serving
+  card's P4 (2026-09-28, `scripts/serving-probe.py` line 135) read 44,800
+  from that field, so the box emitted it then; serving is unpinned (D11),
+  so the probe first confirms the field is present and otherwise falls
+  back to the server's `/metrics` prefix-cache query and hit counters
+  (the source of BL-20260928-1811's 366M of 386M), read before and after
+  each call. Until then this entry claims the request shape and the
+  identity behaviour only.
+
+Changes: `src/main/private-agent/model.ts` (`vllm_job_salt_v1`,
+`vllmCacheSalt`, validation), `src/main/config.ts`
+(`SOAR_PROMPT_CACHE_SALT`), `src/main/general-tasks/controller.ts` (gated
+spread), `scripts/private-agent-local-screen.ts` (`--cache-salt`,
+`judgeModelConfig` in the freeze), `scripts/phase2-repair.ts` (salted
+local critic), `scripts/check-vllm-schema.ts` and the `check:vllm-schema`
+script, `.env.example`, `README.md`; tests `private-agent-model-size` (two
+cases), `private-agent-model-responses`, `general-task-controller`,
+`private-agent-public-snapshot`; this entry. Adversarial review before
+the commit: two refuters (code and contracts; entry against evidence),
+14 findings, all applied here.
+
+Evidence: the unit tests above (salt present, stable and job-specific on
+the vLLM shape including the narrowed judge call and the streamed body;
+absent without the flag; refused on cloud shapes; desktop gate and the
+identity refusal; the driver's `--cache-salt` flag); both typechecks
+clean; vLLM source at tag v0.31.0 (db9527a) and the prefix-caching design
+page (docs.vllm.ai, latest) as read on 2026-10-25.
+
+Failures or blockers: live verification needs the box and so the Oct 27
+review or an owner-declared idle window.
+
+Limitations and non-claims: nothing is claimed about the server's actual
+behaviour under a salt until the isolation probe runs. The probe, if it
+passes, shows one thing: on this unpinned vLLM 0.31.0 serving, the
+server's reported `cached_tokens` for a request under one salt does not
+count blocks written under another, and does count them under the same
+salt. It does not show that KV memory is partitioned, that latency
+differences are closed, what a later server version does, or anything
+about the server's prefix-cache hash algorithm
+(`--prefix-caching-hash-algo`, a D11 setting not read here). No local
+registry row records `cachedTokens` yet (every local row predates H1 and
+omits the field; only the two `p4h1-*` cloud rows carry it), so the first
+salted local rows will be the first local figures. They will run lower
+than an unsalted run would on each job's first call (the static prefix)
+and lower again for repeats of one task, so a salted local cached
+fraction is not comparable with an unsalted baseline; the only earlier
+local cache figures are the box-level `/metrics` hit rate (366M of 386M,
+BL-20260928-1811) and the serving card's P4. Runs recorded before this
+entry sent no salt and shared the static prefix across jobs on the box.
+The desktop default stays off until the ship step after Oct 27, when no
+owner job is paused. D11 is untouched: no server flag changes.
+
+Paid exposure: USD 0 (local arm only; no request sent).
+
+Next gate: the live schema check and the two-pair isolation probe in the
+Oct 27 window or an owner-declared idle window, recorded as a Verified
+entry with the per-call counts; then H2b and H2c on synthetic tasks.
+
+References: BL-20261022-0834-phase4-division-of-labour-design,
+BL-20261022-0940-phase4-harness-approved, BL-20260928-1811 (box identity,
+cache hit counts), [plan](PLAN.md) D11.

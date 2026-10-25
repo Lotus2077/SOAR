@@ -214,6 +214,8 @@ export async function runLocalArtifactScreen(input: {
   profile?: LocalScreenProfile;
   /** Require output/claims.json, verified by the host against the job's input and transferred context files. */
   claimsLedger?: boolean;
+  /** H2a: salt the owned server's prefix cache per job (default true); `--cache-salt false` is the unsalted control arm of the isolation probe. */
+  cacheSalt?: boolean;
   /** PR-I: the job reviews its one input .docx through an edit plan, the pinned applier and the fidelity check (closed corpus). */
   documentReview?: boolean;
   /** Phase 2 cloud arm: the coordinator is a cloud model; the local model still judges claims. */
@@ -297,13 +299,17 @@ export async function runLocalArtifactScreen(input: {
     if (cloud) destinations.push(cloud.destination);
     const scanner = new RulePacketScanner();
     const broker = new PrivateAgentBroker(store, destinations, scanner);
+    // H2a: the harness track salts the owned server's prefix cache per job unless the run is the unsalted control arm. The one
+    // local configuration serves the coordinator and the judge; freeze.json records it as modelConfig on local-arm runs and as
+    // judgeModelConfig on cloud-arm runs. Runs before H2a sent no salt.
     const localModelConfig = { destinationId: "owned_local_model", model: config.vllm.model, maxOutputTokens: coordinator.maxOutputTokens,
       inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: coordinator.thinking, maxRequestBytes: coordinator.maxRequestBytes,
+      ...(input.cacheSalt === false ? {} : { promptCaching: "vllm_job_salt_v1" as const }),
       ...(coordinator.sampling ? { sampling: { ...coordinator.sampling } } : {}), ...(config.streamingEnabled ? { streaming: true } : {}) };
     const modelConfig = cloud ? cloud.modelConfig : localModelConfig;
     const freeze = { version: 1, jobId, sourceFreeze: sourceFreeze.files, sourceFreezeSha256: sourceFreeze.sha256, imageId: input.imageId,
       modelConfig, endpointIdentitySha256: digest(destinations[0]!.endpoint), deployment: "synthetic_only_unverified_for_private_data",
-      taskBinding: task.binding, sourceBindingSha256: task.sourceBindingSha256,
+      taskBinding: task.binding, sourceBindingSha256: task.sourceBindingSha256, ...(cloud ? { judgeModelConfig: localModelConfig } : {}),
       syntheticAuthoritySha256: input.syntheticAuthoritySha256, privatePhaseSha256: sessionPhaseIdentity(privatePhase),
       publicPhaseSha256: publicPhase ? sessionPhaseIdentity(publicPhase) : null,
       publicSnapshot: publicSnapshot?.binding ?? null,
@@ -368,13 +374,14 @@ export async function runLocalArtifactScreen(input: {
 export function parseLocalArtifactScreenArguments(args: string[]): Parameters<typeof runLocalArtifactScreen>[0] {
     const snapshotNames = ["--public-snapshot-directory", "--public-snapshot-brief-sha256", "--public-snapshot-map-sha256", "--public-snapshot-index-path"];
     const cloudNames = ["--cloud-model", "--cloud-endpoint", "--cloud-prices", "--cloud-long-context", "--max-fee-usd"];
-    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", "--document-review", "--repair-from", "--arm", ...cloudNames, "--proxy-fake-ip", ...snapshotNames];
+    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", "--document-review", "--repair-from", "--arm", ...cloudNames, "--proxy-fake-ip", "--cache-salt", ...snapshotNames];
     if (args[0] !== "--execute-synthetic-local" || args.length % 2 !== 1 || args.slice(1).some((arg, i) => i % 2 === 0 && !names.includes(arg)) ||
         new Set(args.filter((_, i) => i % 2 === 1)).size !== (args.length - 1) / 2) throw new Error("local_screen_cli_invalid");
     const values = new Map(args.slice(1).filter((_, i) => i % 2 === 0).map(name => [name, args[args.indexOf(name) + 1]!]));
     if (names.slice(0, 7).some(name => !values.has(name)) || (values.has("--public-retrieval") && values.get("--public-retrieval") !== "true") ||
         (values.has("--profile") && !Object.hasOwn(LOCAL_SCREEN_PROFILES, values.get("--profile")!)) ||
         (values.has("--claims-ledger") && values.get("--claims-ledger") !== "true") ||
+        (values.has("--cache-salt") && !["true", "false"].includes(values.get("--cache-salt")!)) ||
         (values.has("--document-review") && (values.get("--document-review") !== "true" || values.has("--claims-ledger") || values.has("--public-retrieval"))) ||
         (values.has("--repair-from") && (values.get("--arm") === "cloud" || !values.get("--repair-from"))) ||
         (values.has("--arm") && !["local", "cloud"].includes(values.get("--arm")!))) throw new Error("local_screen_cli_invalid");
@@ -390,6 +397,7 @@ export function parseLocalArtifactScreenArguments(args: string[]): Parameters<ty
       pauseAfterTools: values.has("--pause-after-tools") ? Number(values.get("--pause-after-tools")) : undefined,
       profile: values.has("--profile") ? values.get("--profile") as LocalScreenProfile : undefined,
       claimsLedger: values.get("--claims-ledger") === "true" ? true : undefined,
+      ...(values.has("--cache-salt") ? { cacheSalt: values.get("--cache-salt") === "true" } : {}),
       ...(values.get("--document-review") === "true" ? { documentReview: true } : {}),
       ...(values.has("--repair-from") ? { repairFrom: values.get("--repair-from")! } : {}),
       ...(cloudArm ? { cloudArm: { model: values.get("--cloud-model")!, endpoint: values.get("--cloud-endpoint")!, prices: parseCloudPrices(values.get("--cloud-prices")!), maxFeeUsd: Number(values.get("--max-fee-usd")),

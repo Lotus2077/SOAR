@@ -105,7 +105,8 @@ export async function critique(input: CritiqueArguments) {
     ...(config.streamingEnabled ? { stream: localStreamSettings(heavy.requestTimeoutMs, maxResponseBytes, heavy.maxOutputTokens) } : {}) };
   const localConfig: PrivateModelConfig = { destinationId: local.id, model: config.vllm.model, maxOutputTokens: heavy.maxOutputTokens, inputUsdPerMillion: 0,
     outputUsdPerMillion: 0, thinking: heavy.thinking, maxRequestBytes: heavy.maxRequestBytes, ...(heavy.sampling ? { sampling: { ...heavy.sampling } } : {}),
-    ...(config.streamingEnabled ? { streaming: true } : {}) };
+    // H2a: each critique is its own job and salts the owned server's prefix cache like every other local job; the critique record is unchanged.
+    ...(config.streamingEnabled ? { streaming: true } : {}), promptCaching: "vllm_job_salt_v1" as const };
   if (input.critic === "cloud" && (!input.cloudArm || !(input.cloudArm.maxFeeUsd > 0 && input.cloudArm.maxFeeUsd <= CRITIC_MAX_FEE_USD))) throw new Error("repair_cloud_critic_invalid");
   const cloud = input.critic === "cloud" ? buildCloudArm(input.cloudArm!, process.env, heavy) : undefined;
   const destination = cloud ? cloud.destination : local, modelConfig = cloud ? cloud.modelConfig : localConfig;

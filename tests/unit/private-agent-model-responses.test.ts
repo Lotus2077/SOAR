@@ -202,6 +202,7 @@ describe("H1: explicit prompt-cache breakpoints and cache-write settlement", () 
     expect(big.requests[0]!.maxFeeMicrousd).toBe(Math.ceil(Buffer.byteLength(big.requests[0]!.body) * 5 + 16_384 * 15));
     expect(big.fees[0]).toBe(Math.ceil(200 * 4 + 100 * 5 + 50 * 0.4 + 20 * 15));
     expect(() => fixture(() => ({}), { ...config, promptCaching: "responses_explicit_v1", api: "openai" })).toThrow("private_model_configuration_invalid");
+    expect(() => fixture(() => ({}), { ...config, promptCaching: "vllm_job_salt_v1" })).toThrow("private_model_configuration_invalid");
     expect(() => fixture(() => ({}), { ...config, cacheWriteUsdPerMillion: 9 })).toThrow("private_model_configuration_invalid");
     expect(() => fixture(() => ({}), { ...caching, longContext: { ...longContext, cacheWriteUsdPerMillion: 17 } })).toThrow("private_model_configuration_invalid");
     // A long-tier reservation can settle at the base tier, so the long tier's write rate (default: its input rate) must cover the base one.

@@ -60,6 +60,8 @@ const environmentSchema = z.object({
   SOAR_STREAMING: z.enum(["true", "false"]).default("true"),
   /** Owner opt-in: admit a fake-IP system proxy's 198.18.0.0/15 answers for approved public sources (HTTPS, certificate verified). */
   SOAR_PROXY_FAKE_IP: z.enum(["true", "false"]).default("false"),
+  /** H2a: salt the owned server's prefix cache per job (`cache_salt`); off keeps every existing task's model identity unchanged. */
+  SOAR_PROMPT_CACHE_SALT: z.enum(["true", "false"]).default("false"),
   SOAR_TEST_WORKSPACE: z.string().optional(),
   SOAR_TEST_CREDENTIAL_OPERATION_STATE: z
     .enum([
@@ -106,6 +108,7 @@ export interface SoarConfig {
   recoverableDispatch?: boolean;
   streamingEnabled?: boolean;
   proxyFakeIp?: boolean;
+  promptCacheSalt?: boolean;
   testWorkspace?: string;
   /**
    * Deterministic renderer proof fixture. It is admitted only for Fake mode
@@ -228,6 +231,7 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
     recoverableDispatch: env.SOAR_RECOVERABLE_DISPATCH === "true",
     streamingEnabled: env.SOAR_STREAMING === "true",
     proxyFakeIp: env.SOAR_PROXY_FAKE_IP === "true",
+    promptCacheSalt: env.SOAR_PROMPT_CACHE_SALT === "true",
     testWorkspace: env.SOAR_TEST_WORKSPACE,
     ...(env.SOAR_TEST_CREDENTIAL_OPERATION_STATE === undefined
       ? {}

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { BROKER_MAX_BODY_BYTES, type PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { digest } from "../../src/main/private-agent/contracts";
-import { MAX_MODEL_OUTPUT_TOKENS, PrivateAgentModel, ModelRequestBodyTooLarge, modelRequestSizeStop, hasInvalidModelRequestSizeStop } from "../../src/main/private-agent/model";
+import { MAX_MODEL_OUTPUT_TOKENS, PrivateAgentModel, ModelRequestBodyTooLarge, modelRequestSizeStop, hasInvalidModelRequestSizeStop, vllmCacheSalt } from "../../src/main/private-agent/model";
 
 describe("model request size before dispatch", () => {
   it("admits exactly the UTF-8 byte cap and rejects one byte over without calling the broker", async () => {
@@ -146,5 +146,43 @@ describe("model request size before dispatch", () => {
       expect(modelRequestSizeStop(events, start)).toBeUndefined();
       expect(hasInvalidModelRequestSizeStop(events)).toBe(events.length !== 1 || events[0] === marker);
     }
+  });
+});
+
+describe("H2a: per-job prefix-cache salt for the owned server", () => {
+  const reply = () => Buffer.from(JSON.stringify({ choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+  const fixture = (config: Record<string, unknown>, jobId = "job-a") => {
+    const bodies: string[] = [];
+    const request = vi.fn(async (input, settle) => { bodies.push(input.body); const bytes = reply(); return { bytes, receipt: { feeMicrousd: settle(bytes) } }; });
+    const model = new PrivateAgentModel({ request } as unknown as PrivateAgentBroker,
+      { destinationId: "owned", model: "RM-01 VLM", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium", ...config } as never, jobId, "context");
+    return { model, bodies };
+  };
+  const tool = { type: "function" as const, function: { name: "execute", description: "Run.", parameters: { type: "object", properties: {} } } };
+
+  it("sends the same derived salt on every call of a job, the narrowed judge call and the streamed shape included, and a different one per job", async () => {
+    const salted = fixture({ promptCaching: "vllm_job_salt_v1" });
+    await salted.model.complete([{ role: "user", content: "a" }], [tool], new AbortController().signal);
+    await salted.model.complete([{ role: "user", content: "b" }], [], new AbortController().signal, { thinking: "disabled", maxOutputTokens: 256 });
+    const [first, judge] = salted.bodies.map(body => JSON.parse(body));
+    expect(first.cache_salt).toBe(vllmCacheSalt("job-a")); expect(judge.cache_salt).toBe(vllmCacheSalt("job-a"));
+    expect(first.cache_salt).toMatch(/^[a-f0-9]{64}$/u); expect(first.cache_salt).not.toContain("job-a");
+    expect(vllmCacheSalt("job-b")).not.toBe(vllmCacheSalt("job-a"));
+    const other = fixture({ promptCaching: "vllm_job_salt_v1" }, "job-b");
+    await other.model.complete([{ role: "user", content: "a" }], [tool], new AbortController().signal);
+    expect(JSON.parse(other.bodies[0]!).cache_salt).toBe(vllmCacheSalt("job-b"));
+    const streamed = fixture({ promptCaching: "vllm_job_salt_v1", streaming: true });
+    await streamed.model.complete([{ role: "user", content: "a" }], [], new AbortController().signal);
+    expect(JSON.parse(streamed.bodies[0]!)).toMatchObject({ stream: true, cache_salt: vllmCacheSalt("job-a") });
+    expect(JSON.parse(salted.bodies[0]!)).toMatchObject({ max_tokens: 4096, reasoning_effort: "medium" });
+  });
+
+  it("sends no salt without the flag and refuses the flag on a cloud shape", async () => {
+    const plain = fixture({});
+    await plain.model.complete([{ role: "user", content: "a" }], [tool], new AbortController().signal);
+    expect(JSON.parse(plain.bodies[0]!)).not.toHaveProperty("cache_salt");
+    expect(() => fixture({ promptCaching: "vllm_job_salt_v1", api: "openai", inputUsdPerMillion: 2, outputUsdPerMillion: 10 })).toThrow("private_model_configuration_invalid");
+    expect(() => fixture({ promptCaching: "vllm_job_salt_v1", api: "openai_responses", inputUsdPerMillion: 2, outputUsdPerMillion: 10 })).toThrow("private_model_configuration_invalid");
+    expect(() => fixture({ promptCaching: "vllm_job_salt_v1", api: "vllm" })).not.toThrow();
   });
 });

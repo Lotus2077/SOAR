@@ -169,6 +169,11 @@ describe("public snapshot CLI", () => {
     expect(() => parseLocalArtifactScreenArguments([...base, "--cloud-model", "x"])).toThrow("local_screen_cli_invalid");
     expect(() => parseLocalArtifactScreenArguments([...base, "--arm", "sky"])).toThrow("local_screen_cli_invalid");
     expect(() => parseCloudPrices("2,8,3")).toThrow("local_screen_cli_invalid");
+    // H2a: the prefix-cache salt is on unless the run is the unsalted control arm; anything but true/false is refused.
+    expect(parseLocalArtifactScreenArguments([...base, "--arm", "local"]).cacheSalt).toBeUndefined();
+    expect(parseLocalArtifactScreenArguments([...base, "--arm", "local", "--cache-salt", "false"]).cacheSalt).toBe(false);
+    expect(parseLocalArtifactScreenArguments([...base, "--arm", "local", "--cache-salt", "true"]).cacheSalt).toBe(true);
+    expect(() => parseLocalArtifactScreenArguments([...base, "--arm", "local", "--cache-salt", "off"])).toThrow("local_screen_cli_invalid");
     // H1: an optional fourth price is the cache-write rate; the long-context tier takes an optional fifth.
     expect(parseCloudPrices("2,8,0.5,2.5")).toEqual({ input: 2, output: 8, cached: 0.5, write: 2.5 });
     expect(() => parseCloudPrices("2,8,0.5,2.5,1")).toThrow("local_screen_cli_invalid");

@@ -246,7 +246,9 @@ export class GeneralTaskController {
       maxOutputTokens: coordinator.maxOutputTokens, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: coordinator.thinking,
       maxRequestBytes: coordinator.maxRequestBytes, ...(coordinator.sampling ? { sampling: { ...coordinator.sampling } } : {}),
       // PR-B: spread only when on, so an existing task's model identity is unchanged while streaming stays off.
-      ...(config.streamingEnabled ? { streaming: true } : {}) };
+      ...(config.streamingEnabled ? { streaming: true } : {}),
+      // H2a: likewise spread only when on; switching it on changes the model identity, so paused tasks resume only after it is off again or re-created.
+      ...(config.promptCacheSalt ? { promptCaching: "vllm_job_salt_v1" as const } : {}) };
     // The profile owns the request timeout; the legacy SOAR_REQUEST_TIMEOUT_MS belongs to the review adapter.
     const timeoutMs = coordinator.requestTimeoutMs;
     return { config, endpoint, imageId, model, timeoutMs, name, limits, identity: digest(canonical({ version: 2, profile: name, runtimeIdentity, imageId,

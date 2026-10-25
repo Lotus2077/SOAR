@@ -75,6 +75,11 @@ hostnames, not content. The local model destination accepts any resolved
 address, so give it an IP literal: a hostname behind such a proxy would send
 model traffic into the proxy's tunnel.
 
+`SOAR_PROMPT_CACHE_SALT=true` salts the owned server's prefix cache per task
+(a digest of the task id), so cache blocks are shared only within one task.
+It changes a task's configuration identity: switch it when no task is paused,
+or paused tasks are refused until the setting is restored (H2a).
+
 Two read-only diagnostics are available:
 
 - `python3 scripts/box-checklist.py`: run on the inference device. It prints a

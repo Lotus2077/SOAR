@@ -350,6 +350,17 @@ describe("desktop general-task host controller", () => {
       expect(f.executions.at(-1)!.model.config).toMatchObject({ streaming: true });
     } finally { controller.close(); }
   });
+  it("H2a: salts the owned server's prefix cache per job only when switched on, and the switch changes the task's configuration identity", async () => {
+    const f = fixture(); f.config.promptCacheSalt = false;
+    const a = f.create(); f.controller.start(a.id); await f.controller.wait(a.id);
+    expect(f.executions.at(-1)!.model.config).not.toHaveProperty("promptCaching");
+    f.config.promptCacheSalt = true;
+    const b = f.create(); f.controller.start(b.id); await f.controller.wait(b.id);
+    expect(f.executions.at(-1)!.model.config).toMatchObject({ promptCaching: "vllm_job_salt_v1" });
+    // A task created under the other setting no longer matches its recorded configuration: an explicit, visible refusal, never a silent change.
+    const c = f.create(); f.config.promptCacheSalt = false;
+    expect(() => f.controller.start(c.id)).toThrow("general_task_configuration_changed");
+  });
   it("resumes a task paused before streaming was switched on, and streams from then on", async () => {
     const f = fixture(); f.config.streamingEnabled = false;
     const task = f.create(); f.hold(); f.controller.start(task.id);

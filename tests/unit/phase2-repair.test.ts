@@ -141,6 +141,8 @@ describe("Phase 2 repair pair: the failed run and the critic", () => {
     const sent = JSON.parse(bodies[0]!) as { messages: { role: string; content: string }[]; tools?: unknown; max_tokens: number };
     expect(sent.messages).toEqual([{ role: "system", content: CRITIC_SYSTEM_PROMPT }, { role: "user", content: packet.text }]);
     expect(sent).not.toHaveProperty("tools"); expect(sent.max_tokens).toBe(16_384);
+    // This call passes its own model configuration, so no salt is sent; the driver's local configuration adds one (H2a).
+    expect(sent).not.toHaveProperty("cache_salt");
     expect(store.dispatches(answer.jobId)).toMatchObject([{ status: "settled", purpose: CRITIC_PURPOSE }]);
   });
   it("parses the critique command line, and the driver's --repair-from, which is local only", () => {

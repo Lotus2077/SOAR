@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ProviderResult } from "../providers/types";
 import { BROKER_MAX_BODY_BYTES, PrivateAgentBroker } from "./broker";
-import { canonical, privateAgentId, sha256Schema } from "./contracts";
+import { canonical, digest, privateAgentId, sha256Schema } from "./contracts";
 
 export const MODEL_REQUEST_SIZE_STOP = "request_body_size_exceeded";
 /** Adapter ceiling. Callers choose their own lower profile limit (the desktop clamps to 4096). */
@@ -103,11 +103,13 @@ export interface PrivateModelConfig {
    */
   api?: "vllm" | "openai" | "openai_responses";
   /**
-   * Responses shape only: explicit prompt-cache breakpoints after the static prompt, the user message that follows it
-   * (the brief) and the latest two tool results, with implicit caching off. Without them a GPT-5.6-or-later lookup only
-   * matches the developer block or an identical prompt, so every turn rewrote its whole prompt (H1 completion).
+   * Prompt-cache handling per request shape. `responses_explicit_v1` (Responses shape only): explicit prompt-cache
+   * breakpoints after the static prompt, the user message that follows it (the brief) and the latest two tool results,
+   * with implicit caching off (H1). `vllm_job_salt_v1` (owned vLLM shape only): a per-job `cache_salt` derived from the
+   * job id, so prefix-cache blocks are shared only within one job and never across matters (H2a, design principle P6);
+   * the box's prefix caching itself is a server setting and stays as it is (D11).
    */
-  promptCaching?: "responses_explicit_v1";
+  promptCaching?: "responses_explicit_v1" | "vllm_job_salt_v1";
   /** PR-B: stream the reply from the owned server (assembled by the transport); the cloud shape stays non-streaming in Phase 1. */
   streaming?: boolean;
   thinking: "disabled" | "medium";
@@ -205,6 +207,13 @@ function decodeReply(api: PrivateModelConfig["api"], bytes: Uint8Array): Decoded
     cachedTokens: decoded.usage.input_tokens_details?.cached_tokens ?? 0, cacheWriteTokens: decoded.usage.input_tokens_details?.cache_write_tokens ?? 0 };
 }
 
+/**
+ * The per-job prefix-cache salt sent to the owned vLLM server (H2a): a digest of the job id, so it is random and unguessable
+ * like the id, carries no job content, stays identical for every call of the job (the judge included) and differs between
+ * jobs. The job id itself is never sent.
+ */
+export function vllmCacheSalt(jobId: string): string { return digest(canonical({ version: 1, purpose: "vllm_prefix_cache_salt", jobId })); }
+
 /** The model configuration as bound into session and task identities: streaming is a transport mode, never an identity change. */
 export function modelIdentity(config: PrivateModelConfig): Omit<PrivateModelConfig, "streaming"> {
   const { streaming: _streaming, ...identity } = config;
@@ -235,7 +244,8 @@ export class PrivateAgentModel {
           // A body bound reserved at the long tier can settle at the base tier, so the long tier's write rate must cover the base one.
           (config.longContext.cacheWriteUsdPerMillion ?? config.longContext.inputUsdPerMillion) >= (config.cacheWriteUsdPerMillion ?? config.inputUsdPerMillion))) ||
         (config.api !== undefined && config.api !== "vllm" && config.api !== "openai" && config.api !== "openai_responses") ||
-        (config.promptCaching !== undefined && (config.promptCaching !== "responses_explicit_v1" || config.api !== "openai_responses")) ||
+        (config.promptCaching !== undefined && !((config.promptCaching === "responses_explicit_v1" && config.api === "openai_responses") ||
+          (config.promptCaching === "vllm_job_salt_v1" && (config.api === undefined || config.api === "vllm")))) ||
         (config.streaming !== undefined && (typeof config.streaming !== "boolean" || (config.streaming && config.api !== undefined && config.api !== "vllm")))) {
       throw new Error("private_model_configuration_invalid");
     }
@@ -251,6 +261,7 @@ export class PrivateAgentModel {
     // An OpenAI-compatible server rejects an empty `tools` array, so a tool-less call (the entailment judge) omits the tool fields.
     // The OpenAI shape uses max_completion_tokens and top-level reasoning_effort only; vLLM-only fields never leave for a cloud API.
     // The Responses shape sends non-strict function tools (its default is strict), an explicit effort and no stored state.
+    // The owned vLLM shape salts the server's prefix cache per job when configured (`cache_salt`, 1 to 1,024 characters).
     const body = this.config.api === "openai_responses"
       ? canonical({ model: this.config.model, input: responsesInput(messages, this.config.promptCaching !== undefined),
         ...(this.config.promptCaching ? { prompt_cache_options: { mode: "explicit" } } : {}),
@@ -263,6 +274,7 @@ export class PrivateAgentModel {
         ...(openai ? { max_completion_tokens: maxOutputTokens, service_tier: "default" } : { max_tokens: maxOutputTokens }),
         ...(openai ? (thinking === "disabled" ? {} : { reasoning_effort: "medium" })
           : thinking === "disabled" ? { chat_template_kwargs: { enable_thinking: false } } : { reasoning_effort: "medium", ...(this.config.sampling ?? {}) }),
+        ...(this.config.promptCaching === "vllm_job_salt_v1" ? { cache_salt: vllmCacheSalt(this.jobId) } : {}),
       });
     const bodyBytes = Buffer.byteLength(body), limitBytes = this.config.maxRequestBytes ?? BROKER_MAX_BODY_BYTES;
     if (bodyBytes > limitBytes) throw new ModelRequestBodyTooLarge(bodyBytes, limitBytes);

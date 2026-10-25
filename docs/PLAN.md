@@ -380,6 +380,12 @@ are owner-only.
 
 ### Phase 2: The fair test (Oct 8 – Oct 15, verdict Oct 15)
 
+**Status 2026-10-22 (BL-20261019-0432, BL-20261019-0838, BL-20261022-0940):**
+run Oct 12-19 on `phase2-tasks-v1`; provisional, agent-graded under D9:
+C-Sol 10/12, L-Heavy 6/12 and 4/12; rule R4 at its boundary selects
+**Branch B, confirmed by the owner on 2026-10-22**; the repair pair tied 4/6,
+so the cloud-critique mechanism is not adopted.
+
 **Tasks: 12 fresh tasks, frozen and tagged before the first counted run, each sized
 for 30-80 actions.**
 
@@ -532,6 +538,10 @@ agent's favour.
 
 ### Phase 4: A real week of use (Oct 21 – Oct 27, branch review Oct 27)
 
+**Status 2026-10-22 (BL-20261022-0834, BL-20261022-0940):** the division-of-labour
+harness track is approved beside the week, with the two rules below waived for
+that track only; it touches no owner build, box or owner job before Oct 27.
+
 The owner delegates normal work on the owner build, and agents fix only observed
 blockers.
 
@@ -596,7 +606,8 @@ a real requirement (see Later).
     | Phase 0 discriminator and compatibility request | 15 |
     | Phase 2 cloud arm (100) and repair pair (5) | 105 |
     | Synthetic personas, mailboxes and documents (no owner seed) | 20 |
-    | Harness spike or re-runs of invalid runs | 40 |
+    | Harness spike or re-runs of invalid runs | 7 (40 until 2026-10-22; 33 reallocated below) |
+    | Phase 4 harness track (BL-20261022-0834, approved 2026-10-22) | 33 |
     | Public-work cloud route after Phase 2, weekly | 25 |
     | **Hard total** | **300** |
 
@@ -647,11 +658,11 @@ or publication actions.
 | D8 | **Governance supersession.** Retire:<br>• the stop rule at [MVP_COMPLETION_AUDIT.md:107-110](MVP_COMPLETION_AUDIT.md);<br>• the handoff's next-milestone ordering;<br>• the Stage B/C/D ladder ([MVP_PRIVACY_FIRST_AGENT_V1.md:343-370](plans/MVP_PRIVACY_FIRST_AGENT_V1.md), [MVP_PRIVATE_AGENT_EXECUTION_V1.md:24-34](plans/MVP_PRIVATE_AGENT_EXECUTION_V1.md));<br>• the 40-call / 4,096-token / 192 KiB / 30-minute bound at [:42-43](plans/MVP_PRIVATE_AGENT_EXECUTION_V1.md). | **Approved 2026-09-29.** Replaced by this plan and the USD 300 envelope. |
 | D9 | **Owner time:** about 2 h per week, verdicts within 72 h, about 4-5 h of blind grading Oct 15-17, and a 30-minute weekly review. | Blind agent grading, labelled provisional. Branch E is never applied. |
 | D10 | **Publication:** approve pushes to public `main`, per push or per phase. | **Approved 2026-09-29** for reviewed work, never credentials, private endpoints, raw traces or evaluator gold. |
-| D11 | **Server changes on the box:** prefix caching, `--reasoning-parser qwen3`, `--tool-call-parser qwen3_xml`, MTP, telemetry-off environment. | No change; results labelled "unpinned serving". |
+| D11 | **Server changes on the box:** prefix caching, `--reasoning-parser qwen3`, `--tool-call-parser qwen3_xml`, MTP, telemetry-off environment. | No change; results labelled "unpinned serving". Amended 2026-10-22 (BL-20261022-0834): prefix caching was already on at the box; the runner sends a per-job `cache_salt` from the client; every server flag stays a separate D11 decision with a scheduled restart. |
 | D12 | **Why work stopped Sep 14-28.** | **Answered:** travel abroad. Unavailability now pauses adoption clocks, and delegate-while-away is promoted. |
 | D13 | **Mail and calendar:** which accounts (personal Gmail, Workspace, university Microsoft 365, iCloud, other IMAP) and which Mac clients. Is draft-only acceptable, with you pressing Send in your own client? | **Deferred 2026-09-29** until connectors exist. |
 | D14 | **Jurisdiction and third-party data.** Which countries or provinces apply? Will Tier-O jobs contain other people's data (clients, patients, participants, correspondents) or only yours? Any data under a Data Use Certification, IRB protocol, NDA or export control? | **Answered:** real jobs will include other people's data, so the strict profile applies. Jurisdictions not yet stated. |
-| D15 | **Is "never to the cloud" absolute for labelled data**, or may you opt in per task to reviewed placeholder packets? | **Answered:** never automatic. The owner may approve cloud help for one specific task after a bad local result, through exact-packet approval, with a consent reminder for third parties' data. Not planned during development. |
+| D15 | **Is "never to the cloud" absolute for labelled data**, or may you opt in per task to reviewed placeholder packets? | **Answered:** never automatic. The owner may approve cloud help for one specific task after a bad local result, through exact-packet approval, with a consent reminder for third parties' data. Not planned during development. Revised 2026-10-22 at the defaults of the privacy filter v2 design (BL-20261022-0934, approved): cloud help for a labelled context is planned, through named templates of derived material only, one packet per task, the owner's exact-byte approval and a recorded form, reached only through synthetic-first stages; the trigger stays "after an insufficient local result"; never for regime-tagged data (D20, default "never" for all five tags); no labelled packet before the stages' gates and the provider-posture check (D21). |
 | D16 | **Retention default** for finished private jobs. | Delete workspaces after 30 days; keep only the hash-only audit trail. |
 | D17 | **Remote access while travelling:** WireGuard or Headscale, or Tailscale (which discloses device names, IPs and connection times to its coordination server). | WireGuard. |
 | D18 | **Mac state:** FileVault, Desktop & Documents iCloud sync, Advanced Data Protection, Time Machine encryption. | Assume unsafe until checked; Tier O stays blocked. |

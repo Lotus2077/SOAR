@@ -23281,3 +23281,102 @@ References: BL-20261025-1242-h2b-h2c-research-pipeline-design,
 BL-20261022-0834-phase4-division-of-labour-design,
 BL-20261022-0940-phase4-harness-approved,
 BL-20261025-0939-h2a-vllm-cache-salt-implemented.
+
+### BL-20261025-2037-h2a-cache-salt-verified -- 2026-10-25 -- H2a verified on the box in the owner's idle window: the schema lists cache_salt, a per-job salt isolates prefix-cache reuse, the server reports cached tokens in 1,600-token blocks and never reuses the last full block
+
+Status: `Verified`
+
+Scope or hypothesis: the two live checks
+BL-20261025-0939-h2a-vllm-cache-salt-implemented left pending, run in the
+idle window the owner declared in chat on
+2026-10-26 ("merge Lotus2077/SOAR#23 and Lotus2077/SOAR#24, declare an idle
+window now"), recorded in `phase4-live-2026-10-26/authority.json` (local,
+ignored) with this scope: the schema check, the isolation probe and one
+zero-fee all-local pipeline run (next entry). Zero fee throughout; no
+server flag changed (D11). What is verified: the request shape is accepted
+and the server's reported cache reuse behaves as a per-job salt should,
+at the API level, on unpinned serving.
+
+Decisions:
+
+- **Schema check.** `check:vllm-schema` against the served OpenAPI
+  document: `ChatCompletionRequest` present, `cache_salt` listed with the
+  schema's bound of 1 to 1,024 characters (the document's own `info`
+  version reads 0.1.0; vLLM's served version was 0.31.0 on 2026-10-22).
+  Output retained as `schema-check.json`.
+- **Driver probe, inconclusive by construction, and why.** Four short jobs
+  on a synthetic probe task (a one-line input, a two-line output; brief 344
+  bytes), standard profile, `--cache-salt false` for D and E, salted A and
+  C: all four submitted in 11 to 16 seconds with 3, 3, 3 and 4 model calls
+  and prompts of 1,967 to 2,400 tokens, and every call reported
+  `cached_tokens` 0, salted or not. The server's prefix-cache counters
+  read around each job explain it below: reuse happens in 1,600-token
+  blocks and the last full block is never reused, so a prompt under 3,200
+  tokens cannot hit at all. The probe task was too small; the driver path
+  is not at fault (the direct probe used the same server and the same
+  field). Around job C the counters moved by exactly its four prompts
+  (queries +8,902, hits +0); around D, E and A each window also held one
+  request of about 120,000 tokens with 116,800 cached (73 blocks) that was
+  not ours, so those three deltas are not evidence. Something else was
+  using the box in that minute; the owner should say what (see Failures).
+- **Direct probe, conclusive.** Seven chat completions with `max_tokens` 1
+  and a 4,344-token prompt whose first 4,330 tokens are identical
+  (`salt-direct-probe.txt`; the server's counter deltas equalled the
+  reported `cached_tokens` and prompt sizes exactly, so no other client
+  was in these windows):
+  - unsalted: first call 0 cached, second 1,600;
+  - salt alpha: first 0, second 1,600, an identical third 1,600;
+  - salt beta, same prefix: 0 (nothing cached under alpha or unsalted was
+    reused);
+  - unsalted again: 1,600 (unsalted blocks still there).
+  So the salt isolates reuse between salts and allows it within one salt,
+  which is what a per-job salt needs; the unsalted path still shares.
+- **The server's reuse granularity, measured.** The reported reuse is the
+  number of complete 1,600-token blocks of the shared prefix minus one:
+  4,330 shared tokens hold two full blocks and one is reused (1,600). The
+  serving card's P4 (2026-09-28) fits the same rule: 44,800 of 47,299 is 28
+  of 29 full blocks. Consequences for the harness track: no local prompt
+  under 3,200 tokens is ever served from cache; a 20,000-token prompt can
+  reuse at most 17,600; the first turns of every job pay full prefill. The
+  registry's local `cachedTokens` column will read these block counts.
+  Whether the rule comes from the model's hybrid attention layers or a
+  server setting is not determined here (D11: no flag read or changed).
+- **`cached_tokens` is reported.** The server emits
+  `usage.prompt_tokens_details.cached_tokens`; the H2a entry's worry that
+  the field might be absent is closed, and the driver records it as
+  `cacheReadTokens` on every local call.
+- **D11 unchanged.** No server flag was read or changed; serving stays
+  "unpinned".
+
+Changes: `phase4-live-2026-10-26/` (local, ignored): `authority.json`,
+`schema-check.json`, `metrics-baseline.txt`, `salt-probe.log`,
+`salt-direct-probe.txt`, `tasks/salt-probe/`, `runs/salt-{D,E,A,C}`;
+this entry. No code.
+
+Evidence: the files above; the probe scripts in the session scratchpad
+(`salt-probe.sh`, `salt-direct-probe.py`, `analyze-salt-probe.py`); the
+serving card `docs/experiments/serving-card-2026-09-28.md` (P4).
+
+Failures or blockers: three of the four driver-probe windows were
+contaminated by another client's requests (about 120,000-token prompts,
+116,800 cached, three requests in about 40 seconds at 20:31 UTC). The
+owner should confirm whether the desktop app or another consumer was
+running on the box during the declared window; the pipeline run that
+followed may have shared the server with it.
+
+Limitations and non-claims: the probe shows what the server reports and
+counts, not that KV memory is partitioned or that timing differences are
+closed; it ran on one server version and one model; the 1,600-token rule
+is measured at two prefix lengths (4,330 here, 47,299 on the serving
+card) and inferred for the rest. The four driver jobs were not graded and
+are not registry rows (infra probes on a probe task, not task runs).
+
+Paid exposure: USD 0.
+
+Next gate: the all-local pipeline run on r3 (next entry); the H3 entry
+before any paid split run; a D11 decision only if the owner wants the
+block rule investigated on the server side.
+
+References: BL-20261025-0939-h2a-vllm-cache-salt-implemented,
+BL-20261022-0834-phase4-division-of-labour-design, BL-20260928-1811 (box
+identity), [plan](PLAN.md) D11.

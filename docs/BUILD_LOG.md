@@ -23438,8 +23438,10 @@ Decisions:
   re-run: 80 calls, 1,282,609 input (74% cached), 533 s, USD 1.18, the
   claims check failed at allowance. This run: 71 calls (42 reader, 29
   writer) plus 40 judge calls, 533,101 input tokens (69,589 reader,
-  463,512 writer), 625 s, USD 0, submitted with the claims check passed.
-  One run each; the comparison is descriptive.
+  463,512 writer), 625 s of runner time (1,006 s from session start to
+  the end of the entailment pass, the registry's `wallSeconds`; corrected
+  before merge), USD 0, submitted with the claims check passed. One run
+  each; the comparison is descriptive.
 - **Reading the H2c claim.** The reader used 42 of its 68 calls and the
   writer 29 of 80; the session's 200-request pool held 111 dispatches.
   The writer's cached fraction is the first local `cachedTokens` figure

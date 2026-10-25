@@ -259,7 +259,7 @@ async function verifyObservationLedger(root: string, value: ReturnType<typeof le
       const event = message.role === "tool" ? eligible.find(row => row.toolCallId === message.tool_call_id) : undefined;
       if (!event) return [];
       expect(Buffer.byteLength(JSON.stringify(message.content))).toBeLessThanOrEqual(8192);
-      // This short scenario fits all original bounded excerpts; restart may not expand them.
+      // This short scenario never overflows the window, so policy 2 keeps every bounded excerpt in full; restart may not expand them.
       expect(message.content).toBe(event.output);
       return [{ index: messageIndex, toolCallId: event.toolCallId,
         reference: orderedReference(event.executionObservation ?? event.observationRead), outputSha256: digest(message.content) }];
@@ -267,7 +267,7 @@ async function verifyObservationLedger(root: string, value: ReturnType<typeof le
     expect(selected).toHaveLength(index);
     const bytes = selected.reduce((sum, item) => sum + Buffer.byteLength(JSON.stringify(messages[item.index]!.content)), 0);
     expect(bytes).toBeLessThanOrEqual(48 * 1024);
-    const manifest = { version: 1, bytes, sha256: digest(JSON.stringify({ version: 1, observationMaxBytes: 8192, budgetBytes: 48 * 1024, selected })) };
+    const manifest = { version: 2, bytes, sha256: digest(JSON.stringify({ version: 2, observationMaxBytes: 8192, budgetBytes: 48 * 1024, demoteToBytes: 24 * 1024, selected })) };
     expect(rows("model_started")[index]!.observationProjection).toEqual(manifest);
     return { request: index + 1, bodyBytes: request.bytes, eligibleMessages: selected.length, manifest };
   });
@@ -276,7 +276,7 @@ async function verifyObservationLedger(root: string, value: ReturnType<typeof le
     sourceTotalsIndependentlyRecomputed: true, projectionAudit };
 }
 
-// Projection v1 hashes the schema-ordered reference; SQLite JSON key order is not that wire contract.
+// The projection hashes the schema-ordered reference; SQLite JSON key order is not that wire contract.
 function orderedReference(ref: Event): Event {
   if (ref.jobId !== undefined) return { version: ref.version, jobId: ref.jobId, contextId: ref.contextId,
     operationId: ref.operationId, toolCallId: ref.toolCallId, observationId: ref.observationId, sha256: ref.sha256,

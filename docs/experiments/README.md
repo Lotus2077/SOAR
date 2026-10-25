@@ -31,7 +31,7 @@ The following stay outside Git, under the ignored `.soar/experiments/`:
 | `arm` | Route and profile, for example `local-standard` or `local-heavy` |
 | `profile`, `thinking`, `maxOutputTokens` | Coordinator profile the run was frozen with |
 | `modelCalls`, `toolCalls`, `wallSeconds` | Counts from the run's own ledger |
-| `inputTokens`, `outputTokens`, `lengthStops`, `usd` | Accounting (`usd` is API fees only; local is zero-fee); `lengthStops` counts replies cut at the output limit |
+| `inputTokens`, `outputTokens`, `cachedTokens`, `cacheWriteTokens`, `lengthStops`, `usd` | Accounting (`usd` is API fees only; local is zero-fee); `cachedTokens` is the part of `inputTokens` the provider reported as served from its prompt cache (summed `cacheReadTokens`, 0 when absent; rows before H1 omit the field); `lengthStops` counts replies cut at the output limit; `cacheWriteTokens` is the part of `inputTokens` the provider reported as newly written to its cache (summed `cacheWriteTokens`, billed at the write rate); 0 means the run did not record it, which is every run before BL-20261022-1156 including the H1 first attempt, not a measured zero |
 | `entailment` | Research tasks with a claims ledger: the host's entailment counts, `entailmentCalls`, `truncated` and `supportRate` (supported / judged claims), or `null`; a local-model judgement is evidence, not acceptance |
 | `unknownDispatches` | Unsettled dispatches (never replayed) |
 | `outcome` | `accepted`, `rejected`, `incomplete` or `infra_invalid` |

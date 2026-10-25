@@ -8,13 +8,13 @@ import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import type { GeneralMessage } from "../../src/main/private-agent/model";
-import { EXECUTION_OBSERVATION_MAX_BYTES, EXECUTION_OBSERVATION_BUDGET_BYTES, ObservationIntegrityError,
-  retainExecutionObservation, readExecutionObservation, projectExecutionObservations, verifyExecutionObservations,
-  readObservationArguments, type ExecutionObservationScope, type ExecutionObservationReference } from "../../src/main/private-agent/observations";
+import { EXECUTION_OBSERVATION_MAX_BYTES, EXECUTION_OBSERVATION_BUDGET_BYTES, EXECUTION_OBSERVATION_DEMOTE_TO_BYTES, ObservationIntegrityError,
+  retainExecutionObservation, readExecutionObservation, projectExecutionObservations, verifyExecutionObservations, executionObservationPolicyIdentity,
+  readObservationArguments, type ExecutionObservationScope, type ExecutionObservationReference, type ExecutionObservationPolicyVersion } from "../../src/main/private-agent/observations";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const fn of cleanups.splice(0).reverse()) fn(); });
-function fixture() {
+function fixture(policyVersion: ExecutionObservationPolicyVersion = 1) {
   const root = mkdtempSync(join(tmpdir(), "soar-observations-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const filename = join(root, "state.sqlite"), db = new Database(filename); cleanups.push(() => db.close());
   const store = new PrivateAgentStore(db), jobId = randomUUID(), contextId = randomUUID();
@@ -22,7 +22,7 @@ function fixture() {
   store.createContext({ id: contextId, jobId, sources: [{ id: "synthetic", version: digest("fixture"), classification: "private", synthetic: true }] });
   const checkpoints = new PrivateCheckpointStore(join(root, "blobs"), jobId);
   const scope: ExecutionObservationScope = { store, checkpoints, jobId, contextId };
-  store.append(jobId, { type: "started", contextId, executionObservationPolicyVersion: 1 });
+  store.append(jobId, { type: "started", contextId, executionObservationPolicyVersion: policyVersion });
   const messages: GeneralMessage[] = [{ role: "system", content: "host system" }, { role: "user", content: "synthetic goal" }];
   const append = (stdout: string, stderr = "", exitCode = 0, toolCallId: string = randomUUID()) => {
     const operationId = randomUUID();
@@ -214,5 +214,89 @@ describe("retained bounded execution observations", () => {
     const f = fixture(); vi.spyOn(f.checkpoints, "save").mockImplementation(() => { throw new Error("private filesystem diagnostic"); });
     expect(() => retainExecutionObservation(f.checkpoints, { jobId: f.jobId, contextId: f.contextId, operationId: randomUUID(), toolCallId: randomUUID(), result: { exitCode: 0, stdout: "returned", stderr: "" } })).toThrow(ObservationIntegrityError);
     expect(f.events().filter(e => e.type === "tool_finished")).toEqual([]);
+  });
+});
+
+describe("projection policy 2: batched demotion with hysteresis", () => {
+  const large = (i: number) => `HEAD ${i} ${"x".repeat(20000)} TAIL ${i}`;
+  const toolContents = (messages: GeneralMessage[]) => messages.filter(m => m.role === "tool").map(m => m.content!);
+  const fullCount = (messages: GeneralMessage[]) => toolContents(messages).filter(content => !content.includes('"excerptOmitted":true')).length;
+  const serialized = (messages: GeneralMessage[]) => toolContents(messages).reduce((n, content) => n + Buffer.byteLength(JSON.stringify(content)), 0);
+
+  it("identifies each policy for the prompt protocol and keeps the per-observation cap and the budget", () => {
+    expect(executionObservationPolicyIdentity(1)).toEqual({ version: 1, maxBytes: 8192, budgetBytes: 48 * 1024 });
+    expect(executionObservationPolicyIdentity(2)).toEqual({ version: 2, maxBytes: 8192, budgetBytes: 48 * 1024, demoteToBytes: 24 * 1024 });
+    expect(EXECUTION_OBSERVATION_DEMOTE_TO_BYTES).toBeLessThan(EXECUTION_OBSERVATION_BUDGET_BYTES);
+  });
+
+  it("demotes the oldest full observations in a batch down to the demote mark only when the window overflows", () => {
+    const f = fixture(2);
+    const turns: { messages: GeneralMessage[]; bytes: number; full: number; rolling: GeneralMessage[] }[] = [];
+    for (let i = 0; i < 14; i++) {
+      f.append(large(i));
+      const projected = projectExecutionObservations(f.scope, f.messages, 2), rolling = projectExecutionObservations(f.scope, f.messages, 1);
+      expect(projected.manifest.version).toBe(2);
+      expect(projected.manifest.bytes).toBeLessThanOrEqual(EXECUTION_OBSERVATION_BUDGET_BYTES);
+      expect(projected.manifest.bytes).toBe(serialized(projected.messages));
+      expect(toolContents(projected.messages).every(content => Buffer.byteLength(JSON.stringify(content)) <= EXECUTION_OBSERVATION_MAX_BYTES)).toBe(true);
+      // The full observations are always the newest ones: a demoted observation is never followed by a full one, ordered older to newer.
+      const flags = toolContents(projected.messages).map(content => !content.includes('"excerptOmitted":true'));
+      expect(flags.join("")).toMatch(/^(false)*(true)*$/u);
+      turns.push({ messages: projected.messages, bytes: projected.manifest.bytes, full: flags.filter(Boolean).length, rolling: rolling.messages });
+      expect(rolling.manifest).toMatchObject({ version: 1 }); expect(rolling.manifest.sha256).not.toBe(projected.manifest.sha256);
+    }
+    // Six ~8 KiB observations fill the 48 KiB window in full; the seventh overflows it and the window is cut to the mark in one batch.
+    expect(turns.slice(0, 6).map(turn => turn.full)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(turns[6]!.full).toBeLessThan(6); expect(turns[6]!.bytes).toBeLessThanOrEqual(EXECUTION_OBSERVATION_DEMOTE_TO_BYTES);
+    // Hysteresis: between overflows every earlier message keeps its rendering, so the prefix the provider sees is stable.
+    const overflowTurns: number[] = [];
+    for (let i = 1; i < turns.length; i++) {
+      const previous = turns[i - 1]!.messages, current = turns[i]!.messages.slice(0, previous.length);
+      if (JSON.stringify(current) === JSON.stringify(previous)) expect(turns[i]!.full).toBe(turns[i - 1]!.full + 1);
+      else { overflowTurns.push(i); expect(turns[i]!.bytes).toBeLessThanOrEqual(EXECUTION_OBSERVATION_DEMOTE_TO_BYTES); }
+    }
+    expect(overflowTurns).toEqual([6, 10]);
+    // Policy 1 on the same history is a rolling window: once full it demotes the oldest observation on every further turn
+    // (the five newest fit beside the references of the rest), so the history the provider sees changes every turn.
+    expect(turns.map(turn => fullCount(turn.rolling))).toEqual([1, 2, 3, 4, 5, 6, 5, 5, 5, 5, 5, 5, 5, 5]);
+    for (let i = 6; i < 14; i++) expect(JSON.stringify(turns[i]!.rolling.slice(0, turns[i - 1]!.rolling.length))).not.toBe(JSON.stringify(turns[i - 1]!.rolling));
+  });
+
+  it("keeps the newest observation full whenever it fits and never promotes a demoted one again", () => {
+    const f = fixture(2);
+    for (let i = 0; i < 9; i++) f.append(large(i));
+    const projected = projectExecutionObservations(f.scope, f.messages, 2);
+    const flags = toolContents(projected.messages).map(content => !content.includes('"excerptOmitted":true'));
+    expect(flags.at(-1)).toBe(true); expect(flags.slice(0, 5)).toEqual([false, false, false, false, false]);
+    f.append("small ok");
+    const next = projectExecutionObservations(f.scope, f.messages, 2);
+    expect(toolContents(next.messages).slice(0, 9)).toEqual(toolContents(projected.messages));
+    expect(JSON.parse(toolContents(next.messages).at(-1)!)).toMatchObject({ exitCode: 0, stdout: "small ok" });
+  });
+
+  it("bounds reads with outputs together and restores the identical projection and manifest after reopening", () => {
+    const f = fixture(2);
+    for (let i = 0; i < 12; i++) { const kept = f.append(`HEAD ${i} ${"repeated\0汉🙂".repeat(18000)} TAIL ${i}`); f.read(kept.reference, 10000, 8192); }
+    const before = structuredClone(f.messages), first = projectExecutionObservations(f.scope, f.messages, 2);
+    expect(first.manifest.bytes).toBeLessThanOrEqual(EXECUTION_OBSERVATION_BUDGET_BYTES); expect(f.messages).toEqual(before);
+    expect(first.messages.filter(m => m.role === "assistant")).toEqual(f.messages.filter(m => m.role === "assistant"));
+    expect(first.messages.filter(m => m.role === "tool" && m.content?.includes('"excerptOmitted":true')).length).toBeGreaterThan(0);
+    expect(first.manifest.bytes).toBe(serialized(first.messages));
+    expect(first.manifest).toMatchObject({ version: 2, sha256: expect.stringMatching(/^[a-f0-9]{64}$/u) });
+    const reopened = new Database(f.filename); cleanups.push(() => reopened.close());
+    const scope = { ...f.scope, store: new PrivateAgentStore(reopened), checkpoints: new PrivateCheckpointStore(join(f.root, "blobs"), f.jobId) };
+    expect(projectExecutionObservations(scope, structuredClone(before), 2)).toEqual(first);
+    expect(projectExecutionObservations(scope, structuredClone(before), 1)).not.toEqual(first);
+  });
+
+  it("applies the same strict evidence policy under a version 2 started event", () => {
+    const f = fixture(2); f.append("original");
+    expect(() => verifyExecutionObservations(f.scope)).not.toThrow();
+    for (const mutate of [
+      (rows: Record<string, any>[]) => { delete rows.at(-1)!.executionObservation; delete rows.at(-1)!.executionCapture; },
+      (rows: Record<string, any>[]) => { rows.at(-1)!.output = '{"exitCode":0,"stdout":"forged","stderr":""}'; },
+    ]) expect(() => verifyExecutionObservations(f.altered(mutate))).toThrow(ObservationIntegrityError);
+    const changed = structuredClone(f.messages); changed[3]!.content = "changed retained content";
+    expect(() => projectExecutionObservations(f.scope, changed, 2)).toThrow(ObservationIntegrityError);
   });
 });

@@ -100,11 +100,14 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
     afterResponse: (callback: (count: number) => void) => { afterResponse = callback; } };
 }
 
+/** Layout 2: the budget line closes the trailing user message; the system message stays static. */
 function budget(messages: GeneralMessage[]) {
   expect(messages.filter(message => message.role === "system")).toHaveLength(1);
-  const prompt = messages[0]!.content!;
-  expect(prompt.match(/Current host budget/gu)).toHaveLength(1);
-  return JSON.parse(prompt.slice(prompt.lastIndexOf("\n") + 1));
+  expect(messages[0]!.content).not.toContain("Current host budget");
+  const turn = messages.at(-1)!;
+  expect(turn.role).toBe("user");
+  expect(turn.content!.match(/Current host budget/gu)).toHaveLength(1);
+  return JSON.parse(turn.content!.slice(turn.content!.lastIndexOf("\n") + 1));
 }
 
 describe("general runner host budget and argument recovery", () => {
@@ -114,12 +117,12 @@ describe("general runner host budget and argument recovery", () => {
     const first = new GeneralAgentRunner(f.options);
     f.afterExecute(() => { if (f.commands.length === 2) first.pause(); });
     expect(await first.run()).toMatchObject({ status: "paused", modelCalls: 2 });
-    expect(f.requests.every(messages => !messages[0]!.content!.includes("Two completed execute actions"))).toBe(true);
+    expect(f.requests.every(messages => !messages.some(message => message.content?.includes("Two completed execute actions")))).toBe(true);
     const reopened = new Database(f.dbPath); cleanup.push(() => reopened.close());
     const result = await new GeneralAgentRunner({ ...f.options, store: new PrivateAgentStore(reopened) }).run();
     expect(result).toMatchObject({ status: "completed", modelCalls: 4 });
-    expect(f.requests[2]![0]!.content).toContain("Two completed execute actions");
-    expect(f.requests[3]![0]!.content).not.toContain("Current host execution progress");
+    expect(f.requests[2]!.at(-1)!.content).toContain("Two completed execute actions");
+    expect(f.requests[3]!.at(-1)!.content).not.toContain("Current host execution progress");
     const events = f.options.store.events(f.options.jobId);
     expect(events.filter(event => event.type === "model_action_not_started")).toEqual([]);
     expect(events.filter(event => event.type === "tool_started")).toHaveLength(4);
@@ -187,6 +190,8 @@ describe("general runner host budget and argument recovery", () => {
     f.afterResponse(count => { if (count === 3) f.beforeListFiles(() => { throw new Error("synthetic capture failure"); }); });
     expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "runtime_failure_progress_preserved", modelCalls: 3 });
     expect(f.options.store.events(f.options.jobId).some(event => event.type === "model_action_not_started")).toBe(false);
+    // H1 completion: the failure class is recorded (a name or sandbox code only), so a hang or host sleep can be told from a code fault.
+    expect(f.options.store.events(f.options.jobId).filter(event => event.type === "runtime_failure")).toMatchObject([{ code: "Error" }]);
     expect(f.commands).toEqual(["fail same", "fail same"]);
     const reopened = new Database(f.dbPath); cleanup.push(() => reopened.close());
     expect(await new GeneralAgentRunner({ ...f.options, store: new PrivateAgentStore(reopened) }).run()).toMatchObject({ reason: "unresolved_operation_no_replay" });
@@ -202,15 +207,15 @@ describe("general runner host budget and argument recovery", () => {
     expect(progress[1]).toMatchObject({ missingArtifacts: { reminder: false, total: 1 } });
     expect(progress[2]).toMatchObject({ missingArtifacts: { reminder: true, paths: ["output.txt"], total: 1 } });
     expect(progress[3]).toMatchObject({ missingArtifacts: { reminder: false, paths: [], total: 0 } });
-    expect(f.requests[2]![0]!.content).toContain("Required output is still absent or empty");
-    expect(f.requests[3]![0]!.content).not.toContain("Required output is still absent or empty");
+    expect(f.requests[2]!.at(-1)!.content).toContain("Required output is still absent or empty");
+    expect(f.requests[3]!.at(-1)!.content).not.toContain("Required output is still absent or empty");
     // The fourth request is regenerated after a real nonempty write; no old
     // system progress instruction is accumulated in replayed conversation.
     expect(f.requests[3]!.filter(message => message.role === "system")).toHaveLength(1);
     expect(f.requests[3]!.filter(message => message.role === "tool")).toHaveLength(3);
   });
 
-  it.each(["capabilities", "executionProgressPolicyVersion"])("rejects altered persisted %s before resuming a paused job", async field => {
+  it.each(["capabilities", "executionProgressPolicyVersion", "executionObservationPolicyVersion", "promptLayoutVersion"])("rejects altered persisted %s before resuming a paused job", async field => {
     const f = fixture([write, finish]);
     const first = new GeneralAgentRunner(f.options); f.afterExecute(() => first.pause());
     expect(await first.run()).toMatchObject({ status: "paused", modelCalls: 1 });
@@ -218,7 +223,9 @@ describe("general runner host budget and argument recovery", () => {
     const row = db.prepare("SELECT sequence, value FROM private_agent_events WHERE job_id = ? AND json_extract(value, '$.type') = 'started'").get(f.options.jobId) as { sequence: number; value: string };
     const event = JSON.parse(row.value);
     expect(event.capabilities.descriptor).toMatchObject({ qualification: "unverified", tools: { node: { status: "unverified" } } });
-    event[field] = field === "capabilities" ? { ...event.capabilities, identity: digest("altered") } : 0;
+    expect(event).toMatchObject({ promptLayoutVersion: 2, executionObservationPolicyVersion: 2 });
+    // A layout 2 task whose projector policy or layout field is rewritten must not resume under either layout.
+    event[field] = field === "capabilities" ? { ...event.capabilities, identity: digest("altered") } : field === "executionObservationPolicyVersion" ? 1 : field === "promptLayoutVersion" ? 1 : 0;
     db.prepare("UPDATE private_agent_events SET value = ? WHERE job_id = ? AND sequence = ?").run(canonical(event), f.options.jobId, row.sequence);
     expect(await new GeneralAgentRunner({ ...f.options, store: new PrivateAgentStore(db) }).run()).toMatchObject({ reason: "runtime_contract_drift" });
     expect(f.requests).toHaveLength(1); expect(f.create).toHaveBeenCalledTimes(1);
@@ -633,7 +640,8 @@ describe("general runner tolerant loop", () => {
     const nudges = f.options.store.events(f.options.jobId).filter(event => event.type === "nudge");
     expect(nudges).toHaveLength(3);
     expect(nudges.every(event => event.kind === "no_action")).toBe(true);
-    expect(f.requests[3]!.at(-1)).toMatchObject({ role: "user", content: expect.stringContaining("exactly one tool call") });
+    expect(f.requests[3]!.at(-2)).toMatchObject({ role: "user", content: expect.stringContaining("exactly one tool call") });
+    expect(f.requests[3]!.at(-1)).toMatchObject({ role: "user", content: expect.stringContaining("Current host budget") });
   });
   it("recovers after a nudge and treats a multi-call reply as nothing executed", async () => {
     const f = fixture([{ ...write, reply: "multi" }, text, write, finish], { maxModelCalls: 6 });
@@ -647,7 +655,8 @@ describe("general runner tolerant loop", () => {
     const f = fixture([cut, write, finish], { maxModelCalls: 6 });
     expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 3 });
     expect(f.options.store.events(f.options.jobId).filter(event => event.type === "nudge")).toEqual([expect.objectContaining({ kind: "length", message: expect.stringContaining("4096-token output limit") })]);
-    expect(f.requests[1]!.at(-1)).toMatchObject({ role: "user", content: expect.stringContaining("write_file and append_file") });
+    expect(f.requests[1]!.at(-2)).toMatchObject({ role: "user", content: expect.stringContaining("write_file and append_file") });
+    expect(f.requests[1]!.at(-1)).toMatchObject({ role: "user", content: expect.stringContaining("Current host budget") });
     const g = fixture([cut, cut, cut, write], { maxModelCalls: 6 });
     expect(await new GeneralAgentRunner(g.options).run()).toMatchObject({ status: "incomplete", reason: "model_output_incomplete", modelCalls: 3 });
     expect(g.commands).toEqual([]);
@@ -718,7 +727,8 @@ describe("general runner tolerant loop", () => {
     expect(nudgedReply.unexecutedToolCalls).toHaveLength(2);
     const replayed = f.requests[1]!;
     expect(replayed.filter(message => message.role === "assistant" && message.tool_calls)).toHaveLength(0);
-    expect(replayed.at(-1)).toMatchObject({ role: "user", content: expect.stringContaining("More than one tool call") });
+    expect(replayed.at(-2)).toMatchObject({ role: "user", content: expect.stringContaining("More than one tool call") });
+    expect(replayed.at(-1)).toMatchObject({ role: "user", content: expect.stringContaining("Current host budget") });
   });
   it("runs a heavy-profile contract end to end through the real loop: 47 calls with nudges, edits and a time jump", async () => {
     const script: Action[] = [];

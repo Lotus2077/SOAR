@@ -129,8 +129,13 @@ export function withRepair(phase: SessionPhase, input: { binding: RepairBinding;
     { path: REPAIR_CRITIQUE_PATH, bytes: Buffer.from(input.critique) }] };
 }
 
-/** Reads a critique directory written by scripts/phase2-repair.ts: the binding, the critique and the frozen draft. */
-export function loadRepairDirectory(directory: string): { binding: RepairBinding; critique: Buffer; draft: SessionFile[] } {
+/** H4: a draft written from an evidence packet is repaired on the same packet (the seed's snapshot fingerprint), never on another or none. */
+export function repairSeedMatches(repair: { researchSnapshotSha256?: string }, seed: { snapshotSha256: string } | undefined): boolean {
+  return repair.researchSnapshotSha256 === undefined ? seed === undefined : seed !== undefined && seed.snapshotSha256 === repair.researchSnapshotSha256;
+}
+
+/** Reads a critique directory written by scripts/phase2-repair.ts: the binding, the critique, the frozen draft and, for a draft written from an evidence packet, that packet's snapshot fingerprint. */
+export function loadRepairDirectory(directory: string): { binding: RepairBinding; critique: Buffer; draft: SessionFile[]; researchSnapshotSha256?: string } {
   const root = realpathSync(directory), drafts = join(root, "draft");
   // Plain files inside the directory only: no symlink may point a repair at bytes outside it.
   const inside = (path: string, base: string) => {
@@ -140,12 +145,13 @@ export function loadRepairDirectory(directory: string): { binding: RepairBinding
   const raw = JSON.parse(inside(join(root, "critique.json"), root).toString("utf8")) as Record<string, unknown>;
   // critique() records the outcome and the request posture beside the binding (BL-20261008-1240, BL-20261008-1312); only the
   // binding is identity, and the posture fields are checked rather than ignored.
-  const { finishReason: _finish, usage: _usage, servedModel: _served, feeMicrousd: _fee, requestShape, proxyFakeIp, ...bindingFields } = raw;
+  const { finishReason: _finish, usage: _usage, servedModel: _served, feeMicrousd: _fee, requestShape, proxyFakeIp, researchSnapshotSha256, ...bindingFields } = raw;
   if ((requestShape !== undefined && !["vllm", "openai", "openai_responses"].includes(requestShape as string)) ||
-      (proxyFakeIp !== undefined && proxyFakeIp !== true)) throw new Error("repair_directory_invalid");
+      (proxyFakeIp !== undefined && proxyFakeIp !== true) || (researchSnapshotSha256 !== undefined && !sha256.safeParse(researchSnapshotSha256).success)) throw new Error("repair_directory_invalid");
   const binding = RepairBindingSchema.parse(bindingFields);
   return { binding, critique: inside(join(root, "critique.md"), root),
-    draft: binding.draft.map(item => ({ path: item.path, bytes: inside(join(drafts, item.path), realpathSync(drafts)) })) };
+    draft: binding.draft.map(item => ({ path: item.path, bytes: inside(join(drafts, item.path), realpathSync(drafts)) })),
+    ...(typeof researchSnapshotSha256 === "string" ? { researchSnapshotSha256 } : {}) };
 }
 
 /** Text formats go into the packet as they are; these are rendered to text in the sandbox first. */

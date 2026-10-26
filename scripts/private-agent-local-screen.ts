@@ -10,13 +10,15 @@ import { PrivateAgentBroker, type BrokerDestination } from "../src/main/private-
 import { canonical, digest } from "../src/main/private-agent/contracts";
 import { PrivateCheckpointStore } from "../src/main/private-agent/checkpoints";
 import { PrivateAgentModel } from "../src/main/private-agent/model";
-import { GeneralAgentSession, SESSION_LIMITS, sessionFileManifest, sessionPhaseIdentity, type SessionPhase } from "../src/main/private-agent/session";
+import { GeneralAgentSession, SESSION_LIMITS, researchTransferPhase, sessionFileManifest, sessionPhaseIdentity, type SessionPhase } from "../src/main/private-agent/session";
 import { RulePacketScanner } from "../src/main/private-agent/scanner";
 import { PrivateAgentStore } from "../src/main/private-agent/store";
 import { COORDINATOR_PROFILES, GENERAL_TASK_BUDGETS, type CoordinatorProfileName } from "../src/main/private-agent/profiles";
 import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, claimsInstructions, claimsLedgerCheck } from "../src/main/private-agent/claims";
 import { withDocumentReview } from "../src/main/private-agent/document-review";
-import { loadRepairDirectory, repairMatchesRun, withRepair } from "../src/main/private-agent/repair";
+import { loadRepairDirectory, repairMatchesRun, repairSeedMatches, withRepair } from "../src/main/private-agent/repair";
+import { DECK_CHECK_VERSION, deckArtifacts, withDeckValidity } from "../src/main/private-agent/ooxml";
+import { loadResearchSeed, seededPipelineFreeze } from "../src/main/private-agent/research-seed";
 import { buildPublicRetrievalPhase, loadPreparedOperatorTask, selectPreparedPublicInputs, startControlledSnapshotReceiver,
   type PreparedOperatorTask } from "./private-agent-run";
 import { localStreamSettings } from "../src/main/liveness";
@@ -125,7 +127,8 @@ export async function startExplicitPublicSnapshotReceiver(snapshot: PreparedPubl
 
 export function localScreenSourceFreeze() {
   const paths = [...readdirSync("src/main/private-agent").filter(name => name.endsWith(".ts")).map(name => `src/main/private-agent/${name}`),
-    "scripts/private-agent-run.ts", "scripts/private-agent-local-screen.ts", "scripts/secret-patterns.mjs", "src/main/config.ts", "src/main/liveness.ts", "pnpm-lock.yaml",
+    // H4: the loop's orchestration and the critique tool are part of what a frozen run ran under.
+    "scripts/private-agent-run.ts", "scripts/private-agent-local-screen.ts", "scripts/phase4-loop.ts", "scripts/phase2-repair.ts", "scripts/secret-patterns.mjs", "src/main/config.ts", "src/main/liveness.ts", "pnpm-lock.yaml",
     "runtime/private-agent/Dockerfile", "runtime/private-agent/requirements.txt"];
   const files = paths.sort().map(path => ({ path, sha256: digest(readFileSync(path)) }));
   return { files, sha256: digest(canonical(files)) };
@@ -225,11 +228,16 @@ export async function runLocalArtifactScreen(input: {
   cloudArm?: CloudArmInput;
   /** Phase 2 repair pair: start from a frozen failed draft with a critique (a directory written by scripts/phase2-repair.ts); local only. */
   repairFrom?: string;
+  /** H4: write from the evidence packet another run's reading stage produced (that run's directory) instead of running the stage; local writer, claims ledger, heavy profile. */
+  researchFrom?: string;
 }) {
   if (![input.expectedJobSha256, input.expectedBriefSha256, input.syntheticAuthoritySha256, input.expectedRuntimeSha256].every(hash => /^[a-f0-9]{64}$/u.test(hash)) ||
       !/^sha256:[a-f0-9]{64}$/u.test(input.imageId) ||
       (input.pauseAfterTools !== undefined && (!Number.isInteger(input.pauseAfterTools) || input.pauseAfterTools < 1 || input.pauseAfterTools > 20))
-      || (input.publicSnapshot !== undefined && input.publicRetrieval !== true)) throw new Error("local_screen_arguments_invalid");
+      || (input.publicSnapshot !== undefined && input.publicRetrieval !== true)
+      // H4: a seeded run is the write phase of a research pipeline run, so it keeps the pipeline's own requirements and never runs the stage or a cloud writer itself.
+      || (input.researchFrom !== undefined && (input.pipeline !== undefined || input.cloudArm !== undefined || input.profile !== "heavy" || input.claimsLedger !== true ||
+        input.publicRetrieval || input.documentReview))) throw new Error("local_screen_arguments_invalid");
   const sourceFreeze = localScreenSourceFreeze();
   if (sourceFreeze.sha256 !== input.expectedRuntimeSha256) throw new Error("local_screen_reviewed_source_changed");
   const task = loadPreparedOperatorTask(input.taskDirectory, { jobSha256: input.expectedJobSha256, briefSha256: input.expectedBriefSha256 });
@@ -237,13 +245,19 @@ export async function runLocalArtifactScreen(input: {
   // The prepared task binds the September contract caps; the profile's budget replaces them for this run only.
   const budgetedPhase = { ...task.phase, contract: { ...task.phase.contract, maxModelCalls: budget.maxModelCalls, maxToolCalls: budget.maxToolCalls, maxElapsedMs: budget.maxElapsedMs } };
   if (input.documentReview && (input.claimsLedger || input.publicRetrieval)) throw new Error("local_screen_document_review_closed_corpus");
-  const modePhase = input.claimsLedger ? withClaimsLedger(budgetedPhase, input.publicRetrieval === true)
-    : input.documentReview ? withDocumentReview(budgetedPhase) : budgetedPhase;
+  // H4: a task whose deliverables include a deck gets the OOXML validity check beside its other finish checks.
+  const modePhase = withDeckValidity(input.claimsLedger ? withClaimsLedger(budgetedPhase, input.publicRetrieval === true)
+    : input.documentReview ? withDocumentReview(budgetedPhase) : budgetedPhase);
+  // H4: a second sample or a repair writes from the packet a first sample's stage produced; the seed is verified against that run's own ledger and the current protocol.
+  const seed = input.researchFrom ? loadResearchSeed(resolve(input.researchFrom), task.binding) : undefined;
+  const seededPhase = seed ? researchTransferPhase(modePhase, seed.files) : modePhase;
   // A repair starts from the identical frozen draft with the same task, profile and host-checked mode as the run that failed.
   const repair = input.repairFrom ? loadRepairDirectory(resolve(input.repairFrom)) : undefined;
   if (repair && (input.cloudArm || input.publicRetrieval || !repairMatchesRun(repair.binding, { jobSha256: task.binding.jobSha256, briefSha256: task.binding.briefSha256,
       profile: profileName, claimsLedger: input.claimsLedger === true, documentReview: input.documentReview === true }))) throw new Error("local_screen_repair_mismatch");
-  const privatePhase = repair ? withRepair(modePhase, repair) : modePhase;
+  // H4: a draft written from a packet is repaired on that packet and no other; a draft written without one takes no seed.
+  if (repair && !repairSeedMatches(repair, seed?.seed)) throw new Error("local_screen_repair_seed_mismatch");
+  const privatePhase = repair ? withRepair(seededPhase, repair) : seededPhase;
   // Bind all explicit public metadata and original public bytes before receiver/model/DB effects.
   const publicSnapshot = input.publicSnapshot ? preparePublicSnapshot(task, input.publicSnapshot) : undefined;
   const config = loadConfig();
@@ -321,6 +335,9 @@ export async function runLocalArtifactScreen(input: {
       scanner: "rules_only_not_a_privacy_classifier", pauseAfterTools: input.pauseAfterTools ?? null,
       profile: profileName, claimsLedger: input.claimsLedger === true, ...(input.documentReview ? { documentReview: true } : {}), ...(repair ? { repair: repair.binding } : {}), arm: cloud ? cloud.freeze : { arm: "local" as const },
       ...(pipeline ? { pipeline: { name: "research", version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(), budget: RESEARCH_PIPELINE_BUDGET, planner: cloud ? "cloud" : "local", writer: "local" } } : {}),
+      // H4: a seeded run carries the source's pipeline block (so rows keep the pipeline columns) and names its seed; a deck task records the check it ran under.
+      ...(seed ? { researchFrom: seed.seed, pipeline: seededPipelineFreeze(seed.pipeline, seed.seed) } : {}),
+      ...(deckArtifacts(modePhase).length ? { deckCheck: { version: DECK_CHECK_VERSION, paths: deckArtifacts(modePhase) } } : {}),
       limits: { requests: budget.maxRequests, modelCalls: budget.maxModelCalls, toolCalls: budget.maxToolCalls, outputTokens: modelConfig.maxOutputTokens,
         inputBytes: coordinator.maxRequestBytes, requestTimeoutMs: cloud && !pipeline ? cloud.destination.timeoutMs : coordinator.requestTimeoutMs, elapsedMs: budget.maxElapsedMs, feeMicrousd: cloud?.maxFeeMicrousd ?? 0 },
       startedAt: new Date().toISOString(), artifactAccepted: null };
@@ -382,7 +399,7 @@ export async function runLocalArtifactScreen(input: {
 export function parseLocalArtifactScreenArguments(args: string[]): Parameters<typeof runLocalArtifactScreen>[0] {
     const snapshotNames = ["--public-snapshot-directory", "--public-snapshot-brief-sha256", "--public-snapshot-map-sha256", "--public-snapshot-index-path"];
     const cloudNames = ["--cloud-model", "--cloud-endpoint", "--cloud-prices", "--cloud-long-context", "--max-fee-usd"];
-    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", "--document-review", "--repair-from", "--arm", ...cloudNames, "--proxy-fake-ip", "--cache-salt", "--pipeline", ...snapshotNames];
+    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", "--document-review", "--repair-from", "--arm", ...cloudNames, "--proxy-fake-ip", "--cache-salt", "--pipeline", "--research-from", ...snapshotNames];
     if (args[0] !== "--execute-synthetic-local" || args.length % 2 !== 1 || args.slice(1).some((arg, i) => i % 2 === 0 && !names.includes(arg)) ||
         new Set(args.filter((_, i) => i % 2 === 1)).size !== (args.length - 1) / 2) throw new Error("local_screen_cli_invalid");
     const values = new Map(args.slice(1).filter((_, i) => i % 2 === 0).map(name => [name, args[args.indexOf(name) + 1]!]));
@@ -398,6 +415,9 @@ export function parseLocalArtifactScreenArguments(args: string[]): Parameters<ty
           !/^https:\/\/[^/?#]+\/v1\/responses$/u.test(values.get("--cloud-endpoint") ?? ""))) ||
         (values.has("--document-review") && (values.get("--document-review") !== "true" || values.has("--claims-ledger") || values.has("--public-retrieval"))) ||
         (values.has("--repair-from") && (values.get("--arm") === "cloud" || !values.get("--repair-from"))) ||
+        // H4: a seeded write phase keeps the pipeline's requirements (heavy profile, claims ledger), runs no stage of its own and never writes with the cloud model.
+        (values.has("--research-from") && (!values.get("--research-from") || values.has("--pipeline") || values.get("--arm") === "cloud" || values.get("--profile") !== "heavy" ||
+          values.get("--claims-ledger") !== "true" || values.has("--document-review") || values.has("--public-retrieval"))) ||
         (values.has("--arm") && !["local", "cloud"].includes(values.get("--arm")!))) throw new Error("local_screen_cli_invalid");
     const cloudCount = cloudNames.filter(name => values.has(name)).length, cloudArm = values.get("--arm") === "cloud";
     // The cloud arm needs every cloud flag and the local arm none of them; the key itself is never a flag.
@@ -415,6 +435,7 @@ export function parseLocalArtifactScreenArguments(args: string[]): Parameters<ty
       ...(values.get("--pipeline") === "research" ? { pipeline: "research" as const } : {}),
       ...(values.get("--document-review") === "true" ? { documentReview: true } : {}),
       ...(values.has("--repair-from") ? { repairFrom: values.get("--repair-from")! } : {}),
+      ...(values.has("--research-from") ? { researchFrom: values.get("--research-from")! } : {}),
       ...(cloudArm ? { cloudArm: { model: values.get("--cloud-model")!, endpoint: values.get("--cloud-endpoint")!, prices: parseCloudPrices(values.get("--cloud-prices")!), maxFeeUsd: Number(values.get("--max-fee-usd")),
         longContext: parseCloudLongContext(values.get("--cloud-long-context")!),
         ...(values.get("--proxy-fake-ip") === "true" ? { proxyFakeIp: true as const } : {}) } } : {}),

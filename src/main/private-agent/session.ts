@@ -75,6 +75,17 @@ function manifestIntegrityCheck(id: string, files: SessionFile[]): ArtifactCheck
   const pinned = Buffer.from(canonical(sessionFileManifest(files))).toString("base64");
   return { id, python: `import base64, hashlib, json\nfrom pathlib import Path\nfor item in json.loads(base64.b64decode('${pinned}')):\n    p=Path(item['path'])\n    assert p.is_file() and not p.is_symlink() and hashlib.sha256(p.read_bytes()).hexdigest()==item['sha256']` };
 }
+/**
+ * The write phase after the research stage: the stage's files pinned by a host-owned integrity check and the write
+ * instructions appended to the goal. Exported for H4, where a second sample and a repair write from the packet a first
+ * sample's stage produced (the driver's --research-from), so their write phase is byte-identical to the first sample's.
+ */
+export function researchTransferPhase(phase: SessionPhase, produced: SessionFile[]): SessionPhase {
+  if (produced.some(file => phase.files.some(existing => existing.path === file.path))) throw new Error("research_transfer_collision");
+  return { ...phase, contract: { ...phase.contract, goal: `${phase.contract.goal}\n${researchWriteInstructions()}`,
+      requiredChecks: [...phase.contract.requiredChecks, RESEARCH_TRANSFER_CHECK_ID] },
+    files: [...phase.files, ...produced], checks: [...phase.checks, manifestIntegrityCheck(RESEARCH_TRANSFER_CHECK_ID, produced)] };
+}
 export function sessionFileManifest(files: SessionFile[]): { path: string; sha256: string }[] {
   return files.map(file => ({ path: file.path, sha256: digest(file.bytes) }));
 }
@@ -351,9 +362,7 @@ export class GeneralAgentSession {
             binding: { snapshot, snapshotSha256: checkpoints.fingerprint(snapshot), files: sessionFileManifest(outcome.files), summary: outcome.summary } });
           produced = outcome.files;
         }
-        privatePhase = { ...privatePhase, contract: { ...privatePhase.contract, goal: `${privatePhase.contract.goal}\n${researchWriteInstructions()}`,
-          requiredChecks: [...privatePhase.contract.requiredChecks, RESEARCH_TRANSFER_CHECK_ID] },
-          files: [...privatePhase.files, ...produced], checks: [...privatePhase.checks, manifestIntegrityCheck(RESEARCH_TRANSFER_CHECK_ID, produced)] };
+        privatePhase = researchTransferPhase(privatePhase, produced);
       }
       this.context(privatePhase, privateContextId, options.publicInputApproval ? "public" : "private", lineage);
       const privateResult = await runPhase(privatePhase, privateContextId, privateModel, options.publicInputApproval?.webDestinations,

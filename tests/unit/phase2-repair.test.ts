@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { PrivateAgentBroker, type BrokerDestination } from "../../src/main/private-agent/broker";
 import { digest } from "../../src/main/private-agent/contracts";
 import { CRITIC_PURPOSE, CRITIC_SYSTEM_PROMPT, REPAIR_CRITIQUE_PATH, REPAIR_INSTRUCTIONS, REPAIR_PACKET_MAX_BYTES, boundedUtf8, buildRepairPacket,
-  loadRepairDirectory, repairDraftPaths, repairMatchesRun, selfCheckFromEvents, withRepair, type RepairBinding } from "../../src/main/private-agent/repair";
+  loadRepairDirectory, repairDraftPaths, repairMatchesRun, repairSeedMatches, selfCheckFromEvents, withRepair, type RepairBinding } from "../../src/main/private-agent/repair";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import type { SessionPhase } from "../../src/main/private-agent/session";
 import { loadFailedRun, parseCritiqueArguments, runCritique } from "../../scripts/phase2-repair";
@@ -82,10 +82,17 @@ describe("Phase 2 repair pair: packet and seeding", () => {
     const record = { ...binding(), finishReason: "stop", usage: null, servedModel: "gpt-6-sol", feeMicrousd: 16_400, requestShape: "openai_responses", proxyFakeIp: true };
     writeFileSync(join(dir, "critique.json"), JSON.stringify(record));
     expect(loadRepairDirectory(dir).binding).toEqual(binding());
-    for (const bad of [{ requestShape: "chat" }, { proxyFakeIp: false }, { unexpected: 1 }]) {
+    for (const bad of [{ requestShape: "chat" }, { proxyFakeIp: false }, { unexpected: 1 }, { researchSnapshotSha256: "short" }]) {
       writeFileSync(join(dir, "critique.json"), JSON.stringify({ ...record, ...bad }));
       expect(() => loadRepairDirectory(dir)).toThrow();
     }
+    // H4: a draft written from an evidence packet names that packet beside the binding, and a repair is seeded with the same packet or none.
+    writeFileSync(join(dir, "critique.json"), JSON.stringify({ ...record, researchSnapshotSha256: h("5") }));
+    const seededCritique = loadRepairDirectory(dir);
+    expect(seededCritique.researchSnapshotSha256).toBe(h("5")); expect(seededCritique.binding).toEqual(binding());
+    expect(repairSeedMatches(seededCritique, { snapshotSha256: h("5") })).toBe(true);
+    expect(repairSeedMatches(seededCritique, { snapshotSha256: h("6") })).toBe(false); expect(repairSeedMatches(seededCritique, undefined)).toBe(false);
+    expect(repairSeedMatches({}, undefined)).toBe(true); expect(repairSeedMatches({}, { snapshotSha256: h("5") })).toBe(false);
     writeFileSync(join(dir, "critique.json"), JSON.stringify({ ...binding(), finishReason: "stop", usage: null, servedModel: null, feeMicrousd: 0 }));
     rmSync(join(dir, "draft", "output", "report.md")); writeFileSync(join(dir, "outside.md"), "draft report");
     symlinkSync(join(dir, "outside.md"), join(dir, "draft", "output", "report.md"));
@@ -94,7 +101,7 @@ describe("Phase 2 repair pair: packet and seeding", () => {
 });
 
 describe("Phase 2 repair pair: the failed run and the critic", () => {
-  function failedRun(deployment = "synthetic_only_unverified_for_private_data", jobSha256 = h("1"), extra: Record<string, unknown> = {}) {
+  function failedRun(deployment = "synthetic_only_unverified_for_private_data", jobSha256 = h("1"), extra: Record<string, unknown> = {}, events: Record<string, unknown>[] = []) {
     const dir = mkdtempSync(join(tmpdir(), "soar-repair-run-")); cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
     writeFileSync(join(dir, "freeze.json"), JSON.stringify({ taskBinding: { jobSha256, briefSha256: h("7") }, deployment, profile: "heavy", claimsLedger: true,
       arm: { arm: "local" }, publicPhaseSha256: null, ...extra }));
@@ -103,8 +110,8 @@ describe("Phase 2 repair pair: the failed run and the critic", () => {
     writeFileSync(join(dir, "candidate", "output", "report.md"), "draft"); writeFileSync(join(dir, "candidate", "output", "claims.json"), "{}");
     const db = new Database(join(dir, "state.sqlite"));
     db.exec("CREATE TABLE private_agent_events (job_id TEXT, sequence INTEGER, value TEXT)");
-    db.prepare("INSERT INTO private_agent_events VALUES (?, ?, ?)").run("j", 1, JSON.stringify({ type: "tool_started", operationId: "o", name: "finish" }));
-    db.prepare("INSERT INTO private_agent_events VALUES (?, ?, ?)").run("j", 2, JSON.stringify({ type: "tool_finished", operationId: "o", output: "{\"complete\":true}" }));
+    const rows = [{ type: "tool_started", operationId: "o", name: "finish" }, { type: "tool_finished", operationId: "o", output: "{\"complete\":true}" }, ...events];
+    rows.forEach((row, index) => db.prepare("INSERT INTO private_agent_events VALUES (?, ?, ?)").run("j", index + 1, JSON.stringify(row)));
     db.close();
     return dir;
   }
@@ -116,9 +123,17 @@ describe("Phase 2 repair pair: the failed run and the critic", () => {
     expect(() => loadFailedRun(failedRun(), { ...task, jobSha256: h("2") }, ["output/report.md"])).toThrow("repair_source_task_mismatch");
     expect(() => loadFailedRun(failedRun(), { ...task, briefSha256: h("2") }, ["output/report.md"])).toThrow("repair_source_task_mismatch");
     expect(() => loadFailedRun(failedRun("private"), task, ["output/report.md"])).toThrow("repair_source_not_synthetic");
-    // Only an L-Heavy draft: never a cloud run, a Standard run or an earlier repair; never a run with a public phase.
+    // Only a locally written heavy draft: never a cloud-written run, a Standard run or an earlier repair; never a run with a public phase.
     for (const extra of [{ arm: { arm: "cloud" } }, { profile: "standard" }, { repair: { version: 1 } }]) expect(() => loadFailedRun(failedRun(undefined, h("1"), extra), task, ["output/report.md"])).toThrow("repair_source_not_l_heavy");
     expect(() => loadFailedRun(failedRun(undefined, h("1"), { publicPhaseSha256: h("8") }), task, ["output/report.md"])).toThrow("repair_source_public_phase_unsupported");
+    // H4: a pipeline run's writer is local even on the split arm (its freeze says arm cloud for the planner), and its packet travels with the draft; so does a seeded run's.
+    const pipeline = { name: "research", version: 3, protocolSha256: h("3"), budget: {}, planner: "cloud", writer: "local" };
+    const split = loadFailedRun(failedRun(undefined, h("1"), { arm: { arm: "cloud" }, pipeline }, [{ type: "research_transfer", binding: { snapshotSha256: h("4"), files: [] } }]), task, ["output/report.md"]);
+    expect(split.researchSnapshotSha256).toBe(h("4"));
+    const seeded = loadFailedRun(failedRun(undefined, h("1"), { pipeline: { ...pipeline, seededFrom: "job-a" }, researchFrom: { version: 1, snapshotSha256: h("5") } }), task, ["output/report.md"]);
+    expect(seeded.researchSnapshotSha256).toBe(h("5"));
+    expect(loadFailedRun(failedRun(), task, ["output/report.md"]).researchSnapshotSha256).toBeUndefined();
+    expect(() => loadFailedRun(failedRun(undefined, h("1"), { arm: { arm: "cloud" }, pipeline: { ...pipeline, writer: "cloud" } }), task, ["output/report.md"])).toThrow("repair_source_not_l_heavy");
   });
   it("sends one tool-less critic request with the fixed prompt and the packet, and returns the critique", async () => {
     const bodies: string[] = [];

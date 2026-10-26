@@ -23949,3 +23949,560 @@ References: BL-20261026-1621-research-pipeline-planner-budget,
 BL-20261026-1605-h3-dry-run-split-verified,
 BL-20261026-0743-h3-dry-run-split-blocked-by-docker,
 BL-20261022-0834-phase4-division-of-labour-design.
+
+### BL-20261026-1831-h4-select-and-repair-design -- 2026-10-26 -- H4 design: the local select-and-repair loop around the write phase, research samples that share one evidence packet, and an OOXML validity check for decks
+
+Status: `Proposed`
+
+Scope or hypothesis: H4 of BL-20261022-0834-phase4-division-of-labour-design,
+approved by BL-20261022-0940-phase4-harness-approved: "two local samples, a
+host-checked selection, one local critique and one local repair from the
+identical draft", plus "an OOXML validity check in the qualified image" for
+the deck family. This entry fixes the implementation shape the code in this
+PR follows; its `Implemented` entry lists the tests. Hypotheses, each with its
+Phase 2 evidence: (1) a second local sample recovers a share of local
+failures (at least one local sample was accepted on 8 of 12 Phase 2 tasks,
+BL-20261019-0838, restated in BL-20261022-0834); (2) a local critique and a
+local repair of the chosen draft recover more (4 of 6 rejected drafts under
+the local critic at zero fee, BL-20261019-0838); (3) the deck defects
+PowerPoint repaired are mechanical and detectable from the XML
+(BL-20261019-0431). On the one family H5 measures, research, hypothesis (1)
+has no Phase 2 support: no local research sample was accepted on either
+seed (BL-20261019-0432's family table, "research 0/3, 0/3, 3/3"), so the
+loop's expected gain there rests on the pipeline (H2b, H2c) and on the
+repair, not on the variance finding. Started on the owner's request of
+2026-10-27 (local date), "find out where the project is standing and do the
+next steps", under the standing instruction of 2026-10-06 to move on to the
+next milestone; the three fresh research tasks are to be authored by a
+separate session that had not started at this writing, and this session
+has read no fresh-task input or gold. Three refuters reviewed a first draft
+of this entry against the runtime (32 findings, each then verified by a
+second agent: 27 held), and three reviewers then read the implementation
+against this text and the code (30 findings on the first implementation, each given to a second agent to refute; of the 29 verdicts recorded before the session was interrupted, 16 held and 13 were refuted because the worktree already carried the fix when the verifier read it, and the one finding left without a verdict, the resumed loop's clock, was applied as well); what both changed is in the
+decisions below.
+
+Decisions:
+
+- **Shape: a driver-level loop over complete runs, not a new session
+  stage.** The loop (`scripts/phase4-loop.ts`, `--select-and-repair`) takes
+  the driver's own flags and refuses a cloud writer without the research
+  pipeline (the all-cloud arm is a single run, never a loop) and any
+  profile but heavy (the only profile the critique accepts); it runs
+  the existing headless driver three times and the existing critic once,
+  each in its own run directory under one loop directory: sample `a`,
+  sample `b`, a critique of the selected sample, and a repair run seeded
+  from the identical selected draft with the critique as untrusted advice
+  (`--repair-from`, as in BL-20261007-1522). Every sample is a complete run
+  with its own job, freeze, result, event ledger and `candidate/` tree, so
+  the registry row script, the gold scorer and the blind bundles work on it
+  unchanged, and the critique tool works on it with the one change to its
+  source acceptance described below. The write phase (contract, files and
+  checks) is byte-identical between the two samples; a sample's job id (and
+  so its cache salt), its freeze and its session identity differ, and its
+  output differs through the model's sampling under the heavy profile
+  (temperature 1, top-p 0.95, thinking on).
+- **Research samples share one evidence packet, and a loop pays for one
+  reading stage.** The reading stage (H2b: index, plan, extraction,
+  synthesis; H3's cloud planner and synthesiser on the split arm) runs
+  once, in sample `a`, under sample `a`'s own fee cap (USD 0.60 on the
+  split arm, which covers the stage's at most two planner and two
+  synthesiser calls under its retry budget). Sample `b` and the repair run
+  start with `--research-from <a>`: the driver loads the `research_transfer`
+  event from the source run's ledger, reloads the transferred files from
+  the source run's content-addressed checkpoints, verifies the manifest
+  and the snapshot fingerprint, and builds the write phase with the one
+  host function the session itself now calls after its own stage
+  (`researchTransferPhase`, exported from `session.ts`: the same goal
+  appendix, the same pinned files and the same
+  `research_transfer_integrity` check), so the write phase of `b` is
+  byte-identical to the write phase of `a`; the loop compares the private
+  contexts' started identities and records whether they agree. A seeded
+  run is launched as a local run: no `--pipeline`, no `--arm cloud`, policy
+  mode `private`, fee cap 0, the owned local model as its only model
+  destination, and the driver passes no `research` option to the session,
+  so no stage runs again. The driver refuses a source whose task binding
+  or whose pipeline name, version, protocol hash or budget differs from
+  the current code's, so a packet can never cross a protocol change (the
+  H5 freeze rule applied to the seed); the planner is carried from the
+  source, not compared. It also refuses a seeded source (the lineage is one
+  hop and names the stage's own job). The seeded run's freeze records
+  `researchFrom` (the source job id, the SHA-256 of the source freeze file's
+  bytes as written, the transfer's snapshot fingerprint and file manifest)
+  and carries the source's `pipeline` block with `seededFrom`, so a registry
+  row still names the pipeline and its planner while counting no reader
+  calls of its own. **If sample `a`'s stage leaves no packet, the loop ends
+  there** with `a`'s failure and cause (`stage_failed`): no second stage is
+  run on either arm, so a split-arm loop never pays for a second plan and
+  the per-loop cloud fee is bounded by sample `a`'s cap, exactly as H5's
+  per-run cap and its "stopped at its fee cap counts as rejected" rule
+  assume. For H5 a counted run on the all-local and split arms is one loop.
+- **Selection is host-checked and deterministic** (`selection.ts`,
+  `SELECTION_PROTOCOL_VERSION` 1). A run is summarised from its
+  `result.json`, `freeze.json` and ledger into counts and digests only, and
+  two candidates are ordered by, in this order: (1) submitted before not
+  submitted (`result.status`); (2) more critical checks passed at the last
+  verification the run recorded, counted only when that verification
+  covered the run's final snapshot: a completion or an allowance validation
+  records the fingerprint it verified, and a finish result is written
+  atomically after a checkpoint of the files it verified, so a later edit
+  after a failed finish makes that count stale and it counts as 0 of 0;
+  (3) more deliverables present and non-empty under `candidate/`; (4)
+  research only, the entailment balance rate over judged claims (supported
+  minus unsupported and contradicted, divided by judged), a local judge's
+  verdicts used as host-recorded evidence and never as acceptance, applied
+  only when neither pass was truncated, each judged at least 10 claims and
+  the rates differ by at least 0.10 (the rate, not the count, so a longer
+  ledger earns nothing; the margin, so a temperature-1 judge's noise
+  decides nothing; a ledger holds at most 40 claims and every sample's
+  pool leaves at least 52 requests for the pass, so the two passes are not
+  starved differently); (5) a fixed tie-break: sample `a` over `b`, and the
+  repair over the draft it repaired. Stage 1 picks between `a` and `b`;
+  stage 2 picks between the selected draft and its repair. The tie-break
+  towards the repair is a decision, not a measurement: a repair keeps what
+  the critique left alone and fixes what it named, and the Phase 2 pair had
+  no case of a repair regressing an accepted draft because only rejected
+  drafts were repaired. Every non-selected candidate stays in the loop
+  directory, so a later blind grading can score the selection rule itself
+  (not pre-registered here).
+- **The critique and the repair are the Phase 2 pair, local only.** The
+  critique tool accepts a source run whose draft the local model wrote:
+  an L-Heavy run as before, and now a pipeline run whose freeze names a
+  local writer (the split arm's freeze says `arm: cloud` for its planner)
+  or a seeded run. It still refuses an earlier repair, a cloud-written
+  draft, a Standard-profile run and a run with a public phase. The critic
+  prompt, its 16,384-token cap and the binding are unchanged (prompt version
+  1); beside the binding the critique record now names the packet the draft
+  was written from (the source run's transfer fingerprint, or its seed's),
+  and the driver refuses a `--repair-from` whose packet is not the
+  `--research-from` seed's, or a research draft repaired without a seed
+  (`local_screen_repair_seed_mismatch`). The repair's phase is built as the
+  claims ledger, then the packet (`researchTransferPhase`), then the
+  repair (`withRepair`), so its contract is `a`'s write contract with the
+  repair instruction appended and its files are `a`'s write files plus the
+  draft and the critique; the packet lives under `context/research/` and
+  the draft under `output/`, so no path overlaps.
+- **What the loop writes.** `loop.json`: the loop version, the selection
+  rule version, the runtime freeze hash the samples ran under (which now
+  covers `scripts/phase4-loop.ts` and `scripts/phase2-repair.ts`, so a
+  sample refuses to run if the loop or the critique tool changed), per
+  candidate the run's status, terminal cause, checks passed of required
+  and whether they were current, deliverables present of required,
+  entailment counts and truncation, the private context's started
+  identity, model and tool calls, token sums, settled fees, dispatch
+  statuses, the candidate manifest's digest and the freeze and result file
+  digests (SHA-256 of the file bytes as written, the repair binding's
+  convention, which differs from result.json's `freezeSha256` of the
+  canonical object); the critique's packet and critique digests, its one
+  model call, usage and fee; the stage-1 and final choices with the rule
+  step and the entailment rates that decided each; the seed's fingerprint;
+  stage start and end times with whether a stage was reused. No model
+  text, path outside the loop directory, prompt or output enters it: a
+  failure is recorded as a code (a thrown message that is not a code is
+  replaced by `loop_failed` or `repair_critique_failed`, because the
+  driver's loader can throw a message carrying a host path). A loop
+  resumes at stage granularity: a stage whose directory holds its result
+  is reused with the times it was first recorded with, after its freeze
+  is checked to be this loop's (the same task binding and reviewed-source
+  hash, sample `b` and the repair seeded from `a`'s own packet, the repair
+  started from the chosen draft, the critique a critique of the chosen
+  draft on this packet; otherwise `loop_stage_mismatch`); a stage directory
+  without a result is refused (`loop_stage_incomplete`) and the operator
+  moves it aside, as the driver's own write-once directories require; the
+  loop's start is kept across resumes. An interrupt (SIGINT or SIGTERM)
+  ends the loop after the running stage with `loop_interrupted` and
+  starts nothing more; the interrupted sample still leaves a result (the
+  driver's guard writes one with the settled dispatches), so its fees stay
+  in the sum, and a rerun continues from it. A critique that fails ends
+  the loop with the stage-1 choice as its result and the failure code
+  recorded, together with the call's usage and fee when the critic
+  answered (an empty reply at the cap is a completed call); a loop that
+  has chosen, by any route, is terminal: its record refuses a rerun
+  (`loop_terminal`) and any retry is a new loop directory and a new
+  registry row. The loop never retries a model call on its own, and it
+  exits like the driver: 0 only when its deliverable is a submitted run.
+- **The registry row of a loop.** `registry-row.py --loop-dir` sums the
+  per-run counts of the loop's runs with the script's existing per-run
+  logic (model and tool calls, tokens, cached and written tokens, fees,
+  dispatch statuses), adds the critique's one model call, usage and fee
+  from the critique tool's own record (`critique.json`, or
+  `critique-failure.json` for a critique the critic answered and the tool
+  refused), takes status, terminal cause, task binding, pipeline and
+  entailment from the selected run, wall seconds from the earliest start
+  to the latest end over the loop's runs and its own record (so a resumed
+  loop is not timed from its rerun), and adds a `loop` block (version, rule,
+  samples, repaired, seeded, stage1, selected, step, critiqued,
+  critiqueFailure, writeIdentityEqual, candidates), where `candidates` holds every
+  sample's own status and terminal cause, so the plan's harness-terminal
+  rate is computed per sample from the committed record and not from the
+  selected run alone. The H5 arms "all-local with H1, H2 and H4" and "split
+  with H1-H4" are loops, so their rows are loop rows; the all-cloud arm
+  stays a single run and its row is unchanged.
+- **Deck validity check (`deck_ooxml_validity`, version 1).** A host-owned
+  standard-library Python check added by the driver to every task whose
+  required artifacts include a `.pptx`, run in the qualified image's
+  verifier beside the other finish checks, inside the verifier's bounds
+  (one `python3 -I -c` command of at most 64 KiB and 90 seconds per check;
+  the script is 9.5 KB, checks the six Phase 2 decks in 0.14 s on the
+  host, bounds each problem's detail to 200 characters and its whole
+  output to 64 KiB, under the sandbox's 256 KiB stdout cap). For each
+  deck it verifies: the zip opens and tests clean, no entry name appears
+  twice (part names compared without case, as the package convention
+  defines them; a chart patched in place with Python's append mode leaves
+  two entries and Office reads one of them); every part has a content type
+  (default by extension or override by part name; an override with an
+  empty type is a missing type) and every override names an existing
+  part; every relationship file parses, every internal relationship
+  resolves to an existing part, and a relationship typed as a slide or a
+  chart targets a part of that content type (a chart typed as plain XML
+  is not a chart to Office); every XML part is well-formed; the
+  presentation lists at least one slide, its slide ids are unique and
+  each slide relationship resolves to a slide part; in every XML part,
+  every `a:off` and `a:chOff` carries integer `x` and `y` and every size
+  `a:ext` and `a:chExt` non-negative integer `cx` and `cy` (an `a:extLst`
+  extension element, which shares the `a:ext` tag but carries a `uri` and
+  no size, is not a coordinate and is skipped); and in every chart part,
+  every `c:dLblPos` inside a chart group carries a value Office accepts
+  for that group: pie, 3D pie and pie-of-pie `bestFit`, `ctr`, `inEnd`,
+  `outEnd`; clustered bar (also a bar group without a `grouping` element,
+  whose default is clustered, and the `standard` arrangement, checked as
+  clustered) `ctr`, `inBase`, `inEnd`, `outEnd`; stacked and
+  percent-stacked bar `ctr`, `inBase`, `inEnd`; line, scatter, bubble and
+  stock `ctr`, `l`, `r`, `t`, `b`; area, 3D area, 3D bar, 3D line, doughnut
+  and radar none at all. An entry the zip library cannot read (an
+  encrypted or unsupported one) fails the deck as unreadable rather than
+  ending the script. The table is Microsoft's implementer
+  note for ISO/IEC 29500 §21.2.2.48 (MS-OI29500, read 2026-10-27). That
+  note exempts a position outside a `c:ser` element; the value lists are
+  applied at both levels anyway, because k2 L-Heavy-2's `outEnd` sat at
+  chart level and PowerPoint for Mac repaired it (BL-20261019-0431), while
+  the "none at all" row is applied inside `c:ser` only, where Office states
+  it and where the one Phase 2 observation does not reach. **Measured on
+  the six Phase 2 decks (local, ignored) with the check's own script**
+  (`DECK_CHECK_SHA256`
+  `0fdcf2591c745f9f1dadadfa7e439a27e28bd174d09c83ab91b17e071be2a202`): the
+  three PowerPoint repaired fail with the expected codes (k1 L-Heavy-1:
+  `coordinate_not_integer` on five slides, two elements each, such as
+  `y="1.5"` and `cy="5.4"`; k2 L-Heavy-2: `data_label_position_invalid` for
+  `outEnd` on its line chart; k2 C-Sol: the same code for `t` on four
+  clustered bar charts) and the three that opened clean pass, including k1
+  C-Sol's chart-level `outEnd` on a bar chart, which is valid. This
+  reconciles BL-20261019-0431's "five bar charts use `t`": the deck holds
+  `t` on four clustered bar charts carrying five bar series (one chart has
+  two) and once on a line chart, where it is valid; the four blank slides
+  match the four bar charts. None of the six decks contains an `a:extLst`
+  extension, so the Phase 2 scan could not expose that false alarm; a
+  review found it and a fixture now covers it, as fixtures cover the
+  duplicate entry, the mis-typed chart, the empty override, a slide
+  stored outside `ppt/`, the `standard` bar arrangement and the
+  case-insensitive override that a second review built against the first
+  implementation. The agent gets the same script as a supplied workspace
+  copy (`review/soar_deck_check.py`, not digest-pinned) with an
+  instruction to run it before finish and fix what it prints, because the
+  runner's finish result names only the failing check id; run without a
+  path the copy prints a usage line and exits 2 rather than an empty
+  pass; the host check embeds its own copy and never reads the workspace
+  file. The freeze records `deckCheck: { version: 1, paths }`.
+- **What the deck check is not.** It is not a schema validator: element
+  order, enumerations other than `c:dLblPos`, duplicate series indices and
+  the universal-measure form of a coordinate (`"1in"`, valid in the
+  schema, refused here as stricter) are not covered, and PowerPoint may
+  repair a deck this check passes. It targets the three defect classes
+  Phase 2 produced and the structural faults any OOXML consumer refuses.
+  Word and Excel outputs are not checked (every Phase 2 Word document
+  opened clean).
+- **Routing is recorded, not implemented.** The approved design sends
+  document review, decks and websites to the no-cloud route with this loop
+  and keeps admin and coding on the cloud route; that routing lives in the
+  owner build and is a later entry. This entry changes nothing in the
+  desktop or the owner build; the loop is reachable from the headless
+  driver only.
+- **Budgets and time.** Each sample keeps the heavy profile's own contract
+  budget (80 model calls, 120 tool calls, 90 minutes) and request pool
+  (200); a seeded run has no reader and uses at most the writer's share.
+  A loop is therefore three write phases, one reading stage and one
+  critique: about three to four times a single sample's wall time, as the
+  design entry projected, and zero cloud fee on the all-local arm.
+
+Changes: this entry; implementation and tests follow in the same PR under
+an `Implemented` entry: `src/main/private-agent/selection.ts`, `ooxml.ts`
+and `research-seed.ts` (new), `session.ts` (the exported
+`researchTransferPhase`, now the session's own path), `repair.ts` (the
+packet beside the binding), `scripts/private-agent-local-screen.ts`
+(`--research-from`, the deck check, the seed and repair binding, the
+freeze list), `scripts/phase2-repair.ts` (source acceptance, the packet
+record), `scripts/phase4-loop.ts` (new), `scripts/registry-row.py`
+(`--loop-dir`), `docs/experiments/README.md`.
+
+Evidence: BL-20261019-0838 and BL-20261022-0834 (the variance finding),
+BL-20261019-0432 (the family table), BL-20261019-0838 (the repair pair),
+BL-20261019-0431 (the three repaired decks and their XML), BL-20261022-0834
+(H4 and H5 as approved), the six Phase 2 decks under the ignored
+experiment tree (run through the check's script on 2026-10-26 UTC, codes
+and counts above), MS-OI29500 §21.2.2.48 as read on 2026-10-27, `session.ts`,
+`runner.ts`, `repair.ts`, `scripts/phase2-repair.ts` and
+`scripts/private-agent-local-screen.ts` at 493a7a7, and the refuters'
+findings on the first draft (kept in the session, not committed).
+
+Failures or blockers: None at design time. Live loops need the box (an
+owner-declared idle window or the review that follows the real week); the
+split-arm loop on r3 needs the owner's key as before.
+
+Limitations and non-claims: the selection rule separates a submitted draft
+from an unsubmitted one and a draft that passes more host checks from one
+that passes fewer; two submitted drafts that pass every check are
+separated only by the research entailment rates within their margin or by
+the fixed tie-break, so the rule harvests the variance finding mainly
+through failures to submit and check failures, not through grader-visible
+quality. On research, samples `b` and the repair write from `a`'s packet,
+so a poor packet or synthesis bounds all three candidates on both loop
+arms (the failure mode H5's rule S3 names) and the second sample
+re-samples the write phase only. Whether the loop lifts acceptance is what
+H5's all-local and split arms measure; this entry claims no result. The
+deck check's table reflects Office's rules as Microsoft states them and one
+observed exception; nothing here was opened in PowerPoint by this session.
+The critic's 16,384-token cap and prompt are the Phase 2 ones; they were
+not re-tuned.
+
+Paid exposure: USD 0.
+
+Next gate: the `Implemented` entry with tests; then, in an owner-declared
+idle window, one all-local loop on a Phase 2 deck task (exposed, zero fee)
+to exercise the deck check live and one split-arm loop on r3 (at most USD
+0.60, the H3 dry-run sub-line) to exercise the shared packet; then H5 on
+the fresh tasks.
+
+References: BL-20261022-0834-phase4-division-of-labour-design,
+BL-20261022-0940-phase4-harness-approved,
+BL-20261019-0432-phase2-result-provisional,
+BL-20261019-0838-phase2-repair-pair-and-close,
+BL-20261019-0431-office-render-check,
+BL-20261007-1522-phase2-harness-implemented,
+BL-20261025-1242-h2b-h2c-research-pipeline-design,
+BL-20261026-1621-research-pipeline-planner-budget.
+
+### BL-20261026-1832-h4-select-and-repair-implemented -- 2026-10-26 -- H4 implemented: the select-and-repair loop, research samples seeded from one packet, the deck OOXML check (3 of 3 repaired Phase 2 decks refused, 3 of 3 clean decks passed); tested with fakes, no box run
+
+Status: `Implemented`
+
+Scope or hypothesis: the code for the previous entry
+(BL-20261026-1831-h4-select-and-repair-design), on branch
+`phase4-h4-select-repair` off main at 493a7a7. No request has reached the
+box or the cloud: everything below is deterministic tests against fakes,
+plus the deck check run on real files (the six Phase 2 decks, which are
+local and ignored, and decks python-pptx generated inside the qualified
+image). The entry says what those demonstrate and what they do not.
+
+Decisions:
+
+- **Modules.** `src/main/private-agent/ooxml.ts`: the check
+  (`deck_ooxml_validity`, version 1) as a standard-library Python raw
+  literal with its parameters as base64 JSON, the supplied workspace copy
+  (`review/soar_deck_check.py`, the same script reading its paths from the
+  command line and running where it is), the instructions and
+  `withDeckValidity`, which leaves a phase without a `.pptx` deliverable
+  untouched. `selection.ts`: `compareCandidates` (rule version 1, with the
+  entailment rate, its margin and its minimum judged count as named
+  constants) and `summarizeRun`, which reads a run's `result.json`,
+  `freeze.json` and ledger into counts and digests only and marks a check
+  count stale when its verification did not cover the final snapshot.
+  `research-seed.ts`: `loadResearchSeed` (task binding, synthetic
+  deployment, a one-hop lineage, the pipeline block equal to the current
+  code's version, protocol hash and budget, the transfer's snapshot
+  fingerprint and manifest; the ledger and the checkpoints read inside
+  the run directory only, never through a symlink, and a run without its
+  checkpoints refused rather than written to), `researchTransferSnapshot`
+  and `researchTransferPresent`. `session.ts` exports `researchTransferPhase`
+  and calls it itself after the stage, so the session and the driver build
+  the write phase with one function. `repair.ts`: `repairSeedMatches` and
+  the packet fingerprint read back beside the binding.
+- **Driver.** `--research-from <run>` (requires the heavy profile and the
+  claims ledger; refused with the pipeline flag, the cloud arm, document
+  review or public retrieval; combines with `--repair-from`, the packet
+  seeded first and the draft second, and refused when the critique's
+  packet is not the seed's or a research draft comes without a seed:
+  `local_screen_repair_seed_mismatch`); the deck check applied to every
+  task with a `.pptx` deliverable; the freeze records `researchFrom`, the
+  source's `pipeline` block with `seededFrom`, and `deckCheck`; the
+  reviewed-source freeze now lists `scripts/phase4-loop.ts` and
+  `scripts/phase2-repair.ts`, so every run's runtime hash covers the loop
+  and the critique tool. The critique tool accepts a source run whose
+  freeze names a local writer (a pipeline run under either arm, or a
+  seeded run), still refuses a cloud-written draft, a Standard run, a
+  repair and a run with a public phase, records the packet the draft was
+  written from beside the binding, and returns its usage.
+- **Loop.** `scripts/phase4-loop.ts` with `--select-and-repair` and
+  `--loop-directory` before the driver's own flags (a cloud writer without
+  the pipeline and any profile but heavy refused as `loop_cli_invalid`):
+  stages `a`, `b`, `critique`, `repair`; on a research task `b` and the
+  repair are seeded from `a` and launched without the pipeline flag and
+  without the cloud arm, and the loop ends after `a` (`stage_failed`) when
+  `a` left no packet; no critique when the selected sample left no draft;
+  a failed critique ends the loop at the stage-1 choice with the code and,
+  when the critic answered, the call's usage and fee recorded; every
+  candidate, fresh or reused, is checked to be this loop's (task binding,
+  runtime hash, seed lineage, the repair's source draft, the critique's
+  source draft and packet; `loop_stage_mismatch`); stage reuse by result
+  marker with the first-recorded times and the loop's original start,
+  refusal of an unfinished stage directory (`loop_stage_incomplete`) and of
+  a loop that has already chosen (`loop_terminal`); an interrupt ends the
+  loop after the running stage (`loop_interrupted`); failures recorded as
+  codes only; exit 0 only for a submitted deliverable; `loop.json` and
+  `log.txt` with counts, digests, choices, steps, rates, the seed's
+  fingerprint, whether the two samples' write identities agree, the
+  critique's one call and usage, and timestamps, nothing else.
+  `registry-row.py --loop-dir` rows a loop, adds the critique's call,
+  usage and fee from the tool's own record (`critique.json` or
+  `critique-failure.json`), spans the loop from its earliest start to its
+  latest end over its runs, and carries every sample's own status and
+  terminal cause in the row's `loop` block; its single-run output is
+  byte-identical to the committed script's on the r3 protocol-v3 run
+  (checked 2026-10-26).
+- **Deck check, measured.** On the six Phase 2 decks (host `python3 -I`,
+  the script bytes the verifier runs, SHA-256
+  `0fdcf2591c745f9f1dadadfa7e439a27e28bd174d09c83ab91b17e071be2a202`, 9.5 KB,
+  0.14 s for all six, the largest 108 KB): k1 L-Heavy-1 fails
+  `coordinate_not_integer` on five slides (two elements each), k2
+  L-Heavy-2 fails `data_label_position_invalid` for `outEnd` on its line
+  chart (chart-level, which Microsoft's note exempts and PowerPoint for
+  Mac repaired), k2 C-Sol fails for `t` on four clustered bar charts (five
+  bar series; BL-20261019-0431 counted series); k1 C-Sol (chart-level
+  `outEnd` on a bar chart), k1 L-Heavy-2 and k2 L-Heavy-1 pass. Inside the
+  qualified image, decks python-pptx generates with clustered column, line,
+  stacked bar and pie charts, data labels at valid positions and a table
+  pass; the same deck with `outEnd` on the line chart fails with that code,
+  and the workspace copy prints the same problems as the host check. The
+  finish command for two decks is under a quarter of the sandbox's 64 KiB
+  command cap.
+- **Review before commit.** Three refuters (fidelity and process; runtime
+  feasibility; evaluation validity, the deck table and privacy) read the
+  first draft of the design entry against the runtime: 32 findings, each
+  then given to a second agent told to refute it; 27 held, 5 were refuted
+  (abandoned attempts falling out of the sum, since an interrupted sample
+  still writes its result; the session helper, which the session already
+  called; the freeze digest convention, now stated; the verifier bounds,
+  now stated; whether the check's own script was run on the six decks,
+  which it was). Applied in the design entry and here: no second reading
+  stage in a loop, so the split arm's loop cost is bounded by sample `a`'s
+  cap; stale check counts after a failed finish count as 0 of 0; the
+  entailment step uses a rate over judged claims with a margin and skips
+  truncated passes; the `a:extLst` extension element is not a coordinate
+  (the six decks contain none, so Phase 2 could not have shown it); the
+  "none at all" data-label row applies inside `c:ser` only; the repair's
+  draft is bound to the packet it was written from; the critique's call
+  joins the totals and the row; every sample's ending stays in the row;
+  the loop and critique scripts join the runtime freeze; the planner is
+  carried, not compared; the variance finding cited to the entries that
+  state it, with the research family's 0 of 6 said plainly; the k2 C-Sol
+  count reconciled with the owner's entry; "pinned" replaced by
+  "supplied"; the scope sentence dated and quoted. Then three reviewers
+  (contracts and host-side safety; the embedded Python and the row
+  script; fidelity to the design entry and the tests) read the
+  implementation: 30 findings on the first implementation, each given to a second agent to refute; of the 29 verdicts recorded before the session was interrupted, 16 held and 13 were refuted because the worktree already carried the fix when the verifier read it, and the one finding left without a verdict, the resumed loop's clock, was applied as well. Applied: the loop refuses a cloud
+  writer without the pipeline and any profile but heavy; an interrupt
+  ends the loop after the running stage; a loop that has chosen is
+  terminal by its record, not by a directory; a resumed loop keeps its
+  start and the reused stages' times, and the row spans every run;
+  reused stages are checked against the loop's task, runtime and lineage,
+  and a reused critique against the chosen draft and packet; failures are
+  recorded as codes, never messages; a failed critique's call is counted
+  when the critic answered; the exit code follows the driver's; the deck
+  check refuses a duplicate zip entry, a chart or slide whose
+  relationship type and content type disagree, an empty override, a
+  slide stored outside `ppt/` with a bad coordinate and a `standard` bar
+  arrangement with a bad label position, compares part names without
+  case, bounds its output, exits with a usage line when the workspace
+  copy is run without a path and reports an unreadable entry as a code;
+  the seed loader and the summariser read the ledger inside the run
+  directory only and create nothing in a source run.
+
+Changes: `src/main/private-agent/ooxml.ts`, `selection.ts`,
+`research-seed.ts` (new), `session.ts`, `repair.ts`,
+`scripts/private-agent-local-screen.ts`, `scripts/phase2-repair.ts`,
+`scripts/phase4-loop.ts` (new), `scripts/registry-row.py`,
+`docs/experiments/README.md`; tests `private-agent-ooxml` (new, with
+`tests/fixtures/ooxml/make_decks.py`), `private-agent-selection`,
+`private-agent-research-seed`, `phase4-loop`, `registry-row-loop` (new),
+`phase2-repair` (extended), `private-agent-deck-check` (new, Docker-gated);
+the design entry; this entry.
+
+Evidence: `vitest run` in the worktree under Node 22: 2,074 passed, 81 skipped, 0 failed (the five Node 26 failures earlier entries report do not occur under Node 22); the Docker-gated deck test 1 passed on the qualified image; `tsc` clean on both configurations; the readiness validator clean; the build-log validator clean against main. What the tests demonstrate: the 27 synthetic fixture
+decks (eight valid, among them a chart-level `outEnd` on a bar chart, a bar
+without a `grouping` element, `t` on a line chart, `bestFit` on a pie,
+`ctr` on a stacked bar, a chart-level `ctr` on an area chart, an override
+spelled in another case, and an `a:extLst` extension on every chart
+frame; nineteen defective, one per code, among them a duplicate entry, a
+chart without its override, an empty override, a slide outside `ppt/`,
+the `standard` bar arrangement with `t`, and a relationship target of
+300,000 characters whose report stays under 64 KiB) and the refusals of a
+missing deck, an escaping path and a run of the workspace copy without a
+path; the
+selection order on synthetic summaries, including a submitted draft
+beating an unsubmitted one that passes more checks, the rate separating
+two submitted drafts by at least the margin, and a margin inside the
+threshold, a truncated pass, too few judged claims or no pass all going to
+the first candidate; a run summarised from a real store (the last finish
+result's checks counted while they cover the final snapshot and 0 of 0
+once a later checkpoint supersedes them, the completion's checks and the
+entailment pass with its truncation flag after it, the private context's
+started identity, deliverables present by non-empty digest, usage summed
+over the write loop and the stage, fees and dispatch statuses, no path or
+text in the summary); the seed loaded from a real store and checkpoints
+and refused for another task, a non-synthetic run, a seeded source, a
+missing pipeline block or transfer, a protocol version, hash or budget
+that differs from the current code, tampered checkpoint bytes (the
+checkpoint store's own codes), a pruned checkpoints directory (refused,
+nothing created) and a symlinked ledger; the seeded phase identical to
+the session's own; a symlinked ledger refused by the summariser; the critique source
+acceptance of a split-arm pipeline run and a seeded run with the packet
+fingerprint read from the transfer or the seed, the critique record's
+packet field read back and refused when malformed, and the seed match
+rule; the loop's stage order, seeding and stripping of the stage and the
+cloud writer, the end after a failed stage with one run and no critique,
+the write-identity comparison, the stop without a draft, a failed
+critique counted when the critic answered and not otherwise, a raw
+message replaced by a code in the record and the log, the refusal of a
+rerun of any loop that chose, stage reuse with the first-recorded times
+and the kept start, refusal of an unfinished stage, refusal of a reused
+candidate from another task, runtime or packet, of a repair from the
+other draft and of a critique of the other sample after a re-sample, the
+interrupt that ends the loop after the running stage and the rerun that
+continues from it, the critique's usage in the totals, the record's
+contents, the exit code, the runtime freeze list naming the loop and the
+critique scripts, and the command lines of the loop and the driver
+including the refusals of a cloud writer without the pipeline and of a
+profile other than heavy; the loop row's sums with the critique's call,
+its span over a resumed loop, a failed critique's call from its failure
+record, the per-sample endings and the choice; the single-run row
+unchanged and the two modes exclusive. The Docker-gated test ran
+locally on the qualified image (1 passed). Both typechecks clean; the
+build-log validator passes against main.
+
+Failures or blockers: no live loop. The all-local deck loop and the
+split-arm research loop need the box, so they wait for an owner-declared
+idle window; the first live loop is also the first measurement of the
+loop's wall time.
+
+Limitations and non-claims: nothing is claimed about whether the loop
+lifts acceptance or about real model behaviour under the critique and
+repair; the fakes exercise the orchestration, not the models. The deck
+check's measured discrimination is six decks with three defect classes;
+the python-pptx decks cover the common way an agent makes a deck, not
+hand-written XML. Not covered by tests: an end-to-end seeded run against
+the owned server, the critique tool against a real pipeline run (its
+acceptance logic is unit-tested on synthetic freezes), the loop's
+production dependencies wired together, and the registry row of a real
+loop. The owner build is unchanged.
+
+Paid exposure: USD 0.
+
+Next gate: owner review of the PR; then, in an owner-declared idle window,
+one all-local loop on `k2-qbr-deck` (exposed, zero fee) and one split-arm
+loop on `r3-grid-batteries` (at most USD 0.60, sample `a`'s cap, the H3
+dry-run sub-line), each with a `Verified` entry and a loop row; then H5 on
+the fresh tasks once their manifest is merged.
+
+References: BL-20261026-1831-h4-select-and-repair-design,
+BL-20261022-0834-phase4-division-of-labour-design,
+BL-20261019-0431-office-render-check,
+BL-20261007-1522-phase2-harness-implemented,
+BL-20261026-1644-planner-budget-dry-run-verified.

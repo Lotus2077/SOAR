@@ -32,18 +32,23 @@ const SAFE_DRAFT_PATH = /^(output|review)\/[A-Za-z0-9._\- /]{1,230}$/u;
 
 export interface FailedRun {
   freeze: { taskBinding: { jobSha256: string; briefSha256: string }; deployment: string; profile?: string; claimsLedger?: boolean; documentReview?: boolean;
-    arm?: { arm?: string }; repair?: unknown; publicPhaseSha256?: string | null };
+    arm?: { arm?: string }; repair?: unknown; publicPhaseSha256?: string | null; pipeline?: { writer?: string }; researchFrom?: { snapshotSha256?: string } };
   freezeSha256: string; resultSha256: string; events: Record<string, unknown>[]; draft: SessionFile[];
+  /** H4: the evidence packet the draft was written from (a seeded run's `researchFrom`, or the stage's own transfer), so the repair is seeded with the same packet. */
+  researchSnapshotSha256?: string;
 }
 
-/** Reads a finished L-Heavy run of the same task (job and brief); refuses anything else: another task, a cloud or Standard run,
- * an earlier repair, a run with a public phase, or anything not synthetic-only. */
+/** Reads a finished run of the same task (job and brief) whose draft the local model wrote on the heavy profile: an L-Heavy run, or
+ * (H4) a research pipeline run whose freeze names a local writer, including one seeded from another run's packet. Refuses anything
+ * else: another task, a cloud-written or Standard run, an earlier repair, a run with a public phase, or anything not synthetic-only. */
 export function loadFailedRun(runDirectory: string, expected: { jobSha256: string; briefSha256: string }, requiredArtifacts: string[]): FailedRun {
   const freezeBytes = readFileSync(join(runDirectory, "freeze.json")), resultBytes = readFileSync(join(runDirectory, "result.json"));
   const freeze = JSON.parse(freezeBytes.toString("utf8")) as FailedRun["freeze"];
   if (freeze.taskBinding?.jobSha256 !== expected.jobSha256 || freeze.taskBinding?.briefSha256 !== expected.briefSha256) throw new Error("repair_source_task_mismatch");
   if (freeze.deployment !== "synthetic_only_unverified_for_private_data") throw new Error("repair_source_not_synthetic");
-  if ((freeze.arm?.arm ?? "local") !== "local" || freeze.profile !== "heavy" || freeze.repair !== undefined) throw new Error("repair_source_not_l_heavy");
+  // The split arm's freeze says `arm: cloud` for its planner while the writer stays local; the writer is what the critique reviews.
+  const localWriter = (freeze.arm?.arm ?? "local") === "local" || freeze.pipeline?.writer === "local";
+  if (!localWriter || freeze.profile !== "heavy" || freeze.repair !== undefined) throw new Error("repair_source_not_l_heavy");
   if (freeze.publicPhaseSha256) throw new Error("repair_source_public_phase_unsupported");
   const database = new Database(join(runDirectory, "state.sqlite"), { readonly: true, fileMustExist: true });
   let events: Record<string, unknown>[];
@@ -53,7 +58,10 @@ export function loadFailedRun(runDirectory: string, expected: { jobSha256: strin
   const draft = paths.filter(path => SAFE_DRAFT_PATH.test(path) && existsSync(join(runDirectory, "candidate", path)))
     .map(path => ({ path, bytes: readFileSync(join(runDirectory, "candidate", path)) }));
   if (!draft.length) throw new Error("repair_source_has_no_draft");
-  return { freeze, freezeSha256: digest(freezeBytes), resultSha256: digest(resultBytes), events, draft };
+  const transfer = events.find(event => event.type === "research_transfer") as { binding?: { snapshotSha256?: unknown } } | undefined;
+  const researchSnapshotSha256 = freeze.researchFrom?.snapshotSha256 ?? (typeof transfer?.binding?.snapshotSha256 === "string" ? transfer.binding.snapshotSha256 : undefined);
+  if (researchSnapshotSha256 !== undefined && !/^[a-f0-9]{64}$/u.test(researchSnapshotSha256)) throw new Error("repair_source_research_invalid");
+  return { freeze, freezeSha256: digest(freezeBytes), resultSha256: digest(resultBytes), events, draft, ...(researchSnapshotSha256 ? { researchSnapshotSha256 } : {}) };
 }
 
 /** Text files as they are; office files and PDFs rendered to text by the host-owned renderer in the qualified image. */
@@ -110,8 +118,9 @@ export async function critique(input: CritiqueArguments) {
   if (input.critic === "cloud" && (!input.cloudArm || !(input.cloudArm.maxFeeUsd > 0 && input.cloudArm.maxFeeUsd <= CRITIC_MAX_FEE_USD))) throw new Error("repair_cloud_critic_invalid");
   const cloud = input.critic === "cloud" ? buildCloudArm(input.cloudArm!, process.env, heavy) : undefined;
   const destination = cloud ? cloud.destination : local, modelConfig = cloud ? cloud.modelConfig : localConfig;
-  // The network posture is recorded beside the binding, never in it, so the binding identity is unchanged.
-  const proxyRecord = { requestShape: modelConfig.api ?? "vllm", ...(cloud?.destination.proxyFakeIp ? { proxyFakeIp: true as const } : {}) };
+  // The network posture and (H4) the packet the draft was written from are recorded beside the binding, never in it, so the binding identity is unchanged.
+  const proxyRecord = { requestShape: modelConfig.api ?? "vllm", ...(cloud?.destination.proxyFakeIp ? { proxyFakeIp: true as const } : {}),
+    ...(run.researchSnapshotSha256 ? { researchSnapshotSha256: run.researchSnapshotSha256 } : {}) };
   const directory = resolve(input.outputDirectory);
   mkdirSync(directory, { mode: 0o700 });
   const database = new Database(join(directory, "state.sqlite"));
@@ -138,7 +147,7 @@ export async function critique(input: CritiqueArguments) {
     write("critique.md", answer.text);
     for (const file of run.draft) write(join("draft", file.path), file.bytes);
     write("critique.json", `${canonical({ ...binding, finishReason: answer.finishReason, usage: answer.usage, servedModel: answer.servedModel, feeMicrousd: answer.feeMicrousd, ...proxyRecord })}\n`);
-    return { binding, feeMicrousd: answer.feeMicrousd, finishReason: answer.finishReason };
+    return { binding, feeMicrousd: answer.feeMicrousd, finishReason: answer.finishReason, usage: answer.usage };
   } finally { database.close(); }
 }
 

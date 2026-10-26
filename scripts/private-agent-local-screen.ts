@@ -20,7 +20,7 @@ import { loadRepairDirectory, repairMatchesRun, withRepair } from "../src/main/p
 import { buildPublicRetrievalPhase, loadPreparedOperatorTask, selectPreparedPublicInputs, startControlledSnapshotReceiver,
   type PreparedOperatorTask } from "./private-agent-run";
 import { localStreamSettings } from "../src/main/liveness";
-import { RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchProtocolSha256 } from "../src/main/private-agent/research-pipeline";
+import { RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, RESEARCH_SPLIT_MAX_FEE_USD, researchProtocolSha256 } from "../src/main/private-agent/research-pipeline";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
 /** Cap on one assembled reply from the owned model. */
@@ -393,6 +393,9 @@ export function parseLocalArtifactScreenArguments(args: string[]): Parameters<ty
         // H2b/H2c: the stage needs the heavy profile's 200 session requests (reader 68 + writer 80) and the claims-ledger check that verifies its packet at finish.
         (values.has("--pipeline") && (values.get("--pipeline") !== "research" || values.has("--repair-from") || values.has("--document-review") ||
           values.get("--profile") !== "heavy" || values.get("--claims-ledger") !== "true")) ||
+        // H3: the split arm's two cloud slots (one retry each) run on the Responses shape under a per-task fee cap of RESEARCH_SPLIT_MAX_FEE_USD.
+        (values.has("--pipeline") && values.get("--arm") === "cloud" && (!(Number(values.get("--max-fee-usd")) > 0 && Number(values.get("--max-fee-usd")) <= RESEARCH_SPLIT_MAX_FEE_USD) ||
+          !/^https:\/\/[^/?#]+\/v1\/responses$/u.test(values.get("--cloud-endpoint") ?? ""))) ||
         (values.has("--document-review") && (values.get("--document-review") !== "true" || values.has("--claims-ledger") || values.has("--public-retrieval"))) ||
         (values.has("--repair-from") && (values.get("--arm") === "cloud" || !values.get("--repair-from"))) ||
         (values.has("--arm") && !["local", "cloud"].includes(values.get("--arm")!))) throw new Error("local_screen_cli_invalid");

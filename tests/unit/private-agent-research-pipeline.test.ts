@@ -9,17 +9,18 @@ const SOURCE_B = "# Newsletter\nAnalysts expect 2025 additions of 16 GW, below d
 type Script = (stage: "index" | "plan" | "extract" | "synthesise", user: string) => string | Error;
 /** A model whose replies come from a script keyed by stage (an Error is thrown by the broker); every dispatched call is recorded. */
 function models(script: Script) {
-  const calls: { stage: string; user: string; purpose: string; maxOutputTokens: number; thinkingOff: boolean }[] = [];
+  const calls: { stage: string; user: string; purpose: string; maxOutputTokens: number; thinkingOff: boolean; reasoning?: string }[] = [];
   const stageOf = (system: string) => system.startsWith("You index") ? "index" : system.startsWith("You plan") ? "plan" : system.startsWith("You extract") ? "extract" : "synthesise";
   const request = vi.fn(async (input: { body: string; purpose: string }, settle: (bytes: Buffer) => number) => {
-    const body = JSON.parse(input.body) as { messages: { content: string }[]; max_tokens: number; chat_template_kwargs?: { enable_thinking?: boolean } };
+    const body = JSON.parse(input.body) as { messages: { content: string }[]; max_tokens: number; chat_template_kwargs?: { enable_thinking?: boolean }; reasoning_effort?: string };
     const stage = stageOf(body.messages[0]!.content), content = script(stage, body.messages[1]!.content);
     if (content instanceof Error) throw content;
-    calls.push({ stage, user: body.messages[1]!.content, purpose: input.purpose, maxOutputTokens: body.max_tokens, thinkingOff: body.chat_template_kwargs?.enable_thinking === false });
+    calls.push({ stage, user: body.messages[1]!.content, purpose: input.purpose, maxOutputTokens: body.max_tokens, thinkingOff: body.chat_template_kwargs?.enable_thinking === false, reasoning: body.reasoning_effort });
     const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20, prompt_tokens_details: { cached_tokens: 40 } } }));
     return { bytes, receipt: { feeMicrousd: settle(bytes) } };
   });
-  const config = { destinationId: "owned", model: "RM-01 VLM", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium" as const };
+  // The heavy profile's output limit, so the H3 8,192-token caps are visible (a smaller limit would clamp them).
+  const config = { destinationId: "owned", model: "RM-01 VLM", maxOutputTokens: 16_384, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium" as const };
   const make = () => new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, config, "job", "reader");
   return { models: { reader: make(), planner: make(), synthesiser: make() }, calls };
 }
@@ -112,10 +113,12 @@ describe("research pipeline: stages, verification, packet and budgets", () => {
     expect(events[3]).toMatchObject({ calls: 1, invalidReplies: 0, citationsStripped: 1 });
     expect(events.every(event => event.denied === undefined)).toBe(true);
     expect(JSON.stringify(events)).not.toContain("doubled");
-    expect(JSON.parse(file(RESEARCH_FILES.summary))).toMatchObject({ version: 1, protocolSha256: researchProtocolSha256(), stages: events });
-    // Purposes name the stage, thinking is off for every pipeline call, and the planner saw the brief and the index, never a source body.
+    expect(JSON.parse(file(RESEARCH_FILES.summary))).toMatchObject({ version: 2, protocolSha256: researchProtocolSha256(), stages: events });
+    // Purposes name the stage; the reader's calls run thinking-off while the planner and synthesiser use the model's thinking with
+    // the H3 8,192-token cap; the planner saw the brief and the index, never a source body.
     expect(m.calls.map(call => call.purpose)).toEqual(["research source index", "research plan", "research evidence extraction", "research evidence extraction", "research evidence extraction", "research synthesis"]);
-    expect(m.calls.every(call => call.thinkingOff)).toBe(true);
+    expect(m.calls.map(call => [call.stage, call.thinkingOff, call.maxOutputTokens])).toEqual([["index", true, 1536], ["plan", false, 8192], ["extract", true, 2048], ["extract", true, 2048], ["extract", true, 2048], ["synthesise", false, 8192]]);
+    expect(m.calls[1]!.reasoning).toBe("medium");
     expect(m.calls[1]!.user).toContain("Brief text."); expect(m.calls[1]!.user).not.toContain("nearly doubled");
     expect(m.calls.at(-1)!.user).toContain("[E1] input/corpus/a.md");
   });
@@ -211,5 +214,31 @@ describe("research pipeline: stages, verification, packet and budgets", () => {
   it("stops cleanly when cancelled", async () => {
     const controller = new AbortController(); controller.abort();
     expect(await run(models(happy), { signal: controller.signal })).toMatchObject({ status: "incomplete", reason: "research_cancelled" });
+  });
+});
+
+describe("research pipeline on the split arm: a Responses-shaped planner", () => {
+  it("sends the planner and synthesiser calls on the Responses shape with the model's thinking and the 8,192 cap, counts a truncated reply, and keeps the reader local", async () => {
+    const bodies: { purpose: string; body: Record<string, unknown> }[] = [];
+    const responsesRequest = vi.fn(async (input: { body: string; purpose: string }, settle: (bytes: Buffer) => number) => {
+      const body = JSON.parse(input.body) as { input: { content: unknown }[] }; bodies.push({ purpose: input.purpose, body });
+      const system = String((body.input[0]!.content as { text: string }[])[0]!.text);
+      const text = system.startsWith("You plan") ? plan([{ id: "Q1", text: "How did capacity develop?", sourceIds: ["input/corpus/a.md"] }]) : "Capacity doubled [E1].";
+      const status = system.startsWith("You plan") ? "completed" : "incomplete";
+      const bytes = Buffer.from(JSON.stringify({ status, ...(status === "incomplete" ? { incomplete_details: { reason: "max_output_tokens" } } : {}),
+        output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text }] }], usage: { input_tokens: 50, output_tokens: 10, input_tokens_details: { cached_tokens: 0, cache_write_tokens: 0 } } }));
+      return { bytes, receipt: { feeMicrousd: settle(bytes) } };
+    });
+    const cloud = new PrivateAgentModel({ request: responsesRequest } as unknown as PrivateAgentBroker,
+      { destinationId: "cloud", model: "gpt-6-sol", api: "openai_responses", maxOutputTokens: 16_384, inputUsdPerMillion: 2, outputUsdPerMillion: 10, cachedInputUsdPerMillion: 0.2, cacheWriteUsdPerMillion: 2.5, thinking: "medium", promptCaching: "responses_explicit_v1" }, "job", "reader");
+    const local = models(happy);
+    const outcome = await runResearchPipeline({ brief: "Brief text.", sources: sources(), models: { reader: local.models.reader, planner: cloud, synthesiser: cloud }, signal: new AbortController().signal, record: () => {} });
+    expect(outcome.status).toBe("completed");
+    expect(bodies.map(item => item.purpose)).toEqual(["research plan", "research synthesis"]);
+    for (const { body } of bodies) { expect(body).toMatchObject({ max_output_tokens: 8192, reasoning: { effort: "medium" }, store: false, service_tier: "default", prompt_cache_options: { mode: "explicit" } }); expect(body).not.toHaveProperty("tools"); }
+    // The synthesis reply was cut at the cap: counted, and the argument (its visible part) still used since it parsed.
+    expect(outcome.summary.stages[3]).toMatchObject({ stage: "synthesise", calls: 1, truncatedReplies: 1 });
+    expect(outcome.summary.stages[1]).not.toHaveProperty("truncatedReplies");
+    expect(local.calls.map(call => call.stage)).toEqual(["index", "extract"]);
   });
 });

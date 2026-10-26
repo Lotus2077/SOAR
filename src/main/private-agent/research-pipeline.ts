@@ -10,13 +10,19 @@
  * plan, extractor notes, conflict notes and the argument are unverified model text derived from untrusted sources; they
  * are bounded, labelled as such where rendered, and never become permission for anything. Events carry counts only.
  * A broker denial (admission, budget, transport) stops the stage with its code; only unparseable replies count as invalid.
+ *
+ * H3 (protocol version 2): the planner and synthesiser slots are the cloud model on the split arm (public or synthetic
+ * lineage only; the broker refuses them elsewhere). Those two calls run with the model's own thinking setting and an
+ * 8,192-token output cap; the reader's calls stay thinking-off. The split arm's fee cap is RESEARCH_SPLIT_MAX_FEE_USD per task.
  */
 import { z } from "zod";
 import { BrokerError } from "./broker";
 import { canonical, digest } from "./contracts";
 import { ModelRequestBodyTooLarge, type PrivateAgentModel } from "./model";
 
-export const RESEARCH_PIPELINE_VERSION = 1;
+export const RESEARCH_PIPELINE_VERSION = 2;
+/** H3: the headless driver's fee cap for a split-arm task (two cloud calls plus one retry each). */
+export const RESEARCH_SPLIT_MAX_FEE_USD = 0.6;
 export const RESEARCH_PACKET_MAX_BYTES = 64 * 1024;
 export const RESEARCH_INDEX_BATCH_SOURCES = 3;
 export const RESEARCH_INDEX_BATCH_BYTES = 20 * 1024;
@@ -39,7 +45,9 @@ const LIMITS = Object.freeze({
   extract: { quotes: 12, note: 200, conflicts: 4, conflictNote: 300 },
   packet: { conflicts: 16, conflictsBytes: 8 * 1024 },
 });
-const OUTPUT_TOKENS = Object.freeze({ index: 1536, plan: 2048, extract: 2048, synthesis: 4096 });
+const OUTPUT_TOKENS = Object.freeze({ index: 1536, plan: 8192, extract: 2048, synthesis: 8192 });
+/** Per stage: the reader's mechanical calls run thinking-off; the planner and synthesiser use the model's configured thinking (H3). */
+const THINKING = Object.freeze({ index: "disabled", plan: "model", extract: "disabled", synthesis: "model" } as const);
 const PURPOSES = Object.freeze({ index: "research source index", plan: "research plan", extract: "research evidence extraction", synthesis: "research synthesis" });
 
 const INDEX_SYSTEM = "You index sources for a research brief. Reply with exactly one JSON object {\"sources\":[{\"sourceId\":\"<id as given>\",\"title\":\"<at most 160 characters>\",\"date\":\"<as stated in the source or empty>\",\"gist\":\"<at most 60 words>\",\"figures\":[\"<at most 8 short strings: numbers with units and their dates>\"]}]} covering every source given, in the order given. No other text.";
@@ -72,6 +80,8 @@ export interface ResearchStageCounts {
   stage: "index" | "plan" | "extract" | "synthesise";
   /** Dispatched calls (a receipt exists); a refused or failed dispatch is `denied` (its code), never a call. */
   calls: number; invalidReplies: number; denied?: string; usage: ResearchUsage;
+  /** Replies the provider cut at the output cap (reasoning tokens draw on the same cap); such a reply usually also fails to parse. */
+  truncatedReplies?: number;
   sourcesIndexed?: number; sourcesSkipped?: number; batchesSkipped?: number; questions?: number; unknownSourceIds?: number;
   pairsPlanned?: number; pairsExtracted?: number; quotesVerified?: number; quotesInPacket?: number; quotesLeftByCap?: number; quotesDropped?: number;
   conflictsNoted?: number; conflictsInPacket?: number; packetBytes?: number; citationsStripped?: number; argumentBytes?: number;
@@ -87,7 +97,7 @@ export interface ResearchPipelineOutcome { status: "completed" | "incomplete"; r
 
 /** The frozen protocol: prompts, every schema limit, output caps and budget. Bound into the session identity before any task is read (H5). */
 export function researchProtocolSha256(budget: ResearchBudget = RESEARCH_PIPELINE_BUDGET): string {
-  return digest(canonical({ version: RESEARCH_PIPELINE_VERSION, prompts: { INDEX_SYSTEM, PLAN_SYSTEM, EXTRACT_SYSTEM, SYNTHESIS_SYSTEM }, outputTokens: OUTPUT_TOKENS, limits: LIMITS,
+  return digest(canonical({ version: RESEARCH_PIPELINE_VERSION, prompts: { INDEX_SYSTEM, PLAN_SYSTEM, EXTRACT_SYSTEM, SYNTHESIS_SYSTEM }, outputTokens: OUTPUT_TOKENS, thinking: THINKING, limits: LIMITS,
     packetBytes: RESEARCH_PACKET_MAX_BYTES, indexBatchSources: RESEARCH_INDEX_BATCH_SOURCES, indexBatchBytes: RESEARCH_INDEX_BATCH_BYTES,
     extractionSourceBytes: RESEARCH_EXTRACTION_SOURCE_BYTES, quoteChars: [RESEARCH_QUOTE_MIN_CHARS, RESEARCH_QUOTE_MAX_CHARS], budget, files: RESEARCH_FILES }));
 }
@@ -149,7 +159,7 @@ export function stripUnknownCitations(argument: string, known: ReadonlySet<strin
   return { text: text.replace(/[ \t]+([.,;:])/gu, "$1").trim(), stripped };
 }
 
-type CallResult = { content: string; usage: ResearchUsage } | { denied: string };
+type CallResult = { content: string; usage: ResearchUsage; truncated: boolean } | { denied: string };
 const zeroUsage = (): ResearchUsage => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });
 const addUsage = (total: ResearchUsage, part: ResearchUsage) => { total.inputTokens += part.inputTokens; total.outputTokens += part.outputTokens; total.cacheReadTokens += part.cacheReadTokens; total.cacheWriteTokens += part.cacheWriteTokens; };
 
@@ -160,11 +170,12 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     ({ status, reason, files: [...files, { path: RESEARCH_FILES.summary, bytes: Buffer.from(`${canonical(summary())}\n`) }], summary: summary() });
   const record = (counts: ResearchStageCounts) => { stages.push(counts); input.record(counts); };
   // A dispatched call returns its content (possibly unparseable); a refusal or transport failure names its code and stops the stage.
-  const call = async (model: PrivateAgentModel, system: string, user: string, maxOutputTokens: number, purpose: string): Promise<CallResult> => {
+  const call = async (model: PrivateAgentModel, system: string, user: string, maxOutputTokens: number, purpose: string, thinking: "disabled" | "model"): Promise<CallResult> => {
     try {
-      const reply = await model.complete([{ role: "system", content: system }, { role: "user", content: user }], [], input.signal, { thinking: "disabled", maxOutputTokens, purpose });
+      const reply = await model.complete([{ role: "system", content: system }, { role: "user", content: user }], [], input.signal,
+        { ...(thinking === "disabled" ? { thinking: "disabled" as const } : {}), maxOutputTokens, purpose });
       const usage = reply.usage;
-      return { content: reply.content, usage: { inputTokens: usage?.inputTokens ?? 0, outputTokens: usage?.outputTokens ?? 0, cacheReadTokens: usage?.cacheReadTokens ?? 0, cacheWriteTokens: usage?.cacheWriteTokens ?? 0 } };
+      return { content: reply.content, truncated: reply.finishReason === "length", usage: { inputTokens: usage?.inputTokens ?? 0, outputTokens: usage?.outputTokens ?? 0, cacheReadTokens: usage?.cacheReadTokens ?? 0, cacheWriteTokens: usage?.cacheWriteTokens ?? 0 } };
     } catch (error) {
       if (input.signal.aborted) return { denied: "cancelled" };
       return { denied: error instanceof BrokerError ? error.code : error instanceof ModelRequestBodyTooLarge ? "request_body_size_exceeded" : error instanceof Error && /^[a-z_]+$/u.test(error.message) ? error.message : "request_failed" };
@@ -191,9 +202,9 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     let gists: z.infer<typeof IndexReplySchema>["sources"] = [];
     if (indexCounts.calls < budget.indexCalls) {
       const user = batch.map(source => `=== source ${source.id} (${source.bytes.length} bytes) ===\n${bounded(source.text, RESEARCH_INDEX_BATCH_BYTES)}`).join("\n\n");
-      const reply = await call(input.models.reader, INDEX_SYSTEM, user, OUTPUT_TOKENS.index, PURPOSES.index);
+      const reply = await call(input.models.reader, INDEX_SYSTEM, user, OUTPUT_TOKENS.index, PURPOSES.index, THINKING.index);
       if ("denied" in reply) { indexCounts.denied = reply.denied; record(indexCounts); return deniedOutcome(reply.denied, []); }
-      indexCounts.calls++; addUsage(indexCounts.usage, reply.usage);
+      indexCounts.calls++; addUsage(indexCounts.usage, reply.usage); if (reply.truncated) indexCounts.truncatedReplies = (indexCounts.truncatedReplies ?? 0) + 1;
       const parsed = IndexReplySchema.safeParse(parseJsonReply(reply.content));
       if (parsed.success) gists = parsed.data.sources; else indexCounts.invalidReplies++;
     } else indexCounts.batchesSkipped!++;
@@ -213,9 +224,9 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   while (!plan && planCounts.calls < budget.plannerCalls) {
     if (input.signal.aborted) return finish("incomplete", "research_cancelled", files);
     const user = `Brief:\n${input.brief}\n\nSource index (JSON):\n${indexText}${lastError ? `\n\nYour previous reply was rejected: ${lastError}. Reply with the JSON object only.` : ""}`;
-    const reply = await call(input.models.planner, PLAN_SYSTEM, user, OUTPUT_TOKENS.plan, PURPOSES.plan);
+    const reply = await call(input.models.planner, PLAN_SYSTEM, user, OUTPUT_TOKENS.plan, PURPOSES.plan, THINKING.plan);
     if ("denied" in reply) { planCounts.denied = reply.denied; record(planCounts); return deniedOutcome(reply.denied, files); }
-    planCounts.calls++; addUsage(planCounts.usage, reply.usage);
+    planCounts.calls++; addUsage(planCounts.usage, reply.usage); if (reply.truncated) planCounts.truncatedReplies = (planCounts.truncatedReplies ?? 0) + 1;
     const parsed = ResearchPlanSchema.safeParse(parseJsonReply(reply.content));
     if (parsed.success) plan = parsed.data; else { planCounts.invalidReplies++; lastError = parsed.error.issues.slice(0, 3).map(issue => `${issue.path.join(".")}: ${issue.message}`).join("; ") || "not a JSON object"; }
   }
@@ -235,9 +246,9 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     if (extractCounts.calls >= budget.extractionCalls) break;
     if (input.signal.aborted) return finish("incomplete", "research_cancelled", files);
     const user = `Question ${pair.question.id}: ${pair.question.text}${pair.question.lookFor?.length ? `\nLook for: ${pair.question.lookFor.join("; ")}` : ""}\n\n=== source ${pair.source.id} ===\n${bounded(pair.source.text, RESEARCH_EXTRACTION_SOURCE_BYTES)}`;
-    const reply = await call(input.models.reader, EXTRACT_SYSTEM, user, OUTPUT_TOKENS.extract, PURPOSES.extract);
+    const reply = await call(input.models.reader, EXTRACT_SYSTEM, user, OUTPUT_TOKENS.extract, PURPOSES.extract, THINKING.extract);
     if ("denied" in reply) { extractCounts.denied = reply.denied; record(extractCounts); return deniedOutcome(reply.denied, files); }
-    extractCounts.calls++; extractCounts.pairsExtracted!++; addUsage(extractCounts.usage, reply.usage);
+    extractCounts.calls++; extractCounts.pairsExtracted!++; addUsage(extractCounts.usage, reply.usage); if (reply.truncated) extractCounts.truncatedReplies = (extractCounts.truncatedReplies ?? 0) + 1;
     const parsed = ExtractReplySchema.safeParse(parseJsonReply(reply.content));
     if (!parsed.success) { extractCounts.invalidReplies++; continue; }
     for (const candidate of parsed.data.quotes ?? []) {
@@ -289,9 +300,9 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   let argument = "";
   while (!argument && synthesisCounts.calls < budget.synthesisCalls) {
     if (input.signal.aborted) return finish("incomplete", "research_cancelled", files);
-    const reply = await call(input.models.synthesiser, SYNTHESIS_SYSTEM, `Brief:\n${input.brief}\n\nPlan (JSON):\n${canonical(plan)}\n\nEvidence packet:\n${evidenceText}`, OUTPUT_TOKENS.synthesis, PURPOSES.synthesis);
+    const reply = await call(input.models.synthesiser, SYNTHESIS_SYSTEM, `Brief:\n${input.brief}\n\nPlan (JSON):\n${canonical(plan)}\n\nEvidence packet:\n${evidenceText}`, OUTPUT_TOKENS.synthesis, PURPOSES.synthesis, THINKING.synthesis);
     if ("denied" in reply) { synthesisCounts.denied = reply.denied; record(synthesisCounts); return deniedOutcome(reply.denied, files); }
-    synthesisCounts.calls++; addUsage(synthesisCounts.usage, reply.usage);
+    synthesisCounts.calls++; addUsage(synthesisCounts.usage, reply.usage); if (reply.truncated) synthesisCounts.truncatedReplies = (synthesisCounts.truncatedReplies ?? 0) + 1;
     const cleaned = stripUnknownCitations(reply.content, ids);
     if (!cleaned.text) { synthesisCounts.invalidReplies++; continue; }
     argument = cleaned.text; synthesisCounts.citationsStripped = cleaned.stripped;

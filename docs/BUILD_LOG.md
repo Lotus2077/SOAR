@@ -23485,3 +23485,106 @@ BL-20261025-1321-h2b-h2c-research-pipeline-implemented,
 BL-20261025-2037-h2a-cache-salt-verified,
 BL-20261019-0432-phase2-result-provisional,
 BL-20261022-1156-h1-prompt-caching-implemented.
+
+### BL-20261026-0724-h3-cloud-planner-implemented -- 2026-10-26 -- H3 implemented: the split arm's cloud planner and synthesiser run with the model's thinking under 8,192-token caps and a USD 0.60 per-task fee cap; protocol version 2
+
+Status: `Implemented`
+
+Scope or hypothesis: H3 of BL-20261022-0834-phase4-division-of-labour-design
+("two calls per task on the Responses API with the standard tier pinned,
+each with a per-call maxOutputTokens override of 8,192 ... fee cap USD
+0.60 per task ... reachable only from the headless driver under its
+public/synthetic approval flags; labelled contexts run H2 and H4 only"),
+approved by BL-20261022-0940-phase4-harness-approved, on the research
+pipeline of BL-20261025-1321-h2b-h2c-research-pipeline-implemented.
+Started on the owner's instruction of 2026-10-26 ("go on to H3").
+
+Decisions:
+
+- **The two cloud slots already exist**: the pipeline's planner and
+  synthesiser are the cloud model under `--arm cloud --pipeline research`
+  (BL-20261025-1242). H3 fixes their settings. Plan and synthesis calls
+  now run with the model's configured thinking (medium on the heavy
+  profile, so `reasoning.effort` medium on the Responses shape) and an
+  8,192-token output cap; the reader's index and extraction calls stay
+  thinking-off at 1,536 and 2,048 tokens. The protocol hash binds the
+  per-stage thinking policy and the caps, and the pipeline version is 2;
+  every earlier pipeline identity therefore differs, which is intended
+  (no pipeline run is pending).
+- **Fee cap.** The driver refuses `--arm cloud --pipeline research` unless
+  `--max-fee-usd` is at most 0.60 (`RESEARCH_SPLIT_MAX_FEE_USD`); the cap
+  is the session's cloud-arm fee policy, so the broker's reservation and
+  settlement bound the two calls and their single retries. Reservation
+  arithmetic at the published prices: a plan call on r3's index (about
+  30 KB) reserves about USD 0.16 and a synthesis call on a 47 KB packet
+  about USD 0.23, both under the cap; a retry re-reserves after the
+  earlier call settled. The bound is a bound, not a promise that every
+  retry fits: four reservations total about USD 0.78, so a synthesis retry
+  is refused (`budget_denied`, the stage ends `research_request_denied`)
+  if the earlier three calls settled above about USD 0.37 together; at
+  the calibration run's sizes they settle near USD 0.15, so this is not
+  expected. The driver also pins the `/v1/responses` endpoint for the
+  split arm, so a chat-completions planner cannot be configured by
+  mistake.
+- **Standard tier, Responses shape, breakpoints.** Unchanged from the H1
+  cloud arm: `service_tier` default pinned, explicit cache breakpoints on
+  the system message. For these two calls the breakpoint does nothing:
+  their system prompts are about 150 tokens, under the provider's
+  1,024-token minimum, and the two calls share no other prefix, so no
+  cache read or write is expected and settlement lands at the input
+  rate (the reservation still assumes the write rate). The all-cloud
+  baseline is untouched. The output cap is shared by reasoning and the
+  visible reply; a reply the provider cuts at the cap is now counted per
+  stage (`truncatedReplies`) so a dry run can tell truncation from a
+  malformed reply, and the retry runs with the same settings.
+- **Where it is reachable.** Only the headless driver constructs a cloud
+  planner, only under `--arm cloud` with the synthetic approval flags; the
+  broker refuses the cloud destination on any non-synthetic lineage
+  (tested in the H2b entry). The desktop exposes neither the stage nor a
+  cloud planner; the label gate the design names is a separate entry.
+- **Thinking for the all-local arm changes too.** The local planner and
+  synthesiser now also run with the heavy profile's thinking (medium)
+  and 8,192-token caps, so the all-local calibration run of
+  BL-20261025-2055 (protocol version 1, thinking off, caps 2,048/4,096)
+  is not the same configuration as the all-local arm H5 will run; H5's
+  calibration repeats it under version 2.
+
+Changes: `src/main/private-agent/research-pipeline.ts` (version 2,
+`THINKING`, caps, `RESEARCH_SPLIT_MAX_FEE_USD`, `truncatedReplies`),
+`src/main/private-agent/session.ts` (identity carries the pipeline
+version), `scripts/private-agent-local-screen.ts` (fee-cap and endpoint
+rules); tests `private-agent-research-pipeline` (per-stage thinking and
+caps on the vLLM shape; a Responses-shaped planner and synthesiser with
+`reasoning.effort`, the 8,192 cap, explicit cache mode and a counted
+truncation), `private-agent-public-snapshot` (fee-cap and endpoint
+rules); this entry. One refuter reviewed the diff and the entry before
+the commit: no blocking finding; its seven points are applied (truncation
+count, endpoint pin, composition test, identity version) or stated here
+(cumulative reservation, vacuous breakpoints).
+
+Evidence: the unit tests above and `vitest run`: 2,050 passed, 80
+skipped, the 5 pre-existing failures (`patch-native-budget`,
+`patch-run-worker-lifecycle`, Node 26 on this Mac; CI on Node 22 is the
+gate); both typechecks clean. No live call yet; the dry run follows in the next
+entry.
+
+Failures or blockers: None.
+
+Limitations and non-claims: nothing about the quality of a cloud-planned
+report is claimed; the fee figures are reservations at published prices,
+not settled costs; the thinking setting is the profile's, not tuned.
+
+Paid exposure: USD 0 under this entry; the dry run that follows is
+bounded by the cap and the design's "H3 development dry runs ... at most
+USD 5" line.
+
+Next gate: one split-arm dry run on r3 (exposed), fee cap USD 0.60, in the
+owner's declared window; then the fresh research tasks from a separate
+session; then H4 and H5.
+
+References: BL-20261022-0834-phase4-division-of-labour-design,
+BL-20261022-0940-phase4-harness-approved,
+BL-20261025-1242-h2b-h2c-research-pipeline-design,
+BL-20261025-1321-h2b-h2c-research-pipeline-implemented,
+BL-20261025-2055-h2b-h2c-all-local-calibration-r3,
+BL-20261022-1156-h1-prompt-caching-implemented.

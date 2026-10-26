@@ -14,13 +14,17 @@
  * H3 (protocol version 2): the planner and synthesiser slots are the cloud model on the split arm (public or synthetic
  * lineage only; the broker refuses them elsewhere). Those two calls run with the model's own thinking setting and an
  * 8,192-token output cap; the reader's calls stay thinking-off. The split arm's fee cap is RESEARCH_SPLIT_MAX_FEE_USD per task.
+ *
+ * Protocol version 3 (planner budget): the planner is told the reader's extraction budget and asked to spend it on the
+ * sources that matter, and the reader visits the planned pairs round-robin across questions, so a plan that still exceeds
+ * the budget costs every question its last sources rather than the last questions everything.
  */
 import { z } from "zod";
 import { BrokerError } from "./broker";
 import { canonical, digest } from "./contracts";
 import { ModelRequestBodyTooLarge, type PrivateAgentModel } from "./model";
 
-export const RESEARCH_PIPELINE_VERSION = 2;
+export const RESEARCH_PIPELINE_VERSION = 3;
 /** H3: the headless driver's fee cap for a split-arm task (two cloud calls plus one retry each). */
 export const RESEARCH_SPLIT_MAX_FEE_USD = 0.6;
 export const RESEARCH_PACKET_MAX_BYTES = 64 * 1024;
@@ -51,7 +55,7 @@ const THINKING = Object.freeze({ index: "disabled", plan: "model", extract: "dis
 const PURPOSES = Object.freeze({ index: "research source index", plan: "research plan", extract: "research evidence extraction", synthesis: "research synthesis" });
 
 const INDEX_SYSTEM = "You index sources for a research brief. Reply with exactly one JSON object {\"sources\":[{\"sourceId\":\"<id as given>\",\"title\":\"<at most 160 characters>\",\"date\":\"<as stated in the source or empty>\",\"gist\":\"<at most 60 words>\",\"figures\":[\"<at most 8 short strings: numbers with units and their dates>\"]}]} covering every source given, in the order given. No other text.";
-const PLAN_SYSTEM = "You plan a closed-corpus research report. Given the brief and the source index, reply with exactly one JSON object {\"version\":1,\"questions\":[{\"id\":\"Q1\",\"text\":\"<the question, at most 300 characters>\",\"sourceIds\":[\"<index source ids to read for it, at most 8>\"],\"lookFor\":[\"<at most 6 things to extract, each at most 120 characters>\"]}],\"conflictsToCheck\":[\"<at most 8 places where sources may disagree, each at most 200 characters>\"],\"deliverableNotes\":\"<structure and table notes for the writer, at most 1000 characters>\"}. At most 12 questions. Use only source ids from the index. No other text.";
+const PLAN_SYSTEM = "You plan a closed-corpus research report. Given the brief and the source index, reply with exactly one JSON object {\"version\":1,\"questions\":[{\"id\":\"Q1\",\"text\":\"<the question, at most 300 characters>\",\"sourceIds\":[\"<index source ids to read for it, at most 8>\"],\"lookFor\":[\"<at most 6 things to extract, each at most 120 characters>\"]}],\"conflictsToCheck\":[\"<at most 8 places where sources may disagree, each at most 200 characters>\"],\"deliverableNotes\":\"<structure and table notes for the writer, at most 1000 characters>\"}. At most 12 questions. Use only source ids from the index. A reader reads each (question, source id) pair in one call and has a fixed budget of calls stated in the message: the total number of source ids across all questions must not exceed it, so name for each question only the sources its index entry suggests matter, and put the questions the report needs most first. No other text.";
 const EXTRACT_SYSTEM = `You extract evidence from one source for one research question. Reply with exactly one JSON object {"quotes":[{"quote":"<text copied from the source character for character, ${RESEARCH_QUOTE_MIN_CHARS} to ${RESEARCH_QUOTE_MAX_CHARS} characters>","note":"<what it shows, at most 200 characters>"}],"conflicts":[{"note":"<a disagreement between this source and another figure or source in this task, at most 300 characters>"}]}. Copy quotes exactly; never paraphrase, shorten with ellipses or join sentences; a quote that is not in the source is discarded. At most 12 quotes and 4 conflicts. If the source has nothing for the question, return empty arrays. No other text.`;
 const SYNTHESIS_SYSTEM = "You write the argument for a research report from verified evidence only. You receive the brief, the plan (questions Q1, Q2, ...) and an evidence packet whose quotes carry ids E1, E2, ... Write Markdown that answers each plan question in order, citing quotes by their E id in square brackets like [E7] after every factual statement (one id per bracket; never cite a question id), then two sections titled exactly \"Conflicting evidence\" and \"Unanswered questions\". Use nothing outside the packet; where the packet is silent, say so under Unanswered questions. At most 1,200 words.";
 
@@ -223,7 +227,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   let plan: ResearchPlan | undefined, lastError = "";
   while (!plan && planCounts.calls < budget.plannerCalls) {
     if (input.signal.aborted) return finish("incomplete", "research_cancelled", files);
-    const user = `Brief:\n${input.brief}\n\nSource index (JSON):\n${indexText}${lastError ? `\n\nYour previous reply was rejected: ${lastError}. Reply with the JSON object only.` : ""}`;
+    const user = `Brief:\n${input.brief}\n\nReader budget: at most ${budget.extractionCalls} source reads in total across all questions (each source id listed under a question is one read); the index has ${index.length} sources.\n\nSource index (JSON):\n${indexText}${lastError ? `\n\nYour previous reply was rejected: ${lastError}. Reply with the JSON object only.` : ""}`;
     const reply = await call(input.models.planner, PLAN_SYSTEM, user, OUTPUT_TOKENS.plan, PURPOSES.plan, THINKING.plan);
     if ("denied" in reply) { planCounts.denied = reply.denied; record(planCounts); return deniedOutcome(reply.denied, files); }
     planCounts.calls++; addUsage(planCounts.usage, reply.usage); if (reply.truncated) planCounts.truncatedReplies = (planCounts.truncatedReplies ?? 0) + 1;
@@ -231,13 +235,18 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     if (parsed.success) plan = parsed.data; else { planCounts.invalidReplies++; lastError = parsed.error.issues.slice(0, 3).map(issue => `${issue.path.join(".")}: ${issue.message}`).join("; ") || "not a JSON object"; }
   }
   const known = new Set(index.map(item => item.sourceId));
-  if (plan) plan = { ...plan, questions: plan.questions.map(question => ({ ...question, sourceIds: question.sourceIds.filter(id => { const ok = known.has(id); if (!ok) planCounts.unknownSourceIds!++; return ok; }) })) };
+  // Unknown ids are dropped and counted; a source listed twice under one question is read once, so a duplicate cannot spend the budget.
+  if (plan) plan = { ...plan, questions: plan.questions.map(question => ({ ...question, sourceIds: [...new Set(question.sourceIds.filter(id => { const ok = known.has(id); if (!ok) planCounts.unknownSourceIds!++; return ok; }))] })) };
   planCounts.questions = plan?.questions.length ?? 0; record(planCounts);
   if (!plan) return finish("incomplete", "research_plan_invalid", files);
   files.push({ path: RESEARCH_FILES.plan, bytes: Buffer.from(`${canonical(plan)}\n`) });
 
   // 3. Extract: one call per planned (question, source) pair within the budget; the host verifies every quote in the source bytes.
-  const pairs = plan.questions.flatMap(question => question.sourceIds.map(sourceId => ({ question, source: readable.find(source => source.id === sourceId)! })));
+  // Pairs are visited round-robin across questions (first source of every question, then the second, ...), so a plan over the
+  // budget loses every question's later sources rather than the last questions entirely.
+  const readRounds = Math.max(0, ...plan.questions.map(question => question.sourceIds.length));
+  const pairs = Array.from({ length: readRounds }, (_, round) => plan.questions.flatMap(question => question.sourceIds[round] === undefined ? [] :
+    [{ question, source: readable.find(source => source.id === question.sourceIds[round])! }])).flat();
   type Quote = { id: string; questionId: string; sourceId: string; locator: string; quote: string; note: string };
   const verified: Quote[] = [], conflicts: { questionId: string; sourceId: string; note: string }[] = [];
   const seen = new Set<string>();

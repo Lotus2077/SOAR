@@ -113,13 +113,17 @@ describe("research pipeline: stages, verification, packet and budgets", () => {
     expect(events[3]).toMatchObject({ calls: 1, invalidReplies: 0, citationsStripped: 1 });
     expect(events.every(event => event.denied === undefined)).toBe(true);
     expect(JSON.stringify(events)).not.toContain("doubled");
-    expect(JSON.parse(file(RESEARCH_FILES.summary))).toMatchObject({ version: 2, protocolSha256: researchProtocolSha256(), stages: events });
+    expect(JSON.parse(file(RESEARCH_FILES.summary))).toMatchObject({ version: 3, protocolSha256: researchProtocolSha256(), stages: events });
     // Purposes name the stage; the reader's calls run thinking-off while the planner and synthesiser use the model's thinking with
     // the H3 8,192-token cap; the planner saw the brief and the index, never a source body.
     expect(m.calls.map(call => call.purpose)).toEqual(["research source index", "research plan", "research evidence extraction", "research evidence extraction", "research evidence extraction", "research synthesis"]);
     expect(m.calls.map(call => [call.stage, call.thinkingOff, call.maxOutputTokens])).toEqual([["index", true, 1536], ["plan", false, 8192], ["extract", true, 2048], ["extract", true, 2048], ["extract", true, 2048], ["synthesise", false, 8192]]);
     expect(m.calls[1]!.reasoning).toBe("medium");
     expect(m.calls[1]!.user).toContain("Brief text."); expect(m.calls[1]!.user).not.toContain("nearly doubled");
+    // The planner is told the reader's budget and the index size (protocol version 3).
+    expect(m.calls[1]!.user).toContain("Reader budget: at most 40 source reads in total across all questions"); expect(m.calls[1]!.user).toContain("the index has 2 sources");
+    // Q1/a, Q2/b, then Q2/a: the same sequence under plan order and round-robin here (the discriminating case is below).
+    expect(m.calls.filter(call => call.stage === "extract").map(call => call.user.slice(0, 11))).toEqual(["Question Q1", "Question Q2", "Question Q2"]);
     expect(m.calls.at(-1)!.user).toContain("[E1] input/corpus/a.md");
   });
 
@@ -133,13 +137,31 @@ describe("research pipeline: stages, verification, packet and budgets", () => {
     expect(outcome.summary.stages[1]).toMatchObject({ stage: "plan", calls: 2, invalidReplies: 2 });
   });
 
-  it("stops extraction at the reader budget and still synthesises from what it verified (H2c)", async () => {
+  it("stops extraction at the reader budget and still synthesises from what it verified (H2c), telling the planner that budget", async () => {
     const m = models(happy);
     const outcome = await run(m, { budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 1 } });
     expect(outcome.status).toBe("completed");
+    expect(m.calls[1]!.user).toContain("at most 1 source reads");
     expect(m.calls.filter(call => call.stage === "extract")).toHaveLength(1);
     expect(outcome.summary.stages[2]).toMatchObject({ pairsPlanned: 3, pairsExtracted: 1, quotesVerified: 2 });
     expect(outcome.summary.protocolSha256).not.toBe(researchProtocolSha256());
+  });
+
+  it("visits the planned pairs round-robin across questions, preserving each question's own order in later rounds, and reads a repeated id once", async () => {
+    const script = (stage: Parameters<Script>[0], user: string) => stage === "plan"
+      ? plan([{ id: "Q1", text: "One", sourceIds: ["input/corpus/a.md", "input/corpus/b.md"] }, { id: "Q2", text: "Two", sourceIds: ["input/corpus/b.md", "input/corpus/a.md", "input/corpus/b.md"] }, { id: "Q3", text: "Three", sourceIds: ["input/corpus/a.md"] }])
+      : happy(stage, user);
+    const order = (m: ReturnType<typeof models>) => m.calls.filter(call => call.stage === "extract").map(call => `${call.user.slice(9, 11)}/${call.user.includes("=== source input/corpus/a.md") ? "a" : "b"}`);
+    // Over the budget: every question keeps its first source.
+    const tight = models(script);
+    const over = await run(tight, { budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 3 } });
+    expect(over.status).toBe("completed"); expect(order(tight)).toEqual(["Q1/a", "Q2/b", "Q3/a"]);
+    expect(over.summary.stages[2]).toMatchObject({ pairsPlanned: 5, pairsExtracted: 3 });
+    // Within the budget: the second round follows each question's own order; Q2's repeated b.md was read once, so five pairs, not six.
+    const loose = models(script);
+    const within = await run(loose, { budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 5 } });
+    expect(within.status).toBe("completed"); expect(order(loose)).toEqual(["Q1/a", "Q2/b", "Q3/a", "Q1/b", "Q2/a"]);
+    expect(within.summary.stages[2]).toMatchObject({ pairsPlanned: 5, pairsExtracted: 5 });
   });
 
   it("stops the stage on a broker denial with its code (never counted as a call or an invalid reply) and ends research_request_denied", async () => {

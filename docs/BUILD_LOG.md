@@ -23847,3 +23847,105 @@ References: BL-20261026-0743-h3-dry-run-split-blocked-by-docker,
 BL-20261026-1605-h3-dry-run-split-verified,
 BL-20261025-1242-h2b-h2c-research-pipeline-design,
 BL-20261022-0834-phase4-division-of-labour-design.
+
+### BL-20261026-1644-planner-budget-dry-run-verified -- 2026-10-26 -- Planner-budget dry run on r3, split arm, protocol version 3: the cloud planner kept its plan at 27 reads of the 40-read budget, the reader read all of it, the local writer used 35 of 80 calls, a cited report submitted for USD 0.13
+
+Status: `Verified`
+
+Scope or hypothesis: one split-arm run on r3-grid-batteries (exposed,
+calibration) under protocol version 3 (BL-20261026-1621; commit 3ed6046,
+runtime 86aad4f2, fee cap USD 0.60), the same configuration as the H3
+re-run (BL-20261026-1605) except the protocol, in the owner's declared idle
+window (authority file sha256 0b7b3508…). What it verifies: told the
+reader's budget, the cloud planner wrote a plan within it on this brief;
+the reader read the whole plan; the writer's margin widened from 2 calls
+to 45. What it does not: that the planner stays within budget on other
+briefs (one run), and graded quality (one run, exposed task, no grading).
+
+Decisions:
+
+- **Cloud stage.** Plan: 1 call, 8 questions naming 27 reads (6, 3, 5, 2,
+  4, 4, 2 and 1 sources per question), no unknown source id, USD 0.030
+  settled (0.136 reserved), 5,698 input and 1,852 output tokens.
+  Synthesise: 1 call, 16,433-byte argument, no citation stripped, USD
+  0.096 settled (0.211 reserved). Cloud total USD 0.126; no retry, no
+  truncated reply. The H3 attempts planned 51 and 46 reads under protocol
+  version 2 for the same brief and index; the planner under version 3
+  planned 27, so the budget message changed the plan's size on this brief.
+  Whether it holds on other briefs is unknown. H3 sub-line spend: USD 0.380
+  of the USD 5 from settled fees (0.380222; the previous entry's rounded
+  0.255 plus this run's 0.126 gives 0.381).
+- **Reader.** Index 8 calls (24 sources, none skipped); extract 27 calls,
+  all 27 planned pairs read, 126 quotes verified, 7 dropped, no
+  unparseable reply, 4 conflicts noted and all 4 in the packet, packet
+  40,298 bytes (none left out by the cap). Because the plan was within
+  budget, the round-robin cut was not exercised live; it is covered by
+  the unit tests only. Reader total 35 local calls, 43,974 input tokens,
+  14,415 output, zero fee (the H3 entry's reader total of 50 calls and
+  75,822 tokens included its two cloud calls).
+- **Writer.** 35 model calls and 35 tool calls of 80 and 120 (the H3
+  re-run: 78 and 77), 577,809 input tokens of which 443,200 (76.7%) were
+  served from the server's cache under the job's salt (reads climb in
+  1,600-token steps to 20,800 of 23,350 on the last call, with two resets
+  at calls 10 and 15 where the prompt shrank; the fraction is below the H3
+  re-run's 89.1% because of those resets and the shorter run),
+  11,880 output tokens, 282 s of runner time. It submitted
+  `output/report.md` (979 words, five numbered sections, both required
+  sections, an 11-line table, 53 citations naming all 39 claims, 15 of 24
+  sources cited) and `output/claims.json` (39 claims); all three finish
+  checks passed.
+- **Evidence after the fact.** Entailment: 29 supported, 7 partial, 1
+  unsupported, 2 contradicted (39 judge calls, not truncated). The H3
+  re-run had 33 supported, 6 partial, 1 not judged and none below. The
+  two contradicted and the one unsupported verdict all concern which year
+  or which forecast a planned-additions figure belongs to, not the figure
+  itself. Gold scorer, by a separate agent reporting counts only:
+  7 of 7 passed, all
+  critical (`gold-score.json`; the same scorer bytes as the two earlier
+  pipeline runs, sha256 bdbb52cd…, host-run with `python3 -I` rather than
+  inside the qualified image; the agent snapshotted the task, gold and run
+  trees before and after and found no change but its one output file).
+  All three pipeline runs on r3 now pass every automated critical check
+  where Phase 2's cloud scored 3 of 7 and local 0 of 7. The registry row's
+  `accepted` rests on these automated checks and the entailment counts,
+  not on a blind grading or an owner verdict.
+- **Session.** 111 dispatches (37 on the reader context including the 2
+  cloud calls, 35 writer, 39 judge) of the 200-request pool; the report
+  was submitted about 9.5 minutes after the start and the entailment pass
+  ended at 10.1 (16:28:02 to 16:38:10 UTC), against 31.7 for the H3
+  re-run on the same basis. Registry row
+  `p4pb-r3-grid-batteries-split-gpt-6-sol-protocol-v3`.
+- **Reading.** On this brief the budget message bought a smaller plan and
+  a writer that stops well inside its budget at the same cloud cost, with
+  fewer verified quotes (126 against 160), a smaller packet and slightly
+  weaker entailment counts. One run cannot say whether the smaller packet
+  costs answer quality; the fresh research tasks are the place to measure
+  that.
+
+Changes: registry row above; `phase4-planner-budget-dryrun/runs/r3-split-pb`
+and `authority.json` (local, ignored); this entry. No code.
+
+Evidence: the run directory (events, the two cloud dispatch receipts,
+`candidate/output`, `gold-score.json`); `log.txt`; the analysis script
+in the session scratchpad.
+
+Failures or blockers: None.
+
+Limitations and non-claims: one run, one exposed task, one brief; no blind
+grading, no owner verdict; the planner's compliance with the budget is a
+single observation, and the schema still allows an over-budget plan
+(which the reader would cut round-robin); the entailment counts are a
+local judge's verdicts, not ground truth; the cached fraction depends on
+the job salt and the 1,600-token block rule; the cloud fees are settled at
+published prices.
+
+Paid exposure: USD 0.126 this run; USD 0.380 for the H3 sub-line in total
+(settled fees; the rounded per-entry amounts sum to 0.381).
+
+Next gate: the fresh research tasks from a separate session; H4; H5 on
+protocol version 3; the owner may read the report and record a verdict.
+
+References: BL-20261026-1621-research-pipeline-planner-budget,
+BL-20261026-1605-h3-dry-run-split-verified,
+BL-20261026-0743-h3-dry-run-split-blocked-by-docker,
+BL-20261022-0834-phase4-division-of-labour-design.

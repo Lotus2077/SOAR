@@ -23281,3 +23281,207 @@ References: BL-20261025-1242-h2b-h2c-research-pipeline-design,
 BL-20261022-0834-phase4-division-of-labour-design,
 BL-20261022-0940-phase4-harness-approved,
 BL-20261025-0939-h2a-vllm-cache-salt-implemented.
+
+### BL-20261025-2037-h2a-cache-salt-verified -- 2026-10-25 -- H2a verified on the box in the owner's idle window: the schema lists cache_salt, a per-job salt isolates prefix-cache reuse, the server reports cached tokens in 1,600-token blocks and never reuses the last full block
+
+Status: `Verified`
+
+Scope or hypothesis: the two live checks
+BL-20261025-0939-h2a-vllm-cache-salt-implemented left pending, run in the
+idle window the owner declared in chat on
+2026-10-26 ("merge Lotus2077/SOAR#23 and Lotus2077/SOAR#24, declare an idle
+window now"), recorded in `phase4-live-2026-10-26/authority.json` (local,
+ignored) with this scope: the schema check, the isolation probe and one
+zero-fee all-local pipeline run (next entry). Zero fee throughout; no
+server flag changed (D11). What is verified: the request shape is accepted
+and the server's reported cache reuse behaves as a per-job salt should,
+at the API level, on unpinned serving.
+
+Decisions:
+
+- **Schema check.** `check:vllm-schema` against the served OpenAPI
+  document: `ChatCompletionRequest` present, `cache_salt` listed with the
+  schema's bound of 1 to 1,024 characters (the document's own `info`
+  version reads 0.1.0; vLLM's served version was 0.31.0 on 2026-10-22).
+  Output retained as `schema-check.json`.
+- **Driver probe, inconclusive by construction, and why.** Four short jobs
+  on a synthetic probe task (a one-line input, a two-line output; brief 344
+  bytes), standard profile, `--cache-salt false` for D and E, salted A and
+  C: all four submitted in 11 to 16 seconds with 3, 3, 3 and 4 model calls
+  and prompts of 1,967 to 2,400 tokens, and every call reported
+  `cached_tokens` 0, salted or not. The server's prefix-cache counters
+  read around each job explain it below: reuse happens in 1,600-token
+  blocks and the last full block is never reused, so a prompt under 3,200
+  tokens cannot hit at all. The probe task was too small; the driver path
+  is not at fault (the direct probe used the same server and the same
+  field). Around job C the counters moved by exactly its four prompts
+  (queries +8,902, hits +0); around D, E and A each window also held one
+  request of about 120,000 tokens with 116,800 cached (73 blocks) that was
+  not ours, so those three deltas are not evidence. Something else was
+  using the box in that minute; the owner should say what (see Failures).
+- **Direct probe, conclusive.** Seven chat completions with `max_tokens` 1
+  and a 4,344-token prompt whose first 4,330 tokens are identical
+  (`salt-direct-probe.txt`; the server's counter deltas equalled the
+  reported `cached_tokens` and prompt sizes exactly, so no other client
+  was in these windows):
+  - unsalted: first call 0 cached, second 1,600;
+  - salt alpha: first 0, second 1,600, an identical third 1,600;
+  - salt beta, same prefix: 0 (nothing cached under alpha or unsalted was
+    reused);
+  - unsalted again: 1,600 (unsalted blocks still there).
+  So the salt isolates reuse between salts and allows it within one salt,
+  which is what a per-job salt needs; the unsalted path still shares.
+- **The server's reuse granularity, measured.** The reported reuse is the
+  number of complete 1,600-token blocks of the shared prefix minus one:
+  4,330 shared tokens hold two full blocks and one is reused (1,600). The
+  serving card's P4 (2026-09-28) fits the same rule: 44,800 of 47,299 is 28
+  of 29 full blocks. Consequences for the harness track: no local prompt
+  under 3,200 tokens is ever served from cache; a 20,000-token prompt can
+  reuse at most 17,600; the first turns of every job pay full prefill. The
+  registry's local `cachedTokens` column will read these block counts.
+  Whether the rule comes from the model's hybrid attention layers or a
+  server setting is not determined here (D11: no flag read or changed).
+- **`cached_tokens` is reported.** The server emits
+  `usage.prompt_tokens_details.cached_tokens`; the H2a entry's worry that
+  the field might be absent is closed, and the driver records it as
+  `cacheReadTokens` on every local call.
+- **D11 unchanged.** No server flag was read or changed; serving stays
+  "unpinned".
+
+Changes: `phase4-live-2026-10-26/` (local, ignored): `authority.json`,
+`schema-check.json`, `metrics-baseline.txt`, `salt-probe.log`,
+`salt-direct-probe.txt`, `tasks/salt-probe/`, `runs/salt-{D,E,A,C}`;
+this entry. No code.
+
+Evidence: the files above; the probe scripts in the session scratchpad
+(`salt-probe.sh`, `salt-direct-probe.py`, `analyze-salt-probe.py`); the
+serving card `docs/experiments/serving-card-2026-09-28.md` (P4).
+
+Failures or blockers: three of the four driver-probe windows were
+contaminated by another client's requests (about 120,000-token prompts,
+116,800 cached, three requests in about 40 seconds at 20:31 UTC). The
+owner should confirm whether the desktop app or another consumer was
+running on the box during the declared window; the pipeline run that
+followed may have shared the server with it.
+
+Limitations and non-claims: the probe shows what the server reports and
+counts, not that KV memory is partitioned or that timing differences are
+closed; it ran on one server version and one model; the 1,600-token rule
+is measured at two prefix lengths (4,330 here, 47,299 on the serving
+card) and inferred for the rest. The four driver jobs were not graded and
+are not registry rows (infra probes on a probe task, not task runs).
+
+Paid exposure: USD 0.
+
+Next gate: the all-local pipeline run on r3 (next entry); the H3 entry
+before any paid split run; a D11 decision only if the owner wants the
+block rule investigated on the server side.
+
+References: BL-20261025-0939-h2a-vllm-cache-salt-implemented,
+BL-20261022-0834-phase4-division-of-labour-design, BL-20260928-1811 (box
+identity), [plan](PLAN.md) D11.
+
+### BL-20261025-2055-h2b-h2c-all-local-calibration-r3 -- 2026-10-25 -- H2b/H2c first live run, all-local on r3 (calibration): the local model submitted a cited research report in 10.4 minutes at zero fee, where Phase 2's local runs exhausted 80 calls without one
+
+Status: `Verified`
+
+Scope or hypothesis: the calibration run
+BL-20261025-1321-h2b-h2c-research-pipeline-implemented left pending, in
+the owner's declared idle window (previous entry's
+`authority.json`): one all-local research-pipeline run on r3-grid-batteries
+(`exposed`, calibration only, never fresh evidence), `--pipeline research
+--profile heavy --claims-ledger true --arm local`, commit 5574262, runtime
+06404f61, zero fee. Hypothesis under test (design entry): a host-bounded
+reading stage with host-verified quotes lets the local model write a
+cited report where the free agent loop could not. What this run verifies:
+that the stage runs end to end on the box and that the writer submitted;
+what it does not: graded quality (one run, exposed task, no blind grading).
+
+Decisions:
+
+- **The stage on the box.** Index: 8 calls over 24 sources (three per
+  batch), no invalid reply, no batch skipped. Plan: 1 call, 5 questions,
+  no unknown source id. Extract: 32 of 32 planned pairs within the
+  40-call budget, one unparseable reply, 147 quotes verified by the host,
+  3 dropped as unverified or duplicate, none left out by the cap (packet
+  46,736 bytes of 65,536), 2 conflicts noted and kept. Synthesise: 1 call,
+  13,539-byte argument, no citation stripped. Reader total: 42 calls,
+  69,589 input tokens, 21,398 output tokens, 0 cached (the per-call prompts
+  of the reader are short and distinct; see the block rule in the previous
+  entry).
+- **The writer.** 29 model calls and 29 tool calls (of 80 and 120),
+  463,512 input tokens of which 350,400 were served from the server's
+  cache under the job's salt (75.6%; reads climb in 1,600-token steps to
+  24,000 of 26,426 on the last call), 29,679 output tokens. It submitted
+  `output/report.md` (998 words, the 1,000-word cap respected; five
+  numbered sections, the two required sections, a 12-row table; 64
+  citations naming all 40 claims; 16 of 24 sources cited) and
+  `output/claims.json` (40 claims, the maximum) and all three finish
+  checks passed: `source_preserved_and_artifacts_readable`,
+  `research_claims_ledger`, `research_transfer_integrity`.
+- **Evidence after the fact.** The host's entailment pass judged all 40
+  claims: 36 supported, 4 partial, 0 unsupported, 0 contradicted (40 judge
+  calls, not truncated). The gold scorer's automated critical checks, run by
+  a separate agent that reports counts only: 7 of 7 passed, all critical
+  (`gold-score.json`; scorer `score.py` sha256 bdbb52cd…, Phase 2 rule:
+  every check passed and status submitted; run on the host with `python3
+  -I`, standard library only, rather than inside the qualified image as the
+  gold README prescribes, so a host-run reproduction of the Phase 2
+  scoring). Phase 2's cloud run scored 3 of 7 on the same checks, the local
+  runs 0 of 7. The registry row's `accepted` rests on these automated checks
+  and the entailment counts, by a scoring agent, not on a blind grading or
+  an owner verdict.
+- **Against the earlier r3 runs (registry rows).** Phase 2 local, two
+  seeds: 80 calls each, 1,631,630 and 1,646,160 input tokens, 1,513 and
+  1,597 s, no report, 0 of 7 critical checks. Phase 2 cloud: 80 calls,
+  1,457,488 input, 498 s, USD 3.05, 3 of 7, accepted by graders. H1 cloud
+  re-run: 80 calls, 1,282,609 input (74% cached), 533 s, USD 1.18, the
+  claims check failed at allowance. This run: 71 calls (42 reader, 29
+  writer) plus 40 judge calls, 533,101 input tokens (69,589 reader,
+  463,512 writer), 625 s of runner time (1,006 s from session start to
+  the end of the entailment pass, the registry's `wallSeconds`; corrected
+  before merge), USD 0, submitted with the claims check passed. One run
+  each; the comparison is descriptive.
+- **Reading the H2c claim.** The reader used 42 of its 68 calls and the
+  writer 29 of 80; the session's 200-request pool held 111 dispatches.
+  The writer's cached fraction is the first local `cachedTokens` figure
+  in the registry and is not comparable with any unsalted baseline (none
+  exists).
+- **Box contention.** The previous entry's unidentified client was
+  active at 20:31 UTC; this run started at 20:35:57 UTC. Whether it
+  shared the server is unknown; wall time is therefore a lower bound on
+  nothing and an upper bound on the pipeline's own cost.
+
+Changes: `phase4-live-2026-10-26/runs/r3-pipeline-local` (local,
+ignored; `freeze.json`, `result.json`, `state.sqlite`, `candidate/`,
+`gold-score.json`); registry row
+`p4h2-r3-grid-batteries-local-heavy-pipeline-s1`; this entry. No code.
+
+Evidence: the run directory above; `log.txt` in the experiment directory
+(start 20:35:57 UTC, end 20:52:43 UTC); the analysis script in the
+session scratchpad (`analyze-pipeline.py`); the registry rows named.
+
+Failures or blockers: None in the run. The owner's verdict on the report
+and a blind grading are not sought for a calibration run on an exposed
+task.
+
+Limitations and non-claims: one run, one exposed task, local arm only; the
+split arm needs H3's entry before a paid run; the gold checks are
+automated counts, not acceptance; the entailment pass is the host's own
+judgement, evidence beside the result; the 998-word report and 40-claim
+ledger meet the brief's form, which says nothing about its truth beyond
+the quotes' verbatim presence. The pipeline's prompts and limits are
+unchanged from the frozen protocol; nothing was tuned on this run.
+
+Paid exposure: USD 0.
+
+Next gate: H3's entry (cloud planner caps and prompts) before any split
+run; the fresh research tasks from a separate session; H4. The owner may
+read `output/report.md` in the run directory and record a verdict in a
+later entry.
+
+References: BL-20261025-1242-h2b-h2c-research-pipeline-design,
+BL-20261025-1321-h2b-h2c-research-pipeline-implemented,
+BL-20261025-2037-h2a-cache-salt-verified,
+BL-20261019-0432-phase2-result-provisional,
+BL-20261022-1156-h1-prompt-caching-implemented.

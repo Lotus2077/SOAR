@@ -183,6 +183,14 @@ describe("public snapshot CLI", () => {
     expect(() => parseLocalArtifactScreenArguments([...base, "--arm", "local", "--pipeline", "research", "--profile", "heavy"])).toThrow("local_screen_cli_invalid");
     expect(() => parseLocalArtifactScreenArguments([...base, ...research.slice(0, 2), "--pipeline", "deck", "--profile", "heavy", "--claims-ledger", "true"])).toThrow("local_screen_cli_invalid");
     expect(() => parseLocalArtifactScreenArguments([...base, ...research, "--document-review", "true"])).toThrow("local_screen_cli_invalid");
+    // H3: the split arm (cloud planner and synthesiser) runs under a per-task fee cap of USD 0.60.
+    const split = ["--arm", "cloud", "--pipeline", "research", "--profile", "heavy", "--claims-ledger", "true", "--cloud-model", "gpt-6-sol", "--cloud-endpoint", "https://api.openai.com/v1/responses",
+      "--cloud-prices", "2,10,0.2", "--cloud-long-context", "272000,4,15,0.4"];
+    expect(parseLocalArtifactScreenArguments([...base, ...split, "--max-fee-usd", "0.6"]).cloudArm?.maxFeeUsd).toBe(0.6);
+    expect(() => parseLocalArtifactScreenArguments([...base, ...split, "--max-fee-usd", "0.61"])).toThrow("local_screen_cli_invalid");
+    expect(parseLocalArtifactScreenArguments([...base, ...split.slice(0, 2), ...split.slice(8), "--max-fee-usd", "3"]).cloudArm?.maxFeeUsd).toBe(3);
+    // The split arm's planner runs on the Responses shape only; the chat-completions endpoint is refused with the pipeline.
+    expect(() => parseLocalArtifactScreenArguments([...base, ...split.map(v => v === "https://api.openai.com/v1/responses" ? "https://api.openai.com/v1/chat/completions" : v), "--max-fee-usd", "0.6"])).toThrow("local_screen_cli_invalid");
     // H1: an optional fourth price is the cache-write rate; the long-context tier takes an optional fifth.
     expect(parseCloudPrices("2,8,0.5,2.5")).toEqual({ input: 2, output: 8, cached: 0.5, write: 2.5 });
     expect(() => parseCloudPrices("2,8,0.5,2.5,1")).toThrow("local_screen_cli_invalid");

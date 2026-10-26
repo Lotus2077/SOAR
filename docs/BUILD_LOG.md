@@ -23485,3 +23485,287 @@ BL-20261025-1321-h2b-h2c-research-pipeline-implemented,
 BL-20261025-2037-h2a-cache-salt-verified,
 BL-20261019-0432-phase2-result-provisional,
 BL-20261022-1156-h1-prompt-caching-implemented.
+
+### BL-20261026-0724-h3-cloud-planner-implemented -- 2026-10-26 -- H3 implemented: the split arm's cloud planner and synthesiser run with the model's thinking under 8,192-token caps and a USD 0.60 per-task fee cap; protocol version 2
+
+Status: `Implemented`
+
+Scope or hypothesis: H3 of BL-20261022-0834-phase4-division-of-labour-design
+("two calls per task on the Responses API with the standard tier pinned,
+each with a per-call maxOutputTokens override of 8,192 ... fee cap USD
+0.60 per task ... reachable only from the headless driver under its
+public/synthetic approval flags; labelled contexts run H2 and H4 only"),
+approved by BL-20261022-0940-phase4-harness-approved, on the research
+pipeline of BL-20261025-1321-h2b-h2c-research-pipeline-implemented.
+Started on the owner's instruction of 2026-10-26 ("go on to H3").
+
+Decisions:
+
+- **The two cloud slots already exist**: the pipeline's planner and
+  synthesiser are the cloud model under `--arm cloud --pipeline research`
+  (BL-20261025-1242). H3 fixes their settings. Plan and synthesis calls
+  now run with the model's configured thinking (medium on the heavy
+  profile, so `reasoning.effort` medium on the Responses shape) and an
+  8,192-token output cap; the reader's index and extraction calls stay
+  thinking-off at 1,536 and 2,048 tokens. The protocol hash binds the
+  per-stage thinking policy and the caps, and the pipeline version is 2;
+  every earlier pipeline identity therefore differs, which is intended
+  (no pipeline run is pending).
+- **Fee cap.** The driver refuses `--arm cloud --pipeline research` unless
+  `--max-fee-usd` is at most 0.60 (`RESEARCH_SPLIT_MAX_FEE_USD`); the cap
+  is the session's cloud-arm fee policy, so the broker's reservation and
+  settlement bound the two calls and their single retries. Reservation
+  arithmetic at the published prices: a plan call on r3's index (about
+  30 KB) reserves about USD 0.16 and a synthesis call on a 47 KB packet
+  about USD 0.23, both under the cap; a retry re-reserves after the
+  earlier call settled. The bound is a bound, not a promise that every
+  retry fits: four reservations total about USD 0.78, so a synthesis retry
+  is refused (`budget_denied`, the stage ends `research_request_denied`)
+  if the earlier three calls settled above about USD 0.37 together; at
+  the calibration run's sizes they settle near USD 0.15, so this is not
+  expected. The driver also pins the `/v1/responses` endpoint for the
+  split arm, so a chat-completions planner cannot be configured by
+  mistake.
+- **Standard tier, Responses shape, breakpoints.** Unchanged from the H1
+  cloud arm: `service_tier` default pinned, explicit cache breakpoints on
+  the system message. For these two calls the breakpoint does nothing:
+  their system prompts are about 150 tokens, under the provider's
+  1,024-token minimum, and the two calls share no other prefix, so no
+  cache read or write is expected and settlement lands at the input
+  rate (the reservation still assumes the write rate). The all-cloud
+  baseline is untouched. The output cap is shared by reasoning and the
+  visible reply; a reply the provider cuts at the cap is now counted per
+  stage (`truncatedReplies`) so a dry run can tell truncation from a
+  malformed reply, and the retry runs with the same settings.
+- **Where it is reachable.** Only the headless driver constructs a cloud
+  planner, only under `--arm cloud` with the synthetic approval flags; the
+  broker refuses the cloud destination on any non-synthetic lineage
+  (tested in the H2b entry). The desktop exposes neither the stage nor a
+  cloud planner; the label gate the design names is a separate entry.
+- **Thinking for the all-local arm changes too.** The local planner and
+  synthesiser now also run with the heavy profile's thinking (medium)
+  and 8,192-token caps, so the all-local calibration run of
+  BL-20261025-2055 (protocol version 1, thinking off, caps 2,048/4,096)
+  is not the same configuration as the all-local arm H5 will run; H5's
+  calibration repeats it under version 2.
+
+Changes: `src/main/private-agent/research-pipeline.ts` (version 2,
+`THINKING`, caps, `RESEARCH_SPLIT_MAX_FEE_USD`, `truncatedReplies`),
+`src/main/private-agent/session.ts` (identity carries the pipeline
+version), `scripts/private-agent-local-screen.ts` (fee-cap and endpoint
+rules); tests `private-agent-research-pipeline` (per-stage thinking and
+caps on the vLLM shape; a Responses-shaped planner and synthesiser with
+`reasoning.effort`, the 8,192 cap, explicit cache mode and a counted
+truncation), `private-agent-public-snapshot` (fee-cap and endpoint
+rules); this entry. One refuter reviewed the diff and the entry before
+the commit: no blocking finding; its seven points are applied (truncation
+count, endpoint pin, composition test, identity version) or stated here
+(cumulative reservation, vacuous breakpoints).
+
+Evidence: the unit tests above and `vitest run`: 2,050 passed, 80
+skipped, the 5 pre-existing failures (`patch-native-budget`,
+`patch-run-worker-lifecycle`, Node 26 on this Mac; CI on Node 22 is the
+gate); both typechecks clean. No live call yet; the dry run follows in the next
+entry.
+
+Failures or blockers: None.
+
+Limitations and non-claims: nothing about the quality of a cloud-planned
+report is claimed; the fee figures are reservations at published prices,
+not settled costs; the thinking setting is the profile's, not tuned.
+
+Paid exposure: USD 0 under this entry; the dry run that follows is
+bounded by the cap and the design's "H3 development dry runs ... at most
+USD 5" line.
+
+Next gate: one split-arm dry run on r3 (exposed), fee cap USD 0.60, in the
+owner's declared window; then the fresh research tasks from a separate
+session; then H4 and H5.
+
+References: BL-20261022-0834-phase4-division-of-labour-design,
+BL-20261022-0940-phase4-harness-approved,
+BL-20261025-1242-h2b-h2c-research-pipeline-design,
+BL-20261025-1321-h2b-h2c-research-pipeline-implemented,
+BL-20261025-2055-h2b-h2c-all-local-calibration-r3,
+BL-20261022-1156-h1-prompt-caching-implemented.
+
+### BL-20261026-0743-h3-dry-run-split-blocked-by-docker -- 2026-10-26 -- H3 dry run on r3, split arm: the cloud planner and synthesiser worked for USD 0.13 under the cap; the local write phase was blocked because the Mac's Docker engine stopped answering after the lid was closed
+
+Status: `Blocked`
+
+Scope or hypothesis: the dry run BL-20261026-0724-h3-cloud-planner-implemented
+named: one split-arm research-pipeline run on r3-grid-batteries
+(`exposed`, calibration), cloud planner and synthesiser on `gpt-6-sol`
+via `/v1/responses`, fee cap USD 0.60, local reader and writer, commit
+37f2178, runtime 89f48888, under the H3 dry-run sub-line (at most USD 5)
+and the owner's declared idle window (`phase4-h3-dryrun/authority.json`,
+local, ignored). What it verifies: the two cloud slots on a real task,
+their fees against the cap, and the packet they produce. What it does
+not: a report, because the write phase never ran.
+
+Decisions:
+
+- **The cloud stage worked.** Index: 8 local calls, 24 sources, no
+  invalid reply. Plan (cloud, thinking medium, cap 8,192): 1 call, 11
+  questions, USD 0.034 settled against USD 0.137 reserved. Extract: 40
+  local calls for 51 planned pairs (the budget stopped it, 11 pairs
+  unread), 2 unparseable replies, 153 quotes verified, 1 dropped, 5
+  conflicts, packet 49,101 bytes, none left out by the cap. Synthesise
+  (cloud): 1 call, 16,956-byte argument, no citation stripped, USD 0.099
+  settled against USD 0.238 reserved. Cloud total USD 0.133 of the USD
+  0.60 cap; no retry needed; no truncated reply. The transfer was pinned
+  and the write phase started.
+- **Against the all-local calibration (BL-20261025-2055).** The cloud
+  planner asked 11 questions where the local planner asked 5, which
+  pushed the pair count past the 40-call extraction budget (51 planned,
+  40 read); the packet is 49 KB against 47 KB; the argument 17 KB against
+  13.5 KB. The plan's breadth, not the model, is what the budget now
+  binds; H5 may want the planner told the budget, which is a protocol
+  change for a later entry.
+- **The write phase was blocked by the host, not by the pipeline.** The
+  writer's context shows `started`, a checkpoint, then
+  `runtime_failure` with code `sandbox_cleanup_failed` after 50 seconds
+  and `run_ended` with cleanup unconfirmed; the session ended
+  `cleanup_required`. During the diagnosis `docker info` and `docker
+  ps` timed out at 20 seconds while OrbStack reported "Running" (process
+  up since 2026-10-15). The power log shows "Entering DarkWake state due
+  to 'Clamshell Sleep'" at 15:28:44 local on 2026-10-26, four minutes
+  before the run started: the lid was closed, the host stayed in dark
+  wake under the keep-awake assertion, the cloud and the box stayed
+  reachable, and the Docker engine did not. The all-local run of
+  2026-10-25 (BL-20261025-2055) created its sandbox normally on the same
+  engine; the H1 first attempt died the same way (BL-20261022-1156,
+  clamshell sleep). The runtime-failure code added for H1 made this a
+  one-query diagnosis instead of an hour.
+- **Recorded as `infra_invalid`, re-run once.** Registry row
+  `p4h3-r3-grid-batteries-split-gpt-6-sol-planner-v1`
+  (`infra_invalid`, cloud USD 0.133). Following the R0 practice, the dry
+  run is re-run once, as `-v2`, after the Docker engine answers again;
+  the re-run spends the cloud calls again (about USD 0.13 to 0.60) and
+  stays inside the sub-line. The agent does not restart OrbStack: the
+  owner's other containers run on the same engine, and the fix is the
+  lid.
+
+Changes: registry row above; `phase4-h3-dryrun/` (local, ignored:
+`authority.json`, `log.txt`, `runs/r3-split`); this entry. No code.
+
+Evidence: the run directory (events, dispatch receipts with the two cloud
+fees, `candidate/context/research/*`); `pmset -g log` for 2026-10-26
+15:28 local; `docker info` and `docker ps` timing out during the
+diagnosis; the analysis script in the session scratchpad.
+
+Failures or blockers: the Docker engine on the Mac is unresponsive while
+the lid is closed. Until it answers, no write phase, no H4 work and no
+further dry run can run on this host.
+
+Limitations and non-claims: no report was written, so nothing about the
+split arm's quality is claimed; the fees are one task's; the extraction
+budget bound the run and the comparison with the all-local run is
+descriptive. The owner's declared window is assumed to continue, as the
+instruction "go on to H3" implied.
+
+Paid exposure: USD 0.133 (cloud planner 0.034, synthesiser 0.099),
+charged to the H3 dry-run sub-line; about USD 0.13 to 0.60 more for the
+re-run.
+
+Next gate: the owner opens the lid or restarts the Docker engine; the
+re-run (`-v2`) with its Verified entry; then the fresh research tasks and
+H4.
+
+References: BL-20261026-0724-h3-cloud-planner-implemented,
+BL-20261025-2055-h2b-h2c-all-local-calibration-r3,
+BL-20261022-1156-h1-prompt-caching-implemented,
+BL-20261013-0205 (R0 re-run practice).
+
+### BL-20261026-1605-h3-dry-run-split-verified -- 2026-10-26 -- H3 dry run on r3, split arm, re-run after Docker recovered: a cited report submitted for USD 0.12 of cloud fees, the local writer using 78 of 80 calls with 89% of its prompt tokens cached
+
+Status: `Verified`
+
+Scope or hypothesis: the once-only re-run the previous entry named
+(`r3-split-v2`), same configuration (commit 37f2178, runtime 89f48888,
+split arm, fee cap USD 0.60), after the Mac's Docker engine answered again
+(the lid was opened at 23:30 local on 2026-10-26; the engine recovered on
+its own). What it verifies: the split arm runs end to end on a real task
+within its cap and its budgets, and the first split-arm report exists.
+What it does not: graded quality (one run, exposed task, calibration).
+
+Decisions:
+
+- **Cloud stage.** Plan: 1 call, 9 questions, USD 0.031 settled (0.136
+  reserved). Synthesise: 1 call, 16,426-byte argument, USD 0.091 settled
+  (0.243 reserved). Cloud total USD 0.122; no retry, no truncated reply.
+  Both calls carried the model's medium reasoning and the 8,192-token
+  cap. Across the two dry-run attempts the planner wrote 11 and 9
+  questions for the same brief and index; both exceeded the 40-call
+  extraction budget (51 and 46 pairs planned), so the reader read 40
+  pairs each time and left the rest. Cloud spend for H3 so far: USD
+  0.255 of the USD 5 sub-line.
+- **Reader.** Index 8 calls (24 sources); extract 40 calls, 160 quotes
+  verified, 2 dropped, 1 unparseable reply, 1 conflict, packet 52,182
+  bytes (none left out by the cap). Reader total 50 calls, 75,822 input
+  tokens, 25,037 output, zero fee.
+- **Writer.** 78 model calls and 77 tool calls of 80 and 120, 2,435,755
+  input tokens of which 2,169,600 (89.1%) were served from the server's
+  cache under the job's salt (reads climb in 1,600-token steps to 38,400
+  of 41,823 on the last calls), 46,682 output tokens, 1,494 s of runner
+  time. It submitted `output/report.md` (977 words, five numbered
+  sections, both required sections, a 12-row table, 66 citations naming
+  all 40 claims, 18 of 24 sources cited) and `output/claims.json` (40
+  claims); all three finish checks passed. The all-local calibration run
+  (BL-20261025-2055) wrote from a 5-question local plan in 29 writer
+  calls; here the writer spent 78 on a 9-question cloud plan and a
+  larger packet. The plan's breadth drives both the reader's budget and
+  the writer's effort; the writer stayed inside its budget by 2 calls,
+  which is the thinnest margin in the track so far and a reason to tell
+  the planner the budget (a protocol change for a later entry).
+- **Evidence after the fact.** Entailment: 33 supported, 6 partial, 1 not
+  judged, 0 unsupported, 0 contradicted (40 judge calls, not truncated).
+  Gold scorer, by a separate agent reporting counts only: 7 of 7 passed, all
+  critical (`gold-score.json`; the same scorer bytes as the all-local run,
+  sha256 bdbb52cd…, host-run with `python3 -I` rather than inside the
+  qualified image; the agent snapshotted the task, gold and run trees before
+  and after and found no change). Both pipeline arms now pass every
+  automated critical check on r3 where Phase 2's cloud scored 3 of 7 and
+  local 0 of 7. The registry row's `accepted` rests on these automated
+  checks and the entailment counts, not on a blind grading or an owner
+  verdict.
+- **Session.** 168 dispatches (50 reader, 78 writer, 40 judge) of the
+  200-request pool; 31.7 minutes from start to the end of the entailment
+  pass (15:31:45 to 16:03:29 UTC). Registry row
+  `p4h3-r3-grid-batteries-split-gpt-6-sol-planner-v2`.
+- **Against the baselines, descriptive.** Phase 2 cloud r3: USD 3.05, 3 of 7
+  gold checks, accepted by graders. H1 cloud re-run: USD 1.18, the claims
+  check failed. All-local pipeline: USD 0, 7 of 7, submitted in 10.4
+  minutes. Split pipeline: USD 0.12, 7 of 7, submitted in 31.7 minutes. The
+  design projected USD 0.15 to 0.40 per split run (BL-20261022-0834); this
+  one came in under the low end.
+
+Changes: registry row above; `phase4-h3-dryrun/runs/r3-split-v2` (local,
+ignored); this entry. No code.
+
+Evidence: the run directory (events, the two cloud dispatch receipts,
+`candidate/output`, `gold-score.json`); `log.txt`; the analysis script
+in the session scratchpad.
+
+Failures or blockers: None in the run. The previous attempt's Docker
+hang is recorded in the previous entry; the Mac slept again between
+08:00 and 15:30 UTC with nothing running.
+
+Limitations and non-claims: one run, one exposed task; no blind grading,
+no owner verdict; the writer's 78 calls show the budget is nearly bound
+on this plan and may not hold on a longer brief; the cached fraction
+depends on the job salt and the 1,600-token block rule and is not
+comparable with an unsalted baseline; the cloud fees are settled at
+published prices with no cache reads expected (system prompts under the
+provider's minimum).
+
+Paid exposure: USD 0.122 this run; USD 0.255 for H3 in total.
+
+Next gate: the fresh research tasks from a separate session; H4; the
+planner-budget protocol change before H5; the owner may read the report
+and record a verdict.
+
+References: BL-20261026-0724-h3-cloud-planner-implemented,
+BL-20261026-0743-h3-dry-run-split-blocked-by-docker,
+BL-20261025-2055-h2b-h2c-all-local-calibration-r3,
+BL-20261022-0834-phase4-division-of-labour-design.

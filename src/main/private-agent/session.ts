@@ -10,7 +10,7 @@ import type { GeneralConsultation } from "./consultation";
 import { readPublicSourceFiles } from "./public-sources";
 import { ClaimsVerifiedSchema, ENTAILMENT_MAX_MS, ENTAILMENT_PROMPT_VERSION, ENTAILMENT_SYSTEM_PROMPT, isEntailmentDispatch, judgeClaims, publicSourceWorkspacePath, type EntailmentOutcome } from "./claims";
 import { isResolvedDispatch } from "./store";
-import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, researchBudgetTotal, researchProtocolSha256, researchWriteInstructions, runResearchPipeline, type ResearchBudget, type ResearchModels } from "./research-pipeline";
+import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchBudgetTotal, researchProtocolSha256, researchWriteInstructions, runResearchPipeline, type ResearchBudget, type ResearchModels } from "./research-pipeline";
 
 export interface SessionFile { path: string; bytes: Buffer }
 export interface SessionPhase {
@@ -256,7 +256,7 @@ export class GeneralAgentSession {
         // Spread only when set, so the identity of every pre-existing (no-arm) session stays byte-identical.
         ...(options.cloudArm ? { cloudArm: options.cloudArm } : {}), ...(judgeModel ? { judgeModel: modelIdentity(judgeModel.config) } : {}),
         // H2b: the frozen pipeline protocol and the stage's model identities, spread only when configured.
-        ...(options.research && researchModels ? { research: { version: 1, protocolSha256: researchProtocolSha256(options.research.budget ?? RESEARCH_PIPELINE_BUDGET),
+        ...(options.research && researchModels ? { research: { version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(options.research.budget ?? RESEARCH_PIPELINE_BUDGET),
           budget: options.research.budget ?? RESEARCH_PIPELINE_BUDGET, ...researchIdentity(researchModels) } } : {}) }));
       if (old && old.identity !== identity) return result("incomplete", "session_contract_drift");
       if (!old && this.events().length) return result("incomplete", "session_missing_start_identity");

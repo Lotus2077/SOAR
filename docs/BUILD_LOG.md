@@ -23588,3 +23588,91 @@ BL-20261025-1242-h2b-h2c-research-pipeline-design,
 BL-20261025-1321-h2b-h2c-research-pipeline-implemented,
 BL-20261025-2055-h2b-h2c-all-local-calibration-r3,
 BL-20261022-1156-h1-prompt-caching-implemented.
+
+### BL-20261026-0743-h3-dry-run-split-blocked-by-docker -- 2026-10-26 -- H3 dry run on r3, split arm: the cloud planner and synthesiser worked for USD 0.13 under the cap; the local write phase was blocked because the Mac's Docker engine stopped answering after the lid was closed
+
+Status: `Blocked`
+
+Scope or hypothesis: the dry run BL-20261026-0724-h3-cloud-planner-implemented
+named: one split-arm research-pipeline run on r3-grid-batteries
+(`exposed`, calibration), cloud planner and synthesiser on `gpt-6-sol`
+via `/v1/responses`, fee cap USD 0.60, local reader and writer, commit
+37f2178, runtime 89f48888, under the H3 dry-run sub-line (at most USD 5)
+and the owner's declared idle window (`phase4-h3-dryrun/authority.json`,
+local, ignored). What it verifies: the two cloud slots on a real task,
+their fees against the cap, and the packet they produce. What it does
+not: a report, because the write phase never ran.
+
+Decisions:
+
+- **The cloud stage worked.** Index: 8 local calls, 24 sources, no
+  invalid reply. Plan (cloud, thinking medium, cap 8,192): 1 call, 11
+  questions, USD 0.034 settled against USD 0.137 reserved. Extract: 40
+  local calls for 51 planned pairs (the budget stopped it, 11 pairs
+  unread), 2 unparseable replies, 153 quotes verified, 1 dropped, 5
+  conflicts, packet 49,101 bytes, none left out by the cap. Synthesise
+  (cloud): 1 call, 16,956-byte argument, no citation stripped, USD 0.099
+  settled against USD 0.238 reserved. Cloud total USD 0.133 of the USD
+  0.60 cap; no retry needed; no truncated reply. The transfer was pinned
+  and the write phase started.
+- **Against the all-local calibration (BL-20261025-2055).** The cloud
+  planner asked 11 questions where the local planner asked 5, which
+  pushed the pair count past the 40-call extraction budget (51 planned,
+  40 read); the packet is 49 KB against 47 KB; the argument 17 KB against
+  13.5 KB. The plan's breadth, not the model, is what the budget now
+  binds; H5 may want the planner told the budget, which is a protocol
+  change for a later entry.
+- **The write phase was blocked by the host, not by the pipeline.** The
+  writer's context shows `started`, a checkpoint, then
+  `runtime_failure` with code `sandbox_cleanup_failed` after 50 seconds
+  and `run_ended` with cleanup unconfirmed; the session ended
+  `cleanup_required`. During the diagnosis `docker info` and `docker
+  ps` timed out at 20 seconds while OrbStack reported "Running" (process
+  up since 2026-10-15). The power log shows "Entering DarkWake state due
+  to 'Clamshell Sleep'" at 15:28:44 local on 2026-10-26, four minutes
+  before the run started: the lid was closed, the host stayed in dark
+  wake under the keep-awake assertion, the cloud and the box stayed
+  reachable, and the Docker engine did not. The all-local run of
+  2026-10-25 (BL-20261025-2055) created its sandbox normally on the same
+  engine; the H1 first attempt died the same way (BL-20261022-1156,
+  clamshell sleep). The runtime-failure code added for H1 made this a
+  one-query diagnosis instead of an hour.
+- **Recorded as `infra_invalid`, re-run once.** Registry row
+  `p4h3-r3-grid-batteries-split-gpt-6-sol-planner-v1`
+  (`infra_invalid`, cloud USD 0.133). Following the R0 practice, the dry
+  run is re-run once, as `-v2`, after the Docker engine answers again;
+  the re-run spends the cloud calls again (about USD 0.13 to 0.60) and
+  stays inside the sub-line. The agent does not restart OrbStack: the
+  owner's other containers run on the same engine, and the fix is the
+  lid.
+
+Changes: registry row above; `phase4-h3-dryrun/` (local, ignored:
+`authority.json`, `log.txt`, `runs/r3-split`); this entry. No code.
+
+Evidence: the run directory (events, dispatch receipts with the two cloud
+fees, `candidate/context/research/*`); `pmset -g log` for 2026-10-26
+15:28 local; `docker info` and `docker ps` timing out during the
+diagnosis; the analysis script in the session scratchpad.
+
+Failures or blockers: the Docker engine on the Mac is unresponsive while
+the lid is closed. Until it answers, no write phase, no H4 work and no
+further dry run can run on this host.
+
+Limitations and non-claims: no report was written, so nothing about the
+split arm's quality is claimed; the fees are one task's; the extraction
+budget bound the run and the comparison with the all-local run is
+descriptive. The owner's declared window is assumed to continue, as the
+instruction "go on to H3" implied.
+
+Paid exposure: USD 0.133 (cloud planner 0.034, synthesiser 0.099),
+charged to the H3 dry-run sub-line; about USD 0.13 to 0.60 more for the
+re-run.
+
+Next gate: the owner opens the lid or restarts the Docker engine; the
+re-run (`-v2`) with its Verified entry; then the fresh research tasks and
+H4.
+
+References: BL-20261026-0724-h3-cloud-planner-implemented,
+BL-20261025-2055-h2b-h2c-all-local-calibration-r3,
+BL-20261022-1156-h1-prompt-caching-implemented,
+BL-20261013-0205 (R0 re-run practice).

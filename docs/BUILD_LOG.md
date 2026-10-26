@@ -23769,3 +23769,81 @@ References: BL-20261026-0724-h3-cloud-planner-implemented,
 BL-20261026-0743-h3-dry-run-split-blocked-by-docker,
 BL-20261025-2055-h2b-h2c-all-local-calibration-r3,
 BL-20261022-0834-phase4-division-of-labour-design.
+
+### BL-20261026-1621-research-pipeline-planner-budget -- 2026-10-26 -- Research pipeline protocol version 3: the planner is told the reader's budget and the reader visits the planned pairs round-robin across questions
+
+Status: `Implemented`
+
+Scope or hypothesis: the protocol change the two H3 dry runs motivated
+(BL-20261026-0743, BL-20261026-1605): on r3 the cloud planner wrote 11 and
+9 questions naming 51 and 46 source reads for a reader budget of 40, so
+the reader stopped in plan order and left the plan's tail unread (11 and
+6 pairs), and the writer then spent 78 of its 80 calls. Hypothesis: a
+planner that knows the budget spends it on the sources that matter, and a
+reader that reads round-robin loses every question's later sources rather
+than the last questions everything, so a plan over budget degrades evenly.
+Started on the owner's instruction of 2026-10-26 ("go on to the planner-budget
+change").
+
+Decisions:
+
+- **The planner is told the budget.** The plan prompt states that a
+  reader reads each (question, source id) pair in one call under a fixed
+  budget given in the message, that the total of source ids across
+  questions must not exceed it, that each question should name only the
+  sources its index entry suggests matter, and that the questions the
+  report needs most come first. The user message carries the number
+  (`Reader budget: at most 40 source reads in total ...`) and the index
+  size, and the retry carries the same line. The schema's own caps (12
+  questions, 8 sources each) are unchanged; the budget is advice the host
+  enforces, not a schema rule; an over-budget plan is read up to the
+  budget, never rejected. A source id repeated under one question is now
+  read once, so a repetition cannot spend the budget.
+- **Round-robin reads.** The reader visits the planned pairs by round:
+  the first source of every question, then the second, and so on, in
+  question order. Under the budget nothing is lost; over it, each question
+  keeps its first sources. The packet's own round-robin fill of quotes is
+  unchanged; conflict notes still enter the packet in extraction order,
+  which is now the round order, so when their cap bites the kept notes
+  come from the first rounds across questions rather than the first
+  questions. This supersedes stage 3's "in plan order" in
+  BL-20261025-1242-h2b-h2c-research-pipeline-design.
+- **Protocol version 3.** The prompt text enters the protocol hash
+  directly and the visiting order through the version number; every
+  earlier pipeline identity differs, so a research job started under
+  version 2 and resumed now ends `session_contract_drift`. No pipeline
+  run is pending.
+- **What is not changed.** The budgets (24 index, 40 extraction, 2 plan, 2
+  synthesis), the packet cap and the writer's contract budget stay as
+  they are; whether the writer's near-exhaustion on the split arm (78 of
+  80 calls) eases with a plan within budget is what the dry run below
+  measures.
+
+Changes: `src/main/private-agent/research-pipeline.ts` (prompt, user
+message, pair order, per-question id dedupe, version 3); tests
+`private-agent-research-pipeline` (budget in the planner's message, the
+round-robin order over the budget and in a second round within it, a
+repeated id read once, version 3); this entry. One refuter reviewed the
+diff and the entry before the commit; its findings are applied here.
+
+Evidence: the unit tests above and `vitest run`: 2,052 passed, 80
+skipped, the 5 pre-existing failures (`patch-native-budget`,
+`patch-run-worker-lifecycle`, Node 26 on this Mac; CI on Node 22 is the
+gate); both typechecks clean.
+
+Failures or blockers: None.
+
+Limitations and non-claims: whether a model obeys the stated budget is a
+behaviour question the dry run samples once; the round-robin order
+changes which pairs a model over budget reads, not how many.
+
+Paid exposure: USD 0 under this entry; one split-arm dry run on r3 follows
+(at most USD 0.60, the H3 dry-run sub-line).
+
+Next gate: the dry run's entry; then the fresh research tasks from a
+separate session, H4 and H5.
+
+References: BL-20261026-0743-h3-dry-run-split-blocked-by-docker,
+BL-20261026-1605-h3-dry-run-split-verified,
+BL-20261025-1242-h2b-h2c-research-pipeline-design,
+BL-20261022-0834-phase4-division-of-labour-design.

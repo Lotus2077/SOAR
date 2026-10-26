@@ -23676,3 +23676,96 @@ References: BL-20261026-0724-h3-cloud-planner-implemented,
 BL-20261025-2055-h2b-h2c-all-local-calibration-r3,
 BL-20261022-1156-h1-prompt-caching-implemented,
 BL-20261013-0205 (R0 re-run practice).
+
+### BL-20261026-1605-h3-dry-run-split-verified -- 2026-10-26 -- H3 dry run on r3, split arm, re-run after Docker recovered: a cited report submitted for USD 0.12 of cloud fees, the local writer using 78 of 80 calls with 89% of its prompt tokens cached
+
+Status: `Verified`
+
+Scope or hypothesis: the once-only re-run the previous entry named
+(`r3-split-v2`), same configuration (commit 37f2178, runtime 89f48888,
+split arm, fee cap USD 0.60), after the Mac's Docker engine answered again
+(the lid was opened at 23:30 local on 2026-10-26; the engine recovered on
+its own). What it verifies: the split arm runs end to end on a real task
+within its cap and its budgets, and the first split-arm report exists.
+What it does not: graded quality (one run, exposed task, calibration).
+
+Decisions:
+
+- **Cloud stage.** Plan: 1 call, 9 questions, USD 0.031 settled (0.136
+  reserved). Synthesise: 1 call, 16,426-byte argument, USD 0.091 settled
+  (0.243 reserved). Cloud total USD 0.122; no retry, no truncated reply.
+  Both calls carried the model's medium reasoning and the 8,192-token
+  cap. Across the two dry-run attempts the planner wrote 11 and 9
+  questions for the same brief and index; both exceeded the 40-call
+  extraction budget (51 and 46 pairs planned), so the reader read 40
+  pairs each time and left the rest. Cloud spend for H3 so far: USD
+  0.255 of the USD 5 sub-line.
+- **Reader.** Index 8 calls (24 sources); extract 40 calls, 160 quotes
+  verified, 2 dropped, 1 unparseable reply, 1 conflict, packet 52,182
+  bytes (none left out by the cap). Reader total 50 calls, 75,822 input
+  tokens, 25,037 output, zero fee.
+- **Writer.** 78 model calls and 77 tool calls of 80 and 120, 2,435,755
+  input tokens of which 2,169,600 (89.1%) were served from the server's
+  cache under the job's salt (reads climb in 1,600-token steps to 38,400
+  of 41,823 on the last calls), 46,682 output tokens, 1,494 s of runner
+  time. It submitted `output/report.md` (977 words, five numbered
+  sections, both required sections, a 12-row table, 66 citations naming
+  all 40 claims, 18 of 24 sources cited) and `output/claims.json` (40
+  claims); all three finish checks passed. The all-local calibration run
+  (BL-20261025-2055) wrote from a 5-question local plan in 29 writer
+  calls; here the writer spent 78 on a 9-question cloud plan and a
+  larger packet. The plan's breadth drives both the reader's budget and
+  the writer's effort; the writer stayed inside its budget by 2 calls,
+  which is the thinnest margin in the track so far and a reason to tell
+  the planner the budget (a protocol change for a later entry).
+- **Evidence after the fact.** Entailment: 33 supported, 6 partial, 1 not
+  judged, 0 unsupported, 0 contradicted (40 judge calls, not truncated).
+  Gold scorer, by a separate agent reporting counts only: 7 of 7 passed, all
+  critical (`gold-score.json`; the same scorer bytes as the all-local run,
+  sha256 bdbb52cd…, host-run with `python3 -I` rather than inside the
+  qualified image; the agent snapshotted the task, gold and run trees before
+  and after and found no change). Both pipeline arms now pass every
+  automated critical check on r3 where Phase 2's cloud scored 3 of 7 and
+  local 0 of 7. The registry row's `accepted` rests on these automated
+  checks and the entailment counts, not on a blind grading or an owner
+  verdict.
+- **Session.** 168 dispatches (50 reader, 78 writer, 40 judge) of the
+  200-request pool; 31.7 minutes from start to the end of the entailment
+  pass (15:31:45 to 16:03:29 UTC). Registry row
+  `p4h3-r3-grid-batteries-split-gpt-6-sol-planner-v2`.
+- **Against the baselines, descriptive.** Phase 2 cloud r3: USD 3.05, 3 of 7
+  gold checks, accepted by graders. H1 cloud re-run: USD 1.18, the claims
+  check failed. All-local pipeline: USD 0, 7 of 7, submitted in 10.4
+  minutes. Split pipeline: USD 0.12, 7 of 7, submitted in 31.7 minutes. The
+  design projected USD 0.15 to 0.40 per split run (BL-20261022-0834); this
+  one came in under the low end.
+
+Changes: registry row above; `phase4-h3-dryrun/runs/r3-split-v2` (local,
+ignored); this entry. No code.
+
+Evidence: the run directory (events, the two cloud dispatch receipts,
+`candidate/output`, `gold-score.json`); `log.txt`; the analysis script
+in the session scratchpad.
+
+Failures or blockers: None in the run. The previous attempt's Docker
+hang is recorded in the previous entry; the Mac slept again between
+08:00 and 15:30 UTC with nothing running.
+
+Limitations and non-claims: one run, one exposed task; no blind grading,
+no owner verdict; the writer's 78 calls show the budget is nearly bound
+on this plan and may not hold on a longer brief; the cached fraction
+depends on the job salt and the 1,600-token block rule and is not
+comparable with an unsalted baseline; the cloud fees are settled at
+published prices with no cache reads expected (system prompts under the
+provider's minimum).
+
+Paid exposure: USD 0.122 this run; USD 0.255 for H3 in total.
+
+Next gate: the fresh research tasks from a separate session; H4; the
+planner-budget protocol change before H5; the owner may read the report
+and record a verdict.
+
+References: BL-20261026-0724-h3-cloud-planner-implemented,
+BL-20261026-0743-h3-dry-run-split-blocked-by-docker,
+BL-20261025-2055-h2b-h2c-all-local-calibration-r3,
+BL-20261022-0834-phase4-division-of-labour-design.

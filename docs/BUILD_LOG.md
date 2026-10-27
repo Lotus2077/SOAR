@@ -24784,3 +24784,108 @@ BL-20261022-0834-phase4-division-of-labour-design,
 BL-20261022-0940-phase4-harness-approved,
 BL-20261008-1025-phase2-tasks-freeze,
 BL-20261026-1832-h4-select-and-repair-implemented.
+
+### BL-20261027-1526-harness-session-task-exposure -- 2026-10-27 -- Separation breach recorded: the harness session saw part of the drone task's gold; it changes no harness before H5 ends, and the freeze entries were scrubbed before any push
+
+Status: `Implemented`
+
+Scope or hypothesis: BL-20261027-0145-phase4-tasks-design requires that the
+session which designed the research pipeline and H4 never sees the fresh
+tasks' inputs or gold. That separation was breached on 2026-10-27, after the
+freeze was written and before any candidate exists. This entry records what
+was seen, by which session, and the mitigation, so that the H5 result can be
+read with it. `Implemented` means the mitigation is in force; nothing about
+H5 is verified.
+
+Decisions:
+
+- **What happened.** The harness session (the one that wrote H1 to H4) read
+  the authoring session's transcript through the desktop app's session tool
+  to learn whether the authoring was done. A message in that transcript
+  quoted the authoring session's review-workflow result verbatim. It showed
+  part of the critical checks and key facts of `f1-drone-rules` and the file
+  names of the three planted documents. The harness session then read the
+  unpushed freeze entry to check it before pushing; its first draft named
+  the drone task's planted conflict with both figures and hinted at key
+  facts and check patterns of all three tasks. For `f2-youth-tobacco` and
+  `f3-eu-demography` that draft described, without figures, how their
+  synthetic documents were edited, which alternative sources and corpus
+  inconsistencies their checks allow for, and how their reference reports
+  were corrected; with the planted-document file names, that is the extent
+  of what was seen for those two tasks. No input file, gold file or scorer
+  was opened, and no model or agent under test saw any of it.
+- **Freeze entries scrubbed before the first push.** The authoring session
+  rewrote its two entries and the PR body so that they disclose no
+  planted-conflict target or figure, no key fact, no check pattern, no
+  synthetic-document content and no reference-report content. Fresh review
+  agents of the authoring session, with access to the gold, then checked
+  every text to be published, this entry included. They confirmed no leak in
+  the authoring session's texts and one in this entry's draft (it named the
+  pre-scrub commit), which was removed with two accuracy fixes. The commit
+  was amended twice before it left the machine, the last as `e947549`, so no
+  gold reached the public repository. The manifest, tasks and gold are
+  unchanged; the manifest file SHA-256 is still
+  `92df4fcbc65b8f63725331bbfd5525b8cee14ff2a6c801eaf059fd1f903a2865`.
+- **Mitigation for H5.** The tasks stay as frozen, the drone task included.
+  The exposure is to an operator session, not to any model under test, and
+  the H5 harness is the code on main at the merge of PR #28. Until the H5
+  round ends, the harness session changes nothing in the harness, the
+  pipeline, its prompts, the driver, the checks or the scorer, and it does
+  not grade, select or discard runs. Any harness change needed before then
+  goes to a fresh session that has not read the authoring transcript, the
+  authoring worktree's ignored tree or the pre-scrub commit. Operating the
+  pre-registered runs stays allowed because it is mechanical. The decision
+  rules of BL-20261022-0834 and the owner's blind verdicts are unaffected;
+  any operating rule the harness session adds is recorded in the batch-start
+  entry before the first counted run, and the owner may overrule it.
+- **Rule for later sessions.** No session other than the authoring session
+  and the designated scorer session reads the authoring session's transcript
+  beyond its final report, or opens or prints anything under
+  `.soar/experiments/phase4-v1/`. The operator of the H5 queue only passes
+  task directories to the driver and checks their hashes with scripts that
+  print codes; scoring, the S3 recall measurement, blind bundles and the
+  decoy go to a separate session that is neither the harness session nor the
+  authoring session. A status check of an authoring session reads only its
+  final report, its commit's file list and the manifest's field structure;
+  before a push, it also reads the build-log entries and pull request body
+  that will be published, and an independent review with access to the gold
+  checks them for leaks.
+- **Owner's decision.** Asked whether the drone task stays counted, the
+  owner replied in chat on 2026-10-27: "Whether the drone task stays
+  counted. keeping it." The drone task stays counted, and the H5 report
+  names this entry next to the drone task's result.
+
+Changes: this entry, appended on branch `phase4-tasks` after the scrubbed
+freeze commit.
+
+Evidence: the authoring session's transcript, read on 2026-10-27 through the
+session tool; the unpushed pre-scrub commit (not named here), the
+intermediate `b1400a4` and the merged `e947549`; the build-log validator
+against `origin/main`.
+
+Failures or blockers: the separation of BL-20261027-0145 failed at a status
+check, not during authoring. Two causes: a transcript read returns quoted
+tool results, including subagent output that carried gold; and the first
+draft of the freeze entry described the gold changes in detail although the
+design said the entries carry only ids, topics, counts and hashes.
+
+Limitations and non-claims:
+- The harness session cannot unsee what it saw. The mitigation constrains
+  what it does; it does not restore its blindness.
+- No automated check shows that the scrubbed entries are free of every hint.
+  The authoring session judged them; the harness session cannot judge gold
+  it does not know.
+- The pre-scrub commit was never pushed. It remains in the local repository
+  that every worktree on this machine shares, reachable through the task
+  branch's reflog, until the owner decides whether to purge it.
+
+Paid exposure: USD 0.
+
+Next gate: the owner merges the pull request that carries this entry and
+tags `phase4-tasks-v1`; then the H4 live loops and H5 run in the
+owner-declared window, with the harness session operating the queue only.
+
+References: BL-20261027-0145-phase4-tasks-design,
+BL-20261027-0206-phase4-tasks-freeze,
+BL-20261022-0834-phase4-division-of-labour-design,
+BL-20261026-1832-h4-select-and-repair-implemented.

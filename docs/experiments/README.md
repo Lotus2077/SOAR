@@ -10,6 +10,9 @@ This folder holds the committed, sanitized record of live trials (see
 - `phase2-tasks-v1.json`: the hashes-only manifest of the frozen Phase 2 tasks (task
   ids, families, driver modes, job, brief, input and gold-file SHA-256 values, check
   counts). The tasks, gold, hidden suites and scorer stay under the ignored `.soar/`.
+- `phase4-tasks-v1.json`: the hashes-only manifest of the three fresh Phase 4 research
+  tasks for H5 (same fields, plus the scorer and checks versions), authored by a separate
+  session; tasks, gold and scorer stay under the ignored `.soar/experiments/phase4-v1/`.
 
 The following stay outside Git, under the ignored `.soar/experiments/`:
 

@@ -1,0 +1,563 @@
+{
+ "schemaVersion": 1,
+ "name": "phase4-tasks-v1",
+ "proposedFreezeTag": "phase4-tasks-v1",
+ "createdUtc": "2026-10-27T02:06:12Z",
+ "taskRoot": ".soar/experiments/phase4-v1/tasks",
+ "goldRoot": ".soar/experiments/phase4-v1/gold",
+ "qualifiedImageId": "sha256:e5c7075fac7a7a68900db45e3de06e50e7b0f6896a5ca0f82cddb4ef8ad4ac2f",
+ "scorer": {
+  "version": 2,
+  "files": [
+   {
+    "path": "make_fake_run.py",
+    "sha256": "38d13089dc81f059c60b8cd4c21bd8db2b3fa522e160b9620941c82075604dbd"
+   },
+   {
+    "path": "run_unittest.py",
+    "sha256": "9241663ab5527b4dd8473fb5f3582cf2b01e73d138ebd2bef57d7c9b0556c5c2"
+   },
+   {
+    "path": "score.py",
+    "sha256": "7deee99cd862aeb090e825049a0d568a4ad793ccf9375b3712bca29a11423560"
+   }
+  ],
+  "treeSha256": "d1de1739fc7ec7d409d6d7bad81ad20219fb3ace1ecc4a4d5b7bbb651a1cb29a",
+  "readmeSha256": "cb91778020081ccb11ee1a8f20579a9af346ef87f33000c64e834fd683632f47"
+ },
+ "totals": {
+  "tasks": 3,
+  "criticalChecks": 23
+ },
+ "tasks": [
+  {
+   "id": "f1-drone-rules",
+   "family": "research",
+   "jobId": "phase4-f1-drone-rules",
+   "driverModeFlags": [
+    "--claims-ledger",
+    "true",
+    "--pipeline",
+    "research",
+    "--profile",
+    "heavy"
+   ],
+   "jobSha256": "8af40fa5f22d71e483993ca01d292287f415e23ade206cd8dd31715624903f4b",
+   "briefSha256": "a1a5b7a10c729c80619e24ff2a20aa164bda04a5c273f24387891fd823142ffb",
+   "inputs": [
+    {
+     "path": "input/corpus/ecfr-14cfr107-subpart-a.md",
+     "sha256": "9952261fa194bd992f90b377e290de762bfb118cd68e47d5f15b1ace59cc570d",
+     "bytes": 6026,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/ecfr-14cfr107-subpart-b.md",
+     "sha256": "86ca1bfe2fef7882b52dc40e84ef67c406903162a4607827e857b387578527fb",
+     "bytes": 13929,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/ecfr-14cfr107-subpart-c.md",
+     "sha256": "d9a280120155c2995d93c151e5ce0edd4b4363c9e7a413a232da134f25423ba9",
+     "bytes": 13071,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/ecfr-14cfr107-subpart-d.md",
+     "sha256": "e252488b3641a37f9c86d4f4440ff70616d00ecf2cb831d2e7aa238434615157",
+     "bytes": 24165,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/ecfr-14cfr107-subpart-e.md",
+     "sha256": "a6f1cc1a99d1b0078cba564e5ba9406305081489bac1d45d5e0090af86e629f3",
+     "bytes": 2353,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/ecfr-14cfr48-subpart-a.md",
+     "sha256": "1dbdfd9f308a4ec4c34e358b6bd4320c3cbd457520214984dc905a9d3805aa1c",
+     "bytes": 5722,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/ecfr-14cfr48-subpart-b.md",
+     "sha256": "29f9ceda61238ddc2a5ee42893734203b9804e9af40cf20a8c76874d8bd2b6f9",
+     "bytes": 9779,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/ecfr-14cfr48-subpart-c.md",
+     "sha256": "b0f1531d0fcf01769e67220ad7016430c4f2cc2b16743be593ea745d08f736a2",
+     "bytes": 1570,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/ecfr-14cfr89-subpart-a.md",
+     "sha256": "4e43bdfab65f71fd047d71b8d79413018b0c8ac3304c168983f4f70f7e7f85c4",
+     "bytes": 668,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/ecfr-14cfr89-subpart-b.md",
+     "sha256": "23fdaa2c186a6f075e568e887d19bf5df5bd7a240f0dd0010c6cb1000327f1ce",
+     "bytes": 9191,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/ecfr-14cfr89-subpart-c.md",
+     "sha256": "34feb46a6646db5c48d1828d8aef05ca19c803f5e08348b3a5f0596583432c0c",
+     "bytes": 7524,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/ecfr-14cfr89-subpart-d.md",
+     "sha256": "0aec12621fd84b414fc161b49aceb5cda1027e1d96287645f18fa29b4d1098f4",
+     "bytes": 9430,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/ecfr-14cfr89-subpart-e.md",
+     "sha256": "eb3bcbf030227727d5b0f6f9fd20ea14c7b7ebf6f292e8644e5c52fe8c0b9806",
+     "bytes": 4637,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/ecfr-14cfr89-subpart-f.md",
+     "sha256": "3cedf7064eb7be3dee621af43af3e4126d73b29d52c16619711e43c4e29b04f7",
+     "bytes": 17110,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/usc-49usc44801.md",
+     "sha256": "de8c78a9df0487380944c56dae4097da8abd3ad717339576a075e0666ce11f7b",
+     "bytes": 35653,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/usc-49usc44806.md",
+     "sha256": "80ec4b6f1a5b0ebc472383ce7b59f63bfc8b4da3a7e48a1584ba3fa5fc5bb180",
+     "bytes": 8046,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/usc-49usc44807.md",
+     "sha256": "49d0c9ba3db513a7e813f889bfc130765268e59f90d7aabe315d3c361a9a98a5",
+     "bytes": 7591,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/usc-49usc44809.md",
+     "sha256": "65ff0c130095b4687014a223c062ee9baebedd679de6e9aba7629c3f9007e18d",
+     "bytes": 15213,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/usc-49usc44810.md",
+     "sha256": "e23f5ebd6c9c7516f15850fe99e957efea9b2a1e5642f5a9d64da59e69356e81",
+     "bytes": 10283,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/parkside-flyers-newsletter-2026-09.md",
+     "sha256": "83a4420c232731ad4a798823e64246fce818be2bfea29a2fa92928477dd6346c",
+     "bytes": 2311,
+     "label": "public"
+    }
+   ],
+   "requiredArtifacts": [
+    "output/report.md"
+   ],
+   "inputLicence": "eCFR subparts (14 CFR Parts 48, 89 and 107) and United States Code sections (49 U.S.C. chapter 448, 2024 edition, govinfo), U.S. government works (public domain), text reduced verbatim; plus one synthetic document",
+   "checksSha256": "cae64aa7f9e66dec48fd20c62c95b7fce78c31ded4840e6f47fb47d121c8b4e1",
+   "checksVersion": 2,
+   "checkCount": 8,
+   "conflictsSha256": "4f5c41a342ca5a9c0eb303d22ad49b73020bff04a53f831edb62d977bd5e714c",
+   "goldFiles": [
+    {
+     "path": "checks.json",
+     "sha256": "cae64aa7f9e66dec48fd20c62c95b7fce78c31ded4840e6f47fb47d121c8b4e1"
+    },
+    {
+     "path": "conflicts.json",
+     "sha256": "4f5c41a342ca5a9c0eb303d22ad49b73020bff04a53f831edb62d977bd5e714c"
+    },
+    {
+     "path": "key-facts.json",
+     "sha256": "aa4f7d6cfe140a1265196542a1a3668de31b6ec3e31e754e78ad757e0b660ca4"
+    },
+    {
+     "path": "reference/output/claims.json",
+     "sha256": "30becaffc73bde23125187c934defcf866fe43d10cc8e3a8810fc217ef76b079"
+    },
+    {
+     "path": "reference/output/report.md",
+     "sha256": "6026a58808598811f1ae7aa6310a39c3243fda71f1549b90b80ba2f79d1cdb38"
+    }
+   ],
+   "goldTreeSha256": "dd174e62d7e5be2b789d094c81221dd49bd8647426c1584f16c386d5d8e2024b"
+  },
+  {
+   "id": "f2-youth-tobacco",
+   "family": "research",
+   "jobId": "phase4-f2-youth-tobacco",
+   "driverModeFlags": [
+    "--claims-ledger",
+    "true",
+    "--pipeline",
+    "research",
+    "--profile",
+    "heavy"
+   ],
+   "jobSha256": "1f3f0fd158c4a96c12d9012fca2e1b8859b405353f224a6a904ab118e65019e8",
+   "briefSha256": "fcadc271a75e9696e1477c1a32fb8dafde49fda7c6eaec1bbb6d8b169e1e308c",
+   "inputs": [
+    {
+     "path": "input/corpus/mmwr-mm6806e1.md",
+     "sha256": "71cfdc583c9095034d888235e167cfc5fcffa536a057f563d1396f0606904808",
+     "bytes": 33877,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm6839a2.md",
+     "sha256": "ec1d2a760a646d7d6e9b2643ca5db2de8ed97ce949e7203b40065b18576724bb",
+     "bytes": 22652,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm6839e1.md",
+     "sha256": "dbfa424bc0d447220cc92192316682ad07f6a08aa2467c89804be17bfc67ac50",
+     "bytes": 14693,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm6903e2.md",
+     "sha256": "b7d6c61d6b90bbbb9009321635d303a043a123224aaec3764019b05a10e1972b",
+     "bytes": 18676,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm6907a3.md",
+     "sha256": "7891fef8ee688f3a719b6099f1b91bdd0d6d41a7f5284319400645dfdb64b1e8",
+     "bytes": 18122,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm6937e1.md",
+     "sha256": "d4e3c3ab62b26d2f0e3407f660462912c9019edf16536bde859f37dddbef4dc8",
+     "bytes": 9734,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm6937e2.md",
+     "sha256": "aa066bf54b3026656b9a80a17565c09c130864b434073432ceea0be96203107c",
+     "bytes": 21135,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm6946a4.md",
+     "sha256": "2401678fc7e5a7909149eeeb792f05602ab9778bf0b782df3061b237df0d6104",
+     "bytes": 37337,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm6950a1.md",
+     "sha256": "c9039e6bbf2e565159c2e81ecf84f4d21c8be4e05308cff62b166d833aeeb674",
+     "bytes": 30619,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm7039a4.md",
+     "sha256": "91be6687fc5ad03eb565a419f3306bd1bff048fda9e12bee08c8f7aac8a55e6b",
+     "bytes": 14743,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm7111a1.md",
+     "sha256": "f5e17da36ca56d9f9989576be83aaffea4a6970f8f0962df4eea5affb40a494f",
+     "bytes": 43759,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm7140a3.md",
+     "sha256": "c5266fc723b50de7464c04472df90179ebc1649d342906ebd65f82f3553b4df5",
+     "bytes": 15429,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm7145a1.md",
+     "sha256": "97f5012dfb8cc58abac1b71929f5dd0a403567931863716edd5111716ec7cfc8",
+     "bytes": 32056,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm7218a1.md",
+     "sha256": "f91e75a335910e1ae719bd046d94af05573faacc2196d4f9788feb8ff915afdd",
+     "bytes": 40081,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm7225a1.md",
+     "sha256": "85b787a67d40a6e614cd676aa3daab3b958b2bbb341a09e9cd6f4dbecd6c9dd9",
+     "bytes": 19337,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm7225a5.md",
+     "sha256": "95f6f973428e5bbc116412a6ca2120bcdc87634c7ed5eee7c39cef944197261c",
+     "bytes": 8845,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm7244a1.md",
+     "sha256": "574b2352f19ef4e43d54bd7bfb97204570a920562b4728cd45f6d7e8159d4ed5",
+     "bytes": 47573,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm7335a3.md",
+     "sha256": "eb8238688724f4fc0629f4450bc1fc14264e3cccfc2a646dac4edebaa256e6a3",
+     "bytes": 25083,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm7341a2.md",
+     "sha256": "66d1ae89cb90a6cb4ae511ccff0ce09609a9c960509bd9e166bda905559f722d",
+     "bytes": 38788,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/mmwr-mm7407a3.md",
+     "sha256": "e8d22b83b728e2190141d8ed53417c785355bf42f3c707a50cd005603ea2f55e",
+     "bytes": 18156,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/lakeshore-coalition-youth-vaping-fact-sheet-2025-03.md",
+     "sha256": "049b6d16fc47e0daf28e03143a5a2d47613104b485f867df427adb4fc3fd54fb",
+     "bytes": 1819,
+     "label": "public"
+    }
+   ],
+   "requiredArtifacts": [
+    "output/report.md"
+   ],
+   "inputLicence": "MMWR reports (CDC), public domain (U.S. government work; PMC licence statement CC0), JATS XML from PubMed Central reduced to text verbatim with the reference lists omitted; plus one synthetic document",
+   "checksSha256": "06bdd1193697d31c798922a6159f319e795058bde50de6f4d3ad4fd79fa72f37",
+   "checksVersion": 2,
+   "checkCount": 8,
+   "conflictsSha256": "f76760586361c2411004f3dcb1ae863cb7a4bc346b3c6950aa86300db4d626c1",
+   "goldFiles": [
+    {
+     "path": "checks.json",
+     "sha256": "06bdd1193697d31c798922a6159f319e795058bde50de6f4d3ad4fd79fa72f37"
+    },
+    {
+     "path": "conflicts.json",
+     "sha256": "f76760586361c2411004f3dcb1ae863cb7a4bc346b3c6950aa86300db4d626c1"
+    },
+    {
+     "path": "key-facts.json",
+     "sha256": "f63547f53dead76f78b873a02b2190ef174423067be74029515a3840545b1f9b"
+    },
+    {
+     "path": "reference/output/claims.json",
+     "sha256": "597632fa4f97ac25f6919b92ab280f5dedbc2deefb7c58443d67edbc8b8141f5"
+    },
+    {
+     "path": "reference/output/report.md",
+     "sha256": "4bbd7e654f8cfd90928357e7c232af1dee097b214b1fabde7db9da41691e9277"
+    }
+   ],
+   "goldTreeSha256": "51a89fe556ab796d530d9e01238a7dfea3f75fa171085edc3704a56db4315add"
+  },
+  {
+   "id": "f3-eu-demography",
+   "family": "research",
+   "jobId": "phase4-f3-eu-demography",
+   "driverModeFlags": [
+    "--claims-ledger",
+    "true",
+    "--pipeline",
+    "research",
+    "--profile",
+    "heavy"
+   ],
+   "jobSha256": "9d6cb9d4ac9a46c301fc5e55089df1d8a538e4031e6efaa3d8b0ee9d32fcfac9",
+   "briefSha256": "064198231782e0b85ea9642d5bcff9277faff69e72e35a8fe4cfeb26f90f689a",
+   "inputs": [
+    {
+     "path": "input/corpus/eurostat-acquisition-of-citizenship-statistics.md",
+     "sha256": "97fd926b143bb2c4502360c4ef95f79489463a1e07cacffd9f1cfb54fb302be4",
+     "bytes": 11150,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-asylum-applications-annual-statistics.md",
+     "sha256": "37232573b01116a5d63fcbf122225ba7be5a2b58258886511672af137312a2e1",
+     "bytes": 16022,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-asylum-decisions-annual-statistics.md",
+     "sha256": "2b4bda24dc6d7a05a11e19740793a70c8e7fa231cb0287ce2c5a91665bd4aeec",
+     "bytes": 20512,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-causes-of-death-statistics.md",
+     "sha256": "cd2784c9347bc59ee20ede81a74403fdf311174281ea823d91704c75c60591c0",
+     "bytes": 13495,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-children-in-migration-demography-and-migration.md",
+     "sha256": "1232ee6fedb9c6ca75ee567039a21c279c6b66e06349589e444f89ef952d7a04",
+     "bytes": 22952,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-eu-population-diversity-by-citizenship-and-country-of-birth.md",
+     "sha256": "230e970b5325731f5c13293595fa3baf892921c1fbd41b96d8003cea5db91ce7",
+     "bytes": 13370,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-excess-mortality-statistics.md",
+     "sha256": "eef515e4da513e36dfbd558fe292cb09f17a47feab9c7089811ef4a2a79dfab2",
+     "bytes": 10076,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-fertility-statistics.md",
+     "sha256": "f8cc03359f616cf853fa901d4d0e62ee3304d084a8118fe0c4228deac848ad26",
+     "bytes": 12997,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-household-composition-statistics.md",
+     "sha256": "eb943049062767c3fa2f529bf4d0d48435ea863f5832ae6bcd51ce3425df0f81",
+     "bytes": 14102,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-marriage-and-divorce-statistics.md",
+     "sha256": "41d36b5d2f797d6b9de2aebb8c11a10a53bdb5eeb12baa02b6f50cda598640bf",
+     "bytes": 8481,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-migration-to-and-from-the-eu.md",
+     "sha256": "b2b8ea0d2b96708ab72f48be10948d6d0b9318ee643ec0f98424ba4fddfe0f87",
+     "bytes": 13191,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-mortality-and-life-expectancy-statistics.md",
+     "sha256": "caaf2dcea53cdcb6a11a6799af68942d3ec4db983e1bbb90fa4547bb3b0fe202",
+     "bytes": 9648,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-population-and-population-change-statistics.md",
+     "sha256": "737209fe8d10d3c92f91edaccb410c821115191e04c8afc43771abdb62774dd9",
+     "bytes": 9633,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-population-projections-at-regional-level.md",
+     "sha256": "ad1e75fe3f95fc910bb75569fa49c1c2e82a51b2e36cc8ced205af21fdba8f17",
+     "bytes": 17402,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-population-projections-in-the-eu.md",
+     "sha256": "faa3374fb40944b1b8ada1915ed17d1603f3da28d5ef9f4a3b3e7fcac6cb85f0",
+     "bytes": 18055,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-population-statistics-at-regional-level.md",
+     "sha256": "8d0ac2d88455f32fb0aea477aea91e2c78f61bba3999138514eae4fe2a0c244b",
+     "bytes": 45578,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-population-structure-and-ageing.md",
+     "sha256": "072fe7edf6560c4c089b6edcae3e44e8da0cdb769733b5079efa1c330989633f",
+     "bytes": 14031,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-residence-permits-statistics-on-first-permits-issued-during-the-year.md",
+     "sha256": "42edc6420e96cba400ae0412529ceec9648ca455052591c9024f7b048eff358c",
+     "bytes": 15348,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-residence-permits-statistics-on-stock-of-permits-at-the-end-of-the-year.md",
+     "sha256": "750b6a7e149743b6742b23db385aba15adebcef69a217cacd55effd8ba294c2a",
+     "bytes": 14739,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-urban-rural-europe-demographic-developments-in-cities.md",
+     "sha256": "54f8a8be54558f3d091b904dafb4fdf33ffe73273c08a969795fc5efe4b03ba6",
+     "bytes": 26874,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-urban-rural-europe-demographic-developments-in-rural-regions-and-areas.md",
+     "sha256": "f393c1b8969aabf1ba549d07781ad0613cd9a44a6ef09fd5cedda3b54485f82f",
+     "bytes": 33024,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/eurostat-young-people-family-and-society.md",
+     "sha256": "89d2f1da3e2d0e403a04a46f6b20f7217558021b6c9a967405495f191eba104b",
+     "bytes": 7987,
+     "label": "public"
+    },
+    {
+     "path": "input/corpus/northwind-advisory-eu-demographic-outlook-2026-08.md",
+     "sha256": "82729e54cb5dca8cbb56b70b55c6ff2c482cf69f2d86567b8275be39ac0082cc",
+     "bytes": 1683,
+     "label": "public"
+    }
+   ],
+   "requiredArtifacts": [
+    "output/report.md"
+   ],
+   "inputLicence": "Eurostat Statistics Explained articles, European Union, CC BY 4.0 (Commission Decision 2011/833/EU and the Commission legal notice), HTML reduced to text verbatim with the navigation block dropped; plus one synthetic document",
+   "checksSha256": "3e5eff6c7eb2af2cfbaf68ed22b521e66431cf9a07687703ba4dea43b4591a56",
+   "checksVersion": 2,
+   "checkCount": 7,
+   "conflictsSha256": "cc8464c63307ba792027a1ee4350b70beb5d1c18ff3aa68fd4e5391d471ecfda",
+   "goldFiles": [
+    {
+     "path": "checks.json",
+     "sha256": "3e5eff6c7eb2af2cfbaf68ed22b521e66431cf9a07687703ba4dea43b4591a56"
+    },
+    {
+     "path": "conflicts.json",
+     "sha256": "cc8464c63307ba792027a1ee4350b70beb5d1c18ff3aa68fd4e5391d471ecfda"
+    },
+    {
+     "path": "key-facts.json",
+     "sha256": "df841c0817d3a7d7da256220d2157a829bc8cf0d9792a4d894a4354cf462140d"
+    },
+    {
+     "path": "reference/output/claims.json",
+     "sha256": "76e3dc7a346b4cade5977ccc5ce10e862d4eeaeaf30b70f6a522c6746f2fc389"
+    },
+    {
+     "path": "reference/output/report.md",
+     "sha256": "0553c687c5b5ee2d0440d8ad7a775518a57165ffe32fccdf5779fc379bb703ea"
+    }
+   ],
+   "goldTreeSha256": "2661ac10099891c42bbe166c7eb4705c2272e6bde7ad3a9e8bd0550d23ebefe8"
+  }
+ ],
+ "tasksSha256": "502b6e553c7ecfa05dd75419ed6680c2c38f5c8781902a51c37f7a7c73e70152"
+}

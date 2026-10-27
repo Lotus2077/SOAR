@@ -24506,3 +24506,281 @@ BL-20261022-0834-phase4-division-of-labour-design,
 BL-20261019-0431-office-render-check,
 BL-20261007-1522-phase2-harness-implemented,
 BL-20261026-1644-planner-budget-dry-run-verified.
+
+### BL-20261027-0145-phase4-tasks-design -- 2026-10-27 -- Phase 4 fresh research tasks: three closed-corpus briefings authored apart from the pipeline session, checks before the freeze
+
+Status: `Proposed`
+
+Scope or hypothesis: the separate-session task authoring that H5 of
+BL-20261022-0834-phase4-division-of-labour-design requires ("three fresh
+research tasks, authored by a separate session with 5-8 critical checks
+each and frozen by hash before any pipeline run"). This session authors
+three research tasks on topics and public corpora that differ from the
+exposed Phase 2 tasks (r1 Python packaging from PEPs, r2 email
+authentication from RFCs, r3 grid batteries from EIA articles) and from
+each other, following the Phase 2 protocol (BL-20261008-0910,
+BL-20261008-1025). It changes nothing under `src/` or `scripts/`, runs no
+agent and no model on any task, makes no cloud call and no paid run, and
+reads no key. The session that designed the pipeline and H4 never sees
+these tasks' inputs or gold; it receives only task ids, topics, check
+counts and manifest hashes. On-track check: H5 cannot start without frozen
+fresh tasks; H4 is merged (PR #28) and the pipeline's protocol version 3 is
+in place.
+
+Decisions:
+
+- **Task set** (driver modes for every task:
+  `--claims-ledger true --pipeline research --profile heavy`):
+
+  | Id | Topic | Public corpus |
+  | --- | --- | --- |
+  | `f1-drone-rules` | United States federal rules for small unmanned aircraft | 14 eCFR subparts (14 CFR Parts 48, 89 and 107, text in effect on 2026-10-22) and 5 sections of 49 U.S.C. chapter 448 (2024 edition, govinfo); U.S. government works, public domain |
+  | `f2-youth-tobacco` | tobacco and nicotine product use among U.S. middle and high school students, 2019 to 2024 | 20 MMWR reports (CDC, 2019 to 2025) fetched as JATS XML from PubMed Central and reduced to text; public domain |
+  | `f3-eu-demography` | demography of the European Union | 22 Eurostat Statistics Explained articles, HTML reduced to text; European Union, CC BY 4.0 |
+
+  Each corpus also holds one synthetic document. Each corpus is closed
+  (`publicWeb: none`); every public document carries a provenance row (URL,
+  retrieval date, licence, SHA-256 of the raw bytes and of the reduced
+  text) under `sources/`; every input is plain text under 64 KiB, the
+  research pipeline's per-source extraction limit (two MMWR surveillance
+  summaries of 98 and 145 KB were fetched and set aside for that reason).
+  No PDF or DOCX input.
+- **Planted conflict.** The synthetic document in each corpus contradicts
+  one public source on one specific figure; no public document is altered.
+  `gold/<id>/conflicts.json` records both sides as verbatim passages with
+  source ids, which is what H5 rule S3 measures the evidence packet's quote
+  recall against. Targets, figures and the synthetic documents' content are
+  gold and stay outside Git.
+- **Briefs.** Each `brief.md` asks for a cited report under a word limit
+  with named required sections, including "Conflicting evidence" and
+  "Unanswered questions" (the two headings the claims-ledger mode
+  requires), and asks the writer to say which source it followed when
+  sources disagree. Briefs ask questions; they do not name the figures the
+  checks look for. `job.json` is written only by
+  `scripts/prepare-operator-task.py`.
+- **Layout.** Everything stays under the ignored
+  `.soar/experiments/phase4-v1/` of this worktree: `tasks/<id>/`,
+  `gold/<id>/` (checks.json, key-facts.json, conflicts.json, reference/),
+  `gold/scorer/`, `build/` (fetchers, corpora, synthetic documents, gold
+  and reference generators, self-test runs), `sources/` (raw originals and
+  provenance), `briefs/`. Git receives only the hashes-only manifest
+  `docs/experiments/phase4-tasks-v1.json`, one README line and the two
+  build-log entries.
+- **Critical checks.** 7 or 8 per task in `gold/<id>/checks.json`
+  (version 2), of the Phase 2 research shapes: the host's claims-ledger
+  check passed with inputs preserved; an independent re-verification of
+  every quote with a claim and source floor; the planted conflict surfaced
+  under "Conflicting evidence" with both sides cited; a
+  task-specific question answered from the corpus; key facts with pattern
+  rules that accept correct phrasings; the support rate reported by the
+  host's entailment pass; and report-format checks.
+- **Scorer version 2.** `gold/scorer/score.py` is the Phase 2 scorer with
+  additions and no change to version 1 behaviour: alternative patterns per
+  fact, a further check kind, a gold shape lint, and a diagnostics block
+  (never a check) that reports the evidence packet's recall of the
+  planted-conflict passages when a run holds
+  `candidate/context/research/evidence.json`, so the S3 scorer session has
+  a fixed tool. It accepts checks.json versions 1 and 2.
+- **Validation before the freeze.** The three tasks load through
+  `loadPreparedOperatorTask` read-only and their `withClaimsLedger`
+  contracts pass `GeneralJobContractSchema`; the scorer self-test runs in
+  the qualified image offline (reference full marks, a flawed output of
+  each task fails at least two checks, a correct output with other
+  conventions full marks); the version 2 scorer reproduces the Phase 2
+  self-test verdicts; miner and verifier agents read every corpus before
+  the gold was written; independent review agents read briefs, inputs,
+  gold and scorer for leakage, unplanted errors and checks that would fail
+  correct outputs, and what they find is fixed before the freeze. No task
+  is tuned to the pipeline's prompts or to model behaviour; the pipeline
+  file was read only for its format constraints (text sources, the 20 KiB
+  gist and 64 KiB extraction bounds, the reader budget).
+- **Freeze.** The freeze entry records the manifest's file SHA-256 and
+  `tasksSha256`; the proposed tag is `phase4-tasks-v1` on the merge commit,
+  cut by the owner. This session pushes no tag and merges nothing.
+
+Changes: this entry. Authoring follows on branch `phase4-tasks`.
+
+Evidence: BL-20261022-0834 (H5 and rule S3), BL-20261008-0910 and
+BL-20261008-1025 (the Phase 2 protocol and its freeze), the Phase 2
+authoring tree and scorer, `scripts/prepare-operator-task.py`, the job
+schema in `scripts/private-agent-run.ts`, and the format constants of
+`src/main/private-agent/research-pipeline.ts`, read on 2026-10-26.
+
+Failures or blockers: the FAA's drone web pages were to join the first
+corpus, but the site's edge filter denies plain tool user agents; the
+filter was respected and the pages dropped, so that corpus's public documents
+are legal text only (regulations and statutes). The Bureau of Labor Statistics site was
+probed and skipped for the same reason, and the MMWR reports come from
+PubMed Central rather than the CDC site. The authoring session's usage
+limit paused the work for about five hours on 2026-10-26; it resumed from
+a hand-over note with no loss.
+
+Limitations and non-claims:
+- The 30 to 80 action sizing is the author's estimate; no task is run here.
+- The author writes the gold and the checks, so the checks share the
+  author's blind spots; the owner's blind verdict remains the outcome of
+  record.
+- Pattern-based facts can miss a correct answer phrased unexpectedly; the
+  rules are fixed at the freeze and reported as written.
+- Public corpora may be in model training data; the closed-corpus ledger
+  limits but does not remove that advantage, and the one synthetic document
+  per corpus can be told apart by its name.
+- Public documents in a corpus can disagree among themselves; the checks
+  allow for that, and the planted conflicts avoid such quantities.
+
+Paid exposure: USD 0.
+
+Next gate: the three tasks prepared, the gold and checks written and
+validated as above, then the freeze entry and the hashes-only manifest in
+a pull request.
+
+References: BL-20261022-0834-phase4-division-of-labour-design,
+BL-20261022-0940-phase4-harness-approved,
+BL-20261008-0910-phase2-tasks-design, BL-20261008-1025-phase2-tasks-freeze,
+BL-20261026-1621-research-pipeline-planner-budget,
+BL-20261026-1832-h4-select-and-repair-implemented.
+
+### BL-20261027-0206-phase4-tasks-freeze -- 2026-10-27 -- Phase 4 fresh research tasks authored and frozen: three tasks, 23 critical checks, hashes-only manifest
+
+Status: `Implemented`
+
+Scope or hypothesis: implements the design BL-20261027-0145-phase4-tasks-design
+on branch `phase4-tasks`. Three fresh research tasks for H5 are authored,
+prepared and frozen, with 23 critical checks written before any candidate
+exists. Freezing here means the hashes are fixed in a committed manifest; the
+freeze takes effect for counted runs once the owner merges and tags it. The
+session that designed the pipeline and H4 has seen none of the inputs or
+gold through this entry or the pull request, which carry only ids, topics,
+corpus descriptions, counts, licences, process tallies and hashes. On-track
+check: this was the last authoring item before H5; harness code was not
+changed.
+
+Decisions:
+
+- **Task set** (every task runs with
+  `--claims-ledger true --pipeline research --profile heavy`):
+
+  | Id | Topic and corpus | Inputs | Checks |
+  | --- | --- | --- | --- |
+  | `f1-drone-rules` | U.S. federal small-drone rules, from 14 eCFR subparts, 5 U.S.C. sections and one other document | 20 | 8 |
+  | `f2-youth-tobacco` | U.S. youth tobacco and nicotine use 2019 to 2024, from 20 MMWR reports and one other document | 21 | 8 |
+  | `f3-eu-demography` | EU demography, from 22 Eurostat articles and one other document | 23 | 7 |
+
+- **Freeze.** The hashes-only manifest is
+  [phase4-tasks-v1.json](experiments/phase4-tasks-v1.json). Its file SHA-256 is
+  `92df4fcbc65b8f63725331bbfd5525b8cee14ff2a6c801eaf059fd1f903a2865`; the task
+  list digest (`tasksSha256`) is
+  `502b6e553c7ecfa05dd75419ed6680c2c38f5c8781902a51c37f7a7c73e70152`. It
+  records, per task, the job and brief SHA-256, every input file's SHA-256,
+  every gold file's SHA-256 (checks.json, key-facts.json, conflicts.json and
+  the reference output), the checks version and count, plus the scorer's file
+  hashes and version. The proposed tag is `phase4-tasks-v1` on the merge
+  commit, cut by the owner. No checker may change after any candidate has
+  been seen; a defect found later is recorded as a correction and the
+  original check is still reported.
+- **Where things are.** Task directories are at
+  `.soar/experiments/phase4-v1/tasks/<id>` in the authoring worktree, prepared
+  only with `scripts/prepare-operator-task.py`. Gold (checks.json,
+  key-facts.json, conflicts.json, reference outputs), the version 2 scorer and
+  its README are under `.soar/experiments/phase4-v1/gold/`. Fetchers, corpora,
+  synthetic documents, generators, provenance rows and self-test runs are
+  under `build/` and `sources/` there. None of it is in Git, and none of it
+  is described here beyond counts and hashes.
+- **Scorer version 2.** `gold/scorer/score.py` reads checks.json versions 1
+  and 2. Its additions over version 1 are alternative patterns per fact, a
+  further check kind, a gold shape lint that fails a malformed entry loudly,
+  and a diagnostics block (H5 rule S3) that reports the evidence packet's
+  recall of the planted-conflict passages and yields an error block, never a
+  crash, for a malformed packet. Diagnostics are reported, never counted.
+  Version 1 behaviour is unchanged: after every scorer change the version 2
+  scorer reproduced the recorded verdicts of 14 Phase 2 self-test runs check
+  for check.
+- **Changes made before the freeze, after self-tests, corpus verification
+  and reviews.** No candidate existed when they were made. Their specifics
+  are gold and stay in the authoring tree. In kind: the planted-conflict
+  placement was revised for one task on the corpus verifiers' advice; the
+  synthetic documents were edited so that each carries exactly one
+  contradiction; pattern rules that would have failed correct outputs were
+  widened; briefs were made more precise where a check relied on an
+  unstated convention, and one phrase that gave away part of an answer was
+  removed; reference reports and claims ledgers were corrected where a
+  sentence overstated its quote or left a question unanswered; and the
+  provenance ledgers were completed (rows for the synthetic documents,
+  markers for the two excluded summaries, an accurate description of the
+  reduction applied to the public texts).
+
+Changes: This entry; [phase4-tasks-v1.json](experiments/phase4-tasks-v1.json);
+one line in [experiments/README.md](experiments/README.md).
+
+Evidence:
+
+- Harness loader (read-only, no model and no sandbox): all three tasks load
+  through `loadPreparedOperatorTask` with their job and brief hashes, and
+  their `withClaimsLedger` contracts pass `GeneralJobContractSchema`
+  (20, 21 and 23 inputs; goals of 5,216 to 7,124 characters; required checks
+  `source_preserved_and_artifacts_readable` and `research_claims_ledger`).
+- Scorer self-test in the qualified image
+  (`sha256:e5c7075f…`, Python 3.11.16), offline, inputs read-only:
+  - every task's reference output scores full marks (8/8, 8/8, 7/7);
+  - a deliberately flawed output of each task fails at least two checks
+    (4/8, 2/8, 3/7);
+  - a correct output written with other conventions scores full marks
+    (8/8, 8/8, 7/7);
+  - the S3 diagnostic reports full recall for a fake evidence packet that
+    holds both planted-conflict passages, none when one side is absent, an
+    error block with all checks intact for a malformed packet, and no block
+    when a run has no packet.
+- Corpus mining before the gold was written: eight miner agents, one per
+  document group, proposed candidate facts, conflict targets and
+  pre-existing disagreements; two verifier agents per task re-checked every
+  candidate against the whole corpus (24 of 24, 34 of 36 and 35 of 36
+  confirmed; the unconfirmed items are differences between public documents
+  that the checks accept or do not use), and recorded pre-existing
+  disagreements between public documents so that the planted conflicts
+  avoid them.
+- Reviews: seven review agents (two lenses per task plus a scorer-code
+  review) returned 68 findings, 29 should-fix and 39 notes, no blocker. One
+  refuter agent per should-fix finding confirmed 28 of 29 and refuted one.
+  Every confirmed finding and the cheap notes were fixed before the freeze;
+  the rest are recorded as limitations with the gold.
+- Provenance: 20, 23 and 23 rows (URL, retrieval date 2026-10-26, licence,
+  SHA-256 of raw bytes and reduced text; one row per synthetic document; the
+  two excluded MMWR summaries marked) under `sources/`.
+
+Failures or blockers: None for authoring. Counted runs need the owner:
+merging this PR, cutting the tag and writing the run authority record. A
+first draft of this entry, committed locally but never pushed, described
+the pre-freeze changes in enough detail to disclose gold; the harness
+session flagged it, the entry was rewritten and the commit amended before
+any push.
+
+Limitations and non-claims:
+- The tasks were never run. The 30 to 80 action sizing is the author's
+  estimate, and difficulty is unmeasured.
+- One session wrote both the gold and the checks, and its miners, verifiers
+  and reviewers were agents of the same session. They share blind spots, and
+  the owner's blind verdict remains the outcome of record.
+- Pattern-based facts can still miss an unusual correct phrasing; the rules
+  are fixed at the freeze and reported as written. Residual proxy effects of
+  the pattern rules are recorded in the authoring tree's build notes.
+- Public corpora are texts that models may have seen in training; the
+  closed-corpus ledger limits but does not remove that advantage, and the one
+  synthetic document per corpus can be told apart by its name.
+- Public documents in a corpus can disagree among themselves; the checks
+  allow for that, and the planted conflicts avoid such quantities.
+- The drone corpus's public documents are legal text only (regulations and statutes); the FAA's
+  explanatory web pages could not be fetched without evading the site's
+  edge filter and were left out.
+
+Paid exposure: USD 0. No model or agent run on any task, no cloud call, no
+key read. The miner, verifier and review agents ran under the owner's Claude
+subscription in this session, not the project's cloud envelope.
+
+Next gate: the owner merges the PR and tags `phase4-tasks-v1`. H5 then runs
+on protocol version 3 with these tasks; the designing session reads no gold.
+
+References: BL-20261027-0145-phase4-tasks-design,
+BL-20261022-0834-phase4-division-of-labour-design,
+BL-20261022-0940-phase4-harness-approved,
+BL-20261008-1025-phase2-tasks-freeze,
+BL-20261026-1832-h4-select-and-repair-implemented.

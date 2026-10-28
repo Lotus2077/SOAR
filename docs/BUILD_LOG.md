@@ -24889,3 +24889,171 @@ References: BL-20261027-0145-phase4-tasks-design,
 BL-20261027-0206-phase4-tasks-freeze,
 BL-20261022-0834-phase4-division-of-labour-design,
 BL-20261026-1832-h4-select-and-repair-implemented.
+
+### BL-20261028-0420-h4-live-batch1-box-failure -- 2026-10-28 -- H4 live batch 1 stopped on the box: the first model request did not complete in 900 seconds, then the server closed every connection; no model call completed, nothing spent, H5 not started
+
+Status: `Blocked`
+
+Scope or hypothesis: the first live batch of the H4 select-and-repair loop
+(BL-20261026-1832-h4-select-and-repair-implemented) in the owner's declared
+window, which opened at 19:05 UTC on 2026-10-27. The batch is one sequential
+queue (`phase4-h4-live`) of three loops on exposed Phase 2 tasks: all-local
+on `k2-qbr-deck`, all-local on `r3-grid-batteries`, and split on
+`r3-grid-batteries` with a fee cap of USD 0.60. Its operator authority
+allowed no re-run of any row. The records verify only how the batch was
+pinned, what the first row did, how it was classified and why the queue
+stopped; nothing about the loop is verified. The batch is blocked on the
+owner's model server, and the second batch below is `Proposed`.
+
+Decisions:
+
+- **Launch and pinning.** The launcher was armed at `87e2c9b` before the
+  `phase4-tasks-v1` merge existed and refused at 19:05:09 UTC because its
+  pinning step (make-pins) exited 1.
+  The operator preflight reads both task manifests at the run commit. Its
+  output, read at 19:06 UTC and overwritten by the relaunch, showed the read
+  of the fresh-task manifest failing because that file does not exist at
+  `87e2c9b`. The refusal came before any box reading or model call. The run
+  worktree moved to `a84d7e9`, the merge that H5 pins. It differs from
+  `87e2c9b` only in three files under `docs/`, none in the source freeze,
+  and the runtime digest is the same,
+  `18d3d918f9c60e8635cdf1b0e6e6b3f819a67f7283d14f399efa7ac5f4122388`. The
+  launcher restarted at 19:07:02 UTC and the preflight passed. Each of
+  eight pinning attempts from 19:07:04 to 20:17:16 UTC found the box busy
+  or unreadable. The log does not say which. The pinning output for the
+  first attempt, read at about 19:08 UTC and since overwritten, showed one
+  running request that was not ours. At 20:27:18 UTC the box read idle, the batch
+  pinned (authority sha256 `ebdff3d8…`, queue `65955e20…`, served version
+  `0.32.0`) and the queue started.
+- **The box through the night.** Before a row starts, the queue takes three
+  `/metrics` readings 20 seconds apart and starts only if none shows a
+  running or waiting request. At 20:28, 20:38 and 20:49 UTC a reading
+  showed a running request. From 20:59:25 to 03:40:26 UTC all 41 attempts
+  failed to read the metrics at all (a fetch `TypeError`). At 03:51 UTC
+  the metrics read again, with one running request in all three readings.
+  At 04:01:50 UTC three readings showed nothing running or waiting, and the
+  first row started.
+- **What the first row did.** `k2-qbr-deck-loop-local` started at 04:01:51
+  UTC. Sample `a` sent its only model request at 04:01:52 UTC. The request
+  did not complete within the 900-second request timeout: failure
+  `request_timeout`, dispatch status `unknown`. The request streams, so the
+  records cannot show whether any bytes arrived before the timeout. The
+  stage ended `incomplete` with reason `runtime_failure_progress_preserved`
+  and a `BrokerError` runtime failure after 901 seconds of runner time, far
+  below the 5,400-second cap. Sample `b` sent its request at 04:16:53 UTC.
+  The server closed the connection after 98 ms; two retries were closed
+  after 56 ms and 21 ms, all `upstream_closed`. The stage ended
+  `model_unavailable` after 4.7 seconds. The loop ended at 04:16:57 UTC with
+  no draft (step `no_draft`): no model call completed, so zero counted
+  tokens and zero fee, with no critique and no repair.
+- **Classification and stop.** The codes-only classifier gives `infra` for
+  the row. Sample `b`'s `upstream_closed` is on the infrastructure list.
+  Sample `a`'s `request_timeout` is not on it, because it may also come
+  from a very slow generation, so on its own sample `a` classifies `owner`.
+  The worst stage class decides the row. With no re-runs allowed, the queue
+  stopped at 04:16:58 UTC (exit 3) and the launcher ended. The two
+  `r3-grid-batteries` loops did not start. The row directory stays in place
+  as the record of an infrastructure-invalid run.
+- **What is visible of the cause.** At 04:18 UTC a TCP connection to the
+  serving port opens, but an HTTP request to it is closed without a
+  response (`UND_ERR_SOCKET`), and the `/metrics` read fails the same way.
+  Something accepts connections on that port and no HTTP response comes
+  back. The records show the server answering `/metrics` at 04:01:50 UTC,
+  the batch's first request outstanding until its timeout at 04:16:52 UTC,
+  and every connection closed from 04:16:53 UTC. When the engine stopped
+  answering in that interval cannot be seen from this side. It may have
+  crashed (possibly while serving this batch's own request), be restarting,
+  or have been occupied by a client that started after 04:01:50 UTC. The box
+  is the owner's. This session has no access to it and did not try to get
+  any. The second batch would send the same first request.
+- **`request_timeout` in H5 is unchanged.** A request that does not complete
+  in 900 seconds can come from a hung server or from a very slow
+  generation, so the classification for H5 still sends it to the owner. This
+  run does not change that rule, and the classifier was not edited.
+- **Liveness probe for the second batch and H5.** Before each row, the
+  operator's idle check now also sends one fixed liveness request (a
+  one-token chat completion with a fixed prompt and a 120-second timeout)
+  and requires a reply, after the three idle readings. If the probe gets no
+  reply, the queue pauses before the row as it does for a busy box. The
+  probe carries no task content and is not part of any run. It was tested
+  against a local mock server in five cases: a reply, a busy box (no probe
+  sent), a closed connection, an HTTP 500 and an empty reply. It would stop
+  a row on a server whose `/metrics` reads idle but which does not answer a
+  completion request. The state seen at 04:18 UTC, where `/metrics` also
+  failed, already pauses the queue without the probe. It would not prevent
+  a failure that a run's own request causes. The batch-1 directory keeps its original scripts.
+- **Second H4 batch (`Proposed`).** A second batch (`phase4-h4-live-2`) would
+  run the same three loops with the same commit, runtime, queue and checks,
+  plus the liveness probe, under a new authority that cites this entry. For
+  the `k2-qbr-deck` loop this is a re-run of a row that ended `infra_invalid`
+  with no completed model call. The decision rests on that `infra` class,
+  set by sample `b`'s closed connections, and on the 04:18 UTC probe. It
+  does not rest on the absence of an outcome: sample `a`'s timeout alone
+  would go to the owner. The plan's Stop list includes "n=1 reruns of
+  already-seen tasks", and its section 8 keeps the stop rules against
+  unchanged re-runs. This re-run instead follows R0's remedy by analogy (fix
+  the cause and "re-run only the invalid runs, flagged as re-runs"; R0's own
+  trigger, more than 3 of 12 runs in an arm, does not apply to a
+  calibration batch), as the H3 dry run's R0 practice did
+  (BL-20261026-0743-h3-dry-run-split-blocked-by-docker), and the H4 design's
+  rule that a retry is a new loop directory and a new registry row
+  (BL-20261026-1831-h4-select-and-repair-design). The second batch's k2 row
+  is flagged as a re-run in its authority and its registry row. The
+  no-re-run rule of the first batch was this session's own, written into
+  the batch authority (an ignored operator file); neither the owner nor a
+  committed entry set it. Under BL-20261027-1526-harness-session-task-exposure
+  the harness session only operates the queue, and lifting a rule after a
+  run is not mechanical. So the second batch waits for the owner's approval
+  in chat, and the H5 batch-start entry restates it. The owner's H5 re-run
+  rule of 2026-10-27 is unaffected: "Allow R0 re-runs in H5: one re-run per
+  row that ends infra_invalid, at most two in the round, charged to the
+  unused 're-runs of invalid runs' line."
+- **What still gates H5.** H5 does not start until, in the second batch,
+  each of the three loops reaches a final selection with no loop failure
+  and every stage classified counted; both `r3-grid-batteries` loops run
+  sample `b` and the repair from sample `a`'s packet with
+  `writeIdentityEqual` true; the deck check runs on `k2-qbr-deck`; and all
+  three run under the runtime digest above. Quality is not a condition. The
+  H5 batch-start entry will state the same condition.
+
+Changes: this entry, on branch `phase4-h5-runs`. No code under version
+control. The operator idle check and queue script under the ignored
+`.soar/` gained the liveness probe for the second batch and H5. The run
+worktree moved from `87e2c9b` to `a84d7e9`.
+
+Evidence: the batch log `runs/log.txt`, the row's classifier output, the
+dispatch rows and events of both stages (statuses, codes and times only), a
+reachability probe that printed only error codes and no address, and a
+container listing and process check after the queue ended (no container
+from this batch, no queue process left). All of them are local and ignored.
+
+Failures or blockers: the model server on the box stopped answering during
+or after the batch's first request, after a night in which its metrics
+could not be read for almost seven hours. Separately, an operator error: the
+launcher was armed at a commit that predated the fresh-task manifest, which
+its own preflight requires. That refusal cost two minutes of the window and
+nothing else.
+
+Limitations and non-claims:
+- One failure on one row. The cause on the box is not known, and this
+  session cannot read the server's own log.
+- The idle check guards only the start of a row. At 04:01:50 UTC it showed
+  no request running, yet the first request did not complete; an idle
+  reading does not show that the engine will answer, and the check cannot
+  see a client that starts during a run.
+- The H4 select-and-repair loop has still not run live, so nothing about it
+  is verified.
+
+Paid exposure: USD 0 in this batch; no cloud request was made, because the
+split loop did not start. The second batch's split loop would be capped at
+USD 0.60 (sample `a` only), from the H3 dry-run and calibration sub-line.
+
+Next gate: the owner restores the model server, approves the second batch
+and confirms a window; then the second H4 batch, its Verified entry and the
+H5 start condition, then the H5 batch-start entry and the H5 queue.
+
+References: BL-20261026-1832-h4-select-and-repair-implemented,
+BL-20261026-1831-h4-select-and-repair-design,
+BL-20261026-0743-h3-dry-run-split-blocked-by-docker,
+BL-20261027-1526-harness-session-task-exposure,
+BL-20261022-0834-phase4-division-of-labour-design.

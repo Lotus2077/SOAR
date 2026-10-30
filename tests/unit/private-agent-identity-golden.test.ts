@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { goldenValues } from "./private-agent-identity-golden.fixture";
+import { goldenValues, layout2BodiesWithTrailingOption } from "./private-agent-identity-golden.fixture";
 
 /** Computed by the fixture at 7fd67e1, before any Anthropic adapter code (BL-20261030-0620). */
 const BEFORE_ADAPTER = {
@@ -32,5 +32,10 @@ const BEFORE_ADAPTER = {
 describe("identities that existed before the Anthropic adapter", () => {
   it("keeps every model identity, destination fingerprint, packet, request body, cloud freeze and prompt protocol byte-identical", async () => {
     expect(await goldenValues()).toEqual(BEFORE_ADAPTER);
+  });
+
+  it("sends the same body on every existing shape when the runner passes the layout-2 trailing-message option", async () => {
+    const { vllm, chat, responses } = BEFORE_ADAPTER.bodies;
+    expect(await layout2BodiesWithTrailingOption()).toEqual({ vllm, chat, responses });
   });
 });

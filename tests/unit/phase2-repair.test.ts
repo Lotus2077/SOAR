@@ -82,6 +82,9 @@ describe("Phase 2 repair pair: packet and seeding", () => {
     const record = { ...binding(), finishReason: "stop", usage: null, servedModel: "gpt-6-sol", feeMicrousd: 16_400, requestShape: "openai_responses", proxyFakeIp: true };
     writeFileSync(join(dir, "critique.json"), JSON.stringify(record));
     expect(loadRepairDirectory(dir).binding).toEqual(binding());
+    // A cloud critique recorded on the Anthropic shape (BL-20261030-0620) reads back like the others.
+    writeFileSync(join(dir, "critique.json"), JSON.stringify({ ...record, servedModel: "claude-sonnet-5-5", requestShape: "anthropic_messages" }));
+    expect(loadRepairDirectory(dir).binding).toEqual(binding());
     for (const bad of [{ requestShape: "chat" }, { proxyFakeIp: false }, { unexpected: 1 }, { researchSnapshotSha256: "short" }]) {
       writeFileSync(join(dir, "critique.json"), JSON.stringify({ ...record, ...bad }));
       expect(() => loadRepairDirectory(dir)).toThrow();

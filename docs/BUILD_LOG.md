@@ -26096,3 +26096,273 @@ References: BL-20261030-0620-claude-cloud-adapter-design,
 BL-20261030-0445-h5-cloud-provider-claude,
 BL-20261022-0940-phase4-harness-approved,
 BL-20261028-0420-h4-live-batch1-box-failure.
+
+### BL-20261030-0850-claude-cloud-adapter-implemented -- 2026-10-30 -- Claude adapter implemented and tested against mock servers: the Messages shape, the broker's Anthropic destination with a bounded 429/529 retry, the driver's Claude flags, the key wrapper and the shape probe; runtime digest ee05d9cf; no live call yet
+
+Status: `Implemented`
+
+Scope or hypothesis: the implementation of
+BL-20261030-0620-claude-cloud-adapter-design, as approved in
+BL-20261030-0745-claude-cloud-adapter-approved. `Implemented` means code and
+tests against mock servers and stubs. Nothing is verified against the live
+API: no Anthropic request was made, the free `--check` was not run, and the
+owner's box was not used. The entry lists what the tests show and what they
+do not, every place where the code departs from the approved design text,
+and the implementation review.
+
+Decisions:
+
+- **What was built.**
+  - `src/main/private-agent/anthropic.ts`: the Messages body builder and
+    the reply decoder. Breakpoints are placed on the `GeneralMessage` list
+    before merging. The trailing guidance is sent as a final system message
+    after a user turn, and as user text after an assistant turn. Shapes the
+    API would refuse are refused before dispatch. The decoder drops thinking
+    blocks and refuses reported values that would change the price.
+  - `model.ts`:
+    - the `anthropic_messages` shape and `anthropic_explicit_5m_v1` caching;
+    - refusal of a disabled-thinking configuration or override, and of
+      sampling, on this shape;
+    - `promptTokens` as input plus cache writes plus cache reads;
+    - the optional `thinkingTokens` usage field;
+    - the `trailingTurnMessage` option.
+  - `broker.ts` (the optional `anthropicVersion` field on a destination):
+    - `x-api-key` plus the fixed `anthropic-version: 2026-10-21` in place
+      of a bearer token, with the version header bound into the packet;
+    - TCP keep-alive on the socket;
+    - a rejection whose outcome is fixed as soon as its status line
+      arrives, with the error body read under its own 2-second, 8 KiB bound;
+    - fixed diagnostics: `errorType`, `spendCap`, `spendLimit` and
+      `requestId`;
+    - the bounded 429/529 retry, waiting 30 then 60 seconds, or
+      `retry-after` up to 120 seconds;
+    - test-only constructor options that shorten the waits.
+  - `store.ts`: the optional diagnostic fields. Keys whose value is
+    undefined are dropped before parsing.
+  - `runner.ts`:
+    - passes `trailingTurnMessage` on layout-2 requests;
+    - maps the broker's new `retry_wait_cancelled` code to
+      `cancelled_or_deadline`, after closing the operation with its existing
+      confirmed-abort marker.
+  - `repair.ts`: admits the `anthropic_messages` shape in critique records.
+  - `src/main/providers/types.ts`: `thinkingTokens`. This is a type-only
+    change, outside the digest.
+  - `scripts/private-agent-local-screen.ts`:
+    - the `/v1/messages` path, with the host pinned;
+    - the key, account and version taken from the `SOAR_CLAUDE_CLOUD_*`
+      variables only;
+    - `anthropicVersion` in the destination and the freeze;
+    - the long-context tier optional on this path;
+    - the heavy profile required on this path, in the parser;
+    - the split-arm endpoint rule.
+  - `scripts/with-claude-key.sh`: Keychain item `soar-h5-claude-api-key`,
+    a hidden-input `--store`, a `--check` that prints only the status, and
+    the OpenAI variable unset before the command runs.
+  - `scripts/anthropic-probe.ts`: calibration step 0.
+  - `scripts/registry-row.py` and `docs/experiments/README.md`: the
+    `cloudModel` and `cloudApi` fields.
+- **Where the code departs from the approved design text.** Each item is
+  for the owner to accept at review. None changes a price, a cap, a prompt
+  or the local arm.
+  1. *When a retried row is resolved, and how a cancel during the wait
+     ends.* The design said the rejected row becomes `superseded` before
+     the wait, so that a process killed during the wait leaves no committed
+     row. It also said a run cancelled during the wait ends with that row as
+     its last. Both statements were wrong.
+     - The runner refuses to resume any `model_started` without a closing
+       marker (`unresolved_operation_no_replay`). A kill during the wait
+       therefore blocks a resume whatever the row's state, as a kill during
+       any request does.
+     - The design's cancel path would have returned `request_failed`, which
+       ends the run `model_unavailable`, a status the H5 classifier counts
+       as infrastructure.
+
+     The code now marks the row `superseded` only once the retry is
+     certain, as D4 does. A cancel or deadline during the wait resolves the
+     row `failed` and returns `retry_wait_cancelled`, and the run ends
+     `cancelled_or_deadline`. The runner branch for that code is the one
+     runner change beyond the approved option. Local and OpenAI paths never
+     produce the code.
+  2. *`spendLimit`*, a boolean set when an error message begins with the
+     documented prefix of an owner-set spend limit ("You have reached your
+     specified"). It tells that 400 apart from a request-shape 400. Only
+     the boolean is stored, never the text. The design named only the error
+     type and the spend-cap code.
+  3. *Stop reasons.*
+     - Tool calls are kept only when the reply stopped for `tool_use`, or
+       when it was cut off (`max_tokens`, `model_context_window_exceeded`).
+       Both cut-off cases map to `length`, which the runner never executes.
+     - A refusal or any other stop drops the calls, so an interrupted call
+       can never run.
+     - The design said "a reply with a tool call becomes `tool_calls`"
+       before `end_turn` was considered.
+  4. *A history that ends on an assistant turn is refused before dispatch.*
+     These models refuse an assistant prefill with HTTP 400.
+  5. *A tool output that is only whitespace* is sent without `content`, as
+     an empty one is.
+  6. *Timer and read details.*
+     - The request timer is cleared once a rejection's status is latched.
+     - A socket error during the bounded body read ends only that read, so
+       a spend-cap code that already arrived is kept.
+     - Null values inside the usage breakdown are read as absent.
+  7. *`--check` exits non-zero unless the status is 200.* It still prints
+     only the status.
+  8. *The parser pins the exact endpoint* for any `/v1/messages` cloud run,
+     all-cloud included, before any directory exists. The design pinned it
+     in `buildCloudArm`, which runs after the run directory is created.
+  9. *Probe details.*
+     - The tool-less call's system text is padded to a few kilobytes, so
+       its body clears the prompt-token envelope by a wide margin.
+     - A pass requires every ledger row settled.
+     - `redacted_thinking` counts as a thinking block.
+     - Exit codes: 0 for a pass, 3 for a pass where the model showed no
+       thinking (run the probe once more), 2 for a failure.
+     - Each call and the ledger so far are printed as they complete.
+- **Added to the calibration, for the owner.** A review found two risks
+  that only the live calibration can measure.
+  - *Thinking may be switched off silently.* Anthropic's thinking page
+    says the API may strip thinking blocks, or switch thinking off, when a
+    tool round arrives without them. That would show neither as a 400 nor
+    in the probe's three turns.
+  - *The proxy leg may be dropped.* Keep-alive reaches only the local
+    fake-IP proxy. Whether the proxy's own connection to Anthropic survives
+    a long, non-streamed reply is unknown.
+
+  Proposed step-1 conditions:
+  - the share of tool-round calls that report thinking tokens is at least
+    80%;
+  - cache reads do not collapse after nudges;
+  - `upstream_closed` and `response_interrupted` counts are reported.
+
+  If either condition fails, the calibration goes back to the owner. The
+  known remedies are a streaming transport, or a layout that replays
+  thinking; both are outside the approved design.
+- **Byte-identity.** The golden test pins values computed at `7fd67e1`,
+  before any adapter code, and committed in `7ff7d4b`. It covers:
+  - `modelIdentity` of the local heavy, `gpt-6-sol` Responses and chat
+    configurations;
+  - the destination and packet fingerprints of the local, OpenAI cloud and
+    public snapshot destinations;
+  - layout-2 and one-shot request bodies on the vLLM, chat and Responses
+    shapes;
+  - H5's `gpt-6-sol` cloud freezes;
+  - the runner's layout-2 prompt protocol and task identity.
+
+  It passes unchanged, including with `trailingTurnMessage` set on the
+  existing shapes. Behaviour pins:
+  - a destination without `anthropicVersion` sends a bearer token, no
+    version header and no keep-alive;
+  - its rejections are read at once, unread, with the exact old failure
+    keys, and it does not retry;
+  - the local retry path keeps its exact keys and its 1 and 3 second
+    waits;
+  - non-Anthropic usage gains no key.
+- **Runtime digest.** `localScreenSourceFreeze` is now
+  `ee05d9cf87d2203511697bf740ebc320024815f227b8e6ad3b8d6896c5bb8511` over 36
+  files (`anthropic.ts` added). H4 batch 2 and H5 pin the adapter's merge
+  and this digest, if no frozen file changes before the merge; it replaces
+  `18d3d918…`.
+- **Implementation review** (three independent reviewers, before commit).
+  They covered the API semantics, the code's contracts and the test
+  coverage, the last with mutations run on a copy outside the repository.
+  - *API semantics:* nothing in the request body that the documentation
+    says would be refused. Its points led to:
+    - items 2, 3, 4, 6 and 7 above;
+    - the two calibration conditions.
+  - *Contracts:* the major finding was the cancel-during-wait ending (item
+    1). It also led to:
+    - the spend-cap code surviving a socket reset;
+    - the undefined-key guard;
+    - nullable inner usage fields;
+    - the parser pin (item 8);
+    - the probe's settled-only pass, padding and incremental output;
+    - the missing pins.
+  - *Test coverage:* the H5 destination with `proxyFakeIp` had never gone
+    through a broker. It now does, in a transport test that checks the
+    IPv4 lookup, the pinned fake-IP address, the server name, the headers
+    and keep-alive. Further tests now pin:
+    - the 30 and 60 second constants;
+    - the request-allowance bound on retries;
+    - the 120-second `retry-after` boundary;
+    - request ids on transport-phase `unknown` rows;
+    - the 8 KiB body cap;
+    - the 640 KiB request cap on this shape;
+    - the probe through real fee admission (four reservations of up to
+      about USD 0.19 under its USD 0.30 cap, all settled);
+    - the Claude account and version variables;
+    - the loop parser with H5's split-arm flags;
+    - the registry's missing-freeze path;
+    - the wrapper with stubbed `security` and `curl`, including that its
+      version string matches the adapter's.
+
+    It also flagged items 1 to 4 as unrecorded; they are recorded here.
+
+Changes:
+- New source: `src/main/private-agent/anthropic.ts`,
+  `scripts/anthropic-probe.ts`, `scripts/with-claude-key.sh`.
+- Changed source: `src/main/private-agent/model.ts`, `broker.ts`,
+  `store.ts`, `runner.ts`, `repair.ts`, `src/main/providers/types.ts`,
+  `scripts/private-agent-local-screen.ts`, `scripts/registry-row.py`.
+- Docs: `docs/experiments/README.md`; this entry.
+- New tests: `tests/unit/private-agent-model-anthropic.test.ts` (35),
+  `tests/integration/private-agent-broker-anthropic.test.ts` (29),
+  `tests/unit/private-agent-anthropic-transport.test.ts` (2),
+  `tests/unit/anthropic-probe.test.ts` (3),
+  `tests/unit/with-claude-key.test.ts` (3), and the golden pair committed
+  earlier (2).
+- Extended tests: `private-agent-prompt-layout`, `phase2-repair`,
+  `phase4-loop` and `registry-row-loop`.
+
+Evidence:
+- `vitest run` under Node 22.22.2 on the final tree: 141 files passed, 13
+  skipped; 2,150 tests passed, 81 skipped, none failed. The skipped tests
+  are the Docker- and live-gated suites.
+- Both typechecks clean.
+- `node --experimental-strip-types scripts/validate-build-log.ts --base-ref origin/main`
+  valid.
+- `scripts/validate-readiness.mjs` clean. It first flagged the synthetic
+  `sk-` test keys as credential-shaped; they were shortened below its
+  threshold.
+- `scripts/test-native-credential-core.mjs` passed.
+- The reviewers' reports, and their mutation copies in the session
+  scratchpad, outside the repository.
+
+Failures or blockers: none new. The calibration waits for the owner's
+window, and its steps 1 and 2 also wait for the box
+(BL-20261028-0420-h4-live-batch1-box-failure).
+
+Limitations and non-claims:
+- Every Anthropic behaviour here is tested against a mock server, a mocked
+  `https.request` or stubs, not the live API. Still unverified until the
+  probe and step 1:
+  - whether the API accepts a tool round without its thinking blocks;
+  - whether the API switches thinking off silently in that case;
+  - how the model treats the guidance as a system message;
+  - whether `model`, `usage.service_tier` and `usage.inference_geo` come
+    back as documented;
+  - whether a long reply survives the proxy.
+- Keep-alive is tested only as the call made on the socket.
+- The production waits of 30 and 60 seconds are pinned as constants, not
+  run in real time.
+- The wrapper is tested with stubbed `security` and `curl`. The real
+  Keychain, `--store` and the free `--check` against Anthropic were not run.
+- The probe has not been run against the API.
+- `pnpm build` was not run locally; CI's `check` job runs it.
+- The H5 classifier's handling of `superseded` rows and of
+  `retry_wait_cancelled` endings is the harness session's to confirm in the
+  batch-start entry.
+
+Paid exposure: USD 0.
+
+Next gate:
+1. The owner reviews and merges Lotus2077/SOAR#31, which stacks on #30.
+2. The owner stores the key with `scripts/with-claude-key.sh --store`, runs
+   `--check`, and checks the Console items listed in
+   BL-20261030-0620-claude-cloud-adapter-design.
+3. The owner declares a window for calibration step 0.
+
+References: BL-20261030-0620-claude-cloud-adapter-design,
+BL-20261030-0745-claude-cloud-adapter-approved,
+BL-20261030-0445-h5-cloud-provider-claude,
+BL-20261022-1156-h1-prompt-caching-implemented,
+BL-20261028-0420-h4-live-batch1-box-failure.

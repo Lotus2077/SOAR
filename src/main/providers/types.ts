@@ -23,6 +23,11 @@ export interface ProviderUsage {
   totalTokens: number;
   /** Hidden reasoning tokens reported by the provider. */
   reasoningTokens?: number;
+  /**
+   * The part of `outputTokens` the provider reported as thinking (the Anthropic shape only). Unlike `reasoningTokens`,
+   * these stay inside `outputTokens`, so output totals compare with providers that bill reasoning as output.
+   */
+  thinkingTokens?: number;
 }
 
 export interface ProviderResult {

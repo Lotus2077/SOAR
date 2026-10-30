@@ -2,12 +2,13 @@ import http from "node:http";
 import https from "node:https";
 import { lookup } from "node:dns/promises";
 import { resolvePublicV4, type PublicDnsEvent } from "./network-resolver";
+import { ANTHROPIC_API_VERSION } from "./anthropic";
 import { BlockList, isIP } from "node:net";
 import {
   canonical, contextFingerprint, digest, exactText, restrictedContext, syntheticContext,
   privateAgentId, ExactApprovalSchema, sha256Schema, type ExactApproval, type PrivateAgentContext, type PrivateJobPolicy,
 } from "./contracts";
-import { isConfirmedAbort, isRetryableAbort, PrivateAgentStore, type DispatchReceipt, type UnknownRequestDiagnostic } from "./store";
+import { ANTHROPIC_ERROR_TYPES, isConfirmedAbort, isRetryableAbort, PrivateAgentStore, type DispatchReceipt, type UnknownRequestDiagnostic } from "./store";
 
 export const BROKER_MAX_BODY_BYTES = 192 * 1024;
 /** Ceiling for a destination's own request body cap; profiles choose values below it. */
@@ -65,6 +66,13 @@ export interface BrokerDestination {
   recoverable?: boolean;
   requireExactGrant?: boolean;
   approvalPriceProfileSha256?: string;
+  /**
+   * Anthropic's Messages API (BL-20261030-0620): the key goes in `x-api-key` with this fixed `anthropic-version` instead
+   * of a bearer token, the version header is bound into the packet text, the socket keeps alive, a rejected request
+   * records its error type and request id, and a 429 or 529 is retried at most twice. Cloud destinations only; absent
+   * keeps every fingerprint, packet, header and failure path identical to before.
+   */
+  anthropicVersion?: typeof ANTHROPIC_API_VERSION;
 }
 
 export interface ScanResult {
@@ -103,8 +111,11 @@ export class BrokerError extends Error {
 }
 
 type TransportFailureCode = Extract<UnknownRequestDiagnostic, { phase: "transport" }>["code"];
+type AnthropicErrorType = (typeof ANTHROPIC_ERROR_TYPES)[number];
+/** What an Anthropic rejection reports beyond its status: only fixed values, never provider text. */
+interface RejectionDetails { errorType?: AnthropicErrorType; spendCap?: true; spendLimit?: true; retryAfterSeconds?: number }
 class TransportFailure extends Error {
-  constructor(readonly code: TransportFailureCode, readonly status?: number) { super(code); }
+  constructor(readonly code: TransportFailureCode, readonly status?: number, readonly details: RejectionDetails = {}) { super(code); }
 }
 /** Upper bound on any declared raw stream cap. */
 export const STREAM_MAX_RAW_BYTES = 64 * 1024 * 1024;
@@ -185,6 +196,13 @@ export function assembleSseChatCompletion(raw: string): Buffer {
 /** Retries of one recoverable packet: the first attempt plus at most two more, with a short pause between them. */
 export const BROKER_MAX_ATTEMPTS = 3;
 export const BROKER_RETRY_BACKOFF_MS: readonly number[] = Object.freeze([1000, 3000]);
+/** The Anthropic destination's waits before its two retries of a 429 or 529; a longer `retry-after` wins, up to 120 s. */
+export const ANTHROPIC_RETRY_DELAYS_MS: readonly number[] = Object.freeze([30_000, 60_000]);
+export const ANTHROPIC_MAX_RETRY_AFTER_SECONDS = 120;
+/** The broker code for a cancel or deadline that arrived while the Anthropic destination waited to retry; every row is resolved. */
+export const RETRY_WAIT_CANCELLED = "retry_wait_cancelled";
+/** A rejection's error body is read only this far and this long, outside the request timer, so it can never relabel the rejection. */
+const ANTHROPIC_ERROR_BODY_BYTES = 8 * 1024, ANTHROPIC_ERROR_BODY_MS = 2000;
 const CONNECTION_FAILURE_CODES = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EAI_FAIL", "EAI_NONAME", "ENETUNREACH", "EHOSTUNREACH", "EADDRNOTAVAIL"]);
 const UPSTREAM_CLOSED_CODES = new Set(["ECONNRESET", "EPIPE", "ECONNABORTED"]);
 /** Only fixed socket error codes are classified; anything else stays the generic failure. */
@@ -263,6 +281,8 @@ function normalizeDestination(value: BrokerDestination): BrokerDestination {
       value.approvalPriceProfileSha256 !== undefined || value.privateDataAdmitted)) deny("destination_grant_free_invalid");
   if (value.publicDnsResolver !== undefined && (value.publicDnsResolver !== "cloudflare_v1" || value.kind !== "public_web" ||
       endpoint.protocol !== "https:" || value.loopbackFixture || isIP(endpoint.hostname.replace(/^\[|\]$/gu, "")))) deny("destination_public_dns_invalid");
+  if (value.anthropicVersion !== undefined && (value.anthropicVersion !== ANTHROPIC_API_VERSION || value.kind !== "cloud_model" ||
+      value.recoverable !== undefined)) deny("destination_anthropic_invalid");
   if (value.proxyFakeIp !== undefined && (value.proxyFakeIp !== true || value.kind === "local_model" || endpoint.protocol !== "https:" ||
       value.loopbackFixture || value.publicDnsResolver !== undefined || isIP(endpoint.hostname.replace(/^\[|\]$/gu, "")))) deny("destination_proxy_fake_ip_invalid");
   if (value.syntheticOnly && value.privateDataAdmitted) deny("destination_trust_conflict");
@@ -283,7 +303,13 @@ function normalizeDestination(value: BrokerDestination): BrokerDestination {
 export class PrivateAgentBroker {
   private readonly destinations = new Map<string, BrokerDestination>();
   private readonly active = new Map<string, Set<AbortController>>();
-  constructor(readonly store: PrivateAgentStore, destinations: BrokerDestination[], private readonly scanner: LocalPacketScanner) {
+  private readonly anthropicRetryDelaysMs: readonly number[];
+  /** `anthropicRetryDelaysMs` exists so tests can shorten the waits; the runtime always uses ANTHROPIC_RETRY_DELAYS_MS. */
+  constructor(readonly store: PrivateAgentStore, destinations: BrokerDestination[], private readonly scanner: LocalPacketScanner,
+    options: { anthropicRetryDelaysMs?: readonly number[] } = {}) {
+    const delays = options.anthropicRetryDelaysMs ?? ANTHROPIC_RETRY_DELAYS_MS;
+    if (delays.length !== BROKER_MAX_ATTEMPTS - 1 || !delays.every(ms => Number.isSafeInteger(ms) && ms >= 0 && ms <= 600_000)) deny("broker_options_invalid");
+    this.anthropicRetryDelaysMs = Object.freeze([...delays]);
     for (const value of destinations) {
       const destination = normalizeDestination(value);
       if (this.destinations.has(destination.id)) deny("destination_duplicate");
@@ -313,7 +339,8 @@ export class PrivateAgentBroker {
     // All custom headers are host-owned and serialized into the grant preview.
     // The broker injects a service credential only after admission, never as data.
     const text = canonical({ method: input.method, url: url.href,
-      headers: input.method === "POST" ? { "content-type": "application/json" } : {}, body });
+      headers: input.method === "POST" ? { "content-type": "application/json",
+        ...(destination.anthropicVersion ? { "anthropic-version": destination.anthropicVersion } : {}) } : {}, body });
     if ([...this.destinations.values()].some(item => item.apiKey && text.includes(item.apiKey))) deny("credential_in_packet");
     const preview: PacketPreview = {
       jobId: policy.id, contextId: context.id, policyRevision: policy.revision,
@@ -370,6 +397,7 @@ export class PrivateAgentBroker {
       ((packet.destination.kind === "local_model" && frozen.maxFeeMicrousd === 0) || (packet.destination.kind === "public_web" && frozen.method === "GET"));
     // D4: only such a packet, on a destination flagged recoverable, is retried, and only after a confirmed abort.
     const recoverable = packet.destination.recoverable === true && zeroRisk;
+    const anthropic = packet.destination.anthropicVersion !== undefined;
     for (let attempt = 1; ; attempt++) {
       if (attempt > 1 && frozen.signal?.aborted) deny("request_cancelled");
       // Each attempt is its own committed row: it re-checks eligibility and consumes one session request.
@@ -390,10 +418,11 @@ export class PrivateAgentBroker {
       if (frozen.signal?.aborted) controller.abort();
       const started = performance.now();
       let phase: "transport" | "response_validation" | "fee_settlement" = "transport";
+      const meta: TransportMeta = {};
       try {
         const bytes = await transport(packet.destination, packet.url, frozen.method, frozen.body, controller.signal, event => {
           this.store.append(frozen.jobId, { ...event, contextId: frozen.contextId, dispatchId: receipt.id });
-        });
+        }, meta);
         phase = "response_validation";
         const fee = settleFee(bytes);
         phase = "fee_settlement";
@@ -403,12 +432,17 @@ export class PrivateAgentBroker {
         // Timing is monotonic, excludes pre-commit scanning, and saturates at one
         // hour rather than admitting arbitrary numeric diagnostics into storage.
         const timing = { elapsedMs: Math.min(3_600_000, Math.max(0, Math.floor(performance.now() - started))), timeoutMs: packet.destination.timeoutMs,
-          ...(recoverable ? { attempt } : {}) };
+          ...(recoverable || anthropic ? { attempt } : {}) };
         // Only a status the diagnostic schema admits is recorded; a malformed one leaves no status.
         const status = error instanceof TransportFailure && error.status !== undefined && error.status >= 100 && error.status <= 599 ? { status: error.status } : {};
+        const details = error instanceof TransportFailure ? error.details : {};
+        // Anthropic only, and each field only when set, so no older row gains a key.
+        const requestId = anthropic && meta.requestId ? { requestId: meta.requestId } : {};
+        const rejection = anthropic ? { ...(details.errorType ? { errorType: details.errorType } : {}), ...(details.spendCap ? { spendCap: true as const } : {}),
+          ...(details.spendLimit ? { spendLimit: true as const } : {}) } : {};
         const failure: UnknownRequestDiagnostic = phase === "transport"
-          ? { phase: "transport", code: error instanceof TransportFailure ? error.code : "transport_failed", ...status, ...timing }
-          : { phase: "settlement", code: phase === "response_validation" ? "response_or_usage_invalid" : "fee_settlement_failed", ...timing };
+          ? { phase: "transport", code: error instanceof TransportFailure ? error.code : "transport_failed", ...status, ...rejection, ...requestId, ...timing }
+          : { phase: "settlement", code: phase === "response_validation" ? "response_or_usage_invalid" : "fee_settlement_failed", ...requestId, ...timing };
         if (!isConfirmedAbort(failure, zeroRisk)) {
           this.store.unknown(receipt.id, failure);
           // Never expose provider text, private URL, system exception or API key.
@@ -416,6 +450,17 @@ export class PrivateAgentBroker {
         }
         // Another attempt needs a free session request; the committed row only becomes `superseded` once the retry is certain.
         const admissible = this.store.dispatches(frozen.jobId).length < this.store.policy(frozen.jobId).maxRequests;
+        // Anthropic: a 429 or 529 is a confirmed, unbilled rejection and transient, so it is retried at most twice, never
+        // when it reports the monthly spend cap or asks to wait more than 120 s. As in D4, the row becomes `superseded` only
+        // once the retry is certain. A cancel or deadline during the wait resolves it `failed` and says so with its own
+        // code, so the run ends as cancelled rather than as an unavailable model.
+        if (anthropic && failure.phase === "transport" && failure.code === "http_rejected" && (failure.status === 429 || failure.status === 529) &&
+            !details.spendCap && (details.retryAfterSeconds ?? 0) <= ANTHROPIC_MAX_RETRY_AFTER_SECONDS && attempt < BROKER_MAX_ATTEMPTS && admissible && !frozen.signal?.aborted) {
+          await backoff(Math.max(this.anthropicRetryDelaysMs[attempt - 1]!, (details.retryAfterSeconds ?? 0) * 1000), frozen.signal);
+          if (!frozen.signal?.aborted) { this.store.resolveFailure(receipt.id, "superseded", failure, zeroRisk); continue; }
+          this.store.resolveFailure(receipt.id, "failed", failure, zeroRisk);
+          return deny(RETRY_WAIT_CANCELLED);
+        }
         if (recoverable && isRetryableAbort(failure) && attempt < BROKER_MAX_ATTEMPTS && admissible && !frozen.signal?.aborted) {
           await backoff(BROKER_RETRY_BACKOFF_MS[attempt - 1] ?? BROKER_RETRY_BACKOFF_MS.at(-1)!, frozen.signal);
           if (!frozen.signal?.aborted) { this.store.resolveFailure(receipt.id, "superseded", failure, zeroRisk); continue; }
@@ -452,8 +497,43 @@ async function systemLookup(host: string, signal: AbortSignal, family?: 4) {
   } finally { if (abort) signal.removeEventListener("abort", abort); }
 }
 
+/** Filled by the transport as headers arrive, for the failure diagnostic of the Anthropic destination. */
+interface TransportMeta { requestId?: string }
+const ANTHROPIC_REQUEST_ID = /^req_[A-Za-z0-9]{1,128}$/u;
+function retryAfterSeconds(value: string | string[] | undefined): number | undefined {
+  return typeof value === "string" && /^\d{1,6}$/u.test(value.trim()) ? Number(value.trim()) : undefined;
+}
+/**
+ * Only fixed values are taken from an Anthropic error body: the error type from a fixed list, the spend-cap code, and
+ * whether the message opens with the documented prefix of an owner-set (organisation or workspace) spend limit.
+ */
+function rejectionDetails(bytes: Buffer): Pick<RejectionDetails, "errorType" | "spendCap" | "spendLimit"> {
+  try {
+    const parsed = JSON.parse(bytes.toString("utf8")) as { error?: { type?: unknown; message?: unknown; details?: { error_code?: unknown } } };
+    const type = parsed?.error?.type, message = parsed?.error?.message;
+    return { ...(typeof type === "string" && (ANTHROPIC_ERROR_TYPES as readonly string[]).includes(type) ? { errorType: type as AnthropicErrorType } : {}),
+      ...(parsed?.error?.details?.error_code === "enforced_spend_limit_reached" ? { spendCap: true as const } : {}),
+      ...(typeof message === "string" && message.startsWith("You have reached your specified") ? { spendLimit: true as const } : {}) };
+  } catch { return {}; }
+}
+/**
+ * Reads a rejection's body under its own cap and timer, and parses whatever arrived however the read ends (a reset after
+ * a complete body still yields its fields); a stall, a cut or a parse failure only leaves the details absent.
+ */
+function readRejection(response: http.IncomingMessage): Promise<Pick<RejectionDetails, "errorType" | "spendCap" | "spendLimit">> {
+  return new Promise(done => {
+    const chunks: Buffer[] = []; let size = 0, finished = false;
+    const finish = () => {
+      if (finished) return; finished = true; clearTimeout(timer); response.destroy(); done(rejectionDetails(Buffer.concat(chunks)));
+    };
+    const timer = setTimeout(finish, ANTHROPIC_ERROR_BODY_MS);
+    response.on("data", (chunk: Buffer) => { size += chunk.length; if (size > ANTHROPIC_ERROR_BODY_BYTES) finish(); else chunks.push(Buffer.from(chunk)); });
+    for (const event of ["end", "error", "aborted", "close"]) response.on(event, finish);
+  });
+}
+
 async function transport(destination: BrokerDestination, url: URL, method: "GET" | "POST", body: string | undefined,
-  signal: AbortSignal, recordDns: (event: PublicDnsEvent) => void): Promise<Buffer> {
+  signal: AbortSignal, recordDns: (event: PublicDnsEvent) => void, meta: TransportMeta = {}): Promise<Buffer> {
   const controller = new AbortController();
   // Latch the first abort source. A later task cancel cannot relabel an already
   // fired request timer, and an external signal's arbitrary reason is ignored.
@@ -484,10 +564,16 @@ async function transport(destination: BrokerDestination, url: URL, method: "GET"
     // Nothing was sent, so a denied address is a confirmed non-dispatch.
     if (!addresses.length || (!allowPrivate && addresses.some(item => !admitted(item.address)))) throw new TransportFailure("connection_failed");
     const selected = addresses[0]!;
+    const anthropic = destination.anthropicVersion !== undefined;
     return await new Promise<Buffer>((resolve, reject) => {
+      // Once a rejection's status is known its outcome is fixed: a later timer, abort or socket error cannot relabel it.
+      let rejection: TransportFailure | undefined;
       const headers: Record<string, string> = {};
       if (method === "POST") { headers["content-type"] = "application/json"; headers["content-length"] = String(Buffer.byteLength(body ?? "")); }
-      if (destination.apiKey) headers.authorization = `Bearer ${destination.apiKey}`;
+      if (anthropic) {
+        if (destination.apiKey) headers["x-api-key"] = destination.apiKey;
+        headers["anthropic-version"] = destination.anthropicVersion!;
+      } else if (destination.apiKey) headers.authorization = `Bearer ${destination.apiKey}`;
       const request = (url.protocol === "https:" ? https : http).request(url, {
         method, headers, signal: joined, agent: false,
         ...(destination.publicDnsResolver || destination.proxyFakeIp ? { servername: host, rejectUnauthorized: true } : {}),
@@ -496,8 +582,18 @@ async function transport(destination: BrokerDestination, url: URL, method: "GET"
           else callback(null, selected.address, selected.family);
         },
       }, response => {
+        if (anthropic) {
+          const id = response.headers["request-id"];
+          if (typeof id === "string" && ANTHROPIC_REQUEST_ID.test(id)) meta.requestId = id;
+        }
         if (!response.statusCode || response.statusCode < 200 || response.statusCode >= 300) {
-          reject(new TransportFailure("http_rejected", response.statusCode)); response.destroy(); return;
+          if (!anthropic) { reject(new TransportFailure("http_rejected", response.statusCode)); response.destroy(); return; }
+          const status = response.statusCode, retryAfter = retryAfterSeconds(response.headers["retry-after"]);
+          rejection = new TransportFailure("http_rejected", status, retryAfter === undefined ? {} : { retryAfterSeconds: retryAfter });
+          // The outcome is fixed: the request deadline no longer applies, and the body read has its own short timer.
+          clearTimeout(timeout);
+          void readRejection(response).then(details => reject(new TransportFailure("http_rejected", status, { ...rejection!.details, ...details })));
+          return;
         }
         // PR-B: a declared streaming destination's chat completion is assembled into the non-streaming shape before it
         // leaves the transport. The raw stream carries per-event overhead and discarded reasoning, so it has its own cap.
@@ -539,8 +635,13 @@ async function transport(destination: BrokerDestination, url: URL, method: "GET"
         response.on("aborted", () => reject(abortCause ? transportError() : new TransportFailure("response_interrupted")));
       });
       let sent = false;
-      request.on("socket", socket => socket.once("connect", () => { sent = true; }));
-      request.on("error", error => reject(abortCause ? transportError() : new TransportFailure(classifySocketError(error, sent))));
+      request.on("socket", socket => {
+        // The reply arrives only at the end of a long non-streamed generation; keep the idle connection alive.
+        if (anthropic) socket.setKeepAlive(true, 30_000);
+        socket.once("connect", () => { sent = true; });
+      });
+      // While a rejection's body is read, a socket error or abort only ends that bounded read, which then rejects.
+      request.on("error", error => { if (!rejection) reject(abortCause ? transportError() : new TransportFailure(classifySocketError(error, sent))); });
       request.end(body);
     });
   } catch (error) {

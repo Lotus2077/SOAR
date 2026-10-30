@@ -2,7 +2,7 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { canonical, digest, exactText, contextFingerprint } from "./contracts";
 import { PrivateAgentStore, isResolvedDispatch } from "./store";
-import { PrivateAgentBroker, BrokerError } from "./broker";
+import { PrivateAgentBroker, BrokerError, RETRY_WAIT_CANCELLED } from "./broker";
 import { DockerSandbox, PRIVATE_SANDBOX_LIMITS, SandboxError, type SandboxExecution } from "./sandbox";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "./checkpoints";
 import { PrivateAgentModel, ModelRequestBodyTooLarge, MODEL_FEE_CAP_STOP, MODEL_REQUEST_SIZE_STOP, MODEL_UNAVAILABLE_STOP, modelRequestSizeStop, modelRequestFeeStop, modelRequestFailed, hasInvalidModelRequestSizeStop,
@@ -415,7 +415,10 @@ export class GeneralAgentRunner {
         // Only this current budget is sent, where the recorded layout places it. Durable conversation replay contains
         // tool evidence, never stale budget or guidance messages from earlier turns/resumes.
         let response: Awaited<ReturnType<PrivateAgentModel["complete"]>>;
-        try { response = await model.complete(layout.request(prompt, projected.messages.slice(1), progress.guidance, budgetMessage(budget)), definitions, boundedSignal); }
+        // Layout 2 ends on the turn's guidance and budget; the Anthropic shape sends that tail as a system message, every
+        // other shape ignores the option (BL-20261030-0620).
+        try { response = await model.complete(layout.request(prompt, projected.messages.slice(1), progress.guidance, budgetMessage(budget)), definitions, boundedSignal,
+          layout.version === 2 ? { trailingTurnMessage: true } : undefined); }
         catch (error) {
           if (error instanceof ModelRequestBodyTooLarge) {
             this.record({ type: "model_request_not_dispatched", operationId, promptProtocolSha256,
@@ -428,6 +431,12 @@ export class GeneralAgentRunner {
             this.record({ type: "model_request_not_dispatched", operationId, promptProtocolSha256, reason: MODEL_FEE_CAP_STOP, dispatched: false,
               maxFeeMicrousd: store.policy(jobId).maxFeeMicrousd, settledFeeMicrousd });
             return finish("incomplete", MODEL_FEE_CAP_STOP);
+          }
+          // A cancel or deadline during the Anthropic destination's retry wait: every row is resolved, so the operation is
+          // closed like a confirmed abort, but the run ends as cancelled, not as an unavailable model (BL-20261030-0620).
+          if (error instanceof BrokerError && error.code === RETRY_WAIT_CANCELLED) {
+            this.record({ type: "model_request_failed", operationId, promptProtocolSha256, reason: MODEL_UNAVAILABLE_STOP, dispatched: true });
+            return finish("incomplete", "cancelled_or_deadline");
           }
           // Every attempt ended in a confirmed abort: no row is unknown, the operation is closed, and the task can resume later.
           if (error instanceof BrokerError && error.code === "request_failed") {

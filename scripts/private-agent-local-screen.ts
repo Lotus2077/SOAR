@@ -10,6 +10,7 @@ import { PrivateAgentBroker, type BrokerDestination } from "../src/main/private-
 import { canonical, digest } from "../src/main/private-agent/contracts";
 import { PrivateCheckpointStore } from "../src/main/private-agent/checkpoints";
 import { PrivateAgentModel } from "../src/main/private-agent/model";
+import { ANTHROPIC_API_VERSION, ANTHROPIC_MESSAGES_ENDPOINT } from "../src/main/private-agent/anthropic";
 import { GeneralAgentSession, SESSION_LIMITS, researchTransferPhase, sessionFileManifest, sessionPhaseIdentity, type SessionPhase } from "../src/main/private-agent/session";
 import { RulePacketScanner } from "../src/main/private-agent/scanner";
 import { PrivateAgentStore } from "../src/main/private-agent/store";
@@ -146,6 +147,8 @@ const LOCAL_SCREEN_BUDGETS: Readonly<Record<LocalScreenProfile, { maxModelCalls:
 /** Phase 2 cloud arm (PR-E): the key comes from the process environment only and never reaches the freeze, the result or the registry. */
 export const CLOUD_ARM_MAX_FEE_USD = 8;
 export const CLOUD_ARM_KEY_VARIABLE = "SOAR_PHASE2_CLOUD_API_KEY";
+/** The Claude key's own variable (scripts/with-claude-key.sh), so no wrapper mix-up can send one provider's key to the other. */
+export const CLAUDE_ARM_KEY_VARIABLE = "SOAR_CLAUDE_CLOUD_API_KEY";
 /** OpenAI's published 30-minute cache-write price for GPT-5.6-and-later models is 1.25× the input price; a fourth value in `--cloud-prices` overrides it. */
 export const CLOUD_CACHE_WRITE_FACTOR = 1.25;
 export interface CloudArmInput {
@@ -153,7 +156,10 @@ export interface CloudArmInput {
   model: string; endpoint: string; prices: { input: number; output: number; cached: number; write?: number }; maxFeeUsd: number;
   /** Owner opt-in (`--proxy-fake-ip true`): admit a fake-IP system proxy's 198.18.0.0/15 answer for the cloud endpoint. */
   proxyFakeIp?: true;
-  /** Long-context tier (`--cloud-long-context above,in,out,cached[,write]`): required by the driver, whose heavy bodies can exceed it. */
+  /**
+   * Long-context tier (`--cloud-long-context above,in,out,cached[,write]`): required on the OpenAI paths, whose heavy bodies
+   * can exceed it; optional on `/v1/messages`, whose proposed model bills the whole window at one rate.
+   */
   longContext?: { aboveTokens: number; input: number; output: number; cached: number; write?: number };
 }
 export function parseCloudLongContext(value: string): NonNullable<CloudArmInput["longContext"]> {
@@ -162,7 +168,8 @@ export function parseCloudLongContext(value: string): NonNullable<CloudArmInput[
   return { aboveTokens: parts[0]!, input: parts[1]!, output: parts[2]!, cached: parts[3]!, ...(parts.length === 5 ? { write: parts[4]! } : {}) };
 }
 /** The endpoint path selects the request shape exactly; any other path is refused rather than guessed. */
-const CLOUD_API_BY_PATH: Readonly<Record<string, "openai" | "openai_responses">> = Object.freeze({ "/v1/chat/completions": "openai", "/v1/responses": "openai_responses" });
+const CLOUD_API_BY_PATH: Readonly<Record<string, "openai" | "openai_responses" | "anthropic_messages">> = Object.freeze({ "/v1/chat/completions": "openai",
+  "/v1/responses": "openai_responses", "/v1/messages": "anthropic_messages" });
 export function parseCloudPrices(value: string): CloudArmInput["prices"] {
   const parts = value.split(",").map(part => Number(part));
   if (![3, 4].includes(parts.length) || parts.some(part => !Number.isFinite(part) || part < 0) || parts[2]! > parts[0]!) throw new Error("local_screen_cli_invalid");
@@ -172,31 +179,36 @@ export function buildCloudArm(input: CloudArmInput, environment: NodeJS.ProcessE
   const endpoint = new URL(input.endpoint);
   const api = Object.hasOwn(CLOUD_API_BY_PATH, endpoint.pathname) ? CLOUD_API_BY_PATH[endpoint.pathname]! : undefined;
   if (endpoint.protocol !== "https:" || !(input.maxFeeUsd > 0 && input.maxFeeUsd <= CLOUD_ARM_MAX_FEE_USD) || !api || endpoint.search) throw new Error("local_screen_cloud_arm_invalid");
-  const apiKey = environment[CLOUD_ARM_KEY_VARIABLE];
+  // Anthropic: the one published host only, so the Claude key reaches no other; adaptive thinking only (the model refuses `disabled`).
+  const anthropic = api === "anthropic_messages";
+  if (anthropic && (endpoint.href !== ANTHROPIC_MESSAGES_ENDPOINT || coordinator.thinking !== "medium")) throw new Error("local_screen_cloud_arm_invalid");
+  const apiKey = environment[anthropic ? CLAUDE_ARM_KEY_VARIABLE : CLOUD_ARM_KEY_VARIABLE];
   if (!apiKey || !/^[\x21-\x7e]{8,512}$/u.test(apiKey)) throw new Error("local_screen_cloud_key_missing");
-  const credentialVersion = Number(environment.SOAR_PHASE2_CLOUD_CREDENTIAL_VERSION ?? "1");
+  const credentialVersion = Number((anthropic ? environment.SOAR_CLAUDE_CLOUD_CREDENTIAL_VERSION : environment.SOAR_PHASE2_CLOUD_CREDENTIAL_VERSION) ?? "1");
   if (!Number.isSafeInteger(credentialVersion) || credentialVersion < 0) throw new Error("local_screen_cloud_arm_invalid");
-  const accountId = environment.SOAR_PHASE2_CLOUD_ACCOUNT_ID ?? "owner_cloud_account";
+  const accountId = anthropic ? environment.SOAR_CLAUDE_CLOUD_ACCOUNT_ID ?? "owner_anthropic_account" : environment.SOAR_PHASE2_CLOUD_ACCOUNT_ID ?? "owner_cloud_account";
   // Synthetic-only and explicitly grant-free: the broker admits this destination to a wholly synthetic lineage and nothing else.
   const destination: BrokerDestination = { id: "cloud_coordinator", kind: "cloud_model", endpoint: endpoint.href, apiKey, accountId, credentialVersion,
     privateDataAdmitted: false, syntheticOnly: true, grantFreeSynthetic: true, maxResponseBytes: 512 * 1024, timeoutMs: 600_000, maxRequestBytes: coordinator.maxRequestBytes,
-    ...(input.proxyFakeIp ? { proxyFakeIp: true as const } : {}) };
+    ...(input.proxyFakeIp ? { proxyFakeIp: true as const } : {}), ...(anthropic ? { anthropicVersion: ANTHROPIC_API_VERSION } : {}) };
   // Same output limit, thinking mode and body cap as the local arm; only the API shape, the prices and the timeout differ.
   // /v1/responses is the only OpenAI shape that serves tools with reasoning (BL-20261008-1300).
   // The Responses shape places explicit breakpoints and settles its reported cache writes at the published write price
   // (default 1.25× input) (H1). The chat-completions shape reports no write counts, so it keeps its previous configuration
   // and identity unchanged; a write price given for it is ignored.
-  const responses = api === "openai_responses";
+  // The Anthropic shape places 5-minute breakpoints at the same positions and settles writes at the 5-minute write price
+  // (also 1.25 times input), so it shares the Responses shape's write-price handling.
+  const responses = api === "openai_responses", writes = responses || anthropic;
   const modelConfig = { destinationId: "cloud_coordinator", model: input.model, api, maxOutputTokens: coordinator.maxOutputTokens, thinking: coordinator.thinking,
     inputUsdPerMillion: input.prices.input, outputUsdPerMillion: input.prices.output, cachedInputUsdPerMillion: input.prices.cached,
-    ...(responses ? { cacheWriteUsdPerMillion: input.prices.write ?? CLOUD_CACHE_WRITE_FACTOR * input.prices.input } : {}), maxRequestBytes: coordinator.maxRequestBytes,
+    ...(writes ? { cacheWriteUsdPerMillion: input.prices.write ?? CLOUD_CACHE_WRITE_FACTOR * input.prices.input } : {}), maxRequestBytes: coordinator.maxRequestBytes,
     ...(input.longContext ? { longContext: { aboveTokens: input.longContext.aboveTokens, inputUsdPerMillion: input.longContext.input,
       outputUsdPerMillion: input.longContext.output, cachedInputUsdPerMillion: input.longContext.cached,
-      ...(responses ? { cacheWriteUsdPerMillion: input.longContext.write ?? CLOUD_CACHE_WRITE_FACTOR * input.longContext.input } : {}) } } : {}),
-    ...(responses ? { promptCaching: "responses_explicit_v1" as const } : {}) };
+      ...(writes ? { cacheWriteUsdPerMillion: input.longContext.write ?? CLOUD_CACHE_WRITE_FACTOR * input.longContext.input } : {}) } } : {}),
+    ...(responses ? { promptCaching: "responses_explicit_v1" as const } : anthropic ? { promptCaching: "anthropic_explicit_5m_v1" as const } : {}) };
   const maxFeeMicrousd = Math.round(input.maxFeeUsd * 1_000_000);
   return { destination, modelConfig, maxFeeMicrousd, freeze: { arm: "cloud" as const, accountId, credentialVersion, endpointSha256: digest(endpoint.href), maxFeeMicrousd, modelConfig,
-    ...(input.proxyFakeIp ? { proxyFakeIp: true as const } : {}) } };
+    ...(input.proxyFakeIp ? { proxyFakeIp: true as const } : {}), ...(anthropic ? { anthropicVersion: ANTHROPIC_API_VERSION } : {}) } };
 }
 
 /** Adds the claims ledger requirement: sources are the job's input files plus, for two-phase runs, the public sources the host retained (never the model-authored context files). */
@@ -396,6 +408,10 @@ export async function runLocalArtifactScreen(input: {
   }
 }
 
+function messagesPath(endpoint: string | undefined): boolean {
+  try { return endpoint !== undefined && new URL(endpoint).pathname === "/v1/messages"; } catch { return false; }
+}
+
 export function parseLocalArtifactScreenArguments(args: string[]): Parameters<typeof runLocalArtifactScreen>[0] {
     const snapshotNames = ["--public-snapshot-directory", "--public-snapshot-brief-sha256", "--public-snapshot-map-sha256", "--public-snapshot-index-path"];
     const cloudNames = ["--cloud-model", "--cloud-endpoint", "--cloud-prices", "--cloud-long-context", "--max-fee-usd"];
@@ -410,9 +426,10 @@ export function parseLocalArtifactScreenArguments(args: string[]): Parameters<ty
         // H2b/H2c: the stage needs the heavy profile's 200 session requests (reader 68 + writer 80) and the claims-ledger check that verifies its packet at finish.
         (values.has("--pipeline") && (values.get("--pipeline") !== "research" || values.has("--repair-from") || values.has("--document-review") ||
           values.get("--profile") !== "heavy" || values.get("--claims-ledger") !== "true")) ||
-        // H3: the split arm's two cloud slots (one retry each) run on the Responses shape under a per-task fee cap of RESEARCH_SPLIT_MAX_FEE_USD.
+        // H3: the split arm's two cloud slots (one retry each) run on the Responses shape, or on Anthropic's Messages endpoint
+        // (BL-20261030-0620), under a per-task fee cap of RESEARCH_SPLIT_MAX_FEE_USD.
         (values.has("--pipeline") && values.get("--arm") === "cloud" && (!(Number(values.get("--max-fee-usd")) > 0 && Number(values.get("--max-fee-usd")) <= RESEARCH_SPLIT_MAX_FEE_USD) ||
-          !/^https:\/\/[^/?#]+\/v1\/responses$/u.test(values.get("--cloud-endpoint") ?? ""))) ||
+          !(/^https:\/\/[^/?#]+\/v1\/responses$/u.test(values.get("--cloud-endpoint") ?? "") || values.get("--cloud-endpoint") === ANTHROPIC_MESSAGES_ENDPOINT))) ||
         (values.has("--document-review") && (values.get("--document-review") !== "true" || values.has("--claims-ledger") || values.has("--public-retrieval"))) ||
         (values.has("--repair-from") && (values.get("--arm") === "cloud" || !values.get("--repair-from"))) ||
         // H4: a seeded write phase keeps the pipeline's requirements (heavy profile, claims ledger), runs no stage of its own and never writes with the cloud model.
@@ -420,8 +437,13 @@ export function parseLocalArtifactScreenArguments(args: string[]): Parameters<ty
           values.get("--claims-ledger") !== "true" || values.has("--document-review") || values.has("--public-retrieval"))) ||
         (values.has("--arm") && !["local", "cloud"].includes(values.get("--arm")!))) throw new Error("local_screen_cli_invalid");
     const cloudCount = cloudNames.filter(name => values.has(name)).length, cloudArm = values.get("--arm") === "cloud";
-    // The cloud arm needs every cloud flag and the local arm none of them; the key itself is never a flag.
-    if ((cloudArm && cloudCount !== cloudNames.length) || (!cloudArm && cloudCount) ||
+    // `/v1/messages` takes no long-context tier for the proposed model, only the published host and only the heavy profile
+    // (the standard profile's thinking is `disabled`, which that model refuses), refused here before any directory exists.
+    const anthropicArm = cloudArm && messagesPath(values.get("--cloud-endpoint"));
+    const required = anthropicArm ? cloudNames.filter(name => name !== "--cloud-long-context") : cloudNames;
+    // The cloud arm needs every required cloud flag and the local arm none of them; the key itself is never a flag.
+    if ((cloudArm && required.some(name => !values.has(name))) || (!cloudArm && cloudCount) ||
+        (anthropicArm && (values.get("--profile") !== "heavy" || values.get("--cloud-endpoint") !== ANTHROPIC_MESSAGES_ENDPOINT)) ||
         (values.has("--proxy-fake-ip") && (!cloudArm || values.get("--proxy-fake-ip") !== "true"))) throw new Error("local_screen_cli_invalid");
     const snapshotCount = snapshotNames.filter(name => values.has(name)).length;
     if (snapshotCount && (snapshotCount !== snapshotNames.length || values.get("--public-retrieval") !== "true")) throw new Error("local_screen_cli_invalid");
@@ -437,7 +459,7 @@ export function parseLocalArtifactScreenArguments(args: string[]): Parameters<ty
       ...(values.has("--repair-from") ? { repairFrom: values.get("--repair-from")! } : {}),
       ...(values.has("--research-from") ? { researchFrom: values.get("--research-from")! } : {}),
       ...(cloudArm ? { cloudArm: { model: values.get("--cloud-model")!, endpoint: values.get("--cloud-endpoint")!, prices: parseCloudPrices(values.get("--cloud-prices")!), maxFeeUsd: Number(values.get("--max-fee-usd")),
-        longContext: parseCloudLongContext(values.get("--cloud-long-context")!),
+        ...(values.has("--cloud-long-context") ? { longContext: parseCloudLongContext(values.get("--cloud-long-context")!) } : {}),
         ...(values.get("--proxy-fake-ip") === "true" ? { proxyFakeIp: true as const } : {}) } } : {}),
       ...(snapshotCount ? { publicSnapshot: { directory: values.get(snapshotNames[0]!)!, expectedBriefSha256: values.get(snapshotNames[1]!)!,
         expectedMapSha256: values.get(snapshotNames[2]!)!, indexPath: values.get(snapshotNames[3]!)! } } : {}) };

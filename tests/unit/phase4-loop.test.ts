@@ -189,6 +189,10 @@ describe("H4 select-and-repair loop", () => {
     expect(() => parseLoopArguments(["--select-and-repair", ...driver])).toThrow("loop_cli_invalid");
     for (const extra of [["--output-directory", "o"], ["--repair-from", "r"], ["--research-from", "a"], ["--pause-after-tools", "3"]]) expect(() => parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver, ...extra])).toThrow("loop_cli_invalid");
     expect(() => parseLoopArguments(["--execute-synthetic-local", "--loop-directory", "L", ...driver])).toThrow("loop_cli_invalid");
+    // H5's split arm on Claude (BL-20261030-0620): the Messages endpoint, no long-context tier.
+    const claude = parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver, "--pipeline", "research", "--arm", "cloud", "--cloud-model", "claude-sonnet-5-5",
+      "--cloud-endpoint", "https://api.anthropic.com/v1/messages", "--cloud-prices", "2,10,0.1,2.5", "--max-fee-usd", "0.6", "--proxy-fake-ip", "true"]);
+    expect(claude.base.cloudArm).toEqual({ model: "claude-sonnet-5-5", endpoint: "https://api.anthropic.com/v1/messages", prices: { input: 2, output: 10, cached: 0.1, write: 2.5 }, maxFeeUsd: 0.6, proxyFakeIp: true });
     const cloudFlags = ["--arm", "cloud", "--cloud-model", "m", "--cloud-endpoint", "https://e.invalid/v1/responses", "--cloud-prices", "1,1,1", "--cloud-long-context", "1,1,1,1", "--max-fee-usd", "0.6"];
     expect(parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver, "--pipeline", "research", ...cloudFlags]).base.cloudArm).toBeDefined();
     expect(() => parseLoopArguments(["--select-and-repair", "--loop-directory", "L", ...driver, ...cloudFlags])).toThrow("loop_cli_invalid");

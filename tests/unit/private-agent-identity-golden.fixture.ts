@@ -16,7 +16,7 @@ const heavy = COORDINATOR_PROFILES.heavy;
 /** H5's pinned `gpt-6-sol` flags (BL-20261030-0445): Responses endpoint, prices, long-context tier and fake-IP opt-in. */
 export const H5_GPT_ARM = { model: "gpt-6-sol", endpoint: "https://api.openai.com/v1/responses", prices: { input: 2, output: 10, cached: 0.2, write: 2.5 },
   maxFeeUsd: 2.5, longContext: { aboveTokens: 272000, input: 4, output: 15, cached: 0.4, write: 5 }, proxyFakeIp: true as const };
-export const OPENAI_ENVIRONMENT = { SOAR_PHASE2_CLOUD_API_KEY: "sk-synthetic-golden-key-0001" };
+export const OPENAI_ENVIRONMENT = { SOAR_PHASE2_CLOUD_API_KEY: "sk-golden-key-0001" };
 export const LOCAL_HEAVY: PrivateModelConfig = { destinationId: "owned_local_model", model: "synthetic-local-model", maxOutputTokens: heavy.maxOutputTokens,
   inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: heavy.thinking, maxRequestBytes: heavy.maxRequestBytes, promptCaching: "vllm_job_salt_v1",
   sampling: { ...heavy.sampling! }, streaming: true };
@@ -82,5 +82,17 @@ export async function goldenValues() {
     },
     freeze: { responses: digest(canonical(responsesArm.freeze)), chat: digest(canonical(chatArm.freeze)) },
     promptProtocol: { sha256: protocol.promptProtocolSha256, identity: protocol.identity },
+  };
+}
+
+/** The layout-2 request as the runner now sends it, with `trailingTurnMessage`, on each shape that existed before the adapter. */
+export async function layout2BodiesWithTrailingOption() {
+  const responsesArm = buildCloudArm(H5_GPT_ARM, OPENAI_ENVIRONMENT, heavy);
+  const chatArm = buildCloudArm({ ...H5_GPT_ARM, endpoint: "https://api.openai.com/v1/chat/completions" }, OPENAI_ENVIRONMENT, heavy);
+  const option = { trailingTurnMessage: true };
+  return {
+    vllm: digest(await captureBody(LOCAL_HEAVY, LAYOUT2_REQUEST, [TOOL], option)),
+    chat: digest(await captureBody(chatArm.modelConfig as PrivateModelConfig, LAYOUT2_REQUEST, [TOOL], option)),
+    responses: digest(await captureBody(responsesArm.modelConfig as PrivateModelConfig, LAYOUT2_REQUEST, [TOOL], option)),
   };
 }

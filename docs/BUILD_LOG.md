@@ -26004,3 +26004,95 @@ BL-20261026-1831-h4-select-and-repair-design,
 BL-20261026-1832-h4-select-and-repair-implemented,
 BL-20261027-1526-harness-session-task-exposure,
 BL-20261028-0420-h4-live-batch1-box-failure.
+
+### BL-20261030-0745-claude-cloud-adapter-approved -- 2026-10-30 -- The owner approves the Claude adapter design as proposed, with the Anthropic egress destination and the plan amendment; implementation may start, live calls still wait for a window
+
+Status: `Approved`
+
+Scope or hypothesis: the owner's approval of
+BL-20261030-0620-claude-cloud-adapter-design. It covers the design, the new
+egress destination and the plan amendment that BL-20261030-0445-h5-cloud-provider-claude
+requires before any adapter code. `Approved` covers the decisions only.
+Nothing is implemented or verified, and no live call or box use is
+authorised until the owner declares a window.
+
+Decisions:
+
+- **The owner's words.** On 2026-10-30 the owner answered "Approve as
+  proposed" in chat to the harness session, which started this session and
+  relayed the words here. The answer was to the question "Approve the Claude
+  adapter design as proposed?". The option the owner chose was offered with
+  this meaning: "I approve the Claude adapter design in PR #31 as proposed,
+  including all nine owner questions as the design answers them, the
+  Anthropic egress destination and the plan amendment." Before asking, the
+  harness session summarised for the owner:
+  - the model and prices;
+  - the caps, the H5 bound and the use of the USD 33 line;
+  - the calibration and its changed gate order;
+  - the Console checks;
+  - the cache-read price discrepancy;
+  - the nine questions.
+- **Approved, as BL-20261030-0620 answers the nine questions:**
+  1. `claude-sonnet-5-5`, at USD 2.00 input, 2.50 5-minute cache write,
+     0.10 cache read and 10.00 output per million tokens.
+  2. The all-cloud cap of USD 3.00 and the H5 bound of USD 21.60. The split
+     cap of USD 0.60 and the 8,192-token stage caps are kept, so rule S1 is
+     unchanged.
+  3. The trailing guidance sent as a final system message on the Anthropic
+     shape, falling back to user text after an assistant turn.
+  4. The bounded 429 and 529 retry, for the Anthropic destination only.
+  5. Sending `inference_geo: "global"`.
+  6. The new egress destination `https://api.anthropic.com/v1/messages`.
+     It stays `syntheticOnly` with no private data.
+  7. The plan amendment, which names `claude-sonnet-5-5` for the Phase 4
+     harness track and for H5's R0 re-runs.
+  8. The plan's USD 8 limit read per run for H5. It is recorded here only;
+     the plan keeps "per task".
+  9. The calibration, at most USD 3.90 at caps, with step 2 inside H4 batch
+     2. This amends the gate order of BL-20261030-0445 to: the shape probe,
+     the all-cloud calibration run, H4 batch 2 with step 2 inside it, the H4
+     condition, then the H5 batch-start entry.
+- **The USD 33 line, as BL-20261030-0620 splits it, at caps.** Used USD
+  3.11 to 3.44; shape probe 0.30; all-cloud calibration run 3.00; H4 batch
+  2's split loop 0.60; H5 counted runs 21.60; the r1 to r3 split
+  calibration 3.60. That is at most USD 32.54, leaving 0.46. R0 re-runs, at
+  most two at USD 3.00 each, are charged to the harness spike or re-runs
+  line (USD 7).
+- **Plan amendment applied** in `docs/PLAN.md`:
+  - section 1 now names `claude-sonnet-5-5` and its prices for H5's cloud
+    arms;
+  - section 4(b) names it for the Phase 4 harness track and H5's R0 re-runs;
+  - the Phase 4 row cites this entry.
+
+  The table's amounts and total, and "never more than USD 8 per task", are
+  unchanged.
+- **Still not authorised.** Any Anthropic API request other than the free
+  `--check`, and any use of the owner's box, until the owner declares a
+  window. The calibration's spend draws on the lines above only in that
+  window.
+
+Changes: this entry; `docs/PLAN.md` sections 1 and 4(b).
+
+Evidence: the harness session's message to this session of 2026-10-30,
+which quotes the owner's words, the question and the meaning of the option
+chosen.
+
+Failures or blockers: none.
+
+Limitations and non-claims:
+- This session did not see the owner's chat. The quoted words come from
+  the harness session's relay.
+- The approval was given to the design and a summary of it; the design
+  entry is the reference for every detail.
+
+Paid exposure: USD 0. Authorised when the owner declares a window: at most
+USD 3.90 for the calibration at caps, then the H5 amounts above.
+
+Next gate: the implementation against a mock server, its review and the
+`Implemented` entry with the new runtime digest; then the owner's window for
+the calibration.
+
+References: BL-20261030-0620-claude-cloud-adapter-design,
+BL-20261030-0445-h5-cloud-provider-claude,
+BL-20261022-0940-phase4-harness-approved,
+BL-20261028-0420-h4-live-batch1-box-failure.

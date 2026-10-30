@@ -82,7 +82,10 @@ Tier O is open.
 
 **Economics.** Savings are descriptive only. The device is sunk, so capital payback
 is moot. The cloud reference tier as of 2026-09-28 is `gpt-6-sol` at USD 2 / 0.20 /
-10 per 1M tokens (input / cached / output). Recheck the price on the day it is used.
+10 per 1M tokens (input / cached / output). From BL-20261030-0745-claude-cloud-adapter-approved, H5's cloud arms
+use `claude-sonnet-5-5` on Anthropic's Messages endpoint at USD 2 / 0.10 / 10 per 1M
+tokens (input / cache read / output; 5-minute cache writes 2.50). Recheck the price on
+the day it is used.
 
 **The cloud envelope approved by the owner is USD 300 in total**, allocated in
 section 4. Local runs are unlimited.
@@ -597,8 +600,10 @@ a real requirement (see Later).
 - **Standing envelope, in one `Approved` entry:**
   - (a) unlimited zero-fee local runs on public, synthetic or owner-declared-public
     inputs within the Heavy caps;
-  - (b) `gpt-6-sol` on public/synthetic tasks only, **USD 300 in total**
-    (approved by the owner on 2026-09-29), never more than USD 8 per task.
+  - (b) `gpt-6-sol`, and for the Phase 4 harness track and for H5's R0 re-runs on
+    the harness spike or re-runs line `claude-sonnet-5-5` (BL-20261030-0745-claude-cloud-adapter-approved),
+    on public/synthetic tasks only, **USD 300 in total** (approved by the owner on
+    2026-09-29), never more than USD 8 per task.
     Allocation:
 
     | Use | Cap (USD) |
@@ -607,7 +612,7 @@ a real requirement (see Later).
     | Phase 2 cloud arm (100) and repair pair (5) | 105 |
     | Synthetic personas, mailboxes and documents (no owner seed) | 20 |
     | Harness spike or re-runs of invalid runs | 7 (40 until 2026-10-22; 33 reallocated below) |
-    | Phase 4 harness track (BL-20261022-0834, approved 2026-10-22) | 33 |
+    | Phase 4 harness track (BL-20261022-0834, approved 2026-10-22; Claude from BL-20261030-0745-claude-cloud-adapter-approved) | 33 |
     | Public-work cloud route after Phase 2, weekly | 25 |
     | **Hard total** | **300** |
 

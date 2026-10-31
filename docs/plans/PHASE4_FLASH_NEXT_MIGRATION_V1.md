@@ -3,13 +3,22 @@
 Status: **Approved sequence; deployment not yet qualified**. Prepared 2026-11-01
 (Asia/Shanghai). Authority: BL-20261031-1759-flash-next-sequence-owner-approved.
 
-Updated after owner-authorized SSH inventory on 2026-11-01. The current backend
-is q4t, and its inspected contract conflicts with the retained Heavy profile.
+Updated after owner-authorized inventory, the failed first startup and the
+approved instrumented retry on 2026-11-01. The retry candidate now serves healthy
+owned API/model metadata; q4t is stopped with its verified recovery assets
+retained. Neither deployment has passed the retained Heavy qualification.
 The owner selected the suitable-backend path, approved the bounded qualification
 and H4 sequence, and separately granted H5 launch permission. The owner then
-reserved service modifications for himself, then explicitly authorized trying
-the recipe if the current service can be stopped and restored (BL-20261031-1815).
-See the [exact service requirements](FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md).
+reserved service modifications for himself, then conditionally authorized a
+recoverable recipe trial (BL-20261031-1815). After an intervening owner-operated
+handoff, the owner explicitly resumed that trial because q4t stop/start recovery
+had passed (BL-20261031-1936). The first attempt failed startup; automatic
+cleanup failed and scoped manual reconciliation restored q4t
+(BL-20261031-2003-nemoclaw-trial-failed-q4t-recovered). The owner then approved a
+separate diagnostic retry with fixed 12 GiB KV and context 262144; it reached API
+readiness (BL-20261031-2021-nemoclaw-diagnostic-retry-approved;
+BL-20261031-2040-nemoclaw-retry-ready). See the
+[exact owner handoff](FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md).
 
 The owner requested this design after confirming that the same device now serves
 a different underlying model. Adopt Flash-Next as a new, explicitly identified
@@ -21,24 +30,38 @@ granted. Permission does not waive the preceding technical gates.
 The recorded owner approval supplies the named amendment required by
 BL-20261030-0445-h5-cloud-provider-claude: “Prompts and the local arm stay unchanged
 unless the design names a change and the owner approves it.” The conditional
-trial still requires a concrete recorded D11 configuration, verified recovery
-path and valid window before a service transition.
+trial retains its recorded configuration, recovery requirement and operational
+window; its reauthorization does not waive qualification or evaluation gates.
 
-Current follow-up: q4t restoration passed and the original candidate weights/image
-are staged. The owner then asked to check q4t itself; the
-[capability review](Q4T_SERVICE_CAPABILITY_REVIEW.md) confirms configurable caches
-and capacity, but no launch flag supplies Heavy sampling or native response
-parsing. No candidate GPU startup, qualification, H4 completion or H5 launch has
-run. The exact-token pre-dispatch guard remains an implementation/qualification
-gate; the client reply contract and context identity pins are implemented.
+Current outcome: the second candidate attempt reached a healthy owned API at
+2026-10-31 20:37:27 UTC, about 321 seconds after server start. It retains the
+original checkpoint/image and context 262144 with one sequence; the sole
+serving-argument change is a fixed 12 GiB KV pool. q4t is stopped and recoverable,
+not serving alongside it. The earlier
+[capability review](Q4T_SERVICE_CAPABILITY_REVIEW.md) still establishes q4t's
+sampling and native-response gaps. The failed first startup, failed automatic
+cleanup and verified manual q4t recovery remain separate historical results.
+No trial generation or qualification ran; all 24 generation slots remain unused,
+new spend is USD 0, H4 remains held and H5 unstarted. The client reply/context
+contract and ignored fixture tools are checked offline. Six synthetic CPU
+renderer/tokenizer comparisons returned matching token IDs
+(BL-20261031-2049-flash-tokenizer-parity). The shared exact-token guard is
+implemented for every local H4/H5 role, including critic and judge, with passing
+focused tests and independent reviews. Full integrated verification, final
+role/fixture pins and generation compatibility remain pending.
 
 ## 1. Evidence and remaining uncertainty
 
 | Item | Current evidence | Consequence |
 | --- | --- | --- |
-| New endpoint | Advertises `qwen3.8-flash-next`; two synthetic non-streaming POSTs returned HTTP 200. The second completed with `stop`, but reasoning and a closing think tag appeared in ordinary content. | Basic chat works. Tool, streaming, thinking-off and Heavy compatibility remain unverified. |
-| Serving readiness | Original vLLM preflight failed. SSH identifies q4t v0.1.0; its `/healthz`, `/v1/models` and `/metrics` respond, with q4t-specific counters. One snapshot showed zero active chats, one free slot and no sticky GPU error. | Historical failure stands. A source-bound q4t guard still needs review and three-sample/liveness qualification. |
-| Actual model | Thor device; q4t binary and clean source tree hashed; model directory `Qwen3.8-Flash-Next-NVFP4-SSD-Stream`, config declares modelopt NVFP4. Tokenizer/template/config/index hashes retained. | Immutable weight revision/full weight digests, binary-to-source build correspondence and public API route binding remain unverified. |
+| Earlier q4t chat probes | The former route advertised `qwen3.8-flash-next`; two synthetic non-streaming POSTs returned HTTP 200. The second completed with `stop`, but reasoning and a closing think tag appeared in ordinary content. | These historical replies do not qualify the now-active vLLM candidate. Tool, streaming, thinking-off and Heavy compatibility remain unverified. |
+| Current serving readiness | The retry serves vLLM `0.1.dev20073+g8e685d198`; internal and user-facing health, model-list, version and metrics checks returned HTTP 200 at 20:40 UTC. Owned image/init, selected environment/arguments and read-only diagnostic overlays matched their pins; metadata advertises context 262144. | Candidate API readiness is verified. No generation, sampler/tool/cache contract, tokenizer parity or model-quality pass is implied. |
+| Preserved q4t deployment | Thor device; q4t binary and clean source tree hashed; model directory `Qwen3.8-Flash-Next-NVFP4-SSD-Stream`, config declares modelopt NVFP4. Tokenizer/template/config/index hashes retained. Its prior unit is now inactive/dead. | Recovery assets are retained. q4t's immutable weight revision/full weight digests, binary-to-source build correspondence and exact route-to-checkpoint binding remain unverified. Candidate checkpoint verification is separate. |
+| First candidate startup | All 206 original weight shards verified; 22 selected operator cases passed (64 deselected, zero skipped). Model load reported 74.34 GiB. Initial compilation/profile warmup completed, then progress stopped for over seven minutes after a 31.44 GiB KV-capacity log. Completed cache initialization and final engine warmup were not proven. The operator stopped it before the 30-minute deadline, without a healthy API. | Fuller kernel evidence shows driver blocking before stop and allocation failures after stop began. The initial blocked allocation/cause remains unproven; operator tests do not qualify MTP-off serving. |
+| First-attempt cleanup and recovery | Docker zombie prevented automatic container removal and the guard blocked restoration. After process exit, identity-checked non-force removal and lease/GPU/listener/marker checks permitted one manual restore, which verified q4t. | Preserve failed automatic rollback alongside successful manual recovery. q4t was subsequently stopped again for the approved retry; this does not establish a second completed restore. |
+| Retry startup | All 206 shards loaded at 74.34 GiB; 22 selected operator cases passed (64 deselected, zero skipped). With fixed 12 GiB KV, total engine initialization completed in 90.62 s, including final CUDA-graph capture in 6 s using 0.16 GiB. Capacity reports 479856 tokens, 1.83 times context 262144; healthy API arrived in about 321 s. | Startup now reaches readiness. Added-operator checks, reported capacity and graph capture do not qualify actual Heavy requests. The larger 60-minute bound was not needed to reach readiness. |
+| Retry observations | After verified idle/q4t stop, one synchronized page-cache drop changed Cached from 1117980 to 410532 KiB and MemAvailable from 122136392 to 122560152 KiB. The interrupt warning recurred; no new allocation failure or blocked-task report was observed through 20:40 UTC. Running/waiting, completion-reason and prefix-cache query/hit counters were zero. | Reduced KV, cache preparation, retained build caches, diagnostics and wait policy were not isolated. Neither successful startup nor the bounded kernel observation identifies the first stall's cause or proves stability/cache behavior. |
+| CPU parity and admission preparation | Six synthetic cases have matching token IDs between tokenization and the installed generation renderer. The shared exact-token guard covers every local role, with passing focused tests and independent reviews. The ignored driver passed 26 synthetic tests and strict TypeScript checking; tokenizer/metadata helpers passed 9/22 mock tests. | Full integrated verification and final role/fixture pins remain pending. No qualification fixture freeze/activation or generation qualification result is claimed. CPU parity is not generated-output or cache-behavior proof. |
 | Claude step 0 | Attempt 1 exited 3 for missing later thinking, triggering the allowed repeat; the repeat exited 2 for a warm read instead of the required initial cache write. The owner accepted their combined evidence once. | Retain both original verdicts and the adjudication; no third probe. |
 | Claude step 1 | 79 cloud replies and 34 old-tier local judge calls settled; cloud fee USD 1.127758, approved projection USD 2.121435 below USD 3.00. Guidance review found no visible refusal. | Transport/cost calibration is reusable under its original configuration; task quality remains independently ungraded. |
 | Console reconciliation | Owner screenshot shows SOAR-key cost USD 1.15; step-0/1 ledger total USD 1.151653, difference USD 0.001653 within USD 0.05. Earlier owner confirmation supplies the no-competing-usage condition. | Historical step 1 is accepted. The screenshot alone does not establish exclusive usage or qualify Flash-Next. |
@@ -50,16 +73,16 @@ hashes and limitations. Original results are never overwritten.
 
 ### 1.1 Read-only inventory findings and the selected design path
 
-The supplied SSH access reaches an NVIDIA Jetson AGX Thor Developer Kit, Ubuntu
-24.04, aarch64, 14 CPUs and 128,828,748 KiB RAM (about 122.9 GiB). The serving
-binary reports q4t v0.1.0. Its SHA-256 is
+The earlier read-only inventory reached an NVIDIA Jetson AGX Thor Developer Kit,
+Ubuntu 24.04, aarch64, 14 CPUs and 128,828,748 KiB RAM (about 122.9 GiB). Its then-active
+binary reported q4t v0.1.0. Its SHA-256 is
 `0c5ab1de85ff68f9d757ac3bfad04187756a1b2c6634108c3112a5861c209483`;
 the adjacent clean tracked source is at
 `24b97e7d50ec7d81eaabcf11ef3f7c7be3587a35`. These are separate observations,
 not a reproducible-build proof. The supplied credentials were used only for
 authentication; no credential file or committed credential was created.
 
-The launch explicitly sets `--max-seq 1`, `--max-prefill 8192` and
+That q4t launch explicitly set `--max-seq 1`, `--max-prefill 8192` and
 `--max-len 208896`. The checkpoint's 262,144 declaration does not override that
 serving limit. A 16,384-token output reservation leaves at most **192,512
 tokenized prompt tokens**, including template/tool overhead, at the configured
@@ -77,8 +100,8 @@ SOAR's per-job cache salt.
 
 | Path | Decision and impact |
 | --- | --- |
-| **A — preserve the existing Heavy experiment (selected)** | Qualify a Flash-Next serving deployment that supports the retained sampling, native single-action tools, cache isolation and context contract. The owner now permits a recoverable trial of the identified Thor recipe. The rest of this plan retains this path's experiment semantics; current-service use does not silently select a greedy profile. |
-| **B — evaluate the current q4t tier** | First revise the design to name greedy temperature 0/top-p 1/no top-k, an explicitly scoped tool adapter, a proven cache-isolation strategy, the actual context bound and scoped reasoning parsing. Record the change to repeat/diversity interpretation: two greedy repeats do not supply two stochastic samples. The revision must be reviewed and approved before implementation. Omitting unsupported fields is not an invisible compatibility fix. |
+| **A — preserve the existing Heavy experiment (selected)** | Qualify a Flash-Next serving deployment that supports the retained sampling, native single-action tools, cache isolation and context contract. The owner reauthorized the recoverable NemoClaw-derived trial after the q4t stop/start proof. The rest of this plan retains this path's experiment semantics; current-service use does not silently select a greedy profile. |
+| **B — evaluate the q4t tier** | First revise the design to name greedy temperature 0/top-p 1/no top-k, an explicitly scoped tool adapter, a proven cache-isolation strategy, the actual context bound and scoped reasoning parsing. Record the change to repeat/diversity interpretation: two greedy repeats do not supply two stochastic samples. The revision must be reviewed and approved before implementation. Omitting unsupported fields is not an invisible compatibility fix. |
 
 Do not apply vLLM parser flags to q4t. A q4t readiness proposal should
 use `q4t_active_chats=0` (parsing, queued and generating requests), zero reserved
@@ -110,20 +133,27 @@ server cannot be assumed to fit alongside q4t. Storage may be feasible with
 hash-verified sharing of unchanged shards and additional original PLE files;
 image/build peaks and driver/kernel compatibility remain unverified.
 
-At the owner-operated handoff, no build,
-weight download, conversion, installation, runtime configuration or restart was
-performed. The current service's model and health metadata still return HTTP 200.
-No new inference was sent: source-contract and missing provenance gates remain
-unresolved, so the 24-dispatch qualification allowance was unconsumed.
+At the first owner-operated handoff (BL-20261031-1812), no build, weight download, conversion,
+installation, runtime configuration or restart had been performed; q4t model and
+health metadata returned HTTP 200. That historical boundary remains recorded.
 
 The owner then approved a conditional recipe trial (BL-20261031-1815). Its
 preparation pins the minimal source/image and original RadixArk weights, reuses
 196 SHA-256-verified shards, and downloads ten missing original PLE files.
 The original q4t unit is transient and its guard rejects an existing output
-directory, so a plain restart is not reliable. A protected snapshot and a fresh
-guard-output restore invocation are being prepared before any service stop.
-BL-20261031-1820 records the exact preparation boundary; a passing restore,
-candidate startup, deployment pin and qualification are still pending.
+directory, so restoration uses a protected snapshot and fresh guard output.
+The controlled restore passed before the trial. The subsequent candidate attempt
+failed startup and automatic cleanup; guarded manual reconciliation then restored
+q4t. BL-20261031-1820 retains the preparation boundary and
+BL-20261031-2003-nemoclaw-trial-failed-q4t-recovered records the later failure and
+recovery. The separately approved diagnostic retry
+(BL-20261031-2021-nemoclaw-diagnostic-retry-approved) used fixed 12 GiB KV with
+context 262144 and reached healthy API metadata in about 321 seconds
+(BL-20261031-2040-nemoclaw-retry-ready). It is active with q4t stopped and recovery
+assets retained. Six-case CPU token parity is verified, and shared admission is
+implemented with passing focused tests and independent reviews. Full integrated
+verification and compatibility qualification remain pending; no trial generation
+has run.
 
 ## 2. Approved amendment and pending role binding
 
@@ -171,7 +201,8 @@ Before inference qualification, prepare a sanitized serving manifest with:
 
 - Actual checkpoint source and immutable revision or artifact digest, conversion
   source/revision, weight and KV-cache quantization, tokenizer/template digests.
-- Engine name, version and build/container digest; model routing/alias map;
+- Engine name, version and build/container digest, plus the effective read-only
+  diagnostic source-overlay hashes; model routing/alias map;
   reasoning and tool parsers; thinking preservation; prefix caching, cache-salt
   behaviour, speculative decoding/offload and effective sampling defaults.
 - Effective context limit and output limit; hardware/memory and current serving
@@ -327,8 +358,14 @@ scoped implementation, bounded qualification and three H4 loops, and separately
 granted H5 launch permission. BL-20261031-1759 records this supersession of the
 earlier Proposed-only and H5-permission-pending text. Every execution stage still
 requires its preceding evidence, current pins, existing caps and valid window.
-The latest instruction conditionally permits the recipe trial if the current
-service can be restored, superseding the owner-operated-only boundary. It does not
+The later instruction permitted the concrete recoverable recipe trial,
+superseding the owner-operated-only boundary. That first attempt failed startup
+and ended with verified scoped manual q4t recovery. A separate owner-approved
+diagnostic retry retained the experiment controls, set fixed 12 GiB KV, reclaimed
+clean page cache once and reached healthy API metadata
+(BL-20261031-2021-nemoclaw-diagnostic-retry-approved;
+BL-20261031-2040-nemoclaw-retry-ready). It remains unqualified, with q4t stopped
+and recovery assets retained. This permission does not
 approve a silently changed greedy experiment, private data, additional paid
 calibration or release. No further H5 permission question is needed solely
 because older text described it as a separate decision.
@@ -353,8 +390,9 @@ Official sources checked 2026-11-01; they describe upstream software, not proof
 of what runs on the owner's device:
 
 - [Qwen4-Thor upstream](https://github.com/thomas-hiddenpeak/qwen4-thor) and the
-  pinned contract/metrics sources above: the inventory identifies this engine;
-  its greedy API and q4t metadata supersede assumptions that vLLM is deployed.
+  pinned contract/metrics sources above: the earlier inventory identified q4t
+  and its greedy API. The later retry's owned API/version checks separately
+  identify the now-active vLLM candidate; neither is inferred from its alias.
 - [Qwen Flash-Next model card](https://huggingface.co/Qwen/Qwen3.8-Flash-Next):
   thinking defaults, `enable_thinking` and `preserve_thinking` API controls.
 - [vLLM exact-model recipe](https://github.com/vllm-project/vllm/blob/main/recipes/models/Qwen/Qwen3.8-Flash-Next.yaml):

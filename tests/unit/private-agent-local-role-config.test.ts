@@ -23,6 +23,7 @@ describe("shared harness local role configuration", () => {
     const model = buildLocalScreenModelConfig(config(row.streaming), COORDINATOR_PROFILES[row.profile], row.salted);
     expect(model).not.toHaveProperty("localReplyContract");
     expect(model).not.toHaveProperty("localContextTokens");
+    expect(model).not.toHaveProperty("localTokenAdmissionSha256");
     expect(digest(canonical(model))).toBe(row.sha256);
   });
 
@@ -40,5 +41,18 @@ describe("shared harness local role configuration", () => {
     const changedConfig = config(true); changedConfig.vllm.localReplyContract = "flash_next_v1"; changedConfig.vllm.localContextTokens = 131_072;
     expect(modelIdentity(buildLocalScreenModelConfig(changedConfig, COORDINATOR_PROFILES.heavy))).not.toEqual(modelIdentity(opted));
     expect(buildLocalScreenModelConfig(optedConfig, COORDINATOR_PROFILES.heavy, false)).not.toHaveProperty("promptCaching");
+  });
+
+  it("binds the same exact-token policy for every harness local role without exposing its path", () => {
+    const roleConfig = config(true);
+    roleConfig.vllm.localReplyContract = "flash_next_v1"; roleConfig.vllm.localContextTokens = 262_144;
+    roleConfig.vllm.localTokenAdmission = { path: "/synthetic/operator/policy.json", sha256: "a".repeat(64) };
+    const model = buildLocalScreenModelConfig(roleConfig, COORDINATOR_PROFILES.heavy);
+    expect(model.localTokenAdmissionSha256).toBe("a".repeat(64));
+    expect(canonical(model)).not.toContain(roleConfig.vllm.localTokenAdmission.path);
+    roleConfig.vllm.localTokenAdmission = { path: "/another/operator/policy.json", sha256: "a".repeat(64) };
+    expect(modelIdentity(buildLocalScreenModelConfig(roleConfig, COORDINATOR_PROFILES.heavy))).toEqual(modelIdentity(model));
+    roleConfig.vllm.localTokenAdmission.sha256 = "b".repeat(64);
+    expect(modelIdentity(buildLocalScreenModelConfig(roleConfig, COORDINATOR_PROFILES.heavy))).not.toEqual(modelIdentity(model));
   });
 });

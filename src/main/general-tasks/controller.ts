@@ -13,9 +13,11 @@ import { GeneralTaskCreateInputSchema, GeneralTaskArtifactRefSchema, GeneralTask
 import { canonical, digest, exactText } from "../private-agent/contracts";
 import { PrivateAgentStore, UnknownRequestDiagnosticSchema } from "../private-agent/store";
 import { PrivateAgentBroker, isPublicAddress, type BrokerDestination } from "../private-agent/broker";
+import { loadFlashNextTokenAdmission, LOCAL_TOKEN_ADMISSION_STOP } from "../private-agent/flash-next-admission";
 import { isIP } from "node:net";
 import { readPublicSources } from "../private-agent/public-sources";
-import { MODEL_FEE_CAP_STOP, MODEL_UNAVAILABLE_STOP, modelRequestFailed, modelRequestFeeStop, PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop, modelIdentity } from "../private-agent/model";
+import { MODEL_FEE_CAP_STOP, MODEL_UNAVAILABLE_STOP, modelRequestFailed, modelRequestFeeStop, PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop, modelIdentity,
+  modelRequestTokenAdmissionStop, hasInvalidModelRequestTokenAdmissionStop } from "../private-agent/model";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "../private-agent/checkpoints";
 import { GeneralAgentSession, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../private-agent/session";
 import { DockerSandbox } from "../private-agent/sandbox";
@@ -50,6 +52,7 @@ const fixedReasons: Record<string, string> = {
   runtime_unavailable: "The local execution runtime is unavailable. Check the configured model and pinned Docker image.",
   incomplete: "The task stopped without a verified structural submission. Saved progress is retained.",
   request_body_size_exceeded: "The next model request exceeded the request size limit and was not sent. Saved progress is retained; this task cannot resume.",
+  local_token_admission_denied: "The next local-model request could not pass its context and deployment checks and was not sent. Saved progress is retained; this task cannot resume.",
   repeated_identical_execution_failure: "The agent selected the same failed command after a recovery warning. The command was stopped before execution. Saved progress is retained; this task cannot resume.",
   deadline: "The task reached its time limit.",
   fee_cap_reached: "The task reached its cloud fee cap before the next request; nothing more was sent. Saved progress is retained; this task cannot resume.",
@@ -250,7 +253,8 @@ export class GeneralTaskController {
       ...(config.streamingEnabled ? { streaming: true } : {}),
       // H2a: likewise spread only when on; switching it on changes the model identity, so paused tasks resume only after it is off again or re-created.
       ...(config.promptCacheSalt ? { promptCaching: "vllm_job_salt_v1" as const } : {}),
-      ...(config.vllm.localReplyContract ? { localReplyContract: config.vllm.localReplyContract, localContextTokens: config.vllm.localContextTokens } : {}) };
+      ...(config.vllm.localReplyContract ? { localReplyContract: config.vllm.localReplyContract, localContextTokens: config.vllm.localContextTokens } : {}),
+      ...(config.vllm.localTokenAdmission ? { localTokenAdmissionSha256: config.vllm.localTokenAdmission.sha256 } : {}) };
     // The profile owns the request timeout; the legacy SOAR_REQUEST_TIMEOUT_MS belongs to the review adapter.
     const timeoutMs = coordinator.requestTimeoutMs;
     return { config, endpoint, imageId, model, timeoutMs, name, limits, identity: digest(canonical({ version: 2, profile: name, runtimeIdentity, imageId,
@@ -393,10 +397,10 @@ export class GeneralTaskController {
 
   private uncertain(events: Record<string, unknown>[], id: string): boolean {
     const stopped = this.progressStop(events, id);
-    return readConsultation(this.runtime, id)?.uncertain === true || this.runtime.dispatches(id).some(row => !isResolvedDispatch(row) && !isEntailmentDispatch(row)) || hasInvalidModelRequestSizeStop(events) ||
+    return readConsultation(this.runtime, id)?.uncertain === true || this.runtime.dispatches(id).some(row => !isResolvedDispatch(row) && !isEntailmentDispatch(row)) || hasInvalidModelRequestSizeStop(events) || hasInvalidModelRequestTokenAdmissionStop(events) ||
       this.unresolvedProgressAction(events, id) || events.some(event => event.type === "model_action_not_started" &&
       (!stopped || canonical(event) !== canonical(stopped)) ||
-      ["model_started", "tool_started", "host_validation_started"].includes(String(event.type)) && !modelRequestSizeStop(events, event) && !modelRequestFeeStop(events, event) && !modelRequestFailed(events, event) &&
+      ["model_started", "tool_started", "host_validation_started"].includes(String(event.type)) && !modelRequestSizeStop(events, event) && !modelRequestFeeStop(events, event) && !modelRequestTokenAdmissionStop(events, event) && !modelRequestFailed(events, event) &&
       !events.some(other => other.type === String(event.type).replace("_started", "_finished") && other.operationId === event.operationId));
   }
   private unresolvedProgressAction(events: Record<string, unknown>[], id: string): boolean {
@@ -464,13 +468,14 @@ export class GeneralTaskController {
       ended.at(-1)?.cleanupConfirmed === true || events.some(event => event.type === "desktop_cleanup_confirmed"));
     const uncertain = this.uncertain(events, id), expired = record.startedAt !== null && Date.now() - record.startedAt >= this.budget(record).elapsedMs;
     const sizeStopped = events.some(event => modelRequestSizeStop(events, event)), feeStopped = events.some(event => modelRequestFeeStop(events, event));
+    const tokenStopped = events.some(event => modelRequestTokenAdmissionStop(events, event));
     const progressStopped = this.progressStop(events, id);
     // A durable private completion only needs finalisation (submission and the evidence pass), which no allowance or deadline gates.
     const finalising = contextId !== undefined && events.some(event => event.type === "completed" && event.contextId === contextId);
     const canResume = !this.closing && !active && (record.status === "paused" || record.status === "incomplete" && (record.reason === "interrupted" || record.reason === MODEL_UNAVAILABLE_STOP || record.reason === `public_${MODEL_UNAVAILABLE_STOP}`)) &&
-      (finalising || models < this.budget(record).modelCalls && tools < this.budget(record).toolCalls && !expired) && !uncertain && !sizeStopped && !feeStopped && !progressStopped && consultation?.status !== "pending" &&
+      (finalising || models < this.budget(record).modelCalls && tools < this.budget(record).toolCalls && !expired) && !uncertain && !sizeStopped && !feeStopped && !tokenStopped && !progressStopped && consultation?.status !== "pending" &&
       !(consultation?.status === "approved" && models > this.budget(record).modelCalls - 2);
-    const reason = record.status === "cancelled" && cleanupConfirmed ? "cancelled" : !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : feeStopped ? MODEL_FEE_CAP_STOP : progressStopped ? EXECUTION_PROGRESS_STOP : expired ? "deadline" :
+    const reason = record.status === "cancelled" && cleanupConfirmed ? "cancelled" : !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : feeStopped ? MODEL_FEE_CAP_STOP : tokenStopped ? LOCAL_TOKEN_ADMISSION_STOP : progressStopped ? EXECUTION_PROGRESS_STOP : expired ? "deadline" :
       consultation?.status === "pending" ? "consultation_pending" : record.reason : record.reason;
     const dispatches = this.runtime.dispatches(id);
     const artifacts = snapshot.filter(file => GeneralTaskArtifactRefSchema.safeParse({ id, path: file.path, sha256: file.sha256 }).success)
@@ -510,18 +515,22 @@ export class GeneralTaskController {
       events: events.map((event, i) => ({ sequence: i + 1, type: String(event.type), ...(actionDetail(events, event) ? { detail: actionDetail(events, event) } : {}),
         summary: event.type === "model_action_not_started" && event.reason === EXECUTION_PROGRESS_STOP ?
           progressStopped && canonical(event) === canonical(progressStopped) ? "The unchanged failed command was stopped before execution." :
-            "The action stop could not be verified; replay is blocked." : event.type === "nudge" && event.kind === "length" ? "The reply was cut at the output limit; the host asked for smaller writes." : summaries[String(event.type)] ?? "Task state updated." })) };
+            "The action stop could not be verified; replay is blocked." : event.type === "model_request_not_dispatched" && event.reason === LOCAL_TOKEN_ADMISSION_STOP ?
+              "The next local-model request failed its context or deployment checks and was not sent." : event.type === "nudge" && event.kind === "length" ? "The reply was cut at the output limit; the host asked for smaller writes." : summaries[String(event.type)] ?? "Task state updated." })) };
   }
   list(): GeneralTaskSnapshot[] { return this.records().map(record => this.get(record.id)); }
 
   /** `profile` is the snapshot the model was built from: the streaming flag is outside the identity, so it must not be re-read. */
   private broker(record: TaskRecord, profile = this.profile(record)): PrivateAgentBroker {
+    const localTokenAdmission = profile.config.vllm.localTokenAdmission ? loadFlashNextTokenAdmission(profile.config.vllm.localTokenAdmission) : undefined;
     return new PrivateAgentBroker(this.runtime, [{ id: "desktop_local", kind: "local_model", endpoint: profile.endpoint, apiKey: profile.config.vllm.apiKey,
       accountId: "owner_declared_local_server", credentialVersion: 1, privateDataAdmitted: false, syntheticOnly: true,
+      ...(profile.config.vllm.localTokenAdmission ? { localTokenAdmissionSha256: profile.config.vllm.localTokenAdmission.sha256 } : {}),
       maxResponseBytes: LOCAL_MAX_RESPONSE_BYTES, timeoutMs: profile.timeoutMs, maxRequestBytes: profile.model.maxRequestBytes,
       ...(profile.config.streamingEnabled ? { stream: localStreamSettings(profile.timeoutMs, LOCAL_MAX_RESPONSE_BYTES, profile.model.maxOutputTokens) } : {}),
       ...(profile.config.recoverableDispatch ? { recoverable: true } : {}) }, ...this.webDestinations(record),
-      ...(record.version === 3 ? [this.consultant(record).destination] : [])], new RulePacketScanner());
+      ...(record.version === 3 ? [this.consultant(record).destination] : [])], new RulePacketScanner(),
+      localTokenAdmission ? { localTokenAdmissions: [localTokenAdmission] } : {});
   }
   private consultationManager(record: TaskRecord, contextId: string, broker = this.broker(record)): GeneralConsultation {
     const profile = this.consultant(record), { id, endpoint, accountId, credentialVersion } = profile.destination;
@@ -612,7 +621,7 @@ export class GeneralTaskController {
       if (judged) next.entailment = { counts: judged.counts, entailmentCalls: judged.entailmentCalls, truncated: judged.truncated, claims: judged.verdicts };
       next.status = submitted ? "submitted" : active.cancelRequested ? "cancelled" : result.status === "paused" ? "paused" : "incomplete";
       next.reason = !preserved ? "configuration_changed" : result.reason === "consultation_pending" ? "consultation_pending" :
-        result.reason === MODEL_REQUEST_SIZE_STOP ? MODEL_REQUEST_SIZE_STOP : result.reason === MODEL_FEE_CAP_STOP ? MODEL_FEE_CAP_STOP : (result.reason === MODEL_UNAVAILABLE_STOP || result.reason === `public_${MODEL_UNAVAILABLE_STOP}`) && next.status === "incomplete" ? result.reason : next.status; this.save(next);
+        result.reason === MODEL_REQUEST_SIZE_STOP ? MODEL_REQUEST_SIZE_STOP : result.reason === MODEL_FEE_CAP_STOP ? MODEL_FEE_CAP_STOP : result.reason === LOCAL_TOKEN_ADMISSION_STOP ? LOCAL_TOKEN_ADMISSION_STOP : (result.reason === MODEL_UNAVAILABLE_STOP || result.reason === `public_${MODEL_UNAVAILABLE_STOP}`) && next.status === "incomplete" ? result.reason : next.status; this.save(next);
     } catch (error) {
       const record = this.record(id); record.status = active.cancelRequested ? "cancelled" : "incomplete";
       record.reason = error instanceof Error && error.message === "general_task_configuration_changed" ? "configuration_changed" : "runtime_unavailable"; this.save(record);

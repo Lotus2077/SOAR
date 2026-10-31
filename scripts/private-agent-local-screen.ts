@@ -10,6 +10,7 @@ import { PrivateAgentBroker, type BrokerDestination } from "../src/main/private-
 import { canonical, digest } from "../src/main/private-agent/contracts";
 import { PrivateCheckpointStore } from "../src/main/private-agent/checkpoints";
 import { PrivateAgentModel, type PrivateModelConfig } from "../src/main/private-agent/model";
+import { loadFlashNextTokenAdmission } from "../src/main/private-agent/flash-next-admission";
 import { ANTHROPIC_API_VERSION, ANTHROPIC_MESSAGES_ENDPOINT } from "../src/main/private-agent/anthropic";
 import { GeneralAgentSession, SESSION_LIMITS, researchTransferPhase, sessionFileManifest, sessionPhaseIdentity, type SessionPhase } from "../src/main/private-agent/session";
 import { RulePacketScanner } from "../src/main/private-agent/scanner";
@@ -147,7 +148,12 @@ export function buildLocalScreenModelConfig(
     inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: coordinator.thinking, maxRequestBytes: coordinator.maxRequestBytes,
     ...(cacheSalt ? { promptCaching: "vllm_job_salt_v1" as const } : {}),
     ...(coordinator.sampling ? { sampling: { ...coordinator.sampling } } : {}), ...(config.streamingEnabled ? { streaming: true } : {}),
-    ...(config.vllm.localReplyContract ? { localReplyContract: config.vllm.localReplyContract, localContextTokens: config.vllm.localContextTokens } : {}) };
+    ...(config.vllm.localReplyContract ? { localReplyContract: config.vllm.localReplyContract, localContextTokens: config.vllm.localContextTokens } : {}),
+    ...(config.vllm.localTokenAdmission ? { localTokenAdmissionSha256: config.vllm.localTokenAdmission.sha256 } : {}) };
+}
+/** Main-process-only loading shared by the coordinator, reader/writer, judge and separate critic. */
+export function buildLocalScreenTokenAdmission(config: Pick<SoarConfig, "vllm">) {
+  return config.vllm.localTokenAdmission ? loadFlashNextTokenAdmission(config.vllm.localTokenAdmission) : undefined;
 }
 /** Headless budgets: "standard" keeps the Phase 0 driver values so earlier rows stay comparable. */
 const LOCAL_SCREEN_BUDGETS: Readonly<Record<LocalScreenProfile, { maxModelCalls: number; maxToolCalls: number; maxElapsedMs: number; maxRequests: number }>> = Object.freeze({
@@ -303,9 +309,11 @@ export async function runLocalArtifactScreen(input: {
   const stop = () => { abort.abort(); session?.cancel(); };
   process.once("SIGINT", stop); process.once("SIGTERM", stop);
   try {
+    const localTokenAdmission = buildLocalScreenTokenAdmission(config);
     const destinations: BrokerDestination[] = [{ id: "owned_local_model", kind: "local_model",
       endpoint: `${config.vllm.baseUrl}/chat/completions`, accountId: "operator_owned_local_server", credentialVersion: 1,
       apiKey: config.vllm.apiKey, privateDataAdmitted: false, syntheticOnly: true,
+      ...(config.vllm.localTokenAdmission ? { localTokenAdmissionSha256: config.vllm.localTokenAdmission.sha256 } : {}),
       maxResponseBytes: LOCAL_SCREEN_MAX_RESPONSE_BYTES, timeoutMs: coordinator.requestTimeoutMs, maxRequestBytes: coordinator.maxRequestBytes,
       ...(config.recoverableDispatch ? { recoverable: true } : {}),
       ...(config.streamingEnabled ? { stream: localStreamSettings(coordinator.requestTimeoutMs, LOCAL_SCREEN_MAX_RESPONSE_BYTES, coordinator.maxOutputTokens) } : {}) }];
@@ -339,7 +347,8 @@ export async function runLocalArtifactScreen(input: {
     const cloud = input.cloudArm ? buildCloudArm(input.cloudArm, process.env, coordinator) : undefined;
     if (cloud) destinations.push(cloud.destination);
     const scanner = new RulePacketScanner();
-    const broker = new PrivateAgentBroker(store, destinations, scanner);
+    const broker = new PrivateAgentBroker(store, destinations, scanner,
+      localTokenAdmission ? { localTokenAdmissions: [localTokenAdmission] } : {});
     // H2a: the harness track salts the owned server's prefix cache per job unless the run is the unsalted control arm. The one
     // local configuration serves the coordinator and the judge; freeze.json records it as modelConfig on local-arm runs and as
     // judgeModelConfig on cloud-arm runs. Runs before H2a sent no salt.

@@ -11,6 +11,7 @@ import { PrivateAgentModel, type GeneralMessage, type PrivateModelConfig } from 
 import { GeneralAgentRunner, type GeneralJobContract, type GeneralJobOptions } from "../../src/main/private-agent/runner";
 import { DockerSandbox } from "../../src/main/private-agent/sandbox";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
+import { LocalTokenAdmissionError, LOCAL_TOKEN_ADMISSION_STOP } from "../../src/main/private-agent/flash-next-admission";
 import { EXECUTION_OBSERVATION_MAX_BYTES, EXECUTION_OBSERVATION_BUDGET_BYTES } from "../../src/main/private-agent/observations";
 import { EXECUTION_PROGRESS_STOP, readExecutionProgressStop } from "../../src/main/private-agent/progress";
 import { CLAIMS_LEDGER_CHECK_ID, claimsLedgerCheck } from "../../src/main/private-agent/claims";
@@ -343,6 +344,26 @@ describe("general runner host budget and argument recovery", () => {
     expect(f.options.store.events(f.options.jobId).some(event => event.type === "model_request_not_dispatched")).toBe(false);
     expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ reason: "unresolved_operation_no_replay" });
     expect(f.complete).toHaveBeenCalledTimes(1); expect(f.commands).toEqual([]);
+  });
+
+  it("records a typed exact-admission refusal as non-dispatch and never replays the model", async () => {
+    const f = fixture([]), bodySha256 = digest("actual serialized fixture body"), policySha256 = digest("fixture policy");
+    f.complete.mockRejectedValueOnce(new LocalTokenAdmissionError("local_token_context_exceeded", bodySha256, policySha256));
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: LOCAL_TOKEN_ADMISSION_STOP, modelCalls: 1 });
+    expect(f.options.store.dispatches(f.options.jobId)).toEqual([]);
+    expect(f.options.store.events(f.options.jobId).find(event => event.type === "model_request_not_dispatched"))
+      .toMatchObject({ reason: LOCAL_TOKEN_ADMISSION_STOP, code: "local_token_context_exceeded", dispatched: false, bodySha256, policySha256 });
+    const db = new Database(f.dbPath); cleanup.push(() => db.close());
+    expect(await new GeneralAgentRunner({ ...f.options, store: new PrivateAgentStore(db) }).run()).toMatchObject({ reason: LOCAL_TOKEN_ADMISSION_STOP });
+    expect(f.complete).toHaveBeenCalledTimes(1); expect(f.commands).toEqual([]);
+  });
+
+  it("does not infer non-dispatch from an untyped admission-looking exception", async () => {
+    const f = fixture([]); f.complete.mockRejectedValueOnce(new Error("local_token_context_exceeded"));
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ reason: "runtime_failure_progress_preserved" });
+    expect(f.options.store.events(f.options.jobId).some(event => event.type === "model_request_not_dispatched")).toBe(false);
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ reason: "unresolved_operation_no_replay" });
+    expect(f.complete).toHaveBeenCalledTimes(1);
   });
 
   it("decreases actual call/tool/time budgets across invalid arguments, a pause and SQLite reopening", async () => {

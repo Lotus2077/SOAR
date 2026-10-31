@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { LocalTokenAdmissionEvidenceSchema, type LocalTokenAdmissionEvidence } from "./flash-next-admission";
 import {
   ContextSchema, ExactApprovalSchema, GrantSchema, JobPolicySchema, canonical, contextFingerprint,
   privateAgentId, type ExactApproval, type PrivateAgentContext, type PrivateAgentGrant, type PrivateJobPolicy,
@@ -63,6 +64,8 @@ export interface DispatchReceipt {
   purpose: string; policyRevision: number; committedAt: number;
   reservedFeeMicrousd: number; status: DispatchStatus;
   scan: { status: "not_required_inside_boundary" | "not_required_for_synthetic_local_test" } | { status: "complete"; detector: string };
+  /** Exact local input/output/context proof, committed atomically with this dispatch; hashes/counts only. */
+  localTokenAdmission?: LocalTokenAdmissionEvidence;
   feeMicrousd?: number; responseSha256?: string;
   /** Fixed host diagnostics only. Absence on historical unknown rows is meaningful. */
   failure?: UnknownRequestDiagnostic;
@@ -185,6 +188,7 @@ export class PrivateAgentStore {
     validate: (policy: PrivateJobPolicy, context: PrivateAgentContext) => void,
     grantId?: string, now = Date.now()): DispatchReceipt {
     return this.db.transaction(() => {
+      const admission = input.localTokenAdmission === undefined ? undefined : LocalTokenAdmissionEvidenceSchema.parse(input.localTokenAdmission);
       const parsedApproval = input.approval === undefined ? undefined : ExactApprovalSchema.safeParse(input.approval);
       if (parsedApproval && (!parsedApproval.success || parsedApproval.data.maxFeeMicrousd !== input.reservedFeeMicrousd || !grantId)) {
         throw new Error("private_agent_approval_invalid");
@@ -217,7 +221,7 @@ export class PrivateAgentStore {
         this.db.prepare("UPDATE private_agent_grants SET value = ? WHERE id = ?")
           .run(canonical({ ...grant, remainingUses: grant.remainingUses - 1, revoked: grant.remainingUses === 1 }), grantId);
       }
-      const receipt: DispatchReceipt = { ...input, ...(approval ? { approval } : {}), id: randomUUID(), committedAt: now, status: "committed" };
+      const receipt: DispatchReceipt = { ...input, ...(approval ? { approval } : {}), ...(admission ? { localTokenAdmission: admission } : {}), id: randomUUID(), committedAt: now, status: "committed" };
       this.db.prepare("INSERT INTO private_agent_dispatches VALUES (?, ?, ?)").run(receipt.id, receipt.jobId, canonical(receipt));
       return receipt;
     }).immediate();

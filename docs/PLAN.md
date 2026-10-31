@@ -549,11 +549,43 @@ the USD 0.60 split cap, and separate H5 launch permission
 deployment/role pins and H4 evidence still precede the H5 batch start. The owner
 subsequently permitted a recoverable trial of the pinned Thor recipe using the
 [service requirements](plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md);
-current q4t's inspected greedy contract conflicts with Heavy, so H4 remains held.
-Its stop/start recovery passed and candidate assets are staged. The owner's later
-request to [check q4t itself](plans/Q4T_SERVICE_CAPABILITY_REVIEW.md) confirmed that
+q4t's inspected greedy contract conflicts with Heavy. The owner's
+[check of q4t itself](plans/Q4T_SERVICE_CAPABILITY_REVIEW.md) confirmed that
 cache/capacity flags cannot add stochastic sampling or structured response
-parsing; the candidate GPU transition has not run.
+parsing. The first NemoClaw-derived attempt passed 22 selected operator numerical
+cases and loaded all 206 shards. Initial compilation/profile warmup completed,
+then progress stopped after a 31.44 GiB KV-capacity log; completed cache
+initialization and final engine warmup were not proven. The operator ended the
+attempt before its 30-minute deadline. Automatic container removal failed and
+blocked restoration; later identity-checked non-force cleanup and scoped manual
+recovery verified q4t's original binary/arguments, owned listener and health/model
+metadata (BL-20261031-2003-nemoclaw-trial-failed-q4t-recovered). Fuller kernel
+evidence established driver blocking and post-stop allocation failures, without
+proving the initial cause (BL-20261031-2021-nemoclaw-diagnostic-retry-approved).
+
+The approved instrumented retry reached healthy owned API/model metadata at
+20:37:27 UTC on 2026-10-31, about 321 seconds after server start
+(BL-20261031-2040-nemoclaw-retry-ready). It retains the same checkpoint, image,
+context 262144 and one-sequence profile; the sole serving-argument change is a
+fixed 12 GiB KV pool. All 206 shards loaded, 22 selected operator cases passed
+with 64 deselected and zero skips, total engine initialization completed in 90.62
+seconds, including final CUDA-graph capture in six seconds. The candidate is
+active while q4t is stopped with its verified recovery assets retained. Reduced
+KV, page-cache preparation, retained build caches, diagnostics and wait policy
+were not isolated; readiness within the original 30-minute allowance does not
+show that the extended 60-minute bound was needed. An NVIDIA interrupt warning
+recurred, with no allocation failure or blocked-task report observed through
+20:40 UTC; this bounded observation is not a stability proof.
+
+No trial generation was sent; all 24 qualification slots remain unused and new
+spend is USD 0. The service document retains the explicit deployment contract.
+Six synthetic CPU renderer/tokenizer comparisons have matching token IDs
+(BL-20261031-2049-flash-tokenizer-parity). Shared exact-token admission for every
+local H4/H5 role, including the separately loaded critic and judge, is implemented
+with passing focused tests and independent reviews. Full integrated verification,
+final role/fixture pins and generation compatibility remain pending. H4 remains
+held; no H4 completion or H5 run is recorded.
+Heavy semantics and the remaining technical gates are unchanged.
 Historical Qwen3.8-27B results and the conditional R2 rule remain unchanged.
 The Claude step-0/1 Console reconciliation is now verified
 (BL-20261031-1636-claude-console-reconciled), independently of local qualification.

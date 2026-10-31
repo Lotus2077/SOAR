@@ -27034,3 +27034,249 @@ Paid exposure: USD 0 new; all 24 qualification generation slots remain unused. P
 Next gate: Owner review of the q4t capability findings and a concrete backend/integration decision; do not treat a cache-enabled q4t restart as a Heavy-compatible implementation.
 
 References: BL-20261031-1855-flash-next-client-contract, BL-20261031-1856-q4t-launch-options-reviewed, docs/plans/Q4T_SERVICE_CAPABILITY_REVIEW.md.
+
+### BL-20261031-1927-owner-operated-serving-handoff -- 2026-10-31 -- Retain q4t and hand vLLM service modifications to the owner
+
+Status: `Approved`
+
+Scope or hypothesis: Make the latest service-change responsibility explicit while preserving the approved Flash-Next qualification and evaluation sequence.
+
+Decisions: The owner instructs: "explicitly describe what you need from the vLLM service and I'll modify it for you by myself; for now, just use the current q4t service". Retain q4t as the selected service and reserve installation, configuration, stop/start and cutover to the owner. This supersedes automatic continuation of the conditional candidate transition in BL-20261031-1849. Existing recovery and staged assets remain historical preparation evidence. Current-service use stays within q4t's supported contract; it does not authorize a q4t engine rewrite, a silent greedy experiment amendment or bypassing Heavy/H4/H5 compatibility gates.
+
+Changes: Update the service requirements with a concrete owner checklist, launch-option fragment, metadata/metrics routes, exact tokenization requirement and returned deployment pins. Distinguish per-request output limits from launch configuration and document verified equivalents for unavailable metadata routes. Require actual per-response cached-token details because the current client cannot substitute engine counters; specify terminal SSE ordering and pin context before qualification. Update README, PLAN and migration status to match the latest responsibility boundary and already-granted H5 authority.
+
+Evidence: Current client and existing service requirements were inspected with an independent runtime review; upstream vLLM CLI, prefix-cache and production-metrics documentation were checked to support the named interfaces. The installed Thor candidate has not demonstrated runtime compatibility. The prior q4t inspection and offline client verification remain the evidence of record; no fresh box availability or inference result is asserted in this handoff.
+
+Failures or blockers: Current q4t still lacks the retained Heavy sampling/native-response contract. Compatible serving, exact pre-dispatch token admission, deployment/role pins and live qualification remain unresolved. The prepared candidate supervisor and qualification scaffold stay inactive.
+
+Limitations and non-claims: Documentation-only handoff; no server, model, runtime code or credential change. No candidate startup, qualification result, H4 completion or H5 run. No new operational window is inferred; the recorded start cutoff remains 2026-11-01 09:19 Asia/Shanghai. Existing committed log entries are retained without rewriting.
+
+Paid exposure: USD 0 new; no inference requests. All 24 zero-fee qualification dispatches remain available. Accepted Claude calibration, the USD 0.60 split-calibration cap and the USD 21.60 counted H5 bound are unchanged.
+
+Next gate: Owner prepares and identifies the changed service. Bind every local role including the judge, complete exact-token admission and bounded compatibility qualification, then all three H4 loops before the already-authorized H5 batch start.
+
+References: BL-20261031-1849-flash-next-candidate-transition, BL-20261031-1856-q4t-launch-options-reviewed, BL-20261031-1900-flash-next-client-offline-verified, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-1936-nemoclaw-trial-resumed -- 2026-10-31 -- Owner explicitly resumes the recoverable NemoClaw-derived trial
+
+Status: `Approved`
+
+Scope or hypothesis: Attempt the prepared Flash-Next candidate while retaining the verified q4t recovery route.
+
+Decisions: The owner instructs: "since the current q4t service can be start/stop, try the NemoClaw’s recipe". This supersedes the owner-only service-change boundary in BL-20261031-1927 for this concrete trial. Resume the image, original checkpoint, configuration and scoped supervisor described in BL-20261031-1849; preserve its numerical gate and automatic q4t recovery. No new window or evaluation cap is inferred. Revalidate current unit/listener ownership and idle state before stopping q4t. All inference, if subsequently admitted, counts against the existing 24-request allowance.
+
+Changes: Reconnect for a fresh metadata-only inventory and prepare to transfer the locally reviewed ownership-checking restore helper and candidate supervisor. Retain previous helper evidence before replacement. No candidate startup has occurred at entry creation.
+
+Evidence: q4t health and model metadata return HTTP 200; active chats and request-body bytes are zero, one sequence slot is free, and the GPU is healthy. The staged ARM64 image digest still matches 10d0df20a140d12e987013b12da289e2dec0bcb1db4a14f2491d75c0c7ae5d6c. The preparation record retains checkpoint 7b719225242aacd3dbd3f9407468c2ee9a9d2594 with 206 verified weights totaling 135195303851 bytes. No prior candidate-attempt record exists. The remote restore helper predates the local listener-ownership enhancement, so that enhancement must be transferred and pass before transition.
+
+Failures or blockers: Live candidate numerical tests, CLI acceptance, model loading and API compatibility remain unproven. Exact-token admission and full qualification remain later gates.
+
+Limitations and non-claims: Metadata is not inference proof; the reported health request count includes the metadata request itself and does not override authoritative active-chat gauges. The existing start cutoff remains 2026-11-01 09:19 Asia/Shanghai. No H4 or H5 result is claimed.
+
+Paid exposure: USD 0 new; no inference calls at approval recording. All 24 generation slots remain unused; USD 0.60 split calibration and USD 21.60 counted H5 bounds remain unchanged.
+
+Next gate: Complete independent supervisor review, validate the enhanced recovery helper, then execute the single recoverable candidate attempt. Restore q4t on failure and preserve the failure evidence.
+
+References: BL-20261031-1849-flash-next-candidate-transition, BL-20261031-1927-owner-operated-serving-handoff, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md.
+
+### BL-20261031-1940-trial-recovery-hardened -- 2026-10-31 -- Harden the reauthorized candidate's interrupted-start recovery
+
+Status: `Implemented`
+
+Scope or hypothesis: Close concrete supervisor failure paths before stopping the working q4t service.
+
+Decisions: Retain the recorded serving profile and one candidate attempt. Use Docker create followed by start against a captured, validated immutable container ID. Before GPU startup, hold the existing exclusive lease and durably create its recovery-required marker. Cleanup archives diagnostics best-effort, stops and removes only positively identified trial containers, requires their absence and an empty compute-process list, then clears only its own marker and restores q4t. A late start cannot revive a removed container ID. Unresolved ownership or cleanup preserves the marker and blocks overlapping GPU launches. Set the supervisor's stop allowance to 3000 seconds to accommodate bounded cleanup and the existing 960-second restore helper call.
+
+Changes: Harden the ignored private candidate supervisor; preserve the previous remote restore helper before installing the reviewed listener-ownership version. Bind the staged checkpoint to a manifest of 206 weight identities and eleven metadata hashes; recheck it before stopping q4t. The original model, q4t binary/configuration and staged image are unchanged.
+
+Evidence: Independent runtime review identified the prior SIGKILL/lease-release window, timeout shortfall, sudo-child startup race, optimistic cleanup-exception branch and diagnostic-archive failure path; all received explicit fixes. Local Python AST parsing passes. The enhanced remote restore prepare check verifies the existing unit-owned hashed listener, healthy service, correct model and unchanged rollback assets. A read-only systemd probe confirms that collected units report inactive/dead with exit zero on this host. Candidate supervisor SHA-256 is 17c129876d9a3b621925165f20696c89f1ab20d2dd37b5cf65a44f64c8233920; mounted-manifest SHA-256 is 9816eac26c1e7defffe2ab23f9e4c3550c4f516a85955e221de086be22a70637.
+
+Failures or blockers: Actual GPU numerical tests, model startup and API compatibility remain pending. Source review is not live rollback evidence for this candidate. The staged qualification driver still needs exact admission and allowance fixes before inference.
+
+Limitations and non-claims: The 22-case added GDN/MTP numerical gate tests that operator only; the candidate uses MTP-off Triton decoding, whose behavior still needs separate qualification. No new q4t stop or candidate startup has occurred at entry creation. All generated diagnostics remain private.
+
+Paid exposure: USD 0; no generation requests. All 24 qualification slots remain available.
+
+Next gate: Final independent cleanup check, then start the bounded supervisor under the renewed owner authority and monitor numerical/startup results with automatic q4t recovery.
+
+References: BL-20261031-1936-nemoclaw-trial-resumed, BL-20261031-1849-flash-next-candidate-transition, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md.
+
+### BL-20261031-2003-nemoclaw-trial-failed-q4t-recovered -- 2026-10-31 -- Candidate startup stalls; reconcile failed container cleanup and verify q4t recovery
+
+Status: `Verified`
+
+Scope or hypothesis: Execute the owner's single reauthorized NemoClaw-derived serving trial and recover the original service if the candidate cannot become ready. Verification here records the failed attempt and recovered q4t service, not successful candidate qualification.
+
+Decisions: Stop the candidate after more than seven minutes without startup-log progress following cache-capacity reporting, a bounded GPU-status timeout and an NVIDIA interrupt warning. Do not infer a proven driver, capacity or model defect from those observations. Preserve the complete negative evidence and do not tune or retry this candidate in the same attempt. Keep the recovery marker until candidate container/process absence and GPU clearance are positively reconciled.
+
+Changes: Run the pinned candidate supervisor after three idle samples and rollback validation. The numerical gate passed, then the candidate accepted the recorded serving flags, loaded its original checkpoint, compiled and warmed up. It did not expose a healthy API. The supervised stop encountered a Docker zombie-process/containerd cleanup failure, correctly retaining the recovery marker and blocking q4t startup. Once those processes exited, remove only the identity-verified stopped container by immutable ID, confirm both trial names and captured IDs absent, and recheck the shared lease, owned marker, empty compute-process query and all IPv4/IPv6 port listeners. Archive and clear that marker under the lease, then invoke the unchanged q4t recovery helper once. The original q4t deployment is now restored.
+
+Evidence: All 22 selected fused-GDN numerical tests passed, with 64 deselected and zero skips; JUnit SHA-256 af45b8b11e892511579c2c90cea15a623a6f72dda12d967bf8753cf16017765c. All 206 checkpoint shards loaded; vLLM reported 74.34 GiB model memory, 31.44 GiB available KV memory and 1257402 KV token capacity. Compilation and warmup completed before the stall. These reported capacities do not prove usable serving context. The candidate never produced a readiness record. Docker recorded a zombie PID and delayed task deletion; later inspection found exited state, PID zero, no remaining candidate processes and OOMKilled false. Scoped non-force removal then succeeded. Recovery completed at 2026-10-31 20:02:46 UTC, with restoration_verified true, unchanged binary/configuration hashes and arguments, a unit-owned hashed listening child, healthy metadata and the expected model ID. An independent post-restore check passed; both user-facing health and model-list routes returned HTTP 200.
+
+Failures or blockers: Candidate startup failed before API compatibility or inference qualification. Automatic recovery could not complete until manual scoped reconciliation; it must not be described as an uninterrupted automatic rollback. An NVIDIA interrupt warning occurred before warmup completed, and a GPU-utilization query timed out; causality is unresolved. The original 30-minute startup deadline was not exhausted because the operator ended the stalled attempt. Docker's exit code and OOMKilled flag do not establish why startup stalled. q4t's retained sampling and native-response gaps still block the approved Heavy/H4/H5 contract.
+
+Limitations and non-claims: Numerical checks cover the added fused operator, while this candidate uses MTP-off Triton serving. Weight load, compilation and memory reports do not prove tools, reasoning, sampling, caching or model quality. Recovery metadata proves the original service is available, not a fresh chat-completion result. No box reboot, driver reset, unrelated-container removal, model conversion or second candidate attempt occurred. Private paths, routes, raw traces and credentials remain outside tracked artifacts. Operator-stop evidence SHA-256 d0d24d64ca41ae76517154ed2ec4dfb6d490e96534fd9e327020ca3d7d336640; original cleanup-failure evidence SHA-256 6caa07f947c4c2d393e9ce11c05426f87bb7356062ec9c45d568375c0c0a20fe; manual-recovery result SHA-256 0e8df9fb543f3f517b2a69110b2dbb94a35f771a4ea2591a106675f1c39912e2. Earlier failed evidence is retained.
+
+Paid exposure: USD 0 new; zero inference requests. All 24 zero-fee compatibility slots remain unused. The USD 0.60 split-calibration cap, USD 21.60 counted H5 bound and previously accepted Claude exposure are unchanged.
+
+Next gate: Report this failed candidate and verified q4t recovery. Retain q4t as the active service and prepare any further serving change from the preserved startup evidence. Compatible serving and exact-token admission must pass before bounded compatibility qualification, all three H4 loops and the already-authorized H5 launch.
+
+References: BL-20261031-1936-nemoclaw-trial-resumed, BL-20261031-1940-trial-recovery-hardened, BL-20261031-1849-flash-next-candidate-transition, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md.
+
+### BL-20261031-2004-flash-qualification-offline-preparation -- 2026-10-31 -- Verify inactive bounded qualification helpers without dispatching model requests
+
+Status: `Implemented`
+
+Scope or hypothesis: Prepare the previously authorized 24-request qualification without consuming requests while the independent serving trial runs.
+
+Decisions: Keep the private driver and helpers inactive. Require exact pinned tokenizer/template admission for actual request bodies, including dynamic histories; never substitute a byte estimate for tokens. Missing cached-token usage or incomplete idle gauges must fail closed. A local serving manifest is not remote deployment attestation.
+
+Changes: Harden the ignored qualification driver with durable one-shot allowance accounting, explicit context identity, exact token proofs, fixed request envelopes, global and per-request deadlines, native JSON/SSE validation, cancellation accounting and stop-on-first-failure behavior. Prepare a CPU/tokenization helper that projects the installed chat-renderer contract onto the fixed tokenization route, and a metadata helper restricted to four read-only routes with pinned model/context/version and complete engine-gauge inventory. Keep public runtime code and configuration unchanged.
+
+Evidence: Independent reviewers ran 19 synthetic driver tests and strict TypeScript checking; nine CPU tokenization-helper tests and 19 metadata-helper tests passed. Separate evidence and privacy reviews found no actionable blocker in the inactive helpers. Installed source was checked for tokenizer projection and forwarding of the Heavy sampling controls, but no live sampler behavior is claimed. Driver SHA-256 323891839f64eb6e93ae5820ecf9368cadb94ac2691d65d2ed5ebf261353aaee; tokenization-helper SHA-256 3cf34213f54bce7462db375933e79ebac517a54cb01d7d8bb798299cb6fe6f49; metadata-helper SHA-256 125b292ccbdb5f844d5a9025ad3441a26a005cdac8735ea4a35485fdbf23800e.
+
+Failures or blockers: The candidate failed startup as recorded separately. No qualification admission freeze, helper activation, real qualification authority claim, HTTP tokenization parity or compatibility dispatch occurred. The trial's pinned launch manifest remains preserved. The shared exact pre-dispatch admission hook for ordinary H4/H5 roles, including the independently loaded critic, remains pending.
+
+Limitations and non-claims: Synthetic tests and source inspection are offline preparation, not qualified serving, live transport, tokenizer parity, remote image attestation or model-quality evidence. Generated scaffolds remain ignored and are not a released production integration. No fresh-task gold was read.
+
+Paid exposure: USD 0; zero inference requests and zero qualification slots consumed. Existing caps remain unchanged.
+
+Next gate: Use a suitable deployment to bind the actual serving, role and tokenizer identities and verify tokenization parity before activating the bounded driver. Finish ordinary H4/H5 admission before evaluation; retain all existing technical gates and authority limits.
+
+References: BL-20261031-1855-flash-next-client-contract, BL-20261031-1900-flash-next-client-offline-verified, BL-20261031-2003-nemoclaw-trial-failed-q4t-recovered, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-2021-nemoclaw-diagnostic-retry-approved -- 2026-10-31 -- Investigate the failed startup and authorize an instrumented retry with bounded cache allocation
+
+Status: `Approved`
+
+Scope or hypothesis: The owner asks to investigate exactly what caused the previous failure and try the NemoClaw-derived recipe again, suggesting that a step may need longer. The owner additionally suggests clearing the system cache before launch. This authorizes the second scoped trial and the one-time clean filesystem-page-cache operation described here; it does not waive compatibility or evaluation gates.
+
+Decisions: Preserve attempt-one evidence and use distinct attempt-two containers, state and logs. Retain the pinned image, original checkpoint, context 262144, one sequence, sampling, parsers, prefix caching, dtype and MTP-off choices. Set an explicit 12884901888-byte (12 GiB) KV allocation instead of the prior automatically estimated 31.44 GiB; the installed implementation overrides utilization-based KV sizing when this option is supplied. Keep the context fixed and require its capacity check to pass. Allow up to 60 minutes from server start, bounded by the unchanged owner cutoff, without treating a quiet log alone as failure. Add startup-only phase markers and periodic Python stack diagnostics, Docker init/reaping and bounded cleanup reconciliation. No signal injection, CUDA synchronization probe, model-weight conversion or persistent driver/kernel tuning is part of this retry.
+
+Changes: After q4t stop, verified GPU/listener clearance and exclusive-lease acquisition, synchronize writes and request drop_caches=1 once. Record memory/cache counters before and after. This reclaims clean filesystem pages; it does not delete model files, compiled kernels or disk caches, clear live CUDA allocations, reset swap or persist a sysctl setting. Verify and pin any read-only diagnostic source overlays separately from the immutable image. Retain the original q4t recovery helper and its owned-listener proof.
+
+Evidence: The fuller preserved kernel interval contains an nv_queue thread blocked for more than 120 seconds at 19:55:54 UTC, with a stack waiting on an NVIDIA semaphore/GPU-group lock. That duration places its blocking onset before the 19:55:50 operator stop. NVIDIA reports NV_ERR_NO_MEMORY from _memdescAllocInternal at 19:56:16 and 19:59:39, both after stop began; Docker OOMKilled false does not negate these driver allocation failures. Installed V2 runner source confirms the printed KV capacity precedes initialize_from_config and final compile_or_warm_up_model. Its allocator creates zero-filled device tensors for the planned pool. The earlier compilation/profile pass therefore did not prove completed KV allocation or final CUDA-graph warmup. The pool follows available-byte sizing rather than max-num-seqs alone. Its reported capacity ratio estimates about 6.55 GiB for one full-context request, making 12 GiB a conservative candidate budget, not a fit guarantee. Current q4t assets/listener/health/model metadata revalidate successfully. A read-only sample while q4t runs shows about 1.05 GiB Cached and 0.34 GiB reclaimable slab; cache clearing alone is not established as the remedy.
+
+Failures or blockers: The first attempt was operator-ended before its 30-minute deadline, not a proven timeout or fatal application exit. Driver blocking during startup and allocation failures during cleanup are now established, but the exact initial blocked allocation and its cause remain unproven because no stack was collected then. Memory pressure during cache initialization is the leading hypothesis. Changing cache preparation, allocation budget and wait policy together will not isolate their individual causal effects even if the retry succeeds.
+
+Limitations and non-claims: This supplements BL-20261031-2003 rather than rewriting the preserved result. Startup diagnostics are private and inactive at entry creation; no second GPU attempt or qualification request has run yet. Linux cache-control and Python traceback documentation describe the operations, not a Thor-specific startup-time guarantee. Original start cutoff remains 2026-11-01 09:19 Asia/Shanghai. A suitable deployment still needs actual role/tokenizer pins and bounded compatibility proof before H4/H5.
+
+Paid exposure: USD 0 new; all 24 generation qualification slots remain unused. USD 0.60 split calibration and USD 21.60 counted H5 bounds remain unchanged.
+
+Next gate: Independently review and validate the second supervisor and diagnostic overlays, record their hashes, then repeat idle/rollback checks and launch once under the recorded authority. Continue observing real progress through quiet phases; recover q4t if startup fails or a concrete driver/control failure requires stopping.
+
+References: BL-20261031-2003-nemoclaw-trial-failed-q4t-recovered, BL-20261031-1940-trial-recovery-hardened, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md, https://docs.kernel.org/admin-guide/sysctl/vm.html#drop-caches, https://docs.python.org/3.12/library/faulthandler.html#dumping-the-tracebacks-after-a-timeout.
+
+### BL-20261031-2030-nemoclaw-retry-instrumentation-ready -- 2026-10-31 -- Pin and verify the second trial's diagnostic and recovery changes
+
+Status: `Implemented`
+
+Scope or hypothesis: Make the authorized retry concrete and observable before interrupting the recovered q4t service.
+
+Decisions: Use the BL-20261031-2021 profile once. Preserve the original trial supervisor and all earlier failure evidence. Mount two hash-pinned startup diagnostic overlays read-only into the same image, keep on-disk build caches, and retain the unchanged original checkpoint and experiment controls. Periodic stack snapshots run only during engine cache initialization and final warmup, with exit disabled and cancellation in finally. Allocation-after markers indicate return to Python, not completion of asynchronous GPU work.
+
+Changes: Add a separate ignored retry supervisor with exact context validation, a 60-minute absolute startup deadline bounded by the owner cutoff, remaining-time readiness checks and a deadline/cancellation check before accepting readiness. Add Docker init, positively owned delayed-exit cleanup using only non-force removal, original and retry container-ID absence checks, all-address listener clearance, marker/lease verification and the pinned q4t restore helper. Permit one synchronized clean-page-cache drop under the lease and record before/after counters. Retain the 3000-second systemd stop allowance. Stage the reviewed artifacts without starting the GPU candidate at entry creation.
+
+Evidence: Twenty-two supervisor CPU tests and eight overlay CPU tests pass with independent review. Tests cover actual finally-path recovery refusal on unknown ownership, delayed cleanup, literal page-cache operation, unchanged serving arguments except 12 GiB KV, exact context, source hashes, late readiness, original AST/call/allocation preservation and watchdog setup/cancellation. CPU-only network-disabled image checks pass for Docker init/reaping and both mounted overlay hashes/ASTs. The installed source contains no existing traceback watchdog call. Final supervisor SHA-256 f6d2eea18d8ab976e8e6d8c6fd25a743ba967ef3f5d1ee06de071d8507d82042; diagnostic manifest 8abe1e736ad346e7795a694b9cc4e55cd33708b4dae0157514eb13259ff0d7e0; core overlay 88d4bf91bdbfa8955f2cf2f99d92b29dc592688b3f0463a50dca696684a48d33; allocation overlay 806d613654d0f541ef404ad0898f31f1faa954f927b32292aee2f6daff7c8fd9. The fuller first-attempt kernel evidence is preserved privately with SHA-256 7d341fd4cdca4c3cb7c1ab51c1bd2705277452cacdee32356e71bacde0fef79d.
+
+Failures or blockers: Review found and fixed a readiness check that could accept a response after the startup deadline. These offline tests do not prove live startup or cleanup. The diagnostic overlays change the effective deployment identity even though the original image and numerical implementation are preserved; their hashes must accompany any later serving pin.
+
+Limitations and non-claims: No new model response, GPU numerical result, serving qualification, H4 completion or H5 run is claimed. All diagnostics and generated artifacts remain private. A plain long wait, page-cache reclamation and reduced KV allocation are separate interventions whose individual effects cannot be identified from this combined retry.
+
+Paid exposure: USD 0; all 24 zero-fee qualification generation slots remain unused. Existing paid caps and accepted historical exposure remain unchanged.
+
+Next gate: Start the recorded supervisor, repeat live rollback/idle checks, clear page cache once after q4t stop, run the pinned numerical selection, then observe instrumented startup through its bounded deadline. Verify healthy owned API/context metadata before any qualification claim or dispatch.
+
+References: BL-20261031-2021-nemoclaw-diagnostic-retry-approved, BL-20261031-1940-trial-recovery-hardened, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md.
+
+### BL-20261031-2040-nemoclaw-retry-ready -- 2026-10-31 -- Instrumented retry reaches API readiness with 12 GiB KV and unchanged context
+
+Status: `Verified`
+
+Scope or hypothesis: Execute the owner's second recoverable NemoClaw-derived attempt and requested clean-page-cache operation. Verification covers numerical selection, complete startup, effective deployment configuration and metadata availability; generation compatibility remains unverified.
+
+Decisions: Retain the ready candidate under its scoped recovery supervisor for subsequent admission and qualification work. The original q4t is stopped, with its pinned restoration assets preserved. Keep the first failed startup and failed automatic cleanup/manual recovery as separate evidence. Do not attribute success solely to page-cache clearing: explicit KV sizing, retained compiled caches, diagnostics and waiting policy changed together. No additional service tuning or generation is part of this result.
+
+Changes: After three idle samples and live rollback validation, stop q4t, acquire the exclusive GPU lease and synchronize filesystem writes. Clear clean page cache once with drop_caches=1, retaining model and compiled-kernel files. Run the pinned numerical selection, then start the second container with 12 GiB explicit KV, fixed 262144 context, init/reaping and the two read-only diagnostic overlays. Preserve phase/allocation markers, startup snapshots, kernel evidence and both internal and public-route verification privately. Update current-status documentation while retaining the original negative result.
+
+Evidence: The cache operation reduced Cached from 1117980 to 410532 KiB; MemAvailable increased from 122136392 to 122560152 KiB and MemFree from 20324324 to 21236524 KiB. All 22 selected added-operator tests passed with 64 deselected and zero skips; JUnit SHA-256 31df090f762e5377b54038fb33d7cca964ce673188f2f4e99e0f17708edd0273. The model-container start was 20:32:06 UTC and readiness recorded at 20:37:27 UTC, about 321 seconds later. All 206 shards loaded with 74.34 GiB model memory. The engine reported 479856 KV token capacity and 1.83 times the fixed 262144-token request context. Instrumented KV initialization returned; final CUDA graph capture completed in 6 seconds using 0.16 GiB, and engine initialization completed in 90.62 seconds. The startup watchdog was canceled on normal exit. Readiness did not require the extended 60-minute allowance.
+
+At 20:40 UTC the captured immutable container ID matched the expected name, owner label and image digest; it was running with init enabled. Effective arguments, selected environment, read-only diagnostic mounts and overlay hashes matched the pinned retry. The supervisor was active/running and the prior q4t unit inactive/dead. Internal and public GET requests to health, model-list, version and metrics routes all returned HTTP 200. Model metadata identifies qwen3.8-flash-next, context 262144 and vLLM version 0.1.dev20073+g8e685d198. Engine running/waiting, prefix-cache query/hit and generation-success counters were zero. These GET requests did not consume generation allowance.
+
+Failures or blockers: The NVIDIA interrupt warning recurred at 20:34:24 UTC while weights continued loading. No new NVIDIA allocation failure, OOM or blocked-task report appeared in the captured retry kernel interval through 20:40 UTC. Absence in this interval is not a driver-health guarantee. The fuller first-attempt evidence supports driver locking/allocation pressure as a leading explanation but does not identify the exact first blocked call; allocation errors were logged after stop began. The first attempt's preceding compilation/profile warmup did not establish final KV allocation or engine warmup completion, correcting the broader wording in BL-20261031-2003. Successful startup of this combined revision cannot isolate a causal contribution from page-cache clearing or the smaller pool. Exact-token admission, live tokenizer/template parity, all local role pins and bounded generation qualification remain unfinished.
+
+Limitations and non-claims: Reported token capacity and metadata are not full-context inference proof. The numerical selection tests the added fused operator, not end-to-end Heavy behavior. No HTTP generation, tools/reasoning/sampling/cache-isolation proof, H4 completion, H5 run or release occurred. No reboot, driver reset, persistent sysctl change, swap reset or cache-file deletion was used. The retry did not execute its rollback path; prior q4t recovery and current offline supervisor checks remain the available recovery evidence. Private endpoints, paths, credentials and raw traces remain outside tracked files. Ready-record SHA-256 29d726826fd979877b9af1ee36c8bb47177c2c302eb19bf09d2f238bc7961a6e; page-cache record a9f2c73c8fdd2a1e8e73e3196c278e783fbe5220dc05483321d029117188376c; immutable startup-log snapshot b1ca516b4ecc8acde3d1010c1af832db8416316388cc0b238aaac22b30b78169; retry kernel snapshot f49181562eea19812d6d593bf2aaa519e81b34145e609b6cd1050d2afa26397d; owned deployment verification 607abe0aa4b0ce53e7ed6f35201cde61f7b2906b0cf7b1d5c4828224012b1b05; public-route verification 371e1a3dceae2a2ed4651943479dc486a359de0dd0e665de4906fdc6a193019b.
+
+Paid exposure: USD 0 new; zero qualification generation requests. All 24 zero-fee slots remain available. Accepted prior Claude exposure, the USD 0.60 split-calibration cap and USD 21.60 counted H5 bound are unchanged.
+
+Next gate: Finish shared exact-token admission and tokenizer/template parity, bind every local role including critic and judge to the effective checkpoint/image/diagnostic/profile identity, then execute the already-approved bounded qualification. All three H4 loops must pass before the already-authorized H5 batch-start record. The original start cutoff remains 2026-11-01 09:19 Asia/Shanghai; this successful startup does not extend it.
+
+References: BL-20261031-2021-nemoclaw-diagnostic-retry-approved, BL-20261031-2030-nemoclaw-retry-instrumentation-ready, BL-20261031-2003-nemoclaw-trial-failed-q4t-recovered, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-2049-flash-tokenizer-parity -- 2026-10-31 -- Bind the ready deployment and verify CPU tokenization against generation rendering
+
+Status: `Verified`
+
+Scope or hypothesis: Continue the owner's approved qualification sequence after successful startup. The owner's instruction to go on retains the existing generation, cost, window and H4-before-H5 limits.
+
+Decisions: Bind exact-token admission to the actual complete request body, endpoint, model, serving manifest, tokenizer/template and configured context. Use the approved prompt-plus-reserved-output predicate with zero additional safety margin. The shared broker must count asynchronously before commit, recheck immutable identity at commit, preserve only hash/count proof metadata and refuse Flash requests without admission. Preserve legacy/cloud behavior. This implements the already-approved migration guard; it does not change Heavy settings or permit extra inference.
+
+Changes: Freeze a private serving-identity manifest for the existing candidate, including original checkpoint/weight-manifest identity, actual image/container, selected arguments/environment, source and diagnostic-overlay hashes, context, quantization, cache and parser settings. Copy and hash-check the public tokenizer/template and selected deployment evidence into ignored local preparation. Create private tokenizer/metadata configuration and a separately hash-bound admission policy. Perform six CPU-only synthetic comparisons between the tokenization projection and the installed generation renderer. Runtime wiring and reviewed qualification activation remain separate unfinished work at entry creation.
+
+Evidence: Internal health/model/version rechecked successfully and the candidate supervisor remains active. Installed ServingRender code validates and renders requests without calling model generation; the generation path delegates to the same renderer. Actual token IDs match for plain thinking-off text, thinking-on Heavy text, tools, native tool history, thinking-off tool history and Unicode/JSON input. Their prompt counts are 43, 41, 298, 359, 361 and 47 respectively. Rendered Heavy sampling preserves temperature 1, top-p 0.95, top-k 20 and the explicit output reservation. Source inspection shows stochastic top-k/top-p sampling rather than q4t's fixed argmax path; startup selected FlashInfer. This establishes configured implementation support, not a statistical sampling result. Serving manifest SHA-256 3723396dff67bc845381bfefa4c6ef597376af71bf32bbf30d4cb1562eba8eb5; six-case parity evidence e4ffd03880c59ad06e9c375ecfec3b2bc1d762c8ad92dfc7febfcbb497c056cf; admission policy 71a074f360be9d708c495b0023daebbc85156aa1e94261d0b6acc4a3182b5a46. The existing local tool-sandbox image remains available under its separately approved immutable identity.
+
+Failures or blockers: Review identified missing per-row source/configuration rechecks and independent cache-counter corroboration in the inactive qualification scaffold; both must be corrected and tested before fixture freeze/activation. The historical H4 operator also contains an unbrokered liveness generation and obsolete cloud-evidence repinning; prepare a separate reviewed operator using counted production requests and preserved historical acceptance instead. No historical artifact or acceptance is silently rebound to the new model/runtime.
+
+Limitations and non-claims: Twelve CPU rendering/tokenization POSTs dispatched zero HTTP generation requests. Parity covers those synthetic shapes; every actual qualification body still needs exact precommit counting and completed-response usage equality. Rendering does not prove generated content, tool behavior, cache isolation, numerical quality or H4 readiness. The frozen serving record remains startup-verified and generation-unqualified. Private paths, routes, configurations and generated artifacts remain outside Git; no fresh task gold was inspected.
+
+Paid exposure: USD 0 new; all 24 zero-fee qualification generation slots remain unused. The USD 0.60 split-calibration and USD 21.60 counted H5 bounds remain unchanged.
+
+Next gate: Finish and independently review shared admission/all-role wiring and the scaffold corrections, run required offline checks, then freeze and review the exact fixtures under the unchanged authority/window before the one-shot qualification batch. Stop on its first failed gate; only a passing qualification permits H4.
+
+References: BL-20261031-1759-flash-next-sequence-owner-approved, BL-20261031-2040-nemoclaw-retry-ready, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md.
+
+### BL-20261031-2104-flash-shared-admission-verified -- 2026-10-31 -- Verify shared exact-token admission and freeze the synthetic qualification inputs
+
+Status: `Verified`
+
+Scope or hypothesis: Complete the already-approved Flash-Next exact-token contract for every local role before bounded qualification and H4. This is offline integration plus CPU tokenization verification, not generated-model compatibility.
+
+Decisions: Require the hash-bound host token helper on Flash requests, count the exact immutable body before dispatch commit, and recheck policy, endpoint, model, context, tokenizer, template and serving pins inside the transaction. Admit only prompt tokens plus actual output reservation within fixed context 262144, with zero additional margin. Persist hash/count evidence atomically and require completed server prompt usage to equal the proof. Preserve the established legacy/cloud behavior and all Heavy controls.
+
+Changes: Add the shared production guard, explicit paired configuration and broker wiring for writer, repair writer, index/extraction readers, planner, synthesiser, independently loaded critic and judge. Record provable pre-dispatch refusal with restart-safe no-replay markers. Keep post-dispatch ambiguity UNKNOWN. Record the Flash critic's actual model identity and initial/final runtime hashes beside the unchanged repair binding; reject runtime drift while retaining outcome/fee evidence. Correct two test-only destination deadlines that clipped child-process startup to one second under parallel load; production deadlines and the explicit short timeout regression are unchanged. Prepare an inactive H4 operator that retains historical Claude acceptance, removes its standalone inference probe and gates each loop before proceeding.
+
+Evidence: Independent implementation and privacy reviews found no remaining blocker. The final isolated public-source pnpm check passed readiness, build-log validation, both typechecks, native credential proof, 2247 tests with 81 explicit skips, and the production build. Initial isolated checks lacked the existing Git fixture object; a subsequent full run exposed the two test-fixture startup clamps. Both failures are retained as validation history; the final check passed after restoring read-only fixture access and fixing test-only bounds. Final check-log SHA-256 ce6a6e0773cc710ed834ccf1e600928bccfa67cb51634b7c864ab7949a99c528. The runtime freeze is c3f8ff55c46e7a3402f95adc53efe5ebcd1eaf986d89377698270e01bba27963, research protocol 658aa22c5127d59afdfdaa550043ff397cf2e7152345b69941529784e243ab6d, complete eight-role manifest ac39b17506b1ca8573e37f02bce966a5393ae9060d33139eaf1a6938b67ae6f0, and base local model identity f28eb453775faa3351452ec7418ae2af2c54bc5c33cbf3e8b3614edc82400757.
+
+The ignored qualification driver passed 26 synthetic tests and strict TypeScript checking; the final metadata helper passed 22 CPU tests, and the inactive H4 gates passed nine synthetic tests. The tokenizer helper's previously recorded nine CPU checks and six live renderer-parity cases remain applicable. At 20:59 UTC the final GET-only metadata helper verified healthy idle gauges and zero cache query/hit counters with the expected labels and stable creation epochs. Ownership revalidation matched the immutable running container/image, effective launch arguments and active recovery supervisor. CPU freezing produced all 24 exact production request shapes. The cache prompt is 16856 tokens; the largest allowed fixture is 122439 prompt tokens within the 655360-byte body cap. Dynamic probes use labelled synthetic replies; their counts are not worst-case certificates. The actual production guard separately refused the byte-valid over-context companion with local_token_context_exceeded and no generation.
+
+Failures or blockers: There is no generated compatibility result yet. Applicable CI for the final new commit remains required before H4. The candidate's ready state and source sampler evidence do not prove inference behavior. Runtime source must remain fixed through qualification and the coherent H4 sequence.
+
+Limitations and non-claims: Shared proof is enforced on each actual body, including unknown future histories; exceeding an assigned envelope stops qualification without truncation or replacement. The large fixture does not prove full-context inference. No fresh-task material or evaluator gold was read. Helper paths, private endpoints, configurations, generated fixtures and traces remain ignored. The ready candidate remains supervised; q4t is stopped with restoration assets retained.
+
+Paid exposure: USD 0 new; zero generation requests. All 24 qualification slots remain unused. Accepted historical Claude evidence still binds its original result and freeze and all eight approved checks; no paid repeat occurred. Existing USD 0.60 split and USD 21.60 counted H5 caps remain unchanged.
+
+Next gate: Publish the reviewed integration for applicable CI, record the immutable one-shot qualification admission, then execute at most 24 zero-fee requests under the original window. Only accepted qualification and all three H4 loops permit the already-authorized H5 batch-start record.
+
+References: BL-20261031-2049-flash-tokenizer-parity, BL-20261031-1759-flash-next-sequence-owner-approved, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-2105-flash-qualification-admitted -- 2026-10-31 -- Admit one frozen bounded compatibility batch under existing owner authority
+
+Status: `Approved`
+
+Scope or hypothesis: Execute the owner's approved at-most-24 zero-fee compatibility qualification after the shared guard, serving identity and exact synthetic fixtures are reviewed. The owner's subsequent instruction to go on continues the same sequence; no new window, paid cap, retry or service tuning is granted.
+
+Decisions: Use one request at a time, no automatic retry or replacement, at most 90 minutes and the unchanged hard cutoff 2026-11-01 09:19 Asia/Shanghai. Reserve 124672 output tokens under the 131072 cap and 592000 prompt-token envelopes under the one-million cap. Stop at the first unexpected failure, including a pre-dispatch refusal. Q20 is the sole planned in-flight cancellation; retain its UNKNOWN/cancelled receipt, retire its job and prove idle before recovery liveness. Claim the existing authority once in a durable directory anchored to the pinned helper, so a changed output path cannot reset the allowance.
+
+Changes: Freeze and independently review the driver and metadata-counter logic; root reviews actual fixture bodies, dynamic ceilings, native two-action history/demotion, cache A/A/B/B salts and counters, production research roles, critic, four judge cases, large context, cancellation and JSON/SSE liveness. Bind the source/protocol, all-role manifest, serving manifest, policy, helpers/configurations, fixture manifest and review. Initial, post-cancellation and final idle gates use three metadata-only samples 20 seconds apart; no separate warmup generation is allowed.
+
+Evidence: Authority-record SHA-256 91f5780e577c0de0086e3e4085704e2a95b6592c177f98817d11124f2e82ec27; final admission c30d910585eba81710262965889232a91a6f58f157b4bd528ceecc31ad0c27cd; fixture manifest c87d2c491b06878c927b9bce413a9619c582041777b28be7263f7ad5dc50f1d3; root fixture review 433a570e94cdd6ea4b2d43db7f26e13761a135bd0e132d712861b24fa2dabd61; driver f41131896717643798633d8c68c8c6b2394b3111f6ba8fc5ccba795d4bfb5fbb; metadata helper 37dd3a452f5b59660319d78815f4874da203a972190de54b743144790d859fc6. The serving and token-policy identities remain those in BL-20261031-2049. Pre-qualification ownership verification SHA-256 fbc008c9246601cedb113133afea7519aeb438a06bd18f2a916d82449a8ce4f6. Local tool image and AC power rechecked successfully.
+
+Failures or blockers: None to this bounded dispatch at entry creation; inference behavior remains unknown. A mechanical completion still requires root semantic/operational review and is not automatic qualification acceptance. An unsuccessful run leaves the durable authority claim intact and does not authorize a relaunch.
+
+Limitations and non-claims: This entry admits the batch, not its outcome. Every actual body is recounted before commit and completed prompt usage must agree. Source/configuration identities are checked per row and after replies. Counter reset, ambiguous attribution, malformed role output, unexpected tool action or cancellation that never became in-flight stops the sequence. H4 and H5 remain unstarted at entry creation.
+
+Paid exposure: Zero-fee local generation only. Zero slots consumed at entry creation; actual attempts will be recorded separately. USD 0.60 split calibration and USD 21.60 H5 limits remain unchanged.
+
+Next gate: Execute once, preserve all receipts and the first failure if any, then adjudicate qualification. If it passes and final commit CI is green, execute the three exposed H4 loops in the approved order before H5.
+
+References: BL-20261031-2104-flash-shared-admission-verified, BL-20261031-1759-flash-next-sequence-owner-approved, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.

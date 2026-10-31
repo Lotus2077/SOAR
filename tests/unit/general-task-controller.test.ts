@@ -13,6 +13,7 @@ import { DockerSandbox } from "../../src/main/private-agent/sandbox";
 import { EXECUTION_PROGRESS_STOP } from "../../src/main/private-agent/progress";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import type { BrokerDestination } from "../../src/main/private-agent/broker";
+import { flashNextAdmissionFixture } from "../helpers/flash-next-admission-fixture";
 
 const cleanup: (() => Promise<void> | void)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const fn of cleanup.splice(0).reverse()) await fn(); });
@@ -229,6 +230,39 @@ describe("desktop general-task host controller", () => {
     expect(f.executions[0]!.store.dispatches(task.id)).toHaveLength(variant === "unknown" ? 1 : 0);
   });
 
+  it.each(["valid", "malformed", "missing", "orphan", "unknown"])("preserves the %s token-admission stop without replay after reopening", async variant => {
+    const f = fixture();
+    f.options.testing!.runnerFactory = args => ({ pause() {}, cancel() {}, async run() {
+      f.executions.push(args);
+      const { store, jobId, contextId, checkpoints } = args;
+      const start = { type: "model_started", operationId: randomUUID(), contextId, promptProtocolSha256: digest("fixture-protocol") };
+      store.append(jobId, start);
+      if (variant !== "missing") store.append(jobId, { ...start, type: "model_request_not_dispatched", reason: "local_token_admission_denied",
+        ...(variant === "orphan" ? { operationId: randomUUID() } : {}), dispatched: false,
+        code: variant === "malformed" ? "untrusted_detail" : "local_token_context_exceeded", bodySha256: digest("synthetic-body"), policySha256: digest("synthetic-policy") });
+      if (variant === "unknown") {
+        const { text: _text, ...preview } = args.broker.preview({ jobId, contextId, destinationId: "desktop_local", purpose: "unit unknown", method: "POST", body: "{}", maxFeeMicrousd: 0 });
+        const row = store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_for_synthetic_local_test" } }, () => {});
+        store.unknown(row.id);
+      }
+      const snapshot = checkpoints.save([...args.files, { path: args.contract.requiredArtifacts[0]!.path, bytes: Buffer.from("saved partial artifact") }]);
+      store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
+      store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
+      return { status: "incomplete", reason: "local_token_admission_denied", snapshot, checks: [], modelCalls: 1 };
+    } });
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    const before = f.controller.get(task.id);
+    expect(before).toMatchObject({ status: "incomplete", canResume: false, modelCalls: 1, cleanupConfirmed: true });
+    expect(before.reason).toContain(variant === "valid" ? "was not sent" : "uncertain outcome");
+    if (variant === "valid") expect(before.reason).not.toContain("uncertain");
+    await f.controller.close();
+    const reopened = new GeneralTaskController(f.options); cleanup.push(() => reopened.close());
+    expect(reopened.get(task.id)).toMatchObject({ reason: before.reason, canResume: false });
+    expect(() => reopened.resume(task.id)).toThrow("general_task_resume_denied");
+    expect(f.executions).toHaveLength(1);
+    expect(f.executions[0]!.store.dispatches(task.id)).toHaveLength(variant === "unknown" ? 1 : 0);
+  });
+
   it.each([120000, 300000, 900000, 15000])(
     "binds the profile request timeout, not the legacy configured timeout %i, without raising job or output limits", async configured => {
       const f = fixture(); f.config.vllm.timeoutMs = configured;
@@ -402,6 +436,27 @@ describe("desktop general-task host controller", () => {
     f.controller.resume(task.id); await f.controller.wait(task.id);
     expect(f.controller.get(task.id).status).toBe("submitted");
     expect(f.executions[1]!.model.config).toMatchObject({ streaming: true });
+  });
+  it("refuses queued tasks when the exact-token policy identity changes before dispatch", () => {
+    const f = fixture();
+    f.config.vllm.localReplyContract = "flash_next_v1"; f.config.vllm.localContextTokens = 262_144;
+    const withoutPolicy = f.create();
+    f.config.vllm.localTokenAdmission = { path: join(tmpdir(), "synthetic-admission.json"), sha256: "a".repeat(64) };
+    expect(() => f.controller.start(withoutPolicy.id)).toThrow("general_task_configuration_changed");
+    const bound = f.create(); f.config.vllm.localTokenAdmission.sha256 = "b".repeat(64);
+    expect(() => f.controller.start(bound.id)).toThrow("general_task_configuration_changed");
+    expect(f.executions).toHaveLength(0);
+  });
+  it("loads the pinned token policy into the desktop broker and binds it into the task model", async () => {
+    const f = fixture(); f.config.vllm.model = "qwen3.8-flash-next";
+    const policy = flashNextAdmissionFixture({ endpoint: `${f.config.vllm.baseUrl}/chat/completions`, model: f.config.vllm.model, contextTokens: 262_144 });
+    cleanup.push(policy.cleanup);
+    f.config.vllm.localReplyContract = "flash_next_v1"; f.config.vllm.localContextTokens = 262_144;
+    f.config.vllm.localTokenAdmission = policy.descriptor;
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    expect(f.executions).toHaveLength(1);
+    expect(f.executions[0]!.model.config.localTokenAdmissionSha256).toBe(policy.descriptor.sha256);
+    expect(f.controller.get(task.id).status).toBe("submitted");
   });
   it("records a late heartbeat against the running task as a host_heartbeat event", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });

@@ -5,6 +5,7 @@ import { PrivateAgentBroker, type BrokerRequest } from "../../src/main/private-a
 import { digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
+import { flashNextAdmissionFixture } from "../helpers/flash-next-admission-fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -15,7 +16,7 @@ const chunk = (delta: Record<string, unknown>, finish: string | null = null, mod
 const sse = (...chunks: unknown[]) => chunks.map(item => `data: ${JSON.stringify(item)}\n\n`).join("") + "data: [DONE]\n\n";
 const json = (message: Record<string, unknown>, model: unknown = modelId) => JSON.stringify({ model, choices: [{ message, finish_reason: "stop" }], usage });
 
-async function fixture(raw: string | Buffer, format: "json" | "sse", thinking: "medium" | "disabled" = "medium") {
+async function fixture(raw: string | Buffer, format: "json" | "sse", thinking: "medium" | "disabled" = "medium", promptTokens = 1) {
   let requests = 0;
   const server = http.createServer((request, response) => {
     request.resume(); request.on("end", () => { requests++; response.writeHead(200, { "content-type": format === "sse" ? "text/event-stream" : "application/json" }); response.end(raw); });
@@ -27,11 +28,15 @@ async function fixture(raw: string | Buffer, format: "json" | "sse", thinking: "
   store.createJob({ id: "job", version: 1, revision: 0, cancelled: false, mode: "private", destinations: ["local"], maxRequests: 10, maxFeeMicrousd: 0 });
   store.createContext({ id: "context", jobId: "job", sources: [{ id: "input", version: digest("synthetic"), classification: "private", synthetic: true }] });
   const destination = { id: "local", kind: "local_model" as const, endpoint: `http://127.0.0.1:${(server.address() as { port: number }).port}/v1/chat/completions`,
-    accountId: "owned", credentialVersion: 1, privateDataAdmitted: true, loopbackFixture: true, maxResponseBytes: 32768, timeoutMs: 1000, recoverable: true,
+    // Decoder cases must reach the mock reply even when parallel tests delay synthetic helper process startup.
+    accountId: "owned", credentialVersion: 1, privateDataAdmitted: true, loopbackFixture: true, maxResponseBytes: 32768, timeoutMs: 30_000, recoverable: true,
     stream: { inactivityTimeoutMs: 1000, maxRawBytes: 65536 } };
-  const broker = new PrivateAgentBroker(store, [destination], { scan: async () => ({ complete: true, blocked: false, detector: "fixture" }) });
+  const admission = flashNextAdmissionFixture({ endpoint: destination.endpoint, model: modelId, promptTokens }); cleanups.push(admission.cleanup);
+  const broker = new PrivateAgentBroker(store, [{ ...destination, localTokenAdmissionSha256: admission.descriptor.sha256 }],
+    { scan: async () => ({ complete: true, blocked: false, detector: "fixture" }) }, { localTokenAdmissions: [admission.admission] });
   const model = new PrivateAgentModel(broker, { destinationId: "local", model: modelId, api: "vllm", localReplyContract: "flash_next_v1", streaming: true,
-    maxOutputTokens: 256, localContextTokens: 1024, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking }, "job", "context");
+    maxOutputTokens: 256, localContextTokens: 1024, localTokenAdmissionSha256: admission.descriptor.sha256,
+    inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking }, "job", "context");
   return { db, store, broker, model, destination, requests: () => requests,
     complete: (overrides?: { maxOutputTokens?: number }) => model.complete([{ role: "user" as const, content: "synthetic" }], [], new AbortController().signal, overrides) };
 }
@@ -43,6 +48,7 @@ describe("Flash-Next broker validation before settlement", () => {
     expect(result.content).toBe("answer"); expect(result).not.toHaveProperty("reasoning"); expect(result).not.toHaveProperty("reasoning_content");
     expect(result.localReplyEvidence).toEqual({ contract: "flash_next_v1", format, reasoningField: format === "json" ? "reasoning_content" : "reasoning", reasoningBytes: secret.length });
     expect(f.store.dispatches("job")).toMatchObject([{ status: "settled", feeMicrousd: 0 }]);
+    expect(f.store.dispatches("job")[0]!.localTokenAdmission).toMatchObject({ promptTokens: 1, maxOutputTokens: 256, maxModelLen: 1024, safetyMarginTokens: 0 });
     expect(JSON.stringify([result, f.store.dispatches("job"), f.store.events("job")])).not.toContain(secret);
     expect(f.db.serialize().includes(Buffer.from(secret))).toBe(false); expect(f.requests()).toBe(1);
   });
@@ -63,7 +69,7 @@ describe("Flash-Next broker validation before settlement", () => {
   it.each([256, 128])("settles Flash context boundary using the actual %i output reservation", async maxOutputTokens => {
     const raw = JSON.stringify({ model: modelId, choices: [{ message: { content: "answer" }, finish_reason: "stop" }],
       usage: { prompt_tokens: 1024 - maxOutputTokens, completion_tokens: 1 } });
-    const f = await fixture(raw, "json");
+    const f = await fixture(raw, "json", "medium", 1024 - maxOutputTokens);
     expect((await f.complete({ maxOutputTokens })).usage!.inputTokens).toBe(1024 - maxOutputTokens);
     expect(f.store.dispatches("job")[0]!.status).toBe("settled");
   });
@@ -77,6 +83,7 @@ describe("Flash-Next broker validation before settlement", () => {
     ["JSON absent terminal reason", "json", JSON.stringify({ model: modelId, choices: [{ message: { content: "answer" }, finish_reason: null }], usage }), "medium"],
     ["JSON duplicate native ids", "json", json({ content: null, tool_calls: [1, 2].map(() => ({ id: "same", type: "function", function: { name: "calculate", arguments: "{}" } })) }), "medium"],
     ["JSON over pinned context", "json", JSON.stringify({ model: modelId, choices: [{ message: { content: "answer" }, finish_reason: "stop" }], usage: { prompt_tokens: 769, completion_tokens: 1 } }), "medium"],
+    ["JSON prompt usage differs from exact proof", "json", JSON.stringify({ model: modelId, choices: [{ message: { content: "answer" }, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 1 } }), "medium"],
     ["JSON over output reservation", "json", JSON.stringify({ model: modelId, choices: [{ message: { content: "answer" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 257 } }), "medium"],
     ["SSE changed alias", "sse", sse(chunk({ reasoning: secret }), chunk({ content: "answer" }, "stop", "different"), { choices: [], usage }), "medium"],
     ["SSE post-finish reasoning", "sse", sse(chunk({ content: "answer" }, "stop"), chunk({ reasoning: secret }), { choices: [], usage }), "medium"],

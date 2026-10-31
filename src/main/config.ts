@@ -3,6 +3,7 @@ import path from "node:path";
 
 import dotenv from "dotenv";
 import { z } from "zod";
+import type { FlashNextAdmissionDescriptor } from "./private-agent/flash-next-admission";
 
 const booleanString = z
   .enum(["true", "false"])
@@ -43,6 +44,9 @@ const environmentSchema = z.object({
   SOAR_VLLM_REPLY_CONTRACT: z.enum(["flash_next_v1"]).optional(),
   /** Actual serving context, required only for the explicit Flash deployment contract. */
   SOAR_VLLM_CONTEXT_TOKENS: z.coerce.number().int().safe().gt(16_384).optional(),
+  /** Main-process-only exact-token policy. Omitted permits offline fixture preparation, never Flash dispatch. */
+  SOAR_VLLM_TOKEN_ADMISSION_FILE: z.string().refine(value => path.isAbsolute(value) && !/[\x00-\x1f\x7f]/u.test(value), "SOAR_VLLM_TOKEN_ADMISSION_FILE must be an absolute file path.").optional(),
+  SOAR_VLLM_TOKEN_ADMISSION_SHA256: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
   SOAR_VLLM_COST_POLICY: z
     .enum(["local_zero_cost"])
     .default("local_zero_cost"),
@@ -91,6 +95,14 @@ const environmentSchema = z.object({
   } else if (environment.SOAR_VLLM_REPLY_CONTRACT === undefined && environment.SOAR_VLLM_CONTEXT_TOKENS !== undefined) {
     context.addIssue({ code: "custom", path: ["SOAR_VLLM_CONTEXT_TOKENS"], message: "SOAR_VLLM_CONTEXT_TOKENS requires SOAR_VLLM_REPLY_CONTRACT=flash_next_v1." });
   }
+  const admissionFile = environment.SOAR_VLLM_TOKEN_ADMISSION_FILE;
+  const admissionSha256 = environment.SOAR_VLLM_TOKEN_ADMISSION_SHA256;
+  if ((admissionFile === undefined) !== (admissionSha256 === undefined)) {
+    context.addIssue({ code: "custom", path: ["SOAR_VLLM_TOKEN_ADMISSION_FILE"], message: "SOAR_VLLM_TOKEN_ADMISSION_FILE and SOAR_VLLM_TOKEN_ADMISSION_SHA256 must be supplied together." });
+  }
+  if ((admissionFile !== undefined || admissionSha256 !== undefined) && environment.SOAR_VLLM_REPLY_CONTRACT !== "flash_next_v1") {
+    context.addIssue({ code: "custom", path: ["SOAR_VLLM_TOKEN_ADMISSION_FILE"], message: "Token admission requires SOAR_VLLM_REPLY_CONTRACT=flash_next_v1." });
+  }
 });
 
 export interface SoarConfig {
@@ -108,6 +120,7 @@ export interface SoarConfig {
     model: string;
     localReplyContract?: "flash_next_v1";
     localContextTokens?: number;
+    localTokenAdmission?: FlashNextAdmissionDescriptor;
     costPolicy: "local_zero_cost";
     maxOutputTokens: number;
     timeoutMs: number;
@@ -235,6 +248,9 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
       model: env.SOAR_VLLM_MODEL,
       ...(env.SOAR_VLLM_REPLY_CONTRACT
         ? { localReplyContract: env.SOAR_VLLM_REPLY_CONTRACT, localContextTokens: env.SOAR_VLLM_CONTEXT_TOKENS }
+        : {}),
+      ...(env.SOAR_VLLM_TOKEN_ADMISSION_FILE && env.SOAR_VLLM_TOKEN_ADMISSION_SHA256
+        ? { localTokenAdmission: { path: env.SOAR_VLLM_TOKEN_ADMISSION_FILE, sha256: env.SOAR_VLLM_TOKEN_ADMISSION_SHA256 } }
         : {}),
       costPolicy: env.SOAR_VLLM_COST_POLICY,
       maxOutputTokens: env.SOAR_MAX_OUTPUT_TOKENS,

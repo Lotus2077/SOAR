@@ -4,6 +4,7 @@ import { anthropicBody, decodeAnthropicReply } from "./anthropic";
 import { BROKER_MAX_BODY_BYTES, PrivateAgentBroker } from "./broker";
 import { canonical, digest, privateAgentId, sha256Schema } from "./contracts";
 import type { FlashNextReplyEvidence } from "./flash-next-reply";
+import { LOCAL_TOKEN_ADMISSION_CODES, LOCAL_TOKEN_ADMISSION_STOP } from "./flash-next-admission";
 
 export const MODEL_REQUEST_SIZE_STOP = "request_body_size_exceeded";
 /** Adapter ceiling. Callers choose their own lower profile limit (the desktop clamps to 4096). */
@@ -30,6 +31,12 @@ const feeStopSchema = z.object({
   maxFeeMicrousd: z.number().int().safe().nonnegative(), settledFeeMicrousd: z.number().int().safe().nonnegative(),
 }).strict();
 export type ModelRequestFeeStop = z.infer<typeof feeStopSchema>;
+const tokenStopSchema = z.object({
+  type: z.literal("model_request_not_dispatched"), contextId: privateAgentId, operationId: z.string().uuid(),
+  promptProtocolSha256: sha256Schema, reason: z.literal(LOCAL_TOKEN_ADMISSION_STOP), dispatched: z.literal(false),
+  code: z.enum(LOCAL_TOKEN_ADMISSION_CODES), bodySha256: sha256Schema, policySha256: sha256Schema.optional(),
+}).strict();
+export type ModelRequestTokenAdmissionStop = z.infer<typeof tokenStopSchema>;
 
 function notDispatchedJoin(events: Record<string, unknown>[], start: Record<string, unknown>): Record<string, unknown> | undefined {
   if (start.type !== "model_started") return;
@@ -47,6 +54,10 @@ export function modelRequestSizeStop(events: Record<string, unknown>[], start: R
 export function modelRequestFeeStop(events: Record<string, unknown>[], start: Record<string, unknown>): ModelRequestFeeStop | undefined {
   const marker = notDispatchedJoin(events, start); if (!marker) return;
   const parsed = feeStopSchema.safeParse(marker); return parsed.success ? parsed.data : undefined;
+}
+export function modelRequestTokenAdmissionStop(events: Record<string, unknown>[], start: Record<string, unknown>): ModelRequestTokenAdmissionStop | undefined {
+  const marker = notDispatchedJoin(events, start); if (!marker) return;
+  const parsed = tokenStopSchema.safeParse(marker); return parsed.success ? parsed.data : undefined;
 }
 
 export const MODEL_UNAVAILABLE_STOP = "model_unavailable";
@@ -66,7 +77,11 @@ export function modelRequestFailed(events: Record<string, unknown>[], start: Rec
 
 export function hasInvalidModelRequestSizeStop(events: Record<string, unknown>[]): boolean {
   return events.some(marker => marker.type === "model_request_not_dispatched" &&
-    !events.some(start => (modelRequestSizeStop(events, start) ?? modelRequestFeeStop(events, start))?.operationId === marker.operationId));
+    !events.some(start => (modelRequestSizeStop(events, start) ?? modelRequestFeeStop(events, start) ?? modelRequestTokenAdmissionStop(events, start))?.operationId === marker.operationId));
+}
+export function hasInvalidModelRequestTokenAdmissionStop(events: Record<string, unknown>[]): boolean {
+  return events.some(marker => marker.type === "model_request_not_dispatched" && marker.reason === LOCAL_TOKEN_ADMISSION_STOP &&
+    !events.some(start => modelRequestTokenAdmissionStop(events, start)?.operationId === marker.operationId));
 }
 
 export interface GeneralMessage {
@@ -121,6 +136,8 @@ export interface PrivateModelConfig {
   localReplyContract?: "flash_next_v1";
   /** Qualified Flash deployment context capacity, including the reserved output; required only with its reply contract. */
   localContextTokens?: number;
+  /** Exact-token policy identity. The trusted broker loads the separately hash-pinned host descriptor. */
+  localTokenAdmissionSha256?: string;
   thinking: "disabled" | "medium";
   /** Request body cap in bytes; defaults to the broker's packet cap. Profiles raise it for the local model. */
   maxRequestBytes?: number;
@@ -264,6 +281,7 @@ export class PrivateAgentModel {
           (config.cachedInputUsdPerMillion ?? 0) !== 0 || (config.cacheWriteUsdPerMillion ?? 0) !== 0 || config.longContext !== undefined ||
           !Number.isSafeInteger(config.localContextTokens) || config.localContextTokens! <= config.maxOutputTokens)) ||
         (config.localContextTokens !== undefined && config.localReplyContract === undefined) ||
+        (config.localTokenAdmissionSha256 !== undefined && (config.localReplyContract === undefined || !sha256Schema.safeParse(config.localTokenAdmissionSha256).success)) ||
         (config.streaming !== undefined && (typeof config.streaming !== "boolean" || (config.streaming && config.api !== undefined && config.api !== "vllm")))) {
       throw new Error("private_model_configuration_invalid");
     }
@@ -306,7 +324,7 @@ export class PrivateAgentModel {
     const bodyBytes = Buffer.byteLength(body), limitBytes = this.config.maxRequestBytes ?? BROKER_MAX_BODY_BYTES;
     if (bodyBytes > limitBytes) throw new ModelRequestBodyTooLarge(bodyBytes, limitBytes);
     // Flash's NFC tokenizer can expand raw input bytes, so its zero-fee settlement envelope is the pinned context capacity
-    // minus this call's actual output reservation. Exact pre-dispatch token admission is a separate qualification gate.
+    // minus this call's actual output reservation. The broker separately enforces the pinned exact-token proof before dispatch.
     // Legacy/provider price reservations keep their established byte envelope unchanged.
     const promptBound = this.config.localReplyContract ? this.config.localContextTokens! - maxOutputTokens : bodyBytes, long = this.config.longContext;
     const rates = (promptTokens: number) => long && promptTokens > long.aboveTokens
@@ -321,7 +339,8 @@ export class PrivateAgentModel {
     const started = performance.now();
     const result = await this.broker.request({ jobId: this.jobId, contextId: this.contextId, destinationId: this.config.destinationId,
       purpose: overrides?.purpose ?? "agent reasoning and tool selection", method: "POST", body, maxFeeMicrousd: reservation, signal,
-      ...(this.config.localReplyContract ? { localReplyContract: { version: this.config.localReplyContract, model: this.config.model, thinking } } : {}) }, bytes => {
+      ...(this.config.localReplyContract ? { localReplyContract: { version: this.config.localReplyContract, model: this.config.model, thinking },
+        localTokenAdmission: { policySha256: this.config.localTokenAdmissionSha256 ?? "", contextTokens: this.config.localContextTokens! } } : {}) }, bytes => {
       decoded = decodeReply(this.config.api, bytes, this.config.model);
       // The scoped contract must refuse malformed native call identities before settlement; legacy adapters keep their path.
       if (this.config.localReplyContract && new Set(decoded.toolCalls.map(call => call.id)).size !== decoded.toolCalls.length) throw new Error("private_model_duplicate_tool_id");

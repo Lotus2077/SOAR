@@ -111,6 +111,19 @@ the fixture rejects valid Setext and closing-hash headings; without Q13 content,
 that defect cannot be identified as its cause. The server remained healthy/idle
 at 21:09 UTC; thirteen generation HTTP 200 entries, no server errors and no new
 kernel allocation failures were captured through 21:12 UTC. This is a bounded
-observation, not a stability pass. Eleven qualification slots were unsent and
-there is no automatic retry. The separate one-request diagnostic proposal remains
-inactive pending new owner adjudication. The new H4 loops and H5 remain unstarted.
+observation, not a stability pass.
+
+The separately owner-approved diagnostic then ran once and settled at USD 0
+(BL-20261031-2141-q13-diagnostic-result). Native validation, SSE assembly, model
+settlement and exact prompt parity passed, with 385 prompt and 641 output tokens.
+The final report used the exact required titles as plain paragraphs, so both
+heading predicates failed while their fact/citation checks passed. The prompt
+and design do not explicitly require Markdown heading syntax. This is a result
+for the new diagnostic, not evidence of the missing original Q13 content.
+Original Q13 remains UNKNOWN and qualification remains unaccepted.
+
+Aggregate use is fourteen attempts with ten unused dispatch slots. All eleven
+original remaining qualification cases are still unattempted. Three healthy/idle
+metadata samples passed after the diagnostic. No new paid call, production-source
+change or service change occurred. There is no automatic continuation or retry;
+the new H4 loops and H5 remain held pending further adjudication.

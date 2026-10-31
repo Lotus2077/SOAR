@@ -1,6 +1,6 @@
 # Flash-Next service requirements for the owner
 
-Status: **Sequence Approved; startup, CPU parity and shared-guard integration Verified; one-shot qualification stopped at Q13; diagnostic Proposed and inactive; new H4 loops/H5 unstarted**.
+Status: **Sequence Approved; startup, CPU parity and shared-guard integration Verified; one-shot qualification stopped at Q13; approved diagnostic completed; qualification unaccepted and new H4 loops/H5 held**.
 Updated 2026-11-01 (Asia/Shanghai). **The owner authorized an investigated retry
 and a clean-page-cache operation** (BL-20261031-2021), following the first failed
 NemoClaw-derived attempt and verified scoped manual q4t recovery
@@ -32,8 +32,10 @@ recovery does not qualify it for Heavy, H4 or H5 or authorize an engine rewrite.
 
 The owner handoff remains a reusable contract. The candidate has completed shared
 admission integration and a partial qualification attempt, not a full
-compatibility pass. Thirteen zero-fee requests were dispatched; eleven slots were
-unsent. The failed one-shot batch cannot automatically continue or retry.
+compatibility pass. The original batch used thirteen zero-fee requests; one
+separately approved diagnostic has since completed. Aggregate use is fourteen
+attempts with ten unused dispatch slots. The failed batch cannot automatically
+continue or retry, and all eleven original remaining cases are still unattempted.
 
 The first trial's 22 selected added-operator numerical cases passed, with 64 deselected
 and zero skipped. It loaded all 206 shards (reported model load 74.34 GiB),
@@ -282,10 +284,22 @@ retained, so this known validator defect cannot be assigned as its cause. At
 entries, no server errors and no new kernel allocation failures were captured
 through 21:12 UTC; this does not establish long-term stability.
 
-Eleven slots were unsent. The immutable one-shot claim is consumed, with no
-automatic continuation, replacement or retry. A separate one-request diagnostic
-proposal is inactive and requires new owner adjudication under the approved plan.
-It is prepared with exact original-request reconstruction, 16 passing offline
-checks and strict TypeScript checking (BL-20261031-2120-q13-diagnostic-prepared).
-No accepted qualification, new H4 loop or H5 run is recorded. The original start cutoff
+The owner separately approved the prepared diagnostic, which ran exactly once
+and settled at USD 0 (BL-20261031-2141-q13-diagnostic-result). Native reply
+validation, SSE assembly, model settlement and exact prompt parity passed, with
+385 prompt tokens and 641 output tokens. The new final report used the exact
+required section titles as plain paragraphs. Both the original and proposed
+heading predicates therefore failed, while their fact/citation checks passed.
+The production prompt and fixture design ask for titled sections without
+explicitly requiring Markdown heading syntax. This distinguishes a section-format
+policy mismatch from a native transport or accounting failure on this diagnostic.
+It does not recover or identify the cause of original Q13.
+
+Original Q13 remains UNKNOWN and the stopped qualification remains unaccepted.
+Aggregate use is fourteen attempts with ten unused dispatch slots; all eleven
+original remaining cases are still unattempted. Three post-diagnostic metadata
+samples passed healthy/idle checks. No paid call, production-source change or
+service change occurred. The immutable claims remain consumed, with no automatic
+continuation, replacement or retry. Further qualification allocation/adjudication
+is required; the new H4 loops and H5 remain held. The original start cutoff
 remains 2026-11-01 09:19 Asia/Shanghai unless the owner supplies a new window.

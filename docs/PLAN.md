@@ -597,12 +597,21 @@ but Q13 content was not retained and cannot be attributed to that defect.
 The service was healthy and idle at 21:09 UTC; 13 generation HTTP 200 log entries
 and no server errors or new kernel allocation failures were captured through
 21:12 UTC. This bounded observation is not a stability or qualification pass.
-Eleven slots were unsent; the one-shot claim remains consumed and forbids an
-automatic continuation or retry. A separate inactive one-request diagnostic
-proposal requires new owner adjudication. Its exact original-request reconstruction,
-16 offline checks and strict TypeScript check pass; it remains held with no
-authority or activation (BL-20261031-2120-q13-diagnostic-prepared).
-The new H4 loops and H5 remain unstarted.
+The one-shot claim remains consumed. The separately owner-approved diagnostic
+ran once and settled at USD 0 (BL-20261031-2141-q13-diagnostic-result). Native
+validation, SSE assembly, model settlement and exact prompt parity passed: 385
+prompt tokens and 641 output tokens. Both heading predicates failed because the
+exact required section titles were plain paragraphs; the production prompt and
+fixture design do not explicitly require Markdown heading syntax. This result
+characterizes the new diagnostic, not the missing original Q13 reply. Original
+Q13 remains UNKNOWN and qualification is not accepted.
+
+Aggregate use is 14 attempts with 10 unused dispatch slots. All 11 original
+remaining qualification cases are still unattempted; the diagnostic did not
+complete one of those cases or authorize their execution. Three post-diagnostic
+metadata samples were healthy and idle. No new paid call, production-source
+change or service change occurred. Further allocation/adjudication is required;
+there is no automatic continuation or retry. The new H4 loops and H5 remain held.
 Heavy semantics and the remaining technical gates are unchanged.
 Historical Qwen3.8-27B results and the conditional R2 rule remain unchanged.
 The Claude step-0/1 Console reconciliation is now verified

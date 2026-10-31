@@ -27328,3 +27328,51 @@ Paid exposure: USD 0 new. Actual qualification usage remains thirteen requests, 
 Next gate: Ask the owner to adjudicate the concrete one-request diagnostic. If granted, append the exact approval, review and pin the released operator and proposal, then execute once within its original limits. Until then retain the hold; new H4 loops and H5 remain unstarted.
 
 References: BL-20261031-2114-flash-qualification-stopped, BL-20261031-2105-flash-qualification-admitted, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md section 4.
+
+### BL-20261031-2137-q13-diagnostic-approved -- 2026-10-31 -- Authorize exactly one prepared synthesis diagnostic
+
+Status: `Approved`
+
+Scope or hypothesis: The owner replied "Approve" to the concrete request for one zero-fee Q13 diagnostic capped at 8192 output tokens and 180 seconds with no retry. This is the fresh adjudication required after the stopped qualification; it is not a batch resume or H4/H5 acceptance.
+
+Decisions: Execute at most one diagnostic under the prepared design in BL-20261031-2120, consuming one of the eleven unused slots if dispatched. Preserve the original failed Q13, UNKNOWN receipt, driver, database and consumed authority. Retain fixed source/model/serving/role/token-admission settings, a fresh job cache salt and the original available window ending 2026-11-01 09:19 Asia/Shanghai. No service tuning, paid calls or automatic continuation is authorized by this decision.
+
+Changes: Record the direct owner approval before releasing the hard activation hold. Preserve the inactive proposal and reviewed assets, then bind the released operator and exact reconstructed request in a separate private authority record. The sole intended executable change is the reviewed activation constant; the production runtime remains frozen. Verify ownership, availability and metadata-only idle checks before the single request and collect sanitized diagnostic evidence afterward.
+
+Evidence: Approved inactive proposal SHA-256 a321a2d09d66b32d4ec439aa323acb6e634cfc1bf52b68450482885dd8c92814, prepared operator 4c4ccb343a5700fd67f15af57e0440dba04729fe7b0c8fa92f5c3bf98d1b3eab and offline verification 21d920f7f1898aa2d13920246ade5912f2d16d21c06f8e94fdde75ee95b5a5b3 remain the reviewed design. The owner's direct response is exactly "Approve". Both CI jobs passed for documentation commit 943d66a before this decision.
+
+Failures or blockers: The original synthesis-validation cause remains unresolved. A new successful or failed response will characterize this diagnostic only; it cannot recover the missing original response or retroactively settle its receipt.
+
+Limitations and non-claims: Limits remain one request, at most 8192 prompt tokens, 8192 output tokens, 655360 body bytes, 180 seconds, zero fee and zero retries. Exact-token precommit admission, fixed identity, availability and three metadata-only idle samples before and after remain required. No diagnostic request has been sent at entry creation. A dispatched diagnostic leaves at most ten unsent slots; any later qualification allocation requires a separately recorded decision. H4 and H5 remain held.
+
+Paid exposure: USD 0 authorized for this diagnostic; no cloud request. The USD 0.60 split-calibration and USD 21.60 counted H5 caps remain unchanged.
+
+Next gate: Independently verify released assets and authority, execute once within the original window, inspect its sanitized evidence and append the result without retry.
+
+References: BL-20261031-2120-q13-diagnostic-prepared, BL-20261031-2114-flash-qualification-stopped, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md section 4.
+
+### BL-20261031-2141-q13-diagnostic-result -- 2026-10-31 -- Verify one settled diagnostic and identify a section-format assertion mismatch
+
+Status: `Verified`
+
+Scope or hypothesis: Execute exactly the owner-approved diagnostic and distinguish native response/accounting validation from fixture checks. Verification applies to this new response and the bounded diagnostic execution; original Q13 remains failed with an UNKNOWN receipt and unavailable final content.
+
+Decisions: Preserve both failed heading-predicate results and the new settled receipt. Do not convert this diagnostic into qualification acceptance or retrospectively change Q13. The response contains the two exact required titles as standalone paragraphs, while both reviewed predicates demand formal Markdown headings. The production prompt and fixture design ask for exactly titled sections without explicitly prescribing heading syntax. Treat this as a fixture/prompt requirement mismatch demonstrated on the new response, not evidence of a native backend or token-accounting failure. Stop after the authorized request; no automatic continuation, synthesis repeat or H4/H5 launch.
+
+Changes: Archive the approved inactive assets and proposal, change only the diagnostic activation constant, reconstruct the original request again and bind a new cache salt. Record a fresh authority and verify the sole executable delta independently. Recheck the immutable running container/image, owner label, complete pinned launch arguments, selected environment, init and active recovery supervisor; verify local AC power and open lid. After three healthy idle samples, execute through the unchanged production exact-token guard, broker and model path, then retain sanitized evidence and three post-request idle observations.
+
+Evidence: Released operator SHA-256 34fd2f4ecea77cb166963295de573fe66091cc2c9f7c2d788ad90a39e7de0262; proposal 1fd2a9f3349d28de85d0236a9ef9f3ded9bcc08f94ab2718a7ad73d53a3a4389; authority 935a62d06bb7955dad6a6c7352c72c7ee4f4e8a0cbc1919a6239d69b06bf76a6; ownership observation 0f6357268fa99662dfbe7d5979a8567a85a12040fdc68f383c5b47ffba9723e4. The new request body bef39de92ca785814cc3e7cf8338c74052f33f5374b8d8ddd723164138c5acc4 differs from the proven original body only in cache_salt. Runtime, protocol, serving, role and admission-policy identities remain unchanged.
+
+Exactly one wire request and one dispatch completed with HTTP 200, a settled zero-fee receipt and no retry. Native reply inspection, SSE assembly, production native/prompt validation and model settlement pass. Server prompt usage equals the exact admission proof at 385 tokens; completion usage is 641, cached input zero and the output reservation 8192. Separate reasoning is evidenced only by its field label, 707-byte count and reported usage; raw reasoning is not saved. The 2112-byte sanitized final content has SHA-256 1d9a099b9242191d41195c37ca7b55b2cce63211a896f9974d0cde9f522ffbd7. Both semantic predicates pass the fixed fact, known-citation and reserved-markup checks and fail only the two heading checks. The new response uses plain paragraph titles, so the earlier Setext/closing-hash correction would not change this result. Independent runtime and privacy review concur with these limits and find no evidence leak.
+
+Post-request metadata samples at 21:39:41, 21:40:02 and 21:40:22 UTC all report healthy serving with zero running/waiting requests. The operator exited successfully after the final sample. Evidence manifest SHA-256 fdf81c7ad04a3706d660e5cb3b79f8c8bcbcc442f5bbf77cc09de7c3cf50d680; closed diagnostic database b6c1e859b5755969f4ffaf81ee091e35fd41c3566283664bf525359d603cd420; root result review 2312b34ea4aa940cabb00c3753445e7bac080929fca994f073ab784651c64cbc. The original driver, original closed database, original Q13 body binding and consumed authority remain unchanged.
+
+Failures or blockers: Both frozen heading verdicts remain false. The original failed response cannot be recovered or assigned the same cause from this later response. Any named-section criterion or allocation change must be adjudicated explicitly before further generation. The original eleven remaining fixture rows are still unattempted, but only ten request slots remain after this diagnostic.
+
+Limitations and non-claims: This proves valid native transport and accounting for one synthesis-shaped response. It is not full compatibility, task quality, sustained stability, H4 completion, H5 or release. No model/prompt/source/serving tuning, paid call or fresh-task/gold access occurred. The diagnostic durable claim remains consumed. Aggregate actual generation attempts are fourteen, admitted prompt tokens 124933 and output reservations 80128. A possible ten-request continuation would require an explicit fixture amendment; it is not authorized by this diagnostic approval. Keeping the original 90-minute qualification clock yields a hard stop at 22:35:27.546 UTC, stricter than the unchanged owner-window cutoff.
+
+Paid exposure: USD 0 new. The diagnostic receipt and all original local receipts retain zero fees; the original UNKNOWN remains UNKNOWN. No Claude call. The USD 0.60 split-calibration and USD 21.60 H5 bounds are unchanged.
+
+Next gate: Present a narrow criterion/allocation amendment for owner adjudication: assess the new response against the literal titled-section requirement while retaining both historical false predicates, then potentially retain Q14-Q21 and Q23-Q24 and omit only the duplicate Q22 arithmetic SSE comparison. That proposed total is 24 requests and 130816 reserved output tokens under the unchanged limits. Without that decision, remaining qualification and all three H4 loops stay held; H5 cannot start.
+
+References: BL-20261031-2137-q13-diagnostic-approved, BL-20261031-2120-q13-diagnostic-prepared, BL-20261031-2114-flash-qualification-stopped, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md section 4. Proposed next-decision memo: docs/plans/PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md; it grants no execution authority.

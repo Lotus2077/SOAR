@@ -1,6 +1,6 @@
 # Phase 4 Flash-Next migration plan
 
-Status: **Approved sequence; shared admission integration Verified; qualification stopped at Q13; deployment not yet qualified**. Prepared 2026-11-01
+Status: **Approved sequence; shared admission integration Verified; qualification stopped at Q13; approved diagnostic completed; deployment not yet qualified**. Prepared 2026-11-01
 (Asia/Shanghai). Authority: BL-20261031-1759-flash-next-sequence-owner-approved.
 
 Updated after owner-authorized inventory, the failed first startup and the
@@ -45,12 +45,16 @@ Six synthetic CPU renderer/tokenizer cases have matching token IDs
 (BL-20261031-2049), and shared admission for every local role passed full
 integrated verification: 2247 tests, 81 explicit skips and production build
 (BL-20261031-2104). The frozen one-shot qualification stopped at Q13 after 12
-passed fixtures and 13 zero-fee wire requests/dispatch receipts. Eleven slots
-were unsent; the claimed batch cannot automatically continue or retry. Q13
-remains UNKNOWN with `response_or_usage_invalid`; the original validator
-category was not retained, so its cause is unresolved. The new H4 loops and H5 remain
-unstarted. A separate one-request diagnostic proposal is inactive and requires
-new owner adjudication.
+passed fixtures and 13 zero-fee wire requests/dispatch receipts. A separately
+approved one-request diagnostic then settled at USD 0: native/SSE/accounting and
+385-token prompt parity passed, with 641 output tokens. Both heading predicates
+failed because the exact section titles were plain paragraphs; the prompt and
+design do not explicitly require heading syntax (BL-20261031-2141-q13-diagnostic-result).
+Original Q13 remains UNKNOWN, its cause unresolved and qualification unaccepted.
+Aggregate use is 14 attempts with 10 unused dispatch slots, while all 11 original
+remaining cases are still unattempted. Three post-diagnostic idle samples passed.
+No paid call, production-source change or service change occurred. The new H4
+loops and H5 remain held; there is no automatic continuation or retry.
 
 ## 1. Evidence and remaining uncertainty
 
@@ -65,8 +69,9 @@ new owner adjudication.
 | Retry observations | After verified idle/q4t stop, one synchronized page-cache drop changed Cached from 1117980 to 410532 KiB and MemAvailable from 122136392 to 122560152 KiB. The interrupt warning recurred; no new allocation failure or blocked-task report was observed through 20:40 UTC. Running/waiting, completion-reason and prefix-cache query/hit counters were zero. | Reduced KV, cache preparation, retained build caches, diagnostics and wait policy were not isolated. Neither successful startup nor the bounded kernel observation identifies the first stall's cause or proves stability/cache behavior. |
 | CPU parity and admission integration | Six synthetic cases have matching token IDs between tokenization and the installed generation renderer. The shared guard passed full integrated checks (2247 tests, 81 explicit skips, production build). The ignored driver passed 26 synthetic tests; tokenizer/metadata helpers passed 9/22 mock tests. Serving, role and fixture identities were frozen for the one-shot batch. | Integration is verified, while generation qualification remains incomplete. CPU parity does not establish generated-output behavior. |
 | Partial one-shot qualification | Q01–Q12 passed, including native SSE tools/history demotion, thinking on/off, index/plan/extraction and A/A/B/B cache reports 0/15680/0/15680 with independent counters. Thirteen wire requests and dispatch receipts were recorded, with USD 0 new fees. | Q13 stopped the batch; eleven slots were unsent and cannot automatically be used for continuation or retry. The new H4 loops and H5 remain unstarted. |
-| Q13 stop and diagnosis | The wire observer counted 648 SSE events, one usage frame, one DONE and zero parse failures. The receipt is UNKNOWN/`response_or_usage_invalid`; the wrapper code is `research_stage_invalid`. The original validation category was not retained. Offline review separately proved the fixture rejects valid Setext and closing-hash headings. | Q13 content was not retained, so neither this validator defect nor a backend failure can be assigned as its cause. A separate one-request diagnostic remains an inactive proposal requiring new owner adjudication. |
+| Q13 stop and diagnosis | The wire observer counted 648 SSE events, one usage frame, one DONE and zero parse failures. The receipt is UNKNOWN/`response_or_usage_invalid`; the wrapper code is `research_stage_invalid`. The original validation category was not retained. Offline review separately proved the fixture rejects valid Setext and closing-hash headings. | Q13 content was not retained, so neither this validator defect nor a backend failure can be assigned as its cause. Its UNKNOWN receipt remains unchanged after the separately approved diagnostic. |
 | Post-stop service observation | Healthy/idle metadata was observed at 21:09 UTC. Thirteen generation HTTP 200 log entries, no server errors and no new kernel allocation failures were captured through 21:12 UTC. | This bounded observation supports continued service availability, not successful qualification or a stability guarantee. |
+| Completed approved diagnostic | One fresh-job reconstruction settled at USD 0. Native reply/SSE assembly/model settlement passed; exact prompt usage was 385 tokens with 641 output tokens. Required titles were plain paragraphs, so both heading predicates failed while fact/citation checks passed. Three post-request idle samples passed. | The prompt/design do not explicitly require heading syntax. This new result does not explain original Q13 or accept qualification. Aggregate use is 14 attempts with 10 unused dispatch slots; all 11 original remaining cases are still unattempted. No automatic continuation, paid call, production-source change or service change occurred (BL-20261031-2141-q13-diagnostic-result). |
 | Claude step 0 | Attempt 1 exited 3 for missing later thinking, triggering the allowed repeat; the repeat exited 2 for a warm read instead of the required initial cache write. The owner accepted their combined evidence once. | Retain both original verdicts and the adjudication; no third probe. |
 | Claude step 1 | 79 cloud replies and 34 old-tier local judge calls settled; cloud fee USD 1.127758, approved projection USD 2.121435 below USD 3.00. Guidance review found no visible refusal. | Transport/cost calibration is reusable under its original configuration; task quality remains independently ungraded. |
 | Console reconciliation | Owner screenshot shows SOAR-key cost USD 1.15; step-0/1 ledger total USD 1.151653, difference USD 0.001653 within USD 0.05. Earlier owner confirmation supplies the no-competing-usage condition. | Historical step 1 is accepted. The screenshot alone does not establish exclusive usage or qualify Flash-Next. |
@@ -158,8 +163,11 @@ context 262144 and reached healthy API metadata in about 321 seconds
 assets retained. Six-case CPU token parity and full shared-admission integration
 are verified. The later one-shot qualification stopped at Q13 after 12 passed
 fixtures and 13 zero-fee dispatches. Its unresolved validation failure does not
-prove a backend defect; eleven unsent slots do not authorize an automatic retry.
-The new H4 loops and H5 remain unstarted, pending qualification adjudication.
+prove a backend defect. The separately approved diagnostic completed native/SSE
+and accounting checks but failed both section-heading predicates on plain titled
+paragraphs. Original Q13 and qualification remain unchanged. Aggregate use is 14
+attempts with 10 unused dispatch slots, with all 11 original remaining cases still
+unattempted. The new H4 loops and H5 remain held, pending further adjudication.
 
 ## 2. Approved amendment and frozen role binding
 

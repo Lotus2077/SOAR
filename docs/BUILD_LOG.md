@@ -26498,3 +26498,33 @@ Paid exposure: USD 0.
 Next gate: The owner stores the Claude credential locally; then recheck its status, record the clean commit/final runtime pins, and execute the approved calibration sequence. H5 remains unstarted.
 
 References: BL-20261031-1259-cancelled-cleanup-recovery, BL-20261031-1304-experiment-metrics-and-current-status, BL-20261031-1305-claude-probe-tool-history-verdict, BL-20261031-1258-recovery-metrics-calibration-authority.
+
+
+### BL-20261031-1318-claude-calibration-window -- 2026-10-31 -- Activate the stored-key Claude calibration window after corrected-source verification
+
+Status: `Approved`
+
+Scope or hypothesis: Execute the already approved Claude calibration and second H4 verification batch after the requested cleanup and accounting corrections have passed full checks.
+
+Decisions:
+
+- The owner has confirmed the Console and device prerequisites and now replied "Stored" after using the reviewed hidden-input Keychain helper. The helper's status-only models check returned HTTP 200. No credential value was printed or copied to a file.
+- The prerequisite operational-records PR #30 and approved Claude adapter PR #31 were merged at their exact green heads; remote main is now 1bde8e1. The corrected local branch includes their actual main ancestry plus the three verified correction commits.
+- Execute the shape probe first, then the exposed r3 all-cloud calibration under USD 3.00, then approved step-1 acceptance and Console reconciliation, then the three exposed H4 loops. The split loop's first sample is calibration step 2 under USD 0.60. H5 remains unstarted under this authority.
+- Runtime pin: a142fadc3a810d6b3d9aff512b1a5bab71763cd990ecfb04d5db446337d51cdf. Research protocol and frozen task/check/selection contracts are unchanged. The ignored authority records the final clean commit and hashes of the operator scripts before execution.
+- The operator applies a twelve-hour start cutoff for this session, beginning when its authority is prepared. This is an additional operating limit, not a claim that the owner stated an end time; any new owner instruction or loss of availability stops advancement. An already running admitted row ends through its normal bounds.
+- Every failed step is retained and blocks advancement. The only predefined repeat is one new synthetic probe if structural checks pass but thinking evidence is absent, inside the existing remainder. No failed output is silently rerun.
+
+Changes: This authority entry; ignored local run pins, receipts and fixed-field reports are separate and remain outside Git.
+
+Evidence: The owner's earlier exact instruction and Console/device confirmation; the current "Stored" message; HTTP-200 credential check; exact-head dependency merges and local clean-source checks. The combined source passed 2,166 deterministic tests with 81 skipped, both typechecks, native proof/rebuild and production builds in the preceding verification entry.
+
+Failures or blockers: No paid or model request has started at entry creation. Actual live shape, thinking, cache and transport behaviour are still unknown. Later H4 verification must require every stage's frozen/result pin and a genuinely cited split argument, rather than just nonempty output.
+
+Limitations and non-claims: This is authority to execute, not a passing result. It grants no private-data admission, server-flag change, unbounded retry, H5 launch or release. Console reconciliation will use the owner's actual charge reading, never an estimate from settlement alone.
+
+Paid exposure: USD 0 of model API spend in this work so far. Calibration caps remain USD 0.30 + 3.00 + 0.60; the optional missing-thinking repeat is at most another USD 0.30 inside the approved line.
+
+Next gate: Prepare final pins, run the shape probe and inspect its actual fixed-field receipts before admitting the all-cloud step.
+
+References: BL-20261031-1258-recovery-metrics-calibration-authority, BL-20261031-1305-integrated-corrections-verified, BL-20261030-0745-claude-cloud-adapter-approved, BL-20261030-0620-claude-cloud-adapter-design.

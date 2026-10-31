@@ -26748,3 +26748,25 @@ Paid exposure: USD 0 new; no increased cap. Completed Claude transport/cost evid
 Next gate: Owner approval of the concrete migration plan and named local-tier amendment, then inventory, scoped implementation and qualification within a valid device window. Present any necessary exact server change separately under D11; complete H4 and its split calibration before the separate H5 handoff.
 
 References: BL-20261031-1636-claude-console-reconciled, BL-20261031-1604-replacement-chat-endpoint-answers, BL-20261031-1556-replacement-endpoint-preflight-blocked, BL-20261030-0445-h5-cloud-provider-claude, docs/PLAN.md D11, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-1640-console-no-competing-usage-confirmed -- 2026-10-31 -- Owner explicitly reconfirms the calibration reconciliation window had no competing usage
+
+Status: `Verified`
+
+Scope or hypothesis: Record a fresh owner attestation for the already accepted historical Claude step-0/1 reconciliation.
+
+Decisions: The owner now states "no competing usage" in response to the reconciliation and proposed migration status. This directly reconfirms the no-competing-organisation-usage condition; the acceptance no longer relies only on carrying forward the earlier confirmation. The statement supplies no migration or launch approval.
+
+Changes: This appended evidence entry and a new ignored confirmation record bound to the prior historical acceptance. Earlier entries, receipts, fees and verdicts remain unchanged; no duplicate run or registry row is created.
+
+Evidence: The owner's exact statement above. Console charge remains USD 1.15 versus USD 1.151653 settled, a USD 0.001653 difference within the approved USD 0.05 tolerance.
+
+Failures or blockers: No outstanding step-1 financial gate. Flash-Next migration approval and deployment qualification remain pending; H4 is held and H5 unstarted.
+
+Limitations and non-claims: Exclusivity is owner-attested, not independently audited. Console precision and historical local-judge provenance limitations remain. This is no new model evidence or runtime authority.
+
+Paid exposure: USD 0 new; settled calibration total remains USD 1.151653.
+
+Next gate: Approval of the Proposed Flash-Next migration plan and named local-tier amendment.
+
+References: BL-20261031-1636-claude-console-reconciled, BL-20261031-1638-flash-next-migration-design.

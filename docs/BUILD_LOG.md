@@ -26770,3 +26770,47 @@ Paid exposure: USD 0 new; settled calibration total remains USD 1.151653.
 Next gate: Approval of the Proposed Flash-Next migration plan and named local-tier amendment.
 
 References: BL-20261031-1636-claude-console-reconciled, BL-20261031-1638-flash-next-migration-design.
+
+### BL-20261031-1714-owner-ssh-inventory-authority -- 2026-10-31 -- Owner opens direct SSH access for a read-only serving inventory
+
+Status: `Approved`
+
+Scope or hypothesis: Resolve the migration plan's deployment uncertainties through the SSH service the owner explicitly supplied in this chat.
+
+Decisions: The owner asks to see the plan again and authorizes visiting the box directly to obtain needed information. Use that access now for a bounded read-only inventory of hardware, the serving process/container, model identity and non-secret configuration. Keep authentication session-local. Collect only allowlisted summaries and hashes; do not read private task data, request logs, credential stores or environment dumps.
+
+Changes: This narrow authority record. The supplied connection address and credentials remain outside version control; no new secret file is created.
+
+Evidence: The owner's explicit SSH-access instruction in the current chat. Connection and deployment findings are pending at entry creation.
+
+Failures or blockers: Access has not yet been tested. Missing inventory remains a migration qualification blocker.
+
+Limitations and non-claims: This permission covers inspection only. It does not approve Flash-Next implementation, inference probes, paid calls, server changes, restarts, privilege escalation, H4 or H5. No fallback network scan or alternate access route is authorized by this record.
+
+Paid exposure: USD 0.
+
+Next gate: Read-only inventory over the supplied SSH service, then update the Proposed migration plan with verified findings and remaining gaps.
+
+References: BL-20261031-1638-flash-next-migration-design, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-1723-flash-next-box-inventory -- 2026-10-31 -- Read-only SSH inventory identifies q4t and a concrete Heavy-contract conflict
+
+Status: `Verified`
+
+Scope or hypothesis: Identify the owner's current model-serving deployment without inference or service changes, then make the Proposed migration plan accurate for that deployment.
+
+Decisions: The supplied SSH service is reachable. The device reports NVIDIA Jetson AGX Thor Developer Kit, Ubuntu 24.04, aarch64, 14 CPUs and 128,828,748 KiB RAM. Its serving binary is q4t v0.1.0, with explicit max-seq 1, max-prefill 8192 and max-len 208896. Model config declares modelopt NVFP4 in the Flash-Next SSD-Stream directory. Retain the historical vLLM preflight failure; introduce no automatic equivalent pass.
+
+Changes: Update the Proposed migration plan and status pointers with two explicit paths: preserve Heavy semantics on a qualified compatible backend (recommended), or first design and approve a distinct q4t greedy tier. The inspected q4t source rejects non-neutral temperature/top-p and unknown fields, with top_k, tool_choice, parallel_tool_calls and cache_salt absent from its allowlist. Dropping them would alter the experiment. Its session/prefix-cache capability fields are not established substitutes. No adapter, configuration or server change is implemented.
+
+Evidence: Binary SHA-256 0c5ab1de85ff68f9d757ac3bfad04187756a1b2c6634108c3112a5861c209483; adjacent clean tracked source HEAD 24b97e7d50ec7d81eaabcf11ef3f7c7be3587a35; contract-source SHA-256 d381ae5d9f656bd70bfdb52eda097492ff9714a0cc66f1edc532988cd925716f. Config, tokenizer, template and weight-index hashes are retained in the sanitized ignored inventory, SHA-256 8a23fd305bb26d27bdf2ddd73717e0e5025ccbba697cada0c6792bb0fe0b1cf0. Direct backend models/metrics/healthz returned HTTP 200. One metric snapshot showed active_chats=0, one free/total slot and gpu_healthy=1; num_requests_running=1 counts HTTP connection threads including polling, not just inference. Source inspection establishes that active_chats includes parsing, queued and generating requests. Independent plan review found no blocking scope or evidence issue.
+
+Failures or blockers: The retained Heavy body conflicts with the inspected q4t contract. Context qualification must use the actual deployment ceiling, not the checkpoint's 262,144 declaration; reserving 16,384 output at the configured 208,896 ceiling leaves at most 192,512 prompt tokens including template/tools. Missing immutable weight provenance, reproducible binary/source correspondence, public-route binding and live compatibility remain unresolved. Docker metadata was inaccessible without elevation; none was attempted.
+
+Limitations and non-claims: Static source findings were not confirmed by new inference. A binary hash and nearby clean source revision do not prove their build correspondence. File metadata/index hashes do not attest all weight bytes. The single metadata snapshot is neither the three-sample idle gate nor inference liveness. A separately observed legacy proxy was not established as part of the supplied API route. No task data, request logs, fresh gold or credential stores were read, and no endpoint, credentials, local paths or raw traces are committed. The temporary SSH control session was closed.
+
+Paid exposure: USD 0; zero new inference requests. The original migration, H4 and H5 runtime approvals are not supplied by this inspection permission.
+
+Next gate: Owner review of the revised Proposed plan and its explicit backend/profile choice. Any actual server change needs its exact D11 decision and window; any q4t experiment amendment needs its named design approval before implementation. Existing Claude calibration remains accepted.
+
+References: BL-20261031-1714-owner-ssh-inventory-authority, BL-20261031-1638-flash-next-migration-design, BL-20261031-1556-replacement-endpoint-preflight-blocked, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md section 1.1.

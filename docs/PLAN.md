@@ -546,7 +546,10 @@ the [Flash-Next migration design](plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md) after
 changing the model on the device. The design names the affected local roles,
 qualification and H4 gates, and preserves the separate H5 launch decision.
 It is not yet approved; the historical Qwen3.8-27B results and conditional R2
-rule remain unchanged. The Claude step-0/1 Console reconciliation is now verified
+rule remain unchanged. Subsequent authorized SSH inventory identifies q4t's
+greedy-only contract and a configured 208,896-token limit; the design now requires
+an explicit compatible-backend or revised-q4t-profile choice before implementation.
+The Claude step-0/1 Console reconciliation is now verified
 (BL-20261031-1636-claude-console-reconciled), independently of local qualification.
 
 **Status 2026-10-22 (BL-20261022-0834, BL-20261022-0940):** the division-of-labour

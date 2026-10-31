@@ -2,6 +2,11 @@
 
 Status: **Proposed**. Prepared 2026-11-01 (Asia/Shanghai).
 
+Updated after owner-authorized SSH inventory on 2026-11-01. The current backend
+is q4t, and its inspected contract conflicts with the retained Heavy profile.
+Resolve the explicit backend/profile choice in section 1.1 before approving
+implementation or admitting the local qualification batch.
+
 The owner requested this design after confirming that the same device now serves
 a different underlying model. Adopt Flash-Next as a new, explicitly identified
 local evaluation tier only after approval and qualification. Preserve the
@@ -18,8 +23,8 @@ remain subject to PLAN D11 and a scheduled restart.
 | Item | Current evidence | Consequence |
 | --- | --- | --- |
 | New endpoint | Advertises `qwen3.8-flash-next`; two synthetic non-streaming POSTs returned HTTP 200. The second completed with `stop`, but reasoning and a closing think tag appeared in ordinary content. | Basic chat works. Tool, streaming, thinking-off and Heavy compatibility remain unverified. |
-| Serving readiness | Version route returned 404; metrics lacked the required running/waiting gauges. Owner confirms same box, different model. | Do not reuse the old `0.32.0` / `RM-01 VLM` serving pin or treat missing gauges as zero. |
-| Actual model | Checkpoint revision, quantization, engine/build, template, parsers, context and device headroom are unknown. | A served alias or physical device name cannot establish the evaluated model. |
+| Serving readiness | Original vLLM preflight failed. SSH identifies q4t v0.1.0; its `/healthz`, `/v1/models` and `/metrics` respond, with q4t-specific counters. One snapshot showed zero active chats, one free slot and no sticky GPU error. | Historical failure stands. A source-bound q4t guard still needs review and three-sample/liveness qualification. |
+| Actual model | Thor device; q4t binary and clean source tree hashed; model directory `Qwen3.8-Flash-Next-NVFP4-SSD-Stream`, config declares modelopt NVFP4. Tokenizer/template/config/index hashes retained. | Immutable weight revision/full weight digests, binary-to-source build correspondence and public API route binding remain unverified. |
 | Claude step 0 | Attempt 1 exited 3 for missing later thinking, triggering the allowed repeat; the repeat exited 2 for a warm read instead of the required initial cache write. The owner accepted their combined evidence once. | Retain both original verdicts and the adjudication; no third probe. |
 | Claude step 1 | 79 cloud replies and 34 old-tier local judge calls settled; cloud fee USD 1.127758, approved projection USD 2.121435 below USD 3.00. Guidance review found no visible refusal. | Transport/cost calibration is reusable under its original configuration; task quality remains independently ungraded. |
 | Console reconciliation | Owner screenshot shows SOAR-key cost USD 1.15; step-0/1 ledger total USD 1.151653, difference USD 0.001653 within USD 0.05. Earlier owner confirmation supplies the no-competing-usage condition. | Historical step 1 is accepted. The screenshot alone does not establish exclusive usage or qualify Flash-Next. |
@@ -28,6 +33,49 @@ remain subject to PLAN D11 and a scheduled restart.
 The Console image, key fragments, account details, endpoint addresses and raw
 receipts stay outside Git. Public records retain only relevant amounts, counts,
 hashes and limitations. Original results are never overwritten.
+
+### 1.1 Read-only inventory findings and the required design choice
+
+The supplied SSH access reaches an NVIDIA Jetson AGX Thor Developer Kit, Ubuntu
+24.04, aarch64, 14 CPUs and 128,828,748 KiB RAM (about 122.9 GiB). The serving
+binary reports q4t v0.1.0. Its SHA-256 is
+`0c5ab1de85ff68f9d757ac3bfad04187756a1b2c6634108c3112a5861c209483`;
+the adjacent clean tracked source is at
+`24b97e7d50ec7d81eaabcf11ef3f7c7be3587a35`. These are separate observations,
+not a reproducible-build proof. The supplied credentials were used only to
+authenticate this read-only session, which is now closed.
+
+The launch explicitly sets `--max-seq 1`, `--max-prefill 8192` and
+`--max-len 208896`. The checkpoint's 262,144 declaration does not override that
+serving limit. A 16,384-token output reservation leaves at most **192,512
+tokenized prompt tokens**, including template/tool overhead, at the configured
+ceiling. `max-prefill` bounds forward/prefill work, not an inferred 8K total
+context. Exact effective capacity remains part of qualification.
+
+The inspected [q4t request contract](https://github.com/thomas-hiddenpeak/qwen4-thor/blob/24b97e7d50ec7d81eaabcf11ef3f7c7be3587a35/src/server/chat_contract.cpp)
+rejects non-neutral sampling values: temperature must be 0 and top-p 1. It also
+rejects unknown fields, and its allowlist omits SOAR's `top_k`, `tool_choice`,
+`parallel_tool_calls` and `cache_salt`. This is a static incompatibility finding;
+no rejected inference request was sent to demonstrate it. Template thinking
+controls are supported in source. q4t's `session_id` and `prefix_cache_scope`
+fields have their own capability contracts and are not proven equivalents of
+SOAR's per-job cache salt.
+
+| Path | Decision and impact |
+| --- | --- |
+| **A — preserve the existing Heavy experiment (recommended)** | Qualify a Flash-Next serving deployment that supports the retained sampling, native single-action tools, cache isolation and context contract. This may require a compatible backend or separately scoped q4t capability work. Prepare the exact deployment/configuration change before D11 approval; no install or restart is implied. The rest of this plan retains this path's experiment semantics. |
+| **B — evaluate the current q4t tier** | First revise the design to name greedy temperature 0/top-p 1/no top-k, an explicitly scoped tool adapter, a proven cache-isolation strategy, the actual context bound and scoped reasoning parsing. Record the change to repeat/diversity interpretation: two greedy repeats do not supply two stochastic samples. The revision must be reviewed and approved before implementation. Omitting unsupported fields is not an invisible compatibility fix. |
+
+For either path, do not borrow vLLM parser flags. A q4t readiness proposal should
+use `q4t_active_chats=0` (parsing, queued and generating requests), zero reserved
+chat-body bytes, all configured slots free and `q4t_gpu_healthy=1`, sampled at
+least three times 20 seconds apart, followed by bounded liveness qualification.
+The [q4t metrics source](https://github.com/thomas-hiddenpeak/qwen4-thor/blob/24b97e7d50ec7d81eaabcf11ef3f7c7be3587a35/src/server/chat_metrics.cpp)
+shows that `q4t_num_requests_running` counts HTTP connection threads; a metrics
+poll can itself make it 1. Requiring that counter to be zero would misclassify an
+idle engine. This proposed equivalence still needs verification, not a retroactive
+pass of the old gate. A separate legacy proxy was observed, but its relation to
+the supplied API is unproven and no dependency or change to it is assumed.
 
 ## 2. Proposed amendment and role binding
 
@@ -84,9 +132,10 @@ Before inference qualification, prepare a sanitized serving manifest with:
   observation time and provenance. Keep raw routes, flags containing private
   paths, and diagnostic captures ignored; never include credentials.
 
-Use existing accessible operator configuration or owner-supplied sanitized
-inventory. Do not guess the engine from an OpenAI-compatible route, scan the
-device, obtain shell access by another route, or restart it as part of inventory.
+The owner subsequently authorized SSH inspection; section 1.1 records its bounded
+read-only results. Use this verified inventory and any remaining owner-supplied
+configuration. Do not guess the engine from an OpenAI-compatible route, scan the
+network, obtain shell access by another route, or restart it as part of inventory.
 If configuration must change, present the exact diff and restart/rollback window
 for D11 approval after identifying the actual engine.
 
@@ -230,6 +279,9 @@ scoped client/operator implementation and offline tests, the bounded local
 qualification, and the three exposed H4 loops only after all preceding gates
 pass within a valid window and existing caps. It would not authorize unknown
 server changes, a restart, H5, private data, additional paid calibration or release.
+The newly discovered contract conflict must first be resolved through path A or
+an explicitly revised path-B design. The owner's SSH permission approves
+inventory only; it does not select either path or approve this migration.
 
 Stop on identity drift, missing operational evidence, response/schema/accounting
 failure, a failed compatibility case, infrastructure instability, cap exhaustion
@@ -250,6 +302,9 @@ status remains Proposed/Implemented/Verified at the specific stage reached.
 Official sources checked 2026-11-01; they describe upstream software, not proof
 of what runs on the owner's device:
 
+- [Qwen4-Thor upstream](https://github.com/thomas-hiddenpeak/qwen4-thor) and the
+  pinned contract/metrics sources above: the inventory identifies this engine;
+  its greedy API and q4t metadata supersede assumptions that vLLM is deployed.
 - [Qwen Flash-Next model card](https://huggingface.co/Qwen/Qwen3.8-Flash-Next):
   thinking defaults, `enable_thinking` and `preserve_thinking` API controls.
 - [vLLM exact-model recipe](https://github.com/vllm-project/vllm/blob/main/recipes/models/Qwen/Qwen3.8-Flash-Next.yaml):

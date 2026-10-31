@@ -26450,3 +26450,51 @@ Paid exposure: USD 0.
 Next gate: Strengthen the shape probe's host verdict to require the tool-history path the approved probe is meant to exercise; then full integrated validation, credential readiness and the live gates.
 
 References: BL-20261031-1258-recovery-metrics-calibration-authority, BL-20261026-1832-h4-select-and-repair-implemented, BL-20261030-0850-claude-cloud-adapter-implemented, docs/experiments/README.md.
+
+### BL-20261031-1305-claude-probe-tool-history-verdict -- 2026-10-31 -- Refuse a shape-probe pass when no tool-history path was exercised
+
+Status: `Implemented`
+
+Scope or hypothesis: The approved shape probe is meant to test dropping thinking from tool turns and editing an earlier tool result. Review found its verdict could pass a sequence with no tool calls, despite valid thinking and cache fields.
+
+Decisions:
+
+- Require the first two loop replies to stop for tool use, each with one schema-valid calculate call and distinct ids. Require the third serialized request to carry the first matching tool result with the existing demotion text.
+- Keep the four calls, request bodies, prompts, model parameters, caps and missing-thinking conditional repeat unchanged. Only the host's structural verdict becomes fail-closed against an unexercised path.
+- Preserve the original approval's pass criteria. The implementation entry's additional 80-percent thinking and cache-after-nudge proposals are reported as diagnostics; no new unapproved numerical adoption threshold is introduced here.
+
+Changes: The shape probe and its focused regression file. The probe stays outside the runtime source freeze.
+
+Evidence: A no-network reproduction of the old probe returned pass=true and exitCode=0 with zero tool calls and no tool-result history. Nine focused tests now pass, including that false-positive regression, valid history, missing-thinking repeat advice, invalid tool/schema/multiple-call replies and reused ids. The node typecheck and diff whitespace check pass. Runtime digest remains a142fadc3a810d6b3d9aff512b1a5bab71763cd990ecfb04d5db446337d51cdf.
+
+Failures or blockers: The original probe's verdict was insufficient to prove its intended tool-history path. No live probe had run in this work before correction. A draft of this entry used an identifier that preceded the prior committed timestamp and failed chronological validation; its uncommitted identifier was corrected before saving.
+
+Limitations and non-claims: Mocked requests prove the host gate and unchanged shape, not Anthropic's live behaviour. There is no live result yet.
+
+Paid exposure: USD 0.
+
+Next gate: Full integrated checks, final clean commit and runtime pins, stored Claude credential, then the approved live shape probe.
+
+References: BL-20261030-0620-claude-cloud-adapter-design, BL-20261030-0850-claude-cloud-adapter-implemented, BL-20261031-1258-recovery-metrics-calibration-authority, scripts/anthropic-probe.ts.
+
+### BL-20261031-1305-integrated-corrections-verified -- 2026-10-31 -- Full offline checks pass for the cleanup, accounting and probe-verdict integration
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the combined corrected source before paid calibration; distinguish successful deterministic validation from missing live prerequisites.
+
+Decisions: Use a tracked-source clone outside iCloud with the matching frozen dependency lock and isolated native build output. Retain the slow/sandbox-limited Desktop attempts as environment limitations. Keep all live and Docker integration test opt-ins off for this suite.
+
+Changes: Verification evidence only; the code is described in the preceding entries.
+
+Evidence: Under Node 22.22.2 and pnpm 10.12.4, the exact integrated source passed pnpm check: readiness metadata and secret-pattern scan, build-log structure, both typechecks, locked native-core proof, 141 passed test files and 13 skipped (2,166 passed tests, 81 skipped), the isolated locked native broker rebuild, and main/preload/renderer production builds. The final append-only validator against origin/main and diff whitespace check are rerun before commit. Independent reviews found no remaining blocking authority/replay issue in cleanup or structural false-positive issue in the corrected probe. Docker is reachable and the exact qualified sandbox image is present when checked outside sandbox restrictions.
+
+Failures or blockers: The trusted Claude Keychain metadata lookup still reports the required item missing; the owner has been given the reviewed hidden-input helper. No paid request, model-server probe or H4 stage has started. The initial Desktop/sandbox test attempts did not constitute a passing full check; the outside-iCloud integrated rerun above did.
+
+Limitations and non-claims: The skipped tests include live-provider and opt-in runtime suites. This is deterministic source/build verification, not live Anthropic calibration, a qualified H4 loop, a released build or private-data qualification. No old failed experiment is relabelled.
+
+Paid exposure: USD 0.
+
+Next gate: The owner stores the Claude credential locally; then recheck its status, record the clean commit/final runtime pins, and execute the approved calibration sequence. H5 remains unstarted.
+
+References: BL-20261031-1259-cancelled-cleanup-recovery, BL-20261031-1304-experiment-metrics-and-current-status, BL-20261031-1305-claude-probe-tool-history-verdict, BL-20261031-1258-recovery-metrics-calibration-authority.

@@ -55,8 +55,12 @@ Aggregate use is 14 attempts with 10 unused dispatch slots, while all 11 origina
 remaining cases are still unattempted. Three post-diagnostic idle samples passed.
 No paid call, production-source change or service change occurred. The new H4
 loops and H5 remain held; there is no automatic continuation or retry.
-Next gate: owner adjudication of the [qualification continuation memo](PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md),
-which is **Proposed only** and grants no execution authority.
+The ongoing H4/H5 instruction is recorded in BL-20261031-2158. The named
+[qualification continuation](PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md)
+passed offline and independent review and is activated under BL-20261031-2205
+for one execution within the original caps and deadline. The new diagnostic
+passes the appended literal section adjudication; qualification acceptance
+remains pending and all historical negative results are preserved.
 
 ## 1. Evidence and remaining uncertainty
 

@@ -1,6 +1,7 @@
 # Flash-Next qualification continuation v1
 
-Status: **Proposed; next decision only; no execution authority**.
+Status: **Approved; reviewed operator activated for one bounded execution; qualification acceptance pending**.
+Authority and limits: BL-20261031-2158-h4-h5-goal-continuation and BL-20261031-2205-continuation-admitted.
 Prepared 2026-11-01 (Asia/Shanghai).
 
 ## Preserved evidence
@@ -14,12 +15,13 @@ heading predicates remain false: the new response uses the exact section titles
 as plain paragraphs. Those recorded predicate failures must stay intact.
 A new response cannot establish what the unseen original Q13 contained.
 
-## Proposed semantic adjudication of the new diagnostic
+## Accepted semantic adjudication of the new diagnostic
 
 The production synthesis prompt and frozen fixture design require Markdown with
 two sections titled exactly “Conflicting evidence” and “Unanswered questions”;
-they do not explicitly require formal Markdown heading syntax. Ask the owner to
-adjudicate the **new diagnostic only** against that literal requirement:
+they do not explicitly require formal Markdown heading syntax. Under the
+ongoing instruction, adjudicate the **new diagnostic only** against that literal
+requirement, preserving every earlier result:
 
 - Each exact title must occupy a complete standalone top-level paragraph **or**
   an actual top-level Markdown heading. Both named sections must be present.
@@ -28,15 +30,14 @@ adjudicate the **new diagnostic only** against that literal requirement:
 - Retain the same toy answer, host-known E citations, packet-only evidence,
   no reasoning leakage, model identity, usage and output-limit requirements.
 
-This proposes a named interpretation of section structure, not quality acceptance
-or retroactive relaxation of the failed Q13. Any owner decision and its evidence
-must be appended separately. The original and diagnostic predicate results stay
-intact; no corrected automatic checker is claimed implemented by this memo.
+This names an interpretation of section structure, not quality acceptance
+or retroactive relaxation of the failed Q13. The ongoing authority is recorded separately in BL-20261031-2158;
+its CPU and root evidence is appended in BL-20261031-2205. Fifteen checker tests and independent review passed; the retained diagnostic passes all literal checks at 303 words. The original and diagnostic predicate results stay intact.
 
-## Proposed ten-request allocation
+## Approved ten-request allocation
 
-Conditional on acceptance of the new diagnostic as synthesis compatibility
-evidence, propose this ordered allocation under unchanged model, role, serving,
+Following acceptance of the new diagnostic as synthesis compatibility
+evidence, use this ordered allocation under unchanged model, role, serving,
 source, tokenizer/template and shared-admission pins:
 
 | Original slots | Remaining proof | Requests | Output reserved |
@@ -53,12 +54,12 @@ already demonstrated thinking-on JSON; Q05 demonstrated a thinking-on SSE final
 answer with separated reasoning, and Q11 demonstrated thinking-on SSE planning.
 The tradeoff is losing the identical-prompt transport comparison, while retaining
 both response modes and all remaining role/context/cancellation checks. This is
-a proposed fixture-allocation amendment, not permission to reuse unused slots.
+the named approved allocation amendment; no other unused slots are authorized.
 
 | Cumulative allocation | Requests | Reserved output | Prompt envelopes |
 | --- | ---: | ---: | ---: |
 | Original thirteen plus the one diagnostic | 14 | 80,128 | 323,712 |
-| Proposed ten remaining | 10 | 50,688 | 272,384 |
+| Approved ten remaining | 10 | 50,688 | 272,384 |
 | **Combined / original ceiling** | **24 / 24** | **130,816 / 131,072** | **596,096 / 1,000,000** |
 
 All failed/cancelled attempts retain their full reservation; short actual outputs
@@ -83,15 +84,14 @@ Q20 retains its actual planned cancellation receipt classification, including
 UNKNOWN/cancelled where produced, with no replay; prove idle before fresh-job Q21.
 No automatic retries, replacements, service tuning or fresh-task/gold access.
 
-This memo supplies neither a runnable continuation operator nor launch authority.
+The separate continuation operator passed nineteen focused tests, strict TypeScript and independent review. BL-20261031-2205 binds the released operator and exact authority for one execution. Qualification acceptance remains pending.
 The existing batch runner starts at Q01 with a new clock, so it must not be used
-unchanged. A separate operator with aggregate accounting, a one-shot claim and
-the original absolute deadline needs implementation and offline review. If that
-work and bounded execution no longer fit, stop; extending or resetting the clock
-requires an explicit amendment. A separately recorded decision and reviewed,
-frozen allocation are required before any further generation. Qualification acceptance remains pending. All
+unchanged. The reviewed separate operator enforces aggregate accounting, a one-shot claim and
+the original absolute deadline. If bounded execution no longer fits, stop; extending or resetting the clock
+requires an explicit amendment. A reviewed, frozen allocation and exact authority binding are required before
+any further generation. Qualification acceptance remains pending. All
 three H4 loops, their embedded split calibration and subsequent H5 gates remain
-unchanged; this proposal starts none of them.
+unchanged; this continuation starts none of them.
 
 References: [migration plan, section 4](PHASE4_FLASH_NEXT_MIGRATION_V1.md#4-bounded-local-compatibility-qualification),
 BL-20261031-2114-flash-qualification-stopped,

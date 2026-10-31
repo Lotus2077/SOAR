@@ -27376,3 +27376,49 @@ Paid exposure: USD 0 new. The diagnostic receipt and all original local receipts
 Next gate: Present a narrow criterion/allocation amendment for owner adjudication: assess the new response against the literal titled-section requirement while retaining both historical false predicates, then potentially retain Q14-Q21 and Q23-Q24 and omit only the duplicate Q22 arithmetic SSE comparison. That proposed total is 24 requests and 130816 reserved output tokens under the unchanged limits. Without that decision, remaining qualification and all three H4 loops stay held; H5 cannot start.
 
 References: BL-20261031-2137-q13-diagnostic-approved, BL-20261031-2120-q13-diagnostic-prepared, BL-20261031-2114-flash-qualification-stopped, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md section 4. Proposed next-decision memo: docs/plans/PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md; it grants no execution authority.
+
+### BL-20261031-2158-h4-h5-goal-continuation -- 2026-10-31 -- Continue the owner goal through the named qualification correction and remaining gates
+
+Status: `Approved`
+
+Scope or hypothesis: The owner's active objective is "keep resolve the coming issues and try to complete H4 and H5" following the diagnostic result and proposed continuation. Continue necessary implementation, review and bounded execution toward the full objective. This records the execution interpretation of that ongoing instruction; it does not infer additional requests, fees or time beyond the existing limits.
+
+Decisions: Adopt the proposed literal titled-section interpretation for the new diagnostic only: complete standalone top-level title paragraphs or actual Markdown headings may identify the two required sections; quoted, fenced, embedded or empty pseudo-sections do not. Retain the original fact/citation/markup constraints and the prompt's word bound. Preserve original Q13 UNKNOWN and both previously false heading predicates. After CPU verification and independent review, append a separately bound semantic adjudication rather than rewriting historical results. Allocate the remaining ten requests to Q14-Q21 and Q23-Q24, explicitly omitting only the duplicate Q22 same-arithmetic JSON/SSE comparison. Existing JSON and SSE evidence remains, with that narrower lost comparison disclosed.
+
+Changes: Prepare a separate inactive continuation operator using frozen tail request bodies and unchanged production model/broker/role helpers. Carry forward original and diagnostic ledger counts, use a durable original-admission-keyed claim and the original absolute deadline, stop on the first unexpected failure and preserve planned cancellation classification. Audit the inactive H4/H5 operators and fix any verified account-identity or one-shot-authority defect before activation. No production prompt, Heavy control, source/protocol identity or service tuning is authorized by this correction.
+
+Evidence: The prior turn completed one approved diagnostic, changed authoritative evidence and determined the next action; it was progress. The active goal remains full H4/H5 completion. At 21:56 UTC a metadata-only observation again reports the expected serving identity, healthy status, zero running/waiting requests and unchanged cache creation epochs; query count 124933 agrees with prior admitted prompts. Observation SHA-256 0e97c670bf1d3cb959dfa7d05530993648557a76c4f3683f21d2f42bbc045c56. Both CI jobs passed for commit 08af55c. No new inference has occurred at entry creation.
+
+Failures or blockers: The continuation operator and appended semantic adjudication are not yet verified or activated. The full qualification remains incomplete, and no new H4/H5 run exists. Review identified that the inactive H4 operator inherits Claude account identity from ambient environment and lacks an authority anchor independent of its output directory; these require focused fixes and tests. The source and original evidence remain frozen while those ignored operator changes are prepared.
+
+Limitations and non-claims: Combined maximum allocation remains 24 requests, 130816 reserved output tokens and 596096 prompt-token envelopes, below the existing 131072/1000000 ceilings. Actual cumulative use remains fourteen requests, 124933 admitted prompt tokens and 80128 output reservations. The original qualification hard stop is 22:35:27.546 UTC; the wider owner new-start cutoff of 2026-11-01 01:19:14.660899 UTC does not extend it. No clock reset, replacement inference or silent retry is granted. This entry does not accept qualification, H4, H5 or model quality.
+
+Paid exposure: USD 0 for qualification. Existing accepted Claude step-0/1 evidence and the USD 0.60 embedded H4 split-calibration / USD 21.60 counted H5 bounds remain unchanged. No new paid request at entry creation.
+
+Next gate: Independently verify the literal section adjudication and inactive continuation, freeze and bind the exact released operator before one bounded execution, then review the full combined qualification evidence. Only accepted qualification allows the already-authorized three H4 loops; their mechanical and semantic proof precedes the pinned H5 batch-start record. Continue to complete and verify the full H4/H5 objective, retaining all negative results.
+
+References: BL-20261031-2141-q13-diagnostic-result, docs/plans/PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-2205-continuation-admitted -- 2026-10-31 -- Verify the named correction and admit the ten remaining requests
+
+Status: `Approved`
+
+Scope or hypothesis: Release the separately reviewed continuation under BL-20261031-2158. Execute exactly the ten frozen tail rows Q14-Q21 and Q23-Q24, omitting Q22, without rewriting either prior ledger or extending the original clock.
+
+Decisions: Accept the literal section criterion for the retained diagnostic only. Its two complete top-level title paragraphs have nonempty content in the exact order; fixed fact, known citation, reserved-markup and 1200-word requirements pass (303 words). Preserve original Q13 UNKNOWN and both false heading predicates. This adjudication is not qualification acceptance.
+
+Changes: Archive inactive assets and preparation; change only the continuation activation constant and regenerate its pinned proposal. Bind the accepted section record, immutable original evidence, roles, service and exact-token policy to a fresh durable authority. Root verified the running container/image, complete launch arguments, selected environment, init, owner label and active recovery supervisor. The operator enforces one-shot admission, fixed actual request bodies, first-failure stop, exact token limits, original absolute deadline and pre/post idle gates. Expected cancellation requires HTTP 200 in-flight evidence and its own cancelled UNKNOWN receipt, followed by retirement and idle recovery.
+
+Evidence: Literal-section adjudication SHA-256 b1e5e4d487fa763d04a053ab01b6192f4b151aee51e27c4db87e2b622c057dc5; root acceptance fb3470b3784f40308a0826f672a487cb2f131580c087797210f9e457f7c783b4. Fifteen checker tests and strict TypeScript pass, independently reviewed. Nineteen continuation tests and strict TypeScript pass; independent reviewer also ran all nineteen. Released operator cd619850d9b73c2bf4b15530f4611d91854e742543aaa8ae9afa30861d59512d; proposal 2a9d28bc1cc1a8b86cdc0cca28d7b84ff6c5ff4830b55d716e7b38d1c80c9e16; authority 81911d7422e6ebbf236458f197858a17594fb3864912591b79eaf3592d0c8506; live ownership observation b57b125126822a72ad79fb16e028964a8e7652283ce1b03725e417f03dfdc05f. Production source/protocol remain unchanged.
+
+The inactive H4 account/authority defects identified in BL-20261031-2158 are fixed: explicitly bind accepted historical Claude account/version, and use an exclusive durable helper-anchored authority claim preventing copied-directory replay. Seven new tests, nine existing gate tests, strict TypeScript and independent review pass. Verification SHA-256 cb587b07ccd3ee2e475df7c4405147a122f72b9adfa8ec54f8d1d573807585aa. Existing H5 sixteen TypeScript and fifteen Python tests also pass. The free Claude models check returned HTTP 200; it made no paid generation request. H4/H5 remain inactive pending qualification.
+
+Failures or blockers: No remaining operator review blocker. Full compatibility is still unverified. All previous negative results and consumed authorities remain unchanged. Any unexpected continuation failure stops new requests; no retry is permitted.
+
+Limitations and non-claims: Ten remaining requests reserve 50688 output tokens and 272384 prompt-token envelopes. Combined maxima are 24 requests, 130816 output tokens and 596096 prompt-token envelopes. Original hard stop remains 22:35:27.546 UTC. Settlement cleanup after an abort grants no new admission. Root must accept the combined evidence before H4; this entry starts neither H4 nor H5.
+
+Paid exposure: USD 0 qualification. No additional paid calls. Existing USD 0.60 H4 split and USD 21.60 H5 bounds unchanged.
+
+Next gate: Execute this authority once, review the complete combined record, and append acceptance or the exact failure. Only accepted qualification permits the three approved H4 loops.
+
+References: BL-20261031-2158-h4-h5-goal-continuation, docs/plans/PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.

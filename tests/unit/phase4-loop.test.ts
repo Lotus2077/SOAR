@@ -25,7 +25,7 @@ function base(over: Partial<DriverInput> = {}): LoopInput["base"] {
 }
 const cloud = { model: "m", endpoint: "https://api.example.invalid/v1/responses", prices: { input: 2, output: 10, cached: 0.2 }, maxFeeUsd: 0.6 };
 /** Fakes standing in for the driver, the critique tool and the summariser; each stage leaves the marker file the real tool leaves. */
-function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?: string[]; critiqueFails?: string | Error; onRun?: (run: DriverInput) => void }) {
+function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?: string[]; critiqueFails?: string | Error; critiqueFinishReason?: string; onRun?: (run: DriverInput) => void }) {
   const calls: { runs: DriverInput[]; critiques: Parameters<LoopDependencies["critique"]>[0][] } = { runs: [], critiques: [] };
   let tick = 0;
   const snapshot = (directory: string) => (input.transfers ?? []).includes(directory.split("/").pop()!) ? h("f") : null;
@@ -36,10 +36,10 @@ function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?:
       calls.critiques.push(request);
       if (input.critiqueFails) throw typeof input.critiqueFails === "string" ? new Error(input.critiqueFails) : input.critiqueFails;
       const selected = input.summaries[request.runDirectory.split("/").pop()!]!;
-      const record: CritiqueRecord = { packetSha256: h("d"), critiqueSha256: h("e"), feeMicrousd: 0, finishReason: "stop", usage, source: { resultSha256: selected.resultSha256, freezeSha256: selected.freezeSha256 },
+      const record: CritiqueRecord = { packetSha256: h("d"), critiqueSha256: h("e"), feeMicrousd: 0, finishReason: input.critiqueFinishReason ?? "stop", usage, source: { resultSha256: selected.resultSha256, freezeSha256: selected.freezeSha256 },
         ...(selected.researchFrom ? { researchSnapshotSha256: selected.researchFrom.snapshotSha256 } : (input.transfers ?? []).includes("a") ? { researchSnapshotSha256: h("f") } : {}) };
       mkdirSync(request.outputDirectory, { recursive: true }); writeFileSync(join(request.outputDirectory, "critique.json"), JSON.stringify(record));
-      return { binding: { packetSha256: record.packetSha256, critiqueSha256: record.critiqueSha256, source: record.source! }, feeMicrousd: 0, finishReason: "stop", usage };
+      return { binding: { packetSha256: record.packetSha256, critiqueSha256: record.critiqueSha256, source: record.source! }, feeMicrousd: 0, finishReason: record.finishReason, usage };
     },
     readCritique(directory) { return JSON.parse(readFileSync(join(directory, "critique.json"), "utf8")) as CritiqueRecord; },
     summarize(directory) { const name = directory.split("/").pop()!; const found = input.summaries[name]; if (!found) throw new Error(`no summary for ${name}`); return found; },
@@ -72,6 +72,13 @@ describe("H4 select-and-repair loop", () => {
     expect(JSON.stringify(saved)).not.toContain(dir);
     expect(readFileSync(join(dir, "log.txt"), "utf8")).toContain("final repair (tie)");
     expect(loopExitCode(record)).toBe(0);
+  });
+  it("adds a truncated critique to the samples' length stops without changing the selection rule", async () => {
+    const dir = loopDir();
+    const { deps } = fakes({ summaries: candidates(false, { a: { lengthStops: 2 }, b: { lengthStops: 1 }, repair: { lengthStops: 1 } }), critiqueFinishReason: "length" });
+    const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, deps);
+    expect(record.totals.lengthStops).toBe(5);
+    expect(record.selected.final).toMatchObject({ candidate: "repair", step: "tie" });
   });
   it("picks the submitted sample, and the draft over a repair that failed to submit", async () => {
     const dir = loopDir();
@@ -112,13 +119,13 @@ describe("H4 select-and-repair loop", () => {
     const record2 = await runSelectionLoop({ base: base(), loopDirectory: dir2 }, failing.deps);
     expect(record2.selected.final).toEqual({ candidate: "a", step: "critique_failed" }); expect(failing.calls.runs).toHaveLength(2);
     expect(record2.critique).toEqual({ failure: "repair_critique_empty", feeMicrousd: 0, finishReason: "length", usage: { inputTokens: 15_000, outputTokens: 16_384 }, modelCalls: 1 });
-    expect(record2.totals).toMatchObject({ modelCalls: 21, inputTokens: 17_000, outputTokens: 16_584 });
+    expect(record2.totals).toMatchObject({ modelCalls: 21, inputTokens: 17_000, outputTokens: 16_584, lengthStops: 1 });
     expect(read(dir2)).toMatchObject({ critique: { failure: "repair_critique_empty" }, failure: null });
     // A failure before the call carries no usage and counts no call; a raw message (a host path) is replaced by a code.
     const dir3 = loopDir();
     const early = fakes({ summaries: candidates(false), critiqueFails: new Error("ENOENT: no such file or directory, lstat '/Users/someone/task'") });
     const record3 = await runSelectionLoop({ base: base(), loopDirectory: dir3 }, early.deps);
-    expect(record3.critique).toEqual({ failure: "repair_critique_failed", feeMicrousd: 0, finishReason: null, usage: null, modelCalls: 0 }); expect(record3.totals.modelCalls).toBe(20);
+    expect(record3.critique).toEqual({ failure: "repair_critique_failed", feeMicrousd: 0, finishReason: null, usage: null, modelCalls: 0 }); expect(record3.totals).toMatchObject({ modelCalls: 20, lengthStops: 0 });
     expect(readFileSync(join(dir3, "loop.json"), "utf8")).not.toContain("/Users"); expect(readFileSync(join(dir3, "log.txt"), "utf8")).not.toContain("/Users");
     // A loop that chose is terminal whether or not the critique directory exists: a rerun is refused, never retried.
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, fakes({ summaries: candidates(false) }).deps)).rejects.toThrow("loop_terminal");
@@ -126,7 +133,7 @@ describe("H4 select-and-repair loop", () => {
   });
   it("resumes at stage granularity, keeping the loop's start and the reused stages' times, refuses an unfinished stage, and records a failure as a code", async () => {
     const dir = loopDir();
-    const first = fakes({ summaries: candidates(false), onRun: run => { if (run.outputDirectory.endsWith("repair")) throw new Error("ENOSPC: no space left on device, write '/Users/someone/loop/repair/x'"); } });
+    const first = fakes({ summaries: candidates(false), critiqueFinishReason: "length", onRun: run => { if (run.outputDirectory.endsWith("repair")) throw new Error("ENOSPC: no space left on device, write '/Users/someone/loop/repair/x'"); } });
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, first.deps)).rejects.toThrow("ENOSPC");
     const stopped = read(dir);
     expect(stopped).toMatchObject({ failure: "loop_failed", startedAt: "t0", finishedAt: expect.any(String) }); expect(stopped.selected.final).toBeNull();
@@ -139,7 +146,7 @@ describe("H4 select-and-repair loop", () => {
     expect(second.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["repair"]); expect(second.calls.critiques).toHaveLength(0);
     expect(record.stages.map(stage => [stage.stage, stage.reused])).toEqual([["a", true], ["b", true], ["critique", true], ["repair", false]]);
     for (const name of ["a", "b", "critique"]) expect([record.stages.find(stage => stage.stage === name)!.startedAt, record.stages.find(stage => stage.stage === name)!.finishedAt]).toEqual(reusedTimes[name]);
-    expect(record.startedAt).toBe("t0"); expect(record.critique).toMatchObject({ critiqueSha256: h("e"), modelCalls: 1 }); expect(record.totals.modelCalls).toBe(31);
+    expect(record.startedAt).toBe("t0"); expect(record.critique).toMatchObject({ critiqueSha256: h("e"), finishReason: "length", modelCalls: 1 }); expect(record.totals).toMatchObject({ modelCalls: 31, lengthStops: 1 });
     // A stage directory without its result is refused.
     const dir2 = loopDir();
     mkdirSync(join(dir2, "a"), { recursive: true });

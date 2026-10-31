@@ -36,6 +36,52 @@ afterEach(async () => {
 });
 
 describe("loadConfig", () => {
+  it("enables the local reply contract only through its explicit deployment setting", async () => {
+    const roots = await createConfigRoots();
+    const environment = { SOAR_VLLM_MODEL: "qwen3.8-flash-next" };
+    expect(loadConfig({ ...roots, environment }).vllm).not.toHaveProperty("localReplyContract");
+    expect(loadConfig({ ...roots, environment }).vllm).not.toHaveProperty("localContextTokens");
+    expect(loadConfig({ ...roots, environment: { ...environment, SOAR_VLLM_REPLY_CONTRACT: "flash_next_v1", SOAR_VLLM_CONTEXT_TOKENS: "262144" } }).vllm)
+      .toMatchObject({ localReplyContract: "flash_next_v1", localContextTokens: 262_144 });
+    for (const value of ["", "auto", "legacy", "flash_next_v2", " flash_next_v1"]) {
+      expect(() => loadConfig({ ...roots, environment: { ...environment, SOAR_VLLM_REPLY_CONTRACT: value, SOAR_VLLM_CONTEXT_TOKENS: "262144" } }), value).toThrow();
+    }
+  });
+
+  it("requires a safe serving-context pin above Heavy output only with the Flash contract", async () => {
+    const roots = await createConfigRoots();
+    const environment = { SOAR_VLLM_REPLY_CONTRACT: "flash_next_v1" };
+    expect(() => loadConfig({ ...roots, environment })).toThrow(/SOAR_VLLM_CONTEXT_TOKENS is required/u);
+    expect(() => loadConfig({ ...roots, environment: { SOAR_VLLM_CONTEXT_TOKENS: "262144" } }))
+      .toThrow(/requires SOAR_VLLM_REPLY_CONTRACT=flash_next_v1/u);
+    for (const value of ["", "0", "-1", "16384", "16384.5", "NaN", "Infinity", "9007199254740992"]) {
+      expect(() => loadConfig({ ...roots, environment: { ...environment, SOAR_VLLM_CONTEXT_TOKENS: value } }), value).toThrow();
+    }
+    expect(loadConfig({ ...roots, environment: { ...environment, SOAR_VLLM_CONTEXT_TOKENS: "16385" } }).vllm.localContextTokens).toBe(16_385);
+  });
+
+  it("accepts only paired absolute hash-bound token admission settings for Flash", async () => {
+    const roots = await createConfigRoots();
+    const flash = { SOAR_VLLM_REPLY_CONTRACT: "flash_next_v1", SOAR_VLLM_CONTEXT_TOKENS: "262144" };
+    const policy = { SOAR_VLLM_TOKEN_ADMISSION_FILE: path.join(roots.root, "admission.json"), SOAR_VLLM_TOKEN_ADMISSION_SHA256: "a".repeat(64) };
+    // Configuration loading does not execute the policy or require it during offline fixture preparation.
+    expect(loadConfig({ ...roots, environment: flash }).vllm).not.toHaveProperty("localTokenAdmission");
+    expect(loadConfig({ ...roots, environment: { ...flash, ...policy } }).vllm.localTokenAdmission)
+      .toEqual({ path: policy.SOAR_VLLM_TOKEN_ADMISSION_FILE, sha256: policy.SOAR_VLLM_TOKEN_ADMISSION_SHA256 });
+    expect(loadConfig({ ...roots, environment: {} }).vllm).not.toHaveProperty("localTokenAdmission");
+    expect(() => loadConfig({ ...roots, environment: policy })).toThrow(/requires SOAR_VLLM_REPLY_CONTRACT/u);
+    for (const partial of [{ SOAR_VLLM_TOKEN_ADMISSION_FILE: policy.SOAR_VLLM_TOKEN_ADMISSION_FILE },
+      { SOAR_VLLM_TOKEN_ADMISSION_SHA256: policy.SOAR_VLLM_TOKEN_ADMISSION_SHA256 }]) {
+      expect(() => loadConfig({ ...roots, environment: { ...flash, ...partial } })).toThrow(/must be supplied together/u);
+    }
+    for (const file of ["", "relative.json", "/tmp/policy\n.json", "/tmp/policy\0.json"]) {
+      expect(() => loadConfig({ ...roots, environment: { ...flash, ...policy, SOAR_VLLM_TOKEN_ADMISSION_FILE: file } })).toThrow();
+    }
+    for (const hash of ["", "a".repeat(63), "A".repeat(64), "g".repeat(64)]) {
+      expect(() => loadConfig({ ...roots, environment: { ...flash, ...policy, SOAR_VLLM_TOKEN_ADMISSION_SHA256: hash } })).toThrow();
+    }
+  });
+
   it("loads Finder configuration from userData before cwd and app files", async () => {
     const roots = await createConfigRoots();
     await Promise.all([

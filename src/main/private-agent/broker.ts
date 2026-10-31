@@ -3,6 +3,8 @@ import https from "node:https";
 import { lookup } from "node:dns/promises";
 import { resolvePublicV4, type PublicDnsEvent } from "./network-resolver";
 import { ANTHROPIC_API_VERSION } from "./anthropic";
+import { inspectFlashNextReply, validateFlashNextRequest, type FlashNextReplyContract, type FlashNextReplyEvidence } from "./flash-next-reply";
+import { FlashNextTokenAdmission, LocalTokenAdmissionError, type LocalTokenAdmissionEvidence } from "./flash-next-admission";
 import { BlockList, isIP } from "node:net";
 import {
   canonical, contextFingerprint, digest, exactText, restrictedContext, syntheticContext,
@@ -73,6 +75,8 @@ export interface BrokerDestination {
    * keeps every fingerprint, packet, header and failure path identical to before.
    */
   anthropicVersion?: typeof ANTHROPIC_API_VERSION;
+  /** Host-pinned Flash exact-token policy; included in the destination identity, never inferred from a model name. */
+  localTokenAdmissionSha256?: string;
 }
 
 export interface ScanResult {
@@ -96,6 +100,9 @@ export interface BrokerRequest {
   grantId?: string;
   approval?: ExactApproval;
   signal?: AbortSignal;
+  /** Trusted host metadata selecting the fixed local validator; never a provider/model-supplied callback. */
+  localReplyContract?: FlashNextReplyContract;
+  localTokenAdmission?: { policySha256: string; contextTokens: number };
 }
 export interface PacketPreview {
   jobId: string; contextId: string; policyRevision: number; contextSha256: string;
@@ -286,6 +293,8 @@ function normalizeDestination(value: BrokerDestination): BrokerDestination {
   if (value.proxyFakeIp !== undefined && (value.proxyFakeIp !== true || value.kind === "local_model" || endpoint.protocol !== "https:" ||
       value.loopbackFixture || value.publicDnsResolver !== undefined || isIP(endpoint.hostname.replace(/^\[|\]$/gu, "")))) deny("destination_proxy_fake_ip_invalid");
   if (value.syntheticOnly && value.privateDataAdmitted) deny("destination_trust_conflict");
+  if (value.localTokenAdmissionSha256 !== undefined && (value.kind !== "local_model" ||
+      !sha256Schema.safeParse(value.localTokenAdmissionSha256).success)) deny("destination_token_admission_invalid");
   let exactUrl: string | undefined;
   if (value.exactUrl !== undefined) {
     const allowed = new URL(exactText(value.exactUrl));
@@ -304,12 +313,17 @@ export class PrivateAgentBroker {
   private readonly destinations = new Map<string, BrokerDestination>();
   private readonly active = new Map<string, Set<AbortController>>();
   private readonly anthropicRetryDelaysMs: readonly number[];
+  private readonly localTokenAdmissions = new Map<string, FlashNextTokenAdmission>();
   /** `anthropicRetryDelaysMs` exists so tests can shorten the waits; the runtime always uses ANTHROPIC_RETRY_DELAYS_MS. */
   constructor(readonly store: PrivateAgentStore, destinations: BrokerDestination[], private readonly scanner: LocalPacketScanner,
-    options: { anthropicRetryDelaysMs?: readonly number[] } = {}) {
+    options: { anthropicRetryDelaysMs?: readonly number[]; localTokenAdmissions?: readonly FlashNextTokenAdmission[] } = {}) {
     const delays = options.anthropicRetryDelaysMs ?? ANTHROPIC_RETRY_DELAYS_MS;
     if (delays.length !== BROKER_MAX_ATTEMPTS - 1 || !delays.every(ms => Number.isSafeInteger(ms) && ms >= 0 && ms <= 600_000)) deny("broker_options_invalid");
     this.anthropicRetryDelaysMs = Object.freeze([...delays]);
+    for (const admission of options.localTokenAdmissions ?? []) {
+      if (!(admission instanceof FlashNextTokenAdmission) || this.localTokenAdmissions.has(admission.sha256)) deny("broker_options_invalid");
+      this.localTokenAdmissions.set(admission.sha256, admission);
+    }
     for (const value of destinations) {
       const destination = normalizeDestination(value);
       if (this.destinations.has(destination.id)) deny("destination_duplicate");
@@ -336,6 +350,19 @@ export class PrivateAgentBroker {
     if (approval && (!destination.requireExactGrant || approval.priceProfileSha256 !== destination.approvalPriceProfileSha256 ||
         approval.maxFeeMicrousd !== input.maxFeeMicrousd)) deny("packet_approval_mismatch");
     if (Buffer.byteLength(body) > (destination.maxRequestBytes ?? BROKER_MAX_BODY_BYTES) || url.href.length > 8192) deny("packet_size_exceeded");
+    if (input.localReplyContract !== undefined) {
+      if (destination.kind !== "local_model" || input.maxFeeMicrousd !== 0) deny("local_reply_contract_invalid");
+      try { validateFlashNextRequest(input.localReplyContract, body); } catch { deny("local_reply_contract_invalid"); }
+    }
+    if (input.localReplyContract !== undefined || destination.localTokenAdmissionSha256 !== undefined || input.localTokenAdmission !== undefined) {
+      const pin = input.localTokenAdmission;
+      if (!input.localReplyContract || destination.kind !== "local_model" || input.maxFeeMicrousd !== 0 || !pin ||
+          Object.keys(pin).sort().join() !== "contextTokens,policySha256" || !Number.isSafeInteger(pin.contextTokens) || pin.contextTokens < 1 ||
+          !destination.localTokenAdmissionSha256 || pin.policySha256 !== destination.localTokenAdmissionSha256 ||
+          !this.localTokenAdmissions.has(pin.policySha256)) {
+        throw new LocalTokenAdmissionError("local_token_admission_missing", digest(body), destination.localTokenAdmissionSha256);
+      }
+    }
     // All custom headers are host-owned and serialized into the grant preview.
     // The broker injects a service credential only after admission, never as data.
     const text = canonical({ method: input.method, url: url.href,
@@ -371,10 +398,14 @@ export class PrivateAgentBroker {
         !(destination.grantFreeSynthetic === true && syntheticContext(context))) deny("private_disclosure_requires_exact_grant");
   }
 
-  async request(input: BrokerRequest, settleFee: (bytes: Buffer) => number = () => 0, validateAtCommit?: () => void): Promise<{ bytes: Buffer; receipt: DispatchReceipt }> {
-    if (input.signal?.aborted) deny("request_cancelled");
+  async request(input: BrokerRequest, settleFee: (bytes: Buffer) => number = () => 0, validateAtCommit?: (evidence?: LocalTokenAdmissionEvidence) => void): Promise<{ bytes: Buffer; receipt: DispatchReceipt; localReplyEvidence?: FlashNextReplyEvidence; localTokenAdmissionEvidence?: LocalTokenAdmissionEvidence }> {
+    if (input.signal?.aborted) {
+      if (input.localReplyContract) throw new LocalTokenAdmissionError("local_token_admission_cancelled", digest(input.body ?? ""), input.localTokenAdmission?.policySha256);
+      deny("request_cancelled");
+    }
     // Snapshot every model-derived value before an asynchronous scan can yield.
-    const frozen: BrokerRequest = { ...input };
+    const frozen: BrokerRequest = { ...input, ...(input.localReplyContract ? { localReplyContract: Object.freeze({ ...input.localReplyContract }) } : {}),
+      ...(input.localTokenAdmission ? { localTokenAdmission: Object.freeze({ ...input.localTokenAdmission }) } : {}) };
     const packet = this.packet(frozen);
     if (packet.destination.requireExactGrant && !packet.preview.approval) deny("exact_grant_required");
     this.eligible(this.store.policy(frozen.jobId), this.store.context(frozen.contextId), packet.destination, frozen.grantId);
@@ -391,6 +422,25 @@ export class PrivateAgentBroker {
       scanReceipt = { status: "complete", detector: scan.detector };
     }
     if (frozen.signal?.aborted) deny("request_cancelled");
+    let localTokenAdmissionEvidence: LocalTokenAdmissionEvidence | undefined;
+    const admission = frozen.localTokenAdmission && this.localTokenAdmissions.get(frozen.localTokenAdmission.policySha256);
+    if (admission) {
+      const preparation = new AbortController(), cancel = () => preparation.abort();
+      const group = this.active.get(frozen.jobId) ?? new Set<AbortController>();
+      group.add(preparation); this.active.set(frozen.jobId, group);
+      frozen.signal?.addEventListener("abort", cancel, { once: true });
+      if (frozen.signal?.aborted) preparation.abort();
+      try {
+        localTokenAdmissionEvidence = await admission.admit(frozen.body!, packet.url.href, frozen.localReplyContract!.model,
+          frozen.localTokenAdmission!.contextTokens, preparation.signal, packet.destination.timeoutMs);
+        if (preparation.signal.aborted || this.store.policy(frozen.jobId).cancelled) {
+          throw new LocalTokenAdmissionError("local_token_admission_cancelled", digest(frozen.body!), frozen.localTokenAdmission!.policySha256);
+        }
+      } finally {
+        frozen.signal?.removeEventListener("abort", cancel); group.delete(preparation);
+        if (!group.size) this.active.delete(frozen.jobId);
+      }
+    }
     const { text: _text, ...identity } = packet.preview;
     // A zero-risk packet can be re-sent without cost or side effect: a zero-fee local request or a public GET without a grant.
     const zeroRisk = frozen.grantId === undefined && !packet.preview.approval &&
@@ -403,11 +453,30 @@ export class PrivateAgentBroker {
       // Each attempt is its own committed row: it re-checks eligibility and consumes one session request.
       let receipt: DispatchReceipt;
       try {
-        receipt = this.store.commit({ ...identity, reservedFeeMicrousd: frozen.maxFeeMicrousd, scan: scanReceipt },
-          (policy, context) => { this.eligible(policy, context, packet.destination, frozen.grantId); validateAtCommit?.(); }, frozen.grantId);
+        receipt = this.store.commit({ ...identity, reservedFeeMicrousd: frozen.maxFeeMicrousd, scan: scanReceipt,
+          ...(localTokenAdmissionEvidence ? { localTokenAdmission: localTokenAdmissionEvidence } : {}) },
+          (policy, context) => {
+            this.eligible(policy, context, packet.destination, frozen.grantId);
+            if (frozen.signal?.aborted) {
+              if (admission) throw new LocalTokenAdmissionError("local_token_admission_cancelled");
+              deny("request_cancelled");
+            }
+            if (admission) admission.validateAtCommit(localTokenAdmissionEvidence!, frozen.body!, packet.url.href,
+              frozen.localReplyContract!.model, frozen.localTokenAdmission!.contextTokens);
+            validateAtCommit?.(localTokenAdmissionEvidence);
+          }, frozen.grantId);
       } catch (error) {
         // The fee or request allowance refused the row inside the transaction: nothing was inserted or sent.
         if (error instanceof Error && error.message === "private_agent_budget_denied") deny("budget_denied");
+        if (error instanceof LocalTokenAdmissionError) {
+          if (attempt > 1) deny("request_failed");
+          throw new LocalTokenAdmissionError(error.code, digest(frozen.body!), frozen.localTokenAdmission?.policySha256);
+        }
+        if (admission && error instanceof Error && ["private_agent_admission_changed", "job_cancelled"].includes(error.message)) {
+          if (attempt > 1) deny("request_failed");
+          throw new LocalTokenAdmissionError(error.message === "job_cancelled" ? "local_token_admission_cancelled" : "local_token_admission_invalid",
+            digest(frozen.body!), frozen.localTokenAdmission!.policySha256);
+        }
         throw error;
       }
       const controller = new AbortController();
@@ -422,12 +491,21 @@ export class PrivateAgentBroker {
       try {
         const bytes = await transport(packet.destination, packet.url, frozen.method, frozen.body, controller.signal, event => {
           this.store.append(frozen.jobId, { ...event, contextId: frozen.contextId, dispatchId: receipt.id });
-        }, meta);
+        }, meta, frozen.localReplyContract !== undefined);
         phase = "response_validation";
+        const localReplyEvidence = frozen.localReplyContract && meta.rawReply
+          ? inspectFlashNextReply(meta.rawReply.bytes, meta.rawReply.format, frozen.localReplyContract) : undefined;
+        if (frozen.localReplyContract && !localReplyEvidence) throw new Error("local_reply_evidence_missing");
+        if (localTokenAdmissionEvidence && JSON.parse(bytes.toString("utf8"))?.usage?.prompt_tokens !== localTokenAdmissionEvidence.promptTokens) {
+          throw new Error("local_token_admission_usage_mismatch");
+        }
+        // Raw reasoning is transient transport data, never a receipt, event, model result or history item.
+        delete meta.rawReply;
         const fee = settleFee(bytes);
         phase = "fee_settlement";
         this.store.settle(receipt.id, fee, digest(bytes));
-        return { bytes, receipt: this.store.dispatch(receipt.id) };
+        return { bytes, receipt: this.store.dispatch(receipt.id), ...(localReplyEvidence ? { localReplyEvidence } : {}),
+          ...(localTokenAdmissionEvidence ? { localTokenAdmissionEvidence } : {}) };
       } catch (error) {
         // Timing is monotonic, excludes pre-commit scanning, and saturates at one
         // hour rather than admitting arbitrary numeric diagnostics into storage.
@@ -498,7 +576,7 @@ async function systemLookup(host: string, signal: AbortSignal, family?: 4) {
 }
 
 /** Filled by the transport as headers arrive, for the failure diagnostic of the Anthropic destination. */
-interface TransportMeta { requestId?: string }
+interface TransportMeta { requestId?: string; rawReply?: { bytes: Buffer; format: "json" | "sse" } }
 const ANTHROPIC_REQUEST_ID = /^req_[A-Za-z0-9]{1,128}$/u;
 function retryAfterSeconds(value: string | string[] | undefined): number | undefined {
   return typeof value === "string" && /^\d{1,6}$/u.test(value.trim()) ? Number(value.trim()) : undefined;
@@ -533,7 +611,7 @@ function readRejection(response: http.IncomingMessage): Promise<Pick<RejectionDe
 }
 
 async function transport(destination: BrokerDestination, url: URL, method: "GET" | "POST", body: string | undefined,
-  signal: AbortSignal, recordDns: (event: PublicDnsEvent) => void, meta: TransportMeta = {}): Promise<Buffer> {
+  signal: AbortSignal, recordDns: (event: PublicDnsEvent) => void, meta: TransportMeta = {}, captureLocalReply = false): Promise<Buffer> {
   const controller = new AbortController();
   // Latch the first abort source. A later task cancel cannot relabel an already
   // fired request timer, and an external signal's arbitrary reason is ignored.
@@ -618,9 +696,11 @@ async function transport(destination: BrokerDestination, url: URL, method: "GET"
         });
         response.on("end", () => {
           clearTimeout(inactivity);
-          if (!stream) { resolve(Buffer.concat(chunks)); return; }
+          const raw = Buffer.concat(chunks);
+          if (captureLocalReply) meta.rawReply = { bytes: raw, format: stream ? "sse" : "json" };
+          if (!stream) { resolve(raw); return; }
           let assembled: Buffer;
-          try { assembled = assembleSseChatCompletion(Buffer.concat(chunks).toString("utf8")); } catch (error) {
+          try { assembled = assembleSseChatCompletion(raw.toString("utf8")); } catch (error) {
             // The server's own error and an early end are answers like an HTTP error or a cut connection (confirmed for a
             // zero-risk packet); only an out-of-protocol stream stays uncertain.
             reject(error instanceof SseStreamError ? new TransportFailure("stream_error", error.status)

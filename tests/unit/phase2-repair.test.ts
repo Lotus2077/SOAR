@@ -85,7 +85,15 @@ describe("Phase 2 repair pair: packet and seeding", () => {
     // A cloud critique recorded on the Anthropic shape (BL-20261030-0620) reads back like the others.
     writeFileSync(join(dir, "critique.json"), JSON.stringify({ ...record, servedModel: "claude-sonnet-5-5", requestShape: "anthropic_messages" }));
     expect(loadRepairDirectory(dir).binding).toEqual(binding());
-    for (const bad of [{ requestShape: "chat" }, { proxyFakeIp: false }, { unexpected: 1 }, { researchSnapshotSha256: "short" }]) {
+    const localCriticIdentity = { modelIdentitySha256: h("1"), initialRuntimeSha256: h("2"), finalRuntimeSha256: h("2") };
+    writeFileSync(join(dir, "critique.json"), JSON.stringify({ ...record, localCriticIdentity }));
+    expect(loadRepairDirectory(dir).binding).toEqual(binding());
+    for (const bad of [{ requestShape: "chat" }, { proxyFakeIp: false }, { unexpected: 1 }, { researchSnapshotSha256: "short" },
+      { localCriticIdentity: { ...localCriticIdentity, finalRuntimeSha256: h("3") } },
+      { localCriticIdentity: { ...localCriticIdentity, modelIdentitySha256: "short" } },
+      { localCriticIdentity: { ...localCriticIdentity, rawConfig: "untrusted" } },
+      { localCriticIdentity: { modelIdentitySha256: h("1"), initialRuntimeSha256: h("2") } },
+      { critic: "cloud", localCriticIdentity }]) {
       writeFileSync(join(dir, "critique.json"), JSON.stringify({ ...record, ...bad }));
       expect(() => loadRepairDirectory(dir)).toThrow();
     }

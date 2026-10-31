@@ -541,6 +541,86 @@ agent's favour.
 
 ### Phase 4: A real week of use (Oct 21 – Oct 27, branch review Oct 27)
 
+**Approved local-tier amendment, 2026-11-01 (Asia/Shanghai):** the owner approved
+the [Flash-Next migration sequence](plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md),
+including at most 24 zero-fee qualification requests, all three H4 loops with
+the USD 0.60 split cap, and separate H5 launch permission
+(BL-20261031-1759-flash-next-sequence-owner-approved). Qualification, final
+deployment/role pins and H4 evidence still precede the H5 batch start. The owner
+subsequently permitted a recoverable trial of the pinned Thor recipe using the
+[service requirements](plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md);
+q4t's inspected greedy contract conflicts with Heavy. The owner's
+[check of q4t itself](plans/Q4T_SERVICE_CAPABILITY_REVIEW.md) confirmed that
+cache/capacity flags cannot add stochastic sampling or structured response
+parsing. The first NemoClaw-derived attempt passed 22 selected operator numerical
+cases and loaded all 206 shards. Initial compilation/profile warmup completed,
+then progress stopped after a 31.44 GiB KV-capacity log; completed cache
+initialization and final engine warmup were not proven. The operator ended the
+attempt before its 30-minute deadline. Automatic container removal failed and
+blocked restoration; later identity-checked non-force cleanup and scoped manual
+recovery verified q4t's original binary/arguments, owned listener and health/model
+metadata (BL-20261031-2003-nemoclaw-trial-failed-q4t-recovered). Fuller kernel
+evidence established driver blocking and post-stop allocation failures, without
+proving the initial cause (BL-20261031-2021-nemoclaw-diagnostic-retry-approved).
+
+The approved instrumented retry reached healthy owned API/model metadata at
+20:37:27 UTC on 2026-10-31, about 321 seconds after server start
+(BL-20261031-2040-nemoclaw-retry-ready). It retains the same checkpoint, image,
+context 262144 and one-sequence profile; the sole serving-argument change is a
+fixed 12 GiB KV pool. All 206 shards loaded, 22 selected operator cases passed
+with 64 deselected and zero skips, total engine initialization completed in 90.62
+seconds, including final CUDA-graph capture in six seconds. The candidate is
+active while q4t is stopped with its verified recovery assets retained. Reduced
+KV, page-cache preparation, retained build caches, diagnostics and wait policy
+were not isolated; readiness within the original 30-minute allowance does not
+show that the extended 60-minute bound was needed. An NVIDIA interrupt warning
+recurred, with no allocation failure or blocked-task report observed through
+20:40 UTC; this bounded observation is not a stability proof.
+
+Six synthetic CPU renderer/tokenizer comparisons have matching token IDs
+(BL-20261031-2049-flash-tokenizer-parity). Shared exact-token admission for every
+local H4/H5 role, including critic and judge, passed the integrated checks: 2247
+tests, 81 explicit skips, both typechecks and the production build
+(BL-20261031-2104-flash-shared-admission-verified).
+
+The frozen one-shot qualification stopped at Q13 after 12 passed checks and 13
+wire requests/dispatch receipts, with USD 0 new fees. Native SSE tools and history
+demotion, thinking on/off, A/A/B/B cache behavior and index/plan/extraction passed.
+Reported cached tokens were 0, 15680, 0 and 15680, corroborated by independent
+engine counters. Q13 yielded 648 observed SSE events, one usage frame, one DONE
+and zero parse failures, then an UNKNOWN `response_or_usage_invalid` receipt;
+the stage wrapper reported `research_stage_invalid`. The original validation
+category was lost, so this is not evidence of a specific backend failure. Offline
+review found that the fixture rejects valid Setext and closing-hash headings,
+but Q13 content was not retained and cannot be attributed to that defect.
+
+The service was healthy and idle at 21:09 UTC; 13 generation HTTP 200 log entries
+and no server errors or new kernel allocation failures were captured through
+21:12 UTC. This bounded observation is not a stability or qualification pass.
+The one-shot claim remains consumed. The separately owner-approved diagnostic
+ran once and settled at USD 0 (BL-20261031-2141-q13-diagnostic-result). Native
+validation, SSE assembly, model settlement and exact prompt parity passed: 385
+prompt tokens and 641 output tokens. Both heading predicates failed because the
+exact required section titles were plain paragraphs; the production prompt and
+fixture design do not explicitly require Markdown heading syntax. This result
+characterizes the new diagnostic, not the missing original Q13 reply. Original
+Q13 remains UNKNOWN; the new diagnostic later passes an appended literal-section adjudication without changing either historical heading verdict.
+
+The approved ten-request continuation completed, and root accepted the combined
+qualification after 252 independent checks (BL-20261031-2208). The total is
+24 requests, 22 settled zero-fee receipts, original Q13 UNKNOWN and planned
+Q20 UNKNOWN/cancelled, 248485 exact prompt tokens and 130816 reserved output
+tokens. Critic, four judge verdicts, large-context anchors at 122439 prompt
+tokens, cancellation/idle recovery and JSON/SSE passed. Nine idle samples passed;
+Q22's duplicate arithmetic transport comparison is omitted as approved. This
+qualifies the pinned deployment's bounded compatibility, not task quality or
+full-context/stability coverage. The three H4 loops are approved for the next
+launch after clean-commit/CI preflight; H5 remains pending their acceptance.
+Heavy semantics and the remaining technical gates are unchanged.
+Historical Qwen3.8-27B results and the conditional R2 rule remain unchanged.
+The Claude step-0/1 Console reconciliation is now verified
+(BL-20261031-1636-claude-console-reconciled), independently of local qualification.
+
 **Status 2026-10-22 (BL-20261022-0834, BL-20261022-0940):** the division-of-labour
 harness track is approved beside the week, with the two rules below waived for
 that track only; it touches no owner build, box or owner job before Oct 27.

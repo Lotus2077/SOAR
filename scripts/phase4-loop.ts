@@ -134,7 +134,11 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
     if (summary.taskJobSha256 !== record.task.jobSha256 || summary.taskBriefSha256 !== record.task.briefSha256 || summary.runtimeSha256 !== record.runtimeSha256 || !lineageOk || !repairOk) throw new Error("loop_stage_mismatch");
     record.candidates[name] = summary; for (const key of TOTAL_KEYS) record.totals[key] += summary[key]; return summary;
   };
-  const addCritique = (usage: CritiqueUsage | null, feeMicrousd: number) => { record.totals.modelCalls += 1; record.totals.feeMicrousd += feeMicrousd; for (const [key, field] of USAGE_KEYS) record.totals[key] += usage?.[field] ?? 0; };
+  const addCritique = (usage: CritiqueUsage | null, feeMicrousd: number, finishReason: string | null) => {
+    record.totals.modelCalls += 1; record.totals.feeMicrousd += feeMicrousd;
+    if (finishReason === "length") record.totals.lengthStops += 1;
+    for (const [key, field] of USAGE_KEYS) record.totals[key] += usage?.[field] ?? 0;
+  };
   /** A seeded stage writes from the packet of a sample whose stage completed, never with a stage or a cloud writer of its own. */
   const seeded = (from: string): Partial<DriverInput> => ({ researchFrom: from, pipeline: undefined, cloudArm: undefined });
   try {
@@ -171,11 +175,11 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
       const detail = error as { usage?: CritiqueUsage | null; feeMicrousd?: number | null; finishReason?: string | null };
       const made = detail.usage !== undefined && detail.usage !== null;
       record.critique = { failure: code, feeMicrousd: detail.feeMicrousd ?? 0, finishReason: detail.finishReason ?? null, usage: detail.usage ?? null, modelCalls: made ? 1 : 0 };
-      if (made) addCritique(detail.usage!, detail.feeMicrousd ?? 0);
+      if (made) addCritique(detail.usage!, detail.feeMicrousd ?? 0, detail.finishReason ?? null);
       record.selected.final = { candidate: chosen, step: "critique_failed" }; log(`critique failed: ${code}`); return record;
     }
     record.critique = { packetSha256: critiqued.packetSha256, critiqueSha256: critiqued.critiqueSha256, feeMicrousd: critiqued.feeMicrousd, finishReason: critiqued.finishReason, usage: critiqued.usage, modelCalls: 1 };
-    addCritique(critiqued.usage, critiqued.feeMicrousd);
+    addCritique(critiqued.usage, critiqued.feeMicrousd, critiqued.finishReason);
     save();
     record.seeded.repair = research;
     await stage("repair", "result.json", () => deps.runSample({ ...input.base, outputDirectory: join(loop, "repair"), repairFrom: critiqueDir, ...(research ? seeded(aDir) : {}) }));

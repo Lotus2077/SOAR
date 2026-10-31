@@ -26366,3 +26366,1107 @@ BL-20261030-0745-claude-cloud-adapter-approved,
 BL-20261030-0445-h5-cloud-provider-claude,
 BL-20261022-1156-h1-prompt-caching-implemented,
 BL-20261028-0420-h4-live-batch1-box-failure.
+
+### BL-20261031-1258-recovery-metrics-calibration-authority -- 2026-10-31 -- Owner orders recovery, accounting corrections and the Claude/H4 calibration sequence
+
+Status: `Approved`
+
+Scope or hypothesis: Record the owner's current instruction and availability before the requested work reaches the existing live gates. Preserve the Phase 4 task separation and public/synthetic-only boundary.
+
+Decisions:
+
+- The owner instructed: "do the following jobs in sequence: cleanup recovery, accurate metrics/status documentation, Claude live calibration and H4 verification before H5".
+- Asked to confirm the approved Console prerequisites (prepaid credit at least USD 35.10, model rate limits at least 100,000 input and 20,000 output tokens per minute, global geography, no competing organisation usage during reconciliation) and device availability after the fixes, the owner answered: "All confirmed; device available after fixes".
+- This supersedes the earlier operational hold for the requested calibration and second H4 batch after the fixes pass. Use the approved Claude design, existing sub-line caps, and order: shape probe, all-cloud exposed r3 calibration, charge reconciliation, then three exposed H4 loops including the split sample that is calibration step 2. H5 stays gated on those results and its separate batch-start authority.
+- The necessary cleanup/accounting corrections may change the source freeze. Record the final exact commit and runtime digest before any live run and use that same digest across every H4 stage. Keep the selection rule, research protocol, frozen tasks, checks, privacy boundary and decision rules unchanged.
+- Local integration includes the already approved Claude implementation and operational records from the two pending upstream branches. This local integration does not mean either pull request is merged on main or live-verified.
+- The calibration keeps USD 0.30 for the shape probe, USD 3.00 for the all-cloud exposed r3 run and USD 0.60 for the split loop. Only the design's one additional new-job probe after missing thinking evidence is permitted without a new decision. Record every failure and unsettled receipt. Do not proceed through a failed calibration gate.
+
+Changes: This approval entry. Runtime fixes and accounting changes have separate implementation evidence below or in subsequent entries.
+
+Evidence: The owner's two messages in this chat; the approved design and its implementation entries; current main and both upstream pull-request checks read without model or device calls. Anthropic's official Sonnet 5.5 overview was checked on 2026-10-31 and matches the approved USD 2 input, 10 output, 0.10 cache-read and 2.50 five-minute cache-write prices per million tokens.
+
+Failures or blockers: The reviewed Claude Keychain item was not found by a trusted metadata-only lookup. The owner was given the reviewed helper's hidden-input store command. A credential check and the final pins still precede live calls.
+
+Limitations and non-claims: Console conditions are owner-attested. This authorizes scoped work and a window after the fixes; it proves no model behaviour, H4 result, H5 result, private-data readiness or release. The fresh-task gold and authoring transcripts remain unread by this session.
+
+Paid exposure: USD 0 in this work so far; the approved calibration caps total USD 3.90, plus only the conditionally permitted USD 0.30 probe repeat inside the existing line remainder.
+
+Next gate: Verify cleanup recovery, then accounting/status corrections, establish final pins and credential readiness, and follow the calibration gates in order.
+
+References: BL-20261028-0420-h4-live-batch1-box-failure, BL-20261030-0745-claude-cloud-adapter-approved, BL-20261030-0850-claude-cloud-adapter-implemented, BL-20261027-1526-harness-session-task-exposure, https://platform.claude.com/docs/en/models/sonnet-5-5/overview.
+
+### BL-20261031-1259-cancelled-cleanup-recovery -- 2026-10-31 -- Cancelled tasks retry interrupted cleanup without replay and regain saved artifacts
+
+Status: `Implemented`
+
+Scope or hypothesis: A temporary Docker cleanup failure after cancellation left saved checkpoints inaccessible because a cancelled task could neither retry cleanup nor resume. A separate release-before-event crash window could leave a released claim without the confirmation event.
+
+Decisions:
+
+- Retry cleanup through the existing cancellation IPC on the task's original context; keep the task cancelled and never construct another execution session or replay a dispatch.
+- An active claim still requires positive dead-owner evidence and owner compare-and-set. A cleanup_required claim is the previous owner's explicit release and may be recovered even while that process lives. Uncertain or live active owners are refused.
+- Commit the claim release, confirmation event and desktop reason atomically. A durable released claim also confirms cleanup for older records whose event was lost between transactions.
+- Project optional host-derived canRetryCleanup and cleanupInProgress fields; expose a Retry cleanup action and retain artifact access restrictions until cleanup is confirmed. No persisted schema migration or new dispatch permission is introduced.
+
+Changes: General task controller, shared snapshot interface, desktop cleanup action, focused controller and renderer regressions.
+
+Evidence: Before correction, an isolated reproduction showed cancelled/cleanup_blocked, general_task_terminal on retries after Docker recovery and restart, and intact but unexportable checkpoints. The corrected exact source snapshot passed 138 tests in two focused files under Node 22.22.2, both typechecks and diff whitespace checks. Cases cover same-process and restarted retries, no prior positive run-ended evidence, atomic confirmation rollback, legacy released records, live/EPERM owner refusal, competing cleanup, duplicate clicks, unchanged dispatch receipts and preview/export gating. An independent authority review identified the atomic gap before it was fixed. The Desktop attempt passed the controller suite but its renderer worker startup timed out; the complete focused rerun outside iCloud passed.
+
+Failures or blockers: No remaining failure in the focused rerun. Full validation on the final integrated source follows the accounting changes.
+
+Limitations and non-claims: Docker failures and process-owner states are mocked. These checks prove bounded cleanup recovery and no replay in those scenarios; no actual interrupted owner task was manipulated, no live model was called and no release is claimed.
+
+Paid exposure: USD 0.
+
+Next gate: Accounting and current-status corrections, then full validation before live calibration.
+
+References: BL-20261031-1258-recovery-metrics-calibration-authority, BL-20261007-0530-pr-c-recoverable-dispatch-implemented, src/main/general-tasks/controller.ts, tests/unit/general-task-controller.test.ts, tests/unit/app-general-task.test.tsx.
+
+### BL-20261031-1304-experiment-metrics-and-current-status -- 2026-10-31 -- Count pipeline and critique truncations, correct judged support rates and update project status
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct the review's accounting omissions without changing grades, selection policy or frozen research tasks, and replace the stale current-status claims.
+
+Decisions:
+
+- Include research-stage truncatedReplies in both single-run registry rows and TypeScript candidate summaries. Count each finished loop critique's length cutoff once, including answered failures and reused critiques.
+- Define supportRate as supported divided by supported + partial + unsupported + contradicted; not_judged is excluded and zero judged produces null. The selection rule's signed balance rate remains separate and unchanged.
+- Preserve every historical registry byte. Append three superseding rows computed only from committed public counts: the all-unjudged Phase 1 result becomes null, the Phase 2 local r1 seed-2 rate becomes 0.938, and the exposed H3 split-v2 rate becomes 0.846. Verdicts and every other measurement are retained.
+- Four historical pipeline length-stop counts remain writer-only lower bounds; public rows cannot recover their omitted stage counts. Document that limitation rather than invent totals. Entailment calls remain separately reported, while wall time includes that pass.
+- Current status now distinguishes provisional Phase 2 grades and confirmed Branch B, exposed H2/H3 calibration, failed H4 batch 1, mock-tested Claude implementation, pending H5, one recorded owner job, and blocked private deployment. Privacy-filter v2 is approved direction at defaults, not implemented or qualified.
+
+Changes: Registry-row aggregation, candidate summarisation, loop critique totals, focused regression fixtures, three appended registry corrections, README and documentation indexes.
+
+Evidence: Three focused suites passed 14 tests under Node 22.22.2; the node typecheck and diff whitespace check passed. A public-record audit verified that the pre-existing registry is an unchanged byte prefix and that the three appended rows change no run measurement or grade except supportRate. Cases cover pipeline cutoffs plus legacy missing fields, resumed and refused critiques, zero judged versus zero supported, and single/loop aggregation. The integrated runtime freeze is a142fadc3a810d6b3d9aff512b1a5bab71763cd990ecfb04d5db446337d51cdf over 36 files.
+
+Failures or blockers: None in focused verification. Live pin files must use the new digest; the former Claude digest cannot be reused. Full integrated validation follows the probe-verdict correction.
+
+Limitations and non-claims: No raw trace or evaluator gold was read to backfill history. Existing false positives/negatives in agent grading are not repaired by accounting changes. No change to model prompts, research protocol, selection decisions, private-data gates or release state is claimed.
+
+Paid exposure: USD 0.
+
+Next gate: Strengthen the shape probe's host verdict to require the tool-history path the approved probe is meant to exercise; then full integrated validation, credential readiness and the live gates.
+
+References: BL-20261031-1258-recovery-metrics-calibration-authority, BL-20261026-1832-h4-select-and-repair-implemented, BL-20261030-0850-claude-cloud-adapter-implemented, docs/experiments/README.md.
+
+### BL-20261031-1305-claude-probe-tool-history-verdict -- 2026-10-31 -- Refuse a shape-probe pass when no tool-history path was exercised
+
+Status: `Implemented`
+
+Scope or hypothesis: The approved shape probe is meant to test dropping thinking from tool turns and editing an earlier tool result. Review found its verdict could pass a sequence with no tool calls, despite valid thinking and cache fields.
+
+Decisions:
+
+- Require the first two loop replies to stop for tool use, each with one schema-valid calculate call and distinct ids. Require the third serialized request to carry the first matching tool result with the existing demotion text.
+- Keep the four calls, request bodies, prompts, model parameters, caps and missing-thinking conditional repeat unchanged. Only the host's structural verdict becomes fail-closed against an unexercised path.
+- Preserve the original approval's pass criteria. The implementation entry's additional 80-percent thinking and cache-after-nudge proposals are reported as diagnostics; no new unapproved numerical adoption threshold is introduced here.
+
+Changes: The shape probe and its focused regression file. The probe stays outside the runtime source freeze.
+
+Evidence: A no-network reproduction of the old probe returned pass=true and exitCode=0 with zero tool calls and no tool-result history. Nine focused tests now pass, including that false-positive regression, valid history, missing-thinking repeat advice, invalid tool/schema/multiple-call replies and reused ids. The node typecheck and diff whitespace check pass. Runtime digest remains a142fadc3a810d6b3d9aff512b1a5bab71763cd990ecfb04d5db446337d51cdf.
+
+Failures or blockers: The original probe's verdict was insufficient to prove its intended tool-history path. No live probe had run in this work before correction. A draft of this entry used an identifier that preceded the prior committed timestamp and failed chronological validation; its uncommitted identifier was corrected before saving.
+
+Limitations and non-claims: Mocked requests prove the host gate and unchanged shape, not Anthropic's live behaviour. There is no live result yet.
+
+Paid exposure: USD 0.
+
+Next gate: Full integrated checks, final clean commit and runtime pins, stored Claude credential, then the approved live shape probe.
+
+References: BL-20261030-0620-claude-cloud-adapter-design, BL-20261030-0850-claude-cloud-adapter-implemented, BL-20261031-1258-recovery-metrics-calibration-authority, scripts/anthropic-probe.ts.
+
+### BL-20261031-1305-integrated-corrections-verified -- 2026-10-31 -- Full offline checks pass for the cleanup, accounting and probe-verdict integration
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the combined corrected source before paid calibration; distinguish successful deterministic validation from missing live prerequisites.
+
+Decisions: Use a tracked-source clone outside iCloud with the matching frozen dependency lock and isolated native build output. Retain the slow/sandbox-limited Desktop attempts as environment limitations. Keep all live and Docker integration test opt-ins off for this suite.
+
+Changes: Verification evidence only; the code is described in the preceding entries.
+
+Evidence: Under Node 22.22.2 and pnpm 10.12.4, the exact integrated source passed pnpm check: readiness metadata and secret-pattern scan, build-log structure, both typechecks, locked native-core proof, 141 passed test files and 13 skipped (2,166 passed tests, 81 skipped), the isolated locked native broker rebuild, and main/preload/renderer production builds. The final append-only validator against origin/main and diff whitespace check are rerun before commit. Independent reviews found no remaining blocking authority/replay issue in cleanup or structural false-positive issue in the corrected probe. Docker is reachable and the exact qualified sandbox image is present when checked outside sandbox restrictions.
+
+Failures or blockers: The trusted Claude Keychain metadata lookup still reports the required item missing; the owner has been given the reviewed hidden-input helper. No paid request, model-server probe or H4 stage has started. The initial Desktop/sandbox test attempts did not constitute a passing full check; the outside-iCloud integrated rerun above did.
+
+Limitations and non-claims: The skipped tests include live-provider and opt-in runtime suites. This is deterministic source/build verification, not live Anthropic calibration, a qualified H4 loop, a released build or private-data qualification. No old failed experiment is relabelled.
+
+Paid exposure: USD 0.
+
+Next gate: The owner stores the Claude credential locally; then recheck its status, record the clean commit/final runtime pins, and execute the approved calibration sequence. H5 remains unstarted.
+
+References: BL-20261031-1259-cancelled-cleanup-recovery, BL-20261031-1304-experiment-metrics-and-current-status, BL-20261031-1305-claude-probe-tool-history-verdict, BL-20261031-1258-recovery-metrics-calibration-authority.
+
+
+### BL-20261031-1318-claude-calibration-window -- 2026-10-31 -- Activate the stored-key Claude calibration window after corrected-source verification
+
+Status: `Approved`
+
+Scope or hypothesis: Execute the already approved Claude calibration and second H4 verification batch after the requested cleanup and accounting corrections have passed full checks.
+
+Decisions:
+
+- The owner has confirmed the Console and device prerequisites and now replied "Stored" after using the reviewed hidden-input Keychain helper. The helper's status-only models check returned HTTP 200. No credential value was printed or copied to a file.
+- The prerequisite operational-records PR #30 and approved Claude adapter PR #31 were merged at their exact green heads; remote main is now 1bde8e1. The corrected local branch includes their actual main ancestry plus the three verified correction commits.
+- Execute the shape probe first, then the exposed r3 all-cloud calibration under USD 3.00, then approved step-1 acceptance and Console reconciliation, then the three exposed H4 loops. The split loop's first sample is calibration step 2 under USD 0.60. H5 remains unstarted under this authority.
+- Runtime pin: a142fadc3a810d6b3d9aff512b1a5bab71763cd990ecfb04d5db446337d51cdf. Research protocol and frozen task/check/selection contracts are unchanged. The ignored authority records the final clean commit and hashes of the operator scripts before execution.
+- The operator applies a twelve-hour start cutoff for this session, beginning when its authority is prepared. This is an additional operating limit, not a claim that the owner stated an end time; any new owner instruction or loss of availability stops advancement. An already running admitted row ends through its normal bounds.
+- Every failed step is retained and blocks advancement. The only predefined repeat is one new synthetic probe if structural checks pass but thinking evidence is absent, inside the existing remainder. No failed output is silently rerun.
+
+Changes: This authority entry; ignored local run pins, receipts and fixed-field reports are separate and remain outside Git.
+
+Evidence: The owner's earlier exact instruction and Console/device confirmation; the current "Stored" message; HTTP-200 credential check; exact-head dependency merges and local clean-source checks. The combined source passed 2,166 deterministic tests with 81 skipped, both typechecks, native proof/rebuild and production builds in the preceding verification entry.
+
+Failures or blockers: No paid or model request has started at entry creation. Actual live shape, thinking, cache and transport behaviour are still unknown. Later H4 verification must require every stage's frozen/result pin and a genuinely cited split argument, rather than just nonempty output.
+
+Limitations and non-claims: This is authority to execute, not a passing result. It grants no private-data admission, server-flag change, unbounded retry, H5 launch or release. Console reconciliation will use the owner's actual charge reading, never an estimate from settlement alone.
+
+Paid exposure: USD 0 of model API spend in this work so far. Calibration caps remain USD 0.30 + 3.00 + 0.60; the optional missing-thinking repeat is at most another USD 0.30 inside the approved line.
+
+Next gate: Prepare final pins, run the shape probe and inspect its actual fixed-field receipts before admitting the all-cloud step.
+
+References: BL-20261031-1258-recovery-metrics-calibration-authority, BL-20261031-1305-integrated-corrections-verified, BL-20261030-0745-claude-cloud-adapter-approved, BL-20261030-0620-claude-cloud-adapter-design.
+
+
+### BL-20261031-1325-claude-probe-live-gate-blocked -- 2026-10-31 -- Live Claude probes settle but the literal first-write criterion blocks step 0
+
+Status: `Failed`
+
+Scope or hypothesis: The approved shape probe and its one permitted missing-thinking repeat, on clean commit a0321e36adff3f777b49ac0a6b4d20ea57405556 and runtime a142fadc3a810d6b3d9aff512b1a5bab71763cd990ecfb04d5db446337d51cdf. Preserve the actual verdicts; no all-cloud or H4 run follows a failed literal gate.
+
+Decisions:
+
+- Attempt 1: every structural check, tool-history check and settlement passes. The first loop wrote 3,109 cache tokens and later loops read 3,109 each. Only its first tool turn returned signed thinking (143 thinking tokens); the next two returned none. Exit 3 triggered the explicitly allowed one-time new-job repeat.
+- Repeat: every API request settled on the expected model, standard tier and global geography. All three tool turns returned signed thinking (220, 27 and 48 tokens) and tool history passed. Its first loop read 3,109 cached tokens with zero writes; later turns read 3,109 each. This fails the written first-loop cache-write criterion, so exit 2 and pass=false are retained.
+- The two initial loop request bodies are byte-identical across different job ids in an offline capture; job id is not in the Anthropic body. A warm cache is consistent with the observed matching 3,109-token prefix. This is not evidence of a transport or cache failure, but it does not satisfy the criterion as written.
+- No third paid probe, all-cloud calibration, device liveness probe or H4 loop is started. The owner is asked for a narrow one-time adjudication accepting the composite cold-write and signed-thinking evidence, with both original verdicts retained; no automatic relaxation is applied.
+
+Changes: Two sanitized calibration registry rows. Original fixed-field receipts remain ignored, with SHA-256 d64a53d4ae51058d488cbb4f65ae6dd48f5990409dee4adf861a60b360360207 and b9cc25a6ebbc40b55e84046e2cc818eb062fb6377180e3a07659ad7d3dc142e0. No runtime, model payload, prompt, cap or credential changes.
+
+Evidence: Eight completed and settled requests, no unknown/failed dispatch. Attempt fees USD 0.016191 and 0.007704; total USD 0.023895. Offline independent checks confirm matching first-loop bodies and warm-prefix counts; a proposed composite-evidence checker refuses missing write evidence, wrong prefix counts, missing thinking, other structural failures, unsettled receipts and a wrong model. The original stdout summaries and exit statuses are preserved.
+
+Failures or blockers: Calibration step 0 is blocked by the literal approved cache-write condition after the repeat; the one allowed repeat is exhausted. An owner's recorded criterion adjudication is required before advancement. API success alone does not override this gate.
+
+Limitations and non-claims: These are synthetic shape probes, not task-quality evidence. Total input/output tokens and exact wall time were not emitted by the probe and remain null in the registry. Matching cache counts do not establish a general private-cache isolation guarantee. No private material, fresh-task gold or authoring transcript was read.
+
+Paid exposure: USD 0.023895 settled total. No additional paid requests are running.
+
+Next gate: Owner decision on the one-time composite evidence, or keep the literal failure and stop. Any further new paid probe requires a separately recorded decision.
+
+References: BL-20261030-0620-claude-cloud-adapter-design, BL-20261031-1318-claude-calibration-window, BL-20261031-1305-claude-probe-tool-history-verdict.
+
+### BL-20261031-1328-composite-probe-owner-adjudication -- 2026-10-31 -- Owner accepts the two preserved shape probes together for this calibration only
+
+Status: `Approved`
+
+Scope or hypothesis: Adjudicate the blocked step-0 evidence without another paid probe, changing no model payload or future default criterion.
+
+Decisions:
+
+- Asked whether to accept the two preserved, pinned probes together and continue inside the existing caps, the owner replied: "Accept combined evidence and continue".
+- For this calibration only, accept the first attempt's 3,109-token write and subsequent matching reads together with the permitted repeat's warm-prefix reads and complete signed-thinking/tool-history evidence. Every original structural, model/tier/geography, settlement and usage-envelope requirement still applies.
+- Preserve attempt 1's exit 3 and repeat's exit 2, both original summaries, hashes and registry outcomes. This is a recorded one-time owner adjudication, not a retroactive automatic pass or a relaxed future default.
+- Advance to exposed-r3 all-cloud calibration under the existing USD 3.00 cap. Console reconciliation and all other approved step-1 conditions still gate H4. No further shape probe is authorized here; H5 remains unstarted.
+
+Changes: This decision and a separate ignored adjudication marker binding both original receipts to the continuation authority. No runtime or probe source change.
+
+Evidence: Seventeen offline composite-evidence checks pass, including exact receipt hashes, original authority/commit/runtime, committed probe-script hash, prefix counts, all settlements and repeat thinking/history. Six negative mutations fail. Both invocations used commit a0321e36adff3f777b49ac0a6b4d20ea57405556 and unchanged script/prompt; an offline capture confirms identical initial loop bodies across job ids. Probe-script SHA-256 is 04826be1ad8e5f244886b70b0c4eb93f72efff2750d88ac2a08479e8a1399726. The invocations' provenance is host-attested; cache age is not inferred from file timestamps.
+
+Failures or blockers: The literal failure remains in the preceding entry. This owner decision resolves only its step-0 advancement gate; full cloud and H4 calibration remain unverified.
+
+Limitations and non-claims: Synthetic shape evidence does not establish task quality or private-cache isolation. The signed-thinking result is not a general guarantee that every later turn reasons. No task result has been accepted here.
+
+Paid exposure: USD 0.023895 settled so far. No extra request for this adjudication; remaining run caps are unchanged.
+
+Next gate: Re-pin the unchanged runtime on a clean continuation commit, execute the exposed-r3 all-cloud calibration, then obtain actual Console reconciliation before H4.
+
+References: BL-20261031-1325-claude-probe-live-gate-blocked, BL-20261031-1318-claude-calibration-window, BL-20261030-0620-claude-cloud-adapter-design.
+
+### BL-20261031-1342-claude-all-cloud-observed -- 2026-10-31 -- Exposed Claude all-cloud run submits within its cap; Console reconciliation still gates H4
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the observed transport, usage and cost measurements of calibration step 1 on the exposed r3 task. This entry does not accept the complete step-1 gate or the task's quality.
+
+Decisions:
+
+- Retain the run on commit b0dd6502be8f9df7a875d8f04e018b83bbe7374d with unchanged runtime a142fadc3a810d6b3d9aff512b1a5bab71763cd990ecfb04d5db446337d51cdf. The initial freeze, closed-source result, task, qualified image and synthetic authority bindings match their pins.
+- The run submitted, with independent acceptance pending. Every one of its 79 cloud replies and 34 zero-fee local entailment dispatches settled. There were no failed or unknown dispatches, retries, 429/529 responses, interrupted responses, output cutoffs, empty end-turn replies or no-action nudges.
+- Assess the original approved criteria. Submission is not an additional step-1 pass criterion: the earlier baseline exhausted its bounded allowance and nevertheless passed its cost/cache calibration. The ignored operator has an extra exit-zero guard, which had no effect here because this run actually submitted. The scope clarification was recorded before root inspected the outcome, after the result file already existed; it is not represented as a pre-completion record.
+- An independent semantic review of all 79 retained visible replies found no guidance refusal, injection objection or statement of intent to disregard the host guidance. Keep actual Console reconciliation pending. No H4 request or acceptance marker follows this entry alone. Preserve both original shape-probe failures and their separate owner adjudication.
+
+Changes: One sanitized calibration registry row and the README's current Claude/H5 status. No runtime, model, prompt, cap, selection rule or credential change.
+
+Evidence: The cloud writer used 1,908,357 input tokens, including 1,650,344 cache reads and 235,805 cache writes, plus 32,876 output tokens and 13,279 reported thinking tokens. Settled cloud fees are USD 1.127758; cache reads are 86.48 percent of input. Wall time is 525.522 seconds, including the local entailment pass. Frozen-rate accounting matches each cloud receipt. The run's 5,071,950 recovered request-body bytes and the baseline's 1,282,609 tokens / 5,192,938 bytes give whole-run token-density ratio f=1.5233633861; the first-call ratio is 1.8723964201. The approved projection is USD 2.1214351715, including the USD 0.51 late reservation, below USD 3.00 without a fee-cap stop. Start-to-start gaps are 3.791 to 24.059 seconds (median 5.826). Independent counts-only analysis agrees. The result-file SHA-256 is b5334764176e1ec92f151d8f256710d9e462321a916cd67abf7e6ec2d574f463.
+
+Failures or blockers: The owner's actual Console charge is not yet recorded. It must agree with step-0-plus-step-1 settlement USD 1.151653 within USD 0.05, with no competing organisation usage. Phrase checks and the independent semantic review find no visible guidance refusal; this does not assert compliance with every instruction or quality requirement.
+
+Limitations and non-claims: Host checks 2/2 and local entailment (27 supported, 7 partial) are diagnostics, not independent task acceptance. Positive thinking on 67 of 78 tool rounds (85.90 percent) is a proposed diagnostic, not a new automatic numerical gate. Cache-after-nudge behaviour was not exercised because there were no nudges. Raw service-tier/geography fields were not retained for this run; settlement passed the decoder's model and billable-setting checks, which does not prove every response explicitly returned standard/global metadata. A submitted exposed calibration is not an H4 loop, a fresh H5 result, private-data qualification or a release.
+
+Paid exposure: USD 1.127758 for this run; USD 1.151653 settled in this work including both probes. No model request is running at entry creation. Step 2 remains capped at USD 0.60.
+
+Next gate: Obtain the owner's actual Console reading; record root step-1 acceptance only if every approved condition holds, then prepare a clean pinned H4 continuation inside the existing window. H5 remains unstarted.
+
+References: BL-20261031-1328-composite-probe-owner-adjudication, BL-20261031-1318-claude-calibration-window, BL-20261030-0620-claude-cloud-adapter-design, BL-20261022-1156-h1-prompt-caching-implemented.
+
+### BL-20261031-1554-owner-local-endpoint-transition -- 2026-10-31 -- Owner reports an idle box and supplies its replacement local model endpoint
+
+Status: `Approved`
+
+Scope or hypothesis: Update machine-local configuration for the owner's replacement endpoint and verify its idleness, served identity and bounded liveness before any H4 admission.
+
+Decisions: The owner states that the box is idle now and supplies the new local API base in this conversation. Update only the ignored machine-local configuration; retain the existing local-zero-cost declaration, model and synthetic-only HTTP scope. The authorized check takes three idle readings twenty seconds apart, reads serving version/model metadata and, if idle, sends one fixed one-token liveness request. The existing runtime, cloud caps and start cutoff remain in force. Actual Console reconciliation is still required before H4, and this endpoint update does not supply it.
+
+Changes: Ignored local endpoint configuration. Only hashes are recorded here: new API-base SHA-256 cae722e2a759ab13afcf041d0352707a604e61b399a1a2ba8d187c52b3eb25f4; new completion-endpoint SHA-256 65fce120073a070e072f9a3ce1ce2b5db089db293e58c7d5d1db1cebcfdbc3da. No endpoint address or credential is committed.
+
+Evidence: The owner's endpoint and present-idleness statement; status-only configuration inspection confirms no process-level endpoint override or custom local API credential, and the existing local-zero-cost policy. Earlier all-cloud evidence retains its original endpoint binding and is not rewritten.
+
+Failures or blockers: The replacement endpoint has not yet been contacted at entry creation. Its serving identity must be compared to the preserved calibration pin. Console reconciliation remains outstanding.
+
+Limitations and non-claims: Present idleness is owner-reported until measured. Matching version/model identifiers and a short successful reply do not establish hardware identity, sustained-load reliability, H4 completion or private-data suitability.
+
+Paid exposure: USD 0 for this transition. Existing settled calibration total remains USD 1.151653.
+
+Next gate: Verify the bounded local check, preserve its result and pin the replacement destination for the prepared H4 continuation; H4 cannot start before the remaining step-1 Console gate passes.
+
+References: BL-20261031-1342-claude-all-cloud-observed, BL-20261031-1318-claude-calibration-window.
+
+### BL-20261031-1556-replacement-endpoint-preflight-blocked -- 2026-10-31 -- Replacement address does not satisfy the calibrated serving identity and idle-metadata checks
+
+Status: `Failed`
+
+Scope or hypothesis: Check the owner-supplied replacement local endpoint before H4, retaining the earlier calibration's serving identity and all remaining approval gates.
+
+Decisions: Preserve the failed preflight and stop before any liveness inference or H4 row. Ask whether the supplied address is a proxy for the qualified box or a different model/server; do not silently substitute the advertised model or weaken the serving checks. Leave the requested address in ignored machine-local configuration pending clarification. The earlier all-cloud result retains its historical endpoint binding.
+
+Changes: Sanitized status documentation and ignored H4 operator destination bindings. The inactive H4 authority template now binds the authorized completion-endpoint hash; configuration must match before each box/row check, and all three stage freezes must match before the next loop. Original calibration evidence and serving pins are unchanged.
+
+Evidence: The three readings twenty seconds apart could not read either expected vLLM running/waiting gauge. The model list advertised qwen3.8-flash-next, differing from the preserved RM-01 VLM pin; version metadata was absent. A bounded metadata-only diagnostic confirmed HTTP 200 for the metrics route but no expected idle gauges, and HTTP 404 for the version route. The preflight exited 2 and sent no one-token liveness request. Its fixed-field receipt SHA-256 is 90f844d1bf258f389b75d213354e605fee86bd5de41b9aff9c6262cf3ef1b8dd. Independent review recomputed the unchanged runtime digest a142fadc3a810d6b3d9aff512b1a5bab71763cd990ecfb04d5db446337d51cdf. The ignored continuation binding tests pass 32 offline assertions, including endpoint drift and stage mismatch refusals, with a passing operator syntax check.
+
+Failures or blockers: The replacement destination is not qualified for the existing H4 authority. Neither server idleness nor preserved serving identity was established. The actual Console reading for the USD 1.151653 step-0/1 settlement remains separately outstanding.
+
+Limitations and non-claims: An unreadable idle gauge is not evidence that the server is busy. The advertised model identifier does not establish actual weights or hardware identity. This is a failed endpoint preflight, not a failed model inference, a new H4 batch or an invalidation of the completed Claude calibration. No active H4 authority, acceptance marker or run was created.
+
+Paid exposure: USD 0; no model inference call occurred. Prior settled calibration spend remains USD 1.151653.
+
+Next gate: Resolve the replacement server identity and obtain readable required serving/idleness metadata, then repeat a separately recorded bounded preflight. Complete actual Console reconciliation before H4 admission. H5 remains unstarted.
+
+References: BL-20261031-1554-owner-local-endpoint-transition, BL-20261031-1342-claude-all-cloud-observed, BL-20261031-1318-claude-calibration-window.
+
+### BL-20261031-1600-local-model-change-path-pending -- 2026-10-31 -- Owner confirms a different model on the same box; evaluation path awaits a choice
+
+Status: `Proposed`
+
+Scope or hypothesis: Resolve the failed replacement-endpoint preflight without treating physical-device continuity as preservation of the evaluated local model.
+
+Decisions:
+
+- The owner confirms: "the same box is running a different model". Physical-device continuity is owner-reported. The preceding metadata check advertised qwen3.8-flash-next; the preserved calibration serving name is RM-01 VLM, and the approved local tier is Qwen3.8-27B.
+- Path A: restore the original qualified model and serving configuration, then establish its identity and readable idle/version metadata with a separately recorded bounded preflight. Continue only when the existing Console and H4 gates also pass.
+- Path B: prepare a model-migration design for explicit owner approval. It must identify the actual weights, quantization and serving configuration; qualify local tool, thinking, streaming, usage, context and cache behaviour; bind all affected reader, writer, critic and judge roles consistently; and specify equivalent operational metadata if the server uses different routes. All three exposed H4 loops, including the capped split calibration, must qualify the chosen tier before a separate H5 batch-start authority.
+- Neither path is selected by this confirmation. The existing design keeps the local arm unchanged unless a named change is approved. Flash-Next's conditional appearance under PLAN R2 is not blanket approval: the H5 design records that R2 was not triggered.
+- Preserve the completed Claude transport/cost evidence and its old-local-judge provenance. Changing the local model alone does not require another paid Claude shape or all-cloud run. Any newly required paid evidence must be justified by a changed contract or failed gate and separately authorized within explicit caps.
+
+Changes: This proposed path decision and current-status wording. No model setting, runtime, prompt, serving pin, source contract or frozen task is changed.
+
+Evidence: The owner's explicit same-box/different-model confirmation; the preceding failed metadata preflight; PLAN's named local tier and conditional R2 alternative; the approved cloud-migration restriction on local-arm changes. Independent read-only review confirms that a configuration-only model change can leave the source digest unchanged while changing the evaluation tier.
+
+Failures or blockers: The local-model path remains undecided. Existing H4 continuation authority cannot admit the changed serving identity. Actual Console reconciliation remains outstanding independently.
+
+Limitations and non-claims: This is a proposed decision path, not approval to replace the model, change server flags or run new calibration. It establishes no capability or throughput claim for Flash-Next. Prior measurements remain historical evidence for their recorded configurations; H5 has no counted runs.
+
+Paid exposure: USD 0 new; settled calibration total remains USD 1.151653. No model request or H4/H5 launch occurred.
+
+Next gate: Owner chooses restoration of the original tier or preparation of the new-model migration design. Preserve the existing frozen-task separation and do not open fresh-task gold while resolving this choice.
+
+References: BL-20261031-1556-replacement-endpoint-preflight-blocked, BL-20261030-0445-h5-cloud-provider-claude, BL-20261022-0834-phase4-division-of-labour-design, docs/PLAN.md sections 4 and 5.
+
+### BL-20261031-1604-replacement-chat-endpoint-answers -- 2026-10-31 -- Owner-requested direct chat test completes; normal reply content contains reasoning text
+
+Status: `Verified`
+
+Scope or hypothesis: Answer the owner's explicit question whether the supplied chat-completions endpoint works, independently of whether it satisfies H4's serving qualification.
+
+Decisions: Use the advertised qwen3.8-flash-next identifier for a bounded synthetic connectivity test only. Read the model list and send the fixed instruction to reply with OK, without tools, task data or credentials. Preserve the initial 16-token limit result and allow one 128-token follow-up to establish normal completion. Do not change SOAR's configured model or admit any H4/H5 run.
+
+Changes: This verification record and ignored fixed-field test receipts. No endpoint address, raw reply, credential, model setting or runtime change is committed.
+
+Evidence: The models route returned HTTP 200 and advertised qwen3.8-flash-next. The first POST returned HTTP 200 in 762 ms with one choice, 57 prompt tokens and 16 completion tokens, stopping at the token limit. The follow-up returned HTTP 200 in 961 ms with one choice, the same model identifier, 57 prompt tokens and 27 completion tokens, and finish_reason=stop. Its normal message content ended with OK but also contained reasoning text and a closing think tag; no separate nonempty reasoning_content was reported.
+
+Failures or blockers: The endpoint is responsive, but the exact-only-OK formatting instruction was not cleanly satisfied because reasoning text appeared in ordinary reply content. This observation needs compatibility investigation before adopting the new model. The earlier missing idle/version metadata, changed serving identity and outstanding Console reconciliation remain unresolved H4 gates.
+
+Limitations and non-claims: Two short synthetic non-streaming replies demonstrate basic chat functionality only. They do not verify tool calls, streaming, sustained load, the Heavy profile, model weights, server flags, task quality or H4 qualification. The earlier metadata preflight failure remains valid and is not rewritten.
+
+Paid exposure: No paid cloud request. Two inference requests used the owner's declared zero-fee local endpoint; 114 prompt and 43 completion tokens in total. Prior settled Claude spend remains USD 1.151653.
+
+Next gate: Resolve the local-model evaluation choice and qualify its actual response/operational contracts before H4; complete the existing Console reconciliation separately.
+
+References: BL-20261031-1600-local-model-change-path-pending, BL-20261031-1556-replacement-endpoint-preflight-blocked, BL-20261031-1342-claude-all-cloud-observed.
+
+### BL-20261031-1636-claude-console-reconciled -- 2026-10-31 -- Owner Console evidence completes historical Claude step-1 acceptance
+
+Status: `Verified`
+
+Scope or hypothesis: Reconcile the preserved Claude calibration's actual Console charge and accept its historical step-1 gate, independently of the proposed local-model migration.
+
+Decisions: The owner supplied a Console screenshot showing SOAR-key cost USD 1.15. Compare that rounded display to USD 1.151653 settled across steps 0 and 1: absolute difference USD 0.001653 is below the approved USD 0.05 tolerance. Carry forward the owner's earlier explicit no-competing-organisation-usage confirmation; the screenshot itself does not prove exclusivity. Accept historical step 1 after all eight approved checks pass. Preserve the original step-0 exits and the owner's one-time combined-evidence adjudication.
+
+Changes: A new ignored analysis and historical acceptance record, one appended registry status correction, and current README/PLAN status. The original pending records and registry measurements remain unchanged. No H4 authority is activated.
+
+Evidence: The offline analyzer returned accepted=true and no pending checks, using the original exposed-r3 run, baseline and 79-reply guidance review. Analysis SHA-256 d5faf23aa2ee83346454cbd111b2747112a254a3a984bd370fc1bb9d1272a4bc; historical review SHA-256 e6eadb1b7b1639dc6b944e7a36453bc2d6a182f1329990dc3af414e0e40043fc. Result and freeze-file hashes remain b5334764176e1ec92f151d8f256710d9e462321a916cd67abf7e6ec2d574f463 and afbca34035d5960253f8743e6b1acdb05e9da717a8fe0dd6f9ccc1372401a91b. No screenshot, key fragment, account identifier or raw trace is committed.
+
+Failures or blockers: The financial gate is resolved. The changed local model still lacks qualification; H4 remains held and H5 unstarted.
+
+Limitations and non-claims: Console precision is cents. Exact returned tier/geography metadata was not retained for all 79 cloud replies. The run's 34 local entailments belong to the original local tier; its task remains independently ungraded. This acceptance is not Flash-Next evidence, private qualification, H4/H5 launch authority or release.
+
+Paid exposure: USD 0 new. Settled calibration total remains USD 1.151653.
+
+Next gate: Review the owner-requested Flash-Next migration design; obtain its named local-tier amendment approval before implementation or new model runtime work.
+
+References: BL-20261030-0620-claude-cloud-adapter-design, BL-20261031-1328-composite-probe-owner-adjudication, BL-20261031-1342-claude-all-cloud-observed, BL-20261031-1600-local-model-change-path-pending.
+
+### BL-20261031-1638-flash-next-migration-design -- 2026-10-31 -- Propose a named Flash-Next local-tier migration before H4 and H5
+
+Status: `Proposed`
+
+Scope or hypothesis: Fulfil the owner's request to prepare a Flash-Next migration plan after the same device changed models. This is design authority only.
+
+Decisions: Propose a new qualified deployment identity across reader, writer, repair, local planner/synthesiser, critic and every new arm's entailment judge. Keep Claude and the frozen task/check/selection contracts. Inventory actual weights, revision, quantization, serving build, template, parsers and context before inference qualification; server changes retain PLAN D11 approval and a scheduled restart. Name scoped client compatibility for thinking controls, separate reasoning fields and content/tools-only history; reject inline reasoning, identity drift and incomplete operational evidence rather than bypassing failed gates.
+
+Changes: docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md, its documentation-index link, a Proposed PLAN pointer and accurate current-status wording. Proposed qualification is at most 24 zero-fee local dispatches, 131,072 reserved output tokens, 1,000,000 precomputed prompt tokens and 90 minutes, with fixed synthetic fixtures and no automatic retries. Approval would cover scoped client/operator implementation, qualification and the three exposed H4 loops after preceding gates within the valid window; H4's split sample retains USD 0.60. H5 still requires its own batch-start authority. No implementation, model setting or serving pin is changed by this entry.
+
+Evidence: Static review by runtime, evidence and privacy agents; current source role/budget/transport paths; official Qwen model card and vLLM exact-model/reasoning documentation, cited in the plan. Reviews corrected idle sampling to three readings at least 20 seconds apart, clarified the shared reading/writing session budget and three-party scoring separation, and required raw-output checks independent of tolerant JSON parsers. Documentation validation is recorded with this change; model behaviour remains untested beyond the earlier two chat replies.
+
+Failures or blockers: Exact deployment inventory, separated reasoning, operational metadata, local compatibility and coherent H4 evidence remain unavailable. Design approval is pending. The existing window ends at 2026-11-01T01:19:14.660899Z and this plan does not extend it; expiry blocks new admissions while admitted rows retain their normal bounds.
+
+Limitations and non-claims: Upstream recipes do not establish deployed software or authorize flags/restarts. R2 was not triggered. Historical 27B results and old local-judge counts remain historical. No fresh task inputs, authoring transcript or gold were opened; no H5 task/check tuning, live call, deployment, private admission or release occurred.
+
+Paid exposure: USD 0 new; no increased cap. Completed Claude transport/cost evidence is retained without a default paid rerun. H5's existing USD 21.60 bound is a planning bound, not launch authority.
+
+Next gate: Owner approval of the concrete migration plan and named local-tier amendment, then inventory, scoped implementation and qualification within a valid device window. Present any necessary exact server change separately under D11; complete H4 and its split calibration before the separate H5 handoff.
+
+References: BL-20261031-1636-claude-console-reconciled, BL-20261031-1604-replacement-chat-endpoint-answers, BL-20261031-1556-replacement-endpoint-preflight-blocked, BL-20261030-0445-h5-cloud-provider-claude, docs/PLAN.md D11, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-1640-console-no-competing-usage-confirmed -- 2026-10-31 -- Owner explicitly reconfirms the calibration reconciliation window had no competing usage
+
+Status: `Verified`
+
+Scope or hypothesis: Record a fresh owner attestation for the already accepted historical Claude step-0/1 reconciliation.
+
+Decisions: The owner now states "no competing usage" in response to the reconciliation and proposed migration status. This directly reconfirms the no-competing-organisation-usage condition; the acceptance no longer relies only on carrying forward the earlier confirmation. The statement supplies no migration or launch approval.
+
+Changes: This appended evidence entry and a new ignored confirmation record bound to the prior historical acceptance. Earlier entries, receipts, fees and verdicts remain unchanged; no duplicate run or registry row is created.
+
+Evidence: The owner's exact statement above. Console charge remains USD 1.15 versus USD 1.151653 settled, a USD 0.001653 difference within the approved USD 0.05 tolerance.
+
+Failures or blockers: No outstanding step-1 financial gate. Flash-Next migration approval and deployment qualification remain pending; H4 is held and H5 unstarted.
+
+Limitations and non-claims: Exclusivity is owner-attested, not independently audited. Console precision and historical local-judge provenance limitations remain. This is no new model evidence or runtime authority.
+
+Paid exposure: USD 0 new; settled calibration total remains USD 1.151653.
+
+Next gate: Approval of the Proposed Flash-Next migration plan and named local-tier amendment.
+
+References: BL-20261031-1636-claude-console-reconciled, BL-20261031-1638-flash-next-migration-design.
+
+### BL-20261031-1714-owner-ssh-inventory-authority -- 2026-10-31 -- Owner opens direct SSH access for a read-only serving inventory
+
+Status: `Approved`
+
+Scope or hypothesis: Resolve the migration plan's deployment uncertainties through the SSH service the owner explicitly supplied in this chat.
+
+Decisions: The owner asks to see the plan again and authorizes visiting the box directly to obtain needed information. Use that access now for a bounded read-only inventory of hardware, the serving process/container, model identity and non-secret configuration. Keep authentication session-local. Collect only allowlisted summaries and hashes; do not read private task data, request logs, credential stores or environment dumps.
+
+Changes: This narrow authority record. The supplied connection address and credentials remain outside version control; no new secret file is created.
+
+Evidence: The owner's explicit SSH-access instruction in the current chat. Connection and deployment findings are pending at entry creation.
+
+Failures or blockers: Access has not yet been tested. Missing inventory remains a migration qualification blocker.
+
+Limitations and non-claims: This permission covers inspection only. It does not approve Flash-Next implementation, inference probes, paid calls, server changes, restarts, privilege escalation, H4 or H5. No fallback network scan or alternate access route is authorized by this record.
+
+Paid exposure: USD 0.
+
+Next gate: Read-only inventory over the supplied SSH service, then update the Proposed migration plan with verified findings and remaining gaps.
+
+References: BL-20261031-1638-flash-next-migration-design, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-1723-flash-next-box-inventory -- 2026-10-31 -- Read-only SSH inventory identifies q4t and a concrete Heavy-contract conflict
+
+Status: `Verified`
+
+Scope or hypothesis: Identify the owner's current model-serving deployment without inference or service changes, then make the Proposed migration plan accurate for that deployment.
+
+Decisions: The supplied SSH service is reachable. The device reports NVIDIA Jetson AGX Thor Developer Kit, Ubuntu 24.04, aarch64, 14 CPUs and 128,828,748 KiB RAM. Its serving binary is q4t v0.1.0, with explicit max-seq 1, max-prefill 8192 and max-len 208896. Model config declares modelopt NVFP4 in the Flash-Next SSD-Stream directory. Retain the historical vLLM preflight failure; introduce no automatic equivalent pass.
+
+Changes: Update the Proposed migration plan and status pointers with two explicit paths: preserve Heavy semantics on a qualified compatible backend (recommended), or first design and approve a distinct q4t greedy tier. The inspected q4t source rejects non-neutral temperature/top-p and unknown fields, with top_k, tool_choice, parallel_tool_calls and cache_salt absent from its allowlist. Dropping them would alter the experiment. Its session/prefix-cache capability fields are not established substitutes. No adapter, configuration or server change is implemented.
+
+Evidence: Binary SHA-256 0c5ab1de85ff68f9d757ac3bfad04187756a1b2c6634108c3112a5861c209483; adjacent clean tracked source HEAD 24b97e7d50ec7d81eaabcf11ef3f7c7be3587a35; contract-source SHA-256 d381ae5d9f656bd70bfdb52eda097492ff9714a0cc66f1edc532988cd925716f. Config, tokenizer, template and weight-index hashes are retained in the sanitized ignored inventory, SHA-256 8a23fd305bb26d27bdf2ddd73717e0e5025ccbba697cada0c6792bb0fe0b1cf0. Direct backend models/metrics/healthz returned HTTP 200. One metric snapshot showed active_chats=0, one free/total slot and gpu_healthy=1; num_requests_running=1 counts HTTP connection threads including polling, not just inference. Source inspection establishes that active_chats includes parsing, queued and generating requests. Independent plan review found no blocking scope or evidence issue.
+
+Failures or blockers: The retained Heavy body conflicts with the inspected q4t contract. Context qualification must use the actual deployment ceiling, not the checkpoint's 262,144 declaration; reserving 16,384 output at the configured 208,896 ceiling leaves at most 192,512 prompt tokens including template/tools. Missing immutable weight provenance, reproducible binary/source correspondence, public-route binding and live compatibility remain unresolved. Docker metadata was inaccessible without elevation; none was attempted.
+
+Limitations and non-claims: Static source findings were not confirmed by new inference. A binary hash and nearby clean source revision do not prove their build correspondence. File metadata/index hashes do not attest all weight bytes. The single metadata snapshot is neither the three-sample idle gate nor inference liveness. A separately observed legacy proxy was not established as part of the supplied API route. No task data, request logs, fresh gold or credential stores were read, and no endpoint, credentials, local paths or raw traces are committed. The temporary SSH control session was closed.
+
+Paid exposure: USD 0; zero new inference requests. The original migration, H4 and H5 runtime approvals are not supplied by this inspection permission.
+
+Next gate: Owner review of the revised Proposed plan and its explicit backend/profile choice. Any actual server change needs its exact D11 decision and window; any q4t experiment amendment needs its named design approval before implementation. Existing Claude calibration remains accepted.
+
+References: BL-20261031-1714-owner-ssh-inventory-authority, BL-20261031-1638-flash-next-migration-design, BL-20261031-1556-replacement-endpoint-preflight-blocked, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md section 1.1.
+
+### BL-20261031-1759-flash-next-sequence-owner-approved -- 2026-10-31 -- Owner authorizes suitable-backend work, bounded qualification, H4 and gated H5 launch
+
+Status: `Approved`
+
+Scope or hypothesis: Execute the owner's newly confirmed sequence if a suitable Flash-Next deployment can preserve the approved experiment contracts; otherwise report the evidence and blocker.
+
+Decisions: The owner asks to find a way to initiate a suitable Flash-Next backend, then pin the model/configuration and every local role including the judge, run at most 24 zero-fee qualification requests, complete all three H4 loops with the USD 0.60 split cap, and states "separate H5 launch authority granted". Record that H5 permission now; do not ask for it again merely because a prior plan called it a later approval. The live compatibility, coherent H4 and split-calibration gates still precede H5, whose batch-start record must bind the final qualified deployment and existing USD 21.60 bound.
+
+Changes: This authority entry. Select the plan's suitable-backend path preserving Heavy semantics; the user has not approved silently downgrading to q4t's greedy profile. Investigation, scoped preparation and the named evaluation stages are authorized. Keep unknown installations/restarts concrete and reviewable before exercising PLAN D11; do not disrupt the current service merely to test a speculative backend.
+
+Evidence: The owner's five-item instruction in the current chat. The already reconciled Claude step-0/1 evidence remains accepted. Backend feasibility and all new local qualification evidence remain pending.
+
+Failures or blockers: Current q4t does not accept the retained Heavy body; no alternative has yet been shown to fit this device and satisfy its tool/cache/sampling contract. If no suitable deployment can be established, report findings rather than launching incompatible evaluations.
+
+Limitations and non-claims: Permission is not a passing result. No fresh gold or authoring transcript may enter provider/harness work. Preserve the 24-dispatch, token and 90-minute qualification limits and the current operational start cutoff of 2026-11-01T01:19:14.660899Z; no time extension is inferred. H5's owner approval does not waive its remaining gates or frozen scoring separation. No private-data or release authority is added.
+
+Paid exposure: USD 0 new at entry creation. Local qualification remains declared zero fee; H4 split at most USD 0.60; H5 counted runs at most USD 21.60, within the existing envelope.
+
+Next gate: Identify an actually suitable backend and exact deployment prerequisites, then prepare its bounded change and role/serving pins. Continue only through verified gates; report an infeasible or unavailable deployment with supporting evidence.
+
+References: BL-20261031-1723-flash-next-box-inventory, BL-20261031-1638-flash-next-migration-design, BL-20261031-1636-claude-console-reconciled, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-1812-owner-operated-flash-next-service-handoff -- 2026-10-31 -- Owner takes service changes; preserve current service and document exact compatibility requirements
+
+Status: `Verified`
+
+Scope or hypothesis: Investigate a suitable Thor Flash-Next backend, then follow the owner's new instruction to describe the vLLM requirements, leave modifications to him, and use the current service for now.
+
+Decisions: The owner controls installation, configuration and restarts from this point. Retain the current service and do not silently relax Heavy to q4t's greedy contract. The previous five-item approval remains in force for scoped client work, at most 24 zero-fee qualification requests, all three H4 loops with USD 0.60 split calibration, and H5 launch after its technical gates. Separate H5 permission is already granted; the final deployment-bound batch-start record remains pending. This entry supersedes the earlier Proposed-only status text without changing historical build-log entries.
+
+Changes: Add docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md with the source of the community Thor candidate, exact wire/sampling/tool/thinking/stream/cache/context/metadata requirements, local role binding and deployment provenance checklist. Update the migration plan, PLAN and README to distinguish Approved sequence from unqualified deployment. No runtime source, local role configuration, model weights or running service changed.
+
+Evidence: The current direct service returns HTTP 200 for model metadata advertising qwen3.8-flash-next and for healthz with status ok. Read-only feasibility inventory measured about 24.1 GiB available RAM and 142.25 GiB free model-filesystem storage, CUDA toolkit 13.3.0 and Python 3.12.3. Under the newer backend-investigation request, a passwordless read-only elevated Docker listing succeeded; it showed three unrelated/PyTorch images and no vLLM image. The scoped known sibling-model search found only older 27B models, not a full Flash checkpoint. Three independent agents reviewed backend alternatives and the retained experiment contract. The community NemoClaw-Thor launcher explicitly enables prefix caching and native tool/reasoning parsers; its published temperature-zero tests are not our Heavy qualification. Its original-weight vLLM mmap path needs original PLE safetensors, not the current SSD-Stream sidecar. Hash-verified shard sharing may reduce additional storage; exact build/storage peaks remain unresolved. The temporary SSH control connection was closed.
+
+Failures or blockers: The current q4t source still conflicts with Heavy sampling and tool/cache fields. Immutable weight provenance, binary/source correspondence, public-route binding and live compatibility remain unresolved. A public-script metadata download failed local Python TLS certificate verification; verification was not disabled, and primary-source inspection continued through the web reader. No suitable backend was installed or initiated before the owner assigned modifications to himself. No new inference was admitted through unresolved provenance/contract gates.
+
+Limitations and non-claims: The scope of Verified is this read-only investigation, metadata availability and accurate handoff, not a serving or evaluation pass. The candidate is a community recipe, not NVIDIA certification or a SOAR-qualified installation. The known-directory/image search is not an exhaustive assertion of every asset on the device. Metadata availability is not inference liveness, queue-idle proof or public-route equivalence. No H4 loop completed and no H5 run started. No fresh-task inputs/gold, private request traces or credential stores were read; private routes, paths and credentials remain uncommitted.
+
+Paid exposure: USD 0 new; zero new inference dispatches. The 24-request qualification allowance is unconsumed; existing Claude settled fees remain USD 1.151653. The USD 0.60 split cap and USD 21.60 H5 bound are unchanged.
+
+Next gate: Owner supplies the concrete service change and its availability; re-inventory and pin the actual deployment and every local role, then execute the approved qualification and H4 sequence. Preserve the existing start cutoff of 2026-11-01T01:19:14.660899Z unless the owner declares another window. Current-service use can continue only within demonstrated capabilities; it does not satisfy the blocked Heavy evaluation contract.
+
+References: BL-20261031-1759-flash-next-sequence-owner-approved, BL-20261031-1723-flash-next-box-inventory, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-1815-conditional-recipe-trial-approved -- 2026-10-31 -- Owner permits trying the Thor recipe if the current service can be restored
+
+Status: `Approved`
+
+Scope or hypothesis: Establish a reliable stop/restart path for the current service, then prepare and try the identified Thor vLLM recipe without losing the current deployment.
+
+Decisions: The owner asks whether the current service can be stopped and restarted, and explicitly permits trying the new recipe if that condition is met. This supersedes the immediately preceding owner-operated-only boundary for this conditional trial. First capture and verify the current binary, model/configuration, launch mechanism and restart arguments; do not stop an unrecoverable process. Prepare the exact candidate launch and rollback before transition, record them under D11, and keep the existing service assets intact. Do not infer permission to remove unrelated images/data, downgrade Heavy or extend the availability window.
+
+Changes: Authority record only at entry creation. Reopen read-only access for rollback verification. Exact candidate and transition evidence remain pending.
+
+Evidence: The owner's explicit conditional instruction in the current chat referring to the sourced NemoClaw-Thor candidate.
+
+Failures or blockers: Current-service restoration is not yet demonstrated. The candidate still lacks local build, weight and compatibility proof.
+
+Limitations and non-claims: Conditional trial permission is not a qualified backend or H4/H5 pass. Preserve the 24-request qualification allowance, zero-fee local declaration, USD 0.60 split cap, already granted H5 authority and all remaining gates. No fresh-task gold, unrelated service change or additional paid allowance is authorized.
+
+Paid exposure: USD 0 new at entry creation; no inference dispatched.
+
+Next gate: Verify current-service recovery and prepare exact reviewed trial assets, capacity bounds, transition and rollback. If recovery cannot be established, keep the current process running and report the blocker.
+
+References: BL-20261031-1812-owner-operated-flash-next-service-handoff, BL-20261031-1759-flash-next-sequence-owner-approved, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md, PLAN D11.
+
+### BL-20261031-1820-flash-next-trial-preparation -- 2026-10-31 -- Pin the minimal Thor recipe and prepare a recoverable deployment trial
+
+Status: `Approved`
+
+Scope or hypothesis: Make the owner's conditional recipe trial concrete while preserving the active q4t service and all original assets.
+
+Decisions: Pin NemoClaw-Thor dd07dcc2f5650916e18e2c706144c6fd1f8bf13c, blazux 4b723de2e2c465d866738b57ae64bde6e8c07744, the ARM64 vLLM preview image manifest sha256:fc120ece0a388cc0aa1caad4a9f1cd92113484ab7ec2fd0efadd62585be05bf8, and RadixArk checkpoint 7b719225242aacd3dbd3f9407468c2ee9a9d2594. Prepare only the base/SM110-MoE/GDN stages, with original side-layer weights, BF16 KV, FP32 recurrent state, one scheduler slot and MTP off; no fast-v3 conversion or restricted draft vocabulary. Verify actual CLI and memory before fixing the launch. Download only missing checkpoint files after matching original shards by full published SHA-256. No existing assets are deleted or overwritten.
+
+Changes: A private mode-0600 rollback snapshot records the original unit, wrapper, binary, working directory, non-secret environment and model configuration, SHA-256 88b6bc0d7100217407c52efd9d54d38cab811bbbe43897d74c5e7527bb385f22. The service is a transient user unit, not a boot-persistent installation. Its GPU guard refuses an existing output directory: a plain restart would fail. Prepare a fresh transient restore unit using the same guard/binary/model/arguments and a new guard-output directory. This corrects the earlier conversational shorthand about a persistent service. Restoration remains untested until the controlled transition.
+
+Evidence: Current unit active/running, restart=no, KillMode=mixed and stop timeout 150 seconds; original binary/configuration unchanged. Public model manifest contains 206 weight files totalling 135,195,303,851 bytes, including 51,200,267,901 bytes in ten PLE files. Every weight has a published SHA-256; the derived weight manifest hashes to 36a324847fcde277c0914f59deda585f279c7627e855bf9e5b5c1f64ee8c4303. Docker Hub identifies the ARM64 child digest 3b0e188ffceb3d07e09c3cb5215433a0020eacf02d7f882ed3a8bfd15454477e and about 9.04 GiB compressed layers. Independent source review inspected the narrow patches and parsed thirteen Python files; the GDN kernel supports FP32 state. None is a runtime proof.
+
+Failures or blockers: Exact image extraction/build peaks, restore startup, public-route binding, model capacity and compatibility remain pending. The current service continues running while hashes, image and build assets are prepared. The base Mamba guard can skip invalid copies, so later cache qualification must inspect that condition rather than accepting HTTP success alone.
+
+Limitations and non-claims: Preparation may add scoped model/image/build assets within measured capacity; it is not a serving transition or qualification pass. Stop before any action that would exhaust storage, require removal of existing assets or lose rollback. The actual D11 launch/transition will be recorded before stopping q4t. No inference requests or paid calls are authorized beyond the existing caps.
+
+Paid exposure: USD 0 new; local preparation and numerical kernel checks carry no provider fee. Any HTTP generation/liveness request counts against the 24-request qualification allowance.
+
+Next gate: Finish immutable asset preparation and reviewed rollback, verify installed CLI and numerical kernels, then perform the recorded transition within the existing owner window. Preserve original service assets throughout.
+
+References: BL-20261031-1815-conditional-recipe-trial-approved, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md, PLAN D11.
+
+### BL-20261031-1835-q4t-controlled-restore-test -- 2026-10-31 -- Record the exact stop/start proof before trying the candidate
+
+Status: `Approved`
+
+Scope or hypothesis: Exercise the owner-authorized recoverability condition while the candidate's assets are still preparing.
+
+Decisions: Within the existing window, collect three q4t idle observations at least twenty seconds apart, then stop only the captured q4t-lan transient user unit. Start an equivalent fresh transient unit using the captured Python GPU guard, original hashed binary/model/configuration and exact serving flags; change only the unit name and guard-output directory so existing run records are retained. Preserve the shared GPU lease. Use KillMode=mixed, Restart=no and the original 150-second stop timeout. No parser, sampling, context, model or public binding changes occur in this proof.
+
+Changes: Prepare a restoration helper that rechecks binary/wrapper/config hashes, refuses a listening port or live previous restore, preserves per-attempt records, and accepts readiness only when healthy model metadata belongs to the new unit's correctly hashed listening q4t child. An independent review identified and closed generic-health and attempt-overwrite gaps before use. The planned stop/start interval begins after the idle gate, with a 15-minute readiness bound and operator reconciliation on failure; the overall owner cutoff is unchanged.
+
+Evidence: Dry preparation confirms original unit active/running and matching model/health; one current snapshot shows active_chats=0, request_body_bytes=0, one free/total slot and gpu_healthy=1. Full three-sample gate and actual restoration are pending at entry creation. Candidate image pull completed with the pinned ARM64 manifest; no candidate GPU process is running.
+
+Failures or blockers: A plain restart remains invalid because the guard-output directory already exists. If the controlled restore fails, keep candidate launch blocked and recover or report the exact q4t failure; do not launch another competing copy or hide the loss of service.
+
+Limitations and non-claims: This is a scheduled, concrete D11 recovery test under the owner's conditional permission, not new H4 or H5 evidence. Successful health/model metadata will establish restored service identity and listener availability, not completed inference. No inference request is included in this test.
+
+Paid exposure: USD 0; zero inference dispatches.
+
+Next gate: Preserve the controlled restore result. Only after reliable recovery and complete candidate preparation may the separate candidate transition proceed.
+
+References: BL-20261031-1815-conditional-recipe-trial-approved, BL-20261031-1820-flash-next-trial-preparation, PLAN D11.
+
+### BL-20261031-1837-q4t-restoration-and-image-build -- 2026-10-31 -- Current service restoration succeeds and the pinned Thor image builds
+
+Status: `Verified`
+
+Scope or hypothesis: Resolve the owner's recoverability condition before switching to the new serving recipe.
+
+Decisions: The controlled stop/start succeeded. Keep the restored q4t service active until candidate assets and preflight are ready. Its original binary, model/configuration and serving arguments are retained; only the transient unit name and guard-output directory changed. The new image is a build result, not an inference-qualified service.
+
+Changes: After three idle observations twenty seconds apart, stopped the captured original unit and launched its equivalent restoration under the same GPU guard. Retained the original output directory and private per-attempt evidence. Built the reviewed base, SM110-MoE and GDN stages with local audited inputs, network-disabled build steps, two compiler jobs and resource limits. No model conversion or candidate GPU launch occurred.
+
+Evidence: Idle evidence SHA-256 f16075f0fcefe01d544a4c95f2259cf5145698d055bd00c43827df2740017ad6; stop exit 0; restored unit active/running with the hashed q4t child, expected command/model and ownership of the listening socket, plus healthy model metadata. All three image build stages exited 0. Candidate image SHA-256 10d0df20a140d12e987013b12da289e2dec0bcb1db4a14f2491d75c0c7ae5d6c, ARM64, reported size 30,682,531,552 bytes. GPU-free installed-source inspection identifies vLLM 0.1.dev20073+g8e685d198, Torch 2.13.0+cu130, Transformers 5.15.1, Tokenizers 0.22.2 and FlashInfer 0.6.17, with cache_salt, default template kwargs and prompt-token detail configuration present in source.
+
+Failures or blockers: Candidate checkpoint download, numerical GPU checks, exact launch/route binding and bounded API qualification remain pending. The presence of a configuration symbol does not prove its live semantics. The current service has not been upgraded yet.
+
+Limitations and non-claims: The restored service proof establishes identity-bound listener/model/health availability, not a completed inference. No restart is claimed to recover the original transient unit unchanged; the guard requires a fresh output directory. Build success does not establish model load, sampler correctness, cache isolation, context capacity, H4 or H5.
+
+Paid exposure: USD 0; no new inference dispatches. All 24 qualification slots remain unused.
+
+Next gate: Finish verified checkpoint staging and final source checks, then record the concrete candidate transition and execute its numerical and bounded compatibility gates with rollback available.
+
+References: BL-20261031-1835-q4t-controlled-restore-test, BL-20261031-1820-flash-next-trial-preparation, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md.
+
+### BL-20261031-1849-flash-next-candidate-transition -- 2026-10-31 -- Record the bounded Thor candidate launch and automatic rollback
+
+Status: `Approved`
+
+Scope or hypothesis: Exercise the owner's authorized recipe trial after original checkpoint preparation completes, with the demonstrated q4t recovery retained.
+
+Decisions: Use image SHA-256 10d0df20a140d12e987013b12da289e2dec0bcb1db4a14f2491d75c0c7ae5d6c and original checkpoint revision 7b719225242aacd3dbd3f9407468c2ee9a9d2594. The concrete profile is BF16 model/KV, FP32 recurrent state, context 262144, one sequence, GPU utilization 0.90, prefill batch 8192, prefix caching and chunked prefill on, flashinfer_cutlass MoE, qwen3_coder tools, qwen3 reasoning, prompt-token details on, and explicit thinking enabled/preservation disabled defaults. Retain the recipe's PIECEWISE/AOT compilation split operations, original PLE mmap with fourteen workers, no prewarm, random advice, safe rows and prefetch, plus deterministic QSA selection. MTP, draft vocabulary and hybrid weight conversion are absent. Use the ordinary Triton GDN route; the narrow added CUDA operator is not claimed to accelerate MTP-off decoding. Disable usage/Hub telemetry and leave request logging off. Keep the existing listener binding and access route.
+
+Changes: Prepare a private transient-unit supervisor with no restart policy and a 1500-second stop allowance. Before stopping the restored q4t unit, it revalidates rollback assets and that unit's hashed listener, requires complete verified model staging, and observes idle three times twenty seconds apart. After the stop it acquires the existing regular shared GPU lease, rechecks its recovery marker, confirms no compute process or competing listener, then runs exactly the 22 pinned fused-GDN numerical cases with no skips. A failure restores q4t without starting vLLM. A passing kernel gate permits one bounded model startup with a 30-minute readiness deadline. Readiness requires the pinned container to own the healthy listener and advertise the expected model. Explicit image/label/container-ID ownership, private logs, signal-aware supervision and scoped stop/restore retain failure evidence. Unconfirmed cleanup blocks another GPU launch and requires reconciliation.
+
+Evidence: Current service stop/start already passed in BL-20261031-1837. Installed source exposes the requested parser/cache/template options and forwards top-level reasoning_effort into its chat parameters. A GPU-free CLI help attempt failed because that build cannot infer a device without GPU visibility; this is retained as a limitation, not a claimed CLI/runtime pass. Independent review identified and closed ownership, listener-binding, interrupted-cleanup and lease-check gaps. The pinned numerical selection contains eleven configurations and two gating activations; it tests the added fused MTP operator, not the eventual ordinary serving path. No GPU candidate has started at entry creation.
+
+Failures or blockers: Complete checkpoint preparation, GPU numerical results, actual CLI acceptance, model load, public-route binding and API qualification remain pending. The client context guard also requires the actual tokenizer: NFC normalization can produce more tokens than raw UTF-8 body bytes for certain text, so the historical byte envelope is not valid for every Flash request.
+
+Limitations and non-claims: This concrete D11 transition is covered by the owner's conditional trial instruction. No new permission or window is inferred. Check the unchanged start cutoff before stopping q4t and before each GPU stage. A numerical pass or healthy listener is not a qualified model, sampler, cache, H4 or H5 result. No fresh-task gold is used, and no private routes, paths, credentials or raw diagnostics are committed.
+
+Paid exposure: USD 0 for preparation, numerical tests and service startup. No HTTP inference is part of startup; all 24 generation qualification slots remain reserved for the separately frozen fixtures. Existing USD 0.60 split and USD 21.60 H5 bounds remain unchanged.
+
+Next gate: Complete checkpoint staging, run the recorded recoverable transition, then freeze the exact role/tokenizer/serving evidence before any bounded compatibility request. Restore q4t and report a failed candidate instead of weakening the experiment.
+
+References: BL-20261031-1815-conditional-recipe-trial-approved, BL-20261031-1837-q4t-restoration-and-image-build, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md, PLAN D11.
+
+### BL-20261031-1855-flash-next-client-contract -- 2026-10-31 -- Implement explicit local reply validation and context identity without changing legacy providers
+
+Status: `Implemented`
+
+Scope or hypothesis: Prepare the approved Flash-Next client integration while live serving remains unqualified.
+
+Decisions: Enable the new contract only through SOAR_VLLM_REPLY_CONTRACT=flash_next_v1 on the zero-priced local vLLM shape. Require an explicit safe SOAR_VLLM_CONTEXT_TOKENS value greater than the Heavy output reservation and include it in every local role identity. Preserve cloud and legacy configuration identities and request shapes when the opt-in is absent. The context pin is a response envelope, not a substitute for exact pre-dispatch tokenization.
+
+Changes: Add fixed raw JSON/SSE reply validation before broker settlement, explicit thinking/preservation template settings, model-identity and terminal-reason checks, reasoning-alias/type validation, native-call validation and count-only reasoning evidence. Reject protocol-wrapper leakage while preserving legitimate JSON/code literals and tool arguments. Invalid replies become UNKNOWN without automatic replay. Raw separate reasoning stays transient. Share local configuration construction across writer, research reader/planner/synthesiser, judge and separately loaded critic; desktop tasks also reject context-pin drift. The Flash settlement envelope uses configured context minus the actual output reservation, retaining the body-size bound. This corrects the invalid assumption that every Flash prompt token count fits within raw UTF-8 body bytes after NFC normalization.
+
+Evidence: Independent runtime and privacy reviews. The initial complete source snapshot passed pnpm check: 2209 tests, 81 skips, both typechecks, readiness checks and production build; its public-source manifest SHA-256 is e5d2a7192f1cfb5927c85c413f00c0ea7230f78ebd93b05d1adc5a86c79153e3. After the context-envelope finding, focused model tests passed 53 cases, config/role/controller tests passed 102, both typechecks passed and diff checks were clean. A fresh full check for the final context changes is in progress at entry creation. No provider or box inference was used in these tests.
+
+Failures or blockers: Exact frozen tokenizer/template admission for every qualification/H4/H5 call is still pending, including dynamic histories and the independently loaded critic. The ignored qualification scaffold is unverified and inactive; its syntax-check attempt could not load the TypeScript compiler package. It is not a runnable or approved manifest. Current q4t does not implement this native vLLM response contract.
+
+Limitations and non-claims: Mock checks do not prove positive reasoning, real tool use, sampler behaviour, cache isolation, model fit or serving provenance. The opt-in has not been activated for a live run. No fresh gold was read, no local task was silently migrated and no H4/H5 result is claimed.
+
+Paid exposure: USD 0 new; the 24-request allowance remains unused.
+
+Next gate: Finish final source verification and the exact-token admission hook only for an actually suitable, qualified serving deployment. Preserve the current q4t investigation and the owner's retained experiment semantics.
+
+References: BL-20261031-1759-flash-next-sequence-owner-approved, BL-20261031-1849-flash-next-candidate-transition, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-1856-q4t-launch-options-reviewed -- 2026-10-31 -- Check q4t itself before the staged vLLM transition
+
+Status: `Verified`
+
+Scope or hypothesis: Answer the owner's follow-up asking whether the existing service can meet the requirements by relaunching with different parameters, then the clarification to check q4t instead.
+
+Decisions: Keep the restored q4t service running and hold the prepared candidate GPU transition while evaluating q4t. The current binary exposes cache, capacity and MTP launch options, but no stochastic sampling or response-parser switch. Its adjacent source enforces temperature 0/top-p 1/n 1 and uses argmax in generation. Native tool-choice fields and cache_salt are absent from its accepted request fields. A flag-only relaunch cannot preserve the approved Heavy contract. Reuse is possible with actual sampling implementation plus a scoped tool/reasoning/cache integration, or a separately approved named greedy experiment; neither is silently substituted here.
+
+Changes: Add docs/plans/Q4T_SERVICE_CAPABILITY_REVIEW.md and update current-status pointers. Record that session/prefix caching is supported through different capability-ID and publication semantics, not absent altogether. Thinking and tools are supported as input-template controls; generated reasoning/tool text is not split into native response fields. The staged GDN CUDA overlay is not a demonstrated requirement for the proposed MTP-off Triton path; retain it as prepared candidate work rather than a necessary dependency claim.
+
+Evidence: Actual binary usage and parser output; thirteen selected source/document files at source HEAD 24b97e7d50ec7d81eaabcf11ef3f7c7be3587a35 independently reviewed, manifest SHA-256 2fdee83e4a2d04e67bd0efe09c171f85d45e4dc56e36feb11cc5afd4d7c5b929. The validator independently fetched over verified HTTPS matches SHA-256 d381ae5d9f656bd70bfdb52eda097492ff9714a0cc66f1edc532988cd925716f. The binary's general --help is not implemented as a successful command (usage/exit 1); serve --help rejects with exit 2. A bounded preceding inventory found only a vllm-proxy unit, not an installed inference service, among the inspected units, PATH, conventional environments and images; this is not an exhaustive absence claim. q4t health remained HTTP 200. Original candidate checkpoint staging completed: all 206 weights verified, 135195303851 bytes, with unchanged shards shared and no weight conversion. No candidate attempt record or GPU container exists.
+
+Failures or blockers: q4t's fixed greedy sampler and text-only response encoding remain incompatible with the retained Heavy/native-tool contract. Source/binary build correspondence is not reproducibly established; this inspection does not claim a new HTTP generation result. Public web-reader cache misses were handled through selected authorized source inspection and a verified HTTPS source download, not by treating a sibling repository as evidence.
+
+Limitations and non-claims: No q4t configuration, sampler, cache or model was changed for this check. The earlier controlled recovery remains valid; candidate image/weight preparation is not deployment. No candidate numerical test, model startup, compatibility request, H4 completion or H5 launch occurred. Prior launch authority and cost caps are retained, while the actual technical gates remain unmet.
+
+Paid exposure: USD 0 new; zero inference dispatches in this inspection or preparation. All 24 bounded generation slots remain unused. Accepted prior Claude cost remains USD 1.151653.
+
+Next gate: Report the configurable capabilities and actual implementation gaps to the owner. A q4t engineering or experiment amendment requires a concrete design; do not restart it expecting unavailable flags to add the missing behaviour.
+
+References: BL-20261031-1837-q4t-restoration-and-image-build, BL-20261031-1849-flash-next-candidate-transition, docs/plans/Q4T_SERVICE_CAPABILITY_REVIEW.md.
+
+### BL-20261031-1900-flash-next-client-offline-verified -- 2026-10-31 -- Final scoped client checks pass; live qualification remains held
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the complete local client/reply/context changes after the q4t capability investigation, without exercising a live model.
+
+Decisions: Accept the offline implementation evidence only. Keep the explicit Flash opt-in inactive until a compatible deployment and exact-token admission are qualified. Preserve q4t as the active service; the candidate transition has not run.
+
+Changes: Final verification and status record. Retain the prepared image/weights and inactive operator drafts for future reviewed work. Close the temporary SSH control connection after confirming q4t active/running, health ok and the expected model identity.
+
+Evidence: Full pnpm check exited 0 using the existing pinned Node 22/dependencies in an isolated public-source copy: 2216 tests passed, 81 skipped, 144 test files passed and 13 skipped; readiness, build-log validation, both typechecks, locked native proof and production builds passed. The frozen 37-file runtime digest is 38b1e7dd5d98aeacbe29c1665a5fb3eb9711729fc458389e7248492cf55d8ac4. Post-build comparison found no runtime or test drift. Later working-tree changes were documentation only; current readiness and 371-entry build-log validation passed before this append. Secret-pattern/diff checks found no private endpoint, credential or local-path additions.
+
+Failures or blockers: The first sandboxed full check denied mock loopback listeners (EPERM), causing 189 fixture failures while 2027 tests passed; preserve that negative log. The same frozen source passed with the narrow loopback permission. This does not waive real model or infrastructure gates. The exact-token admission hook and inactive qualification scaffold remain unfinished; q4t's sampler and native-response gaps remain unresolved.
+
+Limitations and non-claims: Offline test skips are reported, not counted as passes. No new inference, paid call, candidate GPU launch, H4 completion, H5 run or release is claimed. The q4t source review is not a full rebuild correspondence proof or qualification.
+
+Paid exposure: USD 0 new; all 24 qualification generation slots remain unused. Previously accepted Claude exposure and later stage caps are unchanged.
+
+Next gate: Owner review of the q4t capability findings and a concrete backend/integration decision; do not treat a cache-enabled q4t restart as a Heavy-compatible implementation.
+
+References: BL-20261031-1855-flash-next-client-contract, BL-20261031-1856-q4t-launch-options-reviewed, docs/plans/Q4T_SERVICE_CAPABILITY_REVIEW.md.
+
+### BL-20261031-1927-owner-operated-serving-handoff -- 2026-10-31 -- Retain q4t and hand vLLM service modifications to the owner
+
+Status: `Approved`
+
+Scope or hypothesis: Make the latest service-change responsibility explicit while preserving the approved Flash-Next qualification and evaluation sequence.
+
+Decisions: The owner instructs: "explicitly describe what you need from the vLLM service and I'll modify it for you by myself; for now, just use the current q4t service". Retain q4t as the selected service and reserve installation, configuration, stop/start and cutover to the owner. This supersedes automatic continuation of the conditional candidate transition in BL-20261031-1849. Existing recovery and staged assets remain historical preparation evidence. Current-service use stays within q4t's supported contract; it does not authorize a q4t engine rewrite, a silent greedy experiment amendment or bypassing Heavy/H4/H5 compatibility gates.
+
+Changes: Update the service requirements with a concrete owner checklist, launch-option fragment, metadata/metrics routes, exact tokenization requirement and returned deployment pins. Distinguish per-request output limits from launch configuration and document verified equivalents for unavailable metadata routes. Require actual per-response cached-token details because the current client cannot substitute engine counters; specify terminal SSE ordering and pin context before qualification. Update README, PLAN and migration status to match the latest responsibility boundary and already-granted H5 authority.
+
+Evidence: Current client and existing service requirements were inspected with an independent runtime review; upstream vLLM CLI, prefix-cache and production-metrics documentation were checked to support the named interfaces. The installed Thor candidate has not demonstrated runtime compatibility. The prior q4t inspection and offline client verification remain the evidence of record; no fresh box availability or inference result is asserted in this handoff.
+
+Failures or blockers: Current q4t still lacks the retained Heavy sampling/native-response contract. Compatible serving, exact pre-dispatch token admission, deployment/role pins and live qualification remain unresolved. The prepared candidate supervisor and qualification scaffold stay inactive.
+
+Limitations and non-claims: Documentation-only handoff; no server, model, runtime code or credential change. No candidate startup, qualification result, H4 completion or H5 run. No new operational window is inferred; the recorded start cutoff remains 2026-11-01 09:19 Asia/Shanghai. Existing committed log entries are retained without rewriting.
+
+Paid exposure: USD 0 new; no inference requests. All 24 zero-fee qualification dispatches remain available. Accepted Claude calibration, the USD 0.60 split-calibration cap and the USD 21.60 counted H5 bound are unchanged.
+
+Next gate: Owner prepares and identifies the changed service. Bind every local role including the judge, complete exact-token admission and bounded compatibility qualification, then all three H4 loops before the already-authorized H5 batch start.
+
+References: BL-20261031-1849-flash-next-candidate-transition, BL-20261031-1856-q4t-launch-options-reviewed, BL-20261031-1900-flash-next-client-offline-verified, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-1936-nemoclaw-trial-resumed -- 2026-10-31 -- Owner explicitly resumes the recoverable NemoClaw-derived trial
+
+Status: `Approved`
+
+Scope or hypothesis: Attempt the prepared Flash-Next candidate while retaining the verified q4t recovery route.
+
+Decisions: The owner instructs: "since the current q4t service can be start/stop, try the NemoClaw’s recipe". This supersedes the owner-only service-change boundary in BL-20261031-1927 for this concrete trial. Resume the image, original checkpoint, configuration and scoped supervisor described in BL-20261031-1849; preserve its numerical gate and automatic q4t recovery. No new window or evaluation cap is inferred. Revalidate current unit/listener ownership and idle state before stopping q4t. All inference, if subsequently admitted, counts against the existing 24-request allowance.
+
+Changes: Reconnect for a fresh metadata-only inventory and prepare to transfer the locally reviewed ownership-checking restore helper and candidate supervisor. Retain previous helper evidence before replacement. No candidate startup has occurred at entry creation.
+
+Evidence: q4t health and model metadata return HTTP 200; active chats and request-body bytes are zero, one sequence slot is free, and the GPU is healthy. The staged ARM64 image digest still matches 10d0df20a140d12e987013b12da289e2dec0bcb1db4a14f2491d75c0c7ae5d6c. The preparation record retains checkpoint 7b719225242aacd3dbd3f9407468c2ee9a9d2594 with 206 verified weights totaling 135195303851 bytes. No prior candidate-attempt record exists. The remote restore helper predates the local listener-ownership enhancement, so that enhancement must be transferred and pass before transition.
+
+Failures or blockers: Live candidate numerical tests, CLI acceptance, model loading and API compatibility remain unproven. Exact-token admission and full qualification remain later gates.
+
+Limitations and non-claims: Metadata is not inference proof; the reported health request count includes the metadata request itself and does not override authoritative active-chat gauges. The existing start cutoff remains 2026-11-01 09:19 Asia/Shanghai. No H4 or H5 result is claimed.
+
+Paid exposure: USD 0 new; no inference calls at approval recording. All 24 generation slots remain unused; USD 0.60 split calibration and USD 21.60 counted H5 bounds remain unchanged.
+
+Next gate: Complete independent supervisor review, validate the enhanced recovery helper, then execute the single recoverable candidate attempt. Restore q4t on failure and preserve the failure evidence.
+
+References: BL-20261031-1849-flash-next-candidate-transition, BL-20261031-1927-owner-operated-serving-handoff, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md.
+
+### BL-20261031-1940-trial-recovery-hardened -- 2026-10-31 -- Harden the reauthorized candidate's interrupted-start recovery
+
+Status: `Implemented`
+
+Scope or hypothesis: Close concrete supervisor failure paths before stopping the working q4t service.
+
+Decisions: Retain the recorded serving profile and one candidate attempt. Use Docker create followed by start against a captured, validated immutable container ID. Before GPU startup, hold the existing exclusive lease and durably create its recovery-required marker. Cleanup archives diagnostics best-effort, stops and removes only positively identified trial containers, requires their absence and an empty compute-process list, then clears only its own marker and restores q4t. A late start cannot revive a removed container ID. Unresolved ownership or cleanup preserves the marker and blocks overlapping GPU launches. Set the supervisor's stop allowance to 3000 seconds to accommodate bounded cleanup and the existing 960-second restore helper call.
+
+Changes: Harden the ignored private candidate supervisor; preserve the previous remote restore helper before installing the reviewed listener-ownership version. Bind the staged checkpoint to a manifest of 206 weight identities and eleven metadata hashes; recheck it before stopping q4t. The original model, q4t binary/configuration and staged image are unchanged.
+
+Evidence: Independent runtime review identified the prior SIGKILL/lease-release window, timeout shortfall, sudo-child startup race, optimistic cleanup-exception branch and diagnostic-archive failure path; all received explicit fixes. Local Python AST parsing passes. The enhanced remote restore prepare check verifies the existing unit-owned hashed listener, healthy service, correct model and unchanged rollback assets. A read-only systemd probe confirms that collected units report inactive/dead with exit zero on this host. Candidate supervisor SHA-256 is 17c129876d9a3b621925165f20696c89f1ab20d2dd37b5cf65a44f64c8233920; mounted-manifest SHA-256 is 9816eac26c1e7defffe2ab23f9e4c3550c4f516a85955e221de086be22a70637.
+
+Failures or blockers: Actual GPU numerical tests, model startup and API compatibility remain pending. Source review is not live rollback evidence for this candidate. The staged qualification driver still needs exact admission and allowance fixes before inference.
+
+Limitations and non-claims: The 22-case added GDN/MTP numerical gate tests that operator only; the candidate uses MTP-off Triton decoding, whose behavior still needs separate qualification. No new q4t stop or candidate startup has occurred at entry creation. All generated diagnostics remain private.
+
+Paid exposure: USD 0; no generation requests. All 24 qualification slots remain available.
+
+Next gate: Final independent cleanup check, then start the bounded supervisor under the renewed owner authority and monitor numerical/startup results with automatic q4t recovery.
+
+References: BL-20261031-1936-nemoclaw-trial-resumed, BL-20261031-1849-flash-next-candidate-transition, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md.
+
+### BL-20261031-2003-nemoclaw-trial-failed-q4t-recovered -- 2026-10-31 -- Candidate startup stalls; reconcile failed container cleanup and verify q4t recovery
+
+Status: `Verified`
+
+Scope or hypothesis: Execute the owner's single reauthorized NemoClaw-derived serving trial and recover the original service if the candidate cannot become ready. Verification here records the failed attempt and recovered q4t service, not successful candidate qualification.
+
+Decisions: Stop the candidate after more than seven minutes without startup-log progress following cache-capacity reporting, a bounded GPU-status timeout and an NVIDIA interrupt warning. Do not infer a proven driver, capacity or model defect from those observations. Preserve the complete negative evidence and do not tune or retry this candidate in the same attempt. Keep the recovery marker until candidate container/process absence and GPU clearance are positively reconciled.
+
+Changes: Run the pinned candidate supervisor after three idle samples and rollback validation. The numerical gate passed, then the candidate accepted the recorded serving flags, loaded its original checkpoint, compiled and warmed up. It did not expose a healthy API. The supervised stop encountered a Docker zombie-process/containerd cleanup failure, correctly retaining the recovery marker and blocking q4t startup. Once those processes exited, remove only the identity-verified stopped container by immutable ID, confirm both trial names and captured IDs absent, and recheck the shared lease, owned marker, empty compute-process query and all IPv4/IPv6 port listeners. Archive and clear that marker under the lease, then invoke the unchanged q4t recovery helper once. The original q4t deployment is now restored.
+
+Evidence: All 22 selected fused-GDN numerical tests passed, with 64 deselected and zero skips; JUnit SHA-256 af45b8b11e892511579c2c90cea15a623a6f72dda12d967bf8753cf16017765c. All 206 checkpoint shards loaded; vLLM reported 74.34 GiB model memory, 31.44 GiB available KV memory and 1257402 KV token capacity. Compilation and warmup completed before the stall. These reported capacities do not prove usable serving context. The candidate never produced a readiness record. Docker recorded a zombie PID and delayed task deletion; later inspection found exited state, PID zero, no remaining candidate processes and OOMKilled false. Scoped non-force removal then succeeded. Recovery completed at 2026-10-31 20:02:46 UTC, with restoration_verified true, unchanged binary/configuration hashes and arguments, a unit-owned hashed listening child, healthy metadata and the expected model ID. An independent post-restore check passed; both user-facing health and model-list routes returned HTTP 200.
+
+Failures or blockers: Candidate startup failed before API compatibility or inference qualification. Automatic recovery could not complete until manual scoped reconciliation; it must not be described as an uninterrupted automatic rollback. An NVIDIA interrupt warning occurred before warmup completed, and a GPU-utilization query timed out; causality is unresolved. The original 30-minute startup deadline was not exhausted because the operator ended the stalled attempt. Docker's exit code and OOMKilled flag do not establish why startup stalled. q4t's retained sampling and native-response gaps still block the approved Heavy/H4/H5 contract.
+
+Limitations and non-claims: Numerical checks cover the added fused operator, while this candidate uses MTP-off Triton serving. Weight load, compilation and memory reports do not prove tools, reasoning, sampling, caching or model quality. Recovery metadata proves the original service is available, not a fresh chat-completion result. No box reboot, driver reset, unrelated-container removal, model conversion or second candidate attempt occurred. Private paths, routes, raw traces and credentials remain outside tracked artifacts. Operator-stop evidence SHA-256 d0d24d64ca41ae76517154ed2ec4dfb6d490e96534fd9e327020ca3d7d336640; original cleanup-failure evidence SHA-256 6caa07f947c4c2d393e9ce11c05426f87bb7356062ec9c45d568375c0c0a20fe; manual-recovery result SHA-256 0e8df9fb543f3f517b2a69110b2dbb94a35f771a4ea2591a106675f1c39912e2. Earlier failed evidence is retained.
+
+Paid exposure: USD 0 new; zero inference requests. All 24 zero-fee compatibility slots remain unused. The USD 0.60 split-calibration cap, USD 21.60 counted H5 bound and previously accepted Claude exposure are unchanged.
+
+Next gate: Report this failed candidate and verified q4t recovery. Retain q4t as the active service and prepare any further serving change from the preserved startup evidence. Compatible serving and exact-token admission must pass before bounded compatibility qualification, all three H4 loops and the already-authorized H5 launch.
+
+References: BL-20261031-1936-nemoclaw-trial-resumed, BL-20261031-1940-trial-recovery-hardened, BL-20261031-1849-flash-next-candidate-transition, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md.
+
+### BL-20261031-2004-flash-qualification-offline-preparation -- 2026-10-31 -- Verify inactive bounded qualification helpers without dispatching model requests
+
+Status: `Implemented`
+
+Scope or hypothesis: Prepare the previously authorized 24-request qualification without consuming requests while the independent serving trial runs.
+
+Decisions: Keep the private driver and helpers inactive. Require exact pinned tokenizer/template admission for actual request bodies, including dynamic histories; never substitute a byte estimate for tokens. Missing cached-token usage or incomplete idle gauges must fail closed. A local serving manifest is not remote deployment attestation.
+
+Changes: Harden the ignored qualification driver with durable one-shot allowance accounting, explicit context identity, exact token proofs, fixed request envelopes, global and per-request deadlines, native JSON/SSE validation, cancellation accounting and stop-on-first-failure behavior. Prepare a CPU/tokenization helper that projects the installed chat-renderer contract onto the fixed tokenization route, and a metadata helper restricted to four read-only routes with pinned model/context/version and complete engine-gauge inventory. Keep public runtime code and configuration unchanged.
+
+Evidence: Independent reviewers ran 19 synthetic driver tests and strict TypeScript checking; nine CPU tokenization-helper tests and 19 metadata-helper tests passed. Separate evidence and privacy reviews found no actionable blocker in the inactive helpers. Installed source was checked for tokenizer projection and forwarding of the Heavy sampling controls, but no live sampler behavior is claimed. Driver SHA-256 323891839f64eb6e93ae5820ecf9368cadb94ac2691d65d2ed5ebf261353aaee; tokenization-helper SHA-256 3cf34213f54bce7462db375933e79ebac517a54cb01d7d8bb798299cb6fe6f49; metadata-helper SHA-256 125b292ccbdb5f844d5a9025ad3441a26a005cdac8735ea4a35485fdbf23800e.
+
+Failures or blockers: The candidate failed startup as recorded separately. No qualification admission freeze, helper activation, real qualification authority claim, HTTP tokenization parity or compatibility dispatch occurred. The trial's pinned launch manifest remains preserved. The shared exact pre-dispatch admission hook for ordinary H4/H5 roles, including the independently loaded critic, remains pending.
+
+Limitations and non-claims: Synthetic tests and source inspection are offline preparation, not qualified serving, live transport, tokenizer parity, remote image attestation or model-quality evidence. Generated scaffolds remain ignored and are not a released production integration. No fresh-task gold was read.
+
+Paid exposure: USD 0; zero inference requests and zero qualification slots consumed. Existing caps remain unchanged.
+
+Next gate: Use a suitable deployment to bind the actual serving, role and tokenizer identities and verify tokenization parity before activating the bounded driver. Finish ordinary H4/H5 admission before evaluation; retain all existing technical gates and authority limits.
+
+References: BL-20261031-1855-flash-next-client-contract, BL-20261031-1900-flash-next-client-offline-verified, BL-20261031-2003-nemoclaw-trial-failed-q4t-recovered, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-2021-nemoclaw-diagnostic-retry-approved -- 2026-10-31 -- Investigate the failed startup and authorize an instrumented retry with bounded cache allocation
+
+Status: `Approved`
+
+Scope or hypothesis: The owner asks to investigate exactly what caused the previous failure and try the NemoClaw-derived recipe again, suggesting that a step may need longer. The owner additionally suggests clearing the system cache before launch. This authorizes the second scoped trial and the one-time clean filesystem-page-cache operation described here; it does not waive compatibility or evaluation gates.
+
+Decisions: Preserve attempt-one evidence and use distinct attempt-two containers, state and logs. Retain the pinned image, original checkpoint, context 262144, one sequence, sampling, parsers, prefix caching, dtype and MTP-off choices. Set an explicit 12884901888-byte (12 GiB) KV allocation instead of the prior automatically estimated 31.44 GiB; the installed implementation overrides utilization-based KV sizing when this option is supplied. Keep the context fixed and require its capacity check to pass. Allow up to 60 minutes from server start, bounded by the unchanged owner cutoff, without treating a quiet log alone as failure. Add startup-only phase markers and periodic Python stack diagnostics, Docker init/reaping and bounded cleanup reconciliation. No signal injection, CUDA synchronization probe, model-weight conversion or persistent driver/kernel tuning is part of this retry.
+
+Changes: After q4t stop, verified GPU/listener clearance and exclusive-lease acquisition, synchronize writes and request drop_caches=1 once. Record memory/cache counters before and after. This reclaims clean filesystem pages; it does not delete model files, compiled kernels or disk caches, clear live CUDA allocations, reset swap or persist a sysctl setting. Verify and pin any read-only diagnostic source overlays separately from the immutable image. Retain the original q4t recovery helper and its owned-listener proof.
+
+Evidence: The fuller preserved kernel interval contains an nv_queue thread blocked for more than 120 seconds at 19:55:54 UTC, with a stack waiting on an NVIDIA semaphore/GPU-group lock. That duration places its blocking onset before the 19:55:50 operator stop. NVIDIA reports NV_ERR_NO_MEMORY from _memdescAllocInternal at 19:56:16 and 19:59:39, both after stop began; Docker OOMKilled false does not negate these driver allocation failures. Installed V2 runner source confirms the printed KV capacity precedes initialize_from_config and final compile_or_warm_up_model. Its allocator creates zero-filled device tensors for the planned pool. The earlier compilation/profile pass therefore did not prove completed KV allocation or final CUDA-graph warmup. The pool follows available-byte sizing rather than max-num-seqs alone. Its reported capacity ratio estimates about 6.55 GiB for one full-context request, making 12 GiB a conservative candidate budget, not a fit guarantee. Current q4t assets/listener/health/model metadata revalidate successfully. A read-only sample while q4t runs shows about 1.05 GiB Cached and 0.34 GiB reclaimable slab; cache clearing alone is not established as the remedy.
+
+Failures or blockers: The first attempt was operator-ended before its 30-minute deadline, not a proven timeout or fatal application exit. Driver blocking during startup and allocation failures during cleanup are now established, but the exact initial blocked allocation and its cause remain unproven because no stack was collected then. Memory pressure during cache initialization is the leading hypothesis. Changing cache preparation, allocation budget and wait policy together will not isolate their individual causal effects even if the retry succeeds.
+
+Limitations and non-claims: This supplements BL-20261031-2003 rather than rewriting the preserved result. Startup diagnostics are private and inactive at entry creation; no second GPU attempt or qualification request has run yet. Linux cache-control and Python traceback documentation describe the operations, not a Thor-specific startup-time guarantee. Original start cutoff remains 2026-11-01 09:19 Asia/Shanghai. A suitable deployment still needs actual role/tokenizer pins and bounded compatibility proof before H4/H5.
+
+Paid exposure: USD 0 new; all 24 generation qualification slots remain unused. USD 0.60 split calibration and USD 21.60 counted H5 bounds remain unchanged.
+
+Next gate: Independently review and validate the second supervisor and diagnostic overlays, record their hashes, then repeat idle/rollback checks and launch once under the recorded authority. Continue observing real progress through quiet phases; recover q4t if startup fails or a concrete driver/control failure requires stopping.
+
+References: BL-20261031-2003-nemoclaw-trial-failed-q4t-recovered, BL-20261031-1940-trial-recovery-hardened, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md, https://docs.kernel.org/admin-guide/sysctl/vm.html#drop-caches, https://docs.python.org/3.12/library/faulthandler.html#dumping-the-tracebacks-after-a-timeout.
+
+### BL-20261031-2030-nemoclaw-retry-instrumentation-ready -- 2026-10-31 -- Pin and verify the second trial's diagnostic and recovery changes
+
+Status: `Implemented`
+
+Scope or hypothesis: Make the authorized retry concrete and observable before interrupting the recovered q4t service.
+
+Decisions: Use the BL-20261031-2021 profile once. Preserve the original trial supervisor and all earlier failure evidence. Mount two hash-pinned startup diagnostic overlays read-only into the same image, keep on-disk build caches, and retain the unchanged original checkpoint and experiment controls. Periodic stack snapshots run only during engine cache initialization and final warmup, with exit disabled and cancellation in finally. Allocation-after markers indicate return to Python, not completion of asynchronous GPU work.
+
+Changes: Add a separate ignored retry supervisor with exact context validation, a 60-minute absolute startup deadline bounded by the owner cutoff, remaining-time readiness checks and a deadline/cancellation check before accepting readiness. Add Docker init, positively owned delayed-exit cleanup using only non-force removal, original and retry container-ID absence checks, all-address listener clearance, marker/lease verification and the pinned q4t restore helper. Permit one synchronized clean-page-cache drop under the lease and record before/after counters. Retain the 3000-second systemd stop allowance. Stage the reviewed artifacts without starting the GPU candidate at entry creation.
+
+Evidence: Twenty-two supervisor CPU tests and eight overlay CPU tests pass with independent review. Tests cover actual finally-path recovery refusal on unknown ownership, delayed cleanup, literal page-cache operation, unchanged serving arguments except 12 GiB KV, exact context, source hashes, late readiness, original AST/call/allocation preservation and watchdog setup/cancellation. CPU-only network-disabled image checks pass for Docker init/reaping and both mounted overlay hashes/ASTs. The installed source contains no existing traceback watchdog call. Final supervisor SHA-256 f6d2eea18d8ab976e8e6d8c6fd25a743ba967ef3f5d1ee06de071d8507d82042; diagnostic manifest 8abe1e736ad346e7795a694b9cc4e55cd33708b4dae0157514eb13259ff0d7e0; core overlay 88d4bf91bdbfa8955f2cf2f99d92b29dc592688b3f0463a50dca696684a48d33; allocation overlay 806d613654d0f541ef404ad0898f31f1faa954f927b32292aee2f6daff7c8fd9. The fuller first-attempt kernel evidence is preserved privately with SHA-256 7d341fd4cdca4c3cb7c1ab51c1bd2705277452cacdee32356e71bacde0fef79d.
+
+Failures or blockers: Review found and fixed a readiness check that could accept a response after the startup deadline. These offline tests do not prove live startup or cleanup. The diagnostic overlays change the effective deployment identity even though the original image and numerical implementation are preserved; their hashes must accompany any later serving pin.
+
+Limitations and non-claims: No new model response, GPU numerical result, serving qualification, H4 completion or H5 run is claimed. All diagnostics and generated artifacts remain private. A plain long wait, page-cache reclamation and reduced KV allocation are separate interventions whose individual effects cannot be identified from this combined retry.
+
+Paid exposure: USD 0; all 24 zero-fee qualification generation slots remain unused. Existing paid caps and accepted historical exposure remain unchanged.
+
+Next gate: Start the recorded supervisor, repeat live rollback/idle checks, clear page cache once after q4t stop, run the pinned numerical selection, then observe instrumented startup through its bounded deadline. Verify healthy owned API/context metadata before any qualification claim or dispatch.
+
+References: BL-20261031-2021-nemoclaw-diagnostic-retry-approved, BL-20261031-1940-trial-recovery-hardened, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md.
+
+### BL-20261031-2040-nemoclaw-retry-ready -- 2026-10-31 -- Instrumented retry reaches API readiness with 12 GiB KV and unchanged context
+
+Status: `Verified`
+
+Scope or hypothesis: Execute the owner's second recoverable NemoClaw-derived attempt and requested clean-page-cache operation. Verification covers numerical selection, complete startup, effective deployment configuration and metadata availability; generation compatibility remains unverified.
+
+Decisions: Retain the ready candidate under its scoped recovery supervisor for subsequent admission and qualification work. The original q4t is stopped, with its pinned restoration assets preserved. Keep the first failed startup and failed automatic cleanup/manual recovery as separate evidence. Do not attribute success solely to page-cache clearing: explicit KV sizing, retained compiled caches, diagnostics and waiting policy changed together. No additional service tuning or generation is part of this result.
+
+Changes: After three idle samples and live rollback validation, stop q4t, acquire the exclusive GPU lease and synchronize filesystem writes. Clear clean page cache once with drop_caches=1, retaining model and compiled-kernel files. Run the pinned numerical selection, then start the second container with 12 GiB explicit KV, fixed 262144 context, init/reaping and the two read-only diagnostic overlays. Preserve phase/allocation markers, startup snapshots, kernel evidence and both internal and public-route verification privately. Update current-status documentation while retaining the original negative result.
+
+Evidence: The cache operation reduced Cached from 1117980 to 410532 KiB; MemAvailable increased from 122136392 to 122560152 KiB and MemFree from 20324324 to 21236524 KiB. All 22 selected added-operator tests passed with 64 deselected and zero skips; JUnit SHA-256 31df090f762e5377b54038fb33d7cca964ce673188f2f4e99e0f17708edd0273. The model-container start was 20:32:06 UTC and readiness recorded at 20:37:27 UTC, about 321 seconds later. All 206 shards loaded with 74.34 GiB model memory. The engine reported 479856 KV token capacity and 1.83 times the fixed 262144-token request context. Instrumented KV initialization returned; final CUDA graph capture completed in 6 seconds using 0.16 GiB, and engine initialization completed in 90.62 seconds. The startup watchdog was canceled on normal exit. Readiness did not require the extended 60-minute allowance.
+
+At 20:40 UTC the captured immutable container ID matched the expected name, owner label and image digest; it was running with init enabled. Effective arguments, selected environment, read-only diagnostic mounts and overlay hashes matched the pinned retry. The supervisor was active/running and the prior q4t unit inactive/dead. Internal and public GET requests to health, model-list, version and metrics routes all returned HTTP 200. Model metadata identifies qwen3.8-flash-next, context 262144 and vLLM version 0.1.dev20073+g8e685d198. Engine running/waiting, prefix-cache query/hit and generation-success counters were zero. These GET requests did not consume generation allowance.
+
+Failures or blockers: The NVIDIA interrupt warning recurred at 20:34:24 UTC while weights continued loading. No new NVIDIA allocation failure, OOM or blocked-task report appeared in the captured retry kernel interval through 20:40 UTC. Absence in this interval is not a driver-health guarantee. The fuller first-attempt evidence supports driver locking/allocation pressure as a leading explanation but does not identify the exact first blocked call; allocation errors were logged after stop began. The first attempt's preceding compilation/profile warmup did not establish final KV allocation or engine warmup completion, correcting the broader wording in BL-20261031-2003. Successful startup of this combined revision cannot isolate a causal contribution from page-cache clearing or the smaller pool. Exact-token admission, live tokenizer/template parity, all local role pins and bounded generation qualification remain unfinished.
+
+Limitations and non-claims: Reported token capacity and metadata are not full-context inference proof. The numerical selection tests the added fused operator, not end-to-end Heavy behavior. No HTTP generation, tools/reasoning/sampling/cache-isolation proof, H4 completion, H5 run or release occurred. No reboot, driver reset, persistent sysctl change, swap reset or cache-file deletion was used. The retry did not execute its rollback path; prior q4t recovery and current offline supervisor checks remain the available recovery evidence. Private endpoints, paths, credentials and raw traces remain outside tracked files. Ready-record SHA-256 29d726826fd979877b9af1ee36c8bb47177c2c302eb19bf09d2f238bc7961a6e; page-cache record a9f2c73c8fdd2a1e8e73e3196c278e783fbe5220dc05483321d029117188376c; immutable startup-log snapshot b1ca516b4ecc8acde3d1010c1af832db8416316388cc0b238aaac22b30b78169; retry kernel snapshot f49181562eea19812d6d593bf2aaa519e81b34145e609b6cd1050d2afa26397d; owned deployment verification 607abe0aa4b0ce53e7ed6f35201cde61f7b2906b0cf7b1d5c4828224012b1b05; public-route verification 371e1a3dceae2a2ed4651943479dc486a359de0dd0e665de4906fdc6a193019b.
+
+Paid exposure: USD 0 new; zero qualification generation requests. All 24 zero-fee slots remain available. Accepted prior Claude exposure, the USD 0.60 split-calibration cap and USD 21.60 counted H5 bound are unchanged.
+
+Next gate: Finish shared exact-token admission and tokenizer/template parity, bind every local role including critic and judge to the effective checkpoint/image/diagnostic/profile identity, then execute the already-approved bounded qualification. All three H4 loops must pass before the already-authorized H5 batch-start record. The original start cutoff remains 2026-11-01 09:19 Asia/Shanghai; this successful startup does not extend it.
+
+References: BL-20261031-2021-nemoclaw-diagnostic-retry-approved, BL-20261031-2030-nemoclaw-retry-instrumentation-ready, BL-20261031-2003-nemoclaw-trial-failed-q4t-recovered, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-2049-flash-tokenizer-parity -- 2026-10-31 -- Bind the ready deployment and verify CPU tokenization against generation rendering
+
+Status: `Verified`
+
+Scope or hypothesis: Continue the owner's approved qualification sequence after successful startup. The owner's instruction to go on retains the existing generation, cost, window and H4-before-H5 limits.
+
+Decisions: Bind exact-token admission to the actual complete request body, endpoint, model, serving manifest, tokenizer/template and configured context. Use the approved prompt-plus-reserved-output predicate with zero additional safety margin. The shared broker must count asynchronously before commit, recheck immutable identity at commit, preserve only hash/count proof metadata and refuse Flash requests without admission. Preserve legacy/cloud behavior. This implements the already-approved migration guard; it does not change Heavy settings or permit extra inference.
+
+Changes: Freeze a private serving-identity manifest for the existing candidate, including original checkpoint/weight-manifest identity, actual image/container, selected arguments/environment, source and diagnostic-overlay hashes, context, quantization, cache and parser settings. Copy and hash-check the public tokenizer/template and selected deployment evidence into ignored local preparation. Create private tokenizer/metadata configuration and a separately hash-bound admission policy. Perform six CPU-only synthetic comparisons between the tokenization projection and the installed generation renderer. Runtime wiring and reviewed qualification activation remain separate unfinished work at entry creation.
+
+Evidence: Internal health/model/version rechecked successfully and the candidate supervisor remains active. Installed ServingRender code validates and renders requests without calling model generation; the generation path delegates to the same renderer. Actual token IDs match for plain thinking-off text, thinking-on Heavy text, tools, native tool history, thinking-off tool history and Unicode/JSON input. Their prompt counts are 43, 41, 298, 359, 361 and 47 respectively. Rendered Heavy sampling preserves temperature 1, top-p 0.95, top-k 20 and the explicit output reservation. Source inspection shows stochastic top-k/top-p sampling rather than q4t's fixed argmax path; startup selected FlashInfer. This establishes configured implementation support, not a statistical sampling result. Serving manifest SHA-256 3723396dff67bc845381bfefa4c6ef597376af71bf32bbf30d4cb1562eba8eb5; six-case parity evidence e4ffd03880c59ad06e9c375ecfec3b2bc1d762c8ad92dfc7febfcbb497c056cf; admission policy 71a074f360be9d708c495b0023daebbc85156aa1e94261d0b6acc4a3182b5a46. The existing local tool-sandbox image remains available under its separately approved immutable identity.
+
+Failures or blockers: Review identified missing per-row source/configuration rechecks and independent cache-counter corroboration in the inactive qualification scaffold; both must be corrected and tested before fixture freeze/activation. The historical H4 operator also contains an unbrokered liveness generation and obsolete cloud-evidence repinning; prepare a separate reviewed operator using counted production requests and preserved historical acceptance instead. No historical artifact or acceptance is silently rebound to the new model/runtime.
+
+Limitations and non-claims: Twelve CPU rendering/tokenization POSTs dispatched zero HTTP generation requests. Parity covers those synthetic shapes; every actual qualification body still needs exact precommit counting and completed-response usage equality. Rendering does not prove generated content, tool behavior, cache isolation, numerical quality or H4 readiness. The frozen serving record remains startup-verified and generation-unqualified. Private paths, routes, configurations and generated artifacts remain outside Git; no fresh task gold was inspected.
+
+Paid exposure: USD 0 new; all 24 zero-fee qualification generation slots remain unused. The USD 0.60 split-calibration and USD 21.60 counted H5 bounds remain unchanged.
+
+Next gate: Finish and independently review shared admission/all-role wiring and the scaffold corrections, run required offline checks, then freeze and review the exact fixtures under the unchanged authority/window before the one-shot qualification batch. Stop on its first failed gate; only a passing qualification permits H4.
+
+References: BL-20261031-1759-flash-next-sequence-owner-approved, BL-20261031-2040-nemoclaw-retry-ready, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md.
+
+### BL-20261031-2104-flash-shared-admission-verified -- 2026-10-31 -- Verify shared exact-token admission and freeze the synthetic qualification inputs
+
+Status: `Verified`
+
+Scope or hypothesis: Complete the already-approved Flash-Next exact-token contract for every local role before bounded qualification and H4. This is offline integration plus CPU tokenization verification, not generated-model compatibility.
+
+Decisions: Require the hash-bound host token helper on Flash requests, count the exact immutable body before dispatch commit, and recheck policy, endpoint, model, context, tokenizer, template and serving pins inside the transaction. Admit only prompt tokens plus actual output reservation within fixed context 262144, with zero additional margin. Persist hash/count evidence atomically and require completed server prompt usage to equal the proof. Preserve the established legacy/cloud behavior and all Heavy controls.
+
+Changes: Add the shared production guard, explicit paired configuration and broker wiring for writer, repair writer, index/extraction readers, planner, synthesiser, independently loaded critic and judge. Record provable pre-dispatch refusal with restart-safe no-replay markers. Keep post-dispatch ambiguity UNKNOWN. Record the Flash critic's actual model identity and initial/final runtime hashes beside the unchanged repair binding; reject runtime drift while retaining outcome/fee evidence. Correct two test-only destination deadlines that clipped child-process startup to one second under parallel load; production deadlines and the explicit short timeout regression are unchanged. Prepare an inactive H4 operator that retains historical Claude acceptance, removes its standalone inference probe and gates each loop before proceeding.
+
+Evidence: Independent implementation and privacy reviews found no remaining blocker. The final isolated public-source pnpm check passed readiness, build-log validation, both typechecks, native credential proof, 2247 tests with 81 explicit skips, and the production build. Initial isolated checks lacked the existing Git fixture object; a subsequent full run exposed the two test-fixture startup clamps. Both failures are retained as validation history; the final check passed after restoring read-only fixture access and fixing test-only bounds. Final check-log SHA-256 ce6a6e0773cc710ed834ccf1e600928bccfa67cb51634b7c864ab7949a99c528. The runtime freeze is c3f8ff55c46e7a3402f95adc53efe5ebcd1eaf986d89377698270e01bba27963, research protocol 658aa22c5127d59afdfdaa550043ff397cf2e7152345b69941529784e243ab6d, complete eight-role manifest ac39b17506b1ca8573e37f02bce966a5393ae9060d33139eaf1a6938b67ae6f0, and base local model identity f28eb453775faa3351452ec7418ae2af2c54bc5c33cbf3e8b3614edc82400757.
+
+The ignored qualification driver passed 26 synthetic tests and strict TypeScript checking; the final metadata helper passed 22 CPU tests, and the inactive H4 gates passed nine synthetic tests. The tokenizer helper's previously recorded nine CPU checks and six live renderer-parity cases remain applicable. At 20:59 UTC the final GET-only metadata helper verified healthy idle gauges and zero cache query/hit counters with the expected labels and stable creation epochs. Ownership revalidation matched the immutable running container/image, effective launch arguments and active recovery supervisor. CPU freezing produced all 24 exact production request shapes. The cache prompt is 16856 tokens; the largest allowed fixture is 122439 prompt tokens within the 655360-byte body cap. Dynamic probes use labelled synthetic replies; their counts are not worst-case certificates. The actual production guard separately refused the byte-valid over-context companion with local_token_context_exceeded and no generation.
+
+Failures or blockers: There is no generated compatibility result yet. Applicable CI for the final new commit remains required before H4. The candidate's ready state and source sampler evidence do not prove inference behavior. Runtime source must remain fixed through qualification and the coherent H4 sequence.
+
+Limitations and non-claims: Shared proof is enforced on each actual body, including unknown future histories; exceeding an assigned envelope stops qualification without truncation or replacement. The large fixture does not prove full-context inference. No fresh-task material or evaluator gold was read. Helper paths, private endpoints, configurations, generated fixtures and traces remain ignored. The ready candidate remains supervised; q4t is stopped with restoration assets retained.
+
+Paid exposure: USD 0 new; zero generation requests. All 24 qualification slots remain unused. Accepted historical Claude evidence still binds its original result and freeze and all eight approved checks; no paid repeat occurred. Existing USD 0.60 split and USD 21.60 counted H5 caps remain unchanged.
+
+Next gate: Publish the reviewed integration for applicable CI, record the immutable one-shot qualification admission, then execute at most 24 zero-fee requests under the original window. Only accepted qualification and all three H4 loops permit the already-authorized H5 batch-start record.
+
+References: BL-20261031-2049-flash-tokenizer-parity, BL-20261031-1759-flash-next-sequence-owner-approved, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-2105-flash-qualification-admitted -- 2026-10-31 -- Admit one frozen bounded compatibility batch under existing owner authority
+
+Status: `Approved`
+
+Scope or hypothesis: Execute the owner's approved at-most-24 zero-fee compatibility qualification after the shared guard, serving identity and exact synthetic fixtures are reviewed. The owner's subsequent instruction to go on continues the same sequence; no new window, paid cap, retry or service tuning is granted.
+
+Decisions: Use one request at a time, no automatic retry or replacement, at most 90 minutes and the unchanged hard cutoff 2026-11-01 09:19 Asia/Shanghai. Reserve 124672 output tokens under the 131072 cap and 592000 prompt-token envelopes under the one-million cap. Stop at the first unexpected failure, including a pre-dispatch refusal. Q20 is the sole planned in-flight cancellation; retain its UNKNOWN/cancelled receipt, retire its job and prove idle before recovery liveness. Claim the existing authority once in a durable directory anchored to the pinned helper, so a changed output path cannot reset the allowance.
+
+Changes: Freeze and independently review the driver and metadata-counter logic; root reviews actual fixture bodies, dynamic ceilings, native two-action history/demotion, cache A/A/B/B salts and counters, production research roles, critic, four judge cases, large context, cancellation and JSON/SSE liveness. Bind the source/protocol, all-role manifest, serving manifest, policy, helpers/configurations, fixture manifest and review. Initial, post-cancellation and final idle gates use three metadata-only samples 20 seconds apart; no separate warmup generation is allowed.
+
+Evidence: Authority-record SHA-256 91f5780e577c0de0086e3e4085704e2a95b6592c177f98817d11124f2e82ec27; final admission c30d910585eba81710262965889232a91a6f58f157b4bd528ceecc31ad0c27cd; fixture manifest c87d2c491b06878c927b9bce413a9619c582041777b28be7263f7ad5dc50f1d3; root fixture review 433a570e94cdd6ea4b2d43db7f26e13761a135bd0e132d712861b24fa2dabd61; driver f41131896717643798633d8c68c8c6b2394b3111f6ba8fc5ccba795d4bfb5fbb; metadata helper 37dd3a452f5b59660319d78815f4874da203a972190de54b743144790d859fc6. The serving and token-policy identities remain those in BL-20261031-2049. Pre-qualification ownership verification SHA-256 fbc008c9246601cedb113133afea7519aeb438a06bd18f2a916d82449a8ce4f6. Local tool image and AC power rechecked successfully.
+
+Failures or blockers: None to this bounded dispatch at entry creation; inference behavior remains unknown. A mechanical completion still requires root semantic/operational review and is not automatic qualification acceptance. An unsuccessful run leaves the durable authority claim intact and does not authorize a relaunch.
+
+Limitations and non-claims: This entry admits the batch, not its outcome. Every actual body is recounted before commit and completed prompt usage must agree. Source/configuration identities are checked per row and after replies. Counter reset, ambiguous attribution, malformed role output, unexpected tool action or cancellation that never became in-flight stops the sequence. H4 and H5 remain unstarted at entry creation.
+
+Paid exposure: Zero-fee local generation only. Zero slots consumed at entry creation; actual attempts will be recorded separately. USD 0.60 split calibration and USD 21.60 H5 limits remain unchanged.
+
+Next gate: Execute once, preserve all receipts and the first failure if any, then adjudicate qualification. If it passes and final commit CI is green, execute the three exposed H4 loops in the approved order before H5.
+
+References: BL-20261031-2104-flash-shared-admission-verified, BL-20261031-1759-flash-next-sequence-owner-approved, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-2114-flash-qualification-stopped -- 2026-10-31 -- Preserve twelve passing compatibility cases and an unresolved synthesis-validation failure
+
+Status: `Verified`
+
+Scope or hypothesis: Run the admitted one-shot qualification against the unchanged ready candidate. This entry records the negative qualification result and its limits; it does not accept the deployment or attribute an unobserved cause.
+
+Decisions: Stop after Q13 and retain the original authority claim, database, fixtures and source without retry or replacement. Leave the remaining eleven slots unsent. Hold all three H4 loops and H5 because qualification has not passed. Retain the active supervised candidate and the stopped q4t recovery assets; a response-validation failure is not by itself a reason to change or restart the service.
+
+Changes: Execute the existing production broker/model path after three idle samples and repeat the actual shared-guard over-context refusal without inference. Preserve all thirteen dispatches and the twelve successful sanitized final replies. Export a private result manifest with accepted=false. Inspect metadata, server and kernel logs read-only after stopping. Prepare an independent inactive H5 operator/queue and review its durability/classification logic; it has no authority or activation and has not opened fresh task inputs or gold.
+
+Evidence: Q01 and Q02 pass thinking-off liveness and thinking-on arithmetic, including exact prompt usage and separate reasoning evidence. Q03-Q05 pass the native two-action Heavy tool loop, matching results, real v2 history demotion and final answer. The two tool responses contain 28 and 29 streamed argument fragments. Q06-Q09 prove cache A/A/B/B under distinct job salts: actual cached tokens are 0, 15680, 0, 15680. Independent query/hit deltas corroborate that pattern with stable engine creation epochs. Q10-Q12 pass the production source-index, plan and verified-extraction fixtures. Every successful dispatch settles at zero fee with prompt usage equal to its exact precommit proof.
+
+Q13 sends one 1983-byte synthesis request with 385 exact prompt tokens and an 8192-token output reservation. Transport observes 648 JSON SSE events, one usage frame, one DONE marker and no JSON parse failures. The broker records UNKNOWN with response_or_usage_invalid after 32880 ms; the outer pipeline records research_stage_invalid. The stream completed well within the 180-second row and 900-second broker limits. There are thirteen wire attempts and dispatches, twelve settled and one UNKNOWN, 124548 admitted prompt tokens and 71936 output tokens reserved. Eleven slots were never sent. Result-manifest SHA-256 a935c22302d654a8f309952f1017bb568150f8fbcd2f97e667b172700407dead; preserved database 21d55fc7bcf73cd1ad7d71b98bb471078f4d6790f33daa274d9209f95f3aeff9.
+
+At 21:09 UTC metadata again reports healthy serving, zero running/waiting requests and unchanged cache epochs. The 21:12 read-only server snapshot contains thirteen generation HTTP 200 access records and no ERROR or traceback; the captured kernel interval since batch preparation has no allocation-failure, OOM or blocked-task match. Supervisor remains active/running. Post-stop metadata SHA-256 6fc29138c599dd1f08403cdaba443282290695552274f34965fa7c690fbf5d8b; server/kernel diagnostic snapshot 248deb04c7aab1ed7b39a9ad2e4555ff56f6526629eb1cad7bf48e89e597accf. An operator convenience helper temporarily overwrote its earlier private metadata snapshot; the later bytes were separated and the earlier bytes recovered exactly from the preserved tool response, matching their recorded SHA-256. Its output naming now prevents overwrite. No qualification row or original driver was changed.
+
+Failures or blockers: The exact Q13 assertion is not recoverable from the retained artifacts. Native reply validation, prompt-usage equality and the fixture callback share the broker's response-validation diagnostic; the outer research callback then replaces the denial code. The fixture only saves final content after validation, so the failed reply and content hash were not retained. Therefore this proves an unresolved response/usage-or-fixture validation failure, not a backend crash, timeout, bad synthesis or specific accounting defect. Independent offline review also establishes an overly restrictive fixture check: valid setext headings or ATX headings with closing hashes are rejected even though the production prompt and fixture design permit Markdown sections with those titles. That is a checker defect, but it cannot be assigned as this request's cause without the missing reply.
+
+Limitations and non-claims: Critic, four judge cases, large-prompt generation, in-flight cancellation/recovery and final JSON/SSE cases were not attempted. The earlier CPU large-context and over-limit proofs remain CPU evidence. The twelve passing cases are partial compatibility evidence, not full qualification, H4, H5, model quality or release. The original failed verdict and UNKNOWN receipt remain intact. Inactive H5 preparation passed sixteen TypeScript and fifteen Python synthetic tests plus strict checking and independent review; it does not waive any gate.
+
+Paid exposure: USD 0 new under the declared zero-fee local destination; the UNKNOWN request's reserved fee is also zero. No Claude call ran. Historical accepted Claude exposure and the USD 0.60 split / USD 21.60 H5 bounds are unchanged.
+
+Next gate: Prepare a separate, inactive single-request synthesis diagnostic with exact request reconstruction, unchanged production/model pins, allowlisted validation details and sanitized final content, plus alternate-valid-heading regression checks. The approved no-automatic-rerun rule requires owner adjudication before any further generation. A diagnostic cannot retroactively settle or pass Q13, reset the consumed authority or start H4/H5. Any later allocation to finish qualification must be recorded explicitly within the remaining limits or a separately approved adjustment.
+
+References: BL-20261031-2105-flash-qualification-admitted, BL-20261031-2104-flash-shared-admission-verified, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-2120-q13-diagnostic-prepared -- 2026-10-31 -- Prepare a held single-request diagnostic without rewriting the stopped qualification
+
+Status: `Implemented`
+
+Scope or hypothesis: Make the next owner decision concrete after the unresolved Q13 failure. The implementation and offline checks below are complete; live execution remains Proposed and inactive, with no new authority or generation.
+
+Decisions: Propose at most one zero-fee synthesis diagnostic from the eleven unsent slots, retaining the original total request allocation and window. Keep the same source, model, serving, role, token-admission, sampling and output settings. Reconstruct the original request completely before changing only its job cache salt. Do not retroactively pass Q13, settle its UNKNOWN receipt, resume the stopped batch or authorize H4/H5. Any allocation to finish qualification needs a later explicit decision.
+
+Changes: Prepare an ignored operator, CPU reconstruction, passive wire observer, sanitized evidence projection and side-by-side original/proposed semantic checks. The existing locked Markdown parser recognizes actual top-level section headings, including Setext and closing-hash ATX; fact, citation and reserved-markup criteria remain fixed. Persist final synthetic content only when it passes the sanitizer; separate reasoning stays transient. Preserve original validation and receipt outcomes separately from the proposed heading predicate. A hard activation hold precedes authority/environment loading. Fresh hash-bound owner adjudication and an original-admission-keyed durable one-shot claim are mandatory before execution.
+
+Evidence: CPU replay of the retained Q10-Q12 synthetic final replies through the unchanged production research pipeline and model body builder reproduces all four original Q10-Q13 request hashes. Q13 remains dba27e6e50c0ade23e973e143f192f8c10f7ee143b0d881030607ca936ca1af9. The proposed new body differs only in cache_salt; SHA-256 52a71fc8b7c8e2f215226b41d8b86356a4cda822966ddc2c5940df1dc2dfd47a. Reconstruction report 9bc3774900faef01bb73a6f2bf752a2e60e135720e87d3d47f8e0d8050553cd2; inactive proposal a321a2d09d66b32d4ec439aa323acb6e634cfc1bf52b68450482885dd8c92814; diagnostic operator 4c4ccb343a5700fd67f15af57e0440dba04729fe7b0c8fa92f5c3bf98d1b3eab. Sixteen offline tests and strict TypeScript checking pass, including alternate valid headings, fake headings, sanitation, exact reconstruction, hold, cap/window refusal, durable claim ordering and replay refusal. Independent runtime and privacy reviews found no blocker; runtime review independently passed the sixteen tests. Offline verification record 21d920f7f1898aa2d13920246ade5912f2d16d21c06f8e94fdde75ee95b5a5b3. The original driver and closed database still match their previously recorded hashes. GitHub check and electron-e2e both passed for runtime commit c4a9c59.
+
+Failures or blockers: The approved qualification rule forbids automatic retries and says unused slots do not authorize tuning or repeating the batch. No fresh diagnostic authority, run directory or durable diagnostic claim exists. The original Q13 cause remains unknown; a future response cannot establish the content of its missing predecessor.
+
+Limitations and non-claims: Proposed limits are one request, at most 8192 prompt tokens, 8192 output tokens, 655360 request bytes, 180 seconds, zero fee and zero retries. Actual prompt admission remains mandatory. Metadata-only idle checks precede and follow the request. The original start cutoff remains 2026-11-01 09:19 Asia/Shanghai. A diagnostic would leave at most ten unsent slots and would not itself complete the original eleven remaining cases. No helper, metadata, generation, paid request, service change or fresh-task/gold access occurred during this preparation. Public documentation contains only the summary and hashes; private artifacts remain ignored.
+
+Paid exposure: USD 0 new. Actual qualification usage remains thirteen requests, twelve passed and one UNKNOWN, with eleven unsent. Existing USD 0.60 split-calibration and USD 21.60 H5 limits remain unchanged.
+
+Next gate: Ask the owner to adjudicate the concrete one-request diagnostic. If granted, append the exact approval, review and pin the released operator and proposal, then execute once within its original limits. Until then retain the hold; new H4 loops and H5 remain unstarted.
+
+References: BL-20261031-2114-flash-qualification-stopped, BL-20261031-2105-flash-qualification-admitted, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md section 4.
+
+### BL-20261031-2137-q13-diagnostic-approved -- 2026-10-31 -- Authorize exactly one prepared synthesis diagnostic
+
+Status: `Approved`
+
+Scope or hypothesis: The owner replied "Approve" to the concrete request for one zero-fee Q13 diagnostic capped at 8192 output tokens and 180 seconds with no retry. This is the fresh adjudication required after the stopped qualification; it is not a batch resume or H4/H5 acceptance.
+
+Decisions: Execute at most one diagnostic under the prepared design in BL-20261031-2120, consuming one of the eleven unused slots if dispatched. Preserve the original failed Q13, UNKNOWN receipt, driver, database and consumed authority. Retain fixed source/model/serving/role/token-admission settings, a fresh job cache salt and the original available window ending 2026-11-01 09:19 Asia/Shanghai. No service tuning, paid calls or automatic continuation is authorized by this decision.
+
+Changes: Record the direct owner approval before releasing the hard activation hold. Preserve the inactive proposal and reviewed assets, then bind the released operator and exact reconstructed request in a separate private authority record. The sole intended executable change is the reviewed activation constant; the production runtime remains frozen. Verify ownership, availability and metadata-only idle checks before the single request and collect sanitized diagnostic evidence afterward.
+
+Evidence: Approved inactive proposal SHA-256 a321a2d09d66b32d4ec439aa323acb6e634cfc1bf52b68450482885dd8c92814, prepared operator 4c4ccb343a5700fd67f15af57e0440dba04729fe7b0c8fa92f5c3bf98d1b3eab and offline verification 21d920f7f1898aa2d13920246ade5912f2d16d21c06f8e94fdde75ee95b5a5b3 remain the reviewed design. The owner's direct response is exactly "Approve". Both CI jobs passed for documentation commit 943d66a before this decision.
+
+Failures or blockers: The original synthesis-validation cause remains unresolved. A new successful or failed response will characterize this diagnostic only; it cannot recover the missing original response or retroactively settle its receipt.
+
+Limitations and non-claims: Limits remain one request, at most 8192 prompt tokens, 8192 output tokens, 655360 body bytes, 180 seconds, zero fee and zero retries. Exact-token precommit admission, fixed identity, availability and three metadata-only idle samples before and after remain required. No diagnostic request has been sent at entry creation. A dispatched diagnostic leaves at most ten unsent slots; any later qualification allocation requires a separately recorded decision. H4 and H5 remain held.
+
+Paid exposure: USD 0 authorized for this diagnostic; no cloud request. The USD 0.60 split-calibration and USD 21.60 counted H5 caps remain unchanged.
+
+Next gate: Independently verify released assets and authority, execute once within the original window, inspect its sanitized evidence and append the result without retry.
+
+References: BL-20261031-2120-q13-diagnostic-prepared, BL-20261031-2114-flash-qualification-stopped, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md section 4.
+
+### BL-20261031-2141-q13-diagnostic-result -- 2026-10-31 -- Verify one settled diagnostic and identify a section-format assertion mismatch
+
+Status: `Verified`
+
+Scope or hypothesis: Execute exactly the owner-approved diagnostic and distinguish native response/accounting validation from fixture checks. Verification applies to this new response and the bounded diagnostic execution; original Q13 remains failed with an UNKNOWN receipt and unavailable final content.
+
+Decisions: Preserve both failed heading-predicate results and the new settled receipt. Do not convert this diagnostic into qualification acceptance or retrospectively change Q13. The response contains the two exact required titles as standalone paragraphs, while both reviewed predicates demand formal Markdown headings. The production prompt and fixture design ask for exactly titled sections without explicitly prescribing heading syntax. Treat this as a fixture/prompt requirement mismatch demonstrated on the new response, not evidence of a native backend or token-accounting failure. Stop after the authorized request; no automatic continuation, synthesis repeat or H4/H5 launch.
+
+Changes: Archive the approved inactive assets and proposal, change only the diagnostic activation constant, reconstruct the original request again and bind a new cache salt. Record a fresh authority and verify the sole executable delta independently. Recheck the immutable running container/image, owner label, complete pinned launch arguments, selected environment, init and active recovery supervisor; verify local AC power and open lid. After three healthy idle samples, execute through the unchanged production exact-token guard, broker and model path, then retain sanitized evidence and three post-request idle observations.
+
+Evidence: Released operator SHA-256 34fd2f4ecea77cb166963295de573fe66091cc2c9f7c2d788ad90a39e7de0262; proposal 1fd2a9f3349d28de85d0236a9ef9f3ded9bcc08f94ab2718a7ad73d53a3a4389; authority 935a62d06bb7955dad6a6c7352c72c7ee4f4e8a0cbc1919a6239d69b06bf76a6; ownership observation 0f6357268fa99662dfbe7d5979a8567a85a12040fdc68f383c5b47ffba9723e4. The new request body bef39de92ca785814cc3e7cf8338c74052f33f5374b8d8ddd723164138c5acc4 differs from the proven original body only in cache_salt. Runtime, protocol, serving, role and admission-policy identities remain unchanged.
+
+Exactly one wire request and one dispatch completed with HTTP 200, a settled zero-fee receipt and no retry. Native reply inspection, SSE assembly, production native/prompt validation and model settlement pass. Server prompt usage equals the exact admission proof at 385 tokens; completion usage is 641, cached input zero and the output reservation 8192. Separate reasoning is evidenced only by its field label, 707-byte count and reported usage; raw reasoning is not saved. The 2112-byte sanitized final content has SHA-256 1d9a099b9242191d41195c37ca7b55b2cce63211a896f9974d0cde9f522ffbd7. Both semantic predicates pass the fixed fact, known-citation and reserved-markup checks and fail only the two heading checks. The new response uses plain paragraph titles, so the earlier Setext/closing-hash correction would not change this result. Independent runtime and privacy review concur with these limits and find no evidence leak.
+
+Post-request metadata samples at 21:39:41, 21:40:02 and 21:40:22 UTC all report healthy serving with zero running/waiting requests. The operator exited successfully after the final sample. Evidence manifest SHA-256 fdf81c7ad04a3706d660e5cb3b79f8c8bcbcc442f5bbf77cc09de7c3cf50d680; closed diagnostic database b6c1e859b5755969f4ffaf81ee091e35fd41c3566283664bf525359d603cd420; root result review 2312b34ea4aa940cabb00c3753445e7bac080929fca994f073ab784651c64cbc. The original driver, original closed database, original Q13 body binding and consumed authority remain unchanged.
+
+Failures or blockers: Both frozen heading verdicts remain false. The original failed response cannot be recovered or assigned the same cause from this later response. Any named-section criterion or allocation change must be adjudicated explicitly before further generation. The original eleven remaining fixture rows are still unattempted, but only ten request slots remain after this diagnostic.
+
+Limitations and non-claims: This proves valid native transport and accounting for one synthesis-shaped response. It is not full compatibility, task quality, sustained stability, H4 completion, H5 or release. No model/prompt/source/serving tuning, paid call or fresh-task/gold access occurred. The diagnostic durable claim remains consumed. Aggregate actual generation attempts are fourteen, admitted prompt tokens 124933 and output reservations 80128. A possible ten-request continuation would require an explicit fixture amendment; it is not authorized by this diagnostic approval. Keeping the original 90-minute qualification clock yields a hard stop at 22:35:27.546 UTC, stricter than the unchanged owner-window cutoff.
+
+Paid exposure: USD 0 new. The diagnostic receipt and all original local receipts retain zero fees; the original UNKNOWN remains UNKNOWN. No Claude call. The USD 0.60 split-calibration and USD 21.60 H5 bounds are unchanged.
+
+Next gate: Present a narrow criterion/allocation amendment for owner adjudication: assess the new response against the literal titled-section requirement while retaining both historical false predicates, then potentially retain Q14-Q21 and Q23-Q24 and omit only the duplicate Q22 arithmetic SSE comparison. That proposed total is 24 requests and 130816 reserved output tokens under the unchanged limits. Without that decision, remaining qualification and all three H4 loops stay held; H5 cannot start.
+
+References: BL-20261031-2137-q13-diagnostic-approved, BL-20261031-2120-q13-diagnostic-prepared, BL-20261031-2114-flash-qualification-stopped, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md section 4. Proposed next-decision memo: docs/plans/PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md; it grants no execution authority.
+
+### BL-20261031-2158-h4-h5-goal-continuation -- 2026-10-31 -- Continue the owner goal through the named qualification correction and remaining gates
+
+Status: `Approved`
+
+Scope or hypothesis: The owner's active objective is "keep resolve the coming issues and try to complete H4 and H5" following the diagnostic result and proposed continuation. Continue necessary implementation, review and bounded execution toward the full objective. This records the execution interpretation of that ongoing instruction; it does not infer additional requests, fees or time beyond the existing limits.
+
+Decisions: Adopt the proposed literal titled-section interpretation for the new diagnostic only: complete standalone top-level title paragraphs or actual Markdown headings may identify the two required sections; quoted, fenced, embedded or empty pseudo-sections do not. Retain the original fact/citation/markup constraints and the prompt's word bound. Preserve original Q13 UNKNOWN and both previously false heading predicates. After CPU verification and independent review, append a separately bound semantic adjudication rather than rewriting historical results. Allocate the remaining ten requests to Q14-Q21 and Q23-Q24, explicitly omitting only the duplicate Q22 same-arithmetic JSON/SSE comparison. Existing JSON and SSE evidence remains, with that narrower lost comparison disclosed.
+
+Changes: Prepare a separate inactive continuation operator using frozen tail request bodies and unchanged production model/broker/role helpers. Carry forward original and diagnostic ledger counts, use a durable original-admission-keyed claim and the original absolute deadline, stop on the first unexpected failure and preserve planned cancellation classification. Audit the inactive H4/H5 operators and fix any verified account-identity or one-shot-authority defect before activation. No production prompt, Heavy control, source/protocol identity or service tuning is authorized by this correction.
+
+Evidence: The prior turn completed one approved diagnostic, changed authoritative evidence and determined the next action; it was progress. The active goal remains full H4/H5 completion. At 21:56 UTC a metadata-only observation again reports the expected serving identity, healthy status, zero running/waiting requests and unchanged cache creation epochs; query count 124933 agrees with prior admitted prompts. Observation SHA-256 0e97c670bf1d3cb959dfa7d05530993648557a76c4f3683f21d2f42bbc045c56. Both CI jobs passed for commit 08af55c. No new inference has occurred at entry creation.
+
+Failures or blockers: The continuation operator and appended semantic adjudication are not yet verified or activated. The full qualification remains incomplete, and no new H4/H5 run exists. Review identified that the inactive H4 operator inherits Claude account identity from ambient environment and lacks an authority anchor independent of its output directory; these require focused fixes and tests. The source and original evidence remain frozen while those ignored operator changes are prepared.
+
+Limitations and non-claims: Combined maximum allocation remains 24 requests, 130816 reserved output tokens and 596096 prompt-token envelopes, below the existing 131072/1000000 ceilings. Actual cumulative use remains fourteen requests, 124933 admitted prompt tokens and 80128 output reservations. The original qualification hard stop is 22:35:27.546 UTC; the wider owner new-start cutoff of 2026-11-01 01:19:14.660899 UTC does not extend it. No clock reset, replacement inference or silent retry is granted. This entry does not accept qualification, H4, H5 or model quality.
+
+Paid exposure: USD 0 for qualification. Existing accepted Claude step-0/1 evidence and the USD 0.60 embedded H4 split-calibration / USD 21.60 counted H5 bounds remain unchanged. No new paid request at entry creation.
+
+Next gate: Independently verify the literal section adjudication and inactive continuation, freeze and bind the exact released operator before one bounded execution, then review the full combined qualification evidence. Only accepted qualification allows the already-authorized three H4 loops; their mechanical and semantic proof precedes the pinned H5 batch-start record. Continue to complete and verify the full H4/H5 objective, retaining all negative results.
+
+References: BL-20261031-2141-q13-diagnostic-result, docs/plans/PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-2205-continuation-admitted -- 2026-10-31 -- Verify the named correction and admit the ten remaining requests
+
+Status: `Approved`
+
+Scope or hypothesis: Release the separately reviewed continuation under BL-20261031-2158. Execute exactly the ten frozen tail rows Q14-Q21 and Q23-Q24, omitting Q22, without rewriting either prior ledger or extending the original clock.
+
+Decisions: Accept the literal section criterion for the retained diagnostic only. Its two complete top-level title paragraphs have nonempty content in the exact order; fixed fact, known citation, reserved-markup and 1200-word requirements pass (303 words). Preserve original Q13 UNKNOWN and both false heading predicates. This adjudication is not qualification acceptance.
+
+Changes: Archive inactive assets and preparation; change only the continuation activation constant and regenerate its pinned proposal. Bind the accepted section record, immutable original evidence, roles, service and exact-token policy to a fresh durable authority. Root verified the running container/image, complete launch arguments, selected environment, init, owner label and active recovery supervisor. The operator enforces one-shot admission, fixed actual request bodies, first-failure stop, exact token limits, original absolute deadline and pre/post idle gates. Expected cancellation requires HTTP 200 in-flight evidence and its own cancelled UNKNOWN receipt, followed by retirement and idle recovery.
+
+Evidence: Literal-section adjudication SHA-256 b1e5e4d487fa763d04a053ab01b6192f4b151aee51e27c4db87e2b622c057dc5; root acceptance fb3470b3784f40308a0826f672a487cb2f131580c087797210f9e457f7c783b4. Fifteen checker tests and strict TypeScript pass, independently reviewed. Nineteen continuation tests and strict TypeScript pass; independent reviewer also ran all nineteen. Released operator cd619850d9b73c2bf4b15530f4611d91854e742543aaa8ae9afa30861d59512d; proposal 2a9d28bc1cc1a8b86cdc0cca28d7b84ff6c5ff4830b55d716e7b38d1c80c9e16; authority 81911d7422e6ebbf236458f197858a17594fb3864912591b79eaf3592d0c8506; live ownership observation b57b125126822a72ad79fb16e028964a8e7652283ce1b03725e417f03dfdc05f. Production source/protocol remain unchanged.
+
+The inactive H4 account/authority defects identified in BL-20261031-2158 are fixed: explicitly bind accepted historical Claude account/version, and use an exclusive durable helper-anchored authority claim preventing copied-directory replay. Seven new tests, nine existing gate tests, strict TypeScript and independent review pass. Verification SHA-256 cb587b07ccd3ee2e475df7c4405147a122f72b9adfa8ec54f8d1d573807585aa. Existing H5 sixteen TypeScript and fifteen Python tests also pass. The free Claude models check returned HTTP 200; it made no paid generation request. H4/H5 remain inactive pending qualification.
+
+Failures or blockers: No remaining operator review blocker. Full compatibility is still unverified. All previous negative results and consumed authorities remain unchanged. Any unexpected continuation failure stops new requests; no retry is permitted.
+
+Limitations and non-claims: Ten remaining requests reserve 50688 output tokens and 272384 prompt-token envelopes. Combined maxima are 24 requests, 130816 output tokens and 596096 prompt-token envelopes. Original hard stop remains 22:35:27.546 UTC. Settlement cleanup after an abort grants no new admission. Root must accept the combined evidence before H4; this entry starts neither H4 nor H5.
+
+Paid exposure: USD 0 qualification. No additional paid calls. Existing USD 0.60 H4 split and USD 21.60 H5 bounds unchanged.
+
+Next gate: Execute this authority once, review the complete combined record, and append acceptance or the exact failure. Only accepted qualification permits the three approved H4 loops.
+
+References: BL-20261031-2158-h4-h5-goal-continuation, docs/plans/PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-2208-flash-qualification-accepted -- 2026-10-31 -- Accept the bounded combined Flash-Next qualification
+
+Status: `Verified`
+
+Scope or hypothesis: Review the original twelve passed fixtures, separately adjudicated diagnostic and completed ten-request continuation as the named amended compatibility qualification. This accepts only the pinned deployment/roles under that amendment, not the failed original batch or model/task quality.
+
+Decisions: Accept the combined qualification for the next approved H4 gate. Preserve original Q13 UNKNOWN and its unresolved cause, both historical false heading predicates, the planned cancellation's distinct UNKNOWN/cancelled receipt and the explicit omission of duplicate arithmetic SSE comparison Q22. No request is replayed, substituted after seeing a tail failure or relabelled as settled.
+
+Changes: The released continuation completed all ten frozen requests and exited zero. Critic arithmetic review, all four production judge verdicts, large-context anchors, cancellation/retirement, fresh-job recovery, thinking-off JSON and final SSE passed their intended checks. Nine healthy zero-running/zero-waiting observations cover the initial, post-cancellation and final phases, with three samples twenty seconds apart in each phase. Append an independently checked combined report and a separate root acceptance record.
+
+Evidence: Independent read-only review reports 252 checks true, no pending items and no discrepancies. Combined review SHA-256 69cc138a95b444d13e7cff0106a0c179c5367569ef43e90da49ca119add84438; reviewer 9901b28b475cc2ed2b5992d82d253daff332539f33e4e61078a09de4b3beb111; tail result 0102c556e315e310667e35922309d1559332ddcfc0d56287614eb16f472a1567; closed tail database 27f1df759ee50059ff3ab4cd44fd59497f998479098c7466d49a2f056d3fafa5; root acceptance ab782436437cd305428f19188e11f7a24eb6135cfee607d0a1323f949f1a2301. Actual large-context prompt count is 122439 with the full 16384-token output reservation; its settled output used 104 tokens and returned all three expected anchors. All settled prompt usages equal exact precommit proofs. All eight role records retain the qualified identity, including the independently loaded critic and current local judge.
+
+The aggregate is exactly 24 generation attempts: 22 settled zero-fee receipts, original Q13 UNKNOWN and expected Q20 UNKNOWN/cancelled. Exact admitted prompt tokens total 248485; full output reservations total 130816; prompt envelopes total 596096. Every dispatch and final idle proof is inside the unchanged original 90-minute qualification clock. Original source, driver, database, evidence and consumed authorities remain unchanged.
+
+Failures or blockers: No remaining compatibility-gate blocker under the recorded amendment. Original Q13's response remains unavailable and its cause unproven. The first startup failure and recovery limitations remain historical evidence.
+
+Limitations and non-claims: Qualification exercises a 122439-token prompt, not every input up to the configured 262144-token context. The omitted same-prompt arithmetic transport comparison remains disclosed. This is bounded functional compatibility, not sustained stability, research quality, completed H4/H5 or release. New H4 and H5 runs are still unstarted at entry creation.
+
+Paid exposure: USD 0 qualification; no new paid generation. Historical Claude total USD 1.151653 is unchanged; H4 split remains capped at USD 0.60 and H5 at USD 21.60.
+
+Next gate: Freeze the reviewed H4 operator against a clean commit with applicable CI passing, bind accepted qualification and historical Claude evidence, then run all three approved loops under the current window.
+
+References: BL-20261031-2205-continuation-admitted, BL-20261031-2158-h4-h5-goal-continuation, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md, docs/plans/PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md.
+
+### BL-20261031-2208-h4-admission-prepared -- 2026-10-31 -- Bind the approved three-loop H4 sequence after qualification
+
+Status: `Approved`
+
+Scope or hypothesis: Continue the owner's instructions to complete all three H4 loops, retaining the USD 0.60 split-calibration cap, and the ongoing H4/H5 goal. Qualification is accepted by BL-20261031-2208-flash-qualification-accepted. This entry fixes the next H4 launch, conditional on final clean-commit/CI and current preflight checks; no H5 run starts here.
+
+Decisions: Run k2-qbr-deck-loop-local, r3-grid-batteries-loop-local and r3-grid-batteries-loop-split in that order. Require unchanged runtime/protocol/deployment/token policy and all local role identities, including critic and judge. Split sample a alone performs Claude planning/synthesis; sample b and repair reuse its packet. Stop on any failed gate, unresolved receipt, source/pin drift or owner-window expiry; no automatic failed reruns. Preserve USD 0.60 total split allowance and existing historical Claude acceptance rather than repeating step 0/1.
+
+Changes: The reviewed H4 operator now explicitly binds accepted historical cloud account/version and uses a durable helper-anchored single-use authority claim. Its ten assets are frozen in the private preparation checklist; root will bind exact final commit and qualification-acceptance hash after this documentation commit and applicable CI. Prepare and execute with explicit local configuration and current USER/HOME for the session-local Keychain wrapper. Host AC/open-lid, qualified tool image, owned serving identity and fresh metadata-only idle checks remain required before execution.
+
+Evidence: H4 operator SHA-256 f76d54d232b0d54621855e3ef18e4a2d1ecb123693a7780535a7240914d924d2; activation helper 375b366762fbe94d5b1df2c575dbfdb53d6dfc0080e7304a6b08b751a2feee67; queue 65955e2091dda4f95bca462ec8f2c84a76b97a84e6d16f268fc1d2731328eab6. Seven new TypeScript tests, nine gate tests, strict TypeScript and independent review passed. Root acceptance ab782436437cd305428f19188e11f7a24eb6135cfee607d0a1323f949f1a2301 binds the accepted qualification. Historical Claude account/key free check returned HTTP 200; prior owner Console, no-competing-usage and availability confirmations remain in force for the unchanged window.
+
+Independent H5 preparation is still inactive. Its queue now points only to the preserved input directory; all eighteen row identities, hashes, flags and order remain unchanged (queue SHA-256 0529ca0fb98197c4871c1e7bf616012c971cb87db3762b09695096040b92c002). Sixteen TypeScript and fifteen Python tests plus strict TypeScript pass after that path-only fixture update. Author, implementer and newly created independent scorer sessions are distinct and durably recorded privately; no fresh-task inputs, gold or candidate contents were read by the implementing sessions.
+
+Failures or blockers: H4 authority/pins and final-commit CI must be completed before execution. Step-2 semantic review still requires a usable plan and cited argument, beyond structural citation presence. H5 requires all three coherent H4 loops and separate batch-start evidence under its existing launch permission.
+
+Limitations and non-claims: The wider new-start cutoff remains 2026-11-01 01:19:14.660899 UTC. A started row retains its normal frozen bounds; no new row starts after the cutoff. No time/cap extension, service tuning, quality acceptance or release is granted. H4 remains unstarted at entry creation.
+
+Paid exposure: At most USD 0.60 for the embedded split calibration; local roles have declared zero inference fees. The separately authorized H5 ceiling remains USD 21.60, unused here.
+
+Next gate: Confirm final clean commit/CI, prepare immutable H4 authority/pins and launch once. Review each mechanical gate and the split semantic evidence before accepting H4 and preparing H5.
+
+References: BL-20261031-1759-flash-next-sequence-owner-approved, BL-20261031-2158-h4-h5-goal-continuation, BL-20261031-2208-flash-qualification-accepted, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md sections 5-6.

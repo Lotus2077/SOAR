@@ -3,6 +3,8 @@ import type { ProviderResult } from "../providers/types";
 import { anthropicBody, decodeAnthropicReply } from "./anthropic";
 import { BROKER_MAX_BODY_BYTES, PrivateAgentBroker } from "./broker";
 import { canonical, digest, privateAgentId, sha256Schema } from "./contracts";
+import type { FlashNextReplyEvidence } from "./flash-next-reply";
+import { LOCAL_TOKEN_ADMISSION_CODES, LOCAL_TOKEN_ADMISSION_STOP } from "./flash-next-admission";
 
 export const MODEL_REQUEST_SIZE_STOP = "request_body_size_exceeded";
 /** Adapter ceiling. Callers choose their own lower profile limit (the desktop clamps to 4096). */
@@ -29,6 +31,12 @@ const feeStopSchema = z.object({
   maxFeeMicrousd: z.number().int().safe().nonnegative(), settledFeeMicrousd: z.number().int().safe().nonnegative(),
 }).strict();
 export type ModelRequestFeeStop = z.infer<typeof feeStopSchema>;
+const tokenStopSchema = z.object({
+  type: z.literal("model_request_not_dispatched"), contextId: privateAgentId, operationId: z.string().uuid(),
+  promptProtocolSha256: sha256Schema, reason: z.literal(LOCAL_TOKEN_ADMISSION_STOP), dispatched: z.literal(false),
+  code: z.enum(LOCAL_TOKEN_ADMISSION_CODES), bodySha256: sha256Schema, policySha256: sha256Schema.optional(),
+}).strict();
+export type ModelRequestTokenAdmissionStop = z.infer<typeof tokenStopSchema>;
 
 function notDispatchedJoin(events: Record<string, unknown>[], start: Record<string, unknown>): Record<string, unknown> | undefined {
   if (start.type !== "model_started") return;
@@ -46,6 +54,10 @@ export function modelRequestSizeStop(events: Record<string, unknown>[], start: R
 export function modelRequestFeeStop(events: Record<string, unknown>[], start: Record<string, unknown>): ModelRequestFeeStop | undefined {
   const marker = notDispatchedJoin(events, start); if (!marker) return;
   const parsed = feeStopSchema.safeParse(marker); return parsed.success ? parsed.data : undefined;
+}
+export function modelRequestTokenAdmissionStop(events: Record<string, unknown>[], start: Record<string, unknown>): ModelRequestTokenAdmissionStop | undefined {
+  const marker = notDispatchedJoin(events, start); if (!marker) return;
+  const parsed = tokenStopSchema.safeParse(marker); return parsed.success ? parsed.data : undefined;
 }
 
 export const MODEL_UNAVAILABLE_STOP = "model_unavailable";
@@ -65,7 +77,11 @@ export function modelRequestFailed(events: Record<string, unknown>[], start: Rec
 
 export function hasInvalidModelRequestSizeStop(events: Record<string, unknown>[]): boolean {
   return events.some(marker => marker.type === "model_request_not_dispatched" &&
-    !events.some(start => (modelRequestSizeStop(events, start) ?? modelRequestFeeStop(events, start))?.operationId === marker.operationId));
+    !events.some(start => (modelRequestSizeStop(events, start) ?? modelRequestFeeStop(events, start) ?? modelRequestTokenAdmissionStop(events, start))?.operationId === marker.operationId));
+}
+export function hasInvalidModelRequestTokenAdmissionStop(events: Record<string, unknown>[]): boolean {
+  return events.some(marker => marker.type === "model_request_not_dispatched" && marker.reason === LOCAL_TOKEN_ADMISSION_STOP &&
+    !events.some(start => modelRequestTokenAdmissionStop(events, start)?.operationId === marker.operationId));
 }
 
 export interface GeneralMessage {
@@ -116,6 +132,12 @@ export interface PrivateModelConfig {
   promptCaching?: "responses_explicit_v1" | "vllm_job_salt_v1" | "anthropic_explicit_5m_v1";
   /** PR-B: stream the reply from the owned server (assembled by the transport); the cloud shape stays non-streaming in Phase 1. */
   streaming?: boolean;
+  /** Explicit qualified local deployment contract; absent preserves every earlier body and model identity. */
+  localReplyContract?: "flash_next_v1";
+  /** Qualified Flash deployment context capacity, including the reserved output; required only with its reply contract. */
+  localContextTokens?: number;
+  /** Exact-token policy identity. The trusted broker loads the separately hash-pinned host descriptor. */
+  localTokenAdmissionSha256?: string;
   thinking: "disabled" | "medium";
   /** Request body cap in bytes; defaults to the broker's packet cap. Profiles raise it for the local model. */
   maxRequestBytes?: number;
@@ -254,6 +276,12 @@ export class PrivateAgentModel {
           (config.promptCaching === "anthropic_explicit_5m_v1" && config.api === "anthropic_messages"))) ||
         // The Anthropic shape sends adaptive thinking only (the model refuses `disabled`) and no sampling fields.
         (config.api === "anthropic_messages" && (config.thinking !== "medium" || config.sampling !== undefined)) ||
+        (config.localReplyContract !== undefined && (config.localReplyContract !== "flash_next_v1" ||
+          (config.api !== undefined && config.api !== "vllm") || config.inputUsdPerMillion !== 0 || config.outputUsdPerMillion !== 0 ||
+          (config.cachedInputUsdPerMillion ?? 0) !== 0 || (config.cacheWriteUsdPerMillion ?? 0) !== 0 || config.longContext !== undefined ||
+          !Number.isSafeInteger(config.localContextTokens) || config.localContextTokens! <= config.maxOutputTokens)) ||
+        (config.localContextTokens !== undefined && config.localReplyContract === undefined) ||
+        (config.localTokenAdmissionSha256 !== undefined && (config.localReplyContract === undefined || !sha256Schema.safeParse(config.localTokenAdmissionSha256).success)) ||
         (config.streaming !== undefined && (typeof config.streaming !== "boolean" || (config.streaming && config.api !== undefined && config.api !== "vllm")))) {
       throw new Error("private_model_configuration_invalid");
     }
@@ -263,7 +291,7 @@ export class PrivateAgentModel {
 
   /** Host-side calls (the entailment judge) narrow the same destination to thinking off and a short reply; they never widen anything. */
   async complete(messages: GeneralMessage[], tools: GeneralToolDefinition[], signal: AbortSignal,
-    overrides?: { thinking?: "disabled"; maxOutputTokens?: number; purpose?: string; trailingTurnMessage?: boolean }): Promise<ProviderResult> {
+    overrides?: { thinking?: "disabled"; maxOutputTokens?: number; purpose?: string; trailingTurnMessage?: boolean }): Promise<ProviderResult & { localReplyEvidence?: FlashNextReplyEvidence }> {
     const thinking = overrides?.thinking ?? this.config.thinking, maxOutputTokens = Math.min(this.config.maxOutputTokens, overrides?.maxOutputTokens ?? this.config.maxOutputTokens);
     const anthropic = this.config.api === "anthropic_messages";
     // Refused before any body exists, so never dispatched: the Anthropic model answers `disabled` thinking with HTTP 400.
@@ -290,13 +318,15 @@ export class PrivateAgentModel {
         ...(openai ? { max_completion_tokens: maxOutputTokens, service_tier: "default" } : { max_tokens: maxOutputTokens }),
         ...(openai ? (thinking === "disabled" ? {} : { reasoning_effort: "medium" })
           : thinking === "disabled" ? { chat_template_kwargs: { enable_thinking: false } } : { reasoning_effort: "medium", ...(this.config.sampling ?? {}) }),
+        ...(this.config.localReplyContract ? { chat_template_kwargs: { enable_thinking: thinking !== "disabled", preserve_thinking: false } } : {}),
         ...(this.config.promptCaching === "vllm_job_salt_v1" ? { cache_salt: vllmCacheSalt(this.jobId) } : {}),
       });
     const bodyBytes = Buffer.byteLength(body), limitBytes = this.config.maxRequestBytes ?? BROKER_MAX_BODY_BYTES;
     if (bodyBytes > limitBytes) throw new ModelRequestBodyTooLarge(bodyBytes, limitBytes);
-    // Prompt tokens never exceed bytes, so bytes stay the reservation and settlement envelope (a token estimate was reviewed
-    // out: digit-dense prompts exceed ceil(bytes/2) tokens, and reservations never accumulate across calls anyway).
-    const promptBound = bodyBytes, long = this.config.longContext;
+    // Flash's NFC tokenizer can expand raw input bytes, so its zero-fee settlement envelope is the pinned context capacity
+    // minus this call's actual output reservation. The broker separately enforces the pinned exact-token proof before dispatch.
+    // Legacy/provider price reservations keep their established byte envelope unchanged.
+    const promptBound = this.config.localReplyContract ? this.config.localContextTokens! - maxOutputTokens : bodyBytes, long = this.config.longContext;
     const rates = (promptTokens: number) => long && promptTokens > long.aboveTokens
       ? { input: long.inputUsdPerMillion, output: long.outputUsdPerMillion, cached: long.cachedInputUsdPerMillion ?? long.inputUsdPerMillion, write: long.cacheWriteUsdPerMillion ?? long.inputUsdPerMillion }
       : { input: this.config.inputUsdPerMillion, output: this.config.outputUsdPerMillion, cached: this.config.cachedInputUsdPerMillion ?? this.config.inputUsdPerMillion,
@@ -308,8 +338,12 @@ export class PrivateAgentModel {
     let decoded: DecodedReply | undefined;
     const started = performance.now();
     const result = await this.broker.request({ jobId: this.jobId, contextId: this.contextId, destinationId: this.config.destinationId,
-      purpose: overrides?.purpose ?? "agent reasoning and tool selection", method: "POST", body, maxFeeMicrousd: reservation, signal }, bytes => {
+      purpose: overrides?.purpose ?? "agent reasoning and tool selection", method: "POST", body, maxFeeMicrousd: reservation, signal,
+      ...(this.config.localReplyContract ? { localReplyContract: { version: this.config.localReplyContract, model: this.config.model, thinking },
+        localTokenAdmission: { policySha256: this.config.localTokenAdmissionSha256 ?? "", contextTokens: this.config.localContextTokens! } } : {}) }, bytes => {
       decoded = decodeReply(this.config.api, bytes, this.config.model);
+      // The scoped contract must refuse malformed native call identities before settlement; legacy adapters keep their path.
+      if (this.config.localReplyContract && new Set(decoded.toolCalls.map(call => call.id)).size !== decoded.toolCalls.length) throw new Error("private_model_duplicate_tool_id");
       const cached = decoded.cachedTokens;
       // A usage block reporting no prompt tokens for a non-empty body is a provider reporting failure (seen once in a replay
       // chain, where the next turn's cache hit proved the call was processed); it must not settle as a free call.
@@ -332,6 +366,7 @@ export class PrivateAgentModel {
         totalTokens: decoded.promptTokens + decoded.completionTokens,
         cacheReadTokens: decoded.cachedTokens, cacheWriteTokens: decoded.cacheWriteTokens,
         ...(decoded.thinkingTokens !== undefined ? { thinkingTokens: decoded.thinkingTokens } : {}) },
-      costUsd: (result.receipt.feeMicrousd ?? 0) / 1000000, durationMs: performance.now() - started };
+      costUsd: (result.receipt.feeMicrousd ?? 0) / 1000000, durationMs: performance.now() - started,
+      ...(result.localReplyEvidence ? { localReplyEvidence: result.localReplyEvidence } : {}) };
   }
 }

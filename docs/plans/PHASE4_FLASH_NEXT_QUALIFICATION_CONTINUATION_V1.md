@@ -84,8 +84,12 @@ UNKNOWN/cancelled where produced, with no replay; prove idle before fresh-job Q2
 No automatic retries, replacements, service tuning or fresh-task/gold access.
 
 This memo supplies neither a runnable continuation operator nor launch authority.
-A separately recorded decision and reviewed, frozen allocation are required
-before any further generation. Qualification acceptance remains pending. All
+The existing batch runner starts at Q01 with a new clock, so it must not be used
+unchanged. A separate operator with aggregate accounting, a one-shot claim and
+the original absolute deadline needs implementation and offline review. If that
+work and bounded execution no longer fit, stop; extending or resetting the clock
+requires an explicit amendment. A separately recorded decision and reviewed,
+frozen allocation are required before any further generation. Qualification acceptance remains pending. All
 three H4 loops, their embedded split calibration and subsequent H5 gates remain
 unchanged; this proposal starts none of them.
 

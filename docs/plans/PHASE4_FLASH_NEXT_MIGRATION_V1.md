@@ -55,6 +55,8 @@ Aggregate use is 14 attempts with 10 unused dispatch slots, while all 11 origina
 remaining cases are still unattempted. Three post-diagnostic idle samples passed.
 No paid call, production-source change or service change occurred. The new H4
 loops and H5 remain held; there is no automatic continuation or retry.
+Next gate: owner adjudication of the [qualification continuation memo](PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md),
+which is **Proposed only** and grants no execution authority.
 
 ## 1. Evidence and remaining uncertainty
 

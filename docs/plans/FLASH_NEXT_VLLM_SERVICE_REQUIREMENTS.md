@@ -1,6 +1,6 @@
 # Flash-Next service requirements for the owner
 
-Status: **Proposed deployment contract; sequence Approved; startup and six-case CPU parity Verified; shared guard Implemented; integrated verification and inference qualification pending**.
+Status: **Sequence Approved; startup, CPU parity and shared-guard integration Verified; one-shot qualification stopped at Q13; diagnostic Proposed and inactive; new H4 loops/H5 unstarted**.
 Updated 2026-11-01 (Asia/Shanghai). **The owner authorized an investigated retry
 and a clean-page-cache operation** (BL-20261031-2021), following the first failed
 NemoClaw-derived attempt and verified scoped manual q4t recovery
@@ -9,7 +9,8 @@ readiness at 04:37:27 Asia/Shanghai, about 321 seconds after model-container sta
 (BL-20261031-2040-nemoclaw-retry-ready). The candidate is running under its
 recovery supervisor; q4t is stopped with its restoration assets retained.
 Internal and user-facing health, model, version and metrics routes returned
-HTTP 200. No chat-completion or Heavy compatibility proof is claimed.
+HTTP 200. The later one-shot qualification passed 12 fixtures before stopping
+at Q13; it is not a complete Heavy compatibility pass.
 See the [q4t capability review](Q4T_SERVICE_CAPABILITY_REVIEW.md).
 The preserved q4t deployment remains limited to its supported contract; its
 recovery does not qualify it for Heavy, H4 or H5 or authorize an engine rewrite.
@@ -29,9 +30,10 @@ recovery does not qualify it for Heavy, H4 or H5 or authorize an engine rewrite.
    command, context limit and routes. SOAR then binds every local role, including
    the judge, and performs the already-approved bounded qualification.
 
-The owner handoff remains a reusable contract. The second candidate is ready for
-the remaining admission and qualification work. A running listener alone is not
-a compatibility pass. All 24 qualification generation requests remain unused.
+The owner handoff remains a reusable contract. The candidate has completed shared
+admission integration and a partial qualification attempt, not a full
+compatibility pass. Thirteen zero-fee requests were dispatched; eleven slots were
+unsent. The failed one-shot batch cannot automatically continue or retry.
 
 The first trial's 22 selected added-operator numerical cases passed, with 64 deselected
 and zero skipped. It loaded all 206 shards (reported model load 74.34 GiB),
@@ -80,7 +82,8 @@ failure or blocked-task report appeared in the captured retry kernel interval.
 The successful startup did not need the extended 60-minute allowance. This
 supports the revised configuration, without isolating a single cause of the
 first failure or proving generation, tools, reasoning, cache isolation or full
-context inference. No generation has been dispatched.
+context inference. No generation had been dispatched at startup verification;
+the subsequent qualification outcome is recorded below.
 
 ## Source of the Thor candidate
 
@@ -122,7 +125,7 @@ requirements for an MTP-off deployment using ordinary Triton decoding.
 | Accounting | Return real `prompt_tokens`, `completion_tokens` and `usage.prompt_tokens_details.cached_tokens` in both response modes. The current SOAR client reads the per-response cache field; engine counters alone are not a drop-in replacement. Missing cache details would otherwise decode as zero, so qualification must reject that omission rather than claim measured zero reuse. |
 | Cache | Enable prefix caching and honour a job-specific `cache_salt`. Demonstrate same-job reuse and different-job isolation, including edited/demoted tool-result history. Global cache reuse or an undocumented session ID is insufficient. |
 | Capacity | Allow 16,384 output tokens and enforce tokenized prompt + reserved output within a declared effective context, including template and tools. Target 262,144 context if this deployment can sustain it; the actual limit must be explicitly recorded and guarded in SOAR before qualification. No automatic prompt truncation. |
-| Exact tokenization | Supply the frozen tokenizer, chat template and rendering settings, or a template-aware tokenization API such as `/tokenize` supported by the selected build. It must count the same messages, tools, assistant tool arguments and thinking settings as generation. Plain-text token counts and body-byte estimates are insufficient. The shared hash-bound admission hook is implemented with passing focused tests and independent reviews; full integrated verification passed (2247 tests; production build). |
+| Exact tokenization | Supply the frozen tokenizer, chat template and rendering settings, or a template-aware tokenization API such as `/tokenize` supported by the selected build. It must count the same messages, tools, assistant tool arguments and thinking settings as generation. Plain-text token counts and body-byte estimates are insufficient. The shared hash-bound admission hook passed full integrated verification (2247 tests, 81 explicit skips and production build). Six CPU renderer/tokenizer cases have matching token IDs; every actual body still requires its own proof. |
 | Request transport | Accept bodies up to the existing 640 KiB limit and preserve streaming during the existing 900-second request timeout. Reverse proxies must not impose a shorter silent cutoff, rewrite model/tool fields, buffer the entire stream or retry inference automatically. |
 | Operations | Expose version/build, model and health metadata plus authoritative active and queued inference counts. Idle means both counts zero in three samples at least 20 seconds apart; a bounded liveness request follows. A metadata HTTP connection is not an active inference. Cancellation must return the engine to idle. |
 
@@ -256,9 +259,33 @@ Six synthetic CPU comparisons returned identical token IDs from tokenization
 and the installed generation renderer (BL-20261031-2049-flash-tokenizer-parity).
 Shared exact-token admission is implemented for every local H4/H5 role, including
 the separately loaded critic and judge, with passing focused tests and independent
-reviews. Full integrated verification, final role/fixture pins and generation
-compatibility remain pending. CPU parity and offline checks do not qualify
-generated replies, cache isolation, tools or Heavy behavior.
-No generation was dispatched, all 24 qualification slots remain unused and new
-spend is USD 0. No qualification pass, H4 completion or H5 run is claimed. The original start cutoff
+reviews. Full integrated verification passed with 2247 tests, 81 explicit skips,
+both typechecks and the production build (BL-20261031-2104). The one-shot batch
+used the frozen serving/role/fixture pins and stopped at Q13 after 12 passed
+checks, 13 wire requests and 13 dispatch receipts, with USD 0 new fees.
+
+The passed fixtures demonstrate native SSE tools with retained/demoted history,
+thinking on/off, index/plan/extraction and A/A/B/B cache behavior on the frozen
+synthetic cases. Cached-token reports were 0, 15680, 0 and 15680, with independent
+cumulative engine-counter corroboration. They do not establish general quality
+or full qualification. Q13 produced 648 observed SSE events, one usage frame,
+one DONE and zero parse failures; its receipt remained UNKNOWN with
+`response_or_usage_invalid`, and the wrapper reported `research_stage_invalid`.
+The original validation category was not retained. Complete observed stream
+framing therefore does not identify the failed semantic/response check or prove
+a backend defect.
+
+Offline review separately found an overly strict fixture check that rejects
+valid Setext headings and ATX headings with closing hashes. Q13 content was not
+retained, so this known validator defect cannot be assigned as its cause. At
+21:09 UTC the service was healthy and idle. Thirteen generation HTTP 200 log
+entries, no server errors and no new kernel allocation failures were captured
+through 21:12 UTC; this does not establish long-term stability.
+
+Eleven slots were unsent. The immutable one-shot claim is consumed, with no
+automatic continuation, replacement or retry. A separate one-request diagnostic
+proposal is inactive and requires new owner adjudication under the approved plan.
+It is prepared with exact original-request reconstruction, 16 passing offline
+checks and strict TypeScript checking (BL-20261031-2120-q13-diagnostic-prepared).
+No accepted qualification, new H4 loop or H5 run is recorded. The original start cutoff
 remains 2026-11-01 09:19 Asia/Shanghai unless the owner supplies a new window.

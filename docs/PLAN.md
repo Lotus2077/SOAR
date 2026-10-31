@@ -577,14 +577,32 @@ show that the extended 60-minute bound was needed. An NVIDIA interrupt warning
 recurred, with no allocation failure or blocked-task report observed through
 20:40 UTC; this bounded observation is not a stability proof.
 
-No trial generation was sent; all 24 qualification slots remain unused and new
-spend is USD 0. The service document retains the explicit deployment contract.
 Six synthetic CPU renderer/tokenizer comparisons have matching token IDs
 (BL-20261031-2049-flash-tokenizer-parity). Shared exact-token admission for every
-local H4/H5 role, including the separately loaded critic and judge, is implemented
-with passing focused tests and independent reviews. Full integrated verification,
-final role/fixture pins and generation compatibility remain pending. H4 remains
-held; no H4 completion or H5 run is recorded.
+local H4/H5 role, including critic and judge, passed the integrated checks: 2247
+tests, 81 explicit skips, both typechecks and the production build
+(BL-20261031-2104-flash-shared-admission-verified).
+
+The frozen one-shot qualification stopped at Q13 after 12 passed checks and 13
+wire requests/dispatch receipts, with USD 0 new fees. Native SSE tools and history
+demotion, thinking on/off, A/A/B/B cache behavior and index/plan/extraction passed.
+Reported cached tokens were 0, 15680, 0 and 15680, corroborated by independent
+engine counters. Q13 yielded 648 observed SSE events, one usage frame, one DONE
+and zero parse failures, then an UNKNOWN `response_or_usage_invalid` receipt;
+the stage wrapper reported `research_stage_invalid`. The original validation
+category was lost, so this is not evidence of a specific backend failure. Offline
+review found that the fixture rejects valid Setext and closing-hash headings,
+but Q13 content was not retained and cannot be attributed to that defect.
+
+The service was healthy and idle at 21:09 UTC; 13 generation HTTP 200 log entries
+and no server errors or new kernel allocation failures were captured through
+21:12 UTC. This bounded observation is not a stability or qualification pass.
+Eleven slots were unsent; the one-shot claim remains consumed and forbids an
+automatic continuation or retry. A separate inactive one-request diagnostic
+proposal requires new owner adjudication. Its exact original-request reconstruction,
+16 offline checks and strict TypeScript check pass; it remains held with no
+authority or activation (BL-20261031-2120-q13-diagnostic-prepared).
+The new H4 loops and H5 remain unstarted.
 Heavy semantics and the remaining technical gates are unchanged.
 Historical Qwen3.8-27B results and the conditional R2 rule remain unchanged.
 The Claude step-0/1 Console reconciliation is now verified

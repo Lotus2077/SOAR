@@ -95,9 +95,22 @@ report observed through 20:40 UTC. Reduced KV, page-cache preparation, retained
 build caches, diagnostics and wait policy were not isolated; this successful
 startup does not establish the first stall's cause. Readiness arrived within the
 original 30-minute allowance, so the extended bound was not needed to reach it.
-No trial generation was sent, all 24 qualification slots remain unused and new
-spend is USD 0. This source review and startup are not Heavy compatibility or
-stability passes. Six synthetic CPU renderer/tokenizer cases now have matching
-token IDs, and shared exact-token admission is implemented with passing focused
-tests and independent reviews. Full integrated verification, final role/fixture
-pins and live qualification still gate H4/H5.
+The subsequent shared exact-token guard passed integrated verification with 2247
+tests, 81 explicit skips and the production build; six CPU renderer/tokenizer
+cases have matching token IDs. The frozen one-shot qualification then stopped
+at Q13 after 12 passed checks and 13 zero-fee requests/dispatch receipts. The
+passed cases cover native SSE tools and history demotion, thinking on/off,
+index/plan/extraction and A/A/B/B cache reports 0/15680/0/15680 with independent
+engine-counter corroboration. Full Heavy qualification remains incomplete.
+
+Q13 had 648 observed SSE events, one usage frame, one DONE and zero parse
+failures, but its receipt is UNKNOWN/`response_or_usage_invalid` and the wrapper
+reported `research_stage_invalid`. The original validation category was not
+retained, so this does not establish backend failure. Offline review found that
+the fixture rejects valid Setext and closing-hash headings; without Q13 content,
+that defect cannot be identified as its cause. The server remained healthy/idle
+at 21:09 UTC; thirteen generation HTTP 200 entries, no server errors and no new
+kernel allocation failures were captured through 21:12 UTC. This is a bounded
+observation, not a stability pass. Eleven qualification slots were unsent and
+there is no automatic retry. The separate one-request diagnostic proposal remains
+inactive pending new owner adjudication. The new H4 loops and H5 remain unstarted.

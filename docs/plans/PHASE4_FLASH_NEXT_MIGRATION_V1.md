@@ -1,6 +1,6 @@
 # Phase 4 Flash-Next migration plan
 
-Status: **Approved sequence; deployment not yet qualified**. Prepared 2026-11-01
+Status: **Approved sequence; shared admission integration Verified; qualification stopped at Q13; deployment not yet qualified**. Prepared 2026-11-01
 (Asia/Shanghai). Authority: BL-20261031-1759-flash-next-sequence-owner-approved.
 
 Updated after owner-authorized inventory, the failed first startup and the
@@ -41,27 +41,32 @@ not serving alongside it. The earlier
 [capability review](Q4T_SERVICE_CAPABILITY_REVIEW.md) still establishes q4t's
 sampling and native-response gaps. The failed first startup, failed automatic
 cleanup and verified manual q4t recovery remain separate historical results.
-No trial generation or qualification ran; all 24 generation slots remain unused,
-new spend is USD 0, H4 remains held and H5 unstarted. The client reply/context
-contract and ignored fixture tools are checked offline. Six synthetic CPU
-renderer/tokenizer comparisons returned matching token IDs
-(BL-20261031-2049-flash-tokenizer-parity). The shared exact-token guard is
-implemented for every local H4/H5 role, including critic and judge, with passing
-focused tests and independent reviews. Full integrated verification, final
-role/fixture pins and generation compatibility remain pending.
+Six synthetic CPU renderer/tokenizer cases have matching token IDs
+(BL-20261031-2049), and shared admission for every local role passed full
+integrated verification: 2247 tests, 81 explicit skips and production build
+(BL-20261031-2104). The frozen one-shot qualification stopped at Q13 after 12
+passed fixtures and 13 zero-fee wire requests/dispatch receipts. Eleven slots
+were unsent; the claimed batch cannot automatically continue or retry. Q13
+remains UNKNOWN with `response_or_usage_invalid`; the original validator
+category was not retained, so its cause is unresolved. The new H4 loops and H5 remain
+unstarted. A separate one-request diagnostic proposal is inactive and requires
+new owner adjudication.
 
 ## 1. Evidence and remaining uncertainty
 
 | Item | Current evidence | Consequence |
 | --- | --- | --- |
-| Earlier q4t chat probes | The former route advertised `qwen3.8-flash-next`; two synthetic non-streaming POSTs returned HTTP 200. The second completed with `stop`, but reasoning and a closing think tag appeared in ordinary content. | These historical replies do not qualify the now-active vLLM candidate. Tool, streaming, thinking-off and Heavy compatibility remain unverified. |
+| Earlier q4t chat probes | The former route advertised `qwen3.8-flash-next`; two synthetic non-streaming POSTs returned HTTP 200. The second completed with `stop`, but reasoning and a closing think tag appeared in ordinary content. | These historical q4t replies do not qualify the now-active vLLM candidate or establish q4t tool, streaming, thinking-off or Heavy behavior. |
 | Current serving readiness | The retry serves vLLM `0.1.dev20073+g8e685d198`; internal and user-facing health, model-list, version and metrics checks returned HTTP 200 at 20:40 UTC. Owned image/init, selected environment/arguments and read-only diagnostic overlays matched their pins; metadata advertises context 262144. | Candidate API readiness is verified. No generation, sampler/tool/cache contract, tokenizer parity or model-quality pass is implied. |
 | Preserved q4t deployment | Thor device; q4t binary and clean source tree hashed; model directory `Qwen3.8-Flash-Next-NVFP4-SSD-Stream`, config declares modelopt NVFP4. Tokenizer/template/config/index hashes retained. Its prior unit is now inactive/dead. | Recovery assets are retained. q4t's immutable weight revision/full weight digests, binary-to-source build correspondence and exact route-to-checkpoint binding remain unverified. Candidate checkpoint verification is separate. |
 | First candidate startup | All 206 original weight shards verified; 22 selected operator cases passed (64 deselected, zero skipped). Model load reported 74.34 GiB. Initial compilation/profile warmup completed, then progress stopped for over seven minutes after a 31.44 GiB KV-capacity log. Completed cache initialization and final engine warmup were not proven. The operator stopped it before the 30-minute deadline, without a healthy API. | Fuller kernel evidence shows driver blocking before stop and allocation failures after stop began. The initial blocked allocation/cause remains unproven; operator tests do not qualify MTP-off serving. |
 | First-attempt cleanup and recovery | Docker zombie prevented automatic container removal and the guard blocked restoration. After process exit, identity-checked non-force removal and lease/GPU/listener/marker checks permitted one manual restore, which verified q4t. | Preserve failed automatic rollback alongside successful manual recovery. q4t was subsequently stopped again for the approved retry; this does not establish a second completed restore. |
 | Retry startup | All 206 shards loaded at 74.34 GiB; 22 selected operator cases passed (64 deselected, zero skipped). With fixed 12 GiB KV, total engine initialization completed in 90.62 s, including final CUDA-graph capture in 6 s using 0.16 GiB. Capacity reports 479856 tokens, 1.83 times context 262144; healthy API arrived in about 321 s. | Startup now reaches readiness. Added-operator checks, reported capacity and graph capture do not qualify actual Heavy requests. The larger 60-minute bound was not needed to reach readiness. |
 | Retry observations | After verified idle/q4t stop, one synchronized page-cache drop changed Cached from 1117980 to 410532 KiB and MemAvailable from 122136392 to 122560152 KiB. The interrupt warning recurred; no new allocation failure or blocked-task report was observed through 20:40 UTC. Running/waiting, completion-reason and prefix-cache query/hit counters were zero. | Reduced KV, cache preparation, retained build caches, diagnostics and wait policy were not isolated. Neither successful startup nor the bounded kernel observation identifies the first stall's cause or proves stability/cache behavior. |
-| CPU parity and admission preparation | Six synthetic cases have matching token IDs between tokenization and the installed generation renderer. The shared exact-token guard covers every local role, with passing focused tests and independent reviews. The ignored driver passed 26 synthetic tests and strict TypeScript checking; tokenizer/metadata helpers passed 9/22 mock tests. | Full integrated verification and final role/fixture pins remain pending. No qualification fixture freeze/activation or generation qualification result is claimed. CPU parity is not generated-output or cache-behavior proof. |
+| CPU parity and admission integration | Six synthetic cases have matching token IDs between tokenization and the installed generation renderer. The shared guard passed full integrated checks (2247 tests, 81 explicit skips, production build). The ignored driver passed 26 synthetic tests; tokenizer/metadata helpers passed 9/22 mock tests. Serving, role and fixture identities were frozen for the one-shot batch. | Integration is verified, while generation qualification remains incomplete. CPU parity does not establish generated-output behavior. |
+| Partial one-shot qualification | Q01–Q12 passed, including native SSE tools/history demotion, thinking on/off, index/plan/extraction and A/A/B/B cache reports 0/15680/0/15680 with independent counters. Thirteen wire requests and dispatch receipts were recorded, with USD 0 new fees. | Q13 stopped the batch; eleven slots were unsent and cannot automatically be used for continuation or retry. The new H4 loops and H5 remain unstarted. |
+| Q13 stop and diagnosis | The wire observer counted 648 SSE events, one usage frame, one DONE and zero parse failures. The receipt is UNKNOWN/`response_or_usage_invalid`; the wrapper code is `research_stage_invalid`. The original validation category was not retained. Offline review separately proved the fixture rejects valid Setext and closing-hash headings. | Q13 content was not retained, so neither this validator defect nor a backend failure can be assigned as its cause. A separate one-request diagnostic remains an inactive proposal requiring new owner adjudication. |
+| Post-stop service observation | Healthy/idle metadata was observed at 21:09 UTC. Thirteen generation HTTP 200 log entries, no server errors and no new kernel allocation failures were captured through 21:12 UTC. | This bounded observation supports continued service availability, not successful qualification or a stability guarantee. |
 | Claude step 0 | Attempt 1 exited 3 for missing later thinking, triggering the allowed repeat; the repeat exited 2 for a warm read instead of the required initial cache write. The owner accepted their combined evidence once. | Retain both original verdicts and the adjudication; no third probe. |
 | Claude step 1 | 79 cloud replies and 34 old-tier local judge calls settled; cloud fee USD 1.127758, approved projection USD 2.121435 below USD 3.00. Guidance review found no visible refusal. | Transport/cost calibration is reusable under its original configuration; task quality remains independently ungraded. |
 | Console reconciliation | Owner screenshot shows SOAR-key cost USD 1.15; step-0/1 ledger total USD 1.151653, difference USD 0.001653 within USD 0.05. Earlier owner confirmation supplies the no-competing-usage condition. | Historical step 1 is accepted. The screenshot alone does not establish exclusive usage or qualify Flash-Next. |
@@ -150,12 +155,13 @@ recovery. The separately approved diagnostic retry
 (BL-20261031-2021-nemoclaw-diagnostic-retry-approved) used fixed 12 GiB KV with
 context 262144 and reached healthy API metadata in about 321 seconds
 (BL-20261031-2040-nemoclaw-retry-ready). It is active with q4t stopped and recovery
-assets retained. Six-case CPU token parity is verified, and shared admission is
-implemented with passing focused tests and independent reviews. Full integrated
-verification and compatibility qualification remain pending; no trial generation
-has run.
+assets retained. Six-case CPU token parity and full shared-admission integration
+are verified. The later one-shot qualification stopped at Q13 after 12 passed
+fixtures and 13 zero-fee dispatches. Its unresolved validation failure does not
+prove a backend defect; eleven unsent slots do not authorize an automatic retry.
+The new H4 loops and H5 remain unstarted, pending qualification adjudication.
 
-## 2. Approved amendment and pending role binding
+## 2. Approved amendment and frozen role binding
 
 For Phase 4's upcoming H4 verification and H5 comparison, replace the former
 Qwen3.8-27B local tier with the **qualified Flash-Next deployment recorded in a
@@ -163,7 +169,11 @@ new serving manifest**. Use the advertised `qwen3.8-flash-next` request identifi
 if inventory confirms it maps to that deployment. `RM-01 VLM` may remain the
 device's human label; it must not conceal a changed model in result metadata.
 
-| Role | Approved model choice and retained policy, pending deployment pins |
+The eight-role manifest was frozen for qualification in BL-20261031-2104.
+Those pins establish identity; the stopped qualification has not accepted them
+for H4 or H5.
+
+| Role | Approved model choice and retained policy |
 | --- | --- |
 | Research reader; local writer; local repair writer | Flash-Next with existing stage budgets and Heavy writer policy |
 | All-local planner and synthesiser | Flash-Next, existing stage overrides and 8,192-token caps |

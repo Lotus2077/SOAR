@@ -24889,3 +24889,385 @@ References: BL-20261027-0145-phase4-tasks-design,
 BL-20261027-0206-phase4-tasks-freeze,
 BL-20261022-0834-phase4-division-of-labour-design,
 BL-20261026-1832-h4-select-and-repair-implemented.
+
+### BL-20261028-0420-h4-live-batch1-box-failure -- 2026-10-28 -- H4 live batch 1 stopped on the box: the first model request did not complete in 900 seconds, then the server closed every connection; no model call completed, nothing spent, H5 not started
+
+Status: `Blocked`
+
+Scope or hypothesis: the first live batch of the H4 select-and-repair loop
+(BL-20261026-1832-h4-select-and-repair-implemented) in the owner's declared
+window, which opened at 19:05 UTC on 2026-10-27. The batch is one sequential
+queue (`phase4-h4-live`) of three loops on exposed Phase 2 tasks: all-local
+on `k2-qbr-deck`, all-local on `r3-grid-batteries`, and split on
+`r3-grid-batteries` with a fee cap of USD 0.60. Its operator authority
+allowed no re-run of any row. The records verify only how the batch was
+pinned, what the first row did, how it was classified and why the queue
+stopped; nothing about the loop is verified. The batch is blocked on the
+owner's model server, and the second batch below is `Proposed`.
+
+Decisions:
+
+- **Launch and pinning.** The launcher was armed at `87e2c9b` before the
+  `phase4-tasks-v1` merge existed and refused at 19:05:09 UTC because its
+  pinning step (make-pins) exited 1.
+  The operator preflight reads both task manifests at the run commit. Its
+  output, read at 19:06 UTC and overwritten by the relaunch, showed the read
+  of the fresh-task manifest failing because that file does not exist at
+  `87e2c9b`. The refusal came before any box reading or model call. The run
+  worktree moved to `a84d7e9`, the merge that H5 pins. It differs from
+  `87e2c9b` only in three files under `docs/`, none in the source freeze,
+  and the runtime digest is the same,
+  `18d3d918f9c60e8635cdf1b0e6e6b3f819a67f7283d14f399efa7ac5f4122388`. The
+  launcher restarted at 19:07:02 UTC and the preflight passed. Each of
+  eight pinning attempts from 19:07:04 to 20:17:16 UTC found the box busy
+  or unreadable. The log does not say which. The pinning output for the
+  first attempt, read at about 19:08 UTC and since overwritten, showed one
+  running request that was not ours. At 20:27:18 UTC the box read idle, the batch
+  pinned (authority sha256 `ebdff3d8…`, queue `65955e20…`, served version
+  `0.32.0`) and the queue started.
+- **The box through the night.** Before a row starts, the queue takes three
+  `/metrics` readings 20 seconds apart and starts only if none shows a
+  running or waiting request. At 20:28, 20:38 and 20:49 UTC a reading
+  showed a running request. From 20:59:25 to 03:40:26 UTC all 41 attempts
+  failed to read the metrics at all (a fetch `TypeError`). At 03:51 UTC
+  the metrics read again, with one running request in all three readings.
+  At 04:01:50 UTC three readings showed nothing running or waiting, and the
+  first row started.
+- **What the first row did.** `k2-qbr-deck-loop-local` started at 04:01:51
+  UTC. Sample `a` sent its only model request at 04:01:52 UTC. The request
+  did not complete within the 900-second request timeout: failure
+  `request_timeout`, dispatch status `unknown`. The request streams, so the
+  records cannot show whether any bytes arrived before the timeout. The
+  stage ended `incomplete` with reason `runtime_failure_progress_preserved`
+  and a `BrokerError` runtime failure after 901 seconds of runner time, far
+  below the 5,400-second cap. Sample `b` sent its request at 04:16:53 UTC.
+  The server closed the connection after 98 ms; two retries were closed
+  after 56 ms and 21 ms, all `upstream_closed`. The stage ended
+  `model_unavailable` after 4.7 seconds. The loop ended at 04:16:57 UTC with
+  no draft (step `no_draft`): no model call completed, so zero counted
+  tokens and zero fee, with no critique and no repair.
+- **Classification and stop.** The codes-only classifier gives `infra` for
+  the row. Sample `b`'s `upstream_closed` is on the infrastructure list.
+  Sample `a`'s `request_timeout` is not on it, because it may also come
+  from a very slow generation, so on its own sample `a` classifies `owner`.
+  The worst stage class decides the row. With no re-runs allowed, the queue
+  stopped at 04:16:58 UTC (exit 3) and the launcher ended. The two
+  `r3-grid-batteries` loops did not start. The row directory stays in place
+  as the record of an infrastructure-invalid run.
+- **What is visible of the cause.** At 04:18 UTC a TCP connection to the
+  serving port opens, but an HTTP request to it is closed without a
+  response (`UND_ERR_SOCKET`), and the `/metrics` read fails the same way.
+  Something accepts connections on that port and no HTTP response comes
+  back. The records show the server answering `/metrics` at 04:01:50 UTC,
+  the batch's first request outstanding until its timeout at 04:16:52 UTC,
+  and every connection closed from 04:16:53 UTC. When the engine stopped
+  answering in that interval cannot be seen from this side. It may have
+  crashed (possibly while serving this batch's own request), be restarting,
+  or have been occupied by a client that started after 04:01:50 UTC. The box
+  is the owner's. This session has no access to it and did not try to get
+  any. The second batch would send the same first request.
+- **`request_timeout` in H5 is unchanged.** A request that does not complete
+  in 900 seconds can come from a hung server or from a very slow
+  generation, so the classification for H5 still sends it to the owner. This
+  run does not change that rule, and the classifier was not edited.
+- **Liveness probe for the second batch and H5.** Before each row, the
+  operator's idle check now also sends one fixed liveness request (a
+  one-token chat completion with a fixed prompt and a 120-second timeout)
+  and requires a reply, after the three idle readings. If the probe gets no
+  reply, the queue pauses before the row as it does for a busy box. The
+  probe carries no task content and is not part of any run. It was tested
+  against a local mock server in five cases: a reply, a busy box (no probe
+  sent), a closed connection, an HTTP 500 and an empty reply. It would stop
+  a row on a server whose `/metrics` reads idle but which does not answer a
+  completion request. The state seen at 04:18 UTC, where `/metrics` also
+  failed, already pauses the queue without the probe. It would not prevent
+  a failure that a run's own request causes. The batch-1 directory keeps its original scripts.
+- **Second H4 batch (`Proposed`).** A second batch (`phase4-h4-live-2`) would
+  run the same three loops with the same commit, runtime, queue and checks,
+  plus the liveness probe, under a new authority that cites this entry. For
+  the `k2-qbr-deck` loop this is a re-run of a row that ended `infra_invalid`
+  with no completed model call. The decision rests on that `infra` class,
+  set by sample `b`'s closed connections, and on the 04:18 UTC probe. It
+  does not rest on the absence of an outcome: sample `a`'s timeout alone
+  would go to the owner. The plan's Stop list includes "n=1 reruns of
+  already-seen tasks", and its section 8 keeps the stop rules against
+  unchanged re-runs. This re-run instead follows R0's remedy by analogy (fix
+  the cause and "re-run only the invalid runs, flagged as re-runs"; R0's own
+  trigger, more than 3 of 12 runs in an arm, does not apply to a
+  calibration batch), as the H3 dry run's R0 practice did
+  (BL-20261026-0743-h3-dry-run-split-blocked-by-docker), and the H4 design's
+  rule that a retry is a new loop directory and a new registry row
+  (BL-20261026-1831-h4-select-and-repair-design). The second batch's k2 row
+  is flagged as a re-run in its authority and its registry row. The
+  no-re-run rule of the first batch was this session's own, written into
+  the batch authority (an ignored operator file); neither the owner nor a
+  committed entry set it. Under BL-20261027-1526-harness-session-task-exposure
+  the harness session only operates the queue, and lifting a rule after a
+  run is not mechanical. So the second batch waits for the owner's approval
+  in chat, and the H5 batch-start entry restates it. The owner's H5 re-run
+  rule of 2026-10-27 is unaffected: "Allow R0 re-runs in H5: one re-run per
+  row that ends infra_invalid, at most two in the round, charged to the
+  unused 're-runs of invalid runs' line."
+- **What still gates H5.** H5 does not start until, in the second batch,
+  each of the three loops reaches a final selection with no loop failure
+  and every stage classified counted; both `r3-grid-batteries` loops run
+  sample `b` and the repair from sample `a`'s packet with
+  `writeIdentityEqual` true; the deck check runs on `k2-qbr-deck`; and all
+  three run under the runtime digest above. Quality is not a condition. The
+  H5 batch-start entry will state the same condition.
+
+Changes: this entry, on branch `phase4-h5-runs`. No code under version
+control. The operator idle check and queue script under the ignored
+`.soar/` gained the liveness probe for the second batch and H5. The run
+worktree moved from `87e2c9b` to `a84d7e9`.
+
+Evidence: the batch log `runs/log.txt`, the row's classifier output, the
+dispatch rows and events of both stages (statuses, codes and times only), a
+reachability probe that printed only error codes and no address, and a
+container listing and process check after the queue ended (no container
+from this batch, no queue process left). All of them are local and ignored.
+
+Failures or blockers: the model server on the box stopped answering during
+or after the batch's first request, after a night in which its metrics
+could not be read for almost seven hours. Separately, an operator error: the
+launcher was armed at a commit that predated the fresh-task manifest, which
+its own preflight requires. That refusal cost two minutes of the window and
+nothing else.
+
+Limitations and non-claims:
+- One failure on one row. The cause on the box is not known, and this
+  session cannot read the server's own log.
+- The idle check guards only the start of a row. At 04:01:50 UTC it showed
+  no request running, yet the first request did not complete; an idle
+  reading does not show that the engine will answer, and the check cannot
+  see a client that starts during a run.
+- The H4 select-and-repair loop has still not run live, so nothing about it
+  is verified.
+
+Paid exposure: USD 0 in this batch; no cloud request was made, because the
+split loop did not start. The second batch's split loop would be capped at
+USD 0.60 (sample `a` only), from the H3 dry-run and calibration sub-line.
+
+Next gate: the owner restores the model server, approves the second batch
+and confirms a window; then the second H4 batch, its Verified entry and the
+H5 start condition, then the H5 batch-start entry and the H5 queue.
+
+References: BL-20261026-1832-h4-select-and-repair-implemented,
+BL-20261026-1831-h4-select-and-repair-design,
+BL-20261026-0743-h3-dry-run-split-blocked-by-docker,
+BL-20261027-1526-harness-session-task-exposure,
+BL-20261022-0834-phase4-division-of-labour-design.
+
+### BL-20261030-0445-h5-cloud-provider-claude -- 2026-10-30 -- H5's cloud arms move from gpt-6-sol to Claude by the owner's decision; a fresh session designs the adapter for approval, and H4 batch 2 and H5 wait for it
+
+Status: `Approved`
+
+Scope or hypothesis: the owner's decision of 2026-10-30 to replace the
+OpenAI cloud model in H5 with a Claude model. This entry records what the
+decision supersedes in the pre-registered H5 design
+(BL-20261022-0834-phase4-division-of-labour-design, approved in
+BL-20261022-0940-phase4-harness-approved), what stays, who builds the
+change and what now gates H5. `Approved` covers the direction only. The
+Claude model, its prices, the arms' fee caps, the new egress destination,
+the budget amendment and the adapter design are not chosen or approved yet,
+and nothing about a Claude adapter is implemented or verified.
+
+Decisions:
+
+- **The owner's decision.** On 2026-10-30 the owner wrote in chat: "for
+  later API usage, you need to swap the GPT's API to this new Claude API",
+  with an Anthropic API key. Told that SOAR has no Claude adapter and that
+  H5 is pre-registered on `gpt-6-sol`, the owner chose "Claude for H5 too".
+  Asked who builds the adapter, the owner chose "Fresh session". The key was
+  checked from the operator's shell, at the owner's request, with one free
+  request to Anthropic's model-list endpoint that printed only the HTTP
+  status (200). That check is not SOAR egress. This session stored the key
+  in no file, Keychain item or repository; the owner will store it through a
+  hidden-input step that the adapter design must provide.
+- **No H5 outcome exists.** No H5 run has started, and the only H4 live
+  loop so far produced no model output
+  (BL-20261028-0420-h4-live-batch1-box-failure). The change is therefore not
+  chosen after seeing any result of the experiment it changes.
+- **What it supersedes.**
+  - The cloud model of the all-cloud arm and of the split arm's cloud
+    planner and synthesiser: `gpt-6-sol` on the OpenAI Responses endpoint,
+    priced as corrected in BL-20261022-1157-cloud-cache-write-price-correction.
+  - The H5 start condition met by H1
+    (BL-20261022-1156-h1-prompt-caching-implemented). The r3 verification
+    run's fee per input token, scaled to r1's input and with one late-run
+    reservation of headroom, projected USD 2.16, under the all-cloud arm's
+    USD 2.50 cap. That projection measured `gpt-6-sol` and does not carry
+    over.
+  - The split arm's settings from H3
+    (BL-20261026-0724-h3-cloud-planner-implemented: a fee cap of USD 0.60
+    and 8,192-token caps with model thinking), and its verified dry runs
+    (BL-20261026-1605-h3-dry-run-split-verified,
+    BL-20261026-1644-planner-budget-dry-run-verified). Those apply to
+    `gpt-6-sol` only. The USD 0.60 cap also appears in the pre-registered
+    rule S1. Any other split cap needs the owner's approval.
+  - The H5 cost bound of at most USD 18.60 (six all-cloud runs at USD 2.50
+    and six split runs at USD 0.60), computed at `gpt-6-sol` caps.
+  - The pins of the H5 harness. BL-20261027-1526-harness-session-task-exposure
+    states that the H5 harness is the code on main at the merge of PR #28,
+    and BL-20261028-0420-h4-live-batch1-box-failure pins H5 to `a84d7e9`
+    with runtime digest `18d3d918…`. The H5 harness becomes the adapter's
+    merge, built by a fresh session as BL-20261027-1526 allows for harness
+    changes. The runtime digest will change if the adapter's files are in
+    the source freeze, as the design must ensure.
+- **What stays.** These parts of H5 do not change:
+  - the three frozen fresh tasks and the tag `phase4-tasks-v1`;
+  - three arms, with two repeats each, in one round;
+  - the all-local arm as it is;
+  - the decision rules and their order, applied with the Claude model in
+    the cloud role;
+  - the owner's R0 rule for H5;
+  - the separation rules of BL-20261027-1526-harness-session-task-exposure;
+  - no personal data sent to any cloud.
+
+  The run order (a Latin square) and the codes-only classification are
+  operator rules of the harness session. Under BL-20261027-1526 they are
+  stated in the batch-start entry, where the owner may overrule them.
+- **Budget and egress need the owner's explicit approval.** The plan's
+  standing envelope (section 4(b)) is "`gpt-6-sol` on public/synthetic tasks
+  only, USD 300 in total". Section 1 names `gpt-6-sol` as the cloud
+  reference tier, and the Phase 4 harness line of USD 33 is allocated inside
+  that envelope. Section 4 also requires the owner's explicit approval for
+  "new egress destinations" and "spend beyond the envelope". So the
+  Anthropic endpoint as a SOAR destination needs the owner's explicit
+  approval. Claude spend may draw on the USD 33 line only after the plan's
+  sections 1 and 4(b) are amended to name the Claude model, as
+  BL-20261022-0940 amended the plan with its approval. Until then the USD 33
+  line stays only as a dollar line. R0 re-runs remain charged to the
+  separate "Harness spike or re-runs of invalid runs" line (USD 7), as the
+  owner set.
+- **Who builds it.** Under BL-20261027-1526-harness-session-task-exposure,
+  the harness session changes nothing in the harness, pipeline, prompts,
+  driver, checks or scorer until H5 ends. The adapter is such a change, so a
+  fresh session builds it, as the owner chose. That rule sends a harness
+  change to "a fresh session that has not read the authoring transcript,
+  the authoring worktree's ignored tree or the pre-scrub commit".
+  This entry adds the harness session's transcript and workflow journals to
+  that list, because that transcript quotes part of the drone task's gold.
+  The fresh session first writes a design entry (`Proposed`) and stops. The
+  design names:
+  - the Claude model and its prices;
+  - the thinking settings per stage;
+  - prompt caching and how its usage settles;
+  - the fee caps of the all-cloud and split arms, computed from the
+    runtime's reservation rule;
+  - the key's Keychain item and wrapper;
+  - the endpoint;
+  - how failures map to the dispatch failure codes the H5 classifier reads;
+  - the plan amendment;
+  - the live calibration that replaces the `gpt-6-sol` evidence above.
+
+  Only after the owner approves that design, the egress destination and the
+  amendment does the session implement and test the adapter against a mock
+  server. No further live call to Anthropic, and no use of the box, happens
+  before that approval and an owner-declared window. Prompts and the local
+  arm stay unchanged unless the design names a change and the owner approves
+  it.
+- **What now gates H5.** In order:
+  - the adapter design, the Anthropic egress destination and the plan
+    amendment, approved by the owner;
+  - the adapter, implemented and merged;
+  - the live calibration, verified;
+  - a second H4 batch of the same three loops on the adapter's commit, which
+    supersedes the batch-2 plan at `a84d7e9` in
+    BL-20261028-0420-h4-live-batch1-box-failure and still needs the owner's
+    approval and a window;
+  - the H4 condition stated there, met under the new runtime digest;
+  - the H5 batch-start entry, with the new model, prices, caps, digests and
+    cost bound.
+
+  The harness session operates the queue and updates its operator runbook
+  to the approved values; it does not choose them.
+
+Changes: this entry, on branch `phase4-h5-runs`. No code.
+
+Evidence: the owner's chat messages of 2026-10-30, quoted above; the free
+key check, which printed only an HTTP status; a search of `src/main` and
+`scripts` that found no Anthropic client. The cloud path is written for
+OpenAI's request shapes, in `src/main/private-agent/model.ts`,
+`src/main/private-agent/repair.ts` and
+`scripts/private-agent-local-screen.ts`, and the key wrapper
+`scripts/with-cloud-key.sh` checks against OpenAI. `docs/PLAN.md` sections 1
+and 4 are quoted above.
+
+Failures or blockers: none new. H4 batch 2 and H5 are blocked on the adapter
+and on the owner's model server
+(BL-20261028-0420-h4-live-batch1-box-failure).
+
+Limitations and non-claims:
+- Nothing is known yet about the cost or quality of the chosen Claude model
+  on these arms. H5's cost bound is open until the design entry.
+- The key was pasted in chat, so it sits in plain text in this session's
+  local transcript. Rotating it before H5 is the owner's choice.
+
+Paid exposure: USD 0.
+
+Next gate: the fresh session's design entry, then the owner's approval of
+it, of the Anthropic egress destination and of the plan amendment.
+
+References: BL-20261022-0834-phase4-division-of-labour-design,
+BL-20261022-0940-phase4-harness-approved,
+BL-20261022-1156-h1-prompt-caching-implemented,
+BL-20261022-1157-cloud-cache-write-price-correction,
+BL-20261026-0724-h3-cloud-planner-implemented,
+BL-20261026-1605-h3-dry-run-split-verified,
+BL-20261026-1644-planner-budget-dry-run-verified,
+BL-20261027-1526-harness-session-task-exposure,
+BL-20261028-0420-h4-live-batch1-box-failure.
+
+### BL-20261030-0446-prescrub-commit-purged -- 2026-10-30 -- The unpushed pre-scrub commit of the task freeze is gone from the shared local repository, as far as an id lookup and a reflog search show
+
+Status: `Verified`
+
+Scope or hypothesis: BL-20261027-1526-harness-session-task-exposure
+records that the unpushed pre-scrub commit of the task freeze remained in
+the local repository that every worktree on this machine shares, until the
+owner decided whether to purge it. This entry records the purge. `Verified`
+covers only the check below.
+
+Decisions:
+
+- **Purged.** On 2026-10-30 the authoring session reported the following:
+  - it deleted the commit's reflog entries;
+  - it removed the commit's objects;
+  - a full connectivity check reported the repository intact.
+
+  This session then checked that the commit's id no longer resolves in the
+  shared repository and that no reflog entry names it. The commit is not
+  named here, as before.
+- **Who decided.** BL-20261027-1526-harness-session-task-exposure left the
+  purge to the owner. This session reads only the authoring session's final
+  report, which does not quote an instruction, so whether and how the owner
+  instructed the purge is not shown here.
+- **What remains.** The authoring session reported that copies of the gold
+  remain in its own transcript and workflow journals, which it did not
+  clean. BL-20261027-1526 forbids reading the authoring transcript beyond
+  its final report. This entry extends that rule to the authoring session's
+  workflow journals: no session other than the authoring session and the
+  designated scorer session reads them.
+
+Changes: this entry. No code.
+
+Evidence: the authoring session's final report, read as its report only;
+an object lookup of the commit id and a reflog search in the shared
+repository, which printed only an exit status and a count.
+
+Failures or blockers: none.
+
+Limitations and non-claims:
+- The check covers the commit object and the reflog only. That the commit's
+  tree and blob objects are gone from the object store, loose or packed,
+  rests on the authoring session's report.
+- It says nothing about copies outside this repository, such as backups or
+  session files.
+
+Paid exposure: USD 0.
+
+Next gate: none.
+
+References: BL-20261027-1526-harness-session-task-exposure,
+BL-20261027-0206-phase4-tasks-freeze.

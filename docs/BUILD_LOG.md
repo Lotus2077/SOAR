@@ -26556,3 +26556,30 @@ Paid exposure: USD 0.023895 settled total. No additional paid requests are runni
 Next gate: Owner decision on the one-time composite evidence, or keep the literal failure and stop. Any further new paid probe requires a separately recorded decision.
 
 References: BL-20261030-0620-claude-cloud-adapter-design, BL-20261031-1318-claude-calibration-window, BL-20261031-1305-claude-probe-tool-history-verdict.
+
+### BL-20261031-1328-composite-probe-owner-adjudication -- 2026-10-31 -- Owner accepts the two preserved shape probes together for this calibration only
+
+Status: `Approved`
+
+Scope or hypothesis: Adjudicate the blocked step-0 evidence without another paid probe, changing no model payload or future default criterion.
+
+Decisions:
+
+- Asked whether to accept the two preserved, pinned probes together and continue inside the existing caps, the owner replied: "Accept combined evidence and continue".
+- For this calibration only, accept the first attempt's 3,109-token write and subsequent matching reads together with the permitted repeat's warm-prefix reads and complete signed-thinking/tool-history evidence. Every original structural, model/tier/geography, settlement and usage-envelope requirement still applies.
+- Preserve attempt 1's exit 3 and repeat's exit 2, both original summaries, hashes and registry outcomes. This is a recorded one-time owner adjudication, not a retroactive automatic pass or a relaxed future default.
+- Advance to exposed-r3 all-cloud calibration under the existing USD 3.00 cap. Console reconciliation and all other approved step-1 conditions still gate H4. No further shape probe is authorized here; H5 remains unstarted.
+
+Changes: This decision and a separate ignored adjudication marker binding both original receipts to the continuation authority. No runtime or probe source change.
+
+Evidence: Seventeen offline composite-evidence checks pass, including exact receipt hashes, original authority/commit/runtime, committed probe-script hash, prefix counts, all settlements and repeat thinking/history. Six negative mutations fail. Both invocations used commit a0321e36adff3f777b49ac0a6b4d20ea57405556 and unchanged script/prompt; an offline capture confirms identical initial loop bodies across job ids. Probe-script SHA-256 is 04826be1ad8e5f244886b70b0c4eb93f72efff2750d88ac2a08479e8a1399726. The invocations' provenance is host-attested; cache age is not inferred from file timestamps.
+
+Failures or blockers: The literal failure remains in the preceding entry. This owner decision resolves only its step-0 advancement gate; full cloud and H4 calibration remain unverified.
+
+Limitations and non-claims: Synthetic shape evidence does not establish task quality or private-cache isolation. The signed-thinking result is not a general guarantee that every later turn reasons. No task result has been accepted here.
+
+Paid exposure: USD 0.023895 settled so far. No extra request for this adjudication; remaining run caps are unchanged.
+
+Next gate: Re-pin the unchanged runtime on a clean continuation commit, execute the exposed-r3 all-cloud calibration, then obtain actual Console reconciliation before H4.
+
+References: BL-20261031-1325-claude-probe-live-gate-blocked, BL-20261031-1318-claude-calibration-window, BL-20261030-0620-claude-cloud-adapter-design.

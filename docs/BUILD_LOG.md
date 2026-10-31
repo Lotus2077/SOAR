@@ -26528,3 +26528,31 @@ Paid exposure: USD 0 of model API spend in this work so far. Calibration caps re
 Next gate: Prepare final pins, run the shape probe and inspect its actual fixed-field receipts before admitting the all-cloud step.
 
 References: BL-20261031-1258-recovery-metrics-calibration-authority, BL-20261031-1305-integrated-corrections-verified, BL-20261030-0745-claude-cloud-adapter-approved, BL-20261030-0620-claude-cloud-adapter-design.
+
+
+### BL-20261031-1325-claude-probe-live-gate-blocked -- 2026-10-31 -- Live Claude probes settle but the literal first-write criterion blocks step 0
+
+Status: `Failed`
+
+Scope or hypothesis: The approved shape probe and its one permitted missing-thinking repeat, on clean commit a0321e36adff3f777b49ac0a6b4d20ea57405556 and runtime a142fadc3a810d6b3d9aff512b1a5bab71763cd990ecfb04d5db446337d51cdf. Preserve the actual verdicts; no all-cloud or H4 run follows a failed literal gate.
+
+Decisions:
+
+- Attempt 1: every structural check, tool-history check and settlement passes. The first loop wrote 3,109 cache tokens and later loops read 3,109 each. Only its first tool turn returned signed thinking (143 thinking tokens); the next two returned none. Exit 3 triggered the explicitly allowed one-time new-job repeat.
+- Repeat: every API request settled on the expected model, standard tier and global geography. All three tool turns returned signed thinking (220, 27 and 48 tokens) and tool history passed. Its first loop read 3,109 cached tokens with zero writes; later turns read 3,109 each. This fails the written first-loop cache-write criterion, so exit 2 and pass=false are retained.
+- The two initial loop request bodies are byte-identical across different job ids in an offline capture; job id is not in the Anthropic body. A warm cache is consistent with the observed matching 3,109-token prefix. This is not evidence of a transport or cache failure, but it does not satisfy the criterion as written.
+- No third paid probe, all-cloud calibration, device liveness probe or H4 loop is started. The owner is asked for a narrow one-time adjudication accepting the composite cold-write and signed-thinking evidence, with both original verdicts retained; no automatic relaxation is applied.
+
+Changes: Two sanitized calibration registry rows. Original fixed-field receipts remain ignored, with SHA-256 d64a53d4ae51058d488cbb4f65ae6dd48f5990409dee4adf861a60b360360207 and b9cc25a6ebbc40b55e84046e2cc818eb062fb6377180e3a07659ad7d3dc142e0. No runtime, model payload, prompt, cap or credential changes.
+
+Evidence: Eight completed and settled requests, no unknown/failed dispatch. Attempt fees USD 0.016191 and 0.007704; total USD 0.023895. Offline independent checks confirm matching first-loop bodies and warm-prefix counts; a proposed composite-evidence checker refuses missing write evidence, wrong prefix counts, missing thinking, other structural failures, unsettled receipts and a wrong model. The original stdout summaries and exit statuses are preserved.
+
+Failures or blockers: Calibration step 0 is blocked by the literal approved cache-write condition after the repeat; the one allowed repeat is exhausted. An owner's recorded criterion adjudication is required before advancement. API success alone does not override this gate.
+
+Limitations and non-claims: These are synthetic shape probes, not task-quality evidence. Total input/output tokens and exact wall time were not emitted by the probe and remain null in the registry. Matching cache counts do not establish a general private-cache isolation guarantee. No private material, fresh-task gold or authoring transcript was read.
+
+Paid exposure: USD 0.023895 settled total. No additional paid requests are running.
+
+Next gate: Owner decision on the one-time composite evidence, or keep the literal failure and stop. Any further new paid probe requires a separately recorded decision.
+
+References: BL-20261030-0620-claude-cloud-adapter-design, BL-20261031-1318-claude-calibration-window, BL-20261031-1305-claude-probe-tool-history-verdict.

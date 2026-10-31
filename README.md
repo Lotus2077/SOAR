@@ -28,13 +28,22 @@ day-to-day administration, and (at lower priority) coding.
 
 ## Status
 
+Desktop owner builds retain their tagged runtime. The research pipeline, document
+review mode and cloud comparisons below are headless experiments; their diagnostic
+grades do not establish acceptance in the desktop app.
+
 | Area | State |
 | --- | --- |
-| General task (desktop) | A goal with optional files and exact public URLs, saved progress, pause/resume/cancel, preview and export. Accepted examples: two synthetic audits and one three-slide deck. Research tasks with public sources require a host-checked claims ledger (verbatim quotes against retained source bytes). Research and websites are not yet accepted. |
+| General task (desktop) | A goal with optional files and exact public URLs, saved progress, pause/resume/cancel, preview and export. Research tasks with public sources require a host-checked claims ledger (verbatim quotes against retained source bytes). |
+| Owner acceptance | One recorded owner-run real job: document translation and editing on `owner-v0.2`, accepted without edits on 2026-10-12 (19 actions, 493 seconds). The weekly owner-job targets and MVP exit have not been demonstrated. |
 | Local model profile | `heavy` (thinking on, 16K output, 80 calls / 90 min) is the default since 2026-10-06; `standard` (the September profile: thinking off, 4,096 tokens, 20 calls / 15 min) stays selectable with `SOAR_GENERAL_TASK_PROFILE=standard`. Every result before that date used `standard`. |
 | Liveness | Local replies stream, with a 120 s inactivity limit counted from the first byte (`SOAR_STREAMING=false` restores the non-streaming request). The Mac stays awake while a task runs, and a late host heartbeat is recorded. Quitting while a task runs waits for it to pause, with a "Quit now" option that leaves it unable to resume. |
 | Document review | Headless only so far. With `--document-review`, the model writes an edit plan for a task's one `.docx`. A host-owned script turns the plan into tracked changes by "SOAR draft" with a comment per edit, a clean amended copy, an issues list and a hygiene report. A host check proves several things: rejecting every change restores the original, accepting every change gives exactly the plan, nothing else in the file changed, and both files render. Not yet in the desktop. |
-| Cloud comparison | Not yet run. The Phase 2 fair test compares local and `gpt-6-sol` through the same loop, on public or synthetic tasks. The headless driver's `--arm cloud` has cached-rate settlement, a USD 8 cap per task and the key from the launching shell only. Point `--cloud-endpoint` at `https://api.openai.com/v1/responses`: OpenAI's chat completions refuse function tools with reasoning for the sol models. The Responses shape is stateless (`store: false`) and, like the local arm, never replays reasoning. |
+| Phase 2 comparison | Completed on 12 public or synthetic tasks: `gpt-6-sol` accepted 10/12; local Heavy accepted 6/12 and 4/12. Grades are provisional, from blind owner-proxy agents with weak blinding. The owner confirmed Branch B on 2026-10-22. Cloud and local critiques each recovered 4/6 failed drafts, so the cloud-critique mechanism was not adopted. |
+| Research pipeline | Implemented: local source index and extraction, host-verified quotes, planning and synthesis, then a local writer with a separate budget. On one exposed research task, all-local and split runs passed 7/7 automated checks. The latest split run with `gpt-6-sol` submitted in about 9.5 minutes for USD 0.126 in cloud fees, while its entailment pass found one unsupported and two contradicted claims. No blind or owner acceptance of these calibration outputs is recorded. |
+| Select and repair (H4) | Implemented and tested offline: two local drafts, host-checked selection, one local critique and one repair. The first live batch stopped on the inference server before any model response completed; a completed live loop and its acceptance effect remain unverified. |
+| Claude cloud adapter | Implemented for public or synthetic headless work and tested against mock servers. H5 uses `claude-sonnet-5-5` through the Messages API; calibration must verify the live request shape, thinking, caching, transport and cost before counted runs. Earlier `gpt-6-sol` measurements do not establish Claude behavior. |
+| Fresh comparison (H5) | Three frozen research tasks, 23 critical checks, three arms and two repeats per arm. No counted result is recorded. Live Claude calibration and completed H4 checks precede the experiment. |
 | Tier O (private data) | Blocked until the box checklist, an encrypted tunnel, telemetry-off checks and an owner approval are recorded. |
 | Coding pilot | Opt-in "Fix a repository" flow with cloud execution in isolated containers. |
 | Legacy tracks | Repository Investigator, Review Current Changes, the coding pilot and the hybrid simulation stay wired but are hidden unless `SOAR_ENABLE_LABS=true`; the general task is the default surface and the ⌘N target. The PR6R canary and held-out evaluator were removed; they remain at tag `archive/router-era-2026-09-28`. |
@@ -92,7 +101,7 @@ Two read-only diagnostics are available:
 | Command | Purpose |
 | --- | --- |
 | `pnpm dev` | Run the desktop app |
-| `pnpm check` | Readiness and build-log validation, typecheck, tests, build (about 40 s) |
+| `pnpm check` | Readiness and build-log validation, typecheck, tests, build |
 | `pnpm test:e2e` | Electron end-to-end tests (after `pnpm build`) |
 | `pnpm setup:general` | Doctor for the general task runtime: Node, Docker, the qualified image, the model endpoint; `--write` records the image id and profile in the app's user-data settings |
 | `pnpm check:general-consultant` | Check the optional consultant environment without printing values |

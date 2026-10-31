@@ -34,9 +34,9 @@ The following stay outside Git, under the ignored `.soar/experiments/`:
 | `arm` | Route and profile, for example `local-standard` or `local-heavy` |
 | `profile`, `thinking`, `maxOutputTokens` | Coordinator profile the run was frozen with |
 | `cloudModel`, `cloudApi` | The cloud model and request shape (`openai`, `openai_responses` or `anthropic_messages`) from the freeze's cloud arm (`freeze.arm.modelConfig`), or `null` on local runs; a loop row takes them from sample `a`'s own freeze when the loop's arm is `cloud`. Rows before BL-20261030-0620 omit both fields |
-| `modelCalls`, `toolCalls`, `wallSeconds` | Counts from the run's own ledger |
-| `inputTokens`, `outputTokens`, `cachedTokens`, `cacheWriteTokens`, `lengthStops`, `usd` | Accounting (`usd` is API fees only; local is zero-fee); `cachedTokens` is the part of `inputTokens` the provider reported as served from its prompt cache (summed `cacheReadTokens`, 0 when absent; rows before H1 omit the field); `lengthStops` counts replies cut at the output limit; `cacheWriteTokens` is the part of `inputTokens` the provider reported as newly written to its cache (summed `cacheWriteTokens`, billed at the write rate); 0 means the run did not record it, which is every run before BL-20261022-1156 including the H1 first attempt, not a measured zero |
-| `entailment` | Research tasks with a claims ledger: the host's entailment counts, `entailmentCalls`, `truncated` and `supportRate` (supported / judged claims), or `null`; a local-model judgement is evidence, not acceptance |
+| `modelCalls`, `toolCalls`, `wallSeconds` | Counts from the run's own ledger. Model calls cover the writer and any research pipeline, plus the critique on loop rows; the separate entailment pass reports its calls under `entailmentCalls`. Wall time includes that pass |
+| `inputTokens`, `outputTokens`, `cachedTokens`, `cacheWriteTokens`, `lengthStops`, `usd` | Tokens and length stops cover the same calls as `modelCalls`, excluding the separate entailment pass; `usd` sums dispatch fees (local is zero-fee). `cachedTokens` is the part of `inputTokens` the provider reported as served from its prompt cache (summed `cacheReadTokens`, 0 when absent; rows before H1 omit the field). `lengthStops` counts writer replies, research-stage `truncatedReplies` and loop critiques cut at the output limit; historical pipeline rows have the limitation below. `cacheWriteTokens` is the part of `inputTokens` the provider reported as newly written to its cache (summed `cacheWriteTokens`, billed at the write rate); 0 means unrecorded for every run before BL-20261022-1156 including the H1 first attempt |
+| `entailment` | Research tasks with a claims ledger: the host's entailment counts, `entailmentCalls`, `truncated` and `supportRate` (supported / (supported + partial + unsupported + contradicted), excluding `not_judged`; `null` when no claims were judged), or `null` for no pass. The selection rule's signed balance rate is a separate metric. A local-model judgement is evidence, not acceptance |
 | `unknownDispatches` | Unsettled dispatches (never replayed) |
 | `outcome` | `accepted`, `rejected`, `incomplete` or `infra_invalid` |
 | `terminalCause` | Why the run ended, for example `submitted`, `session_deadline`, `request_body_size_exceeded` |
@@ -47,3 +47,27 @@ The following stay outside Git, under the ignored `.soar/experiments/`:
 | `loop` | H4 select-and-repair loop rows only (`scripts/phase4-loop.ts`, `registry-row.py --loop-dir`): `version`, `rule` (the selection protocol version), `samples`, `repaired`, `seeded` (whether sample `b` and the repair wrote from sample `a`'s evidence packet), `stage1` (the sample the host-checked selection chose), `selected` (the loop's deliverable: `a`, `b` or `repair`), `step` (the rule step that decided it), `critiqued` and `critiqueFailure`, `writeIdentityEqual` (whether the two samples' write phases carried the same identity) and `candidates` (every sample's own `status` and `terminalCause`, so the harness-terminal rate is computed per sample). The row's counts sum the loop's runs plus the critique's one call (from `critique.json`, or `critique-failure.json` when the critic answered and the tool refused the reply), `wallSeconds` spans the loop from its earliest start to its latest end over its runs, and status, cause, binding and entailment are the selected run's; the all-cloud arm has no loop and no such field |
 
 Rows are append-only. Correct a row by appending a new row with `supersedes`.
+
+## Historical metric corrections (2026-10-31)
+
+Three appended rows correct `entailment.supportRate` using the counts already in
+the public registry. They supersede `p1e-t2-rfc-memo-heavy` (no judged claims:
+`0.0` to `null`), `p2-r1-python-packaging-local-heavy-s2` (`30/32`, `0.909` to
+`0.938`) and `p4h3-r3-grid-batteries-split-gpt-6-sol-planner-v2` (`33/39`,
+`0.825` to `0.846`). Original rows, verdicts and other run measurements are
+preserved. Summaries must exclude superseded rows rather than count corrections as
+new runs.
+
+The following four pipeline rows predate the inclusion of research-stage
+`truncatedReplies` in `lengthStops`. Their recorded zero counts cover writer replies
+only and are lower bounds for the whole pipeline, including in any superseding
+support-rate correction. Stage totals cannot be recovered from the public rows and
+were not recomputed from raw traces:
+
+- `p4h2-r3-grid-batteries-local-heavy-pipeline-s1`
+- `p4h3-r3-grid-batteries-split-gpt-6-sol-planner-v1`
+- `p4h3-r3-grid-batteries-split-gpt-6-sol-planner-v2`
+- `p4pb-r3-grid-batteries-split-gpt-6-sol-protocol-v3`
+
+No committed loop rows predate the critique-truncation correction. These metric
+corrections do not change the selection policy, experiment grades or privacy gates.

@@ -26422,3 +26422,31 @@ Paid exposure: USD 0.
 Next gate: Accounting and current-status corrections, then full validation before live calibration.
 
 References: BL-20261031-1258-recovery-metrics-calibration-authority, BL-20261007-0530-pr-c-recoverable-dispatch-implemented, src/main/general-tasks/controller.ts, tests/unit/general-task-controller.test.ts, tests/unit/app-general-task.test.tsx.
+
+### BL-20261031-1304-experiment-metrics-and-current-status -- 2026-10-31 -- Count pipeline and critique truncations, correct judged support rates and update project status
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct the review's accounting omissions without changing grades, selection policy or frozen research tasks, and replace the stale current-status claims.
+
+Decisions:
+
+- Include research-stage truncatedReplies in both single-run registry rows and TypeScript candidate summaries. Count each finished loop critique's length cutoff once, including answered failures and reused critiques.
+- Define supportRate as supported divided by supported + partial + unsupported + contradicted; not_judged is excluded and zero judged produces null. The selection rule's signed balance rate remains separate and unchanged.
+- Preserve every historical registry byte. Append three superseding rows computed only from committed public counts: the all-unjudged Phase 1 result becomes null, the Phase 2 local r1 seed-2 rate becomes 0.938, and the exposed H3 split-v2 rate becomes 0.846. Verdicts and every other measurement are retained.
+- Four historical pipeline length-stop counts remain writer-only lower bounds; public rows cannot recover their omitted stage counts. Document that limitation rather than invent totals. Entailment calls remain separately reported, while wall time includes that pass.
+- Current status now distinguishes provisional Phase 2 grades and confirmed Branch B, exposed H2/H3 calibration, failed H4 batch 1, mock-tested Claude implementation, pending H5, one recorded owner job, and blocked private deployment. Privacy-filter v2 is approved direction at defaults, not implemented or qualified.
+
+Changes: Registry-row aggregation, candidate summarisation, loop critique totals, focused regression fixtures, three appended registry corrections, README and documentation indexes.
+
+Evidence: Three focused suites passed 14 tests under Node 22.22.2; the node typecheck and diff whitespace check passed. A public-record audit verified that the pre-existing registry is an unchanged byte prefix and that the three appended rows change no run measurement or grade except supportRate. Cases cover pipeline cutoffs plus legacy missing fields, resumed and refused critiques, zero judged versus zero supported, and single/loop aggregation. The integrated runtime freeze is a142fadc3a810d6b3d9aff512b1a5bab71763cd990ecfb04d5db446337d51cdf over 36 files.
+
+Failures or blockers: None in focused verification. Live pin files must use the new digest; the former Claude digest cannot be reused. Full integrated validation follows the probe-verdict correction.
+
+Limitations and non-claims: No raw trace or evaluator gold was read to backfill history. Existing false positives/negatives in agent grading are not repaired by accounting changes. No change to model prompts, research protocol, selection decisions, private-data gates or release state is claimed.
+
+Paid exposure: USD 0.
+
+Next gate: Strengthen the shape probe's host verdict to require the tool-history path the approved probe is meant to exercise; then full integrated validation, credential readiness and the live gates.
+
+References: BL-20261031-1258-recovery-metrics-calibration-authority, BL-20261026-1832-h4-select-and-repair-implemented, BL-20261030-0850-claude-cloud-adapter-implemented, docs/experiments/README.md.

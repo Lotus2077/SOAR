@@ -42,11 +42,17 @@ The following stay outside Git, under the ignored `.soar/experiments/`:
 | `terminalCause` | Why the run ended, for example `submitted`, `session_deadline`, `request_body_size_exceeded` |
 | `criticalChecks` | Pre-written critical checks passed / total, or `null` |
 | `verdictBy` | `owner`, `agent_diagnostic` or `none` |
+| `calibrationGate`, `calibrationReviewedAt` | Optional calibration-only acceptance and review time, separate from the task's `outcome` and `verdictBy`; acceptance here does not supply a capability grade |
+| `consoleChargeUsd`, `settledStep0And1Usd`, `consoleDifferenceUsd`, `consoleToleranceUsd` | Optional historical Claude step-0/1 reconciliation amounts; the Console display is rounded and the difference must fit the approved tolerance with no competing usage |
+| `localJudgeProvenance` | Optional explicit description of the historical judge tier; never relabel old entailment counts after changing the local model |
 | `ownerMinutes`, `interventions` | Owner effort (owner-run jobs only) |
 | `lesson` | One line |
 | `loop` | H4 select-and-repair loop rows only (`scripts/phase4-loop.ts`, `registry-row.py --loop-dir`): `version`, `rule` (the selection protocol version), `samples`, `repaired`, `seeded` (whether sample `b` and the repair wrote from sample `a`'s evidence packet), `stage1` (the sample the host-checked selection chose), `selected` (the loop's deliverable: `a`, `b` or `repair`), `step` (the rule step that decided it), `critiqued` and `critiqueFailure`, `writeIdentityEqual` (whether the two samples' write phases carried the same identity) and `candidates` (every sample's own `status` and `terminalCause`, so the harness-terminal rate is computed per sample). The row's counts sum the loop's runs plus the critique's one call (from `critique.json`, or `critique-failure.json` when the critic answered and the tool refused the reply), `wallSeconds` spans the loop from its earliest start to its latest end over its runs, and status, cause, binding and entailment are the selected run's; the all-cloud arm has no loop and no such field |
 
 Rows are append-only. Correct a row by appending a new row with `supersedes`.
+The Claude step-1 reconciliation correction updates calibration status only;
+its original `incomplete` task outcome, absent capability verdict, measurements
+and old-local-judge entailments are preserved. Exclude superseded rows from totals.
 
 ## Historical metric corrections (2026-10-31)
 

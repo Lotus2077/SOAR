@@ -26704,3 +26704,47 @@ Paid exposure: No paid cloud request. Two inference requests used the owner's de
 Next gate: Resolve the local-model evaluation choice and qualify its actual response/operational contracts before H4; complete the existing Console reconciliation separately.
 
 References: BL-20261031-1600-local-model-change-path-pending, BL-20261031-1556-replacement-endpoint-preflight-blocked, BL-20261031-1342-claude-all-cloud-observed.
+
+### BL-20261031-1636-claude-console-reconciled -- 2026-10-31 -- Owner Console evidence completes historical Claude step-1 acceptance
+
+Status: `Verified`
+
+Scope or hypothesis: Reconcile the preserved Claude calibration's actual Console charge and accept its historical step-1 gate, independently of the proposed local-model migration.
+
+Decisions: The owner supplied a Console screenshot showing SOAR-key cost USD 1.15. Compare that rounded display to USD 1.151653 settled across steps 0 and 1: absolute difference USD 0.001653 is below the approved USD 0.05 tolerance. Carry forward the owner's earlier explicit no-competing-organisation-usage confirmation; the screenshot itself does not prove exclusivity. Accept historical step 1 after all eight approved checks pass. Preserve the original step-0 exits and the owner's one-time combined-evidence adjudication.
+
+Changes: A new ignored analysis and historical acceptance record, one appended registry status correction, and current README/PLAN status. The original pending records and registry measurements remain unchanged. No H4 authority is activated.
+
+Evidence: The offline analyzer returned accepted=true and no pending checks, using the original exposed-r3 run, baseline and 79-reply guidance review. Analysis SHA-256 d5faf23aa2ee83346454cbd111b2747112a254a3a984bd370fc1bb9d1272a4bc; historical review SHA-256 e6eadb1b7b1639dc6b944e7a36453bc2d6a182f1329990dc3af414e0e40043fc. Result and freeze-file hashes remain b5334764176e1ec92f151d8f256710d9e462321a916cd67abf7e6ec2d574f463 and afbca34035d5960253f8743e6b1acdb05e9da717a8fe0dd6f9ccc1372401a91b. No screenshot, key fragment, account identifier or raw trace is committed.
+
+Failures or blockers: The financial gate is resolved. The changed local model still lacks qualification; H4 remains held and H5 unstarted.
+
+Limitations and non-claims: Console precision is cents. Exact returned tier/geography metadata was not retained for all 79 cloud replies. The run's 34 local entailments belong to the original local tier; its task remains independently ungraded. This acceptance is not Flash-Next evidence, private qualification, H4/H5 launch authority or release.
+
+Paid exposure: USD 0 new. Settled calibration total remains USD 1.151653.
+
+Next gate: Review the owner-requested Flash-Next migration design; obtain its named local-tier amendment approval before implementation or new model runtime work.
+
+References: BL-20261030-0620-claude-cloud-adapter-design, BL-20261031-1328-composite-probe-owner-adjudication, BL-20261031-1342-claude-all-cloud-observed, BL-20261031-1600-local-model-change-path-pending.
+
+### BL-20261031-1638-flash-next-migration-design -- 2026-10-31 -- Propose a named Flash-Next local-tier migration before H4 and H5
+
+Status: `Proposed`
+
+Scope or hypothesis: Fulfil the owner's request to prepare a Flash-Next migration plan after the same device changed models. This is design authority only.
+
+Decisions: Propose a new qualified deployment identity across reader, writer, repair, local planner/synthesiser, critic and every new arm's entailment judge. Keep Claude and the frozen task/check/selection contracts. Inventory actual weights, revision, quantization, serving build, template, parsers and context before inference qualification; server changes retain PLAN D11 approval and a scheduled restart. Name scoped client compatibility for thinking controls, separate reasoning fields and content/tools-only history; reject inline reasoning, identity drift and incomplete operational evidence rather than bypassing failed gates.
+
+Changes: docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md, its documentation-index link, a Proposed PLAN pointer and accurate current-status wording. Proposed qualification is at most 24 zero-fee local dispatches, 131,072 reserved output tokens, 1,000,000 precomputed prompt tokens and 90 minutes, with fixed synthetic fixtures and no automatic retries. Approval would cover scoped client/operator implementation, qualification and the three exposed H4 loops after preceding gates within the valid window; H4's split sample retains USD 0.60. H5 still requires its own batch-start authority. No implementation, model setting or serving pin is changed by this entry.
+
+Evidence: Static review by runtime, evidence and privacy agents; current source role/budget/transport paths; official Qwen model card and vLLM exact-model/reasoning documentation, cited in the plan. Reviews corrected idle sampling to three readings at least 20 seconds apart, clarified the shared reading/writing session budget and three-party scoring separation, and required raw-output checks independent of tolerant JSON parsers. Documentation validation is recorded with this change; model behaviour remains untested beyond the earlier two chat replies.
+
+Failures or blockers: Exact deployment inventory, separated reasoning, operational metadata, local compatibility and coherent H4 evidence remain unavailable. Design approval is pending. The existing window ends at 2026-11-01T01:19:14.660899Z and this plan does not extend it; expiry blocks new admissions while admitted rows retain their normal bounds.
+
+Limitations and non-claims: Upstream recipes do not establish deployed software or authorize flags/restarts. R2 was not triggered. Historical 27B results and old local-judge counts remain historical. No fresh task inputs, authoring transcript or gold were opened; no H5 task/check tuning, live call, deployment, private admission or release occurred.
+
+Paid exposure: USD 0 new; no increased cap. Completed Claude transport/cost evidence is retained without a default paid rerun. H5's existing USD 21.60 bound is a planning bound, not launch authority.
+
+Next gate: Owner approval of the concrete migration plan and named local-tier amendment, then inventory, scoped implementation and qualification within a valid device window. Present any necessary exact server change separately under D11; complete H4 and its split calibration before the separate H5 handoff.
+
+References: BL-20261031-1636-claude-console-reconciled, BL-20261031-1604-replacement-chat-endpoint-answers, BL-20261031-1556-replacement-endpoint-preflight-blocked, BL-20261030-0445-h5-cloud-provider-claude, docs/PLAN.md D11, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.

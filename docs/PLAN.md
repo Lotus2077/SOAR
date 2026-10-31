@@ -611,12 +611,21 @@ qualification after 252 independent checks (BL-20261031-2208). The total is
 24 requests, 22 settled zero-fee receipts, original Q13 UNKNOWN and planned
 Q20 UNKNOWN/cancelled, 248485 exact prompt tokens and 130816 reserved output
 tokens. Critic, four judge verdicts, large-context anchors at 122439 prompt
-tokens, cancellation/idle recovery and JSON/SSE passed. Nine idle samples passed;
-Q22's duplicate arithmetic transport comparison is omitted as approved. This
+tokens with the full 16384-token output reservation, cancellation/idle recovery
+and JSON/SSE passed. Nine idle samples passed; Q22's duplicate arithmetic transport comparison is omitted as approved. This
 qualifies the pinned deployment's bounded compatibility, not task quality or
-full-context/stability coverage. The three H4 loops are approved for the next
-launch after clean-commit/CI preflight; H5 remains pending their acceptance.
-Heavy semantics and the remaining technical gates are unchanged.
+full-context/stability coverage. H4 k2 completed with 58 settled local receipts
+at USD 0; 320 independent mechanical checks passed. Protocol tie preference
+selected a and then repair, without demonstrating quality improvement. The next
+r3-local sample a ended incomplete with `research_plan_invalid`: eight index
+calls (two invalid), two plan calls (both invalid, one truncated), and ten settled
+local receipts at USD 0. This is a counted evaluated rejection, not an
+infrastructure failure; no evidence packet, sample b, critic or repair followed.
+The operator stopped on `h4_row_gate_failed`; the split loop and H5 never started,
+and full H4 acceptance remains absent (BL-20261031-2322-h4-local-plan-rejected).
+Runtime, serving and role settings, Heavy semantics and the remaining technical
+gates are unchanged. New H4 fees are USD 0; historical Claude exposure remains
+USD 1.151653, with the USD 0.60 split cap and USD 21.60 H5 cap unchanged.
 Historical Qwen3.8-27B results and the conditional R2 rule remain unchanged.
 The Claude step-0/1 Console reconciliation is now verified
 (BL-20261031-1636-claude-console-reconciled), independently of local qualification.

@@ -1,6 +1,6 @@
 # Flash-Next service requirements for the owner
 
-Status: **Sequence Approved; startup, CPU parity and shared-guard integration Verified; one-shot qualification stopped at Q13; approved diagnostic completed; qualification unaccepted and new H4 loops/H5 held**.
+Status: **Sequence Approved; startup, shared admission and named amended qualification Verified; H4 k2 completed and r3-local rejected; split/H5 unstarted; H4 acceptance blocked**.
 Updated 2026-11-01 (Asia/Shanghai). **The owner authorized an investigated retry
 and a clean-page-cache operation** (BL-20261031-2021), following the first failed
 NemoClaw-derived attempt and verified scoped manual q4t recovery
@@ -9,8 +9,10 @@ readiness at 04:37:27 Asia/Shanghai, about 321 seconds after model-container sta
 (BL-20261031-2040-nemoclaw-retry-ready). The candidate is running under its
 recovery supervisor; q4t is stopped with its restoration assets retained.
 Internal and user-facing health, model, version and metrics routes returned
-HTTP 200. The later one-shot qualification passed 12 fixtures before stopping
-at Q13; it is not a complete Heavy compatibility pass.
+HTTP 200. The original one-shot qualification passed 12 fixtures before stopping
+at Q13. The later named amended qualification is accepted for bounded
+compatibility of the pinned deployment/roles; it does not establish full-context
+coverage, task quality, sustained stability or H4/H5 acceptance.
 See the [q4t capability review](Q4T_SERVICE_CAPABILITY_REVIEW.md).
 The preserved q4t deployment remains limited to its supported contract; its
 recovery does not qualify it for Heavy, H4 or H5 or authorize an engine rewrite.
@@ -30,12 +32,14 @@ recovery does not qualify it for Heavy, H4 or H5 or authorize an engine rewrite.
    command, context limit and routes. SOAR then binds every local role, including
    the judge, and performs the already-approved bounded qualification.
 
-The owner handoff remains a reusable contract. The candidate has completed shared
-admission integration and a partial qualification attempt, not a full
-compatibility pass. The original batch used thirteen zero-fee requests; one
-separately approved diagnostic has since completed. Aggregate use is fourteen
-attempts with ten unused dispatch slots. The failed batch cannot automatically
-continue or retry, and all eleven original remaining cases are still unattempted.
+The owner handoff remains a reusable contract. Shared admission and the named
+amended qualification are accepted (BL-20261031-2208-flash-qualification-accepted):
+24 attempts, 22 settled zero-fee receipts, original Q13 UNKNOWN and expected Q20
+UNKNOWN/cancelled. The largest prompt was 122439 tokens with its full 16384-token
+output reservation. Original Q13, both historical false heading predicates and
+the approved Q22 omission remain recorded. H4 subsequently completed k2 but
+stopped on the counted r3-local sample-a plan rejection; split and H5 never
+started (BL-20261031-2322-h4-local-plan-rejected).
 
 The first trial's 22 selected added-operator numerical cases passed, with 64 deselected
 and zero skipped. It loaded all 206 shards (reported model load 74.34 GiB),
@@ -91,7 +95,7 @@ the subsequent qualification outcome is recorded below.
 
 The candidate is the community-maintained
 [NemoClaw-Thor recipe](https://github.com/pastoriomarco/NemoClaw-Thor/blob/main/serving/docs/QWEN38-FLASH-NEXT-FAST-THOR.md),
-a source for the staged image, which is not a SOAR-qualified backend. Its
+a source for the staged image; the recipe alone does not qualify a SOAR backend. Its
 [launcher](https://github.com/pastoriomarco/NemoClaw-Thor/blob/main/serving/start-qwen38-flash-next-fast.sh)
 enables prefix caching and native tool/reasoning parsers. The published tool
 evaluation used temperature zero; it does not establish our Heavy sampling or
@@ -111,7 +115,9 @@ Those settings must be explicit in the deployment record. Setting its draft
 vocabulary environment variable to an empty string does not disable the default
 because the shell uses `:-`. The staged base/SM110-MoE/GDN patch sources have
 received independent review; the 22 selected added-operator numerical cases
-passed, while ordinary serving/API behaviour remains unqualified.
+passed. Those operator tests alone do not qualify ordinary serving/API
+behaviour; the later accepted bounded qualification applies only to the actual
+pinned retry deployment and roles.
 The added GDN/MTP CUDA overlay and its numerical test selection are not general
 requirements for an MTP-off deployment using ordinary Triton decoding.
 
@@ -295,11 +301,33 @@ explicitly requiring Markdown heading syntax. This distinguishes a section-forma
 policy mismatch from a native transport or accounting failure on this diagnostic.
 It does not recover or identify the cause of original Q13.
 
-Original Q13 remains UNKNOWN and the stopped qualification remains unaccepted.
-Aggregate use is fourteen attempts with ten unused dispatch slots; all eleven
-original remaining cases are still unattempted. Three post-diagnostic metadata
-samples passed healthy/idle checks. No paid call, production-source change or
-service change occurred. The immutable claims remain consumed, with no automatic
-continuation, replacement or retry. Further qualification allocation/adjudication
-is required; the new H4 loops and H5 remain held. The original start cutoff
-remains 2026-11-01 09:19 Asia/Shanghai unless the owner supplies a new window.
+At the diagnostic stop, aggregate use was fourteen attempts with ten unused
+dispatch slots and all eleven original remaining cases unattempted. Three
+post-diagnostic metadata samples passed healthy/idle checks. Original Q13 remains
+UNKNOWN and both historical false heading predicates remain unchanged. The later
+literal-section adjudication and separately approved ten-request continuation
+produced the accepted named amended qualification
+(BL-20261031-2208-flash-qualification-accepted): 24 attempts, 22 settled zero-fee
+receipts, original Q13 UNKNOWN and expected Q20 UNKNOWN/cancelled. Exact prompt
+tokens total 248485 and output reservations total 130816; the largest prompt was
+122439 tokens with its full 16384-token reservation. Q22's duplicate arithmetic
+transport comparison remains omitted as approved. This is bounded compatibility,
+not full-context coverage, task quality or sustained stability.
+
+H4 k2 completed with 58 settled local receipts at USD 0 and 320 independent
+mechanical checks; a and then repair were selected by protocol tie preference,
+without demonstrated quality improvement. The r3-local sample a then ended
+incomplete with `research_plan_invalid`: eight index calls (two invalid) and two
+plan calls (both invalid, one truncated), with ten settled local receipts at
+USD 0. This counted evaluated rejection failed the H4 row gate; it is not an
+infrastructure failure. No evidence packet, sample b, critic or repair followed.
+The operator stopped on `h4_row_gate_failed`; split and H5 never started and full
+H4 acceptance remains absent (BL-20261031-2322-h4-local-plan-rejected). Runtime,
+serving and role settings are unchanged. New H4 fees are USD 0; historical Claude
+exposure stays USD 1.151653, with the USD 0.60 split and USD 21.60 H5 caps unchanged.
+The owner extended H4/H5 new starts to 2026-11-01T10:00:00Z (18:00
+Asia/Shanghai) with unchanged caps (BL-20261031-2235-owner-window-extension).
+The original H4 authority retains its stricter 2026-11-01T01:19:14.660899Z cutoff
+(09:19 Asia/Shanghai); the qualification clock is unchanged. The unused
+window-only continuation cannot apply to the failed r3-local row. No failed-row
+retry, additional run or fee is authorized by that extension.

@@ -1,6 +1,6 @@
 # Phase 4 Flash-Next migration plan
 
-Status: **Approved sequence; shared admission and amended qualification Verified; three-loop H4 launch preparation approved; H5 pending H4**. Prepared 2026-11-01
+Status: **Approved sequence; shared admission and amended qualification Verified; H4 k2 completed and r3-local rejected; split/H5 unstarted; H4 acceptance blocked**. Prepared 2026-11-01
 (Asia/Shanghai). Authority: BL-20261031-1759-flash-next-sequence-owner-approved.
 
 Updated after owner-authorized inventory, the failed first startup and the
@@ -53,18 +53,28 @@ design do not explicitly require heading syntax (BL-20261031-2141-q13-diagnostic
 Original Q13 remains UNKNOWN with its cause unresolved. The approved literal
 section adjudication accepts only the new diagnostic, preserving both old false
 predicates. The separately reviewed ten-request continuation then completed
-critic, all four judge cases, a 122439-token large prompt, cancellation/retirement,
+critic, all four judge cases, a 122439-token large prompt with its full
+16384-token output reservation, cancellation/retirement,
 fresh recovery and JSON/SSE checks. Nine idle samples passed. Independent review
 passed 252 checks; root accepted the combined evidence in BL-20261031-2208.
 Combined allocation is exactly 24 requests, 248485 exact prompt tokens and
 130816 reserved output tokens, at USD 0. Twenty-two receipts settled; original
-Q13 and the planned cancellation retain their distinct UNKNOWN statuses. Q22's
+Q13 and expected Q20 cancellation retain their distinct UNKNOWN statuses. Q22's
 duplicate arithmetic transport comparison is explicitly omitted. No production
 source or serving settings changed. This qualifies bounded compatibility, not
-quality or sustained stability. The three H4 loops are approved for the next
-launch after final clean-commit/CI preflight; H5 remains conditional on H4.
-See the [continuation evidence](PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md)
-and BL-20261031-2208-h4-admission-prepared.
+full-context coverage, quality or sustained stability. H4 k2 completed with 58
+settled local receipts at USD 0 and passed 320 independent mechanical checks;
+protocol tie preference selected a and then repair, without demonstrated quality
+improvement. The subsequent r3-local sample a ended incomplete with
+`research_plan_invalid`: eight index calls (two invalid) and two plan calls
+(both invalid, one truncated), with ten settled local receipts at USD 0. This
+counted evaluated rejection failed the row gate; it is not an infrastructure
+failure. No evidence packet, sample b, critic or repair followed. The operator
+stopped on `h4_row_gate_failed`; the split loop and H5 never started. Full H4
+acceptance remains absent. Runtime, serving and role settings are unchanged.
+See the [continuation evidence](PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md),
+BL-20261031-2208-flash-qualification-accepted and
+BL-20261031-2322-h4-local-plan-rejected.
 
 ## 1. Evidence and remaining uncertainty
 
@@ -77,15 +87,16 @@ and BL-20261031-2208-h4-admission-prepared.
 | First-attempt cleanup and recovery | Docker zombie prevented automatic container removal and the guard blocked restoration. After process exit, identity-checked non-force removal and lease/GPU/listener/marker checks permitted one manual restore, which verified q4t. | Preserve failed automatic rollback alongside successful manual recovery. q4t was subsequently stopped again for the approved retry; this does not establish a second completed restore. |
 | Retry startup | All 206 shards loaded at 74.34 GiB; 22 selected operator cases passed (64 deselected, zero skipped). With fixed 12 GiB KV, total engine initialization completed in 90.62 s, including final CUDA-graph capture in 6 s using 0.16 GiB. Capacity reports 479856 tokens, 1.83 times context 262144; healthy API arrived in about 321 s. | Startup now reaches readiness. Added-operator checks, reported capacity and graph capture do not qualify actual Heavy requests. The larger 60-minute bound was not needed to reach readiness. |
 | Retry observations | After verified idle/q4t stop, one synchronized page-cache drop changed Cached from 1117980 to 410532 KiB and MemAvailable from 122136392 to 122560152 KiB. The interrupt warning recurred; no new allocation failure or blocked-task report was observed through 20:40 UTC. Running/waiting, completion-reason and prefix-cache query/hit counters were zero. | Reduced KV, cache preparation, retained build caches, diagnostics and wait policy were not isolated. Neither successful startup nor the bounded kernel observation identifies the first stall's cause or proves stability/cache behavior. |
-| CPU parity and admission integration | Six synthetic cases have matching token IDs between tokenization and the installed generation renderer. The shared guard passed full integrated checks (2247 tests, 81 explicit skips, production build). The ignored driver passed 26 synthetic tests; tokenizer/metadata helpers passed 9/22 mock tests. Serving, role and fixture identities were frozen for the one-shot batch. | Integration is verified, while generation qualification remains incomplete. CPU parity does not establish generated-output behavior. |
-| Partial one-shot qualification | Q01–Q12 passed, including native SSE tools/history demotion, thinking on/off, index/plan/extraction and A/A/B/B cache reports 0/15680/0/15680 with independent counters. Thirteen wire requests and dispatch receipts were recorded, with USD 0 new fees. | Q13 stopped the batch; eleven slots were unsent and cannot automatically be used for continuation or retry. The new H4 loops and H5 remain unstarted. |
+| CPU parity and admission integration | Six synthetic cases have matching token IDs between tokenization and the installed generation renderer. The shared guard passed full integrated checks (2247 tests, 81 explicit skips, production build). The ignored driver passed 26 synthetic tests; tokenizer/metadata helpers passed 9/22 mock tests. Serving, role and fixture identities were frozen for the one-shot batch. | Integration is verified; the subsequent named amended qualification is accepted as recorded below. CPU parity alone does not establish generated-output behavior. |
+| Partial one-shot qualification | Q01–Q12 passed, including native SSE tools/history demotion, thinking on/off, index/plan/extraction and A/A/B/B cache reports 0/15680/0/15680 with independent counters. Thirteen wire requests and dispatch receipts were recorded, with USD 0 new fees. | At the original stop, Q13 left eleven slots unsent and the new H4 loops/H5 unstarted. That failed batch remains unchanged; the later separately approved continuation and amended acceptance are recorded below. |
 | Q13 stop and diagnosis | The wire observer counted 648 SSE events, one usage frame, one DONE and zero parse failures. The receipt is UNKNOWN/`response_or_usage_invalid`; the wrapper code is `research_stage_invalid`. The original validation category was not retained. Offline review separately proved the fixture rejects valid Setext and closing-hash headings. | Q13 content was not retained, so neither this validator defect nor a backend failure can be assigned as its cause. Its UNKNOWN receipt remains unchanged after the separately approved diagnostic. |
 | Post-stop service observation | Healthy/idle metadata was observed at 21:09 UTC. Thirteen generation HTTP 200 log entries, no server errors and no new kernel allocation failures were captured through 21:12 UTC. | This bounded observation supports continued service availability, not successful qualification or a stability guarantee. |
-| Completed approved diagnostic | One fresh-job reconstruction settled at USD 0. Native reply/SSE assembly/model settlement passed; exact prompt usage was 385 tokens with 641 output tokens. Required titles were plain paragraphs, so both heading predicates failed while fact/citation checks passed. Three post-request idle samples passed. | The prompt/design do not explicitly require heading syntax. This new result does not explain original Q13 or accept qualification. Aggregate use is 14 attempts with 10 unused dispatch slots; all 11 original remaining cases are still unattempted. No automatic continuation, paid call, production-source change or service change occurred (BL-20261031-2141-q13-diagnostic-result). |
+| Completed approved diagnostic | One fresh-job reconstruction settled at USD 0. Native reply/SSE assembly/model settlement passed; exact prompt usage was 385 tokens with 641 output tokens. Required titles were plain paragraphs, so both heading predicates failed while fact/citation checks passed. Three post-request idle samples passed. | The prompt/design do not explicitly require heading syntax. This diagnostic did not explain original Q13 or itself accept qualification. At its stop, aggregate use was 14 attempts with 10 unused dispatch slots and all 11 original remaining cases unattempted. No automatic continuation, paid call, production-source change or service change occurred (BL-20261031-2141-q13-diagnostic-result); later amended acceptance preserves both historical false predicates. |
+| Accepted amended qualification | The combined record passed 252 independent checks: 24 attempts, 22 settled zero-fee receipts, original Q13 UNKNOWN and expected Q20 UNKNOWN/cancelled. The largest prompt was 122439 tokens with the full 16384-token output reservation. | Accept bounded compatibility of the pinned deployment and eight role bindings (BL-20261031-2208-flash-qualification-accepted), with Q22's duplicate arithmetic transport comparison omitted as approved. No full-context, quality, stability or H4/H5 acceptance follows. |
 | Claude step 0 | Attempt 1 exited 3 for missing later thinking, triggering the allowed repeat; the repeat exited 2 for a warm read instead of the required initial cache write. The owner accepted their combined evidence once. | Retain both original verdicts and the adjudication; no third probe. |
 | Claude step 1 | 79 cloud replies and 34 old-tier local judge calls settled; cloud fee USD 1.127758, approved projection USD 2.121435 below USD 3.00. Guidance review found no visible refusal. | Transport/cost calibration is reusable under its original configuration; task quality remains independently ungraded. |
 | Console reconciliation | Owner screenshot shows SOAR-key cost USD 1.15; step-0/1 ledger total USD 1.151653, difference USD 0.001653 within USD 0.05. Earlier owner confirmation supplies the no-competing-usage condition. | Historical step 1 is accepted. The screenshot alone does not establish exclusive usage or qualify Flash-Next. |
-| H4 / H5 | Owner approved the sequence and H5 launch. First H4 batch failed on infrastructure; replacement preflight failed. No completed qualifying H4 batch or counted H5 run. | New qualification and all three H4 loops precede H5; the blocker is technical readiness, not missing H5 permission. |
+| H4 / H5 | Owner approved the sequence and H5 launch. Earlier infrastructure/preflight failures remain recorded. On the qualified tier, k2 completed with 58 settled zero-fee receipts and 320 independent mechanical checks; a and then repair were selected by tie preference. r3-local sample a ended with `research_plan_invalid`, ten settled zero-fee receipts and no evidence packet or later samples/stages. | The r3-local result is a counted evaluated rejection and failed the H4 row gate. No quality improvement or full H4 acceptance is established; split and H5 never started. All three accepted H4 loops and embedded split calibration still precede H5 (BL-20261031-2322-h4-local-plan-rejected). |
 
 The Console image, key fragments, account details, endpoint addresses and raw
 receipts stay outside Git. Public records retain only relevant amounts, counts,
@@ -175,21 +186,27 @@ are verified. The later one-shot qualification stopped at Q13 after 12 passed
 fixtures and 13 zero-fee dispatches. Its unresolved validation failure does not
 prove a backend defect. The separately approved diagnostic completed native/SSE
 and accounting checks but failed both section-heading predicates on plain titled
-paragraphs. Original Q13 and qualification remain unchanged. Aggregate use is 14
-attempts with 10 unused dispatch slots, with all 11 original remaining cases still
-unattempted. The new H4 loops and H5 remain held, pending further adjudication.
+paragraphs. Original Q13 and both failed heading predicates remain unchanged.
+The later literal-section adjudication and ten-request continuation produced the
+accepted named amended qualification: 24 attempts, 22 settled zero-fee receipts,
+original Q13 UNKNOWN and expected Q20 UNKNOWN/cancelled, with Q22 omitted as
+approved. The largest prompt was 122439 tokens with its full 16384-token output
+reservation. H4 then completed k2 but stopped on the counted r3-local sample-a
+plan rejection; split and H5 never started. The current outcome above records
+that failure without accepting full H4.
 
 ## 2. Approved amendment and frozen role binding
 
-For Phase 4's upcoming H4 verification and H5 comparison, replace the former
+For Phase 4's H4 verification and H5 comparison, replace the former
 Qwen3.8-27B local tier with the **qualified Flash-Next deployment recorded in a
 new serving manifest**. Use the advertised `qwen3.8-flash-next` request identifier
 if inventory confirms it maps to that deployment. `RM-01 VLM` may remain the
 device's human label; it must not conceal a changed model in result metadata.
 
 The eight-role manifest was frozen for qualification in BL-20261031-2104.
-Those pins establish identity; the stopped qualification has not accepted them
-for H4 or H5.
+The named amended qualification accepted those deployment/role pins for bounded
+compatibility in BL-20261031-2208-flash-qualification-accepted. Identity pins alone
+do not establish task quality or acceptance of H4 or H5.
 
 | Role | Approved model choice and retained policy |
 | --- | --- |
@@ -311,8 +328,10 @@ old-provider behaviour, rather than updating golden fixtures to accept regressio
 After approved migration work, local qualification and final source verification,
 create a new immutable H4 authority binding the serving manifest, endpoint hash,
 role settings, runtime/protocol/image/task pins, operator hashes, approved caps,
-Console acceptance and a valid availability window. The existing inactive
-operator must be adapted and reviewed; do not merely replace its old serving pin.
+Console acceptance and a valid availability window. Operator adaptation and
+review were completed under BL-20261031-2208-h4-admission-prepared; the original
+authority has now been consumed by the run ending at the failed r3-local row.
+That failure remains recorded; no retry or continuation is admitted here.
 
 Run in order, stopping on the first failed gate:
 
@@ -373,11 +392,15 @@ scoped replacement calibration authority before using it.
 | H5 counted runs | Existing USD 21.60 bound, inside the USD 33 Phase 4 line and USD 300 envelope; owner launch permission granted, final pinned batch-start record pending gates |
 | Server changes, extra retries or replacement paid calibration | Conditional recoverable recipe trial approved; no additional paid allowance or automatic inference retries |
 
-The original calibration start cutoff is **2026-11-01 09:19 Asia/Shanghai**
-(`2026-11-01T01:19:14.660899Z`). Plan approval does not extend it. Before any
-admission, check availability and cutoff; if expired or withdrawn, record a new
-owner-declared window. H5 still requires its own batch-start entry naming the
-new local tier, cloud model/prices/caps, all digests and passed H4/step-2 evidence.
+The owner extended the H4/H5 new-start window to **2026-11-01 18:00
+Asia/Shanghai** (`2026-11-01T10:00:00Z`) with unchanged caps
+(BL-20261031-2235-owner-window-extension). The original H4 authority retains its
+stricter cutoff of `2026-11-01T01:19:14.660899Z` (09:19 Asia/Shanghai); the
+qualification clock is unchanged. The prepared window-only continuation remains
+unused and cannot apply to the counted failed r3-local row. The extension
+authorizes neither a failed-row retry nor additional runs or fees. H5 still
+requires its own batch-start entry naming the new local tier, cloud
+model/prices/caps, all digests and accepted H4/step-2 evidence.
 
 ## 7. Approval, stop and rollback
 
@@ -392,8 +415,10 @@ and ended with verified scoped manual q4t recovery. A separate owner-approved
 diagnostic retry retained the experiment controls, set fixed 12 GiB KV, reclaimed
 clean page cache once and reached healthy API metadata
 (BL-20261031-2021-nemoclaw-diagnostic-retry-approved;
-BL-20261031-2040-nemoclaw-retry-ready). It remains unqualified, with q4t stopped
-and recovery assets retained. This permission does not
+BL-20261031-2040-nemoclaw-retry-ready). Its named amended bounded compatibility
+qualification is now accepted; H4/H5 acceptance remains separate and blocked by
+the r3-local rejection. q4t remains unqualified, stopped with recovery assets
+retained. This permission does not
 approve a silently changed greedy experiment, private data, additional paid
 calibration or release. No further H5 permission question is needed solely
 because older text described it as a separate decision.

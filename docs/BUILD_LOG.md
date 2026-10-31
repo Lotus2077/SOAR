@@ -27470,3 +27470,132 @@ Paid exposure: At most USD 0.60 for the embedded split calibration; local roles 
 Next gate: Confirm final clean commit/CI, prepare immutable H4 authority/pins and launch once. Review each mechanical gate and the split semantic evidence before accepting H4 and preparing H5.
 
 References: BL-20261031-1759-flash-next-sequence-owner-approved, BL-20261031-2158-h4-h5-goal-continuation, BL-20261031-2208-flash-qualification-accepted, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md sections 5-6.
+
+
+### BL-20261031-2235-owner-window-extension -- 2026-10-31 -- Extend only the approved H4/H5 new-start window
+
+Status: `Approved`
+
+Scope or hypothesis: The owner replied "Approve" to the pending request to extend the device-available H4/H5 new-start cutoff from 2026-11-01 09:19 to 18:00 Asia/Shanghai, with all caps unchanged. This grants time for the existing sequence only.
+
+Decisions: Extend the latest new-run start to 2026-11-01T10:00:00Z. Preserve the completed 24-request qualification and its original expired clock; authorize no further qualification request. Preserve all three H4 loops and the USD 0.60 embedded split cap, then the separately authorized eighteen H5 rows under USD 3.00 per all-cloud row, USD 0.60 per split row and USD 21.60 aggregate. No failed rerun, replacement, source, serving, role or scoring change is granted.
+
+Changes: Durably record the owner's exact reply and bound question privately before any use of the extended window. Leave the active H4 operator, authority, pins and source unchanged. Prepare a separate H5-only cutoff amendment behind its existing activation hold. A later start requires the exact SHA-bound owner amendment; missing or modified approval, changed caps and starts at or after the new cutoff fail. Bind it in the final H5 authority after H4 acceptance. The tracked log entry is appended after the active H4 sequence closes so its clean-commit pin is not disturbed.
+
+Evidence: Owner amendment SHA-256 b78e2a94fd7846026ccd03f24215a1eee94d5314f89c86643d4edc665e9ab915. Inactive H5 operator 8a5d9200d365c7b7b151c530f23c634cd459810fec4e7695f2dbbfd67ee8a5f8; tests a4b2a02d855d8feede6ce1410204c12195201da99aae5172b6321c1cb0835c7c; verification a4655867398538154136e29a1ccb4be26334bc7b22fb3a7e691a49a304e3c59a. Twenty TypeScript tests, fifteen Python tests and strict TypeScript pass, independently repeated. Prior ten assets were archived with manifest af73657142fa5d0b33d504e40f767bed9e1beadd5f7904b063157e2d5e6bf645. Independent review verified all ten active H4 assets, authority and pins unchanged.
+
+A read-only SSH check also verified the active recovery supervisor and matching preserved script (SHA-256 f6d2eea18d8ab976e8e6d8c6fd25a743ba967ef3f5d1ee06de071d8507d82042). Systemd RuntimeMaxUSec is infinity, and the reviewed post-readiness loop has no wall-clock expiry. Observation SHA-256 02c511382905f8c4099f0c2b3a33e9154ea6583f8396c217b365877755583f9d. No service modification was needed for the extended availability.
+
+Failures or blockers: H5 remains held until all three H4 loops, mechanical evidence and split semantics pass. Extending availability does not accept those results or override a failure stop.
+
+Limitations and non-claims: H4 retains its currently active, stricter original authority. An unexpected need to continue H4 after its old cutoff would require a separately reviewed continuation retaining completed rows and consumed claims. This entry grants no automatic H4 replay. H5 preparation has no authority or live runs at amendment creation. No task inputs, gold, candidate content, key, service or generation were accessed by either amendment reviewer.
+
+Paid exposure: No paid generation by the amendment work. H4 USD 0.60 and H5 USD 21.60 ceilings remain unchanged; actual execution spend is reported in subsequent result entries.
+
+Next gate: Complete and review the running H4 sequence, append its exact result, then bind this time amendment into the reviewed H5 authority and final clean-commit/CI record. H5's existing launch permission remains valid; no additional permission is required solely to launch after its prerequisites pass.
+
+References: BL-20261031-1759-flash-next-sequence-owner-approved, BL-20261031-2208-h4-admission-prepared, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-2308-h4-deck-loop-verified -- 2026-10-31 -- Verify the first coherent Flash-Next H4 loop
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the closed k2 deck loop under the accepted Flash-Next identity and original H4 authority. This is one of three required loops, not full H4 acceptance or an independent task-quality grade.
+
+Decisions: Retain the original a, b, local critique and repair without replay. All three candidates submitted and classified as counted. Replay the frozen deterministic selection from recorded check/artifact counts: stage one selects a by tie preference, final selection selects its repair by tie preference. Both recorded host checks and both required artifacts are present for each candidate. Continue the original approved sequence to local research; do not start H5.
+
+Changes: The deck loop ran from 22:14:30.676 to 23:03:46.070 UTC (49 minutes 15.394 seconds). Its unchanged per-row mechanical gate passed, and a healthy zero-running/zero-waiting post-loop observation bracketed the completed loop. Independent read-only review checked the closed row's source/role/token pins, initial/final freezes, all receipts, critique-to-selected-draft and repair lineage, recorded selection and before/after idle proofs. The active research row was not read by that reviewer. Root recorded a separate row-only acceptance; all-H4 acceptance remains false.
+
+Evidence: Independent closed-row review reports 320 checks true, no pending checks or problems; SHA-256 3c74a4364c4f1fd97a7853e596cab1bc285dedd400bfc54f3ba82543023f7da9. Root row review e3faf3bb0749f5eb449af79e04ffc2c9a32b944bf46c96787632ff31911aa7d8; original loop facc250650cfe8c1de1b96681b779c1402330510a113546a4c495d1515a0229c; mechanical gate df6922930465f5ed5a28d46b01c43a7261ecf1cf3537fcf022944292cc24f8f6; classification db46ffc1a80585828c0f1c53950958dd3d1d27efeb1041b841f68fbe6c4c002b; post-idle 3d9588fa05b1bd893c92eb927389943963f77dd477294b342a5a61b741a5b66a. All eight manifest bindings were verified; writer, repair writer and independent critic were exercised here, while research and judge roles were not invoked by this deck row.
+
+All 58 model receipts settled: a 22, b 21, critique 1 and repair 14. Recorded totals reconcile at 736259 input tokens, 56311 reported output tokens, 617792 cached-input tokens, 57 tool calls and zero fees. There were zero failed, unknown, retried or length-stopped requests. The critic used 2339 exact prompt tokens and 10240 output tokens, ended at stop, and bound the selected a draft. Source/runtime, protocol, serving configuration and active original authority/pins remained unchanged.
+
+Failures or blockers: No deck-loop mechanical blocker. Local research, split research and the split plan/argument semantic review still determine full H4 eligibility. H5 remains unstarted.
+
+Limitations and non-claims: Recorded selection/check counts were reconciled; the review did not independently grade candidate content or assert quality improvement from repair. Wall time is elapsed loop time, not a backend throughput benchmark. These counts are not an H5 quality result. Private candidates, raw traces, endpoints and local paths remain excluded from public artifacts. The tracked entry is appended after the active original sequence closes to preserve its clean-commit gate; private immutable evidence recorded the milestone when it occurred.
+
+Paid exposure: USD 0 new for this row. The embedded split-calibration allowance remains USD 0.60; the separately authorized H5 allowance remains USD 21.60.
+
+Next gate: Finish and independently review the remaining two original H4 loops, then apply the unchanged split semantic criteria. If the original start-window check ends the operator, preserve every started row and use only a separately admitted, reviewed time-window handoff under the owner's extension.
+
+References: BL-20261031-2208-h4-admission-prepared, BL-20261031-2235-owner-window-extension, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md section 5.
+
+### BL-20261031-2322-h4-local-plan-rejected -- 2026-10-31 -- Retain the counted local research rejection and stop the H4 sequence
+
+Status: `Verified`
+
+Scope or hypothesis: Complete the second, local research loop of the original three-loop Flash-Next H4 authority. The accepted bounded compatibility qualification and the completed k2 mechanics remain evidence of their original scope; neither substitutes for this research-loop gate.
+
+Decisions: Preserve this evaluated rejection without replay or replacement. The unchanged classifier correctly counts sample a's research_plan_invalid outcome, while the H4 gate correctly rejects the incomplete loop. The recorded a/stage_failed marker is a terminal failure selection, not a comparison between drafts. Do not run the unused split row or H5 after the operator's failure stop. The reviewed window-only continuation is ineligible because this is h4_row_gate_failed, not outside_declared_start_window.
+
+Changes: The local research loop ran from 23:04:28.563 to 23:22:28.944 UTC. Sample a completed eight index calls and two planner calls, including only the protocol's one permitted validation retry. Both planner replies failed the frozen JSON/schema validation; one was output-truncated. The session returned incomplete/research_plan_invalid before extraction, synthesis or writer-runner creation. It produced no evidence packet, sample b, critic, repair or real final comparison. The original operator exited one with h4_row_gate_failed and never started the split loop. All original artifacts, runtime, prompts, serving configuration, role bindings, consumed authority and pins remain unchanged.
+
+Evidence: Independent closed failure audit passes 40 metadata/hash checks with no discrepancy; SHA-256 66038769882a8a19c0f9941a239628336e850ce269749cf29ad7e1b54e3b0c34. Root failure adjudication bb3ddcfb7096f449e332dd107d44dee192f9926c99323e1e31c159bc451fb1c3 records H4 acceptance false, H5 start false and window-only continuation eligibility false. Original loop 4c73d856f421ff8be9bc4e39ee60f3fd9b77ca86707113c49329df15d8554052; sample-a result c05aac74074a2610cb6f350bef556392bfc92461d3e4e890d4e3a34b0ccb1a43; database 0072b5d56dba4e0c5e807c92fed4106369276e06a981889271c1a9d52bfa86e0; failed mechanical gate c8f0fcbfc93d0266b43f4d02f847c9385ffd48dfa1e4cc41a9cbc4e7ecbc4ab2; counted classification 867305f01658816f9f77ce270aec380b66e5d75eaf499aa12a1eef5d5d3e53a9.
+
+All ten local receipts settled at zero fees, with zero committed, UNKNOWN, failed or superseded receipts. Their exact prompt proofs reconcile with 25955 reported input tokens, 21323 output tokens and 3136 cached-input tokens. Index totals are 18825 input/5857 output, eight calls and two invalid replies; plan totals are 7130 input/15466 output, two calls/two invalid replies/one length cutoff. The validation retry is a separate ordinary planner call under the frozen two-call allowance, not a transport retry or whole-row rerun. No writer, tool, transfer or judge event/run claim was recorded, consistent with the source returning before writer-runner creation. No runner cleanup debt is recorded on this path.
+
+The original after-row observation at 23:22:29.489 UTC is pinned, healthy and idle (SHA-256 ae04d47272bb2ea1f539bef68d19814e70b3e6857cc8dc04c60da71b42418b7e). Root also observed no matching H4 launcher/operator/run-child process after exit and captured a separate healthy zero-running/zero-waiting observation at 23:23:10.701 UTC (e0dbd3f6c6356c2d9943e2433f900603083f5a556bc355688c51d88b26f2769d). This later observation is additional quiescence evidence, not a replacement for the original gate or retrospective service-history proof.
+
+Failures or blockers: All three coherent H4 loops have not passed. Exact invalid JSON/schema causes cannot be reconstructed from the closed records: dispatches retain hashes and token-admission proofs, stage events retain aggregate counts, and the validation error used in the retry was not persisted. Incomplete research output files were returned before writer checkpointing. Counts establish two invalid plans and one truncated plan, but not the specific offending field, which ordinal truncated or a backend/GPU/transport cause. Increasing a timeout, clearing caches or changing parser acceptance is therefore not an evidence-based fix for this observed failure.
+
+Limitations and non-claims: k2 remains a mechanically verified row, not a quality grade. Across the two started H4 rows, all 68 receipts settled at zero fees: 762214 input tokens, 77634 output tokens, 620928 cached-input tokens, 57 tool calls and one reported length stop. These are aggregate workflow usage, not throughput measurements or H5 results. The split row, Claude step 2 and H5 remain unstarted. The active serving deployment is left healthy and unchanged. An inactive content-free diagnostic design may be prepared using the existing frozen pipeline; it grants no generation authority and does not repair or reclassify this historical outcome.
+
+Paid exposure: USD 0 new H4 spend. Historical Claude steps 0/1 remain USD 1.151653 with their prior reconciliation. The unused H4 split USD 0.60 and separate H5 USD 21.60 caps remain unchanged. The completed 24-request qualification is exhausted; this failure does not create another request allowance or failed-row replay permission.
+
+Next gate: Finish a concrete, independently reviewed recovery diagnostic proposal that distinguishes JSON parsing, schema validation and output-cutoff causes while preserving prompts, model, source, roles and caps. Obtain a specific bounded authorization before additional diagnostic generation or any failed-loop replay. Diagnose first, then propose any named change and coherent H4 rerun required by the migration plan. H5 still requires accepted all-three H4 mechanics and usable split plan/argument evidence under its existing launch authority.
+
+References: BL-20261031-2208-flash-qualification-accepted, BL-20261031-2208-h4-admission-prepared, BL-20261031-2308-h4-deck-loop-verified, BL-20261031-2235-owner-window-extension, BL-20261031-2325-h4-window-continuation-prepared, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md section 5.
+
+### BL-20261031-2325-h4-window-continuation-prepared -- 2026-10-31 -- Prepare an inactive H4 window handoff contingency
+
+Status: `Verified`
+
+Scope or hypothesis: Prepare for the possibility that the original three-loop H4 operator reaches its old new-start cutoff after a whole loop finishes, leaving untouched whole loops. The owner's direct new-start-window amendment extends newly reviewed H4/H5 starts from 2026-11-01 01:19:14.660899 UTC to 10:00:00 UTC, with all count/fee limits unchanged. The original active operator and authority retain their old window. This preparation neither establishes that continuation is needed nor starts another row.
+
+Decisions: Retain a terminal, mechanically valid prefix under its original authority and admit only the exact never-started suffix once under a separately reviewed authority. Never resume, replay or move aside a started/incomplete/failed/UNKNOWN whole row. Keep one original three-loop/USD-0.60 allowance, with zero additional allocation. Missing or late original post-row metadata remains explicitly missing/late; new-authority handoff idle evidence may establish continuation readiness but cannot reconstruct historical uninterrupted idle. Normal successful original completion follows its original acceptance path and requires no contingency.
+
+Changes: Prepare separate ignored operator, pure validators, durable extension-claim helper, composed hashes/counts reviewer, copied unchanged original gates/queue/preflight, templates, instructions and tests. Freeze the exact original authority, pins, queue and output-root identity; bind the exact owner amendment and all unchanged runtime/protocol/serving/endpoint/policy/eight-role/image and historical Claude identities. A stable helper-anchored extension claim uses the original authority hash regardless of new authority or copied operator/output directory and fsyncs parent, claim and directory before any live helper/row. The composed review keeps direct real old/new loop references and their respective authority hashes. It creates no H4 semantic acceptance or H5 launch.
+
+Evidence: Twenty-two synthetic TypeScript tests and strict TypeScript checking pass. Twenty Python tests pass, including a complete synthetic four-stage row, original/new authority mismatch, copied predecessor root, replay/duplicate/reordering, changed limits, incomplete/unknown receipts, lineage, original missing/late post-idle attribution, preserved original gate failures, zero-suffix composition and closed WAL-mode behavior. Independent privacy review repeated the focused checks and found no remaining blocker. No actual H4 row database, candidate or task/gold content was read for preparation, and no helper/network/Docker/service/model request was made.
+
+The synthetic WAL-mode writer checkpointed on close. Two independent CPU reproductions confirm that read-only fixed-field review preserves the main database hash; read-side zero-byte WAL and 32 KiB SHM are allowed, while nonempty/symlinked WAL or hot journals are refused and rechecked at later snapshot validation. This verifies the closed-database review path only, not actual H4 results or live stability.
+
+Inactive operator SHA-256 27067a45413bba3a3a4b2cf0e41f0423a4d04523654d023b0abf09c0ae949a00; composed reviewer b3d0f309c97987ba2e88fbea869cb10b1521e5860a80d5e1e8e6d7e3800f5147; Python tests c3821ff00599d83541d3ab9ccddf86983a211437ef4277e3d73327609907f238; fifteen-asset preparation freeze f17f07db8c03c1dd62689f3ca692aba0085377482229180d57a9dc7233fce95c. Owner amendment b78e2a94fd7846026ccd03f24215a1eee94d5314f89c86643d4edc665e9ab915. Qualified production runtime remains c3f8ff55c46e7a3402f95adc53efe5ebcd1eaf986d89377698270e01bba27963. Original authority, pins and ten frozen assets remain byte-identical.
+
+Failures or blockers: No preparation/review blocker. Actual continuation necessity and a qualifying original-window stop are not yet established by this entry. The activation hold remains true. No new authority, terminal handoff, pins, extension claim, live observation or execution exists. Root must confirm the original operator and all descendants exited and cleanup is complete before preparing or reading retained row databases. A non-window failure or ambiguous/previously started suffix remains ineligible.
+
+Limitations and non-claims: Synthetic verification proves gate behavior, not task quality, completed H4, H5 readiness, sustained service stability or release. Root must review the actual retained prefix, fresh service/idle evidence, combined receipts and existing usable-plan/cited-argument semantic criteria before accepting composed H4. The original source/runtime, authority, historical negatives and consumed claims remain unchanged. No qualification clock extension, generation probe, paid Claude step-0/1 repeat or failed-row retry is granted.
+
+Paid exposure: USD 0 preparation; no generation request. A future admitted suffix can only draw from the original three-loop/USD-0.60 H4 allowance, including all old/new exposure. H5's USD-21.60 ceiling is unchanged and this operator cannot start H5.
+
+At append time, original H4 has stopped at the local research row gate, not its time window. This contingency is therefore ineligible and remains unused; it cannot replay that counted failed row. See BL-20261031-2322-h4-local-plan-rejected.
+
+Next gate: If original H4 finishes normally, leave this preparation unused. If it stops solely at its old window with a valid terminal prefix and untouched suffix, root records and reviews the actual terminal/quiescence evidence and a concrete bound continuation authority, performs CPU preparation and independent review, archives held assets, releases only the reviewed hold, refreshes CPU pins for released bytes, and launches once within the amended window. Root separately accepts the completed combined mechanical and semantic evidence before H5.
+
+References: BL-20261031-2235-owner-window-extension, BL-20261031-2208-h4-admission-prepared, BL-20261031-2208-flash-qualification-accepted; existing migration plan H4/H5 gates. The private preparation freeze and verification records preserve exact file hashes without publishing local paths or evidence text.
+
+### BL-20261031-2325-h5-launcher-preparation -- 2026-10-31 -- Freeze the inactive H5 launcher and its working directory
+
+Status: `Verified`
+
+Scope or hypothesis: Close the inactive H5 preparation gap found during a read-only readiness audit. The environment launcher was reviewed but absent from the operator's enforced asset inventory, and its child relied on the caller's working directory to resolve the locked TypeScript runtime. Preserve the already approved eighteen-row experiment, new-start cutoff, all caps, source/runtime, provider/model/role identity and scorer protocol.
+
+Decisions: Include the launcher in the exact nine-file frozen operator inventory and recheck those pins before execution and every new row. Set the repository root explicitly as the Node child's working directory. Retain the pinned Node 22.22.2 and the deliberate fixed executable PATH, nonempty USER/HOME and optional TMPDIR/LANG; do not inherit arbitrary executable/provider overrides. No production cancellation behavior is changed. Root's parent-owned process-tree supervisor remains responsible for interruption and verified descendant/tool/dispatch quiescence; a parent PID exit or STOP file alone is not proof that an admitted child stopped.
+
+Changes: Archive all ten prior inactive source/template files before editing. Make launcher import inert and retain its resolved local configuration, policy hash and authority-byte authorization behavior behind a CLI main function. Add the launcher to prepared pins, update the private root template and document explicit repository-cwd launch commands and inherited supervision-group semantics. Keep the TypeScript activation hold true. Missing H4 acceptance/current batch-start records remain missing; no authority, pins, consumed claim or execution is created.
+
+Evidence: Twenty-one TypeScript tests, twenty Python tests and strict TypeScript pass. Independent privacy review repeats all 21/20 synthetic tests and reports no blocker. New tests exercise actual prepared-pin refusal after synthetic launcher-byte drift, explicit cwd, required USER/HOME, ambient environment isolation, exact synthetic authority hash, child return-code preservation, no independent session detachment and invalid CLI refusal before configuration/child activity. All child invocations in launcher tests are mocked; other evidence gates use synthetic temporary records only.
+
+Filesystem-only discovery under the exact fixed PATH resolves pinned Node, Docker, security/Keychain utility, git, caffeinate and Python, with the locked workspace tsx package present. It executes none of those tools and proves neither service health nor credential availability; those remain root's current operational prerequisites. Discovery SHA-256 efa58f2a59b1486c81089aa093b7e15a5185bb9fef4915c1e7e27381546b921d. Prior archive manifest e2c3641e1003563534dd3050b4173b8d8778833eed80b4f85ab8baf46b60b498.
+
+Held operator SHA-256 e310b26a269b63b75e1053c2afdef391f424d78036b52f6a3705e8e5897c38e8; launcher d6c09ad4ae6793b8af30e71015052139e12c02aa924f1a81a3582fa31eabb6e7. Qualified production runtime remains c3f8ff55c46e7a3402f95adc53efe5ebcd1eaf986d89377698270e01bba27963. Original H4 authority, pins and ten active assets are unchanged. No fresh H5 inputs/candidates, evaluator gold, authoring transcript, credential, actual H5 authority/configuration, helper, service or generation was accessed for implementation/review.
+
+Failures or blockers: No launcher-preparation blocker. H5 still requires accepted three-loop H4 mechanics and split semantics, current bound prerequisites, the recorded owner-window amendment, final clean-commit/applicable CI, a concrete root batch-start authority, reviewed hold release and fresh released-byte pins. Do not treat this preparation as satisfying those gates.
+
+Limitations and non-claims: The fixed cutoff is a new-row gate, checked before each of the eighteen rows. Starting the first row before 2026-11-01 10:00 UTC does not admit later rows outside the window or guarantee completion. Started rows retain their ordinary frozen bounds unless availability is withdrawn. There is no automatic partial-batch continuation, failed rerun, generation probe, paid Claude calibration repeat, quality acceptance or adoption. Independent scoring and original blinding/decision rules remain unchanged.
+
+Paid exposure: USD 0 preparation and no inference. Existing per-all-cloud USD 3, per-split USD 0.60 and aggregate USD 21.60 H5 ceilings remain unchanged, with eighteen counted rows and zero failed reruns. H4's separate original USD 0.60 split allowance is unchanged.
+
+Next gate: Complete and accept H4, append the owner-window/H4/result and H5-start records without disturbing an active H4 tree, then bind the concrete authority and final clean commit/CI. Review and archive held assets, release only the reviewed hold, prepare fresh pins covering all nine released assets and execute once under root's existing parent-owned supervisor and current operational checks. Preserve every counted rejection and all failure/UNKNOWN receipts; independent scoring follows generation without harness/gold crossover.
+
+References: BL-20261031-2235-owner-window-extension, BL-20261031-2208-h4-admission-prepared, existing approved migration plan H4/H5 gates. The private launcher-preparation verification preserves exact source, archive and test-log hashes.

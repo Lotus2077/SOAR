@@ -61,9 +61,9 @@ real stochastic sampling as well as tool/reasoning and cache integration.
 Alternatively, a named greedy experiment would require a design amendment;
 the existing approval does not silently authorize changing Heavy semantics.
 
-The NemoClaw-derived vLLM recipe remains a candidate, not a mandatory product or
-a qualified deployment. In particular, its added fused GDN MTP operator is not
-a demonstrated requirement for the proposed MTP-off Triton route. The current
+The NemoClaw-derived vLLM recipe is one candidate rather than a mandatory
+product; the recipe alone does not qualify a deployment. In particular, its
+added fused GDN MTP operator is not a demonstrated requirement for the proposed MTP-off Triton route. The current
 service at the time of this source review was q4t. The owner subsequently
 reauthorized one recoverable candidate trial (BL-20261031-1936). It passed 22
 selected operator numerical cases and loaded all 206 shards at a reported
@@ -101,7 +101,7 @@ cases have matching token IDs. The frozen one-shot qualification then stopped
 at Q13 after 12 passed checks and 13 zero-fee requests/dispatch receipts. The
 passed cases cover native SSE tools and history demotion, thinking on/off,
 index/plan/extraction and A/A/B/B cache reports 0/15680/0/15680 with independent
-engine-counter corroboration. Full Heavy qualification remains incomplete.
+engine-counter corroboration. At that original stop, qualification was incomplete.
 
 Q13 had 648 observed SSE events, one usage frame, one DONE and zero parse
 failures, but its receipt is UNKNOWN/`response_or_usage_invalid` and the wrapper
@@ -120,10 +120,29 @@ The final report used the exact required titles as plain paragraphs, so both
 heading predicates failed while their fact/citation checks passed. The prompt
 and design do not explicitly require Markdown heading syntax. This is a result
 for the new diagnostic, not evidence of the missing original Q13 content.
-Original Q13 remains UNKNOWN and qualification remains unaccepted.
+Original Q13 remains UNKNOWN and both historical false heading predicates remain
+unchanged. At the diagnostic stop, aggregate use was fourteen attempts with ten
+unused dispatch slots and all eleven original remaining cases unattempted. Three
+healthy/idle metadata samples passed; no paid call, production-source change or
+service change occurred during that diagnostic.
 
-Aggregate use is fourteen attempts with ten unused dispatch slots. All eleven
-original remaining qualification cases are still unattempted. Three healthy/idle
-metadata samples passed after the diagnostic. No new paid call, production-source
-change or service change occurred. There is no automatic continuation or retry;
-the new H4 loops and H5 remain held pending further adjudication.
+The subsequent literal-section adjudication and separately approved ten-request
+continuation produced the accepted named amended qualification
+(BL-20261031-2208-flash-qualification-accepted): 24 attempts, 22 settled zero-fee
+receipts, original Q13 UNKNOWN and expected Q20 UNKNOWN/cancelled. The largest
+prompt was 122439 tokens with its full 16384-token output reservation; Q22's
+duplicate arithmetic transport comparison is omitted as approved. Acceptance
+applies to bounded compatibility of the pinned retry deployment and role
+configuration, not q4t, full-context coverage, task quality or sustained stability.
+
+H4 k2 then completed with 58 settled local receipts at USD 0 and 320 independent
+mechanical checks. Protocol tie preference selected a and then repair; this does
+not demonstrate quality improvement. The r3-local sample a ended incomplete with
+`research_plan_invalid`: eight index calls (two invalid), two plan calls (both
+invalid, one truncated), and ten settled local receipts at USD 0. This is a
+counted evaluated rejection, not an infrastructure failure. No evidence packet,
+sample b, critic or repair followed. The H4 row gate failed; split and H5 never
+started, and full H4 acceptance remains absent
+(BL-20261031-2322-h4-local-plan-rejected). Runtime, serving and role settings are
+unchanged. New H4 fees are USD 0; historical Claude exposure remains USD 1.151653,
+and the USD 0.60 split / USD 21.60 H5 caps are unchanged.

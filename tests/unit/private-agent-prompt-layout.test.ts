@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { PrivateAgentBroker } from "../../src/main/private-agent/broker";
+import { BrokerError, PrivateAgentBroker, RETRY_WAIT_CANCELLED } from "../../src/main/private-agent/broker";
 import { capabilitiesForImage } from "../../src/main/private-agent/capabilities";
 import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
 import { canonical, contextFingerprint, digest } from "../../src/main/private-agent/contracts";
@@ -69,9 +69,9 @@ function fixture(actions: Action[], variant: "plain" | "public" = "plain", limit
     async readFile(path: string) { return Buffer.from(contents.get(path)!); },
     async editFile() { return { ok: true, bytes: 0 }; }, async close() { clock += 5; } } as unknown as DockerSandbox;
   });
-  const requests: GeneralMessage[][] = [];
-  vi.spyOn(model, "complete").mockImplementation(async messages => {
-    requests.push(structuredClone(messages)); clock += 100;
+  const requests: GeneralMessage[][] = [], overrides: unknown[] = [];
+  vi.spyOn(model, "complete").mockImplementation(async (messages, _tools, _signal, options) => {
+    requests.push(structuredClone(messages)); overrides.push(options); clock += 100;
     const index = requests.length - 1, action = actions[index];
     if (!action) throw new Error("Unexpected model invocation.");
     const { text: _text, ...preview } = broker.preview({ jobId, contextId, destinationId: "model", purpose: "unit fixture", method: "POST", body: canonical(messages), maxFeeMicrousd: 0 });
@@ -89,7 +89,7 @@ function fixture(actions: Action[], variant: "plain" | "public" = "plain", limit
     store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
     return v1;
   };
-  return { options, dbPath, requests, commands, seedVersion1, events: () => store.events(jobId) };
+  return { options, dbPath, requests, overrides, commands, seedVersion1, events: () => store.events(jobId) };
 }
 const turnBudget = (message: GeneralMessage) => JSON.parse(message.content!.slice(message.content!.lastIndexOf("\n") + 1)) as Record<string, number>;
 
@@ -188,6 +188,17 @@ describe("resume across layout versions", () => {
     expect(await new GeneralAgentRunner(seeded.options).run()).toMatchObject({ status: "completed" });
     expect(seeded.events().find(event => event.type === "started")).not.toHaveProperty("promptLayoutVersion");
     expect(seeded.requests[0]!.map(message => message.role)).toEqual(["system", "user"]);
+    // Only layout 2 ends on a turn message, so only it asks the Anthropic shape to send that tail as a system message.
+    expect(fresh.overrides).toEqual(fresh.requests.map(() => ({ trailingTurnMessage: true })));
+    expect(seeded.overrides).toEqual(seeded.requests.map(() => undefined));
+  });
+
+  it("ends a run cancelled, not as an unavailable model, when a cancel arrives during the Anthropic retry wait, and closes the operation", async () => {
+    const f = fixture([write, finish]);
+    vi.mocked(f.options.model.complete).mockRejectedValueOnce(new BrokerError(RETRY_WAIT_CANCELLED));
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "cancelled_or_deadline" });
+    const events = f.events(), started = events.find(event => event.type === "model_started")!;
+    expect(events.filter(event => event.type === "model_request_failed")).toEqual([expect.objectContaining({ operationId: started.operationId, dispatched: true })]);
   });
 
   it.each([

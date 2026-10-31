@@ -10,19 +10,29 @@ const diagnosticTiming = {
   elapsedMs: z.number().int().nonnegative().max(3_600_000),
   timeoutMs: z.number().int().min(1).max(900_000),
 };
+/** The Anthropic error types a rejected request may record (BL-20261030-0620); no provider text is ever stored. */
+export const ANTHROPIC_ERROR_TYPES = ["invalid_request_error", "authentication_error", "billing_error", "permission_error", "not_found_error",
+  "request_too_large", "rate_limit_error", "api_error", "timeout_error", "overloaded_error"] as const;
+/** Anthropic's opaque per-request id, recorded for reconciliation with the provider's console. */
+const anthropicRequestId = z.string().regex(/^req_[A-Za-z0-9]{1,128}$/u);
 /**
  * Fixed host diagnostics for a dispatch that did not settle. `connection_failed` (never sent) and `upstream_closed`
  * (the peer closed after the request was written) are confirmed aborts, as is a 5xx `http_rejected`; the rest leave
- * the upstream state uncertain. `attempt` numbers the tries of one recoverable packet.
+ * the upstream state uncertain. `attempt` numbers the tries of one recoverable packet. On the Anthropic destination only:
+ * `errorType`, `spendCap` (the tier's monthly spend-cap code) and `spendLimit` (an owner-set spend limit, told apart
+ * from a request-shape 400 by its fixed message prefix) come from a rejected request's error body, and `requestId` from
+ * the response header; absent everywhere else, so older rows are unchanged.
  */
 export const UnknownRequestDiagnosticSchema = z.discriminatedUnion("phase", [
   z.object({ phase: z.literal("transport"),
     code: z.enum(["request_timeout", "cancelled", "http_rejected", "response_oversize", "transport_failed", "connection_failed", "upstream_closed", "response_interrupted", "inactivity_timeout", "stream_invalid", "stream_error"]),
     status: z.number().int().min(100).max(599).optional(), attempt: z.number().int().min(1).max(3).optional(),
+    errorType: z.enum(ANTHROPIC_ERROR_TYPES).optional(), spendCap: z.literal(true).optional(), spendLimit: z.literal(true).optional(),
+    requestId: anthropicRequestId.optional(),
     ...diagnosticTiming }).strict(),
   z.object({ phase: z.literal("settlement"),
     code: z.enum(["response_or_usage_invalid", "fee_settlement_failed"]),
-    attempt: z.number().int().min(1).max(3).optional(),
+    attempt: z.number().int().min(1).max(3).optional(), requestId: anthropicRequestId.optional(),
     ...diagnosticTiming }).strict(),
 ]);
 export type UnknownRequestDiagnostic = z.infer<typeof UnknownRequestDiagnosticSchema>;
@@ -234,7 +244,10 @@ export class PrivateAgentStore {
   }
 
   private close(id: string, status: "unknown" | "superseded" | "failed", failure?: UnknownRequestDiagnostic): void {
-    const parsed = failure === undefined ? undefined : UnknownRequestDiagnosticSchema.safeParse(failure);
+    // A key whose value is undefined would pass the schema and then make canonical() throw, leaving the row committed for
+    // good; such keys are dropped, which leaves every diagnostic the broker writes byte-identical.
+    const defined = failure === undefined ? undefined : Object.fromEntries(Object.entries(failure).filter(([, value]) => value !== undefined));
+    const parsed = defined === undefined ? undefined : UnknownRequestDiagnosticSchema.safeParse(defined);
     if (parsed && !parsed.success) throw new Error("private_agent_unknown_diagnostic_invalid");
     this.db.transaction(() => {
       const receipt = this.dispatch(id);

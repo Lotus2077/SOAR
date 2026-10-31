@@ -86,6 +86,10 @@ def main() -> int:
                           "critiqued": critiqued, "critiqueFailure": critique.get("failure"), "candidates": candidates,
                           "writeIdentityEqual": loop.get("writeIdentityEqual")}}
         row = {**selected["row"], **summed, **extra}
+        # A cloud loop's cloud calls are sample a's stage; the selected run may be a local writer, and a may have no summary.
+        if loop.get("arm") == "cloud":
+            a_freeze = os.path.join(args.loop_dir, "a", "freeze.json")
+            row.update(cloud_fields(json.load(open(a_freeze, encoding="utf-8")) if os.path.exists(a_freeze) else {}))
     else:
         single = run_counts(args.run_dir)
         row = {**single["row"], **{key: single[key] for key in SUMMED}, "wallSeconds": single["wallSeconds"]}
@@ -98,6 +102,13 @@ def main() -> int:
 
 
 SUMMED = ("modelCalls", "toolCalls", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "usd", "unknownDispatches", "retriedDispatches", "failedDispatches")
+
+
+def cloud_fields(freeze: dict) -> dict:
+    """The cloud model and request shape a run's cloud arm was frozen with (BL-20261030-0620); null on local runs or when absent."""
+    arm = freeze.get("arm")
+    config = (arm.get("modelConfig") or {}) if isinstance(arm, dict) and arm.get("arm") == "cloud" else {}
+    return {"cloudModel": config.get("model"), "cloudApi": config.get("api")}
 
 
 def run_counts(run_dir: str) -> dict:
@@ -118,7 +129,7 @@ def run_counts(run_dir: str) -> dict:
         "row": {
             "date": started.date().isoformat(), "taskJobSha256": freeze["taskBinding"]["jobSha256"],
             "profile": freeze.get("profile", "standard"), "maxOutputTokens": freeze["modelConfig"]["maxOutputTokens"],
-            "thinking": freeze["modelConfig"]["thinking"],
+            "thinking": freeze["modelConfig"]["thinking"], **cloud_fields(freeze),
             "pipeline": (freeze.get("pipeline") or {}).get("name"), "pipelinePlanner": (freeze.get("pipeline") or {}).get("planner"),
             "runStatus": result.get("status"), "terminalCause": result.get("reason"),
             # Research tasks: the host's entailment pass (PR-J2), counts only; a judge verdict is evidence, not acceptance.

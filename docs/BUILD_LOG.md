@@ -25271,3 +25271,1098 @@ Next gate: none.
 
 References: BL-20261027-1526-harness-session-task-exposure,
 BL-20261027-0206-phase4-tasks-freeze.
+
+### BL-20261030-0620-claude-cloud-adapter-design -- 2026-10-30 -- Design for the Claude adapter of H5's cloud arms: claude-sonnet-5-5 on the Messages endpoint, no thinking replay, guidance as a system message, 5-minute cache breakpoints, all-cloud cap USD 3.00 and split cap unchanged; waits for the owner's approval
+
+Status: `Proposed`
+
+Scope or hypothesis: the design that BL-20261030-0445-h5-cloud-provider-claude
+asks a fresh session to write before any adapter code exists. It covers the
+private-agent cloud path only: the all-cloud arm (the driver's coordinator)
+and the split arm's cloud planner and synthesiser. It proposes the model and
+its prices, the request and reply mapping, thinking and caching, failures
+and retries, the fee caps and the budget, the key and endpoint, the plan
+amendment, the live calibration that replaces the `gpt-6-sol` evidence, and
+the registry fields. It records an adversarial review and what changed
+because of it. `Proposed` means nothing here is approved, implemented or
+verified. No code is changed by this entry, no Anthropic API request was
+made, and the owner's box was not used. This session never read the harness
+or authoring transcripts, any `.soar/` tree, any task, gold, candidate or
+context directory, or the handover note in the sessions' shared notes
+folder, which is named for the task-authoring session.
+
+Decisions:
+
+- **Model: `claude-sonnet-5-5`, proposed to the owner.** Prices from
+  Anthropic's public pricing page as read on 2026-10-30 (documentation, not
+  an API request), per million tokens: input USD 2.00, 5-minute cache write
+  2.50, 1-hour cache write 4.00, cache read ("cache hits and refreshes")
+  0.10, output 10.00. The page says that Claude 4.6 and later models other
+  than Claude Haiku 5.5 bill the full 1M-token context window at standard
+  pricing, so there is no long-context tier, and that the tool-use system
+  prompt of this model is 286 tokens. The `claude-api` skill bundled with
+  this client (model table cached 2026-10-06) gives the cache read as 0.20;
+  the pricing page states 0.10 twice (its table, and "a cache hit costs 5%
+  of the standard input price") and is used here. Because a misread price
+  cost the ledger before (BL-20261022-1157-cloud-cache-write-price-correction),
+  the owner's comparison of the calibration's settled fees with the Console
+  is a pass condition of the calibration. If 0.20 were right, the H1 token
+  mix below would cost USD 1.179 instead of 1.085.
+  - Why this model: its input, output and 5-minute write rates equal
+    `gpt-6-sol`'s base rates (2.00, 10.00, 2.50), so the reservation
+    arithmetic behind both arms' caps carries over almost unchanged.
+    Anthropic's guidance for this model starts agentic multistep tool use at
+    effort `medium`, the level `gpt-6-sol` ran at. No capability comparison
+    with `gpt-6-sol` is claimed.
+  - The alternative: `claude-opus-5-5` (input 4.00, 5-minute write 5.00,
+    1-hour write 8.00, cache read 0.20, output 20.00, no long-context tier).
+    At the same token mix it costs about twice as much per run. Its caps
+    would be about USD 6 (all-cloud) and 1.20 (split, which changes rule
+    S1), and the H5 bound about USD 43, beyond the USD 33 line. Choosing it
+    needs an envelope amendment beyond this design's.
+- **Endpoint, version and request shape selection.**
+  - `CLOUD_API_BY_PATH` gains `/v1/messages`, mapped to a new request shape
+    `anthropic_messages`. For that shape `buildCloudArm` also pins the host:
+    the endpoint must be exactly `https://api.anthropic.com/v1/messages`, so
+    the Claude key can reach no other host. `parseLocalArtifactScreenArguments`,
+    which the H4 loop also uses, refuses a `/v1/messages` cloud run whose
+    profile is not `heavy` (the standard profile's thinking is `disabled`),
+    before any directory, database or freeze exists. The OpenAI paths keep
+    their rules.
+  - `--cloud-long-context` stays mandatory for the OpenAI paths and becomes
+    optional for `/v1/messages`. H5's runbook omits it, because the proposed
+    model has no long-context tier and an absent tier already means a single
+    tier in `PrivateModelConfig`. A Claude model with a tier (Claude Haiku
+    5.5 above 100,000 prompt tokens) would pass the flag.
+  - The split arm's endpoint rule in `parseLocalArtifactScreenArguments`
+    widens from `/v1/responses` only to `/v1/responses` or exactly
+    `https://api.anthropic.com/v1/messages`.
+  - API version header `anthropic-version: 2026-10-21`, fixed in code. Per
+    the skill it is the current version, and its changes (sampling fields
+    refused, no `document` block in an assistant turn, no cited text in a
+    user turn, renamed Admin API fields) touch nothing SOAR sends. The free
+    `--check` request uses the same header.
+- **Request mapping (all in `src/main/private-agent/`).** The body stays one
+  canonical JSON object built before any broker call:
+  - `model`; `max_tokens` = the effective `maxOutputTokens` (16,384 for the
+    heavy coordinator, the 8,192 override for the planner and synthesiser).
+    Thinking counts inside `max_tokens`, as reasoning counted inside
+    `max_output_tokens` on `gpt-6-sol`.
+  - `system`: one text block holding the leading system message. A `system`
+    message anywhere else in the input is refused before dispatch
+    (`private_model_message_invalid`); none of the runner's layouts, the
+    research pipeline or the critic produces one.
+  - `messages`, built from the `GeneralMessage` list. An `assistant` message
+    becomes an optional text block (omitted when its text has no
+    non-whitespace character, because the API refuses empty text blocks)
+    followed by its `tool_use` blocks (`id`, `name`, `input` = the parsed
+    arguments, which must be a JSON object). Consecutive assistant messages
+    (possible after a resume that stopped at a nudge limit) are merged in
+    order, as the API would combine them. A run of consecutive `tool` and
+    `user` messages becomes one `user` message: its `tool_result` blocks
+    first, in order (`tool_use_id`, `content` = the tool output, the field
+    omitted when the output is empty), then its text blocks. Refused before
+    dispatch: a `tool` message after a `user` message inside one run, an
+    assistant message with neither text nor calls, a `tool_use` without a
+    matching `tool_result` in the next user message (a resume after a crash
+    between a reply and its tool), whitespace-only user text, and a
+    conversation that does not start with a user message.
+  - **The trailing guidance message becomes a system message (named change,
+    for the owner's approval).** Layout 2 of the runner ends every request
+    with a user message holding the progress guidance and the budget
+    countdown, right after the latest tool results. Anthropic documents text
+    added after tool results as a cause of empty `end_turn` replies, and for
+    this model as a trigger for the model suspecting a prompt injection; its
+    guidance is to put harness notices such as budget countdowns in a
+    mid-conversation `role: "system"` message after the tool results, which
+    this model accepts without a beta header when it is the last message.
+    So the runner passes a new `complete()` option, `trailingTurnMessage`
+    set to true, on layout-2 requests, and the Anthropic shape sends that final
+    message, text unchanged, as a final `system` message. Every other shape
+    ignores the option, so their bodies do not change, and nothing is
+    persisted differently: the guidance was never stored. One-shot calls
+    (planner, synthesiser, critic) do not pass it. The API requires a
+    system message carrying text to follow a user turn directly, so when
+    the merged message before it is an assistant turn (a resumed history)
+    the guidance goes as user text instead; a golden test pins both cases.
+    This form has its own documented downside: the same documentation says
+    this model can treat a system message placed right after a tool result
+    as untrusted and ignore it. So step 1 of the calibration gates it
+    (below), and the fallback, if it fails, is the user-text form that
+    `gpt-6-sol` received.
+  - `tools`: each definition as `{name, description, input_schema}` from the
+    existing function definitions, unchanged (no `strict`, no
+    `eager_input_streaming`), with `tool_choice` set to type `auto` and
+    `disable_parallel_tool_use` true, the counterpart of
+    `parallel_tool_calls: false`. A tool-less call omits both fields; a
+    tool-less call whose history holds tool blocks is refused, because the
+    API requires tool definitions then.
+  - Thinking: `thinking: {"type": "adaptive"}` and an `output_config` whose
+    `effort` is `medium`, for `thinking: "medium"`, which is what the heavy
+    coordinator, the planner and the synthesiser use. `display` is not sent
+    (default omitted). The model answers `{"type": "disabled"}` with HTTP
+    400, so the shape refuses `thinking: "disabled"`: `buildCloudArm` and
+    the constructor refuse such a configuration, and `complete()` refuses a
+    `thinking: "disabled"` override with a new code
+    `private_model_thinking_unsupported` before the body exists. No H5
+    cloud call asks for thinking off: on cloud runs the entailment judge and
+    the reader are the local model.
+  - Pinned: `service_tier: "standard_only"` and `inference_geo: "global"`.
+    The second is named for the owner's approval: a US-only geography bills
+    at 1.1 times every rate, and pinning the default makes the request exact
+    instead of relying on the workspace default.
+  - Not sent: `stream`, `fallbacks`, `speed`, `metadata`, `stop_sequences`,
+    sampling fields, top-level automatic `cache_control`, and any
+    `anthropic-beta` header.
+  - Prompt text, tool definitions, nudges, guidance and budget text pass
+    through unchanged; the local arm and its requests are untouched.
+  - Transport: the cloud destination's existing 600-second timeout, 512 KiB
+    response cap and the heavy profile's 640 KiB body cap (the API's own
+    request limit is far higher). Because the reply arrives only at the end
+    and the route runs through a fake-IP proxy, the Anthropic destination
+    enables TCP keep-alive on its socket, as Anthropic advises for long
+    non-streaming requests; other destinations are untouched.
+  - **Bounded retry of 429 and 529 (named change, for the owner's
+    approval).** The broker refuses retries on cloud destinations today, so
+    one 429 or 529 in a run of about 80 calls ends a counted run as
+    infrastructure. Both statuses are confirmed aborts with no fee (the
+    store's existing rule) and are transient. For the Anthropic destination
+    only, the broker retries `http_rejected` 429 or 529 at most twice, each
+    attempt its own committed row with its `attempt` number. This is a path
+    of its own, gated on the destination's `anthropicVersion`, with its own
+    status predicate (429 and 529 only) and delays: the existing local
+    retry rule (any 5xx or 429, 1 and 3 seconds, `recoverable` only) and
+    every other destination stay as they are. It waits 30 and then 60
+    seconds, or the response's `retry-after` header if that is longer, and
+    does not retry when `retry-after` exceeds 120 seconds. A 429 whose
+    `error.details.error_code` is `enforced_spend_limit_reached` (the
+    monthly spend cap) is never retried. Unlike the local path, the failed
+    row is resolved as `superseded` before the wait, so a process killed
+    during it leaves no committed row to block a resume; a run cancelled
+    during the wait ends with that `superseded` row as its last. The
+    alternative is no retry, as for `gpt-6-sol`. The retry helps only if
+    the H5 classifier judges a dispatch by its final row and ignores
+    `superseded` ones; until now only the local arm produced such rows, so
+    the batch-start entry must state it.
+- **Reply decoding and checks.** Content blocks `text`, `tool_use`,
+  `thinking` and `redacted_thinking` are accepted; any other block type,
+  more than eight `tool_use` blocks, or a `tool_use` input that is not an
+  object or holds a string `canonical()` refuses (a NUL or a lone
+  surrogate, which would break the next request) is
+  `private_model_response_invalid`. Refusing an unknown block type after it
+  was billed is accepted as a risk, as the Responses decoder does. Text
+  blocks are joined, and joined text with no non-whitespace character
+  becomes empty; each `tool_use` becomes a tool call whose arguments are
+  `JSON.stringify(input)`; thinking blocks are dropped. Stop reasons, in
+  this order: `max_tokens` becomes `length` (the runner's truncation key,
+  so its calls are never executed), `refusal` becomes `content_filter` (as
+  the Responses shape maps a refusal), a reply with a tool call becomes
+  `tool_calls`, `end_turn` becomes `stop`, and any other value is kept as
+  the provider's string; none is expected. The usage block's
+  `output_tokens_details.thinking_tokens`, when present, is recorded as a
+  new optional `thinkingTokens` usage field on Anthropic calls only,
+  documented as the part of `outputTokens` the provider reported as
+  thinking. The existing `reasoningTokens` field is not used, because its
+  convention is that `outputTokens` then excludes them, and `outputTokens`
+  keeps including thinking, as it included `gpt-6-sol`'s reasoning, so the
+  registry's output totals stay comparable. The field reaches the runner's
+  `model_finished` usage; the research pipeline copies only four usage
+  fields, so the split arm does not record it. Inside the
+  settlement callback, so that a failure is recorded as
+  `response_or_usage_invalid`, the reply is refused when `model` differs
+  from the configured id (`model_served_mismatch`), `usage.service_tier` is
+  present and not `standard` (`model_service_tier_mismatch`, as for
+  OpenAI), `usage.inference_geo` is `us`, `usage.speed` is `fast`, any
+  1-hour cache write is reported, or the usage envelope below fails. A null
+  or missing breakdown is treated as absent, and no other reporting quirk
+  is refused. Whether the API echoes the requested id and reports these
+  fields as documented is checked by the probe, not yet observed.
+- **Thinking is not replayed (chosen).** The decoder drops thinking blocks;
+  `GeneralMessage`, the runner's history and the persisted message contract
+  are unchanged, which matches `gpt-6-sol` (stateless Responses, reasoning
+  never replayed) and the local arm.
+  - Why: a replayed thinking block is refused with HTTP 400 after any edit
+    to the earlier history on accounts created on or after 2026-08-31 (the
+    owner's account age is unknown), and this runner's history is not
+    append-only: layout 2 rebuilds the trailing guidance every turn, and the
+    observation projector rewrites earlier tool results when it demotes
+    them. Replaying would also change the persisted message contract.
+  - Acceptance: Anthropic's preserved-thinking page says that when a client
+    removes all thinking blocks, "nothing fails", and the skill's recovery
+    for a broken history is to strip every thinking block and resend. The
+    rule that a final assistant turn in a tool round must start with a
+    thinking block applies to manual thinking; the thinking pages say that
+    adaptive mode relaxes it ("no assistant turn needs to start with one").
+    The same pages still advise passing thinking back within a tool-use turn
+    and say the API may strip blocks that would make an invalid turn
+    structure. So acceptance is stated by the documentation but unverified
+    for this model, and the probe tests it.
+  - Cost: the model does not see its earlier reasoning, as with
+    `gpt-6-sol`; on this model its progress notes between tool calls also
+    come back as thinking blocks, so those notes are dropped too, a
+    difference from `gpt-6-sol` whose effect is unmeasured.
+  - If the API refuses a tool round without its thinking, the all-cloud arm
+    is blocked and the design returns to the owner. The only known remedy
+    is a new prompt layout that keeps each turn's guidance in the history
+    and replays the latest turn's thinking, a runner and persisted-contract
+    change. The split arm is not affected: its two cloud calls have no tool
+    rounds.
+- **Prompt caching and settlement.** A new `promptCaching` value
+  `anthropic_explicit_5m_v1`, valid with the Anthropic shape only.
+  - Breakpoints `cache_control: {"type": "ephemeral", "ttl": "5m"}` at the
+    positions H1 chose (BL-20261022-1156-h1-prompt-caching-implemented),
+    defined on the `GeneralMessage` list before merging: the leading system
+    message (tools render before the system prompt, so this entry covers
+    both), the user message directly after it when more messages follow
+    (the brief), and the latest two non-empty tool results, which are marked
+    even when they sit in the last merged user message. The final message
+    (the trailing guidance, or a one-shot call's user message) never carries
+    one. That is at most four, the API's limit, and each turn adds a few
+    blocks, well inside the API's 20-position lookback. A golden-body test
+    pins the placement.
+  - One TTL per request, 5 minutes. Its write rate equals the `gpt-6-sol`
+    write rate the H1 numbers rest on, and writes were 69% of the H1
+    verification run's fee, so the 1-hour TTL (2 times input) would raise
+    the largest cost component by 60%. An entry lives 5 minutes from the
+    start of the request that wrote or last read it, generation time
+    included; that run's requests started about 7 seconds apart on average
+    (80 in 533 seconds). A start-to-start gap above 5 minutes (a long reply
+    plus a long tool command) loses the entry and rewrites it.
+    `gpt-6-sol`'s write lifetime was 30 minutes, so the calibration records
+    start-to-start gaps and any collapse of reads. A planner or synthesiser
+    system prompt (about 150 tokens) is below the model's 512-token minimum
+    and is not written.
+  - Usage: `promptTokens` is the sum of `input_tokens`,
+    `cache_creation_input_tokens` and `cache_read_input_tokens`;
+    `cachedTokens` is `cache_read_input_tokens`; `cacheWriteTokens` is
+    `cache_creation_input_tokens`; `completionTokens` is `output_tokens`
+    (thinking included). Anthropic's `input_tokens` is only the uncached
+    remainder, so this sum is what `model.ts`'s envelope, settlement and
+    tier logic already mean by the prompt.
+  - The envelope, reservation and settlement code are unchanged: the reply
+    is refused unless prompt tokens are above zero and at most the body
+    bytes, output tokens are at most `max_tokens`, and read plus written
+    tokens are at most the prompt tokens. The reservation is body bytes
+    times the dearer of the input and write rates (2.50) plus `max_tokens`
+    times the output rate. The fee is uncached times 2.00 plus written times
+    2.50 plus read times 0.10 plus output times 10.00, within the
+    reservation because every prompt token settles at 2.50 or less and
+    prompt tokens never exceed body bytes. That bound is argued, not
+    measured: the API adds tokens that are not in the body (the 286-token
+    tool prompt, and a rendering of the thinking and effort settings), but
+    every body carries far more bytes of JSON structure and tool schemas
+    than those add in tokens. The probe and the calibration test it on
+    every call through the existing envelope check.
+  - Test case, written and read in one reply: a 100,000-byte body, max
+    16,384, usage input 1,000, write 3,000, read 20,000, output 500. Prompt
+    24,000, inside the envelope; fee 2,000 + 7,500 + 2,000 + 5,000 = 16,500
+    micro-USD; reservation 250,000 + 163,840 = 413,840 micro-USD. A second
+    case: a 10,000-byte body with input 100 and read 9,950 passes on
+    `input_tokens` alone but sums to 10,050 and is refused.
+- **Failures and how each run ends.** The H5 classifier is not in the
+  repository and this session has not seen it. The rules below are the ones
+  the brief from the harness session states, by code and HTTP status (the
+  dispatch row records the status); the batch-start entry confirms them.
+  BL-20261028-0420-h4-live-batch1-box-failure also shows a third class,
+  `owner`. Nothing streams, so every API error arrives as an HTTP status.
+  - Infrastructure under those rules: `connection_failed`, `upstream_closed`,
+    and `http_rejected` with 401, 403, 408, 429 or any status of 500 or more
+    (500, 502, 503, 504, 529); `inactivity_timeout` cannot occur (a
+    streaming code).
+  - Not infrastructure: `http_rejected` with 400, 402, 404 or 413;
+    `request_timeout` (which BL-20261028-0420 records the H5 classification
+    sends to the owner, because a slow generation can cause it);
+    `response_interrupted`, `response_oversize` and `transport_failed`;
+    `response_or_usage_invalid` and `fee_settlement_failed`. Which of these
+    the classifier puts in `owner` rather than counted is its rule, not
+    this design's. `stream_error`, `stream_invalid` and in-band
+    overloaded errors cannot occur. `cancelled` stays SOAR's own abort.
+  - Endings. All-cloud: an `http_rejected` (after the retries above) is a
+    confirmed abort with no fee and ends the run `model_unavailable`; a
+    settlement refusal, `upstream_closed`, `request_timeout` or
+    `response_interrupted` leaves an `unknown` row and ends it
+    `runtime_failure_progress_preserved`; a message or thinking refusal
+    before dispatch is thrown after `model_started` and also ends it as a
+    runtime failure. Split: any broker failure ends the stage
+    `research_request_denied`. An `unknown` row may have been billed while
+    the registry's `usd` sums settled fees only, so such rows are reconciled
+    against the Console.
+  - Several statuses are about the account, not the arm. A spend limit the
+    owner set returns 400, a geography the workspace does not allow returns
+    an error, a billing problem returns 402, and the tier's monthly spend cap
+    returns 429 without `retry-after`. Exhausted prepaid credit has been
+    reported as a 400, not verified here. The status alone cannot tell
+    these from a request-shape bug, so the Anthropic transport records,
+    from at most 8 KiB of an error body, only the error type from a fixed
+    list (`invalid_request_error`, `authentication_error`, `billing_error`,
+    `permission_error`, `not_found_error`, `request_too_large`,
+    `rate_limit_error`, `api_error`, `timeout_error`, `overloaded_error`)
+    and whether the spend-cap code was present, as optional diagnostic
+    fields, together with the opaque `request-id` response header on
+    rejected and `unknown` rows for reconciliation with the Console. No
+    provider text is stored. Existing rows are unchanged. The outcome is
+    fixed as `http_rejected` with its status the moment the status line
+    arrives; the body is then read under its own 2-second timer and the
+    8 KiB cap, outside the request timer, and a read that stalls, fails or
+    does not parse only leaves the optional fields absent. It can never turn
+    a confirmed, unbilled rejection into a `request_timeout` or
+    `response_interrupted` row.
+  - Proposed to the harness session for the batch-start entry, which the
+    owner may overrule: the queue halts on any 400 or 402 and on a spend-cap
+    429 before classifying the row, and the owner decides; the settlement
+    refusals above are classed `owner`; the owner confirms the prepaid
+    credit and spend limits before each window.
+- **Rate limits.** Anthropic's rate-limit page (read 2026-10-30): only
+  uncached and written input tokens count toward input tokens per minute
+  (reads do not), output limits count the tokens actually produced and not
+  `max_tokens`, and the Start tier allows this model 1,000 requests,
+  2,000,000 input and 400,000 output tokens per minute. New organisations
+  may start in a lower Evaluation tier, and a sharp rise in usage can meet
+  acceleration limits. The H1 verification run averaged about 38,000
+  written or uncached input tokens a minute, and a single demotion-batch
+  turn wrote up to about 20,800. Before the calibration the owner confirms
+  on the Console's limits page at least 100,000 input and 20,000 output
+  tokens per minute for this model; step 1 must end with no `http_rejected`
+  429 or 529 after retries, and its retried rows are reported.
+- **Fee caps, from the reservation rule.** A call is admitted while settled
+  fees plus its reservation stay within the cap. At the proposed prices the
+  reservation is body bytes times 2.50 plus `max_tokens` times 10.00
+  micro-USD.
+  - Split arm: keep USD 0.60. The reservations are those measured under
+    `gpt-6-sol`, whose long tier began above 272,000 bytes, far above these
+    bodies: plan USD 0.136 to 0.137, synthesis 0.211 to 0.243
+    (BL-20261026-0743, -1605 and -1644). The cap therefore admits exactly
+    what BL-20261026-0724-h3-cloud-planner-implemented showed: plan,
+    synthesis and one retry, and a fourth call only if the first three
+    settled under about USD 0.37 together. `RESEARCH_SPLIT_MAX_FEE_USD`, the
+    driver's check and rule S1 stay unchanged. The binding limit is the
+    8,192-token output cap, which the brief keeps to match `gpt-6-sol`:
+    from BL-20261026-1644 and -1605, `gpt-6-sol`'s synthesis already used
+    about 6,900 and 5,700 output tokens (84% and 70%), and a truncated but
+    non-empty argument is accepted without a retry. The calibration's
+    criterion below catches a cut; the remedies (a cloud-only 16,384 cap
+    for the two stages, which changes the research protocol identity, or
+    effort `low` for them) are not proposed now and would go to the owner.
+  - All-cloud arm: raise USD 2.50 to **USD 3.00**, under
+    BL-20261022-0834-phase4-division-of-labour-design ("otherwise a new
+    entry resets the caps") and BL-20261030-0445, which lists the cap as
+    superseded; it is set before any H5 output exists. A heavy call
+    reserves USD 0.164 for output plus 2.50 micro-USD per body byte: USD
+    0.51 for the 138 KB late body of the H5 start condition, at most USD
+    1.80 at the 640 KiB cap (3.52 under `gpt-6-sol`'s long tier). A higher
+    cap lets more all-cloud runs finish, which can raise the "all-cloud
+    count minus 1" bar that S1 and S2 compare against; that follows from
+    the rules as written.
+  - The start condition, restated in Claude tokens: the calibration run's
+    fee per prompt token, times r1's 1.79M `gpt-6-sol` input tokens times
+    f, plus one late-run reservation of USD 0.51, must fit under USD 3.00,
+    and the run must not stop at its cap. f is the ratio of Claude to
+    `gpt-6-sol` prompt tokens for the same text, computed over whole runs
+    as prompt tokens per body byte for step 1 and for r3-cloud-v3, with
+    body bytes recovered from each receipt's reservation with that run's
+    own frozen rates and tier (bytes = (reserved - max_tokens x output rate)
+    / the dearer of the input and write rates, to within one byte for the
+    rounding up); the first request's ratio is reported beside it.
+  - Projection: at the proposed prices the H1 verification run's token mix
+    (945,417 read, 323,511 written, 13,681 uncached, 15,396 output) costs
+    USD 1.085 instead of 1.179, which projects r1 to 1.51 plus 0.51, that is
+    2.02. With m the multiple of `gpt-6-sol`'s output (about 190 tokens a
+    call), the projection is 1.396 x (0.931 f + 0.154 m) + 0.51: 2.28 at f
+    1.2 and m 1, 2.45 at f 1.0 and m 3, 2.71 at f 1.2 and m 3, 2.91 at f
+    1.35 and m 3. It reaches 3.00 at m 5.5, 4.3 or 3.4 for f 1.0, 1.2 or
+    1.35. At a cache read of 0.20 the corner f 1.35 and m 3 gives 3.09. A
+    USD 2.50 cap would likely fail; USD 3.00 is the most the USD 33 line
+    allows (below), the pass may be thin, and a second approval round
+    before H5 is possible.
+  - The plan's "never more than USD 8 per task" is read per run, as
+    `CLOUD_ARM_MAX_FEE_USD` enforces it: one fresh task can now draw 2 x
+    3.00 + 2 x 0.60 = 7.20 plus an all-cloud R0 re-run of 3.00, 10.20 in
+    all (8.70 under `gpt-6-sol`).
+- **Budget against the USD 33 Phase 4 harness line.**
+  - Used: USD 3.11 to 3.44 (the H1 probes and runs, at most 3.06, and the H3
+    dry runs, 0.38).
+  - Proposed, at caps: the shape probe 0.30; the all-cloud calibration run
+    3.00; H4 batch 2's split loop 0.60 (sample `a` only, as
+    BL-20261028-0420 set it), which also serves as calibration step 2; H5
+    counted runs 6 x 3.00 + 6 x 0.60 = 21.60 (was 18.60); the r1 to r3 split
+    calibration of the H5 round, at most 3.60, unchanged.
+  - Total at most 3.44 + 0.30 + 3.00 + 0.60 + 21.60 + 3.60 = USD 32.54,
+    leaving 0.46. A separate split dry run would add 0.60 and exceed the
+    line. The calibration and the H4 loop draw on the unspent part of the H1
+    and H3 sub-lines (about USD 6.56); the H5 increase takes the rest and
+    part of the line's unallocated USD 0.80.
+  - R0 re-runs, at most two in the round and at most USD 3.00 each, are
+    charged to the separate "Harness spike or re-runs of invalid runs" line
+    (USD 7), as the owner set. Neither line can pay for a second
+    calibration run: a failed calibration step needs the owner's decision
+    on the envelope.
+  - Prepaid credit: at least 0.30 + 3.00 + 0.60 + 21.60 + 3.60 + 6.00 =
+    USD 35.10 before the calibration; USD 36 or more is advised.
+- **Keys and the destination.**
+  - A new wrapper `scripts/with-claude-key.sh` with the login Keychain item
+    `soar-h5-claude-api-key`: `--store` reads the key with hidden input and
+    passes it to `security` on stdin, never on a command line; `--check`
+    makes one free `GET https://api.anthropic.com/v1/models` with
+    `x-api-key` and `anthropic-version` passed to `curl` through a config on
+    stdin and prints only the HTTP status. Run, it exports the key as
+    `SOAR_CLAUDE_CLOUD_API_KEY`, unsets `SOAR_PHASE2_CLOUD_API_KEY` and
+    executes the command. `scripts/with-cloud-key.sh` and the item
+    `soar-phase2-cloud-api-key` stay unchanged.
+  - `buildCloudArm` reads the key from `SOAR_CLAUDE_CLOUD_API_KEY` for the
+    Anthropic shape and from `SOAR_PHASE2_CLOUD_API_KEY` for the OpenAI
+    shapes, so a wrapper mix-up cannot send one provider's key to the
+    other. The Anthropic destination's account and credential version come
+    from `SOAR_CLAUDE_CLOUD_ACCOUNT_ID` (default `owner_anthropic_account`)
+    and `SOAR_CLAUDE_CLOUD_CREDENTIAL_VERSION` (default 1), distinct from
+    OpenAI's `owner_cloud_account`. After a key rotation the owner stores
+    the new key and raises the version. The repository's secret patterns
+    already match Anthropic keys.
+  - The H5 runbook launches both cloud arms through the new wrapper, as it
+    launches them through `scripts/with-cloud-key.sh` today. The all-cloud
+    arm is `scripts/with-claude-key.sh` followed by the driver
+    (`scripts/private-agent-local-screen.ts`) with its task flags and
+    `--arm cloud`, `--profile heavy`, `--claims-ledger true` and
+    `--max-fee-usd 3`. The split arm is the wrapper followed by
+    `scripts/phase4-loop.ts` with `--select-and-repair`, its loop and task
+    flags and `--arm cloud`, `--pipeline research`, `--profile heavy`,
+    `--claims-ledger true` and `--max-fee-usd 0.6`. Both carry the same
+    cloud flags: `--cloud-model claude-sonnet-5-5`,
+    `--cloud-endpoint https://api.anthropic.com/v1/messages`,
+    `--cloud-prices 2,10,0.1,2.5` and `--proxy-fake-ip true`. The harness
+    session owns the runbook and its launcher form; the wrapper and the
+    cloud flags are what this design fixes.
+  - Broker: `BrokerDestination` gains an optional field `anthropicVersion`
+    whose only value is `2026-10-21`, valid only on a `cloud_model`
+    destination (HTTPS, or a loopback fixture in tests). When set, the
+    transport sends `x-api-key` and `anthropic-version` instead of
+    `authorization: Bearer`, the packet text behind `packetSha256` lists
+    `anthropic-version` beside `content-type` (so the non-secret header is
+    bound and scanned; the key never enters the packet), and the retry,
+    keep-alive and error-type rules above apply. Absent, every destination
+    fingerprint, packet text, header set and failure path stays as today.
+    The freeze's `arm` block gains `anthropicVersion` on Anthropic runs only.
+  - The endpoint `https://api.anthropic.com/v1/messages` is a new egress
+    destination and needs the owner's explicit approval (PLAN section 4). It
+    stays `syntheticOnly` and `grantFreeSynthetic`, with
+    `privateDataAdmitted: false`, so the broker admits only wholly synthetic
+    or public lineages; no personal data goes to it. `--proxy-fake-ip true`
+    applies to it as to the OpenAI endpoint.
+- **Identities stay byte-identical for every existing configuration.** No
+  `PrivateModelConfig` field is added: the Anthropic shape uses new values
+  of the existing `api` (`anthropic_messages`) and `promptCaching` fields,
+  and its write price uses the existing `cacheWriteUsdPerMillion`. The new
+  destination, freeze, usage and diagnostic fields appear only on Anthropic
+  runs, and `canonical()` refuses `undefined`, so each is spread only when
+  set. The code lives in `src/main/private-agent/` (a new `anthropic.ts` for
+  the body builder and decoder, plus `model.ts`, `broker.ts`, `store.ts`,
+  `runner.ts` for the one option and `repair.ts`), which
+  `localScreenSourceFreeze` hashes file by file, with
+  `scripts/private-agent-local-screen.ts`; the runtime digest therefore
+  changes, and H5 pins the adapter's merge and its new digest. The usage
+  type in `src/main/providers/types.ts` gains the optional `thinkingTokens`
+  (type only, outside the digest). The wrapper, the probe script and
+  `scripts/registry-row.py` are outside the digest. The guidance's role is
+  bound by the runtime digest and by `api` in `modelIdentity`, not by the
+  runner's protocol hash, which does not change. Tests pin golden values
+  computed at the base commit before any change:
+  - `modelIdentity` of the local heavy, `gpt-6-sol` Responses and chat
+    configurations;
+  - the `destinationFingerprint` of the local, OpenAI cloud and public
+    snapshot destinations;
+  - `packetSha256` and body hashes of fixed requests on the vLLM, chat and
+    Responses shapes, including a layout-2 runner request with the new
+    option set, and the runner's `promptProtocolSha256` and task identity
+    for an existing layout-2 configuration;
+  - the canonical bytes of existing failure receipts after the store closes
+    a row (a local `http_rejected` with `attempt`, an OpenAI cloud
+    `http_rejected` and an `unknown` row), and a `model_finished` usage
+    object on a non-Anthropic shape without the new key;
+  - behaviour: an OpenAI cloud 429 gives one `failed` row with no retry and
+    no `attempt`; local retries still wait 1 and 3 seconds; a non-2xx answer
+    on any other destination is still destroyed unread; an explicit
+    `undefined` diagnostic field can never reach the store;
+  - `buildCloudArm`'s freeze for H5's current `gpt-6-sol` flags.
+
+  Mock-server tests send the Anthropic shape through a loopback
+  `cloud_model` destination with `anthropicVersion` set, and assert
+  `buildCloudArm`'s full destination and freeze for the Claude flags. The
+  Anthropic builder refuses `trailingTurnMessage` unless the final message
+  is a non-empty user message.
+- **The plan amendment, to apply with the approval.**
+  - Section 1, after the `gpt-6-sol` sentence: "From BL-<approval>, H5's
+    cloud arms use `claude-sonnet-5-5` on Anthropic's Messages endpoint at
+    USD 2 / 0.10 / 10 per 1M tokens (input / cache read / output; 5-minute
+    cache writes 2.50)."
+  - Section 4(b): "`gpt-6-sol`, and for the Phase 4 harness track and for
+    H5's R0 re-runs on the harness spike or re-runs line
+    `claude-sonnet-5-5`, on public/synthetic tasks only, USD 300 in total",
+    with the rest of the sentence ("never more than USD 8 per task")
+    unchanged and the Phase 4 row citing the approval. The table's amounts
+    and total are unchanged; the sub-line split above is recorded in the
+    approval entry. Whether the USD 8 limit is read per run for H5 (above)
+    is its own question to the owner and is recorded in the approval entry,
+    not in the plan. Extending Claude to other
+    lines (the weekly public-work route, the desktop consultant) is not part
+    of this design.
+- **Live calibration, in the owner's window, after the implementation is
+  merged.**
+  - Step 0, the shape probe (no box): a committed script outside the
+    runtime digest (`scripts/anthropic-probe.ts`) sends four requests
+    through the real broker, model and transport on wholly synthetic text,
+    fee cap USD 0.30. First a tool-less call (`max_tokens` 1,024); then a
+    three-turn tool loop at the heavy shape (`max_tokens` 16,384, about
+    USD 0.19 reserved per call) with a system prompt over 512 tokens, the
+    guidance sent as the final system message and rebuilt every turn, the
+    thinking blocks dropped, and one earlier tool result edited before the
+    third turn, as the projector does. Pass: HTTP 200 throughout; every
+    dropped assistant turn carried at least one thinking block and turns
+    two and three report thinking tokens (or, if the API omits that field,
+    return a thinking block with a non-empty signature); the served model,
+    `usage.service_tier` and `usage.inference_geo` as expected; a cache
+    write on the first loop turn and reads after; every call inside the
+    usage envelope. The loop's synthetic task needs real reasoning, since
+    at `medium` the model thinks before almost every reply but not every
+    one; a turn with no thinking is a reason to run the probe once more as
+    a new job (at most USD 0.30 more, inside the line's remainder), not a
+    failure. Expected under USD 0.05.
+  - Step 1, H1's role: one all-cloud run on r3 (exposed), heavy profile,
+    claims ledger, cap USD 3.00, the H5 flags above. It records calls,
+    prompt, read, written, output and thinking tokens, the fee, the
+    start-to-start gaps and the cache pattern, f, 429 and 529 counts and retried
+    rows, wall time, and the counts that would show the guidance problem:
+    empty `end_turn` replies, `no_action` nudges, length stops and replies
+    that mention a prompt injection, each beside r3-cloud-v3's. Pass: the
+    start condition holds, no final 429 or 529, every reply settled, no
+    reply that calls the guidance a possible injection or says it will not
+    follow it, empty `end_turn` replies plus `no_action` nudges at most
+    r3-cloud-v3's count plus two, and
+    the Console's charge for steps 0 and 1, as the owner reads it, is within
+    USD 0.05 or 2% (whichever is larger) of the settled fees, with no other
+    use of the organisation in the same window to confuse the comparison.
+    Expected USD 1.1 to 1.9; at most 3.00. The harness
+    session, which holds r3-cloud-v3's run directory (not a fresh-task
+    tree), computes f and the comparisons.
+  - Step 2, H3's role: sample `a` of H4 batch 2's split loop on r3, at
+    pipeline version 3 and USD 0.60, which runs the same cloud plan and
+    synthesis as BL-20261026-1644-planner-budget-dry-run-verified. Pass: a
+    valid plan within the reader budget and a cited argument, no `length`
+    stop on either cloud call, and fees within the cap; it records each
+    call's output tokens against its 8,192 cap (the pipeline does not keep
+    thinking tokens, and this design does not change it). Expected USD 0.13
+    to 0.25.
+  - Order: step 0, then step 1 (both before H4 batch 2), then H4 batch 2
+    with step 2 inside it, then the H4 condition, then the H5 batch-start
+    entry. This amends the order in BL-20261030-0445, which puts the whole
+    calibration before H4 batch 2, and the owner's approval decides it. A
+    step-2 failure blocks H5 whatever the H4 result, because the H4
+    condition does not judge quality and a truncated argument is accepted.
+    Its remedies (above) change `researchProtocolSha256` and so the runtime
+    digest, which means all three H4 loops run again under the new digest;
+    another split loop (USD 0.60) exceeds the line's 0.46 left, so it needs
+    the owner's envelope decision. Steps 1 and 2 need the box (the local
+    judge, reader and writer), which is down since
+    BL-20261028-0420-h4-live-batch1-box-failure. Total expected about USD
+    1.3 to 2.2 for steps 0 to 2. A failed step is recorded as a `Failed`
+    entry and goes to the owner.
+- **Registry rows gain `cloudModel` and `cloudApi`** from
+  `freeze.arm.modelConfig` (`model` and `api`), read defensively and `null`
+  on local runs or when `arm` is absent. A loop row whose `loop.json` says
+  `arm` `cloud` reads them from sample `a`'s own `freeze.json`, even when
+  that sample has no summary. Rows before the implementation omit both
+  fields. `docs/experiments/README.md` documents them.
+- **Scope edges.** The cloud critic in `scripts/phase2-repair.ts` is not in
+  H5's scope (the H4 loop pins the local critic). It builds its destination
+  through `buildCloudArm`, so it gains the Anthropic shape mechanically, and
+  `repair.ts` admits `anthropic_messages` as a recorded request shape so
+  such a record would load; no live cloud critique is planned or approved.
+  The desktop consultant, the chat-completions shape and the patch runs are
+  untouched.
+- **Adversarial review (three independent reviewers, before commit).**
+  Lenses: Anthropic API facts, the code's contracts, budget and experiment
+  validity. The API reviewer, reading the documentation, found no request
+  field the API refuses and confirmed the prices. The code and budget
+  reviewers reproduced the fee, reservation and projection figures, and the
+  budget reviewer disputed the first draft's slack (0.66, in fact 0.06 once
+  H4 batch 2 is counted), its prepaid-credit figure and its split
+  reservations. Each then checked this revision against its own findings.
+  Changed because of them:
+  - the trailing guidance as a system message, the bounded 429 and 529
+    retry and the error-type field (each named for the owner);
+  - the H4 batch-2 split loop added to the budget and used as step 2;
+  - the R0 re-runs line added to the plan amendment;
+  - a pass criterion for every calibration step, including no `length`
+    stop on the split arm's cloud calls;
+  - the probe's `max_tokens`, cap, thinking-token and history-edit checks
+    (the first draft's USD 0.10 cap could not admit a heavy call);
+  - breakpoints defined before merging;
+  - whitespace text, unmatched `tool_use`, consecutive assistants and
+    unencodable tool input handled before they reach the API;
+  - disabled thinking refused before the freeze is written;
+  - the usage refusals narrowed to values that change the price;
+  - the classifier labelled as unseen;
+  - the endings per arm stated;
+  - f measured over whole runs;
+  - the per-run reading of the USD 8 ceiling;
+  - the measured split reservations;
+  - the cap's authority and its effect on S1 and S2;
+  - wording that claimed unrun checks.
+
+  A second pass by the same reviewers on the revision found it closed most
+  findings and added these, now in the text above: the change to the gate
+  order of BL-20261030-0445 made explicit; the USD 8 limit left as "per
+  task" in the plan and asked separately; the guidance form's own
+  documented downside, a gated step-1 threshold and the user-text
+  fallback; a system message only after a user turn; `retry-after`
+  honoured; the error body read so it can never relabel a confirmed
+  rejection; the retry's own path and its crash window closed; a new
+  `thinkingTokens` field instead of `reasoningTokens`; disabled thinking
+  refused in the parser; more golden values; a Console tolerance.
+
+  Refuted: one reviewer's recollection that output limits are estimated
+  from `max_tokens` (the rate-limit page says they are not). Not adopted:
+  settling reads at 0.20 until reconciled, replaced by the Console
+  reconciliation as a pass condition; a free token-counting endpoint as a
+  second egress path, left for a later design if f needs it.
+- **Questions for the owner, decided by the approval.**
+  1. The model: `claude-sonnet-5-5` as proposed, or `claude-opus-5-5` with a
+     larger envelope.
+  2. The all-cloud cap of USD 3.00, the H5 bound of USD 21.60, and the split
+     cap and 8,192-token cap kept.
+  3. The guidance sent as a final system message on the Anthropic shape.
+  4. The bounded 429 and 529 retry.
+  5. Sending `inference_geo: "global"`.
+  6. The new egress destination.
+  7. The plan amendment, covering the Phase 4 line and H5's R0 re-runs.
+  8. Reading the plan's USD 8 limit per run for H5 (up to USD 10.20 per
+     fresh task with one R0 re-run), recorded in the approval only.
+  9. The calibration, with step 2 inside H4 batch 2 (which amends the gate
+     order of BL-20261030-0445), at most USD 3.90 at caps, in a window the
+     owner declares.
+
+  Before the calibration the owner also checks in Anthropic's Console:
+  - the prepaid credit (at least USD 35.10);
+  - any spend limit and the tier's monthly cap;
+  - that the workspace allows the global geography;
+  - the rate limits named above.
+
+Changes: this entry only, on branch `phase4-claude-cloud`, stacked on
+`phase4-h5-runs`. No code, test, plan or registry change.
+
+Evidence: `docs/BUILD_LOG.md` entries named in References; the code at
+`7fd67e1` (`src/main/private-agent/model.ts`, `broker.ts`, `store.ts`,
+`runner.ts`, `observations.ts`, `research-pipeline.ts`, `repair.ts`,
+`session.ts`, `contracts.ts`, `profiles.ts`,
+`scripts/private-agent-local-screen.ts`, `scripts/phase4-loop.ts`,
+`scripts/phase2-repair.ts`, `scripts/with-cloud-key.sh`,
+`scripts/registry-row.py`, `docs/experiments/README.md`, `docs/PLAN.md`
+sections 1 and 4); the `claude-api` skill's model, thinking, caching,
+error-code, API-version and model-migration references as bundled on
+2026-10-30; Anthropic's public pricing, service-tier and rate-limit pages,
+and (through a reviewer) its errors, thinking, preserved-thinking,
+prompt-caching and token-counting pages, as read on 2026-10-30; the three
+reviewers' reports (session scratchpad).
+
+Failures or blockers: none new. The calibration's steps 1 and 2 also wait
+for the owner's model server (BL-20261028-0420-h4-live-batch1-box-failure).
+
+Limitations and non-claims:
+- Nothing is implemented or tested. The API facts come from the skill and
+  the documentation pages, not from a request; the probe is the first check
+  against the live API.
+- Whether the API accepts a tool round without its thinking blocks, how the
+  model behaves with the guidance as a system message, and whether `model`,
+  `usage.service_tier` and `usage.inference_geo` come back as documented
+  are unverified until the probe and step 1.
+- The H5 classifier's rules are taken from the harness session's brief,
+  not read.
+- The cost projection for the all-cloud arm rests on one `gpt-6-sol` run's
+  token mix and assumed tokenizer and output factors. The proposed cap is a
+  bound, not a forecast; the calibration decides whether H5 may start.
+- No claim is made about the quality of `claude-sonnet-5-5` on these tasks
+  or about its standing relative to `gpt-6-sol`.
+
+Paid exposure: USD 0. If approved: the shape probe at most USD 0.30, the
+all-cloud calibration run at most 3.00, H4 batch 2's split loop at most
+0.60, H5 counted runs at most 21.60, the r1 to r3 split calibration at most
+3.60, and at most two R0 re-runs at most 6.00 on their own line.
+
+Next gate: the owner's approval of the design, the egress destination and
+the plan amendment, recorded in an appended `Approved` entry that quotes the
+owner; only then the implementation against a mock server.
+
+References: BL-20261030-0445-h5-cloud-provider-claude,
+BL-20261022-0834-phase4-division-of-labour-design,
+BL-20261022-0940-phase4-harness-approved,
+BL-20261022-1156-h1-prompt-caching-implemented,
+BL-20261022-1157-cloud-cache-write-price-correction,
+BL-20261025-1321-h2b-h2c-research-pipeline-implemented,
+BL-20261026-0724-h3-cloud-planner-implemented,
+BL-20261026-0743-h3-dry-run-split-blocked-by-docker,
+BL-20261026-1605-h3-dry-run-split-verified,
+BL-20261026-1644-planner-budget-dry-run-verified,
+BL-20261026-1831-h4-select-and-repair-design,
+BL-20261026-1832-h4-select-and-repair-implemented,
+BL-20261027-1526-harness-session-task-exposure,
+BL-20261028-0420-h4-live-batch1-box-failure.
+
+### BL-20261030-0745-claude-cloud-adapter-approved -- 2026-10-30 -- The owner approves the Claude adapter design as proposed, with the Anthropic egress destination and the plan amendment; implementation may start, live calls still wait for a window
+
+Status: `Approved`
+
+Scope or hypothesis: the owner's approval of
+BL-20261030-0620-claude-cloud-adapter-design. It covers the design, the new
+egress destination and the plan amendment that BL-20261030-0445-h5-cloud-provider-claude
+requires before any adapter code. `Approved` covers the decisions only.
+Nothing is implemented or verified, and no live call or box use is
+authorised until the owner declares a window.
+
+Decisions:
+
+- **The owner's words.** On 2026-10-30 the owner answered "Approve as
+  proposed" in chat to the harness session, which started this session and
+  relayed the words here. The answer was to the question "Approve the Claude
+  adapter design as proposed?". The option the owner chose was offered with
+  this meaning: "I approve the Claude adapter design in PR #31 as proposed,
+  including all nine owner questions as the design answers them, the
+  Anthropic egress destination and the plan amendment." Before asking, the
+  harness session summarised for the owner:
+  - the model and prices;
+  - the caps, the H5 bound and the use of the USD 33 line;
+  - the calibration and its changed gate order;
+  - the Console checks;
+  - the cache-read price discrepancy;
+  - the nine questions.
+- **Approved, as BL-20261030-0620 answers the nine questions:**
+  1. `claude-sonnet-5-5`, at USD 2.00 input, 2.50 5-minute cache write,
+     0.10 cache read and 10.00 output per million tokens.
+  2. The all-cloud cap of USD 3.00 and the H5 bound of USD 21.60. The split
+     cap of USD 0.60 and the 8,192-token stage caps are kept, so rule S1 is
+     unchanged.
+  3. The trailing guidance sent as a final system message on the Anthropic
+     shape, falling back to user text after an assistant turn.
+  4. The bounded 429 and 529 retry, for the Anthropic destination only.
+  5. Sending `inference_geo: "global"`.
+  6. The new egress destination `https://api.anthropic.com/v1/messages`.
+     It stays `syntheticOnly` with no private data.
+  7. The plan amendment, which names `claude-sonnet-5-5` for the Phase 4
+     harness track and for H5's R0 re-runs.
+  8. The plan's USD 8 limit read per run for H5. It is recorded here only;
+     the plan keeps "per task".
+  9. The calibration, at most USD 3.90 at caps, with step 2 inside H4 batch
+     2. This amends the gate order of BL-20261030-0445 to: the shape probe,
+     the all-cloud calibration run, H4 batch 2 with step 2 inside it, the H4
+     condition, then the H5 batch-start entry.
+- **The USD 33 line, as BL-20261030-0620 splits it, at caps.** Used USD
+  3.11 to 3.44; shape probe 0.30; all-cloud calibration run 3.00; H4 batch
+  2's split loop 0.60; H5 counted runs 21.60; the r1 to r3 split
+  calibration 3.60. That is at most USD 32.54, leaving 0.46. R0 re-runs, at
+  most two at USD 3.00 each, are charged to the harness spike or re-runs
+  line (USD 7).
+- **Plan amendment applied** in `docs/PLAN.md`:
+  - section 1 now names `claude-sonnet-5-5` and its prices for H5's cloud
+    arms;
+  - section 4(b) names it for the Phase 4 harness track and H5's R0 re-runs;
+  - the Phase 4 row cites this entry.
+
+  The table's amounts and total, and "never more than USD 8 per task", are
+  unchanged.
+- **Still not authorised.** Any Anthropic API request other than the free
+  `--check`, and any use of the owner's box, until the owner declares a
+  window. The calibration's spend draws on the lines above only in that
+  window.
+
+Changes: this entry; `docs/PLAN.md` sections 1 and 4(b).
+
+Evidence: the harness session's message to this session of 2026-10-30,
+which quotes the owner's words, the question and the meaning of the option
+chosen.
+
+Failures or blockers: none.
+
+Limitations and non-claims:
+- This session did not see the owner's chat. The quoted words come from
+  the harness session's relay.
+- The approval was given to the design and a summary of it; the design
+  entry is the reference for every detail.
+
+Paid exposure: USD 0. Authorised when the owner declares a window: at most
+USD 3.90 for the calibration at caps, then the H5 amounts above.
+
+Next gate: the implementation against a mock server, its review and the
+`Implemented` entry with the new runtime digest; then the owner's window for
+the calibration.
+
+References: BL-20261030-0620-claude-cloud-adapter-design,
+BL-20261030-0445-h5-cloud-provider-claude,
+BL-20261022-0940-phase4-harness-approved,
+BL-20261028-0420-h4-live-batch1-box-failure.
+
+### BL-20261030-0850-claude-cloud-adapter-implemented -- 2026-10-30 -- Claude adapter implemented and tested against mock servers: the Messages shape, the broker's Anthropic destination with a bounded 429/529 retry, the driver's Claude flags, the key wrapper and the shape probe; runtime digest ee05d9cf; no live call yet
+
+Status: `Implemented`
+
+Scope or hypothesis: the implementation of
+BL-20261030-0620-claude-cloud-adapter-design, as approved in
+BL-20261030-0745-claude-cloud-adapter-approved. `Implemented` means code and
+tests against mock servers and stubs. Nothing is verified against the live
+API: no Anthropic request was made, the free `--check` was not run, and the
+owner's box was not used. The entry lists what the tests show and what they
+do not, every place where the code departs from the approved design text,
+and the implementation review.
+
+Decisions:
+
+- **What was built.**
+  - `src/main/private-agent/anthropic.ts`: the Messages body builder and
+    the reply decoder. Breakpoints are placed on the `GeneralMessage` list
+    before merging. The trailing guidance is sent as a final system message
+    after a user turn, and as user text after an assistant turn. Shapes the
+    API would refuse are refused before dispatch. The decoder drops thinking
+    blocks and refuses reported values that would change the price.
+  - `model.ts`:
+    - the `anthropic_messages` shape and `anthropic_explicit_5m_v1` caching;
+    - refusal of a disabled-thinking configuration or override, and of
+      sampling, on this shape;
+    - `promptTokens` as input plus cache writes plus cache reads;
+    - the optional `thinkingTokens` usage field;
+    - the `trailingTurnMessage` option.
+  - `broker.ts` (the optional `anthropicVersion` field on a destination):
+    - `x-api-key` plus the fixed `anthropic-version: 2026-10-21` in place
+      of a bearer token, with the version header bound into the packet;
+    - TCP keep-alive on the socket;
+    - a rejection whose outcome is fixed as soon as its status line
+      arrives, with the error body read under its own 2-second, 8 KiB bound;
+    - fixed diagnostics: `errorType`, `spendCap`, `spendLimit` and
+      `requestId`;
+    - the bounded 429/529 retry, waiting 30 then 60 seconds, or
+      `retry-after` up to 120 seconds;
+    - test-only constructor options that shorten the waits.
+  - `store.ts`: the optional diagnostic fields. Keys whose value is
+    undefined are dropped before parsing.
+  - `runner.ts`:
+    - passes `trailingTurnMessage` on layout-2 requests;
+    - maps the broker's new `retry_wait_cancelled` code to
+      `cancelled_or_deadline`, after closing the operation with its existing
+      confirmed-abort marker.
+  - `repair.ts`: admits the `anthropic_messages` shape in critique records.
+  - `src/main/providers/types.ts`: `thinkingTokens`. This is a type-only
+    change, outside the digest.
+  - `scripts/private-agent-local-screen.ts`:
+    - the `/v1/messages` path, with the host pinned;
+    - the key, account and version taken from the `SOAR_CLAUDE_CLOUD_*`
+      variables only;
+    - `anthropicVersion` in the destination and the freeze;
+    - the long-context tier optional on this path;
+    - the heavy profile required on this path, in the parser;
+    - the split-arm endpoint rule.
+  - `scripts/with-claude-key.sh`: Keychain item `soar-h5-claude-api-key`,
+    a hidden-input `--store`, a `--check` that prints only the status, and
+    the OpenAI variable unset before the command runs.
+  - `scripts/anthropic-probe.ts`: calibration step 0.
+  - `scripts/registry-row.py` and `docs/experiments/README.md`: the
+    `cloudModel` and `cloudApi` fields.
+- **Where the code departs from the approved design text.** Each item is
+  for the owner to accept at review. None changes a price, a cap, a prompt
+  or the local arm.
+  1. *When a retried row is resolved, and how a cancel during the wait
+     ends.* The design said the rejected row becomes `superseded` before
+     the wait, so that a process killed during the wait leaves no committed
+     row. It also said a run cancelled during the wait ends with that row as
+     its last. Both statements were wrong.
+     - The runner refuses to resume any `model_started` without a closing
+       marker (`unresolved_operation_no_replay`). A kill during the wait
+       therefore blocks a resume whatever the row's state, as a kill during
+       any request does.
+     - The design's cancel path would have returned `request_failed`, which
+       ends the run `model_unavailable`, a status the H5 classifier counts
+       as infrastructure.
+
+     The code now marks the row `superseded` only once the retry is
+     certain, as D4 does. A cancel or deadline during the wait resolves the
+     row `failed` and returns `retry_wait_cancelled`, and the run ends
+     `cancelled_or_deadline`. The runner branch for that code is the one
+     runner change beyond the approved option. Local and OpenAI paths never
+     produce the code.
+  2. *`spendLimit`*, a boolean set when an error message begins with the
+     documented prefix of an owner-set spend limit ("You have reached your
+     specified"). It tells that 400 apart from a request-shape 400. Only
+     the boolean is stored, never the text. The design named only the error
+     type and the spend-cap code.
+  3. *Stop reasons.*
+     - Tool calls are kept only when the reply stopped for `tool_use`, or
+       when it was cut off (`max_tokens`, `model_context_window_exceeded`).
+       Both cut-off cases map to `length`, which the runner never executes.
+     - A refusal or any other stop drops the calls, so an interrupted call
+       can never run.
+     - The design said "a reply with a tool call becomes `tool_calls`"
+       before `end_turn` was considered.
+  4. *A history that ends on an assistant turn is refused before dispatch.*
+     These models refuse an assistant prefill with HTTP 400.
+  5. *A tool output that is only whitespace* is sent without `content`, as
+     an empty one is.
+  6. *Timer and read details.*
+     - The request timer is cleared once a rejection's status is latched.
+     - A socket error during the bounded body read ends only that read, so
+       a spend-cap code that already arrived is kept.
+     - Null values inside the usage breakdown are read as absent.
+  7. *`--check` exits non-zero unless the status is 200.* It still prints
+     only the status.
+  8. *The parser pins the exact endpoint* for any `/v1/messages` cloud run,
+     all-cloud included, before any directory exists. The design pinned it
+     in `buildCloudArm`, which runs after the run directory is created.
+  9. *Probe details.*
+     - The tool-less call's system text is padded to a few kilobytes, so
+       its body clears the prompt-token envelope by a wide margin.
+     - A pass requires every ledger row settled.
+     - `redacted_thinking` counts as a thinking block.
+     - Exit codes: 0 for a pass, 3 for a pass where the model showed no
+       thinking (run the probe once more), 2 for a failure.
+     - Each call and the ledger so far are printed as they complete.
+- **Added to the calibration, for the owner.** A review found two risks
+  that only the live calibration can measure.
+  - *Thinking may be switched off silently.* Anthropic's thinking page
+    says the API may strip thinking blocks, or switch thinking off, when a
+    tool round arrives without them. That would show neither as a 400 nor
+    in the probe's three turns.
+  - *The proxy leg may be dropped.* Keep-alive reaches only the local
+    fake-IP proxy. Whether the proxy's own connection to Anthropic survives
+    a long, non-streamed reply is unknown.
+
+  Proposed step-1 conditions:
+  - the share of tool-round calls that report thinking tokens is at least
+    80%;
+  - cache reads do not collapse after nudges;
+  - `upstream_closed` and `response_interrupted` counts are reported.
+
+  If either condition fails, the calibration goes back to the owner. The
+  known remedies are a streaming transport, or a layout that replays
+  thinking; both are outside the approved design.
+- **Byte-identity.** The golden test pins values computed at `7fd67e1`,
+  before any adapter code, and committed in `7ff7d4b`. It covers:
+  - `modelIdentity` of the local heavy, `gpt-6-sol` Responses and chat
+    configurations;
+  - the destination and packet fingerprints of the local, OpenAI cloud and
+    public snapshot destinations;
+  - layout-2 and one-shot request bodies on the vLLM, chat and Responses
+    shapes;
+  - H5's `gpt-6-sol` cloud freezes;
+  - the runner's layout-2 prompt protocol and task identity.
+
+  It passes unchanged, including with `trailingTurnMessage` set on the
+  existing shapes. Behaviour pins:
+  - a destination without `anthropicVersion` sends a bearer token, no
+    version header and no keep-alive;
+  - its rejections are read at once, unread, with the exact old failure
+    keys, and it does not retry;
+  - the local retry path keeps its exact keys and its 1 and 3 second
+    waits;
+  - non-Anthropic usage gains no key.
+- **Runtime digest.** `localScreenSourceFreeze` is now
+  `ee05d9cf87d2203511697bf740ebc320024815f227b8e6ad3b8d6896c5bb8511` over 36
+  files (`anthropic.ts` added). H4 batch 2 and H5 pin the adapter's merge
+  and this digest, if no frozen file changes before the merge; it replaces
+  `18d3d918…`.
+- **Implementation review** (three independent reviewers, before commit).
+  They covered the API semantics, the code's contracts and the test
+  coverage, the last with mutations run on a copy outside the repository.
+  - *API semantics:* nothing in the request body that the documentation
+    says would be refused. Its points led to:
+    - items 2, 3, 4, 6 and 7 above;
+    - the two calibration conditions.
+  - *Contracts:* the major finding was the cancel-during-wait ending (item
+    1). It also led to:
+    - the spend-cap code surviving a socket reset;
+    - the undefined-key guard;
+    - nullable inner usage fields;
+    - the parser pin (item 8);
+    - the probe's settled-only pass, padding and incremental output;
+    - the missing pins.
+  - *Test coverage:* the H5 destination with `proxyFakeIp` had never gone
+    through a broker. It now does, in a transport test that checks the
+    IPv4 lookup, the pinned fake-IP address, the server name, the headers
+    and keep-alive. Further tests now pin:
+    - the 30 and 60 second constants;
+    - the request-allowance bound on retries;
+    - the 120-second `retry-after` boundary;
+    - request ids on transport-phase `unknown` rows;
+    - the 8 KiB body cap;
+    - the 640 KiB request cap on this shape;
+    - the probe through real fee admission (four reservations of up to
+      about USD 0.19 under its USD 0.30 cap, all settled);
+    - the Claude account and version variables;
+    - the loop parser with H5's split-arm flags;
+    - the registry's missing-freeze path;
+    - the wrapper with stubbed `security` and `curl`, including that its
+      version string matches the adapter's.
+
+    It also flagged items 1 to 4 as unrecorded; they are recorded here.
+
+Changes:
+- New source: `src/main/private-agent/anthropic.ts`,
+  `scripts/anthropic-probe.ts`, `scripts/with-claude-key.sh`.
+- Changed source: `src/main/private-agent/model.ts`, `broker.ts`,
+  `store.ts`, `runner.ts`, `repair.ts`, `src/main/providers/types.ts`,
+  `scripts/private-agent-local-screen.ts`, `scripts/registry-row.py`.
+- Docs: `docs/experiments/README.md`; this entry.
+- New tests: `tests/unit/private-agent-model-anthropic.test.ts` (35),
+  `tests/integration/private-agent-broker-anthropic.test.ts` (29),
+  `tests/unit/private-agent-anthropic-transport.test.ts` (2),
+  `tests/unit/anthropic-probe.test.ts` (3),
+  `tests/unit/with-claude-key.test.ts` (3), and the golden pair committed
+  earlier (2).
+- Extended tests: `private-agent-prompt-layout`, `phase2-repair`,
+  `phase4-loop` and `registry-row-loop`.
+
+Evidence:
+- `vitest run` under Node 22.22.2 on the final tree: 141 files passed, 13
+  skipped; 2,150 tests passed, 81 skipped, none failed. The skipped tests
+  are the Docker- and live-gated suites.
+- Both typechecks clean.
+- `node --experimental-strip-types scripts/validate-build-log.ts --base-ref origin/main`
+  valid.
+- `scripts/validate-readiness.mjs` clean. It first flagged the synthetic
+  `sk-` test keys as credential-shaped; they were shortened below its
+  threshold.
+- `scripts/test-native-credential-core.mjs` passed.
+- The reviewers' reports, and their mutation copies in the session
+  scratchpad, outside the repository.
+
+Failures or blockers: none new. The calibration waits for the owner's
+window, and its steps 1 and 2 also wait for the box
+(BL-20261028-0420-h4-live-batch1-box-failure).
+
+Limitations and non-claims:
+- Every Anthropic behaviour here is tested against a mock server, a mocked
+  `https.request` or stubs, not the live API. Still unverified until the
+  probe and step 1:
+  - whether the API accepts a tool round without its thinking blocks;
+  - whether the API switches thinking off silently in that case;
+  - how the model treats the guidance as a system message;
+  - whether `model`, `usage.service_tier` and `usage.inference_geo` come
+    back as documented;
+  - whether a long reply survives the proxy.
+- Keep-alive is tested only as the call made on the socket.
+- The production waits of 30 and 60 seconds are pinned as constants, not
+  run in real time.
+- The wrapper is tested with stubbed `security` and `curl`. The real
+  Keychain, `--store` and the free `--check` against Anthropic were not run.
+- The probe has not been run against the API.
+- `pnpm build` was not run locally; CI's `check` job runs it.
+- The H5 classifier's handling of `superseded` rows and of
+  `retry_wait_cancelled` endings is the harness session's to confirm in the
+  batch-start entry.
+
+Paid exposure: USD 0.
+
+Next gate:
+1. The owner reviews and merges Lotus2077/SOAR#31, which stacks on #30.
+2. The owner stores the key with `scripts/with-claude-key.sh --store`, runs
+   `--check`, and checks the Console items listed in
+   BL-20261030-0620-claude-cloud-adapter-design.
+3. The owner declares a window for calibration step 0.
+
+References: BL-20261030-0620-claude-cloud-adapter-design,
+BL-20261030-0745-claude-cloud-adapter-approved,
+BL-20261030-0445-h5-cloud-provider-claude,
+BL-20261022-1156-h1-prompt-caching-implemented,
+BL-20261028-0420-h4-live-batch1-box-failure.

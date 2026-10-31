@@ -12,11 +12,11 @@ afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
 const SCRIPT = resolve(__dirname, "..", "..", "scripts", "registry-row.py");
 const h = (n: string) => n.repeat(64);
 /** A run directory the way the driver leaves one, with the counts the row script reads. */
-function run(root: string, name: string, input: { calls: number; tokens: number; fee: number; status: string; startedAt: string; finishedAt: string; pipeline?: Record<string, unknown>; entailment?: Record<string, number> }) {
+function run(root: string, name: string, input: { calls: number; tokens: number; fee: number; status: string; startedAt: string; finishedAt: string; pipeline?: Record<string, unknown>; entailment?: Record<string, number>; arm?: Record<string, unknown> }) {
   const dir = join(root, name); mkdirSync(dir, { recursive: true });
   const jobId = `job-${name}`;
   writeFileSync(join(dir, "freeze.json"), `${canonical({ version: 1, jobId, startedAt: input.startedAt, taskBinding: { jobSha256: h("1"), briefSha256: h("2") }, profile: "heavy",
-    modelConfig: { maxOutputTokens: 16384, thinking: "medium" }, ...(input.pipeline ? { pipeline: input.pipeline } : {}) })}\n`);
+    modelConfig: { maxOutputTokens: 16384, thinking: "medium" }, ...(input.pipeline ? { pipeline: input.pipeline } : {}), ...(input.arm ? { arm: input.arm } : {}) })}\n`);
   writeFileSync(join(dir, "result.json"), `${canonical({ status: input.status, reason: input.status === "submitted" ? "independent_acceptance_pending" : "bounded_allowance_exhausted", finishedAt: input.finishedAt,
     candidateFiles: [{ path: "output/report.md", sha256: h("9") }], dispatches: [{ status: "settled", feeMicrousd: input.fee }, { status: "superseded", feeMicrousd: 0 }] })}\n`);
   const db = new Database(join(dir, "state.sqlite")); const store = new PrivateAgentStore(db);
@@ -68,5 +68,30 @@ describe("registry row of an H4 loop", () => {
     expect(single).toMatchObject({ modelCalls: 3, inputTokens: 300, usd: 0.12, wallSeconds: 600, runStatus: "submitted" }); expect(single).not.toHaveProperty("loop");
     expect(() => row(["--run-dir", join(root, "a"), "--loop-dir", root])).toThrow();
     expect(() => row([])).toThrow();
+  });
+
+  it("names the cloud model and request shape from the freeze's cloud arm, null on local runs, and from sample a on a cloud loop", () => {
+    const root = mkdtempSync(join(tmpdir(), "soar-cloud-row-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const claude = { arm: "cloud", modelConfig: { model: "claude-sonnet-5-5", api: "anthropic_messages" } };
+    const times = { startedAt: "2026-11-01T10:00:00.000Z", finishedAt: "2026-11-01T10:10:00.000Z" };
+    run(root, "cloud", { calls: 2, tokens: 10, fee: 10, status: "submitted", ...times, arm: claude });
+    run(root, "local", { calls: 1, tokens: 10, fee: 0, status: "submitted", ...times, arm: { arm: "local" } });
+    run(root, "old", { calls: 1, tokens: 10, fee: 0, status: "submitted", ...times });
+    expect(row(["--run-dir", join(root, "cloud")])).toMatchObject({ cloudModel: "claude-sonnet-5-5", cloudApi: "anthropic_messages" });
+    for (const name of ["local", "old"]) expect(row(["--run-dir", join(root, name)])).toMatchObject({ cloudModel: null, cloudApi: null });
+    const loop = join(root, "loop"); mkdirSync(loop);
+    run(loop, "a", { calls: 2, tokens: 10, fee: 10, status: "incomplete", ...times, arm: claude });
+    run(loop, "b", { calls: 1, tokens: 10, fee: 0, status: "submitted", ...times, arm: { arm: "local" } });
+    // Sample a has no summary (its stage failed) but its cloud model is still named; the selected b is a local writer.
+    writeFileSync(join(loop, "loop.json"), `${canonical({ version: 1, selectionRule: 1, arm: "cloud", startedAt: times.startedAt, finishedAt: times.finishedAt,
+      candidates: { a: null, b: { status: "submitted", reason: "independent_acceptance_pending" } }, seeded: { b: true, repair: false, snapshotSha256: h("f") }, writeIdentityEqual: true, critique: null,
+      selected: { stage1: { candidate: "b", step: "submitted" }, final: { candidate: "b", step: "submitted" } } })}\n`);
+    expect(row(["--loop-dir", loop])).toMatchObject({ cloudModel: "claude-sonnet-5-5", cloudApi: "anthropic_messages", runStatus: "submitted" });
+    // A cloud loop whose sample a left no freeze rows with nulls rather than failing.
+    rmSync(join(loop, "a", "freeze.json"));
+    writeFileSync(join(loop, "loop.json"), `${canonical({ version: 1, selectionRule: 1, arm: "cloud", startedAt: times.startedAt, finishedAt: times.finishedAt,
+      candidates: { b: { status: "submitted", reason: "independent_acceptance_pending" } }, seeded: { b: true, repair: false, snapshotSha256: h("f") }, writeIdentityEqual: true, critique: null,
+      selected: { stage1: { candidate: "b", step: "submitted" }, final: { candidate: "b", step: "submitted" } } })}\n`);
+    expect(row(["--loop-dir", loop])).toMatchObject({ cloudModel: null, cloudApi: null });
   });
 });

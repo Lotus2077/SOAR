@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { ProviderResult } from "../providers/types";
+import { anthropicBody, decodeAnthropicReply } from "./anthropic";
 import { BROKER_MAX_BODY_BYTES, PrivateAgentBroker } from "./broker";
 import { canonical, digest, privateAgentId, sha256Schema } from "./contracts";
 
@@ -100,16 +101,19 @@ export interface PrivateModelConfig {
    * Request shape: the owned vLLM server (default), OpenAI chat completions (`max_completion_tokens`, no vLLM-only fields),
    * or the OpenAI Responses API, which is the only OpenAI shape that serves function tools with reasoning for the sol models.
    * The Responses shape is stateless (`store: false`) and, like the local arm, never replays a turn's reasoning.
+   * `anthropic_messages` is Anthropic's Messages API (BL-20261030-0620): adaptive thinking at effort medium only, never
+   * replayed, the standard tier and global geography pinned; its body and decoder live in `anthropic.ts`.
    */
-  api?: "vllm" | "openai" | "openai_responses";
+  api?: "vllm" | "openai" | "openai_responses" | "anthropic_messages";
   /**
    * Prompt-cache handling per request shape. `responses_explicit_v1` (Responses shape only): explicit prompt-cache
    * breakpoints after the static prompt, the user message that follows it (the brief) and the latest two tool results,
    * with implicit caching off (H1). `vllm_job_salt_v1` (owned vLLM shape only): a per-job `cache_salt` derived from the
    * job id, so prefix-cache blocks are shared only within one job and never across matters (H2a, design principle P6);
-   * the box's prefix caching itself is a server setting and stays as it is (D11).
+   * the box's prefix caching itself is a server setting and stays as it is (D11). `anthropic_explicit_5m_v1` (Anthropic
+   * shape only): 5-minute `cache_control` breakpoints at the same positions as `responses_explicit_v1`.
    */
-  promptCaching?: "responses_explicit_v1" | "vllm_job_salt_v1";
+  promptCaching?: "responses_explicit_v1" | "vllm_job_salt_v1" | "anthropic_explicit_5m_v1";
   /** PR-B: stream the reply from the owned server (assembled by the transport); the cloud shape stays non-streaming in Phase 1. */
   streaming?: boolean;
   thinking: "disabled" | "medium";
@@ -149,7 +153,7 @@ const responsesSchema = z.object({
     input_tokens_details: z.object({ cached_tokens: nonnegativeInt.optional(), cache_write_tokens: nonnegativeInt.optional() }).passthrough().optional() }).passthrough(),
 });
 type DecodedReply = { model?: string; serviceTier?: string | null; content: string; toolCalls: { id: string; type: "function"; function: { name: string; arguments: string } }[];
-  finishReason: string | null; promptTokens: number; completionTokens: number; cachedTokens: number; cacheWriteTokens: number };
+  finishReason: string | null; promptTokens: number; completionTokens: number; cachedTokens: number; cacheWriteTokens: number; thinkingTokens?: number };
 
 const PROMPT_CACHE_BREAKPOINT = Object.freeze({ mode: "explicit" });
 /**
@@ -182,7 +186,8 @@ export function responsesInput(messages: GeneralMessage[], breakpoints = false):
   });
 }
 
-function decodeReply(api: PrivateModelConfig["api"], bytes: Uint8Array): DecodedReply {
+function decodeReply(api: PrivateModelConfig["api"], bytes: Uint8Array, configuredModel: string): DecodedReply {
+  if (api === "anthropic_messages") return decodeAnthropicReply(bytes, configuredModel);
   const json: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
   if (api !== "openai_responses") {
     const decoded = responseSchema.parse(json), choice = decoded.choices[0]!;
@@ -243,9 +248,12 @@ export class PrivateAgentModel {
             config.longContext.cacheWriteUsdPerMillion >= 0 && config.longContext.cacheWriteUsdPerMillion <= 4 * config.longContext.inputUsdPerMillion)) &&
           // A body bound reserved at the long tier can settle at the base tier, so the long tier's write rate must cover the base one.
           (config.longContext.cacheWriteUsdPerMillion ?? config.longContext.inputUsdPerMillion) >= (config.cacheWriteUsdPerMillion ?? config.inputUsdPerMillion))) ||
-        (config.api !== undefined && config.api !== "vllm" && config.api !== "openai" && config.api !== "openai_responses") ||
+        (config.api !== undefined && config.api !== "vllm" && config.api !== "openai" && config.api !== "openai_responses" && config.api !== "anthropic_messages") ||
         (config.promptCaching !== undefined && !((config.promptCaching === "responses_explicit_v1" && config.api === "openai_responses") ||
-          (config.promptCaching === "vllm_job_salt_v1" && (config.api === undefined || config.api === "vllm")))) ||
+          (config.promptCaching === "vllm_job_salt_v1" && (config.api === undefined || config.api === "vllm")) ||
+          (config.promptCaching === "anthropic_explicit_5m_v1" && config.api === "anthropic_messages"))) ||
+        // The Anthropic shape sends adaptive thinking only (the model refuses `disabled`) and no sampling fields.
+        (config.api === "anthropic_messages" && (config.thinking !== "medium" || config.sampling !== undefined)) ||
         (config.streaming !== undefined && (typeof config.streaming !== "boolean" || (config.streaming && config.api !== undefined && config.api !== "vllm")))) {
       throw new Error("private_model_configuration_invalid");
     }
@@ -255,14 +263,22 @@ export class PrivateAgentModel {
 
   /** Host-side calls (the entailment judge) narrow the same destination to thinking off and a short reply; they never widen anything. */
   async complete(messages: GeneralMessage[], tools: GeneralToolDefinition[], signal: AbortSignal,
-    overrides?: { thinking?: "disabled"; maxOutputTokens?: number; purpose?: string }): Promise<ProviderResult> {
+    overrides?: { thinking?: "disabled"; maxOutputTokens?: number; purpose?: string; trailingTurnMessage?: boolean }): Promise<ProviderResult> {
     const thinking = overrides?.thinking ?? this.config.thinking, maxOutputTokens = Math.min(this.config.maxOutputTokens, overrides?.maxOutputTokens ?? this.config.maxOutputTokens);
+    const anthropic = this.config.api === "anthropic_messages";
+    // Refused before any body exists, so never dispatched: the Anthropic model answers `disabled` thinking with HTTP 400.
+    if (anthropic && thinking === "disabled") throw new Error("private_model_thinking_unsupported");
     const openai = this.config.api === "openai", openaiShape = openai || this.config.api === "openai_responses";
     // An OpenAI-compatible server rejects an empty `tools` array, so a tool-less call (the entailment judge) omits the tool fields.
     // The OpenAI shape uses max_completion_tokens and top-level reasoning_effort only; vLLM-only fields never leave for a cloud API.
     // The Responses shape sends non-strict function tools (its default is strict), an explicit effort and no stored state.
     // The owned vLLM shape salts the server's prefix cache per job when configured (`cache_salt`, 1 to 1,024 characters).
-    const body = this.config.api === "openai_responses"
+    // The Anthropic shape sends layout 2's trailing guidance as a system message (`trailingTurnMessage`); every other
+    // shape ignores that option, so their bodies are unchanged.
+    const body = anthropic
+      ? anthropicBody({ model: this.config.model, maxOutputTokens, messages, tools, breakpoints: this.config.promptCaching !== undefined,
+        trailingTurnMessage: overrides?.trailingTurnMessage === true })
+      : this.config.api === "openai_responses"
       ? canonical({ model: this.config.model, input: responsesInput(messages, this.config.promptCaching !== undefined),
         ...(this.config.promptCaching ? { prompt_cache_options: { mode: "explicit" } } : {}),
         ...(tools.length ? { tools: tools.map(tool => ({ type: "function", name: tool.function.name, description: tool.function.description,
@@ -293,7 +309,7 @@ export class PrivateAgentModel {
     const started = performance.now();
     const result = await this.broker.request({ jobId: this.jobId, contextId: this.contextId, destinationId: this.config.destinationId,
       purpose: overrides?.purpose ?? "agent reasoning and tool selection", method: "POST", body, maxFeeMicrousd: reservation, signal }, bytes => {
-      decoded = decodeReply(this.config.api, bytes);
+      decoded = decodeReply(this.config.api, bytes, this.config.model);
       const cached = decoded.cachedTokens;
       // A usage block reporting no prompt tokens for a non-empty body is a provider reporting failure (seen once in a replay
       // chain, where the next turn's cache hit proved the call was processed); it must not settle as a free call.
@@ -314,7 +330,8 @@ export class PrivateAgentModel {
       servedModel: decoded.model,
       usage: { inputTokens: decoded.promptTokens, outputTokens: decoded.completionTokens,
         totalTokens: decoded.promptTokens + decoded.completionTokens,
-        cacheReadTokens: decoded.cachedTokens, cacheWriteTokens: decoded.cacheWriteTokens },
+        cacheReadTokens: decoded.cachedTokens, cacheWriteTokens: decoded.cacheWriteTokens,
+        ...(decoded.thinkingTokens !== undefined ? { thinkingTokens: decoded.thinkingTokens } : {}) },
       costUsd: (result.receipt.feeMicrousd ?? 0) / 1000000, durationMs: performance.now() - started };
   }
 }

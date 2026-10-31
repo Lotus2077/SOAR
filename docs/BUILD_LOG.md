@@ -26682,3 +26682,25 @@ Paid exposure: USD 0 new; settled calibration total remains USD 1.151653. No mod
 Next gate: Owner chooses restoration of the original tier or preparation of the new-model migration design. Preserve the existing frozen-task separation and do not open fresh-task gold while resolving this choice.
 
 References: BL-20261031-1556-replacement-endpoint-preflight-blocked, BL-20261030-0445-h5-cloud-provider-claude, BL-20261022-0834-phase4-division-of-labour-design, docs/PLAN.md sections 4 and 5.
+
+### BL-20261031-1604-replacement-chat-endpoint-answers -- 2026-10-31 -- Owner-requested direct chat test completes; normal reply content contains reasoning text
+
+Status: `Verified`
+
+Scope or hypothesis: Answer the owner's explicit question whether the supplied chat-completions endpoint works, independently of whether it satisfies H4's serving qualification.
+
+Decisions: Use the advertised qwen3.8-flash-next identifier for a bounded synthetic connectivity test only. Read the model list and send the fixed instruction to reply with OK, without tools, task data or credentials. Preserve the initial 16-token limit result and allow one 128-token follow-up to establish normal completion. Do not change SOAR's configured model or admit any H4/H5 run.
+
+Changes: This verification record and ignored fixed-field test receipts. No endpoint address, raw reply, credential, model setting or runtime change is committed.
+
+Evidence: The models route returned HTTP 200 and advertised qwen3.8-flash-next. The first POST returned HTTP 200 in 762 ms with one choice, 57 prompt tokens and 16 completion tokens, stopping at the token limit. The follow-up returned HTTP 200 in 961 ms with one choice, the same model identifier, 57 prompt tokens and 27 completion tokens, and finish_reason=stop. Its normal message content ended with OK but also contained reasoning text and a closing think tag; no separate nonempty reasoning_content was reported.
+
+Failures or blockers: The endpoint is responsive, but the exact-only-OK formatting instruction was not cleanly satisfied because reasoning text appeared in ordinary reply content. This observation needs compatibility investigation before adopting the new model. The earlier missing idle/version metadata, changed serving identity and outstanding Console reconciliation remain unresolved H4 gates.
+
+Limitations and non-claims: Two short synthetic non-streaming replies demonstrate basic chat functionality only. They do not verify tool calls, streaming, sustained load, the Heavy profile, model weights, server flags, task quality or H4 qualification. The earlier metadata preflight failure remains valid and is not rewritten.
+
+Paid exposure: No paid cloud request. Two inference requests used the owner's declared zero-fee local endpoint; 114 prompt and 43 completion tokens in total. Prior settled Claude spend remains USD 1.151653.
+
+Next gate: Resolve the local-model evaluation choice and qualify its actual response/operational contracts before H4; complete the existing Console reconciliation separately.
+
+References: BL-20261031-1600-local-model-change-path-pending, BL-20261031-1556-replacement-endpoint-preflight-blocked, BL-20261031-1342-claude-all-cloud-observed.

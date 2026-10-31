@@ -55,6 +55,7 @@ const fixedReasons: Record<string, string> = {
   fee_cap_reached: "The task reached its cloud fee cap before the next request; nothing more was sent. Saved progress is retained; this task cannot resume.",
   model_unavailable: "The local model could not be reached after the permitted attempts. Nothing is uncertain; resume when the model is back.",
   public_model_unavailable: "The local model could not be reached during public retrieval after the permitted attempts. Nothing is uncertain; resume when the model is back.",
+  cleanup_in_progress: "The task remains cancelled while its interrupted execution workspace is cleaned up. No request will be replayed.",
   cleanup_blocked: "Cancellation is recorded, but interrupted execution cleanup could not be confirmed. No request will be replayed.",
   consultation_pending: "Progress saved. Review the exact consultation packet before deciding whether to send it.",
   consultation_ready: "Your consultation decision is saved. Resume continues within the original task allowance.",
@@ -454,8 +455,12 @@ export class GeneralTaskController {
     const models = events.filter(event => event.type === "model_started").length + consultationModelCalls(this.runtime, id), tools = events.filter(event => event.type === "tool_started").length;
     const ended = events.filter(event => event.type === "run_ended");
     const contextId = this.contextId(id), claim = contextId ? this.runtime.runClaim(contextId) : undefined;
-    const cleanupConfirmed = !active && (!claim || claim.state === "released") &&
-      (ended.at(-1)?.cleanupConfirmed === true || events.some(event => event.type === "desktop_cleanup_confirmed"));
+    // A released claim is itself durable host confirmation from releaseRun(true).
+    // This also recovers older cancellations interrupted before their separate
+    // desktop_cleanup_confirmed event. Fixtures/older runs without a claim need
+    // their explicit event evidence instead.
+    const cleanupConfirmed = !active && (claim ? claim.state === "released" :
+      ended.at(-1)?.cleanupConfirmed === true || events.some(event => event.type === "desktop_cleanup_confirmed"));
     const uncertain = this.uncertain(events, id), expired = record.startedAt !== null && Date.now() - record.startedAt >= this.budget(record).elapsedMs;
     const sizeStopped = events.some(event => modelRequestSizeStop(events, event)), feeStopped = events.some(event => modelRequestFeeStop(events, event));
     const progressStopped = this.progressStop(events, id);
@@ -464,7 +469,7 @@ export class GeneralTaskController {
     const canResume = !this.closing && !active && (record.status === "paused" || record.status === "incomplete" && (record.reason === "interrupted" || record.reason === MODEL_UNAVAILABLE_STOP || record.reason === `public_${MODEL_UNAVAILABLE_STOP}`)) &&
       (finalising || models < this.budget(record).modelCalls && tools < this.budget(record).toolCalls && !expired) && !uncertain && !sizeStopped && !feeStopped && !progressStopped && consultation?.status !== "pending" &&
       !(consultation?.status === "approved" && models > this.budget(record).modelCalls - 2);
-    const reason = !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : feeStopped ? MODEL_FEE_CAP_STOP : progressStopped ? EXECUTION_PROGRESS_STOP : expired ? "deadline" :
+    const reason = record.status === "cancelled" && cleanupConfirmed ? "cancelled" : !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : feeStopped ? MODEL_FEE_CAP_STOP : progressStopped ? EXECUTION_PROGRESS_STOP : expired ? "deadline" :
       consultation?.status === "pending" ? "consultation_pending" : record.reason : record.reason;
     const dispatches = this.runtime.dispatches(id);
     const artifacts = snapshot.filter(file => GeneralTaskArtifactRefSchema.safeParse({ id, path: file.path, sha256: file.sha256 }).success)
@@ -495,7 +500,10 @@ export class GeneralTaskController {
       elapsedMs: Math.min(this.budget(record).elapsedMs, record.startedAt === null ? 0 : record.version === 3 ?
         (["queued", "running", "paused"].includes(record.status) || record.reason === "interrupted" ? Date.now() : record.updatedAt) - record.startedAt :
         active ? Date.now() - record.startedAt : ended.reduce((sum, event) => sum + Number(event.elapsedMs ?? 0), 0)),
-      checks: structuredClone(record.checks), ...(record.entailment ? { entailment: structuredClone(record.entailment) } : {}), cleanupConfirmed, independentAcceptance: "not_evaluated", canResume,
+      checks: structuredClone(record.checks), ...(record.entailment ? { entailment: structuredClone(record.entailment) } : {}), cleanupConfirmed,
+      canRetryCleanup: !this.closing && record.status === "cancelled" && !active && claim !== undefined && claim.state !== "released",
+      cleanupInProgress: record.status === "cancelled" && active,
+      independentAcceptance: "not_evaluated", canResume,
       ...(record.profile ? { profile: record.profile } : {}), ...projectAgentText(events, contextId),
       ...(record.status === "submitted" ? { reportedIssues: reportedIssues(events, contextId, record.entailment) } : {}),
       events: events.map((event, i) => ({ sequence: i + 1, type: String(event.type), ...(actionDetail(events, event) ? { detail: actionDetail(events, event) } : {}),
@@ -616,36 +624,57 @@ export class GeneralTaskController {
     active.pauseRequested = true; active.session?.pause(); return this.get(id);
   }
   cancel(id: string): GeneralTaskSnapshot {
-    const record = this.record(id); if (record.status === "submitted" || record.status === "cancelled") throw new Error("general_task_terminal");
+    const record = this.record(id); if (record.status === "submitted") throw new Error("general_task_terminal");
     const active = this.active.get(id);
+    // Repeated cancellation during cleanup is idempotent. A failed cleanup can
+    // retry only its existing context; it never re-enters the session runner.
+    if (record.status === "cancelled") {
+      if (active) return this.get(id);
+      if (!this.get(id).canRetryCleanup) throw new Error("general_task_terminal");
+    }
+    let cleanupScheduled = false;
     if (active) { active.cancelRequested = true; active.abort.abort(); active.session?.cancel(); }
     else {
-      try { this.runtime.cancel(id); } catch (error) { if (!(error instanceof Error) || error.message !== "private_agent_job_missing") throw error; }
+      if (record.status !== "cancelled") {
+        try { this.runtime.cancel(id); } catch (error) { if (!(error instanceof Error) || error.message !== "private_agent_job_missing") throw error; }
+      }
       const contextId = this.contextId(id), claim = contextId ? this.runtime.runClaim(contextId) : undefined;
       if (claim && claim.state !== "released") {
         const cleanup: Active = { promise: Promise.resolve(), abort: new AbortController(), pauseRequested: false, cancelRequested: true };
         this.active.set(id, cleanup); this.trackActivity();
+        cleanupScheduled = true;
         // Schedule after the cancelled projection is durably saved below.
         cleanup.promise = Promise.resolve().then(() => this.cleanupInterrupted(id, contextId!)).finally(() => { this.active.delete(id); this.trackActivity(); this.publish(id); });
       }
     }
-    record.status = "cancelled"; record.reason = "cancelled"; this.save(record); this.publish(id); return this.get(id);
+    record.status = "cancelled"; record.reason = cleanupScheduled ? "cleanup_in_progress" : "cancelled"; this.save(record); this.publish(id); return this.get(id);
   }
   private async cleanupInterrupted(id: string, contextId: string): Promise<void> {
     const previous = this.runtime.runClaim(contextId); let owner: string | undefined;
     try {
       if (!previous || previous.state === "released") return;
-      let confirmedDead = false;
-      try { process.kill(previous.pid, 0); }
-      catch (error) { confirmedDead = (error as NodeJS.ErrnoException).code === "ESRCH"; }
-      if (!confirmedDead) throw new Error("general_task_cleanup_owner_unconfirmed");
+      // cleanup_required is the previous owner's explicit release after a
+      // failed cleanup, including one in this process. An active claim still
+      // requires positive proof that its owner died; EPERM is not that proof.
+      if (previous.state === "active") {
+        let confirmedDead = false;
+        try { process.kill(previous.pid, 0); }
+        catch (error) { confirmedDead = (error as NodeJS.ErrnoException).code === "ESRCH"; }
+        if (!confirmedDead) throw new Error("general_task_cleanup_owner_unconfirmed");
+      }
       const nextOwner = randomUUID();
       const claim = this.runtime.acquireRecovery(contextId, previous.ownerId, nextOwner); owner = nextOwner;
       // Existing helper: one exact desktop context, at most four bounded 20s
       // Docker calls, no model/tool dispatch and no changes to request outcomes.
       await DockerSandbox.cleanupOwnedContext({ endpoint: claim.endpoint, jobId: id, contextId });
-      this.runtime.releaseRun(contextId, owner, true); owner = undefined;
-      this.runtime.append(id, { type: "desktop_cleanup_confirmed", contextId });
+      // Commit the claim release, confirmation and desktop projection together.
+      // Keep ownership until commit so an append/save failure remains retryable.
+      this.runtime.atomic(() => {
+        this.runtime.releaseRun(contextId, owner!, true);
+        this.runtime.append(id, { type: "desktop_cleanup_confirmed", contextId });
+        const record = this.record(id); record.reason = "cancelled"; this.save(record);
+      });
+      owner = undefined;
     } catch {
       if (owner) this.runtime.releaseRun(contextId, owner, false);
       const record = this.record(id); record.reason = "cleanup_blocked"; this.save(record);

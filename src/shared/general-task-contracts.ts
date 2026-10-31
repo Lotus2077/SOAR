@@ -118,6 +118,10 @@ export interface GeneralTaskSnapshot {
   /** Host-derived facts that qualify a submission: a failed finish before the final one, or judged claims that were not supported. */
   reportedIssues?: string[];
   cleanupConfirmed: boolean;
+  /** A cancelled task can retry cleanup of its original context without resuming work. */
+  canRetryCleanup?: boolean;
+  /** Includes cancellation still waiting for its active session to stop. */
+  cleanupInProgress?: boolean;
   independentAcceptance: "not_evaluated";
   /** `detail` is a one-line, untrusted description of the agent's action derived from its own tool call. */
   events: { sequence: number; type: string; summary: string; detail?: string }[];

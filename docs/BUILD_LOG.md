@@ -26366,3 +26366,59 @@ BL-20261030-0745-claude-cloud-adapter-approved,
 BL-20261030-0445-h5-cloud-provider-claude,
 BL-20261022-1156-h1-prompt-caching-implemented,
 BL-20261028-0420-h4-live-batch1-box-failure.
+
+### BL-20261031-1258-recovery-metrics-calibration-authority -- 2026-10-31 -- Owner orders recovery, accounting corrections and the Claude/H4 calibration sequence
+
+Status: `Approved`
+
+Scope or hypothesis: Record the owner's current instruction and availability before the requested work reaches the existing live gates. Preserve the Phase 4 task separation and public/synthetic-only boundary.
+
+Decisions:
+
+- The owner instructed: "do the following jobs in sequence: cleanup recovery, accurate metrics/status documentation, Claude live calibration and H4 verification before H5".
+- Asked to confirm the approved Console prerequisites (prepaid credit at least USD 35.10, model rate limits at least 100,000 input and 20,000 output tokens per minute, global geography, no competing organisation usage during reconciliation) and device availability after the fixes, the owner answered: "All confirmed; device available after fixes".
+- This supersedes the earlier operational hold for the requested calibration and second H4 batch after the fixes pass. Use the approved Claude design, existing sub-line caps, and order: shape probe, all-cloud exposed r3 calibration, charge reconciliation, then three exposed H4 loops including the split sample that is calibration step 2. H5 stays gated on those results and its separate batch-start authority.
+- The necessary cleanup/accounting corrections may change the source freeze. Record the final exact commit and runtime digest before any live run and use that same digest across every H4 stage. Keep the selection rule, research protocol, frozen tasks, checks, privacy boundary and decision rules unchanged.
+- Local integration includes the already approved Claude implementation and operational records from the two pending upstream branches. This local integration does not mean either pull request is merged on main or live-verified.
+- The calibration keeps USD 0.30 for the shape probe, USD 3.00 for the all-cloud exposed r3 run and USD 0.60 for the split loop. Only the design's one additional new-job probe after missing thinking evidence is permitted without a new decision. Record every failure and unsettled receipt. Do not proceed through a failed calibration gate.
+
+Changes: This approval entry. Runtime fixes and accounting changes have separate implementation evidence below or in subsequent entries.
+
+Evidence: The owner's two messages in this chat; the approved design and its implementation entries; current main and both upstream pull-request checks read without model or device calls. Anthropic's official Sonnet 5.5 overview was checked on 2026-10-31 and matches the approved USD 2 input, 10 output, 0.10 cache-read and 2.50 five-minute cache-write prices per million tokens.
+
+Failures or blockers: The reviewed Claude Keychain item was not found by a trusted metadata-only lookup. The owner was given the reviewed helper's hidden-input store command. A credential check and the final pins still precede live calls.
+
+Limitations and non-claims: Console conditions are owner-attested. This authorizes scoped work and a window after the fixes; it proves no model behaviour, H4 result, H5 result, private-data readiness or release. The fresh-task gold and authoring transcripts remain unread by this session.
+
+Paid exposure: USD 0 in this work so far; the approved calibration caps total USD 3.90, plus only the conditionally permitted USD 0.30 probe repeat inside the existing line remainder.
+
+Next gate: Verify cleanup recovery, then accounting/status corrections, establish final pins and credential readiness, and follow the calibration gates in order.
+
+References: BL-20261028-0420-h4-live-batch1-box-failure, BL-20261030-0745-claude-cloud-adapter-approved, BL-20261030-0850-claude-cloud-adapter-implemented, BL-20261027-1526-harness-session-task-exposure, https://platform.claude.com/docs/en/models/sonnet-5-5/overview.
+
+### BL-20261031-1259-cancelled-cleanup-recovery -- 2026-10-31 -- Cancelled tasks retry interrupted cleanup without replay and regain saved artifacts
+
+Status: `Implemented`
+
+Scope or hypothesis: A temporary Docker cleanup failure after cancellation left saved checkpoints inaccessible because a cancelled task could neither retry cleanup nor resume. A separate release-before-event crash window could leave a released claim without the confirmation event.
+
+Decisions:
+
+- Retry cleanup through the existing cancellation IPC on the task's original context; keep the task cancelled and never construct another execution session or replay a dispatch.
+- An active claim still requires positive dead-owner evidence and owner compare-and-set. A cleanup_required claim is the previous owner's explicit release and may be recovered even while that process lives. Uncertain or live active owners are refused.
+- Commit the claim release, confirmation event and desktop reason atomically. A durable released claim also confirms cleanup for older records whose event was lost between transactions.
+- Project optional host-derived canRetryCleanup and cleanupInProgress fields; expose a Retry cleanup action and retain artifact access restrictions until cleanup is confirmed. No persisted schema migration or new dispatch permission is introduced.
+
+Changes: General task controller, shared snapshot interface, desktop cleanup action, focused controller and renderer regressions.
+
+Evidence: Before correction, an isolated reproduction showed cancelled/cleanup_blocked, general_task_terminal on retries after Docker recovery and restart, and intact but unexportable checkpoints. The corrected exact source snapshot passed 138 tests in two focused files under Node 22.22.2, both typechecks and diff whitespace checks. Cases cover same-process and restarted retries, no prior positive run-ended evidence, atomic confirmation rollback, legacy released records, live/EPERM owner refusal, competing cleanup, duplicate clicks, unchanged dispatch receipts and preview/export gating. An independent authority review identified the atomic gap before it was fixed. The Desktop attempt passed the controller suite but its renderer worker startup timed out; the complete focused rerun outside iCloud passed.
+
+Failures or blockers: No remaining failure in the focused rerun. Full validation on the final integrated source follows the accounting changes.
+
+Limitations and non-claims: Docker failures and process-owner states are mocked. These checks prove bounded cleanup recovery and no replay in those scenarios; no actual interrupted owner task was manipulated, no live model was called and no release is claimed.
+
+Paid exposure: USD 0.
+
+Next gate: Accounting and current-status corrections, then full validation before live calibration.
+
+References: BL-20261031-1258-recovery-metrics-calibration-authority, BL-20261007-0530-pr-c-recoverable-dispatch-implemented, src/main/general-tasks/controller.ts, tests/unit/general-task-controller.test.ts, tests/unit/app-general-task.test.tsx.

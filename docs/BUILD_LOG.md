@@ -26583,3 +26583,30 @@ Paid exposure: USD 0.023895 settled so far. No extra request for this adjudicati
 Next gate: Re-pin the unchanged runtime on a clean continuation commit, execute the exposed-r3 all-cloud calibration, then obtain actual Console reconciliation before H4.
 
 References: BL-20261031-1325-claude-probe-live-gate-blocked, BL-20261031-1318-claude-calibration-window, BL-20261030-0620-claude-cloud-adapter-design.
+
+### BL-20261031-1342-claude-all-cloud-observed -- 2026-10-31 -- Exposed Claude all-cloud run submits within its cap; Console reconciliation still gates H4
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the observed transport, usage and cost measurements of calibration step 1 on the exposed r3 task. This entry does not accept the complete step-1 gate or the task's quality.
+
+Decisions:
+
+- Retain the run on commit b0dd6502be8f9df7a875d8f04e018b83bbe7374d with unchanged runtime a142fadc3a810d6b3d9aff512b1a5bab71763cd990ecfb04d5db446337d51cdf. The initial freeze, closed-source result, task, qualified image and synthetic authority bindings match their pins.
+- The run submitted, with independent acceptance pending. Every one of its 79 cloud replies and 34 zero-fee local entailment dispatches settled. There were no failed or unknown dispatches, retries, 429/529 responses, interrupted responses, output cutoffs, empty end-turn replies or no-action nudges.
+- Assess the original approved criteria. Submission is not an additional step-1 pass criterion: the earlier baseline exhausted its bounded allowance and nevertheless passed its cost/cache calibration. The ignored operator has an extra exit-zero guard, which had no effect here because this run actually submitted. The scope clarification was recorded before root inspected the outcome, after the result file already existed; it is not represented as a pre-completion record.
+- An independent semantic review of all 79 retained visible replies found no guidance refusal, injection objection or statement of intent to disregard the host guidance. Keep actual Console reconciliation pending. No H4 request or acceptance marker follows this entry alone. Preserve both original shape-probe failures and their separate owner adjudication.
+
+Changes: One sanitized calibration registry row and the README's current Claude/H5 status. No runtime, model, prompt, cap, selection rule or credential change.
+
+Evidence: The cloud writer used 1,908,357 input tokens, including 1,650,344 cache reads and 235,805 cache writes, plus 32,876 output tokens and 13,279 reported thinking tokens. Settled cloud fees are USD 1.127758; cache reads are 86.48 percent of input. Wall time is 525.522 seconds, including the local entailment pass. Frozen-rate accounting matches each cloud receipt. The run's 5,071,950 recovered request-body bytes and the baseline's 1,282,609 tokens / 5,192,938 bytes give whole-run token-density ratio f=1.5233633861; the first-call ratio is 1.8723964201. The approved projection is USD 2.1214351715, including the USD 0.51 late reservation, below USD 3.00 without a fee-cap stop. Start-to-start gaps are 3.791 to 24.059 seconds (median 5.826). Independent counts-only analysis agrees. The result-file SHA-256 is b5334764176e1ec92f151d8f256710d9e462321a916cd67abf7e6ec2d574f463.
+
+Failures or blockers: The owner's actual Console charge is not yet recorded. It must agree with step-0-plus-step-1 settlement USD 1.151653 within USD 0.05, with no competing organisation usage. Phrase checks and the independent semantic review find no visible guidance refusal; this does not assert compliance with every instruction or quality requirement.
+
+Limitations and non-claims: Host checks 2/2 and local entailment (27 supported, 7 partial) are diagnostics, not independent task acceptance. Positive thinking on 67 of 78 tool rounds (85.90 percent) is a proposed diagnostic, not a new automatic numerical gate. Cache-after-nudge behaviour was not exercised because there were no nudges. Raw service-tier/geography fields were not retained for this run; settlement passed the decoder's model and billable-setting checks, which does not prove every response explicitly returned standard/global metadata. A submitted exposed calibration is not an H4 loop, a fresh H5 result, private-data qualification or a release.
+
+Paid exposure: USD 1.127758 for this run; USD 1.151653 settled in this work including both probes. No model request is running at entry creation. Step 2 remains capped at USD 0.60.
+
+Next gate: Obtain the owner's actual Console reading; record root step-1 acceptance only if every approved condition holds, then prepare a clean pinned H4 continuation inside the existing window. H5 remains unstarted.
+
+References: BL-20261031-1328-composite-probe-owner-adjudication, BL-20261031-1318-claude-calibration-window, BL-20261030-0620-claude-cloud-adapter-design, BL-20261022-1156-h1-prompt-caching-implemented.

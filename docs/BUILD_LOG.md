@@ -27422,3 +27422,51 @@ Paid exposure: USD 0 qualification. No additional paid calls. Existing USD 0.60 
 Next gate: Execute this authority once, review the complete combined record, and append acceptance or the exact failure. Only accepted qualification permits the three approved H4 loops.
 
 References: BL-20261031-2158-h4-h5-goal-continuation, docs/plans/PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-2208-flash-qualification-accepted -- 2026-10-31 -- Accept the bounded combined Flash-Next qualification
+
+Status: `Verified`
+
+Scope or hypothesis: Review the original twelve passed fixtures, separately adjudicated diagnostic and completed ten-request continuation as the named amended compatibility qualification. This accepts only the pinned deployment/roles under that amendment, not the failed original batch or model/task quality.
+
+Decisions: Accept the combined qualification for the next approved H4 gate. Preserve original Q13 UNKNOWN and its unresolved cause, both historical false heading predicates, the planned cancellation's distinct UNKNOWN/cancelled receipt and the explicit omission of duplicate arithmetic SSE comparison Q22. No request is replayed, substituted after seeing a tail failure or relabelled as settled.
+
+Changes: The released continuation completed all ten frozen requests and exited zero. Critic arithmetic review, all four production judge verdicts, large-context anchors, cancellation/retirement, fresh-job recovery, thinking-off JSON and final SSE passed their intended checks. Nine healthy zero-running/zero-waiting observations cover the initial, post-cancellation and final phases, with three samples twenty seconds apart in each phase. Append an independently checked combined report and a separate root acceptance record.
+
+Evidence: Independent read-only review reports 252 checks true, no pending items and no discrepancies. Combined review SHA-256 69cc138a95b444d13e7cff0106a0c179c5367569ef43e90da49ca119add84438; reviewer 9901b28b475cc2ed2b5992d82d253daff332539f33e4e61078a09de4b3beb111; tail result 0102c556e315e310667e35922309d1559332ddcfc0d56287614eb16f472a1567; closed tail database 27f1df759ee50059ff3ab4cd44fd59497f998479098c7466d49a2f056d3fafa5; root acceptance ab782436437cd305428f19188e11f7a24eb6135cfee607d0a1323f949f1a2301. Actual large-context prompt count is 122439 with the full 16384-token output reservation; its settled output used 104 tokens and returned all three expected anchors. All settled prompt usages equal exact precommit proofs. All eight role records retain the qualified identity, including the independently loaded critic and current local judge.
+
+The aggregate is exactly 24 generation attempts: 22 settled zero-fee receipts, original Q13 UNKNOWN and expected Q20 UNKNOWN/cancelled. Exact admitted prompt tokens total 248485; full output reservations total 130816; prompt envelopes total 596096. Every dispatch and final idle proof is inside the unchanged original 90-minute qualification clock. Original source, driver, database, evidence and consumed authorities remain unchanged.
+
+Failures or blockers: No remaining compatibility-gate blocker under the recorded amendment. Original Q13's response remains unavailable and its cause unproven. The first startup failure and recovery limitations remain historical evidence.
+
+Limitations and non-claims: Qualification exercises a 122439-token prompt, not every input up to the configured 262144-token context. The omitted same-prompt arithmetic transport comparison remains disclosed. This is bounded functional compatibility, not sustained stability, research quality, completed H4/H5 or release. New H4 and H5 runs are still unstarted at entry creation.
+
+Paid exposure: USD 0 qualification; no new paid generation. Historical Claude total USD 1.151653 is unchanged; H4 split remains capped at USD 0.60 and H5 at USD 21.60.
+
+Next gate: Freeze the reviewed H4 operator against a clean commit with applicable CI passing, bind accepted qualification and historical Claude evidence, then run all three approved loops under the current window.
+
+References: BL-20261031-2205-continuation-admitted, BL-20261031-2158-h4-h5-goal-continuation, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md, docs/plans/PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md.
+
+### BL-20261031-2208-h4-admission-prepared -- 2026-10-31 -- Bind the approved three-loop H4 sequence after qualification
+
+Status: `Approved`
+
+Scope or hypothesis: Continue the owner's instructions to complete all three H4 loops, retaining the USD 0.60 split-calibration cap, and the ongoing H4/H5 goal. Qualification is accepted by BL-20261031-2208-flash-qualification-accepted. This entry fixes the next H4 launch, conditional on final clean-commit/CI and current preflight checks; no H5 run starts here.
+
+Decisions: Run k2-qbr-deck-loop-local, r3-grid-batteries-loop-local and r3-grid-batteries-loop-split in that order. Require unchanged runtime/protocol/deployment/token policy and all local role identities, including critic and judge. Split sample a alone performs Claude planning/synthesis; sample b and repair reuse its packet. Stop on any failed gate, unresolved receipt, source/pin drift or owner-window expiry; no automatic failed reruns. Preserve USD 0.60 total split allowance and existing historical Claude acceptance rather than repeating step 0/1.
+
+Changes: The reviewed H4 operator now explicitly binds accepted historical cloud account/version and uses a durable helper-anchored single-use authority claim. Its ten assets are frozen in the private preparation checklist; root will bind exact final commit and qualification-acceptance hash after this documentation commit and applicable CI. Prepare and execute with explicit local configuration and current USER/HOME for the session-local Keychain wrapper. Host AC/open-lid, qualified tool image, owned serving identity and fresh metadata-only idle checks remain required before execution.
+
+Evidence: H4 operator SHA-256 f76d54d232b0d54621855e3ef18e4a2d1ecb123693a7780535a7240914d924d2; activation helper 375b366762fbe94d5b1df2c575dbfdb53d6dfc0080e7304a6b08b751a2feee67; queue 65955e2091dda4f95bca462ec8f2c84a76b97a84e6d16f268fc1d2731328eab6. Seven new TypeScript tests, nine gate tests, strict TypeScript and independent review passed. Root acceptance ab782436437cd305428f19188e11f7a24eb6135cfee607d0a1323f949f1a2301 binds the accepted qualification. Historical Claude account/key free check returned HTTP 200; prior owner Console, no-competing-usage and availability confirmations remain in force for the unchanged window.
+
+Independent H5 preparation is still inactive. Its queue now points only to the preserved input directory; all eighteen row identities, hashes, flags and order remain unchanged (queue SHA-256 0529ca0fb98197c4871c1e7bf616012c971cb87db3762b09695096040b92c002). Sixteen TypeScript and fifteen Python tests plus strict TypeScript pass after that path-only fixture update. Author, implementer and newly created independent scorer sessions are distinct and durably recorded privately; no fresh-task inputs, gold or candidate contents were read by the implementing sessions.
+
+Failures or blockers: H4 authority/pins and final-commit CI must be completed before execution. Step-2 semantic review still requires a usable plan and cited argument, beyond structural citation presence. H5 requires all three coherent H4 loops and separate batch-start evidence under its existing launch permission.
+
+Limitations and non-claims: The wider new-start cutoff remains 2026-11-01 01:19:14.660899 UTC. A started row retains its normal frozen bounds; no new row starts after the cutoff. No time/cap extension, service tuning, quality acceptance or release is granted. H4 remains unstarted at entry creation.
+
+Paid exposure: At most USD 0.60 for the embedded split calibration; local roles have declared zero inference fees. The separately authorized H5 ceiling remains USD 21.60, unused here.
+
+Next gate: Confirm final clean commit/CI, prepare immutable H4 authority/pins and launch once. Review each mechanical gate and the split semantic evidence before accepting H4 and preparing H5.
+
+References: BL-20261031-1759-flash-next-sequence-owner-approved, BL-20261031-2158-h4-h5-goal-continuation, BL-20261031-2208-flash-qualification-accepted, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md sections 5-6.

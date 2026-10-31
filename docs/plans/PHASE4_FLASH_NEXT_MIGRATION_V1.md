@@ -1,12 +1,12 @@
 # Phase 4 Flash-Next migration plan
 
-Status: **Approved sequence; shared admission integration Verified; qualification stopped at Q13; approved diagnostic completed; deployment not yet qualified**. Prepared 2026-11-01
+Status: **Approved sequence; shared admission and amended qualification Verified; three-loop H4 launch preparation approved; H5 pending H4**. Prepared 2026-11-01
 (Asia/Shanghai). Authority: BL-20261031-1759-flash-next-sequence-owner-approved.
 
 Updated after owner-authorized inventory, the failed first startup and the
 approved instrumented retry on 2026-11-01. The retry candidate now serves healthy
 owned API/model metadata; q4t is stopped with its verified recovery assets
-retained. Neither deployment has passed the retained Heavy qualification.
+retained. The retry deployment has now passed the amended bounded qualification; q4t remains unqualified.
 The owner selected the suitable-backend path, approved the bounded qualification
 and H4 sequence, and separately granted H5 launch permission. The owner then
 reserved service modifications for himself, then conditionally authorized a
@@ -50,17 +50,21 @@ approved one-request diagnostic then settled at USD 0: native/SSE/accounting and
 385-token prompt parity passed, with 641 output tokens. Both heading predicates
 failed because the exact section titles were plain paragraphs; the prompt and
 design do not explicitly require heading syntax (BL-20261031-2141-q13-diagnostic-result).
-Original Q13 remains UNKNOWN, its cause unresolved and qualification unaccepted.
-Aggregate use is 14 attempts with 10 unused dispatch slots, while all 11 original
-remaining cases are still unattempted. Three post-diagnostic idle samples passed.
-No paid call, production-source change or service change occurred. The new H4
-loops and H5 remain held; there is no automatic continuation or retry.
-The ongoing H4/H5 instruction is recorded in BL-20261031-2158. The named
-[qualification continuation](PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md)
-passed offline and independent review and is activated under BL-20261031-2205
-for one execution within the original caps and deadline. The new diagnostic
-passes the appended literal section adjudication; qualification acceptance
-remains pending and all historical negative results are preserved.
+Original Q13 remains UNKNOWN with its cause unresolved. The approved literal
+section adjudication accepts only the new diagnostic, preserving both old false
+predicates. The separately reviewed ten-request continuation then completed
+critic, all four judge cases, a 122439-token large prompt, cancellation/retirement,
+fresh recovery and JSON/SSE checks. Nine idle samples passed. Independent review
+passed 252 checks; root accepted the combined evidence in BL-20261031-2208.
+Combined allocation is exactly 24 requests, 248485 exact prompt tokens and
+130816 reserved output tokens, at USD 0. Twenty-two receipts settled; original
+Q13 and the planned cancellation retain their distinct UNKNOWN statuses. Q22's
+duplicate arithmetic transport comparison is explicitly omitted. No production
+source or serving settings changed. This qualifies bounded compatibility, not
+quality or sustained stability. The three H4 loops are approved for the next
+launch after final clean-commit/CI preflight; H5 remains conditional on H4.
+See the [continuation evidence](PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md)
+and BL-20261031-2208-h4-admission-prepared.
 
 ## 1. Evidence and remaining uncertainty
 

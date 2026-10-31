@@ -1,6 +1,6 @@
 # Flash-Next qualification continuation v1
 
-Status: **Approved; reviewed operator activated for one bounded execution; qualification acceptance pending**.
+Status: **Verified; amended combined qualification accepted in BL-20261031-2208-flash-qualification-accepted**.
 Authority and limits: BL-20261031-2158-h4-h5-goal-continuation and BL-20261031-2205-continuation-admitted.
 Prepared 2026-11-01 (Asia/Shanghai).
 
@@ -84,17 +84,32 @@ Q20 retains its actual planned cancellation receipt classification, including
 UNKNOWN/cancelled where produced, with no replay; prove idle before fresh-job Q21.
 No automatic retries, replacements, service tuning or fresh-task/gold access.
 
-The separate continuation operator passed nineteen focused tests, strict TypeScript and independent review. BL-20261031-2205 binds the released operator and exact authority for one execution. Qualification acceptance remains pending.
-The existing batch runner starts at Q01 with a new clock, so it must not be used
-unchanged. The reviewed separate operator enforces aggregate accounting, a one-shot claim and
-the original absolute deadline. If bounded execution no longer fits, stop; extending or resetting the clock
-requires an explicit amendment. A reviewed, frozen allocation and exact authority binding are required before
-any further generation. Qualification acceptance remains pending. All
-three H4 loops, their embedded split calibration and subsequent H5 gates remain
-unchanged; this continuation starts none of them.
+The separate continuation operator passed nineteen focused tests, strict
+TypeScript and independent review. BL-20261031-2205 binds the released operator
+and exact authority for its one execution. The original batch runner would
+restart at Q01 with a new clock, so it was not reused. The continuation retained
+aggregate accounting, a one-shot claim and the original absolute deadline.
+It completed within that deadline; its consumed authority cannot be reused.
+
+The combined qualification is accepted. All three H4 loops, their embedded
+split calibration and subsequent H5 gates remain unchanged; this continuation
+starts none of them.
 
 References: [migration plan, section 4](PHASE4_FLASH_NEXT_MIGRATION_V1.md#4-bounded-local-compatibility-qualification),
 BL-20261031-2114-flash-qualification-stopped,
 BL-20261031-2120-q13-diagnostic-prepared,
 BL-20261031-2137-q13-diagnostic-approved,
 BL-20261031-2141-q13-diagnostic-result.
+
+## Verified outcome
+
+The continuation exited zero: nine requests settled and planned cancellation Q20
+remained UNKNOWN/cancelled with its job retired. All nine metadata-only idle
+samples passed. Independent review passed 252 checks. Combined totals are 24
+attempts, 22 settled receipts, the preserved original Q13 UNKNOWN and planned
+Q20 UNKNOWN, 248485 exact prompt tokens and 130816 reserved output tokens, at
+USD 0. The large-context case used 122439 prompt tokens and returned all three
+anchors; this does not prove every input up to configured context 262144.
+Original false predicates and Q13 remain unchanged; Q22 is omitted as approved.
+The separate root acceptance permits the already-authorized H4 gate, not H4/H5
+quality acceptance or release. See BL-20261031-2208-flash-qualification-accepted.

@@ -604,14 +604,18 @@ prompt tokens and 641 output tokens. Both heading predicates failed because the
 exact required section titles were plain paragraphs; the production prompt and
 fixture design do not explicitly require Markdown heading syntax. This result
 characterizes the new diagnostic, not the missing original Q13 reply. Original
-Q13 remains UNKNOWN and qualification is not accepted.
+Q13 remains UNKNOWN; the new diagnostic later passes an appended literal-section adjudication without changing either historical heading verdict.
 
-Aggregate use is 14 attempts with 10 unused dispatch slots. All 11 original
-remaining qualification cases are still unattempted; the diagnostic did not
-complete one of those cases or authorize their execution. Three post-diagnostic
-metadata samples were healthy and idle. No new paid call, production-source
-change or service change occurred. Further allocation/adjudication is required;
-there is no automatic continuation or retry. The new H4 loops and H5 remain held.
+The approved ten-request continuation completed, and root accepted the combined
+qualification after 252 independent checks (BL-20261031-2208). The total is
+24 requests, 22 settled zero-fee receipts, original Q13 UNKNOWN and planned
+Q20 UNKNOWN/cancelled, 248485 exact prompt tokens and 130816 reserved output
+tokens. Critic, four judge verdicts, large-context anchors at 122439 prompt
+tokens, cancellation/idle recovery and JSON/SSE passed. Nine idle samples passed;
+Q22's duplicate arithmetic transport comparison is omitted as approved. This
+qualifies the pinned deployment's bounded compatibility, not task quality or
+full-context/stability coverage. The three H4 loops are approved for the next
+launch after clean-commit/CI preflight; H5 remains pending their acceptance.
 Heavy semantics and the remaining technical gates are unchanged.
 Historical Qwen3.8-27B results and the conditional R2 rule remain unchanged.
 The Claude step-0/1 Console reconciliation is now verified

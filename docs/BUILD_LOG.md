@@ -26654,3 +26654,31 @@ Paid exposure: USD 0; no model inference call occurred. Prior settled calibratio
 Next gate: Resolve the replacement server identity and obtain readable required serving/idleness metadata, then repeat a separately recorded bounded preflight. Complete actual Console reconciliation before H4 admission. H5 remains unstarted.
 
 References: BL-20261031-1554-owner-local-endpoint-transition, BL-20261031-1342-claude-all-cloud-observed, BL-20261031-1318-claude-calibration-window.
+
+### BL-20261031-1600-local-model-change-path-pending -- 2026-10-31 -- Owner confirms a different model on the same box; evaluation path awaits a choice
+
+Status: `Proposed`
+
+Scope or hypothesis: Resolve the failed replacement-endpoint preflight without treating physical-device continuity as preservation of the evaluated local model.
+
+Decisions:
+
+- The owner confirms: "the same box is running a different model". Physical-device continuity is owner-reported. The preceding metadata check advertised qwen3.8-flash-next; the preserved calibration serving name is RM-01 VLM, and the approved local tier is Qwen3.8-27B.
+- Path A: restore the original qualified model and serving configuration, then establish its identity and readable idle/version metadata with a separately recorded bounded preflight. Continue only when the existing Console and H4 gates also pass.
+- Path B: prepare a model-migration design for explicit owner approval. It must identify the actual weights, quantization and serving configuration; qualify local tool, thinking, streaming, usage, context and cache behaviour; bind all affected reader, writer, critic and judge roles consistently; and specify equivalent operational metadata if the server uses different routes. All three exposed H4 loops, including the capped split calibration, must qualify the chosen tier before a separate H5 batch-start authority.
+- Neither path is selected by this confirmation. The existing design keeps the local arm unchanged unless a named change is approved. Flash-Next's conditional appearance under PLAN R2 is not blanket approval: the H5 design records that R2 was not triggered.
+- Preserve the completed Claude transport/cost evidence and its old-local-judge provenance. Changing the local model alone does not require another paid Claude shape or all-cloud run. Any newly required paid evidence must be justified by a changed contract or failed gate and separately authorized within explicit caps.
+
+Changes: This proposed path decision and current-status wording. No model setting, runtime, prompt, serving pin, source contract or frozen task is changed.
+
+Evidence: The owner's explicit same-box/different-model confirmation; the preceding failed metadata preflight; PLAN's named local tier and conditional R2 alternative; the approved cloud-migration restriction on local-arm changes. Independent read-only review confirms that a configuration-only model change can leave the source digest unchanged while changing the evaluation tier.
+
+Failures or blockers: The local-model path remains undecided. Existing H4 continuation authority cannot admit the changed serving identity. Actual Console reconciliation remains outstanding independently.
+
+Limitations and non-claims: This is a proposed decision path, not approval to replace the model, change server flags or run new calibration. It establishes no capability or throughput claim for Flash-Next. Prior measurements remain historical evidence for their recorded configurations; H5 has no counted runs.
+
+Paid exposure: USD 0 new; settled calibration total remains USD 1.151653. No model request or H4/H5 launch occurred.
+
+Next gate: Owner chooses restoration of the original tier or preparation of the new-model migration design. Preserve the existing frozen-task separation and do not open fresh-task gold while resolving this choice.
+
+References: BL-20261031-1556-replacement-endpoint-preflight-blocked, BL-20261030-0445-h5-cloud-provider-claude, BL-20261022-0834-phase4-division-of-labour-design, docs/PLAN.md sections 4 and 5.

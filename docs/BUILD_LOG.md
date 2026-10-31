@@ -26610,3 +26610,47 @@ Paid exposure: USD 1.127758 for this run; USD 1.151653 settled in this work incl
 Next gate: Obtain the owner's actual Console reading; record root step-1 acceptance only if every approved condition holds, then prepare a clean pinned H4 continuation inside the existing window. H5 remains unstarted.
 
 References: BL-20261031-1328-composite-probe-owner-adjudication, BL-20261031-1318-claude-calibration-window, BL-20261030-0620-claude-cloud-adapter-design, BL-20261022-1156-h1-prompt-caching-implemented.
+
+### BL-20261031-1554-owner-local-endpoint-transition -- 2026-10-31 -- Owner reports an idle box and supplies its replacement local model endpoint
+
+Status: `Approved`
+
+Scope or hypothesis: Update machine-local configuration for the owner's replacement endpoint and verify its idleness, served identity and bounded liveness before any H4 admission.
+
+Decisions: The owner states that the box is idle now and supplies the new local API base in this conversation. Update only the ignored machine-local configuration; retain the existing local-zero-cost declaration, model and synthetic-only HTTP scope. The authorized check takes three idle readings twenty seconds apart, reads serving version/model metadata and, if idle, sends one fixed one-token liveness request. The existing runtime, cloud caps and start cutoff remain in force. Actual Console reconciliation is still required before H4, and this endpoint update does not supply it.
+
+Changes: Ignored local endpoint configuration. Only hashes are recorded here: new API-base SHA-256 cae722e2a759ab13afcf041d0352707a604e61b399a1a2ba8d187c52b3eb25f4; new completion-endpoint SHA-256 65fce120073a070e072f9a3ce1ce2b5db089db293e58c7d5d1db1cebcfdbc3da. No endpoint address or credential is committed.
+
+Evidence: The owner's endpoint and present-idleness statement; status-only configuration inspection confirms no process-level endpoint override or custom local API credential, and the existing local-zero-cost policy. Earlier all-cloud evidence retains its original endpoint binding and is not rewritten.
+
+Failures or blockers: The replacement endpoint has not yet been contacted at entry creation. Its serving identity must be compared to the preserved calibration pin. Console reconciliation remains outstanding.
+
+Limitations and non-claims: Present idleness is owner-reported until measured. Matching version/model identifiers and a short successful reply do not establish hardware identity, sustained-load reliability, H4 completion or private-data suitability.
+
+Paid exposure: USD 0 for this transition. Existing settled calibration total remains USD 1.151653.
+
+Next gate: Verify the bounded local check, preserve its result and pin the replacement destination for the prepared H4 continuation; H4 cannot start before the remaining step-1 Console gate passes.
+
+References: BL-20261031-1342-claude-all-cloud-observed, BL-20261031-1318-claude-calibration-window.
+
+### BL-20261031-1556-replacement-endpoint-preflight-blocked -- 2026-10-31 -- Replacement address does not satisfy the calibrated serving identity and idle-metadata checks
+
+Status: `Failed`
+
+Scope or hypothesis: Check the owner-supplied replacement local endpoint before H4, retaining the earlier calibration's serving identity and all remaining approval gates.
+
+Decisions: Preserve the failed preflight and stop before any liveness inference or H4 row. Ask whether the supplied address is a proxy for the qualified box or a different model/server; do not silently substitute the advertised model or weaken the serving checks. Leave the requested address in ignored machine-local configuration pending clarification. The earlier all-cloud result retains its historical endpoint binding.
+
+Changes: Sanitized status documentation and ignored H4 operator destination bindings. The inactive H4 authority template now binds the authorized completion-endpoint hash; configuration must match before each box/row check, and all three stage freezes must match before the next loop. Original calibration evidence and serving pins are unchanged.
+
+Evidence: The three readings twenty seconds apart could not read either expected vLLM running/waiting gauge. The model list advertised qwen3.8-flash-next, differing from the preserved RM-01 VLM pin; version metadata was absent. A bounded metadata-only diagnostic confirmed HTTP 200 for the metrics route but no expected idle gauges, and HTTP 404 for the version route. The preflight exited 2 and sent no one-token liveness request. Its fixed-field receipt SHA-256 is 90f844d1bf258f389b75d213354e605fee86bd5de41b9aff9c6262cf3ef1b8dd. Independent review recomputed the unchanged runtime digest a142fadc3a810d6b3d9aff512b1a5bab71763cd990ecfb04d5db446337d51cdf. The ignored continuation binding tests pass 32 offline assertions, including endpoint drift and stage mismatch refusals, with a passing operator syntax check.
+
+Failures or blockers: The replacement destination is not qualified for the existing H4 authority. Neither server idleness nor preserved serving identity was established. The actual Console reading for the USD 1.151653 step-0/1 settlement remains separately outstanding.
+
+Limitations and non-claims: An unreadable idle gauge is not evidence that the server is busy. The advertised model identifier does not establish actual weights or hardware identity. This is a failed endpoint preflight, not a failed model inference, a new H4 batch or an invalidation of the completed Claude calibration. No active H4 authority, acceptance marker or run was created.
+
+Paid exposure: USD 0; no model inference call occurred. Prior settled calibration spend remains USD 1.151653.
+
+Next gate: Resolve the replacement server identity and obtain readable required serving/idleness metadata, then repeat a separately recorded bounded preflight. Complete actual Console reconciliation before H4 admission. H5 remains unstarted.
+
+References: BL-20261031-1554-owner-local-endpoint-transition, BL-20261031-1342-claude-all-cloud-observed, BL-20261031-1318-claude-calibration-window.

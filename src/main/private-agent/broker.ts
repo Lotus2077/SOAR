@@ -3,6 +3,7 @@ import https from "node:https";
 import { lookup } from "node:dns/promises";
 import { resolvePublicV4, type PublicDnsEvent } from "./network-resolver";
 import { ANTHROPIC_API_VERSION } from "./anthropic";
+import { inspectFlashNextReply, validateFlashNextRequest, type FlashNextReplyContract, type FlashNextReplyEvidence } from "./flash-next-reply";
 import { BlockList, isIP } from "node:net";
 import {
   canonical, contextFingerprint, digest, exactText, restrictedContext, syntheticContext,
@@ -96,6 +97,8 @@ export interface BrokerRequest {
   grantId?: string;
   approval?: ExactApproval;
   signal?: AbortSignal;
+  /** Trusted host metadata selecting the fixed local validator; never a provider/model-supplied callback. */
+  localReplyContract?: FlashNextReplyContract;
 }
 export interface PacketPreview {
   jobId: string; contextId: string; policyRevision: number; contextSha256: string;
@@ -336,6 +339,10 @@ export class PrivateAgentBroker {
     if (approval && (!destination.requireExactGrant || approval.priceProfileSha256 !== destination.approvalPriceProfileSha256 ||
         approval.maxFeeMicrousd !== input.maxFeeMicrousd)) deny("packet_approval_mismatch");
     if (Buffer.byteLength(body) > (destination.maxRequestBytes ?? BROKER_MAX_BODY_BYTES) || url.href.length > 8192) deny("packet_size_exceeded");
+    if (input.localReplyContract !== undefined) {
+      if (destination.kind !== "local_model" || input.maxFeeMicrousd !== 0) deny("local_reply_contract_invalid");
+      try { validateFlashNextRequest(input.localReplyContract, body); } catch { deny("local_reply_contract_invalid"); }
+    }
     // All custom headers are host-owned and serialized into the grant preview.
     // The broker injects a service credential only after admission, never as data.
     const text = canonical({ method: input.method, url: url.href,
@@ -371,10 +378,10 @@ export class PrivateAgentBroker {
         !(destination.grantFreeSynthetic === true && syntheticContext(context))) deny("private_disclosure_requires_exact_grant");
   }
 
-  async request(input: BrokerRequest, settleFee: (bytes: Buffer) => number = () => 0, validateAtCommit?: () => void): Promise<{ bytes: Buffer; receipt: DispatchReceipt }> {
+  async request(input: BrokerRequest, settleFee: (bytes: Buffer) => number = () => 0, validateAtCommit?: () => void): Promise<{ bytes: Buffer; receipt: DispatchReceipt; localReplyEvidence?: FlashNextReplyEvidence }> {
     if (input.signal?.aborted) deny("request_cancelled");
     // Snapshot every model-derived value before an asynchronous scan can yield.
-    const frozen: BrokerRequest = { ...input };
+    const frozen: BrokerRequest = { ...input, ...(input.localReplyContract ? { localReplyContract: Object.freeze({ ...input.localReplyContract }) } : {}) };
     const packet = this.packet(frozen);
     if (packet.destination.requireExactGrant && !packet.preview.approval) deny("exact_grant_required");
     this.eligible(this.store.policy(frozen.jobId), this.store.context(frozen.contextId), packet.destination, frozen.grantId);
@@ -422,12 +429,17 @@ export class PrivateAgentBroker {
       try {
         const bytes = await transport(packet.destination, packet.url, frozen.method, frozen.body, controller.signal, event => {
           this.store.append(frozen.jobId, { ...event, contextId: frozen.contextId, dispatchId: receipt.id });
-        }, meta);
+        }, meta, frozen.localReplyContract !== undefined);
         phase = "response_validation";
+        const localReplyEvidence = frozen.localReplyContract && meta.rawReply
+          ? inspectFlashNextReply(meta.rawReply.bytes, meta.rawReply.format, frozen.localReplyContract) : undefined;
+        if (frozen.localReplyContract && !localReplyEvidence) throw new Error("local_reply_evidence_missing");
+        // Raw reasoning is transient transport data, never a receipt, event, model result or history item.
+        delete meta.rawReply;
         const fee = settleFee(bytes);
         phase = "fee_settlement";
         this.store.settle(receipt.id, fee, digest(bytes));
-        return { bytes, receipt: this.store.dispatch(receipt.id) };
+        return { bytes, receipt: this.store.dispatch(receipt.id), ...(localReplyEvidence ? { localReplyEvidence } : {}) };
       } catch (error) {
         // Timing is monotonic, excludes pre-commit scanning, and saturates at one
         // hour rather than admitting arbitrary numeric diagnostics into storage.
@@ -498,7 +510,7 @@ async function systemLookup(host: string, signal: AbortSignal, family?: 4) {
 }
 
 /** Filled by the transport as headers arrive, for the failure diagnostic of the Anthropic destination. */
-interface TransportMeta { requestId?: string }
+interface TransportMeta { requestId?: string; rawReply?: { bytes: Buffer; format: "json" | "sse" } }
 const ANTHROPIC_REQUEST_ID = /^req_[A-Za-z0-9]{1,128}$/u;
 function retryAfterSeconds(value: string | string[] | undefined): number | undefined {
   return typeof value === "string" && /^\d{1,6}$/u.test(value.trim()) ? Number(value.trim()) : undefined;
@@ -533,7 +545,7 @@ function readRejection(response: http.IncomingMessage): Promise<Pick<RejectionDe
 }
 
 async function transport(destination: BrokerDestination, url: URL, method: "GET" | "POST", body: string | undefined,
-  signal: AbortSignal, recordDns: (event: PublicDnsEvent) => void, meta: TransportMeta = {}): Promise<Buffer> {
+  signal: AbortSignal, recordDns: (event: PublicDnsEvent) => void, meta: TransportMeta = {}, captureLocalReply = false): Promise<Buffer> {
   const controller = new AbortController();
   // Latch the first abort source. A later task cancel cannot relabel an already
   // fired request timer, and an external signal's arbitrary reason is ignored.
@@ -618,9 +630,11 @@ async function transport(destination: BrokerDestination, url: URL, method: "GET"
         });
         response.on("end", () => {
           clearTimeout(inactivity);
-          if (!stream) { resolve(Buffer.concat(chunks)); return; }
+          const raw = Buffer.concat(chunks);
+          if (captureLocalReply) meta.rawReply = { bytes: raw, format: stream ? "sse" : "json" };
+          if (!stream) { resolve(raw); return; }
           let assembled: Buffer;
-          try { assembled = assembleSseChatCompletion(Buffer.concat(chunks).toString("utf8")); } catch (error) {
+          try { assembled = assembleSseChatCompletion(raw.toString("utf8")); } catch (error) {
             // The server's own error and an early end are answers like an HTTP error or a cut connection (confirmed for a
             // zero-risk packet); only an out-of-protocol stream stays uncertain.
             reject(error instanceof SseStreamError ? new TransportFailure("stream_error", error.status)

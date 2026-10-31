@@ -541,14 +541,20 @@ agent's favour.
 
 ### Phase 4: A real week of use (Oct 21 – Oct 27, branch review Oct 27)
 
-**Proposed local-tier amendment, 2026-11-01 (Asia/Shanghai):** the owner requested
-the [Flash-Next migration design](plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md) after
-changing the model on the device. The design names the affected local roles,
-qualification and H4 gates, and preserves the separate H5 launch decision.
-It is not yet approved; the historical Qwen3.8-27B results and conditional R2
-rule remain unchanged. Subsequent authorized SSH inventory identifies q4t's
-greedy-only contract and a configured 208,896-token limit; the design now requires
-an explicit compatible-backend or revised-q4t-profile choice before implementation.
+**Approved local-tier amendment, 2026-11-01 (Asia/Shanghai):** the owner approved
+the [Flash-Next migration sequence](plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md),
+including at most 24 zero-fee qualification requests, all three H4 loops with
+the USD 0.60 split cap, and separate H5 launch permission
+(BL-20261031-1759-flash-next-sequence-owner-approved). Qualification, final
+deployment/role pins and H4 evidence still precede the H5 batch start. The owner
+subsequently permitted a recoverable trial of the pinned Thor recipe using the
+[service requirements](plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md);
+current q4t's inspected greedy contract conflicts with Heavy, so H4 remains held.
+Its stop/start recovery passed and candidate assets are staged. The owner's later
+request to [check q4t itself](plans/Q4T_SERVICE_CAPABILITY_REVIEW.md) confirmed that
+cache/capacity flags cannot add stochastic sampling or structured response
+parsing; the candidate GPU transition has not run.
+Historical Qwen3.8-27B results and the conditional R2 rule remain unchanged.
 The Claude step-0/1 Console reconciliation is now verified
 (BL-20261031-1636-claude-console-reconciled), independently of local qualification.
 

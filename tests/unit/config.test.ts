@@ -36,6 +36,30 @@ afterEach(async () => {
 });
 
 describe("loadConfig", () => {
+  it("enables the local reply contract only through its explicit deployment setting", async () => {
+    const roots = await createConfigRoots();
+    const environment = { SOAR_VLLM_MODEL: "qwen3.8-flash-next" };
+    expect(loadConfig({ ...roots, environment }).vllm).not.toHaveProperty("localReplyContract");
+    expect(loadConfig({ ...roots, environment }).vllm).not.toHaveProperty("localContextTokens");
+    expect(loadConfig({ ...roots, environment: { ...environment, SOAR_VLLM_REPLY_CONTRACT: "flash_next_v1", SOAR_VLLM_CONTEXT_TOKENS: "262144" } }).vllm)
+      .toMatchObject({ localReplyContract: "flash_next_v1", localContextTokens: 262_144 });
+    for (const value of ["", "auto", "legacy", "flash_next_v2", " flash_next_v1"]) {
+      expect(() => loadConfig({ ...roots, environment: { ...environment, SOAR_VLLM_REPLY_CONTRACT: value, SOAR_VLLM_CONTEXT_TOKENS: "262144" } }), value).toThrow();
+    }
+  });
+
+  it("requires a safe serving-context pin above Heavy output only with the Flash contract", async () => {
+    const roots = await createConfigRoots();
+    const environment = { SOAR_VLLM_REPLY_CONTRACT: "flash_next_v1" };
+    expect(() => loadConfig({ ...roots, environment })).toThrow(/SOAR_VLLM_CONTEXT_TOKENS is required/u);
+    expect(() => loadConfig({ ...roots, environment: { SOAR_VLLM_CONTEXT_TOKENS: "262144" } }))
+      .toThrow(/requires SOAR_VLLM_REPLY_CONTRACT=flash_next_v1/u);
+    for (const value of ["", "0", "-1", "16384", "16384.5", "NaN", "Infinity", "9007199254740992"]) {
+      expect(() => loadConfig({ ...roots, environment: { ...environment, SOAR_VLLM_CONTEXT_TOKENS: value } }), value).toThrow();
+    }
+    expect(loadConfig({ ...roots, environment: { ...environment, SOAR_VLLM_CONTEXT_TOKENS: "16385" } }).vllm.localContextTokens).toBe(16_385);
+  });
+
   it("loads Finder configuration from userData before cwd and app files", async () => {
     const roots = await createConfigRoots();
     await Promise.all([

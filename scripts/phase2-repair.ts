@@ -25,7 +25,7 @@ import { DockerSandbox } from "../src/main/private-agent/sandbox";
 import { RulePacketScanner } from "../src/main/private-agent/scanner";
 import { PrivateAgentStore } from "../src/main/private-agent/store";
 import type { SessionFile } from "../src/main/private-agent/session";
-import { buildCloudArm, parseCloudLongContext, parseCloudPrices, type CloudArmInput } from "./private-agent-local-screen";
+import { buildCloudArm, buildLocalScreenModelConfig, parseCloudLongContext, parseCloudPrices, type CloudArmInput } from "./private-agent-local-screen";
 import { loadPreparedOperatorTask } from "./private-agent-run";
 
 const SAFE_DRAFT_PATH = /^(output|review)\/[A-Za-z0-9._\- /]{1,230}$/u;
@@ -111,10 +111,8 @@ export async function critique(input: CritiqueArguments) {
     accountId: "operator_owned_local_server", credentialVersion: 1, apiKey: config.vllm.apiKey, privateDataAdmitted: false, syntheticOnly: true,
     maxResponseBytes, timeoutMs: heavy.requestTimeoutMs, maxRequestBytes: heavy.maxRequestBytes,
     ...(config.streamingEnabled ? { stream: localStreamSettings(heavy.requestTimeoutMs, maxResponseBytes, heavy.maxOutputTokens) } : {}) };
-  const localConfig: PrivateModelConfig = { destinationId: local.id, model: config.vllm.model, maxOutputTokens: heavy.maxOutputTokens, inputUsdPerMillion: 0,
-    outputUsdPerMillion: 0, thinking: heavy.thinking, maxRequestBytes: heavy.maxRequestBytes, ...(heavy.sampling ? { sampling: { ...heavy.sampling } } : {}),
-    // H2a: each critique is its own job and salts the owned server's prefix cache like every other local job; the critique record is unchanged.
-    ...(config.streamingEnabled ? { streaming: true } : {}), promptCaching: "vllm_job_salt_v1" as const };
+  // H2a: each critique is its own job and salts the owned server's prefix cache like every other local job.
+  const localConfig = buildLocalScreenModelConfig(config, heavy);
   if (input.critic === "cloud" && (!input.cloudArm || !(input.cloudArm.maxFeeUsd > 0 && input.cloudArm.maxFeeUsd <= CRITIC_MAX_FEE_USD))) throw new Error("repair_cloud_critic_invalid");
   const cloud = input.critic === "cloud" ? buildCloudArm(input.cloudArm!, process.env, heavy) : undefined;
   const destination = cloud ? cloud.destination : local, modelConfig = cloud ? cloud.modelConfig : localConfig;

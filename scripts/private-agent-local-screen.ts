@@ -5,16 +5,16 @@ import http from "node:http";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
-import { loadConfig } from "../src/main/config";
+import { loadConfig, type SoarConfig } from "../src/main/config";
 import { PrivateAgentBroker, type BrokerDestination } from "../src/main/private-agent/broker";
 import { canonical, digest } from "../src/main/private-agent/contracts";
 import { PrivateCheckpointStore } from "../src/main/private-agent/checkpoints";
-import { PrivateAgentModel } from "../src/main/private-agent/model";
+import { PrivateAgentModel, type PrivateModelConfig } from "../src/main/private-agent/model";
 import { ANTHROPIC_API_VERSION, ANTHROPIC_MESSAGES_ENDPOINT } from "../src/main/private-agent/anthropic";
 import { GeneralAgentSession, SESSION_LIMITS, researchTransferPhase, sessionFileManifest, sessionPhaseIdentity, type SessionPhase } from "../src/main/private-agent/session";
 import { RulePacketScanner } from "../src/main/private-agent/scanner";
 import { PrivateAgentStore } from "../src/main/private-agent/store";
-import { COORDINATOR_PROFILES, GENERAL_TASK_BUDGETS, type CoordinatorProfileName } from "../src/main/private-agent/profiles";
+import { COORDINATOR_PROFILES, GENERAL_TASK_BUDGETS, type CoordinatorModelProfile, type CoordinatorProfileName } from "../src/main/private-agent/profiles";
 import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, claimsInstructions, claimsLedgerCheck } from "../src/main/private-agent/claims";
 import { withDocumentReview } from "../src/main/private-agent/document-review";
 import { loadRepairDirectory, repairMatchesRun, repairSeedMatches, withRepair } from "../src/main/private-agent/repair";
@@ -137,6 +137,18 @@ export function localScreenSourceFreeze() {
 
 export type LocalScreenProfile = CoordinatorProfileName;
 export const LOCAL_SCREEN_PROFILES = COORDINATOR_PROFILES;
+/** Every harness local role, including the independently launched critic, shares this explicit deployment contract. */
+export function buildLocalScreenModelConfig(
+  config: Pick<SoarConfig, "vllm" | "streamingEnabled">,
+  coordinator: Readonly<CoordinatorModelProfile>,
+  cacheSalt = true,
+): PrivateModelConfig {
+  return { destinationId: "owned_local_model", model: config.vllm.model, maxOutputTokens: coordinator.maxOutputTokens,
+    inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: coordinator.thinking, maxRequestBytes: coordinator.maxRequestBytes,
+    ...(cacheSalt ? { promptCaching: "vllm_job_salt_v1" as const } : {}),
+    ...(coordinator.sampling ? { sampling: { ...coordinator.sampling } } : {}), ...(config.streamingEnabled ? { streaming: true } : {}),
+    ...(config.vllm.localReplyContract ? { localReplyContract: config.vllm.localReplyContract, localContextTokens: config.vllm.localContextTokens } : {}) };
+}
 /** Headless budgets: "standard" keeps the Phase 0 driver values so earlier rows stay comparable. */
 const LOCAL_SCREEN_BUDGETS: Readonly<Record<LocalScreenProfile, { maxModelCalls: number; maxToolCalls: number; maxElapsedMs: number; maxRequests: number }>> = Object.freeze({
   standard: { maxModelCalls: 40, maxToolCalls: 80, maxElapsedMs: SESSION_LIMITS.maxElapsedMs, maxRequests: SESSION_LIMITS.maxRequests },
@@ -331,10 +343,7 @@ export async function runLocalArtifactScreen(input: {
     // H2a: the harness track salts the owned server's prefix cache per job unless the run is the unsalted control arm. The one
     // local configuration serves the coordinator and the judge; freeze.json records it as modelConfig on local-arm runs and as
     // judgeModelConfig on cloud-arm runs. Runs before H2a sent no salt.
-    const localModelConfig = { destinationId: "owned_local_model", model: config.vllm.model, maxOutputTokens: coordinator.maxOutputTokens,
-      inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: coordinator.thinking, maxRequestBytes: coordinator.maxRequestBytes,
-      ...(input.cacheSalt === false ? {} : { promptCaching: "vllm_job_salt_v1" as const }),
-      ...(coordinator.sampling ? { sampling: { ...coordinator.sampling } } : {}), ...(config.streamingEnabled ? { streaming: true } : {}) };
+    const localModelConfig = buildLocalScreenModelConfig(config, coordinator, input.cacheSalt !== false);
     // The all-cloud arm writes with the cloud model; under the research pipeline the writer and reader are local and the cloud plans and synthesises (split arm).
     const pipeline = input.pipeline === "research";
     const modelConfig = cloud && !pipeline ? cloud.modelConfig : localModelConfig;

@@ -1,22 +1,36 @@
 # Phase 4 Flash-Next migration plan
 
-Status: **Proposed**. Prepared 2026-11-01 (Asia/Shanghai).
+Status: **Approved sequence; deployment not yet qualified**. Prepared 2026-11-01
+(Asia/Shanghai). Authority: BL-20261031-1759-flash-next-sequence-owner-approved.
 
 Updated after owner-authorized SSH inventory on 2026-11-01. The current backend
 is q4t, and its inspected contract conflicts with the retained Heavy profile.
-Resolve the explicit backend/profile choice in section 1.1 before approving
-implementation or admitting the local qualification batch.
+The owner selected the suitable-backend path, approved the bounded qualification
+and H4 sequence, and separately granted H5 launch permission. The owner then
+reserved service modifications for himself, then explicitly authorized trying
+the recipe if the current service can be stopped and restored (BL-20261031-1815).
+See the [exact service requirements](FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md).
 
 The owner requested this design after confirming that the same device now serves
 a different underlying model. Adopt Flash-Next as a new, explicitly identified
-local evaluation tier only after approval and qualification. Preserve the
+local evaluation tier only after qualification. Preserve the
 completed Claude calibration, run all three exposed H4 loops on the new tier,
-then seek the separate H5 batch-start authority.
+then record the final pinned H5 batch start under the launch permission already
+granted. Permission does not waive the preceding technical gates.
 
-This document authorizes no runtime work. It names the amendment required by
+The recorded owner approval supplies the named amendment required by
 BL-20261030-0445-h5-cloud-provider-claude: “Prompts and the local arm stay unchanged
-unless the design names a change and the owner approves it.” Server changes
-remain subject to PLAN D11 and a scheduled restart.
+unless the design names a change and the owner approves it.” The conditional
+trial still requires a concrete recorded D11 configuration, verified recovery
+path and valid window before a service transition.
+
+Current follow-up: q4t restoration passed and the original candidate weights/image
+are staged. The owner then asked to check q4t itself; the
+[capability review](Q4T_SERVICE_CAPABILITY_REVIEW.md) confirms configurable caches
+and capacity, but no launch flag supplies Heavy sampling or native response
+parsing. No candidate GPU startup, qualification, H4 completion or H5 launch has
+run. The exact-token pre-dispatch guard remains an implementation/qualification
+gate; the client reply contract and context identity pins are implemented.
 
 ## 1. Evidence and remaining uncertainty
 
@@ -28,13 +42,13 @@ remain subject to PLAN D11 and a scheduled restart.
 | Claude step 0 | Attempt 1 exited 3 for missing later thinking, triggering the allowed repeat; the repeat exited 2 for a warm read instead of the required initial cache write. The owner accepted their combined evidence once. | Retain both original verdicts and the adjudication; no third probe. |
 | Claude step 1 | 79 cloud replies and 34 old-tier local judge calls settled; cloud fee USD 1.127758, approved projection USD 2.121435 below USD 3.00. Guidance review found no visible refusal. | Transport/cost calibration is reusable under its original configuration; task quality remains independently ungraded. |
 | Console reconciliation | Owner screenshot shows SOAR-key cost USD 1.15; step-0/1 ledger total USD 1.151653, difference USD 0.001653 within USD 0.05. Earlier owner confirmation supplies the no-competing-usage condition. | Historical step 1 is accepted. The screenshot alone does not establish exclusive usage or qualify Flash-Next. |
-| H4 / H5 | First H4 batch failed on infrastructure; replacement preflight failed. No completed qualifying H4 batch or counted H5 run. | New qualification and all three H4 loops precede H5. |
+| H4 / H5 | Owner approved the sequence and H5 launch. First H4 batch failed on infrastructure; replacement preflight failed. No completed qualifying H4 batch or counted H5 run. | New qualification and all three H4 loops precede H5; the blocker is technical readiness, not missing H5 permission. |
 
 The Console image, key fragments, account details, endpoint addresses and raw
 receipts stay outside Git. Public records retain only relevant amounts, counts,
 hashes and limitations. Original results are never overwritten.
 
-### 1.1 Read-only inventory findings and the required design choice
+### 1.1 Read-only inventory findings and the selected design path
 
 The supplied SSH access reaches an NVIDIA Jetson AGX Thor Developer Kit, Ubuntu
 24.04, aarch64, 14 CPUs and 128,828,748 KiB RAM (about 122.9 GiB). The serving
@@ -42,8 +56,8 @@ binary reports q4t v0.1.0. Its SHA-256 is
 `0c5ab1de85ff68f9d757ac3bfad04187756a1b2c6634108c3112a5861c209483`;
 the adjacent clean tracked source is at
 `24b97e7d50ec7d81eaabcf11ef3f7c7be3587a35`. These are separate observations,
-not a reproducible-build proof. The supplied credentials were used only to
-authenticate this read-only session, which is now closed.
+not a reproducible-build proof. The supplied credentials were used only for
+authentication; no credential file or committed credential was created.
 
 The launch explicitly sets `--max-seq 1`, `--max-prefill 8192` and
 `--max-len 208896`. The checkpoint's 262,144 declaration does not override that
@@ -63,10 +77,10 @@ SOAR's per-job cache salt.
 
 | Path | Decision and impact |
 | --- | --- |
-| **A — preserve the existing Heavy experiment (recommended)** | Qualify a Flash-Next serving deployment that supports the retained sampling, native single-action tools, cache isolation and context contract. This may require a compatible backend or separately scoped q4t capability work. Prepare the exact deployment/configuration change before D11 approval; no install or restart is implied. The rest of this plan retains this path's experiment semantics. |
+| **A — preserve the existing Heavy experiment (selected)** | Qualify a Flash-Next serving deployment that supports the retained sampling, native single-action tools, cache isolation and context contract. The owner now permits a recoverable trial of the identified Thor recipe. The rest of this plan retains this path's experiment semantics; current-service use does not silently select a greedy profile. |
 | **B — evaluate the current q4t tier** | First revise the design to name greedy temperature 0/top-p 1/no top-k, an explicitly scoped tool adapter, a proven cache-isolation strategy, the actual context bound and scoped reasoning parsing. Record the change to repeat/diversity interpretation: two greedy repeats do not supply two stochastic samples. The revision must be reviewed and approved before implementation. Omitting unsupported fields is not an invisible compatibility fix. |
 
-For either path, do not borrow vLLM parser flags. A q4t readiness proposal should
+Do not apply vLLM parser flags to q4t. A q4t readiness proposal should
 use `q4t_active_chats=0` (parsing, queued and generating requests), zero reserved
 chat-body bytes, all configured slots free and `q4t_gpu_healthy=1`, sampled at
 least three times 20 seconds apart, followed by bounded liveness qualification.
@@ -77,7 +91,41 @@ idle engine. This proposed equivalence still needs verification, not a retroacti
 pass of the old gate. A separate legacy proxy was observed, but its relation to
 the supplied API is unproven and no dependency or change to it is assumed.
 
-## 2. Proposed amendment and role binding
+### 1.2 Backend investigation and owner handoff
+
+The [service requirements](FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md) identify a
+published Thor-specific vLLM candidate with prefix caching and native tools,
+plus the exact API, capacity, cache and role requirements. Its community tests
+are not SOAR qualification. A second recipe disables prefix caching; SGLang's
+SSD-Stream automatic ARM profile targets GB10 rather than Thor; the TensorFold
+Thor recipe uses a different distilled checkpoint with unresolved cache-salt
+semantics. None is an already verified replacement for the running deployment.
+
+Read-only feasibility checks found about 24.1 GiB available RAM and 142.25 GiB
+free on the model filesystem. Passwordless elevated Docker inventory succeeded
+after ordinary-user inventory had failed; no vLLM image appeared in that listing.
+The known sibling model directories contain older 27B models, not an original
+Flash checkpoint. This scoped search does not prove no other copy exists. A new
+server cannot be assumed to fit alongside q4t. Storage may be feasible with
+hash-verified sharing of unchanged shards and additional original PLE files;
+image/build peaks and driver/kernel compatibility remain unverified.
+
+At the owner-operated handoff, no build,
+weight download, conversion, installation, runtime configuration or restart was
+performed. The current service's model and health metadata still return HTTP 200.
+No new inference was sent: source-contract and missing provenance gates remain
+unresolved, so the 24-dispatch qualification allowance was unconsumed.
+
+The owner then approved a conditional recipe trial (BL-20261031-1815). Its
+preparation pins the minimal source/image and original RadixArk weights, reuses
+196 SHA-256-verified shards, and downloads ten missing original PLE files.
+The original q4t unit is transient and its guard rejects an existing output
+directory, so a plain restart is not reliable. A protected snapshot and a fresh
+guard-output restore invocation are being prepared before any service stop.
+BL-20261031-1820 records the exact preparation boundary; a passing restore,
+candidate startup, deployment pin and qualification are still pending.
+
+## 2. Approved amendment and pending role binding
 
 For Phase 4's upcoming H4 verification and H5 comparison, replace the former
 Qwen3.8-27B local tier with the **qualified Flash-Next deployment recorded in a
@@ -85,7 +133,7 @@ new serving manifest**. Use the advertised `qwen3.8-flash-next` request identifi
 if inventory confirms it maps to that deployment. `RM-01 VLM` may remain the
 device's human label; it must not conceal a changed model in result metadata.
 
-| Role | Proposed model and retained policy |
+| Role | Approved model choice and retained policy, pending deployment pins |
 | --- | --- |
 | Research reader; local writer; local repair writer | Flash-Next with existing stage budgets and Heavy writer policy |
 | All-local planner and synthesiser | Flash-Next, existing stage overrides and 8,192-token caps |
@@ -112,8 +160,8 @@ change output caps, or strip think tags globally as an incidental fix. If this
 contract cannot work, stop with a concrete amendment instead of silently changing
 the experiment.
 
-After approval, amend PLAN's current local-tier and Phase 4 descriptions and link
-the new Approved entry. Its Phase 2 arms/results and R2 conditional alternative
+PLAN's current Phase 4 description links the new Approved entry. Its Phase 2
+arms/results and R2 conditional alternative
 remain historical. R2 was not triggered; this is an owner-selected migration,
 not a retrospective R2 outcome. D11 remains a separate server-change gate.
 
@@ -132,12 +180,12 @@ Before inference qualification, prepare a sanitized serving manifest with:
   observation time and provenance. Keep raw routes, flags containing private
   paths, and diagnostic captures ignored; never include credentials.
 
-The owner subsequently authorized SSH inspection; section 1.1 records its bounded
-read-only results. Use this verified inventory and any remaining owner-supplied
+The owner authorized SSH inspection and later a conditional recoverable trial;
+section 1 records the bounded read-only results. Use this inventory and remaining owner-supplied
 configuration. Do not guess the engine from an OpenAI-compatible route, scan the
 network, obtain shell access by another route, or restart it as part of inventory.
-If configuration must change, present the exact diff and restart/rollback window
-for D11 approval after identifying the actual engine.
+Record the actual D11 trial configuration and restart/rollback window, then
+re-inventory the resulting service before creating active deployment pins.
 
 Prefer correcting a demonstrated parser/template configuration at the server,
 under D11, over compensating for malformed replies in every client. A client
@@ -146,7 +194,7 @@ reasoning fields, malformed tool calls and incomplete streams. A returned
 `reasoning` field and the legacy `reasoning_content` field need explicit tests;
 no missing field may silently become evidence that thinking was disabled.
 
-Implementation map (after approval):
+Authorized implementation map (dependent on a suitable deployment):
 
 | Area | Expected work |
 | --- | --- |
@@ -166,7 +214,7 @@ predecessor, never as qualification of the new deployment.
 
 Prepare and review the exact synthetic fixture manifest before starting. Use only
 synthetic/public fixtures; no fresh H5 inputs, authoring transcript or gold. This
-proposed batch permits **at most 24 local inference dispatches**, one at a time,
+approved batch permits **at most 24 local inference dispatches**, one at a time,
 at declared zero fee, **131,072 total reserved output tokens**, and a **90-minute
 batch ceiling** within the owner's available window. No request exceeds its
 existing role timeout, output cap or request-body limit. Precompute the fixture
@@ -261,10 +309,10 @@ scoped replacement calibration authority before using it.
 | Spend item | Treatment |
 | --- | --- |
 | Completed steps 0/1 | USD 1.151653 settled; Console reconciled at cent precision |
-| Proposed local qualification and local H4 work | USD 0 declared inference fee; bounded device use as above |
+| Approved local qualification and local H4 work | USD 0 declared inference fee; bounded device use as above |
 | Remaining H4 split step 2 | Existing USD 0.60 cap; no increase requested |
-| H5 counted runs | Existing USD 21.60 bound, inside the USD 33 Phase 4 line and USD 300 envelope; separate launch authority |
-| Server changes, extra retries or replacement paid calibration | No new authority/budget from this plan |
+| H5 counted runs | Existing USD 21.60 bound, inside the USD 33 Phase 4 line and USD 300 envelope; owner launch permission granted, final pinned batch-start record pending gates |
+| Server changes, extra retries or replacement paid calibration | Conditional recoverable recipe trial approved; no additional paid allowance or automatic inference retries |
 
 The original calibration start cutoff is **2026-11-01 09:19 Asia/Shanghai**
 (`2026-11-01T01:19:14.660899Z`). Plan approval does not extend it. Before any
@@ -274,14 +322,16 @@ new local tier, cloud model/prices/caps, all digests and passed H4/step-2 eviden
 
 ## 7. Approval, stop and rollback
 
-Approval of this plan would authorize the named Phase 4 local-tier amendment,
-scoped client/operator implementation and offline tests, the bounded local
-qualification, and the three exposed H4 loops only after all preceding gates
-pass within a valid window and existing caps. It would not authorize unknown
-server changes, a restart, H5, private data, additional paid calibration or release.
-The newly discovered contract conflict must first be resolved through path A or
-an explicitly revised path-B design. The owner's SSH permission approves
-inventory only; it does not select either path or approve this migration.
+The owner's five-item instruction approved path A, the named local-tier amendment,
+scoped implementation, bounded qualification and three H4 loops, and separately
+granted H5 launch permission. BL-20261031-1759 records this supersession of the
+earlier Proposed-only and H5-permission-pending text. Every execution stage still
+requires its preceding evidence, current pins, existing caps and valid window.
+The latest instruction conditionally permits the recipe trial if the current
+service can be restored, superseding the owner-operated-only boundary. It does not
+approve a silently changed greedy experiment, private data, additional paid
+calibration or release. No further H5 permission question is needed solely
+because older text described it as a separate decision.
 
 Stop on identity drift, missing operational evidence, response/schema/accounting
 failure, a failed compatibility case, infrastructure instability, cap exhaustion
@@ -294,8 +344,8 @@ never change the meaning of earlier rows to make either tier pass.
 
 Done means: approved named deployment; verified compatibility; verified source;
 three coherent H4 loops plus split calibration; accurate append-only records;
-and a concrete H5 handoff ready for its separate launch decision. Until then the
-status remains Proposed/Implemented/Verified at the specific stage reached.
+and a concrete H5 batch start under the existing permission. Report each stage's
+Approved/Implemented/Verified status separately; overall approval is not a live pass.
 
 ## 8. Sources and implementation caveats
 

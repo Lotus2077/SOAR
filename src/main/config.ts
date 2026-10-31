@@ -39,6 +39,10 @@ const environmentSchema = z.object({
   ),
   SOAR_VLLM_API_KEY: z.string().optional(),
   SOAR_VLLM_MODEL: z.string().trim().min(1).max(256).default("RM-01 VLM"),
+  /** Explicit deployment contract; omitted keeps historical local requests unchanged. */
+  SOAR_VLLM_REPLY_CONTRACT: z.enum(["flash_next_v1"]).optional(),
+  /** Actual serving context, required only for the explicit Flash deployment contract. */
+  SOAR_VLLM_CONTEXT_TOKENS: z.coerce.number().int().safe().gt(16_384).optional(),
   SOAR_VLLM_COST_POLICY: z
     .enum(["local_zero_cost"])
     .default("local_zero_cost"),
@@ -81,6 +85,12 @@ const environmentSchema = z.object({
     .max(1_048_576)
     .default(18_432),
   SOAR_CONTEXT_SAFETY_MARGIN: z.coerce.number().min(0.05).max(0.5).default(0.2),
+}).superRefine((environment, context) => {
+  if (environment.SOAR_VLLM_REPLY_CONTRACT === "flash_next_v1" && environment.SOAR_VLLM_CONTEXT_TOKENS === undefined) {
+    context.addIssue({ code: "custom", path: ["SOAR_VLLM_CONTEXT_TOKENS"], message: "SOAR_VLLM_CONTEXT_TOKENS is required for flash_next_v1." });
+  } else if (environment.SOAR_VLLM_REPLY_CONTRACT === undefined && environment.SOAR_VLLM_CONTEXT_TOKENS !== undefined) {
+    context.addIssue({ code: "custom", path: ["SOAR_VLLM_CONTEXT_TOKENS"], message: "SOAR_VLLM_CONTEXT_TOKENS requires SOAR_VLLM_REPLY_CONTRACT=flash_next_v1." });
+  }
 });
 
 export interface SoarConfig {
@@ -96,6 +106,8 @@ export interface SoarConfig {
     /** Explicit operator credential, retained only for main-process redaction. */
     sensitiveApiKey?: string;
     model: string;
+    localReplyContract?: "flash_next_v1";
+    localContextTokens?: number;
     costPolicy: "local_zero_cost";
     maxOutputTokens: number;
     timeoutMs: number;
@@ -221,6 +233,9 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
         ? { sensitiveApiKey: env.SOAR_VLLM_API_KEY }
         : {}),
       model: env.SOAR_VLLM_MODEL,
+      ...(env.SOAR_VLLM_REPLY_CONTRACT
+        ? { localReplyContract: env.SOAR_VLLM_REPLY_CONTRACT, localContextTokens: env.SOAR_VLLM_CONTEXT_TOKENS }
+        : {}),
       costPolicy: env.SOAR_VLLM_COST_POLICY,
       maxOutputTokens: env.SOAR_MAX_OUTPUT_TOKENS,
       timeoutMs: env.SOAR_REQUEST_TIMEOUT_MS,

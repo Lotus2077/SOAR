@@ -375,6 +375,23 @@ describe("desktop general-task host controller", () => {
     const c = f.create(); f.config.promptCacheSalt = false;
     expect(() => f.controller.start(c.id)).toThrow("general_task_configuration_changed");
   });
+  it("uses the explicit local reply contract and refuses a task created under the other contract", async () => {
+    const f = fixture(); f.config.vllm.model = "qwen3.8-flash-next";
+    const legacy = f.create(); f.controller.start(legacy.id); await f.controller.wait(legacy.id);
+    expect(f.executions.at(-1)!.model.config).not.toHaveProperty("localReplyContract");
+    const queuedLegacy = f.create();
+    f.config.vllm.localReplyContract = "flash_next_v1";
+    f.config.vllm.localContextTokens = 262_144;
+    expect(() => f.controller.start(queuedLegacy.id)).toThrow("general_task_configuration_changed");
+    const optedIn = f.create(); f.controller.start(optedIn.id); await f.controller.wait(optedIn.id);
+    expect(f.executions.at(-1)!.model.config).toHaveProperty("localReplyContract", "flash_next_v1");
+    expect(f.executions.at(-1)!.model.config).toHaveProperty("localContextTokens", 262_144);
+    const queuedContext = f.create(); f.config.vllm.localContextTokens = 131_072;
+    expect(() => f.controller.start(queuedContext.id)).toThrow("general_task_configuration_changed");
+    f.config.vllm.localContextTokens = 262_144;
+    const queuedOptIn = f.create(); delete f.config.vllm.localReplyContract; delete f.config.vllm.localContextTokens;
+    expect(() => f.controller.start(queuedOptIn.id)).toThrow("general_task_configuration_changed");
+  });
   it("resumes a task paused before streaming was switched on, and streams from then on", async () => {
     const f = fixture(); f.config.streamingEnabled = false;
     const task = f.create(); f.hold(); f.controller.start(task.id);

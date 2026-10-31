@@ -26814,3 +26814,223 @@ Paid exposure: USD 0; zero new inference requests. The original migration, H4 an
 Next gate: Owner review of the revised Proposed plan and its explicit backend/profile choice. Any actual server change needs its exact D11 decision and window; any q4t experiment amendment needs its named design approval before implementation. Existing Claude calibration remains accepted.
 
 References: BL-20261031-1714-owner-ssh-inventory-authority, BL-20261031-1638-flash-next-migration-design, BL-20261031-1556-replacement-endpoint-preflight-blocked, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md section 1.1.
+
+### BL-20261031-1759-flash-next-sequence-owner-approved -- 2026-10-31 -- Owner authorizes suitable-backend work, bounded qualification, H4 and gated H5 launch
+
+Status: `Approved`
+
+Scope or hypothesis: Execute the owner's newly confirmed sequence if a suitable Flash-Next deployment can preserve the approved experiment contracts; otherwise report the evidence and blocker.
+
+Decisions: The owner asks to find a way to initiate a suitable Flash-Next backend, then pin the model/configuration and every local role including the judge, run at most 24 zero-fee qualification requests, complete all three H4 loops with the USD 0.60 split cap, and states "separate H5 launch authority granted". Record that H5 permission now; do not ask for it again merely because a prior plan called it a later approval. The live compatibility, coherent H4 and split-calibration gates still precede H5, whose batch-start record must bind the final qualified deployment and existing USD 21.60 bound.
+
+Changes: This authority entry. Select the plan's suitable-backend path preserving Heavy semantics; the user has not approved silently downgrading to q4t's greedy profile. Investigation, scoped preparation and the named evaluation stages are authorized. Keep unknown installations/restarts concrete and reviewable before exercising PLAN D11; do not disrupt the current service merely to test a speculative backend.
+
+Evidence: The owner's five-item instruction in the current chat. The already reconciled Claude step-0/1 evidence remains accepted. Backend feasibility and all new local qualification evidence remain pending.
+
+Failures or blockers: Current q4t does not accept the retained Heavy body; no alternative has yet been shown to fit this device and satisfy its tool/cache/sampling contract. If no suitable deployment can be established, report findings rather than launching incompatible evaluations.
+
+Limitations and non-claims: Permission is not a passing result. No fresh gold or authoring transcript may enter provider/harness work. Preserve the 24-dispatch, token and 90-minute qualification limits and the current operational start cutoff of 2026-11-01T01:19:14.660899Z; no time extension is inferred. H5's owner approval does not waive its remaining gates or frozen scoring separation. No private-data or release authority is added.
+
+Paid exposure: USD 0 new at entry creation. Local qualification remains declared zero fee; H4 split at most USD 0.60; H5 counted runs at most USD 21.60, within the existing envelope.
+
+Next gate: Identify an actually suitable backend and exact deployment prerequisites, then prepare its bounded change and role/serving pins. Continue only through verified gates; report an infeasible or unavailable deployment with supporting evidence.
+
+References: BL-20261031-1723-flash-next-box-inventory, BL-20261031-1638-flash-next-migration-design, BL-20261031-1636-claude-console-reconciled, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-1812-owner-operated-flash-next-service-handoff -- 2026-10-31 -- Owner takes service changes; preserve current service and document exact compatibility requirements
+
+Status: `Verified`
+
+Scope or hypothesis: Investigate a suitable Thor Flash-Next backend, then follow the owner's new instruction to describe the vLLM requirements, leave modifications to him, and use the current service for now.
+
+Decisions: The owner controls installation, configuration and restarts from this point. Retain the current service and do not silently relax Heavy to q4t's greedy contract. The previous five-item approval remains in force for scoped client work, at most 24 zero-fee qualification requests, all three H4 loops with USD 0.60 split calibration, and H5 launch after its technical gates. Separate H5 permission is already granted; the final deployment-bound batch-start record remains pending. This entry supersedes the earlier Proposed-only status text without changing historical build-log entries.
+
+Changes: Add docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md with the source of the community Thor candidate, exact wire/sampling/tool/thinking/stream/cache/context/metadata requirements, local role binding and deployment provenance checklist. Update the migration plan, PLAN and README to distinguish Approved sequence from unqualified deployment. No runtime source, local role configuration, model weights or running service changed.
+
+Evidence: The current direct service returns HTTP 200 for model metadata advertising qwen3.8-flash-next and for healthz with status ok. Read-only feasibility inventory measured about 24.1 GiB available RAM and 142.25 GiB free model-filesystem storage, CUDA toolkit 13.3.0 and Python 3.12.3. Under the newer backend-investigation request, a passwordless read-only elevated Docker listing succeeded; it showed three unrelated/PyTorch images and no vLLM image. The scoped known sibling-model search found only older 27B models, not a full Flash checkpoint. Three independent agents reviewed backend alternatives and the retained experiment contract. The community NemoClaw-Thor launcher explicitly enables prefix caching and native tool/reasoning parsers; its published temperature-zero tests are not our Heavy qualification. Its original-weight vLLM mmap path needs original PLE safetensors, not the current SSD-Stream sidecar. Hash-verified shard sharing may reduce additional storage; exact build/storage peaks remain unresolved. The temporary SSH control connection was closed.
+
+Failures or blockers: The current q4t source still conflicts with Heavy sampling and tool/cache fields. Immutable weight provenance, binary/source correspondence, public-route binding and live compatibility remain unresolved. A public-script metadata download failed local Python TLS certificate verification; verification was not disabled, and primary-source inspection continued through the web reader. No suitable backend was installed or initiated before the owner assigned modifications to himself. No new inference was admitted through unresolved provenance/contract gates.
+
+Limitations and non-claims: The scope of Verified is this read-only investigation, metadata availability and accurate handoff, not a serving or evaluation pass. The candidate is a community recipe, not NVIDIA certification or a SOAR-qualified installation. The known-directory/image search is not an exhaustive assertion of every asset on the device. Metadata availability is not inference liveness, queue-idle proof or public-route equivalence. No H4 loop completed and no H5 run started. No fresh-task inputs/gold, private request traces or credential stores were read; private routes, paths and credentials remain uncommitted.
+
+Paid exposure: USD 0 new; zero new inference dispatches. The 24-request qualification allowance is unconsumed; existing Claude settled fees remain USD 1.151653. The USD 0.60 split cap and USD 21.60 H5 bound are unchanged.
+
+Next gate: Owner supplies the concrete service change and its availability; re-inventory and pin the actual deployment and every local role, then execute the approved qualification and H4 sequence. Preserve the existing start cutoff of 2026-11-01T01:19:14.660899Z unless the owner declares another window. Current-service use can continue only within demonstrated capabilities; it does not satisfy the blocked Heavy evaluation contract.
+
+References: BL-20261031-1759-flash-next-sequence-owner-approved, BL-20261031-1723-flash-next-box-inventory, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-1815-conditional-recipe-trial-approved -- 2026-10-31 -- Owner permits trying the Thor recipe if the current service can be restored
+
+Status: `Approved`
+
+Scope or hypothesis: Establish a reliable stop/restart path for the current service, then prepare and try the identified Thor vLLM recipe without losing the current deployment.
+
+Decisions: The owner asks whether the current service can be stopped and restarted, and explicitly permits trying the new recipe if that condition is met. This supersedes the immediately preceding owner-operated-only boundary for this conditional trial. First capture and verify the current binary, model/configuration, launch mechanism and restart arguments; do not stop an unrecoverable process. Prepare the exact candidate launch and rollback before transition, record them under D11, and keep the existing service assets intact. Do not infer permission to remove unrelated images/data, downgrade Heavy or extend the availability window.
+
+Changes: Authority record only at entry creation. Reopen read-only access for rollback verification. Exact candidate and transition evidence remain pending.
+
+Evidence: The owner's explicit conditional instruction in the current chat referring to the sourced NemoClaw-Thor candidate.
+
+Failures or blockers: Current-service restoration is not yet demonstrated. The candidate still lacks local build, weight and compatibility proof.
+
+Limitations and non-claims: Conditional trial permission is not a qualified backend or H4/H5 pass. Preserve the 24-request qualification allowance, zero-fee local declaration, USD 0.60 split cap, already granted H5 authority and all remaining gates. No fresh-task gold, unrelated service change or additional paid allowance is authorized.
+
+Paid exposure: USD 0 new at entry creation; no inference dispatched.
+
+Next gate: Verify current-service recovery and prepare exact reviewed trial assets, capacity bounds, transition and rollback. If recovery cannot be established, keep the current process running and report the blocker.
+
+References: BL-20261031-1812-owner-operated-flash-next-service-handoff, BL-20261031-1759-flash-next-sequence-owner-approved, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md, PLAN D11.
+
+### BL-20261031-1820-flash-next-trial-preparation -- 2026-10-31 -- Pin the minimal Thor recipe and prepare a recoverable deployment trial
+
+Status: `Approved`
+
+Scope or hypothesis: Make the owner's conditional recipe trial concrete while preserving the active q4t service and all original assets.
+
+Decisions: Pin NemoClaw-Thor dd07dcc2f5650916e18e2c706144c6fd1f8bf13c, blazux 4b723de2e2c465d866738b57ae64bde6e8c07744, the ARM64 vLLM preview image manifest sha256:fc120ece0a388cc0aa1caad4a9f1cd92113484ab7ec2fd0efadd62585be05bf8, and RadixArk checkpoint 7b719225242aacd3dbd3f9407468c2ee9a9d2594. Prepare only the base/SM110-MoE/GDN stages, with original side-layer weights, BF16 KV, FP32 recurrent state, one scheduler slot and MTP off; no fast-v3 conversion or restricted draft vocabulary. Verify actual CLI and memory before fixing the launch. Download only missing checkpoint files after matching original shards by full published SHA-256. No existing assets are deleted or overwritten.
+
+Changes: A private mode-0600 rollback snapshot records the original unit, wrapper, binary, working directory, non-secret environment and model configuration, SHA-256 88b6bc0d7100217407c52efd9d54d38cab811bbbe43897d74c5e7527bb385f22. The service is a transient user unit, not a boot-persistent installation. Its GPU guard refuses an existing output directory: a plain restart would fail. Prepare a fresh transient restore unit using the same guard/binary/model/arguments and a new guard-output directory. This corrects the earlier conversational shorthand about a persistent service. Restoration remains untested until the controlled transition.
+
+Evidence: Current unit active/running, restart=no, KillMode=mixed and stop timeout 150 seconds; original binary/configuration unchanged. Public model manifest contains 206 weight files totalling 135,195,303,851 bytes, including 51,200,267,901 bytes in ten PLE files. Every weight has a published SHA-256; the derived weight manifest hashes to 36a324847fcde277c0914f59deda585f279c7627e855bf9e5b5c1f64ee8c4303. Docker Hub identifies the ARM64 child digest 3b0e188ffceb3d07e09c3cb5215433a0020eacf02d7f882ed3a8bfd15454477e and about 9.04 GiB compressed layers. Independent source review inspected the narrow patches and parsed thirteen Python files; the GDN kernel supports FP32 state. None is a runtime proof.
+
+Failures or blockers: Exact image extraction/build peaks, restore startup, public-route binding, model capacity and compatibility remain pending. The current service continues running while hashes, image and build assets are prepared. The base Mamba guard can skip invalid copies, so later cache qualification must inspect that condition rather than accepting HTTP success alone.
+
+Limitations and non-claims: Preparation may add scoped model/image/build assets within measured capacity; it is not a serving transition or qualification pass. Stop before any action that would exhaust storage, require removal of existing assets or lose rollback. The actual D11 launch/transition will be recorded before stopping q4t. No inference requests or paid calls are authorized beyond the existing caps.
+
+Paid exposure: USD 0 new; local preparation and numerical kernel checks carry no provider fee. Any HTTP generation/liveness request counts against the 24-request qualification allowance.
+
+Next gate: Finish immutable asset preparation and reviewed rollback, verify installed CLI and numerical kernels, then perform the recorded transition within the existing owner window. Preserve original service assets throughout.
+
+References: BL-20261031-1815-conditional-recipe-trial-approved, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md, PLAN D11.
+
+### BL-20261031-1835-q4t-controlled-restore-test -- 2026-10-31 -- Record the exact stop/start proof before trying the candidate
+
+Status: `Approved`
+
+Scope or hypothesis: Exercise the owner-authorized recoverability condition while the candidate's assets are still preparing.
+
+Decisions: Within the existing window, collect three q4t idle observations at least twenty seconds apart, then stop only the captured q4t-lan transient user unit. Start an equivalent fresh transient unit using the captured Python GPU guard, original hashed binary/model/configuration and exact serving flags; change only the unit name and guard-output directory so existing run records are retained. Preserve the shared GPU lease. Use KillMode=mixed, Restart=no and the original 150-second stop timeout. No parser, sampling, context, model or public binding changes occur in this proof.
+
+Changes: Prepare a restoration helper that rechecks binary/wrapper/config hashes, refuses a listening port or live previous restore, preserves per-attempt records, and accepts readiness only when healthy model metadata belongs to the new unit's correctly hashed listening q4t child. An independent review identified and closed generic-health and attempt-overwrite gaps before use. The planned stop/start interval begins after the idle gate, with a 15-minute readiness bound and operator reconciliation on failure; the overall owner cutoff is unchanged.
+
+Evidence: Dry preparation confirms original unit active/running and matching model/health; one current snapshot shows active_chats=0, request_body_bytes=0, one free/total slot and gpu_healthy=1. Full three-sample gate and actual restoration are pending at entry creation. Candidate image pull completed with the pinned ARM64 manifest; no candidate GPU process is running.
+
+Failures or blockers: A plain restart remains invalid because the guard-output directory already exists. If the controlled restore fails, keep candidate launch blocked and recover or report the exact q4t failure; do not launch another competing copy or hide the loss of service.
+
+Limitations and non-claims: This is a scheduled, concrete D11 recovery test under the owner's conditional permission, not new H4 or H5 evidence. Successful health/model metadata will establish restored service identity and listener availability, not completed inference. No inference request is included in this test.
+
+Paid exposure: USD 0; zero inference dispatches.
+
+Next gate: Preserve the controlled restore result. Only after reliable recovery and complete candidate preparation may the separate candidate transition proceed.
+
+References: BL-20261031-1815-conditional-recipe-trial-approved, BL-20261031-1820-flash-next-trial-preparation, PLAN D11.
+
+### BL-20261031-1837-q4t-restoration-and-image-build -- 2026-10-31 -- Current service restoration succeeds and the pinned Thor image builds
+
+Status: `Verified`
+
+Scope or hypothesis: Resolve the owner's recoverability condition before switching to the new serving recipe.
+
+Decisions: The controlled stop/start succeeded. Keep the restored q4t service active until candidate assets and preflight are ready. Its original binary, model/configuration and serving arguments are retained; only the transient unit name and guard-output directory changed. The new image is a build result, not an inference-qualified service.
+
+Changes: After three idle observations twenty seconds apart, stopped the captured original unit and launched its equivalent restoration under the same GPU guard. Retained the original output directory and private per-attempt evidence. Built the reviewed base, SM110-MoE and GDN stages with local audited inputs, network-disabled build steps, two compiler jobs and resource limits. No model conversion or candidate GPU launch occurred.
+
+Evidence: Idle evidence SHA-256 f16075f0fcefe01d544a4c95f2259cf5145698d055bd00c43827df2740017ad6; stop exit 0; restored unit active/running with the hashed q4t child, expected command/model and ownership of the listening socket, plus healthy model metadata. All three image build stages exited 0. Candidate image SHA-256 10d0df20a140d12e987013b12da289e2dec0bcb1db4a14f2491d75c0c7ae5d6c, ARM64, reported size 30,682,531,552 bytes. GPU-free installed-source inspection identifies vLLM 0.1.dev20073+g8e685d198, Torch 2.13.0+cu130, Transformers 5.15.1, Tokenizers 0.22.2 and FlashInfer 0.6.17, with cache_salt, default template kwargs and prompt-token detail configuration present in source.
+
+Failures or blockers: Candidate checkpoint download, numerical GPU checks, exact launch/route binding and bounded API qualification remain pending. The presence of a configuration symbol does not prove its live semantics. The current service has not been upgraded yet.
+
+Limitations and non-claims: The restored service proof establishes identity-bound listener/model/health availability, not a completed inference. No restart is claimed to recover the original transient unit unchanged; the guard requires a fresh output directory. Build success does not establish model load, sampler correctness, cache isolation, context capacity, H4 or H5.
+
+Paid exposure: USD 0; no new inference dispatches. All 24 qualification slots remain unused.
+
+Next gate: Finish verified checkpoint staging and final source checks, then record the concrete candidate transition and execute its numerical and bounded compatibility gates with rollback available.
+
+References: BL-20261031-1835-q4t-controlled-restore-test, BL-20261031-1820-flash-next-trial-preparation, docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md.
+
+### BL-20261031-1849-flash-next-candidate-transition -- 2026-10-31 -- Record the bounded Thor candidate launch and automatic rollback
+
+Status: `Approved`
+
+Scope or hypothesis: Exercise the owner's authorized recipe trial after original checkpoint preparation completes, with the demonstrated q4t recovery retained.
+
+Decisions: Use image SHA-256 10d0df20a140d12e987013b12da289e2dec0bcb1db4a14f2491d75c0c7ae5d6c and original checkpoint revision 7b719225242aacd3dbd3f9407468c2ee9a9d2594. The concrete profile is BF16 model/KV, FP32 recurrent state, context 262144, one sequence, GPU utilization 0.90, prefill batch 8192, prefix caching and chunked prefill on, flashinfer_cutlass MoE, qwen3_coder tools, qwen3 reasoning, prompt-token details on, and explicit thinking enabled/preservation disabled defaults. Retain the recipe's PIECEWISE/AOT compilation split operations, original PLE mmap with fourteen workers, no prewarm, random advice, safe rows and prefetch, plus deterministic QSA selection. MTP, draft vocabulary and hybrid weight conversion are absent. Use the ordinary Triton GDN route; the narrow added CUDA operator is not claimed to accelerate MTP-off decoding. Disable usage/Hub telemetry and leave request logging off. Keep the existing listener binding and access route.
+
+Changes: Prepare a private transient-unit supervisor with no restart policy and a 1500-second stop allowance. Before stopping the restored q4t unit, it revalidates rollback assets and that unit's hashed listener, requires complete verified model staging, and observes idle three times twenty seconds apart. After the stop it acquires the existing regular shared GPU lease, rechecks its recovery marker, confirms no compute process or competing listener, then runs exactly the 22 pinned fused-GDN numerical cases with no skips. A failure restores q4t without starting vLLM. A passing kernel gate permits one bounded model startup with a 30-minute readiness deadline. Readiness requires the pinned container to own the healthy listener and advertise the expected model. Explicit image/label/container-ID ownership, private logs, signal-aware supervision and scoped stop/restore retain failure evidence. Unconfirmed cleanup blocks another GPU launch and requires reconciliation.
+
+Evidence: Current service stop/start already passed in BL-20261031-1837. Installed source exposes the requested parser/cache/template options and forwards top-level reasoning_effort into its chat parameters. A GPU-free CLI help attempt failed because that build cannot infer a device without GPU visibility; this is retained as a limitation, not a claimed CLI/runtime pass. Independent review identified and closed ownership, listener-binding, interrupted-cleanup and lease-check gaps. The pinned numerical selection contains eleven configurations and two gating activations; it tests the added fused MTP operator, not the eventual ordinary serving path. No GPU candidate has started at entry creation.
+
+Failures or blockers: Complete checkpoint preparation, GPU numerical results, actual CLI acceptance, model load, public-route binding and API qualification remain pending. The client context guard also requires the actual tokenizer: NFC normalization can produce more tokens than raw UTF-8 body bytes for certain text, so the historical byte envelope is not valid for every Flash request.
+
+Limitations and non-claims: This concrete D11 transition is covered by the owner's conditional trial instruction. No new permission or window is inferred. Check the unchanged start cutoff before stopping q4t and before each GPU stage. A numerical pass or healthy listener is not a qualified model, sampler, cache, H4 or H5 result. No fresh-task gold is used, and no private routes, paths, credentials or raw diagnostics are committed.
+
+Paid exposure: USD 0 for preparation, numerical tests and service startup. No HTTP inference is part of startup; all 24 generation qualification slots remain reserved for the separately frozen fixtures. Existing USD 0.60 split and USD 21.60 H5 bounds remain unchanged.
+
+Next gate: Complete checkpoint staging, run the recorded recoverable transition, then freeze the exact role/tokenizer/serving evidence before any bounded compatibility request. Restore q4t and report a failed candidate instead of weakening the experiment.
+
+References: BL-20261031-1815-conditional-recipe-trial-approved, BL-20261031-1837-q4t-restoration-and-image-build, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md, PLAN D11.
+
+### BL-20261031-1855-flash-next-client-contract -- 2026-10-31 -- Implement explicit local reply validation and context identity without changing legacy providers
+
+Status: `Implemented`
+
+Scope or hypothesis: Prepare the approved Flash-Next client integration while live serving remains unqualified.
+
+Decisions: Enable the new contract only through SOAR_VLLM_REPLY_CONTRACT=flash_next_v1 on the zero-priced local vLLM shape. Require an explicit safe SOAR_VLLM_CONTEXT_TOKENS value greater than the Heavy output reservation and include it in every local role identity. Preserve cloud and legacy configuration identities and request shapes when the opt-in is absent. The context pin is a response envelope, not a substitute for exact pre-dispatch tokenization.
+
+Changes: Add fixed raw JSON/SSE reply validation before broker settlement, explicit thinking/preservation template settings, model-identity and terminal-reason checks, reasoning-alias/type validation, native-call validation and count-only reasoning evidence. Reject protocol-wrapper leakage while preserving legitimate JSON/code literals and tool arguments. Invalid replies become UNKNOWN without automatic replay. Raw separate reasoning stays transient. Share local configuration construction across writer, research reader/planner/synthesiser, judge and separately loaded critic; desktop tasks also reject context-pin drift. The Flash settlement envelope uses configured context minus the actual output reservation, retaining the body-size bound. This corrects the invalid assumption that every Flash prompt token count fits within raw UTF-8 body bytes after NFC normalization.
+
+Evidence: Independent runtime and privacy reviews. The initial complete source snapshot passed pnpm check: 2209 tests, 81 skips, both typechecks, readiness checks and production build; its public-source manifest SHA-256 is e5d2a7192f1cfb5927c85c413f00c0ea7230f78ebd93b05d1adc5a86c79153e3. After the context-envelope finding, focused model tests passed 53 cases, config/role/controller tests passed 102, both typechecks passed and diff checks were clean. A fresh full check for the final context changes is in progress at entry creation. No provider or box inference was used in these tests.
+
+Failures or blockers: Exact frozen tokenizer/template admission for every qualification/H4/H5 call is still pending, including dynamic histories and the independently loaded critic. The ignored qualification scaffold is unverified and inactive; its syntax-check attempt could not load the TypeScript compiler package. It is not a runnable or approved manifest. Current q4t does not implement this native vLLM response contract.
+
+Limitations and non-claims: Mock checks do not prove positive reasoning, real tool use, sampler behaviour, cache isolation, model fit or serving provenance. The opt-in has not been activated for a live run. No fresh gold was read, no local task was silently migrated and no H4/H5 result is claimed.
+
+Paid exposure: USD 0 new; the 24-request allowance remains unused.
+
+Next gate: Finish final source verification and the exact-token admission hook only for an actually suitable, qualified serving deployment. Preserve the current q4t investigation and the owner's retained experiment semantics.
+
+References: BL-20261031-1759-flash-next-sequence-owner-approved, BL-20261031-1849-flash-next-candidate-transition, docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261031-1856-q4t-launch-options-reviewed -- 2026-10-31 -- Check q4t itself before the staged vLLM transition
+
+Status: `Verified`
+
+Scope or hypothesis: Answer the owner's follow-up asking whether the existing service can meet the requirements by relaunching with different parameters, then the clarification to check q4t instead.
+
+Decisions: Keep the restored q4t service running and hold the prepared candidate GPU transition while evaluating q4t. The current binary exposes cache, capacity and MTP launch options, but no stochastic sampling or response-parser switch. Its adjacent source enforces temperature 0/top-p 1/n 1 and uses argmax in generation. Native tool-choice fields and cache_salt are absent from its accepted request fields. A flag-only relaunch cannot preserve the approved Heavy contract. Reuse is possible with actual sampling implementation plus a scoped tool/reasoning/cache integration, or a separately approved named greedy experiment; neither is silently substituted here.
+
+Changes: Add docs/plans/Q4T_SERVICE_CAPABILITY_REVIEW.md and update current-status pointers. Record that session/prefix caching is supported through different capability-ID and publication semantics, not absent altogether. Thinking and tools are supported as input-template controls; generated reasoning/tool text is not split into native response fields. The staged GDN CUDA overlay is not a demonstrated requirement for the proposed MTP-off Triton path; retain it as prepared candidate work rather than a necessary dependency claim.
+
+Evidence: Actual binary usage and parser output; thirteen selected source/document files at source HEAD 24b97e7d50ec7d81eaabcf11ef3f7c7be3587a35 independently reviewed, manifest SHA-256 2fdee83e4a2d04e67bd0efe09c171f85d45e4dc56e36feb11cc5afd4d7c5b929. The validator independently fetched over verified HTTPS matches SHA-256 d381ae5d9f656bd70bfdb52eda097492ff9714a0cc66f1edc532988cd925716f. The binary's general --help is not implemented as a successful command (usage/exit 1); serve --help rejects with exit 2. A bounded preceding inventory found only a vllm-proxy unit, not an installed inference service, among the inspected units, PATH, conventional environments and images; this is not an exhaustive absence claim. q4t health remained HTTP 200. Original candidate checkpoint staging completed: all 206 weights verified, 135195303851 bytes, with unchanged shards shared and no weight conversion. No candidate attempt record or GPU container exists.
+
+Failures or blockers: q4t's fixed greedy sampler and text-only response encoding remain incompatible with the retained Heavy/native-tool contract. Source/binary build correspondence is not reproducibly established; this inspection does not claim a new HTTP generation result. Public web-reader cache misses were handled through selected authorized source inspection and a verified HTTPS source download, not by treating a sibling repository as evidence.
+
+Limitations and non-claims: No q4t configuration, sampler, cache or model was changed for this check. The earlier controlled recovery remains valid; candidate image/weight preparation is not deployment. No candidate numerical test, model startup, compatibility request, H4 completion or H5 launch occurred. Prior launch authority and cost caps are retained, while the actual technical gates remain unmet.
+
+Paid exposure: USD 0 new; zero inference dispatches in this inspection or preparation. All 24 bounded generation slots remain unused. Accepted prior Claude cost remains USD 1.151653.
+
+Next gate: Report the configurable capabilities and actual implementation gaps to the owner. A q4t engineering or experiment amendment requires a concrete design; do not restart it expecting unavailable flags to add the missing behaviour.
+
+References: BL-20261031-1837-q4t-restoration-and-image-build, BL-20261031-1849-flash-next-candidate-transition, docs/plans/Q4T_SERVICE_CAPABILITY_REVIEW.md.
+
+### BL-20261031-1900-flash-next-client-offline-verified -- 2026-10-31 -- Final scoped client checks pass; live qualification remains held
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the complete local client/reply/context changes after the q4t capability investigation, without exercising a live model.
+
+Decisions: Accept the offline implementation evidence only. Keep the explicit Flash opt-in inactive until a compatible deployment and exact-token admission are qualified. Preserve q4t as the active service; the candidate transition has not run.
+
+Changes: Final verification and status record. Retain the prepared image/weights and inactive operator drafts for future reviewed work. Close the temporary SSH control connection after confirming q4t active/running, health ok and the expected model identity.
+
+Evidence: Full pnpm check exited 0 using the existing pinned Node 22/dependencies in an isolated public-source copy: 2216 tests passed, 81 skipped, 144 test files passed and 13 skipped; readiness, build-log validation, both typechecks, locked native proof and production builds passed. The frozen 37-file runtime digest is 38b1e7dd5d98aeacbe29c1665a5fb3eb9711729fc458389e7248492cf55d8ac4. Post-build comparison found no runtime or test drift. Later working-tree changes were documentation only; current readiness and 371-entry build-log validation passed before this append. Secret-pattern/diff checks found no private endpoint, credential or local-path additions.
+
+Failures or blockers: The first sandboxed full check denied mock loopback listeners (EPERM), causing 189 fixture failures while 2027 tests passed; preserve that negative log. The same frozen source passed with the narrow loopback permission. This does not waive real model or infrastructure gates. The exact-token admission hook and inactive qualification scaffold remain unfinished; q4t's sampler and native-response gaps remain unresolved.
+
+Limitations and non-claims: Offline test skips are reported, not counted as passes. No new inference, paid call, candidate GPU launch, H4 completion, H5 run or release is claimed. The q4t source review is not a full rebuild correspondence proof or qualification.
+
+Paid exposure: USD 0 new; all 24 qualification generation slots remain unused. Previously accepted Claude exposure and later stage caps are unchanged.
+
+Next gate: Owner review of the q4t capability findings and a concrete backend/integration decision; do not treat a cache-enabled q4t restart as a Heavy-compatible implementation.
+
+References: BL-20261031-1855-flash-next-client-contract, BL-20261031-1856-q4t-launch-options-reviewed, docs/plans/Q4T_SERVICE_CAPABILITY_REVIEW.md.

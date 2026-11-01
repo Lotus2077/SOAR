@@ -144,13 +144,15 @@ The differences are plausible performance contributors; no controlled comparison
 has assigned the current gap to a particular setting or vLLM version defect.
 More scheduler slots do not by themselves explain a single-stream gap.
 Observed queueing, preemptions and KV pressure did not explain the current run.
-Any fast-profile trial would change the pinned serving contract and require
-explicit new comparability/qualification evidence; it is not an approved service
-change or a proven artifact-completion fix. See
+The comparison itself did not authorize a service change or prove an artifact
+completion fix. A fast-profile trial changes the pinned serving contract and
+requires explicit new comparability/qualification evidence. See
 BL-20261101-2047-throughput-profile-investigation.
-The [Proposed fast-v3 trial](PHASE4_FAST_V3_ARTIFACT_TRIAL_V1.md) now specifies
-protected staging/build/rollback, new qualification and an early-artifact pilot;
-it grants no serving change or new requests before its owner decision.
+The [fast-v3 trial](PHASE4_FAST_V3_ARTIFACT_TRIAL_V1.md) specifies protected
+staging/build/rollback, new qualification and an early-artifact pilot. Its exact
+proposal is now owner-approved (BL-20261101-2120-fast-v3-artifact-trial-approved);
+implementation, independent control review and current readiness precede execution.
+The approved proposal bytes remain preserved rather than retrospectively rewritten.
 
 ## Required service behaviour
 

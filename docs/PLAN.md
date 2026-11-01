@@ -723,8 +723,10 @@ thinking share and a backend defect are unproven. The
 proposes a protected fourth-stage build/conversion, new bounded qualification and
 an early-artifact pilot with Heavy thinking unchanged, followed only on success by
 three fresh H4 loops and existing conditional H5. Its thirty new local requests
-require a new named decision. The [writer-thinking-off proposal](plans/PHASE4_WRITER_THROUGHPUT_V1.md)
-remains a separate unapproved alternative; neither proposal grants live work. Original failures, shared
+now have the owner’s exact approval (BL-20261101-2120-fast-v3-artifact-trial-approved),
+with implementation/review/readiness gates still before live work. The [writer-thinking-off proposal](plans/PHASE4_WRITER_THROUGHPUT_V1.md)
+remains a separate unapproved alternative. The approved plan bytes are retained;
+the append-only owner entry supplies its current approval status. Original failures, shared
 caps and the November 2 18:00 Asia/Shanghai cutoff remain unchanged.
 The current held H5 package has the reviewed writer-policy/physical-deployment
 bindings and passes 61 Node cases plus strict TypeScript, with 37 earlier Python

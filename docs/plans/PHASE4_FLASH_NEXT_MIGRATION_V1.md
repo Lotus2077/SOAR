@@ -22,10 +22,12 @@ that speed. Decode accounted for 97.6% of observed inference time, without an
 observed queue or preemption bottleneck. Exact thinking-token share and a
 hardware/kernel cause are unproven. The
 [fast-v3 qualification and artifact trial](PHASE4_FAST_V3_ARTIFACT_TRIAL_V1.md)
-is Proposed only: protected build/conversion, thirty new local requests and an
-early-artifact pilot with Heavy thinking unchanged, then conditional fresh H4/H5.
-The [writer-thinking-off proposal](PHASE4_WRITER_THROUGHPUT_V1.md) remains a separate
-unapproved alternative. No new pilot, serving change or H4 allocation is authorized.
+is now Approved for the exact protected build/conversion, thirty new local requests
+and early-artifact pilot with Heavy thinking unchanged, then conditional fresh
+H4/H5 (BL-20261101-2120-fast-v3-artifact-trial-approved). Controls are being
+implemented; no new build/service/model result exists. The exact approved proposal
+bytes remain preserved. The [writer-thinking-off proposal](PHASE4_WRITER_THROUGHPUT_V1.md)
+remains a separate unapproved alternative.
 
 The restored deployment retains the qualified image, original checkpoint,
 serving arguments and environment. New physical identities are explicitly bound

@@ -1,9 +1,46 @@
 # Phase 4 Flash-Next migration plan
 
-Status: **Historical amended qualification Verified; saved serving deployment restored with owner approval; draft-first writer H4 attempt failed at its 90-minute deadline. H4 unaccepted after six attempts; split/H5 unstarted; current allocation consumed**. Updated 2026-11-02
-(Asia/Shanghai). Authority: BL-20261031-1759-flash-next-sequence-owner-approved.
+Status: **Fast-v3 trial Approved; two original-service baselines Verified; initial candidate supervisor refused before an attempt, stop or build. Original service unchanged; narrow preflight adapter in progress. Candidate qualification/pilot and fresh H4/H5 remain unrun; H4 remains unaccepted after six historical attempts**. Updated 2026-11-02
+(Asia/Shanghai). Current authority: BL-20261101-2120-fast-v3-artifact-trial-approved.
 
-Current outcome: the owner-approved [draft-first writer policy](PHASE4_WRITER_COMPLETION_V1.md)
+Current fast-v3 progress: both predeclared baseline requests passed and settled
+under root review, with USD 0 fees/reservations, zero cache read/write tokens and
+zero UNKNOWN. These are the only two new model requests so far: **2/30**, separate
+from the consumed historical compatibility and H4 allocations.
+
+| Baseline | Actual input tokens | Completed output tokens | Full-request seconds |
+| --- | ---: | ---: | ---: |
+| B1, native Heavy SSE fixture | 15428 | 7126 | 362.892 |
+| B2, bounded large-context fixture | 82530 | 3262 | 199.748 |
+
+Across the two fixtures, 10388 completed output tokens divided by their combined
+request durations give **18.462977 full-request tokens/s**; dividing by the summed
+service decode durations gives **19.944971 decode tokens/s**. The accepted report
+retains each metric's denominator and the actual original source provenance.
+This is a two-fixture reference on the original serving profile, not a candidate
+speed improvement, task-quality result, artifact proof or H4 credit. Candidate/pilot
+controls v6 have passed seven focused CPU checks and strict TypeScript checking
+with independent source review; those checks are not live candidate evidence.
+
+The first candidate supervisor exited 2 during preflight. The attempt record,
+predecessor-stop records, candidate build/stage/image and candidate requests are
+absent. Thirty current readiness checks pass on the unchanged original deployment.
+Read-only tests reproduced the missing required legacy-builder options when relying
+on a caller environment across `sudo`; explicitly setting `DOCKER_BUILDKIT=0`
+after that boundary exposes all six required flags. This identifies a necessary
+host-preflight correction and likely immediate blocker. The original wrapper
+suppressed its safe exception code and the inspected journal supplied no first
+exception, so a unique original failure cause is not conclusively established.
+
+A narrowly scoped external adapter for the **same unused serving attempt** is in
+preparation. It preserves the frozen original package, request grant, inference
+profile, resource ceilings, cleanup/lease ownership and exact prior-vLLM rollback;
+there is no baseline replay or allocation reset. Source/CPU review and root release
+remain required before that adapter executes. Candidate qualification and the
+artifact pilot have not run. No model result or artifact is inferred from these
+preflight checks (BL-20261101-2219-fast-v3-baselines-preflight).
+
+Earlier writer outcome: the owner-approved [draft-first writer policy](PHASE4_WRITER_COMPLETION_V1.md)
 ran after exact saved serving restoration and successful required CI. Its first
 local sample stopped naturally at the 90-minute boundary: 91 dispatches,
 90 settled and one UNKNOWN/cancelled receipt. The loop preserved the incomplete
@@ -13,7 +50,7 @@ inventories were unchanged with zero output files; all 52 execute actions exited
 zero, with no structured write, finish or claims-check call. The stronger prompt
 did not establish timely saved work. Actual H4 history is six attempts and
 352 dispatches: 348 settled, three UNKNOWN and one committed unresolved, with
-USD 0 known settled fees and reservations. The current grant is consumed with
+USD 0 known settled fees and reservations. That writer allocation is consumed with
 zero replacements (BL-20261101-2044-writer-completion-stopped).
 
 Generation averaged about 19.94 decode tokens/s; a live window measured 19.99.
@@ -24,16 +61,20 @@ hardware/kernel cause are unproven. The
 [fast-v3 qualification and artifact trial](PHASE4_FAST_V3_ARTIFACT_TRIAL_V1.md)
 is now Approved for the exact protected build/conversion, thirty new local requests
 and early-artifact pilot with Heavy thinking unchanged, then conditional fresh
-H4/H5 (BL-20261101-2120-fast-v3-artifact-trial-approved). Controls are being
-implemented; no new build/service/model result exists. The exact approved proposal
-bytes remain preserved. The [writer-thinking-off proposal](PHASE4_WRITER_THROUGHPUT_V1.md)
+H4/H5 (BL-20261101-2120-fast-v3-artifact-trial-approved). The two actual baseline
+results and candidate preflight refusal are recorded above. No candidate build,
+conversion, numerical execution, qualification or pilot result exists at this
+status update. The exact approved proposal bytes remain preserved. The [writer-thinking-off proposal](PHASE4_WRITER_THROUGHPUT_V1.md)
 remains a separate unapproved alternative.
 
 The restored deployment retains the qualified image, original checkpoint,
 serving arguments and environment. New physical identities are explicitly bound
 to retained semantic qualification; this is not new live qualification.
-Six post-run observations found it healthy and idle. H5 preparation is verified
-but held, with no actual launch authority/pins/claim/run. All earlier negative
+Six post-run observations found it healthy and idle; the later thirty-check
+preflight-readiness record confirms the original service remains unchanged. The
+new fast-v3 H4/H5 admission controls are implemented and independently CPU/source
+reviewed, with exact source/history/profile bindings, but remain held. They have
+no actual new launch authority/pins/claim/run. All earlier negative
 results and their limitations remain in the append-only build log.
 
 Earlier outcome: the [bounded completion allocation](PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md)

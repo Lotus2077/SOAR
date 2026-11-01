@@ -1,6 +1,6 @@
 # Flash-Next planner validation metadata diagnostic
 
-Status: **Proposed; no new request allowance or implementation.**
+Status: **Approved; implementation CPU-verified and hold released; final launch checks pending.**
 Prepared 2026-11-01 after the permitted H4 recovery failed.
 
 The next useful evidence is the planner's validation category for each reply.
@@ -13,7 +13,7 @@ This proposal adds observation in a separate ignored diagnostic wrapper. It keep
 the production runtime, prompts, parser/schema, retries, model, service and every
 local role unchanged. It does not propose another H4 attempt.
 
-## Bounded proposed scope
+## Approved bounded scope
 
 | Item | Limit |
 | --- | --- |
@@ -25,6 +25,10 @@ local role unchanged. It does not propose another H4 attempt.
 | Retry | Stop at the first valid plan; second planner call only for the existing validation retry; no transport or whole-diagnostic replay |
 | Stop boundary | Synchronously at the existing plan-stage record, before extraction, synthesis, writer, critic or judge |
 | Later evaluation | No H4 replay, split calibration or H5 start granted |
+
+The owner replied "approve" to this specific scope; see
+BL-20261101-0139-planner-metadata-diagnostic-approved. Approval is not runtime
+completion or a production fix.
 
 This is a **new allocation**. The completed 24-request qualification, ten-request
 planner diagnostic and consumed H4 recovery cannot supply it. Unused split money
@@ -98,6 +102,24 @@ binds the final authority and launches once under owned process-group supervisio
 Retain fresh pre/post idle evidence and reconcile all receipts before interpreting
 the result. A drift or proposed behavior change stops for a named decision;
 the single-use claim and zero-replay limit remain in force.
+
+## Verified preparation
+
+The new wrapper passed 48 TypeScript and 14 mocked supervisor tests, strict
+TypeScript, and independent evidence/privacy reviews. It imports the frozen
+core unchanged and retains no reply-text adapter. Review found and corrected a
+pending-call cleanup gap at deadline setup before any live use. Provider-reported
+cache absence is recorded as unavailable, separately from production-normalized
+usage. All prior failures and assets remain unchanged.
+
+The twenty-file held archive and immutable owner approval were preserved. Only
+the activation declaration changed; the other nine assets are identical. The
+released package passed 46 applicable TypeScript and 14 supervisor tests; its two
+held-only assertions remain covered by the held snapshot and actual release-byte
+comparison. See BL-20261101-0147-planner-metadata-wrapper-prepared. This is CPU
+verification and scoped hold release, not a completed diagnostic or product
+release. The final clean commit/CI, concrete authority and current service/idle
+checks still precede execution.
 
 ## Interpretation and subsequent gate
 

@@ -641,8 +641,12 @@ invalid, one truncated), ten settled zero-fee receipts and no later stage. Both
 failed local attempts remain counted; no further replay is authorized. Split
 and H5 remain unstarted (BL-20261101-0134-h4-recovery-plan-rejected).
 A [metadata-only planner diagnostic](plans/PHASE4_FLASH_NEXT_PLANNER_METADATA_DIAGNOSTIC_V1.md)
-is proposed to capture the missing per-reply categories before tuning; no new
-request allowance or implementation exists (BL-20261101-0136).
+is approved to capture new per-reply categories before tuning: at most eight
+index plus two planner calls, USD 0, no retained reply text, and no H4 replay or
+H5 launch. Its wrapper passed 62 held CPU tests, strict TypeScript and two
+independent reviews; the hold-only release passed 60 applicable tests. Final
+clean-commit/CI and current authority/service checks remain before dispatch
+(BL-20261101-0139; BL-20261101-0147).
 The held H5 runner now permits admitted-row closing checks after the new-start
 cutoff and owns its process group. All 62 CPU tests and independent reviews pass;
 this changes no runtime, row/fee limit, H4 prerequisite or launch permission

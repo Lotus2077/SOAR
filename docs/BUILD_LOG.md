@@ -27791,3 +27791,49 @@ Paid exposure: USD 0 design work; proposed diagnostic ceiling USD 0. No new paid
 Next gate: Review the concrete plan with the owner. Only after specific approval, prepare and independently verify the held wrapper, durably record the grant, bind clean released bytes/current prerequisites and execute once. Return the actual fixed validation categories and then propose any evidence-supported change; no automatic whole-loop replay follows.
 
 References: docs/plans/PHASE4_FLASH_NEXT_PLANNER_METADATA_DIAGNOSTIC_V1.md; BL-20261101-0134-h4-recovery-plan-rejected; BL-20261101-0059-h4-recovery-approved; docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261101-0139-planner-metadata-diagnostic-approved -- 2026-11-01 -- Authorize one new metadata-only planner diagnostic
+
+Status: `Approved`
+
+Scope or hypothesis: The owner replied "approve" to the explicit new metadata-only diagnostic question after the permitted H4 recovery failed. Record approval of the public plan at commit 898cc6613b9ee49fcb44c2e02d89e7f3996177b1. This is a separate request grant, not reuse of exhausted qualification, the completed earlier diagnostic or the consumed failed recovery.
+
+Decisions: Permit at most eight index and two planner requests, ten total, USD 0 and at most 28672 output-token reservations. Use one interval of at most 45 minutes ending before 2026-11-01 10:00 UTC. Keep the actual model, serving configuration, eight local roles, production runtime/protocol, prompts, parser/schema, thinking/sampling, budgets and limits unchanged. Stop at the first valid plan or after the existing single validation retry, synchronously before extraction. No transport retry, diagnostic replay, retained reply text, H4 replay, split or H5 admission is authorized.
+
+Changes: Record the exact owner question and reply in an exclusive private approval record bound to the approved public-plan hash and failed recovery authority/result/adjudication. Prepare a new held ignored wrapper using the existing diagnostic core, without its earlier private-final retention adapter. Preserve all original evidence and spent claims. The immutable owner record predates executable preparation; later held/released bindings must link to it without rewriting its approval bytes.
+
+Evidence: Owner decision SHA-256 6606890fc99dcf9780eaf7bcef67185795b80ee91c610dca248ea068d27d6944, recorded at 01:38:48.803 UTC. Approved public-plan SHA-256 2e5991c0c44b11340eec04ab740ac3421b03903404892dfaa78251085d54a106. Failed recovery authority remains 165dbb194bb399492af5b8eb7f56ee0432d1767f6672f608eb32d5443b92be94, failed result cdf5c928b6ef81556b2e39435a1971a66afb477ee5b6720fdfc1f35277c53246 and root adjudication 2226ae6bdcf7a373a9c22c54d5c0bac42837767b21a0a0b3b85d67c7d22ee7d3. These negatives remain unchanged.
+
+Failures or blockers: No further owner permission is needed for this exact allocation. Held implementation, synthetic tests, independent evidence/privacy review, hold-only release binding, clean commit/CI, actual single-use authority and current qualified service/idle checks remain required before dispatch. No new model call has occurred at this entry's preparation.
+
+Limitations and non-claims: New indexing may yield different planner inputs, so new validation categories cannot reconstruct the unavailable historical replies. Valid new planning does not accept H4 or erase its two counted local failures. H5 remains ineligible until separately accepted H4 and split semantics. Any later behavior change or full-loop replay requires its own applicable named decision.
+
+Paid exposure: USD 0 and no new paid allocation. Historical Claude USD 1.151653 and the unused H4 split/H5 caps remain separate.
+
+Next gate: Complete held implementation and independent CPU reviews, archive its exact bytes, release only the reviewed hold, bind current clean commit/CI and owner-approved scope to a new failure-anchored single-use authority, and execute once within its concrete interval. Reconcile every receipt and fresh post-idle observation before interpreting the diagnostic result.
+
+References: docs/plans/PHASE4_FLASH_NEXT_PLANNER_METADATA_DIAGNOSTIC_V1.md; BL-20261101-0136-planner-metadata-diagnostic-proposed; BL-20261101-0134-h4-recovery-plan-rejected.
+
+### BL-20261101-0147-planner-metadata-wrapper-prepared -- 2026-11-01 -- Verify and release only the approved metadata diagnostic hold
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement the separately approved metadata-only wrapper without changing the frozen research core or production behavior. Bind the owner-approved public plan to exact held and released assets, preserve both counted H4 failures, and prepare the one-shot ten-request diagnostic for final launch checks.
+
+Decisions: Keep the approved eight-index/two-plan, 28672-reservation, USD 0, no-text-retention and 45-minute-before-10:00-UTC bounds. Re-export the existing diagnostic core unchanged. Do not import or call the earlier private-final adapter. The final authority must bind the immutable owner decision, archived held proposal/operator, exact released proposal, successful clean-head CI record and qualified source/protocol/serving/roles/policy. A durable exclusive claim uses the failed recovery identity, independent of output or authority copies.
+
+Changes: Implement ten ignored wrapper/template/test/documentation assets, safe provider-cache presence metadata, exact release/owner/CI validation and owned process-group supervision. Preserve unavailable cache fields as null separately from production-normalized usage; no raw payload is retained. Review found a deadline setup path after pending-count increment that could skip its decrement. Move all setup and awaited model execution inside one finally-cleared guard; synthetic deadline and concurrent-request cases verify it. Service, prompt/schema/retry/body construction, output limits, sampling/thinking and production source remain unchanged.
+
+Evidence: The held snapshot passes 48 TypeScript and 14 mocked supervisor tests, plus strict TypeScript. Both independent reviewers reran all 62 checks and found no remaining blocker. Held proposal SHA-256 4da56015cd060e0c6ac26ae8720a2f5143d83b5865b71f49d99a709e0dfde6a3 binds ten assets, twenty-two references and eighteen preserved recovery assets. Preparation verification 1695eda8453988e9425b4bdcd2eec2cb65bf0212c92b84fde8cb05452982701b; evidence review 8f93e562f3be9ac073f27e3f5fa2a24e4212ab4736f9a1f3ebaba57ae7ffdfb1; privacy review 8e26b448b32d6cebf91d6cd03a93185705ae33d73214e2e5dd120fde3d4ebc75. A test-fixture import error was corrected before the successful supervisor run, with its initial log retained.
+
+Root preserved twenty held files in archive manifest 232d339edcdf0c2a247028afb38c021a722b7a76174ec263e373b0b14d142b31 and changed only the activation declaration. Released operator SHA-256 048acee852b81740c5aa2e4a06b29d71c30da477db0d1cd25533234b27637f4e; released proposal 70cc0e6806cfa33d61dd13b1b5efcf6d458731c2b241a051f1947a13679fe4f2. All other nine assets and the immutable owner decision are unchanged. Forty-six applicable TypeScript and fourteen supervisor tests pass; the two held-only cases retain prior coverage and actual held/released validators pass. Strict TypeScript passes after correcting only the external test configuration's type-library resolution. Release verification is 6371357de20fa0e725944af6b17e11f8f566bdad0d0daea8eef22029c65d4505. Independent actual-release witness 0a188496e0e3440a5169c6a67db89a5cfcf819632268133baa07f934c5fb6df3 passes twelve archive/owner/hold-only checks. Prior proposal commit 898cc6613b9ee49fcb44c2e02d89e7f3996177b1 passed both CI jobs in run 41261768993.
+
+Failures or blockers: No remaining CPU-preparation blocker. Final approval-commit CI, exact actual-authority binding and current ownership/device/qualified-idle checks remain before dispatch. No actual diagnostic authority, execution claim or run exists at entry creation. A new permission question is not required for this already approved scope.
+
+Limitations and non-claims: CPU verification does not prove a valid live plan or diagnose old replies. Hold release is not a product release, H4 acceptance, failed-row replay or H5 admission. The earlier ten-request diagnostic and both H4 local rejections remain separate and immutable. Implementing/review sessions read no fresh H5 task, candidate or gold. No private endpoint, local path, raw trace or generated artifact enters Git.
+
+Paid exposure: USD 0 and zero model requests during preparation. Earlier Claude totals and separate H4/H5 fee caps remain unchanged.
+
+Next gate: Bind final successful CI and clean commit to an exclusive concrete authority ending within 45 minutes and before 10:00 UTC. Independently verify released bytes, retained archive/owner chain, actual limits and current prerequisites; launch once under the reviewed supervisor. Reconcile fixed per-reply categories, all settled receipts and fresh post-idle evidence before interpreting the result. Do not start H4 or H5 from diagnostic success alone.
+
+References: docs/plans/PHASE4_FLASH_NEXT_PLANNER_METADATA_DIAGNOSTIC_V1.md; BL-20261101-0139-planner-metadata-diagnostic-approved; BL-20261101-0134-h4-recovery-plan-rejected.

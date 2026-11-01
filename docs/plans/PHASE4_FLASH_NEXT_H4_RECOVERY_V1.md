@@ -151,7 +151,9 @@ this failed authority. No new H4 acceptance, split calibration or H5 start is
 established. The consumed recovery claim cannot be reset. See
 BL-20261101-0134-h4-recovery-plan-rejected. The next
 [metadata-only diagnostic](PHASE4_FLASH_NEXT_PLANNER_METADATA_DIAGNOSTIC_V1.md)
-is proposed and requires a separate request allowance.
+has received a separate owner grant for at most ten zero-fee calls, retaining
+metadata only. It grants no further H4 replay or H5 start
+(BL-20261101-0139-planner-metadata-diagnostic-approved).
 
 References: [migration plan](PHASE4_FLASH_NEXT_MIGRATION_V1.md),
 BL-20261031-2322-h4-local-plan-rejected,

@@ -89,8 +89,11 @@ The held H5 runner received a separately reviewed admitted-row closure and owned
 supervision correction, with 62 CPU tests passing. It remains held without an
 actual authority or launch (BL-20261101-0135-h5-held-closure-supervision).
 A [metadata-only planner diagnostic](PHASE4_FLASH_NEXT_PLANNER_METADATA_DIAGNOSTIC_V1.md)
-is proposed to capture the missing per-reply validation categories. It has no new
-request allowance or implementation (BL-20261101-0136).
+is owner-approved for at most ten new zero-fee calls and fixed per-reply
+validation metadata, with no retained reply text. The wrapper passed 62 held
+CPU tests, strict TypeScript and independent reviews; its hold-only release
+passed 60 applicable tests. Final launch checks remain, and no H4 replay or H5
+launch is included (BL-20261101-0139; BL-20261101-0147).
 See the [continuation evidence](PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md),
 BL-20261031-2208-flash-qualification-accepted and
 BL-20261031-2322-h4-local-plan-rejected.

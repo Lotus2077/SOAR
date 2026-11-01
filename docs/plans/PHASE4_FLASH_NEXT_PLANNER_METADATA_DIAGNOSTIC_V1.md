@@ -1,6 +1,6 @@
 # Flash-Next planner validation metadata diagnostic
 
-Status: **Approved; implementation CPU-verified and hold released; final launch checks pending.**
+Status: **Verified bounded diagnostic; earlier planning failures not reproduced.**
 Prepared 2026-11-01 after the permitted H4 recovery failed.
 
 The next useful evidence is the planner's validation category for each reply.
@@ -118,8 +118,36 @@ released package passed 46 applicable TypeScript and 14 supervisor tests; its tw
 held-only assertions remain covered by the held snapshot and actual release-byte
 comparison. See BL-20261101-0147-planner-metadata-wrapper-prepared. This is CPU
 verification and scoped hold release, not a completed diagnostic or product
-release. The final clean commit/CI, concrete authority and current service/idle
-checks still precede execution.
+release. Final clean commit/CI, concrete authority and current service/idle
+checks subsequently passed before the single execution recorded below.
+
+## Actual result
+
+The one-shot diagnostic completed on 2026-11-01 at 02:06:29 UTC after **nine
+settled requests, USD 0**. All eight index replies were valid. The first planner
+reply stopped normally and passed the unchanged schema: nine questions, zero
+unknown source IDs, 5182 input and 6848 output tokens, 7781 final-content bytes
+and 8695 separate reasoning bytes. No second planner request, extraction,
+synthesis, writer, critic or judge ran. No reply text was retained.
+
+Total usage was 24007 input and 12732 output tokens; summed output reservations
+were 20480. All nine responses explicitly reported zero cached-input tokens;
+cache-write and thinking-token counts were unavailable. Byte counts are not
+reasoning-token estimates. The unused tenth slot cannot be reassigned or carried
+forward; the single-use claim is consumed.
+
+The independent evidence audit passed 97 checks for the recorded metadata,
+receipts, exact token proofs, scope and preserved hashes. It did not reparse
+absent reply text. Three healthy/zero-running/zero-waiting observations preceded
+generation and three followed it. The supervisor exited zero with its group and
+inhibitor quiescent; a later independent service check also found healthy idle.
+See BL-20261101-0208-planner-metadata-diagnostic-result for exact evidence hashes.
+
+This run **did not reproduce the earlier invalid-plan replies**. Fresh indexing
+and job cache isolation can change the actual planner input, so it neither
+recovers their causes nor establishes a production fix. Both counted H4 failures,
+the failed recovery claim and all earlier negative evidence remain unchanged.
+No new H4 attempt, split calibration or H5 start is authorized by this result.
 
 ## Interpretation and subsequent gate
 
@@ -132,6 +160,10 @@ Do not automatically increase output tokens, disable thinking, relax the schema,
 alter retry feedback or restart the service. Any later behavior/runtime change
 needs its own named design, pins and applicable qualification/comparability review;
 the old deck result is not silently relabelled under a changed baseline.
+
+The next proposed step is [planner metadata in host audit events](PHASE4_PLANNER_EVENT_METADATA_V1.md),
+with diagnostics excluded from writer inputs and a truthful new runtime identity.
+That plan is unimplemented and grants no additional requests.
 
 H4 remains unaccepted, and H5 still requires all three accepted logical H4 roles
 and usable split semantics under its existing conditional launch permission.

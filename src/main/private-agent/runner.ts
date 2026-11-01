@@ -47,6 +47,8 @@ export interface GeneralJobOptions {
   maxPublicFetches?: number;
   /** Host-only exact-packet permission workflow; absent retains the legacy protocol. */
   consultation?: GeneralConsultation;
+  /** Host-only shared-session deadline in performance.now() milliseconds; never grants more phase time. */
+  sessionDeadlineMs?: number;
 }
 export interface GeneralJobResult {
   status: "completed" | "paused" | "incomplete";
@@ -228,6 +230,8 @@ export class GeneralAgentRunner {
   constructor(private readonly options: GeneralJobOptions) {
     const contract = GeneralJobContractSchema.parse(options.contract);
     const context = options.store.context(options.contextId);
+    if (options.sessionDeadlineMs !== undefined && (!Number.isFinite(options.sessionDeadlineMs) || options.sessionDeadlineMs < 0))
+      throw new Error("general_session_deadline_invalid");
     if (options.maxPublicFetches !== undefined && (!Number.isSafeInteger(options.maxPublicFetches) || options.maxPublicFetches < 1 ||
         options.maxPublicFetches > 5 || !options.webDestinations?.length)) throw new Error("general_public_fetch_limit_invalid");
     if (options.model.jobId !== options.jobId || options.model.contextId !== options.contextId ||
@@ -296,6 +300,13 @@ export class GeneralAgentRunner {
     // Public fetch allowance: attempts superseded by a retry do not count against the five fetches.
     const publicFetches = () => store.dispatches(jobId).filter(row => row.purpose === "public source retrieval" && row.status !== "superseded").length;
     const started = performance.now();
+    // Research, public phases and pause time consume the existing session allowance.
+    // Use the same monotonic span as its abort timer, never a fresh phase allowance.
+    const remainingActiveMs = () => {
+      const now = performance.now();
+      return Math.floor(Math.min(contract.maxElapsedMs - elapsed - (now - started),
+        this.options.sessionDeadlineMs === undefined ? Infinity : this.options.sessionDeadlineMs - now));
+    };
     const finish = (status: GeneralJobResult["status"], reason: string): GeneralJobResult => ({ status, reason, snapshot, checks, modelCalls: this.options.consultation ? this.history().filter(event => event.type === "model_started").length + this.options.consultation.modelCalls() : calls });
     try {
       const priorClaim = store.runClaim(contextId);
@@ -354,7 +365,7 @@ export class GeneralAgentRunner {
         else if (event.type === "nudge") { if (event.kind === "length") { lengthStreak++; noActionStreak = 0; } else { noActionStreak++; lengthStreak = 0; } }
       }
       elapsed = history.filter(event => event.type === "run_ended").reduce((sum, event) => sum + Number(event.elapsedMs), 0);
-      if (!Number.isSafeInteger(elapsed) || elapsed >= contract.maxElapsedMs || signal.aborted || store.policy(jobId).cancelled) return finish("incomplete", "cancelled_or_deadline");
+      if (!Number.isSafeInteger(elapsed) || remainingActiveMs() <= 0 || signal.aborted || store.policy(jobId).cancelled) return finish("incomplete", "cancelled_or_deadline");
       const priorHostValidation = [...history].reverse().find(event => event.type === "host_validation_finished");
       if (priorHostValidation) {
         checks = priorHostValidation.checks as GeneralJobResult["checks"];
@@ -375,7 +386,7 @@ export class GeneralAgentRunner {
       if (pendingConsultation) {
         if (pendingConsultation.uncertain) return finish("incomplete", "consultation_response_missing_no_replay");
         if (pendingConsultation.status === "approved" && (contract.maxModelCalls - calls < 2 || contract.maxToolCalls - tools < 1 || store.policy(jobId).maxRequests - store.dispatches(jobId).length < 2)) return finish("incomplete", "consultation_budget_unavailable");
-        const remaining = Math.floor(contract.maxElapsedMs - elapsed - (performance.now() - started));
+        const remaining = remainingActiveMs();
         if (remaining <= 0 || signal.aborted || this.pauseRequested) return finish(this.pauseRequested ? "paused" : "incomplete", "cancelled_or_deadline");
         consultationOutput = await this.options.consultation!.resume(AbortSignal.any([signal, this.activeAbort.signal, AbortSignal.timeout(remaining)]));
         calls = this.history().filter(event => event.type === "model_started").length + this.options.consultation!.modelCalls();
@@ -388,8 +399,8 @@ export class GeneralAgentRunner {
         else if (event.type === "nudge") messages.push({ role: "user", content: String(event.message) });
       }
       sandbox = await DockerSandbox.create({ imageId, jobId, contextId, endpoint, files: checkpoints.load(snapshot),
-        lifetimeSeconds: sandboxLifetime(contract.maxElapsedMs - elapsed - (performance.now() - started)) });
-      const remaining = Math.floor(contract.maxElapsedMs - elapsed - (performance.now() - started));
+        lifetimeSeconds: sandboxLifetime(remainingActiveMs()) });
+      const remaining = remainingActiveMs();
       if (remaining <= 0) return finish("incomplete", "cancelled_or_deadline");
       const timer = AbortSignal.timeout(remaining);
       const boundedSignal = AbortSignal.any([signal, timer, this.activeAbort.signal]);
@@ -401,7 +412,7 @@ export class GeneralAgentRunner {
         const budget: RemainingBudget = { remainingModelCalls: contract.maxModelCalls - calls,
           remainingToolCalls: contract.maxToolCalls - tools,
           remainingBrokerRequests: Math.max(0, store.policy(jobId).maxRequests - store.dispatches(jobId).length),
-          remainingActiveMs: Math.max(0, Math.floor(contract.maxElapsedMs - elapsed - (performance.now() - started))),
+          remainingActiveMs: Math.max(0, remainingActiveMs()),
           ...(this.options.maxPublicFetches === undefined ? {} : { remainingPublicFetches: Math.max(0, this.options.maxPublicFetches -
             publicFetches()) }) };
         if (!budget.remainingActiveMs) return finish("incomplete", "cancelled_or_deadline");
@@ -465,7 +476,7 @@ export class GeneralAgentRunner {
         messages.push(assistant);
         // A delayed timer must not admit a late action. Keep the settled response,
         // but never replay its unstarted action or fabricate a tool receipt.
-        if (boundedSignal.aborted || store.policy(jobId).cancelled || elapsed + performance.now() - started >= contract.maxElapsedMs) {
+        if (boundedSignal.aborted || store.policy(jobId).cancelled || remainingActiveMs() <= 0) {
           this.record({ type: "model_action_not_started", operationId, reason: "cancelled_or_deadline" });
           return finish("incomplete", "cancelled_or_deadline");
         }
@@ -502,7 +513,7 @@ export class GeneralAgentRunner {
             this.record({ type: "checkpoint", snapshot, sha256: checkpoints.fingerprint(snapshot) });
           }
           // Capture is asynchronous and may itself consume the remaining time.
-          if (boundedSignal.aborted || store.policy(jobId).cancelled || elapsed + performance.now() - started >= contract.maxElapsedMs) {
+          if (boundedSignal.aborted || store.policy(jobId).cancelled || remainingActiveMs() <= 0) {
             this.record({ type: "model_action_not_started", operationId, reason: "cancelled_or_deadline" });
             return finish("incomplete", "cancelled_or_deadline");
           }
@@ -599,7 +610,7 @@ export class GeneralAgentRunner {
             output = canonical({ complete, missingArtifacts: missing.map(artifact => artifact.path), checks });
             if (complete) this.recordVerifiedClaims(verified.claimsOutput);
             if (!complete) sandbox = await DockerSandbox.create({ imageId, jobId, contextId, endpoint, files,
-              lifetimeSeconds: sandboxLifetime(contract.maxElapsedMs - elapsed - (performance.now() - started)) });
+              lifetimeSeconds: sandboxLifetime(remainingActiveMs()) });
           } else throw new Error("tool_unknown");
           // A failed explicit finish already checked this source. Invalid or
           // uncertain actions never obtain implicit terminal validation.
@@ -653,7 +664,7 @@ export class GeneralAgentRunner {
       // Ordinary model/tool exhaustion can submit existing work without spending
       // another model call on finish. All early failure/unknown returns bypass this.
       if (this.pauseRequested) { this.record({ type: "paused" }); return finish("paused", "checkpoint_saved"); }
-      if (boundedSignal.aborted || store.policy(jobId).cancelled || elapsed + performance.now() - started >= contract.maxElapsedMs) return finish("incomplete", "cancelled_or_deadline");
+      if (boundedSignal.aborted || store.policy(jobId).cancelled || remainingActiveMs() <= 0) return finish("incomplete", "cancelled_or_deadline");
       if (unsettledDispatch()) return finish("incomplete", "unresolved_dispatch_no_replay");
       if (sandbox && allowanceFinalizationEligible) {
         const operationId = randomUUID();
@@ -662,7 +673,7 @@ export class GeneralAgentRunner {
         snapshot = checkpoints.save(files);
         this.record({ type: "checkpoint", snapshot, sha256: checkpoints.fingerprint(snapshot) });
         await sandbox.close(); sandbox = undefined;
-        if (boundedSignal.aborted || store.policy(jobId).cancelled || elapsed + performance.now() - started >= contract.maxElapsedMs) return finish("incomplete", "cancelled_or_deadline");
+        if (boundedSignal.aborted || store.policy(jobId).cancelled || remainingActiveMs() <= 0) return finish("incomplete", "cancelled_or_deadline");
         const missing = contract.requiredArtifacts.filter(artifact => !files.some(file => file.path === artifact.path && file.bytes.length));
         const verified = missing.length ? { checks: [] } : await this.verify(files, boundedSignal, endpoint);
         checks = verified.checks;
@@ -693,7 +704,7 @@ export class GeneralAgentRunner {
         if (ownsClaim) {
           this.record({ type: "run_ended", elapsedMs: Math.ceil(performance.now() - started), cleanupConfirmed });
           if (completionPending && cleanupConfirmed && !store.policy(jobId).cancelled && !signal.aborted &&
-              elapsed + performance.now() - started < contract.maxElapsedMs && !unsettledDispatch()) {
+              remainingActiveMs() > 0 && !unsettledDispatch()) {
             this.record({ type: "completed", snapshot, checks, verifiedSnapshotSha256: checkpoints.fingerprint(snapshot) });
           }
           store.releaseRun(contextId, ownerId, cleanupConfirmed);
@@ -703,7 +714,7 @@ export class GeneralAgentRunner {
       if (ownsClaim && !cleanupConfirmed) return finish("incomplete", "cleanup_required");
       if (completionPending && unsettledDispatch()) return finish("incomplete", "unresolved_dispatch_no_replay");
       if (completionPending && (store.policy(jobId).cancelled || signal.aborted)) return finish("incomplete", "cancelled_before_completion");
-      if (completionPending && elapsed + performance.now() - started >= contract.maxElapsedMs) return finish("incomplete", "deadline_before_completion");
+      if (completionPending && remainingActiveMs() <= 0) return finish("incomplete", "deadline_before_completion");
     }
   }
 

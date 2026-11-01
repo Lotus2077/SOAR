@@ -132,7 +132,13 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
     const repairOk = expect.repairOf === undefined ? summary.repairSource === null
       : summary.repairSource?.resultSha256 === expect.repairOf.resultSha256 && summary.repairSource.freezeSha256 === expect.repairOf.freezeSha256;
     if (summary.taskJobSha256 !== record.task.jobSha256 || summary.taskBriefSha256 !== record.task.briefSha256 || summary.runtimeSha256 !== record.runtimeSha256 || !lineageOk || !repairOk) throw new Error("loop_stage_mismatch");
-    record.candidates[name] = summary; for (const key of TOTAL_KEYS) record.totals[key] += summary[key]; return summary;
+    record.candidates[name] = summary; for (const key of TOTAL_KEYS) record.totals[key] += summary[key];
+    // A completed research packet does not resolve a later writer request. Keep
+    // this stage's evidence/counts, but never admit another stage past uncertain
+    // dispatches (including committed receipts) or a failed transport.
+    if (summary.unknownDispatches !== 0) throw new Error("loop_stage_unresolved_dispatch");
+    if (summary.failedDispatches !== 0) throw new Error("loop_stage_failed_dispatch");
+    return summary;
   };
   const addCritique = (usage: CritiqueUsage | null, feeMicrousd: number, finishReason: string | null) => {
     record.totals.modelCalls += 1; record.totals.feeMicrousd += feeMicrousd;

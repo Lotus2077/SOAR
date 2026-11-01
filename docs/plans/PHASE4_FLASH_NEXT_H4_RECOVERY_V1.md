@@ -4,9 +4,13 @@ Status: **Executed; recovery rejected at the planner gate. Further replay is not
 Prepared 2026-11-01 (Asia/Shanghai).
 
 The statement above describes this consumed recovery grant. A later, separate
-[completion allocation](PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md) is now approved
-for one further local loop and the conditional untouched split (BL-20261101-0228).
-This recovery result and its spent claim remain unchanged and counted.
+[completion allocation](PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md) was approved and
+executed, then interrupted after sample a left an UNKNOWN cancelled/transport
+receipt and the loop incorrectly began sample b. That later grant is also
+consumed; it produced no H4 acceptance or split/H5 start
+(BL-20261101-0428-h4-completion-v2-interrupted). This recovery result and its spent
+claim remain unchanged and counted; the later interruption is not a third normal
+local rejection. No further replay is authorized.
 
 The approved planner diagnostic completed ten zero-fee requests. Its first plan
 hit the output cap without final content; the existing retry produced a valid
@@ -44,7 +48,8 @@ explicitly approved this separate recovery; see BL-20261101-0059-h4-recovery-app
 Keep the qualified runtime, research protocol, service, model checkpoint,
 tokenizer/admission policy, all eight roles including judge, tools/image,
 exposed task/input hashes, Heavy budgets, prompts, sampling/thinking settings
-and selection/repair rules unchanged. The qualified runtime remains
+and selection/repair rules unchanged. For this consumed recovery grant, the
+qualified runtime was
 `c3f8ff55c46e7a3402f95adc53efe5ebcd1eaf986d89377698270e01bba27963`.
 Any identity change requires a separate decision and coherent requalification;
 this proposal does not permit tuning after observing a failure.
@@ -149,7 +154,7 @@ group or matching task container. Post-row and later root metadata were healthy
 with zero running/waiting requests.
 
 The original failed local attempt is not replaced or relabelled. Actual H4
-history now contains three attempted loops: the deck pass and two counted local
+history at that recovery stop contained three attempted loops: the deck pass and two counted local
 rejections, totaling 78 settled receipts at USD 0. The allowed fourth attempt,
 the untouched split, was conditional on local success and cannot start under
 this failed authority. No new H4 acceptance, split calibration or H5 start is
@@ -159,6 +164,26 @@ BL-20261101-0134-h4-recovery-plan-rejected. The next
 completed its separate grant after nine zero-fee requests and a valid first
 plan, retaining metadata only. This did not reproduce or explain either failed
 H4 result and grants no further replay or H5 start (BL-20261101-0208).
+
+The later completion attempt adds 98 dispatches: 96 settled, one UNKNOWN and one
+committed unresolved. Current H4 history is four attempts: one accepted deck, two
+counted local rejections and one interrupted attempt; 176 dispatches, 174 settled
+and two unresolved. Known fees and fee reservations remain USD 0. The original
+database and host evidence are unchanged. The owned tool container was removed,
+but both archives contain zero regular files and total 3072 bytes, so
+working-file preservation is not established. See the separate completion result
+and [focused correction plan](PHASE4_LOOP_DISPATCH_STOP_V1.md). Two fixes are CPU
+implemented: stop on unresolved dispatches and clamp model-visible remaining
+time to the shared session deadline. The actual shared timer always applied;
+the displayed budget overstated time. The exact reviewed patch is applied, with
+127 focused tests and strict checking independently passing. Integrated
+verification is pending and there is no live proof. The changed runtime is not
+qualified by the old pins; the static research protocol remains unchanged. Timing
+of the cancelled/transport receipt supports a shared-deadline inference, not explicit receipt proof. A
+bounded review found all 38 writer inventories unchanged, no captured output
+artifacts, and about 33 advertised minutes versus about 12 remaining on the final
+turn; no shell or backend defect is proven. Optional telemetry remains deferred,
+and no new request, replay or H5 authority is added.
 
 References: [migration plan](PHASE4_FLASH_NEXT_MIGRATION_V1.md),
 BL-20261031-2322-h4-local-plan-rejected,

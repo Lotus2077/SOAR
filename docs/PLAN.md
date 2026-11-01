@@ -650,8 +650,41 @@ After deferring optional telemetry, the owner approved a separate
 [bounded completion allocation](plans/PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md):
 one additional local research loop and then the untouched split only if local
 passes, using the unchanged qualified runtime and shared USD 0.60 cap. Both
-failed attempts remain counted; executable preparation precedes dispatch, and
-H5 remains conditional on actual H4 acceptance (BL-20261101-0228).
+failed attempts remain counted. The completion allocation executed after both
+CI jobs passed for `82455c2` in run 41266124311. Sample a produced a valid first
+six-question plan, made 40 extraction calls (three invalid), and retained a
+4173-byte length-capped synthesis. Its writer completed 37 settled tool-call replies
+before an UNKNOWN cancelled/transport receipt at the 90-minute boundary. Timing
+supports the shared session deadline as the abort source; the receipt does not
+explicitly identify it. This is not `request_timeout` or proof of a backend fault.
+The loop incorrectly began sample b; root stopped the supervised group without
+forced kill. Group absence and six remote idle observations were verified.
+The owned tool container was removed, but both archives contain zero regular
+files and total 3072 bytes; working-file preservation is not established. Original database
+and host evidence remain unchanged.
+
+This interrupted attempt contains 98 dispatches: 96 settled, one UNKNOWN and one
+committed unresolved, with known fees and fee reservations USD 0. Completed
+usage only is 689775 input, 89992 output and 478240 cached-input tokens, one length
+stop and 46 tools. H4 history is four attempts: one accepted deck, two counted
+local rejections and this interrupted attempt, rather than a third normal
+rejection. Across H4 there are 176 dispatches, 174 settled and two unresolved;
+the completed-event plus retained loop-summary subtotal is 1481794 input, 189104
+output and 1103872 cached-input tokens, three length stops and 103 tools. Retained
+loop summaries exclude judge usage; this is not a total for all 174 settled
+receipts. H4 remains unaccepted; split/H5 never started and the new grant is consumed, with no further replay authorized
+(BL-20261101-0428-h4-completion-v2-interrupted). The
+[focused correction plan](plans/PHASE4_LOOP_DISPATCH_STOP_V1.md) now covers two
+CPU-implemented fixes: stop on unresolved dispatches and clamp model-visible
+remaining time to the shared session deadline. The actual shared timer always
+applied; the advertised budget overstated time. The exact reviewed patch is
+applied, and 127 focused tests plus strict checking passed independently.
+Integrated verification remains pending, with no live proof; the changed runtime
+is not qualified by the old pins, despite the unchanged static research protocol.
+A bounded writer review found all 38 captured workspace inventories unchanged and no output artifacts; its final turn
+advertised about 33 minutes while about 12 remained. No shell or backend defect
+is proven, and corrected guidance does not establish future completion. Optional
+telemetry remains deferred; no new request, replay or H5 authority is added.
 The held H5 runner now permits admitted-row closing checks after the new-start
 cutoff and owns its process group. All 62 CPU tests and independent reviews pass;
 this changes no runtime, row/fee limit, H4 prerequisite or launch permission

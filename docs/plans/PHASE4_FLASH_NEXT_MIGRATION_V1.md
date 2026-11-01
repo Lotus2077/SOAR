@@ -1,13 +1,24 @@
 # Phase 4 Flash-Next migration plan
 
-Status: **Approved sequence; shared admission and amended qualification Verified; H4 k2 completed and r3-local rejected; split/H5 unstarted; H4 acceptance blocked**. Prepared 2026-11-01
+Status: **Historical amended qualification Verified; two CPU fixes implemented, integrated verification required before live admission; H4 unaccepted after two local rejections and one interrupted attempt; split/H5 unstarted**. Prepared 2026-11-01
 (Asia/Shanghai). Authority: BL-20261031-1759-flash-next-sequence-owner-approved.
 
-Current next action: the owner approved [one bounded completion allocation](PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md)
-using the unchanged runtime: one local research loop, then the untouched split
-only if local passes, with both prior failures retained and the shared USD 0.60
-cap unchanged. The optional telemetry proposal is deferred. This is approval,
-not a new successful H4 result; H5 remains conditional (BL-20261101-0228).
+Current outcome: the [bounded completion allocation](PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md)
+executed and was interrupted after an UNKNOWN cancelled/transport receipt at
+sample a's 90-minute boundary and an incorrect sample-b start. Timing supports
+the shared-deadline inference; the receipt does not identify the abort source.
+The grant is consumed; no further replay is authorized. H4 remains unaccepted
+and split/H5 unstarted
+(BL-20261101-0428-h4-completion-v2-interrupted). See the
+[focused correction plan](PHASE4_LOOP_DISPATCH_STOP_V1.md): both the stop on
+unresolved dispatches and the model-visible shared-time clamp are CPU implemented.
+The exact reviewed patch is applied; 127 focused tests and strict checking passed
+independently, while integrated verification remains pending. New runtime
+`fec462c399e00e2fe1fdead1be552d32933cb1f9ef5a307492bbebbf430f4082`
+is not qualified by the old pins. The static research protocol is unchanged,
+while model-visible budget values change; the actual shared timer always
+applied. Optional telemetry remains deferred, and no live proof, added time,
+request, replay or H5 authority is established.
 
 Updated after owner-authorized inventory, the failed first startup and the
 approved instrumented retry on 2026-11-01. The retry candidate now serves healthy
@@ -39,7 +50,7 @@ unless the design names a change and the owner approves it.” The conditional
 trial retains its recorded configuration, recovery requirement and operational
 window; its reauthorization does not waive qualification or evaluation gates.
 
-Current outcome: the second candidate attempt reached a healthy owned API at
+Deployment and evaluation history: the second candidate attempt reached a healthy owned API at
 2026-10-31 20:37:27 UTC, about 321 seconds after server start. It retains the
 original checkpoint/image and context 262144 with one sequence; the sole
 serving-argument change is a fixed 12 GiB KV pool. q4t is stopped and recoverable,
@@ -77,7 +88,8 @@ improvement. The subsequent r3-local sample a ended incomplete with
 counted evaluated rejection failed the row gate; it is not an infrastructure
 failure. No evidence packet, sample b, critic or repair followed. The operator
 stopped on `h4_row_gate_failed`; the split loop and H5 never started. Full H4
-acceptance remains absent. Runtime, serving and role settings are unchanged.
+acceptance remains absent. Runtime, serving and role settings were unchanged
+during that attempt.
 The approved planner diagnostic later completed ten zero-fee requests: its first
 plan hit the 8192-token output cap with no final content, and the existing retry
 produced a schema-valid six-question plan. Its 58-check independent review
@@ -88,9 +100,10 @@ and USD 0.60 cap. The held 65-test package is archived; 62 applicable released
 tests pass. The permitted recovery subsequently failed the same planner gate:
 eight index calls (one invalid), two plan calls (both invalid, one truncated),
 ten settled receipts and USD 0. No extraction, packet, writer or later loop stage
-ran. Both local failures remain counted; the recovery claim is consumed, with no
-further replay. Split and H5 remain unstarted. Current service idle and local
-process/tool cleanup are verified (BL-20261101-0134-h4-recovery-plan-rejected).
+ran. Both local failures remain counted; that recovery claim was consumed and
+granted no further replay. Split and H5 were unstarted; post-recovery service
+idle and local process/tool cleanup were verified
+(BL-20261101-0134-h4-recovery-plan-rejected).
 The held H5 runner received a separately reviewed admitted-row closure and owned
 supervision correction, with 62 CPU tests passing. It remains held without an
 actual authority or launch (BL-20261101-0135-h5-held-closure-supervision).
@@ -101,6 +114,36 @@ stage ran; three post-idle observations and 97 independent audit checks passed.
 It did not reproduce or explain the prior failures, prove task quality or accept
 H4. The unused slot cannot be reassigned; no replay or H5 launch follows
 (BL-20261101-0208).
+
+The separately approved completion allocation executed after both CI jobs passed
+for `82455c2` in run 41266124311. Sample a produced a valid first six-question
+plan, made 40 extraction calls (three invalid), and retained a 4173-byte
+length-capped synthesis. The writer completed 37 settled tool-call replies before its
+90-minute boundary produced an UNKNOWN cancelled/transport receipt. Timing
+supports the shared deadline as its source without explicit receipt proof; this
+is not `request_timeout` or a proven backend fault. The loop incorrectly started b.
+Root stopped the supervised group without forced kill, verified group absence
+and six remote idle observations, and removed the owned tool container. Original
+database and host evidence remain unchanged. Both archives contain zero regular
+files and total 3072 bytes, so working-file preservation is not established.
+A bounded writer review found all 38 workspace inventories unchanged and no
+captured output artifacts. The final turn advertised about 33 minutes while
+about 12 remained; no failing shell or backend defect is established. The two
+CPU corrections address continuation safety and truthful remaining-time guidance,
+without proving future completion or extending the deadline.
+
+The interrupted attempt has 98 dispatches: 96 settled, one UNKNOWN and one
+committed unresolved; known fees and fee reservations are USD 0. Completed usage
+only totals 689775 input, 89992 output and 478240 cached-input tokens, one length
+stop and 46 tools. H4 history is four attempts: one accepted deck, two counted
+local rejections and this interrupted attempt, not a third normal rejection.
+Across H4, 176 dispatches include 174 settled and two unresolved. The
+completed-event plus retained loop-summary subtotal is 1481794 input, 189104
+output and 1103872 cached-input tokens, three length stops and 103 tools. Retained
+loop summaries exclude judge usage; these are not totals for all 174 settled
+receipts. H4 is not accepted; split/H5 never started, and the
+completion grant is consumed with no further replay authorized
+(BL-20261101-0428-h4-completion-v2-interrupted).
 See the [continuation evidence](PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md),
 BL-20261031-2208-flash-qualification-accepted and
 BL-20261031-2322-h4-local-plan-rejected.
@@ -125,7 +168,7 @@ BL-20261031-2322-h4-local-plan-rejected.
 | Claude step 0 | Attempt 1 exited 3 for missing later thinking, triggering the allowed repeat; the repeat exited 2 for a warm read instead of the required initial cache write. The owner accepted their combined evidence once. | Retain both original verdicts and the adjudication; no third probe. |
 | Claude step 1 | 79 cloud replies and 34 old-tier local judge calls settled; cloud fee USD 1.127758, approved projection USD 2.121435 below USD 3.00. Guidance review found no visible refusal. | Transport/cost calibration is reusable under its original configuration; task quality remains independently ungraded. |
 | Console reconciliation | Owner screenshot shows SOAR-key cost USD 1.15; step-0/1 ledger total USD 1.151653, difference USD 0.001653 within USD 0.05. Earlier owner confirmation supplies the no-competing-usage condition. | Historical step 1 is accepted. The screenshot alone does not establish exclusive usage or qualify Flash-Next. |
-| H4 / H5 | Owner approved the sequence and H5 launch. Earlier infrastructure/preflight failures remain recorded. On the qualified tier, k2 completed with 58 settled zero-fee receipts and 320 independent mechanical checks; a and then repair were selected by tie preference. r3-local sample a ended with `research_plan_invalid`, ten settled zero-fee receipts and no evidence packet or later samples/stages. | The r3-local result is a counted evaluated rejection and failed the H4 row gate. No quality improvement or full H4 acceptance is established; split and H5 never started. The one permitted recovery also failed planning with ten settled zero-fee receipts; both local failures remain counted. All three accepted H4 loops and embedded split calibration still precede H5; no further replay is authorized (BL-20261101-0134-h4-recovery-plan-rejected). |
+| H4 / H5 | Owner approved the sequence and H5 launch. Earlier infrastructure/preflight failures remain recorded. On the qualified tier, k2 completed with 58 settled zero-fee receipts and 320 independent mechanical checks; a and then repair were selected by tie preference. r3-local sample a ended with `research_plan_invalid`, ten settled zero-fee receipts and no evidence packet or later samples/stages. | The r3-local result is a counted evaluated rejection and failed the H4 row gate. No quality improvement or full H4 acceptance is established; split and H5 never started. The permitted recovery also failed planning; both local failures remain counted. A separately approved completion attempt was interrupted after sample-a cancellation and an incorrect sample-b start. Actual history is four attempts and 176 dispatches: 174 settled, one UNKNOWN and one committed unresolved, with known fees/fee reservations USD 0. This interrupted attempt is not a third normal rejection. H4 is unaccepted, split/H5 unstarted and the new grant consumed; no further replay is authorized (BL-20261101-0428-h4-completion-v2-interrupted). |
 
 The Console image, key fragments, account details, endpoint addresses and raw
 receipts stay outside Git. Public records retain only relevant amounts, counts,

@@ -1,8 +1,9 @@
+import Database from "better-sqlite3";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CandidateSummary } from "../../src/main/private-agent/selection";
+import { summarizeRun, type CandidateSummary } from "../../src/main/private-agent/selection";
 import { LOOP_VERSION, failureCode, loopExitCode, parseLoopArguments, runSelectionLoop, type CritiqueRecord, type DriverInput, type LoopDependencies, type LoopInput, type LoopRecord } from "../../scripts/phase4-loop";
 import { localScreenSourceFreeze, parseLocalArtifactScreenArguments } from "../../scripts/private-agent-local-screen";
 
@@ -51,6 +52,17 @@ function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?:
 }
 function loopDir() { const dir = mkdtempSync(join(tmpdir(), "soar-loop-")); cleanups.push(() => rmSync(dir, { recursive: true, force: true })); return join(dir, "loop"); }
 const read = (dir: string) => JSON.parse(readFileSync(join(dir, "loop.json"), "utf8")) as LoopRecord;
+/** Real result-to-summary mapping: committed receipts must block just like UNKNOWN. */
+function transportStoppedSummary(status: "unknown" | "committed" | "failed"): CandidateSummary {
+  const directory = loopDir(); mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, "freeze.json"), JSON.stringify({ jobId: "ja", startedAt: "t0", sourceFreezeSha256: h("4"),
+    taskBinding: { jobSha256: h("1"), briefSha256: h("2") } }));
+  writeFileSync(join(directory, "result.json"), JSON.stringify({ status: "incomplete", reason: "runtime_failure_progress_preserved",
+    finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [], dispatches: [{ status, feeMicrousd: 0 }] }));
+  const db = new Database(join(directory, "state.sqlite"));
+  db.exec("CREATE TABLE private_agent_events (job_id TEXT, sequence INTEGER, value TEXT)"); db.close();
+  return summarizeRun(directory, []);
+}
 
 describe("H4 select-and-repair loop", () => {
   it("runs a, b, the critique of the selected sample and the repair, prefers a and then the repair on ties, and records counts only", async () => {
@@ -86,6 +98,43 @@ describe("H4 select-and-repair loop", () => {
     const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, deps);
     expect(record.selected).toMatchObject({ stage1: { candidate: "b", step: "submitted" }, final: { candidate: "b", step: "submitted" } });
     expect(calls.critiques[0]!.runDirectory).toBe(join(dir, "b")); expect(loopExitCode(record)).toBe(0);
+  });
+  it.each(["unknown", "committed", "failed"] as const)("stops after a %s receipt even when a completed research packet exists", async status => {
+    const dir = loopDir(), a = transportStoppedSummary(status);
+    const code = status === "failed" ? "loop_stage_failed_dispatch" : "loop_stage_unresolved_dispatch";
+    expect(a).toMatchObject({ unknownDispatches: status === "failed" ? 0 : 1, failedDispatches: status === "failed" ? 1 : 0 });
+    const { deps, calls } = fakes({ summaries: candidates(true, { a }), transfers: ["a"] });
+    await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, deps)).rejects.toThrow(code);
+    expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a"]); expect(calls.critiques).toHaveLength(0);
+    expect(existsSync(join(dir, "b"))).toBe(false);
+    expect(read(dir)).toMatchObject({ failure: code, candidates: { a: { unknownDispatches: a.unknownDispatches, failedDispatches: a.failedDispatches } },
+      totals: { unknownDispatches: a.unknownDispatches, failedDispatches: a.failedDispatches }, selected: { stage1: null, final: null }, finishedAt: expect.any(String) });
+    // A result marker alone cannot allow a reused stage to bypass the same stop.
+    const reused = fakes({ summaries: candidates(true, { a }), transfers: ["a"] });
+    await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, reused.deps)).rejects.toThrow(code);
+    expect(reused.calls.runs).toHaveLength(0); expect(reused.calls.critiques).toHaveLength(0);
+  });
+  it.each([{ unknownDispatches: 1 }, { failedDispatches: 1 }])("does not admit a critique or repair after b has stopped dispatches: %j", async stopped => {
+    const dir = loopDir();
+    const { deps, calls } = fakes({ summaries: candidates(true, { b: { ...stopped, status: "incomplete" } }), transfers: ["a"] });
+    await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, deps)).rejects.toThrow("loop_stage_");
+    expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b"]);
+    expect(calls.critiques).toHaveLength(0); expect(existsSync(join(dir, "repair"))).toBe(false);
+    expect(read(dir).selected).toEqual({ stage1: null, final: null });
+  });
+  it("keeps an evaluated incomplete research draft eligible when all dispatches settled", async () => {
+    const dir = loopDir();
+    const { deps, calls } = fakes({ summaries: candidates(true, { a: { status: "incomplete", reason: "bounded_allowance_exhausted" } }), transfers: ["a"] });
+    const record = await runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, deps);
+    expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b", "repair"]);
+    expect(calls.critiques).toHaveLength(1); expect(record.failure).toBeNull(); expect(record.selected.stage1).toMatchObject({ candidate: "b", step: "submitted" });
+  });
+  it("does not accept a final repair whose dispatch remains unresolved", async () => {
+    const dir = loopDir();
+    const { deps, calls } = fakes({ summaries: candidates(false, { repair: { unknownDispatches: 1 } }) });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, deps)).rejects.toThrow("loop_stage_unresolved_dispatch");
+    expect(calls.runs).toHaveLength(3); expect(calls.critiques).toHaveLength(1);
+    expect(read(dir)).toMatchObject({ failure: "loop_stage_unresolved_dispatch", selected: { final: null }, totals: { unknownDispatches: 1 } });
   });
   it("seeds b and the repair from a's packet on a research task, stripping the stage and the cloud writer, compares the write identities, and ends the loop when a left no packet", async () => {
     const dir = loopDir();

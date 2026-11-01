@@ -366,6 +366,44 @@ describe("general runner host budget and argument recovery", () => {
     expect(f.complete).toHaveBeenCalledTimes(1);
   });
 
+  it("advertises only the shared time left after earlier research and never increases it on wall-clock changes", async () => {
+    const f = fixture([write, finish], { maxElapsedMs: 60_000 });
+    f.advance(20_000);  // The shared session began before this writer runner.
+    f.options.sessionDeadlineMs = 60_000;
+    vi.spyOn(Date, "now").mockReturnValue(0);  // Guidance uses the existing monotonic span.
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 2 });
+    expect(f.requests.map(messages => budget(messages).remainingActiveMs)).toEqual([39_975, 39_825]);
+    expect(f.options.store.events(f.options.jobId).filter(event => event.type === "model_started").map(event => event.budget))
+      .toEqual(f.requests.map(budget));
+  });
+
+  it("keeps the phase allowance when it is shorter than the shared session", async () => {
+    const f = fixture([write, finish], { maxElapsedMs: 10_000 });
+    f.options.sessionDeadlineMs = 60_000;
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed" });
+    expect(f.requests.map(messages => budget(messages).remainingActiveMs)).toEqual([9_975, 9_825]);
+  });
+
+  it("does not execute a settled response or dispatch again after the shared deadline", async () => {
+    const f = fixture([write, finish]);
+    f.options.sessionDeadlineMs = 150;
+    f.afterResponse(() => f.advance(50));  // Timer callbacks need not have run yet.
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "cancelled_or_deadline", modelCalls: 1 });
+    expect(budget(f.requests[0]!)).toMatchObject({ remainingActiveMs: 125 });
+    expect(f.commands).toEqual([]); expect(f.requests).toHaveLength(1);
+    expect(f.options.store.dispatches(f.options.jobId)).toMatchObject([{ status: "settled" }]);
+    expect(f.options.store.events(f.options.jobId).filter(event => event.type === "model_action_not_started"))
+      .toMatchObject([{ reason: "cancelled_or_deadline" }]);
+    expect(f.options.store.events(f.options.jobId).some(event => event.type === "completed" || event.type === "host_validation_started")).toBe(false);
+  });
+
+  it("does not start a model request when setup consumes the shared time remaining", async () => {
+    const f = fixture([write]);
+    f.options.sessionDeadlineMs = 10;
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "cancelled_or_deadline", modelCalls: 0 });
+    expect(f.requests).toEqual([]); expect(f.options.store.dispatches(f.options.jobId)).toEqual([]);
+  });
+
   it("decreases actual call/tool/time budgets across invalid arguments, a pause and SQLite reopening", async () => {
     const f = fixture([{ name: "execute", arguments: "{}" }, write, finish]);
     const first = new GeneralAgentRunner(f.options);
@@ -629,9 +667,10 @@ describe("general runner host budget and argument recovery", () => {
     expect(f.options.store.events(f.options.jobId).some(event => event.type === "completed")).toBe(false);
   });
 
-  it.each(["cancel", "deadline"])("does not submit passing terminal checks after %s during verification", async kind => {
+  it.each(["cancel", "deadline", "shared_deadline"])("does not submit passing terminal checks after %s during verification", async kind => {
     const f = fixture([write], { maxModelCalls: 1 }), abort = new AbortController();
-    f.afterExecute(command => { if (command.startsWith("python3 -I -c")) { if (kind === "cancel") abort.abort(); else f.advance(10000); } });
+    if (kind === "shared_deadline") f.options.sessionDeadlineMs = 500;
+    f.afterExecute(command => { if (command.startsWith("python3 -I -c")) { if (kind === "cancel") abort.abort(); else f.advance(kind === "shared_deadline" ? 500 : 10000); } });
     expect((await new GeneralAgentRunner(f.options).run(abort.signal)).reason).toBe(kind === "cancel" ? "cancelled_before_completion" : "deadline_before_completion");
     const events = f.options.store.events(f.options.jobId);
     expect(events.find(event => event.type === "host_validation_finished")).toMatchObject({ passed: true });

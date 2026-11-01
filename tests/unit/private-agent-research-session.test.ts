@@ -3,7 +3,7 @@ import http from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { PrivateAgentBroker, type BrokerDestination } from "../../src/main/private-agent/broker";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
@@ -13,7 +13,7 @@ import { GeneralAgentSession, RESEARCH_TRANSFER_CHECK_ID, sessionPhaseIdentity, 
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET } from "../../src/main/private-agent/research-pipeline";
 
 const cleanups: (() => void | Promise<void>)[] = [];
-afterEach(async () => { for (const done of cleanups.splice(0).reverse()) await done(); });
+afterEach(async () => { vi.restoreAllMocks(); for (const done of cleanups.splice(0).reverse()) await done(); });
 const imageId = `sha256:${"a".repeat(64)}`;
 const SOURCE = "# Storage\nCapacity nearly doubled in 2024, from 15 GW to 29 GW.\n";
 function phase(): SessionPhase {
@@ -96,6 +96,28 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(again.status).toBe("submitted");
     expect(f.store.dispatches("job-research")).toHaveLength(4);
     expect(f.store.events("job-research").filter(event => event.type === "research_transfer")).toHaveLength(1);
+  });
+
+  it("passes the original shared deadline to the writer after research and a pause/resume", async () => {
+    const f = await fixture(), runs: Run[] = [], config = options(f, "job-shared-time", runs);
+    let monotonic = 1_000, wall = Date.now();
+    vi.spyOn(performance, "now").mockImplementation(() => monotonic);
+    vi.spyOn(Date, "now").mockImplementation(() => wall);
+    f.hooks.onRequest = () => { monotonic += 100_000; wall += 100_000; };
+    const observed: { deadline: number | undefined; remaining: number }[] = [];
+    config.trustedHostRunnerFactory = input => ({ pause() {}, cancel() {}, async run(signal) {
+      expect(signal?.aborted).toBe(false);
+      observed.push({ deadline: input.sessionDeadlineMs, remaining: input.sessionDeadlineMs! - performance.now() });
+      return { status: "paused", reason: "checkpoint_saved", snapshot: [], checks: [], modelCalls: 0 };
+    } });
+    expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "paused" });
+    expect(f.bodies).toHaveLength(4);  // Real pipeline, synthetic loopback replies only.
+    expect(observed).toEqual([{ deadline: 1_801_000, remaining: 1_400_000 }]);
+    monotonic += 500_000; wall += 500_000;
+    expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "paused" });
+    expect(f.bodies).toHaveLength(4);  // The retained research packet is not regenerated.
+    expect(observed[1]).toEqual({ deadline: 1_801_000, remaining: 900_000 });
+    expect(f.store.events(config.jobId).filter(event => event.type === "session_started")).toHaveLength(1);
   });
 
   it("propagates a failed stage as an incomplete session, writes nothing, and binds the budget into the identity", async () => {

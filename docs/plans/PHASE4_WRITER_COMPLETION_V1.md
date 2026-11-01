@@ -1,12 +1,17 @@
 # Draft-first writer completion policy
 
-Status: **Approved for the exact policy implementation and conditional three-loop H4 allocation. Exact paragraph implemented and focused checks passed; required CI and execution gates remain. No H4 acceptance follows.**
+Status: **Approved for the exact policy implementation and conditional three-loop H4 allocation. Exact paragraph implemented; required CI and CPU package checks pass. Execution is held on actual serving drift; H4 remains unaccepted.**
 
 BL-20261101-1838-writer-completion-approved records the owner decision.
 BL-20261101-1848-writer-completion-implemented records the exact implementation
-and CPU evidence. The runtime is now `13dcb2ceb0e0a6a76677dbdd033df507d9375348dc37a75a0c8827d45b452e6c`;
+and CPU evidence. BL-20261101-1849-writer-completion-prepared-serving-held
+records successful source CI and the actual serving blocker: the qualified
+container is absent, its owned unit failed, and the responding API lacks required
+health/version/context metadata. The fresh H4 allocation remains unconsumed.
+Restoration requires the pending service decision and explicit verification of
+new physical identities under unchanged serving semantics. The runtime is now `13dcb2ceb0e0a6a76677dbdd033df507d9375348dc37a75a0c8827d45b452e6c`;
 the research protocol remains unchanged. Both writer layouts change their
-prompt/protocol identity. Required CI and actual H4 evidence remain before acceptance. The
+prompt/protocol identity. Actual serving readiness and H4 evidence remain before acceptance. The
 approved plan bytes remain preserved at their original proposal commit; current
 status updates do not change that decision or extend its limits.
 

@@ -16,8 +16,11 @@ acceptance. The grant is consumed with zero replacements
 The [draft-first writer policy](PHASE4_WRITER_COMPLETION_V1.md) is Approved:
 one task-independent sequencing change, unchanged checks and limits, and one
 conditional fresh three-loop allocation (BL-20261101-1838-writer-completion-approved).
-Implementation review, clean CI, new identities and current readiness remain
-execution gates.
+Implementation review and both required CI jobs pass. Execution remains held
+on actual serving drift: the qualified container is absent, its unit failed,
+and the responding API lacks health/version/context metadata
+(BL-20261101-1849-writer-completion-prepared-serving-held). The new allocation is
+unconsumed; serving restoration awaits its separate decision.
 It does not claim another host bug or guaranteed model compliance.
 
 Earlier outcome: the [bounded completion allocation](PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md)

@@ -14,8 +14,10 @@ All five attempts and three unresolved receipts remain recorded. See
 BL-20261101-1106-h4-runner-fixes-stopped.
 The [draft-first writer policy](PHASE4_WRITER_COMPLETION_V1.md) is a separate
 approved experiment, with exact wording and one conditional owner decision
-(BL-20261101-1838-writer-completion-approved). Implementation review and execution
-gates remain; approval is not evidence that model completion will improve.
+(BL-20261101-1838-writer-completion-approved). The exact implementation and required CI pass, but execution is held because
+the qualified serving deployment is absent and current API metadata fails
+readiness (BL-20261101-1849-writer-completion-prepared-serving-held). The new
+allocation remains unconsumed; approval is not evidence of model compliance.
 
 The interrupted completion-v2 attempt exposed two host defects. Sample a had
 an UNKNOWN writer receipt, but the loop admitted sample b because a research

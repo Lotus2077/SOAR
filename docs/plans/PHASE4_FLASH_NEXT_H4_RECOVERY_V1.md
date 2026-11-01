@@ -1,6 +1,6 @@
 # Flash-Next H4 recovery after the planner diagnostic
 
-Status: **Approved for the bounded recovery; execution prerequisites remain.**
+Status: **Executed; recovery rejected at the planner gate. Further replay is not authorized.**
 Prepared 2026-11-01 (Asia/Shanghai).
 
 The approved planner diagnostic completed ten zero-fee requests. Its first plan
@@ -125,14 +125,33 @@ Held operator SHA-256:
 Evidence reviewer SHA-256:
 `c1dbffb6528a5e3565e9426ff244ba836080fc2d8dbebb152347d79d48f4c9bd`.
 
-Preparation read prior closed metadata and hashes, with zero helper, service or
-model calls and no fresh H5 material. The owner decision is durably recorded. There is no actual recovery authority,
-consumed recovery claim or run at this update. Sixty-two applicable released
-tests and strict TypeScript pass, with direct archived-byte comparisons replacing
-the three held-source-only assertions. Both CI jobs passed for the proposal
-commit; the approval commit, current prerequisites, actual authority/pins and
-independent final binding must pass before launch. These checks establish
-release preparation only; actual H4 evidence and split semantics remain required.
+The owner approval was executed once after both CI jobs passed on clean commit
+4831ee964cb075815bcc2d075a8cd1258712211e. Actual authority SHA-256:
+`165dbb194bb399492af5b8eb7f56ee0432d1767f6672f608eb32d5443b92be94`.
+The held archive and exact hold-only release remain preserved. Sixty-two
+applicable released tests and strict TypeScript passed, as did both independent
+final binding reviews and all 308 prefix checks. Six fresh healthy idle samples
+preceded the local loop.
+
+The recovery local loop ran from 01:11:02.511 to 01:29:04.379 UTC on 2026-11-01.
+It stopped after sample a with `research_plan_invalid`: eight index calls (one
+invalid), two plan calls (both invalid, one truncated), and ten settled local
+receipts at USD 0. Usage was 29805 input, 21478 output and 4704 cached-input
+tokens. No extraction, synthesis, packet, writer, sample b, critic or repair ran.
+The row classifier counted the rejection; the unchanged H4 gate failed. The
+supervisor exited one without forced kill, with no remaining owned process
+group or matching task container. Post-row and later root metadata were healthy
+with zero running/waiting requests.
+
+The original failed local attempt is not replaced or relabelled. Actual H4
+history now contains three attempted loops: the deck pass and two counted local
+rejections, totaling 78 settled receipts at USD 0. The allowed fourth attempt,
+the untouched split, was conditional on local success and cannot start under
+this failed authority. No new H4 acceptance, split calibration or H5 start is
+established. The consumed recovery claim cannot be reset. See
+BL-20261101-0134-h4-recovery-plan-rejected. The next
+[metadata-only diagnostic](PHASE4_FLASH_NEXT_PLANNER_METADATA_DIAGNOSTIC_V1.md)
+is proposed and requires a separate request allowance.
 
 References: [migration plan](PHASE4_FLASH_NEXT_MIGRATION_V1.md),
 BL-20261031-2322-h4-local-plan-rejected,

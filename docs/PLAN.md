@@ -635,8 +635,18 @@ missing-reply cause or H4 acceptance. See
 [diagnostic evidence](plans/PHASE4_FLASH_NEXT_PLANNER_DIAGNOSTIC_V1.md) and the
 [approved bounded H4 recovery](plans/PHASE4_FLASH_NEXT_H4_RECOVERY_V1.md). The
 owner approved one complete local replay, then the unused split only on success,
-under the original USD 0.60 cap. Release checks pass; execution prerequisites
-remain (BL-20261101-0059-h4-recovery-approved).
+under the original USD 0.60 cap. That permitted recovery also ended at
+`research_plan_invalid`: eight index calls (one invalid), two planner calls (both
+invalid, one truncated), ten settled zero-fee receipts and no later stage. Both
+failed local attempts remain counted; no further replay is authorized. Split
+and H5 remain unstarted (BL-20261101-0134-h4-recovery-plan-rejected).
+A [metadata-only planner diagnostic](plans/PHASE4_FLASH_NEXT_PLANNER_METADATA_DIAGNOSTIC_V1.md)
+is proposed to capture the missing per-reply categories before tuning; no new
+request allowance or implementation exists (BL-20261101-0136).
+The held H5 runner now permits admitted-row closing checks after the new-start
+cutoff and owns its process group. All 62 CPU tests and independent reviews pass;
+this changes no runtime, row/fee limit, H4 prerequisite or launch permission
+(BL-20261101-0135-h5-held-closure-supervision).
 Historical Qwen3.8-27B results and the conditional R2 rule remain unchanged.
 The Claude step-0/1 Console reconciliation is now verified
 (BL-20261031-1636-claude-console-reconciled), independently of local qualification.

@@ -79,8 +79,18 @@ verifies this new diagnostic only; the original rejection remains unchanged.
 The owner separately approved [one bounded local replay followed by the unused
 split](PHASE4_FLASH_NEXT_H4_RECOVERY_V1.md), retaining the original rejection
 and USD 0.60 cap. The held 65-test package is archived; 62 applicable released
-tests pass. Actual recovery remains unstarted pending final execution prerequisites
-(BL-20261101-0059-h4-recovery-approved).
+tests pass. The permitted recovery subsequently failed the same planner gate:
+eight index calls (one invalid), two plan calls (both invalid, one truncated),
+ten settled receipts and USD 0. No extraction, packet, writer or later loop stage
+ran. Both local failures remain counted; the recovery claim is consumed, with no
+further replay. Split and H5 remain unstarted. Current service idle and local
+process/tool cleanup are verified (BL-20261101-0134-h4-recovery-plan-rejected).
+The held H5 runner received a separately reviewed admitted-row closure and owned
+supervision correction, with 62 CPU tests passing. It remains held without an
+actual authority or launch (BL-20261101-0135-h5-held-closure-supervision).
+A [metadata-only planner diagnostic](PHASE4_FLASH_NEXT_PLANNER_METADATA_DIAGNOSTIC_V1.md)
+is proposed to capture the missing per-reply validation categories. It has no new
+request allowance or implementation (BL-20261101-0136).
 See the [continuation evidence](PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md),
 BL-20261031-2208-flash-qualification-accepted and
 BL-20261031-2322-h4-local-plan-rejected.
@@ -105,7 +115,7 @@ BL-20261031-2322-h4-local-plan-rejected.
 | Claude step 0 | Attempt 1 exited 3 for missing later thinking, triggering the allowed repeat; the repeat exited 2 for a warm read instead of the required initial cache write. The owner accepted their combined evidence once. | Retain both original verdicts and the adjudication; no third probe. |
 | Claude step 1 | 79 cloud replies and 34 old-tier local judge calls settled; cloud fee USD 1.127758, approved projection USD 2.121435 below USD 3.00. Guidance review found no visible refusal. | Transport/cost calibration is reusable under its original configuration; task quality remains independently ungraded. |
 | Console reconciliation | Owner screenshot shows SOAR-key cost USD 1.15; step-0/1 ledger total USD 1.151653, difference USD 0.001653 within USD 0.05. Earlier owner confirmation supplies the no-competing-usage condition. | Historical step 1 is accepted. The screenshot alone does not establish exclusive usage or qualify Flash-Next. |
-| H4 / H5 | Owner approved the sequence and H5 launch. Earlier infrastructure/preflight failures remain recorded. On the qualified tier, k2 completed with 58 settled zero-fee receipts and 320 independent mechanical checks; a and then repair were selected by tie preference. r3-local sample a ended with `research_plan_invalid`, ten settled zero-fee receipts and no evidence packet or later samples/stages. | The r3-local result is a counted evaluated rejection and failed the H4 row gate. No quality improvement or full H4 acceptance is established; split and H5 never started. All three accepted H4 loops and embedded split calibration still precede H5 (BL-20261031-2322-h4-local-plan-rejected). |
+| H4 / H5 | Owner approved the sequence and H5 launch. Earlier infrastructure/preflight failures remain recorded. On the qualified tier, k2 completed with 58 settled zero-fee receipts and 320 independent mechanical checks; a and then repair were selected by tie preference. r3-local sample a ended with `research_plan_invalid`, ten settled zero-fee receipts and no evidence packet or later samples/stages. | The r3-local result is a counted evaluated rejection and failed the H4 row gate. No quality improvement or full H4 acceptance is established; split and H5 never started. The one permitted recovery also failed planning with ten settled zero-fee receipts; both local failures remain counted. All three accepted H4 loops and embedded split calibration still precede H5; no further replay is authorized (BL-20261101-0134-h4-recovery-plan-rejected). |
 
 The Console image, key fragments, account details, endpoint addresses and raw
 receipts stay outside Git. Public records retain only relevant amounts, counts,

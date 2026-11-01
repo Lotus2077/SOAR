@@ -1,6 +1,6 @@
 # Phase 4 Flash-Next migration plan
 
-Status: **Fast-v3 trial in progress: two original-service baselines and the fourth-stage image build Verified; protected checkpoint conversion running at the 22:27 UTC November 1 observation. The original service has been cleanly stopped for the single admitted serving attempt. Numerical checks, candidate startup, qualification/pilot and fresh H4/H5 remain unrun; H4 remains unaccepted after six historical attempts**. Updated 2026-11-02
+Status: **Fast-v3 serving attempt Failed after verified image build and protected conversion, with a host PermissionError before numerical checks/startup. The original automatic exact prior-profile recovery is Verified and root-accepted after ten physical/ownership/lease/API checks. A separate repair helper exited before claim or stop because the original service was already ready. The attempt remains consumed. A one-use post-conversion continuation is Proposed, not runtime-approved. Candidate qualification/pilot and fresh H4/H5 remain unrun; H4 is unaccepted after six historical attempts**. Updated 2026-11-02
 (Asia/Shanghai). Current authority: BL-20261101-2120-fast-v3-artifact-trial-approved.
 
 Current fast-v3 progress: both predeclared baseline requests passed and settled
@@ -39,16 +39,53 @@ and release remain byte-exact. This continued the **same unused serving attempt*
 that attempt is now actually admitted and consumed, with zero replacements, no
 baseline replay and no model-allocation reset.
 
-The November 1 **22:27:21 UTC** observation confirms the original owned service was
-cleanly stopped, its container/old marker and listener were absent, and GPU quiescence
-was established under the new lease. The fourth-stage image build completed with
-exit zero, producing image
+The fourth-stage image build completed with exit zero, producing image
 `sha256:9c0182182d93192a0f68225580bbe5bba6833474f979a9291f9dc1039e00f8dc`.
-The protected hybrid/conversion stages were running. Original weights, the previous
-qualified profile and recovery assets remain retained. Numerical checks, candidate
-startup, qualification and the artifact pilot had not run at that observation.
-The image is **unqualified**; a successful build grants no artifact or H4/H5 credit
-(BL-20261101-2228-fast-v3-image-built-conversion-running).
+Protected conversion then completed in **311.44 seconds**: 300 converted matrices
+and 300 scale tensors across four shards, eleven real metadata copies, 202 unchanged
+weight links, all 206 original hashes/stat identities unchanged and 1134 nonselected
+tensor payloads verified. Regular output was 13155952922 bytes (13.156 GB). The
+22:27 progress entry remains valid for its observation; the later completion and
+failure are recorded separately (BL-20261101-2228-fast-v3-image-built-conversion-running;
+BL-20261101-2236-fast-v3-postconversion-permission-failed).
+
+The host supervisor subsequently failed with `PermissionError` before numerical
+checks or candidate startup. Read-only diagnosis confirmed root-owned mode-0600
+completion metadata could not be read by that supervisor; a privileged read retained
+its exact completion proof without changing permissions. Owned trial cleanup is
+confirmed. The original automatic exact prior-vLLM-profile recovery subsequently
+produced its ready record. At 23:11:40 UTC, ten current checks passed for exact
+image/profile, arguments/environment/six mounts, fresh physical identities, unit,
+listener/GPU ownership, original lease/marker and healthy idle API. Context is
+262144 and engine version is `0.1.dev20073+g8e685d198`. Root accepted this current
+recovery under record `e55349d9edc70c4fdb4bb742d3f1921bc6cd280600667e7a12c0a0b22907380f`,
+with independent actual review `268fb15e82b03123990d1dbeafbb2f0619edee9991d127a121d882091b895467`.
+The separately launched recovery-repair helper saw that ready record
+before claim or stop and exited zero; it did not restart the service. No generation
+was dispatched by recovery verification.
+
+A separately reviewed **fixed-metadata reader component is now Verified** on the
+actual retained completion, preparation and index records. A bounded privileged
+read matched all four exact hashes and preserved ownership, modes and inodes;
+there was no remote write, permission change, service action or model call. This
+actual read-only proof supplies no runtime-resume authority
+(BL-20261101-2242-fixed-metadata-reader-forensics-verified). The fixed reader and
+conversion-reuse driver are now implemented and independently source-reviewed,
+with 21 focused CPU cases passing, including real frozen-helper integration and
+owned-alarm/lease/unknown-stop failure paths. Their exact source manifest and
+mandatory lease-order clarification are bound in the
+[post-conversion continuation proposal](PHASE4_FAST_V3_POSTCONVERSION_CONTINUATION_V1.md).
+That amendment requests one numerical/startup continuation using the existing
+image and conversion, without rebuild, reconversion, baseline replay or a new model
+grant. It remains Proposed; no new candidate runtime is released.
+
+This **single admitted serving attempt is consumed**, with zero replacements and
+no automatic retry. Candidate qualification/performance and the artifact pilot have
+not run. No converted-weight quality, serving qualification, task artifact or H4
+credit follows from conversion success. Preserve the image, converted data, failure
+and original recovery assets. The precise source-reviewed reuse/resume proposal
+still requires a new named decision before new runtime work. The
+existing cutoff, fee caps, historical receipts and held H4/H5 gates remain unchanged.
 
 Earlier writer outcome: the owner-approved [draft-first writer policy](PHASE4_WRITER_COMPLETION_V1.md)
 ran after exact saved serving restoration and successful required CI. Its first
@@ -72,18 +109,21 @@ hardware/kernel cause are unproven. The
 is now Approved for the exact protected build/conversion, thirty new local requests
 and early-artifact pilot with Heavy thinking unchanged, then conditional fresh
 H4/H5 (BL-20261101-2120-fast-v3-artifact-trial-approved). The two actual baseline
-results, historical preflight refusal and subsequent completed image build are
-recorded above. Conversion is in progress; numerical execution, serving readiness,
-qualification/performance and the artifact pilot remain later gates. The exact
+results, historical preflight refusal, completed build/conversion and consumed
+post-conversion failure are recorded above. Exact prior-profile recovery is
+Verified and root-accepted; candidate numerical execution, serving readiness,
+qualification/performance and the artifact pilot remain later gates behind the
+new proposed amendment. The exact
 approved proposal bytes remain preserved. The [writer-thinking-off proposal](PHASE4_WRITER_THROUGHPUT_V1.md)
 remains a separate unapproved alternative.
 
 Before the new trial, the restored deployment retained the qualified image,
 original checkpoint, serving arguments and environment. Its physical identities
 were explicitly bound to retained semantic qualification. Six post-run observations
-and the later thirty-check preflight-readiness record verified that service before
-its approved stop; they do not describe a currently running original service.
-The exact prior profile and assets remain available for owned recovery. The new
+and the later thirty-check preflight-readiness record verified the service before
+its approved stop. The later automatic recovery retains the exact same semantic
+profile with independently checked fresh physical identities; it does not reuse
+those historical process identities. The new
 fast-v3 H4/H5 admission controls are implemented and independently CPU/source
 reviewed, with exact source/history/profile bindings, but remain held. They have
 no actual new launch authority/pins/claim/run. All earlier negative

@@ -161,9 +161,10 @@ alter retry feedback or restart the service. Any later behavior/runtime change
 needs its own named design, pins and applicable qualification/comparability review;
 the old deck result is not silently relabelled under a changed baseline.
 
-The next proposed step is [planner metadata in host audit events](PHASE4_PLANNER_EVENT_METADATA_V1.md),
-with diagnostics excluded from writer inputs and a truthful new runtime identity.
-That plan is unimplemented and grants no additional requests.
+The subsequent [planner metadata proposal](PHASE4_PLANNER_EVENT_METADATA_V1.md)
+is deferred following the owner's direction to focus on completing H4 and H5
+(BL-20261101-0224). It is optional, unimplemented and grants no additional requests.
+No confirmed functional defect currently justifies changing the frozen runtime.
 
 H4 remains unaccepted, and H5 still requires all three accepted logical H4 roles
 and usable split semantics under its existing conditional launch permission.

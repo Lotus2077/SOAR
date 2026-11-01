@@ -27885,3 +27885,71 @@ Paid exposure: USD 0 design work and zero model calls. A later three-loop H4 pro
 Next gate: Review the concrete named plan for CPU-only implementation. If accepted, implement the minimal event-only observation, prove request/file/seed and retry equivalence, complete independent reviews and required CI, and freeze new source/role pins. Only then present an exact three-loop, zero-replacement H4 authority for a separate live decision. No existing time window is extended by this proposal.
 
 References: docs/plans/PHASE4_PLANNER_EVENT_METADATA_V1.md; BL-20261101-0208-planner-metadata-diagnostic-result; docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md.
+
+### BL-20261101-0224-h4-h5-priority-restored -- 2026-11-01 -- Defer optional telemetry and restore the completion goal
+
+Status: `Implemented`
+
+Scope or hypothesis: The owner asked what was being diagnosed and directed attention back to the goal instead of unimportant distractions. Apply that priority correction to the work plan; this entry implements documentation and sequencing changes only.
+
+Decisions: Defer the proposed host-event metadata implementation and withdraw its pending CPU-only approval request as the next step. It is not a prerequisite for H4. The concrete objective remains completed local-research H4, accepted split H4 within the existing shared USD 0.60 cap, and then the conditionally authorized H5 evaluation. Preserve the already passed deck result under its unchanged identity.
+
+Changes: Mark the optional observation design deferred and correct the diagnostic document's next-step wording. No production code, model setting, service, schema, validator, runtime identity or role pin changes. Do not substitute another standalone diagnostic project for the actual full-loop proof.
+
+Evidence: Targeted independent source review confirms that research_plan_invalid follows two completed replies failing the existing parse/schema checks. A length finish is counted rather than independently rejected, and unknown source IDs are filtered after successful validation. The latest unchanged diagnostic produced a valid first plan with 6848 output tokens under the 8192 cap. These facts establish neither a reproducible parser defect nor a universally insufficient cap. Existing unit coverage exercises the two-invalid-reply termination. No tests or model calls were rerun for this documentation change.
+
+Failures or blockers: The two actual H4 local rejections remain counted and unexplained in their non-length detail. No concrete functional repair is established. Full local-loop completion and usable split semantics remain the acceptance blockers. The consumed diagnostic and recovery grants remain consumed; the owner's priority correction does not itself specify a new request allocation or extend the window.
+
+Limitations and non-claims: Deferring optional telemetry does not accept H4, erase failures, weaken checks, prove a production fix or start H5. A further frozen-runtime local attempt and then conditional split would need one concrete bounded continuation decision; no CPU-only telemetry approval or three-loop runtime migration is needed while source and identities remain unchanged. H5 retains its existing conditional scope and caps.
+
+Paid exposure: USD 0 for this read-only review and documentation change. No model, provider or service calls occurred.
+
+Next gate: Keep preparation focused on the existing H4 execution path and the smallest concrete continuation scope needed to complete local research and split, with no added standalone probes. Preserve existing limits, negative results and single-use claims; present the exact remaining live allocation together for decision before execution. Proceed to conditional H5 only after its actual H4 prerequisites pass.
+
+References: BL-20261101-0208-planner-metadata-diagnostic-result; BL-20261101-0212-planner-event-metadata-proposed; docs/plans/PHASE4_FLASH_NEXT_H4_RECOVERY_V1.md.
+
+### BL-20261101-0228-h4-completion-v2-approved -- 2026-11-01 -- Authorize the bounded remaining H4 work after the priority correction
+
+Status: `Approved`
+
+Scope or hypothesis: The owner replied "approve" after the explicit proposal to prepare one additional complete local research H4 attempt using the unchanged qualified runtime, followed only on success by the untouched split loop. This is a new bounded completion allocation, not reuse of either consumed predecessor or a new diagnostic project.
+
+Decisions: Permit exactly one new local research loop and one conditional first split loop, retaining the deck pass and both local rejections. Preserve all original model, serving, protocol, runtime, role, task, budget, prompt, sampling/thinking, schema, selector and repair controls. Keep the shared USD 0.60 H4 split cap, zero further loop replacements and the existing 18:00 Asia/Shanghai new-start cutoff. Existing H5 permission remains conditional on actual H4 and split acceptance.
+
+Changes: Record an exclusive immutable owner decision before executable preparation and add the concrete completion plan. Prepare a distinct held continuation using the established execution/checking path, with both failed histories, exact reviewed assets and a new failure-anchored single-use claim. The optional telemetry proposal stays deferred. No production or service change is included.
+
+Evidence: Owner approval SHA-256 876222c9d3dc4f48a4192853cffee133ee22593b612442c44ccc0a6dc276f498, recorded at 02:26:55.948995 UTC. It binds original authority aa735b73f338ca23489663c9ab3b5f312216762f05cad123dc7520a237cfd037, consumed recovery authority 165dbb194bb399492af5b8eb7f56ee0432d1767f6672f608eb32d5443b92be94, failed recovery result cdf5c928b6ef81556b2e39435a1971a66afb477ee5b6720fdfc1f35277c53246 and completed diagnostic adjudication 3bc60eca12e60dc9c27fd96e1821b9e469f4b0c28e72d99e9d9a8f276872b19a. New acceptance would contain three logical passing loops and five actual attempted loops, with both rejections retained.
+
+Failures or blockers: No additional owner question is required for this scope. Held continuation preparation, focused CPU tests, independent review, final clean commit/CI and current prerequisites remain before dispatch. No new authority, claim, model call or loop exists at entry preparation.
+
+Limitations and non-claims: The approval does not prove a functional fix or erase either failed H4 outcome. It does not authorize extra probes, an output-cap/thinking/schema change, telemetry implementation, service restart or a window extension. H5 remains subject to its existing eighteen-row limits, compatible pins, fresh-session separation and accepted actual H4 evidence.
+
+Paid exposure: USD 0 during preparation; no new paid allocation. Shared H4 split ceiling remains USD 0.60. Existing H5 caps remain USD 21.60 total, USD 3 all-cloud row and USD 0.60 split row.
+
+Next gate: Prepare and independently verify the minimal held continuation, bind the actual reviewed assets and current prerequisites to this immutable decision, then execute the two-row conditional queue once. If H4 and split pass, proceed to the existing conditional H5 without another generic launch-permission question. Stop on an actual failed gate or exhausted eligible window.
+
+References: docs/plans/PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md; BL-20261101-0224-h4-h5-priority-restored; BL-20261101-0134-h4-recovery-plan-rejected.
+
+### BL-20261101-0239-h4-completion-v2-prepared -- 2026-11-01 -- Verify the approved H4 continuation without changing the qualified runtime
+
+Status: `Implemented`
+
+Scope or hypothesis: Prepare the owner-approved one-local-loop and conditional first-split allocation using the existing runner and unchanged production runtime. Preserve both prior local failures alongside the retained deck and prevent the new scope from creating additional replacements.
+
+Decisions: Keep the two-row queue, original checks, runtime/protocol/serving/model/eight-role identities and shared USD 0.60 cap. Extend only private continuation accounting and authority checks to retain both consumed predecessors and distinguish five attempted loops from three accepted logical rows. The new exclusive/fsynced claim binds the latest consumed recovery authority and failed result; output-directory or authority copies cannot reset it. Root retains responsibility for actual H4 and split-semantic acceptance before H5.
+
+Changes: Prepare eighteen ignored assets, binding the immutable owner decision recorded before preparation, exact held/released bytes, historical failures and current CI. Existing preflight/classifier/H4/split checks and queue are unchanged from the reviewed recovery path. The composed report keeps the two rejections outside its three accepted-row map, which is compatible with the existing H5 runner. Ordinary H5 quality rejections remain counted outcomes; unresolved dispatches and infrastructure failures remain stopping conditions. No production, service or diagnostic change is included.
+
+Evidence: Twenty TypeScript, thirty-seven composed-review Python and sixteen mocked supervisor tests pass, 73 total, plus strict TypeScript on the working copy and an exact snapshot. Evidence review independently repeated all 73 checks and source bindings; privacy independently repeated them and passed 108 scope/binding checks. Held proposal SHA-256 c49c3c2cfe74071c53710b32f97c5734a98c2f2d901a7b4a85795b2f6b638ce6; final CPU verification 0aef54b2f7509597b66764f16471b26a87dee4bc96c9a3a7a277ef65e34e9202; evidence review 325f2c692f2172e1dde3cf1f7a4c7da33f32bad64a16791dcf28ce7877e926c2; privacy review 07aa8bf16b8e150db6d3545a9e21a36a286f113519cd0607bf68e658b1c2232d. All twenty-eight predecessor assets, claims and negative results remain unchanged. Initial copied-release assertion and external type-root configuration errors were corrected before the final successful tests; initial logs remain preserved.
+
+Root archived twenty-four files in manifest c0a9f324970d4404f20e74fa95305678a6d478f0d647d073893351473e8a4d05 and changed only the operator activation declaration. Released operator SHA-256 92951cee126ae4cc50dea53139a30c1dff1a45b9291def270d669b14883c7702; released proposal d811e90ca0f4e089ad6c28138b222d27bfb8caedb365121b4cfe9ddf583afeac. Eighteen TypeScript, thirty-six Python reviewer and sixteen supervisor tests pass, seventy applicable released cases, plus strict TypeScript. Three held-only cases retain their earlier coverage, and actual held/released validators pass. Release verification 2f7c3c55d969df8340116e7b30924969c0a17ac546ddd6c6f7fff216dc649d91; independent release review 565e038b620a87745e2cc6dc83e7e9ab915019300949ee9804514c2e59ec66b6 passes 120 checks. All other seventeen assets and the immutable owner approval remain unchanged.
+
+Failures or blockers: No remaining CPU-preparation blocker. Final clean commit/CI, current readiness and actual authority/prefix pins remain before dispatch. The already recorded approval covers this exact allocation; no further generic permission question is required. No actual execution authority, global claim or run exists at entry creation.
+
+Limitations and non-claims: Synthetic checks prove continuation controls and accounting, not live model success or task quality. The optional telemetry proposal remains deferred. Neither prior H4 failure is explained or erased, and H4/split/H5 are not accepted or started by preparation. Implementing and reviewing sessions read no fresh H5 input, candidate or gold. Private paths, endpoints, credentials, raw traces and generated artifacts remain excluded from Git.
+
+Paid exposure: USD 0 and zero model requests during preparation. Read-only service/container/device checks passed without mutation. Shared H4 and existing conditional H5 caps are unchanged.
+
+Next gate: Bind the clean successful commit/CI and fresh readiness to the exact released package and immutable owner decision, verify the actual prefix/authority, and execute once. If actual H4 mechanics and split semantics pass within the permitted window, proceed under the existing H5 authorization; preserve a failed gate and stop if it does not.
+
+References: docs/plans/PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md; BL-20261101-0228-h4-completion-v2-approved; BL-20261101-0224-h4-h5-priority-restored.

@@ -1,6 +1,9 @@
 # Planner validation metadata in host audit events
 
-Status: **Proposed; no implementation or new model-call authority.**
+Status: **Proposed, deferred after owner priority correction; no implementation or new model-call authority.**
+The owner directed work back to completing H4 and H5. This optional observation
+proposal is not a prerequisite for that goal, and its pending CPU-only approval
+request is withdrawn as the next step. See BL-20261101-0224-h4-h5-priority-restored.
 Prepared after BL-20261101-0208: the metadata diagnostic completed after nine
 zero-fee requests and a valid first plan, without reproducing either earlier H4
 planning rejection.
@@ -128,7 +131,7 @@ and an eligible start record; the old authority cannot be silently relabelled.
 
 ## Next decision
 
-Review this named observation design for CPU-only implementation. That decision
+This design is deferred. If revisited, review it for CPU-only implementation. That decision
 would authorize preparing and testing the change, not any model call, service
 change, H4 batch or H5 start. Present the verified implementation and exact
 new-runtime H4 authority separately before requesting live execution.

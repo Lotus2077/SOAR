@@ -3,6 +3,11 @@
 Status: **Executed; recovery rejected at the planner gate. Further replay is not authorized.**
 Prepared 2026-11-01 (Asia/Shanghai).
 
+The statement above describes this consumed recovery grant. A later, separate
+[completion allocation](PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md) is now approved
+for one further local loop and the conditional untouched split (BL-20261101-0228).
+This recovery result and its spent claim remain unchanged and counted.
+
 The approved planner diagnostic completed ten zero-fee requests. Its first plan
 hit the output cap without final content; the existing retry produced a valid
 six-question plan under the unchanged settings. This supports trying the full

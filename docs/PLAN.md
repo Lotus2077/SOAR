@@ -646,6 +646,12 @@ reply, then a normal-stop, schema-valid nine-question first plan. No retry or la
 stage ran. Three post-idle observations and 97 independent audit checks passed.
 The prior failures were not reproduced or explained; no H4 replay or H5 start
 follows, and the unused request slot is not transferable (BL-20261101-0208).
+After deferring optional telemetry, the owner approved a separate
+[bounded completion allocation](plans/PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md):
+one additional local research loop and then the untouched split only if local
+passes, using the unchanged qualified runtime and shared USD 0.60 cap. Both
+failed attempts remain counted; executable preparation precedes dispatch, and
+H5 remains conditional on actual H4 acceptance (BL-20261101-0228).
 The held H5 runner now permits admitted-row closing checks after the new-start
 cutoff and owns its process group. All 62 CPU tests and independent reviews pass;
 this changes no runtime, row/fee limit, H4 prerequisite or launch permission

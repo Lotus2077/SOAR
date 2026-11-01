@@ -3,6 +3,12 @@
 Status: **Approved sequence; shared admission and amended qualification Verified; H4 k2 completed and r3-local rejected; split/H5 unstarted; H4 acceptance blocked**. Prepared 2026-11-01
 (Asia/Shanghai). Authority: BL-20261031-1759-flash-next-sequence-owner-approved.
 
+Current next action: the owner approved [one bounded completion allocation](PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md)
+using the unchanged runtime: one local research loop, then the untouched split
+only if local passes, with both prior failures retained and the shared USD 0.60
+cap unchanged. The optional telemetry proposal is deferred. This is approval,
+not a new successful H4 result; H5 remains conditional (BL-20261101-0228).
+
 Updated after owner-authorized inventory, the failed first startup and the
 approved instrumented retry on 2026-11-01. The retry candidate now serves healthy
 owned API/model metadata; q4t is stopped with its verified recovery assets

@@ -121,6 +121,34 @@ pinned retry deployment and roles.
 The added GDN/MTP CUDA overlay and its numerical test selection are not general
 requirements for an MTP-off deployment using ordinary Triton decoding.
 
+### Measured throughput versus the advertised fast profile
+
+The current deployment measured about 19.94 decode tokens/s, with a live window
+at 19.99. It uses the reviewed conservative derivative, not the complete
+`sm110-fast-v3` performance profile. The
+[pinned published measurements](https://github.com/pastoriomarco/NemoClaw-Thor/blob/dd07dcc2f5650916e18e2c706144c6fd1f8bf13c/serving/docs/QWEN38-FLASH-NEXT-FAST-THOR.md#measurements)
+report 46.7 tokens/s for C1 FP8-hybrid versus 34.8 for original side weights,
+with MTP=3 and temperature zero. Those rates include full request time and
+are workload-specific, rather than a guaranteed decode rate for our long runs.
+
+| Setting | Current qualified deployment | Published fast profile |
+| --- | --- | --- |
+| Speculative decoding | Off | MTP=3, restricted draft vocabulary |
+| Dense side-layer weights | Original BF16 | FP8 hybrid |
+| GDN decode | Triton | Fused SM110a CUDA |
+| Recurrent state | FP32 | BF16 |
+| Scheduler slots | 1 | 3 |
+| Compilation | PIECEWISE CUDA graphs, AOT on | PIECEWISE CUDA graphs, AOT on |
+
+The differences are plausible performance contributors; no controlled comparison
+has assigned the current gap to a particular setting or vLLM version defect.
+More scheduler slots do not by themselves explain a single-stream gap.
+Observed queueing, preemptions and KV pressure did not explain the current run.
+Any fast-profile trial would change the pinned serving contract and require
+explicit new comparability/qualification evidence; it is not an approved service
+change or a proven artifact-completion fix. See
+BL-20261101-2047-throughput-profile-investigation.
+
 ## Required service behaviour
 
 | Area | Required behaviour |

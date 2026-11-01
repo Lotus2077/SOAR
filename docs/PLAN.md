@@ -705,11 +705,27 @@ The grant is consumed with no replacements; unused rows do not authorize replay
 The [draft-first writer proposal](plans/PHASE4_WRITER_COMPLETION_V1.md) specifies
 one named policy change and a conditional fresh three-loop allocation. It is
 Approved for the exact named policy and one conditional three-loop allocation
-(BL-20261101-1838-writer-completion-approved). The exact implementation and both required CI jobs pass. The reviewed H4
-allocation is still unconsumed: the qualified serving container is absent and
-the responding API lacks required health/version/context readiness. Serving
-restoration is pending (BL-20261101-1849-writer-completion-prepared-serving-held);
-original failures, shared caps and the cutoff remain unchanged.
+(BL-20261101-1838-writer-completion-approved). The exact implementation and both
+required CI jobs pass. The owner then approved restoration of the exact saved
+deployment; new physical identities passed thirty readiness checks under the
+unchanged semantic serving settings. The fresh allocation ran once and failed
+at sample a's 90-minute boundary: 91 dispatches, 90 settled and one UNKNOWN.
+All 54 workspace inventories were unchanged with zero output files. The loop
+stopped before sample b, critic, repair, deck or split; H5 never started.
+Current H4 history is six attempts, 352 dispatches, 348 settled and four unresolved,
+with USD 0 known settled fees and reservations. This allocation is consumed with
+zero replacements (BL-20261101-2044-writer-completion-stopped).
+Observed decode speed was 19.94 tokens/s, with a live window at 19.99; 100602
+known completed output tokens imply about 84 minutes at that speed. Throughput
+and excessive generation burden materially constrained completion; exact
+thinking share and a backend defect are unproven. The
+[writer throughput proposal](plans/PHASE4_WRITER_THROUGHPUT_V1.md) requires a new
+named decision before its pilot or conditional H4 work. Original failures, shared
+caps and the November 2 18:00 Asia/Shanghai cutoff remain unchanged.
+The current held H5 package has the reviewed writer-policy/physical-deployment
+bindings and passes 61 Node cases plus strict TypeScript, with 37 earlier Python
+cases retained rather than rerun. No actual H5 authority/pins/claim/run exists;
+fresh task inputs, candidates and gold remain unread by implementers.
 The held H5 runner now permits admitted-row closing checks after the new-start
 cutoff and owns its process group. All 62 CPU tests and independent reviews pass;
 this changes no runtime, row/fee limit, H4 prerequisite or launch permission

@@ -1,27 +1,35 @@
 # Phase 4 Flash-Next migration plan
 
-Status: **Historical amended qualification Verified; runner fixes and required CI verified; fresh H4 allocation stopped on its first local sample at the deadline. H4 unaccepted after five attempts; split/H5 unstarted; no replacement authorized**. Prepared 2026-11-01
+Status: **Historical amended qualification Verified; saved serving deployment restored with owner approval; draft-first writer H4 attempt failed at its 90-minute deadline. H4 unaccepted after six attempts; split/H5 unstarted; current allocation consumed**. Updated 2026-11-02
 (Asia/Shanghai). Authority: BL-20261031-1759-flash-next-sequence-owner-approved.
 
-Current outcome: the approved corrected-runtime allocation stopped naturally at
-its first local sample's 90-minute boundary: 85 dispatches, 84 settled and one
-UNKNOWN/cancelled receipt. The loop preserved the incomplete sample result and
-stopped with `loop_stage_unresolved_dispatch` before sample b. The supervisor
-exited one with its process group and inhibitor quiescent, without interruption
-or forced kill. No new deck, split or H5 row started. Actual history is five
-attempts and 261 dispatches: 258 settled and three unresolved, with USD 0 known
-fees and reservations. This verifies the live stage-stop correction, not H4
-acceptance. The grant is consumed with zero replacements
-(BL-20261101-1106-h4-runner-fixes-stopped).
-The [draft-first writer policy](PHASE4_WRITER_COMPLETION_V1.md) is Approved:
-one task-independent sequencing change, unchanged checks and limits, and one
-conditional fresh three-loop allocation (BL-20261101-1838-writer-completion-approved).
-Implementation review and both required CI jobs pass. Execution remains held
-on actual serving drift: the qualified container is absent, its unit failed,
-and the responding API lacks health/version/context metadata
-(BL-20261101-1849-writer-completion-prepared-serving-held). The new allocation is
-unconsumed; serving restoration awaits its separate decision.
-It does not claim another host bug or guaranteed model compliance.
+Current outcome: the owner-approved [draft-first writer policy](PHASE4_WRITER_COMPLETION_V1.md)
+ran after exact saved serving restoration and successful required CI. Its first
+local sample stopped naturally at the 90-minute boundary: 91 dispatches,
+90 settled and one UNKNOWN/cancelled receipt. The loop preserved the incomplete
+result and stopped with `loop_stage_unresolved_dispatch` before sample b.
+Critic, repair, deck, split and H5 did not start. All 54 captured workspace
+inventories were unchanged with zero output files; all 52 execute actions exited
+zero, with no structured write, finish or claims-check call. The stronger prompt
+did not establish timely saved work. Actual H4 history is six attempts and
+352 dispatches: 348 settled, three UNKNOWN and one committed unresolved, with
+USD 0 known settled fees and reservations. The current grant is consumed with
+zero replacements (BL-20261101-2044-writer-completion-stopped).
+
+Generation averaged about 19.94 decode tokens/s; a live window measured 19.99.
+The 100602 known completed output tokens imply about 84 minutes of decoding at
+that speed. Decode accounted for 97.6% of observed inference time, without an
+observed queue or preemption bottleneck. Exact thinking-token share and a
+hardware/kernel cause are unproven. The separate
+[writer throughput proposal](PHASE4_WRITER_THROUGHPUT_V1.md) is Proposed only;
+no new pilot, model policy or H4 allocation is authorized.
+
+The restored deployment retains the qualified image, original checkpoint,
+serving arguments and environment. New physical identities are explicitly bound
+to retained semantic qualification; this is not new live qualification.
+Six post-run observations found it healthy and idle. H5 preparation is verified
+but held, with no actual launch authority/pins/claim/run. All earlier negative
+results and their limitations remain in the append-only build log.
 
 Earlier outcome: the [bounded completion allocation](PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md)
 executed and was interrupted after an UNKNOWN cancelled/transport receipt at

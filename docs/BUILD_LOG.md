@@ -28209,3 +28209,99 @@ Paid exposure: USD 0 new known fees, with zero model/tokenizer/provider-generati
 Next gate: Obtain the pending serving-restoration decision or receive a restored qualified endpoint. Verify the saved serving semantics and current physical identity, update only the required deployment evidence under explicit review, obtain current idle/device readiness and exact clean CI/authority/pins, then execute the already approved H4 sequence once. Continue to conditional H5 only after H4 and usable split semantics pass, before the unchanged new-start cutoff.
 
 References: docs/plans/PHASE4_WRITER_COMPLETION_V1.md; BL-20261101-1848-writer-completion-implemented; BL-20261101-1838-writer-completion-approved.
+
+### BL-20261101-2044-serving-restored-writer-released -- 2026-11-01 -- Restore the exact saved serving deployment and release the approved writer experiment
+
+Status: `Verified`
+
+Scope or hypothesis: Resolve the actual serving blocker from BL-20261101-1849-writer-completion-prepared-serving-held, using the owner's explicit answer "Restore the pinned vLLM deployment". Verify unchanged semantic serving settings with new physical identities before the already approved H4 allocation.
+
+Decisions: Durably record service approval 94d484648f0026b4839bd0bfcecef6ac8a6d7ba73f7496c5ddfd13cb155ccb1f at 18:50:25 UTC before lifecycle actions. Stop only the verified current owned model service; restore the saved exact image, checkpoint, arguments, environment and six mounts. Keep the original service recovery assets and shared GPU lease. Do not rerun the old spent startup script, cache drop, numerical tests or compatibility qualification. Bind a truthful new physical deployment rather than claiming the old container/PIDs still exist.
+
+Changes: Verify all 206 original weight shards by the retained staging identities, eleven model/tokenizer metadata hashes and two startup diagnostic overlays. Launch the reviewed scoped supervisor with no restart policy, exact captured-container cleanup and retained recovery marker if cleanup is uncertain. The restored API reached readiness in about 333 seconds at 19:00:57 UTC. Accept physical mapping 7169329703f2156cc2caafa725a66abf2400d3a0d16ba7f4803fcf3bdb63ab55 under original semantic serving manifest 3723396dff67bc845381bfefa4c6ef597376af71bf32bbf30d4cb1562eba8eb5. Release only the reviewed H4 hold and bind the mapping as mandatory evidence in its authority and bridge.
+
+Evidence: Restoration source review 3c68a03fed7177a45e84500119c94799a93a82339f1da4be3b0acd3d9db935fe and eight mocked supervisor cases pass. The initial current-readiness record c6527af7aa50e471c39279f70ca4a768383d69dbd044b76631792ea004f010f1 failed only an order-sensitive bind-mount comparison; retain that result. Exact multiset comparison plus all six actual mount rows and unique destinations corrects that collector predicate without changing Source/Destination/Type/RW requirements. Independent correction review 7eef240c9b93ef81ee38841215a4f3f965859240286b257c45aa5823a8bb1e38 repeats two narrow cases. Corrected readiness e0fb5b7eabbaae7dab37cec19b473ab0cba8312c4116351486573d4cd5ab5eb8 passes all thirty checks. Mandatory-mapping package review 7be23ee578a842e96693bb70cc7e741fa3955199f1c857bee8d25bbf6dccd017 independently verifies the narrow delta, with 34 Node cases and strict TypeScript; unchanged supervisor coverage is retained separately.
+
+Both required CI jobs pass on clean release commit 319a56aacd32f411db2f19ad7b13ee82ffd690b7 in run 41338638314, following successful implementation CI on d26d1ad. Actual authority c449e8add734252d4f7bd2ed150b4ff93dfcd5f82ee446d07a4e831b9e21cfaf and pins 71dc1d28dfbb528b0b0c75d2b4ec507379c130066bec0d0e6ed46426d811f6a3 bind runtime 13dcb2ceb0e0a6a76677dbdd033df507d9375348dc37a75a0c8827d45b452e6c, the unchanged research protocol and actual physical mapping. Independent binding review 34a4438825c3e9ab494f1ac8d6210567dd82d578cae67b47fc70f4d1a02e201f passes 32 checks over 25 references. Root accepts CPU bridge 49113e8380b0273140ef4b2421a1a486761182a6d28942965ce9083e6d12601a; original live qualification remains attributed to its original runtime.
+
+Failures or blockers: Preserve the missing-deployment readiness failure and initial mount-order predicate failure. Neither is silently relabelled as a pass. No remaining serving blocker existed at this allocation's launch; its actual failure is recorded separately below.
+
+Limitations and non-claims: Restoration proves the scoped deployment and current serving metadata, not new model quality, stability, live qualification, wire equivalence or H4 acceptance. No serving performance settings, tokenizer, model conversion, speculative decoding or time/fee limits changed. Fresh H5 inputs, candidates and gold remain unread by implementers. Private routes, paths, credentials and raw logs remain excluded from Git.
+
+Paid exposure: USD 0 for restoration, zero generation/tokenizer requests and no repeated Claude calibration. Existing authority, fee caps and cutoff remain unchanged.
+
+Next gate: Reconcile the one approved live writer-policy H4 allocation against its actual receipts and host checks. Continue conditional H5 only after actual fresh H4 and usable split semantics pass.
+
+References: docs/plans/PHASE4_WRITER_COMPLETION_V1.md; BL-20261101-1849-writer-completion-prepared-serving-held; BL-20261101-1838-writer-completion-approved.
+
+### BL-20261101-2044-h5-writer-bindings-prepared -- 2026-11-01 -- Apply reviewed writer and physical-deployment bindings to held H5 preparation
+
+Status: `Implemented`
+
+Scope or hypothesis: Keep conditional H5 preparation compatible with the approved writer policy and restored physical deployment without creating H5 execution authority or reading fresh evaluation data.
+
+Decisions: Preserve all old held bytes, apply only the reviewed bridge/window/instruction changes and retain the activation hold. Actual fresh H4 acceptance and usable split semantics remain mandatory. The existing eighteen-row allocation, independent blind scoring, all caps and the November 2 10:00 UTC new-start cutoff remain unchanged.
+
+Changes: Archive twenty-nine prior top-level held payloads under exact manifest 4f99c63d57655cf84c20800fe6a3e1984454bb23dddbf415fb0cc7150f1b92f1. Of thirteen held execution assets, change exactly three: the H4 bridge, H5 bridge/window validator and operator instructions. Require the same physical mapping, writer-policy owner decision, held-proposal and actual accepted H4 references throughout the eventual authority chain. Prepare a conditional root template without inventing acceptance or launch records.
+
+Evidence: Actual application record 7fd6433cd626932694a07f1476b5aa91978e042cd4a24a478ed4f8c10730185c was recorded at 19:14:30 UTC. All thirteen actual assets match reviewed candidate v2, patch 700bb969635846b50eafdf8fbe0bced5ed50a3b50b7e14f7adbec48d09ad8842. Sixty-one actual Node cases plus strict TypeScript pass; thirty-seven unchanged Python cases retain their earlier proof rather than being rerun. Independent actual-application review feeac28ac72e3e0cc3cad6f395ee056a8011f52f3fd0854687a23a6c51fbd4cb confirms archive equality, exact changes, hold and absent actual launch records. Fresh-session scorer readiness is separately recorded and binds the current held operator instructions; no grading took place.
+
+Failures or blockers: H4 had not passed during preparation and subsequently failed. No actual H5 authority, pins, execution claim or run exists. Its launch hold remains in place.
+
+Limitations and non-claims: CPU preparation verifies binding and admission rules, not H4 acceptance, split quality, H5 results or scorer availability at a future launch. Suites overlap and are not added as unique tests. Fresh task inputs, candidates and evaluator gold remain unread by implementing/reviewing sessions. No private artifacts or evaluator content enter Git.
+
+Paid exposure: USD 0 and zero model/service/tokenizer/provider requests. Existing H5 USD 21.60 total, USD 3 cloud-row and USD 0.60 split-row ceilings are unchanged.
+
+Next gate: Keep H5 held until three actually accepted fresh H4 loops under compatible approved pins and usable split semantics. A future release must bind exact current CI/readiness and actual H4 acceptance; this preparation grants no replacement H4 work.
+
+References: docs/plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md; docs/plans/PHASE4_WRITER_COMPLETION_V1.md; BL-20261101-1838-writer-completion-approved.
+
+### BL-20261101-2044-writer-completion-stopped -- 2026-11-01 -- Preserve the failed draft-first writer attempt and quantify its generation burden
+
+Status: `Verified`
+
+Scope or hypothesis: Execute the approved draft-first H4 allocation once and reconcile its terminal outcome. Verified here means closed evidence/accounting and stop behavior, not H4 acceptance.
+
+Decisions: Sample a ran from 19:06:57.843 to 20:36:58.384 UTC, then ended incomplete with runtime_failure_progress_preserved and loop_stage_unresolved_dispatch. The supervisor exited naturally with code one, without interruption or forced kill; its owned process group and inhibitor were quiescent. Stop before sample b, critic, repair, deck and split. H5 never started. The grant is consumed with zero replacements. Do not repeat an unchanged run or interpret unused rows/fee headroom as new authority.
+
+Changes: Preserve the actual result, database, snapshots, immutable authority/pins and historical claims. Record throughput from bounded GET-only service metrics and saved event metadata. Reconcile failure and current quiescence, then update status documentation after terminal without changing source or original evidence.
+
+Evidence: The new attempt has 91 dispatches: 90 settled and one UNKNOWN/cancelled receipt, no failed receipts or application retries. Eight index calls and the first plan passed; twenty-seven extraction calls retained one invalid reply; one synthesis reached its output limit. Available saved-event usage is 891783 input, 100602 output and 671104 cached-input tokens, one length stop and 53 completed writer tools. Interrupted response usage is unavailable. Exact prompt-admission proofs cover all 91 receipts: 918181 committed prompt tokens, including 891783 settled tokens. Known settled fees and reservations are zero. All H4 history now totals six attempts and 352 dispatches: 348 settled, three UNKNOWN and one committed unresolved. All earlier failures, consumed claims and the old-runtime deck remain separate; no historical row fills a new-policy acceptance slot.
+
+Terminal reconciliation 1a98313f7dad630a940027d3c05819bec5b78cf220c12519079093f3b77c9cd7 passes 202 fixed checks with zero problems and explicitly rejects H4/H5 acceptance. Independent closed review 54d5e9b63dcb27da03169e82cf3a8742f593837d55e2714afda494c7148bb4cb confirms receipt/result/history equality and all 54 captured workspace inventories: the same 32 regular files and 133902 bytes, zero output files. All 52 completed execute actions exited zero; the sole observation read failed argument validation. No structured write, finish or claims-check call occurred. Additional full shell-action review 87ce9098b9c58edb7329d89b7f0ab6f4e206c83460b7b0b91f35878c9d391411 classifies 48 inspection/read/compute actions, three temporary analysis-file stdout writes outside the captured workspace and one output-directory creation, with successful commands and no stderr. The temporary writes have same-command readback references; their contents were not part of retained workspace inventories and are not recovered from the closed container. This disproves a broad claim of no filesystem writes. It does not show requested deliverable creation or a rejected host write.
+
+Two GET-only metrics observations 20:32:16.737 to 20:32:36.877 UTC measured 402 generated tokens in 20.111 seconds, 19.99 tokens/s. Completed service counters at that snapshot give 92330 output tokens / 4631.35 decode seconds = 19.94 decode tokens/s, or 19.45 tokens/s including request prefill/overhead. Decode is 97.6% of observed inference time; running one/waiting zero, no preemptions, 74.9% prefix-cache hits and 7.1% KV usage were observed. These are service-lifetime counters, not an exact final per-run timing breakdown. At the measured speed, this run's 100602 known output tokens imply roughly 84 minutes of decoding within its 90-minute allowance. Writer-only completed output is 77083 tokens; normalized records contain no exact separate thinking-token count. Do not subtract tool-argument characters from tokens or label all output as reasoning. Metrics evidence SHA-256 58181f86538c06744a805655f9ed08331ebd980d97872228b799b8a5d7785988.
+
+Six post-run GET-only observations at twenty-second intervals found the pinned service healthy and idle. Current-job inventory found zero owned tool containers and left four unrelated containers untouched. Quiescence record 5414e78a222de76eedd920f3eab83dad8195fc92e5769008be2a8961f9006614 and root adjudication f9328cd1e1572c9ebc1b1d9faae7bad302a9d75f26a0a72be210d777f8898a2d bind closure and consumed scope. No manual lifecycle action or working-file recovery is claimed; remote CID/PIDs were not reinspected at closure. Idle does not settle an UNKNOWN receipt.
+
+Failures or blockers: The draft-first paragraph did not produce saved artifacts. Low serial throughput combined with very large output volume materially consumed the shared deadline. Successful execution replies and unchanged inventories do not establish useful completion. The exact reasoning share, hardware/kernel cause and whether faster serving alone would produce correct artifacts are unproven. No fresh H4 replacement allocation exists, so split and H5 remain held.
+
+Limitations and non-claims: This is a failed live experiment despite passing source/CPU/CI. Neither prompt wording nor truthful time guidance established model compliance. Captured inventories prove no preserved output at those checkpoints, not absence of every unobserved transient write. The 84-minute figure is an estimate from observed generation speed, not an exact final decode histogram. No added time, service change, thinking-policy change or replay is authorized. Fresh H5 inputs, candidates and gold remain unread by implementers.
+
+Paid exposure: USD 0 known new settled fees and reservations. Historical Claude step-0/1 exposure remains USD 1.151653. The single all-history H4 USD 0.60 split ceiling, H5 caps and November 2 18:00 Asia/Shanghai new-start cutoff remain unchanged.
+
+Next gate: Review a concrete throughput/token-burden change and a bounded artifact-producing feasibility test before any new separately authorized live allocation. Preserve every negative result; keep the restored service running and H5 held.
+
+References: docs/plans/PHASE4_WRITER_COMPLETION_V1.md; docs/plans/PHASE4_WRITER_THROUGHPUT_V1.md; BL-20261101-2044-serving-restored-writer-released; BL-20261101-1106-h4-runner-fixes-stopped.
+
+### BL-20261101-2047-throughput-profile-investigation -- 2026-11-01 -- Distinguish measured serving speed from the published fast recipe and prepare a bounded writer proposal
+
+Status: `Proposed`
+
+Scope or hypothesis: Respond to the owner's throughput question and comparison with NemoClaw's over-40-token/s claim. Verify the primary recipe and current saved deployment without changing the service. Prepare a concrete artifact-producing feasibility experiment; neither proposal nor investigation is a new live grant.
+
+Decisions: Keep the restored qualified deployment running. Its conservative derivative was explicitly pinned before startup: original side-layer weights, MTP off, Triton GDN and FP32 recurrent state. The complete published fast profile changes all four. A performance delta alone does not establish a broken vLLM version. Do not conflate the approximately 20-token/s generation limit with the independent failure to choose productive writing actions.
+
+Changes: Add a compact source-linked performance comparison to the serving requirements, update current H4/H5 status and publish docs/plans/PHASE4_WRITER_THROUGHPUT_V1.md as Proposed. The writer proposal names a separate local writer/repair-only thinking-off policy while retaining Heavy budgets, the other six roles, host checks and serving settings. It requests one new twelve-model-request/twelve-tool-action/twenty-minute zero-fee seeded pilot, one attempt and zero replacements, with no research/critic/judge calls and no H4 credit. Success requires substantive checked artifacts and root content review, plus at most 20000 completed output tokens; the token threshold is a success criterion, not an enforced cumulative cap. One concrete owner decision could include exactly three conditional fresh H4 loops after pilot/CPU/review/CI/pins/readiness success and then existing conditional H5. A failed pilot ends that scope. No MTP/service change, replacement or cutoff extension is proposed by that document.
+
+Evidence: Reopened the original NemoClaw-Thor recipe and launcher, including pinned revision dd07dcc2f5650916e18e2c706144c6fd1f8bf13c. Its single-stream FP8-hybrid result is 46.7 tokens/s versus 34.8 with original side weights, using MTP=3, temperature zero and a specific benchmark. Those are full-request output rates. The current saved deployment has PIECEWISE CUDA graphs and AOT enabled, and therefore is not an eager-mode launch. Actual saved image/version/arguments remain separately pinned; no upgrade experiment was performed. Source-only writer proposal v2 c6af78bc57e39bd9d6dccc40686ca174a07e820ffb82fcae9365d458c729e236 and evidence eb9e33fc674d627b009216d1eac010e55201777bd3412cf228a99c98410a358f retain v1. Independent review 5ed0134fa8d98fb48c8ef6688e956838d1bcd71a8869d5192d5000a8ea054f70 passes twenty-one source/evidence/scope checks and reviews the public plan. No production implementation or live test follows.
+
+Failures or blockers: The present H4 allocation is consumed. The new request grant and named writer policy remain unapproved. The approved compatibility allocation is fully spent and cannot supply pilot requests. No matched benchmark has isolated the speed impact of MTP, precision, GDN kernel, context or sampling. Faster serving alone has not demonstrated artifact creation; thinking-off writing quality is also unproven.
+
+Limitations and non-claims: Published benchmarks are workload-specific and do not promise the same throughput for this task/context. Three scheduler slots do not themselves explain a single-stream gap. No numeric thinking-token budget is available through the qualified request contract, and exact thinking usage was not retained. The seeded one-sided pilot would test feasibility, not comparative quality, causality or H4 acceptance. No fresh H5 task inputs, candidates or evaluator gold are read. Supporting private metadata and raw traces remain outside Git.
+
+Paid exposure: USD 0, no new inference/tokenizer/provider calls, no service mutation and no new live allocation. Existing historical exposure and all H4/H5 caps remain unchanged.
+
+Next gate: Present verified throughput/configuration and artifact findings to the owner. The named writer proposal requires one explicit new decision before implementation or live work; any separately selected fast-serving recipe would require its own concrete reviewed change and qualification scope. Preserve the existing November 2 18:00 Asia/Shanghai cutoff and every failed result.
+
+References: docs/plans/PHASE4_WRITER_THROUGHPUT_V1.md; docs/plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md; BL-20261031-1820-flash-next-trial-preparation; BL-20261101-2044-writer-completion-stopped; https://github.com/pastoriomarco/NemoClaw-Thor/blob/dd07dcc2f5650916e18e2c706144c6fd1f8bf13c/serving/docs/QWEN38-FLASH-NEXT-FAST-THOR.md.

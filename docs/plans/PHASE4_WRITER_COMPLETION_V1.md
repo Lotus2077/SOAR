@@ -1,21 +1,36 @@
 # Draft-first writer completion policy
 
-Status: **Approved for the exact policy implementation and conditional three-loop H4 allocation. Exact paragraph implemented; required CI and CPU package checks pass. Execution is held on actual serving drift; H4 remains unaccepted.**
+Status: **Approved paragraph implemented and CPU/CI verified; its live H4 attempt failed at the 90-minute deadline. The allocation is consumed; H4 remains unaccepted and split/H5 unstarted.**
 
 BL-20261101-1838-writer-completion-approved records the owner decision.
 BL-20261101-1848-writer-completion-implemented records the exact implementation
 and CPU evidence. BL-20261101-1849-writer-completion-prepared-serving-held
-records successful source CI and the actual serving blocker: the qualified
-container is absent, its owned unit failed, and the responding API lacks required
-health/version/context metadata. The fresh H4 allocation remains unconsumed.
-Restoration requires the pending service decision and explicit verification of
-new physical identities under unchanged serving semantics. The runtime is now `13dcb2ceb0e0a6a76677dbdd033df507d9375348dc37a75a0c8827d45b452e6c`;
+records the original serving blocker. The owner subsequently approved exact
+saved restoration; all thirty current readiness checks passed with explicitly
+new physical identities and unchanged semantic serving settings
+(BL-20261101-2044-serving-restored-writer-released). The runtime is `13dcb2ceb0e0a6a76677dbdd033df507d9375348dc37a75a0c8827d45b452e6c`;
 the research protocol remains unchanged. Both writer layouts change their
-prompt/protocol identity. Actual serving readiness and H4 evidence remain before acceptance. The
+prompt/protocol identity. Actual H4 acceptance remains absent. The
 approved plan bytes remain preserved at their original proposal commit; current
 status updates do not change that decision or extend its limits.
 
-The corrected runtime stopped the latest H4 sample at its shared 90-minute
+The new-policy sample a ran from 19:06:57.843 to 20:36:58.384 UTC on November 1.
+It left 90 settled receipts and one UNKNOWN/cancelled receipt, then stopped
+before sample b, critic, repair, deck or split. All 54 captured workspace
+inventories remained exactly unchanged, with zero output files. Its 53 completed
+writer actions included 52 successful executions and one invalid observation
+read, with no structured write, finish or claims-check call. Available completed
+output was 100602 tokens. At measured generation near 20 tokens/s that volume
+alone takes about 84 minutes. This establishes neither the exact reasoning-token
+share nor a backend defect. The prompt-only experiment did not solve completion.
+Offline review found three temporary analysis-file writes outside the captured
+workspace and an output-directory creation, all with successful commands.
+No requested deliverable file was captured; absence of artifacts is not evidence
+that every filesystem write was rejected or that no filesystem write occurred.
+See BL-20261101-2044-writer-completion-stopped and the separate
+[Proposed throughput experiment](PHASE4_WRITER_THROUGHPUT_V1.md).
+
+Before this paragraph change, the corrected runtime stopped the previous H4 sample at its shared 90-minute
 deadline and did not begin sample b. The writer saw truthful decreasing budgets:
 about 67 minutes on entry and 6.5 minutes on its final request. It completed
 44 actions: 39 executions, four observation reads and one unsupported action.

@@ -10,14 +10,20 @@ critic, repair, deck and split never started. The supervisor exited one without
 interruption or forced kill, with its group and inhibitor quiescent. This verifies
 the live stop correction, not H4 acceptance or timely model completion. The
 allocation is consumed; no unused row or remaining fee cap grants a replacement.
-All five attempts and three unresolved receipts remain recorded. See
+All five attempts and three unresolved receipts from that point remain recorded. See
 BL-20261101-1106-h4-runner-fixes-stopped.
 The [draft-first writer policy](PHASE4_WRITER_COMPLETION_V1.md) is a separate
 approved experiment, with exact wording and one conditional owner decision
-(BL-20261101-1838-writer-completion-approved). The exact implementation and required CI pass, but execution is held because
-the qualified serving deployment is absent and current API metadata fails
-readiness (BL-20261101-1849-writer-completion-prepared-serving-held). The new
-allocation remains unconsumed; approval is not evidence of model compliance.
+(BL-20261101-1838-writer-completion-approved). After owner-approved exact serving
+restoration and successful required CI, that allocation also stopped naturally
+at sample a's 90-minute deadline: 91 dispatches, 90 settled and one UNKNOWN.
+The loop again stopped before sample b. All 54 workspace inventories were
+unchanged, with zero output files; 100602 completed output tokens at about
+20 tokens/s consumed most of the allowance. Actual history is now six attempts,
+352 dispatches, 348 settled and four unresolved. The allocation is consumed;
+H4 remains unaccepted and split/H5 unstarted
+(BL-20261101-2044-writer-completion-stopped). A separate
+[throughput experiment](PHASE4_WRITER_THROUGHPUT_V1.md) remains Proposed.
 
 The interrupted completion-v2 attempt exposed two host defects. Sample a had
 an UNKNOWN writer receipt, but the loop admitted sample b because a research

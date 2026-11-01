@@ -1,8 +1,12 @@
-import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { describe, expect, it, vi } from "vitest";
 
 import {
+  buildLogEntrySha256,
   REQUIRED_BUILD_LOG_FIELDS,
+  runBuildLogValidationCli,
   validateAppendOnlyBuildLog,
   validateBuildLog,
   validateMaterialChangeBuildLogEntry,
@@ -46,6 +50,24 @@ function log(...entries: readonly string[]): string {
     "",
     ...entries,
   ].join("\n");
+}
+
+const TARGET_ID = "BL-20260829-1200-target";
+const CORRECTION_ID = "BL-20260829-1201-field-correction";
+const OMITTED_FIELD = "Limitations and non-claims";
+function omitField(source: string, field: string): string {
+  return source.split("\n").filter(line => !line.startsWith(`${field}:`)).join("\n");
+}
+function incompleteEntry(): string {
+  return omitField(entry({ id: TARGET_ID, date: "2026-08-29" }), OMITTED_FIELD);
+}
+function fieldCorrection(target: string, overrides: {
+  id?: string; targetId?: string; sha256?: string; field?: string; title?: string; status?: string; marker?: string; references?: string;
+} = {}): string {
+  const targetId = overrides.targetId ?? TARGET_ID;
+  const marker = overrides.marker ?? `Missing-field correction: \`${targetId}\` SHA-256 \`${overrides.sha256 ?? buildLogEntrySha256(target)}\`; field \`${overrides.field ?? OMITTED_FIELD}\`.`;
+  return entry({ id: overrides.id ?? CORRECTION_ID, date: "2026-08-29", title: overrides.title ?? "Correction: supply the omitted field",
+    status: overrides.status, decisions: marker, references: overrides.references ?? `${targetId}.` });
 }
 
 describe("build-log validator", () => {
@@ -451,5 +473,131 @@ describe("build-log validator", () => {
         "docs/plans/router.md",
       ]),
     ).toEqual([expect.stringContaining("material changes require")]);
+  });
+
+  it("accepts an exact digest-bound append while retaining the original omission and bytes", () => {
+    const original = incompleteEntry();
+    const base = log(original);
+    const current = `${base}\n${fieldCorrection(original)}`;
+    const result = validateBuildLog(current);
+    expect(result.errors).toEqual([]);
+    expect(result.entries[0].fields[OMITTED_FIELD]).toBeUndefined();
+    expect(result.entries[0].sourceSha256).toBe(buildLogEntrySha256(original));
+    expect(result.entries[1].fields[OMITTED_FIELD]).toBe("This is only a fixture.");
+    expect(result.missingFields).toEqual([{ entryId: TARGET_ID, entrySha256: buildLogEntrySha256(original), field: OMITTED_FIELD, correctedBy: CORRECTION_ID }]);
+    expect(current.slice(0, base.length)).toBe(base);
+    expect(validateAppendOnlyBuildLog(base, current)).toEqual([]);
+    expect(validateMaterialChangeBuildLogEntry(base, current, ["scripts/validate-build-log.ts"])).toEqual([]);
+  });
+
+  it("reports the applied correction count and retained historical evidence in CLI output", () => {
+    const root = mkdtempSync(path.join(tmpdir(), "soar-build-log-correction-"));
+    const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      mkdirSync(path.join(root, "docs"));
+      const original = incompleteEntry();
+      writeFileSync(path.join(root, "docs/BUILD_LOG.md"), log(original, fieldCorrection(original)));
+      expect(runBuildLogValidationCli([], root)).toBe(0);
+      expect(stdout).toHaveBeenCalledWith(expect.stringContaining("1 digest-bound field correction; original missing-field evidence retained"));
+      expect(stderr).not.toHaveBeenCalled();
+    } finally {
+      stdout.mockRestore(); stderr.mockRestore(); rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("hashes raw content without movable trailing blank separators", () => {
+    const original = incompleteEntry();
+    expect(buildLogEntrySha256(`${original}\n \t\n`)).toBe(buildLogEntrySha256(original));
+    expect(buildLogEntrySha256(original.replace("Fixture only.", "Changed."))).not.toBe(buildLogEntrySha256(original));
+    expect(buildLogEntrySha256(original.replace("References: None.", "References: None. "))).not.toBe(buildLogEntrySha256(original));
+    expect(buildLogEntrySha256(original.replaceAll("\n", "\r\n"))).not.toBe(buildLogEntrySha256(original));
+  });
+
+  it.each([
+    ["stale digest", { sha256: "0".repeat(64) }],
+    ["unknown target", { targetId: "BL-20260829-1159-absent" }],
+    ["self target", { targetId: CORRECTION_ID }],
+    ["unknown field", { field: "Invented field" }],
+    ["already present field", { field: "Evidence" }],
+    ["ordinary title", { title: "Supply a field" }],
+    ["unimplemented correction", { status: "Proposed" }],
+  ] as const)("does not satisfy an omission with %s", (_label, overrides) => {
+    const original = incompleteEntry();
+    const result = validateBuildLog(log(original, fieldCorrection(original, overrides)));
+    expect(result.errors).toEqual(expect.arrayContaining([expect.stringContaining(`missing required field ${OMITTED_FIELD}`), expect.stringContaining("missing-field correction")]));
+    expect(result.missingFields.find(item => item.entryId === TARGET_ID)?.correctedBy).toBeUndefined();
+  });
+
+  it("rejects a forward correction even when its digest names the eventual target", () => {
+    const original = incompleteEntry().replace(TARGET_ID, "BL-20260829-1202-future");
+    const result = validateBuildLog(log(fieldCorrection(original, { targetId: "BL-20260829-1202-future" }), original));
+    expect(result.errors).toEqual(expect.arrayContaining([expect.stringContaining("not an earlier entry"), expect.stringContaining(`missing required field ${OMITTED_FIELD}`)]));
+  });
+
+  it("rejects edited target bytes and still enforces append-only when a new digest is supplied", () => {
+    const original = incompleteEntry();
+    const edited = original.replace("Fixture only.", "Edited original.");
+    expect(validateBuildLog(log(edited, fieldCorrection(original))).errors).toEqual(expect.arrayContaining([expect.stringContaining("target digest does not match")]));
+    const rewritten = log(edited, fieldCorrection(edited));
+    expect(validateBuildLog(rewritten).errors).toEqual([]);
+    expect(validateAppendOnlyBuildLog(log(original), rewritten)).toEqual([expect.stringContaining("not append-only")]);
+  });
+
+  it.each(["fenced", "html", "quoted", "inline", "malformed", "duplicate"])("refuses %s pseudo-correction markers", kind => {
+    const original = incompleteEntry();
+    const line = `Missing-field correction: \`${TARGET_ID}\` SHA-256 \`${buildLogEntrySha256(original)}\`; field \`${OMITTED_FIELD}\`.`;
+    const marker = kind === "fenced" ? `\`\`\`text\n${line}\n\`\`\`` : kind === "html" ? `<!--\n${line}\n-->` :
+      kind === "quoted" ? `> ${line}` : kind === "inline" ? `Some text ${line}` : kind === "malformed" ? line.replace("; field", " field") : `${line}\n${line}`;
+    const result = validateBuildLog(log(original, fieldCorrection(original, { marker })));
+    expect(result.errors).toEqual(expect.arrayContaining([expect.stringContaining(`missing required field ${OMITTED_FIELD}`)]));
+    expect(result.missingFields[0].correctedBy).toBeUndefined();
+  });
+
+  it.each(["missing", "empty", "duplicate", "order", "status", "reference", "timestamp"])("requires the supplying Correction itself to be valid: %s", kind => {
+    const original = incompleteEntry();
+    let correction = fieldCorrection(original);
+    if (kind === "missing") correction = omitField(correction, "Changes");
+    if (kind === "empty") correction = correction.replace("This is only a fixture.", "");
+    if (kind === "duplicate") correction = correction.replace("Evidence: Validator unit test.", "Evidence: Validator unit test.\nEvidence: Duplicate.");
+    if (kind === "order") correction = correction.replace("Changes: Fixture only.\n\nEvidence: Validator unit test.", "Evidence: Validator unit test.\n\nChanges: Fixture only.");
+    if (kind === "status") correction = correction.replace("Status: `Implemented`", "Status: `Done`");
+    if (kind === "reference") correction = correction.replace(`References: ${TARGET_ID}.`, "References: BL-20260829-1159-absent.");
+    if (kind === "timestamp") correction = correction.replace(CORRECTION_ID, "BL-20260829-1159-backward");
+    expect(validateBuildLog(log(original, correction)).errors).toEqual(expect.arrayContaining([expect.stringContaining(`missing required field ${OMITTED_FIELD}`)]));
+  });
+
+  it.each(["order", "empty", "status", "duplicate-field", "duplicate-id"])("does not waive the target's unrelated %s error", kind => {
+    let original = incompleteEntry();
+    if (kind === "order") original = original.replace("Changes: Fixture only.\n\nEvidence: Validator unit test.", "Evidence: Validator unit test.\n\nChanges: Fixture only.");
+    if (kind === "empty") original = original.replace("Changes: Fixture only.", "Changes: ");
+    if (kind === "status") original = original.replace("Status: `Implemented`", "Status: `Done`");
+    if (kind === "duplicate-field") original = original.replace("Evidence: Validator unit test.", "Evidence: Validator unit test.\nEvidence: Duplicate.");
+    const result = validateBuildLog(log(original, ...(kind === "duplicate-id" ? [original] : []), fieldCorrection(original)));
+    const expected = { order: "out of order", empty: "field Changes is empty", status: "invalid Status", "duplicate-field": "duplicate field", "duplicate-id": "duplicate entry ID" }[kind];
+    expect(result.errors).toEqual(expect.arrayContaining([expect.stringContaining(expected!)]));
+  });
+
+  it("requires one unique supply per omitted field and never chains field corrections", () => {
+    const original = incompleteEntry();
+    const duplicate = validateBuildLog(log(original, fieldCorrection(original), fieldCorrection(original, { id: "BL-20260829-1202-second-supply" })));
+    expect(duplicate.errors).toEqual(expect.arrayContaining([expect.stringContaining("duplicate supplies"), expect.stringContaining(`missing required field ${OMITTED_FIELD}`)]));
+    const incompleteCorrection = omitField(fieldCorrection(original), "Changes");
+    const chained = validateBuildLog(log(original, incompleteCorrection, fieldCorrection(incompleteCorrection, { id: "BL-20260829-1202-chain", targetId: CORRECTION_ID, field: "Changes" })));
+    expect(chained.errors).toEqual(expect.arrayContaining([expect.stringContaining("cannot target another field correction"), expect.stringContaining(`missing required field ${OMITTED_FIELD}`)]));
+  });
+
+  it("resolves only explicitly supplied omissions without retroactively changing Status", () => {
+    const original = omitField(incompleteEntry(), "Changes");
+    expect(validateBuildLog(log(original, fieldCorrection(original))).errors).toEqual(expect.arrayContaining([expect.stringContaining("missing required field Changes")]));
+    const both = validateBuildLog(log(original, fieldCorrection(original), fieldCorrection(original, { id: "BL-20260829-1202-other-field", field: "Changes" })));
+    expect(both.errors).toEqual([]);
+    expect(both.entries[0].fields.Changes).toBeUndefined();
+    const missingStatus = omitField(entry({ id: TARGET_ID, date: "2026-08-29" }), "Status");
+    const result = validateBuildLog(log(missingStatus, fieldCorrection(missingStatus, { field: "Status" })));
+    expect(result.entries[0].fields.Status).toBeUndefined();
+    expect(result.errors).toEqual(expect.arrayContaining([expect.stringContaining("invalid Status")]));
+    const empty = entry({ id: TARGET_ID, date: "2026-08-29" }).replace("This is only a fixture.", "");
+    expect(validateBuildLog(log(empty, fieldCorrection(empty))).errors).toEqual(expect.arrayContaining([expect.stringContaining("target field is not missing"), expect.stringContaining(`field ${OMITTED_FIELD} is empty`)]));
   });
 });

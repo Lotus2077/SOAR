@@ -28119,3 +28119,27 @@ Paid exposure: USD 0 and zero model/tokenizer/service-generation calls for propo
 Next gate: Obtain one concrete decision on the named policy and conditional bounded allocation. If approved, record it durably, implement only the reviewed change, complete required review/CI, bind new identities and current readiness, and execute once only if every gate passes. No second generic H5 permission is needed if its existing conditions are later satisfied.
 
 References: docs/plans/PHASE4_WRITER_COMPLETION_V1.md; BL-20261101-1106-h4-runner-fixes-stopped.
+
+### BL-20261101-1119-writer-proposal-field-correction -- 2026-11-01 -- Correction: supply the omitted limitations field without rewriting the committed proposal
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct the missing Limitations and non-claims field in BL-20261101-1115-writer-completion-proposed while preserving its committed bytes and negative CI result. Keep the writer proposal unimplemented and unapproved.
+
+Decisions: Preserve the original entry and supply its missing field through this later complete Correction record. Permit a validator to resolve only an explicitly identified missing field bound to the exact earlier entry digest; retain original missing-field evidence and identify the correcting entry separately. Do not waive any other structural, status, chronology, reference or append-only check.
+
+Missing-field correction: `BL-20261101-1115-writer-completion-proposed` SHA-256 `da99208f493c71db44807b950a7eaca34840494f945a34c5df19edb3ebd58f00`; field `Limitations and non-claims`.
+
+Changes: Add narrow digest-bound missing-field correction support to the build-log validator and focused tests. The later entry must be complete, valid, titled Correction and marked Implemented; it must cite an earlier exact target, supply a genuinely missing nonempty field and be unique. The original parsed fields stay unchanged. Reject unknown, forward, self, stale, duplicate, malformed and nonmissing targets, correction chains and masked pseudo-markers. Relative order of present fields remains enforced even when another field is missing. The original append-only byte-prefix check is unchanged.
+
+Evidence: Documentation commit 813c9034607f8b85c708cbc21996be862dd3cc39 passed manual append-only, link, whitespace and independent content/privacy review, but CI run 41301147905 failed structural build-log validation on the omitted field; later test/build jobs did not run. Root's manual checks missed the required-field schema. The exact original entry digest is bound above. All fifty focused validator tests and strict Node TypeScript pass. Independent review repeats all fifty tests and actual-ledger validation, verifies that the original field remains missing with an explicit correcting-entry link, and confirms that removing the correction/marker or changing its digest restores failure. Actual ledger validation passes against both the prior publication and PR base while retaining the exact committed prefix. This verifies the narrow correction mechanism; required CI for the new commit remains pending.
+
+Failures or blockers: The original CI failure remains recorded. The actual ledger must remain invalid without this complete correction, with a mismatched digest or with any other unresolved malformed record. The draft-first writer policy and new live allocation still await the named owner decision.
+
+Limitations and non-claims: The draft-first policy is an uncertain experiment, not an established completion fix. The prior prompt already requested early writes and eighteen missing-artifact reminders were ineffective. CPU construction tests and synthetic model compliance cannot establish Flash-Next compliance, task quality or timely completion. No new policy implementation, H4 replay authority, H4 acceptance or H5 eligibility follows from the proposal or this structural correction. The validator addendum preserves original history and resolves only the explicitly supplied absent field; it does not reinterpret the failed run or approve the proposed policy.
+
+Paid exposure: USD 0 and no model, tokenizer, service or credential calls. Existing exposure, caps, consumed claims and unresolved receipts are unchanged.
+
+Next gate: Publish the independently reviewed correction and verify required CI. The existing concrete writer-policy question remains pending; its exact wording and scope are unchanged.
+
+References: BL-20261101-1115-writer-completion-proposed; BL-20261101-1106-h4-runner-fixes-stopped; docs/plans/PHASE4_WRITER_COMPLETION_V1.md.

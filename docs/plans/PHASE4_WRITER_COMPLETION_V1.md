@@ -1,6 +1,14 @@
 # Draft-first writer completion policy
 
-Status: **Proposed. No implementation or new live allocation.**
+Status: **Approved for the exact policy implementation and conditional three-loop H4 allocation. Exact paragraph implemented and focused checks passed; required CI and execution gates remain. No H4 acceptance follows.**
+
+BL-20261101-1838-writer-completion-approved records the owner decision.
+BL-20261101-1848-writer-completion-implemented records the exact implementation
+and CPU evidence. The runtime is now `13dcb2ceb0e0a6a76677dbdd033df507d9375348dc37a75a0c8827d45b452e6c`;
+the research protocol remains unchanged. Both writer layouts change their
+prompt/protocol identity. Required CI and actual H4 evidence remain before acceptance. The
+approved plan bytes remain preserved at their original proposal commit; current
+status updates do not change that decision or extend its limits.
 
 The corrected runtime stopped the latest H4 sample at its shared 90-minute
 deadline and did not begin sample b. The writer saw truthful decreasing budgets:
@@ -44,9 +52,9 @@ loop's packet. Critic, judge, selector and research-stage prompts remain unchang
 
 ## CPU implementation and comparability gate
 
-Seek one concrete owner decision covering this named policy implementation and
-the conditional three-loop H4 allocation below. Record that exact decision
-durably before gated work begins. Review of the implemented bytes, CPU checks,
+The owner approved this named policy implementation and the conditional
+three-loop H4 allocation below. The exact decision is durably recorded before
+gated work begins. Review of the implemented bytes, CPU checks,
 clean CI, pins and readiness are execution gates under that decision, not another
 generic approval question. Focused checks must establish:
 
@@ -77,10 +85,10 @@ must explicitly review the narrow prompt diff and unchanged service/provider,
 token-admission, model, sampling/thinking, context and request limits. It must not
 claim new live service qualification from CPU tests.
 
-## One proposed implementation and conditional execution decision
+## Approved implementation and conditional execution decision
 
-The consumed allocation grants no replacement. The single proposed owner
-decision would authorize this named implementation plus **exactly three fresh
+The consumed allocation grants no replacement. The recorded owner
+decision authorizes this named implementation plus **exactly three fresh
 H4 loops**, conditional on independent implementation review, passing CPU checks
 and clean CI, new pins and current prerequisites. The order is local research,
 then deck only if local passes, then the first split loop only if both pass.
@@ -106,8 +114,8 @@ row and USD 0.60 split row caps, zero replacements and independent blind scoring
 remain unchanged. The approved new-start cutoff remains **2026-11-02 10:00 UTC
 (18:00 Asia/Shanghai)** for H4 and conditional H5. Admitted rows retain their
 existing limits and closure rules; no extension is inferred if preparation or
-execution exhausts the window. This document creates no authority, claim or
-request and does not authorize reading fresh H5 material.
+execution exhausts the window. Approval still requires an exact authority, claim and pinned readiness before
+execution; it does not authorize implementers to read fresh H5 material.
 
 References: [runner controls and latest outcome](PHASE4_LOOP_DISPATCH_STOP_V1.md),
 [Flash-Next migration](PHASE4_FLASH_NEXT_MIGRATION_V1.md),

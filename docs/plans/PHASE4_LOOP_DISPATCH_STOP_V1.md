@@ -13,8 +13,9 @@ allocation is consumed; no unused row or remaining fee cap grants a replacement.
 All five attempts and three unresolved receipts remain recorded. See
 BL-20261101-1106-h4-runner-fixes-stopped.
 The [draft-first writer policy](PHASE4_WRITER_COMPLETION_V1.md) is a separate
-Proposed experiment, with exact wording and one conditional owner decision. It
-is not implemented, approved, or evidence that completion will improve.
+approved experiment, with exact wording and one conditional owner decision
+(BL-20261101-1838-writer-completion-approved). Implementation review and execution
+gates remain; approval is not evidence that model completion will improve.
 
 The interrupted completion-v2 attempt exposed two host defects. Sample a had
 an UNKNOWN writer receipt, but the loop admitted sample b because a research

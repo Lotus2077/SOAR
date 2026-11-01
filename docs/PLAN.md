@@ -704,8 +704,10 @@ The grant is consumed with no replacements; unused rows do not authorize replay
 (BL-20261101-1106-h4-runner-fixes-stopped).
 The [draft-first writer proposal](plans/PHASE4_WRITER_COMPLETION_V1.md) specifies
 one named policy change and a conditional fresh three-loop allocation. It is
-Proposed only; no new implementation or replay is authorized
-(BL-20261101-1115-writer-completion-proposed).
+Approved for the exact named policy and one conditional three-loop allocation
+(BL-20261101-1838-writer-completion-approved). The new implementation still needs
+verification, clean CI, new pins and current readiness before execution; original
+failures, shared caps and the cutoff remain unchanged.
 The held H5 runner now permits admitted-row closing checks after the new-start
 cutoff and owns its process group. All 62 CPU tests and independent reviews pass;
 this changes no runtime, row/fee limit, H4 prerequisite or launch permission

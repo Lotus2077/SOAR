@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,12 +23,19 @@ const finish: Action = { name: "finish", arguments: '{"summary":"Artifacts are r
 const BUDGET = "Current host budget", GUIDANCE = "Current host execution progress";
 
 /**
- * Pinned on 2026-10-22 from the pre-H1 runner (commit cac812d) for exactly this fixture. Layout 1 must keep producing
- * these bytes, or every task paused before H1 would end in runtime_contract_drift on resume.
+ * Historical pre-H1 pins (commit cac812d), retained as evidence. The owner-approved draft-first policy changes
+ * these prompt identities; such historical tasks must fail closed rather than resume under the new policy.
  */
-const PINNED_V1 = {
+const HISTORICAL_V1 = {
   plain: { promptProtocolSha256: "68fedda1983d0d5ce0e5349b6b2a70696e007b1159208830a182b7bc0499fa43", identity: "57b05e3be9fce50a2c0c196c4c21428c34d352b2c6136ee6b0917547b60e7a40" },
   public: { promptProtocolSha256: "6b54d8d0298f6bcd38d90bb52ee3457fdbe82b329f9bb177bb754fdbe5de25b6", identity: "bda3bf1f6c35c2001ffff76e6f7e5a514c557447a51c72fbe65afcdcf15850e4" },
+};
+
+
+/** New pins for the explicitly approved draft-first policy; historical pins remain above. */
+const PINNED_V1 = {
+  plain: { promptProtocolSha256: "11f6322b402cd549f47d890168443c4dc7fedad3bac1e787d284864026157e3f", identity: "111cc1ae7465aaa64d69714d9d83dd262829259ee80979e6bbcbe5da8ced9074" },
+  public: { promptProtocolSha256: "a63e0bb5e14d86c5cbce3634f637523e9613695cd56c443abe9c38cd7cfd1fc7", identity: "78e41f930c61b167d4f7dc5e92a94aa5a010b2c0acd7af6acd008633b461e1d8" },
 };
 
 /** The same synthetic job the pin was taken from: fixed contract, input, image, checks and model configuration. */
@@ -80,7 +87,7 @@ function fixture(actions: Action[], variant: "plain" | "public" = "plain", limit
     return { content: "", toolCalls: [{ id: `tool_${index}`, type: "function" as const, function: { name: action.name, arguments: action.arguments } }],
       finishReason: "tool_calls", costUsd: 0, durationMs: 100 };
   });
-  /** An existing task: a `started` event written by the pre-H1 runner (no layout field, projector policy 1) and its root checkpoint. */
+  /** A layout-1 task: a `started` event using the current approved policy (no layout field, projector policy 1) and its root checkpoint. */
   const seedVersion1 = (overrides: Record<string, unknown> = {}) => {
     const v1 = promptProtocol(options, 1), snapshot = checkpoints.save(files);
     store.append(jobId, { type: "started", contextId, identity: v1.identity, promptProtocolSha256: v1.promptProtocolSha256, executionObservationPolicyVersion: 1,
@@ -94,10 +101,12 @@ function fixture(actions: Action[], variant: "plain" | "public" = "plain", limit
 const turnBudget = (message: GeneralMessage) => JSON.parse(message.content!.slice(message.content!.lastIndexOf("\n") + 1)) as Record<string, number>;
 
 describe("prompt protocol per layout version", () => {
-  it.each(["plain", "public"] as const)("pins the layout 1 protocol inputs and identity for the %s fixture to the pre-H1 bytes", variant => {
+  it.each(["plain", "public"] as const)("pins the approved layout 1 policy for the %s fixture separately from its historical identity", variant => {
     const f = fixture([], variant), v1 = promptProtocol(f.options, 1);
     expect(v1.promptProtocolSha256).toBe(PINNED_V1[variant].promptProtocolSha256);
     expect(v1.identity).toBe(PINNED_V1[variant].identity);
+    expect(v1.promptProtocolSha256).not.toBe(HISTORICAL_V1[variant].promptProtocolSha256);
+    expect(v1.identity).not.toBe(HISTORICAL_V1[variant].identity);
     expect(v1.layout).toMatchObject({ version: 1, observationPolicyVersion: 1 });
     expect(Object.keys(v1.protocol).sort()).toEqual(["argumentFeedback", "budgetMessage", "capabilitiesIdentity", "claimsVerified", "commandTimeoutMs", "definitions",
       "executionObservationPolicy", "executionProgressPolicy", "incompleteExecuteLimit", "incompleteExecuteStop", "nudges", "outputLimitFeedback", "prompt", "publicSourceObservationBytes", "version"]);
@@ -115,6 +124,34 @@ describe("prompt protocol per layout version", () => {
       promptLayout: { version: 2 } });
     expect(v2.promptProtocolSha256).not.toBe(v1.promptProtocolSha256); expect(v2.identity).not.toBe(v1.identity);
     expect(CURRENT_PROMPT_LAYOUT_VERSION).toBe(2);
+  });
+});
+
+describe("approved draft-first writer policy", () => {
+  it.each([1, 2] as const)("sends the exact approved paragraph to the model under layout %i", async layout => {
+    const approved = readFileSync(new URL("../../docs/plans/PHASE4_WRITER_COMPLETION_V1.md", import.meta.url), "utf8")
+      .split("\n").find(line => line.startsWith("> Inspect the task contract"))!.slice(2);
+    const f = fixture([write, finish]);
+    if (layout === 1) f.seedVersion1();
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 2 });
+    for (const messages of f.requests) {
+      const system = messages[0]!.content!;
+      expect(system.split(approved)).toHaveLength(2);
+      expect(system).not.toContain("Batch related input inspection");
+      expect(system).toContain(canonical(f.options.contract.requiredArtifacts));
+      expect(system).toContain(canonical(f.options.contract.requiredChecks));
+      expect(system).toContain("A failing check does not count as completion");
+      expect(system.includes(BUDGET)).toBe(layout === 1);
+      expect(messages.at(-1)!.content!.includes(BUDGET)).toBe(layout === 2);
+    }
+  });
+
+  it("refuses to resume the preserved historical policy under the new writer identity", async () => {
+    const f = fixture([write, finish]);
+    f.seedVersion1({ identity: HISTORICAL_V1.plain.identity, promptProtocolSha256: HISTORICAL_V1.plain.promptProtocolSha256 });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "runtime_contract_drift" });
+    expect(f.requests).toEqual([]); expect(f.commands).toEqual([]);
+    expect(f.options.store.dispatches(f.options.jobId)).toEqual([]);
   });
 });
 
@@ -160,7 +197,7 @@ describe("layout 2: static prefix and trailing turn message", () => {
 });
 
 describe("resume across layout versions", () => {
-  it("resumes a task started before H1 under layout 1: budget inside the system message, no trailing message, rolling projector", async () => {
+  it("resumes the approved policy under layout 1: budget inside the system message, no trailing message, rolling projector", async () => {
     const f = fixture([write, finish]), v1 = f.seedVersion1();
     expect(v1.promptProtocolSha256).toBe(PINNED_V1.plain.promptProtocolSha256);
     expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 2 });

@@ -13,9 +13,11 @@ attempts and 261 dispatches: 258 settled and three unresolved, with USD 0 known
 fees and reservations. This verifies the live stage-stop correction, not H4
 acceptance. The grant is consumed with zero replacements
 (BL-20261101-1106-h4-runner-fixes-stopped).
-A [draft-first writer policy](PHASE4_WRITER_COMPLETION_V1.md) is Proposed only:
-one task-independent sequencing change, unchanged checks and limits, and a
-new bounded allocation contingent on one named owner decision and all gates.
+The [draft-first writer policy](PHASE4_WRITER_COMPLETION_V1.md) is Approved:
+one task-independent sequencing change, unchanged checks and limits, and one
+conditional fresh three-loop allocation (BL-20261101-1838-writer-completion-approved).
+Implementation review, clean CI, new identities and current readiness remain
+execution gates.
 It does not claim another host bug or guaranteed model compliance.
 
 Earlier outcome: the [bounded completion allocation](PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md)

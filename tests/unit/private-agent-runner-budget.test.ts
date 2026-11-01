@@ -111,6 +111,34 @@ function budget(messages: GeneralMessage[]) {
   return JSON.parse(turn.content!.slice(turn.content!.lastIndexOf("\n") + 1));
 }
 
+describe("draft-first artifact validation and repair", () => {
+  it("preserves an incremental draft, rejects its failed check, repairs it and finishes within the original allowance", async () => {
+    const limits = { maxModelCalls: 4, maxToolCalls: 4, checkExitCode: 1 };
+    const f = fixture([
+      { name: "write_file", arguments: JSON.stringify({ path: "output.txt", content: "synthetic " }) },
+      finish,
+      { name: "append_file", arguments: JSON.stringify({ path: "output.txt", content: "input" }) },
+      finish,
+    ], limits);
+    f.afterExecute(command => {
+      if (command.includes("python3 -I -c")) {
+        const checked = f.create.mock.calls.at(-1)![0].files.find(file => file.path === "output.txt");
+        limits.checkExitCode = checked?.bytes.equals(f.options.files[0]!.bytes) ? 0 : 1;
+      }
+    });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "completed", modelCalls: 4 });
+    expect(f.requests).toHaveLength(4);
+    const firstFinish = JSON.parse(f.requests[2]!.filter(message => message.role === "tool").at(-1)!.content!);
+    expect(firstFinish).toMatchObject({ complete: false, checks: [{ id: "fixture_check", passed: false }] });
+    expect(f.options.checkpoints.load(result.snapshot).find(file => file.path === "output.txt")!.bytes.toString()).toBe("synthetic input");
+    expect(f.options.store.dispatches(f.options.jobId)).toHaveLength(4);
+    expect(f.options.store.dispatches(f.options.jobId).every(row => row.status === "settled")).toBe(true);
+    expect(budget(f.requests[3]!)).toMatchObject({ remainingModelCalls: 1, remainingToolCalls: 1 });
+    expect(f.commands.filter(command => command.includes("python3 -I -c"))).toHaveLength(2);
+  });
+});
+
 describe("general runner host budget and argument recovery", () => {
   const failed: Action = { name: "execute", arguments: '{"command":"fail same"}' };
   it("warns once from two failures across pause/reopen and permits a changed action", async () => {

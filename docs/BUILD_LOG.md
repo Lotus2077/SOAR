@@ -28143,3 +28143,47 @@ Paid exposure: USD 0 and no model, tokenizer, service or credential calls. Exist
 Next gate: Publish the independently reviewed correction and verify required CI. The existing concrete writer-policy question remains pending; its exact wording and scope are unchanged.
 
 References: BL-20261101-1115-writer-completion-proposed; BL-20261101-1106-h4-runner-fixes-stopped; docs/plans/PHASE4_WRITER_COMPLETION_V1.md.
+
+### BL-20261101-1838-writer-completion-approved -- 2026-11-01 -- Approve the named draft-first policy and conditional fresh H4 allocation
+
+Status: `Approved`
+
+Scope or hypothesis: The owner said "approve plan; remember keep focus on your goal and don't be distracted by unimportant noises" in response to the exact draft-first writer proposal. Record this decision before implementing its gated policy or preparing execution authority.
+
+Decisions: Approve the exact one-paragraph task-independent writer-policy change and exactly three fresh H4 loops, local research then deck then split, conditional on independent review, CPU checks, clean successful CI, new identities, explicit reviewed serving comparability and current readiness. Stop on the first failure with zero replacements. Retain all five earlier attempts, 261 dispatches and three unresolved receipts. Keep the single all-history USD 0.60 H4 split ceiling. Existing conditional H5 scope, USD 21.60 total, USD 3 cloud-row and USD 0.60 split-row limits remain unchanged. The new-start cutoff remains November 2, 2026, at 18:00 Asia/Shanghai; no extension is granted. No second generic launch approval is needed after the exact conditions pass.
+
+Changes: Create an exclusive, fsynced private owner decision bound to the exact quote, plan SHA-256 435cfbeecdeab2df1c1dcc3cfaa1cb1c94efcabfdb9b48f50af0dc26cb508416, proposal commit 813c9034607f8b85c708cbc21996be862dd3cc39 and approval checkout 827e25f2bca3b6ba41e28c8665b6cecac66e7a02. Owner-decision SHA-256 a0fddbeb56b8510a06249d826d70228a297e1e5c01e56b6377018e5984537633. Subsequent reviewed implementation and held/released assets must bind this immutable decision without rewriting it.
+
+Evidence: The plan specifies exact replacement wording, unchanged artifact/claims/packet checks, common writer policy across comparable arms and repair, fresh protocol/runtime/role binding and CPU/live limits. Both required CI jobs passed on the approval checkout in run 41301660140. Original failed CI and its append-only field correction remain recorded. No new runtime, execution authority, claim or dispatch exists at approval recording.
+
+Failures or blockers: No remaining owner-approval blocker for this exact scope. Required implementation, evidence binding and execution gates remain.
+
+Limitations and non-claims: Approval does not establish model compliance, artifact quality, H4 acceptance or H5 eligibility. The earlier policy already asked for early writes and eighteen reminders were ineffective. The proposed stronger sequence remains an uncertain experiment. No extra time, requests, output, repairs, fees, service change, standalone diagnostic, qualification replay or repeated Claude steps 0/1 is authorized. Fresh H5 inputs, candidates and gold remain unread by implementers.
+
+Paid exposure: USD 0 and zero model requests for approval recording. Existing exposure and caps are unchanged.
+
+Next gate: Implement the exact paragraph, verify the shared execution path and unchanged checks, review new identities and serving bridge, pass required CI, then bind fresh readiness and execute the approved H4 sequence once. Continue into existing conditional H5 only after actual H4 and split-semantic acceptance.
+
+References: docs/plans/PHASE4_WRITER_COMPLETION_V1.md; BL-20261101-1115-writer-completion-proposed; BL-20261101-1106-h4-runner-fixes-stopped.
+
+### BL-20261101-1848-writer-completion-implemented -- 2026-11-01 -- Implement the approved draft-first writer paragraph under unchanged execution limits
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement the exact task-independent paragraph approved in BL-20261101-1838-writer-completion-approved to prioritize a supported draft before repeated inspection. Verify request construction and existing completion controls; model compliance remains a live hypothesis.
+
+Decisions: Apply the same paragraph through the shared writer path for comparable local, cloud and split arms and critic-directed repair. Preserve the initial concise-planning instruction, tools/schemas, research-transfer instructions, artifact/claims checks, observations, budgets, selection and repair limits. Preserve historical pins and refuse a historical started identity under the changed writer policy rather than silently resuming it with new instructions.
+
+Changes: Replace only the approved paragraph in runner.systemPrompt. Update focused prompt-layout, identity-golden and budget tests to retain historical identities and verify current request bytes, unchanged budget placement, historical identity drift rejection and the existing incremental-write/failed-check/repair/finish path. No provider, sampling, model, critic, judge, research-stage or service configuration changes.
+
+Evidence: Source verification c25145fa3f1325ebfeab0a4dc86e91099734ed164e7ae67cb9f72043ebf44e02 passes all 116 focused cases across six files and strict Node TypeScript. Independent source review 8e959cce5f2bda6b49da417f9058c835dc1e327b3dc39447918381bbbc6a530e repeats ninety cases across the three changed suites and finds no source blocker. The actual runtime is 13dcb2ceb0e0a6a76677dbdd033df507d9375348dc37a75a0c8827d45b452e6c, replacing fec462c399e00e2fe1fdead1be552d32933cb1f9ef5a307492bbebbf430f4082. Actual research protocol remains 658aa22c5127d59afdfdaa550043ff397cf2e7152345b69941529784e243ab6d. Both writer-layout protocol fingerprints change on the pinned synthetic fixture; those fixture hashes are not universal role hashes. The static paragraph and resulting writer request bytes change as approved.
+
+Failures or blockers: An initial focused invocation encountered seven sandbox loopback-fixture permission failures and three test-authoring errors. The test errors were corrected; the same focused suite then passed with fixture-listener permission. These initial failures are retained and do not represent a live backend test. Final required CI and reviewed execution-package binding remain before dispatch.
+
+Limitations and non-claims: Focused and synthetic checks prove instruction construction, preserved checks and host behavior, not Flash-Next compliance, artifact quality, H4 acceptance or H5 eligibility. Original five attempts, 261 dispatches, three unresolved receipts and consumed claims remain unchanged. No fresh H5 inputs, candidates or gold are read by implementers. No new live qualification or wire equivalence follows from unchanged serving settings.
+
+Paid exposure: USD 0 and zero model/service/tokenizer/credential calls in implementation and focused verification. Existing fee caps and historical exposure are unchanged.
+
+Next gate: Pass both required CI jobs on the exact clean source; finish the narrow serving-evidence bridge, fresh role/runtime pins and independent package review; then bind current readiness and execute the approved local-research, deck and split sequence once with stop-on-first-failure and zero replacements. H5 remains conditional on accepted H4 mechanics and usable split semantics before the unchanged November 2 18:00 Asia/Shanghai new-start cutoff.
+
+References: docs/plans/PHASE4_WRITER_COMPLETION_V1.md; BL-20261101-1838-writer-completion-approved; BL-20261101-1106-h4-runner-fixes-stopped.

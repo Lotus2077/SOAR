@@ -1,6 +1,6 @@
 # Flash-Next local planner diagnostic
 
-Status: **Proposed; additional generation is not approved.**
+Status: **Approved for the bounded diagnostic; execution prerequisites remain.**
 Prepared 2026-11-01 (Asia/Shanghai).
 
 The second H4 loop stopped with `research_plan_invalid`. Its eight index calls
@@ -29,8 +29,9 @@ replaces the failed H4 result.
 | Retry | Only the frozen planner's one validation retry; no transport, diagnostic or whole-loop replay |
 
 The original 24-request qualification allocation is exhausted. These would be
-**up to ten additional diagnostic requests**, requiring a specific owner
-approval. Unused diagnostic requests cannot be reassigned to another purpose.
+**up to ten additional diagnostic requests**. The owner explicitly approved
+this proposal on 2026-11-01; see BL-20261101-0009-planner-diagnostic-approved.
+Unused diagnostic requests cannot be reassigned to another purpose.
 The H4 split USD 0.60 allowance and H5 USD 21.60 allowance remain unchanged and
 unused by this diagnostic. No H4 rerun or H5 launch is included.
 
@@ -76,7 +77,9 @@ synthetic tests and strict TypeScript checks pass, including storage failure
 stopping before a second planner request. Root verified all nine asset hashes
 against both the prepared proposal and independent review. Preparation invoked
 no live helper, read no task input content and dispatched no generation.
-The activation hold remains true; no diagnostic authority or run exists.
+That held snapshot is archived. The owner has since approved the bounded run;
+only its activation hold has been released. A concrete authority, current
+readiness checks and applicable CI must precede execution.
 
 Held proposal SHA-256:
 `9c3109c58c57bb79f3be22e001c3c76f89900e58316a8fc44786c9e4fd9c062b`.

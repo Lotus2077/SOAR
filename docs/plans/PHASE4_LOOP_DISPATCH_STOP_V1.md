@@ -1,6 +1,6 @@
 # Stop unresolved loops and report the shared time budget accurately
 
-Status: **Implemented; focused CPU verification passed, integrated checks required before live admission; no new live allocation.**
+Status: **Approved for three fresh H4 loops; corrected runtime and required CI verified; H4 acceptance and conditional H5 remain pending actual results.**
 
 The interrupted completion-v2 attempt exposed two host defects. Sample a had
 an UNKNOWN writer receipt, but the loop admitted sample b because a research
@@ -31,7 +31,11 @@ transitions for a, b and repair, including reused stages; an all-settled incompl
 candidate remains eligible for normal evaluation. Time-budget tests must cover
 research/public time already spent, an earlier per-run limit, expiry and restart.
 The exact reviewed patch is adopted. All 127 focused cases and strict Node
-typecheck pass, independently repeated; required integrated checks and CI gate live admission.
+typecheck pass, independently repeated. Both required CI jobs pass on commit
+`76f8dbceb1cf2e0f04ba3a66748b3b478f802b6b` in run 41274243154: 2260 tests,
+81 explicit skips, both typechecks, native credential proof, builds and macOS E2E.
+The earlier failed local renderer-worker startup and interrupted retry/build remain
+recorded; they are not claimed as passing full local checks.
 
 The time correction changes model-visible budget values. Both corrections change
 the runtime identity. An unchanged research-protocol hash would not make the old
@@ -46,13 +50,13 @@ captured workspace inventories were unchanged and contained no output artifacts.
 There is no demonstrated failing shell command to repair, and a longer deadline
 alone has no success evidence.
 
-The proposed next live allocation is exactly three fresh H4 loops under common
+The owner-approved next live allocation is exactly three fresh H4 loops under common
 new pins: local research first, then deck, then split, stopping at the first failed
 gate with no replacement. All four earlier attempts remain historical, including
 the two unresolved receipts; successful completion would mean seven attempts and
 three fresh accepted loops. The shared all-history H4 split ceiling remains
 USD 0.60. No standalone diagnostic, repeat of paid Claude steps 0/1, or new
-24-request service qualification is proposed.
+24-request service qualification is authorized.
 
 Reuse the existing runner, mechanical/split gates and supervisor. An explicit
 reviewed comparability record must bind the old service qualification, exact old
@@ -60,24 +64,30 @@ and new source/role identities, two-fix diff and CPU proofs. It may carry forwar
 unchanged provider/serving evidence; it must disclose the new dynamic budget
 behavior. Historical source bytes must be checked against their immutable Git
 snapshot, not the now-updated checkout. All three accepted loop references must
-use the new common runtime. This bridge is a proposed acceptance decision, not a
-claim that the new runtime has already passed live qualification.
+use the new common runtime. The owner approved this bridge, and root accepted its CPU carryover record
+`14fbdd321425f3ad1ad4b43657a1bfc6ab8968f2759d52a3849f2c027bfb3f2b`.
+It does not claim that the new runtime has passed live qualification.
 
-The proposed decision also extends the new-start cutoff from **2026-11-01 18:00
-Asia/Shanghai to 2026-11-02 18:00 Asia/Shanghai**. The current authorization still
-ends at the earlier time. The extension requires an explicit owner amendment
-bound into the held package; elapsed time or CPU preparation cannot supply it.
-Only about five hours remained when preparation began, so completion of H4 plus
-all eighteen H5 row starts cannot be promised within the current window. This
-proposal does not introduce a worst-case-duration admission rule.
+The owner explicitly extended the H4 and conditional H5 new-start cutoff from
+**2026-11-01 18:00 Asia/Shanghai to 2026-11-02 18:00 Asia/Shanghai**.
+BL-20261101-0922-runner-fixes-approved records the exact "approve" decision.
+The immutable owner record is
+`a6c2422c787fffd91cf994b95f230825c765b39fbafaadec5e2338d240d9ab8f`,
+binding reviewed held proposal
+`279d3c5f9457d0d1dec67a774aef7e47fb303de43218020573c487a51f274940`
+and the exact reviewed plan at commit `76f8dbc`. Each row must start before the
+cutoff; an admitted row retains its unchanged limits and may close afterward.
+The extension adds no requests, replacements, fees or completion guarantee.
 
 H5 retains its existing conditional eighteen-row scope, USD 21.60 total ceiling,
 USD 3 cloud-row and USD 0.60 split-row caps, zero failed-row replacements, common
-local judge and independent blind scoring. The proposed amendment changes its
+local judge and independent blind scoring. The approved amendment changes its
 eligible start window only. H5 stays ineligible until actual H4 mechanics and
 usable split semantics pass under compatible new pins. Fresh H5 tasks, candidates
 and gold remain unread. No actual authority, claim or dispatch is created by the
-held preparation; the concrete live allocation/window decision remains pending.
+held preparation. The allocation/window decision is now approved; archive/release
+verification, clean successful CI and current readiness still gate actual authority
+and dispatch. No further generic H5 permission is needed after all H4 conditions pass.
 
 References: [interrupted completion](PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md),
 [migration controls](PHASE4_FLASH_NEXT_MIGRATION_V1.md).

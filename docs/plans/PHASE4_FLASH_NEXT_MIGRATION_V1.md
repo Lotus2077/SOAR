@@ -1,6 +1,6 @@
 # Phase 4 Flash-Next migration plan
 
-Status: **Historical amended qualification Verified; two CPU fixes implemented, integrated verification required before live admission; H4 unaccepted after two local rejections and one interrupted attempt; split/H5 unstarted**. Prepared 2026-11-01
+Status: **Historical amended qualification Verified; two CPU fixes and required CI verified; three fresh H4 loops and cutoff amendment Approved; H4 unaccepted after two local rejections and one interrupted attempt; split/H5 unstarted**. Prepared 2026-11-01
 (Asia/Shanghai). Authority: BL-20261031-1759-flash-next-sequence-owner-approved.
 
 Current outcome: the [bounded completion allocation](PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md)
@@ -13,12 +13,18 @@ and split/H5 unstarted
 [focused correction plan](PHASE4_LOOP_DISPATCH_STOP_V1.md): both the stop on
 unresolved dispatches and the model-visible shared-time clamp are CPU implemented.
 The exact reviewed patch is applied; 127 focused tests and strict checking passed
-independently, while integrated verification remains pending. New runtime
+independently. Both CI jobs pass on `76f8dbc` (run 41274243154), including
+2260 tests and 81 explicit skips. New runtime
 `fec462c399e00e2fe1fdead1be552d32933cb1f9ef5a307492bbebbf430f4082`
-is not qualified by the old pins. The static research protocol is unchanged,
+is covered by an explicit approved CPU qualification bridge, preserving original
+live qualification under its old runtime. The static research protocol is unchanged,
 while model-visible budget values change; the actual shared timer always
-applied. Optional telemetry remains deferred, and no live proof, added time,
-request, replay or H5 authority is established.
+applied. Optional telemetry remains deferred. BL-20261101-0922-runner-fixes-approved
+records owner approval for exactly three fresh loops (local research, deck, split),
+stop on failure, zero replacements and the shared all-history USD 0.60 split cap.
+The H4/H5 new-start cutoff is now November 2, 2026, 18:00 Asia/Shanghai. Actual
+H4 mechanics and split semantics still gate the existing conditional eighteen-row
+H5 scope and unchanged fee caps. No live acceptance follows from approval.
 
 Updated after owner-authorized inventory, the failed first startup and the
 approved instrumented retry on 2026-11-01. The retry candidate now serves healthy

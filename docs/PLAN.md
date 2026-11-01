@@ -679,12 +679,19 @@ CPU-implemented fixes: stop on unresolved dispatches and clamp model-visible
 remaining time to the shared session deadline. The actual shared timer always
 applied; the advertised budget overstated time. The exact reviewed patch is
 applied, and 127 focused tests plus strict checking passed independently.
-Integrated verification remains pending, with no live proof; the changed runtime
-is not qualified by the old pins, despite the unchanged static research protocol.
+Both CI jobs pass on `76f8dbc` (run 41274243154), with 2260 passing tests and
+81 explicit skips. The changed runtime has an explicitly approved CPU
+qualification bridge; original live qualification remains attributed to its old runtime.
+The unchanged static research protocol alone does not establish comparability.
 A bounded writer review found all 38 captured workspace inventories unchanged and no output artifacts; its final turn
 advertised about 33 minutes while about 12 remained. No shell or backend defect
 is proven, and corrected guidance does not establish future completion. Optional
-telemetry remains deferred; no new request, replay or H5 authority is added.
+telemetry remains deferred. The owner approved a new allocation of exactly three
+fresh H4 loops: local research, deck, then split, stopping on failure with zero
+replacements and the shared all-history USD 0.60 split cap. The H4/H5 new-start
+cutoff is explicitly extended to November 2, 2026, 18:00 Asia/Shanghai
+(BL-20261101-0922-runner-fixes-approved). Actual H4 mechanics and split semantics
+still gate the existing conditional H5 scope and unchanged fee limits.
 The held H5 runner now permits admitted-row closing checks after the new-start
 cutoff and owns its process group. All 62 CPU tests and independent reviews pass;
 this changes no runtime, row/fee limit, H4 prerequisite or launch permission

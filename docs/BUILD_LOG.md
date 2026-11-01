@@ -28027,3 +28027,47 @@ Paid exposure: USD 0 preparation, zero model/service/helper requests and no serv
 Next gate: Complete final source CI and independent held review, then request one explicit decision on the exact three-loop new-runtime allocation, qualification bridge and proposed window amendment. Only an affirmative owner record may precede hold release, actual binding and fresh readiness. If actual H4 passes, the existing conditional H5 permission applies under the newly approved compatible pins/window; do not ask another generic H5 permission question.
 
 References: docs/plans/PHASE4_LOOP_DISPATCH_STOP_V1.md; BL-20261101-0436-h4-runner-controls-fixed; BL-20261101-0428-h4-completion-v2-interrupted.
+
+### BL-20261101-0922-runner-fixes-approved -- 2026-11-01 -- Approve the reviewed fresh H4 allocation and explicit cutoff amendment
+
+Status: `Approved`
+
+Scope or hypothesis: The owner replied "approve" to the concrete continuation decision on the reviewed runner-fixes plan at commit 76f8dbceb1cf2e0f04ba3a66748b3b478f802b6b. Record that decision before releasing or executing its gated package.
+
+Decisions: Approve exactly three fresh H4 loops in local-research, deck, split order under runtime fec462c399e00e2fe1fdead1be552d32933cb1f9ef5a307492bbebbf430f4082. Stop at the first failed gate; zero replacements. Accept the explicitly reviewed CPU qualification bridge for unchanged serving/provider contracts, without claiming new live qualification or unchanged request bytes. Preserve all four prior attempts and both unresolved receipts outside the new accepted-row map. Keep the single shared all-history USD 0.60 H4 split ceiling. Explicitly amend the H4 and conditional H5 new-start cutoff from November 1 to November 2, 2026, at 18:00 Asia/Shanghai (10:00 UTC). The existing eighteen-row H5 allocation remains conditional on actual H4 mechanics and split semantics, with USD 21.60 total, USD 3 cloud-row and USD 0.60 split-row caps and zero replacements. No additional generic H5 approval is required if those conditions pass.
+
+Changes: Create an exclusive, fsynced private owner-decision record binding the exact quote, reviewed held proposal 279d3c5f9457d0d1dec67a774aef7e47fb303de43218020573c487a51f274940, public plan hash/commit, source/protocol/history identities, scope, caps and window amendment. Owner-decision SHA-256 a6c2422c787fffd91cf994b95f230825c765b39fbafaadec5e2338d240d9ab8f. This approval permits the reviewed hold release and conditional execution; it adds no standalone diagnostic, service change, qualification replay or repeated Claude steps 0/1.
+
+Evidence: Both required CI jobs pass on the exact reviewed commit in run 41274243154: check and electron-e2e, 2260 passing tests and 81 explicit skips, both typechecks, native credential proof and Linux/macOS builds. The held H4 package passes 45 CPU tests and strict TypeScript; the proposed H5 bridge passes 62 retained checks plus 16 new cases and strict TypeScript. Independent evidence and privacy reviews repeated those checks. Earlier failed local renderer-worker startup and interrupted local retry/build are retained as limitations, not represented as passing full local checks.
+
+Failures or blockers: No remaining approval blocker for this exact scope. Archive held bytes, apply only the reviewed release/bridge changes, verify independently, bind a clean successful commit/CI and fresh readiness, and create exact authority before dispatch. No new run or execution claim exists at approval recording.
+
+Limitations and non-claims: Approval and CPU verification do not establish timely model completion, H4 acceptance or H5 eligibility. Original failed attempts, unresolved receipts, zero known settled fees/reservations and the disclosed unproven container-file preservation remain unchanged. No fresh H5 task, candidate or gold is read. Private endpoints, paths, credentials, raw traces and generated artifacts remain excluded from Git.
+
+Paid exposure: USD 0 and zero model requests to record approval; existing caps and historical Claude exposure are unchanged.
+
+Next gate: Complete the exact release and readiness checks, execute the approved fresh H4 sequence once, reconcile actual receipts and split semantics, then proceed to H5 only if its conditions pass.
+
+References: docs/plans/PHASE4_LOOP_DISPATCH_STOP_V1.md; BL-20261101-0443-runner-fixes-held-prepared; BL-20261101-0428-h4-completion-v2-interrupted.
+
+### BL-20261101-0933-runner-fixes-released -- 2026-11-01 -- Release the exact approved H4 package and prepare conditional H5
+
+Status: `Verified`
+
+Scope or hypothesis: Release only the activation declaration in the owner-approved H4 package, preserve reviewed held bytes and verify conditional H5 bridge preparation. This verifies CPU release controls, not live H4 acceptance.
+
+Decisions: The immutable owner decision a6c2422c787fffd91cf994b95f230825c765b39fbafaadec5e2338d240d9ab8f covers the exact three fresh loops, reviewed CPU bridge, unchanged caps and explicit November 2 18:00 Asia/Shanghai new-start amendment. Root accepted bridge 14fbdd321425f3ad1ad4b43657a1bfc6ab8968f2759d52a3849f2c027bfb3f2b after rehashing all five source/qualification proof references and verifying that the eight-role manifest changes only source attribution. Original live qualification remains under its original runtime; dynamic budget values and request bodies differ.
+
+Changes: Preserve twenty-four H4 held payloads in archive manifest 2525669f7a35de55a3ab70ccd2ad6a71ed375549529a69d55ad93806d8a5fe83. Release only the operator activation flag: released operator ae6ede6e15b9bc22cf27981df6e01b8f1eb47d3d59682cdc3ddc47f4d3c6dd1a, proposal 65951b1628fbcc941c2d966e14c5cb2a1016cc5d2c4c4f341cecdd5cb4ed5243. The other nineteen assets and all historical evidence are unchanged. Archive the original H5 held package, apply exactly reviewed bridge patch b8d192608896358f5dea87f12db3b37005d887b31a633d68d9f9459ab0637365, and retain its activation hold. A separate conditional template binds the approved owner/window/source without inventing H4 acceptance or actual H5 authority.
+
+Evidence: H4 release verification 0e03a52b83b94920702f7ff574ed781c1d939cb002829bb3f7faee178807ebb6 passes 43 applicable CPU cases and strict TypeScript, plus actual held/released/proposal/owner/window validators; two held-only cases retain their prior passing coverage. H5 actual patched files pass all 78 cases and strict TypeScript, verification 57ac867f6ed02814d2ddd05066ae4b4cc7dcaada54a747897dc1cc8f2cbea730. Independent combined review ada3b4df87c96ae763817b7512976d24a7bf60938cc7e1d6e19e5e766fa0fab4 passes 219 fixed scope/hash/history/privacy checks with zero problems, including the five public documentation changes. Suites overlap and are not summed as unique tests. Root recomputed current runtime fec462c399e00e2fe1fdead1be552d32933cb1f9ef5a307492bbebbf430f4082 and ran the actual qualification-bridge validator successfully.
+
+Failures or blockers: No remaining release-review blocker. Archive payloads are hash exact and mode 0400; a directory-mode observation differed from the initial release report. Immutable correction 6a4cc2ef394ce43194de90dbc1acfd80138cb43426555ea8b09474a5125d0b01 records actual mode 0700 and withdraws the directory-read-only claim. No executable or evidence-content change follows. Current clean commit/CI, service/device readiness and actual authority/pins remain before dispatch.
+
+Limitations and non-claims: Neither release nor bridge accepts H4, split semantics or H5. No actual authority, execution claim or run is created at entry preparation. H5 stays held; implementing and reviewing sessions read no fresh H5 tasks, candidates or gold. Prior failed attempts, unresolved receipts, consumed claims and cleanup limitations remain preserved. Private endpoints, paths, credentials, raw traces and generated artifacts remain excluded from Git.
+
+Paid exposure: USD 0 and zero model requests. The existing Keychain wrapper confirmed only a nonempty credential, without printing/persisting its value or calling the provider. Read-only readiness checks add no service mutation or diagnostic-generation allocation.
+
+Next gate: Bind this clean published release to both successful CI jobs and current readiness, create exact approved authority/pins, and execute the supervised H4 sequence once. Root accepts actual mechanics and split semantics before releasing conditional H5.
+
+References: docs/plans/PHASE4_LOOP_DISPATCH_STOP_V1.md; BL-20261101-0922-runner-fixes-approved; BL-20261101-0443-runner-fixes-held-prepared.

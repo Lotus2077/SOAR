@@ -1,6 +1,6 @@
 # Phase 4 Flash-Next migration plan
 
-Status: **Fast-v3 trial Approved; two original-service baselines Verified; initial candidate supervisor refused before an attempt, stop or build. Original service unchanged; narrow preflight adapter in progress. Candidate qualification/pilot and fresh H4/H5 remain unrun; H4 remains unaccepted after six historical attempts**. Updated 2026-11-02
+Status: **Fast-v3 trial in progress: two original-service baselines and the fourth-stage image build Verified; protected checkpoint conversion running at the 22:27 UTC November 1 observation. The original service has been cleanly stopped for the single admitted serving attempt. Numerical checks, candidate startup, qualification/pilot and fresh H4/H5 remain unrun; H4 remains unaccepted after six historical attempts**. Updated 2026-11-02
 (Asia/Shanghai). Current authority: BL-20261101-2120-fast-v3-artifact-trial-approved.
 
 Current fast-v3 progress: both predeclared baseline requests passed and settled
@@ -22,23 +22,33 @@ speed improvement, task-quality result, artifact proof or H4 credit. Candidate/p
 controls v6 have passed seven focused CPU checks and strict TypeScript checking
 with independent source review; those checks are not live candidate evidence.
 
-The first candidate supervisor exited 2 during preflight. The attempt record,
-predecessor-stop records, candidate build/stage/image and candidate requests are
-absent. Thirty current readiness checks pass on the unchanged original deployment.
-Read-only tests reproduced the missing required legacy-builder options when relying
-on a caller environment across `sudo`; explicitly setting `DOCKER_BUILDKIT=0`
-after that boundary exposes all six required flags. This identifies a necessary
-host-preflight correction and likely immediate blocker. The original wrapper
+At the initial preflight refusal, the candidate supervisor exited 2 before an
+attempt record, predecessor stop, build or candidate request. Thirty readiness
+checks then passed on the unchanged original deployment. Read-only tests reproduced
+the missing required legacy-builder options across `sudo`; explicitly setting
+`DOCKER_BUILDKIT=0` after that boundary exposed all six flags. The original wrapper
 suppressed its safe exception code and the inspected journal supplied no first
-exception, so a unique original failure cause is not conclusively established.
+exception, so the uniquely first original failure cause remains unlogged. That
+negative result is retained (BL-20261101-2219-fast-v3-baselines-preflight).
 
-A narrowly scoped external adapter for the **same unused serving attempt** is in
-preparation. It preserves the frozen original package, request grant, inference
-profile, resource ceilings, cleanup/lease ownership and exact prior-vLLM rollback;
-there is no baseline replay or allocation reset. Source/CPU review and root release
-remain required before that adapter executes. Candidate qualification and the
-artifact pilot have not run. No model result or artifact is inferred from these
-preflight checks (BL-20261101-2219-fast-v3-baselines-preflight).
+The external adapter subsequently passed eight focused CPU checks and independent
+review, then received an exact root technical decision and fresh release. It changes
+only the two legacy-builder environment boundaries, retaining all source, limits,
+profile, cleanup/lease and exact prior-vLLM rollback controls. The original package
+and release remain byte-exact. This continued the **same unused serving attempt**;
+that attempt is now actually admitted and consumed, with zero replacements, no
+baseline replay and no model-allocation reset.
+
+The November 1 **22:27:21 UTC** observation confirms the original owned service was
+cleanly stopped, its container/old marker and listener were absent, and GPU quiescence
+was established under the new lease. The fourth-stage image build completed with
+exit zero, producing image
+`sha256:9c0182182d93192a0f68225580bbe5bba6833474f979a9291f9dc1039e00f8dc`.
+The protected hybrid/conversion stages were running. Original weights, the previous
+qualified profile and recovery assets remain retained. Numerical checks, candidate
+startup, qualification and the artifact pilot had not run at that observation.
+The image is **unqualified**; a successful build grants no artifact or H4/H5 credit
+(BL-20261101-2228-fast-v3-image-built-conversion-running).
 
 Earlier writer outcome: the owner-approved [draft-first writer policy](PHASE4_WRITER_COMPLETION_V1.md)
 ran after exact saved serving restoration and successful required CI. Its first
@@ -62,17 +72,19 @@ hardware/kernel cause are unproven. The
 is now Approved for the exact protected build/conversion, thirty new local requests
 and early-artifact pilot with Heavy thinking unchanged, then conditional fresh
 H4/H5 (BL-20261101-2120-fast-v3-artifact-trial-approved). The two actual baseline
-results and candidate preflight refusal are recorded above. No candidate build,
-conversion, numerical execution, qualification or pilot result exists at this
-status update. The exact approved proposal bytes remain preserved. The [writer-thinking-off proposal](PHASE4_WRITER_THROUGHPUT_V1.md)
+results, historical preflight refusal and subsequent completed image build are
+recorded above. Conversion is in progress; numerical execution, serving readiness,
+qualification/performance and the artifact pilot remain later gates. The exact
+approved proposal bytes remain preserved. The [writer-thinking-off proposal](PHASE4_WRITER_THROUGHPUT_V1.md)
 remains a separate unapproved alternative.
 
-The restored deployment retains the qualified image, original checkpoint,
-serving arguments and environment. New physical identities are explicitly bound
-to retained semantic qualification; this is not new live qualification.
-Six post-run observations found it healthy and idle; the later thirty-check
-preflight-readiness record confirms the original service remains unchanged. The
-new fast-v3 H4/H5 admission controls are implemented and independently CPU/source
+Before the new trial, the restored deployment retained the qualified image,
+original checkpoint, serving arguments and environment. Its physical identities
+were explicitly bound to retained semantic qualification. Six post-run observations
+and the later thirty-check preflight-readiness record verified that service before
+its approved stop; they do not describe a currently running original service.
+The exact prior profile and assets remain available for owned recovery. The new
+fast-v3 H4/H5 admission controls are implemented and independently CPU/source
 reviewed, with exact source/history/profile bindings, but remain held. They have
 no actual new launch authority/pins/claim/run. All earlier negative
 results and their limitations remain in the append-only build log.

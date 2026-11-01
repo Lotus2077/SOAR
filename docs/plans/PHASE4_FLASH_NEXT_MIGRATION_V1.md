@@ -20,9 +20,12 @@ Generation averaged about 19.94 decode tokens/s; a live window measured 19.99.
 The 100602 known completed output tokens imply about 84 minutes of decoding at
 that speed. Decode accounted for 97.6% of observed inference time, without an
 observed queue or preemption bottleneck. Exact thinking-token share and a
-hardware/kernel cause are unproven. The separate
-[writer throughput proposal](PHASE4_WRITER_THROUGHPUT_V1.md) is Proposed only;
-no new pilot, model policy or H4 allocation is authorized.
+hardware/kernel cause are unproven. The
+[fast-v3 qualification and artifact trial](PHASE4_FAST_V3_ARTIFACT_TRIAL_V1.md)
+is Proposed only: protected build/conversion, thirty new local requests and an
+early-artifact pilot with Heavy thinking unchanged, then conditional fresh H4/H5.
+The [writer-thinking-off proposal](PHASE4_WRITER_THROUGHPUT_V1.md) remains a separate
+unapproved alternative. No new pilot, serving change or H4 allocation is authorized.
 
 The restored deployment retains the qualified image, original checkpoint,
 serving arguments and environment. New physical identities are explicitly bound

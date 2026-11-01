@@ -148,6 +148,9 @@ Any fast-profile trial would change the pinned serving contract and require
 explicit new comparability/qualification evidence; it is not an approved service
 change or a proven artifact-completion fix. See
 BL-20261101-2047-throughput-profile-investigation.
+The [Proposed fast-v3 trial](PHASE4_FAST_V3_ARTIFACT_TRIAL_V1.md) now specifies
+protected staging/build/rollback, new qualification and an early-artifact pilot;
+it grants no serving change or new requests before its owner decision.
 
 ## Required service behaviour
 

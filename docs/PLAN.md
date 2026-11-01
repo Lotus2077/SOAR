@@ -719,8 +719,12 @@ Observed decode speed was 19.94 tokens/s, with a live window at 19.99; 100602
 known completed output tokens imply about 84 minutes at that speed. Throughput
 and excessive generation burden materially constrained completion; exact
 thinking share and a backend defect are unproven. The
-[writer throughput proposal](plans/PHASE4_WRITER_THROUGHPUT_V1.md) requires a new
-named decision before its pilot or conditional H4 work. Original failures, shared
+[fast-v3 qualification and artifact trial](plans/PHASE4_FAST_V3_ARTIFACT_TRIAL_V1.md)
+proposes a protected fourth-stage build/conversion, new bounded qualification and
+an early-artifact pilot with Heavy thinking unchanged, followed only on success by
+three fresh H4 loops and existing conditional H5. Its thirty new local requests
+require a new named decision. The [writer-thinking-off proposal](plans/PHASE4_WRITER_THROUGHPUT_V1.md)
+remains a separate unapproved alternative; neither proposal grants live work. Original failures, shared
 caps and the November 2 18:00 Asia/Shanghai cutoff remain unchanged.
 The current held H5 package has the reviewed writer-policy/physical-deployment
 bindings and passes 61 Node cases plus strict TypeScript, with 37 earlier Python

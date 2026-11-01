@@ -626,6 +626,15 @@ and full H4 acceptance remains absent (BL-20261031-2322-h4-local-plan-rejected).
 Runtime, serving and role settings, Heavy semantics and the remaining technical
 gates are unchanged. New H4 fees are USD 0; historical Claude exposure remains
 USD 1.151653, with the USD 0.60 split cap and USD 21.60 H5 cap unchanged.
+
+The separately approved ten-request planner diagnostic completed at USD 0.
+Its first plan reached the 8192-token output cap with empty final content; the
+existing retry produced a schema-valid six-question plan. Independent review
+passed 58 checks. This establishes a new cutoff failure mode, not the original
+missing-reply cause or H4 acceptance. See
+[diagnostic evidence](plans/PHASE4_FLASH_NEXT_PLANNER_DIAGNOSTIC_V1.md) and the
+[proposed H4 recovery](plans/PHASE4_FLASH_NEXT_H4_RECOVERY_V1.md); no replay is
+approved (BL-20261101-0036-planner-diagnostic-result).
 Historical Qwen3.8-27B results and the conditional R2 rule remain unchanged.
 The Claude step-0/1 Console reconciliation is now verified
 (BL-20261031-1636-claude-console-reconciled), independently of local qualification.

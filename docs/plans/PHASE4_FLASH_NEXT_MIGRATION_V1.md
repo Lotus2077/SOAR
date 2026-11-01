@@ -72,6 +72,13 @@ counted evaluated rejection failed the row gate; it is not an infrastructure
 failure. No evidence packet, sample b, critic or repair followed. The operator
 stopped on `h4_row_gate_failed`; the split loop and H5 never started. Full H4
 acceptance remains absent. Runtime, serving and role settings are unchanged.
+The approved planner diagnostic later completed ten zero-fee requests: its first
+plan hit the 8192-token output cap with no final content, and the existing retry
+produced a schema-valid six-question plan. Its 58-check independent review
+verifies this new diagnostic only; the original rejection remains unchanged.
+A [separate recovery proposal](PHASE4_FLASH_NEXT_H4_RECOVERY_V1.md) is prepared
+and held, with 65 focused tests passing; it grants no replay authority. See
+BL-20261101-0036-planner-diagnostic-result.
 See the [continuation evidence](PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md),
 BL-20261031-2208-flash-qualification-accepted and
 BL-20261031-2322-h4-local-plan-rejected.

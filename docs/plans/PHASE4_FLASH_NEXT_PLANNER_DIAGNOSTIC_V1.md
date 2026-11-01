@@ -1,7 +1,20 @@
 # Flash-Next local planner diagnostic
 
-Status: **Approved for the bounded diagnostic; execution prerequisites remain.**
+Status: **Verified diagnostic complete; original H4 rejection remains.**
 Prepared 2026-11-01 (Asia/Shanghai).
+
+The approved run finished at 08:33:52 Asia/Shanghai on 2026-11-01. All ten
+requests settled at USD 0, and independent review passed 58 checks. The first
+planner reply reached the 8192-token output cap with zero final-content bytes
+and a nonempty separate reasoning field; it contained no JSON object. The
+existing validation retry stopped normally and produced a schema-valid plan
+with six questions and no unknown source IDs. Offline validation reproduced
+both results without another request.
+
+This establishes a cutoff failure mode in the new run and successful recovery
+by its existing retry. It does not reconstruct either original failed reply,
+establish reliability, accept H4 or permit another inference. See
+BL-20261101-0036-planner-diagnostic-result.
 
 The second H4 loop stopped with `research_plan_invalid`. Its eight index calls
 included two invalid replies; both subsequent plan replies failed validation,
@@ -28,8 +41,8 @@ replaces the failed H4 result.
 | Stop point | The plan-stage record, before extraction, synthesis or writing |
 | Retry | Only the frozen planner's one validation retry; no transport, diagnostic or whole-loop replay |
 
-The original 24-request qualification allocation is exhausted. These would be
-**up to ten additional diagnostic requests**. The owner explicitly approved
+The original 24-request qualification allocation is exhausted. These were
+**ten additional diagnostic requests**. The owner explicitly approved
 this proposal on 2026-11-01; see BL-20261101-0009-planner-diagnostic-approved.
 Unused diagnostic requests cannot be reassigned to another purpose.
 The H4 split USD 0.60 allowance and H5 USD 21.60 allowance remain unchanged and
@@ -77,9 +90,13 @@ synthetic tests and strict TypeScript checks pass, including storage failure
 stopping before a second planner request. Root verified all nine asset hashes
 against both the prepared proposal and independent review. Preparation invoked
 no live helper, read no task input content and dispatched no generation.
-That held snapshot is archived. The owner has since approved the bounded run;
-only its activation hold has been released. A concrete authority, current
-readiness checks and applicable CI must precede execution.
+That held snapshot is archived. After approval, only its activation hold was
+released; the other eight assets remained unchanged. Forty-five applicable
+released tests and strict TypeScript passed. The final authority bound clean
+commit `d3cd1d00f0b9db1d568c0cb6795d11181d0c347e`, passing CI, current readiness
+and a 08:15:20–09:00:20 Asia/Shanghai interval. Three idle samples preceded
+generation and three followed it. The supervised process exited zero with no
+remaining local process group or inhibitor.
 
 Held proposal SHA-256:
 `9c3109c58c57bb79f3be22e001c3c76f89900e58316a8fc44786c9e4fd9c062b`.
@@ -89,6 +106,28 @@ These establish preparation only, not permission or a live result. See
 BL-20261031-2340-planner-diagnostic-prepared.
 
 ## Interpreting the result
+
+| Observation | First planner reply | Validation retry |
+| --- | --- | --- |
+| Finish reason | `length` | `stop` |
+| Reported output tokens | 8192 | 4792 |
+| Final-content bytes | 0 | 5601 |
+| Separate reasoning bytes | 16745 | 6495 |
+| Offline validation | No JSON object | Valid schema; six questions |
+
+Reasoning byte counts are not reasoning-token counts. Total diagnostic usage
+was 29245 input tokens, 19200 output tokens and 4704 cached-input tokens, against
+28672 reserved output tokens. One of eight index replies was invalid. Both
+private final files retained the approved bounds and permissions; no reasoning
+text was retained. No extraction, synthesis, writer, critic, judge or cloud call
+ran. The same source, protocol, service and role settings remain pinned.
+
+Closed evidence SHA-256:
+`07062613b212e6ab2820a83a26944039a1c06a96912936cc41e303a052ef2a54`.
+Independent terminal review SHA-256:
+`73c7a67501c3c4a8fc69de43ed95cb42e6e934749ab92b999af06dae27067015`.
+Root diagnostic adjudication SHA-256:
+`80ae9d61f6ce65d16dfd9da3e2497735e18598c442a40656d53e1d98e2654cec`.
 
 - A valid diagnostic plan demonstrates only that this new run satisfied the
   existing plan contract. It does not recover the original missing replies,

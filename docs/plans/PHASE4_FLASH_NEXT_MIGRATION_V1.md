@@ -76,9 +76,11 @@ The approved planner diagnostic later completed ten zero-fee requests: its first
 plan hit the 8192-token output cap with no final content, and the existing retry
 produced a schema-valid six-question plan. Its 58-check independent review
 verifies this new diagnostic only; the original rejection remains unchanged.
-A [separate recovery proposal](PHASE4_FLASH_NEXT_H4_RECOVERY_V1.md) is prepared
-and held, with 65 focused tests passing; it grants no replay authority. See
-BL-20261101-0036-planner-diagnostic-result.
+The owner separately approved [one bounded local replay followed by the unused
+split](PHASE4_FLASH_NEXT_H4_RECOVERY_V1.md), retaining the original rejection
+and USD 0.60 cap. The held 65-test package is archived; 62 applicable released
+tests pass. Actual recovery remains unstarted pending final execution prerequisites
+(BL-20261101-0059-h4-recovery-approved).
 See the [continuation evidence](PHASE4_FLASH_NEXT_QUALIFICATION_CONTINUATION_V1.md),
 BL-20261031-2208-flash-qualification-accepted and
 BL-20261031-2322-h4-local-plan-rejected.

@@ -1,6 +1,6 @@
 # Flash-Next H4 recovery after the planner diagnostic
 
-Status: **Proposed; failed-loop replay is not approved.**
+Status: **Approved for the bounded recovery; execution prerequisites remain.**
 Prepared 2026-11-01 (Asia/Shanghai).
 
 The approved planner diagnostic completed ten zero-fee requests. Its first plan
@@ -10,9 +10,9 @@ mechanical gate under the same configuration, but does not establish reliability
 or explain the original missing replies. The original failed H4 loop remains a
 counted rejection. See [diagnostic evidence](PHASE4_FLASH_NEXT_PLANNER_DIAGNOSTIC_V1.md).
 
-## Exact proposed amendment
+## Exact approved amendment
 
-Authorize **one additional complete local-research H4 attempt**, then the
+The owner approved **one additional complete local-research H4 attempt**, then the
 original untouched split loop only if the local loop passes. Retain the already
 passed deck loop. This would produce three logical passing rows from at most
 four total H4 attempts, with the original failed local attempt visible in every
@@ -30,8 +30,9 @@ combined report.
 | Window | Every new loop must start before 18:00 Asia/Shanghai on 2026-11-01; admitted loops retain their original bounded execution limits unless availability is withdrawn |
 
 This is a new recovery scope. The original consumed authority and the unused
-window-only continuation remain unchanged and ineligible. The latest diagnostic
-approval expressly excluded H4 replay; its ten requests are now exhausted.
+window-only continuation remain unchanged and ineligible. The earlier diagnostic
+approval excluded H4 replay and its ten requests are exhausted. The owner then
+explicitly approved this separate recovery; see BL-20261101-0059-h4-recovery-approved.
 
 ## Preserve the experiment controls
 
@@ -100,7 +101,8 @@ H5 inputs, candidates or evaluator gold during this preparation.
 
 ## Verified held preparation
 
-The eighteen-file package is frozen with its activation hold enabled. All 65
+The eighteen-file held package is archived. Following approval, only the
+operator activation hold was released; the other seventeen assets are unchanged. All 65
 focused tests pass: fifteen TypeScript admission/claim/release tests, thirty-four
 Python evidence-review tests and sixteen mocked process-supervision tests.
 Strict TypeScript checking passes. Independent review covers the operator and
@@ -112,7 +114,7 @@ usage, direct old/new authority references, refusal of duplicate claims and
 changed assets, private metadata projection, closed-database hashes, interruption
 cleanup and post-cutoff closure without new starts. Source review also checked
 the packet and repair lineage requirements.
-The owner's future approval permanently names the held proposal. Its separately
+The owner's approval permanently names the held proposal. Its separately
 bound release may change only the one activation-hold declaration and its hash;
 the other seventeen assets and all other proposal fields must remain identical.
 
@@ -124,12 +126,16 @@ Evidence reviewer SHA-256:
 `c1dbffb6528a5e3565e9426ff244ba836080fc2d8dbebb152347d79d48f4c9bd`.
 
 Preparation read prior closed metadata and hashes, with zero helper, service or
-model calls and no fresh H5 material. There is no actual recovery authority,
-approval record, consumed recovery claim or run. These checks establish inactive
-preparation only; owner approval, current prerequisites, released-byte review,
-clean commit/CI and actual H4 evidence remain required.
+model calls and no fresh H5 material. The owner decision is durably recorded. There is no actual recovery authority,
+consumed recovery claim or run at this update. Sixty-two applicable released
+tests and strict TypeScript pass, with direct archived-byte comparisons replacing
+the three held-source-only assertions. Both CI jobs passed for the proposal
+commit; the approval commit, current prerequisites, actual authority/pins and
+independent final binding must pass before launch. These checks establish
+release preparation only; actual H4 evidence and split semantics remain required.
 
 References: [migration plan](PHASE4_FLASH_NEXT_MIGRATION_V1.md),
 BL-20261031-2322-h4-local-plan-rejected,
 BL-20261101-0036-planner-diagnostic-result,
-BL-20261101-0047-h4-recovery-prepared.
+BL-20261101-0047-h4-recovery-prepared,
+BL-20261101-0059-h4-recovery-approved.

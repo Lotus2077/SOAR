@@ -633,8 +633,10 @@ existing retry produced a schema-valid six-question plan. Independent review
 passed 58 checks. This establishes a new cutoff failure mode, not the original
 missing-reply cause or H4 acceptance. See
 [diagnostic evidence](plans/PHASE4_FLASH_NEXT_PLANNER_DIAGNOSTIC_V1.md) and the
-[proposed H4 recovery](plans/PHASE4_FLASH_NEXT_H4_RECOVERY_V1.md); no replay is
-approved (BL-20261101-0036-planner-diagnostic-result).
+[approved bounded H4 recovery](plans/PHASE4_FLASH_NEXT_H4_RECOVERY_V1.md). The
+owner approved one complete local replay, then the unused split only on success,
+under the original USD 0.60 cap. Release checks pass; execution prerequisites
+remain (BL-20261101-0059-h4-recovery-approved).
 Historical Qwen3.8-27B results and the conditional R2 rule remain unchanged.
 The Claude step-0/1 Console reconciliation is now verified
 (BL-20261031-1636-claude-console-reconciled), independently of local qualification.

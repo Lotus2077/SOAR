@@ -1,9 +1,24 @@
 # Phase 4 Flash-Next migration plan
 
-Status: **Historical amended qualification Verified; two CPU fixes and required CI verified; three fresh H4 loops and cutoff amendment Approved; H4 unaccepted after two local rejections and one interrupted attempt; split/H5 unstarted**. Prepared 2026-11-01
+Status: **Historical amended qualification Verified; runner fixes and required CI verified; fresh H4 allocation stopped on its first local sample at the deadline. H4 unaccepted after five attempts; split/H5 unstarted; no replacement authorized**. Prepared 2026-11-01
 (Asia/Shanghai). Authority: BL-20261031-1759-flash-next-sequence-owner-approved.
 
-Current outcome: the [bounded completion allocation](PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md)
+Current outcome: the approved corrected-runtime allocation stopped naturally at
+its first local sample's 90-minute boundary: 85 dispatches, 84 settled and one
+UNKNOWN/cancelled receipt. The loop preserved the incomplete sample result and
+stopped with `loop_stage_unresolved_dispatch` before sample b. The supervisor
+exited one with its process group and inhibitor quiescent, without interruption
+or forced kill. No new deck, split or H5 row started. Actual history is five
+attempts and 261 dispatches: 258 settled and three unresolved, with USD 0 known
+fees and reservations. This verifies the live stage-stop correction, not H4
+acceptance. The grant is consumed with zero replacements
+(BL-20261101-1106-h4-runner-fixes-stopped).
+A [draft-first writer policy](PHASE4_WRITER_COMPLETION_V1.md) is Proposed only:
+one task-independent sequencing change, unchanged checks and limits, and a
+new bounded allocation contingent on one named owner decision and all gates.
+It does not claim another host bug or guaranteed model compliance.
+
+Earlier outcome: the [bounded completion allocation](PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md)
 executed and was interrupted after an UNKNOWN cancelled/transport receipt at
 sample a's 90-minute boundary and an incorrect sample-b start. Timing supports
 the shared-deadline inference; the receipt does not identify the abort source.

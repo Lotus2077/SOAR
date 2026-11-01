@@ -28071,3 +28071,51 @@ Paid exposure: USD 0 and zero model requests. The existing Keychain wrapper conf
 Next gate: Bind this clean published release to both successful CI jobs and current readiness, create exact approved authority/pins, and execute the supervised H4 sequence once. Root accepts actual mechanics and split semantics before releasing conditional H5.
 
 References: docs/plans/PHASE4_LOOP_DISPATCH_STOP_V1.md; BL-20261101-0922-runner-fixes-approved; BL-20261101-0443-runner-fixes-held-prepared.
+
+### BL-20261101-1106-h4-runner-fixes-stopped -- 2026-11-01 -- Preserve the failed fresh H4 attempt and verify both runner corrections
+
+Status: `Verified`
+
+Scope or hypothesis: Execute the approved three-loop allocation under corrected runtime fec462c399e00e2fe1fdead1be552d32933cb1f9ef5a307492bbebbf430f4082, stopping at the first failed gate. This entry verifies failure reconciliation and runner behavior, not H4 acceptance.
+
+Decisions: The first local research sample ended incomplete at its shared 90-minute boundary. Preserve its UNKNOWN receipt, result, snapshots and consumed claim. The corrected loop stopped with loop_stage_unresolved_dispatch before sample b. Critic, repair, deck, split and H5 never started. The allocation is consumed with zero replacements; unused rows and fee headroom grant no replay.
+
+Changes: Bind actual authority 53052dfa356454dc2ebd1f265b5b5d8bbcab80c6d2b95d687c2a3fd1d92e52c8 and pins 58e47be475f3300660c0c9c9721d7f47241709bf69b6cbb8d3b84a7a0e1177ec to clean commit 47738571a0a04920092d3f5758f9de386fce9156 after both required CI jobs passed in run 41293282886. Execute the supervised allocation once. Reconcile closed evidence and update current status documents after terminal; do not change source or original run evidence.
+
+Evidence: The local loop ran from 09:36:39.164 UTC to 11:06:39.680 UTC. Eight index calls were valid; the first plan was valid; thirty extraction calls retained three invalid replies; one synthesis reached its output cap. The writer completed forty-four tool-call replies and left its next request UNKNOWN/cancelled. New accounting is 85 dispatches: 84 settled and one unresolved, with no failed receipts or retries. Available saved-event usage is 731437 input, 96035 output and 540960 cached-input tokens, one length stop and forty-four tools. The unreturned response usage is unavailable. Exact local prompt proofs cover all 85 receipts: 755929 committed prompt tokens, including 731437 for settled receipts. Known settled fees and reservations are zero.
+
+All H4 history is now five attempts and 261 dispatches: 258 settled, two UNKNOWN and one committed unresolved. Preserve the original deck under its old runtime, both counted planning rejections, the interrupted completion attempt and this new failed attempt separately. The available saved-event/critic plus historical-loop-summary subtotal is 2213231 input, 285139 output and 1644832 cached-input tokens, four length stops and 147 tools. Historical summaries exclude judge usage, and unfinished response usage remains unavailable; this is not a complete usage total across every receipt.
+
+Root reconciliation 28506d7a8177e8c3e3a41890417ae3aeb832fc5f28a2efa2f805a969c2480ee4 passes 187 fixed evidence/accounting checks with zero problems while explicitly rejecting H4/H5 acceptance. Independent review 1bb2f0b6b5ee55f07e668f91f2afc3d1f12000ccae6dd3b0b90aa89d6353154d repeats those overlapping checks and adds sixteen narrow comparisons. All twenty released assets, source freeze and old databases remain unchanged. The loop preserved only sample a and its accounting; all later-stage directories/results are absent. Forty-five recorded writer budgets decrease from 4032941 ms to 391826 ms, approximately 67 minutes on entry and 6.5 minutes on the final call. Loop completion was 486 ms after the derived shared session deadline. This strongly supports deadline cancellation, but the receipt does not identify the abort signal source and does not prove a backend fault.
+
+Supervisor 0e58da1789460056183db125e6dc06e6a15e75d568f92054e416bd2e88977573 records exit one, no interruption or forced kill, and a quiescent owned group/inhibitor. Six spaced pinned GET-only observations are healthy with zero running/waiting requests, bound by terminal review ca94cdfa4b31411d2704a671b49e6fd08b3eea97463e428339f66e4260a5bc58. Current freeze-job/context inventory dee3ed1939d012a07c3f3332c18efcf05a8266c0f4de470ff253dea010424bba found zero owned local tool containers. No manual lifecycle action or file-recovery claim follows; unrelated containers were not inspected or touched. Idle does not settle UNKNOWN receipts. Root adjudication 450a850e37769896bbe1d143759f31007d76f474f3a2d8625ae5f346aa0ae940 binds these records and leaves H4/H5 unaccepted.
+
+Failures or blockers: Bounded writer review 245234ab020b5dcb82529f9398333238579b1589ce20956f90238b2f2f9ec770 found 39 executions, four observation reads and one unsupported action, with no structured write, claims-check or finish call. All ten inspected final executions succeeded with no stderr and unchanged workspace inventories. All forty-five captured checkpoints lacked requested output files; one 14419-byte text intermediate outside output paths was added. Eighteen turns carried missing-artifact reminders. This identifies nonproductive action selection without demonstrating another shell, parser, transport or host defect. Checkpoints do not establish absence of unobserved changes after the final completed action.
+
+Limitations and non-claims: Both host corrections worked in this live attempt, but truthful time guidance did not produce timely artifacts. Successful inspection and tool exit codes are not task completion. No additional time, output cap, service change or unchanged replay is justified as a proven fix. The existing prompt already requests early incremental writes. Any stronger writer sequencing is a new uncertain functional experiment with changed protocol/request bytes, not a recovered result. Fresh H5 inputs, candidates and gold remain unread. No private endpoint, local path, credential, raw trace or generated artifact enters Git.
+
+Paid exposure: USD 0 known new settled fees and zero reservations. Split never started; historical Claude exposure remains USD 1.151653. The shared all-history H4 split ceiling remains USD 0.60. Conditional H5 scope, fee caps and the November 2 18:00 Asia/Shanghai new-start cutoff are unchanged.
+
+Next gate: Review the concrete draft-first writer-policy proposal, with exact wording and explicit comparability limits. A named new owner decision is required for that changed policy and a fresh bounded allocation. It may cover implementation and conditional execution after required CPU review, CI, pins and readiness, avoiding a second generic permission request. No new implementation or live authority is created by this entry.
+
+References: docs/plans/PHASE4_WRITER_COMPLETION_V1.md; docs/plans/PHASE4_LOOP_DISPATCH_STOP_V1.md; BL-20261101-0922-runner-fixes-approved; BL-20261101-0428-h4-completion-v2-interrupted.
+
+### BL-20261101-1115-writer-completion-proposed -- 2026-11-01 -- Propose draft-first sequencing under unchanged limits
+
+Status: `Proposed`
+
+Scope or hypothesis: Address the observed forty-four completed writer actions without captured requested artifacts. Replace one task-independent writer-system paragraph with explicit supported-draft-first sequencing, then targeted evidence inspection, verification and repair. Preserve artifact/claims checks and honest incomplete findings.
+
+Decisions: Propose one owner decision for the named implementation and a conditional allocation of exactly three fresh H4 loops, local research then deck then split, stopping at the first failure with zero replacements. Keep all existing model, sampling, tool, elapsed, request, output and fee limits. Keep the single all-history USD 0.60 H4 split ceiling, all five historical attempts and unresolved receipts, existing conditional H5 scope/caps and the approved new-start cutoff. No new approval or dispatch exists.
+
+Changes: Add PHASE4_WRITER_COMPLETION_V1.md with the exact proposed paragraph, common policy across comparable writer arms/repair, unchanged packet and artifact contracts, required CPU/CI review, new runtime/protocol/role binding and explicit service-evidence comparability review. No production source change, forced tool choice, new execution phase, diagnostic allocation or extra call is implemented.
+
+Evidence: The proposal follows closed writer review 245234ab020b5dcb82529f9398333238579b1589ce20956f90238b2f2f9ec770 and the independently reconciled failure above. The current prompt already asks for early incremental writes and the writer ignored eighteen missing-artifact reminders; stronger sequencing is therefore an uncertain hypothesis. CPU request-construction and synthetic workflow tests cannot prove model compliance or task quality. Actual accepted H4 mechanics and usable split semantics would still be required before H5.
+
+Failures or blockers: The changed policy and new allocation are not approved. Existing consumed authority cannot be reused. No test, mock, plan wording or idle service observation accepts H4 or guarantees completion before the unchanged cutoff.
+
+Paid exposure: USD 0 and zero model/tokenizer/service-generation calls for proposal preparation; no fee allowance is added.
+
+Next gate: Obtain one concrete decision on the named policy and conditional bounded allocation. If approved, record it durably, implement only the reviewed change, complete required review/CI, bind new identities and current readiness, and execute once only if every gate passes. No second generic H5 permission is needed if its existing conditions are later satisfied.
+
+References: docs/plans/PHASE4_WRITER_COMPLETION_V1.md; BL-20261101-1106-h4-runner-fixes-stopped.

@@ -692,6 +692,20 @@ replacements and the shared all-history USD 0.60 split cap. The H4/H5 new-start
 cutoff is explicitly extended to November 2, 2026, 18:00 Asia/Shanghai
 (BL-20261101-0922-runner-fixes-approved). Actual H4 mechanics and split semantics
 still gate the existing conditional H5 scope and unchanged fee limits.
+The fresh allocation executed on `4773857` after both required CI jobs passed
+(run 41293282886), then stopped at the first local sample's 90-minute boundary.
+Its 85 dispatches comprise 84 settled and one UNKNOWN/cancelled receipt.
+The corrected loop preserved sample a's incomplete result and stopped with
+`loop_stage_unresolved_dispatch` before sample b. Deck, split and H5 did not
+start. Actual H4 history is five attempts, 261 dispatches, 258 settled and three
+unresolved, with USD 0 known fees and reservations. This is a failed live
+attempt, not an accepted row or an ordinary all-settled quality rejection.
+The grant is consumed with no replacements; unused rows do not authorize replay
+(BL-20261101-1106-h4-runner-fixes-stopped).
+The [draft-first writer proposal](plans/PHASE4_WRITER_COMPLETION_V1.md) specifies
+one named policy change and a conditional fresh three-loop allocation. It is
+Proposed only; no new implementation or replay is authorized
+(BL-20261101-1115-writer-completion-proposed).
 The held H5 runner now permits admitted-row closing checks after the new-start
 cutoff and owns its process group. All 62 CPU tests and independent reviews pass;
 this changes no runtime, row/fee limit, H4 prerequisite or launch permission

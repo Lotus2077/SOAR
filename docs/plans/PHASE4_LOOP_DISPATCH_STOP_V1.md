@@ -1,6 +1,20 @@
 # Stop unresolved loops and report the shared time budget accurately
 
-Status: **Approved for three fresh H4 loops; corrected runtime and required CI verified; H4 acceptance and conditional H5 remain pending actual results.**
+Status: **Implemented and CPU verified; live stage-stop behavior verified on the first fresh local attempt; that attempt failed at its deadline and consumed the allocation. H4 unaccepted; split and H5 unstarted.**
+
+The approved fresh allocation ran on `4773857` after both CI jobs passed
+(run 41293282886). Sample a ended incomplete at its 90-minute boundary with
+84 settled receipts and one UNKNOWN/cancelled receipt. The loop preserved its
+result/accounting and stopped with `loop_stage_unresolved_dispatch`; sample b,
+critic, repair, deck and split never started. The supervisor exited one without
+interruption or forced kill, with its group and inhibitor quiescent. This verifies
+the live stop correction, not H4 acceptance or timely model completion. The
+allocation is consumed; no unused row or remaining fee cap grants a replacement.
+All five attempts and three unresolved receipts remain recorded. See
+BL-20261101-1106-h4-runner-fixes-stopped.
+The [draft-first writer policy](PHASE4_WRITER_COMPLETION_V1.md) is a separate
+Proposed experiment, with exact wording and one conditional owner decision. It
+is not implemented, approved, or evidence that completion will improve.
 
 The interrupted completion-v2 attempt exposed two host defects. Sample a had
 an UNKNOWN writer receipt, but the loop admitted sample b because a research
@@ -50,7 +64,7 @@ captured workspace inventories were unchanged and contained no output artifacts.
 There is no demonstrated failing shell command to repair, and a longer deadline
 alone has no success evidence.
 
-The owner-approved next live allocation is exactly three fresh H4 loops under common
+The consumed owner-approved allocation was exactly three fresh H4 loops under common
 new pins: local research first, then deck, then split, stopping at the first failed
 gate with no replacement. All four earlier attempts remain historical, including
 the two unresolved receipts; successful completion would mean seven attempts and
@@ -85,9 +99,10 @@ local judge and independent blind scoring. The approved amendment changes its
 eligible start window only. H5 stays ineligible until actual H4 mechanics and
 usable split semantics pass under compatible new pins. Fresh H5 tasks, candidates
 and gold remain unread. No actual authority, claim or dispatch is created by the
-held preparation. The allocation/window decision is now approved; archive/release
-verification, clean successful CI and current readiness still gate actual authority
-and dispatch. No further generic H5 permission is needed after all H4 conditions pass.
+held preparation. The allocation/window decision was approved and its H4 execution has now stopped
+on failure. No further H4 replay is authorized by that consumed allocation.
+The separate conditional H5 scope still requires accepted H4 and split evidence;
+no further generic H5 permission is needed after all its conditions pass.
 
 References: [interrupted completion](PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md),
 [migration controls](PHASE4_FLASH_NEXT_MIGRATION_V1.md).

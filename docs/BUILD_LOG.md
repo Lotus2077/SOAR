@@ -28927,3 +28927,25 @@ Paid exposure: No new calls or charges. The unchanged aggregate is four retained
 Next gate: Publish this reviewed proposal and accurate evidence, then obtain the owner-managed disk confirmation and named one-time continuation decision. Verify actual space and same-service readiness before creating a fresh release; any drift or second refusal stops the path.
 
 References: docs/plans/PHASE4_FIXTURE_RETRY_DISK_PREFLIGHT_CONTINUATION_V1.md; docs/plans/PHASE4_FAST_V3_FIXTURE_ADMISSION_RETRY_V1.md; BL-20261103-0838-qualified-restoration-accepted-candidate-disk-refused.
+
+### BL-20261103-1033-disk-usage-attributed-read-only -- 2026-11-03 -- Identify accumulated router dumps and model storage behind the disk gate
+
+Status: `Verified`
+
+Scope or hypothesis: Answer the owner's request to identify which service consumes the model box's disk. Distinguish existing storage from observed growth and preserve the stopped candidate path. This read-only investigation is not cleanup or continuation approval.
+
+Decisions: Attribute a large diagnostic-data footprint to the active Codex model-router service, supported by its process, script, unit membership, enabled dump setting and file metadata. Preserve all files and services. Do not infer that this service caused every byte of the preceding free-space decline or that its diagnostic records may be deleted without an owner decision.
+
+Changes: Collected filesystem usage, one-pass directory accounting, container storage metadata, a short process-write sample and request/response dump file counts, sizes and timestamps. Inspected only the relevant router source structure with string literals redacted, and confirmed only its dump-directory setting. No dump payload, model request, evaluator material or other environment value was disclosed. A stale SSH connection was re-established using the previously verified host identity; no box service was restarted.
+
+Evidence: Root inventory d99a73a8bb62e02e20ed53d1cbb325384ee36eec89d713c18ec50ade964cc521 and detailed inventory 88aba3b54c87a0338f6d0922d2b871cecd5aa76925d7237b2e8d1053cfaeee82 measured approximately 843.50 GiB of file storage. Disjoint major categories were model/development trees 451.83 GiB, the two SOAR experiment trees 138.46 GiB, router dumps 75.12 GiB, container storage 64.14 GiB and the unrelated speech project 31.57 GiB. The single directory pass deduplicated hardlinks; parent/child rows and Docker shared-layer figures must not be added again. Container evidence d635f5a91fb8f10caa4f47d0f97b97c1750740e0fa5c07e2a7eac8a32ed4209a found the running vLLM container's writable layer only 160718848 bytes, excluding its bound model/cache directories. Router attribution 46541669a9fa74ca9101c22960b07f7f2a9ef6b96ba804055430a76e1c78e2cb and redacted source/unit confirmation 1a94d33fbdc9221c1f3c442d6c1975cc8294f0672a46ea64ba21b41c47ab2f4c establish the responsible service. Fresh confirmation f53b92dca3e4b832027cccaeb96eebcca8ed92a3b7dc779980ac94127ff0aeaf at 10:32:31 UTC found that same router and qualified-service process active, dump recording enabled, 109990 dump files occupying 80782168064 bytes / 75.2343 GiB, and 47610953728 bytes / 44.3412 GiB available. Dump files grew by 129351680 bytes / 123.36 MiB from the 09:10:36 UTC measurement.
+
+Failures or blockers: The 49 GiB startup floor remains unmet. Router dump files modified in the earlier 08:25-08:46 UTC comparison window occupy 39.44 MiB, while total available space fell 305.47 MiB; this comparison does not explain all growth or prove exact write-time allocation. The diagnostic result identifies a substantial storage owner, not an exclusive cause of the disk decline. Owner-managed space preparation and the named continuation decision remain pending.
+
+Limitations and non-claims: Directory sizes are point-in-time allocations with traversal-dependent hardlink attribution. The active container's small writable layer does not exclude its large mounted model and cache data. The short process-I/O sample is not a sustained disk-growth benchmark. Raw private metadata, source details, service paths and operational records remain outside Git. No deletion, pruning, cache purge, service stop/start, serving change or new runtime authority occurred.
+
+Paid exposure: Zero new generation, tokenizer or paid-provider requests. All request slots, H4/H5 cost limits and the November 4 admission cutoff remain unchanged.
+
+Next gate: Present the measured storage owner and location to the owner. Any requested cleanup must preserve required model/experiment assets; the existing disk-preparation and one-time continuation gates still apply before qualification, pilot, H4 or H5.
+
+References: BL-20261103-0838-qualified-restoration-accepted-candidate-disk-refused; BL-20261103-0839-disk-preflight-continuation-proposed; docs/plans/PHASE4_FIXTURE_RETRY_DISK_PREFLIGHT_CONTINUATION_V1.md.

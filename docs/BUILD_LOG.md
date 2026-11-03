@@ -28729,3 +28729,47 @@ Paid exposure: The observer records four metadata GETs, zero generation and zero
 Next gate: Publish the independently reviewed, root-accepted terminal recovery end state and preserve all failed-phase evidence. Stop the current candidate/pilot/H4/H5 path; recovery grants no continuation or replacement and supplies no downstream launch eligibility. Existing stop conditions, caps and November 2, 2026, 10:00 UTC new-admission cutoff remain unchanged, with no extension or phase-clock reset.
 
 References: docs/plans/PHASE4_FAST_V3_POSTCONVERSION_CONTINUATION_V1.md; docs/plans/PHASE4_FAST_V3_ARTIFACT_TRIAL_V1.md; BL-20261102-0853-f2-admission-offline-forensics-and-source-check-clarification; BL-20261102-0847-qualification-f2-precommit-failed-recovery-pending; BL-20261102-0847-candidate-startup-native-verified-qualification-launched.
+
+### BL-20261103-0708-fixture-correction-offline-verified -- 2026-11-03 -- Verify the narrow fixture-admission repair while holding live execution
+
+Status: `Verified`
+
+Scope or hypothesis: Continue toward qualification, artifact pilot, H4 and H5 by correcting the independently isolated F2 fixture-admission defect. Verification here is limited to the new held source and offline tests; the earlier failed qualification and expired runtime authority remain unchanged.
+
+Decisions: Apply a native-context remainder envelope only to history-dependent F2 and F3. Preserve every other fixture prompt ceiling, exact serialized workload, production history projection, output ceiling, role and context identity. Persist bounded hash/count diagnostics before wrapper rejection, distinguish specific predicates, and require zero cached tokens on matched performance probes. Keep the new package unconditionally held until a separately reviewed retry route exists.
+
+Changes: A new source version implements the two explicit prompt-envelope changes, exact rejection reporting and the existing cold-cache acceptance requirement. Rejected evidence stays unaccepted; unavailable native counts stay null. Diagnostic persistence failure prevents dispatch. The production application and original frozen package are unchanged. No prior F2 count is reconstructed by a new tokenizer request.
+
+Evidence: Held source manifest e2d410346f0379d901a801058b5583de7ead314733e678251be7af4ddae9215f and CPU proof c3a823feecb0ea6bc398d20c9559d9827d3b878fe6cc298416b07ca377a539bc pass forty-two Node cases, strict TypeScript and two Python launcher cases. Independent review 3bf8433e6a6e0f358e1d4a1b4e5d9ff96d7c1516a85626b7a4a1ff60fe187028 repeats those checks, verifies twelve source/snapshot pairs and all fifty original package files unchanged. Real broker/store transaction tests with fake admission and transport prove no receipt or wire call on wrapper rejection or diagnostic-write failure. The production projector/serializer reproduces the retained F1 and F2 body hashes and sizes without tokenization.
+
+Failures or blockers: Full retry serving, additive allocation, provenance and downstream integration remain in preparation. The held correction cannot use the expired owner/window or reopen the consumed candidate claim. Current device availability is unverified; the latest read-only SSH attempt failed authentication. No new qualification, pilot, H4 or H5 has run.
+
+Limitations and non-claims: Passing fake-transport tests does not demonstrate live tokenization, serving health, performance, artifact capability or evaluation success. The previous F2 exact rejected token count remains absent, and its failure is retained. The earlier single-probe speed result remains historical. Private source snapshots, requests, paths, endpoints, traces, credentials, generated artifacts and evaluator material remain outside Git.
+
+Paid exposure: Zero new generation, tokenizer, helper or paid-provider requests. Historical accounting remains four consumed standalone slots, three committed generations, zero new fees and four historical unresolved H4 receipts. The existing H4 split and H5 monetary caps are unchanged.
+
+Next gate: Complete and independently review the inert serving, allocation, provenance and H4/H5 integration for the proposed named retry, then present one concrete owner decision covering the additional two zero-fee slots, full new attempt and new fixed window. Keep live execution held until that decision is durably recorded and fresh actual prerequisites pass.
+
+References: docs/plans/PHASE4_FAST_V3_FIXTURE_ADMISSION_RETRY_V1.md; BL-20261102-0853-f2-admission-offline-forensics-and-source-check-clarification; BL-20261102-0857-qualified-fallback-current-recovery-verified.
+
+### BL-20261103-0709-complete-fixture-retry-amendment-proposed -- 2026-11-03 -- Propose a full fresh qualification without erasing failed slots or weakening the pilot
+
+Status: `Proposed`
+
+Scope or hypothesis: Preserve the complete intended experiment after the consumed F2 failure and expired November 2 window. The user's instruction to keep pushing authorizes offline preparation; it does not itself select a new admission cutoff or grant the two additional request slots described here.
+
+Decisions: Propose one fresh serving/qualification attempt using the same retained image and conversion, all sixteen candidate cases and up to twelve pilot requests, then conditionally all three H4 loops and H5. Retain all four historical slots and both original baseline results; do not reuse old F1 as a new-run pass or refund failed F2. The explicit proposed aggregate is thirty-two slots, two more than thirty. Request a fixed new admission cutoff of November 4, 2026, 10:00 UTC (18:00 Asia/Shanghai), without automatic extension.
+
+Changes: Add the proposed retry plan with exact request arithmetic, explicit F2/F3 native-context envelope changes, bounded preflight, diagnostic requirements, additive claims/history, current service gates, preserved cold-cache pair identities and unchanged artifact/evaluation requirements. The new local/serving/downstream routes are being prepared separately; no actual approval, release, claim, service mutation or dispatch is created by the plan.
+
+Evidence: Proposed plan SHA-256 c5ea0f5c69899db154d63001cd779aa3bff050ea3f228fd4faba3e41eb83669b preserves four historical slots plus sixteen fresh qualification plus at most twelve pilot equals thirty-two. With pinned zero safety margin, amended candidate prompt maxima total 832512; adding the two historical baseline envelopes gives 976896 versus the original 518144. These are envelope maxima, not token measurements. Pilot success continues to require at most 20000 completed output tokens, substantive early report evidence and the full artifact/claims review. Independent design review found no scope reduction; final integrated source review remains outstanding.
+
+Failures or blockers: The previous attempt remains failed and the earlier new-admission cutoff has expired. The new plan is not approved. All source and release gates must be completed before a concrete runtime decision; device access and current physical readiness also remain to be verified. No unused historical slot overrides a consumed claim or authorizes another attempt.
+
+Limitations and non-claims: The proposed prompt-envelope increase, request-cap increase and new window are explicit changes, not silently applied implementation details. No baseline replay, shortened history, reduced pilot, replacement fixture, profile substitution, cache purge, repeated Claude calibration or second H5 allowance is included. No current serving, model-quality, artifact, H4 or H5 acceptance is claimed.
+
+Paid exposure: Preparation uses no model or paid requests. Proposed new standalone work is at most twenty-eight zero-fee reservations in addition to the four retained slots. The all-history H4 split cap stays USD 0.60. H5 retains eighteen rows, USD 21.60 total, USD 3 per cloud row and USD 0.60 per split row, with independent blind scoring and isolated evaluator material.
+
+Next gate: Freeze and independently verify the complete proposed serving/local-allocation/provenance/H4/H5 integration and required CI. Then obtain one named owner approval of the exact reviewed amendment, thirty-two-slot aggregate and November 4 cutoff, followed by fresh actual ownership/readiness and phase-specific root releases. If a gate fails, preserve evidence and perform only the scoped owned recovery; no automatic replacement follows.
+
+References: docs/plans/PHASE4_FAST_V3_FIXTURE_ADMISSION_RETRY_V1.md; docs/plans/PHASE4_FAST_V3_ARTIFACT_TRIAL_V1.md; docs/plans/PHASE4_FAST_V3_POSTCONVERSION_CONTINUATION_V1.md; BL-20261103-0708-fixture-correction-offline-verified.

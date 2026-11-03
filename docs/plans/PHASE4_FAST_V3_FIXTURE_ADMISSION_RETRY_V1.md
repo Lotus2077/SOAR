@@ -20,9 +20,12 @@ exact rejected token count was not persisted. This is a control-flow diagnosis,
 not a recovered token measurement or a demonstrated model-generation failure.
 
 The exact qualified fallback was restored and verified healthy on November 2 at
-08:55:55 UTC. That observation is historical and cannot authorize stopping a
-service without fresh ownership and readiness checks. Qualification, the artifact
-pilot, H4 and H5 remain unaccepted.
+08:55:55 UTC, then terminated with confirmed owned cleanup at 09:12:06 UTC.
+A November 3 read-only check found its unit failed with no main process, no
+running containers, no model listener and no GPU compute processes. The earlier
+healthy observation is historical. This revision therefore explicitly includes
+one exact qualified-prerequisite restoration before candidate work. Qualification,
+the artifact pilot, H4 and H5 remain unaccepted.
 
 Preserve the original plans, all failed attempts and reports, original owner and
 phase claims, baselines, conversion and recovery evidence. In particular, preserve
@@ -114,11 +117,23 @@ context, native tool/reasoning support, Heavy settings and all eight role
 contracts unchanged. No rebuild, reconversion, profile substitution, context
 reduction, MTP-off fallback, cache purge, VM/swap change or q4t switch is included.
 
-Before any service mutation, require current exact qualified-profile ownership,
-healthy idle API, captured unit/container identities, shared-lease evidence and
-verified retained candidate assets. Loss of SSH access, an absent service,
-unexplained drift or uncertain ownership leaves this gate closed; this amendment
-does not authorize unrelated repair or stopping an unidentified service.
+First authorize at most one exact qualified-prerequisite restoration from the
+verified empty state. Recheck the predecessor's terminal/owned-cleanup record,
+absent captured containers, empty listener/GPU, original shared-lease inode and
+absent recovery marker immediately before its exclusive restoration claim.
+Acquire and verify that lease before the post-acquisition GPU check or startup.
+Restore only the prior qualified image/profile, arguments, environment and six
+mounts, with a new owned namespace and the retained sixty-minute startup bound.
+Make no model or tokenizer calls. No competing service may be stopped, no lease
+or marker may be removed by assumption, and no alternative profile is allowed.
+Missing access, drift or uncertainty stops this attempt. Restoration failure
+allows only captured owned cleanup and evidence preservation, not another try.
+
+Require actual restored ready/physical/API/lease evidence and independent/root
+acceptance before any candidate admission. Immediately before stopping this
+captured prerequisite service, recheck its exact qualified profile, healthy idle
+API, unit/container identities, shared lease and retained candidate assets.
+Neither the historical healthy snapshot nor an empty GPU alone meets this gate.
 
 Use fresh source-bound serving, recovery and phase namespaces. Preserve the
 reviewed stop/lease order: confirm only the captured qualified service stopped,
@@ -205,10 +220,14 @@ overflow, diagnostic persistence without commit, failed-slot retention, duplicat
 claims, aggregate cap enforcement, cutoff refusal and rejection of stale source
 or physical evidence. Run required repository CI and preserve the evidence.
 
-Then durably record the owner's approval of this exact amendment, its reviewed
-source bindings, **32-slot aggregate ceiling**, single serving/qualification
-retry, conditional pilot/H4/H5 and **November 4 cutoff**. Require fresh current
-readiness and a separate root release before each gated phase. Prepared code,
+Then durably record one owner's approval of this exact amendment, its reviewed
+source bindings, **one exact qualified-prerequisite restoration**, **32-slot
+aggregate ceiling**, single candidate serving/qualification retry, conditional
+pilot/H4/H5 and **November 4 cutoff**. That owner record authorizes the conditional
+sequence and must not reference a future ready/acceptance record. After restoration,
+the fresh acceptance references this same owner; subsequent root releases bind
+both, avoiding a circular hash dependency. Require fresh current readiness and a
+separate root release before each gated phase. Prepared code,
 passing offline tests, green CI and the instruction to keep making progress do
 not on their own grant the changed cap, elapsed-window replacement or another
 serving attempt. If approval or any gate fails, retain the current qualified

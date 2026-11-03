@@ -28883,3 +28883,47 @@ Paid exposure: Zero new generation, tokenizer or paid-provider requests. Four hi
 Next gate: Monitor this exact live unit without replacement. Once actual ready is produced, obtain the four-GET physical/API/passive-lease proof and independent/root acceptance. Only then may the single candidate attempt proceed. A startup failure permits only its scoped owned cleanup and evidence preservation.
 
 References: docs/plans/PHASE4_FAST_V3_FIXTURE_ADMISSION_RETRY_V1.md; BL-20261103-0757-fixture-retry-image-binding-corrected; BL-20261103-0752-fixture-retry-amendment-approved.
+
+### BL-20261103-0838-qualified-restoration-accepted-candidate-disk-refused -- 2026-11-03 -- Accept the restored prerequisite and retain the candidate disk refusal before its claim
+
+Status: `Verified`
+
+Scope or hypothesis: Resolve the pending restoration status in BL-20261103-0807 using actual readiness and independent/root acceptance, then record the approved candidate launch's terminal result. Verification here covers the qualified prerequisite and the observed refusal, not candidate qualification or experiment success.
+
+Decisions: Accept the exact restored qualified service after physical/API/passive-lease review. Preserve the unchanged base owner, images, profile and lease. Stop the candidate path on its disk preflight refusal, retain the running qualified service and preserve both the refusal and the dispatched root release. Do not infer permission to repeat an unused claim or lower the fixed disk floor.
+
+Changes: The restored prerequisite produced actual readiness at 08:15:56 UTC, 624.28 seconds after its restoration claim. The four-GET observation at 08:19:02 UTC passed all eight physical/profile/API/lease checks, with zero running and waiting model requests. Independent review and root acceptance followed. The candidate unit was then dispatched once; at 08:21:52 UTC it exited with status 2 and disk_start_below_49gib before creating its serving claim, stopping the qualified service, running numerical tests or starting a candidate container. The follow-up observation found the qualified unit still active and the candidate terminal with no main process.
+
+Evidence: Actual ready 5bc1274aa4a747149453184d789e5345ae3a24cb582e6f333a5fe732734cbc57, current proof 456fdc332102fd6f70164500317add6f342f0e7c7eaf2001ab952e35d236ba39, independent review 3ead0f7e296d28a0c4e04c3130b8c361348827f3195246ec5e10e91669878b54 and root acceptance 4f36eb6a9c487739287d9756bbe391a1393dd0468a50016de7e368e267e5f553 bind the same base owner d8c6030fe792ad9910ea02aa84c06864750832d9c8af599fe05ae2beb994c622. Readiness established the pinned model alias, context 262144 and engine 0.1.dev20073+g8e685d198, not generation performance. Candidate root release 54f8ef1bb124bb29dc041a3f4063bc9a80278bc2c755ef71d7412b3167a3e1bf passed source/current-qualified checks and unit dispatch; these did not include the driver's later disk gate. Refusal e3ff568da5d3a39c636a7a705136bc769ac4fda732a53a43985eac2086e03e0d explicitly records claimPresent false and noAutomaticRetry true. Disk/unit observation 5625ca2f78af5c5180f76a6b76e7effb439a467f42deb34dc7f8374a01e1bdb5 at 08:25:13 UTC measured 48562712576 bytes available, or 45.2275505065918 GiB, against the unchanged 52613349376-byte / 49 GiB minimum. The shortfall was 4050636800 bytes, approximately 3.77 GiB.
+
+Failures or blockers: The candidate supervisor failed admission on disk capacity. Its absence of a claim establishes that model/numerical work did not begin, not that an automatic retry is authorized. Read-only scoped inventory 06af68fade22b7b326dca1d0eb51144f90877ce70e97116e61518171f632e298 found reported reclaimable Docker images/cache insufficient to close the shortfall. Required conversion artifacts, active caches and unrelated archives are not a cleanup allowance. No pruning, deletion, cache purge or further service mutation was performed. A final read-only observation at 08:38:01 UTC, 6c321dda101ee30aa6025f92ae7749ff3e10ba6529802ccf9f803e7ff77ba5da, found 48365023232 bytes / 45.04343795776367 GiB available, the same qualified process active, the candidate failed with status 2, and no candidate claim or stop outcome. Actual space must therefore be remeasured after preparation.
+
+Limitations and non-claims: Current qualified readiness is point-in-time and must be refreshed before any later admission. The follow-up establishes continued unit activity, not a second health measurement. No new candidate qualification, paired performance, pilot artifact, H4 or H5 result exists. Fresh H5 inputs, candidates and evaluator gold remain unread. Private operational evidence stays outside Git.
+
+Paid exposure: Zero new model generation, tokenizer or paid-provider requests. Four historical standalone slots remain consumed under the approved thirty-two-slot aggregate; the disk refusal adds and refunds none. Preserve all historical H4 receipts, the USD 0.60 all-history split cap and H5 eighteen rows/USD 21.60 total/USD 3 cloud row/USD 0.60 split row.
+
+Next gate: Preserve the exact running qualified service and terminal evidence. Prepare a concrete owner-managed disk remedy and one explicitly bounded unused-claim continuation under the same November 4 cutoff; do not clean the box or relaunch automatically.
+
+References: docs/plans/PHASE4_FAST_V3_FIXTURE_ADMISSION_RETRY_V1.md; BL-20261103-0807-fixture-retry-prerequisite-restoration-started; BL-20261103-0752-fixture-retry-amendment-approved.
+
+### BL-20261103-0839-disk-preflight-continuation-proposed -- 2026-11-03 -- Propose one manual continuation after owner-managed disk preparation
+
+Status: `Proposed`
+
+Scope or hypothesis: Resume the already-approved experiment after its pre-claim disk refusal, without another restoration, source change, lowered resource floor, new request allowance or extended cutoff. The preceding stop condition remains binding until this specific continuation is approved.
+
+Decisions: Propose owner-managed freeing of at least 5 GiB on the relevant filesystem, followed by an actual at-least-49-GiB measurement and fresh acceptance of the same running qualified service. Retain the installed base owner decision unchanged and use a separate additive decision for exactly one manual pre-claim continuation. Preserve the original refusal and root release byte-for-byte. The proposal permits only a necessary reset of the exact failed candidate unit, never a state, claim, ledger, clock or qualified-service reset.
+
+Changes: Add a reviewable procedure requiring no new candidate/pilot claims, unchanged protected assets and source bindings, fresh physical/API/lease proof, a fresh candidate root release and an exclusive durable manual-permission consumption record before one invocation. A second refusal consumes this manual permission even if the serving claim remains absent. The unchanged serving driver retains its own disk check, claim, captured-service stop, lease handoff, numerical/startup gates and scoped recovery. No new implementation or actual authority is created.
+
+Evidence: Proposed plan 43e4a1522d7e27cb1e05ac0e20bf32a6e48f037ebaf7ca72c8da8c34c292c706 passed independent source/evidence review 6f4524c9febae402b02fab844df8d3b783bf4ff3d1a3e4261d36da15d2127b89. Review checked exact saved failure/release/base-owner bytes, the existing 49 GiB ordinary-user disk gate, preserved historical claims, once-only manual consumption, unchanged source manifests and caps, and public privacy. It made no box or model calls. The proposed procedure is operator-controlled; it does not claim a new automated guard in the frozen serving implementation.
+
+Failures or blockers: Owner disk preparation and explicit approval of this named continuation are still required. No sufficiently large disposable SOAR-owned cleanup target was established. The approved retry plan says to stop on failure and prohibits automatic replacement; unused capacity or an absent claim does not waive that requirement. No further launch has occurred.
+
+Limitations and non-claims: The plan grants no agent deletion, Docker prune, cache purge, archive removal, lease manipulation, rebuild, reconversion or qualified-service restart. Source review is not runtime verification. Preparation does not establish qualification, artifact quality, H4, H5 or scoring success.
+
+Paid exposure: No new calls or charges. The unchanged aggregate is four retained historical slots plus sixteen fresh qualification and at most twelve pilot, totaling thirty-two zero-fee slots. The all-history H4 split cap remains USD 0.60; H5 remains eighteen rows/USD 21.60 total/USD 3 cloud row/USD 0.60 split row. Every new admission still precedes November 4, 2026, 10:00 UTC / 18:00 Asia/Shanghai.
+
+Next gate: Publish this reviewed proposal and accurate evidence, then obtain the owner-managed disk confirmation and named one-time continuation decision. Verify actual space and same-service readiness before creating a fresh release; any drift or second refusal stops the path.
+
+References: docs/plans/PHASE4_FIXTURE_RETRY_DISK_PREFLIGHT_CONTINUATION_V1.md; docs/plans/PHASE4_FAST_V3_FIXTURE_ADMISSION_RETRY_V1.md; BL-20261103-0838-qualified-restoration-accepted-candidate-disk-refused.

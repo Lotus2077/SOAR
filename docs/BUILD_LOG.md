@@ -28817,3 +28817,47 @@ Paid exposure: Zero new box, model, tokenizer, helper or paid-provider calls fro
 Next gate: Publish the reviewed revised proposal and append-only evidence, require CI for that exact public head, then obtain one named owner approval covering the prerequisite restoration, single candidate retry, thirty-two-slot aggregate, conditional pilot/H4/H5 and November 4, 10:00 UTC cutoff. Only afterward may fresh actual prerequisites and phase-specific releases admit runtime work. No live work is authorized by this source-verification entry.
 
 References: docs/plans/PHASE4_FAST_V3_FIXTURE_ADMISSION_RETRY_V1.md; BL-20261103-0741-qualified-service-terminal-and-retry-prerequisite-proposed; BL-20261103-0708-fixture-correction-offline-verified; BL-20261103-0709-complete-fixture-retry-amendment-proposed.
+
+### BL-20261103-0752-fixture-retry-amendment-approved -- 2026-11-03 -- Record owner approval of the bounded retry and retain a pre-launch image-binding correction
+
+Status: `Approved`
+
+Scope or hypothesis: Execute the reviewed fixture-admission retry after the owner answered the concrete amendment request. The owner replied exactly: "Approve the retry amendment". Approval covers the same full qualification, artifact pilot and conditional H4/H5 sequence; it does not establish that any live gate has passed.
+
+Decisions: Approve plan 182fe5ac9cbe5ae37996a7d7d1ee12cad4809dcf10c447fef2e1bda808c70ef1 from reviewed public head b7710eb09a89991de39ab0fa391c4026188e36d9: one exact qualified-service prerequisite restoration, one fresh sixteen-case candidate qualification, up to twelve pilot requests and then conditional H4/H5. Retain all four consumed historical slots and raise the aggregate zero-fee ceiling from thirty to thirty-two. The new admission cutoff is November 4, 2026, 10:00 UTC / 18:00 Asia/Shanghai, without automatic extension. All existing phase gates, stop conditions, workload requirements and monetary limits remain binding.
+
+Changes: The decision is durably recorded before deployment or runtime. During final release preparation, independent review identified an implementation defect: the local release used the model-serving image identity for the tool sandbox consumed by the artifact runner. Hold launch, preserve the initial source/review and unused authority binding, and correct the two distinct identities within the approved plan. Rebind and independently verify the affected local/downstream source before creating the actual deployed owner/release records. This correction changes no approved workload, model, serving profile, sandbox, allocation, permission or cutoff.
+
+Evidence: Publication proof 08aed51f25781d2e12f8f1e76adbbfbc7ce055d5fd49fb67150a2feebc4a5d86 binds the reviewed head and successful check/electron-e2e jobs in CI run 41597879049; the draft PR description was read back byte-exact. The plan and four-source preparation were reviewed before the approval question. The subsequent source-review correction c32d855b1562d827ce3f41f021c8538b57217f435f2183a7b27de735ac0228f8 explicitly supersedes the local d6cae source PASS concerning image binding. The model-serving image remains 9c0182182d93192a0f68225580bbe5bba6833474f979a9291f9dc1039e00f8dc and the original tool sandbox remains e5c7075fac7a7a68900db45e3de06e50e7b0f6896a5ca0f82cddb4ef8ad4ac2f. Both must be checked independently. No actual service or phase claim has been created.
+
+Failures or blockers: The final launch check found a real pilot image-binding defect despite prior offline passes. Its correction and independent verification are required before launch; earlier PASS records remain historical and are not silently rewritten. The earlier live F2 failure and historical unresolved receipts remain unchanged. Approval removes the amended-window/allocation decision blocker but does not waive technical prerequisites.
+
+Limitations and non-claims: No restored service, fresh qualification, artifact, H4, H5 or scoring success is claimed by this approval. No fresh H5 inputs, candidates or evaluator gold were read. Private authority/source/evidence and generated artifacts remain outside Git.
+
+Paid exposure: No new generation, tokenizer or paid-provider request has occurred. Approved standalone work remains at most twenty-eight new zero-fee slots plus four historical. Preserve the single all-history H4 split USD 0.60 cap and H5 eighteen rows/USD 21.60 total/USD 3 cloud row/USD 0.60 split row; no second allowance or repeated Claude calibration is granted.
+
+Next gate: Finish the narrow image-binding correction and independent source verification, then bind the approved decision to final sources and restore the exact prerequisite service once. Require fresh actual physical/API/lease evidence before the candidate attempt. Full qualification and artifact acceptance must precede all three H4 loops, and accepted H4 must precede H5.
+
+References: docs/plans/PHASE4_FAST_V3_FIXTURE_ADMISSION_RETRY_V1.md; BL-20261103-0743-fixture-retry-integration-offline-verified; BL-20261103-0741-qualified-service-terminal-and-retry-prerequisite-proposed.
+
+### BL-20261103-0757-fixture-retry-image-binding-corrected -- 2026-11-03 -- Verify separate serving and tool image identities before the approved launch
+
+Status: `Verified`
+
+Scope or hypothesis: Remove the pre-launch image-binding defect without changing the approved experiment. The tool runner must use the original sandbox image, while physical serving and the model manifest must independently match the pinned model-serving image.
+
+Decisions: Retain the same approved plan, owner answer, full workload, image identities, profile, thirty-two-slot aggregate, monetary caps and November 4 cutoff. Supersede the unused initial local authority binding before deployment. No additional attempt or new permission is inferred. Preserve the initial source/reviews and their explicit correction as historical evidence.
+
+Changes: The local release now verifies its tool image and role manifest against the original tool sandbox, and separately verifies serving-manifest/physical images against the owner model image. Regression coverage exercises the full release with correct distinct images and rejects cross-wired or changed identities. Rebind the downstream source and independently review its six affected binding/test files. Serving and provenance implementations remain unchanged. The original tool sandbox image was also confirmed present without creating a container.
+
+Evidence: Corrected local source 4ca913d9fe65e3646bfde0cde06c90b551a5e5fe81fefb43d8502889656292ef passes sixty-six Node cases, strict TypeScript and two Python cases; independent review 01e94ff01e8ad794c3cd8a297fb65268ec0fe670ce6ff468c38bfeaa9b638982. Corrected downstream source f4666cefd245d43de47a6784e2b4607f99fbd7099a8820a1b540d55e417e1bdd passes sixty-seven Node cases, three strict TypeScript configurations and the held check; independent review ef508dda92d620df1987a152bd36cf3bb1c44d49571865784472ca2b21334a94. Corrected integration review 806239429cbb07df1eebb30d1d1a375dbbd27641a45c8df3b0ee8018ed71b09b verifies final snapshots/dependencies and unchanged original ledger bytes. Current runtime CI proof 2b4f16939b503cfe78f784ff65500d44c00c90369f70ce988b1b911b23730c5b rechecks the two successful jobs for the unchanged tracked runtime and plan; private source verification is explicitly separate. Final owner decision binding ad55537b75181831e2619a025197d1eca04a4df6a886a629d091d842349778b1 retains the exact approved answer and supersedes unused binding 7f47f8d4244b9012ce9f5ce7eec200ed2a19dfe99e2250bd7ff543bd5f00b193 before any runtime claim.
+
+Failures or blockers: The original local source PASS is superseded for this defect; its records and the earlier integration proof remain preserved. No qualification or artifact result can be inferred from the correction. Actual service restoration and all subsequent gates are still required.
+
+Limitations and non-claims: Repeated CPU checks use fake transport and temporary ledgers; they establish no serving, model-quality, artifact, H4 or H5 success. The source staging operation verified forty-six files without installing launch authority or changing a service. Fresh H5 inputs, candidates and evaluator gold remain unread and private operational artifacts remain outside Git.
+
+Paid exposure: No new model, tokenizer or paid-provider requests. The four historical slots and all caps remain unchanged from the approved amendment. No generation claim or service attempt has been created by this verification.
+
+Next gate: Install the final same-decision owner record and reviewed evidence, obtain fresh bounded empty-state proof, and release exactly one qualified prerequisite restoration. Actual readiness and independent/root acceptance must precede the single candidate attempt.
+
+References: docs/plans/PHASE4_FAST_V3_FIXTURE_ADMISSION_RETRY_V1.md; BL-20261103-0752-fixture-retry-amendment-approved; BL-20261103-0743-fixture-retry-integration-offline-verified.

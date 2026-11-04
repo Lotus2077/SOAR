@@ -8,23 +8,37 @@ export interface FlashNextAdmissionDescriptor { path: string; sha256: string }
 export const LOCAL_TOKEN_ADMISSION_STOP = "local_token_admission_denied";
 const positive = z.number().int().safe().positive(), count = z.number().int().safe().nonnegative();
 const file = z.object({ path: z.string().refine(isAbsolute), sha256: sha256Schema }).strict();
-const policySchema = z.object({
-  version: z.literal(1), contract: z.literal("flash_next_v1"), model: z.string().min(1).max(256),
+const policyFields = {
+  contract: z.literal("flash_next_v1"), model: z.string().min(1).max(256),
   endpointSha256: sha256Schema, maxModelLen: positive, safetyMarginTokens: count,
-  tokenizerSha256: sha256Schema, templateSha256: sha256Schema, servingManifest: file,
+  servingManifest: file,
   helper: file.extend({ configPath: z.string().refine(isAbsolute), configSha256: sha256Schema }).strict(),
   timeoutMs: z.number().int().min(1).max(30_000),
-}).strict().refine(p => p.maxModelLen > p.safetyMarginTokens);
+};
+const policySchema = z.discriminatedUnion("version", [
+  z.object({ version: z.literal(1), ...policyFields, tokenizerSha256: sha256Schema, templateSha256: sha256Schema }).strict(),
+  // API-only identity binds the reviewed tokenization contract, not unobserved server files.
+  z.object({ version: z.literal(2), ...policyFields, tokenizationContractSha256: sha256Schema }).strict(),
+]).refine(p => p.maxModelLen > p.safetyMarginTokens);
 
 /** Persisted hash/count evidence only. Never includes a prompt, token IDs, executable path or helper output. */
-export const LocalTokenAdmissionEvidenceSchema = z.object({
-  version: z.literal(1), policySha256: sha256Schema, bodySha256: sha256Schema,
+const evidenceFields = {
+  policySha256: sha256Schema, bodySha256: sha256Schema,
   servingManifestSha256: sha256Schema, endpointSha256: sha256Schema,
-  tokenizerSha256: sha256Schema, templateSha256: sha256Schema,
   helperSha256: sha256Schema, helperConfigSha256: sha256Schema,
   promptTokens: positive, maxOutputTokens: positive, maxModelLen: positive, safetyMarginTokens: count,
-}).strict().refine(e => e.promptTokens <= e.maxModelLen - e.maxOutputTokens - e.safetyMarginTokens);
-export type LocalTokenAdmissionEvidence = z.infer<typeof LocalTokenAdmissionEvidenceSchema>;
+};
+const evidenceFits = (e: { promptTokens: number; maxModelLen: number; maxOutputTokens: number; safetyMarginTokens: number }) =>
+  e.promptTokens <= e.maxModelLen - e.maxOutputTokens - e.safetyMarginTokens;
+// Retain the v1 object export (including .shape) for existing pinned consumers.
+export const LocalTokenAdmissionEvidenceSchema = z.object({
+  version: z.literal(1), ...evidenceFields, tokenizerSha256: sha256Schema, templateSha256: sha256Schema,
+}).strict().refine(evidenceFits);
+export const LocalTokenAdmissionEvidenceV2Schema = z.object({
+  version: z.literal(2), ...evidenceFields, tokenizationContractSha256: sha256Schema,
+}).strict().refine(evidenceFits);
+export const LocalTokenAdmissionEvidenceAnySchema = z.union([LocalTokenAdmissionEvidenceSchema, LocalTokenAdmissionEvidenceV2Schema]);
+export type LocalTokenAdmissionEvidence = z.infer<typeof LocalTokenAdmissionEvidenceAnySchema>;
 export const LOCAL_TOKEN_ADMISSION_CODES = ["local_token_admission_missing", "local_token_admission_invalid",
   "local_token_admission_pin_drift", "local_token_admission_helper_failed", "local_token_admission_timeout",
   "local_token_admission_cancelled", "local_token_admission_proof_invalid", "local_token_context_exceeded"] as const;
@@ -51,11 +65,16 @@ function pinned(path: string, expected: string, executable = false, maxBytes = 1
   } catch { return invalid(); }
 }
 
-const helperProof = z.object({
-  bodySha256: sha256Schema, tokenizerSha256: sha256Schema, templateSha256: sha256Schema,
+const helperProofFields = {
+  bodySha256: sha256Schema,
   servingManifestSha256: sha256Schema, endpointSha256: sha256Schema,
   promptTokens: positive, maxModelLen: positive, fits: z.boolean(), generationDispatched: z.literal(false),
+};
+const helperProofV1 = z.object({
+  ...helperProofFields, tokenizerSha256: sha256Schema, templateSha256: sha256Schema,
 });
+const helperProofV2 = z.object({ version: z.literal(2), ...helperProofFields, tokenizationContractSha256: sha256Schema }).strict();
+type HelperProof = z.infer<typeof helperProofV1> | z.infer<typeof helperProofV2>;
 
 /** A host-owned, hash-pinned executable interface. No model/provider callback can supply a count. */
 export class FlashNextTokenAdmission {
@@ -88,11 +107,12 @@ export class FlashNextTokenAdmission {
   validateAtCommit(evidence: LocalTokenAdmissionEvidence, body: string, endpoint: string, model: string, contextTokens: number): void {
     this.verifyPins();
     const request = this.request(body, endpoint, model, contextTokens), p = this.policy;
-    if (!LocalTokenAdmissionEvidenceSchema.safeParse(evidence).success || evidence.policySha256 !== this.sha256 ||
+    if (!LocalTokenAdmissionEvidenceAnySchema.safeParse(evidence).success || evidence.policySha256 !== this.sha256 ||
         evidence.bodySha256 !== request.bodySha256 || evidence.maxOutputTokens !== request.maxOutputTokens ||
         evidence.maxModelLen !== p.maxModelLen || evidence.safetyMarginTokens !== p.safetyMarginTokens ||
         evidence.endpointSha256 !== p.endpointSha256 || evidence.servingManifestSha256 !== p.servingManifest.sha256 ||
-        evidence.tokenizerSha256 !== p.tokenizerSha256 || evidence.templateSha256 !== p.templateSha256 ||
+        !(p.version === 1 ? evidence.version === 1 && evidence.tokenizerSha256 === p.tokenizerSha256 && evidence.templateSha256 === p.templateSha256 :
+          evidence.version === 2 && evidence.tokenizationContractSha256 === p.tokenizationContractSha256) ||
         evidence.helperSha256 !== p.helper.sha256 || evidence.helperConfigSha256 !== p.helper.configSha256) invalid();
   }
   async admit(body: string, endpoint: string, model: string, contextTokens: number, signal?: AbortSignal, timeoutMs = 30_000): Promise<LocalTokenAdmissionEvidence> {
@@ -123,15 +143,18 @@ export class FlashNextTokenAdmission {
         if (signal?.aborted) cancel();
       });
       if (signal?.aborted) invalid("local_token_admission_cancelled");
-      let proof: z.infer<typeof helperProof>;
-      try { proof = helperProof.parse(JSON.parse(raw)); } catch { return invalid("local_token_admission_proof_invalid"); }
-      if (proof.bodySha256 !== bodySha256 || proof.tokenizerSha256 !== p.tokenizerSha256 || proof.templateSha256 !== p.templateSha256 ||
+      let proof: HelperProof;
+      try { proof = (p.version === 1 ? helperProofV1 : helperProofV2).parse(JSON.parse(raw)); } catch { return invalid("local_token_admission_proof_invalid"); }
+      const identityMatches = p.version === 1 ? "tokenizerSha256" in proof && proof.tokenizerSha256 === p.tokenizerSha256 && proof.templateSha256 === p.templateSha256 :
+        "version" in proof && proof.version === 2 && proof.tokenizationContractSha256 === p.tokenizationContractSha256;
+      if (proof.bodySha256 !== bodySha256 || !identityMatches ||
           proof.servingManifestSha256 !== p.servingManifest.sha256 || proof.endpointSha256 !== p.endpointSha256 || proof.maxModelLen !== p.maxModelLen ||
           proof.fits !== (proof.promptTokens <= p.maxModelLen - request.maxOutputTokens)) invalid("local_token_admission_proof_invalid");
       if (proof.promptTokens > p.maxModelLen - request.maxOutputTokens - p.safetyMarginTokens) invalid("local_token_context_exceeded");
-      const evidence = Object.freeze({ version: 1 as const, policySha256: this.sha256, bodySha256,
+      const identity = p.version === 1 ? { version: 1 as const, tokenizerSha256: p.tokenizerSha256, templateSha256: p.templateSha256 } :
+        { version: 2 as const, tokenizationContractSha256: p.tokenizationContractSha256 };
+      const evidence = Object.freeze({ ...identity, policySha256: this.sha256, bodySha256,
         servingManifestSha256: p.servingManifest.sha256, endpointSha256: p.endpointSha256,
-        tokenizerSha256: p.tokenizerSha256, templateSha256: p.templateSha256,
         helperSha256: p.helper.sha256, helperConfigSha256: p.helper.configSha256,
         promptTokens: proof.promptTokens, maxOutputTokens: request.maxOutputTokens, maxModelLen: p.maxModelLen, safetyMarginTokens: p.safetyMarginTokens });
       this.validateAtCommit(evidence, body, endpoint, model, contextTokens);

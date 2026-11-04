@@ -4,8 +4,9 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PrivateAgentBroker, type BrokerRequest } from "../../src/main/private-agent/broker";
-import { digest } from "../../src/main/private-agent/contracts";
-import { LocalTokenAdmissionError, LOCAL_TOKEN_ADMISSION_STOP } from "../../src/main/private-agent/flash-next-admission";
+import { canonical, digest } from "../../src/main/private-agent/contracts";
+import { loadFlashNextTokenAdmission, LocalTokenAdmissionEvidenceAnySchema, LocalTokenAdmissionEvidenceSchema,
+  LocalTokenAdmissionError, LOCAL_TOKEN_ADMISSION_STOP } from "../../src/main/private-agent/flash-next-admission";
 import { hasInvalidModelRequestSizeStop, modelRequestTokenAdmissionStop } from "../../src/main/private-agent/model";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { flashNextAdmissionFixture } from "../helpers/flash-next-admission-fixture";
@@ -72,6 +73,99 @@ describe("Flash exact-token proof", () => {
     await expect(f.admission.admit(body(), f.endpoint, f.model, 1024)).rejects.toMatchObject({ code: "local_token_admission_timeout" });
     const controller = new AbortController(); controller.abort();
     await expect(f.admission.admit(body(), f.endpoint, f.model, 1024, controller.signal)).rejects.toMatchObject({ code: "local_token_admission_cancelled" });
+  });
+});
+
+describe("Flash API-only token contract", () => {
+  it("preserves the legacy v1 evidence fields and canonical bytes", async () => {
+    const f = fixture({ promptTokens: 600 }), p = f.policy;
+    const proof = await f.admission.admit(body(), f.endpoint, f.model, 1024);
+    const expected = { version: 1, policySha256: f.descriptor.sha256, bodySha256: digest(body()),
+      servingManifestSha256: p.servingManifest.sha256, endpointSha256: p.endpointSha256,
+      tokenizerSha256: p.tokenizerSha256, templateSha256: p.templateSha256,
+      helperSha256: p.helper.sha256, helperConfigSha256: p.helper.configSha256,
+      promptTokens: 600, maxOutputTokens: 256, maxModelLen: 1024, safetyMarginTokens: 0 };
+    expect(canonical(proof)).toBe(canonical(expected));
+    expect(canonical(LocalTokenAdmissionEvidenceSchema.parse(expected))).toBe(canonical(expected));
+    expect(LocalTokenAdmissionEvidenceSchema.shape.tokenizerSha256).toBeDefined();
+  });
+  it("admits v2 exact context equality without asserting physical tokenizer hashes", async () => {
+    const f = fixture({ version: 2, promptTokens: 768 });
+    const proof = await f.admission.admit(body(), f.endpoint, f.model, 1024);
+    expect(proof).toMatchObject({ version: 2, tokenizationContractSha256: f.policy.tokenizationContractSha256,
+      promptTokens: 768, maxOutputTokens: 256, bodySha256: digest(body()) });
+    expect(Object.isFrozen(proof)).toBe(true);
+    expect(proof).not.toHaveProperty("tokenizerSha256"); expect(proof).not.toHaveProperty("templateSha256");
+    expect(LocalTokenAdmissionEvidenceAnySchema.parse(proof)).toEqual(proof);
+    expect(LocalTokenAdmissionEvidenceSchema.safeParse(proof).success).toBe(false);
+    expect(() => f.admission.validateAtCommit(proof, body(), f.endpoint, f.model, 1024)).not.toThrow();
+  });
+  it.each([
+    { tokenizationContractSha256: digest("wrong contract") }, { version: 1 }, { version: null },
+    { tokenizerSha256: digest("unobserved tokenizer") }, { templateSha256: digest("unobserved template") },
+    { endpointSha256: digest("other endpoint") }, { maxModelLen: 2048 }, { generationDispatched: true },
+  ])("rejects mismatched or hybrid v2 helper identity %j without committing", async proofOverrides => {
+    const f = brokerFixture({ version: 2, proofOverrides });
+    await expect(f.broker.request(f.request)).rejects.toMatchObject({ code: "local_token_admission_proof_invalid" });
+    expect(f.store.dispatches("job")).toEqual([]); expect(f.wire).not.toHaveBeenCalled();
+  });
+  it("rejects a pure v2 proof supplied to a legacy helper contract", async () => {
+    const f = fixture({ proofOverrides: { version: 2, tokenizationContractSha256: digest("API contract") },
+      omitProofFields: ["tokenizerSha256", "templateSha256"] });
+    await expect(f.admission.admit(body(), f.endpoint, f.model, 1024)).rejects.toMatchObject({ code: "local_token_admission_proof_invalid" });
+  });
+  it("preserves legacy helper acceptance of ignored extra fields", async () => {
+    const f = fixture({ proofOverrides: { version: 1, tokenizationContractSha256: digest("ignored API identity"), legacyDiagnostic: true } });
+    const proof = await f.admission.admit(body(), f.endpoint, f.model, 1024);
+    expect(proof).toMatchObject({ version: 1, tokenizerSha256: f.policy.tokenizerSha256, templateSha256: f.policy.templateSha256 });
+    expect(proof).not.toHaveProperty("tokenizationContractSha256"); expect(proof).not.toHaveProperty("legacyDiagnostic");
+  });
+  it.each([1, 2] as const)("rejects mixed policy identities for version %s", version => {
+    const f = fixture({ version });
+    const extra = version === 1 ? { tokenizationContractSha256: digest("API contract") } :
+      { tokenizerSha256: digest("tokenizer"), templateSha256: digest("template") };
+    writeFileSync(f.descriptor.path, JSON.stringify({ ...f.policy, ...extra }));
+    expect(() => loadFlashNextTokenAdmission({ path: f.descriptor.path, sha256: digest(readFileSync(f.descriptor.path)) }))
+      .toThrowError(expect.objectContaining({ code: "local_token_admission_invalid" }));
+  });
+  it("rechecks v2 body, endpoint, context and contract at commit", async () => {
+    const f = fixture({ version: 2 }), proof = await f.admission.admit(body(), f.endpoint, f.model, 1024);
+    for (const [b, endpoint, model, context] of [[body(128), f.endpoint, f.model, 1024], [body(), f.endpoint + "x", f.model, 1024],
+      [body(), f.endpoint, "other-model", 1024], [body(), f.endpoint, f.model, 2048]] as const) {
+      expect(() => f.admission.validateAtCommit(proof, b, endpoint, model, context)).toThrow(LocalTokenAdmissionError);
+    }
+    const wrong = LocalTokenAdmissionEvidenceAnySchema.parse({ ...proof, tokenizationContractSha256: digest("other contract") });
+    expect(() => f.admission.validateAtCommit(wrong, body(), f.endpoint, f.model, 1024)).toThrow(LocalTokenAdmissionError);
+    const legacy = LocalTokenAdmissionEvidenceSchema.parse({ ...Object.fromEntries(Object.entries(proof).filter(([key]) => key !== "tokenizationContractSha256")), version: 1,
+      tokenizerSha256: digest("tokenizer"), templateSha256: digest("template") });
+    expect(() => f.admission.validateAtCommit(legacy, body(), f.endpoint, f.model, 1024)).toThrow(LocalTokenAdmissionError);
+  });
+  it("refuses changed v2 policy bytes after asynchronous proof before any receipt", async () => {
+    const f = brokerFixture({ version: 2 }), original = f.admission.admit.bind(f.admission);
+    vi.spyOn(f.admission, "admit").mockImplementation(async (...args) => {
+      const proof = await original(...args); writeFileSync(f.descriptor.path, "changed after proof"); return proof;
+    });
+    await expect(f.broker.request(f.request)).rejects.toMatchObject({ code: "local_token_admission_pin_drift" });
+    expect(f.store.dispatches("job")).toEqual([]); expect(f.wire).not.toHaveBeenCalled();
+  });
+  it("enforces v2 output reservation and safety margin before dispatch", async () => {
+    const f = brokerFixture({ version: 2, promptTokens: 768, safetyMarginTokens: 1 });
+    await expect(f.broker.request(f.request)).rejects.toMatchObject({ code: "local_token_context_exceeded" });
+    expect(f.store.dispatches("job")).toEqual([]); expect(f.wire).not.toHaveBeenCalled();
+    await expect(f.admission.admit(body(128), f.endpoint, f.model, 1024)).resolves.toMatchObject({ version: 2, maxOutputTokens: 128 });
+  });
+  it("persists and reads v2 evidence byte-exact in the real store without transport", async () => {
+    const f = brokerFixture({ version: 2, promptTokens: 600 });
+    const proof = await f.admission.admit(body(), f.endpoint, f.model, 1024);
+    const { text: _text, ...preview } = f.broker.preview(f.request);
+    const commit = (evidence: typeof proof) => f.store.commit({ ...preview, reservedFeeMicrousd: 0,
+      scan: { status: "not_required_inside_boundary" }, localTokenAdmission: evidence },
+      () => f.admission.validateAtCommit(evidence, body(), f.endpoint, f.model, 1024));
+    expect(() => commit({ ...proof, tokenizerSha256: digest("unobserved tokenizer") } as typeof proof)).toThrow();
+    expect(f.store.dispatches("job")).toEqual([]);
+    const receipt = commit(proof), reopened = new PrivateAgentStore(f.db).dispatch(receipt.id);
+    expect(canonical(reopened.localTokenAdmission)).toBe(canonical(proof));
+    expect(f.wire).not.toHaveBeenCalled();
   });
 });
 

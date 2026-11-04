@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
-import { LocalTokenAdmissionEvidenceSchema, type LocalTokenAdmissionEvidence } from "./flash-next-admission";
+import { LocalTokenAdmissionEvidenceAnySchema, type LocalTokenAdmissionEvidence } from "./flash-next-admission";
 import {
   ContextSchema, ExactApprovalSchema, GrantSchema, JobPolicySchema, canonical, contextFingerprint,
   privateAgentId, type ExactApproval, type PrivateAgentContext, type PrivateAgentGrant, type PrivateJobPolicy,
@@ -188,7 +188,7 @@ export class PrivateAgentStore {
     validate: (policy: PrivateJobPolicy, context: PrivateAgentContext) => void,
     grantId?: string, now = Date.now()): DispatchReceipt {
     return this.db.transaction(() => {
-      const admission = input.localTokenAdmission === undefined ? undefined : LocalTokenAdmissionEvidenceSchema.parse(input.localTokenAdmission);
+      const admission = input.localTokenAdmission === undefined ? undefined : LocalTokenAdmissionEvidenceAnySchema.parse(input.localTokenAdmission);
       const parsedApproval = input.approval === undefined ? undefined : ExactApprovalSchema.safeParse(input.approval);
       if (parsedApproval && (!parsedApproval.success || parsedApproval.data.maxFeeMicrousd !== input.reservedFeeMicrousd || !grantId)) {
         throw new Error("private_agent_approval_invalid");

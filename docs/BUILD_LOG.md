@@ -29179,3 +29179,25 @@ Paid exposure: Zero new requests or charges for this design. The proposed final 
 Next gate: Publish the reviewed proposal and request the named final four-slot amendment. If approved, durably bind that decision, implement and independently verify the exact context/accounting delta, refresh readiness and run only that approved attempt. Stop on the next failed live gate or unresolved outcome. H4/H5 remain conditional on actual full acceptance.
 
 References: BL-20261105-0231-api-only-replacement-pilot-first-draft-failed; docs/plans/PHASE4_API_ONLY_PRELOADED_WRITER_PILOT_V1.md; docs/plans/PHASE4_API_ONLY_ARTIFACT_PILOT_RETRY_V1.md.
+
+### BL-20261105-0335-final-preloaded-writer-pilot-approved -- 2026-11-05 -- Approve the final four-slot preloaded-writer amendment
+
+Status: `Approved`
+
+Scope or hypothesis: Continue the qualification-to-artifact-to-H4/H5 path with the reviewed private input-presentation variant. The owner answered the named question exactly: "Approve final four-slot preloaded-writer pilot amendment". The approved plan is 107f57377705fb0fdcd01c17d02e01fc69a6f5ed9f026cdc0a45ce60b2b51cfa at public commit c506f91259d26d2e6bfdbc7997dcd953710bab2c. Preserve the earlier proposal and both failed pilots unchanged.
+
+Decisions: Authorize implementation, independent verification and exactly one final pilot with at most four new zero-fee model requests and four tools. Present the same complete frozen argument/evidence text once in every request's retained initial context, explicitly as untrusted source data. This approval covers the changed private input presentation; it does not claim identical writer prompts or accept previous artifacts. No further routine approval is needed for reviewed implementation and release under this decision.
+
+Changes: Prepare additive context, admission, accounting, failure-diagnostic and downstream acceptance controls. Preserve all twenty-eight consumed rows and five claims, both failed attempts, original task/brief/corpus/six-file seed, production runtime, research protocol, native token contract, API identity and all eight local-role settings. Keep normal tool-output projection. No selected evidence, new answers, source shortening, quality waiver, service change or repeated qualification is authorized.
+
+Evidence: The explicit owner reply supplies the new amendment authority. Existing argument/evidence byte counts are 1839 and 18961; exact source hashes are retained in private approval and seed records. Independent design review 9bbaaa348f5a7c7dbc4ea663496d78238a50d8dcdbd6ca9d79f94aeb991cda51 verified full-source inclusion feasibility, the unchanged fourth-action host-check path and historical accounting. Both public CI checks passed on c506f91259d26d2e6bfdbc7997dcd953710bab2c. At receipt processing it was November 5, 03:35 Asia/Shanghai, before the fixed admission cutoff.
+
+Failures or blockers: Exact private source implementation, byte/UTF-8/persistence tests, independent source review, concrete release binding and fresh API readiness remain necessary. Full serialized-body/token admission and four-call artifact completion remain unproven. Stop on the next failed live gate or unresolved outcome; no further attempt, automatic retry, reduced evidence or fallback is granted.
+
+Limitations and non-claims: Preserve the four-completed-turn-or-five-minute substantive draft deadline, frozen-byte root review, all final report/claims/citation/limitation checks, twenty-minute total limit and at-most-20000 completed output-token success criterion. Ordinary fourth-action allowance exhaustion may invoke the unchanged full host checks, but cannot manufacture completion or an extra call. No new implementation, payload, accepted artifact, H4 loop or H5 row is claimed by this approval record. Fresh evaluator inputs and gold remain unread.
+
+Paid exposure: No new requests or charges at approval. At most four added slots keep the standalone aggregate within thirty-two and all three pilots within twelve model requests/twelve tools. Preserve USD 0.60 all-history H4 split and H5 eighteen rows/USD 21.60 total/USD 3 cloud row/USD 0.60 split row. The cutoff remains November 5, 2026, 10:00 UTC / 18:00 Asia/Shanghai.
+
+Next gate: Implement and independently verify the approved context variant and additive three-attempt controls, refresh readiness, then run this one final pilot. Actual substantive acceptance alone admits the three full H4 loops in research/deck/split order and conditional H5.
+
+References: BL-20261105-0240-preloaded-writer-final-pilot-proposed; docs/plans/PHASE4_API_ONLY_PRELOADED_WRITER_PILOT_V1.md.

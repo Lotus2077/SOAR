@@ -17,6 +17,8 @@ import { CLAIMS_CONTEXT_CHARS, CLAIMS_CONTEXT_ENV, CLAIMS_LEDGER_CHECK_ID, CLAIM
   encodeRetainedClaimsSources, isEntailmentDispatch, publicSourceWorkspacePath, type RetainedClaimsSource } from "./claims";
 import { EXECUTION_PROGRESS_POLICY, EXECUTION_PROGRESS_STOP, deriveExecutionProgress, executionProgressBlocks,
   executionProgressStop, readExecutionProgressStop, hasUnresolvedExecutionProgressAction } from "./progress";
+import { researchPresentationIdentity, validateResearchPresentation, type ResearchPresentationV1 } from "./research-presentation";
+import { RESEARCH_FILES } from "./research-contract";
 
 const ArtifactSchema = z.object({ path: z.string().min(1).max(240), description: z.string().min(1).max(2000) }).strict();
 export const GeneralJobContractSchema = z.object({
@@ -41,6 +43,8 @@ export interface GeneralJobOptions {
   contract: GeneralJobContract;
   files: { path: string; bytes: Buffer }[];
   checks: ArtifactCheck[];
+  /** Host-owned complete research presentation, retained once through history and resume. */
+  initialEvidence?: ResearchPresentationV1;
   /** Only a separately public context can use these host-admitted origins without a release. */
   webDestinations?: string[];
   /** Cumulative committed public retrieval attempts, shared by pauses and resumes. */
@@ -184,7 +188,7 @@ function promptLayoutFor(begin: Record<string, unknown> | undefined): PromptLayo
   return (PROMPT_LAYOUT_VERSIONS as readonly unknown[]).includes(version) ? PROMPT_LAYOUTS[version as PromptLayoutVersion] : undefined;
 }
 
-export type PromptProtocolOptions = Pick<GeneralJobOptions, "contract" | "imageId" | "checks" | "webDestinations" | "maxPublicFetches" | "consultation"> & { model: Pick<PrivateAgentModel, "config"> };
+export type PromptProtocolOptions = Pick<GeneralJobOptions, "contract" | "imageId" | "checks" | "webDestinations" | "maxPublicFetches" | "consultation" | "initialEvidence"> & { model: Pick<PrivateAgentModel, "config"> };
 /**
  * The static prompt, tool definitions, protocol inputs and the identities the runner records in `started`, per layout
  * version. Binding the actual prompt and protocol, not just the owner's task, keeps a historical run from silently
@@ -213,6 +217,7 @@ export function promptProtocol(options: PromptProtocolOptions, layoutVersion: Pr
   const promptProtocolSha256 = digest(canonical(protocol));
   const identity = digest(canonical({ contract, imageId: options.imageId, checks: options.checks, model: modelIdentity(options.model.config),
     webDestinations, maxPublicFetches: options.maxPublicFetches ?? null, promptProtocolSha256,
+    ...(options.initialEvidence ? { initialEvidenceIdentity: researchPresentationIdentity(options.initialEvidence) } : {}),
     ...(options.consultation ? { consultationIdentity: options.consultation.identity } : {}) }));
   return { layout, capabilities, prompt, definitions, claimsCheck, protocol, promptProtocolSha256, identity };
 }
@@ -230,6 +235,11 @@ export class GeneralAgentRunner {
   constructor(private readonly options: GeneralJobOptions) {
     const contract = GeneralJobContractSchema.parse(options.contract);
     const context = options.store.context(options.contextId);
+    if (!options.initialEvidence && options.files.some(file => (Object.values(RESEARCH_FILES) as readonly string[]).includes(file.path)))
+      throw new Error("general_initial_evidence_missing");
+    const initialEvidence = options.initialEvidence ? validateResearchPresentation(options.initialEvidence, options.files) : undefined;
+    if (initialEvidence && !context.sources.some(source => source.version === researchPresentationIdentity(initialEvidence)))
+      throw new Error("general_initial_evidence_context_invalid");
     if (options.sessionDeadlineMs !== undefined && (!Number.isFinite(options.sessionDeadlineMs) || options.sessionDeadlineMs < 0))
       throw new Error("general_session_deadline_invalid");
     if (options.maxPublicFetches !== undefined && (!Number.isSafeInteger(options.maxPublicFetches) || options.maxPublicFetches < 1 ||
@@ -245,7 +255,7 @@ export class GeneralAgentRunner {
         options.files.some(file => !context.sources.some(source => source.version === digest(file.bytes)))) {
       throw new Error("general_job_contract_invalid");
     }
-    this.options = { ...options, contract, files: options.files.map(file => ({ path: file.path, bytes: Buffer.from(file.bytes) })),
+    this.options = { ...options, contract, initialEvidence, files: options.files.map(file => ({ path: file.path, bytes: Buffer.from(file.bytes) })),
       checks: options.checks.map(check => ({ ...check })), webDestinations: [...(options.webDestinations ?? [])] };
   }
 
@@ -375,6 +385,9 @@ export class GeneralAgentRunner {
       if (!begin) {
         snapshot = checkpoints.save(this.options.files);
         this.record({ type: "started", identity, promptProtocolSha256, promptLayoutVersion: layout.version,
+          ...(this.options.initialEvidence ? { initialEvidenceIdentity: researchPresentationIdentity(this.options.initialEvidence),
+            initialEvidenceSha256: this.options.initialEvidence.renderedSha256, initialEvidenceBytes: this.options.initialEvidence.renderedBytes,
+            initialEvidencePolicySha256: this.options.initialEvidence.policySha256, originalGoalSha256: this.options.initialEvidence.originalGoalSha256 } : {}),
           executionObservationPolicyVersion: layout.observationPolicyVersion,
           executionProgressPolicyVersion: EXECUTION_PROGRESS_POLICY.version, capabilities,
           contextSha256: contextFingerprint(store.context(contextId)) });
@@ -392,6 +405,7 @@ export class GeneralAgentRunner {
         calls = this.history().filter(event => event.type === "model_started").length + this.options.consultation!.modelCalls();
       }
       const messages: GeneralMessage[] = [{ role: "system", content: prompt }, { role: "user", content: contract.goal }];
+      if (this.options.initialEvidence) messages.push({ role: "user", content: this.options.initialEvidence.rendered });
       for (const event of history) {
         if (event.type === "model_finished") messages.push(event.message as unknown as GeneralMessage);
         else if (event.type === "tool_finished") messages.push({ role: "tool", tool_call_id: String(event.toolCallId), content: event.consultationProposalId && consultationOutput !== undefined ? consultationOutput : String(event.output) });
@@ -422,6 +436,14 @@ export class GeneralAgentRunner {
         const projected = projectExecutionObservations(observationScope, messages, layout.observationPolicyVersion);
         const progress = deriveExecutionProgress({ ...observationScope, snapshot }, contract.requiredArtifacts.map(artifact => artifact.path),
           calls, contract.maxModelCalls, this.options.consultation !== undefined);
+        const requestMessages = layout.request(prompt, projected.messages.slice(1), progress.guidance, budgetMessage(budget));
+        if (this.options.initialEvidence) {
+          const encoded = JSON.stringify(this.options.initialEvidence.rendered).slice(1, -1);
+          if (JSON.stringify(requestMessages).split(encoded).length - 1 !== 1) {
+            this.record({ type: "initial_evidence_not_dispatched", reason: "research_presentation_occurrence_invalid", dispatched: false });
+            return finish("incomplete", "research_presentation_occurrence_invalid");
+          }
+        }
         const operationId = randomUUID();
         this.record({ type: "model_started", operationId, budget, promptProtocolSha256, observationProjection: projected.manifest,
           executionProgress: progress.manifest }); calls++;
@@ -430,7 +452,7 @@ export class GeneralAgentRunner {
         let response: Awaited<ReturnType<PrivateAgentModel["complete"]>>;
         // Layout 2 ends on the turn's guidance and budget; the Anthropic shape sends that tail as a system message, every
         // other shape ignores the option (BL-20261030-0620).
-        try { response = await model.complete(layout.request(prompt, projected.messages.slice(1), progress.guidance, budgetMessage(budget)), definitions, boundedSignal,
+        try { response = await model.complete(requestMessages, definitions, boundedSignal,
           layout.version === 2 ? { trailingTurnMessage: true } : undefined); }
         catch (error) {
           if (error instanceof LocalTokenAdmissionError && error.bodySha256) {

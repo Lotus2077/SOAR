@@ -11,12 +11,17 @@ import { readPublicSourceFiles } from "./public-sources";
 import { ClaimsVerifiedSchema, ENTAILMENT_MAX_MS, ENTAILMENT_PROMPT_VERSION, ENTAILMENT_SYSTEM_PROMPT, isEntailmentDispatch, judgeClaims, publicSourceWorkspacePath, type EntailmentOutcome } from "./claims";
 import { isResolvedDispatch } from "./store";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchBudgetTotal, researchProtocolSha256, researchWriteInstructions, runResearchPipeline, type ResearchBudget, type ResearchModels } from "./research-pipeline";
+import { validateReadyResearchPacket } from "./research-coverage";
+import { buildResearchPresentation, researchPresentationIdentity, validateResearchPresentation, type ResearchPresentationV1 } from "./research-presentation";
+import { createResearchInput, createResearchProducer, validateResearchProducer } from "./research-producer";
 
 export interface SessionFile { path: string; bytes: Buffer }
 export interface SessionPhase {
   contract: GeneralJobContract;
   files: SessionFile[];
   checks: ArtifactCheck[];
+  /** Complete, host-validated research data; kept separate from the owner's bounded goal. */
+  initialEvidence?: ResearchPresentationV1;
 }
 export interface PublicSessionPhase extends SessionPhase {
   /** Bind the complete public contract/checks/files; metadata can also enter model context. */
@@ -81,16 +86,25 @@ function manifestIntegrityCheck(id: string, files: SessionFile[]): ArtifactCheck
  * sample's stage produced (the driver's --research-from), so their write phase is byte-identical to the first sample's.
  */
 export function researchTransferPhase(phase: SessionPhase, produced: SessionFile[]): SessionPhase {
-  if (produced.some(file => phase.files.some(existing => existing.path === file.path))) throw new Error("research_transfer_collision");
+  if (phase.initialEvidence || produced.some(file => phase.files.some(existing => existing.path === file.path))) throw new Error("research_transfer_collision");
+  const packet = validateReadyResearchPacket(produced, { brief: phase.contract.goal });
+  const sources = packet.sourceManifest.map(source => {
+    const file = phase.files.find(item => item.path === source.path);
+    if (!file || (source.id !== source.path && publicSourceWorkspacePath(source.id) !== source.path)) throw new Error("research_transfer_source_mismatch");
+    return { id: source.id, path: source.path, bytes: file.bytes };
+  });
+  if (phase.files.some(file => file.path.startsWith("input/") && !sources.some(source => source.path === file.path))) throw new Error("research_transfer_source_missing");
+  const initialEvidence = buildResearchPresentation(produced, phase.contract.goal, { sources });
   return { ...phase, contract: { ...phase.contract, goal: `${phase.contract.goal}\n${researchWriteInstructions()}`,
       requiredChecks: [...phase.contract.requiredChecks, RESEARCH_TRANSFER_CHECK_ID] },
-    files: [...phase.files, ...produced], checks: [...phase.checks, manifestIntegrityCheck(RESEARCH_TRANSFER_CHECK_ID, produced)] };
+    initialEvidence, files: [...phase.files, ...produced], checks: [...phase.checks, manifestIntegrityCheck(RESEARCH_TRANSFER_CHECK_ID, produced)] };
 }
 export function sessionFileManifest(files: SessionFile[]): { path: string; sha256: string }[] {
   return files.map(file => ({ path: file.path, sha256: digest(file.bytes) }));
 }
 export function sessionPhaseIdentity(phase: SessionPhase): string {
-  return digest(canonical({ contract: phase.contract, files: sessionFileManifest(phase.files), checks: phase.checks }));
+  return digest(canonical({ contract: phase.contract, files: sessionFileManifest(phase.files), checks: phase.checks,
+    ...(phase.initialEvidence ? { initialEvidenceIdentity: researchPresentationIdentity(phase.initialEvidence) } : {}) }));
 }
 function safePath(path: string): boolean {
   return typeof path === "string" && Buffer.byteLength(path) <= 240 && Buffer.from(path).toString("utf8") === path && !/[\\\x00-\x1f\x7f]/u.test(path) &&
@@ -102,7 +116,8 @@ function copyPhase(phase: SessionPhase): SessionPhase {
       phase.files.some(file => !safePath(file.path) || !Buffer.isBuffer(file.bytes) || file.bytes.length > 64 * 1024 * 1024) ||
       phase.files.reduce((sum, file) => sum + file.bytes.length, 0) > 128 * 1024 * 1024 ||
       contract.requiredArtifacts.some(artifact => !safePath(artifact.path))) throw new Error("session_phase_invalid");
-  return { contract, checks: phase.checks.map(check => ({ ...check })), files: phase.files.map(file => ({ path: file.path, bytes: Buffer.from(file.bytes) })) };
+  return { contract, checks: phase.checks.map(check => ({ ...check })), files: phase.files.map(file => ({ path: file.path, bytes: Buffer.from(file.bytes) })),
+    ...(phase.initialEvidence ? { initialEvidence: validateResearchPresentation(phase.initialEvidence, phase.files) } : {}) };
 }
 
 /** Sequential isolated contexts with one durable network-request and wall-clock allowance. */
@@ -160,7 +175,8 @@ export class GeneralAgentSession {
 
   private events(): Record<string, unknown>[] { return this.options.store.events(this.options.jobId); }
   private context(phase: SessionPhase, contextId: string, classification: "private" | "public", lineage?: string): void {
-    const versions = [digest(canonical(phase.contract)), digest(canonical(sessionFileManifest(phase.files))), ...phase.files.map(file => digest(file.bytes)), ...(lineage ? [lineage] : [])];
+    const versions = [digest(canonical(phase.contract)), digest(canonical(sessionFileManifest(phase.files))), ...phase.files.map(file => digest(file.bytes)),
+      ...(phase.initialEvidence ? [researchPresentationIdentity(phase.initialEvidence)] : []), ...(lineage ? [lineage] : [])];
     const synthetic = classification === "public" || Boolean(this.options.syntheticInputApproval);
     const sources: PrivateAgentSource[] = versions.map((version, i) => ({ id: `source_${i}`, version, classification, synthetic }));
     let existing: ReturnType<PrivateAgentStore["context"]> | undefined;
@@ -335,23 +351,34 @@ export class GeneralAgentSession {
         // is reachable exactly where the write phase's own cloud help would be and nowhere else.
         this.context(privatePhase, readerContextId, options.publicInputApproval ? "public" : "private", lineage);
         const prior = this.events().find(event => event.type === "research_transfer");
+        const sources = [...privatePhase.files.filter(file => file.path.startsWith("input/")).map(file => ({ id: file.path, path: file.path, bytes: file.bytes })),
+          ...(options.publicPhase ? readPublicSourceFiles(store, checkpoints, jobId, publicContextId).map(source => ({ id: source.url, path: publicSourceWorkspacePath(source.url), bytes: source.bytes })) : [])];
+        const researchInput = createResearchInput(privatePhase.contract.goal, sources);
+        const priorInput = this.events().find(event => event.type === "research_input");
+        if (priorInput && (priorInput.contextId !== readerContextId || canonical(priorInput.input) !== canonical(researchInput))) return result("incomplete", "research_input_drift");
+        if (prior && !priorInput) return result("incomplete", "research_input_missing");
+        if (!priorInput) store.append(jobId, { type: "research_input", contextId: readerContextId, recordedAt: Date.now(), input: researchInput });
         let produced: SessionFile[];
         if (prior) {
-          const binding = prior.binding as { snapshot: WorkspaceSnapshot; files: { path: string; sha256: string }[] };
+          const binding = prior.binding as { snapshot: WorkspaceSnapshot; snapshotSha256: string; files: { path: string; sha256: string }[]; producer: unknown };
           produced = checkpoints.load(binding.snapshot);
-          if (canonical(sessionFileManifest(produced)) !== canonical(binding.files)) return result("incomplete", "research_transfer_drift");
+          if (checkpoints.fingerprint(binding.snapshot) !== binding.snapshotSha256 || canonical(sessionFileManifest(produced)) !== canonical(binding.files)) return result("incomplete", "research_transfer_drift");
+          validateResearchProducer(binding.producer, { jobId, files: produced, receipts: store.dispatches(jobId), input: researchInput });
         } else {
           if (this.pauseRequested || boundedSignal.aborted) return result(this.pauseRequested ? "paused" : "incomplete", "session_stopped");
           // An unresolved dispatch from an interrupted stage is never replayed past; the operator resolves it first, as the runner requires.
           const unresolved = () => store.dispatches(jobId).some(row => !isResolvedDispatch(row) && !isEntailmentDispatch(row));
           if (unresolved()) return result("incomplete", "unresolved_dispatch_no_replay");
+          // There is no persisted per-chunk continuation protocol. Restarting a partial
+          // stage would reset its role ceilings while keeping the earlier spent calls.
+          if (store.dispatches(jobId).some(row => row.contextId === readerContextId) ||
+              this.events().some(event => event.type === "research_stage" && event.contextId === readerContextId))
+            return result("incomplete", "research_stage_not_replayed");
           // Sources: the job's input files and, after a public phase, the host-retained fetches (cited by URL, as the claims check expects).
-          const sources = [...privatePhase.files.filter(file => file.path.startsWith("input/")).map(file => ({ id: file.path, path: file.path, bytes: file.bytes })),
-            ...(options.publicPhase ? readPublicSourceFiles(store, checkpoints, jobId, publicContextId).map(source => ({ id: source.url, path: publicSourceWorkspacePath(source.url), bytes: source.bytes })) : [])];
           this.stageAbort = new AbortController();
           let outcome: Awaited<ReturnType<typeof runResearchPipeline>>;
           try {
-            outcome = await runResearchPipeline({ brief: options.privatePhase.contract.goal, sources, models: researchModels, signal: AbortSignal.any([boundedSignal, this.stageAbort.signal]), budget: options.research.budget,
+            outcome = await runResearchPipeline({ brief: privatePhase.contract.goal, sources, models: researchModels, signal: AbortSignal.any([boundedSignal, this.stageAbort.signal]), budget: options.research.budget,
               record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }) });
           } finally { this.stageAbort = undefined; }
           if (policyChanged()) return result("incomplete", policyReason());
@@ -359,8 +386,10 @@ export class GeneralAgentSession {
           if (unresolved()) return result("incomplete", "unresolved_dispatch_no_replay");
           if (outcome.files.some(file => privatePhase.files.some(existing => existing.path === file.path))) return result("incomplete", "research_transfer_collision");
           const snapshot = checkpoints.save(outcome.files);
+          const producer = createResearchProducer({ kind: "session", jobId, contextId: readerContextId,
+            brief: privatePhase.contract.goal, sources, files: outcome.files, receipts: store.dispatches(jobId) });
           store.append(jobId, { type: "research_transfer", contextId: readerContextId,
-            binding: { snapshot, snapshotSha256: checkpoints.fingerprint(snapshot), files: sessionFileManifest(outcome.files), summary: outcome.summary } });
+            binding: { snapshot, snapshotSha256: checkpoints.fingerprint(snapshot), files: sessionFileManifest(outcome.files), summary: outcome.summary, producer } });
           produced = outcome.files;
         }
         privatePhase = researchTransferPhase(privatePhase, produced);

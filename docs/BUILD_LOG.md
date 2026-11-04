@@ -29249,3 +29249,49 @@ Paid exposure: All thirty-two standalone slots are consumed. There are thirty-on
 Next gate: Design an offline research-seed coverage check addressing empty semantic indexes, explicit question/source coverage, truncated synthesis and the distinction between missing packet evidence and proven corpus absence. Preserve the rejected seed and artifacts. Any further live experiment requires a new named owner amendment with its request allowance and applicable window; no automatic retry follows from this diagnosis.
 
 References: BL-20261105-0349-final-preloaded-controls-verified-and-released; docs/plans/PHASE4_API_ONLY_PRELOADED_WRITER_PILOT_V1.md; docs/PLAN.md.
+
+
+### BL-20261105-0417-research-coverage-v4-design-reviewed -- 2026-11-05 -- Design a complete research handoff after the rejected pilot
+
+Status: `Proposed`
+
+Scope or hypothesis: Correct the observed upstream evidence gaps and incomplete synthesis before seeking another live attempt. Preserve the final pilot's timely artifacts, mechanical pass and content rejection as separate outcomes. This is a generic research protocol and writer-presentation proposal, not an accepted evaluation result.
+
+Decisions: Independently reviewed design 62ba7ab3cc3f190c8c87faa257d9a7d03aa68feb681c487a6ed702dc0a40efca permits reversible offline implementation under the continuing project goal. All live work remains held. Preserve the original checkout and frozen evidence; prepare changes in a separate checkout. No model, provider, service, role sampling, tokenizer or tool-image change is proposed.
+
+Changes: Plan protocol v4 with exact-ID index assessment and literal fallbacks; complete source/chunk extraction against all retained brief units; bounded repairs inside the existing sixty-eight research-call ceiling; explicit coverage and omission records; refusal of truncated synthesis; exact seven-file v2 seeds; and one complete, untrusted research presentation shared by ordinary, seeded and repair writers. Require mandatory-work feasibility before the first request. Unreadable sources, unresolved structural failures or any cap-excluded verified quote prevent ready transfer. Structural validity does not establish semantic completeness.
+
+Evidence: Independent technical review confirmed the source-first completion path and identified three corrections incorporated in the reviewed plan: every integrated-trial dispatch must precede the cutoff; inventory feasibility must be checked before research dispatch; and ready-transfer rules must be deterministic rather than depending on a host guess about which omitted evidence matters. The proposed integrated trial uses the production research pipeline and direct writer, avoiding the normal session's additional entailment call while retaining independent final content review. Full H4/H5 sessions retain their judge path. Offline reproductions of the prior index parser show that missing IDs, duplicate IDs and blank metadata can pass its old row-count metric; retained historical replies do not identify which exact variant occurred.
+
+Failures or blockers: All thirty-two historical standalone slots remain consumed. A new reviewed runtime, seed and pilot have not been accepted. Implementation, meaningful CPU/integration verification, independent source review and current CI are outstanding. A new named owner amendment is required for any further live model request; no existing approval supplies replacement authority.
+
+Limitations and non-claims: No runtime release, new generation, semantic pass, H4 loop or H5 row is claimed. The exposed development task is a regression corpus, not blind evaluation. Fresh H5 bodies and evaluator gold remain unread. Historical qualification can inform only an explicit change-specific evidence bridge; changed research and writer behavior need actual new evidence.
+
+Paid exposure: Zero new requests or fees. The proposal caps one integrated trial at sixty-eight research requests in sixty minutes plus twelve writer requests/tools in twenty minutes, all zero-fee; the additive maximum would be thirty-two plus eighty, or one hundred twelve. The four-turn/five-minute draft gate and twenty-thousand writer-output-token criterion remain. Preserve USD 0.60 all-history H4 split, eighteen H5 rows/USD 21.60 total/USD 3 cloud row/USD 0.60 split row, and November 5, 10:00 UTC / 18:00 Asia/Shanghai cutoff. These proposed new slots are not authorized.
+
+Next gate: Complete and review the offline implementation and concrete held trial controls, then request one named amendment bound to the final sources and delta-acceptance rules. No automatic retry or deadline extension follows from this design.
+
+References: BL-20261105-0357-final-pilot-artifacts-created-content-rejected; docs/plans/PHASE4_RESEARCH_COVERAGE_V4.md.
+
+
+### BL-20261105-0440-research-coverage-v4-offline-implemented -- 2026-11-05 -- Implement complete research coverage and the shared writer handoff
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement the reviewed generic repair without making a new model request. Address blank semantic index metadata, planner-filtered source loss, silent packet omissions, truncated synthesis and unequal ordinary/seeded writer context. This is an offline runtime change; live capability and final report quality remain unproven.
+
+Decisions: Preserve the original checkout and every historical seed/pilot/ledger. Use protocol v4, a strict seven-file coverage packet, v2 producer-backed seeds and a complete host-owned initial evidence presentation. Hold all runtime activation and the proposed eighty-request extension until a new named owner amendment and reviewed release exist.
+
+Changes: Added exact-ID index assessment, literal source cards and truthful counts. The pipeline preflights complete source/chunk feasibility before dispatch, reads every source against all retained brief units, and repairs only bounded settled replies inside the original stage ceilings. Any unreadable source, unresolved extraction, quote/conflict cap omission or incomplete synthesis prevents ready transfer. Packet validation rechecks actual source bytes, quote locations, question bindings, complete renders and stage-count consistency. Session and controlled-pipeline producers bind pre-dispatch input and actual settled receipts without fabricated session events. Ordinary, seeded and repair writers retain the same complete evidence in a separate initial message, with source/packet/presentation identity checks, exact-once request checks and no trimming. A partial research stage cannot restart with reset counters after pause; completed validated packets still resume.
+
+Evidence: Current production runtime is c624b3d9a3a507e916efba8e362df9d7a85b1849e598966e864b8426c70faa4f, research protocol is 389d6704ce30d456b834d3e2b91376cae5bb26ad1fc1e68298bbf0867461abf9, and presentation policy is 3ddb85b969e02bab22854b8ac3d451d9141c7fbcccbffde47e637d38eaa4c819. Independent reviews passed the pipeline/coverage/index suite of sixty-one CPU tests, fifteen seed/provenance tests, and eight session tests, including a settled-call pause with zero additional dispatch on resume. Real-serializer runner regressions preserve one complete presentation across four requests and reopened resume, reject source tampering/duplicate envelopes and refuse oversized bodies before dispatch. Separate public-retrieval integration tests verify the composed goal, retained public/private source hashes and replay-free completion. Both TypeScript checks, readiness metadata, append-only build-log validation and native credential-core proof passed.
+
+Failures or blockers: The full local test run reached 2235 passing tests and eighty-one skipped tests, but six UI test workers timed out during startup; restricting worker count did not resolve them. A direct jsdom import also stalled in the untouched checkout, isolating a shared local dependency/runtime issue rather than a demonstrated research-code assertion failure. The locked native build succeeded, but the subsequent application build stalled and was stopped; a successful full build is not claimed. Final-head GitHub checks remain required. The previous documentation head's main check passed while its queued Electron job ended cancelled; that is not a fully green current CI result.
+
+Limitations and non-claims: CPU fixtures use invented corpora and demonstrate structure, provenance, budgets and handoff behavior only. They do not establish semantic completeness, actual model quality, new throughput, native live context fit, accepted artifacts, H4 or H5. The changed research protocol and presentation require fresh integrated evidence; historical qualification is retained only through an explicit delta matrix. Fresh H5 bodies and gold remain unread. Private trial controls are still being implemented/reviewed and have no active owner record, release, allocation claim or request.
+
+Paid exposure: Zero new model requests, fees or service operations. Original thirty-two slots and six claims remain consumed and unchanged. The proposed additional eighty zero-fee requests and additive112 ceiling are not approved. Preserve the sixty-minute research/twenty-minute writer proposal, four-turn/five-minute substantive draft gate, twenty-thousand writer-output-token success threshold, all historical H4/H5 caps, and November 5, 10:00 UTC / 18:00 Asia/Shanghai cutoff.
+
+Next gate: Publish the reviewable offline repair, complete held trial controls and independent verification, obtain final-head CI, then request one concrete named amendment. No live retry, reduced quality gate or automatic downstream launch follows from this implementation.
+
+References: BL-20261105-0417-research-coverage-v4-design-reviewed; docs/plans/PHASE4_RESEARCH_COVERAGE_V4.md.

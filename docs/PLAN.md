@@ -566,8 +566,14 @@ and H5 remain unstarted. H4 split stays within USD 0.60 all-history, and H5 stay
 within eighteen rows / USD 21.60 total / USD 3 cloud row / USD 0.60 split row.
 The last approved admission cutoff is **November 5, 2026, 18:00 Asia/Shanghai**;
 that window does not override the failed content gate or exhausted allocation.
-Fresh H5 inputs and gold remain unread. The next work is an offline evidence-coverage
-design; any additional live allocation requires a new named owner amendment.
+Fresh H5 inputs and gold remain unread. The [research coverage v4 design](plans/PHASE4_RESEARCH_COVERAGE_V4.md)
+has passed technical review; offline implementation and focused CPU verification
+are complete on a separate branch, with full-head CI still required. It explicitly changes the production research
+protocol, seed contract and ordinary/seeded/repair writer presentation. A proposed
+integrated trial caps new work at 68 research calls plus 12 writer calls, all
+zero-fee; this would raise the additive ceiling from 32 to 112. No new request
+allowance or live v4 result exists. Any additional live allocation requires a new
+named owner amendment bound to the reviewed implementation and unchanged cutoff.
 See BL-20261105-0335, BL-20261105-0349 and the final-pilot outcome in BUILD_LOG.
 
 The following dated paragraphs retain the earlier decisions and negative evidence;

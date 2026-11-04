@@ -25,6 +25,8 @@ import { buildPublicRetrievalPhase, loadPreparedOperatorTask, selectPreparedPubl
   type PreparedOperatorTask } from "./private-agent-run";
 import { localStreamSettings } from "../src/main/liveness";
 import { RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, RESEARCH_SPLIT_MAX_FEE_USD, researchProtocolSha256 } from "../src/main/private-agent/research-pipeline";
+import { createResearchInput } from "../src/main/private-agent/research-producer";
+import { researchPresentationPolicySha256, researchPresentationIdentity } from "../src/main/private-agent/research-presentation";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
 /** Cap on one assembled reply from the owned model. */
@@ -365,6 +367,10 @@ export async function runLocalArtifactScreen(input: {
       scanner: "rules_only_not_a_privacy_classifier", pauseAfterTools: input.pauseAfterTools ?? null,
       profile: profileName, claimsLedger: input.claimsLedger === true, ...(input.documentReview ? { documentReview: true } : {}), ...(repair ? { repair: repair.binding } : {}), arm: cloud ? cloud.freeze : { arm: "local" as const },
       ...(pipeline ? { pipeline: { name: "research", version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(), budget: RESEARCH_PIPELINE_BUDGET, planner: cloud ? "cloud" : "local", writer: "local" } } : {}),
+      ...(pipeline || seed ? { researchPresentationPolicySha256: researchPresentationPolicySha256() } : {}),
+      ...(pipeline && !publicPhase ? { researchInput: createResearchInput(privatePhase.contract.goal,
+        privatePhase.files.filter(file => file.path.startsWith("input/")).map(file => ({ id: file.path, path: file.path, bytes: file.bytes }))) } : {}),
+      ...(privatePhase.initialEvidence ? { initialEvidenceIdentity: researchPresentationIdentity(privatePhase.initialEvidence) } : {}),
       // H4: a seeded run carries the source's pipeline block (so rows keep the pipeline columns) and names its seed; a deck task records the check it ran under.
       ...(seed ? { researchFrom: seed.seed, pipeline: seededPipelineFreeze(seed.pipeline, seed.seed) } : {}),
       ...(deckArtifacts(modePhase).length ? { deckCheck: { version: DECK_CHECK_VERSION, paths: deckArtifacts(modePhase) } } : {}),

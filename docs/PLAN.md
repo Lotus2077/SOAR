@@ -541,6 +541,38 @@ agent's favour.
 
 ### Phase 4: A real week of use (Oct 21 – Oct 27, branch review Oct 27)
 
+**Current status, November 5, 2026 (Asia/Shanghai):** the owner-approved
+[API-only route](plans/PHASE4_API_ONLY_ENDPOINT_CONTINUATION_V1.md) supersedes
+old-host SSH, disk and restoration prerequisites for this public/synthetic trial.
+Its sixteen-case qualification is accepted; fifteen requests settled and the sole
+planned F15 cancellation remains UNKNOWN. Two matched cold-cache workloads
+measured 70.20 end-to-end tokens/s and 153.77 decode tokens/s, a 3.80× end-to-end
+ratio against the retained baseline. These observations do not establish physical
+server identity, all-workload throughput or artifact quality.
+
+Both earlier four-turn pilots created no report. The approved
+[final preloaded-writer amendment](plans/PHASE4_API_ONLY_PRELOADED_WRITER_PILOT_V1.md)
+then produced a report and claims ledger in four requests/four tools, 205.151 seconds
+and 14,801 output tokens at USD 0. Its first substantive draft arrived on turn two
+at 84.258 seconds, and all three mechanical checks passed. Final root and independent
+content review nevertheless rejected false corpus-absence assertions and missing
+required coverage. Quote occurrence is not complete claim support or task acceptance.
+The changed pilot input presentation does not change ordinary H4/H5 writer prompts.
+
+All thirty-two standalone slots are consumed. The named final attempt grants no
+replacement, post-final-review edits or further requests. H4 remains unaccepted
+with its six historical attempts preserved; the three newly authorized full loops
+and H5 remain unstarted. H4 split stays within USD 0.60 all-history, and H5 stays
+within eighteen rows / USD 21.60 total / USD 3 cloud row / USD 0.60 split row.
+The last approved admission cutoff is **November 5, 2026, 18:00 Asia/Shanghai**;
+that window does not override the failed content gate or exhausted allocation.
+Fresh H5 inputs and gold remain unread. The next work is an offline evidence-coverage
+design; any additional live allocation requires a new named owner amendment.
+See BL-20261105-0335, BL-20261105-0349 and the final-pilot outcome in BUILD_LOG.
+
+The following dated paragraphs retain the earlier decisions and negative evidence;
+the current status above supersedes their older request allowances and cutoffs.
+
 **Approved local-tier amendment, 2026-11-01 (Asia/Shanghai):** the owner approved
 the [Flash-Next migration sequence](plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md),
 including at most 24 zero-fee qualification requests, all three H4 loops with

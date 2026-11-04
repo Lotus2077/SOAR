@@ -10,7 +10,8 @@ not active requirements.
 | Document | Role |
 | --- | --- |
 | [PLAN.md](PLAN.md) | The single living plan: phases, decision rules, envelope, owner decisions |
-| [plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md](plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md) | Proposed Phase 4 local-tier migration: deployment identity, bounded compatibility qualification, H4 and separate H5 handoff; no runtime authority yet |
+| [plans/PHASE4_API_ONLY_ENDPOINT_CONTINUATION_V1.md](plans/PHASE4_API_ONLY_ENDPOINT_CONTINUATION_V1.md) | Approved API-only Phase 4 route; service qualification accepted, physical server internals unobserved. Current outcome and limits are in PLAN.md and BUILD_LOG.md |
+| [plans/PHASE4_API_ONLY_PRELOADED_WRITER_PILOT_V1.md](plans/PHASE4_API_ONLY_PRELOADED_WRITER_PILOT_V1.md) | Final named amendment approved in BL-20261105-0335 and now consumed. Artifacts and mechanical checks completed, but final content review rejected the pilot; H4/H5 remain held. Preserve the original proposed plan bytes and append-only approval/outcome records |
 | [plans/PRIVATE_WORK_DESIGN_V1.md](plans/PRIVATE_WORK_DESIGN_V1.md) | Private-work design (Proposed): strict privacy profile, admin assistant, research and document review, device |
 | [plans/PRIVACY_FILTER_V2_DESIGN.md](plans/PRIVACY_FILTER_V2_DESIGN.md) | Privacy filter v2 direction approved at its defaults on 2026-10-22: synthetic-first stages, no labelled packet before the gates, no paid allocation yet; lenses and change logs under `plans/privacy-filter-v2/` |
 | [PROJECT_REVIEW_2026-09-28.md](PROJECT_REVIEW_2026-09-28.md) | Verified whole-project review behind the plan |
@@ -25,6 +26,10 @@ not active requirements.
 
 These are kept as history; each was superseded as noted.
 
+- [plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md](plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md)
+  retains the earlier migration design and November 2 status snapshot. Later named
+  amendments and their BUILD_LOG decisions govern current Phase 4 execution.
+
 - [plans/MVP_PRIVACY_FIRST_AGENT_V1.md](plans/MVP_PRIVACY_FIRST_AGENT_V1.md) (September 11).
   Its goal and trusted-boundary rules still stand. Its Stage B/C/D ladder was
   superseded by PLAN.md on 2026-09-29.
@@ -36,9 +41,10 @@ These are kept as history; each was superseded as noted.
 - [ROUTING_POLICY.md](ROUTING_POLICY.md) and
   [ROUTING_POLICY_RESEARCH.md](ROUTING_POLICY_RESEARCH.md). These are routing
   history; savings no longer drives design.
-- Other files in [plans/](plans/) not listed under Current are per-experiment plans from
-  August 29 to September 14 (router era, coding pilot, routing, private-agent
-  milestones). [adr/](adr/) holds the legacy architecture decisions.
+- Other files in [plans/](plans/) include historical per-experiment plans and
+  amendments. Their original status text may predate later approval or failure;
+  consult PLAN.md and the append-only BUILD_LOG before treating one as active.
+  [adr/](adr/) holds the legacy architecture decisions.
 
 ## Experiment reports, September 7-14
 

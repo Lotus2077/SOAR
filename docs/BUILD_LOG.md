@@ -29109,3 +29109,73 @@ Paid exposure: No new requests or charges at approval. Preserve twenty-four cons
 Next gate: Implement and independently verify the exact approved additive controls, record source and review identities, refresh pinned API readiness, then release the one replacement pilot. Only accepted substantive artifacts admit the three full H4 loops in research/deck/split order and conditional H5.
 
 References: BL-20261104-1423-api-only-eight-slot-artifact-retry-proposed; docs/plans/PHASE4_API_ONLY_ARTIFACT_PILOT_RETRY_V1.md; docs/plans/PHASE4_API_ONLY_ENDPOINT_CONTINUATION_V1.md.
+
+### BL-20261105-0230-api-only-replacement-controls-verified-and-released -- 2026-11-05 -- Verify additive controls and release the approved single replacement pilot
+
+Status: `Released`
+
+Scope or hypothesis: Implement the owner's named eight-slot amendment and release only its replacement pilot after source verification and current API readiness. Qualification remains the previously accepted sixteen-case result; H4/H5 admission remains conditional on actual artifact acceptance.
+
+Decisions: Preserve the original twenty-four rows and four claims byte for byte. Use one distinct replacement claim and at most eight new model requests/eight tool actions, preserving the unchanged first-draft gate, full task, seed, quality checks, production runtime, research protocol and all role settings. The replacement may not relabel either the accepted qualification or the first failed pilot.
+
+Changes: Added private schema/report-first guidance, additive allocation and release controls, exact failure diagnostics, and downstream reconciliation retaining both attempts. First-draft review remains a root review of captured immutable bytes; no code accepts nonempty text automatically. The offline release constructor validates the prospective record before writing an active release and leaves only a held draft on validation failure. Downstream operators remain held and retain the original H4/H5 global claims, limits and historical evidence.
+
+Evidence: Local source abe597dee8ef33f88565acf0e25aeee7472303199ac06a9fc2e7fc4940299bd4 passed independent review 227489c56b3b4aa9373828ecc0db76100efd8cb82529ab80b2ba19bba2c40f04 with forty-two Node tests, four Python tests and strict TypeScript. Downstream source ad10661f1d683b1f9c96b44d987cf68b76b88f19584be46eb7b8020d4e19682e passed independent review db998c9a41ca6923e1ab1c50d106c00822bece1a223c6d28a52ecc9fb18c2fbf with thirty-nine Node tests, ten Python tests, three TypeScript checks and held-operator checks. Review verified forty-three new source/snapshot pairs and the original downstream forty-file closure. Preparation source 73cd29ee53ae71646b38be8f8e1c662ac67514462d7b61ba6a1b84bcf72fb557 passed root review 755a764c1f3c727e8677dac5cf97448096f58a7587bfe907f365fdaf7853e209 with ten repeated tests and strict TypeScript.
+
+Both public CI jobs passed on approval commit f3fca9984ac62a8eb5334635a16c9709b1132fb1. Two successful metadata-only observations retained the qualified API identity, server incarnation and idle state; neither sent tokenization or generation. Final readiness e112f338a6b8eb3cb339672613d267a162531565d41d3d543538170d43f512fa binds the concrete release 54c204538cbbd668b521bfe19084ccac6161a172af43c70339bb30feb908d795. The real release validator accepted the complete graph before its single launch; validated handoff is 9a0fb1f376e978b80b40f214f12a1d859b6a5346df51a21fc433d392811e63d3. The original pinned local tool image was present. Runtime remains 8d8a9f47dde556e1e045d622903ddd74f66f2ba20b2595bd454ad97bb59754fb; research protocol remains 658aa22c5127d59afdfdaa550043ff397cf2e7152345b69941529784e243ab6d.
+
+Failures or blockers: Offline review corrected a historical-report field mismatch before actual preparation and restored the original Claude-calibration/native-token-policy checks in the new H4 preparation path. Those were source-preparation findings, not model failures or consumed requests. The source checks, synthetic complete-graph tests and successful release validation do not establish live artifact quality.
+
+Limitations and non-claims: This entry establishes implementation, review and release of one pilot only. No repeated qualification, accepted replacement artifact, H4 result, H5 result, paid-provider call or physical server identity is claimed. Fresh H5 inputs and evaluator gold remain unread.
+
+Paid exposure: At release, twenty-four slots remained consumed, with at most eight new zero-fee model requests and eight tools authorized for this attempt. Preserve USD 0.60 all-history H4 split and H5 eighteen rows/USD 21.60 total/USD 3 cloud row/USD 0.60 split row. The November 5, 10:00 UTC / 18:00 Asia/Shanghai admission cutoff remains unchanged.
+
+Next gate: Execute the single released pilot and evaluate its actual draft/final artifacts. Stop on failure; the amendment grants no further replacement. Only an accepted substantive pilot may admit H4 and conditional H5.
+
+References: BL-20261105-0212-api-only-eight-slot-artifact-retry-approved; docs/plans/PHASE4_API_ONLY_ARTIFACT_PILOT_RETRY_V1.md.
+
+### BL-20261105-0231-api-only-replacement-pilot-first-draft-failed -- 2026-11-05 -- Retain the replacement's four successful inspection turns and failed draft gate
+
+Status: `Verified`
+
+Scope or hypothesis: Record the actual replacement result without inferring artifact success from transport, source tests or unused slots. The replacement is failed; the previously accepted service qualification remains historical evidence.
+
+Decisions: Reject the replacement because it did not create a report by four completed model turns. Preserve the consumed replacement claim, four settled rows, all checkpoints and the exact refusal record. Stop under the approved amendment; do not use the four remaining slots as authority for another attempt or launch H4/H5.
+
+Changes: Executed the single reviewed release once. It completed four model responses and four execute actions, producing 3607 model output tokens in 51.899 seconds. All four tools exited successfully. They listed the workspace/read the summary; read the existing argument, plan and evidence; correctly parsed the quotes array and printed evidence; then re-read a selected range of quotes. No command attempted to write the report. All five checkpoint file sets equal the initial task/seed file set, with no report, claims ledger or other new artifact.
+
+Evidence: Pilot report e7f715ecbd85828ec2755e25b12024c80c7579280fceec42c7b45b0cae2a033a is mechanically failed. Exact control-refusal record affa0f575d7bb0a15f0ff59db2474649a4981dbbbdb4eb9afe9054febf3d13e2 records pilot_first_draft_gate at 51.706 seconds, four completed turns, four committed requests and no captured draft. The fifth model-entry event was refused before dispatch; it is not a fifth generation. Native prompt counts matched usage exactly at 3857, 5711, 8354 and 11532 tokens; output counts were 88, 87, 302 and 3130. Every request used one wire attempt and settled at zero fee. Saved run-end evidence records cleanupConfirmed true, and the durable context claim is released.
+
+Independent failure audit 7765db463e51bace387d376274a235028abf78902e2d2da15ec85230c55b6293 verified the exact refusal, native evidence, all four successful tool results, all five unchanged checkpoints and preserved historical allocation. Its immutable closed twenty-eight-slot ledger is 8127c5f62fddbb95494f54f97820b41a324936a7e54307d4902868ca120cb7ae. The preceding twenty-four raw rows and four raw claims remain unchanged. Independent downstream audit confirms both operators remain held, with no H4/H5 authority, run, combined acceptance or global claim created.
+
+Failures or blockers: The schema correction worked: this attempt used the quotes array correctly and had no KeyError. The writer nevertheless spent every permitted pre-draft turn inspecting or re-extracting evidence. The second and third tools produced 25616 and 12751 stdout bytes; the runtime presented bounded observations, and the fourth tool requested a narrower quote range. This supports investigating evidence presentation as a source of extra reading turns. It does not establish that another presentation will succeed. There was no demonstrated tool-write, native-tokenization or transport failure; the five-minute elapsed limit did not expire. No root draft review was possible because no draft existed.
+
+Limitations and non-claims: No artifact quality check passed, no completed report exists and the model's output-token count is not report length. Successful service qualification and source checks do not establish writer completion. No further pilot, H4 loop, H5 row, Claude recalibration or new paid-provider request occurred. Cleanup is established by saved runner/claim evidence, not an independently queried model-host process list. Physical server internals remain unobserved.
+
+Paid exposure: Twenty-eight of thirty-two standalone slots are consumed: four historical, sixteen accepted qualification, four first-pilot and four replacement-pilot slots. Twenty-seven generations are committed, comprising twenty-six settled and the sole declared F15 UNKNOWN. Fees and reservations remain zero. Both pilots together consumed eight requests and eight tools; four unused slots confer no further attempt authority. All H4/H5 caps and the November 5, 18:00 Asia/Shanghai cutoff remain unchanged.
+
+Next gate: Publish the exact outcome and assess an offline, separately reviewed writer-context proposal. Any new attempt requires a named owner amendment; no runtime implementation, quality waiver, automatic retry or downstream launch follows from this failed result.
+
+References: BL-20261105-0230-api-only-replacement-controls-verified-and-released; docs/plans/PHASE4_API_ONLY_ARTIFACT_PILOT_RETRY_V1.md.
+
+### BL-20261105-0240-preloaded-writer-final-pilot-proposed -- 2026-11-05 -- Propose one final four-slot writer-context variant
+
+Status: `Proposed`
+
+Scope or hypothesis: Test whether presenting the same complete frozen research text directly in writer context avoids the discovery and repeated reading turns observed in both failed pilots. This is an input-presentation hypothesis, not proof that tool-output projection caused the failure or that four calls will suffice.
+
+Decisions: Propose exactly one final pilot within the remaining four zero-fee model requests and four tools. Preserve all twenty-eight consumed rows and five claims, both failed pilots, the original task/seed, all quality gates and the thirty-two-slot aggregate. No implementation, prompt payload, release or runtime authority follows from the proposal.
+
+Changes: The reviewed design presents the entire existing argument and evidence Markdown files as delimited untrusted source data, once in every request's retained initial context. Their raw byte counts are 1839 and 18961, totaling 20800. Do not select, summarize, reorder or add evidence or answers; keep the original files and corpus available. Pin the changed private context adapter and actual request provenance while preserving production runtime, research protocol, serving identity, native admission, role settings and normal tool-output projection. This is not an identical writer prompt.
+
+Evidence: Plan 107f57377705fb0fdcd01c17d02e01fc69a6f5ed9f026cdc0a45ce60b2b51cfa passed independent design review 9bbaaa348f5a7c7dbc4ea663496d78238a50d8dcdbd6ca9d79f94aeb991cda51 against the real replacement report, failure audit, immutable twenty-eight-slot ledger, existing seed hashes and runtime source. The unchanged runner can perform full host checks after eligible fourth-action allowance exhaustion; a fifth model finish call is not structurally mandatory. Actual full-body size, native token fit, substantive artifacts and four-call completion remain unproven. No actual payload was assembled or tokenized.
+
+Failures or blockers: The preceding named amendment is consumed and explicitly grants no further attempt. A new named owner decision is required before implementation and release. Successful offline design review does not accept either failed pilot or admit H4/H5. The writer may still inspect unnecessarily, produce unsupported claims or require more repair calls than remain.
+
+Limitations and non-claims: Preserve the earlier-of-four-completed-turns-or-five-minutes substantive draft gate, root review, complete report/claims checks, twenty-minute total limit and at-most-20000 completed output-token criterion. No extra call, post-review edit, reduced deliverable, forced quality pass or fresh evaluator material is authorized. Proposal only; no new source implementation, qualification, artifact acceptance, H4 or H5 result is claimed.
+
+Paid exposure: Zero new requests or charges for this design. The proposed final attempt would use at most four requests/four tools, keeping all three pilots within twelve requests/twelve tools and the standalone aggregate within thirty-two. Preserve USD 0.60 all-history H4 split, H5 eighteen rows/USD 21.60 total/USD 3 cloud row/USD 0.60 split row, and the November 5, 10:00 UTC / 18:00 Asia/Shanghai cutoff.
+
+Next gate: Publish the reviewed proposal and request the named final four-slot amendment. If approved, durably bind that decision, implement and independently verify the exact context/accounting delta, refresh readiness and run only that approved attempt. Stop on the next failed live gate or unresolved outcome. H4/H5 remain conditional on actual full acceptance.
+
+References: BL-20261105-0231-api-only-replacement-pilot-first-draft-failed; docs/plans/PHASE4_API_ONLY_PRELOADED_WRITER_PILOT_V1.md; docs/plans/PHASE4_API_ONLY_ARTIFACT_PILOT_RETRY_V1.md.

@@ -567,16 +567,17 @@ within eighteen rows / USD 21.60 total / USD 3 cloud row / USD 0.60 split row.
 The last approved admission cutoff is **November 5, 2026, 18:00 Asia/Shanghai**;
 that window does not override the failed content gate or exhausted allocation.
 Fresh H5 inputs and gold remain unread. The [research coverage v4 design](plans/PHASE4_RESEARCH_COVERAGE_V4.md)
-has passed technical review; offline implementation, production CI and the full
-synthetic research-to-writer integration have passed on a separate branch. The held
-trial controls passed fifty-four CPU tests; any live release still binds current
-source, review and CI evidence. The repair explicitly changes the production research
-protocol, seed contract and ordinary/seeded/repair writer presentation. A proposed
-integrated trial caps new work at 68 research calls plus 12 writer calls, all
-zero-fee; this would raise the additive ceiling from 32 to 112. No new request
-allowance or live v4 result exists. Any additional live allocation requires a new
-named owner amendment bound to the reviewed implementation and unchanged cutoff.
-See BL-20261105-0335, BL-20261105-0349 and the final-pilot outcome in BUILD_LOG.
+passed offline review, fifty-four CPU tests and both final-head CI checks. The owner
+then approved the integrated trial: at most sixty-eight research calls and twelve
+writer calls, all zero-fee, with an additive 112-slot ceiling and the same cutoff.
+Fresh API readiness and the exact sandbox-image check passed. The released launch
+failed during ledger initialization before any new claim, tokenizer or generation:
+the copied historical database retained its read-only permissions. The failed
+namespace, original thirty-two rows and six claims are preserved; no v4 research
+packet or writer artifact was produced. The narrow copy correction and continuation controls passed independent offline
+review. The [one-time startup continuation](plans/PHASE4_RESEARCH_V4_PRECLAIM_STARTUP_CONTINUATION_V1.md)
+remains held for its named approval. Unused capacity does not authorize an automatic retry.
+See BL-20261105-0739, BL-20261105-0742 and BL-20261105-0743 in BUILD_LOG.
 
 The following dated paragraphs retain the earlier decisions and negative evidence;
 the current status above supersedes their older request allowances and cutoffs.

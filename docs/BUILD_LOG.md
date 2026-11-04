@@ -29320,3 +29320,95 @@ Paid exposure: Zero new model requests, tool-runtime launches or fees. Original 
 Next gate: Finish final source/CI synchronization and request the named research-coverage v4 integrated-trial amendment. If approved, record it durably, obtain fresh API-only readiness and exact sandbox-image presence, and execute the one reviewed trial. Only actual mechanical and independent final content acceptance can admit the existing three-loop H4 sequence and conditional H5. Stop on failure; no automatic retry follows.
 
 References: BL-20261105-0440-research-coverage-v4-offline-implemented; BL-20261105-0357-final-pilot-artifacts-created-content-rejected; docs/plans/PHASE4_RESEARCH_COVERAGE_V4.md.
+
+
+### BL-20261105-0739-research-v4-integrated-trial-approved -- 2026-11-05 -- Record the named integrated-trial approval
+
+Status: `Approved`
+
+Scope or hypothesis: Authorize the reviewed research-coverage v4 integrated research-and-writer trial and retain the existing conditional H4/H5 sequence.
+
+Decisions: The owner explicitly replied "Approve research-coverage v4 integrated-trial amendment". The private approval was durably recorded at 2026-11-04 23:39:29 UTC before readiness, release or execution. It binds reviewed source f3daeac6ef1e9875b612e0517762cf9c242e5e9ff1b3a2a7695b5a3f86a9f4b9 and independent review da8359bd64341199c1c016d6182b5c1f90ef8f1f2df608a80db1618b7928d10a. Public logging follows closure of the frozen source check; the approval record explicitly retained that pending append.
+
+Changes: One attempt permits at most sixty-eight research requests in sixty minutes, followed by at most twelve writer requests/tools in twenty minutes, all zero-fee. Preserve the four-turn/five-minute substantive-draft gate, twenty-thousand writer-output-token success criterion, independent final content review, and no automatic retry or resume. Every integrated-trial dispatch must precede November 5, 10:00 UTC / 18:00 Asia/Shanghai.
+
+Evidence: Owner record dfa467242ecb0f5cfcc7773ca87bdaf5a782cae7aa7ba4047b7c569751aee5e8 binds the final plan, runtime, protocol, presentation policy, delta, historical evidence, role pins and preserved ledger. Both final-head CI jobs passed for d67915f655145ede844a6bbc7313ce04cb166588 in run 41911064107. The checkout remained clean at approval and launch.
+
+Failures or blockers: Approval is not release, a completed trial or content acceptance. Fresh API readiness and exact sandbox-image presence still preceded launch.
+
+Limitations and non-claims: No model request or accepted result is implied by this entry. H4/H5 remain conditional on actual full acceptance; fresh H5 bodies and evaluator gold remain unread.
+
+Paid exposure: Preserve thirty-two historical slots and six claims. The additive ceiling is 112 slots, with at most eighty new zero-fee requests. H4 split remains USD 0.60 all-history; H5 remains eighteen rows/USD 21.60 total/USD 3 cloud row/USD 0.60 split row. No paid expansion or cutoff extension is granted.
+
+Next gate: Validate fresh readiness and the pinned image, release the exact approved trial, then evaluate its actual outcome.
+
+References: BL-20261105-0454-research-v4-offline-trial-controls-verified; docs/plans/PHASE4_RESEARCH_COVERAGE_V4.md.
+
+
+### BL-20261105-0742-research-v4-trial-released -- 2026-11-05 -- Release the approved trial after fresh readiness
+
+Status: `Released`
+
+Scope or hypothesis: Admit the single approved integrated trial using the existing API-only service and exact reviewed implementation.
+
+Decisions: Root and independent read-only validation accepted the actual owner, source, historical accounting, role, API and native-admission graph. The normal preparation validator confirmed the exact pinned sandbox image before creating the active release at 23:42:37 UTC.
+
+Changes: Created active release f637293257f40f4f582fb3f21b5ab9303f572c7ed0b8bb106f8b0a447b7ba1eb. This was the sole release for the original approved source; no downstream acceptance or replacement permission was created.
+
+Evidence: Fresh observation f8cd311dfa96d669d31daea025c135c43a64b3e23caded950880c1197a4b6f9e at 23:41:54 UTC reported healthy, zero running and zero waiting, matching the pinned API version/model/context/schema/cache configuration and incarnation. Readiness b8af132357f69b6bf27d9b52c480fafe1aad957fa4c7d38f3e2270b12e33541f binds that observation to owner approval dfa467242ecb0f5cfcc7773ca87bdaf5a782cae7aa7ba4047b7c569751aee5e8. Metadata observation dispatched no generation. The launch used clean revision d67915f655145ede844a6bbc7313ce04cb166588.
+
+Failures or blockers: Release does not establish that startup, research, writer or artifact acceptance succeeds. The following failure entry records the actual outcome.
+
+Limitations and non-claims: API observations do not establish physical-server identity. No service change, SSH operation, qualification rerun or additional diagnostic generation occurred.
+
+Paid exposure: All previously approved request, time, cost and cutoff limits remain unchanged. Readiness and image inspection consumed no model request or fee.
+
+Next gate: Preserve the actual startup and trial outcome; proceed to H4 only after full mechanical and independent final content acceptance.
+
+References: BL-20261105-0739-research-v4-integrated-trial-approved; docs/plans/PHASE4_RESEARCH_COVERAGE_V4.md.
+
+
+### BL-20261105-0743-research-v4-preclaim-startup-failed -- 2026-11-05 -- Preserve the zero-dispatch ledger initialization failure
+
+Status: `Failed`
+
+Scope or hypothesis: Record the actual released trial's startup failure and distinguish it from model, research, throughput or artifact-quality failure.
+
+Decisions: Stop the launch and preserve its namespace, active release, immutable source and copied database. Do not relaunch, erase the namespace, modify the failed ledger or infer replacement authority from unused request capacity. Prepare only a narrow offline correction and independent verification.
+
+Changes: The process exited with code 2 and bounded diagnostic integrated_trial_failed after 0.216 seconds, before the first trial claim. The historical ledger copy retained mode 0400. Its bytes still equal the closed historical ledger; no trial tables, trial claim, research database, writer database or report were created.
+
+Evidence: Root launch observation 9cb56add3f1e0846fe75725990ebd587c06d2cee9a4eee718ab5e2a187c925b9 binds the actual tool exit to active release f637293257f40f4f582fb3f21b5ab9303f572c7ed0b8bb106f8b0a447b7ba1eb. Independent audit fb507cc5a71485eef4f74d805c2d029729d445d3350fb2494bf975f1ad02d92a confirms that original and copied ledgers remain ea098217d1347e832d6b0eb4a50b90d50302e4add3a468c567fa42289824147c, with exactly thirty-two unchanged raw rows and six unchanged raw claims. Frozen source ordering and the retained namespace place failure inside ledger initialization before broker/model construction and before any new tokenizer or generation request.
+
+Failures or blockers: The mutable copy inherited the immutable source's read-only permissions. The startup code attempted its initialization transaction without first making that new copy writable. The top-level handler retained only a bounded diagnostic, not the original exception stack. Independent temporary-copy reproduction e483dc99dc7c508c43954971c4b19415a21f7f98546f41e760fc0c995ae28057 produced SQLITE_READONLY at the CREATE TABLE transaction; making only the new temporary copy writable allowed initialization while preserving source bytes and mode. This reproduces the suspected cause without claiming the original stack was retained. The earlier fifty-four tests did not cover the actual read-only source mode. No new research packet or writer artifact exists.
+
+Limitations and non-claims: This is a host startup failure, not evidence about Flash-Next capability, throughput, complete research coverage or H4/H5 behavior. Fresh readiness passed before it. No original evidence permission or byte was changed. All prior failed pilots and unresolved historical dispatches remain preserved.
+
+Paid exposure: Zero new model requests, tokenizer requests, tools, slots, claims or fees. Historical standalone consumption remains thirty-two slots, thirty-one committed generations, thirty settled and the sole historical UNKNOWN. The eighty-request ceiling was not consumed, but unused capacity is not automatic retry authority. H4/H5 counts and caps remain unchanged and no new loop or row started.
+
+Next gate: Independently reproduce and correct the new-copy permission handling offline, retain the failed startup, and review the exact continuation authority before another launch.
+
+References: BL-20261105-0742-research-v4-trial-released; BL-20261105-0739-research-v4-integrated-trial-approved; docs/plans/PHASE4_RESEARCH_COVERAGE_V4.md.
+
+
+### BL-20261105-0751-research-v4-startup-copy-correction -- 2026-11-05 -- Correct immutable-ledger copying and propose one startup continuation
+
+Status: `Verified`
+
+Scope or hypothesis: Verify the narrow offline correction and continuation controls for the pre-claim startup defect. Preserve research, writer, model, service, budget and final acceptance behavior, the original approved source and its failed namespace. This entry does not grant or verify a live continuation.
+
+Decisions: Reversible offline repair is already authorized by the v4 design. A second execution requires the named one-time startup continuation because the previous owner record pins the original source and forbids automatic retry, and the launcher rejects its consumed namespace before claiming the trial. The new plan preserves the same unconsumed eighty-request allowance, additive 112 ceiling and cutoff; no new model allowance is proposed.
+
+Changes: In a separate held control package, make only the newly and exclusively created ledger copy owner-writable before initializing SQLite. Use a non-symlink descriptor and single-link check; retain refusal for existing destinations. Preserve all original files, failed-run bytes/modes and historical accounting. Successor authority binds the original approval, release, frozen source, independent pre-claim audit and exact unchanged failed namespace before any active preparation. It requires a distinct named continuation decision and rejects the old approval alone. No effectful retry or source substitution is introduced.
+
+Evidence: Copy-fix source 63528cb2237d481cb6c9ff349c04b98ff3b48b03f71242dd20881314f9d1ac86 and regression source e535ac799e19624b0cc5d503f603e6eab63f4ccbe41289b5e10bea06c7946a5c passed independent review and all fifteen control tests. The initial successor suite passed fifty-six tests with one real-graph test held until the successor source freeze; strict all-root TypeScript passed. New tests exercise an actual immutable 0400 source through initialization, claim and settlement while retaining original hash/mode/inode and raw historical rows/claims; existing regular-file and symlink destinations remain unchanged. Offline verification ac511cdbe1a358f37ffbcd3640754b2b28557dd3efa805f5b9ecbf8ba45e8ae2 retains logs and confirms all 297 original private files unchanged. The expanded authority suite then passed sixty-six cases with one held-graph case pending. Independent review repeated thirteen authority/lineage cases and strict TypeScript after a narrow ordering correction: initial preparation now rejects an existing continuation directory, file or dangling symlink before image inspection or output; legitimate in-run pin validation remains usable. The final authority source is 66b27cd75731ac15b77962bb271a2c96a5e30be7befeec8e0cac31668b473277 and release validator is 81822f390fa6884904bba76a541093b2a72c1992852ab84f025cf34101919aaf. The real preserved pre-claim lineage passes read-only inspection; final complete package binding follows documentation synchronization.
+
+Failures or blockers: Final public-head source/CI rebinding and the real held graph remain required before a continuation decision. No successor owner record, active release, runtime namespace or model request exists. The original startup failure remains recorded and is not relabeled as a successful trial.
+
+Limitations and non-claims: The new tests demonstrate safe copying and accounting, not live research quality, model performance, complete artifacts, H4 or H5. The correction does not change the production runtime, protocol, presentation policy, role sampling, model, API helper, native token contract or sandbox image. Fresh H5 bodies and gold remain unread.
+
+Paid exposure: Zero new model requests, tokenizer calls, tools, slots or fees. The proposed one-time continuation uses the same eighty unconsumed zero-fee slots, not an additional eighty. Preserve all stage/time/draft/output limits, USD 0.60 all-history H4 split, eighteen H5 rows/USD 21.60 total/USD 3 cloud row/USD 0.60 split row, and November 5, 10:00 UTC / 18:00 Asia/Shanghai cutoff.
+
+Next gate: Complete final public-head source/CI synchronization and held-graph verification, then obtain only the named startup-continuation decision. Fresh API readiness and exact image presence precede its sole launch. Stop on any next failure; no further startup exception or automatic retry is granted.
+
+References: BL-20261105-0743-research-v4-preclaim-startup-failed; docs/plans/PHASE4_RESEARCH_V4_PRECLAIM_STARTUP_CONTINUATION_V1.md; docs/plans/PHASE4_RESEARCH_COVERAGE_V4.md section 10.

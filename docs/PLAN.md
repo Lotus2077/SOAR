@@ -567,8 +567,10 @@ within eighteen rows / USD 21.60 total / USD 3 cloud row / USD 0.60 split row.
 The last approved admission cutoff is **November 5, 2026, 18:00 Asia/Shanghai**;
 that window does not override the failed content gate or exhausted allocation.
 Fresh H5 inputs and gold remain unread. The [research coverage v4 design](plans/PHASE4_RESEARCH_COVERAGE_V4.md)
-has passed technical review; offline implementation and focused CPU verification
-are complete on a separate branch, with full-head CI still required. It explicitly changes the production research
+has passed technical review; offline implementation, production CI and the full
+synthetic research-to-writer integration have passed on a separate branch. The held
+trial controls passed fifty-four CPU tests; any live release still binds current
+source, review and CI evidence. The repair explicitly changes the production research
 protocol, seed contract and ordinary/seeded/repair writer presentation. A proposed
 integrated trial caps new work at 68 research calls plus 12 writer calls, all
 zero-fee; this would raise the additive ceiling from 32 to 112. No new request

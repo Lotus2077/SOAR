@@ -1,6 +1,8 @@
 # Phase 4 research coverage v4
 
-Status: **Proposed runtime/protocol change; live work held.**
+Status: **Implemented and verified offline; live amendment Proposed and held.**
+
+The production repair passed both CI jobs on `e12c568`. The held trial controls passed fifty-four CPU tests, including actual research receipts, producer/checkpoint creation, read-only seed loading, the production writer and three artifact checks using invented evidence and a mocked sandbox. These checks establish the integration and controls, not live evidence quality or H4/H5 acceptance. The final release must bind the current source manifest, independent review and CI; the new live allowance below remains unapproved.
 
 This design supplies a completion path for the research-seed and writer failures recorded in BUILD_LOG entry BL-20261105-0357. It is not an accepted experiment result, a replacement-run authorization, or a release. Reversible offline implementation may proceed after independent technical review under the continuing project goal. Any further model request requires the named live amendment in section 10 and a reviewed, pinned implementation.
 

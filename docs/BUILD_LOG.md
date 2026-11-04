@@ -29087,3 +29087,25 @@ Paid exposure: No new calls or charges. Preserve twenty-four consumed standalone
 Next gate: Publish the reviewed proposal and request the single named owner amendment. If approved, bind that decision before implementation/release, verify additive accounting and diagnostics, independently review exact sources, refresh pinned API readiness and execute only the approved new pilot. Stop on the next failed gate; H4/H5 remain conditional on actual acceptance.
 
 References: BL-20261104-1419-api-only-qualification-passed-pilot-first-draft-refused; docs/plans/PHASE4_API_ONLY_ARTIFACT_PILOT_RETRY_V1.md; docs/plans/PHASE4_API_ONLY_ENDPOINT_CONTINUATION_V1.md.
+
+### BL-20261105-0212-api-only-eight-slot-artifact-retry-approved -- 2026-11-05 -- Approve the single eight-slot replacement pilot
+
+Status: `Approved`
+
+Scope or hypothesis: Resume the qualification-to-artifact-to-H4/H5 path after the failed first artifact pilot. The owner answered the named amendment question exactly: "Approve eight-slot pilot amendment". This approves the reviewed proposal at commit 815160cbe3806e6e49d3bd85517956b1882a5831, plan digest 98416eb0f7a81b502d1b2fc42f2023a70d5fc3a72da022d14ce69a24945e7edc. The original Proposed entry and failed attempt remain unchanged.
+
+Decisions: Authorize implementation, independent verification and one gated replacement pilot with at most eight model requests, eight tool actions, twenty minutes and USD 0. Preserve the four-completed-turn-or-five-minute substantive first-draft gate, final artifact checks and at-most-20000 completed-output-token success criterion. Approval does not require another routine implementation or release decision. Conditional H4/H5 authority remains subject to actual preceding results.
+
+Changes: Prepare additive private guidance, admission, accounting, failure diagnostics and downstream acceptance controls. Preserve the original task and six-file research seed, production runtime, research protocol, API target, native tokenization contract and all eight local role settings. Explicit guidance may explain the existing evidence schema and report-first workflow but may not supply answers, selected conclusions or new evidence. Retain both pilot attempts, distinct once-only claims and all historical receipts in downstream acceptance.
+
+Evidence: The explicit owner reply supplies amendment authority. Read-only reconciliation confirms twenty-four consumed standalone slots and the closed failed-pilot ledger digest 803cfcc83c7ecc9d70dbea6b3f4fb8273d0e27aae90c315471ef071d918d92a1. Qualification remains accepted; the first pilot remains failed. Both public CI jobs passed on 815160cbe3806e6e49d3bd85517956b1882a5831. At receipt processing, the clock was November 5, 02:11 Asia/Shanghai, before the fixed admission cutoff.
+
+Failures or blockers: Source changes, tests, independent review, concrete release bindings and fresh pinned API readiness are still required before dispatch. This approval does not establish a successful replacement or waive any runtime gate. Stop on the next failed gate or unresolved outcome; no further attempt, automatic retry, service change or qualification replay is authorized.
+
+Limitations and non-claims: No replacement implementation or launch, accepted pilot artifact, H4 loop or H5 row is claimed by this approval entry. Physical server identity remains unobserved under the approved API-only boundary. Fresh evaluator inputs and gold remain outside preparation.
+
+Paid exposure: No new requests or charges at approval. Preserve twenty-four consumed standalone slots with at most eight additional slots and at most twelve requests/tools across both pilots. Preserve USD 0.60 all-history H4 split and H5 eighteen rows/USD 21.60 total/USD 3 cloud row/USD 0.60 split row. The fixed new-admission cutoff remains November 5, 2026, 10:00 UTC / 18:00 Asia/Shanghai.
+
+Next gate: Implement and independently verify the exact approved additive controls, record source and review identities, refresh pinned API readiness, then release the one replacement pilot. Only accepted substantive artifacts admit the three full H4 loops in research/deck/split order and conditional H5.
+
+References: BL-20261104-1423-api-only-eight-slot-artifact-retry-proposed; docs/plans/PHASE4_API_ONLY_ARTIFACT_PILOT_RETRY_V1.md; docs/plans/PHASE4_API_ONLY_ENDPOINT_CONTINUATION_V1.md.

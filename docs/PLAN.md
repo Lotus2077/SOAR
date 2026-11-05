@@ -559,25 +559,44 @@ content review nevertheless rejected false corpus-absence assertions and missing
 required coverage. Quote occurrence is not complete claim support or task acceptance.
 The changed pilot input presentation does not change ordinary H4/H5 writer prompts.
 
-All thirty-two standalone slots are consumed. The named final attempt grants no
-replacement, post-final-review edits or further requests. H4 remains unaccepted
-with its six historical attempts preserved; the three newly authorized full loops
-and H5 remain unstarted. H4 split stays within USD 0.60 all-history, and H5 stays
-within eighteen rows / USD 21.60 total / USD 3 cloud row / USD 0.60 split row.
-The last approved admission cutoff is **November 5, 2026, 18:00 Asia/Shanghai**;
-that window does not override the failed content gate or exhausted allocation.
-Fresh H5 inputs and gold remain unread. The [research coverage v4 design](plans/PHASE4_RESEARCH_COVERAGE_V4.md)
-passed offline review, fifty-four CPU tests and both final-head CI checks. The owner
-then approved the integrated trial: at most sixty-eight research calls and twelve
-writer calls, all zero-fee, with an additive 112-slot ceiling and the same cutoff.
-Fresh API readiness and the exact sandbox-image check passed. The released launch
-failed during ledger initialization before any new claim, tokenizer or generation:
-the copied historical database retained its read-only permissions. The failed
-namespace, original thirty-two rows and six claims are preserved; no v4 research
-packet or writer artifact was produced. The narrow copy correction and continuation controls passed independent offline
-review. The [one-time startup continuation](plans/PHASE4_RESEARCH_V4_PRECLAIM_STARTUP_CONTINUATION_V1.md)
-remains held for its named approval. Unused capacity does not authorize an automatic retry.
-See BL-20261105-0739, BL-20261105-0742 and BL-20261105-0743 in BUILD_LOG.
+The original thirty-two standalone slots and six claims remain consumed and
+preserved. The [research coverage v4 design](plans/PHASE4_RESEARCH_COVERAGE_V4.md)
+passed offline review and CI, and the owner approved one integrated trial with
+at most sixty-eight research calls and twelve writer calls, all zero-fee, under
+an additive 112-slot ceiling. Its first release failed before any new claim or
+request because the copied historical database retained read-only permissions.
+That zero-dispatch failure and its immutable namespace remain preserved.
+
+After independent offline verification, the owner explicitly approved the
+[one-time startup continuation](plans/PHASE4_RESEARCH_V4_PRECLAIM_STARTUP_CONTINUATION_V1.md).
+Fresh readiness at November 5, 01:18:52 UTC and the exact sandbox-image check
+preceded release. The continuation started successfully, then stopped at
+`research_plan_invalid`: eight index calls completed all twenty-four source
+entries, followed by two invalid planning replies. All ten requests settled,
+using 68,460 input and 17,505 output tokens in 169.964 seconds at USD 0. No
+truncation was observed. Extraction, synthesis, the writer and artifact checks
+never started; the saved research result is incomplete.
+
+Independent accounting confirms forty-two global slots and seven claims:
+forty-one committed requests, forty settled and the sole historical F15 UNKNOWN.
+All original raw rows and claims are unchanged. Offline inspection found omitted
+planner field limits and inconsistent guidance about the required `sourceIds`
+array key. Synthetic boundary plans reproduce rejection, but neither the actual
+rejected fields nor their causal link to these omissions can be established:
+raw planning replies and caught validation errors were not retained. The second
+call received only a generic rejection reason, without the prior reply.
+
+No further live attempt is authorized. Seventy unused slots beneath the approved
+ceiling are not retry permission. The next work is the reviewed
+[offline planner contract and failure-reporting correction](plans/PHASE4_RESEARCH_PLAN_CONTRACT_REPAIR_V1.md);
+any subsequent live attempt needs a
+new reviewed, named authority. H4 remains unaccepted with six historical attempts
+preserved; the three conditional full loops and H5 remain unstarted. H4 split
+stays within USD 0.60 all-history, and H5 stays within eighteen rows / USD 21.60
+total / USD 3 cloud row / USD 0.60 split row. The last approved admission cutoff
+is **November 5, 2026, 18:00 Asia/Shanghai**; it does not override the failed trial
+gate or grant another attempt. Fresh H5 inputs and gold remain unread. See
+BL-20261105-0918, BL-20261105-0920 and BL-20261105-0923 in BUILD_LOG.
 
 The following dated paragraphs retain the earlier decisions and negative evidence;
 the current status above supersedes their older request allowances and cutoffs.

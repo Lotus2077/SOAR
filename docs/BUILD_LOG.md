@@ -29412,3 +29412,97 @@ Paid exposure: Zero new model requests, tokenizer calls, tools, slots or fees. T
 Next gate: Complete final public-head source/CI synchronization and held-graph verification, then obtain only the named startup-continuation decision. Fresh API readiness and exact image presence precede its sole launch. Stop on any next failure; no further startup exception or automatic retry is granted.
 
 References: BL-20261105-0743-research-v4-preclaim-startup-failed; docs/plans/PHASE4_RESEARCH_V4_PRECLAIM_STARTUP_CONTINUATION_V1.md; docs/plans/PHASE4_RESEARCH_COVERAGE_V4.md section 10.
+
+
+### BL-20261105-0918-startup-continuation-approved -- 2026-11-05 -- Record the named one-time startup continuation approval
+
+Status: `Approved`
+
+Scope or hypothesis: Authorize the reviewed successor control package to continue the single research-coverage v4 trial after its zero-dispatch ledger-initialization failure. Preserve the original failure and all model, research, writer, role, service, acceptance, budget and cutoff settings.
+
+Decisions: The owner explicitly replied "Approve the one-time v4 startup continuation". The private decision was durably recorded at 2026-11-05 01:18:30.198 UTC, before fresh readiness, active release or launch. It grants one fresh continuation namespace under the same eighty-request allowance, not an additional allowance or automatic retry. No further startup continuation is authorized.
+
+Changes: Owner record 64c57b2c89e9aaaee68efecff143baf6d163e1d8e305c49a41d4148a68d5d78d binds the original approval, failed release, pre-claim failure audit and startup-correction plan 411bfc41362c6739092973b0bc54263d6ef319c869b4cede49855fd93ed3c599. The original plan and failed namespace remain immutable. Public logging follows closure of the frozen source check; the private approval names this append-only entry.
+
+Evidence: Final successor source 27c851b3ae5decfbc34c71ea51d1040aa94653494e7ba417e2ca44d84196f720 and independent review 5227d5f3ea06f3341d236a0c0c8be7567a4e0fe0f4d365141a53f619da6fd011 bind all sixty-three source/snapshot pairs. Independent verification passed fifteen control tests, thirteen authority/lineage cases and strict TypeScript; the final complete held graph and three focused graph cases passed after rebinding. Both CI jobs passed for 0d1dfa5e0b2b911c9f844842114ad4dc6632b397 in run 41937321604. Production runtime, protocol, presentation and all eight role settings remain unchanged from the approved v4 trial.
+
+Failures or blockers: This approval does not establish release, successful research, artifact quality, H4 or H5. Fresh API-only readiness and the exact sandbox-image check still precede the sole launch.
+
+Limitations and non-claims: The correction changes only new-copy permission handling and the explicit continuation authority route. The original zero-dispatch failure, thirty-two raw historical rows and six claims remain preserved. Fresh H5 inputs and gold remain unread.
+
+Paid exposure: No new model request or fee is implied by approval. Preserve at most twenty-four index, two planning, forty extraction, two synthesis and twelve writer requests; sixty-minute research and twenty-minute writer windows; the four-turn/five-minute substantive-draft gate; and twenty-thousand writer-output-token success criterion. The additive ceiling remains 112 slots. H4 split remains USD 0.60 all-history; H5 remains eighteen rows/USD 21.60 total/USD 3 cloud row/USD 0.60 split row. The cutoff remains November 5, 10:00 UTC / 18:00 Asia/Shanghai.
+
+Next gate: Obtain fresh API-only readiness, verify the pinned image and exact approved graph, then release the one continuation. Stop on any next failure; unused capacity grants no further attempt.
+
+References: BL-20261105-0751-research-v4-startup-copy-correction; BL-20261105-0739-research-v4-integrated-trial-approved; docs/plans/PHASE4_RESEARCH_V4_PRECLAIM_STARTUP_CONTINUATION_V1.md; docs/plans/PHASE4_RESEARCH_COVERAGE_V4.md.
+
+
+### BL-20261105-0920-startup-continuation-released -- 2026-11-05 -- Release the approved startup continuation after fresh readiness
+
+Status: `Released`
+
+Scope or hypothesis: Execute the exact approved successor package after validating unchanged API identity, native token admission, historical accounting, runtime, roles and authority.
+
+Decisions: Fresh API readiness and exact sandbox-image presence passed before active preparation and launch. Root admitted active release c16612c92dce799b8a7e09de696ac463763b3646f980bb7098b6708580168f55 under owner approval 64c57b2c89e9aaaee68efecff143baf6d163e1d8e305c49a41d4148a68d5d78d. The original failed namespace was neither reused nor modified.
+
+Changes: The successor started research at 2026-11-05 01:20:43.182 UTC. Its new ledger copy was writable for the trial while the preserved source stayed immutable. The once-only trial claim was appended after the six unchanged historical claims. No private writer preloader, changed guidance, new role setting or service operation was introduced.
+
+Evidence: Observation eefe2f78687f811752b31d78d3f6b86f8e86b44d48be7bca4014ed728e77f90f at 01:18:52.131582 UTC reported healthy with zero running and zero waiting, matching the qualified API model/version/context/schema/cache configuration and incarnation. Readiness 0a96c7ff367a6f9692908ea5be34e84bf59b70cd6543334e4e4393dc794ccc7b binds that observation to the new owner and source. The metadata check dispatched no generation. Active release binds source 27c851b3ae5decfbc34c71ea51d1040aa94653494e7ba417e2ca44d84196f720 and both passing CI jobs for 0d1dfa5e0b2b911c9f844842114ad4dc6632b397. Actual settled index receipts establish that initialization passed its former failure point.
+
+Failures or blockers: Successful startup and admitted requests do not establish complete research or accepted artifacts. The following terminal entry records a planning failure before extraction or writing.
+
+Limitations and non-claims: API observations do not establish physical-server identity. No SSH, service change, qualification replay or diagnostic generation occurred. Release supplies no H4/H5 credit.
+
+Paid exposure: All original stage, time, output, cost and cutoff limits remain unchanged. Readiness and image inspection consumed no model request or fee. Actual trial consumption is reconciled in the following entry without refunding any historical slot.
+
+Next gate: Preserve and independently reconcile the terminal outcome. Only a fully accepted trial could admit the conditional three-loop H4 sequence and H5.
+
+References: BL-20261105-0918-startup-continuation-approved; docs/plans/PHASE4_RESEARCH_V4_PRECLAIM_STARTUP_CONTINUATION_V1.md; docs/plans/PHASE4_RESEARCH_COVERAGE_V4.md.
+
+
+### BL-20261105-0923-research-v4-planning-failed -- 2026-11-05 -- Preserve the all-settled planning failure and close continuation authority
+
+Status: `Failed`
+
+Scope or hypothesis: Record the actual integrated-trial outcome after the startup correction, distinguish completed indexing from rejected planning, and reconcile all requests without granting another attempt.
+
+Decisions: Stop on research_plan_invalid and preserve the failed trial, original startup failure, all historical pilots and immutable source packages. The one-time continuation is consumed. Do not retry, resume, refund slots or proceed to extraction, the writer, H4 or H5.
+
+Changes: The terminal failure was recorded at 2026-11-05 01:23:33.149 UTC; the process exited with code 2. Eight index requests completed all twenty-four source entries, with no invalid index reply, truncation, fallback, skip or repair recorded. Both allowed planning replies failed validation; no question plan was accepted. The saved research result is incomplete. Extraction, synthesis, seed production, the writer, sandbox tools, draft review and artifact checks never started.
+
+Evidence: Terminal report 62592bc2c1c294858e83241a39522a7b8a164f360f61901f145dd9e0eb218631 and research result b535c4225e651af4283ab1502c35892ce1ae47870cd469b053d3f4c756aed35a bind the outcome. Independent failure audit 0cf80845273a11e4cd5ff28c6093c714c7f1df2d03ac83e95d1641022481e73e passes accounting reconciliation, not trial acceptance. Its immutable closed ledger c27b4b59c386a825e26c4005123ccbdd946076cf3aa66644d6835842b1631c64 preserves all thirty-two original raw rows and six raw claims, and records ten new settled requests plus the seventh once-only claim. Each new allocation row matches its native receipt, body/token proof and actual usage; there is no new UNKNOWN. All sixty-three frozen source/snapshot pairs remain exact. Terminal databases had no journal, WAL or SHM sidecars when the closed copy was preserved.
+
+The index used 19,751 input and 7,746 output tokens; planning used 48,709 input and 9,759 output tokens. Total usage is 68,460 input and 17,505 output tokens, with zero cached-input tokens and a recorded research duration of 169.964 seconds. No truncation was observed. These are elapsed-phase and usage totals, not an independently measured decode-throughput result. Exact per-request settlement/decode durations were not retained.
+
+Failures or blockers: Both planning replies were invalid, but the exact rejected fields are unrecoverable because raw replies and caught validation errors were not retained. Independent offline inspection found that the prompt omits the enforced lookFor bounds (six entries, 120 characters each) and conflictsToCheck bounds (eight entries, 200 characters each), and calls sourceIds optional hints although its array key is required. Synthetic boundary plans reproduce rejection, but do not establish those omissions as the actual cause of either live rejection. The second call received a generic rejection reason without the prior reply. A narrow planner contract and failure-reporting correction can be prepared offline; no live repair or replacement is authorized.
+
+Limitations and non-claims: Complete index metadata is not evidence extraction, semantic source coverage or task acceptance. The audit proves saved accounting and local stage termination, not remote-server quiescence, which was not independently queried. No model-throughput defect is established. No new writer artifact, H4 acceptance or H5 result exists; fresh H5 inputs and evaluator gold remain unread. The original zero-dispatch permission failure remains separately preserved and is not reclassified.
+
+Paid exposure: Ten new zero-fee requests settled; no writer tools, paid requests, known fees or fee reservations occurred. Global standalone accounting is forty-two slots and seven claims: forty-one committed requests, forty settled and the sole historical F15 UNKNOWN. The remaining historical slot was rejected before dispatch. Seventy unused slots beneath the additive 112 ceiling are not retry authority. Preserve USD 0.60 all-history H4 split, eighteen H5 rows/USD 21.60 total/USD 3 cloud row/USD 0.60 split row, and November 5, 10:00 UTC / 18:00 Asia/Shanghai cutoff. No further live authority remains for this trial.
+
+Next gate: Prepare and independently test the smallest generic planner prompt/schema and bounded failure-evidence correction offline in a separate checkout, retaining the failed runtime and evidence. Any subsequent live attempt requires a concrete reviewed amendment and new named authority; no unused capacity, passing test or open cutoff supplies it. H4 and H5 remain held behind actual integrated-trial content acceptance.
+
+References: BL-20261105-0920-startup-continuation-released; BL-20261105-0743-research-v4-preclaim-startup-failed; docs/plans/PHASE4_RESEARCH_V4_PRECLAIM_STARTUP_CONTINUATION_V1.md; docs/plans/PHASE4_RESEARCH_COVERAGE_V4.md.
+
+
+### BL-20261105-0930-planner-contract-repair-design-reviewed -- 2026-11-05 -- Review a narrow offline planner contract and feedback correction
+
+Status: `Proposed`
+
+Scope or hypothesis: Align the planner's instructions with its existing strict validator and make the already-permitted second call useful through bounded, specific feedback. This is an offline technical design; it neither identifies the actual rejected live fields nor grants a new attempt.
+
+Decisions: Root technical review passed the design for implementation in a separate checkout. Keep the released v4 production files, both startup namespaces, old plans, forty-two consumed slots and seven claims intact. Preserve all schema, source-coverage, role, sampling, output, request, time, cost and acceptance limits. Do not coerce or trim a rejected plan into acceptance.
+
+Changes: Propose deriving the full planner JSON Schema from the authoritative validator; retaining safe bounded attempt diagnostics, truthful binding-inspection state and accepted parsed-plan identity; and supplying the existing second call with exact diagnostics plus the complete prior reply as untrusted data only when it fits the 64 KiB repair-context limit. Oversized prior text is wholly omitted, with a recorded reason. Retain at most sixteen errors and 4096 canonical UTF-8 diagnostic bytes per attempt, without raw replies, rejected values or exception text. Reconcile attempt records through packet and both seed-producer validation routes. Keep version 4 and the seven-file packet shape, while binding the changed contract and summary rules to a new protocol/runtime identity.
+
+Evidence: Reviewed design 2730e1744f1d7c8c9fb735ab1f982b9160969d60271dbc6f0d071909050d1bb1 specifies legal and illegal boundary fixtures, exact second-call input, redaction and whole-reply omission, two-invalid-call stopping, native denial, unresolved dispatches, summary tampering and both seed-loading paths. Existing synthetic examples demonstrate the omitted planner bounds; they do not establish the actual live rejection cause. This entry records design review, not implemented or passing code.
+
+Failures or blockers: Actual raw planning replies and caught validation errors were not retained, so the precise failed live fields remain unknown. The proposed diagnostics and feedback have not yet been implemented or independently verified. The failed trial remains unaccepted.
+
+Limitations and non-claims: No model, tokenizer, sandbox, service, H4 or H5 work is authorized by this design. CPU verification can establish contract and accounting behavior only, not future model planning or final content quality. Fresh H5 inputs and gold remain unread.
+
+Paid exposure: Zero new requests or fees. Preserve the two-call/8192-output-token planning limit and all existing stage caps. Seventy unused slots are not retry authority. Preserve USD 0.60 all-history H4 split, eighteen H5 rows/USD 21.60 total/USD 3 cloud row/USD 0.60 split row, and November 5, 10:00 UTC / 18:00 Asia/Shanghai cutoff.
+
+Next gate: Implement and independently test the narrow correction offline in the separate checkout, then prepare a concrete reviewed proposal before any new live decision. No automatic retry or reduced quality gate follows.
+
+References: BL-20261105-0923-research-v4-planning-failed; docs/plans/PHASE4_RESEARCH_PLAN_CONTRACT_REPAIR_V1.md; docs/plans/PHASE4_RESEARCH_COVERAGE_V4.md.

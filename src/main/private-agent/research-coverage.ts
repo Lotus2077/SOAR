@@ -1,14 +1,12 @@
 import { z } from "zod";
 import { canonical, digest, sha256Schema } from "./contracts";
+import { ResearchPlanSchema, validatePlanCoverage, validateResearchPlanAttempts, type ResearchPlan } from "./research-plan";
+export { ResearchPlanSchema, validatePlanCoverage, type ResearchPlan } from "./research-plan";
 import { RESEARCH_COVERAGE_POLICY, RESEARCH_FILES, RESEARCH_PIPELINE_VERSION, type ResearchBudget, type ResearchSourceIdentity } from "./research-contract";
 
 const id = z.string().min(1).max(2048), qid = z.string().regex(/^Q[0-9]{1,2}$/u), uid = z.string().regex(/^U[0-9]{1,4}$/u), eid = z.string().regex(/^E[0-9]{1,4}$/u);
 const integer = z.number().int().nonnegative();
 const sourceIdentity = z.object({ id, path: z.string().min(1).max(2048), sha256: sha256Schema, bytes: integer }).strict();
-export const ResearchPlanSchema = z.object({ version: z.literal(2), questions: z.array(z.object({ id: qid, text: z.string().min(1).max(300),
-  requirementIds: z.array(uid).min(1).max(128), sourceIds: z.array(id).max(8), lookFor: z.array(z.string().max(120)).max(6).optional() }).strict()).min(1).max(12),
-  conflictsToCheck: z.array(z.string().max(200)).max(8).optional(), deliverableNotes: z.string().max(1000).optional() }).strict();
-export type ResearchPlan = z.infer<typeof ResearchPlanSchema>;
 export const ResearchEvidenceSchema = z.object({ version: z.literal(2), quotes: z.array(z.object({ id: eid, questionIds: z.array(qid).min(1).max(12), sourceId: id,
   sourceSha256: sha256Schema, chunkIds: z.array(z.string().min(1).max(80)).min(1).max(4096), locator: z.string().min(1).max(100), quote: z.string().min(12).max(600), note: z.string().max(200) }).strict()).max(480),
   conflicts: z.array(z.object({ questionIds: z.array(qid).min(1).max(12), sourceId: id, note: z.string().max(300) }).strict()).max(16),
@@ -110,15 +108,7 @@ export function inventoryResearchSources(sources: readonly { id: string; path: s
   }
   return { sources: inventory, chunks, sourceManifest: identities, sourceManifestSha256: sourceManifestIdentity(identities) };
 }
-export function validatePlanCoverage(plan: ResearchPlan, units: readonly BriefUnit[], sources: readonly { id: string }[]): void {
-  if (!unique(plan.questions.map(q => q.id))) fail("question_ids");
-  const unitIds = new Set(units.map(u => u.id)), sourceIds = new Set(sources.map(s => s.id)), covered = new Set<string>();
-  for (const question of plan.questions) {
-    if (!unique(question.requirementIds) || question.requirementIds.some(u => !unitIds.has(u)) || !unique(question.sourceIds) || question.sourceIds.some(s => !sourceIds.has(s))) fail("plan_binding");
-    question.requirementIds.forEach(u => covered.add(u));
-  }
-  if (covered.size !== unitIds.size) fail("brief_unit_omitted");
-}
+
 export function renderResearchEvidence(evidence: ResearchEvidence, plan: ResearchPlan): string {
   const questions = plan.questions.map(q => `- ${q.id} (${q.requirementIds.join(", ")}): ${q.text}`).join("\n");
   const quotes = evidence.quotes.map(q => `- [${q.id}] ${q.sourceId} (${q.locator}; questions ${q.questionIds.join(", ")}): ${JSON.stringify(q.quote)}${q.note ? ` — extractor note (unverified): ${q.note}` : ""}`).join("\n");
@@ -144,6 +134,7 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   const brief = coverage.units.map(u => u.text).join("");
   if (digest(Buffer.from(brief)) !== coverage.briefSha256 || Buffer.byteLength(brief) !== coverage.briefBytes || canonical(deriveBriefUnits(brief)) !== canonical(coverage.units) || (expected.brief !== undefined && expected.brief !== brief)) fail("brief");
   validatePlanCoverage(plan, coverage.units, coverage.sources);
+  validateResearchPlanAttempts(summary.stages[1]!, plan, coverage.units);
   const sourceManifest = coverage.sources.map(({ readable: _readable, ...s }) => s);
   if (!unique(sourceManifest.map(s => s.id)) || sourceManifestIdentity(sourceManifest) !== coverage.sourceManifestSha256 || (expected.sourceManifest && sourceManifestIdentity(expected.sourceManifest) !== coverage.sourceManifestSha256)) fail("sources");
   if (expected.sources) {

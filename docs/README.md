@@ -5,6 +5,10 @@ index says which documents currently govern the project and which are historical
 evidence. Historical documents describe their own versions; their "next steps" are
 not active requirements.
 
+The planner contract repair is implemented and independently reviewed offline
+(BL-20261105-0944): 159 focused tests and both TypeScript checks pass. Current-code
+CI is pending; no new live attempt or relaxed acceptance rule is authorized.
+
 ## Current
 
 | Document | Role |
@@ -14,7 +18,7 @@ not active requirements.
 | [plans/PHASE4_API_ONLY_PRELOADED_WRITER_PILOT_V1.md](plans/PHASE4_API_ONLY_PRELOADED_WRITER_PILOT_V1.md) | Final named amendment approved in BL-20261105-0335 and now consumed. Artifacts and mechanical checks completed, but final content review rejected the pilot; H4/H5 remain held. Preserve the original proposed plan bytes and append-only approval/outcome records |
 | [plans/PHASE4_RESEARCH_COVERAGE_V4.md](plans/PHASE4_RESEARCH_COVERAGE_V4.md) | Approved integrated-trial design. After the separately approved startup correction, ten requests settled: all 24 sources indexed, then both planning replies rejected. No extraction, writer, accepted artifact or H4/H5 credit; exact rejected fields were not retained |
 | [plans/PHASE4_RESEARCH_V4_PRECLAIM_STARTUP_CONTINUATION_V1.md](plans/PHASE4_RESEARCH_V4_PRECLAIM_STARTUP_CONTINUATION_V1.md) | Named continuation approved in BL-20261105-0918 and consumed by the failed planning attempt. Original zero-dispatch startup failure and all historical accounting preserved; global 42 slots / seven claims, no further live authority. Plan bytes remain unchanged; BUILD_LOG records approval, release and outcome |
-| [plans/PHASE4_RESEARCH_PLAN_CONTRACT_REPAIR_V1.md](plans/PHASE4_RESEARCH_PLAN_CONTRACT_REPAIR_V1.md) | Proposed planner contract, bounded diagnostics and existing second-call feedback repair. Technical design reviewed for offline implementation in a separate checkout; no new live attempt or relaxed acceptance rule |
+| [plans/PHASE4_RESEARCH_PLAN_CONTRACT_REPAIR_V1.md](plans/PHASE4_RESEARCH_PLAN_CONTRACT_REPAIR_V1.md) | Planner contract, bounded diagnostics and existing second-call feedback repair; offline implementation and independent verification recorded in BL-20261105-0944. Design bytes unchanged; no new live authority |
 | [plans/PRIVATE_WORK_DESIGN_V1.md](plans/PRIVATE_WORK_DESIGN_V1.md) | Private-work design (Proposed): strict privacy profile, admin assistant, research and document review, device |
 | [plans/PRIVACY_FILTER_V2_DESIGN.md](plans/PRIVACY_FILTER_V2_DESIGN.md) | Privacy filter v2 direction approved at its defaults on 2026-10-22: synthetic-first stages, no labelled packet before the gates, no paid allocation yet; lenses and change logs under `plans/privacy-filter-v2/` |
 | [PROJECT_REVIEW_2026-09-28.md](PROJECT_REVIEW_2026-09-28.md) | Verified whole-project review behind the plan |

@@ -587,16 +587,20 @@ raw planning replies and caught validation errors were not retained. The second
 call received only a generic rejection reason, without the prior reply.
 
 No further live attempt is authorized. Seventy unused slots beneath the approved
-ceiling are not retry permission. The next work is the reviewed
-[offline planner contract and failure-reporting correction](plans/PHASE4_RESEARCH_PLAN_CONTRACT_REPAIR_V1.md);
-any subsequent live attempt needs a
+ceiling are not retry permission. The
+[offline planner contract and failure-reporting correction](plans/PHASE4_RESEARCH_PLAN_CONTRACT_REPAIR_V1.md)
+is implemented and independently reviewed, with 159 focused tests and both
+TypeScript checks passing. It exposes the full existing schema, retains bounded
+diagnostics and supplies specific feedback for the existing second call; source
+limits, coverage rules and call caps are unchanged. Current-code CI is pending.
+This is offline verification only; any subsequent live attempt needs a
 new reviewed, named authority. H4 remains unaccepted with six historical attempts
 preserved; the three conditional full loops and H5 remain unstarted. H4 split
 stays within USD 0.60 all-history, and H5 stays within eighteen rows / USD 21.60
 total / USD 3 cloud row / USD 0.60 split row. The last approved admission cutoff
 is **November 5, 2026, 18:00 Asia/Shanghai**; it does not override the failed trial
 gate or grant another attempt. Fresh H5 inputs and gold remain unread. See
-BL-20261105-0918, BL-20261105-0920 and BL-20261105-0923 in BUILD_LOG.
+BL-20261105-0918, BL-20261105-0920, BL-20261105-0923 and BL-20261105-0944 in BUILD_LOG.
 
 The following dated paragraphs retain the earlier decisions and negative evidence;
 the current status above supersedes their older request allowances and cutoffs.

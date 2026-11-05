@@ -321,6 +321,28 @@ describe("general task workspace", () => {
     expect(await screen.findByText(/did not submit a completed deliverable/u)).toBeVisible();
     expect(api.createGeneralTask).not.toHaveBeenCalled();
   });
+  it("retries cancelled cleanup through the cancellation action and keeps export blocked until confirmed", async () => {
+    const user = userEvent.setup(), failed = task({ status: "cancelled", cleanupConfirmed: false, canRetryCleanup: true, artifacts: [artifact] });
+    const { api, emit } = fixture([failed]);
+    api.cancelGeneralTask.mockResolvedValue({ ...failed, revision: 2, canRetryCleanup: false, cleanupInProgress: true });
+    render(<GeneralTaskWorkspace api={api} />);
+    expect(await screen.findByRole("button", { name: "Retry cleanup" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Export output/report.md" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "Retry cleanup" }));
+    expect(api.cancelGeneralTask).toHaveBeenCalledExactlyOnceWith(id);
+    expect(await screen.findByRole("button", { name: "Cleaning up…" })).toBeDisabled();
+    expect(screen.getByText(/Cleanup keeps this task cancelled and sends no model requests/u)).toBeVisible();
+    await act(async () => emit({ ...failed, revision: 3, canRetryCleanup: true, cleanupInProgress: false }));
+    expect(screen.getByRole("button", { name: "Retry cleanup" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Export output/report.md" })).toBeDisabled();
+    api.cancelGeneralTask.mockResolvedValue({ ...failed, revision: 4, canRetryCleanup: false, cleanupInProgress: true });
+    await user.click(screen.getByRole("button", { name: "Retry cleanup" }));
+    await act(async () => emit({ ...failed, revision: 5, cleanupConfirmed: true, canRetryCleanup: false, cleanupInProgress: false }));
+    expect(screen.queryByRole("button", { name: "Retry cleanup" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export output/report.md" })).toBeEnabled();
+    expect(screen.getByText(/did not submit a completed deliverable/u)).toBeVisible();
+    expect(api.createGeneralTask).not.toHaveBeenCalled(); expect(api.startGeneralTask).not.toHaveBeenCalled(); expect(api.resumeGeneralTask).not.toHaveBeenCalled();
+  });
   it("keeps submitted work distinct from independent acceptance and exports the exact artifact reference", async () => {
     const user = userEvent.setup(), { api } = fixture([submitted()]); render(<GeneralTaskWorkspace api={api} />);
     expect(await screen.findByText(/has not been independently evaluated for correctness/u)).toBeVisible();

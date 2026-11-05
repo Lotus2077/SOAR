@@ -216,16 +216,16 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
     } catch { if (mounted.current) setError(saved ? "The task was saved but could not start. Use Start task to try starting this saved task." : "The task could not be created. Check your inputs and try again."); }
     finally { busy.current = false; if (mounted.current) setAction(null); }
   };
-  const control = async (kind: "start" | "pause" | "resume" | "cancel") => {
+  const control = async (kind: "start" | "pause" | "resume" | "cancel" | "retryCleanup") => {
     if (!api || !task || busy.current) return;
     if (kind === "resume" && ["pending", "dispatching", "uncertain"].includes(task.consultation?.state ?? "")) return;
     const id = task.id;
     busy.current = true; setAction(kind); setError(null); setNotice(null);
     try {
-      const value = await ({ start: api.startGeneralTask, pause: api.pauseGeneralTask, resume: api.resumeGeneralTask, cancel: api.cancelGeneralTask })[kind].call(api, id);
+      const value = await ({ start: api.startGeneralTask, pause: api.pauseGeneralTask, resume: api.resumeGeneralTask, cancel: api.cancelGeneralTask, retryCleanup: api.cancelGeneralTask })[kind].call(api, id);
       accept(value);
       if (mounted.current && selected.current === id && kind === "pause" && value.status === "running") setNotice("Pause requested. The current action must settle and cleanup must finish first.");
-    } catch { if (mounted.current && selected.current === id) setError(`The task could not ${kind}. Its last received state is shown; no replacement task was created.`); }
+    } catch { if (mounted.current && selected.current === id) setError(kind === "retryCleanup" ? "Cleanup could not be retried. The task remains cancelled; refresh its saved state and try again." : `The task could not ${kind}. Its last received state is shown; no replacement task was created.`); }
     finally { busy.current = false; if (mounted.current) setAction(null); }
   };
   const readConsultation = async () => {
@@ -424,7 +424,9 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
             {task.status === "running" && <button className="general-button" disabled={!!action} onClick={() => void control("pause")}><Pause aria-hidden="true" />{action === "pause" ? "Requesting pause…" : "Pause task"}</button>}
             {task.canResume && task.status !== "running" && !["pending", "dispatching", "uncertain"].includes(consultation?.state ?? "") && <button className="general-button general-button-primary" disabled={!!action || !availability?.available || checkingAvailability} onClick={() => void control("resume")}><Play aria-hidden="true" />Resume task</button>}
             {(["queued", "running", "paused", "incomplete"] as string[]).includes(task.status) && <button className="general-button" disabled={!!action} onClick={() => void control("cancel")}><Stop aria-hidden="true" />{action === "cancel" ? "Cancelling…" : "Cancel task"}</button>}
+            {task.status === "cancelled" && (task.canRetryCleanup || task.cleanupInProgress) && <button className="general-button" disabled={!!action || task.cleanupInProgress} onClick={() => void control("retryCleanup")}>{task.cleanupInProgress || action === "retryCleanup" ? "Cleaning up…" : "Retry cleanup"}</button>}
           </div>
+          {task.status === "cancelled" && !task.cleanupConfirmed && (task.canRetryCleanup || task.cleanupInProgress) && <p className="general-hint">Cleanup keeps this task cancelled and sends no model requests. Saved artifacts become available after cleanup is confirmed.</p>}
           {task.status === "submitted" ? <p className="general-notice" role="note">Submitted for review. Host structural checks passed; this task has not been independently evaluated for correctness.</p> : task.status === "incomplete" || task.status === "cancelled" ? <p className="general-notice" role="note">This task did not submit a completed deliverable. Any saved artifacts are unfinished work and have not been independently evaluated.</p> : null}
           <section className="general-section" aria-label="Task artifacts"><div className="general-section-heading"><h2>Artifacts</h2>{task.bundle && <button className="general-button" disabled={!!action || task.status === "running" || !task.cleanupConfirmed || typeof api?.exportGeneralTaskBundle !== "function"} onClick={() => void exportBundle()}><DownloadSimple aria-hidden="true" />Export all as ZIP</button>}</div>
             {task.bundle && <p className="general-hint">{task.bundle.fileCount} {task.bundle.fileCount === 1 ? "file" : "files"} · {size(task.bundle.totalBytes)}. ZIP contains all output files with their folder structure.</p>}

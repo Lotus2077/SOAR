@@ -11,6 +11,7 @@ import { PrivateAgentModel, type GeneralMessage, type PrivateModelConfig } from 
 import { GeneralAgentRunner, type GeneralJobContract, type GeneralJobOptions } from "../../src/main/private-agent/runner";
 import { DockerSandbox } from "../../src/main/private-agent/sandbox";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
+import { LocalTokenAdmissionError, LOCAL_TOKEN_ADMISSION_STOP } from "../../src/main/private-agent/flash-next-admission";
 import { EXECUTION_OBSERVATION_MAX_BYTES, EXECUTION_OBSERVATION_BUDGET_BYTES } from "../../src/main/private-agent/observations";
 import { EXECUTION_PROGRESS_STOP, readExecutionProgressStop } from "../../src/main/private-agent/progress";
 import { CLAIMS_LEDGER_CHECK_ID, claimsLedgerCheck } from "../../src/main/private-agent/claims";
@@ -109,6 +110,34 @@ function budget(messages: GeneralMessage[]) {
   expect(turn.content!.match(/Current host budget/gu)).toHaveLength(1);
   return JSON.parse(turn.content!.slice(turn.content!.lastIndexOf("\n") + 1));
 }
+
+describe("draft-first artifact validation and repair", () => {
+  it("preserves an incremental draft, rejects its failed check, repairs it and finishes within the original allowance", async () => {
+    const limits = { maxModelCalls: 4, maxToolCalls: 4, checkExitCode: 1 };
+    const f = fixture([
+      { name: "write_file", arguments: JSON.stringify({ path: "output.txt", content: "synthetic " }) },
+      finish,
+      { name: "append_file", arguments: JSON.stringify({ path: "output.txt", content: "input" }) },
+      finish,
+    ], limits);
+    f.afterExecute(command => {
+      if (command.includes("python3 -I -c")) {
+        const checked = f.create.mock.calls.at(-1)![0].files.find(file => file.path === "output.txt");
+        limits.checkExitCode = checked?.bytes.equals(f.options.files[0]!.bytes) ? 0 : 1;
+      }
+    });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "completed", modelCalls: 4 });
+    expect(f.requests).toHaveLength(4);
+    const firstFinish = JSON.parse(f.requests[2]!.filter(message => message.role === "tool").at(-1)!.content!);
+    expect(firstFinish).toMatchObject({ complete: false, checks: [{ id: "fixture_check", passed: false }] });
+    expect(f.options.checkpoints.load(result.snapshot).find(file => file.path === "output.txt")!.bytes.toString()).toBe("synthetic input");
+    expect(f.options.store.dispatches(f.options.jobId)).toHaveLength(4);
+    expect(f.options.store.dispatches(f.options.jobId).every(row => row.status === "settled")).toBe(true);
+    expect(budget(f.requests[3]!)).toMatchObject({ remainingModelCalls: 1, remainingToolCalls: 1 });
+    expect(f.commands.filter(command => command.includes("python3 -I -c"))).toHaveLength(2);
+  });
+});
 
 describe("general runner host budget and argument recovery", () => {
   const failed: Action = { name: "execute", arguments: '{"command":"fail same"}' };
@@ -343,6 +372,64 @@ describe("general runner host budget and argument recovery", () => {
     expect(f.options.store.events(f.options.jobId).some(event => event.type === "model_request_not_dispatched")).toBe(false);
     expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ reason: "unresolved_operation_no_replay" });
     expect(f.complete).toHaveBeenCalledTimes(1); expect(f.commands).toEqual([]);
+  });
+
+  it("records a typed exact-admission refusal as non-dispatch and never replays the model", async () => {
+    const f = fixture([]), bodySha256 = digest("actual serialized fixture body"), policySha256 = digest("fixture policy");
+    f.complete.mockRejectedValueOnce(new LocalTokenAdmissionError("local_token_context_exceeded", bodySha256, policySha256));
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: LOCAL_TOKEN_ADMISSION_STOP, modelCalls: 1 });
+    expect(f.options.store.dispatches(f.options.jobId)).toEqual([]);
+    expect(f.options.store.events(f.options.jobId).find(event => event.type === "model_request_not_dispatched"))
+      .toMatchObject({ reason: LOCAL_TOKEN_ADMISSION_STOP, code: "local_token_context_exceeded", dispatched: false, bodySha256, policySha256 });
+    const db = new Database(f.dbPath); cleanup.push(() => db.close());
+    expect(await new GeneralAgentRunner({ ...f.options, store: new PrivateAgentStore(db) }).run()).toMatchObject({ reason: LOCAL_TOKEN_ADMISSION_STOP });
+    expect(f.complete).toHaveBeenCalledTimes(1); expect(f.commands).toEqual([]);
+  });
+
+  it("does not infer non-dispatch from an untyped admission-looking exception", async () => {
+    const f = fixture([]); f.complete.mockRejectedValueOnce(new Error("local_token_context_exceeded"));
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ reason: "runtime_failure_progress_preserved" });
+    expect(f.options.store.events(f.options.jobId).some(event => event.type === "model_request_not_dispatched")).toBe(false);
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ reason: "unresolved_operation_no_replay" });
+    expect(f.complete).toHaveBeenCalledTimes(1);
+  });
+
+  it("advertises only the shared time left after earlier research and never increases it on wall-clock changes", async () => {
+    const f = fixture([write, finish], { maxElapsedMs: 60_000 });
+    f.advance(20_000);  // The shared session began before this writer runner.
+    f.options.sessionDeadlineMs = 60_000;
+    vi.spyOn(Date, "now").mockReturnValue(0);  // Guidance uses the existing monotonic span.
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 2 });
+    expect(f.requests.map(messages => budget(messages).remainingActiveMs)).toEqual([39_975, 39_825]);
+    expect(f.options.store.events(f.options.jobId).filter(event => event.type === "model_started").map(event => event.budget))
+      .toEqual(f.requests.map(budget));
+  });
+
+  it("keeps the phase allowance when it is shorter than the shared session", async () => {
+    const f = fixture([write, finish], { maxElapsedMs: 10_000 });
+    f.options.sessionDeadlineMs = 60_000;
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed" });
+    expect(f.requests.map(messages => budget(messages).remainingActiveMs)).toEqual([9_975, 9_825]);
+  });
+
+  it("does not execute a settled response or dispatch again after the shared deadline", async () => {
+    const f = fixture([write, finish]);
+    f.options.sessionDeadlineMs = 150;
+    f.afterResponse(() => f.advance(50));  // Timer callbacks need not have run yet.
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "cancelled_or_deadline", modelCalls: 1 });
+    expect(budget(f.requests[0]!)).toMatchObject({ remainingActiveMs: 125 });
+    expect(f.commands).toEqual([]); expect(f.requests).toHaveLength(1);
+    expect(f.options.store.dispatches(f.options.jobId)).toMatchObject([{ status: "settled" }]);
+    expect(f.options.store.events(f.options.jobId).filter(event => event.type === "model_action_not_started"))
+      .toMatchObject([{ reason: "cancelled_or_deadline" }]);
+    expect(f.options.store.events(f.options.jobId).some(event => event.type === "completed" || event.type === "host_validation_started")).toBe(false);
+  });
+
+  it("does not start a model request when setup consumes the shared time remaining", async () => {
+    const f = fixture([write]);
+    f.options.sessionDeadlineMs = 10;
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "cancelled_or_deadline", modelCalls: 0 });
+    expect(f.requests).toEqual([]); expect(f.options.store.dispatches(f.options.jobId)).toEqual([]);
   });
 
   it("decreases actual call/tool/time budgets across invalid arguments, a pause and SQLite reopening", async () => {
@@ -608,9 +695,10 @@ describe("general runner host budget and argument recovery", () => {
     expect(f.options.store.events(f.options.jobId).some(event => event.type === "completed")).toBe(false);
   });
 
-  it.each(["cancel", "deadline"])("does not submit passing terminal checks after %s during verification", async kind => {
+  it.each(["cancel", "deadline", "shared_deadline"])("does not submit passing terminal checks after %s during verification", async kind => {
     const f = fixture([write], { maxModelCalls: 1 }), abort = new AbortController();
-    f.afterExecute(command => { if (command.startsWith("python3 -I -c")) { if (kind === "cancel") abort.abort(); else f.advance(10000); } });
+    if (kind === "shared_deadline") f.options.sessionDeadlineMs = 500;
+    f.afterExecute(command => { if (command.startsWith("python3 -I -c")) { if (kind === "cancel") abort.abort(); else f.advance(kind === "shared_deadline" ? 500 : 10000); } });
     expect((await new GeneralAgentRunner(f.options).run(abort.signal)).reason).toBe(kind === "cancel" ? "cancelled_before_completion" : "deadline_before_completion");
     const events = f.options.store.events(f.options.jobId);
     expect(events.find(event => event.type === "host_validation_finished")).toMatchObject({ passed: true });

@@ -30,8 +30,13 @@ const BEFORE_ADAPTER = {
 };
 
 describe("identities that existed before the Anthropic adapter", () => {
-  it("keeps every model identity, destination fingerprint, packet, request body, cloud freeze and prompt protocol byte-identical", async () => {
-    expect(await goldenValues()).toEqual(BEFORE_ADAPTER);
+  it("keeps model, destination, packet, body and freeze pins while binding the approved writer protocol separately", async () => {
+    const { promptProtocol, ...unchanged } = await goldenValues();
+    const { promptProtocol: historicalProtocol, ...before } = BEFORE_ADAPTER;
+    expect(unchanged).toEqual(before);
+    expect(promptProtocol).toEqual({ sha256: "76f77ad3f5ffae1b627402dda710bd84a3ded9a91d638709173be4cce76f5b5f",
+      identity: "92a8ee81f61ba1b2f36c2c97398dddabc91223c494b648f445feaaec3aef92b6" });
+    expect(promptProtocol).not.toEqual(historicalProtocol);
   });
 
   it("sends the same body on every existing shape when the runner passes the layout-2 trailing-message option", async () => {

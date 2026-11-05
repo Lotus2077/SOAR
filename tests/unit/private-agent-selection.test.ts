@@ -67,6 +67,9 @@ describe("H4 selection rule", () => {
       writeIdentity: "5".repeat(64), modelCalls: 6, toolCalls: 1, inputTokens: 2600, outputTokens: 150, cachedTokens: 1800, cacheWriteTokens: 0, lengthStops: 1, feeMicrousd: 12_500, unknownDispatches: 1, retriedDispatches: 1, failedDispatches: 1,
       candidateSha256: digest(canonical(files)), startedAt: freeze.startedAt, finishedAt: result.finishedAt });
     expect(summary.freezeSha256).toBe(digest(`${canonical(freeze)}\n`)); expect(summary.resultSha256).toBe(digest(`${canonical(result)}\n`));
+    // Pipeline replies have stage counts rather than model_finished events; a legacy stage without truncation counts adds zero.
+    store.append(jobId, { type: "research_stage", contextId: "r", stage: "extract", calls: 2, truncatedReplies: 2, usage: { inputTokens: 20, outputTokens: 10 } });
+    expect(summarizeRun(dir, deliverables)).toMatchObject({ modelCalls: 8, inputTokens: 2620, outputTokens: 160, cachedTokens: 1800, lengthStops: 3 });
     // The agent edits again after the failed finish: the finish's checks no longer describe the final snapshot and count as 0 of 0.
     store.append(jobId, { type: "tool_started", contextId: "p", operationId: "t2", toolCallId: "c2", name: "execute" });
     store.append(jobId, { type: "checkpoint", contextId: "p", snapshot: [], sha256: later });

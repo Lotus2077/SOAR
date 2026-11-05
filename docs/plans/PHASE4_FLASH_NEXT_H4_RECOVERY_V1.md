@@ -1,0 +1,192 @@
+# Flash-Next H4 recovery after the planner diagnostic
+
+Status: **Executed; recovery rejected at the planner gate. Further replay is not authorized.**
+Prepared 2026-11-01 (Asia/Shanghai).
+
+The statement above describes this consumed recovery grant. A later, separate
+[completion allocation](PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md) was approved and
+executed, then interrupted after sample a left an UNKNOWN cancelled/transport
+receipt and the loop incorrectly began sample b. That later grant is also
+consumed; it produced no H4 acceptance or split/H5 start
+(BL-20261101-0428-h4-completion-v2-interrupted). This recovery result and its spent
+claim remain unchanged and counted; the later interruption is not a third normal
+local rejection. No further replay is authorized.
+
+The approved planner diagnostic completed ten zero-fee requests. Its first plan
+hit the output cap without final content; the existing retry produced a valid
+six-question plan under the unchanged settings. This supports trying the full
+mechanical gate under the same configuration, but does not establish reliability
+or explain the original missing replies. The original failed H4 loop remains a
+counted rejection. See [diagnostic evidence](PHASE4_FLASH_NEXT_PLANNER_DIAGNOSTIC_V1.md).
+
+## Exact approved amendment
+
+The owner approved **one additional complete local-research H4 attempt**, then the
+original untouched split loop only if the local loop passes. Retain the already
+passed deck loop. This would produce three logical passing rows from at most
+four total H4 attempts, with the original failed local attempt visible in every
+combined report.
+
+| Evidence or action | Treatment |
+| --- | --- |
+| Original `k2-qbr-deck-loop-local` | Retain its actual passing loop and original authority; no repeat |
+| Original failed `r3-grid-batteries-loop-local` | Preserve its failed gate, result, receipts and authority as a counted rejection |
+| New `r3-grid-batteries-loop-local` | Exactly one full fresh loop: sample a, sample b, critic and repair, with unchanged Heavy controls |
+| `r3-grid-batteries-loop-split` | First attempt only, admitted after the new local loop passes |
+| Cloud allowance | At most USD 0.60 across original and recovery H4; no additional USD 0.60 allocation |
+| Other inference | No diagnostic, qualification or liveness-generation probes; no step-0/1 repeats |
+| Further failures | Stop; no replacement, second replay or extra loop |
+| Window | Every new loop must start before 18:00 Asia/Shanghai on 2026-11-01; admitted loops retain their original bounded execution limits unless availability is withdrawn |
+
+This is a new recovery scope. The original consumed authority and the unused
+window-only continuation remain unchanged and ineligible. The earlier diagnostic
+approval excluded H4 replay and its ten requests are exhausted. The owner then
+explicitly approved this separate recovery; see BL-20261101-0059-h4-recovery-approved.
+
+## Preserve the experiment controls
+
+Keep the qualified runtime, research protocol, service, model checkpoint,
+tokenizer/admission policy, all eight roles including judge, tools/image,
+exposed task/input hashes, Heavy budgets, prompts, sampling/thinking settings
+and selection/repair rules unchanged. For this consumed recovery grant, the
+qualified runtime was
+`c3f8ff55c46e7a3402f95adc53efe5ebcd1eaf986d89377698270e01bba27963`.
+Any identity change requires a separate decision and coherent requalification;
+this proposal does not permit tuning after observing a failure.
+
+Each new loop builds a fresh sample-a packet. Its sample b and repair must use
+that same loop's packet and satisfy the original write-identity and critique
+lineage checks. Never inject the diagnostic plan or seed from the failed run,
+retained deck loop or other arm. The split loop's sample a supplies Claude
+calibration step 2; its b and repair reuse that packet without new cloud planning
+or synthesis. Historical accepted Claude steps 0/1 and their USD 1.151653
+accounting remain unchanged.
+
+## Admission and evidence
+
+Prepare a separate held operator and an exact two-row queue. Bind the explicit
+new owner decision, original consumed authority, retained deck evidence,
+original rejection, completed diagnostic, frozen identities, remaining split
+allowance and declared window. Confirm the original split was never started and
+its cloud allowance remains unused. Reject ambiguous prior recovery claims or
+output trees. A durable exclusive claim anchored beside the original helper,
+keyed to the original authority and failed result, prevents copied directories
+or new authority files from creating more attempts.
+
+Require current device availability, service ownership/readiness, qualified idle
+samples, provider/account prerequisites, final source verification, clean commit
+and applicable CI before execution. The held preparation grants no authority and
+must not invoke helpers, services, task generation or paid calls. Archive the
+reviewed held bytes before releasing only the activation hold and binding the
+released bytes.
+
+A combined review must contain exactly three real logical loop references:
+retained deck, new local research, new split. Each stage retains its own original
+or recovery authority. The original failed attempt stays in separate rejection
+and attempt-history records and contributes to total usage/accounting. A failed
+original gate must never be relabelled as passed. Successful recovery is reported
+as success on an explicitly approved replay, not uninterrupted first-pass success
+or a demonstrated fix for the original failure.
+
+The mechanical gate still requires all original draft, critic, repair, seed,
+identity, receipt and final-selection checks. Step 2 separately requires all
+eight calibration checks, no cloud length stop, a usable plan within the
+40-read allowance, and a digest-bound cited argument with known references,
+within USD 0.60. Root must inspect actual split semantics; valid JSON and nonempty
+text alone do not establish this gate.
+
+## H5 handoff
+
+The existing H5 launch permission remains applicable only after accepted H4
+mechanics and split semantics. Its validator can reference actual retained and
+recovery loop paths; no validator weakening is proposed. Root must create a new
+composed H4 acceptance record and then the separately pinned H5 batch-start
+record, with current prerequisites and the existing availability window.
+
+H5 remains exactly eighteen counted runs across the three frozen fresh tasks,
+three arms and two labelled repeats. Preserve the USD 21.60 total, USD 3
+all-cloud and USD 0.60 split row caps, zero failed-row replacements, common local
+judge and independent blind scoring. Implementing sessions do not read fresh
+H5 inputs, candidates or evaluator gold during this preparation.
+
+## Verified held preparation
+
+The eighteen-file held package is archived. Following approval, only the
+operator activation hold was released; the other seventeen assets are unchanged. All 65
+focused tests pass: fifteen TypeScript admission/claim/release tests, thirty-four
+Python evidence-review tests and sixteen mocked process-supervision tests.
+Strict TypeScript checking passes. Independent review covers the operator and
+reviewer; the separate privacy review reran all 65 tests and passed eighteen
+asset/scope checks. Root verified every asset against the prepared proposal.
+
+Tests cover the exact two-row allocation, shared fee cap, retained failure and
+usage, direct old/new authority references, refusal of duplicate claims and
+changed assets, private metadata projection, closed-database hashes, interruption
+cleanup and post-cutoff closure without new starts. Source review also checked
+the packet and repair lineage requirements.
+The owner's approval permanently names the held proposal. Its separately
+bound release may change only the one activation-hold declaration and its hash;
+the other seventeen assets and all other proposal fields must remain identical.
+
+Held proposal SHA-256:
+`03c8025eccbcac68ca2e9165aa281241fa9e45d25323f29ef3937ca090b04fca`.
+Held operator SHA-256:
+`bdfc6ce8faf1b1ec761c0c038c4566eb939c84b763bebe9b26fd13cc4fcc4c72`.
+Evidence reviewer SHA-256:
+`c1dbffb6528a5e3565e9426ff244ba836080fc2d8dbebb152347d79d48f4c9bd`.
+
+The owner approval was executed once after both CI jobs passed on clean commit
+4831ee964cb075815bcc2d075a8cd1258712211e. Actual authority SHA-256:
+`165dbb194bb399492af5b8eb7f56ee0432d1767f6672f608eb32d5443b92be94`.
+The held archive and exact hold-only release remain preserved. Sixty-two
+applicable released tests and strict TypeScript passed, as did both independent
+final binding reviews and all 308 prefix checks. Six fresh healthy idle samples
+preceded the local loop.
+
+The recovery local loop ran from 01:11:02.511 to 01:29:04.379 UTC on 2026-11-01.
+It stopped after sample a with `research_plan_invalid`: eight index calls (one
+invalid), two plan calls (both invalid, one truncated), and ten settled local
+receipts at USD 0. Usage was 29805 input, 21478 output and 4704 cached-input
+tokens. No extraction, synthesis, packet, writer, sample b, critic or repair ran.
+The row classifier counted the rejection; the unchanged H4 gate failed. The
+supervisor exited one without forced kill, with no remaining owned process
+group or matching task container. Post-row and later root metadata were healthy
+with zero running/waiting requests.
+
+The original failed local attempt is not replaced or relabelled. Actual H4
+history at that recovery stop contained three attempted loops: the deck pass and two counted local
+rejections, totaling 78 settled receipts at USD 0. The allowed fourth attempt,
+the untouched split, was conditional on local success and cannot start under
+this failed authority. No new H4 acceptance, split calibration or H5 start is
+established. The consumed recovery claim cannot be reset. See
+BL-20261101-0134-h4-recovery-plan-rejected. The next
+[metadata-only diagnostic](PHASE4_FLASH_NEXT_PLANNER_METADATA_DIAGNOSTIC_V1.md)
+completed its separate grant after nine zero-fee requests and a valid first
+plan, retaining metadata only. This did not reproduce or explain either failed
+H4 result and grants no further replay or H5 start (BL-20261101-0208).
+
+The later completion attempt adds 98 dispatches: 96 settled, one UNKNOWN and one
+committed unresolved. Current H4 history is four attempts: one accepted deck, two
+counted local rejections and one interrupted attempt; 176 dispatches, 174 settled
+and two unresolved. Known fees and fee reservations remain USD 0. The original
+database and host evidence are unchanged. The owned tool container was removed,
+but both archives contain zero regular files and total 3072 bytes, so
+working-file preservation is not established. See the separate completion result
+and [focused correction plan](PHASE4_LOOP_DISPATCH_STOP_V1.md). Two fixes are CPU
+implemented: stop on unresolved dispatches and clamp model-visible remaining
+time to the shared session deadline. The actual shared timer always applied;
+the displayed budget overstated time. The exact reviewed patch is applied, with
+127 focused tests and strict checking independently passing. Integrated
+verification is pending and there is no live proof. The changed runtime is not
+qualified by the old pins; the static research protocol remains unchanged. Timing
+of the cancelled/transport receipt supports a shared-deadline inference, not explicit receipt proof. A
+bounded review found all 38 writer inventories unchanged, no captured output
+artifacts, and about 33 advertised minutes versus about 12 remaining on the final
+turn; no shell or backend defect is proven. Optional telemetry remains deferred,
+and no new request, replay or H5 authority is added.
+
+References: [migration plan](PHASE4_FLASH_NEXT_MIGRATION_V1.md),
+BL-20261031-2322-h4-local-plan-rejected,
+BL-20261101-0036-planner-diagnostic-result,
+BL-20261101-0047-h4-recovery-prepared,
+BL-20261101-0059-h4-recovery-approved.

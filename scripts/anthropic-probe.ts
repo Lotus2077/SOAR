@@ -38,6 +38,8 @@ const ONE_WORD = ["Answer with one word.", ...Array.from({ length: 30 }, (_, i) 
 const TOOL: GeneralToolDefinition = { type: "function", function: { name: "calculate", description: "Apply one integer operation and return the exact result.",
   parameters: { type: "object", properties: { op: { type: "string", enum: ["add", "subtract", "multiply"] }, a: { type: "integer" }, b: { type: "integer" } },
     required: ["op", "a", "b"], additionalProperties: false } } };
+const CalculateArgumentsSchema = z.object({ op: z.enum(["add", "subtract", "multiply"]), a: z.number().int().safe(), b: z.number().int().safe() }).strict();
+const DEMOTED_OBSERVATION = "[observation demoted: see the workspace]";
 
 function calculate(argumentsJson: string): string {
   try {
@@ -63,13 +65,27 @@ export async function runProbe(broker: Pick<PrivateAgentBroker, "request">, conf
   onCall?: (call: ProbeCall) => void) {
   const calls: ProbeCall[] = [];
   let last: z.infer<typeof raw> | undefined;
+  let currentCall = 0, firstToolId: string | undefined, editedFirstResultSent = false;
+  const loopTools: { valid: boolean; id?: string }[] = [];
   // Wraps the real request so the raw reply's fixed fields are read beside the model's own decoder and settlement.
-  const observed = { request: (input: BrokerRequest, settle: (bytes: Buffer) => number) => broker.request(input, bytes => {
-    last = undefined; try { last = raw.parse(JSON.parse(bytes.toString("utf8"))); } catch { /* the model's decoder decides */ }
-    return settle(bytes);
-  }) } as unknown as PrivateAgentBroker;
+  const observed = { request: (input: BrokerRequest, settle: (bytes: Buffer) => number) => {
+    // Check the serialized third loop request, not just the intended history:
+    // step 0 must exercise the edited result's actual tool_result wire shape.
+    if (currentCall === 4 && firstToolId) {
+      try {
+        const body = JSON.parse(input.body!) as { messages?: { content?: unknown }[] };
+        editedFirstResultSent = (body.messages ?? []).some(message => Array.isArray(message.content) && message.content.some(block =>
+          typeof block === "object" && block !== null && block.type === "tool_result" && block.tool_use_id === firstToolId && block.content === DEMOTED_OBSERVATION));
+      } catch { /* A malformed body cannot prove the required history path. */ }
+    }
+    return broker.request(input, bytes => {
+      last = undefined; try { last = raw.parse(JSON.parse(bytes.toString("utf8"))); } catch { /* the model's decoder decides */ }
+      return settle(bytes);
+    });
+  } } as unknown as PrivateAgentBroker;
   const model = new PrivateAgentModel(observed, config, jobId, contextId);
   const record = async (call: number, kind: ProbeCall["kind"], run: () => ReturnType<PrivateAgentModel["complete"]>) => {
+    currentCall = call;
     try {
       const result = await run();
       const blocks = last?.content.filter(block => block.type === "thinking" || block.type === "redacted_thinking") ?? [];
@@ -92,11 +108,18 @@ export async function runProbe(broker: Pick<PrivateAgentBroker, "request">, conf
   const history: GeneralMessage[] = [{ role: "system", content: SYSTEM }, { role: "user", content: TASK }];
   for (let turn = 1; turn <= 3; turn++) {
     // Before the third turn the first tool result is rewritten, as the projector demotes an old observation.
-    if (turn === 3) { const first = history.findIndex(message => message.role === "tool"); if (first > 0) history[first] = { ...history[first]!, content: "[observation demoted: see the workspace]" }; }
+    if (turn === 3) { const first = history.findIndex(message => message.role === "tool"); if (first > 0) history[first] = { ...history[first]!, content: DEMOTED_OBSERVATION }; }
     const reply = await record(turn + 1, "loop", () => model.complete([...history, { role: "user", content: GUIDANCE }], [TOOL], new AbortController().signal,
       { purpose: "anthropic shape probe", trailingTurnMessage: true }));
     if (!reply) break;
     const call = reply.toolCalls[0];
+    if (turn <= 2) {
+      let valid = false;
+      try { valid = reply.finishReason === "tool_calls" && reply.toolCalls.length === 1 && call?.function.name === "calculate" && CalculateArgumentsSchema.safeParse(JSON.parse(call.function.arguments)).success; }
+      catch { /* Invalid tool arguments never satisfy the tool-history gate. */ }
+      loopTools.push({ valid, ...(call ? { id: call.id } : {}) });
+      if (turn === 1 && valid) firstToolId = call!.id;
+    }
     history.push({ role: "assistant", content: reply.content || (call ? null : "[reply not executed]"), ...(call ? { tool_calls: [call] } : {}) });
     if (call) history.push({ role: "tool", tool_call_id: call.id, content: calculate(call.function.arguments) });
     else history.push({ role: "user", content: "Use the calculate tool for the next step." });
@@ -108,6 +131,7 @@ export async function runProbe(broker: Pick<PrivateAgentBroker, "request">, conf
     servedModelAndTier: calls.every(item => item.ok && item.servedModel === config.model && (item.serviceTier === null || item.serviceTier === "standard")),
     geography: calls.every(item => item.inferenceGeo === null || item.inferenceGeo === "global"),
     cacheWriteThenReads: (loop[0]?.cacheWrite ?? 0) > 0 && loop.slice(1).every(item => (item.cacheRead ?? 0) > 0),
+    toolLoopHistory: loopTools.length === 2 && loopTools.every(item => item.valid) && loopTools[0]!.id !== loopTools[1]!.id && editedFirstResultSent,
   };
   const thinking = { droppedTurnsHadThinking: loop.length >= 2 && loop.slice(0, 2).every(item => (item.signedThinkingBlocks ?? 0) > 0),
     laterTurnsThought: loop.slice(1).length === 2 && loop.slice(1).every(thinkingSeen) };

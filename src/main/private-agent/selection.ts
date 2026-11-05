@@ -131,7 +131,7 @@ export function summarizeRun(runDirectory: string, deliverables: string[]): Cand
     modelCalls: finished.length + stages.reduce((total, event) => total + (typeof event.calls === "number" ? event.calls : 0), 0),
     toolCalls: events.filter(event => event.type === "tool_finished").length,
     inputTokens: sum("inputTokens"), outputTokens: sum("outputTokens"), cachedTokens: sum("cacheReadTokens"), cacheWriteTokens: sum("cacheWriteTokens"),
-    lengthStops: finished.filter(event => event.finishReason === "length").length,
+    lengthStops: finished.filter(event => event.finishReason === "length").length + stages.reduce((total, event) => total + usageNumber(event, "truncatedReplies"), 0),
     feeMicrousd: result.dispatches.reduce((total, row) => total + (row.feeMicrousd ?? 0), 0),
     unknownDispatches: result.dispatches.filter(row => row.status === "unknown" || row.status === "committed").length,
     retriedDispatches: result.dispatches.filter(row => row.status === "superseded").length,

@@ -17,7 +17,7 @@ import { loadConfig } from "../src/main/config";
 import { localStreamSettings } from "../src/main/liveness";
 import { PrivateAgentBroker, type BrokerDestination } from "../src/main/private-agent/broker";
 import { canonical, digest } from "../src/main/private-agent/contracts";
-import { PrivateAgentModel, type PrivateModelConfig } from "../src/main/private-agent/model";
+import { PrivateAgentModel, modelIdentity, type PrivateModelConfig } from "../src/main/private-agent/model";
 import { COORDINATOR_PROFILES } from "../src/main/private-agent/profiles";
 import { CRITIC_MAX_FEE_USD, CRITIC_MAX_OUTPUT_TOKENS, CRITIC_PROMPT_VERSION, CRITIC_PURPOSE, RENDERED_EXTENSIONS, RENDER_PY, RepairBindingSchema,
   buildRepairPacket, criticMessages, repairDraftPaths, selfCheckFromEvents, type RepairArtifactText, type RepairBinding } from "../src/main/private-agent/repair";
@@ -25,7 +25,7 @@ import { DockerSandbox } from "../src/main/private-agent/sandbox";
 import { RulePacketScanner } from "../src/main/private-agent/scanner";
 import { PrivateAgentStore } from "../src/main/private-agent/store";
 import type { SessionFile } from "../src/main/private-agent/session";
-import { buildCloudArm, parseCloudLongContext, parseCloudPrices, type CloudArmInput } from "./private-agent-local-screen";
+import { buildCloudArm, buildLocalScreenModelConfig, buildLocalScreenTokenAdmission, localScreenSourceFreeze, parseCloudLongContext, parseCloudPrices, type CloudArmInput } from "./private-agent-local-screen";
 import { loadPreparedOperatorTask } from "./private-agent-run";
 
 const SAFE_DRAFT_PATH = /^(output|review)\/[A-Za-z0-9._\- /]{1,230}$/u;
@@ -109,15 +109,18 @@ export async function critique(input: CritiqueArguments) {
   const heavy = COORDINATOR_PROFILES.heavy, maxResponseBytes = 512 * 1024;
   const local: BrokerDestination = { id: "owned_local_model", kind: "local_model", endpoint: `${config.vllm.baseUrl}/chat/completions`,
     accountId: "operator_owned_local_server", credentialVersion: 1, apiKey: config.vllm.apiKey, privateDataAdmitted: false, syntheticOnly: true,
+    ...(config.vllm.localTokenAdmission ? { localTokenAdmissionSha256: config.vllm.localTokenAdmission.sha256 } : {}),
     maxResponseBytes, timeoutMs: heavy.requestTimeoutMs, maxRequestBytes: heavy.maxRequestBytes,
     ...(config.streamingEnabled ? { stream: localStreamSettings(heavy.requestTimeoutMs, maxResponseBytes, heavy.maxOutputTokens) } : {}) };
-  const localConfig: PrivateModelConfig = { destinationId: local.id, model: config.vllm.model, maxOutputTokens: heavy.maxOutputTokens, inputUsdPerMillion: 0,
-    outputUsdPerMillion: 0, thinking: heavy.thinking, maxRequestBytes: heavy.maxRequestBytes, ...(heavy.sampling ? { sampling: { ...heavy.sampling } } : {}),
-    // H2a: each critique is its own job and salts the owned server's prefix cache like every other local job; the critique record is unchanged.
-    ...(config.streamingEnabled ? { streaming: true } : {}), promptCaching: "vllm_job_salt_v1" as const };
+  // H2a: each critique is its own job and salts the owned server's prefix cache like every other local job.
+  const localConfig = buildLocalScreenModelConfig(config, heavy);
   if (input.critic === "cloud" && (!input.cloudArm || !(input.cloudArm.maxFeeUsd > 0 && input.cloudArm.maxFeeUsd <= CRITIC_MAX_FEE_USD))) throw new Error("repair_cloud_critic_invalid");
   const cloud = input.critic === "cloud" ? buildCloudArm(input.cloudArm!, process.env, heavy) : undefined;
   const destination = cloud ? cloud.destination : local, modelConfig = cloud ? cloud.modelConfig : localConfig;
+  const localTokenAdmission = cloud ? undefined : buildLocalScreenTokenAdmission(config);
+  const localCriticIdentity = !cloud && localConfig.localReplyContract === "flash_next_v1" ? {
+    modelIdentitySha256: digest(canonical(modelIdentity(modelConfig))), initialRuntimeSha256: localScreenSourceFreeze().sha256,
+  } : undefined;
   // The network posture and (H4) the packet the draft was written from are recorded beside the binding, never in it, so the binding identity is unchanged.
   const proxyRecord = { requestShape: modelConfig.api ?? "vllm", ...(cloud?.destination.proxyFakeIp ? { proxyFakeIp: true as const } : {}),
     ...(run.researchSnapshotSha256 ? { researchSnapshotSha256: run.researchSnapshotSha256 } : {}) };
@@ -126,17 +129,27 @@ export async function critique(input: CritiqueArguments) {
   const database = new Database(join(directory, "state.sqlite"));
   try {
     const store = new PrivateAgentStore(database);
-    const broker = new PrivateAgentBroker(store, [destination], new RulePacketScanner());
+    const broker = new PrivateAgentBroker(store, [destination], new RulePacketScanner(),
+      localTokenAdmission ? { localTokenAdmissions: [localTokenAdmission] } : {});
     const write = (name: string, bytes: string | Buffer) => { mkdirSync(dirname(join(directory, name)), { recursive: true, mode: 0o700 }); writeFileSync(join(directory, name), bytes, { flag: "wx", mode: 0o600 }); };
     write("packet.txt", packet.text);
     let answer: Awaited<ReturnType<typeof runCritique>>;
+    let finalRuntimeSha256: string | null | undefined;
+    const closedRuntime = () => { try { return localScreenSourceFreeze().sha256; } catch { return null; } };
     try {
       answer = await runCritique({ store, broker, destination, modelConfig, packet, maxFeeMicrousd: cloud?.maxFeeMicrousd ?? 0, signal: AbortSignal.timeout(heavy.requestTimeoutMs + 60_000) });
+      if (localCriticIdentity) {
+        finalRuntimeSha256 = closedRuntime();
+        if (finalRuntimeSha256 !== localCriticIdentity.initialRuntimeSha256) throw Object.assign(new Error("repair_source_changed_during_critique"), {
+          finishReason: answer.finishReason, usage: answer.usage, feeMicrousd: answer.feeMicrousd,
+        });
+      }
     } catch (error) {
       // A refused critique is a recorded outcome too: what stopped it, and what it cost.
       const detail = error as { message?: string; finishReason?: unknown; usage?: unknown; feeMicrousd?: unknown };
       write("critique-failure.json", `${canonical({ critic: input.critic, packetSha256: packet.sha256, code: detail.message ?? "repair_critique_failed",
-        finishReason: detail.finishReason ?? null, usage: detail.usage ?? null, feeMicrousd: detail.feeMicrousd ?? null, ...proxyRecord })}\n`);
+        finishReason: detail.finishReason ?? null, usage: detail.usage ?? null, feeMicrousd: detail.feeMicrousd ?? null, ...proxyRecord,
+        ...(localCriticIdentity ? { localCriticIdentity: { ...localCriticIdentity, finalRuntimeSha256: finalRuntimeSha256 === undefined ? closedRuntime() : finalRuntimeSha256 } } : {}) })}\n`);
       throw error;
     }
     const binding: RepairBinding = RepairBindingSchema.parse({ version: 1, critic: input.critic, criticModel: modelConfig.model, promptVersion: CRITIC_PROMPT_VERSION,
@@ -146,7 +159,8 @@ export async function critique(input: CritiqueArguments) {
       draft: run.draft.map(file => ({ path: file.path, sha256: digest(file.bytes) })) });
     write("critique.md", answer.text);
     for (const file of run.draft) write(join("draft", file.path), file.bytes);
-    write("critique.json", `${canonical({ ...binding, finishReason: answer.finishReason, usage: answer.usage, servedModel: answer.servedModel, feeMicrousd: answer.feeMicrousd, ...proxyRecord })}\n`);
+    write("critique.json", `${canonical({ ...binding, finishReason: answer.finishReason, usage: answer.usage, servedModel: answer.servedModel, feeMicrousd: answer.feeMicrousd, ...proxyRecord,
+      ...(localCriticIdentity ? { localCriticIdentity: { ...localCriticIdentity, finalRuntimeSha256 } } : {}) })}\n`);
     return { binding, feeMicrousd: answer.feeMicrousd, finishReason: answer.finishReason, usage: answer.usage };
   } finally { database.close(); }
 }

@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -38,11 +39,21 @@ export interface ParsedBuildLogEntry {
   title: string;
   fields: Readonly<Record<string, string>>;
   startLine: number;
+  sourceSha256: string;
+}
+
+export interface MissingBuildLogField {
+  entryId: string;
+  entrySha256: string;
+  field: string;
+  correctedBy?: string;
 }
 
 export interface BuildLogValidationResult {
   entries: readonly ParsedBuildLogEntry[];
   errors: readonly string[];
+  /** Original omissions remain visible; corrections never populate historical fields. */
+  missingFields: readonly MissingBuildLogField[];
 }
 
 interface HeadingMatch {
@@ -61,6 +72,9 @@ const HISTORICAL_ID = /^BL-(\d{4})$/u;
 const TIMESTAMP_SEQUENCE_RESET_MARKER =
   /^Timestamp sequence reset after: `(BL-(?:\d{4}|\d{8}-\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*))`\.$/gmu;
 const TIMESTAMP_SEQUENCE_RESET_PREFIX = "Timestamp sequence reset after:";
+const FIELD_CORRECTION_PREFIX = "Missing-field correction:";
+const FIELD_CORRECTION_MARKER =
+  /^Missing-field correction: `(BL-[a-zA-Z0-9-]+)` SHA-256 `([a-f0-9]{64})`; field `([^`\r\n]+)`\.$/gmu;
 export const KNOWN_TIMESTAMP_SEQUENCE_RESETS = Object.freeze({
   "BL-20260830-1454-build-log-utc-reset":
     "BL-20260830-2050-heldout-readiness-approved",
@@ -209,6 +223,13 @@ function lineNumberAt(text: string, index: number): number {
   return text.slice(0, index).split("\n").length;
 }
 
+/** Raw UTF-8 entry bytes, excluding only trailing blank separators/final newline. */
+export function buildLogEntrySha256(source: string): string {
+  return createHash("sha256")
+    .update(source.replace(/(?:\r?\n[ \t]*)+$/u, ""), "utf8")
+    .digest("hex");
+}
+
 function isCanonicalDate(value: string): boolean {
   const date = new Date(`${value}T00:00:00.000Z`);
   return !Number.isNaN(date.getTime()) && date.toISOString().startsWith(value);
@@ -252,22 +273,14 @@ function parseFields(
 
   const actualOrder = matches.map((match) => match[1]);
   for (const field of REQUIRED_BUILD_LOG_FIELDS) {
-    if (fields[field] === undefined) {
-      errors.push(
-        `${entry.id} (line ${entry.startLine}): missing required field ${field}`,
-      );
-    } else if (fields[field].length === 0) {
+    if (fields[field] !== undefined && fields[field].length === 0) {
       errors.push(
         `${entry.id} (line ${entry.startLine}): field ${field} is empty`,
       );
     }
   }
-  if (
-    actualOrder.length === REQUIRED_BUILD_LOG_FIELDS.length &&
-    actualOrder.some(
-      (field, index) => field !== REQUIRED_BUILD_LOG_FIELDS[index],
-    )
-  ) {
+  const expectedOrder = REQUIRED_BUILD_LOG_FIELDS.filter(field => fields[field] !== undefined);
+  if (actualOrder.some((field, index) => field !== expectedOrder[index])) {
     errors.push(
       `${entry.id} (line ${entry.startLine}): required fields are out of order`,
     );
@@ -278,11 +291,13 @@ function parseFields(
 
 export function validateBuildLog(text: string): BuildLogValidationResult {
   const errors: string[] = [];
+  const missingFields: MissingBuildLogField[] = [];
   const markerIndex = text.indexOf(HISTORY_MARKER);
   if (markerIndex < 0) {
     return {
       entries: [],
       errors: [`missing ${HISTORY_MARKER} marker`],
+      missingFields,
     };
   }
 
@@ -314,9 +329,11 @@ export function validateBuildLog(text: string): BuildLogValidationResult {
     return {
       entries: [],
       errors: ["build log has no entries after its history marker"],
+      missingFields,
     };
   }
 
+  const invalidEntries = new Set<ParsedBuildLogEntry>();
   const entries: ParsedBuildLogEntry[] = headings.map((heading, index) => {
     const body = text.slice(
       heading.endIndex,
@@ -326,13 +343,20 @@ export function validateBuildLog(text: string): BuildLogValidationResult {
       heading.endIndex,
       headings[index + 1]?.index ?? text.length,
     );
-    return {
+    const errorStart = errors.length;
+    const entry: ParsedBuildLogEntry = {
       id: heading.id,
       date: heading.date,
       title: heading.title,
       fields: parseFields(body, maskedBody, heading, errors),
       startLine: heading.startLine,
+      sourceSha256: buildLogEntrySha256(text.slice(heading.index, headings[index + 1]?.index ?? text.length)),
     };
+    if (errors.length > errorStart) invalidEntries.add(entry);
+    for (const field of REQUIRED_BUILD_LOG_FIELDS) {
+      if (entry.fields[field] === undefined) missingFields.push({ entryId: entry.id, entrySha256: entry.sourceSha256, field });
+    }
+    return entry;
   });
 
   const seenIds = new Set<string>();
@@ -343,6 +367,7 @@ export function validateBuildLog(text: string): BuildLogValidationResult {
   let expectedHistoricalNumber = 1;
   let modernHistoryStarted = false;
   for (const entry of entries) {
+    const errorStart = errors.length;
     if (seenIds.has(entry.id)) {
       errors.push(`${entry.id} (line ${entry.startLine}): duplicate entry ID`);
     }
@@ -477,9 +502,44 @@ export function validateBuildLog(text: string): BuildLogValidationResult {
 
     priorIds.add(entry.id);
     previousEntryId = entry.id;
+    if (errors.length > errorStart) invalidEntries.add(entry);
   }
 
-  return { entries, errors };
+  // A complete later erratum may supply one actually absent field. All original
+  // parse/semantic errors survive; this is not a historical-field rewrite.
+  const candidates = new Map<MissingBuildLogField, ParsedBuildLogEntry[]>();
+  for (const [index, entry] of entries.entries()) {
+    const decisions = maskMarkdownBlocks(entry.fields.Decisions ?? "");
+    const mentions = decisions.split(FIELD_CORRECTION_PREFIX).length - 1;
+    if (!mentions) continue;
+    const markers = [...decisions.matchAll(FIELD_CORRECTION_MARKER)];
+    const fail = (reason: string) => errors.push(`${entry.id} (line ${entry.startLine}): missing-field correction ${reason}`);
+    if (mentions !== 1 || markers.length !== 1) { fail("marker is malformed or duplicated"); continue; }
+    if (!/^Correction\b/iu.test(entry.title) || entry.fields.Status?.replace(/^`|`$/gu, "") !== "Implemented" ||
+      invalidEntries.has(entry) || REQUIRED_BUILD_LOG_FIELDS.some(field => !entry.fields[field])) {
+      fail("must be a complete valid Implemented Correction entry"); continue;
+    }
+    const [, targetId, targetSha256, field] = markers[0];
+    if (!(REQUIRED_BUILD_LOG_FIELDS as readonly string[]).includes(field)) { fail("field is unknown"); continue; }
+    const targets = entries.filter(target => target.id === targetId);
+    if (targets.length !== 1 || entries.indexOf(targets[0]) >= index) { fail("target must be a unique earlier entry"); continue; }
+    const target = targets[0];
+    if (maskMarkdownBlocks(target.fields.Decisions ?? "").includes(FIELD_CORRECTION_PREFIX)) { fail("cannot target another field correction"); continue; }
+    if (target.sourceSha256 !== targetSha256) { fail("target digest does not match"); continue; }
+    const missing = missingFields.find(item => item.entryId === targetId && item.entrySha256 === targetSha256 && item.field === field);
+    if (!missing) { fail("target field is not missing"); continue; }
+    candidates.set(missing, [...candidates.get(missing) ?? [], entry]);
+  }
+  for (const missing of missingFields) {
+    const supplies = candidates.get(missing) ?? [];
+    if (supplies.length === 1) missing.correctedBy = supplies[0].id;
+    else if (supplies.length > 1) errors.push(`${missing.entryId}: missing-field correction has duplicate supplies for ${missing.field}`);
+    if (!missing.correctedBy) {
+      const entry = entries.find(item => item.id === missing.entryId && item.sourceSha256 === missing.entrySha256)!;
+      errors.push(`${entry.id} (line ${entry.startLine}): missing required field ${missing.field}`);
+    }
+  }
+  return { entries, errors, missingFields };
 }
 
 function firstDifferentLine(left: string, right: string): number {
@@ -669,12 +729,13 @@ export function runBuildLogValidationCli(
       for (const error of errors) process.stderr.write(`ERROR ${error}\n`);
       return 1;
     }
+    const correctionCount = validation.missingFields.filter(field => field.correctedBy !== undefined).length;
     process.stdout.write(
       `SOAR build log valid: ${validation.entries.length} entries${
         options.baseRef === undefined
           ? ""
           : `; append-only against ${options.baseRef}`
-      }.\n`,
+      }${correctionCount ? `; ${correctionCount} digest-bound field correction${correctionCount === 1 ? "" : "s"}; original missing-field evidence retained` : ""}.\n`,
     );
     return 0;
   } catch (error) {

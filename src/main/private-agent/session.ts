@@ -284,6 +284,7 @@ export class GeneralAgentSession {
       const startedAt = start.startedAt;
       if (!Number.isSafeInteger(startedAt) || startedAt > Date.now()) return result("incomplete", "session_start_invalid");
       const remaining = limits.maxElapsedMs - (Date.now() - startedAt);
+      const sessionDeadlineMs = performance.now() + remaining;
       // A durable private completion only needs finalisation (submission, then the evidence pass); the wall deadline gates runner work.
       const finalising = this.events().some(event => event.type === "completed" && event.contextId === privateContextId);
       if (remaining <= 0 && !finalising) return result("incomplete", "session_deadline");
@@ -292,7 +293,7 @@ export class GeneralAgentSession {
         if (policyChanged()) return { status: "incomplete" as const, reason: policyReason(), snapshot: [], checks: [], modelCalls: 0 };
         const prior = this.completed(contextId); if (prior) return prior;
         if (this.pauseRequested || boundedSignal.aborted) return { status: this.pauseRequested ? "paused" as const : "incomplete" as const, reason: "session_stopped", snapshot: [], checks: [], modelCalls: 0 };
-        const args: GeneralJobOptions = { jobId, contextId, imageId: options.imageId, store, broker: options.broker, checkpoints, model, ...phase, webDestinations, maxPublicFetches,
+        const args: GeneralJobOptions = { jobId, contextId, imageId: options.imageId, store, broker: options.broker, checkpoints, model, ...phase, webDestinations, maxPublicFetches, sessionDeadlineMs,
           ...(options.consultation && contextId === privateContextId ? { consultation: options.consultation.factory(contextId) } : {}) };
         this.active = options.trustedHostRunnerFactory?.(args) ?? new GeneralAgentRunner(args);
         try { return await this.active.run(boundedSignal); } finally { this.active = undefined; }

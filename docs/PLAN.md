@@ -541,6 +541,237 @@ agent's favour.
 
 ### Phase 4: A real week of use (Oct 21 – Oct 27, branch review Oct 27)
 
+**Current status, November 5, 2026 (Asia/Shanghai):** the owner-approved
+[API-only route](plans/PHASE4_API_ONLY_ENDPOINT_CONTINUATION_V1.md) supersedes
+old-host SSH, disk and restoration prerequisites for this public/synthetic trial.
+Its sixteen-case qualification is accepted; fifteen requests settled and the sole
+planned F15 cancellation remains UNKNOWN. Two matched cold-cache workloads
+measured 70.20 end-to-end tokens/s and 153.77 decode tokens/s, a 3.80× end-to-end
+ratio against the retained baseline. These observations do not establish physical
+server identity, all-workload throughput or artifact quality.
+
+Both earlier four-turn pilots created no report. The approved
+[final preloaded-writer amendment](plans/PHASE4_API_ONLY_PRELOADED_WRITER_PILOT_V1.md)
+then produced a report and claims ledger in four requests/four tools, 205.151 seconds
+and 14,801 output tokens at USD 0. Its first substantive draft arrived on turn two
+at 84.258 seconds, and all three mechanical checks passed. Final root and independent
+content review nevertheless rejected false corpus-absence assertions and missing
+required coverage. Quote occurrence is not complete claim support or task acceptance.
+The changed pilot input presentation does not change ordinary H4/H5 writer prompts.
+
+All thirty-two standalone slots are consumed. The named final attempt grants no
+replacement, post-final-review edits or further requests. H4 remains unaccepted
+with its six historical attempts preserved; the three newly authorized full loops
+and H5 remain unstarted. H4 split stays within USD 0.60 all-history, and H5 stays
+within eighteen rows / USD 21.60 total / USD 3 cloud row / USD 0.60 split row.
+The last approved admission cutoff is **November 5, 2026, 18:00 Asia/Shanghai**;
+that window does not override the failed content gate or exhausted allocation.
+Fresh H5 inputs and gold remain unread. The next work is an offline evidence-coverage
+design; any additional live allocation requires a new named owner amendment.
+See BL-20261105-0335, BL-20261105-0349 and the final-pilot outcome in BUILD_LOG.
+
+The following dated paragraphs retain the earlier decisions and negative evidence;
+the current status above supersedes their older request allowances and cutoffs.
+
+**Approved local-tier amendment, 2026-11-01 (Asia/Shanghai):** the owner approved
+the [Flash-Next migration sequence](plans/PHASE4_FLASH_NEXT_MIGRATION_V1.md),
+including at most 24 zero-fee qualification requests, all three H4 loops with
+the USD 0.60 split cap, and separate H5 launch permission
+(BL-20261031-1759-flash-next-sequence-owner-approved). Qualification, final
+deployment/role pins and H4 evidence still precede the H5 batch start. The owner
+subsequently permitted a recoverable trial of the pinned Thor recipe using the
+[service requirements](plans/FLASH_NEXT_VLLM_SERVICE_REQUIREMENTS.md);
+q4t's inspected greedy contract conflicts with Heavy. The owner's
+[check of q4t itself](plans/Q4T_SERVICE_CAPABILITY_REVIEW.md) confirmed that
+cache/capacity flags cannot add stochastic sampling or structured response
+parsing. The first NemoClaw-derived attempt passed 22 selected operator numerical
+cases and loaded all 206 shards. Initial compilation/profile warmup completed,
+then progress stopped after a 31.44 GiB KV-capacity log; completed cache
+initialization and final engine warmup were not proven. The operator ended the
+attempt before its 30-minute deadline. Automatic container removal failed and
+blocked restoration; later identity-checked non-force cleanup and scoped manual
+recovery verified q4t's original binary/arguments, owned listener and health/model
+metadata (BL-20261031-2003-nemoclaw-trial-failed-q4t-recovered). Fuller kernel
+evidence established driver blocking and post-stop allocation failures, without
+proving the initial cause (BL-20261031-2021-nemoclaw-diagnostic-retry-approved).
+
+The approved instrumented retry reached healthy owned API/model metadata at
+20:37:27 UTC on 2026-10-31, about 321 seconds after server start
+(BL-20261031-2040-nemoclaw-retry-ready). It retains the same checkpoint, image,
+context 262144 and one-sequence profile; the sole serving-argument change is a
+fixed 12 GiB KV pool. All 206 shards loaded, 22 selected operator cases passed
+with 64 deselected and zero skips, total engine initialization completed in 90.62
+seconds, including final CUDA-graph capture in six seconds. The candidate is
+active while q4t is stopped with its verified recovery assets retained. Reduced
+KV, page-cache preparation, retained build caches, diagnostics and wait policy
+were not isolated; readiness within the original 30-minute allowance does not
+show that the extended 60-minute bound was needed. An NVIDIA interrupt warning
+recurred, with no allocation failure or blocked-task report observed through
+20:40 UTC; this bounded observation is not a stability proof.
+
+Six synthetic CPU renderer/tokenizer comparisons have matching token IDs
+(BL-20261031-2049-flash-tokenizer-parity). Shared exact-token admission for every
+local H4/H5 role, including critic and judge, passed the integrated checks: 2247
+tests, 81 explicit skips, both typechecks and the production build
+(BL-20261031-2104-flash-shared-admission-verified).
+
+The frozen one-shot qualification stopped at Q13 after 12 passed checks and 13
+wire requests/dispatch receipts, with USD 0 new fees. Native SSE tools and history
+demotion, thinking on/off, A/A/B/B cache behavior and index/plan/extraction passed.
+Reported cached tokens were 0, 15680, 0 and 15680, corroborated by independent
+engine counters. Q13 yielded 648 observed SSE events, one usage frame, one DONE
+and zero parse failures, then an UNKNOWN `response_or_usage_invalid` receipt;
+the stage wrapper reported `research_stage_invalid`. The original validation
+category was lost, so this is not evidence of a specific backend failure. Offline
+review found that the fixture rejects valid Setext and closing-hash headings,
+but Q13 content was not retained and cannot be attributed to that defect.
+
+The service was healthy and idle at 21:09 UTC; 13 generation HTTP 200 log entries
+and no server errors or new kernel allocation failures were captured through
+21:12 UTC. This bounded observation is not a stability or qualification pass.
+The one-shot claim remains consumed. The separately owner-approved diagnostic
+ran once and settled at USD 0 (BL-20261031-2141-q13-diagnostic-result). Native
+validation, SSE assembly, model settlement and exact prompt parity passed: 385
+prompt tokens and 641 output tokens. Both heading predicates failed because the
+exact required section titles were plain paragraphs; the production prompt and
+fixture design do not explicitly require Markdown heading syntax. This result
+characterizes the new diagnostic, not the missing original Q13 reply. Original
+Q13 remains UNKNOWN; the new diagnostic later passes an appended literal-section adjudication without changing either historical heading verdict.
+
+The approved ten-request continuation completed, and root accepted the combined
+qualification after 252 independent checks (BL-20261031-2208). The total is
+24 requests, 22 settled zero-fee receipts, original Q13 UNKNOWN and planned
+Q20 UNKNOWN/cancelled, 248485 exact prompt tokens and 130816 reserved output
+tokens. Critic, four judge verdicts, large-context anchors at 122439 prompt
+tokens with the full 16384-token output reservation, cancellation/idle recovery
+and JSON/SSE passed. Nine idle samples passed; Q22's duplicate arithmetic transport comparison is omitted as approved. This
+qualifies the pinned deployment's bounded compatibility, not task quality or
+full-context/stability coverage. H4 k2 completed with 58 settled local receipts
+at USD 0; 320 independent mechanical checks passed. Protocol tie preference
+selected a and then repair, without demonstrating quality improvement. The next
+r3-local sample a ended incomplete with `research_plan_invalid`: eight index
+calls (two invalid), two plan calls (both invalid, one truncated), and ten settled
+local receipts at USD 0. This is a counted evaluated rejection, not an
+infrastructure failure; no evidence packet, sample b, critic or repair followed.
+The operator stopped on `h4_row_gate_failed`; the split loop and H5 never started,
+and full H4 acceptance remains absent (BL-20261031-2322-h4-local-plan-rejected).
+Runtime, serving and role settings, Heavy semantics and the remaining technical
+gates are unchanged. New H4 fees are USD 0; historical Claude exposure remains
+USD 1.151653, with the USD 0.60 split cap and USD 21.60 H5 cap unchanged.
+
+The separately approved ten-request planner diagnostic completed at USD 0.
+Its first plan reached the 8192-token output cap with empty final content; the
+existing retry produced a schema-valid six-question plan. Independent review
+passed 58 checks. This establishes a new cutoff failure mode, not the original
+missing-reply cause or H4 acceptance. See
+[diagnostic evidence](plans/PHASE4_FLASH_NEXT_PLANNER_DIAGNOSTIC_V1.md) and the
+[approved bounded H4 recovery](plans/PHASE4_FLASH_NEXT_H4_RECOVERY_V1.md). The
+owner approved one complete local replay, then the unused split only on success,
+under the original USD 0.60 cap. That permitted recovery also ended at
+`research_plan_invalid`: eight index calls (one invalid), two planner calls (both
+invalid, one truncated), ten settled zero-fee receipts and no later stage. Both
+failed local attempts remain counted; no further replay is authorized. Split
+and H5 remain unstarted (BL-20261101-0134-h4-recovery-plan-rejected).
+A [metadata-only planner diagnostic](plans/PHASE4_FLASH_NEXT_PLANNER_METADATA_DIAGNOSTIC_V1.md)
+completed after nine settled requests at USD 0: eight index calls with no invalid
+reply, then a normal-stop, schema-valid nine-question first plan. No retry or later
+stage ran. Three post-idle observations and 97 independent audit checks passed.
+The prior failures were not reproduced or explained; no H4 replay or H5 start
+follows, and the unused request slot is not transferable (BL-20261101-0208).
+After deferring optional telemetry, the owner approved a separate
+[bounded completion allocation](plans/PHASE4_FLASH_NEXT_H4_COMPLETION_V2.md):
+one additional local research loop and then the untouched split only if local
+passes, using the unchanged qualified runtime and shared USD 0.60 cap. Both
+failed attempts remain counted. The completion allocation executed after both
+CI jobs passed for `82455c2` in run 41266124311. Sample a produced a valid first
+six-question plan, made 40 extraction calls (three invalid), and retained a
+4173-byte length-capped synthesis. Its writer completed 37 settled tool-call replies
+before an UNKNOWN cancelled/transport receipt at the 90-minute boundary. Timing
+supports the shared session deadline as the abort source; the receipt does not
+explicitly identify it. This is not `request_timeout` or proof of a backend fault.
+The loop incorrectly began sample b; root stopped the supervised group without
+forced kill. Group absence and six remote idle observations were verified.
+The owned tool container was removed, but both archives contain zero regular
+files and total 3072 bytes; working-file preservation is not established. Original database
+and host evidence remain unchanged.
+
+This interrupted attempt contains 98 dispatches: 96 settled, one UNKNOWN and one
+committed unresolved, with known fees and fee reservations USD 0. Completed
+usage only is 689775 input, 89992 output and 478240 cached-input tokens, one length
+stop and 46 tools. H4 history is four attempts: one accepted deck, two counted
+local rejections and this interrupted attempt, rather than a third normal
+rejection. Across H4 there are 176 dispatches, 174 settled and two unresolved;
+the completed-event plus retained loop-summary subtotal is 1481794 input, 189104
+output and 1103872 cached-input tokens, three length stops and 103 tools. Retained
+loop summaries exclude judge usage; this is not a total for all 174 settled
+receipts. H4 remains unaccepted; split/H5 never started and the new grant is consumed, with no further replay authorized
+(BL-20261101-0428-h4-completion-v2-interrupted). The
+[focused correction plan](plans/PHASE4_LOOP_DISPATCH_STOP_V1.md) now covers two
+CPU-implemented fixes: stop on unresolved dispatches and clamp model-visible
+remaining time to the shared session deadline. The actual shared timer always
+applied; the advertised budget overstated time. The exact reviewed patch is
+applied, and 127 focused tests plus strict checking passed independently.
+Both CI jobs pass on `76f8dbc` (run 41274243154), with 2260 passing tests and
+81 explicit skips. The changed runtime has an explicitly approved CPU
+qualification bridge; original live qualification remains attributed to its old runtime.
+The unchanged static research protocol alone does not establish comparability.
+A bounded writer review found all 38 captured workspace inventories unchanged and no output artifacts; its final turn
+advertised about 33 minutes while about 12 remained. No shell or backend defect
+is proven, and corrected guidance does not establish future completion. Optional
+telemetry remains deferred. The owner approved a new allocation of exactly three
+fresh H4 loops: local research, deck, then split, stopping on failure with zero
+replacements and the shared all-history USD 0.60 split cap. The H4/H5 new-start
+cutoff is explicitly extended to November 2, 2026, 18:00 Asia/Shanghai
+(BL-20261101-0922-runner-fixes-approved). Actual H4 mechanics and split semantics
+still gate the existing conditional H5 scope and unchanged fee limits.
+The fresh allocation executed on `4773857` after both required CI jobs passed
+(run 41293282886), then stopped at the first local sample's 90-minute boundary.
+Its 85 dispatches comprise 84 settled and one UNKNOWN/cancelled receipt.
+The corrected loop preserved sample a's incomplete result and stopped with
+`loop_stage_unresolved_dispatch` before sample b. Deck, split and H5 did not
+start. Actual H4 history is five attempts, 261 dispatches, 258 settled and three
+unresolved, with USD 0 known fees and reservations. This is a failed live
+attempt, not an accepted row or an ordinary all-settled quality rejection.
+The grant is consumed with no replacements; unused rows do not authorize replay
+(BL-20261101-1106-h4-runner-fixes-stopped).
+The [draft-first writer proposal](plans/PHASE4_WRITER_COMPLETION_V1.md) specifies
+one named policy change and a conditional fresh three-loop allocation. It is
+Approved for the exact named policy and one conditional three-loop allocation
+(BL-20261101-1838-writer-completion-approved). The exact implementation and both
+required CI jobs pass. The owner then approved restoration of the exact saved
+deployment; new physical identities passed thirty readiness checks under the
+unchanged semantic serving settings. The fresh allocation ran once and failed
+at sample a's 90-minute boundary: 91 dispatches, 90 settled and one UNKNOWN.
+All 54 workspace inventories were unchanged with zero output files. The loop
+stopped before sample b, critic, repair, deck or split; H5 never started.
+Current H4 history is six attempts, 352 dispatches, 348 settled and four unresolved,
+with USD 0 known settled fees and reservations. This allocation is consumed with
+zero replacements (BL-20261101-2044-writer-completion-stopped).
+Observed decode speed was 19.94 tokens/s, with a live window at 19.99; 100602
+known completed output tokens imply about 84 minutes at that speed. Throughput
+and excessive generation burden materially constrained completion; exact
+thinking share and a backend defect are unproven. The
+[fast-v3 qualification and artifact trial](plans/PHASE4_FAST_V3_ARTIFACT_TRIAL_V1.md)
+proposes a protected fourth-stage build/conversion, new bounded qualification and
+an early-artifact pilot with Heavy thinking unchanged, followed only on success by
+three fresh H4 loops and existing conditional H5. Its thirty new local requests
+now have the owner’s exact approval (BL-20261101-2120-fast-v3-artifact-trial-approved),
+with implementation/review/readiness gates still before live work. The [writer-thinking-off proposal](plans/PHASE4_WRITER_THROUGHPUT_V1.md)
+remains a separate unapproved alternative. The approved plan bytes are retained;
+the append-only owner entry supplies its current approval status. Original failures, shared
+caps and the November 2 18:00 Asia/Shanghai cutoff remain unchanged.
+The current held H5 package has the reviewed writer-policy/physical-deployment
+bindings and passes 61 Node cases plus strict TypeScript, with 37 earlier Python
+cases retained rather than rerun. No actual H5 authority/pins/claim/run exists;
+fresh task inputs, candidates and gold remain unread by implementers.
+The held H5 runner now permits admitted-row closing checks after the new-start
+cutoff and owns its process group. All 62 CPU tests and independent reviews pass;
+this changes no runtime, row/fee limit, H4 prerequisite or launch permission
+(BL-20261101-0135-h5-held-closure-supervision).
+Historical Qwen3.8-27B results and the conditional R2 rule remain unchanged.
+The Claude step-0/1 Console reconciliation is now verified
+(BL-20261031-1636-claude-console-reconciled), independently of local qualification.
+
 **Status 2026-10-22 (BL-20261022-0834, BL-20261022-0940):** the division-of-labour
 harness track is approved beside the week, with the two rules below waived for
 that track only; it touches no owner build, box or owner job before Oct 27.

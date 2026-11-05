@@ -1,8 +1,9 @@
+import Database from "better-sqlite3";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import type { CandidateSummary } from "../../src/main/private-agent/selection";
+import { summarizeRun, type CandidateSummary } from "../../src/main/private-agent/selection";
 import { LOOP_VERSION, failureCode, loopExitCode, parseLoopArguments, runSelectionLoop, type CritiqueRecord, type DriverInput, type LoopDependencies, type LoopInput, type LoopRecord } from "../../scripts/phase4-loop";
 import { localScreenSourceFreeze, parseLocalArtifactScreenArguments } from "../../scripts/private-agent-local-screen";
 
@@ -25,7 +26,7 @@ function base(over: Partial<DriverInput> = {}): LoopInput["base"] {
 }
 const cloud = { model: "m", endpoint: "https://api.example.invalid/v1/responses", prices: { input: 2, output: 10, cached: 0.2 }, maxFeeUsd: 0.6 };
 /** Fakes standing in for the driver, the critique tool and the summariser; each stage leaves the marker file the real tool leaves. */
-function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?: string[]; critiqueFails?: string | Error; onRun?: (run: DriverInput) => void }) {
+function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?: string[]; critiqueFails?: string | Error; critiqueFinishReason?: string; onRun?: (run: DriverInput) => void }) {
   const calls: { runs: DriverInput[]; critiques: Parameters<LoopDependencies["critique"]>[0][] } = { runs: [], critiques: [] };
   let tick = 0;
   const snapshot = (directory: string) => (input.transfers ?? []).includes(directory.split("/").pop()!) ? h("f") : null;
@@ -36,10 +37,10 @@ function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?:
       calls.critiques.push(request);
       if (input.critiqueFails) throw typeof input.critiqueFails === "string" ? new Error(input.critiqueFails) : input.critiqueFails;
       const selected = input.summaries[request.runDirectory.split("/").pop()!]!;
-      const record: CritiqueRecord = { packetSha256: h("d"), critiqueSha256: h("e"), feeMicrousd: 0, finishReason: "stop", usage, source: { resultSha256: selected.resultSha256, freezeSha256: selected.freezeSha256 },
+      const record: CritiqueRecord = { packetSha256: h("d"), critiqueSha256: h("e"), feeMicrousd: 0, finishReason: input.critiqueFinishReason ?? "stop", usage, source: { resultSha256: selected.resultSha256, freezeSha256: selected.freezeSha256 },
         ...(selected.researchFrom ? { researchSnapshotSha256: selected.researchFrom.snapshotSha256 } : (input.transfers ?? []).includes("a") ? { researchSnapshotSha256: h("f") } : {}) };
       mkdirSync(request.outputDirectory, { recursive: true }); writeFileSync(join(request.outputDirectory, "critique.json"), JSON.stringify(record));
-      return { binding: { packetSha256: record.packetSha256, critiqueSha256: record.critiqueSha256, source: record.source! }, feeMicrousd: 0, finishReason: "stop", usage };
+      return { binding: { packetSha256: record.packetSha256, critiqueSha256: record.critiqueSha256, source: record.source! }, feeMicrousd: 0, finishReason: record.finishReason, usage };
     },
     readCritique(directory) { return JSON.parse(readFileSync(join(directory, "critique.json"), "utf8")) as CritiqueRecord; },
     summarize(directory) { const name = directory.split("/").pop()!; const found = input.summaries[name]; if (!found) throw new Error(`no summary for ${name}`); return found; },
@@ -51,6 +52,17 @@ function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?:
 }
 function loopDir() { const dir = mkdtempSync(join(tmpdir(), "soar-loop-")); cleanups.push(() => rmSync(dir, { recursive: true, force: true })); return join(dir, "loop"); }
 const read = (dir: string) => JSON.parse(readFileSync(join(dir, "loop.json"), "utf8")) as LoopRecord;
+/** Real result-to-summary mapping: committed receipts must block just like UNKNOWN. */
+function transportStoppedSummary(status: "unknown" | "committed" | "failed"): CandidateSummary {
+  const directory = loopDir(); mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, "freeze.json"), JSON.stringify({ jobId: "ja", startedAt: "t0", sourceFreezeSha256: h("4"),
+    taskBinding: { jobSha256: h("1"), briefSha256: h("2") } }));
+  writeFileSync(join(directory, "result.json"), JSON.stringify({ status: "incomplete", reason: "runtime_failure_progress_preserved",
+    finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [], dispatches: [{ status, feeMicrousd: 0 }] }));
+  const db = new Database(join(directory, "state.sqlite"));
+  db.exec("CREATE TABLE private_agent_events (job_id TEXT, sequence INTEGER, value TEXT)"); db.close();
+  return summarizeRun(directory, []);
+}
 
 describe("H4 select-and-repair loop", () => {
   it("runs a, b, the critique of the selected sample and the repair, prefers a and then the repair on ties, and records counts only", async () => {
@@ -73,12 +85,56 @@ describe("H4 select-and-repair loop", () => {
     expect(readFileSync(join(dir, "log.txt"), "utf8")).toContain("final repair (tie)");
     expect(loopExitCode(record)).toBe(0);
   });
+  it("adds a truncated critique to the samples' length stops without changing the selection rule", async () => {
+    const dir = loopDir();
+    const { deps } = fakes({ summaries: candidates(false, { a: { lengthStops: 2 }, b: { lengthStops: 1 }, repair: { lengthStops: 1 } }), critiqueFinishReason: "length" });
+    const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, deps);
+    expect(record.totals.lengthStops).toBe(5);
+    expect(record.selected.final).toMatchObject({ candidate: "repair", step: "tie" });
+  });
   it("picks the submitted sample, and the draft over a repair that failed to submit", async () => {
     const dir = loopDir();
     const { deps, calls } = fakes({ summaries: candidates(false, { a: { status: "incomplete", reason: "bounded_allowance_exhausted" }, repair: { status: "incomplete", reason: "cancelled_or_deadline" } }) });
     const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, deps);
     expect(record.selected).toMatchObject({ stage1: { candidate: "b", step: "submitted" }, final: { candidate: "b", step: "submitted" } });
     expect(calls.critiques[0]!.runDirectory).toBe(join(dir, "b")); expect(loopExitCode(record)).toBe(0);
+  });
+  it.each(["unknown", "committed", "failed"] as const)("stops after a %s receipt even when a completed research packet exists", async status => {
+    const dir = loopDir(), a = transportStoppedSummary(status);
+    const code = status === "failed" ? "loop_stage_failed_dispatch" : "loop_stage_unresolved_dispatch";
+    expect(a).toMatchObject({ unknownDispatches: status === "failed" ? 0 : 1, failedDispatches: status === "failed" ? 1 : 0 });
+    const { deps, calls } = fakes({ summaries: candidates(true, { a }), transfers: ["a"] });
+    await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, deps)).rejects.toThrow(code);
+    expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a"]); expect(calls.critiques).toHaveLength(0);
+    expect(existsSync(join(dir, "b"))).toBe(false);
+    expect(read(dir)).toMatchObject({ failure: code, candidates: { a: { unknownDispatches: a.unknownDispatches, failedDispatches: a.failedDispatches } },
+      totals: { unknownDispatches: a.unknownDispatches, failedDispatches: a.failedDispatches }, selected: { stage1: null, final: null }, finishedAt: expect.any(String) });
+    // A result marker alone cannot allow a reused stage to bypass the same stop.
+    const reused = fakes({ summaries: candidates(true, { a }), transfers: ["a"] });
+    await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, reused.deps)).rejects.toThrow(code);
+    expect(reused.calls.runs).toHaveLength(0); expect(reused.calls.critiques).toHaveLength(0);
+  });
+  it.each([{ unknownDispatches: 1 }, { failedDispatches: 1 }])("does not admit a critique or repair after b has stopped dispatches: %j", async stopped => {
+    const dir = loopDir();
+    const { deps, calls } = fakes({ summaries: candidates(true, { b: { ...stopped, status: "incomplete" } }), transfers: ["a"] });
+    await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, deps)).rejects.toThrow("loop_stage_");
+    expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b"]);
+    expect(calls.critiques).toHaveLength(0); expect(existsSync(join(dir, "repair"))).toBe(false);
+    expect(read(dir).selected).toEqual({ stage1: null, final: null });
+  });
+  it("keeps an evaluated incomplete research draft eligible when all dispatches settled", async () => {
+    const dir = loopDir();
+    const { deps, calls } = fakes({ summaries: candidates(true, { a: { status: "incomplete", reason: "bounded_allowance_exhausted" } }), transfers: ["a"] });
+    const record = await runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, deps);
+    expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b", "repair"]);
+    expect(calls.critiques).toHaveLength(1); expect(record.failure).toBeNull(); expect(record.selected.stage1).toMatchObject({ candidate: "b", step: "submitted" });
+  });
+  it("does not accept a final repair whose dispatch remains unresolved", async () => {
+    const dir = loopDir();
+    const { deps, calls } = fakes({ summaries: candidates(false, { repair: { unknownDispatches: 1 } }) });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, deps)).rejects.toThrow("loop_stage_unresolved_dispatch");
+    expect(calls.runs).toHaveLength(3); expect(calls.critiques).toHaveLength(1);
+    expect(read(dir)).toMatchObject({ failure: "loop_stage_unresolved_dispatch", selected: { final: null }, totals: { unknownDispatches: 1 } });
   });
   it("seeds b and the repair from a's packet on a research task, stripping the stage and the cloud writer, compares the write identities, and ends the loop when a left no packet", async () => {
     const dir = loopDir();
@@ -112,13 +168,13 @@ describe("H4 select-and-repair loop", () => {
     const record2 = await runSelectionLoop({ base: base(), loopDirectory: dir2 }, failing.deps);
     expect(record2.selected.final).toEqual({ candidate: "a", step: "critique_failed" }); expect(failing.calls.runs).toHaveLength(2);
     expect(record2.critique).toEqual({ failure: "repair_critique_empty", feeMicrousd: 0, finishReason: "length", usage: { inputTokens: 15_000, outputTokens: 16_384 }, modelCalls: 1 });
-    expect(record2.totals).toMatchObject({ modelCalls: 21, inputTokens: 17_000, outputTokens: 16_584 });
+    expect(record2.totals).toMatchObject({ modelCalls: 21, inputTokens: 17_000, outputTokens: 16_584, lengthStops: 1 });
     expect(read(dir2)).toMatchObject({ critique: { failure: "repair_critique_empty" }, failure: null });
     // A failure before the call carries no usage and counts no call; a raw message (a host path) is replaced by a code.
     const dir3 = loopDir();
     const early = fakes({ summaries: candidates(false), critiqueFails: new Error("ENOENT: no such file or directory, lstat '/Users/someone/task'") });
     const record3 = await runSelectionLoop({ base: base(), loopDirectory: dir3 }, early.deps);
-    expect(record3.critique).toEqual({ failure: "repair_critique_failed", feeMicrousd: 0, finishReason: null, usage: null, modelCalls: 0 }); expect(record3.totals.modelCalls).toBe(20);
+    expect(record3.critique).toEqual({ failure: "repair_critique_failed", feeMicrousd: 0, finishReason: null, usage: null, modelCalls: 0 }); expect(record3.totals).toMatchObject({ modelCalls: 20, lengthStops: 0 });
     expect(readFileSync(join(dir3, "loop.json"), "utf8")).not.toContain("/Users"); expect(readFileSync(join(dir3, "log.txt"), "utf8")).not.toContain("/Users");
     // A loop that chose is terminal whether or not the critique directory exists: a rerun is refused, never retried.
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, fakes({ summaries: candidates(false) }).deps)).rejects.toThrow("loop_terminal");
@@ -126,7 +182,7 @@ describe("H4 select-and-repair loop", () => {
   });
   it("resumes at stage granularity, keeping the loop's start and the reused stages' times, refuses an unfinished stage, and records a failure as a code", async () => {
     const dir = loopDir();
-    const first = fakes({ summaries: candidates(false), onRun: run => { if (run.outputDirectory.endsWith("repair")) throw new Error("ENOSPC: no space left on device, write '/Users/someone/loop/repair/x'"); } });
+    const first = fakes({ summaries: candidates(false), critiqueFinishReason: "length", onRun: run => { if (run.outputDirectory.endsWith("repair")) throw new Error("ENOSPC: no space left on device, write '/Users/someone/loop/repair/x'"); } });
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, first.deps)).rejects.toThrow("ENOSPC");
     const stopped = read(dir);
     expect(stopped).toMatchObject({ failure: "loop_failed", startedAt: "t0", finishedAt: expect.any(String) }); expect(stopped.selected.final).toBeNull();
@@ -139,7 +195,7 @@ describe("H4 select-and-repair loop", () => {
     expect(second.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["repair"]); expect(second.calls.critiques).toHaveLength(0);
     expect(record.stages.map(stage => [stage.stage, stage.reused])).toEqual([["a", true], ["b", true], ["critique", true], ["repair", false]]);
     for (const name of ["a", "b", "critique"]) expect([record.stages.find(stage => stage.stage === name)!.startedAt, record.stages.find(stage => stage.stage === name)!.finishedAt]).toEqual(reusedTimes[name]);
-    expect(record.startedAt).toBe("t0"); expect(record.critique).toMatchObject({ critiqueSha256: h("e"), modelCalls: 1 }); expect(record.totals.modelCalls).toBe(31);
+    expect(record.startedAt).toBe("t0"); expect(record.critique).toMatchObject({ critiqueSha256: h("e"), finishReason: "length", modelCalls: 1 }); expect(record.totals).toMatchObject({ modelCalls: 31, lengthStops: 1 });
     // A stage directory without its result is refused.
     const dir2 = loopDir();
     mkdirSync(join(dir2, "a"), { recursive: true });

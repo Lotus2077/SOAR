@@ -111,6 +111,14 @@ def cloud_fields(freeze: dict) -> dict:
     return {"cloudModel": config.get("model"), "cloudApi": config.get("api")}
 
 
+def support_rate(counts: dict | None) -> float | None:
+    """Supported / judged claims; an unjudged claim is neither supported nor a negative judgement."""
+    if not isinstance(counts, dict):
+        return None
+    judged = sum(counts.get(key, 0) for key in ("supported", "partial", "unsupported", "contradicted"))
+    return round(counts.get("supported", 0) / judged, 3) if judged else None
+
+
 def run_counts(run_dir: str) -> dict:
     """One run's counts from its own state.sqlite and result.json, plus the row fields its freeze and result give."""
     result = json.load(open(os.path.join(run_dir, "result.json"), encoding="utf-8"))
@@ -134,7 +142,7 @@ def run_counts(run_dir: str) -> dict:
             "runStatus": result.get("status"), "terminalCause": result.get("reason"),
             # Research tasks: the host's entailment pass (PR-J2), counts only; a judge verdict is evidence, not acceptance.
             "entailment": next(({"counts": event.get("counts"), "entailmentCalls": event.get("entailmentCalls"), "truncated": event.get("truncated"),
-                "supportRate": round(event["counts"]["supported"] / max(1, sum(event["counts"].values())), 3) if isinstance(event.get("counts"), dict) else None}
+                "supportRate": support_rate(event.get("counts"))}
                 for event in reversed(events) if event.get("type") == "claims_entailment"), None),
         },
         # H2b: the research stage's calls and tokens come from its content-free stage events, beside the write loop's model events.
@@ -147,7 +155,7 @@ def run_counts(run_dir: str) -> dict:
         "cachedTokens": sum(item.get("cacheReadTokens") or 0 for item in usage) + sum(int((event.get("usage") or {}).get("cacheReadTokens") or 0) for event in research),
         # H1 completion: prompt tokens the provider reported as newly written to its cache (billed at the write rate); 0 when unreported.
         "cacheWriteTokens": sum(item.get("cacheWriteTokens") or 0 for item in usage) + sum(int((event.get("usage") or {}).get("cacheWriteTokens") or 0) for event in research),
-        "lengthStops": sum(1 for event in finished if event.get("finishReason") == "length"),
+        "lengthStops": sum(1 for event in finished if event.get("finishReason") == "length") + sum(int(event.get("truncatedReplies") or 0) for event in research),
         "usd": sum(item.get("feeMicrousd") or 0 for item in dispatches) / 1_000_000,
         "unknownDispatches": sum(1 for item in dispatches if item.get("status") in ("unknown", "committed")),
         # PR-C: attempts superseded by a retry and confirmed failures are resolved rows, never uncertain ones.

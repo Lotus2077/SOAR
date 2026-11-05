@@ -13,10 +13,11 @@ import { DockerSandbox } from "../../src/main/private-agent/sandbox";
 import { EXECUTION_PROGRESS_STOP } from "../../src/main/private-agent/progress";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import type { BrokerDestination } from "../../src/main/private-agent/broker";
+import { flashNextAdmissionFixture } from "../helpers/flash-next-admission-fixture";
 
 const cleanup: (() => Promise<void> | void)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const fn of cleanup.splice(0).reverse()) await fn(); });
-function fixture() {
+function fixture(cleanupConfirmed = true) {
   const root = mkdtempSync(join(tmpdir(), "soar-general-controller-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   const db = new Database(join(root, "desktop.sqlite")); cleanup.push(() => { db.close(); });
   const input = join(root, "source.csv"); writeFileSync(input, "value\n21\n");
@@ -40,7 +41,7 @@ function fixture() {
         const { text: _text, ...preview } = args.broker.preview({ jobId, contextId, destinationId: "desktop_local", purpose: "agent reasoning and tool selection", method: "POST", body: "{}", maxFeeMicrousd: 0 });
         store.resolveFailure(store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_inside_boundary" } }, () => {}).id, "failed", { phase: "transport", code: "connection_failed", elapsedMs: 1, timeoutMs: 1000 });
         store.append(jobId, { type: "model_request_failed", contextId, operationId: op, promptProtocolSha256: digest("fixture-protocol"), reason: "model_unavailable", dispatched: true });
-        store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
+        store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed, elapsedMs: 12 });
         return { status: "incomplete", reason: "model_unavailable", snapshot: [], checks: [], modelCalls: executions.length };
       }
       store.append(jobId, { type: "model_finished", contextId, operationId: op });
@@ -70,7 +71,7 @@ function fixture() {
         const { text: _text, ...preview } = args.broker.preview({ jobId, contextId, destinationId: "desktop_local", purpose: "claims entailment judgement", method: "POST", body: "{}", maxFeeMicrousd: 0 });
         store.unknown(store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_inside_boundary" } }, () => {}).id);
       }
-      store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
+      store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed, elapsedMs: 12 });
       return { status, reason: "unit_fixture", snapshot, checks, modelCalls: executions.length };
     },
   });
@@ -81,6 +82,20 @@ function fixture() {
   return { root, db, input, config, controller, options, executions, create, set failModel(value: boolean) { failModel = value; }, set narrate(value: boolean) { narrate = value; },
     changeRuntime() { runtimeIdentity = digest("runtime-v2"); }, removeImage() { imageId = undefined; },
     hold() { hold = new Promise<void>(yes => { release = yes; }); }, release() { release?.(); hold = undefined; }, resetPaused() { paused = false; } };
+}
+
+async function interruptedCleanupFixture() {
+  const f = fixture(false), task = f.create(); f.hold(); f.controller.start(task.id);
+  await vi.waitFor(() => expect(f.executions).toHaveLength(1));
+  f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
+  const args = f.executions[0]!, ownerId = "old-desktop-owner";
+  args.store.acquireRun(args.contextId, ownerId, "unix:///tmp/soar-unit-docker.sock", 234567);
+  args.store.append(task.id, { type: "model_started", contextId: args.contextId, operationId: "unresolved-cleanup-test" });
+  const pending = args.store.commit({ jobId: task.id, contextId: args.contextId, contextSha256: contextFingerprint(args.store.context(args.contextId)),
+    packetSha256: digest("synthetic interrupted request"), destinationId: args.model.config.destinationId, destinationSha256: digest("synthetic destination"),
+    purpose: "synthetic cleanup no-replay guard", policyRevision: 0, reservedFeeMicrousd: 0, scan: { status: "not_required_for_synthetic_local_test" } }, () => {});
+  args.store.unknown(pending.id);
+  return { ...f, task, args, ownerId, artifact: f.controller.get(task.id).artifacts[0]!, receipts: canonical(args.store.dispatches(task.id)) };
 }
 
 describe("desktop general-task host controller", () => {
@@ -212,6 +227,39 @@ describe("desktop general-task host controller", () => {
     expect(() => reopened.resume(task.id)).toThrow("general_task_resume_denied");
     expect(f.executions).toHaveLength(1);
     expect(reopened.artifact({ id: task.id, path: after.artifacts[0]!.path, sha256: after.artifacts[0]!.sha256 }).bytes.toString()).toBe("saved partial artifact");
+    expect(f.executions[0]!.store.dispatches(task.id)).toHaveLength(variant === "unknown" ? 1 : 0);
+  });
+
+  it.each(["valid", "malformed", "missing", "orphan", "unknown"])("preserves the %s token-admission stop without replay after reopening", async variant => {
+    const f = fixture();
+    f.options.testing!.runnerFactory = args => ({ pause() {}, cancel() {}, async run() {
+      f.executions.push(args);
+      const { store, jobId, contextId, checkpoints } = args;
+      const start = { type: "model_started", operationId: randomUUID(), contextId, promptProtocolSha256: digest("fixture-protocol") };
+      store.append(jobId, start);
+      if (variant !== "missing") store.append(jobId, { ...start, type: "model_request_not_dispatched", reason: "local_token_admission_denied",
+        ...(variant === "orphan" ? { operationId: randomUUID() } : {}), dispatched: false,
+        code: variant === "malformed" ? "untrusted_detail" : "local_token_context_exceeded", bodySha256: digest("synthetic-body"), policySha256: digest("synthetic-policy") });
+      if (variant === "unknown") {
+        const { text: _text, ...preview } = args.broker.preview({ jobId, contextId, destinationId: "desktop_local", purpose: "unit unknown", method: "POST", body: "{}", maxFeeMicrousd: 0 });
+        const row = store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_for_synthetic_local_test" } }, () => {});
+        store.unknown(row.id);
+      }
+      const snapshot = checkpoints.save([...args.files, { path: args.contract.requiredArtifacts[0]!.path, bytes: Buffer.from("saved partial artifact") }]);
+      store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
+      store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
+      return { status: "incomplete", reason: "local_token_admission_denied", snapshot, checks: [], modelCalls: 1 };
+    } });
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    const before = f.controller.get(task.id);
+    expect(before).toMatchObject({ status: "incomplete", canResume: false, modelCalls: 1, cleanupConfirmed: true });
+    expect(before.reason).toContain(variant === "valid" ? "was not sent" : "uncertain outcome");
+    if (variant === "valid") expect(before.reason).not.toContain("uncertain");
+    await f.controller.close();
+    const reopened = new GeneralTaskController(f.options); cleanup.push(() => reopened.close());
+    expect(reopened.get(task.id)).toMatchObject({ reason: before.reason, canResume: false });
+    expect(() => reopened.resume(task.id)).toThrow("general_task_resume_denied");
+    expect(f.executions).toHaveLength(1);
     expect(f.executions[0]!.store.dispatches(task.id)).toHaveLength(variant === "unknown" ? 1 : 0);
   });
 
@@ -361,6 +409,23 @@ describe("desktop general-task host controller", () => {
     const c = f.create(); f.config.promptCacheSalt = false;
     expect(() => f.controller.start(c.id)).toThrow("general_task_configuration_changed");
   });
+  it("uses the explicit local reply contract and refuses a task created under the other contract", async () => {
+    const f = fixture(); f.config.vllm.model = "qwen3.8-flash-next";
+    const legacy = f.create(); f.controller.start(legacy.id); await f.controller.wait(legacy.id);
+    expect(f.executions.at(-1)!.model.config).not.toHaveProperty("localReplyContract");
+    const queuedLegacy = f.create();
+    f.config.vllm.localReplyContract = "flash_next_v1";
+    f.config.vllm.localContextTokens = 262_144;
+    expect(() => f.controller.start(queuedLegacy.id)).toThrow("general_task_configuration_changed");
+    const optedIn = f.create(); f.controller.start(optedIn.id); await f.controller.wait(optedIn.id);
+    expect(f.executions.at(-1)!.model.config).toHaveProperty("localReplyContract", "flash_next_v1");
+    expect(f.executions.at(-1)!.model.config).toHaveProperty("localContextTokens", 262_144);
+    const queuedContext = f.create(); f.config.vllm.localContextTokens = 131_072;
+    expect(() => f.controller.start(queuedContext.id)).toThrow("general_task_configuration_changed");
+    f.config.vllm.localContextTokens = 262_144;
+    const queuedOptIn = f.create(); delete f.config.vllm.localReplyContract; delete f.config.vllm.localContextTokens;
+    expect(() => f.controller.start(queuedOptIn.id)).toThrow("general_task_configuration_changed");
+  });
   it("resumes a task paused before streaming was switched on, and streams from then on", async () => {
     const f = fixture(); f.config.streamingEnabled = false;
     const task = f.create(); f.hold(); f.controller.start(task.id);
@@ -371,6 +436,27 @@ describe("desktop general-task host controller", () => {
     f.controller.resume(task.id); await f.controller.wait(task.id);
     expect(f.controller.get(task.id).status).toBe("submitted");
     expect(f.executions[1]!.model.config).toMatchObject({ streaming: true });
+  });
+  it("refuses queued tasks when the exact-token policy identity changes before dispatch", () => {
+    const f = fixture();
+    f.config.vllm.localReplyContract = "flash_next_v1"; f.config.vllm.localContextTokens = 262_144;
+    const withoutPolicy = f.create();
+    f.config.vllm.localTokenAdmission = { path: join(tmpdir(), "synthetic-admission.json"), sha256: "a".repeat(64) };
+    expect(() => f.controller.start(withoutPolicy.id)).toThrow("general_task_configuration_changed");
+    const bound = f.create(); f.config.vllm.localTokenAdmission.sha256 = "b".repeat(64);
+    expect(() => f.controller.start(bound.id)).toThrow("general_task_configuration_changed");
+    expect(f.executions).toHaveLength(0);
+  });
+  it("loads the pinned token policy into the desktop broker and binds it into the task model", async () => {
+    const f = fixture(); f.config.vllm.model = "qwen3.8-flash-next";
+    const policy = flashNextAdmissionFixture({ endpoint: `${f.config.vllm.baseUrl}/chat/completions`, model: f.config.vllm.model, contextTokens: 262_144 });
+    cleanup.push(policy.cleanup);
+    f.config.vllm.localReplyContract = "flash_next_v1"; f.config.vllm.localContextTokens = 262_144;
+    f.config.vllm.localTokenAdmission = policy.descriptor;
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    expect(f.executions).toHaveLength(1);
+    expect(f.executions[0]!.model.config.localTokenAdmissionSha256).toBe(policy.descriptor.sha256);
+    expect(f.controller.get(task.id).status).toBe("submitted");
   });
   it("records a late heartbeat against the running task as a host_heartbeat event", async () => {
     vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
@@ -686,6 +772,106 @@ describe("desktop general-task host controller", () => {
       expect(result.cleanupConfirmed).toBe(false); expect(result.reason).toContain("cleanup could not be confirmed");
     }
     expect(args.store.events(task.id).some(event => event.operationId === "unresolved-original" && event.type === "model_finished")).toBe(false);
+  });
+  it.each([false, true])("retries transient cleanup failure without replay after restart=%s", async restart => {
+    const f = await interruptedCleanupFixture(), { task, args, artifact } = f;
+    const kill = vi.spyOn(process, "kill").mockImplementation(() => { throw Object.assign(new Error("synthetic dead owner"), { code: "ESRCH" }); });
+    const clean = vi.spyOn(DockerSandbox, "cleanupOwnedContext").mockRejectedValueOnce(new Error("synthetic Docker outage")).mockResolvedValue(undefined);
+    f.controller.cancel(task.id); await f.controller.wait(task.id);
+    expect(f.controller.get(task.id)).toMatchObject({ status: "cancelled", cleanupConfirmed: false, canResume: false, canRetryCleanup: true, cleanupInProgress: false });
+    expect(args.store.runClaim(args.contextId)).toMatchObject({ state: "cleanup_required", pid: process.pid });
+    const ref = { id: task.id, path: artifact.path, sha256: artifact.sha256 };
+    expect(() => f.controller.artifact(ref)).toThrow("general_task_artifact_cleanup_unconfirmed");
+    // A cleanup_required owner has explicitly stopped owning execution; its PID
+    // may still be alive (and is this process after the first failed attempt).
+    kill.mockImplementation(() => true);
+    let controller = f.controller;
+    if (restart) {
+      await controller.close(); controller = new GeneralTaskController(f.options); cleanup.push(() => controller.close());
+      expect(controller.get(task.id)).toMatchObject({ status: "cancelled", canRetryCleanup: true });
+    }
+    const retried = controller.cancel(task.id);
+    expect(retried).toMatchObject({ status: "cancelled", cleanupInProgress: true, canRetryCleanup: false });
+    expect(() => controller.artifact(ref)).toThrow("general_task_artifact_busy");
+    await controller.wait(task.id);
+    expect(controller.get(task.id)).toMatchObject({ status: "cancelled", cleanupConfirmed: true, canResume: false, canRetryCleanup: false, cleanupInProgress: false });
+    expect(controller.artifact(ref).bytes.toString()).toBe("unit artifact");
+    expect(kill).toHaveBeenCalledTimes(1); expect(clean).toHaveBeenCalledTimes(2);
+    expect(args.store.runClaim(args.contextId)?.state).toBe("released");
+    expect(canonical(args.store.dispatches(task.id))).toBe(f.receipts); expect(f.executions).toHaveLength(1);
+    expect(args.store.events(task.id).some(event => event.type === "model_finished" && event.operationId === "unresolved-cleanup-test")).toBe(false);
+    expect(() => controller.cancel(task.id)).toThrow("general_task_terminal");
+  });
+  it.each(["alive", "uncertain"] as const)("cleanup retries never seize an %s execution owner", async state => {
+    const f = await interruptedCleanupFixture();
+    vi.spyOn(process, "kill").mockImplementation(() => {
+      if (state === "alive") return true;
+      throw Object.assign(new Error("synthetic permission failure"), { code: "EPERM" });
+    });
+    const clean = vi.spyOn(DockerSandbox, "cleanupOwnedContext").mockResolvedValue(undefined);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      f.controller.cancel(f.task.id); await f.controller.wait(f.task.id);
+      expect(f.controller.get(f.task.id)).toMatchObject({ status: "cancelled", cleanupConfirmed: false, canRetryCleanup: true });
+      expect(f.args.store.runClaim(f.args.contextId)).toMatchObject({ state: "active", ownerId: f.ownerId, pid: 234567 });
+    }
+    expect(clean).not.toHaveBeenCalled(); expect(f.executions).toHaveLength(1);
+    expect(canonical(f.args.store.dispatches(f.task.id))).toBe(f.receipts);
+  });
+  it("rolls back cleanup release when confirmation append fails and can retry", async () => {
+    const f = await interruptedCleanupFixture(), { args, task } = f;
+    vi.spyOn(process, "kill").mockImplementation(() => { throw Object.assign(new Error("synthetic dead owner"), { code: "ESRCH" }); });
+    const clean = vi.spyOn(DockerSandbox, "cleanupOwnedContext").mockResolvedValue(undefined);
+    const append = args.store.append.bind(args.store); let failConfirmation = true;
+    vi.spyOn(args.store, "append").mockImplementation((jobId, event) => {
+      if (event.type === "desktop_cleanup_confirmed" && failConfirmation) { failConfirmation = false; throw new Error("synthetic append failure"); }
+      return append(jobId, event);
+    });
+    f.controller.cancel(task.id); await f.controller.wait(task.id);
+    expect(args.store.events(task.id).some(event => event.type === "run_ended" && event.cleanupConfirmed === true)).toBe(false);
+    expect(args.store.events(task.id).some(event => event.type === "desktop_cleanup_confirmed")).toBe(false);
+    expect(args.store.runClaim(args.contextId)?.state).toBe("cleanup_required");
+    expect(f.controller.get(task.id)).toMatchObject({ status: "cancelled", cleanupConfirmed: false, canRetryCleanup: true });
+    expect(() => f.controller.artifact({ id: task.id, path: f.artifact.path, sha256: f.artifact.sha256 })).toThrow("general_task_artifact_cleanup_unconfirmed");
+    f.controller.cancel(task.id); await f.controller.wait(task.id);
+    expect(clean).toHaveBeenCalledTimes(2); expect(args.store.runClaim(args.contextId)?.state).toBe("released");
+    expect(args.store.events(task.id).filter(event => event.type === "desktop_cleanup_confirmed")).toHaveLength(1);
+    expect(f.controller.get(task.id)).toMatchObject({ status: "cancelled", cleanupConfirmed: true, canRetryCleanup: false });
+    expect(canonical(args.store.dispatches(task.id))).toBe(f.receipts); expect(f.executions).toHaveLength(1);
+  });
+  it("recovers legacy cancelled cleanup from its released claim without a confirmation event", async () => {
+    const f = await interruptedCleanupFixture(), { args, task } = f;
+    const clean = vi.spyOn(DockerSandbox, "cleanupOwnedContext").mockResolvedValue(undefined);
+    // Simulate the old crash gap: cancellation was saved, cleanup released its
+    // claim, then the host stopped before writing its separate confirmation.
+    f.controller.cancel(task.id);
+    args.store.releaseRun(args.contextId, f.ownerId, true);
+    await f.controller.wait(task.id);
+    expect(args.store.events(task.id).some(event => event.type === "run_ended" && event.cleanupConfirmed === true || event.type === "desktop_cleanup_confirmed")).toBe(false);
+    await f.controller.close(); const restarted = new GeneralTaskController(f.options); cleanup.push(() => restarted.close());
+    expect(restarted.get(task.id)).toMatchObject({ status: "cancelled", reason: "Task cancelled.", cleanupConfirmed: true, canRetryCleanup: false, canResume: false });
+    expect(restarted.artifact({ id: task.id, path: f.artifact.path, sha256: f.artifact.sha256 }).bytes.toString()).toBe("unit artifact");
+    expect(clean).not.toHaveBeenCalled(); expect(f.executions).toHaveLength(1);
+    expect(canonical(args.store.dispatches(task.id))).toBe(f.receipts);
+  });
+  it("deduplicates cleanup clicks and refuses a concurrent live cleanup owner", async () => {
+    const f = await interruptedCleanupFixture(); let complete!: () => void;
+    vi.spyOn(process, "kill").mockImplementation(pid => {
+      if (pid === 234567) throw Object.assign(new Error("synthetic dead owner"), { code: "ESRCH" });
+      return true;
+    });
+    const clean = vi.spyOn(DockerSandbox, "cleanupOwnedContext").mockImplementation(() => new Promise<void>(resolve => { complete = resolve; }));
+    f.controller.cancel(f.task.id);
+    await vi.waitFor(() => expect(clean).toHaveBeenCalledOnce());
+    const cleaningClaim = f.args.store.runClaim(f.args.contextId)!;
+    expect(f.controller.cancel(f.task.id)).toMatchObject({ status: "cancelled", cleanupInProgress: true, canRetryCleanup: false });
+    const concurrent = new GeneralTaskController(f.options); cleanup.push(() => concurrent.close());
+    concurrent.cancel(f.task.id); await concurrent.wait(f.task.id);
+    expect(f.args.store.runClaim(f.args.contextId)).toEqual(cleaningClaim);
+    expect(clean).toHaveBeenCalledOnce();
+    complete(); await f.controller.wait(f.task.id);
+    expect(f.controller.get(f.task.id)).toMatchObject({ status: "cancelled", cleanupConfirmed: true });
+    expect(f.args.store.runClaim(f.args.contextId)?.state).toBe("released");
+    expect(canonical(f.args.store.dispatches(f.task.id))).toBe(f.receipts); expect(f.executions).toHaveLength(1);
   });
   it("admits only one desktop execution at a time and close requests pause instead of extra work", async () => {
     const f = fixture(), first = f.create(), second = f.create(); f.hold(); f.controller.start(first.id);

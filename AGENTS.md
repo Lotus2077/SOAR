@@ -29,3 +29,8 @@ Default five-role vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `
 ### Domain docs
 
 Single-context: root `GLOSSARY.md` (created lazily) plus `docs/adr/`. See `docs/agents/domain.md`.
+
+### Skill routing
+
+When a plan settles, needs tickets, spans sessions, or issues need triage,
+read `docs/agents/skill-routing.md` and suggest the matching slash command.

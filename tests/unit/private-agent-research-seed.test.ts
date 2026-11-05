@@ -138,6 +138,21 @@ describe("v4 research seeds require the ready packet and actual producer receipt
       changePacket(RESEARCH_FILES.evidence, e => { e.quotes[0].sourceSha256 = h("9"); }), changePacket(RESEARCH_FILES.summary, s => { s.stages[0].calls++; })];
     for (const files of changes) { const dir = sourceRun({ files }); expect(() => loadResearchSeed(dir, task)).toThrow(); expect(researchTransferPresent(dir)).toBe(false); }
   });
+  it.each(["session", "controlled_pipeline"] as const)("rejects tampered planner diagnostics through the %s producer and seed route", kind => {
+    for (const change of [
+      (s: any) => { delete s.planAttempts; },
+      (s: any) => { s.planAttempts[0].acceptedPlanSha256 = h("9"); },
+      (s: any) => { s.planAttempts[0].truncated = true; },
+      (s: any) => { s.planAttempts[0].bindingInspection = "not_run"; },
+    ]) {
+      const files = changePacket(RESEARCH_FILES.summary, summary => change(summary.stages.find((s: any) => s.stage === "plan")));
+      expect(() => createResearchProducer({ kind, jobId, contextId, brief: RESEARCH_V4_TEST_BRIEF,
+        sources: researchV4Sources(), files: files(produced), receipts })).toThrow("research_packet_plan_attempts");
+      const dir = sourceRun({ kind, files });
+      expect(() => loadResearchSeed(dir, task)).toThrow("research_packet_plan_attempts");
+      expect(researchTransferPresent(dir)).toBe(false);
+    }
+  });
   it("refuses corrupt/missing checkpoints and symlinked ledgers without creating missing state", () => {
     expect(() => loadResearchSeed(sourceRun({ corrupt: true }), task)).toThrow(/checkpoint_(file_invalid|digest_mismatch)/u);
     const pruned = sourceRun(); rmSync(join(pruned, "checkpoints"), { recursive: true, force: true });

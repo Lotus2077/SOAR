@@ -29506,3 +29506,26 @@ Paid exposure: Zero new requests or fees. Preserve the two-call/8192-output-toke
 Next gate: Implement and independently test the narrow correction offline in the separate checkout, then prepare a concrete reviewed proposal before any new live decision. No automatic retry or reduced quality gate follows.
 
 References: BL-20261105-0923-research-v4-planning-failed; docs/plans/PHASE4_RESEARCH_PLAN_CONTRACT_REPAIR_V1.md; docs/plans/PHASE4_RESEARCH_COVERAGE_V4.md.
+
+
+### BL-20261105-0944-planner-contract-offline-verified -- 2026-11-05 -- Implement and verify the bounded planner contract repair offline
+
+Status: `Verified`
+
+Scope or hypothesis: Implement the reviewed planner contract and failure-reporting correction in a separate checkout, preserving the failed live runtime and evidence. Verification covers synthetic contract, accounting and handoff behavior only.
+
+Decisions: Preserve the exact plan schema, source limits, coverage rules, role settings, two planner calls and 8192 output tokens per call. No rejected plan is coerced into acceptance, and normal serialized-body/native admission limits remain.
+
+Changes: Supply JSON Schema generated from the validator; retain bounded safe attempt diagnostics, truthful binding-inspection state and accepted canonical-plan identity; and give the existing second call specific feedback plus the complete prior reply as untrusted user data up to 64 KiB, or an explicit whole-reply omission. No raw reply or rejected value is persisted in diagnostics. Packet and both seed-producer routes enforce attempt/count/plan consistency. Remove the uncomputed unknown-source counter. Keep version 4 and seven packet files, with new protocol 3453710315d7226ea4d6195ec7401d000f86c5b0d9afa9839a801d5c6d391262; historical results retain their original protocol.
+
+Evidence: All 159 unique focused CPU/integration cases across ten files passed: 121 pipeline, seed, session and model-size regression cases and thirty-eight planner-contract cases. Eight session cases initially encountered restricted-loopback EPERM; the same eight passed on the permitted rerun. Both node and web TypeScript checks passed. Independent review repeated seventy-eight overlapping cases, confirmed exact schema parity with the frozen original, and rejected five additional diagnostic-corruption probes. Author verification repeated ninety-two overlapping cases; repetitions are not added to the total. Reviewed design 2730e1744f1d7c8c9fb735ab1f982b9160969d60271dbc6f0d071909050d1bb1 remains unchanged.
+
+Failures or blockers: Review found diagnostic code/path/required-metadata inconsistencies, corrected before final independent PASS. Current-code CI remains pending. The prior live rejected fields remain unknown because its replies and caught errors were not retained.
+
+Limitations and non-claims: Tests prove fixture behavior, not actual model planning, research completeness, artifact acceptance, release readiness, H4 or H5. Old runtime, plans, failed namespaces, forty-two consumed slots and seven claims remain preserved. Fresh H5 inputs and gold remain unread.
+
+Paid exposure: Zero new live model requests, tokenizer calls, sandbox launches or fees. Seventy unused slots are not retry authority. All stage/time/draft/output limits, USD 0.60 all-history H4 split, eighteen H5 rows/USD 21.60 total/USD 3 cloud row/USD 0.60 split row, and November 5, 10:00 UTC / 18:00 Asia/Shanghai cutoff remain unchanged.
+
+Next gate: Obtain current-code CI and prepare a concrete reviewed amendment before any new named live decision. No automatic retry follows from offline verification; H4/H5 remain held behind actual accepted integrated research/writer evidence.
+
+References: BL-20261105-0930-planner-contract-repair-design-reviewed; BL-20261105-0923-research-v4-planning-failed; docs/plans/PHASE4_RESEARCH_PLAN_CONTRACT_REPAIR_V1.md.

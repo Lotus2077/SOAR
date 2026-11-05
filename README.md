@@ -51,6 +51,12 @@ grades do not establish acceptance in the desktop app.
 | Coding pilot | Opt-in "Fix a repository" flow with cloud execution in isolated containers. |
 | Legacy tracks | Repository Investigator, Review Current Changes, the coding pilot and the hybrid simulation stay wired but are hidden unless `SOAR_ENABLE_LABS=true`; the general task is the default surface and the ⌘N target. The PR6R canary and held-out evaluator were removed; they remain at tag `archive/router-era-2026-09-28`. |
 
+The [planner contract repair](docs/plans/PHASE4_RESEARCH_PLAN_CONTRACT_REPAIR_V1.md)
+is implemented and independently reviewed offline: complete existing schema,
+bounded diagnostics and specific feedback for the existing second call. All 159
+focused tests and both TypeScript checks pass; current-code CI is pending. Limits
+are unchanged, and no new live attempt or H4/H5 acceptance is granted.
+
 ## Setup
 
 Requirements: macOS, Node 22.22.2 (`.nvmrc`), pnpm 10.12.4, and Docker (for the

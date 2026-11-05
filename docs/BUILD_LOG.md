@@ -29717,3 +29717,26 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend. The USD 3
 Next gate: Unchanged: the owner records decisions on the review's section 5.10, starting with item 3 (including section 2's goal statement), item 2, backlog item 0 and E0 (the new endpoint's serving card).
 
 References: BL-20261105-1550-third-check-corrections; BL-20261105-1357-second-check-corrections-utc-reset; BL-20261031-1342-claude-all-cloud-observed; BL-20261022-1156-h1-prompt-caching-implemented; docs/PROJECT_REVIEW_2026-11-05.md.
+
+
+### BL-20261105-1722-fifth-check-corrections -- 2026-11-05 -- Correction: fifth adversarial check of the 2026-11-05 review and the fourth-check entry
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct BL-20261105-1650-fourth-check-corrections without rewriting it, and record the follow-up fixes to docs/PROJECT_REVIEW_2026-11-05.md. A fifth adversarial check of commit a0fdd95 ran one read-only checker followed by a skeptic over that commit's changes and its entry. It checked about 96 claims and confirmed 2 minor points, with no errors, no imprecisions and none refuted. The corrected entry stays as written; this entry supersedes the statements it names.
+
+Decisions: Corrections to BL-20261105-1650-fourth-check-corrections: (1) Its Changes' "Section 8 records the fourth check and lists the proposal changes of all four correction entries" did not hold at a0fdd95. Section 8's list from the fourth check omitted two proposal changes that those Changes record: E0 deciding whether criterion 3's judge thresholds apply in E4, and backlog item 1's producer fix extended to cloud rows in the reader context. (2) Its Changes' "backlog item 1 covers superseded cloud rows in the reader context" should read "backlog item 1 covers resolved superseded and failed cloud rows in the reader context", as item 1 reads. Both changes remain Proposed.
+
+Changes: docs/PROJECT_REVIEW_2026-11-05.md section 8 now lists those two changes and records the fifth check, and the header cites this entry. Section 2.5 item 3, the E3 rule and the E4 row's arm-selection order now say that the owner chooses where routes "trade under section 2.1", matching section 5.10 item 2, because section 2.1 added a second way for two routes to trade: each better on quality in one of its two ways. That wording names a case those passages already sent to the owner through their catch-all branches; it is not a new proposal change. No code, configuration, registry row, docs/PLAN.md text or earlier entry changes.
+
+Evidence: The checker's and the skeptic's outputs stay session-local. Both findings were re-read in the review at a0fdd95 before being fixed: the E0 row and backlog item 1 against section 8's fourth list, and section 2.1's new owner-choice clause against section 2.5 item 3, the E3 rule and the E4 row. With this entry appended, `pnpm --silent validate:build-log` reports a valid log with --base-ref origin/main, 6a5d396, cf17706, 90046a0, 72433d1 and a0fdd95, the last showing BL-20261105-1650-fourth-check-corrections unchanged; the build-log validator tests pass (52 of 52), as do `pnpm typecheck` and `pnpm validate:readiness`.
+
+Failures or blockers: a0fdd95 and BL-20261105-1650-fourth-check-corrections were committed with these two omissions, and that entry stays in the log as written. The check found no error or imprecision.
+
+Limitations and non-claims: The check was read-only verification of documents by agents and covered only a0fdd95's changes. It ran no SOAR application, model, endpoint or paid call. The five checks confirmed 96, 54, 37, 17 and 2 findings, with 7, 1, 1, 0 and 0 errors. The first covered the whole first version and each later check only the previous revision's changes, so the falling counts do not show that text no later check re-read is free of errors. D14 is still found only by reading code; no test or run has reproduced it, and it is not fixed. Every recommendation in the review and every reading of the owner's direction remains Proposed. This entry changes no code, approves nothing and authorizes no live, paid, private-data or endpoint action.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend. The USD 300 envelope and every cap are unchanged.
+
+Next gate: Unchanged: the owner records decisions on the review's section 5.10, starting with item 3 (including section 2's goal statement), item 2, backlog item 0 and E0 (the new endpoint's serving card).
+
+References: BL-20261105-1650-fourth-check-corrections; docs/PROJECT_REVIEW_2026-11-05.md.

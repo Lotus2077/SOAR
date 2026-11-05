@@ -9,10 +9,10 @@ BL-20261105-1821-owner-direction-equal-weights-new-model, except the first messa
 standing instruction (direction 4 below), which
 BL-20261105-2016-correction-direction-and-review-entries records verbatim. That
 entry, BL-20261105-1357-second-check-corrections-utc-reset,
-BL-20261105-1550-third-check-corrections and
-BL-20261105-1650-fourth-check-corrections correct the day's earlier entries. This
+BL-20261105-1550-third-check-corrections, BL-20261105-1650-fourth-check-corrections
+and BL-20261105-1722-fifth-check-corrections correct the day's earlier entries. This
 version, PLAN.md and those correction entries apply the fixes for every finding that
-the four adversarial checks of §8 confirmed. This document succeeds the [2026-09-28
+the five adversarial checks of §8 confirmed. This document succeeds the [2026-09-28
 review](PROJECT_REVIEW_2026-09-28.md).
 
 The review launched no SOAR model request, application, Docker container, paid
@@ -191,14 +191,14 @@ privacy advantage over the cloud (F6).
    and a synthesis assist, measured at USD 0.030-0.034 and 0.091-0.099. There is no
    cloud critique (cloud and local critiques tied 4/6 against 4/6,
    BL-20261019-0838), no cloud reader and no cloud writer.
-3. **When the cloud fires is measured before it is decided.** It can fire always,
-   as in the forced split that produced F1's result (which the all-local pipeline
+3. **When the cloud fires is measured before it is decided.** It can fire always, as
+   in the forced split that produced F1's result (which the all-local pipeline
    matched on r3 at USD 0), only after the free local attempts fail on a
    deterministic host signal (local-first), or never (all-local). E3 runs all three
    under the frontier rule and measures trigger rates. The route its pre-registered
    rule leaves unbeaten becomes the default once the owner records it, and the owner
-   chooses where routes trade one column against another or are equal within every
-   tolerance (§5.10, item 2).
+   chooses where routes trade under §2.1 or are equal within every tolerance (§5.10,
+   item 2).
 4. **Free local tokens buy breadth:** independent extraction calls run in parallel
    on the local server, the free analogue of Manus's Wide Research.
 5. **Quality is blind-graded on fresh tasks** against the depth criteria. "7/7
@@ -654,7 +654,7 @@ per run.
 | E1 | **Recoverability**, no live model | extend `private-agent-broker.test.ts`, the runner and pipeline tests, `private-agent-research-session.test.ts`, `private-agent-research-seed.test.ts` and `phase4-loop.test.ts`: cancel mid-call at each stage, an upstream close (also retried inside a research stage that the session runs on the real broker, and a `superseded` row given to the producer, D14), invalid JSON twice, a cloud timeout on an assist, stdout over 256 KiB, more than 1,024 files, a 500 KB synthetic corpus | 0 | 2 | The gate for any live run: zero zero-fee UNKNOWN rows, a research stage with a retried call still reaches the writer, local work continues after a cloud UNKNOWN, cancellation still stops the stage |
 | E2 | **Writer policy** on byte-identical packets | writer-1, the current Heavy writer; writer-2, a preloaded presentation with an output budget from E0, thinking on; r3 plus 2 synthetic packets, 2 repeats: 12 runs. writer-3, writer-2 with thinking off, adds 6 runs only on the owner's named decision. Blind proxy grades | 0, plus ≤ 1 for fixtures (synthetic line) | 3 | The E3 and E4 writer; the never-run 12-call bound and thinking-off are hypotheses here |
 | E3 | **Closed-corpus route round** on the frozen fresh tasks f1-f3 (204-513 KB, 23 critical checks) | A all-local v5 × 2 repeats; B local-first with T1 and T2 × 2 (cap 0.60 per run); C forced split × 2 (0.60); D all-cloud ceiling × 1 (3.00), cached, on a provider and with a call allowance that the E3 card names, the allowance set above the 78-80 calls the all-cloud loop used on r1-r3 (uncached r1-r3 runs cost USD 3.05-3.77, above this cap); the card shows that the chosen allowance's projected fee, late reservation included, stays under USD 3.00 on f2 (512,514 bytes; the cached projection for r1, 499,438 bytes, was USD 2.12 with its late reservation at the 80 calls of r1's earlier all-cloud run), or the owner raises D's cap, and E3's cap of 20.4 with it, and the card re-derives E3's expected spend; one r3 calibration run per arm: 25 runs | 20.4 (expected about 6.6 if each D run costs about 1.2, as the cached r3 runs did at 79-80 calls on r3's 77 KB corpus; D may cost more on f1-f3 at a higher allowance: the cached r1 projections put D's fee at about 1.6 on a 499 KB corpus at 80 calls (USD 2.12 less its USD 0.51 late reservation for `claude-sonnet-5-5`, 1.65 for `gpt-6-sol`), about the 1.5-1.6 average above which, with both assists firing on every B and C run, E4 needs the reallocation (Budget)) | 7 | The harness default for public research on files, including when the cloud fires (always, on local failure, or never), and, through its result for B and C, the cloud-assisted route E4 tests; measured trigger rates (gate signals logged on every arm) |
-| E4 | **Manus-bar public round**, web scale | 2 pinned LiveDRBench cases, 2 pinned DeepResearch Bench prompts and 2 fresh planted-conflict tasks; arm A and one cloud-assisted route, chosen in this order: the one E3 made the default, if that is B or C; else, if E3 was not harness-limited, the only eligible one of B and C, or, when both are eligible, the one that beats the other under the frontier rule; else (E3 harness-limited, neither eligible, or B and C trading columns or equal within every tolerance) the owner's choice under §5.10, item 2, recorded before E4 starts; 3 repeats: 36 runs. Each task-repeat runs R0-R5 once and both arms read the same retained pages (a paired design), so arm differences reflect the cloud steps and search is paid once. The shared retrieval's search fee is ledgered once and counted both in each arm's cloud-plus-search cost and in each arm's USD 0.75 episode cap (see the cap check in §5.2). Graders: the official LiveDRBench grader, DeepResearch Bench RACE (GPT-5.5 judge) as `SOAR-pilot`, the local citation checker, conflict gold, blind proxy acceptance. The external ceiling is the published product scores; no all-cloud web arm is built | 20.5: 18 task-repeats × 0.75 + judge fees ≤ 6 + fixtures ≤ 1 (expected about 7 with SearXNG). The episode caps include search, so a keyed search API (18 retrievals × 30 queries: up to 5.40 at USD 10 per 1,000, or 7.56 at Gemini grounding's USD 14 per 1,000 if bought above its 5,000 free a month) raises the expected spend, not the cap. At R2's 30 queries the episode cap can refuse the synthesis retry above about USD 6.3 per 1,000 (search above 0.19 with T1 at its 0.10 maximum; about USD 8.3 after a v3-like 0.04 plan) and T2 itself above about USD 10.7 per 1,000 (search above 0.32; about USD 12.7 after a v3-like plan), so every cloud step of the cloud-assisted arm is certain to fit only below about USD 6.3 per 1,000 (§5.2) | 10 | Whether public deep research ships to the desktop, on which arm, and which criterion is the next lever |
+| E4 | **Manus-bar public round**, web scale | 2 pinned LiveDRBench cases, 2 pinned DeepResearch Bench prompts and 2 fresh planted-conflict tasks; arm A and one cloud-assisted route, chosen in this order: the one E3 made the default, if that is B or C; else, if E3 was not harness-limited, the only eligible one of B and C, or, when both are eligible, the one that beats the other under the frontier rule; else (E3 harness-limited, neither eligible, or B and C trading under §2.1 or equal within every tolerance) the owner's choice under §5.10, item 2, recorded before E4 starts; 3 repeats: 36 runs. Each task-repeat runs R0-R5 once and both arms read the same retained pages (a paired design), so arm differences reflect the cloud steps and search is paid once. The shared retrieval's search fee is ledgered once and counted both in each arm's cloud-plus-search cost and in each arm's USD 0.75 episode cap (see the cap check in §5.2). Graders: the official LiveDRBench grader, DeepResearch Bench RACE (GPT-5.5 judge) as `SOAR-pilot`, the local citation checker, conflict gold, blind proxy acceptance. The external ceiling is the published product scores; no all-cloud web arm is built | 20.5: 18 task-repeats × 0.75 + judge fees ≤ 6 + fixtures ≤ 1 (expected about 7 with SearXNG). The episode caps include search, so a keyed search API (18 retrievals × 30 queries: up to 5.40 at USD 10 per 1,000, or 7.56 at Gemini grounding's USD 14 per 1,000 if bought above its 5,000 free a month) raises the expected spend, not the cap. At R2's 30 queries the episode cap can refuse the synthesis retry above about USD 6.3 per 1,000 (search above 0.19 with T1 at its 0.10 maximum; about USD 8.3 after a v3-like 0.04 plan) and T2 itself above about USD 10.7 per 1,000 (search above 0.32; about USD 12.7 after a v3-like plan), so every cloud step of the cloud-assisted arm is certain to fit only below about USD 6.3 per 1,000 (§5.2) | 10 | Whether public deep research ships to the desktop, on which arm, and which criterion is the next lever |
 | E5 | **Desktop real-jobs trial (OAJ)** | The owner's real public or synthetic jobs in the shipped build, from week 1 on the routes that exist (document review, deck, site; local only); the research route joins in week 6 only if E4 ships an arm, on that arm, with the per-task assist toggle only when that arm is cloud-assisted, in which case toggle-off and file-only research jobs run arm A only if A itself qualified and otherwise get no research route (E4 rule) | 0 local; assists from the weekly public-work line, ≤ 0.75 per task | 14+ | OAJ ≥ 3 of 5 marks the routes `Verified` and makes P1 next; 1-2 means one lever per the trial-first rule; 0 means no route work until the cause is named |
 | E6 | **Document review, two samples** | review-1, a single sample, against review-2, two samples with host selection and local critique and repair; 3 synthetic planted-defect `.docx` files; 12 runs | ≤ 1 (fixtures, synthetic line) | 4 | The desktop review route; the numeric cross-check and clause-inversion flags (backlog item 7(d)) ship either way |
 | E7 | **Coding review packet (T3)** | only if E5 reaches OAJ ≥ 3 and the owner asks: L against L+T3 on c1 plus 2 synthetic tasks | 1.5, from the line its approval names | 3 | Whether coding gets any cloud |
@@ -672,16 +672,17 @@ without the word "probe" are PRIVATE_WORK_DESIGN_V1 requirements.
   no run at its cap and 0 cache-write tokens on every assist receipt. Among the
   eligible routes, a route that no other beats under the frontier rule (§2.1)
   becomes the default once the owner records it. If more than one remains unbeaten,
-  because they trade columns or are equal within every tolerance, the owner chooses
-  (§5.10, item 2). If no route is eligible, no route changes and the next lever is
-  the stage that failed, one lever per entry. On the closed corpus the frontier
-  rule's depth clause covers criteria 2, 5, 6 and 7, and criterion 8's entailment
-  threshold if E0 activates it. Each of f1-f3 holds one planted conflict with gold
-  (BL-20261027-0145-phase4-tasks-design), so criterion 5 is measured; criterion 6 is
-  judged with the corpus files in place of URLs, and its word band yields to each
-  brief's word limit. Criteria 1, 3, 4 and 9 are not measured in E3. The r3 runs are
-  calibration only. A run that does not submit or stops at its cap counts as
-  rejected; a result with ≥ 80% correct arm guesses is labelled weakly blinded.
+  because they trade under §2.1 or are equal within every tolerance, the owner
+  chooses (§5.10, item 2). If no route is eligible, no route changes and the next
+  lever is the stage that failed, one lever per entry. On the closed corpus the
+  frontier rule's depth clause covers criteria 2, 5, 6 and 7, and criterion 8's
+  entailment threshold if E0 activates it. Each of f1-f3 holds one planted conflict
+  with gold (BL-20261027-0145-phase4-tasks-design), so criterion 5 is measured;
+  criterion 6 is judged with the corpus files in place of URLs, and its word band
+  yields to each brief's word limit. Criteria 1, 3, 4 and 9 are not measured in E3.
+  The r3 runs are calibration only. A run that does not submit or stops at its cap
+  counts as rejected; a result with ≥ 80% correct arm guesses is labelled weakly
+  blinded.
 - **E4** measures the bar. An arm qualifies as the default if ≥ 80% of its task-runs
   meet the per-run criteria that apply to their task, it meets criterion 7 over its
   18 runs, at least five of the six tasks meet criterion 9, and its P50
@@ -1047,11 +1048,18 @@ minor points) and refuted 1. The most consequential: what runs behind the deskto
 assist toggle is E4's result, not E3's; the option of a toggle that starts on
 contradicted the stated local-only default; a cloud assist retried after a 429 or
 529 also leaves a row the research producer rejects, which widens D14; and E4's rule
-still gave no outcome for two arms that trade within the quality column. This
-version and BL-20261105-1650-fourth-check-corrections apply fixes for all 17.
+still gave no outcome for two arms that trade within the quality column. The fifth version (`a0fdd95`) and
+BL-20261105-1650-fourth-check-corrections applied fixes for all 17.
+
+A fifth check ran one read-only checker on `a0fdd95`, with a skeptic, over that
+version's changes and its entry. It checked about 96 claims and confirmed 2 minor
+points, with no errors and no imprecisions: §8's list from the fourth check omitted
+two proposal changes that its entry records, and three passages still gave only the
+older reasons for the owner's choice after §2.1 added a third. This version and
+BL-20261105-1722-fifth-check-corrections apply both.
 
 Where a fix changed the proposal, the change is still `Proposed`. The proposal
-changes recorded in the four correction entries are these. From the first check:
+changes recorded in the correction entries are these. From the first check:
 symmetric tolerances in the frontier rule; acceptance per run and stability per
 task, with three E4 repeats and paired retrieval; RACE tied to the pinned revision's
 GPT-5.5 judge; the forced split as an equal E3 candidate; E4's cloud-assisted arm
@@ -1089,11 +1097,13 @@ T1 UNKNOWN; E1 extended to the harness loop, the research session and seed tests
 a retried research call, with a gate that such a stage still reaches the writer; the
 owner's option to raise D's and E3's caps; the producer binding assists that failed
 into the host fallback and admitting, uncounted, any assist row a retry superseded;
+backlog item 1's producer fix extended to resolved cloud rows in the reader context;
 what runs behind the toggle set by E4, not E3; the toggle's starting state as the
 one exception to the local-only default; depth criteria compared over the runs to
 which they apply; a definition of being better on quality, with the owner choosing
-between two E4 arms the frontier rule cannot order; and toggle-off and file-only
-research jobs in E5 on arm A only if A itself qualified.
+between two E4 arms the frontier rule cannot order; toggle-off and file-only
+research jobs in E5 on arm A only if A itself qualified; and E0 deciding whether
+criterion 3's judge thresholds apply in E4 (E3 does not measure criterion 3).
 
 **Code map.** Short names in the tables resolve as follows.
 

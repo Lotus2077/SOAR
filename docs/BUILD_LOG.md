@@ -29575,3 +29575,49 @@ Paid exposure: Zero new model requests, tokenizer calls, experiment sandbox laun
 Next gate: Verify the documentation-only follow-up is clean and synchronized with remote main, including its routine CI. Any further live trial requires a concrete reviewed amendment and new named authority; the owner requested logging and main synchronization only in this turn.
 
 References: BL-20261105-1036-experiment-record-main-sync-approved; BL-20261105-0944-planner-contract-offline-verified; docs/experiments/PHASE4_EXPERIMENT_RECORD_2026-11-05.md; GitHub PRs 32, 33 and 34; CI runs 41902115080, 41950175860 and 41950918777.
+
+
+### BL-20261105-1821-owner-direction-equal-weights-new-model -- 2026-11-05 -- Record the owner's direction: equal weight on privacy, quality and cost; the new local model; Manus-level research depth
+
+Status: `Approved`
+
+Scope or hypothesis: Record verbatim the owner's three directions of 2026-11-05 on SOAR's goal, its local model and its research bar, so later decisions can cite them. This entry records direction only; it approves no plan, experiment, release, endpoint use, private data or spend.
+
+Decisions: On the goal, the owner wrote: "the goal of the SOAR system is to preserve privacy while providing good results and saving tokens, therefore the local model should take on more responsibilities and the architecture of the cloud-local collaboration should be reimagined (in other word, the importance weight of privacy, result quality and token saving should be equally the same ...)", and asked the architecture to "leverage the free tokens and strong capabilities of the local model to do the dirty work and let the cloud model only to take on the hardest the part of the problem". On the model: "since the ability of the 27B model is verified as "half sufficient" for daily work, we changed the model to a supposedly stronger one at this endpoint: [address withheld], and for later work you need to use this new model instead". On depth: "research Manus cost, the research depth should be close or equal to Manus's level not just normal research". These supersede PLAN.md section 1's order "privacy >= quality > savings > latency" and its line "Savings are descriptive only". The 2026-09-29 privacy rule for labelled data stands unchanged. The endpoint address stays in the owner's ignored local configuration and never enters a tracked file.
+
+Changes: PLAN.md section 1 gains a dated note pointing to this entry; no existing PLAN.md text changes. The proposed application of this direction is recorded separately in BL-20261105-1822-project-review-reset-proposed.
+
+Evidence: The owner's messages in the 2026-11-05 review session, quoted above.
+
+Failures or blockers: The new endpoint is unqualified: no serving card, role fixture or adapter-path observation exists, and the review environment cannot reach it. Whether it is the 2026-11-04 API-only target is unknown.
+
+Limitations and non-claims: Direction is not a measurement. Nothing here qualifies the endpoint, changes routing or the desktop build, authorizes the serving probe or any live request, admits labelled data or allocates spend.
+
+Paid exposure: None. The USD 300 envelope, its allocation and every existing cap are unchanged.
+
+Next gate: The owner decides on the proposed review (BL-20261105-1822-project-review-reset-proposed). The endpoint's serving card precedes any use of the new model.
+
+References: BL-20260928-1745-owner-answers-plan-approved; BL-20261104-1419-api-only-qualification-passed-pilot-first-draft-refused; docs/PLAN.md; docs/PROJECT_REVIEW_2026-11-05.md.
+
+
+### BL-20261105-1822-project-review-reset-proposed -- 2026-11-05 -- Propose a goal-anchored reset: local-first research with sealed cloud assists, a Manus-level bar and a re-gated experiment program
+
+Status: `Proposed`
+
+Scope or hypothesis: A whole-project review under the owner's direction of BL-20261105-1821-owner-direction-equal-weights-new-model: verified bugs and design flaws, the goal restated as three equal columns, and a proposal for reaching Manus-level public research at a fraction of Manus's cost with the local model doing the volume work. Documentation only.
+
+Decisions: Proposed, none approved: (a) every run records acceptance, settled USD and disclosed bytes, and a route changes only if it loses on no column and wins on one; (b) a Manus-level depth bar of nine criteria and a target of at most USD 0.50 P50 per public deep-research task, against Manus's USD 1.50-4.50 at list; (c) architecture v5: the staged pipeline as the only research reader, local volume stages with bounded concurrency, at most three sealed cloud one-shots (plan and synthesis assists) fired only on deterministic host signals, no cloud critique, and a search-and-browse front end behind a new ledgered search destination; (d) the re-gated program E0-E7, starting with qualification of the new endpoint and with owner jobs from week 1; (e) the stop list, closing H4 as a gate and H5 as shaped; (f) restoring PLAN.md section 4(c) so zero-fee work needs no approval entry; (g) the ordered engineering backlog. Each needs the owner's recorded decision; E3 and E4 also need named `Approved` entries against the harness line.
+
+Changes: Adds docs/PROJECT_REVIEW_2026-11-05.md. PLAN.md gains a dated pointer at the top of the Phase 4 status, and docs/README.md lists the review. No code, configuration, plan document, registry row or earlier entry changes.
+
+Evidence: The review read PLAN.md, HANDOFF.md, the 2026-09-28 review, the Phase 4 experiment record, all 99 registry rows and about the last 60 entries; ran three read-only code audits; and ran an architecture round (four designs, twelve critiques, a synthesis and a completeness critique) and a Manus research round (six web sweeps with source verification). Code findings marked H were re-read at commit 153b8e6. Headline findings: zero-fee local failures become permanent UNKNOWN receipts; only one dispatch per job may be in flight; workspace-capture failures brick tasks; the desktop ships no research or document-review route; plain HTTP is admitted to the local model; the pipeline refuses web-scale corpora and caps the synthesis argument at 1,200 words.
+
+Failures or blockers: Manus's own pages were not reachable from the review environment. Its figures come from search excerpts and third-party captures, and the per-task band of 300-900 credits is low to medium confidence, with no logged run pairing sources, actions, minutes and credits. The new endpoint is unmeasured. No finding was fixed in this change.
+
+Limitations and non-claims: The depth thresholds are proxies, not Manus measurements. Local-first cost figures assume unmeasured trigger rates. No route has been blind-graded on a fresh task. Nothing in the review is Approved, Implemented or Verified, and it authorizes no live, paid, private-data or endpoint action.
+
+Paid exposure: Zero SOAR model requests and zero envelope spend. Proposed caps, none authorized: E3 USD 18.6, E4 USD 14, E6 at most USD 1, E7 USD 1.5. The harness line has about USD 29.4 remaining.
+
+Next gate: The owner records decisions on the review's section 5.10, starting with backlog item 0 (the zero-fee process entry) and E0 (the new endpoint's serving card).
+
+References: BL-20261105-1821-owner-direction-equal-weights-new-model; BL-20261105-1042-experiment-stack-integrated-main; BL-20261026-1605-h3-dry-run-split-verified; BL-20261019-0838-phase2-repair-pair-and-close; BL-20261104-1419-api-only-qualification-passed-pilot-first-draft-refused; docs/PROJECT_REVIEW_2026-11-05.md; docs/PROJECT_REVIEW_2026-09-28.md.

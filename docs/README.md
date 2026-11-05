@@ -13,6 +13,7 @@ for repair commit `181f024`; no new live attempt or relaxed acceptance rule is a
 
 | Document | Role |
 | --- | --- |
+| [PROJECT_REVIEW_2026-11-05.md](PROJECT_REVIEW_2026-11-05.md) | Whole-project review under the owner's 2026-11-05 direction (equal weight on privacy, quality and cost; the new local model; Manus-level research depth). Its reset program is `Proposed` and awaits the owner's decisions |
 | [experiments/PHASE4_EXPERIMENT_RECORD_2026-11-05.md](experiments/PHASE4_EXPERIMENT_RECORD_2026-11-05.md) | Cross-phase chronology, evidence index, separate accounting totals and current H4/H5 status |
 | [PLAN.md](PLAN.md) | The single living plan: phases, decision rules, envelope, owner decisions |
 | [plans/PHASE4_API_ONLY_ENDPOINT_CONTINUATION_V1.md](plans/PHASE4_API_ONLY_ENDPOINT_CONTINUATION_V1.md) | Approved API-only Phase 4 route; service qualification accepted, physical server internals unobserved. Current outcome and limits are in PLAN.md and BUILD_LOG.md |
@@ -22,7 +23,7 @@ for repair commit `181f024`; no new live attempt or relaxed acceptance rule is a
 | [plans/PHASE4_RESEARCH_PLAN_CONTRACT_REPAIR_V1.md](plans/PHASE4_RESEARCH_PLAN_CONTRACT_REPAIR_V1.md) | Planner contract, bounded diagnostics and existing second-call feedback repair; offline implementation and independent verification recorded in BL-20261105-0944. Design bytes unchanged; no new live authority |
 | [plans/PRIVATE_WORK_DESIGN_V1.md](plans/PRIVATE_WORK_DESIGN_V1.md) | Private-work design (Proposed): strict privacy profile, admin assistant, research and document review, device |
 | [plans/PRIVACY_FILTER_V2_DESIGN.md](plans/PRIVACY_FILTER_V2_DESIGN.md) | Privacy filter v2 direction approved at its defaults on 2026-10-22: synthetic-first stages, no labelled packet before the gates, no paid allocation yet; lenses and change logs under `plans/privacy-filter-v2/` |
-| [PROJECT_REVIEW_2026-09-28.md](PROJECT_REVIEW_2026-09-28.md) | Verified whole-project review behind the plan |
+| [PROJECT_REVIEW_2026-09-28.md](PROJECT_REVIEW_2026-09-28.md) | Verified whole-project review behind the plan (September state; succeeded by the 2026-11-05 review) |
 | [BUILD_LOG.md](BUILD_LOG.md) | Append-only decision and evidence ledger |
 | [HANDOFF.md](HANDOFF.md) | Code map and operational boundaries of the general-task runtime (September state) |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Runtime architecture, including legacy paths |

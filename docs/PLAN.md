@@ -31,6 +31,15 @@ from the first week and keeps every protection that matters.
 agent runs on the owned device, and the priority order is privacy >= quality >
 savings > latency.
 
+**Owner direction, 2026-11-05 (BL-20261105-1821-owner-direction-equal-weights-new-model).**
+Privacy, result quality and token cost now weigh equally. The local model does the
+volume work and the cloud takes only the hardest step. Public deep research targets
+Manus-level depth at a fraction of Manus's cost. Later local work uses the owner's
+new endpoint, which stays unqualified until its serving card exists. This supersedes
+the priority order above and the line "Savings are descriptive only" below; the
+privacy rule for labelled data is unchanged. How to apply the direction is proposed,
+not approved, in the [2026-11-05 review](PROJECT_REVIEW_2026-11-05.md).
+
 The owner's own jobs, in priority order (2026-09-29):
 1. deep and reliable research;
 2. document review and amendment;
@@ -540,6 +549,14 @@ agent's favour.
   re-approval before resuming.
 
 ### Phase 4: A real week of use (Oct 21 – Oct 27, branch review Oct 27)
+
+**Proposed reset, November 5, 2026 (BL-20261105-1822-project-review-reset-proposed).**
+The [2026-11-05 review](PROJECT_REVIEW_2026-11-05.md) proposes closing H4 as a gate
+and H5 as shaped. In their place it proposes a re-gated program: qualification of
+the new endpoint (E0), recoverability (E1), writer policy (E2), a closed-corpus
+route round (E3), a Manus-bar public round (E4) and owner jobs from week 1 (E5).
+Nothing in it is approved; the status below stands until the owner records a
+decision.
 
 **Current status, November 5, 2026 (Asia/Shanghai):** the owner-approved
 [API-only route](plans/PHASE4_API_ONLY_ENDPOINT_CONTINUATION_V1.md) supersedes

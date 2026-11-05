@@ -8,9 +8,10 @@ takes effect. The owner's own directions of 2026-11-05 are recorded verbatim in
 BL-20261105-1821-owner-direction-equal-weights-new-model, except the first message's
 standing instruction (direction 4 below), which
 BL-20261105-2016-correction-direction-and-review-entries records verbatim. That
-entry and BL-20261105-1357-second-check-corrections-utc-reset correct the day's
-earlier entries. This version applies the fixes for every finding that the two
-adversarial checks of §8 confirmed. This document succeeds the
+entry, BL-20261105-1357-second-check-corrections-utc-reset and
+BL-20261105-1550-third-check-corrections correct the day's earlier entries. This
+version, PLAN.md and those correction entries apply the fixes for every finding
+that the three adversarial checks of §8 confirmed. This document succeeds the
 [2026-09-28 review](PROJECT_REVIEW_2026-09-28.md).
 
 The review launched no SOAR model request, application, Docker container, paid
@@ -31,12 +32,15 @@ comparable products used public web pages only.
    in a tracked file.
 3. **The research bar is Manus-level depth**, "not just normal research", and the
    cost comparison is Manus's per-task cost.
-4. **Everything after this review serves the project's ultimate goal (§2).** The
-   owner's first message asked to "clarify what the ultimate goal of the project is
-   and then propose the new best way to achieve that goal and all following
-   experiment design and steps should stick follow and stick to that goal"; the
-   standing instruction is recorded verbatim in
-   BL-20261105-2016-correction-direction-and-review-entries.
+4. **Everything after this review serves the project's goal**, which the owner
+   states as "to preserve privacy while providing good results and saving tokens",
+   the three weighed equally. The owner's first message asked to "clarify what the
+   ultimate goal of the project is and then propose the new best way to achieve that
+   goal and all following experiment design and steps should stick follow and stick
+   to that goal"; the standing instruction is recorded verbatim in
+   BL-20261105-2016-correction-direction-and-review-entries. §2 is this review's
+   clarification of that goal; like the readings below, it stays `Proposed` until
+   the owner confirms it (§5.10, item 3).
 
 The direction replaces the order "privacy >= quality > savings > latency" (PLAN.md
 §1, and the privacy-first design whose order PLAN.md §8 listed as kept) and
@@ -73,7 +77,7 @@ constraint the three columns weigh equally. The owner is asked to confirm these 
 
 ---
 
-## 2. The ultimate goal
+## 2. The ultimate goal (proposed)
 
 > **Deliver Manus-level results on the owner's real work, public deep research
 > first, at a fraction of Manus's cost, without private data ever leaving the owned
@@ -90,47 +94,57 @@ constraint the three columns weigh equally. The owner is asked to confirm these 
 | Privacy | Disclosed bytes: unique bytes that left the device, including file names, URLs, hashes and search queries. Labelled bytes must be 0 on every route; a D15 packet the owner approved byte for byte (T4, deferred) is recorded separately. |
 
 **Frontier rule (proposed, replaces the lexical order).** A route change is adopted
-only if the new route is worse on no column by more than that column's tolerance
-and better on at least one column by more than its tolerance. Each column has a
+only if the new route is worse on no column by more than that column's tolerance and
+better on at least one column by more than its tolerance. Each column has a
 symmetric noise band: quality, one accept in six, with no depth criterion newly
-failed; cost, USD 0.02 or 10% of mean settled USD, whichever is larger; privacy,
-10% of public disclosed bytes, with no tolerance for labelled bytes, which are zero
-on every route (D15's owner-approved T4 packets, deferred, sit outside route
-comparison). When a route is
-better on one column and worse on another beyond tolerance, the owner decides and
-the registry row records why. Equal weight does not make labelled data tradable;
-for public data the disclosed bytes are a measured cost to minimise like dollars.
+failed; cost, USD 0.02 or 10% of mean settled USD, whichever is larger; privacy, 10%
+of public disclosed bytes, with no tolerance for labelled bytes, which are zero on
+every route (D15's owner-approved T4 packets, deferred, sit outside route
+comparison). A route newly fails a per-run depth criterion when the share of its
+runs meeting it is lower than the other route's by more than one run in six; it
+newly fails criterion 7 when it misses it and the other route meets it, and
+criterion 9 when it meets it on more than one task fewer. Criterion 8's blind
+verdict is the accept count itself, judged by the one-accept band; only its
+entailment threshold, if E0 activates it, counts as a depth criterion. When a route
+is better on one column and worse on another beyond tolerance, the owner decides and
+the registry row records why. Equal weight does not make labelled data tradable; for
+public data the disclosed bytes are a measured cost to minimise like dollars.
 
 ### 2.2 The quality bar: Manus-level depth (proposed)
 
-Manus publishes no per-task source, citation or report-length figures. Its only
-per-task figures are about 50 tool calls per typical task (a 2025 blog post), 2025
-credit-and-minute examples for other task types, and two vendor-selected 2025
-showcase posts: 817 credits for a deep-dive research site (known only from a
-search-index excerpt) and 635 for a scheduled task that built profiles and deployed
-a web app. The bar below is assembled from those, Manus's published descriptions,
-reviewer reports, the cloud deep-research products, the two benchmarks SOAR already
-pins, Mind2Web 2 and the "Cited but Not Verified" study. **The thresholds are
-proxies.** They should be re-baselined when a Manus product baseline exists (E4
-option).
+Manus publishes no per-task source, citation or report-length figures. Its per-task
+figures include about 50 tool calls per typical task (a 2025 blog post), 2025
+credit-and-minute examples for other task types, two vendor-selected 2025 showcase
+posts (817 credits for a deep-dive research site, known only from a search-index
+excerpt, and 635 for a scheduled task that built profiles and deployed a web app),
+and a 2025 Wide Research post's unverified claims, known only from a search excerpt,
+that a single context starts fabricating by the eighth or ninth item and that Wide
+Research takes about as long for 50 items as for 5. The bar below is assembled from
+those, Manus's published descriptions, reviewer reports, the cloud deep-research
+products, the two benchmarks SOAR already pins, Mind2Web 2 and the "Cited but Not
+Verified" study. **The thresholds are proxies.** They should be re-baselined when a
+Manus product baseline exists (E4 option).
 
 Criteria 1-6 and 8 apply to each run, each where it fits the task: criterion 1's
 query coverage and criterion 4's F1 on LiveDRBench cases, criterion 4's RACE on
-DeepResearch Bench prompts, criterion 5 on planted-conflict tasks, and criterion 6
-where the deliverable is a report (LiveDRBench cases deliver JSON). Criterion 7
-applies to each route over all its runs, and criterion 9 to each task and route. A
-run meets the bar when it meets every per-run criterion that applies to its task.
+DeepResearch Bench prompts, criterion 5 on planted-conflict tasks, and criterion 3's
+count of 30 and criterion 6 where the deliverable is a report. LiveDRBench cases
+deliver JSON; there every entry or field of the answer must be backed in
+`claims.json` by a verbatim quote in a page fetched during the run, and criterion
+3's accuracy figures are recorded on those quotes. Criterion 7 applies to each route
+over all its runs, and criterion 9 to each task and route. A run meets the bar when
+it meets every per-run criterion that applies to its task.
 
 | # | Criterion | Threshold | Anchor |
 | --- | --- | --- | --- |
 | 1 | Breadth | ≥ 30 distinct URLs fetched and read in full from ≥ 10 domains; ≥ 20 distinct search queries; ≥ 60% required-query coverage on LiveDRBench traces | Humans visit 8 sites and 110 pages on Mind2Web 2; query coverage OpenAI DR 66%, Perplexity 52% |
 | 2 | Actions | ≥ 40 logged actions, ≥ 25 of them fetch or read | Manus reports about 50 tool calls per task |
-| 3 | Citations | ≥ 30 effective citations, each a verbatim quote in a page fetched during the run; no snippet-only citation. The local judge's citation accuracy and fact-check accuracy are recorded; ≥ 85% and ≥ 80% become thresholds only if E0's judge fixture agrees with the separately labelled claims | DeepResearch Bench FACT, 2025 Table 1 under the earlier Gemini-2.5 evaluator: Perplexity 90.24%, Gemini 81.44%. These are loose anchors: the pinned revision's FACT judge is GPT-5.4-mini, and SOAR measures with its local citation checker, not FACT. Fact-check frontier 39-77% |
+| 3 | Citations | ≥ 30 effective citations, each a verbatim quote in a page fetched during the run; no snippet-only citation. The local judge's citation accuracy and fact-check accuracy are recorded; ≥ 85% and ≥ 80% become thresholds only if E0's judge fixture reaches the agreement level its card sets | DeepResearch Bench FACT, 2025 Table 1 under the earlier Gemini-2.5 evaluator: Perplexity 90.24%, Gemini 81.44%. These are loose anchors: the pinned revision's FACT judge is GPT-5.4-mini, and SOAR measures with its local citation checker, not FACT. Fact-check frontier 39-77% |
 | 4 | Coverage | LiveDRBench F1 ≥ 0.35 (stretch 0.55); DeepResearch Bench RACE at the pinned revision `469cce54`, whose default RACE judge is GPT-5.5, labelled `SOAR-pilot` without FACT, with the threshold set before E4 from GPT-5.5-judged product scores | LiveDRBench F1 OpenAI DR 0.555, Perplexity 0.355. RACE Perplexity 42.25 is a 2025 score under the earlier Gemini-2.5-Pro judge and is not comparable; the GPT-5.5 leaderboard was not read |
 | 5 | Conflicts | ≥ 80% of planted contradictions surfaced with both sides cited; none silently resolved | SOAR fixtures (E4) |
 | 6 | Report | 2,500-6,000 words of continuous prose with sections, a summary, ≥ 1 table and a URL reference list; plus `claims.json` mapping claim to URL to verbatim quote; a CSV when the data is tabular | Manus's agent prompt asks for "several thousand words" (unofficial copy) |
 | 7 | Time | ≤ 30 minutes P50, ≤ 45 minutes P95 | Manus 14-50 minutes (third-party reviews); SOAR's split runs 31.7 and 10.1 minutes |
-| 8 | Acceptance | Blind-accepted (owner, else a blind proxy); a run that does not submit or stops at its cap counts as rejected. The local judge's entailment counts are recorded as evidence; supported plus partial ≥ 90% with 0 contradicted becomes a threshold only if E0's judge fixture agrees with the separately labelled claims | Phase 2 cloud research runs: 3/3 accepted by blind proxy graders, two of them (r1, r3) as unsubmitted drafts stopped at the 80-call cap, so 1/3 under this rule. Entailment so far: split v2 33 + 6 of 40; protocol-v3 split 29 + 7 of 39 with 2 contradicted. The rates do not separate accepted from rejected drafts (F8) |
+| 8 | Acceptance | Blind-accepted (owner, else a blind proxy); a run that does not submit or stops at its cap counts as rejected. The local judge's entailment counts are recorded as evidence; supported plus partial ≥ 90% with 0 contradicted becomes a threshold only if E0's judge fixture reaches the agreement level its card sets | Phase 2 cloud research runs: 3/3 accepted by blind proxy graders, two of them (r1, r3) as unsubmitted drafts stopped at the 80-call cap, so 1/3 under this rule. Entailment so far: split v2 33 + 6 of 40; protocol-v3 split 29 + 7 of 39 with 2 contradicted. The rates do not separate accepted from rejected drafts (F8) |
 | 9 | Stability | Per task and route: ≥ 3 runs, depth metrics within 2x of each other | Manus's credit use reportedly varies about 2x between runs of the same task type (one third-party review, low); no source measures Manus's depth variance |
 
 ### 2.3 The cost bar: a fraction of Manus
@@ -139,7 +153,7 @@ run meets the bar when it meets every per-run criterion that applies to its task
 | --- | --- | --- |
 | Manus list price per credit, all 2026 paid tiers | USD 0.005 (USD 20 for 4,000, 40 for 8,000, 200 for 40,000; Team USD 20 per seat for 4,000 pooled). Free: 300 per day, at most 1,500 per month, Lite model only. Add-on packs about USD 0.01 per credit, reportedly sold only on the highest monthly tier | High for the USD 0.005 plan rate (consistent official excerpts and third-party captures); low for the add-on price (third-party pages only, no official price found). The official pages could not be re-fetched from the review environment |
 | Manus standard deep-research task | 300-900 credits, **USD 1.50-4.50** at list (central 2.50-4.50; 3-9 if bought as add-ons) | Low to medium. The 500-900 central band is a reviewer estimate repeated across blogs; the 300 floor rests on two blogs' estimate for a 10-source report; no logged run pairs sources, actions, minutes and credits. Most of the evidence predates Manus 2.0 (2026-09-28), which claims 32% lower cost in one tested configuration (vendor claim); per-task burn since 2.0 is unmeasured |
-| Manus Lite / Max / Wide Research | USD 0.30-1.00 / 7.50-25 / sub-tasks capped at 50 credits each and run 20 at a time, so at most about USD 5 of sub-task credits per 20-sub-task batch plus the orchestrating task (an inference; whether the cap bounds a whole run is unknown); third-party per-run reports range from USD 0.40-2 (80-400 credits, nocode.mba) and USD 4-7.50+ (800-1,500+, coworker.ai, fast.io) to USD 20-50 (4,000-10,000, quorum notes and one Trustpilot review) | Low |
+| Manus Lite / Max / Wide Research | USD 0.30-1.00 / 7.50-25 / sub-tasks capped at 50 credits each and run 20 at a time, so at most about USD 5 of sub-task credits per 20-sub-task batch plus the orchestrating task (an inference; whether the cap bounds a whole run is unknown); third-party per-run estimates range from USD 0.40-2 (80-400 credits, nocode.mba) to USD 4-7.50+ (800-1,500+, coworker.ai, fast.io), and reported burns reach USD 20-50 (4,000-10,000 per run in quorum notes; 10,000 in one Trustpilot review) | Low |
 | SOAR today, same closed-corpus task (r3) | All-cloud uncached 3.05 (3.05-3.77 across Phase 2 r1-r3), inside the Manus band; cached 1.13 (Claude, submitted) and 1.18 (`gpt-6-sol`, stopped at its allowance, a lower bound); split 0.12-0.13; all-local 0 | Measured, settled receipts |
 | Comparable products per report | Gemini Deep Research about 1.22 at API list prices; Kimi Researcher about 0.95-1.90; GPT Researcher about 0.40; OpenAI o3 deep research about 10 (2025, model since deprecated) | Per figure (§7): Gemini's 1.22 applies official token prices (high) to token counts from one member-only blog (low); Kimi's is derived from a third-party estimate that one report uses 5-10% of the USD 19 tier (low); GPT Researcher's is its README's statement; OpenAI's is a 2025 Artificial Analysis post (unverifiable, stale) |
 | **SOAR target** | **≤ USD 0.50 P50 per public deep-research task, cloud plus search; hard cap USD 0.75 per episode** (the cap already proposed in `benchmarks/README.md`); stretch 0.25. That is at most a fifth of Manus's central value and a third of its floor. | Target |
@@ -178,7 +192,8 @@ privacy advantage over the cloud (F6).
    deterministic host signal (local-first), or never (all-local). E3 runs all three
    under the frontier rule and measures trigger rates. The route its pre-registered
    rule leaves unbeaten becomes the default once the owner records it, and the owner
-   chooses where routes trade one column against another (§5.10, item 2).
+   chooses where routes trade one column against another or are equal within every
+   tolerance (§5.10, item 2).
 4. **Free local tokens buy breadth:** independent extraction calls run in parallel
    on the local server, the free analogue of Manus's Wide Research.
 5. **Quality is blind-graded on fresh tasks** against the depth criteria. "7/7
@@ -235,8 +250,11 @@ lives in untracked `.soar/` files that nothing in the repository tests.
 **F5. The owner's headline use case has no desktop path (major).** Public deep
 research with local dirty work and a cloud assist runs only from headless scripts.
 The desktop controller never passes `research` to the session
-(`controller.ts:601-610`), document review is headless only, and the owner build
-is still `owner-v0.2` (2026-10-12). H4 measured a path the product does not ship.
+(`controller.ts:601-610`), and only the headless driver applies the staged
+document-review route (`private-agent-local-screen.ts:20,282`); desktop general
+tasks can still review documents through the agent loop, as the owner's one
+accepted job did (BL-20261012-1625-owner-job-classified). The owner build is still
+`owner-v0.2` (2026-10-12). H4 measured a path the product does not ship.
 
 **F6. The device confers no privacy advantage yet (major).** The endpoint was plain
 HTTP, unauthenticated, on a public address. The broker permits plain HTTP whenever
@@ -292,7 +310,7 @@ are experiments, so the text says "finding E3" where it means a row of table E.
 
 | # | Finding | Where | Conf |
 | --- | --- | --- | --- |
-| A1 | **An UNKNOWN dispatch can never be cleared, and is assigned too eagerly.** `isConfirmedAbort` returns false for every settlement-phase failure and for `cancelled`, `request_timeout` and `inactivity_timeout`, even on a zero-fee local request. The row is marked `unknown`; `store.commit` then refuses every later dispatch in the job; no code path moves an `unknown` row to another status. | `store.ts:46-50,204,242,250`, `broker.ts:521-528` | H |
+| A1 | **An UNKNOWN dispatch can never be cleared, and is assigned too eagerly.** `isConfirmedAbort` returns false for every settlement-phase failure and for `cancelled`, `request_timeout`, `inactivity_timeout`, `response_oversize`, `transport_failed` (an unclassified socket error such as a TLS certificate failure, or any other unclassified transport exception) and `stream_invalid`, even on a zero-risk packet (a zero-fee local request or a public GET without a grant). The row is marked `unknown`; `store.commit` then refuses every later dispatch in the job; no code path moves an `unknown` row to another status. | `store.ts:29,46-50,204,242,250`, `broker.ts:213-220,446-447,521-528` | H |
 | A2 | **A fully received local reply that fails validation is recorded as UNKNOWN.** For the legacy local shape, a zod reply-schema failure or a usage-envelope failure becomes `response_or_usage_invalid`; under `flash_next_v1` so do a duplicate tool id, a failed think-tag reply inspection and a token-admission usage mismatch. All then become `transport_or_settlement_unknown`, and the job is blocked although cost and side effects are known. | `broker.ts:495-528`, `model.ts:344-351` | H |
 | A3 | **Workspace capture after an action runs outside the action's error handling.** If capture throws, `tool_finished` is never written and every resume returns `unresolved_operation_no_replay`. Capture throws on any symlink or hard link (`die()`), more than 1,024 files or 4,096 entries, a file over 64 MiB, a workspace over 128 MiB, or any sandbox error, which also destroys the container. `ln -s`, `python -m venv` and `git clone` trigger it, as does extracting an archive that creates links or more than 1,024 files. | `runner.ts:663,748-749`, `sandbox.ts:209,215-218,402-406` | H |
 | A4 | **Command output over 256 KiB kills the container, then A3 fires.** The model is told that large output is retained with bounded excerpts; it is not. | `sandbox.ts:6,99`, `runner.ts:154,640-653,663` | M |
@@ -310,7 +328,7 @@ are experiments, so the text says "finding E3" where it means a row of table E.
 | B2 | The runner records a sandbox code (`sandbox_<code>`) or, for any other unhandled error, only `error.name` (for example `Error` or `BrokerError`), never its message or broker code. | `runner.ts:712` | H |
 | B3 | In the pipeline, any `BrokerError` not caused by the stage's own abort ends the stage as `research_request_denied`; an abort gives `research_cancelled`. In the outcome reason and the registry's `terminalCause` a cap refusal and an UNKNOWN therefore look identical, and a cancel that leaves an UNKNOWN row reports plain `research_cancelled`. The exact code survives only in the `research_stage` event's `denied` field. An UNKNOWN also leaves an `unknown` receipt with its transport or settlement diagnostic, while a cap refusal leaves no row (`broker.ts:469-470`, `store.ts:208-210`). Packet-validation errors become `research_packet_binding_invalid`; `call()` keeps only snake_case messages. | `research-pipeline.ts:96-103,215-216`, `session.ts:382` | H |
 | B4 | Planner diagnostics persist codes and paths only; the raw reply is never retained, even for public corpora. | `research-plan.ts:13-18,106-123` | H |
-| B5 | Thrown tool errors that neither end the task at `runner.ts:641-644` nor close the container, other than invalid arguments (answered with the tool's schema and a retry instruction), the execute output-limit case, `public_fetch_limit_reached` and a failed fetch (`public_fetch_failed`), reach the model as one generic `action_failed_or_not_permitted`: for example a sandbox `invalid_input` path, `destination_denied`, `tool_unknown` or a refused `read_observation`. In those cases the model gets no repair signal. A sandbox error inside a container operation, such as an `execute` output overflow or a failed `check_claims` write or command, closes the container, so the capture at `runner.ts:663` throws and the task ends as `runtime_failure_progress_preserved` before any reply is sent (A3, A4). | `runner.ts:640-653,663,709-713`, `sandbox.ts:397-408` | H |
+| B5 | Thrown tool errors that neither end the task at `runner.ts:641-644` nor close the container, other than invalid arguments (answered with the tool's schema and a retry instruction), an `execute` call with invalid arguments in a reply that reached the model's output-token limit, `public_fetch_limit_reached` and a failed fetch (`public_fetch_failed`), reach the model as one generic `action_failed_or_not_permitted`: for example a sandbox `invalid_input` path, `destination_denied`, `tool_unknown` or a refused `read_observation`. In those cases the model gets no repair signal. A sandbox error inside a container operation, such as command output over 256 KiB, or a `check_claims` restore write or check command that ends in one (an unsafe-file exit, a Docker failure, or a cancel or deadline during the command), closes the container, so the capture at `runner.ts:663` throws and the task ends as `runtime_failure_progress_preserved` before any reply is sent (A3, A4). A soft-refused restore write (its result is ignored) and a check that exits non-zero, including the in-container timeout (exit 124), leave the container usable; a non-zero check is returned as `passed: false`. | `runner.ts:616-620,640-653,663,709-713`, `sandbox.ts:99,228-230,397-408,415-428,470` | H |
 | B6 | Harness: the driver's top-level catch yields `local_screen_failed_no_replay`; the loop keeps only messages matching `^[a-z0-9_]+$`; `researchTransferSnapshot` returns `null` on almost any error. | `private-agent-local-screen.ts:496`, `phase4-loop.ts:68-71`, `research-seed.ts:132-135` | M |
 | B7 | `research_stage_invalid`, cited in PLAN.md as a failure category, exists nowhere in tracked code; it came from an untracked wrapper. | `docs/PLAN.md:659` at `153b8e6` (the Q13 qualification paragraph of the Phase 4 status) | H |
 
@@ -344,6 +362,7 @@ are experiments, so the text says "finding E3" where it means a row of table E.
 | D11 | `deriveBriefUnits` splits only on lines starting `1.` or `2)`; an unnumbered brief becomes one unit and the brief-coverage check is vacuous. | `research-coverage.ts:68-79` | H |
 | D12 | **One dispatch at a time per job.** `store.commit` refuses any dispatch while an earlier one is unresolved, and `committed` (in flight) counts as unresolved; the index, extraction and judge loops also await each call in turn. Free local tokens cannot be spent in parallel, although the server held full per-stream speed with two concurrent streams on the 27B (serving card, probe P7). | `store.ts:57-59,204`, `research-pipeline.ts:128,180`, `claims.ts:63` | H |
 | D13 | **Report length is held far below the bar.** The synthesis prompt asks for "at most 1200 words" (not validated; the enforced bound is the 8,192-token reply), and the r3 brief capped the report at 1,000 words; criterion 6 asks for 2,500-6,000. | `research-pipeline.ts:28,35`, `research-coverage.ts:32` | H |
+| D14 | **A retried research call still loses a completed stage.** With `SOAR_RECOVERABLE_DISPATCH=true` the broker retries a confirmed zero-risk abort and marks the first row `superseded`; without it the row resolves `failed` and the stage ends as `research_request_denied` (B3). The research producer binds every reader-context row, requires each to be `settled` and each stage's row count to equal its calls, so after a pipeline that completed with one retried call it throws `research_producer_unsettled_receipt` and the stage's output never reaches the writer. A test asserts the same refusal for a `failed` row. | `broker.ts:449,451-456,542-547`, `research-producer.ts:35-56`, `session.ts:389`, `config.ts:262`, `private-agent-research-seed.test.ts:170` | H |
 
 ### E. Harness, validator and engineering health
 
@@ -443,7 +462,7 @@ file-only task starts at S1.
 | S7 presentation | host | ≤ 192 KiB, once | The writer drafts in 2 turns instead of burning 4 on discovery |
 | S8 write | local | Heavy bounds until E2; output budget and clock from the card; per-call cap ≤ (timeout − prefill) × measured decode | Passing writers used 29-78 calls |
 | S9 checks | host | claims ledger (verbatim quote in the retained page; URL fetched during the run); sections; absence-claim flag for owner attention; brief-unit coverage; **depth metrics** (queries, URLs, domains, bytes, actions) | Targets recorded rejection causes and the bar |
-| S10 judge | local | 40 × 256 tokens, K in parallel, evidence only, no selection role until per-claim gold exists | Uncorrelated with grades so far (finding E10) |
+| S10 judge | local | 40 × 256 tokens, K in parallel, evidence only, no selection role unless E0's judge fixture reaches its agreement level and graded runs show its rate separating accepted from rejected drafts | Uncorrelated with grades so far (finding E10) |
 | S11 critique and repair | local | one round; cap from the card; the original wins ties, reversing the recorded preference (finding E9) | 4 of 6 recovered at zero fee |
 | S12 verdict | owner | accept, minutes and interventions captured in the app and written to the registry | OAJ, the adoption north star, recorded beside the three columns |
 
@@ -461,13 +480,16 @@ Cap check per research task: USD 0.60 on a closed corpus. The store counts settl
 fees plus outstanding reservations plus the new reservation. At the measured 3.8
 bytes per token, the exposure at T2's dispatch is T1's settled fee (at most 0.10)
 plus T2's 0.33, at most 0.43. At a synthesis retry it is about 0.04 + 0.13 + 0.33 =
-0.50 with a v3-like plan reply, and at most 0.10 + 0.13 + 0.33 = 0.56. A retry that would
-exceed the cap is refused as a recorded fallback (rule 8). On web scale the cap is
-USD 0.75 and also counts search fees. With a keyed search API, T2 therefore fits
-only while search costs at most about USD 0.32 per task (0.75 − 0.10 − 0.33), about
-USD 10 per 1,000 at 30 queries, and the synthesis retry only up to about USD 0.19
-(0.75 − 0.10 − 0.13 − 0.33). On a public task the brief itself is a disclosure, so
-the exact first packet is previewable before dispatch.
+0.50 with a v3-like plan reply, and at most 0.10 + 0.13 + 0.33 = 0.56. A retry that
+would exceed the cap is refused as a recorded fallback (rule 8). On web scale the
+cap is USD 0.75 and also counts search fees. With a keyed search API, T2 is certain
+to fit, whatever T1 settled, only while search costs at most about USD 0.32 per task
+(0.75 − 0.10 − 0.33), about USD 10.7 per 1,000 at 30 queries; after a v3-like 0.04
+plan reply the limit is about 0.38 (USD 12.7 per 1,000). The synthesis retry is
+certain to fit only up to about USD 0.19 of search (0.75 − 0.10 − 0.13 − 0.33),
+about USD 6.3 per 1,000, or 0.25 (USD 8.3) after a v3-like plan reply. On a public
+task the brief itself is a disclosure, so the exact first packet is previewable
+before dispatch.
 
 **Escalation (local-first routes).** Signals are deterministic and host-side: two
 rejected local plans fire T1, and two refused local syntheses fire T2. Checks that
@@ -477,26 +499,37 @@ mode, grant, synthetic-destination and size denials, a confirmed `request_failed
 an invalid cloud reply) apply the host fallback and continue. Stop codes
 (`job_cancelled`, `request_cancelled`) stop the stage. A
 `transport_or_settlement_unknown` on an assist resolves the assist as skipped with
-its reservation pinned. That needs a purpose-aware exception in three places. One is
+its reservation pinned. That needs a purpose-aware exception in four places. One is
 the session, runner and controller pre-checks, which already exempt entailment rows
 (`session.ts:370,403`, `runner.ts:309`, `controller.ts:400`). The second is
 `store.commit`, whose unresolved-dispatch check (`store.ts:203-204`) has no purpose
 exception today; entailment avoids it only because its pass runs last. The third is
 the research producer. It binds every reader-context receipt, admits only settled
-rows with one of the four stage purposes, and requires each stage's receipt count
-to equal its calls (`research-producer.ts:35-56`, called at `session.ts:389` and
-re-checked at `session.ts:366`); it must bind an assist row, settled or resolved as
-skipped, as an assist. With all three, a cloud UNKNOWN never blocks local work and
-the cloud row stays at-most-once.
+rows with one of the four stage purposes, and requires each stage's receipt count to
+equal its calls (`research-producer.ts:35-56`, called at `session.ts:389` and
+re-checked at `session.ts:366`); it must bind an assist row, whether settled, failed
+into the host fallback or resolved as skipped, as an assist that counts toward the
+stage it serves, so that a forced-split plan or synthesis stage whose only call is
+its assist passes the per-stage count (`research-producer.ts:54-56`). The fourth is
+the harness loop that runs S11's critique, repair and tie rule (finding E9). It
+starts no later sample, critique or repair, and makes no final selection, once a
+sample's or the repair's job ledger holds any `unknown` or `committed` row of any
+purpose, or any `failed` row (`phase4-loop.ts:139-140`, counted at
+`selection.ts:136,138`; finding E1); it must admit an assist row resolved as skipped
+or failed into the host fallback. With all four, a cloud UNKNOWN never blocks local
+work and the cloud row stays at-most-once. Resolved local rows need a separate fix
+in the producer (D14, backlog item 1) and in the loop (backlog item 11).
 Never: a model-initiated cloud call (`request_consultation` is withdrawn from new
-tasks); a cloud reader, writer or critic; a second cloud attempt after an UNKNOWN;
-a cloud call from a labelled context outside T4; any cloud call for a regime-tagged
+tasks); a cloud reader, writer or critic; a second cloud attempt after an UNKNOWN; a
+cloud call from a labelled context outside T4; any cloud call for a regime-tagged
 context.
 
 **Forced split.** T1 and T2 fire on every run in place of S3 and S6. If either is
-refused, returns an invalid reply or ends UNKNOWN, the local stage it replaced runs
-as in local-first (two S3 or two S6 calls), then the host fallback. After an
-UNKNOWN, no further cloud call is made in the job. The fallback and stop code lists
+refused, returns an invalid reply (for T2, after its one retry on truncation) or
+ends UNKNOWN, the local stage it replaced runs as in local-first (two S3 or two S6
+calls), then the host fallback. After an UNKNOWN, no further cloud call is made in
+the job; after a T1 UNKNOWN, T2 is not sent and S6 runs as it would after a failed
+T2 (two S6 calls, then the skeleton fallback). The fallback and stop code lists
 above apply unchanged.
 
 **Local fan-out.** Index batches, extraction chunks and judge claims are
@@ -533,7 +566,7 @@ evidence, and blind grading on fresh tasks against the bar of §2.2.
 
 | Family | Local | Cloud | Labelled data |
 | --- | --- | --- | --- |
-| Research, public (web or files) | R1-R5, S1-S11 | T1 and T2, always (forced split) or on deterministic signals (local-first), as E3 and the owner decide; in the harness first, then in the desktop only through the per-task toggle on URL-backed tasks after E3 (file-only tasks get no toggle until P1) | the brief is named as a disclosure |
+| Research, public (web or files) | R1-R5, S1-S11 | T1 and T2, always (forced split) or on deterministic signals (local-first), as E3 and the owner decide; in the harness first, then in the desktop only through the per-task toggle on URL-backed tasks, once E4 ships a cloud-assisted arm (file-only tasks get no toggle until P1) | the brief is named as a disclosure |
 | Research, labelled | the whole pipeline, once P11 exists | none; T4 deferred | unavailable until P11 |
 | Document review | edit plan, host redline applier, fidelity checks; two samples with critique and repair if E6 says so | none (local 3/3 and 1/3 against cloud 2/3) | unavailable until P11 |
 | Website, deck | build, hooks, OOXML check, render, repair | none (1/1; 1/2 against 1/2) | local only |
@@ -550,7 +583,7 @@ evidence, and blind grading on fresh tasks against the bar of §2.2.
 | All-cloud cached | 1.13 (Claude, submitted; 1.15 with its two shape probes, Console-reconciled); 1.18 (`gpt-6-sol`, stopped at its allowance, a lower bound) | Claude calibration; r3-cloud-v3 |
 | All-cloud uncached | 3.05 on r3; 3.05-3.77 across Phase 2 r1-r3 | dashboard check pending |
 | Manus at list | 1.50-4.50 standard; 7.50-25 Max | §2.3 |
-| Web scale, indicative split of the USD 0.50 target with SearXNG | plan about 0.04; synthesis 0.10-0.25; search 0; reserve 0.10, for example for a cloud claim-verification option if E4 shows local fact-checking below criterion 3; total 0.24-0.39 | target, measured in E4. With keyed API search (20-30 queries at USD 5-10 per 1,000, or USD 14 for Gemini grounding beyond 5,000 free a month, so 0.10-0.42 if bought above any free allowance), the total is 0.34-0.81. That fits the 0.50 target only at the cheapest rates, and near the top of that range the 0.75 episode cap, which counts T2's 0.33 reservation, refuses the synthesis assist as a recorded fallback (0.42 + 0.04 + 0.33 = 0.79) |
+| Web scale, indicative split of the USD 0.50 target with SearXNG | plan about 0.04; synthesis 0.10-0.25; search 0; reserve 0.10, for example for a cloud claim-verification option if E0 leaves the local judge uncalibrated or E4 shows local fact-checking below criterion 3; total 0.24-0.39 | target, measured in E4. With keyed API search (20-30 queries at USD 5-10 per 1,000, or USD 14 for Gemini grounding beyond 5,000 free a month, so 0.10-0.42 if bought above any free allowance), the uncapped sum is 0.34-0.81, which fits the 0.50 target only at the cheapest rates. The 0.75 episode cap, which counts search, settled fees and each new 0.33 synthesis reservation, keeps settled spend at or below 0.75: it refuses the synthesis retry once search passes about 0.25, about USD 8.3 per 1,000 at 30 queries (0.25 + 0.04 + 0.13 + 0.33 = 0.75), and the synthesis assist itself near the top of the range (0.42 + 0.04 + 0.33 = 0.79), each as a recorded fallback |
 
 Prices assumed: `gpt-6-sol` USD 2 / 0.20 / 10 / 2.50 and `claude-sonnet-5-5`
 2 / 0.10 / 10 / 2.50 per million tokens (input, cached, output, cache write);
@@ -608,12 +641,12 @@ per run.
 
 | # | Experiment | Arms and tasks | Fee cap (USD) | Days | Decision it changes |
 | --- | --- | --- | --- | --- | --- |
-| E0 | **New-endpoint qualification and role calibration**, run from the Mac | `scripts/serving-probe.py` probes P1-P9, plus new probe P10 (`response_format` `json_schema` per role schema, 20 calls each, thinking on and off, truncation counted apart from schema rejection), probe P11 (prefill and decode at 20k, 60k and 120k tokens; cache reuse on the extraction layout; K-stream concurrency) and an adapter probe (`/tokenize` route, reasoning field, legacy shape or `flash_next_v1`). Role fixtures: planner 3 × 10 on the exposed r3 index with raw replies retained; extractor on 3 synthetic chunks; judge on a fixed claim set labelled by a separate session, else the judge stays evidence-only | 0 | 2 | Every stage bound and clock; thinking policy per role; structured output per role (probe P10 ≥ 95% valid); the adapter path; K; whether the 2026-11-04 figures apply (same model, confirmed by the owner and consistent with probe P1) or not |
-| E1 | **Recoverability**, no live model | extend `private-agent-broker.test.ts` and the runner and pipeline tests: cancel mid-call at each stage, upstream close, invalid JSON twice, a cloud timeout on an assist, stdout over 256 KiB, more than 1,024 files, a 500 KB synthetic corpus | 0 | 2 | The gate for any live run: zero zero-fee UNKNOWN rows, local work continues after a cloud UNKNOWN, cancellation still stops the stage |
+| E0 | **New-endpoint qualification and role calibration**, run from the Mac | `scripts/serving-probe.py` probes P1-P9, plus new probe P10 (`response_format` `json_schema` per role schema, 20 calls each, thinking on and off, truncation counted apart from schema rejection), probe P11 (prefill and decode at 20k, 60k and 120k tokens; cache reuse on the extraction layout; K-stream concurrency) and an adapter probe (`/tokenize` route, reasoning field, legacy shape or `flash_next_v1`). Role fixtures: planner 3 × 10 on the exposed r3 index with raw replies retained; extractor on 3 synthetic chunks; judge on a fixed claim set labelled by a separate session, scored against a per-claim agreement level that the E0 card sets before the fixture runs; below that level, or without the set, the judge stays evidence-only | 0 | 2 | Every stage bound and clock; thinking policy per role; structured output per role (probe P10 ≥ 95% valid); the adapter path; K; whether the 2026-11-04 figures apply (same model, confirmed by the owner and consistent with probe P1) or not; whether the judge thresholds of criteria 3 and 8 apply in E3 and E4 |
+| E1 | **Recoverability**, no live model | extend `private-agent-broker.test.ts`, the runner and pipeline tests and `phase4-loop.test.ts`: cancel mid-call at each stage, an upstream close (also retried inside a research stage, D14), invalid JSON twice, a cloud timeout on an assist, stdout over 256 KiB, more than 1,024 files, a 500 KB synthetic corpus | 0 | 2 | The gate for any live run: zero zero-fee UNKNOWN rows, local work continues after a cloud UNKNOWN, cancellation still stops the stage |
 | E2 | **Writer policy** on byte-identical packets | writer-1, the current Heavy writer; writer-2, a preloaded presentation with an output budget from E0, thinking on; r3 plus 2 synthetic packets, 2 repeats: 12 runs. writer-3, writer-2 with thinking off, adds 6 runs only on the owner's named decision. Blind proxy grades | 0, plus ≤ 1 for fixtures (synthetic line) | 3 | The E3 and E4 writer; the never-run 12-call bound and thinking-off are hypotheses here |
-| E3 | **Closed-corpus route round** on the frozen fresh tasks f1-f3 (204-513 KB, 23 critical checks) | A all-local v5 × 2 repeats; B local-first with T1 and T2 × 2 (cap 0.60 per run); C forced split × 2 (0.60); D all-cloud ceiling × 1 (3.00), cached, on a provider and with a call allowance that the E3 card names, the allowance set above the 78-80 calls the all-cloud loop used on r1-r3 (uncached r1-r3 runs cost USD 3.05-3.77, above this cap); one r3 calibration run per arm: 25 runs | 20.4 (expected about 6.6) | 7 | The harness default for public research on files, including when the cloud fires (always, on local failure, or never), and the route behind the desktop's per-task assist toggle; measured trigger rates (gate signals logged on every arm) |
-| E4 | **Manus-bar public round**, web scale | 2 pinned LiveDRBench cases, 2 pinned DeepResearch Bench prompts and 2 fresh planted-conflict tasks; arm A and one cloud-assisted route, chosen in this order: the one E3 made the default; else whichever of B and C beats the other under the frontier rule; else (when E3 is harness-limited, neither is eligible, or B and C trade columns) the owner's choice under §5.10, item 2, recorded before E4 starts; 3 repeats: 36 runs. Each task-repeat runs R0-R5 once and both arms read the same retained pages (a paired design), so arm differences reflect the cloud steps and search is paid once. The shared retrieval's search fee is ledgered once and counted both in each arm's cloud-plus-search cost and in each arm's USD 0.75 episode cap (see the cap check in §5.2). Graders: the official LiveDRBench grader, DeepResearch Bench RACE (GPT-5.5 judge) as `SOAR-pilot`, the local citation checker, conflict gold, blind proxy acceptance. The external ceiling is the published product scores; no all-cloud web arm is built | 20.5: 18 task-repeats × 0.75 + judge fees ≤ 6 + fixtures ≤ 1 (expected about 7 with SearXNG). The episode caps include search, so a keyed search API (up to 7.56: 18 retrievals × 30 queries × USD 14 per 1,000) raises the expected spend, not the cap; above about USD 10 per 1,000 the episode cap would refuse T2, so the arms stay comparable only below that rate | 10 | Whether public deep research ships to the desktop, on which arm, and which criterion is the next lever |
-| E5 | **Desktop real-jobs trial (OAJ)** | The owner's real public or synthetic jobs in the shipped build, from week 1 on the routes that exist (document review, deck, site; local only); the research route joins when backlog item 13 lands, with the per-task assist toggle after E3 | 0 local; assists from the weekly public-work line, ≤ 0.75 per task | 14+ | OAJ ≥ 3 of 5 marks the routes `Verified` and makes P1 next; 1-2 means one lever per the trial-first rule; 0 means no route work until the cause is named |
+| E3 | **Closed-corpus route round** on the frozen fresh tasks f1-f3 (204-513 KB, 23 critical checks) | A all-local v5 × 2 repeats; B local-first with T1 and T2 × 2 (cap 0.60 per run); C forced split × 2 (0.60); D all-cloud ceiling × 1 (3.00), cached, on a provider and with a call allowance that the E3 card names, the allowance set above the 78-80 calls the all-cloud loop used on r1-r3 (uncached r1-r3 runs cost USD 3.05-3.77, above this cap); the card shows that the chosen allowance's projected fee, late reservation included, stays under USD 3.00 on f2 (512,514 bytes; the cached projection for r1, 499,438 bytes, was USD 2.12 with its late reservation at the 80 calls of r1's earlier all-cloud run), or the owner raises D's cap, and E3's cap of 20.4 with it, and the card re-derives E3's expected spend; one r3 calibration run per arm: 25 runs | 20.4 (expected about 6.6 if each D run costs about 1.2, as the cached r3 runs did at 79-80 calls on r3's 77 KB corpus; D may cost more on f1-f3 at a higher allowance) | 7 | The harness default for public research on files, including when the cloud fires (always, on local failure, or never), and, through its result for B and C, the cloud-assisted route E4 tests; measured trigger rates (gate signals logged on every arm) |
+| E4 | **Manus-bar public round**, web scale | 2 pinned LiveDRBench cases, 2 pinned DeepResearch Bench prompts and 2 fresh planted-conflict tasks; arm A and one cloud-assisted route, chosen in this order: the one E3 made the default, if that is B or C; else, if E3 was not harness-limited, the only eligible one of B and C, or, when both are eligible, the one that beats the other under the frontier rule; else (E3 harness-limited, neither eligible, or B and C trading columns or equal within every tolerance) the owner's choice under §5.10, item 2, recorded before E4 starts; 3 repeats: 36 runs. Each task-repeat runs R0-R5 once and both arms read the same retained pages (a paired design), so arm differences reflect the cloud steps and search is paid once. The shared retrieval's search fee is ledgered once and counted both in each arm's cloud-plus-search cost and in each arm's USD 0.75 episode cap (see the cap check in §5.2). Graders: the official LiveDRBench grader, DeepResearch Bench RACE (GPT-5.5 judge) as `SOAR-pilot`, the local citation checker, conflict gold, blind proxy acceptance. The external ceiling is the published product scores; no all-cloud web arm is built | 20.5: 18 task-repeats × 0.75 + judge fees ≤ 6 + fixtures ≤ 1 (expected about 7 with SearXNG). The episode caps include search, so a keyed search API (18 retrievals × 30 queries: up to 5.40 at USD 10 per 1,000, or 7.56 at Gemini grounding's USD 14 per 1,000 if bought above its 5,000 free a month) raises the expected spend, not the cap. At R2's 30 queries the episode cap can refuse the synthesis retry above about USD 6.3 per 1,000 (search above 0.19 with T1 at its 0.10 maximum; about USD 8.3 after a v3-like 0.04 plan) and T2 itself above about USD 10.7 per 1,000 (search above 0.32; about USD 12.7 after a v3-like plan), so every cloud step of the cloud-assisted arm is certain to fit only below about USD 6.3 per 1,000 (§5.2) | 10 | Whether public deep research ships to the desktop, on which arm, and which criterion is the next lever |
+| E5 | **Desktop real-jobs trial (OAJ)** | The owner's real public or synthetic jobs in the shipped build, from week 1 on the routes that exist (document review, deck, site; local only); the research route joins in week 6 only if E4 ships an arm, on that arm, with the per-task assist toggle only when that arm is cloud-assisted | 0 local; assists from the weekly public-work line, ≤ 0.75 per task | 14+ | OAJ ≥ 3 of 5 marks the routes `Verified` and makes P1 next; 1-2 means one lever per the trial-first rule; 0 means no route work until the cause is named |
 | E6 | **Document review, two samples** | review-1, a single sample, against review-2, two samples with host selection and local critique and repair; 3 synthetic planted-defect `.docx` files; 12 runs | ≤ 1 (fixtures, synthetic line) | 4 | The desktop review route; the numeric cross-check and clause-inversion flags (backlog item 7(d)) ship either way |
 | E7 | **Coding review packet (T3)** | only if E5 reaches OAJ ≥ 3 and the owner asks: L against L+T3 on c1 plus 2 synthetic tasks | 1.5, from the line its approval names | 3 | Whether coding gets any cloud |
 
@@ -623,32 +656,41 @@ without the word "probe" are PRIVATE_WORK_DESIGN_V1 requirements.
 **Decision rules, pre-registered.**
 
 - **E3** is an investment rule; n = 3 tasks per repeat cannot detect gaps under two
-  tasks. Ceiling first: if D accepts fewer than 2 of 3, the round is
-  harness-limited and no route changes. A route is eligible only if it accepts at
-  least accepts(D) − 1 on each repeat. A cloud-assisted route (B or C) also needs
-  mean settled USD at most 0.25 × USD(D), no run at its cap and 0 cache-write tokens
-  on every assist receipt. Among the eligible routes, a route that no other beats
-  under the frontier rule (§2.1) becomes the default once the owner records it. If
-  more than one remains unbeaten, because they trade columns or are equal within
-  every tolerance, the owner chooses (§5.10, item 2). If no route is eligible, no
-  route changes and the next lever is the stage that failed, one lever per entry.
-  On the closed corpus the frontier rule's depth clause covers criteria 2, 6, 7 and
-  8; criteria 1, 3, 4, 5 and 9 are not measured in E3. The r3 runs are calibration
-  only. A run that does not submit or stops at its cap counts as rejected; a result
-  with ≥ 80% correct arm guesses is labelled weakly blinded.
-- **E4** measures the bar. An arm qualifies as the default if ≥ 80% of its
-  task-runs meet the per-run criteria that apply to their task, it meets criterion
-  7 over its 18 runs, at least five of the six tasks meet criterion 9, and its P50
+  tasks. Ceiling first: if D accepts fewer than 2 of 3, the round is harness-limited
+  and no route changes. D is the ceiling and never a candidate. Of A, B and C, a
+  route is eligible only if it accepts at least accepts(D) − 1 on each repeat. A
+  cloud-assisted route (B or C) also needs mean settled USD at most 0.25 × USD(D),
+  no run at its cap and 0 cache-write tokens on every assist receipt. Among the
+  eligible routes, a route that no other beats under the frontier rule (§2.1)
+  becomes the default once the owner records it. If more than one remains unbeaten,
+  because they trade columns or are equal within every tolerance, the owner chooses
+  (§5.10, item 2). If no route is eligible, no route changes and the next lever is
+  the stage that failed, one lever per entry. On the closed corpus the frontier
+  rule's depth clause covers criteria 2, 5, 6 and 7, and criterion 8's entailment
+  threshold if E0 activates it. Each of f1-f3 holds one planted conflict with gold
+  (BL-20261027-0145-phase4-tasks-design), so criterion 5 is measured; criterion 6 is
+  judged with the corpus files in place of URLs, and its word band yields to each
+  brief's word limit. Criteria 1, 3, 4 and 9 are not measured in E3. The r3 runs are
+  calibration only. A run that does not submit or stops at its cap counts as
+  rejected; a result with ≥ 80% correct arm guesses is labelled weakly blinded.
+- **E4** measures the bar. An arm qualifies as the default if ≥ 80% of its task-runs
+  meet the per-run criteria that apply to their task, it meets criterion 7 over its
+  18 runs, at least five of the six tasks meet criterion 9, and its P50
   cloud-plus-search cost is ≤ USD 0.50. It qualifies as a beta if at least 50% of
   its task-runs meet those per-run criteria at that cost but it misses another
   default condition. Public deep research ships on the better-qualified arm: a
   default beats a beta; between two arms at the same level, the one the frontier
-  rule prefers ships, or the owner chooses if they trade columns. A cloud-assisted
-  arm ships only behind the per-task assist toggle, because desktop routes stay
-  local-only by default (§5.2). A beta ships with every failing criterion named. If neither arm
-  qualifies, there is no desktop public-research route, and the next lever is the
-  single stage the failing criterion points to (retrieval volume, the T2 packet or
-  the writer), one lever per entry.
+  rule prefers ships, or the owner chooses if they trade columns or are equal within
+  every tolerance. A cloud-assisted arm that ships runs behind the per-task assist
+  toggle (§5.2). With the toggle off, the desktop runs arm A only if A itself
+  qualified, as a default or as a beta with its failing criteria named; otherwise
+  the research route is offered only with the toggle on, so file-only tasks, which
+  get no toggle until P1, get no research route. Whether the toggle starts on for
+  URL-backed public tasks is the owner's decision (§5.10, item 2). A beta ships with
+  every failing criterion named. If neither arm qualifies, there is no desktop
+  public-research route, and the next lever is the single stage the failing
+  criterion points to (retrieval volume, the T2 packet or the writer), one lever per
+  entry.
 - **E4 option**, separately gated and the owner's call: the same six tasks on a
   Manus Pro account, logging credit use from Manus's task API. About 18 runs at
   500-900 credits need 9,000-16,200 credits, worth USD 45-81 at list. Monthly
@@ -662,26 +704,27 @@ without the word "probe" are PRIVATE_WORK_DESIGN_V1 requirements.
   the only way to replace the proxy thresholds of §2.2 with measured Manus numbers.
 
 **Order.** Week 1: backlog items 0-5 and item 10's assist-purpose exception (E1
-tests it), E0, E1, the owner's P11 interim (an SSH local forward) and box
-checklist, and E5 on the existing local routes. Week 2: E2, E6, items 6-10, and
-item 12 starts. Week 3: item 11, then E3; item 12 completes. Weeks 4-5: E4; item 13
-desktop wiring, tagged `owner-v0.3`. Week 6: if E4 shipped an arm (as the
-default or a beta), the research route goes live in E5 on that arm; otherwise E5
-continues on the other routes. Review OAJ and the three bars. If fewer than three owner jobs were
-submitted by then, Branch D applies (pause and record the adoption lesson), as
-PLAN.md says.
+tests it), E0, E1, the owner's P11 interim (an SSH local forward) and box checklist,
+and E5 on the existing local routes. Week 2: E2, E6, items 6-10, and item 12 starts.
+Week 3: item 11, then E3; item 12 completes. Weeks 4-5: E4; item 13 desktop wiring,
+tagged `owner-v0.3`. Week 6: if E4 shipped an arm (as the default or a beta), the
+research route goes live in E5 on that arm; otherwise E5 continues on the other
+routes. Review OAJ and the three bars. If fewer than three owner jobs were submitted
+by then, Branch D applies (pause and record the adoption lesson), as PLAN.md says.
 
 **Budget.** The harness line has about USD 28.4-28.7 left. E3's cap is 20.4
-(expected about 6.6) and E4's is 20.5 (expected about 7 with SearXNG), together
-40.9 in caps. E4's episode caps include search, so a keyed search API raises E4's
-expected spend by up to 7.56 (to at most about 14.6) without changing its cap. Caps are
-worst cases, so E4 is admitted only if the line's remaining balance after E3
-settles covers E4's cap (about 22 is expected to remain), or the owner records a
-reallocation from the unused weekly public-work line. E5 assists
-draw on the weekly public-work line; E2 and E6 fixtures on the synthetic line
-(USD 20); E7 on the line its approval names. E3 and E4 each need a named
-`Approved` entry: the approved H5 shape (18 rows, USD 21.60, other arms) cannot be
-renamed into them.
+(expected about 6.6) and E4's is 20.5 (expected about 7 with SearXNG), together 40.9
+in caps. E4's episode caps include search, so a keyed search API raises E4's
+expected spend by up to 5.40 at USD 10 per 1,000, or 7.56 (to at most about 14.6) if
+Gemini grounding is bought above its free allowance, without changing its cap. Caps
+are worst cases, so E4 is admitted only if the line's remaining balance after E3
+settles covers E4's cap (about 22 is expected to remain if each D run costs about
+1.2; with both assists firing on every B and C run, a D average above about 1.5-1.6
+leaves less than E4's 20.5 cap, and E4 then needs the reallocation), or the owner
+records a reallocation from the unused weekly public-work line. E5 assists draw on
+the weekly public-work line; E2 and E6 fixtures on the synthetic line (USD 20); E7
+on the line its approval names. E3 and E4 each need a named `Approved` entry: the
+approved H5 shape (18 rows, USD 21.60, other arms) cannot be renamed into them.
 
 ### 5.7 Engineering backlog
 
@@ -690,12 +733,14 @@ gets its decision entry first.
 
 0. **Process entry:** restore PLAN.md §4(c) for zero-fee work and close per-trial
    named authority for zero-fee runs; the owner records it `Approved`.
-1. **Zero-fee failures resolve** (A1, A2, A8, B1, F7): for zero-risk packets, treat
+1. **Zero-fee failures resolve** (A1, A2, A8, B1, D14, F7): for zero-risk packets, treat
    every transport failure (among them `cancelled`, `request_timeout`,
    `inactivity_timeout`, `transport_failed` and `response_oversize`) and
    settlement-phase validation failures as `failed`, not `unknown`; add a sub-code to the settlement
-   diagnostic; check remaining time against the request timeout before dispatch.
-   Cloud and consultant semantics are unchanged. Prerequisite of E0 and E1.
+   diagnostic; check remaining time against the request timeout before dispatch;
+   let the research producer admit resolved `superseded` and `failed` reader rows,
+   matching each stage's calls to the rows no retry superseded (D14). Cloud and
+   consultant semantics are unchanged. Prerequisite of E0 and E1.
 2. **Owner verdict capture:** accept, minutes and interventions on a submitted task,
    appended to the registry through `registry-row.py`. Needed on E5's first day.
 3. **Stop bricking tasks** (A3, A4, A5, B5): capture inside the action's error
@@ -728,18 +773,23 @@ gets its decision entry first.
     a test asserting zero cache writes, per-touchpoint output caps, both firing
     policies (on signals for local-first; always, in place of S3 and S6, for the
     forced split), the fallback and stop code lists, the assist-purpose exception
-    in the session, runner and controller pre-checks, in `store.commit` and in the
-    research producer's receipt binding (§5.2, Escalation), receipt fields in the
+    in the session, runner and controller pre-checks, in `store.commit`, in the
+    research producer's receipt binding, with assists counted toward their stage, and
+    in the harness loop's stage checks (`phase4-loop.ts:139-140`) (§5.2, Escalation), receipt fields in the
     registry row.
 11. **Harness:** gate signals logged on every arm; E4's paired-retrieval mode (one
     R0-R5 pass per task-repeat whose retained pages and fetch receipts both arms
     replay offline, its search fee counted in each arm's episode cap, S9's
-    fetched-during-the-run check satisfied by the shared retrieval's receipts, and
+    fetched-during-the-run check satisfied by the shared retrieval's receipts,
+    criteria 1 and 2 credited with the shared retrieval's queries and fetches, and
     criterion 7 timed from the start of the shared retrieval); `infra_invalid` classification
     with zero-fee resume; registry columns for queries, URLs, domains, bytes, settled
     and reserved USD, body bytes and disclosed bytes; ties to the original,
-    reversing the recorded preference (finding E9); the entailment step off until
-    gold exists (finding E10); `git` set to the run's commit (finding E4); the
+    reversing the recorded preference (finding E9); the entailment step off unless
+    E0's judge fixture reaches its agreement level and graded runs show the rate
+    separating accepted from rejected drafts (finding E10); the loop's stage checks
+    (`phase4-loop.ts:139-140`) admitting a zero-fee `failed` row that its stage
+    resolved (item 1); `git` set to the run's commit (finding E4); the
     supervised launcher (BL-20261101-0036) with an idle-window schedule for
     experiments E3 and E4.
 12. **Search and browse front-end** (§5.5).
@@ -766,8 +816,9 @@ gets its decision entry first.
   loop as a research reader; every cloud critique path (the 4/6 against 4/6 tie,
   BL-20261019-0838); model-judged escalation triggers; "7/7 automated" reported as
   accepted. Cloud claim verification is outside the three assist packets and
-  unmeasured; it is reconsidered only if E4 shows local fact-checking below
-  criterion 3.
+  unmeasured; it is reconsidered if E0's judge fixture does not reach the agreement
+  level its card sets, so that local fact-checking cannot be scored, or if E4 shows
+  calibrated local fact-check accuracy below criterion 3's 80%.
 - Per-attempt plan documents and approvals, slot, claim and allocation accounting,
   and the untracked launcher as a gate, for zero-fee local requests.
 - Permanent UNKNOWN on zero-fee failures; discarding raw replies on public and
@@ -805,13 +856,23 @@ gets its decision entry first.
    probe P1 can show a difference but cannot prove identical weights. If you confirm
    the same model and probe P1 matches, the 2026-11-04 figures are admissible and
    E0 is a delta check; otherwise none of them apply.
-2. The cloud's default role in public research: always plan and synthesise (the
-   forced split, which F1 calls your thesis), step in only after two failed local
-   attempts (local-first), or not at all (all-local). The proposal is that E3's
-   pre-registered rule picks it and you record the result; you choose where routes
-   trade one column against another, and you name E4's cloud-assisted arm when E3
-   cannot (§5.6, E4). You may instead fix the role now.
-3. Confirm the readings of your direction: the 2026-09-29 labelled-data rule and
+2. The cloud's role in public research, in the harness and behind the desktop's
+   per-task assist toggle (desktop routes stay local-only by default, §5.2): always
+   plan and synthesise (the forced split, which F1 calls your thesis), step in only
+   after two failed local attempts (local-first), or not at all (all-local). The
+   proposal is that E3's pre-registered rule picks it and you record the result. On
+   the closed corpus all-local pays no fee and discloses nothing, so no route whose
+   assists fire can beat it under the frontier rule, and it beats any such route
+   that is not better on quality beyond tolerance. The rule therefore makes a
+   cloud-assisted route the default by itself only when all-local is ineligible or
+   that route's assists never fired. You choose where routes trade one column
+   against another (for example a cloud-assisted route better on quality beyond
+   tolerance) or are equal within every tolerance, and you name E4's cloud-assisted
+   arm when E3 cannot (§5.6, E4). Also decide whether the per-task assist toggle
+   starts on for URL-backed public tasks once E4 ships a cloud-assisted arm. You
+   may instead fix the role now.
+3. Confirm the readings of your direction: §2's statement of the ultimate goal,
+   which you asked this review to clarify; the 2026-09-29 labelled-data rule and
    D15 are unchanged; equal weight also supersedes PLAN.md's "never as gates" rule
    for USD per accepted job and the first item of PLAN.md §2's W10 Stop row,
    "Treating API savings as a design driver"; OAJ stays the adoption north star
@@ -819,20 +880,25 @@ gets its decision entry first.
 4. Backlog item 0, the zero-fee process entry.
 5. A named `Approved` entry for E3 and E4 against the harness line, with E4's
    admission condition or a reallocation from the weekly public-work line. E4's
-   entry must also name its paid judges: GPT-5.5 for DeepResearch Bench RACE at the
-   pinned revision, and the OpenAI model and separately authorized key for
-   LiveDRBench's official grader. Neither model is in the standing envelope
-   (PLAN.md §4(b) names `gpt-6-sol` and `claude-sonnet-5-5`).
+   entry must also name its paid judges and the destination and key each uses, since
+   the backend decides the egress destination (PLAN.md §4): GPT-5.5 for DeepResearch
+   Bench RACE at the pinned revision, at OpenAI directly (`LLM_BACKEND=openai`) or
+   through OpenRouter (`openai/gpt-5.5`), which that revision's README makes the
+   default; and the OpenAI model and separately authorized key for LiveDRBench's
+   official grader. Neither model is in the standing envelope (PLAN.md §4(b) names
+   `gpt-6-sol` and `claude-sonnet-5-5`).
 6. Which provider carries the assists and the E3 ceiling arm D:
    `claude-sonnet-5-5` (the 2026-10-30 decision) or `gpt-6-sol` (the only one with
    measured assist receipts).
 7. Whether E2 may include a thinking-off writer arm
    (BL-20261101-2120-fast-v3-artifact-trial-approved recorded it as not approved).
 8. SearXNG self-hosted on the device or the Mac, naming its upstream engines, or a
-   keyed search API under R2's 30-query cap. Either is a new egress destination
-   that needs your explicit approval (PLAN.md §4). A keyed API's fees (up to USD
-   7.56 in E4) count inside each episode's USD 0.75 cap, and above about USD 10 per
-   1,000 that cap refuses T2.
+   keyed search API under R2's 30-query cap. Either is a new egress destination that
+   needs your explicit approval (PLAN.md §4). A keyed API's fees (in E4 up to USD
+   5.40 at USD 10 per 1,000, or 7.56 at Gemini grounding's USD 14 above its free
+   allowance) count inside each episode's USD 0.75 cap, and at R2's 30 queries that
+   cap can refuse the synthesis retry above about USD 6.3 per 1,000 and T2 above
+   about USD 10.7 per 1,000 (§5.2).
 9. The P11 timeline: an SSH local forward now, WireGuard later. Nothing labelled
    runs before it.
 10. Whether to fund the Manus product baseline, on a separate account (E4 option):
@@ -869,10 +935,12 @@ token of one v3 packet), the T3 and T4 estimates and reservations (neither row
 states a body or output bound yet), the retry figure, the web-scale split and the
 expected spend of E3 and E4.
 
-**Third-party and low confidence:** every Manus per-task figure (reviewer
-estimates, not logged measurements), Manus's depth profile, and competitor
-per-report costs, including those computed from published API prices on
-third-party token counts.
+**Third-party and low confidence:** every Manus per-task credit and minute figure
+(reviewer estimates and reports, or vendor-published claims and examples that are
+dated or vendor-selected; none is an independently logged measurement), Manus's
+depth profile except its 2025 blog post's figure of about 50 tool calls per task
+(high but dated, §7), and competitor per-report costs, including those computed from
+published API prices on third-party token counts.
 
 ---
 
@@ -890,9 +958,10 @@ mirrors or third-party notes, as each row says.
 | Add-on price, about USD 0.01 per credit | https://www.allable.ai/blog/manus-ai-pricing/ (third party; no official price found) | 2026-10-12 | Low |
 | Credit rules, free-tier cap | Manus Help Center, credit consumption rules (https://help.manus.im/en/articles/11711097-what-are-the-rules-for-credits-consumption-and-how-can-i-obtain-them) | about 2026-10-01 | High (excerpt) |
 | Wide Research limits | Manus Help Center, "What is Wide Research" (https://help.manus.im/en/articles/11960169-what-is-wide-research) | 2026 | Medium |
-| Lite, Max and Wide Research costs | https://aimaker.substack.com/p/manus-claude-code-agents-review, https://cybernews.com/ai-tools/manus-max-review/, quorum research notes (https://raw.githubusercontent.com/krzysztoff1/quorum/main/docs/research/01-manus-and-entrants.md), Trustpilot reviews (https://www.trustpilot.com/review/manus.im); Wide Research per-run estimates from https://www.nocode.mba/articles/manus-ai-pricing, https://coworker.ai/blog/manus-ai-pricing and https://fast.io/resources/manus-ai-pricing/ | 2026 | Low |
+| Lite, Max and Wide Research costs | https://aimaker.substack.com/p/manus-claude-code-agents-review, https://cybernews.com/ai-tools/manus-max-review/, quorum research notes (https://raw.githubusercontent.com/krzysztoff1/quorum/main/docs/research/01-manus-and-entrants.md), Trustpilot reviews (https://www.trustpilot.com/review/manus.im); Wide Research per-run estimates: 80-400 credits from nocode.mba, known only through a search-index summary that does not say which of the two nocode.mba pages it listed (https://www.nocode.mba/articles/manus-review, https://www.nocode.mba/articles/manus-ai-pricing) holds the figure, and 800-1,500+ credits from https://coworker.ai/blog/manus-ai-pricing and https://fast.io/resources/manus-ai-pricing/ | 2026 | Low |
 | Manus showcase credit counts (817 for a deep-dive research site, 635 for a scheduled profile-building task) | Manus posts https://x.com/ManusAI/status/1937155935946055890 (the 817 known only from a search-index excerpt) and https://x.com/ManusAI_HQ/status/1937865863623061907 | 2025-06 | Low (vendor-selected examples) |
 | Manus 2.0 cost claim | Manus blog (https://manus.im/blog/introducing-manus-2-0) | 2026-09-28 | Vendor claim |
+| Single-context fabrication and Wide Research timing | Manus blog, "Wide Research: Beyond the Context Window" (https://manus.im/blog/manus-wide-research-solve-context-problem), known only from a search excerpt | 2025-10-29 | Vendor claim |
 | About 50 tool calls, 100:1 input to output, KV-cache hit rate | Manus blog, "Context Engineering for AI Agents: Lessons from Building Manus" | 2025-07-18 | High, but dated |
 | 300-900 credits per research task | Synthesis range: 500-900 for one complex task, a reviewer estimate repeated across blogs (https://www.lindy.ai/blog/manus-ai-review, https://trycompass.co/review/manus-review, https://fast.io/resources/manus-ai-pricing/), and 300-500 for a 10-source report with chart (https://www.openaitoolshub.org/en/blog/manus-ai-review, https://felloai.com/manus-ai-pricing/) | 2026 | Low to medium |
 | Minutes per research task (14-50) | Third-party reviews (https://aiinsightsnews.net/is-manus-ai-good/, https://till-freitag.com/en/blog/manus-ai-review-en, https://www.buildingcreativemachines.com/p/test-driving-manus-a-new-generative, https://www.allaboutai.com/ai-reviews/manus-ai/) | 2025-2026 | Low |
@@ -940,19 +1009,45 @@ claims, confirmed 54 findings (1 error, 29 imprecisions, 24 minor points) and
 refuted 4. Several first-round fixes had been incomplete or had introduced new
 imprecision. The error was in §5.2's escalation: the assist exception also needs the
 research producer's receipt binding, so the two places named would not have kept a
-cloud UNKNOWN from blocking local work. This version, PLAN.md and
-BL-20261105-1357-second-check-corrections-utc-reset apply fixes for all 54; the
-consequential ones were re-read at the source first.
+cloud UNKNOWN from blocking local work. The third version (`90046a0`),
+PLAN.md and BL-20261105-1357-second-check-corrections-utc-reset applied fixes for
+all 54; the consequential ones were re-read at the source first.
 
-Where a fix changed the proposal, the change is still `Proposed`. From the first
-check: symmetric tolerances in the frontier rule, the forced split as an equal E3
-candidate, E4's cloud-assisted arm chosen from E3 instead of fixed to B, three E4
-repeats with paired retrieval, per-run acceptance, and R2's 30-query cap for a
-keyed search API instead of 20 calls. From the second: a quality floor for every E3
-route and an outcome for every E3 and E4 result; the scope of each depth criterion;
-the local judge's thresholds held until E0 calibrates it; the forced split's failure
-path; search fees inside each E4 episode cap; and the research producer as the third
-place for the assist exception.
+A third check ran five read-only checkers on `90046a0`, each with a skeptic: the
+code facts, the numbers, the external sources, the design rules, and the correction
+entry with the validator reset. They checked about 480 claims, confirmed 37
+findings (1 error, 16 imprecisions, 20 minor points) and refuted 1. The error was
+in E3's rule: the floor of accepts(D) − 1 applied to every route and D meets it
+trivially, so the all-cloud ceiling could have become the default, which the stop
+list rules out. This version and BL-20261105-1550-third-check-corrections apply
+fixes for all 37; the consequential ones were re-read at the source first. That
+re-reading also found D14, which no checker reported.
+
+Where a fix changed the proposal, the change is still `Proposed`. The proposal
+changes recorded in the three correction entries are these. From the first check:
+symmetric tolerances in the frontier rule; acceptance per run and stability per
+task, with three E4 repeats and paired retrieval; RACE tied to the pinned
+revision's GPT-5.5 judge; the forced split as an equal E3 candidate; E4's
+cloud-assisted arm chosen from E3 instead of fixed to B; R2's 30-query cap for a
+keyed search API instead of 20 calls; the revised E3, E4 and budget figures;
+`store.commit` as the second place for the assist exception; host flags as backlog
+item 7(d); and 13 owner decisions instead of 11. From the second: a quality floor
+for every E3 route and stated outcomes for the E3 and E4 results, which the third
+check completed; the scope of each
+depth criterion; the local judge's thresholds held until E0 calibrates it; the
+forced split's failure path; search fees inside each E4 episode cap; the ceiling
+arm D cached, with a call allowance above the 78-80 calls the all-cloud loop used;
+E4's paid judges named in §5.10, item 5; and the research producer as the third
+place for the assist exception. From the third: D as the ceiling and never a
+candidate; criterion 5 measured in E3, and a definition of a newly failed depth
+criterion; criterion 3 scoped for JSON deliverables; an E4 arm order without
+overlaps, with the owner choosing between arms equal within every tolerance; the
+desktop research route and its toggle gated on E4, and the toggle's starting state
+as an owner decision; an agreement level, set by the E0 card, before the judge's
+thresholds or selection role apply; the harness loop as the fourth place for the
+assist exception, with assists counted toward their stage; D's fee checked against
+its cap on f2; the producer (D14) and the loop admitting resolved local rows; and
+§2's goal statement put to the owner for confirmation.
 
 **Code map.** Short names in the tables resolve as follows.
 
@@ -967,6 +1062,6 @@ place for the assist exception.
 | `openai-compatible.ts` | [src/main/providers/openai-compatible.ts](../src/main/providers/openai-compatible.ts) |
 | `worker.py` | [runtime/patch-worker/worker.py](../runtime/patch-worker/worker.py) |
 | `private-agent-local-screen.ts`, `phase4-loop.ts`, `registry-row.py`, `validate-build-log.ts`, `serving-probe.py` | [scripts/](../scripts/) |
-| `phase4-loop.test.ts`, `private-agent-research-pipeline.test.ts`, `private-agent-broker.test.ts` | [tests/unit/](../tests/unit/), [tests/integration/](../tests/integration/) |
+| `phase4-loop.test.ts`, `private-agent-research-pipeline.test.ts`, `private-agent-research-seed.test.ts`, `private-agent-broker.test.ts` | [tests/unit/](../tests/unit/), [tests/integration/](../tests/integration/) |
 | `ci.yml` | [.github/workflows/ci.yml](../.github/workflows/ci.yml) |
 | `registry.jsonl` | [experiments/registry.jsonl](experiments/registry.jsonl) |

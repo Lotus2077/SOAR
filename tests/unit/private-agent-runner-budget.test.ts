@@ -15,6 +15,9 @@ import { LocalTokenAdmissionError, LOCAL_TOKEN_ADMISSION_STOP } from "../../src/
 import { EXECUTION_OBSERVATION_MAX_BYTES, EXECUTION_OBSERVATION_BUDGET_BYTES } from "../../src/main/private-agent/observations";
 import { EXECUTION_PROGRESS_STOP, readExecutionProgressStop } from "../../src/main/private-agent/progress";
 import { CLAIMS_LEDGER_CHECK_ID, claimsLedgerCheck } from "../../src/main/private-agent/claims";
+import { researchTransferPhase, type SessionPhase } from "../../src/main/private-agent/session";
+import { researchPresentationIdentity } from "../../src/main/private-agent/research-presentation";
+import { researchV4Packet } from "../helpers/research-v4-packet";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const done of cleanup.splice(0).reverse()) done(); });
@@ -22,27 +25,29 @@ type Action = { name: string; arguments: string; outputTokens?: number; reply?: 
 const write: Action = { name: "execute", arguments: '{"command":"write result"}' };
 const finish: Action = { name: "finish", arguments: '{"summary":"Artifacts are ready for host checks."}' };
 
-function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "maxModelCalls" | "maxToolCalls" | "maxElapsedMs">> & { maxRequests?: number; checkExitCode?: number; toolStdout?: string; claimsLedger?: boolean } = {}) {
+function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "maxModelCalls" | "maxToolCalls" | "maxElapsedMs">> & { maxRequests?: number; checkExitCode?: number; toolStdout?: string; claimsLedger?: boolean; phase?: SessionPhase } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "soar-runner-budget-"));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const dbPath = join(directory, "state.sqlite"), db = new Database(dbPath); cleanup.push(() => db.close());
   const store = new PrivateAgentStore(db), jobId = randomUUID(), contextId = randomUUID();
   store.createJob({ version: 1, id: jobId, mode: "private", revision: 0, cancelled: false, destinations: ["model"], maxRequests: limits.maxRequests ?? 10, maxFeeMicrousd: 0 });
   const claimsCheck = limits.claimsLedger ? claimsLedgerCheck({ reportPath: "output.txt", sources: [{ id: "input.txt", path: "input.txt" }] }) : undefined;
-  const contract: GeneralJobContract = { version: 1, goal: "Compute a synthetic result from the input and save it.",
+  const contract: GeneralJobContract = limits.phase?.contract ?? { version: 1, goal: "Compute a synthetic result from the input and save it.",
     requiredArtifacts: [{ path: "output.txt", description: "Computed output" }], requiredChecks: ["fixture_check", ...(claimsCheck ? [CLAIMS_LEDGER_CHECK_ID] : [])],
     maxModelCalls: limits.maxModelCalls ?? 4, maxToolCalls: limits.maxToolCalls ?? 5, maxElapsedMs: limits.maxElapsedMs ?? 10000 };
-  const files = [{ path: "input.txt", bytes: Buffer.from("synthetic input") }];
+  const files = limits.phase?.files ?? [{ path: "input.txt", bytes: Buffer.from("synthetic input") }];
   store.createContext({ id: contextId, jobId, sources: [canonical(contract), canonical(files.map(file => ({ path: file.path, sha256: digest(file.bytes) }))), ...files.map(file => file.bytes)]
-    .map((value, index) => ({ id: `fixture_${index}`, version: digest(value), classification: "private", synthetic: true })) });
+    .map((value, index) => ({ id: `fixture_${index}`, version: digest(value), classification: "private" as const, synthetic: true }))
+    .concat(limits.phase?.initialEvidence ? [{ id: "initial_evidence", version: researchPresentationIdentity(limits.phase.initialEvidence), classification: "private", synthetic: true }] : []) });
   const broker = new PrivateAgentBroker(store, [{ id: "model", kind: "local_model", endpoint: "http://127.0.0.1:1/v1/chat/completions",
     accountId: "fixture", credentialVersion: 0, privateDataAdmitted: true, loopbackFixture: true, maxResponseBytes: 65536, timeoutMs: 1000 }],
   { scan: async () => { throw new Error("No scanner or transport is allowed in this unit fixture."); } });
   const model = new PrivateAgentModel(broker, { destinationId: "model", model: "synthetic", maxOutputTokens: 4096,
     inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" }, jobId, contextId);
   const options: GeneralJobOptions = { jobId, contextId, store, broker, model, files, contract,
+    ...(limits.phase?.initialEvidence ? { initialEvidence: limits.phase.initialEvidence } : {}),
     imageId: `sha256:${"a".repeat(64)}`, checkpoints: new PrivateCheckpointStore(join(directory, "checkpoints"), jobId),
-    checks: [{ id: "fixture_check", python: "# fixed synthetic host check" }, ...(claimsCheck ? [claimsCheck] : [])] };
+    checks: limits.phase?.checks ?? [{ id: "fixture_check", python: "# fixed synthetic host check" }, ...(claimsCheck ? [claimsCheck] : [])] };
   let clock = 0;
   vi.spyOn(performance, "now").mockImplementation(() => clock);
   vi.spyOn(DockerSandbox, "currentEndpoint").mockResolvedValue("unix:///tmp/synthetic-docker.sock");
@@ -110,6 +115,65 @@ function budget(messages: GeneralMessage[]) {
   expect(turn.content!.match(/Current host budget/gu)).toHaveLength(1);
   return JSON.parse(turn.content!.slice(turn.content!.lastIndexOf("\n") + 1));
 }
+
+async function researchWriterPhase(): Promise<SessionPhase> {
+  const packet = await researchV4Packet();
+  return researchTransferPhase({ files: packet.sources, checks: [{ id: "fixture_check", python: "# fixed synthetic host check" }],
+    contract: { version: 1, goal: packet.brief, requiredArtifacts: [{ path: "output.txt", description: "Report" }], requiredChecks: ["fixture_check"], maxModelCalls: 4, maxToolCalls: 4, maxElapsedMs: 10_000 } }, packet.files);
+}
+function actualWire(f: ReturnType<typeof fixture>, actions: Action[], after?: (count: number) => void, echoedContent?: string) {
+  f.complete.mockRestore();
+  const bodies: string[] = [];
+  vi.spyOn(f.options.broker, "request").mockImplementation(async (input, settle) => {
+    if (typeof input.body !== "string") throw new Error("Fixture requires a serialized model body");
+    bodies.push(input.body); const action = actions[bodies.length - 1]!;
+    if (!action) throw new Error("Unexpected model invocation");
+    const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content: echoedContent ?? "", tool_calls: [{ id: `wire_${bodies.length}`, type: "function", function: { name: action.name, arguments: action.arguments } }] }, finish_reason: "tool_calls" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
+    const { text: _text, ...preview } = f.options.broker.preview(input);
+    const row = f.options.store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_inside_boundary" } }, () => {});
+    const cost = settle!(bytes); f.options.store.settle(row.id, cost, digest(bytes)); after?.(bodies.length);
+    return { bytes, receipt: f.options.store.dispatch(row.id) };
+  });
+  return bodies;
+}
+describe("research presentation through the real writer serializer", () => {
+  it("sends one complete initial packet in all four calls including a reopened resume", async () => {
+    const phase = await researchWriterPhase();
+    const actions = [write, { name: "append_file", arguments: JSON.stringify({ path: "output.txt", content: " continuation" }) },
+      { name: "append_file", arguments: JSON.stringify({ path: "output.txt", content: " conclusion" }) }, finish];
+    const f = fixture([], { phase }), first = new GeneralAgentRunner(f.options);
+    const bodies = actualWire(f, actions, count => { if (count === 2) first.pause(); });
+    expect(await first.run()).toMatchObject({ status: "paused", modelCalls: 2 });
+    const reopened = new Database(f.dbPath); cleanup.push(() => reopened.close());
+    const result = await new GeneralAgentRunner({ ...f.options, store: new PrivateAgentStore(reopened) }).run();
+    expect(result).toMatchObject({ status: "completed", modelCalls: 4 });
+    expect(bodies).toHaveLength(4);
+    for (const raw of bodies) {
+      const body = JSON.parse(raw) as { messages: GeneralMessage[]; tools: unknown[]; max_tokens: number };
+      expect(body.messages.filter(m => m.content === phase.initialEvidence!.rendered)).toHaveLength(1);
+      expect(body.messages[1]!.content).toBe(phase.contract.goal);
+      expect(body.tools.length).toBeGreaterThan(0); expect(body.max_tokens).toBe(4096);
+    }
+    const starts = f.options.store.events(f.options.jobId).filter(e => e.type === "started");
+    expect(starts).toHaveLength(1); expect(starts[0]).toMatchObject({ initialEvidenceSha256: phase.initialEvidence!.renderedSha256 });
+    expect(f.options.checkpoints.load(result.snapshot).some(file => file.path === "output.txt")).toBe(true);
+  });
+  it("stops an echoed full envelope before another request, retaining the first settled call", async () => {
+    const phase = await researchWriterPhase(), f = fixture([], { phase });
+    const bodies = actualWire(f, [write], undefined, phase.initialEvidence!.rendered);
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "research_presentation_occurrence_invalid", modelCalls: 1 });
+    expect(bodies).toHaveLength(1); expect(f.options.store.dispatches(f.options.jobId)).toHaveLength(1);
+  });
+  it("refuses changed source bytes at construction and complete body excess before dispatch", async () => {
+    const phase = await researchWriterPhase(), f = fixture([], { phase });
+    expect(() => new GeneralAgentRunner({ ...f.options, files: f.options.files.map(file => file.path.startsWith("input/") ? { ...file, bytes: Buffer.from("Changed actual source.") } : file) })).toThrow();
+    f.complete.mockRestore();
+    const request = vi.spyOn(f.options.broker, "request");
+    const model = new PrivateAgentModel(f.options.broker, { ...f.options.model.config, maxRequestBytes: 4096 }, f.options.jobId, f.options.contextId);
+    expect(await new GeneralAgentRunner({ ...f.options, model }).run()).toMatchObject({ status: "incomplete", reason: "request_body_size_exceeded" });
+    expect(request).not.toHaveBeenCalled(); expect(f.options.store.dispatches(f.options.jobId)).toHaveLength(0);
+  });
+});
 
 describe("draft-first artifact validation and repair", () => {
   it("preserves an incremental draft, rejects its failed check, repairs it and finishes within the original allowance", async () => {

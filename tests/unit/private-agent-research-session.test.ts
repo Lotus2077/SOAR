@@ -11,6 +11,7 @@ import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints
 import { digest, restrictedContext } from "../../src/main/private-agent/contracts";
 import { GeneralAgentSession, RESEARCH_TRANSFER_CHECK_ID, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../../src/main/private-agent/session";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET } from "../../src/main/private-agent/research-pipeline";
+import { researchV4Reply } from "../helpers/research-v4-fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const done of cleanups.splice(0).reverse()) await done(); });
@@ -22,16 +23,13 @@ function phase(): SessionPhase {
     requiredArtifacts: [{ path: "output/report.md", description: "report" }], requiredChecks: ["structure"], maxModelCalls: 40, maxToolCalls: 80, maxElapsedMs: 1_800_000 } };
 }
 /** A loopback model whose reply depends on the stage named by the system prompt; `planReply` lets a test break the plan; `onRequest` lets one pause mid-call. */
-async function fixture(planReply = () => JSON.stringify({ version: 1, questions: [{ id: "Q1", text: "How did capacity develop?", sourceIds: ["input/corpus/a.md"] }] })) {
+async function fixture(planReply?: () => string) {
   const bodies: { system: string; user: string }[] = [], hooks: { onRequest?: (system: string) => void } = {};
   const server = http.createServer((request, response) => {
     let raw = ""; request.on("data", chunk => { raw += chunk; }); request.on("end", () => {
       const body = JSON.parse(raw) as { messages: { content: string }[] }, system = body.messages[0]!.content, user = body.messages[1]!.content;
       bodies.push({ system, user }); hooks.onRequest?.(system);
-      const content = system.startsWith("You index") ? JSON.stringify({ sources: [{ sourceId: "input/corpus/a.md", gist: "Doubling." }] })
-        : system.startsWith("You plan") ? planReply()
-        : system.startsWith("You extract") ? JSON.stringify({ quotes: [{ quote: "Capacity nearly doubled in 2024, from 15 GW to 29 GW.", note: "headline" }] })
-        : "Capacity doubled [E1].\n\n## Conflicting evidence\nNone.\n\n## Unanswered questions\nNone.";
+      const content = system.startsWith("You plan") && planReply ? planReply() : researchV4Reply(system, user);
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
     });
@@ -48,7 +46,7 @@ async function fixture(planReply = () => JSON.stringify({ version: 1, questions:
   const broker = new PrivateAgentBroker(store, destinations, { scan: async () => ({ complete: true, blocked: false, detector: "deliberate-false-negative-fixture" }) });
   return { store, broker, root, bodies, hooks };
 }
-type Run = { files: string[]; goal: string; checks: string[]; required: string[]; restricted: boolean };
+type Run = { files: string[]; goal: string; checks: string[]; required: string[]; restricted: boolean; initialEvidence?: string };
 function options(f: Awaited<ReturnType<typeof fixture>>, jobId: string, runs: Run[], destination = "model"): GeneralSessionOptions {
   const privatePhase = phase(), checkpoints = new PrivateCheckpointStore(f.root, jobId);
   const config = (destinationId: string) => ({ destinationId, model: "fixture", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" as const });
@@ -59,7 +57,7 @@ function options(f: Awaited<ReturnType<typeof fixture>>, jobId: string, runs: Ru
     trustedHostModelFactory: contextId => model(contextId),
     research: { models: contextId => ({ reader: model(contextId), planner: model(contextId), synthesiser: model(contextId) }) },
     trustedHostRunnerFactory: input => ({ pause() {}, cancel() {}, async run() {
-      runs.push({ files: input.files.map(file => file.path), goal: input.contract.goal, checks: input.checks.map(check => check.id), required: input.contract.requiredChecks, restricted: restrictedContext(f.store.context(input.contextId)) });
+      runs.push({ files: input.files.map(file => file.path), goal: input.contract.goal, checks: input.checks.map(check => check.id), required: input.contract.requiredChecks, restricted: restrictedContext(f.store.context(input.contextId)), initialEvidence: input.initialEvidence?.rendered });
       const snapshot = checkpoints.save([...input.files, { path: "output/report.md", bytes: Buffer.from("Capacity doubled [C1].") }]), checks = input.checks.map(check => ({ id: check.id, passed: true }));
       f.store.append(jobId, { type: "completed", contextId: input.contextId, snapshot, checks, verifiedSnapshotSha256: checkpoints.fingerprint(snapshot) });
       return { status: "completed" as const, reason: "critical_checks_passed", snapshot, checks, modelCalls: 1 };
@@ -74,9 +72,12 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(runs).toHaveLength(1);
     const run = runs[0]!;
     expect(run.files).toEqual(expect.arrayContaining(["input/corpus/a.md", ...Object.values(RESEARCH_FILES)]));
-    expect(run.goal).toContain("A host-run reading stage"); expect(run.goal).toContain(RESEARCH_FILES.evidence); expect(run.goal).toContain("untrusted source evidence");
+    expect(run.goal).toContain("A host-run research stage"); expect(run.goal).toContain(RESEARCH_FILES.evidence); expect(run.goal).toContain("initial untrusted evidence");
     expect(run.required).toContain(RESEARCH_TRANSFER_CHECK_ID); expect(run.checks).toContain(RESEARCH_TRANSFER_CHECK_ID);
     expect(run.restricted).toBe(true);
+    expect(run.initialEvidence).toContain("BEGIN HOST-RETAINED RESEARCH DATA");
+    expect(run.initialEvidence).toContain("Capacity nearly doubled in 2024");
+    expect(run.goal).not.toContain("BEGIN HOST-RETAINED RESEARCH DATA");
     const events = f.store.events("job-research");
     const start = events.find(event => event.type === "session_started")!;
     expect(start.readerContextId).toMatch(/^[0-9a-f-]{36}$/u);
@@ -86,6 +87,8 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(stages.every(event => event.contextId === start.readerContextId && event.denied === undefined)).toBe(true);
     expect(JSON.stringify(stages)).not.toContain("doubled");
     const transfer = events.find(event => event.type === "research_transfer")!;
+    expect(events.findIndex(event => event.type === "research_input")).toBeLessThan(events.findIndex(event => event.type === "research_stage"));
+    expect((transfer.binding as { producer: { kind: string; receipts: unknown[] } }).producer).toMatchObject({ kind: "session", receipts: expect.any(Array) });
     expect((transfer.binding as { files: { path: string }[] }).files.map(file => file.path).sort()).toEqual(Object.values(RESEARCH_FILES).sort());
     // Every pipeline dispatch sits in the reader context, none in the write context.
     const dispatches = f.store.dispatches("job-research");
@@ -127,6 +130,10 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(runs).toHaveLength(0);
     expect(f.store.events("job-noplan").filter(event => event.type === "research_stage").map(event => event.stage)).toEqual(["index", "plan"]);
     expect(f.store.events("job-noplan").some(event => event.type === "research_transfer")).toBe(false);
+    const spent = f.store.dispatches("job-noplan").length;
+    expect(f.store.dispatches("job-noplan").every(row => row.status === "settled")).toBe(true);
+    expect(await new GeneralAgentSession(options(f, "job-noplan", runs)).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    expect(f.store.dispatches("job-noplan")).toHaveLength(spent);
     // The same job resumed with another reader budget is a different contract.
     const drift = options(f, "job-noplan", runs); drift.research = { ...drift.research!, budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 3 } };
     expect(await new GeneralAgentSession(drift).run()).toMatchObject({ status: "incomplete", reason: "session_contract_drift" });
@@ -156,6 +163,22 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "submitted" });
   });
 
+  it("does not restart a partial reading stage after a settled-call pause", async () => {
+    const f = await fixture(), runs: Run[] = [], config = options(f, "job-settled-pause", runs);
+    const make = config.research!.models;
+    let session: GeneralAgentSession;
+    config.research = { ...config.research!, models: contextId => {
+      const models = make(contextId), complete = models.reader.complete.bind(models.reader);
+      models.reader.complete = async (...args) => { const reply = await complete(...args); session.pause(); return reply; };
+      return models;
+    } };
+    session = new GeneralAgentSession(config);
+    expect(await session.run()).toMatchObject({ status: "paused", reason: "research_cancelled" });
+    expect(f.store.dispatches(config.jobId)).toMatchObject([{ status: "settled" }]);
+    expect(await new GeneralAgentSession(options(f, config.jobId, runs)).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    expect(f.store.dispatches(config.jobId)).toHaveLength(1); expect(f.bodies).toHaveLength(1); expect(runs).toHaveLength(0);
+  });
+
   it("honours pause during the stage and reserves the stage's output paths before any call", async () => {
     const f = await fixture(), runs: Run[] = [], config = options(f, "job-pause", runs);
     const session = new GeneralAgentSession(config);
@@ -165,10 +188,11 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(runs).toHaveLength(0);
     expect(f.store.events("job-pause").some(event => event.type === "research_transfer")).toBe(false);
     f.hooks.onRequest = undefined;
-    // The paused call left no settled receipt the stage could reuse; the resume restarts the stage or refuses to replay past an unresolved row.
+    // Partial reading has no durable per-chunk continuation; neither an unresolved
+    // request nor previously spent settled stage calls grant a fresh stage budget.
     const resumed = await new GeneralAgentSession(options(f, "job-pause", runs)).run();
-    expect(["submitted", "incomplete"]).toContain(resumed.status);
-    if (resumed.status === "incomplete") expect(resumed.reason).toBe("unresolved_dispatch_no_replay");
+    expect(resumed.status).toBe("incomplete");
+    expect(["unresolved_dispatch_no_replay", "research_stage_not_replayed"]).toContain(resumed.reason);
     const reserved = options(f, "job-reserved", []);
     reserved.privatePhase = { ...reserved.privatePhase, files: [...reserved.privatePhase.files, { path: RESEARCH_FILES.evidence, bytes: Buffer.from("{}") }] };
     expect(() => new GeneralAgentSession(reserved)).toThrow("session_research_paths_reserved");

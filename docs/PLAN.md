@@ -592,7 +592,10 @@ ceiling are not retry permission. The
 is implemented and independently reviewed, with 159 focused tests and both
 TypeScript checks passing. It exposes the full existing schema, retains bounded
 diagnostics and supplies specific feedback for the existing second call; source
-limits, coverage rules and call caps are unchanged. Current-code CI is pending.
+limits, coverage rules and call caps are unchanged. Both CI jobs passed for repair
+commit `181f024` in [run 41950918777](https://github.com/Lotus2077/SOAR/actions/runs/41950918777).
+The [experiment record](experiments/PHASE4_EXPERIMENT_RECORD_2026-11-05.md)
+indexes the preserved chronology, evidence and accounting populations.
 This is offline verification only; any subsequent live attempt needs a
 new reviewed, named authority. H4 remains unaccepted with six historical attempts
 preserved; the three conditional full loops and H5 remain unstarted. H4 split

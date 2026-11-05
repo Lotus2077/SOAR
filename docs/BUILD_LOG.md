@@ -29529,3 +29529,49 @@ Paid exposure: Zero new live model requests, tokenizer calls, sandbox launches o
 Next gate: Obtain current-code CI and prepare a concrete reviewed amendment before any new named live decision. No automatic retry follows from offline verification; H4/H5 remain held behind actual accepted integrated research/writer evidence.
 
 References: BL-20261105-0930-planner-contract-repair-design-reviewed; BL-20261105-0923-research-v4-planning-failed; docs/plans/PHASE4_RESEARCH_PLAN_CONTRACT_REPAIR_V1.md.
+
+
+### BL-20261105-1036-experiment-record-main-sync-approved -- 2026-11-05 -- Reconcile the experiment record and authorize integration with main
+
+Status: `Approved`
+
+Scope or hypothesis: Consolidate the complete Phase 4 experiment record and integrate its already reviewed recovery, coverage and planner-repair work into main, preserving every historical failure and qualification limit.
+
+Decisions: The owner explicitly requested "properly log everything you've done for the experiment so far and sync with main". This authorizes documentation and source integration through PRs 32, 33 and 34. It grants no new model request, live retry, H4/H5 release, service operation, paid allowance or cutoff extension.
+
+Changes: Add a cross-phase chronology and evidence index; link it from the living project and experiment documentation; supersede stale CI-pending summaries with pinned successful CI evidence. Preserve committed plans, registry rows and build-log entries. Merge the dependency stack only after its checks and integration review pass; retain original source commits and private evidence.
+
+Evidence: Read-only chronology review found all crucial stages represented across 136 recovery-to-repair entries in the 480-entry build log: cleanup and metric corrections, Claude probes/calibration/reconciliation, q4t and vLLM migration/recovery, historical H4 attempts, fast-v3 admission/storage/API changes, qualification, three writer pilots, v4 startup and planning failures, and offline planner repair. Both check and electron-e2e passed for planner-repair head 181f024441b13933cd16859befe8410684b2e06f in CI run 41950918777, and for coverage/status head c0db0bee95b3762b2a8aedeaa2442e022cf1a237 in run 41950175860. Earlier 159-case offline verification remains unchanged.
+
+Failures or blockers: PR 32's earlier end-to-end job was cancelled; its exact-head rerun passed in attempt 2 of run 41902115080 before integration. Main synchronization is not yet complete. The exact live planner rejection fields remain unrecoverable; the offline repair has no new live acceptance evidence.
+
+Limitations and non-claims: The index improves discoverability; it does not replace original evidence or combine incompatible accounting populations. Standalone accounting remains forty-two slots/seven claims, historical H4 remains six unaccepted attempts, and H5 remains unstarted. Fresh H5 inputs and evaluator gold remain unread. Credentials, private endpoints, local evidence paths, raw traces and generated artifacts stay outside Git.
+
+Paid exposure: Zero new model requests or fees. Preserve all existing request/cost caps and the November 5, 18:00 Asia/Shanghai cutoff. Repository integration does not replenish consumed attempts or slots.
+
+Next gate: Complete documentation and privacy review, pass the required CI for each merged head, merge the stack into main, then append the actual merge commits and verify local/remote synchronization. No experiment runtime follows from this request.
+
+References: BL-20261105-0944-planner-contract-offline-verified; BL-20261105-0923-research-v4-planning-failed; docs/experiments/PHASE4_EXPERIMENT_RECORD_2026-11-05.md; GitHub PRs 32, 33 and 34; CI runs 41950918777 and 41950175860.
+
+
+### BL-20261105-1042-experiment-stack-integrated-main -- 2026-11-05 -- Merge the reviewed experiment stack and record exact main integration evidence
+
+Status: `Verified`
+
+Scope or hypothesis: Complete the owner-authorized main integration of the recovery/metrics, research-coverage and planner-contract work, and preserve a discoverable, sanitized record of the experiment to date.
+
+Decisions: Merge PRs 32, 33 and 34 in dependency order with merge commits, retaining their original source commits and branches. Verify the exact head and passing check/electron-e2e results before each merge. Preserve history, failed experiment outcomes and approval scopes. This is repository integration, not a runtime release or H4/H5 acceptance.
+
+Changes: PR 32 head 3cdc3bef3e1fb77bc520c642fd42438ae9825468 merged at 02:39:02 UTC as a84a826ddceb3d1d32f17421eb38a078ef310bf5. PR 33 head c0db0bee95b3762b2a8aedeaa2442e022cf1a237 merged at 02:40:08 UTC as e3faf2916237ea18767450de36faf794fd9ef978. PR 34 head 181f024441b13933cd16859befe8410684b2e06f merged at 02:41:25 UTC as 7fdcc42d2574ec90990685ae54ba310c3021b27e. All three are November 5, 2026 observations. The current checkout's main was fast-forwarded after verifying ancestry; the older experiment checkouts and private evidence remain unchanged. Add the reviewed chronology/accounting index and refresh living documentation in a documentation-only follow-up.
+
+Evidence: GitHub reports all three PRs MERGED. Each successive main merge tree equals its reviewed source head, including final tree 1b5dee06d0d1418c4e571f5b25302b3f4abc7e76 for both 7fdcc42 and 181f024. PR 32 passed both jobs in CI run 41902115080 attempt 2; its cancelled original end-to-end result is preserved. PR 33 passed run 41950175860 and PR 34 passed run 41950918777. Independent integration/privacy review covered sixty-three ancestry commits and eighty-two changed files; all sixty-two build-log-changing parent edges preserved prior bytes. The separate chronology index and documentation additions passed accuracy, privacy, relative-link and whitespace review. Current source validation remains the previously recorded 159 focused cases plus passing full CI; no extra live proof is inferred.
+
+Failures or blockers: No repository integration conflict remains. The experiment is still stopped at the preserved planning failure: no accepted integrated report, no completed new H4 loop and no H5 row. The exact rejected planner fields remain unknown. The seventy unused standalone slots do not authorize a replacement attempt.
+
+Limitations and non-claims: All 480 earlier build-log entries and historical plans/registry rows remain unchanged. New entries supersede stale status statements without erasing them. Separate standalone, historical H4 and Claude-calibration populations are not summed into a fictitious total. The original failed runtimes, private generated artifacts and ledgers remain outside Git; fresh H5 inputs and gold remain unread. A merge, green CI or improved failure diagnostics is not experiment acceptance.
+
+Paid exposure: Zero new model requests, tokenizer calls, experiment sandbox launches or fees during the logging and integration task. Existing H4/H5 gates, caps and the November 5, 18:00 Asia/Shanghai cutoff remain unchanged.
+
+Next gate: Verify the documentation-only follow-up is clean and synchronized with remote main, including its routine CI. Any further live trial requires a concrete reviewed amendment and new named authority; the owner requested logging and main synchronization only in this turn.
+
+References: BL-20261105-1036-experiment-record-main-sync-approved; BL-20261105-0944-planner-contract-offline-verified; docs/experiments/PHASE4_EXPERIMENT_RECORD_2026-11-05.md; GitHub PRs 32, 33 and 34; CI runs 41902115080, 41950175860 and 41950918777.

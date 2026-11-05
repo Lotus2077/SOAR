@@ -6,13 +6,14 @@ evidence. Historical documents describe their own versions; their "next steps" a
 not active requirements.
 
 The planner contract repair is implemented and independently reviewed offline
-(BL-20261105-0944): 159 focused tests and both TypeScript checks pass. Current-code
-CI is pending; no new live attempt or relaxed acceptance rule is authorized.
+(BL-20261105-0944): 159 focused tests and both TypeScript checks pass. Both CI jobs passed
+for repair commit `181f024`; no new live attempt or relaxed acceptance rule is authorized.
 
 ## Current
 
 | Document | Role |
 | --- | --- |
+| [experiments/PHASE4_EXPERIMENT_RECORD_2026-11-05.md](experiments/PHASE4_EXPERIMENT_RECORD_2026-11-05.md) | Cross-phase chronology, evidence index, separate accounting totals and current H4/H5 status |
 | [PLAN.md](PLAN.md) | The single living plan: phases, decision rules, envelope, owner decisions |
 | [plans/PHASE4_API_ONLY_ENDPOINT_CONTINUATION_V1.md](plans/PHASE4_API_ONLY_ENDPOINT_CONTINUATION_V1.md) | Approved API-only Phase 4 route; service qualification accepted, physical server internals unobserved. Current outcome and limits are in PLAN.md and BUILD_LOG.md |
 | [plans/PHASE4_API_ONLY_PRELOADED_WRITER_PILOT_V1.md](plans/PHASE4_API_ONLY_PRELOADED_WRITER_PILOT_V1.md) | Final named amendment approved in BL-20261105-0335 and now consumed. Artifacts and mechanical checks completed, but final content review rejected the pilot; H4/H5 remain held. Preserve the original proposed plan bytes and append-only approval/outcome records |

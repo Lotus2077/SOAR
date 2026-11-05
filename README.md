@@ -54,7 +54,10 @@ grades do not establish acceptance in the desktop app.
 The [planner contract repair](docs/plans/PHASE4_RESEARCH_PLAN_CONTRACT_REPAIR_V1.md)
 is implemented and independently reviewed offline: complete existing schema,
 bounded diagnostics and specific feedback for the existing second call. All 159
-focused tests and both TypeScript checks pass; current-code CI is pending. Limits
+focused tests and both TypeScript checks pass. Both CI jobs passed for repair
+commit `181f024` in [run 41950918777](https://github.com/Lotus2077/SOAR/actions/runs/41950918777).
+The [experiment record](docs/experiments/PHASE4_EXPERIMENT_RECORD_2026-11-05.md)
+indexes the complete sequence, outcomes and separate accounting totals. Limits
 are unchanged, and no new live attempt or H4/H5 acceptance is granted.
 
 ## Setup

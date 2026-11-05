@@ -20,6 +20,14 @@ The following stay outside Git, under the ignored `.soar/experiments/`:
 - task gold data and endpoints;
 - anything derived from personal or professional data.
 
+## Current Phase 4 record
+
+[Phase 4 experiment record through November 5](PHASE4_EXPERIMENT_RECORD_2026-11-05.md)
+links the recovery, calibration, serving qualification, pilot and research-trial
+sequence to the append-only build log. It separates standalone request accounting,
+historical H4 attempts and Claude calibration charges, including failed and
+unresolved outcomes. H4/H5 acceptance remains unestablished.
+
 ## Registry row
 
 | Field | Meaning |

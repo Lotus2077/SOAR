@@ -32,18 +32,24 @@ agent runs on the owned device, and the priority order is privacy >= quality >
 savings > latency.
 
 **Owner direction, 2026-11-05 (BL-20261105-1821-owner-direction-equal-weights-new-model,
-corrected in BL-20261105-2016-correction-direction-and-review-entries).**
+corrected in BL-20261105-2016-correction-direction-and-review-entries and
+BL-20261105-1357-second-check-corrections-utc-reset).**
 Privacy, result quality and token cost now weigh equally. The local model does the
 volume work and the cloud takes only the hardest step. Public deep research targets
-Manus-level depth at a fraction of Manus's cost, and all later experiment design and
-steps must serve that goal. Later local work uses the owner's new endpoint, which
-stays unqualified until its serving card exists. This supersedes the priority order
-above, the line "Savings are descriptive only" and the "never as gates" status of
-USD per accepted job below, and the Stop row in §2, "Treating API savings as a
-design driver". OAJ stays the adoption north star; route decisions use the three
-columns.
-The privacy rule for labelled data and D15 are read as unchanged, pending the
-owner's confirmation. How to apply the direction is proposed, not approved, in the
+Manus-level depth at a fraction of Manus's cost. All later experiment design and
+steps must stick to the project's goal, which the owner states as "to preserve
+privacy while providing good results and saving tokens", the three weighed equally
+(the owner's standing instruction: "all following experiment design and steps should
+stick follow and stick to that goal"). Later local work uses the owner's new
+endpoint, which stays unqualified until its serving card exists. This supersedes the
+priority order above, which §8 also listed as kept from the privacy-first design,
+and the line "Savings are descriptive only" below. Pending the owner's confirmation (review
+§5.10, item 3), the direction is also read as superseding the "never as gates"
+status of USD per accepted job below and the first item of the W10 Stop row in §2,
+"Treating API savings as a design driver" (its second item, on the "Hybrid +4.93%"
+figure, stands), with OAJ kept as the adoption north star and route decisions made
+on the three columns, and as leaving the privacy rule for labelled data and D15
+unchanged. How to apply the direction is proposed, not approved, in the
 [2026-11-05 review](PROJECT_REVIEW_2026-11-05.md).
 
 The owner's own jobs, in priority order (2026-09-29):
@@ -1002,7 +1008,8 @@ or publication actions.
   the cheapest sufficient tier). Replaced: its SWE-rebench coding workload, by the
   owner's workload plus two coding tasks, run on the existing harness.
 - **[Privacy-first design](plans/MVP_PRIVACY_FIRST_AGENT_V1.md) (September 11).**
-  Kept: the goal, trusted-boundary rules and priority order. Superseded on
+  Kept: the goal and trusted-boundary rules, and its priority order until the
+  owner's 2026-11-05 direction replaced it with equal weight (§1). Superseded on
   approval: its Stage B/C/D ladder, and the four-family equal-certification framing.
 - **[Course correction](MVP_COMPLETION_AUDIT.md) and [handoff](HANDOFF.md)
   (September 14 and 28).** Kept: the diagnosis and the stop rules against unchanged

@@ -7,9 +7,11 @@ import { promisify } from "node:util";
 import type { SoarConfig } from "../config";
 import { GeneralTaskCreateInputSchema, GeneralTaskArtifactRefSchema, GeneralTaskIdSchema, GeneralTaskPublicSourcesSchema,
   GeneralTaskConsultationRefSchema, GeneralTaskConsultationDecisionSchema, GeneralTaskBundleRefSchema,
+  GeneralTaskVerdictInputSchema, GeneralTaskVerdictSchema,
   type GeneralTaskCreateInput, type GeneralTaskSnapshot, type GeneralTaskInputSelection, type GeneralTaskInputFile,
   type GeneralTaskAvailability, type GeneralTaskArtifactRef, type GeneralTaskPublicSources, type GeneralTaskBundleRef,
-  type GeneralTaskConsultationRef, type GeneralTaskConsultationDecision, type GeneralTaskConsultationPreview, type GeneralTaskEntailment } from "../../shared/general-task-contracts";
+  type GeneralTaskConsultationRef, type GeneralTaskConsultationDecision, type GeneralTaskConsultationPreview, type GeneralTaskEntailment,
+  type GeneralTaskVerdict, type GeneralTaskVerdictInput } from "../../shared/general-task-contracts";
 import { canonical, digest, exactText } from "../private-agent/contracts";
 import { PrivateAgentStore, UnknownRequestDiagnosticSchema } from "../private-agent/store";
 import { PrivateAgentBroker, isPublicAddress, type BrokerDestination } from "../private-agent/broker";
@@ -147,7 +149,14 @@ interface TaskRecord {
   publicSources?: GeneralTaskPublicSources;
   routing?: "ask_before_consulting";
   consultantIdentity?: string;
+  /** The owner's verdict on a submitted task (BL-20261107-0829-owner-verdict-capture-design); absent until recorded, never rewritten. */
+  verdict?: GeneralTaskVerdict;
 }
+/** The verdict receipt's key set: hashes, counts, enums and the verdict only. The registry writer refuses any other key. */
+export const VERDICT_RECEIPT_KEYS = Object.freeze(["version", "taskId", "taskJobSha256", "date", "profile", "thinking", "maxOutputTokens", "runStatus", "terminalCause",
+  "modelCalls", "toolCalls", "wallSeconds", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "usd",
+  "unknownDispatches", "retriedDispatches", "failedDispatches", "entailment", "arm", "verdict", "cloudModel", "cloudApi"] as const);
+export type VerdictReceipt = Record<typeof VERDICT_RECEIPT_KEYS[number], unknown>;
 interface Active { promise: Promise<void>; session?: GeneralAgentSession; consultation?: GeneralConsultation; abort: AbortController; pauseRequested: boolean; cancelRequested: boolean }
 export interface GeneralTaskControllerOptions {
   database: Database.Database;
@@ -226,10 +235,13 @@ export class GeneralTaskController {
         record.version === 3 && (record.routing !== "ask_before_consulting" || !/^[a-f0-9]{64}$/u.test(record.consultantIdentity ?? "")) ||
         record.version !== 3 && (record.routing !== undefined || record.consultantIdentity !== undefined)) throw new Error("general_task_record_invalid");
     if (record.publicSources !== undefined) GeneralTaskPublicSourcesSchema.parse(record.publicSources);
+    if (record.verdict !== undefined && !GeneralTaskVerdictSchema.safeParse(record.verdict).success) throw new Error("general_task_record_invalid");
     return record;
   }
-  private save(record: TaskRecord): void {
-    record.updatedAt = Date.now(); record.revision++;
+  /** `touch: false` keeps `updatedAt`: the version 3 elapsed-time projection reads it as the finish time, which the owner's later verdict must not move. */
+  private save(record: TaskRecord, { touch = true } = {}): void {
+    if (touch) record.updatedAt = Date.now();
+    record.revision++;
     this.options.database.prepare("UPDATE general_tasks SET value=? WHERE id=?").run(canonical(record), record.id);
   }
   private storageUnchanged(): void {
@@ -510,6 +522,7 @@ export class GeneralTaskController {
       canRetryCleanup: !this.closing && record.status === "cancelled" && !active && claim !== undefined && claim.state !== "released",
       cleanupInProgress: record.status === "cancelled" && active,
       independentAcceptance: "not_evaluated", canResume,
+      ...(record.verdict ? { verdict: structuredClone(record.verdict) } : {}),
       ...(record.profile ? { profile: record.profile } : {}), ...projectAgentText(events, contextId),
       ...(record.status === "submitted" ? { reportedIssues: reportedIssues(events, contextId, record.entailment) } : {}),
       events: events.map((event, i) => ({ sequence: i + 1, type: String(event.type), ...(actionDetail(events, event) ? { detail: actionDetail(events, event) } : {}),
@@ -719,6 +732,55 @@ export class GeneralTaskController {
       if (error instanceof Error && /^general_task_[a-z_]+$/u.test(error.message)) throw error;
       throw new Error("general_task_bundle_unavailable");
     }
+  }
+  /**
+   * The owner's verdict on a submitted task (review item 2, S12): recorded once, on a task with no active session, and
+   * never rewritten; a correction is a `supersedes` row written at the CLI. It is the OAJ mark, not independent acceptance.
+   */
+  recordVerdict(raw: GeneralTaskVerdictInput): GeneralTaskSnapshot {
+    const input = GeneralTaskVerdictInputSchema.parse(raw);
+    this.runtime.atomic(() => {
+      const record = this.record(input.id);
+      if (record.status !== "submitted" || this.active.has(input.id)) throw new Error("general_task_verdict_denied");
+      if (record.verdict) throw new Error("general_task_verdict_recorded");
+      record.verdict = { decision: input.decision, ownerMinutes: input.ownerMinutes, interventions: input.interventions, exportedThroughApp: input.exportedThroughApp, recordedAt: Date.now() };
+      this.save(record, { touch: false });
+    });
+    this.publish(input.id); return this.get(input.id);
+  }
+  /**
+   * The verdict receipt for `scripts/registry-row.py --verdict-file`: canonical JSON over VERDICT_RECEIPT_KEYS only. Hashes, counts,
+   * enums and the verdict; never the goal, a file name, a path, a URL or model text. Counts follow the registry writer: tokens and
+   * length stops from the writer's `model_finished` events (the entailment pass writes none, so it stays excluded), fees settled.
+   */
+  verdictReceipt(id: string): { bytes: Buffer; sha256: string } {
+    const record = this.record(id);
+    if (!record.verdict) throw new Error("general_task_verdict_missing");
+    if (this.active.has(id)) throw new Error("general_task_verdict_busy");
+    const snapshot = this.get(id), events = this.runtime.events(id), dispatches = this.runtime.dispatches(id);
+    const name = this.profileName(record), coordinator = COORDINATOR_PROFILES[name];
+    const finished = events.filter(event => event.type === "model_finished");
+    const usage = finished.map(event => (event.usage && typeof event.usage === "object" ? event.usage : {}) as Record<string, unknown>);
+    const sum = (key: string) => usage.reduce((total, item) => total + (Number.isFinite(Number(item[key] ?? 0)) ? Number(item[key] ?? 0) : 0), 0);
+    const counts = record.entailment?.counts;
+    const judged = counts ? counts.supported + counts.partial + counts.unsupported + counts.contradicted : 0;
+    const entailment = record.entailment ? { counts: { ...record.entailment.counts }, entailmentCalls: record.entailment.entailmentCalls, truncated: record.entailment.truncated,
+      supportRate: judged ? Math.round(record.entailment.counts.supported / judged * 1000) / 1000 : null } : null;
+    const consulted = readConsultation(this.runtime, id)?.status === "settled";
+    const receipt: VerdictReceipt = { version: 1, taskId: id, taskJobSha256: record.attestationIdentity,
+      date: new Date(record.startedAt ?? record.createdAt).toISOString().slice(0, 10), profile: name, thinking: coordinator.thinking, maxOutputTokens: coordinator.maxOutputTokens,
+      runStatus: record.status, terminalCause: record.reason, modelCalls: snapshot.modelCalls, toolCalls: snapshot.toolCalls, wallSeconds: Math.round(snapshot.elapsedMs / 100) / 10,
+      inputTokens: sum("inputTokens"), outputTokens: sum("outputTokens"), cachedTokens: sum("cacheReadTokens"), cacheWriteTokens: sum("cacheWriteTokens"),
+      lengthStops: finished.filter(event => event.finishReason === "length").length,
+      usd: dispatches.filter(row => row.status === "settled").reduce((total, row) => total + (row.feeMicrousd ?? 0), 0) / 1_000_000,
+      unknownDispatches: dispatches.filter(row => row.status === "unknown" || row.status === "committed").length,
+      retriedDispatches: dispatches.filter(row => row.status === "superseded").length, failedDispatches: dispatches.filter(row => row.status === "failed").length,
+      entailment, arm: `local-${name}${consulted ? "-consulted" : ""}`,
+      verdict: { decision: record.verdict.decision, ownerMinutes: record.verdict.ownerMinutes, interventions: record.verdict.interventions,
+        exportedThroughApp: record.verdict.exportedThroughApp, recordedAt: new Date(record.verdict.recordedAt).toISOString() },
+      cloudModel: null, cloudApi: null };
+    const bytes = Buffer.from(`${canonical(receipt)}\n`);
+    return { bytes, sha256: digest(bytes) };
   }
   async wait(id: string): Promise<void> { await this.active.get(id)?.promise; }
   async close(): Promise<void> {

@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { BrokerError } from "./broker";
 import { canonical, digest } from "./contracts";
-import { ModelRequestBodyTooLarge, type PrivateAgentModel } from "./model";
+import { DEADLINE_BEFORE_REQUEST_STOP, ModelRequestBodyTooLarge, type PrivateAgentModel } from "./model";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_VERSION, RESEARCH_PIPELINE_BUDGET, RESEARCH_COVERAGE_POLICY, RESEARCH_PRESENTATION_POLICY, type ResearchBudget } from "./research-contract";
 import { ResearchPlanSchema, ResearchEvidenceSchema, ResearchCoverageSchema, ResearchSynthesisSchema, deriveBriefUnits, inventoryResearchSources, validateReadyResearchPacket, renderResearchEvidence,
   normalizeQuoteText, locateChunkQuote, locateQuote, researchSourceText, type ResearchPlan, type ResearchCoverage, type ResearchEvidence } from "./research-coverage";
@@ -49,7 +49,9 @@ export interface ResearchStageCounts {
   unresolvedModelSummaries?: number; chunksPlanned?: number; chunksComplete?: number;
 }
 export interface ResearchSummary { version: number; protocolSha256: string; budget: ResearchBudget; stages: ResearchStageCounts[] }
-export interface ResearchPipelineInput { brief: string; sources: ResearchSource[]; models: ResearchModels; signal: AbortSignal; budget?: ResearchBudget; record: (event: ResearchStageCounts) => void }
+export interface ResearchPipelineInput { brief: string; sources: ResearchSource[]; models: ResearchModels; signal: AbortSignal; budget?: ResearchBudget; record: (event: ResearchStageCounts) => void;
+  /** The session's wall deadline in `performance.now()` milliseconds; set, a priced call that it could cut is not started (finding A8). Absent, no such check. */
+  deadlineMs?: number }
 export interface ResearchPipelineOutcome { status: "completed" | "incomplete"; reason: string; files: { path: string; bytes: Buffer }[]; summary: ResearchSummary }
 export function researchProtocolSha256(budget: ResearchBudget = RESEARCH_PIPELINE_BUDGET): string {
   return digest(canonical({ version: RESEARCH_PIPELINE_VERSION, prompts: { INDEX_SYSTEM, PLAN_SYSTEM, EXTRACT_SYSTEM, SYNTHESIS_SYSTEM, writer: researchWriteInstructions() },
@@ -94,6 +96,8 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const record = (counts: ResearchStageCounts) => { stages.push(counts); input.record(counts); };
   const call = async (model: PrivateAgentModel, system: string, user: unknown, maxOutputTokens: number, purpose: string, thinking: "disabled" | "model"): Promise<CallResult> => {
     if (input.signal.aborted) return { denied: "cancelled" };
+    // A priced call (a cloud planner or synthesiser) that the deadline could cut is not started: its row would stay uncertain.
+    if (input.deadlineMs !== undefined && model.deadlineRefuses(input.deadlineMs - performance.now())) return { denied: DEADLINE_BEFORE_REQUEST_STOP };
     try { const reply = await model.complete([{ role: "system", content: system }, { role: "user", content: canonical(user) }], [], input.signal,
       { ...(thinking === "disabled" ? { thinking: "disabled" as const } : {}), maxOutputTokens, purpose });
       const usage = reply.usage; return { content: reply.content, truncated: reply.finishReason === "length", usage: { inputTokens: usage?.inputTokens ?? 0, outputTokens: usage?.outputTokens ?? 0, cacheReadTokens: usage?.cacheReadTokens ?? 0, cacheWriteTokens: usage?.cacheWriteTokens ?? 0 } };

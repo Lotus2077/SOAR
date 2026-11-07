@@ -17,12 +17,27 @@ export const ANTHROPIC_ERROR_TYPES = ["invalid_request_error", "authentication_e
 /** Anthropic's opaque per-request id, recorded for reconciliation with the provider's console. */
 const anthropicRequestId = z.string().regex(/^req_[A-Za-z0-9]{1,128}$/u);
 /**
+ * The fixed host codes a settlement failure can carry as its sub-code (backlog item 1, finding B1): the reply decoders'
+ * codes (model.ts, anthropic.ts), the broker's own local-reply checks, and the store's fee settlement check. Anything else
+ * records `other`. Never an exception message or provider text. Absent on every row written before the field existed.
+ */
+export const SETTLEMENT_SUBCODES = ["private_model_response_invalid", "private_model_duplicate_tool_id", "model_usage_outside_envelope", "model_service_tier_mismatch",
+  "model_served_mismatch", "model_cache_ttl_mismatch", "model_inference_geo_mismatch", "model_speed_mismatch", "flash_next_reply_invalid", "local_reply_evidence_missing",
+  "local_token_admission_usage_mismatch", "private_agent_settlement_invalid", "other"] as const;
+export type SettlementSubcode = (typeof SETTLEMENT_SUBCODES)[number];
+/** Maps a settlement-phase exception to its fixed sub-code; an unlisted message, a non-Error or provider text becomes `other`. */
+export function settlementSubcode(error: unknown): SettlementSubcode {
+  const message = error instanceof Error ? error.message : "";
+  return (SETTLEMENT_SUBCODES as readonly string[]).includes(message) ? message as SettlementSubcode : "other";
+}
+/**
  * Fixed host diagnostics for a dispatch that did not settle. `connection_failed` (never sent) and `upstream_closed`
  * (the peer closed after the request was written) are confirmed aborts, as is a 5xx `http_rejected`; the rest leave
  * the upstream state uncertain. `attempt` numbers the tries of one recoverable packet. On the Anthropic destination only:
  * `errorType`, `spendCap` (the tier's monthly spend-cap code) and `spendLimit` (an owner-set spend limit, told apart
  * from a request-shape 400 by its fixed message prefix) come from a rejected request's error body, and `requestId` from
- * the response header; absent everywhere else, so older rows are unchanged.
+ * the response header; absent everywhere else, so older rows are unchanged. A settlement failure's `subcode` names the
+ * fixed host check that refused the reply or the fee (SETTLEMENT_SUBCODES); rows written before it exists have none.
  */
 export const UnknownRequestDiagnosticSchema = z.discriminatedUnion("phase", [
   z.object({ phase: z.literal("transport"),
@@ -32,25 +47,33 @@ export const UnknownRequestDiagnosticSchema = z.discriminatedUnion("phase", [
     requestId: anthropicRequestId.optional(),
     ...diagnosticTiming }).strict(),
   z.object({ phase: z.literal("settlement"),
-    code: z.enum(["response_or_usage_invalid", "fee_settlement_failed"]),
+    code: z.enum(["response_or_usage_invalid", "fee_settlement_failed"]), subcode: z.enum(SETTLEMENT_SUBCODES).optional(),
     attempt: z.number().int().min(1).max(3).optional(), requestId: anthropicRequestId.optional(),
     ...diagnosticTiming }).strict(),
 ]);
 export type UnknownRequestDiagnostic = z.infer<typeof UnknownRequestDiagnosticSchema>;
 /**
- * A transport failure that leaves nothing uncertain. Never sent, or answered with an error: confirmed for every
- * destination. Closed by the peer after the request was written (before or after a response started): confirmed
- * only for a zero-risk packet (a zero-fee local request or a public GET), which may have been executed but can be
- * re-sent without cost or side effect; for a priced or cloud destination it stays unknown.
+ * A failure that leaves nothing uncertain. Never sent, or answered with an error: confirmed for every destination. For
+ * a zero-risk packet (a zero-fee local request or a public GET without a grant), which may have been executed but can be
+ * re-sent without cost or side effect, every transport failure (a cut connection, a timeout, a cancel, an oversize or
+ * malformed reply) and every settlement failure (a reply or usage that fails validation, a zero fee that fails to
+ * settle) is confirmed too (backlog item 1 of the 2026-11-05 review: a zero-fee row is never `unknown`). For a priced or
+ * cloud destination everything but a non-dispatch or an error answer stays unknown, as before.
  */
 export function isConfirmedAbort(failure: UnknownRequestDiagnostic | undefined, zeroRisk = false): boolean {
-  if (failure?.phase !== "transport") return false;
-  if (failure.code === "connection_failed" || failure.code === "http_rejected") return true;
-  return zeroRisk && (failure.code === "upstream_closed" || failure.code === "response_interrupted" || failure.code === "stream_error");
+  if (failure === undefined) return false;
+  if (failure.phase === "transport" && (failure.code === "connection_failed" || failure.code === "http_rejected")) return true;
+  return zeroRisk;
 }
-/** Of the confirmed aborts of a zero-risk packet, only transient ones are worth another attempt; a 4xx other than 429 is deterministic. */
+/**
+ * Of the confirmed aborts of a zero-risk packet, only transient ones are worth another attempt: nothing sent, a peer close
+ * before or after the response started, or a 5xx or 429 answer (plain or as the stream's error chunk). A 4xx other than
+ * 429 is deterministic; a timeout, a cancel, an oversize or malformed reply and a settlement failure resolve `failed` at once.
+ */
 export function isRetryableAbort(failure: UnknownRequestDiagnostic | undefined): boolean {
-  return isConfirmedAbort(failure, true) && failure!.phase === "transport" && ((failure!.code !== "http_rejected" && failure!.code !== "stream_error") || (failure!.status ?? 0) >= 500 || failure!.status === 429);
+  if (failure?.phase !== "transport") return false;
+  if (failure.code === "connection_failed" || failure.code === "upstream_closed" || failure.code === "response_interrupted") return true;
+  return (failure.code === "http_rejected" || failure.code === "stream_error") && ((failure.status ?? 0) >= 500 || failure.status === 429);
 }
 /** `settled` has a response; `superseded` (retried) and `failed` (confirmed abort, no retry left) are resolved without one and never block the ledger. */
 export type DispatchStatus = "committed" | "settled" | "unknown" | "superseded" | "failed";

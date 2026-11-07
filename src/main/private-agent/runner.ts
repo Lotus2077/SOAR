@@ -6,7 +6,7 @@ import { PrivateAgentBroker, BrokerError, RETRY_WAIT_CANCELLED } from "./broker"
 import { LOCAL_TOKEN_ADMISSION_STOP, LocalTokenAdmissionError } from "./flash-next-admission";
 import { DockerSandbox, PRIVATE_SANDBOX_LIMITS, SandboxError, type SandboxExecution } from "./sandbox";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "./checkpoints";
-import { PrivateAgentModel, ModelRequestBodyTooLarge, MODEL_FEE_CAP_STOP, MODEL_REQUEST_SIZE_STOP, MODEL_UNAVAILABLE_STOP, modelRequestSizeStop, modelRequestFeeStop, modelRequestFailed, hasInvalidModelRequestSizeStop,
+import { PrivateAgentModel, ModelRequestBodyTooLarge, DEADLINE_BEFORE_REQUEST_STOP, MODEL_FEE_CAP_STOP, MODEL_REQUEST_SIZE_STOP, MODEL_UNAVAILABLE_STOP, modelRequestSizeStop, modelRequestFeeStop, modelRequestFailed, hasInvalidModelRequestSizeStop,
   type GeneralMessage, type GeneralToolDefinition, modelIdentity, modelRequestTokenAdmissionStop } from "./model";
 import { readPublicSources, readPublicSourceFiles, retainPublicSource, PUBLIC_SOURCE_OBSERVATION_BYTES } from "./public-sources";
 import { GeneralConsultation } from "./consultation";
@@ -431,6 +431,10 @@ export class GeneralAgentRunner {
             publicFetches()) }) };
         if (!budget.remainingActiveMs) return finish("incomplete", "cancelled_or_deadline");
         if (!budget.remainingBrokerRequests) return finish("incomplete", "bounded_allowance_exhausted");
+        // Finding A8 (backlog item 1): a request the deadline could cut is not started when less time remains than its transport
+        // allows, unless it is zero-risk, whose row the deadline then resolves `failed`; a priced or cloud row would stay uncertain
+        // with its reservation pinned. Nothing is recorded or sent, so nothing is left to replay.
+        if (model.deadlineRefuses(budget.remainingActiveMs)) return finish("incomplete", DEADLINE_BEFORE_REQUEST_STOP);
         // Derive the same bounded view from immutable host observations on each
         // turn and after restart. Never mutate the saved conversation itself.
         const projected = projectExecutionObservations(observationScope, messages, layout.observationPolicyVersion);
@@ -473,16 +477,15 @@ export class GeneralAgentRunner {
               maxFeeMicrousd: store.policy(jobId).maxFeeMicrousd, settledFeeMicrousd });
             return finish("incomplete", MODEL_FEE_CAP_STOP);
           }
-          // A cancel or deadline during the Anthropic destination's retry wait: every row is resolved, so the operation is
-          // closed like a confirmed abort, but the run ends as cancelled, not as an unavailable model (BL-20261030-0620).
-          if (error instanceof BrokerError && error.code === RETRY_WAIT_CANCELLED) {
+          // Every attempt ended in a confirmed abort: no row is unknown and the operation is closed. A stop the host asked for
+          // ends the run as such: a pause mid-request pauses it, and a cancel or the deadline (also one that arrived during the
+          // Anthropic destination's retry wait, BL-20261030-0620) ends it as cancelled. Any other confirmed failure of a
+          // zero-fee call (a timeout, a cut connection, an invalid reply; backlog item 1) leaves the task resumable.
+          if (error instanceof BrokerError && (error.code === "request_failed" || error.code === RETRY_WAIT_CANCELLED)) {
             this.record({ type: "model_request_failed", operationId, promptProtocolSha256, reason: MODEL_UNAVAILABLE_STOP, dispatched: true });
-            return finish("incomplete", "cancelled_or_deadline");
-          }
-          // Every attempt ended in a confirmed abort: no row is unknown, the operation is closed, and the task can resume later.
-          if (error instanceof BrokerError && error.code === "request_failed") {
-            this.record({ type: "model_request_failed", operationId, promptProtocolSha256, reason: MODEL_UNAVAILABLE_STOP, dispatched: true });
-            return finish("incomplete", MODEL_UNAVAILABLE_STOP);
+            if (this.pauseRequested) { this.record({ type: "paused" }); return finish("paused", "checkpoint_saved"); }
+            const stopped = error.code === RETRY_WAIT_CANCELLED || boundedSignal.aborted || store.policy(jobId).cancelled || remainingActiveMs() <= 0;
+            return finish("incomplete", stopped ? "cancelled_or_deadline" : MODEL_UNAVAILABLE_STOP);
           }
           throw error;
         }
@@ -648,8 +651,10 @@ export class GeneralAgentRunner {
           output = canonical(invalidExecuteAtOutputLimit ? outputLimitFeedback(model.config.maxOutputTokens) :
             error instanceof InvalidToolArguments ? argumentFeedback(error.tool) :
               error instanceof Error && error.message === "public_fetch_limit_reached" ? { error: "public_fetch_limit_reached", completed: false, actionInvoked: false } :
+              // A resolved fetch failure: every attempt ended confirmed (an error answer, a cut connection, a timeout, an oversize reply or a
+              // cancel on this zero-risk GET; backlog item 1), nothing is uncertain and nothing is replayed.
               error instanceof BrokerError && error.code === "request_failed" ? { error: "public_fetch_failed", completed: false, actionInvoked: true,
-                instruction: "The source could not be retrieved after the permitted attempts. State the resulting evidence limit or use another permitted source; do not invent its content." } :
+                instruction: "The source could not be retrieved: the request failed, timed out or was cut before a usable reply arrived, and it is not retried. State the resulting evidence limit or use another permitted source; do not invent its content." } :
                 { error: "action_failed_or_not_permitted", completed: false });
         }
         if (executionResult) {

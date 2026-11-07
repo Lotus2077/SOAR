@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BROKER_MAX_BODY_BYTES, PrivateAgentBroker, BrokerError } from "../../src/main/private-agent/broker";
+import { BROKER_MAX_BODY_BYTES, PrivateAgentBroker, BrokerError, RETRY_WAIT_CANCELLED } from "../../src/main/private-agent/broker";
 import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel, type GeneralMessage, type PrivateModelConfig } from "../../src/main/private-agent/model";
@@ -25,7 +25,7 @@ type Action = { name: string; arguments: string; outputTokens?: number; reply?: 
 const write: Action = { name: "execute", arguments: '{"command":"write result"}' };
 const finish: Action = { name: "finish", arguments: '{"summary":"Artifacts are ready for host checks."}' };
 
-function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "maxModelCalls" | "maxToolCalls" | "maxElapsedMs">> & { maxRequests?: number; checkExitCode?: number; toolStdout?: string; claimsLedger?: boolean; phase?: SessionPhase } = {}) {
+function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "maxModelCalls" | "maxToolCalls" | "maxElapsedMs">> & { maxRequests?: number; checkExitCode?: number; toolStdout?: string; claimsLedger?: boolean; phase?: SessionPhase; priced?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "soar-runner-budget-"));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const dbPath = join(directory, "state.sqlite"), db = new Database(dbPath); cleanup.push(() => db.close());
@@ -43,7 +43,7 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
     accountId: "fixture", credentialVersion: 0, privateDataAdmitted: true, loopbackFixture: true, maxResponseBytes: 65536, timeoutMs: 1000 }],
   { scan: async () => { throw new Error("No scanner or transport is allowed in this unit fixture."); } });
   const model = new PrivateAgentModel(broker, { destinationId: "model", model: "synthetic", maxOutputTokens: 4096,
-    inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" }, jobId, contextId);
+    inputUsdPerMillion: limits.priced ? 2 : 0, outputUsdPerMillion: limits.priced ? 10 : 0, thinking: "disabled" }, jobId, contextId);
   const options: GeneralJobOptions = { jobId, contextId, store, broker, model, files, contract,
     ...(limits.phase?.initialEvidence ? { initialEvidence: limits.phase.initialEvidence } : {}),
     imageId: `sha256:${"a".repeat(64)}`, checkpoints: new PrivateCheckpointStore(join(directory, "checkpoints"), jobId),
@@ -929,6 +929,48 @@ describe("general runner recoverable dispatch (PR-C)", () => {
     g.complete.mockImplementationOnce(async () => { throw new BrokerError("transport_or_settlement_unknown"); });
     expect((await new GeneralAgentRunner(g.options).run()).reason).toBe("runtime_failure_progress_preserved");
     expect((await new GeneralAgentRunner(g.options).run()).reason).toBe("unresolved_operation_no_replay");
+  });
+  it("ends a zero-fee call the host stopped mid-request as cancelled or paused, not as an unavailable model (backlog item 1)", async () => {
+    // A cancel: the broker resolves the row `failed` with code `cancelled` and reports request_failed; the job is cancelled.
+    const cancelled = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    cancelled.complete.mockImplementationOnce(async () => { cancelled.options.broker.cancelJob(cancelled.options.jobId); throw new BrokerError("request_failed"); });
+    expect(await new GeneralAgentRunner(cancelled.options).run()).toMatchObject({ status: "incomplete", reason: "cancelled_or_deadline", modelCalls: 1 });
+    expect(cancelled.options.store.events(cancelled.options.jobId).find(row => row.type === "model_request_failed")).toMatchObject({ reason: "model_unavailable", dispatched: true });
+    expect(cancelled.options.store.dispatches(cancelled.options.jobId).every(row => row.status !== "unknown" && row.status !== "committed")).toBe(true);
+    // The deadline: the shared allowance ran out during the request.
+    const deadline = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    deadline.complete.mockImplementationOnce(async () => { deadline.advance(10_001); throw new BrokerError("request_failed"); });
+    expect(await new GeneralAgentRunner(deadline.options).run()).toMatchObject({ status: "incomplete", reason: "cancelled_or_deadline", modelCalls: 1 });
+    expect(deadline.options.store.events(deadline.options.jobId).some(row => row.type === "model_request_failed")).toBe(true);
+    // A pause: the run pauses with the operation closed, and the resumed run completes with the next scripted reply.
+    const paused = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    const runner = new GeneralAgentRunner(paused.options);
+    paused.complete.mockImplementationOnce(async () => { runner.pause(); throw new BrokerError("request_failed"); });
+    expect(await runner.run()).toMatchObject({ status: "paused", reason: "checkpoint_saved", modelCalls: 1 });
+    expect(paused.options.store.events(paused.options.jobId).filter(row => row.type === "paused")).toHaveLength(1);
+    expect(await new GeneralAgentRunner(paused.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed" });
+    expect(paused.requests).toHaveLength(2);
+    // The Anthropic destination's cancelled retry wait keeps its own code and the same outcome.
+    const waited = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    waited.complete.mockImplementationOnce(async () => { throw new BrokerError(RETRY_WAIT_CANCELLED); });
+    expect(await new GeneralAgentRunner(waited.options).run()).toMatchObject({ status: "incomplete", reason: "cancelled_or_deadline" });
+    expect(waited.options.store.events(waited.options.jobId).some(row => row.type === "model_request_failed")).toBe(true);
+  });
+  it("does not start a priced request when less time remains than its transport allows, but lets a zero-fee one proceed (finding A8)", async () => {
+    // The destination's timeout is 1,000 ms; the shared session deadline leaves about 500 ms.
+    const priced = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4, priced: true });
+    priced.options.sessionDeadlineMs = 500;
+    expect(await new GeneralAgentRunner(priced.options).run()).toMatchObject({ status: "incomplete", reason: "deadline_before_request", modelCalls: 0 });
+    expect(priced.requests).toEqual([]); expect(priced.options.store.dispatches(priced.options.jobId)).toEqual([]);
+    expect(priced.options.store.events(priced.options.jobId).some(row => row.type === "model_started")).toBe(false);
+    // With time to spare the same priced model is dispatched.
+    const roomy = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4, priced: true });
+    expect(await new GeneralAgentRunner(roomy.options).run()).toMatchObject({ status: "completed" });
+    // A zero-fee request is zero-risk: the deadline would resolve its row `failed`, so it is still started.
+    const free = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    free.options.sessionDeadlineMs = 500;
+    const result = await new GeneralAgentRunner(free.options).run();
+    expect(result.reason).not.toBe("deadline_before_request"); expect(free.requests.length).toBeGreaterThanOrEqual(1);
   });
 });
 

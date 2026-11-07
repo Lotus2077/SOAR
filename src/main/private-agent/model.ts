@@ -61,6 +61,11 @@ export function modelRequestTokenAdmissionStop(events: Record<string, unknown>[]
 }
 
 export const MODEL_UNAVAILABLE_STOP = "model_unavailable";
+/**
+ * Backlog item 1 (finding A8): the time left was shorter than the destination's request timeout, so a request that the
+ * deadline could cut, and whose row would then stay uncertain, was not started. Nothing was recorded or sent.
+ */
+export const DEADLINE_BEFORE_REQUEST_STOP = "deadline_before_request";
 
 const failedRequestSchema = z.object({
   type: z.literal("model_request_failed"), contextId: privateAgentId, operationId: z.string().uuid(),
@@ -287,6 +292,21 @@ export class PrivateAgentModel {
     }
     this.config = Object.freeze({ ...config, maxRequestBytes, ...(config.sampling ? { sampling: Object.freeze({ ...config.sampling }) } : {}),
       ...(config.longContext ? { longContext: Object.freeze({ ...config.longContext }) } : {}) });
+  }
+
+  /**
+   * Pre-dispatch guard for finding A8 (backlog item 1): true when less time remains than the destination's request timeout
+   * and the call would not be zero-risk at the broker (a priced reservation, or any cloud destination), so a deadline cut
+   * would leave an `unknown` row with its reservation pinned. A zero-risk call is never refused here: the deadline then
+   * resolves its row `failed`. The reservation is zero exactly when every configured rate is zero, since the prompt bound
+   * and the output tokens are always positive.
+   */
+  deadlineRefuses(remainingMs: number): boolean {
+    const long = this.config.longContext;
+    const zeroFee = this.config.inputUsdPerMillion === 0 && this.config.outputUsdPerMillion === 0 && (this.config.cacheWriteUsdPerMillion ?? 0) === 0 &&
+      (long === undefined || (long.inputUsdPerMillion === 0 && long.outputUsdPerMillion === 0 && (long.cacheWriteUsdPerMillion ?? 0) === 0));
+    return remainingMs < this.broker.requestTimeoutMs(this.config.destinationId) &&
+      !this.broker.zeroRiskDispatch({ destinationId: this.config.destinationId, maxFeeMicrousd: zeroFee ? 0 : 1, method: "POST" });
   }
 
   /** Host-side calls (the entailment judge) narrow the same destination to thinking off and a short reply; they never widen anything. */

@@ -93,3 +93,15 @@ export function restrictedContext(context: PrivateAgentContext): boolean {
 export function syntheticContext(context: PrivateAgentContext): boolean {
   return context.sources.every(source => source.classification === "public" || (source.classification === "private" && source.synthetic));
 }
+
+/**
+ * Backlog item 4 (review finding F3): the retention tier for model-text diagnostics. Raw rejected replies and their full
+ * validation detail may be kept only for a context whose every source is public or carries the synthetic attestation (the
+ * same predicate that admits a synthetic-only destination); one labelled source makes the whole context hash-only. Context
+ * taint is monotonic (store.addSources only adds), so a labelled context never becomes raw later. This is the single seam
+ * that review item 15's labels (P1) will replace.
+ */
+export type DiagnosticRetention = "raw" | "hash_only";
+export function diagnosticRetention(context: PrivateAgentContext): DiagnosticRetention {
+  return syntheticContext(context) ? "raw" : "hash_only";
+}

@@ -11,6 +11,7 @@ import type { GeneralMessage } from "../../src/main/private-agent/model";
 import { EXECUTION_OBSERVATION_MAX_BYTES, EXECUTION_OBSERVATION_BUDGET_BYTES, EXECUTION_OBSERVATION_DEMOTE_TO_BYTES, ObservationIntegrityError,
   retainExecutionObservation, readExecutionObservation, projectExecutionObservations, verifyExecutionObservations, executionObservationPolicyIdentity,
   readObservationArguments, type ExecutionObservationScope, type ExecutionObservationReference, type ExecutionObservationPolicyVersion } from "../../src/main/private-agent/observations";
+import { SANDBOX_TOOL_ERROR_CODES, TOOL_ERROR_FEEDBACK } from "../../src/main/private-agent/tool-errors";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const fn of cleanups.splice(0).reverse()) fn(); });
@@ -214,6 +215,29 @@ describe("retained bounded execution observations", () => {
     const f = fixture(); vi.spyOn(f.checkpoints, "save").mockImplementation(() => { throw new Error("private filesystem diagnostic"); });
     expect(() => retainExecutionObservation(f.checkpoints, { jobId: f.jobId, contextId: f.contextId, operationId: randomUUID(), toolCallId: randomUUID(), result: { exitCode: 0, stdout: "returned", stderr: "" } })).toThrow(ObservationIntegrityError);
     expect(f.events().filter(e => e.type === "tool_finished")).toEqual([]);
+  });
+
+  it("accepts the fixed sandbox objects for an execute the sandbox refused or lost and the fixed read refusals, byte for byte, and nothing near them (backlog item 3)", () => {
+    const f = fixture();
+    const record = (name: string, output: string, capture: Record<string, unknown>) => {
+      const operationId = randomUUID(), toolCallId = randomUUID();
+      f.store.append(f.jobId, { type: "tool_started", contextId: f.contextId, operationId, toolCallId, name });
+      f.store.append(f.jobId, { type: "tool_finished", contextId: f.contextId, operationId, toolCallId, ...capture, invalidExecuteAtOutputLimit: false, allowanceFinalizationEligible: false, output });
+    };
+    for (const code of SANDBOX_TOOL_ERROR_CODES) record("execute", canonical(TOOL_ERROR_FEEDBACK[code]), { executionCapture: "unavailable" });
+    record("execute", canonical(TOOL_ERROR_FEEDBACK.execution_context_unavailable), { executionCapture: "not_invoked" });
+    for (const code of ["observation_not_authorized", "observation_range_invalid", "execution_context_unavailable"] as const) record("read_observation", canonical(TOOL_ERROR_FEEDBACK[code]), { observationCapture: "not_invoked" });
+    expect(() => verifyExecutionObservations(f.scope)).not.toThrow();
+    const lastExecute = (rows: Record<string, any>[], capture: string) => rows.filter(row => row.type === "tool_finished" && row.executionCapture === capture).at(-1)!;
+    for (const mutate of [
+      (rows: Record<string, any>[]) => { rows.at(-1)!.output = canonical({ ...TOOL_ERROR_FEEDBACK.observation_not_authorized, instruction: "altered" }); },
+      (rows: Record<string, any>[]) => { rows.at(-1)!.output = canonical(TOOL_ERROR_FEEDBACK.sandbox_busy); },
+      (rows: Record<string, any>[]) => { rows.at(-1)!.allowanceFinalizationEligible = true; },
+      (rows: Record<string, any>[]) => { lastExecute(rows, "unavailable").output = canonical(TOOL_ERROR_FEEDBACK.tool_unknown); },
+      (rows: Record<string, any>[]) => { lastExecute(rows, "unavailable").output = canonical({ ...TOOL_ERROR_FEEDBACK.sandbox_unavailable, actionInvoked: false }); },
+      (rows: Record<string, any>[]) => { lastExecute(rows, "not_invoked").output = canonical(TOOL_ERROR_FEEDBACK.sandbox_unavailable); },
+      (rows: Record<string, any>[]) => { lastExecute(rows, "not_invoked").output = canonical({ error: "action_failed_or_not_permitted", completed: false }); },
+    ]) expect(() => verifyExecutionObservations(f.altered(mutate))).toThrow(ObservationIntegrityError);
   });
 });
 

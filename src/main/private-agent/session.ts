@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { canonical, contextFingerprint, digest, privateAgentId, type PrivateAgentSource } from "./contracts";
+import { canonical, contextFingerprint, diagnosticRetention, digest, privateAgentId, type PrivateAgentSource } from "./contracts";
 import type { PrivateAgentStore } from "./store";
 import type { PrivateAgentBroker } from "./broker";
 import type { PrivateCheckpointStore, WorkspaceSnapshot } from "./checkpoints";
@@ -10,7 +10,7 @@ import type { GeneralConsultation } from "./consultation";
 import { readPublicSourceFiles } from "./public-sources";
 import { ClaimsVerifiedSchema, ENTAILMENT_MAX_MS, ENTAILMENT_PROMPT_VERSION, ENTAILMENT_SYSTEM_PROMPT, isEntailmentDispatch, judgeClaims, publicSourceWorkspacePath, type EntailmentOutcome } from "./claims";
 import { isBlockingDispatch, isResolvedDispatch } from "./store";
-import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchBudgetTotal, researchProtocolSha256, researchWriteInstructions, runResearchPipeline, type ResearchBudget, type ResearchModels } from "./research-pipeline";
+import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchBudgetTotal, researchProtocolSha256, researchWriteInstructions, runResearchPipeline, type ResearchBudget, type ResearchDiagnosticsSink, type ResearchModels } from "./research-pipeline";
 import { validateReadyResearchPacket } from "./research-coverage";
 import { buildResearchPresentation, researchPresentationIdentity, validateResearchPresentation, type ResearchPresentationV1 } from "./research-presentation";
 import { createResearchInput, createResearchProducer, validateResearchProducer } from "./research-producer";
@@ -58,7 +58,13 @@ export interface GeneralSessionOptions {
    * H2b/H2c: a host-run research stage (index, plan, verified extraction, synthesis) before the write phase, in its own
    * reader context. The planner and synthesiser may be a cloud model only where the job's lineage admits one.
    */
-  research?: { models: (contextId: string) => ResearchModels; budget?: ResearchBudget };
+  research?: { models: (contextId: string) => ResearchModels; budget?: ResearchBudget;
+    /**
+     * Backlog item 4: a sink for the stage's rejected or truncated replies. Forwarded to the pipeline only while the reader
+     * context's retention is `raw` (contracts.ts, `diagnosticRetention`: every source public or synthetic-attested); no part
+     * of the session identity; the desktop passes none.
+     */
+    diagnostics?: ResearchDiagnosticsSink };
 }
 export interface GeneralSessionResult {
   status: "submitted" | "paused" | "incomplete";
@@ -378,9 +384,11 @@ export class GeneralAgentSession {
           // Sources: the job's input files and, after a public phase, the host-retained fetches (cited by URL, as the claims check expects).
           this.stageAbort = new AbortController();
           let outcome: Awaited<ReturnType<typeof runResearchPipeline>>;
+          // Backlog item 4: raw replies may leave the pipeline only for a reader context that is wholly public or synthetic-attested, read from the store at this moment.
+          const diagnostics = options.research.diagnostics && diagnosticRetention(store.context(readerContextId)) === "raw" ? options.research.diagnostics : undefined;
           try {
             outcome = await runResearchPipeline({ brief: privatePhase.contract.goal, sources, models: researchModels, signal: AbortSignal.any([boundedSignal, this.stageAbort.signal]), budget: options.research.budget,
-              deadlineMs: sessionDeadlineMs, record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }) });
+              deadlineMs: sessionDeadlineMs, record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }), ...(diagnostics ? { diagnostics } : {}) });
           } finally { this.stageAbort = undefined; }
           if (policyChanged()) return result("incomplete", policyReason());
           if (outcome.status !== "completed") return result(this.pauseRequested ? "paused" : "incomplete", outcome.reason);

@@ -61,7 +61,7 @@ const fixedReasons: Record<string, string> = {
   model_unavailable: "The local model could not be reached after the permitted attempts. Nothing is uncertain; resume when the model is back.",
   public_model_unavailable: "The local model could not be reached during public retrieval after the permitted attempts. Nothing is uncertain; resume when the model is back.",
   packet_scan_unavailable: "The scanner that checks an outbound request was unavailable, so the next model request was not sent. Nothing is uncertain; resume when the scanner is available.",
-  model_request_denied: "The broker refused the next model request before it was sent (a destination or packet rule), so nothing is uncertain. Saved progress is retained; this task cannot resume.",
+  model_request_denied: "The broker refused the next model request before it was sent (a destination, packet or ledger rule), so nothing is uncertain. Saved progress is retained; this task cannot resume.",
   cleanup_in_progress: "The task remains cancelled while its interrupted execution workspace is cleaned up. No request will be replayed.",
   cleanup_blocked: "Cancellation is recorded, but interrupted execution cleanup could not be confirmed. No request will be replayed.",
   consultation_pending: "Progress saved. Review the exact consultation packet before deciding whether to send it.",
@@ -529,7 +529,10 @@ export class GeneralTaskController {
           progressStopped && canonical(event) === canonical(progressStopped) ? "The unchanged failed command was stopped before execution." :
             "The action stop could not be verified; replay is blocked." : event.type === "model_request_not_dispatched" && event.reason === LOCAL_TOKEN_ADMISSION_STOP ?
               "The next local-model request failed its context or deployment checks and was not sent." : event.type === "model_request_not_dispatched" && event.reason === BROKER_DENIED_STOP ?
-                "The broker refused the next model request before it was sent; nothing is uncertain." : event.type === "nudge" && event.kind === "length" ? "The reply was cut at the output limit; the host asked for smaller writes." : summaries[String(event.type)] ?? "Task state updated." })) };
+                "The broker refused the next model request before it was sent; nothing is uncertain." : event.type === "nudge" && event.kind === "length" ? "The reply was cut at the output limit; the host asked for smaller writes." :
+                  // A validation the host closed without a verifier result (BL-20261107-0901 A; BL-20261107-1041, 12) recorded no checks.
+                  event.type === "host_validation_finished" && event.passed === false && (event.verificationFailure !== undefined || event.captureFailure !== undefined) ?
+                    "The frozen artifact could not be verified; the validation is closed and nothing is uncertain." : summaries[String(event.type)] ?? "Task state updated." })) };
   }
   list(): GeneralTaskSnapshot[] { return this.records().map(record => this.get(record.id)); }
 

@@ -12,7 +12,7 @@ export const GENERIC_TOOL_FAILURE = Object.freeze({ error: "action_failed_or_not
 
 /** The host's own refusals: thrown by the runner and the observation module, mapped to their fixed object in the action catch. */
 export const HOST_TOOL_ERROR_CODES = ["tool_unknown", "destination_denied", "consultation_unavailable", "observation_not_authorized", "observation_range_invalid",
-  "public_fetch_limit_reached", "path_invalid", "execution_context_unavailable"] as const;
+  "public_fetch_limit_reached", "path_invalid", "execution_context_unavailable", "verification_unavailable"] as const;
 export type HostToolErrorCode = (typeof HOST_TOOL_ERROR_CODES)[number];
 export type SandboxToolErrorCode = `sandbox_${SandboxErrorCode}`;
 export type ToolErrorCode = HostToolErrorCode | SandboxToolErrorCode;
@@ -38,9 +38,12 @@ export const TOOL_ERROR_FEEDBACK: Readonly<Record<ToolErrorCode, ToolErrorFeedba
   public_fetch_limit_reached: feedback("public_fetch_limit_reached", undefined, false),
   path_invalid: feedback("path_invalid", "The sandbox refused that path; nothing was changed. Use a workspace-relative path without a leading slash, '.', '..' or empty parts, at most 32 parts and 240 bytes, with no control characters or backslashes.", false),
   execution_context_unavailable: feedback("execution_context_unavailable", "The execution container could not be prepared from the last checkpoint, so nothing was invoked. The host tries again on the next action; repeat it.", false),
+  // A finish whose capture succeeded but whose verifier did not run (BL-20261107-1006, 5): the capture is the latest checkpoint, nothing is lost.
+  verification_unavailable: feedback("verification_unavailable", "The workspace was captured and is retained as the latest checkpoint, so nothing since the capture was lost, but the host could not run verification (the container could not be released, or the verifier could not be started, failed or was stopped), so completion is not established. Call finish again to verify."),
   sandbox_invalid_input: feedback("sandbox_invalid_input", "The sandbox refused the command before running it: a command must be valid UTF-8 without NUL characters and at most 65536 bytes. Nothing was executed.", false),
   sandbox_busy: feedback("sandbox_busy", "The sandbox was busy with another host operation; nothing was executed. Repeat the action.", false),
-  sandbox_unusable: feedback("sandbox_unusable", `The execution container was no longer usable, so nothing was executed. ${RECREATED}`, false),
+  // Thrown before a call and after one returned (the container became unusable during it), so whether the action ran is not stated (BL-20261107-1006, 6).
+  sandbox_unusable: feedback("sandbox_unusable", `The execution container was no longer usable when the action was handled, and the host cannot tell whether the action ran. ${RECREATED} Redo the action and verify its result.`),
   sandbox_unavailable: feedback("sandbox_unavailable", `The container runtime failed during the action, and the host cannot tell whether the action ran. ${RECREATED} Redo the action and verify its result.`),
   sandbox_command_timeout: feedback("sandbox_command_timeout", `The action exceeded the host's deadline and was stopped; its effects may be partial. ${RECREATED}`, true),
   sandbox_cancelled: feedback("sandbox_cancelled", `The action was stopped by a host cancel or deadline, and the host cannot tell how far it ran. ${RECREATED}`),

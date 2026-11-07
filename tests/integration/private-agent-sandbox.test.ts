@@ -156,6 +156,18 @@ describe.skipIf(!enabled)("real credential-free isolated private-agent tools", (
     } finally { await sandbox.close(); }
   }, 60_000);
 
+  it("counts a name that is not valid UTF-8 as name_invalid inside the container, names nothing and keeps the container usable (BL-20261107-1006, 2)", async () => {
+    const jobId = randomUUID(), sandbox = await make(jobId, [{ path: "source", bytes: Buffer.from("synthetic") }]);
+    try {
+      const command = "printf x > \"$(printf 'bad\\377name')\" && mkdir \"$(printf 'dir\\377')\" && printf y > \"$(printf 'dir\\377')/inner\"";
+      expect((await sandbox.execute(command, { timeoutMs: 5000 })).exitCode).toBe(0);
+      expect(await sandbox.listFiles()).toEqual({ files: [{ path: "source", size: 9 }], omitted: [],
+        counts: { symlink: 0, hard_link: 0, special: 0, oversize: 0, name_invalid: 2, cap: 0 }, complete: true });
+      expect(await sandbox.execute("echo alive", { timeoutMs: 5000 })).toMatchObject({ exitCode: 0, stdout: "alive\n" });
+      expect(await containers(jobId)).toHaveLength(1);
+    } finally { await sandbox.close(); }
+  }, 60_000);
+
   it("kills observed command descendants on cancel and confirms cleanup", async () => {
     const jobId = randomUUID(), sandbox = await make(jobId), controller = new AbortController();
     try {

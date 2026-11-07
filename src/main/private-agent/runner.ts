@@ -153,15 +153,19 @@ const PUBLIC_FETCH_FAILED = Object.freeze({ error: "public_fetch_failed", comple
   instruction: "The source could not be retrieved: the request failed, timed out or was cut before a usable reply arrived, and it is not retried. State the resulting evidence limit or use another permitted source; do not invent its content." });
 /**
  * The fixed object an action's failure returns to the model (BL-20261107-0901, E): the argument feedback, the host's own refusals and the
- * sandbox codes, each a host constant; the generic object stays the fallback for an unclassified error. `contextReady` is false when the
- * container could not be recreated before the action, so a sandbox failure then means nothing was invoked.
+ * sandbox codes, each a host constant; the generic object stays the fallback for an unclassified error. `contextReady` is false until the
+ * container was recreated before the action, and that recreation (the checkpoint read and the create) is the only code that runs before
+ * then, so any failure while it is false means nothing was invoked, whatever the error's class (BL-20261107-1006, 1).
  */
 function toolFailureFeedback(error: unknown, tool: string, contextReady: boolean, invalidExecuteAtOutputLimit: boolean, maxOutputTokens: number): Record<string, unknown> | ToolErrorFeedback {
+  if (!contextReady) return TOOL_ERROR_FEEDBACK.execution_context_unavailable;
   if (invalidExecuteAtOutputLimit) return outputLimitFeedback(maxOutputTokens);
   if (error instanceof InvalidToolArguments) return argumentFeedback(error.tool);
   if (error instanceof ToolError) return TOOL_ERROR_FEEDBACK[error.code];
   if (error instanceof SandboxError) {
-    const code: ToolErrorCode = !contextReady ? "execution_context_unavailable" : error.code === "invalid_input" && EDIT_TOOLS.has(tool) ? "path_invalid" : `sandbox_${error.code}`;
+    // An edit tool's `invalid_input` is the path rule alone: the argument schemas keep content at or under 32,768 UTF-16 units (98,304 bytes),
+    // `old` non-empty and a replace at or under 196,608 bytes combined, all below the sandbox's size rules (BL-20261107-1006, 9).
+    const code: ToolErrorCode = error.code === "invalid_input" && EDIT_TOOLS.has(tool) ? "path_invalid" : `sandbox_${error.code}`;
     return TOOL_ERROR_FEEDBACK[code];
   }
   if (error instanceof BrokerError && error.code === "request_failed") return PUBLIC_FETCH_FAILED;
@@ -170,25 +174,36 @@ function toolFailureFeedback(error: unknown, tool: string, contextReady: boolean
 
 /** Why a workspace capture failed (BL-20261107-0901, A): a fixed code only; the original error is kept for the outer catch. */
 type CaptureFailureCode = `sandbox_${SandboxErrorCode}` | "checkpoint_write_failed" | "capture_failed";
+/** Why an allowance-path validation closed without a verifier result (BL-20261107-1041, 12): a fixed code only. */
+type VerificationFailureCode = `sandbox_${SandboxErrorCode}` | "cancelled_or_deadline" | "verification_failed";
 /** What a successful capture left out of the checkpoint, from the lister's report plus the runner's total cap. */
 interface CaptureOmissions { total: number; reasons: Partial<Record<WorkspaceOmissionReason, number>>; paths: string[]; complete: boolean }
 type CaptureOutcome = { ok: true; snapshot: WorkspaceSnapshot; files: { path: string; bytes: Buffer }[]; omitted?: CaptureOmissions }
   | { ok: false; code: CaptureFailureCode; error: unknown };
-/** The broker refusals that would recur on every later run; a run that finds one in its history ends the same way (BL-20261107-0901, D). */
-const DENIED_WITHOUT_RESUME: ReadonlySet<BrokerDenialCode> = new Set<BrokerDenialCode>(["packet_scan_incomplete_or_blocked", "packet_size_exceeded", "destination_missing"]);
+/**
+ * The broker refusals that would recur on every later run (a blocked scan, a size excess, a missing destination, and a cloud call after an
+ * assist whose row stayed unknown, which nothing resolves today); a run that finds one in its history ends the same way (BL-20261107-0901, D;
+ * BL-20261107-1006, 3).
+ */
+const DENIED_WITHOUT_RESUME: ReadonlySet<BrokerDenialCode> = new Set<BrokerDenialCode>(["packet_scan_incomplete_or_blocked", "packet_size_exceeded", "destination_missing", "cloud_after_assist_unknown"]);
 /**
  * The host notice that follows a tool result whose capture failed or left entries out: a pure function of the recorded `tool_finished`
- * fields, so the live turn and every replay send the same user message. Host-authored, never bound into the prompt protocol.
+ * fields, so the live turn and every replay send the same user message. Host-authored, never bound into the prompt protocol; its objects
+ * are pinned by tests/unit/private-agent-tool-errors-golden.test.ts (BL-20261107-1006, 8). Exported for that pin only.
  */
-function captureNotice(event: Record<string, unknown>): string | undefined {
+export function captureNotice(event: Record<string, unknown>): string | undefined {
   const failure = event.captureFailure as { code: string } | undefined, recheck = event.recheckCaptureFailure as { code: string } | undefined;
   const omitted = event.captureOmitted as CaptureOmissions | undefined;
   if (!failure && !recheck && !omitted) return;
   return canonical({
     ...(failure ? { error: "workspace_capture_failed", code: failure.code, completed: false, actionInvoked: true,
       instruction: "The action ran, but the host could not capture the workspace afterwards. The workspace was recreated from the last checkpoint, so every change since that checkpoint, this action's included, is not retained; rewrite what you need and verify it. The action's allowance was consumed." } : {}),
+    // Two forms (BL-20261107-1041, 11): after a failed recreation nothing ran, and the notice must not say otherwise; after a recreation the
+    // action was started, and only its own result says how it ended (a lost container leaves that unknown).
     ...(recheck ? { recheck: { error: "workspace_capture_failed", code: recheck.code,
-      instruction: "Before this action, the host could not capture the workspace to check it for changes; the workspace was recreated from the last checkpoint and the action ran against it, so changes made since that checkpoint by background processes were not retained." } } : {}),
+      instruction: event.executionCapture === "not_invoked"
+        ? "Before this action, the host could not capture the workspace to check it for changes; the host recreates the workspace from the last checkpoint, so changes made since that checkpoint by background processes are not retained. This action did not run, as its result says."
+        : "Before this action, the host could not capture the workspace to check it for changes; the workspace was recreated from the last checkpoint and the action was started against it (its result says how it ended), so changes made since that checkpoint by background processes were not retained." } } : {}),
     ...(omitted ? { warning: "workspace_capture_incomplete", omitted: { ...omitted,
       instruction: "The checkpoint leaves these workspace entries out: links, special files, files over 64 MiB, names the host refuses, and files beyond the 1,024-file or 128 MiB caps are never retained, so a later checkpoint or resume will not have them. Keep required outputs as ordinary files within the caps." } } : {}),
   });
@@ -417,7 +432,8 @@ export class GeneralAgentRunner {
       if (history.some(event => modelRequestSizeStop(history, event))) return finish("incomplete", MODEL_REQUEST_SIZE_STOP);
       if (history.some(event => modelRequestFeeStop(history, event))) return finish("incomplete", MODEL_FEE_CAP_STOP);
       if (history.some(event => modelRequestTokenAdmissionStop(history, event))) return finish("incomplete", LOCAL_TOKEN_ADMISSION_STOP);
-      // A broker refusal that recurs on every run (a blocked scan, a missing destination, a size excess without its numbers) ends this one too.
+      // A broker refusal that recurs on every run (a blocked scan, a missing destination, a size excess without its numbers, a cloud call
+      // after an unknown assist) ends this one too.
       if (history.some(event => { const denied = modelRequestBrokerDenied(history, event); return denied !== undefined && DENIED_WITHOUT_RESUME.has(denied.code); })) return finish("incomplete", MODEL_REQUEST_DENIED_STOP);
       // Only host-authored completion metadata counts, never model text or tool stdout.
       for (const event of history) if (event.type === "tool_finished") {
@@ -493,7 +509,12 @@ export class GeneralAgentRunner {
         // Finding A8 (backlog item 1): a request the deadline could cut is not started when less time remains than its transport
         // allows, unless it is zero-risk, whose row the deadline then resolves `failed`; a priced or cloud row would stay uncertain
         // with its reservation pinned. Nothing is recorded or sent, so nothing is left to replay.
-        if (model.deadlineRefuses(budget.remainingActiveMs)) return finish("incomplete", DEADLINE_BEFORE_REQUEST_STOP);
+        let deadlineRefuses: boolean;
+        // The guard reads the destination's timeout, so a missing destination is the broker's refusal before anything is open: the run ends as
+        // the decided outcome with no marker to record (BL-20261107-1006, 4); any other refusal there keeps the runtime-failure outcome.
+        try { deadlineRefuses = model.deadlineRefuses(budget.remainingActiveMs); }
+        catch (error) { if (error instanceof BrokerError && error.code === "destination_missing") return finish("incomplete", MODEL_REQUEST_DENIED_STOP); throw error; }
+        if (deadlineRefuses) return finish("incomplete", DEADLINE_BEFORE_REQUEST_STOP);
         // Derive the same bounded view from immutable host observations on each
         // turn and after restart. Never mutate the saved conversation itself.
         const projected = projectExecutionObservations(observationScope, messages, layout.observationPolicyVersion);
@@ -720,9 +741,13 @@ export class GeneralAgentRunner {
               const { files } = finishCapture; snapshot = finishCapture.snapshot;
               // Kill every agent descendant before verification. Completion uses
               // exactly these immutable bytes, never a second mutable capture.
-              const frozen = execution; sandbox = undefined; await frozen.close();
+              const frozen = execution; sandbox = undefined;
               const missing = contract.requiredArtifacts.filter(artifact => !files.some(file => file.path === artifact.path && file.bytes.length));
-              const verified = missing.length ? { checks: [] } : await this.verify(files, boundedSignal, endpoint);
+              let verified: { checks: GeneralJobResult["checks"]; claimsOutput?: string };
+              // The snapshot has advanced to this capture, so a failure from here on loses nothing: the model is told that verification did not
+              // run, never that the workspace was recreated from an older checkpoint (BL-20261107-1006, 5).
+              try { await frozen.close(); verified = missing.length ? { checks: [] } : await this.verify(files, boundedSignal, endpoint); }
+              catch (error) { if (error instanceof ObservationIntegrityError) throw error; throw new ToolError("verification_unavailable"); }
               checks = verified.checks;
               complete = !missing.length && checks.length === contract.requiredChecks.length && checks.every(check => check.passed);
               output = canonical({ complete, missingArtifacts: missing.map(artifact => artifact.path), checks });
@@ -742,6 +767,10 @@ export class GeneralAgentRunner {
           invalidExecuteAtOutputLimit = error instanceof InvalidToolArguments && error.tool === "execute" &&
             response.usage?.outputTokens === model.config.maxOutputTokens;
           output = canonical(toolFailureFeedback(error, action.function.name, contextReady, invalidExecuteAtOutputLimit, model.config.maxOutputTokens));
+          // BL-20261107-1041 (10): a sandbox failure inside a call destroyed the container (`operation()` closes on every such error; only the two
+          // pre-call refusals leave it intact), so nothing is captured on it: the result already says the workspace is recreated from the last
+          // checkpoint, and the recreation below does that. Only a live container's capture can fail or omit, and only that counts.
+          if (error instanceof SandboxError && error.code !== "invalid_input" && error.code !== "busy") sandbox = undefined;
         }
         if (executionResult) {
           // Outside ordinary action-error handling: a retention failure after
@@ -809,10 +838,23 @@ export class GeneralAgentRunner {
         }
         const { files } = captured; snapshot = captured.snapshot;
         this.record({ type: "checkpoint", snapshot, sha256: checkpoints.fingerprint(snapshot) });
-        await sandbox.close(); sandbox = undefined;
-        if (boundedSignal.aborted || store.policy(jobId).cancelled || remainingActiveMs() <= 0) return finish("incomplete", "cancelled_or_deadline");
         const missing = contract.requiredArtifacts.filter(artifact => !files.some(file => file.path === artifact.path && file.bytes.length));
-        const verified = missing.length ? { checks: [] } : await this.verify(files, boundedSignal, endpoint);
+        // BL-20261107-1041 (12): the checkpoint is recorded, so a failure from here on loses nothing and closes the validation with a fixed code
+        // instead of leaving it open; a later run then finds a finished validation (host_validation_not_replayed), never an uncertain one.
+        let verified: { checks: GeneralJobResult["checks"]; claimsOutput?: string } | undefined, verificationFailure: VerificationFailureCode | undefined;
+        try {
+          const frozen = sandbox; sandbox = undefined; await frozen.close();
+          if (boundedSignal.aborted || store.policy(jobId).cancelled || remainingActiveMs() <= 0) verificationFailure = "cancelled_or_deadline";
+          else verified = missing.length ? { checks: [] } : await this.verify(files, boundedSignal, endpoint);
+        } catch (error) {
+          if (error instanceof ObservationIntegrityError) throw error;
+          verificationFailure = error instanceof SandboxError ? `sandbox_${error.code}` : "verification_failed";
+        }
+        if (!verified) {
+          this.record({ type: "host_validation_finished", operationId, passed: false, checks: [], missingArtifacts: missing.map(artifact => artifact.path),
+            verificationFailure: { code: verificationFailure ?? "verification_failed" } });
+          return finish("incomplete", verificationFailure === "cancelled_or_deadline" ? "cancelled_or_deadline" : "bounded_allowance_exhausted");
+        }
         checks = verified.checks;
         const passed = !missing.length && checks.length === contract.requiredChecks.length && checks.every(check => check.passed);
         this.record({ type: "host_validation_finished", operationId, passed, checks,

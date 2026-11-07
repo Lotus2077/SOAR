@@ -20,6 +20,11 @@ function list(root: string): { status: number; stdout: string } {
   try { return { status: 0, stdout: execFileSync("python3", ["-I", "-c", script], { encoding: "utf8", stdio: "pipe" }) }; }
   catch (error) { const failed = error as { status: number; stdout: string }; return { status: failed.status, stdout: failed.stdout }; }
 }
+/** APFS refuses a name that is not valid UTF-8; Linux, where CI runs this suite, admits one. The case runs only where it can be created. */
+const admitsNonUtf8Names = (() => {
+  const root = mkdtempSync(join(tmpdir(), "soar-lister-probe-"));
+  try { writeFileSync(Buffer.concat([Buffer.from(join(root, "f")), Buffer.from([0xff])]), "x"); return true; } catch { return false; } finally { rmSync(root, { recursive: true, force: true }); }
+})();
 
 describe("the workspace lister reports instead of dying (backlog item 3, finding A3)", () => {
   it("keeps regular files with their sizes and omits links, special files, oversize files and refused names with fixed reasons, never following a link", () => {
@@ -56,6 +61,21 @@ describe("the workspace lister reports instead of dying (backlog item 3, finding
     expect(stopped.files).toHaveLength(PRIVATE_SANDBOX_LIMITS.files); expect(stopped.complete).toBe(false);
     expect(stopped.counts.cap).toBe(WORKSPACE_LISTING_MAX_ENTRIES - PRIVATE_SANDBOX_LIMITS.files);
     expect(stopped.omitted).toHaveLength(WORKSPACE_LISTING_MAX_OMITTED_PATHS);
+  });
+
+  it.skipIf(!admitsNonUtf8Names)("counts a name that is not valid UTF-8 as name_invalid instead of dying, never naming it (BL-20261107-1006, 2)", () => {
+    const root = workspace();
+    writeFileSync(join(root, "kept.txt"), "x");
+    writeFileSync(Buffer.concat([Buffer.from(join(root, "latin1-")), Buffer.from([0xe9]), Buffer.from(".txt")]), "x");
+    // A directory with such a name is skipped whole: its contents are neither listed nor counted.
+    mkdirSync(Buffer.concat([Buffer.from(join(root, "dir-")), Buffer.from([0xff])]));
+    writeFileSync(Buffer.concat([Buffer.from(join(root, "dir-")), Buffer.from([0xff]), Buffer.from("/inner.txt")]), "y");
+    const result = list(root);
+    expect(result.status).toBe(0);
+    const listing = parseWorkspaceListing(result.stdout);
+    expect(listing.files).toEqual([{ path: "kept.txt", size: 1 }]);
+    expect(listing.omitted).toEqual([]); expect(listing.counts).toEqual({ symlink: 0, hard_link: 0, special: 0, oversize: 0, name_invalid: 2, cap: 0 }); expect(listing.complete).toBe(true);
+    expect(result.stdout).not.toContain("latin1"); expect(result.stdout).not.toContain("inner");
   });
 
   it("still dies (exit 53) when the walk itself fails, which the host maps to unsafe_file", () => {

@@ -11,9 +11,11 @@ describe("pre-dispatch broker denial markers (backlog item 3, finding A5)", () =
     const marker = { ...start, type: "model_request_not_dispatched", reason: BROKER_DENIED_STOP, dispatched: false, code: "packet_scan_failed" };
     expect(modelRequestBrokerDenied([start, marker], start)).toEqual(marker);
     expect(hasInvalidModelRequestSizeStop([start, marker])).toBe(false);
+    // The seventh code (BL-20261107-1006, 3) is admitted; a pre-commit refusal outside the enum is not.
+    expect(modelRequestBrokerDenied([start, { ...marker, code: "cloud_after_assist_unknown" }], start)).toEqual({ ...marker, code: "cloud_after_assist_unknown" });
     for (const events of [
       [marker], [marker, start], [start, marker, marker], [start, marker, { ...start, type: "model_finished" }],
-      [start, { ...marker, code: "budget_denied" }], [start, { ...marker, code: "request_failed" }], [start, { ...marker, dispatched: true }],
+      [start, { ...marker, code: "budget_denied" }], [start, { ...marker, code: "request_failed" }], [start, { ...marker, code: "job_cancelled" }], [start, { ...marker, dispatched: true }],
       [start, { ...marker, extra: "not admitted" }], [start, { ...marker, contextId: "other" }], [start, { ...marker, promptProtocolSha256: digest("other") }],
     ]) {
       expect(modelRequestBrokerDenied(events, start)).toBeUndefined();

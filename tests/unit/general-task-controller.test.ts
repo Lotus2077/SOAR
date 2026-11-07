@@ -234,6 +234,7 @@ describe("desktop general-task host controller", () => {
   it.each([
     { reason: "packet_scan_unavailable", code: "packet_scan_failed", resumable: true, text: "scanner" },
     { reason: "model_request_denied", code: "destination_missing", resumable: false, text: "refused" },
+    { reason: "model_request_denied", code: "cloud_after_assist_unknown", resumable: false, text: "refused" },
     { reason: "model_request_denied", code: "not_a_broker_code", resumable: false, text: "uncertain outcome" },
   ])("maps a pre-dispatch broker refusal ($reason, $code) to its fixed text and resumability after reopening (backlog item 3)", async ({ reason, code, resumable, text }) => {
     const f = fixture();
@@ -261,6 +262,27 @@ describe("desktop general-task host controller", () => {
     if (!resumable) expect(() => reopened.resume(task.id)).toThrow("general_task_resume_denied");
     expect(f.executions).toHaveLength(1);
     expect(reopened.artifact({ id: task.id, path: before.artifacts[0]!.path, sha256: before.artifacts[0]!.sha256 }).bytes.toString()).toBe("saved partial artifact");
+  });
+
+  it("summarises a validation the host closed without a verifier result as closed, never as recorded checks or an uncertain outcome (BL-20261107-1041, 12)", async () => {
+    const f = fixture();
+    f.options.testing!.runnerFactory = args => ({ pause() {}, cancel() {}, async run() {
+      f.executions.push(args);
+      const { store, jobId, contextId, checkpoints } = args;
+      const snapshot = checkpoints.save(args.files);
+      store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
+      const operationId = randomUUID();
+      store.append(jobId, { type: "host_validation_started", contextId, operationId, trigger: "model_or_tool_allowance_exhausted" });
+      store.append(jobId, { type: "host_validation_finished", contextId, operationId, passed: false, checks: [], missingArtifacts: [args.contract.requiredArtifacts[0]!.path], verificationFailure: { code: "sandbox_unavailable" } });
+      store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
+      return { status: "incomplete", reason: "bounded_allowance_exhausted", snapshot, checks: [], modelCalls: 1 };
+    } });
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    const snapshot = f.controller.get(task.id);
+    expect(snapshot).toMatchObject({ status: "incomplete", canResume: false, cleanupConfirmed: true });
+    expect(snapshot.reason).not.toContain("uncertain");
+    const summary = snapshot.events.find(event => event.type === "host_validation_finished")!.summary;
+    expect(summary).toBe("The frozen artifact could not be verified; the validation is closed and nothing is uncertain.");
   });
 
   it.each(["valid", "malformed", "missing", "orphan", "unknown"])("preserves the %s token-admission stop without replay after reopening", async variant => {

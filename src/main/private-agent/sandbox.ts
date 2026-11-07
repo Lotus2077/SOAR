@@ -175,7 +175,10 @@ import os, sys, stat, json
 def die():
     sys.exit(53)
 def valid(p):
-    return isinstance(p, str) and 0 < len(p.encode('utf-8')) <= 240 and len(p.split('/')) <= 32 and all(x not in ('', '.', '..') for x in p.split('/')) and not any(ord(c) < 32 or ord(c) == 127 or c == '\\' for c in p)
+    try:
+        return isinstance(p, str) and 0 < len(p.encode('utf-8')) <= 240 and len(p.split('/')) <= 32 and all(x not in ('', '.', '..') for x in p.split('/')) and not any(ord(c) < 32 or ord(c) == 127 or c == '\\' for c in p)
+    except UnicodeEncodeError:
+        return False
 def root():
     return os.open('/workspace', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
 def parent(p, create=False):

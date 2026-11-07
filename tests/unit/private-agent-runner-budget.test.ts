@@ -59,24 +59,33 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
   let currentContents = new Map<string, Buffer>();
   let afterExecute: (command: string) => void = () => {};
   let beforeListFiles: () => void = () => {};
+  let beforeClose: () => void = () => {};
   let listingExtra: Partial<WorkspaceListing> = {};
   const create = vi.spyOn(DockerSandbox, "create").mockImplementation(async input => {
     clock += 25;
     const contents = new Map(input.files.map(file => [file.path, Buffer.from(file.bytes)]));
     currentContents = contents;
+    // As the real operation(): a sandbox failure inside a call destroys the container, so every later call refuses `unusable`; only the two
+    // pre-call refusals (invalid_input, busy) leave it intact (BL-20261107-1041, 10).
+    let usable = true;
+    const guard = () => { if (!usable) throw new SandboxError("unusable"); };
     return { async execute(command: string) {
-      clock += 50; commands.push(command);
+      guard(); clock += 50; commands.push(command);
       if (command === "write result") contents.set("output.txt", Buffer.from("computed fixture result"));
       if (command === "write empty") contents.set("output.txt", Buffer.alloc(0));
       if (command === "fail with progress") contents.set("diagnostic.txt", Buffer.from(String(commands.length)));
       if (command === "throw failure") throw new Error("PRIVATE-HOST-PATH-AND-DIAGNOSTIC");
-      if (command.startsWith("throw sandbox ")) throw new SandboxError(command.slice("throw sandbox ".length) as SandboxErrorCode);
+      if (command.startsWith("throw sandbox ")) {
+        const code = command.slice("throw sandbox ".length) as SandboxErrorCode;
+        if (code !== "invalid_input" && code !== "busy") usable = false;
+        throw new SandboxError(code);
+      }
       afterExecute(command);
       return { exitCode: command.startsWith("fail ") ? 1 : command.includes("python3 -I -c") ? limits.checkExitCode ?? 0 : 0, stdout: limits.toolStdout ?? "synthetic evidence", stderr: "" };
-    }, async listFiles() { beforeListFiles(); return workspaceListing(contents, listingExtra); },
-    async readFile(path: string) { return Buffer.from(contents.get(path)!); },
+    }, async listFiles() { guard(); beforeListFiles(); return workspaceListing(contents, listingExtra); },
+    async readFile(path: string) { guard(); return Buffer.from(contents.get(path)!); },
     async editFile(mode: "write" | "append" | "replace", path: string, payload: Buffer, replacement?: Buffer) {
-      clock += 10; commands.push(`${mode}:${path}`);
+      guard(); clock += 10; commands.push(`${mode}:${path}`);
       // The real protocol refuses a path outside the workspace before anything runs.
       if (path.split("/").some(part => part === "" || part === "." || part === "..")) throw new SandboxError("invalid_input");
       if (mode === "replace") {
@@ -87,7 +96,7 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
       }
       const next = Buffer.from(mode === "append" ? Buffer.concat([contents.get(path) ?? Buffer.alloc(0), payload]) : payload); contents.set(path, Buffer.from(next)); return { ok: true, bytes: next.length };
     },
-    async close() { clock += 5; } } as unknown as DockerSandbox;
+    async close() { usable = false; clock += 5; beforeClose(); } } as unknown as DockerSandbox;
   });
   const requests: GeneralMessage[][] = [];
   let afterResponse: (count: number) => void = () => {};
@@ -109,6 +118,8 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
   return { options, dbPath, requests, complete, create, commands, advance: (ms: number) => { clock += ms; },
     mutateWorkspace: (path: string, bytes: Buffer) => { currentContents.set(path, Buffer.from(bytes)); },
     beforeListFiles: (callback: () => void) => { beforeListFiles = callback; },
+    /** Runs inside every container close, after the container became unusable; a throw there is the close failing. */
+    beforeClose: (callback: () => void) => { beforeClose = callback; },
     /** What the fixture lister reports besides the live contents (omitted entries, counts, an incomplete walk). */
     setListing: (extra: Partial<WorkspaceListing>) => { listingExtra = extra; },
     afterExecute: (callback: (command: string) => void) => { afterExecute = callback; },
@@ -398,6 +409,46 @@ describe("general runner host budget and argument recovery", () => {
     const third = f.options.store.events(f.options.jobId).filter(event => event.type === "tool_finished")[2]!;
     expect(third).toMatchObject({ executionCapture: "not_invoked", recheckCaptureFailure: { code: "sandbox_unavailable" }, allowanceFinalizationEligible: false });
     expect(JSON.parse(String(third.output))).toEqual(TOOL_ERROR_FEEDBACK.execution_context_unavailable);
+    expect(f.create).toHaveBeenCalledTimes(4);
+  });
+
+  it("answers execution_context_unavailable when the recreation fails with a plain checkpoint-store error, which the verifier accepts (BL-20261107-1006, 1)", async () => {
+    const f = fixture([failed, failed, failed, write, finish], { maxModelCalls: 5 });
+    let listings = 0, failNextLoad = false;
+    const load = f.options.checkpoints.load.bind(f.options.checkpoints);
+    vi.spyOn(f.options.checkpoints, "load").mockImplementation(snapshot => { if (failNextLoad) { failNextLoad = false; throw new Error("checkpoint_file_invalid"); } return load(snapshot); });
+    f.afterResponse(count => { if (count === 3) f.beforeListFiles(() => { if (listings++ === 0) { failNextLoad = true; throw new SandboxError("unavailable"); } }); });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 5 });
+    const events = f.options.store.events(f.options.jobId);
+    const third = events.filter(event => event.type === "tool_finished")[2]!;
+    expect(third).toMatchObject({ executionCapture: "not_invoked", recheckCaptureFailure: { code: "sandbox_unavailable" }, allowanceFinalizationEligible: false });
+    expect(JSON.parse(String(third.output))).toEqual(TOOL_ERROR_FEEDBACK.execution_context_unavailable);
+    expect(events.some(event => event.type === "runtime_failure")).toBe(false);
+    const { store, checkpoints, jobId, contextId } = f.options;
+    expect(() => verifyExecutionObservations({ store, checkpoints, jobId, contextId })).not.toThrow();
+    // The notice after that result says nothing ran (BL-20261107-1041, 11), never that the action ran against a recreated workspace.
+    const notice = f.requests[3]!.find(message => message.role === "user" && message.content!.includes("workspace_capture_failed"))!;
+    expect(JSON.parse(notice.content!)).toEqual({ recheck: { error: "workspace_capture_failed", code: "sandbox_unavailable", instruction: expect.stringContaining("This action did not run") } });
+    expect(notice.content).not.toContain("was started against it");
+    // The checkpoint read failed before any create: one container at the start, one after the recorded result, one to verify.
+    expect(f.create).toHaveBeenCalledTimes(3);
+  });
+
+  it("answers verification_unavailable when the verifier fails after a successful finish capture, keeps that snapshot and completes on the next finish (BL-20261107-1006, 5)", async () => {
+    const f = fixture([write, finish, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    const create = f.create.getMockImplementation()!;
+    f.create.mockImplementation(async input => { if (f.create.mock.calls.length === 2) throw new SandboxError("unavailable"); return create(input); });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed", modelCalls: 3 });
+    const events = f.options.store.events(f.options.jobId);
+    const finished = events.filter(event => event.type === "tool_finished");
+    expect(JSON.parse(String(finished[1]!.output))).toEqual(TOOL_ERROR_FEEDBACK.verification_unavailable);
+    expect(finished[1]!.captureFailure).toBeUndefined();
+    // The checkpoint recorded with that result is the finish capture itself, so the written artifact is retained.
+    const checkpoint = events[events.indexOf(finished[1]!) - 1]!;
+    expect(checkpoint.type).toBe("checkpoint"); expect((checkpoint.snapshot as { path: string }[]).some(file => file.path === "output.txt")).toBe(true);
+    expect(events.some(event => event.type === "runtime_failure")).toBe(false);
+    expect(JSON.parse(String(finished[2]!.output))).toMatchObject({ complete: true });
+    // Created at the start, failed as the verifier, recreated for the repair, created again as the verifier.
     expect(f.create).toHaveBeenCalledTimes(4);
   });
 
@@ -830,16 +881,29 @@ describe("general runner host budget and argument recovery", () => {
     expect(f.options.store.events(f.options.jobId).some(event => event.type === "host_validation_started" || event.type === "completed")).toBe(false);
   });
 
-  it("retains uncertain host verification as a no-replay stop", async () => {
+  it("closes the allowance validation when its verifier cannot start, its container cannot be released or the deadline arrives after the checkpoint, so a later run finds it finished (BL-20261107-1041, 12)", async () => {
     const f = fixture([write], { maxModelCalls: 1 });
     const create = f.create.getMockImplementation()!;
-    f.create.mockImplementation(async input => { if (f.create.mock.calls.length === 2) throw Error("synthetic verifier creation failure"); return create(input); });
-    expect((await new GeneralAgentRunner(f.options).run()).reason).toBe("runtime_failure_progress_preserved");
+    f.create.mockImplementation(async input => { if (f.create.mock.calls.length === 2) throw new SandboxError("unavailable"); return create(input); });
+    expect((await new GeneralAgentRunner(f.options).run()).reason).toBe("bounded_allowance_exhausted");
     const events = f.options.store.events(f.options.jobId);
-    expect(events.some(event => event.type === "host_validation_started")).toBe(true);
-    expect(events.some(event => event.type === "host_validation_finished" || event.type === "completed")).toBe(false);
-    expect((await new GeneralAgentRunner(f.options).run()).reason).toBe("unresolved_operation_no_replay");
+    expect(events.filter(event => event.type === "host_validation_started")).toHaveLength(1);
+    expect(events.find(event => event.type === "host_validation_finished")).toMatchObject({ passed: false, checks: [], missingArtifacts: [], verificationFailure: { code: "sandbox_unavailable" } });
+    expect(events.some(event => event.type === "runtime_failure" || event.type === "completed")).toBe(false);
+    expect((await new GeneralAgentRunner(f.options).run()).reason).toBe("host_validation_not_replayed");
     expect(f.create).toHaveBeenCalledTimes(2); expect(f.requests).toHaveLength(1);
+    // The frozen container's release failing is the same finished validation.
+    const g = fixture([write], { maxModelCalls: 1 });
+    let closes = 0; g.beforeClose(() => { if (closes++ === 0) throw new SandboxError("cleanup_failed"); });
+    expect((await new GeneralAgentRunner(g.options).run()).reason).toBe("bounded_allowance_exhausted");
+    expect(g.options.store.events(g.options.jobId).find(event => event.type === "host_validation_finished")).toMatchObject({ passed: false, verificationFailure: { code: "sandbox_cleanup_failed" } });
+    expect((await new GeneralAgentRunner(g.options).run()).reason).toBe("host_validation_not_replayed");
+    // A deadline that arrives between the checkpoint and the verifier ends the run as such, with the validation finished, not uncertain.
+    const h = fixture([write], { maxModelCalls: 1 });
+    h.beforeClose(() => h.advance(20_000));
+    expect((await new GeneralAgentRunner(h.options).run()).reason).toBe("cancelled_or_deadline");
+    expect(h.options.store.events(h.options.jobId).find(event => event.type === "host_validation_finished")).toMatchObject({ passed: false, verificationFailure: { code: "cancelled_or_deadline" } });
+    expect((await new GeneralAgentRunner(h.options).run()).reason).toBe("cancelled_or_deadline");
   });
 
   it("does not start terminal verification while a dispatch remains unknown", async () => {
@@ -1201,13 +1265,29 @@ describe("general runner pre-dispatch broker denials (backlog item 3, finding A5
     expect(await new GeneralAgentRunner({ ...f.options, store: new PrivateAgentStore(reopened) }).run()).toMatchObject({ status: "completed", modelCalls: 3 });
     expect(f.requests).toHaveLength(2);
   });
-  it.each(["packet_scan_incomplete_or_blocked", "destination_missing", "packet_size_exceeded"])("records %s as a refusal that recurs, ending this run and every later one without a request", async code => {
+  it.each(["packet_scan_incomplete_or_blocked", "destination_missing", "packet_size_exceeded", "cloud_after_assist_unknown"])("records %s as a refusal that recurs, ending this run and every later one without a request", async code => {
     const f = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
     denied(f, code);
     expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: MODEL_REQUEST_DENIED_STOP, modelCalls: 1 });
     expect(markers(f)).toMatchObject([{ reason: BROKER_DENIED_STOP, code, dispatched: false }]);
     expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ reason: MODEL_REQUEST_DENIED_STOP, modelCalls: 1 });
     expect(f.requests).toHaveLength(0); expect(f.options.store.dispatches(f.options.jobId)).toEqual([]); expect(f.commands).toEqual([]);
+  });
+  it("ends model_request_denied with nothing open when the deadline guard finds the destination missing, the production path for that code (BL-20261107-1006, 4)", async () => {
+    const f = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    // The real chain: the guard asks the fixture's broker for the timeout of a destination it does not have, and the broker refuses.
+    const options = { ...f.options, model: new PrivateAgentModel(f.options.broker, { ...f.options.model.config, destinationId: "absent_destination" }, f.options.jobId, f.options.contextId) };
+    expect(await new GeneralAgentRunner(options).run()).toMatchObject({ status: "incomplete", reason: MODEL_REQUEST_DENIED_STOP, modelCalls: 0 });
+    const events = f.options.store.events(f.options.jobId);
+    expect(events.some(event => event.type === "model_started" || event.type === "model_request_not_dispatched" || event.type === "runtime_failure")).toBe(false);
+    expect(f.requests).toHaveLength(0); expect(f.commands).toEqual([]);
+    expect(await new GeneralAgentRunner(options).run()).toMatchObject({ reason: MODEL_REQUEST_DENIED_STOP, modelCalls: 0 });
+    // Any other refusal from the guard (injected here; the fixture's destination cannot raise one) keeps the runtime-failure outcome, with the
+    // broker's code recorded beside the class (finding B2).
+    const g = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    vi.spyOn(g.options.model, "deadlineRefuses").mockImplementation(() => { throw new BrokerError("cloud_mode_denied"); });
+    expect((await new GeneralAgentRunner(g.options).run()).reason).toBe("runtime_failure_progress_preserved");
+    expect(g.options.store.events(g.options.jobId).find(event => event.type === "runtime_failure")).toMatchObject({ code: "BrokerError", brokerCode: "cloud_mode_denied" });
   });
   it("records a body over the destination's cap as the size stop when the broker reports its numbers", async () => {
     const f = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
@@ -1254,14 +1334,31 @@ describe("general runner specific tool errors (backlog item 3, finding B5)", () 
   it("returns each sandbox code as its own fixed object for an execute the sandbox refused or lost, and the run goes on", async () => {
     for (const code of ["invalid_input", "busy", "unusable", "unavailable", "command_timeout", "cancelled", "unsafe_file"] as const) {
       const f = fixture([{ name: "execute", arguments: JSON.stringify({ command: `throw sandbox ${code}` }) }, write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+      const creates = f.create.mock.calls.length; // The spy on the static create is shared by every fixture of this loop.
       expect(await new GeneralAgentRunner(f.options).run(), code).toMatchObject({ status: "completed" });
       expect(outputs(f)[0], code).toEqual(TOOL_ERROR_FEEDBACK[`sandbox_${code}`]);
       expect(JSON.stringify(outputs(f)[0]), code).not.toContain("Private sandbox");
       const event = f.options.store.events(f.options.jobId).find(row => row.type === "tool_finished")!;
       expect(event, code).toMatchObject({ executionCapture: "unavailable", allowanceFinalizationEligible: false, invalidExecuteAtOutputLimit: false });
+      // A container the failure destroyed is not captured (BL-20261107-1041, 10): no capture failure, no notice; an intact one is captured as usual.
+      expect(event.captureFailure, code).toBeUndefined();
+      expect(f.requests[1]!.some(message => message.role === "user" && message.content!.includes("workspace_capture_failed")), code).toBe(false);
+      // An intact container (the two pre-call refusals) is kept and verified from, a destroyed one is recreated once before the next action.
+      expect(f.create.mock.calls.length - creates, code).toBe(code === "invalid_input" || code === "busy" ? 2 : 3);
       // Completion ran the observation verifier over the recorded failure object.
       expect(() => verifyExecutionObservations({ store: f.options.store, checkpoints: f.options.checkpoints, jobId: f.options.jobId, contextId: f.options.contextId }), code).not.toThrow();
     }
+  });
+  it("does not count an action the sandbox lost as a capture failure: two in a row continue, each recreating the container (BL-20261107-1041, 10)", async () => {
+    const lost = (code: string): Action => ({ name: "execute", arguments: JSON.stringify({ command: `throw sandbox ${code}` }) });
+    const f = fixture([lost("unsafe_file"), lost("unavailable"), write, finish], { maxModelCalls: 5, maxToolCalls: 5 });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 4 });
+    const events = f.options.store.events(f.options.jobId);
+    expect(events.filter(event => event.type === "tool_finished").slice(0, 2).map(event => event.captureFailure)).toEqual([undefined, undefined]);
+    expect(events.some(event => event.type === "runtime_failure")).toBe(false);
+    for (const request of f.requests.slice(1, 3)) expect(request.some(message => message.role === "user" && message.content!.includes("workspace_capture_failed"))).toBe(false);
+    // The initial container, one recreation after each lost action, the verifier.
+    expect(f.create).toHaveBeenCalledTimes(4);
   });
   it("returns tool_unknown, consultation_unavailable, path_invalid and a read refusal as fixed objects, none invoking anything", async () => {
     const f = fixture([
@@ -1279,5 +1376,7 @@ describe("general runner specific tool errors (backlog item 3, finding B5)", () 
     expect(read).toEqual(TOOL_ERROR_FEEDBACK.observation_not_authorized);
     expect(f.options.store.events(f.options.jobId).filter(event => event.type === "tool_finished")[4]).toMatchObject({ observationCapture: "not_invoked" });
     expect(f.commands).toEqual(["write:../escape.txt", "write result", expect.stringMatching(/^python3 -I -c/u)]);
+    // None of these refusals destroyed the container: the initial one and the verifier only.
+    expect(f.create).toHaveBeenCalledTimes(2);
   });
 });

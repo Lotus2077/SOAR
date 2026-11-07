@@ -476,7 +476,10 @@ export class PrivateAgentBroker {
     const recoverable = packet.destination.recoverable === true && zeroRisk;
     const anthropic = packet.destination.anthropicVersion !== undefined;
     for (let attempt = 1; ; attempt++) {
-      if (attempt > 1 && frozen.signal?.aborted) deny("request_cancelled");
+      // A cancel seen here follows a sent attempt resolved `superseded`, so the request was dispatched: the retry-wait code, which the runner
+      // records as a failed request (`dispatched: true`), not the pre-dispatch refusal (BL-20261107-1006, 7). No await separates this check
+      // from the post-backoff one, so it is a guard only.
+      if (attempt > 1 && frozen.signal?.aborted) deny(RETRY_WAIT_CANCELLED);
       // Each attempt is its own committed row: it re-checks eligibility and consumes one session request.
       let receipt: DispatchReceipt;
       try {
@@ -491,7 +494,8 @@ export class PrivateAgentBroker {
                 this.store.dispatches(frozen.jobId).some(row => row.status === "unknown" && isAssistDispatch(row))) deny("cloud_after_assist_unknown");
             if (frozen.signal?.aborted) {
               if (admission) throw new LocalTokenAdmissionError("local_token_admission_cancelled");
-              deny("request_cancelled");
+              // On a retry attempt an earlier attempt was sent (BL-20261107-1041, 13); a guard only, like the top-of-attempt check.
+              deny(attempt > 1 ? RETRY_WAIT_CANCELLED : "request_cancelled");
             }
             if (admission) admission.validateAtCommit(localTokenAdmissionEvidence!, frozen.body!, packet.url.href,
               frozen.localReplyContract!.model, frozen.localTokenAdmission!.contextTokens);

@@ -40,12 +40,13 @@ export type ModelRequestTokenAdmissionStop = z.infer<typeof tokenStopSchema>;
 /**
  * Backlog item 3 (finding A5, BL-20261107-0901): the broker refused the request before any row existed, so nothing was sent and
  * nothing is uncertain; `code` is the broker's own fixed code. A cancel ends the run as cancelled (or paused), an unavailable
- * scanner resumably (`packet_scan_unavailable`), a blocked scan, a missing destination or a size excess without its numbers
- * permanently (`model_request_denied`; a size excess with its numbers records the size stop instead), and a ledger refusal as
- * `unresolved_dispatch_no_replay`.
+ * scanner resumably (`packet_scan_unavailable`), a blocked scan, a missing destination, a size excess without its numbers or a cloud
+ * call after an assist whose outcome stayed unknown (BL-20261107-1006, 3) permanently (`model_request_denied`; a size excess with its
+ * numbers records the size stop instead), and a ledger refusal as `unresolved_dispatch_no_replay`.
  */
 export const BROKER_DENIED_STOP = "broker_denied";
-export const BROKER_DENIAL_CODES = ["request_cancelled", "packet_scan_failed", "packet_scan_incomplete_or_blocked", "packet_size_exceeded", "destination_missing", "unresolved_dispatch"] as const;
+export const BROKER_DENIAL_CODES = ["request_cancelled", "packet_scan_failed", "packet_scan_incomplete_or_blocked", "packet_size_exceeded", "destination_missing", "unresolved_dispatch",
+  "cloud_after_assist_unknown"] as const;
 export type BrokerDenialCode = (typeof BROKER_DENIAL_CODES)[number];
 export const PACKET_SCAN_UNAVAILABLE_STOP = "packet_scan_unavailable";
 export const MODEL_REQUEST_DENIED_STOP = "model_request_denied";

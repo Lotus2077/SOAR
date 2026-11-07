@@ -22,7 +22,7 @@ day-to-day administration, and (at lower priority) coding.
 | [docs/PLAN.md](docs/PLAN.md) | The current plan (owner-approved 2026-09-29): phases, decision rules, cloud envelope, owner decisions |
 | [docs/plans/PRIVATE_WORK_DESIGN_V1.md](docs/plans/PRIVATE_WORK_DESIGN_V1.md) | Strict privacy profile, draft-only admin assistant, research and document-review design, device notes |
 | [docs/PROJECT_REVIEW_2026-09-28.md](docs/PROJECT_REVIEW_2026-09-28.md) | Verified whole-project review: what is right and wrong |
-| [docs/HANDOFF.md](docs/HANDOFF.md) | Code map and the September state of the runtime |
+| [docs/HANDOFF.md](docs/HANDOFF.md) | Start here: the current state, the decisions in force and the next actions (2026-11-07), then the September code map |
 | [docs/BUILD_LOG.md](docs/BUILD_LOG.md) | Append-only record of decisions, results and failures |
 | [docs/README.md](docs/README.md) | Index of current and historical documents |
 

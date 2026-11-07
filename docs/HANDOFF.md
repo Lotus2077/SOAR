@@ -1,5 +1,119 @@
 # SOAR handoff
 
+## Start here (2026-11-07)
+
+This section is the entrypoint for the next session. It supersedes every earlier
+"next step" in this file; the rest of the file is the September 2026 record.
+
+### 1. Get the work
+
+Everything since 2026-11-05 is on branch `claude/great-meitner-kri52m`, not yet
+merged to `main`:
+
+```sh
+git fetch origin claude/great-meitner-kri52m
+git checkout claude/great-meitner-kri52m
+pnpm install --frozen-lockfile
+```
+
+Then run the checks in "Setup and safe verification" below.
+
+### 2. Read, in this order
+
+1. [PROJECT_REVIEW_2026-11-05.md](PROJECT_REVIEW_2026-11-05.md): §2 (the goal, now
+   confirmed), §5.2 (architecture v5: local volume work, sealed cloud assists),
+   §5.6 (experiments E0-E7, their caps and pre-registered rules, and their order),
+   §5.7 (the engineering backlog, in order) and §5.10 (owner decisions).
+2. [PLAN.md](PLAN.md): the owner-direction note in §1 and the envelope in §4.
+3. [BUILD_LOG.md](BUILD_LOG.md): BL-20261107-0650-owner-decisions-review-items-2-5 (what is approved and what still gates
+   each experiment), then BL-20261105-1821-owner-direction-equal-weights-new-model and
+   BL-20261105-1822-project-review-reset-proposed with their corrections,
+   BL-20261105-2016-correction-direction-and-review-entries through
+   BL-20261105-1722-fifth-check-corrections.
+
+### 3. Decided
+
+- **The goal** (review §2): privacy, result quality and token cost weigh equally.
+  The local model does all the volume work at zero fee, and the cloud takes only
+  the hardest step as sealed one-shot packets. Public deep research targets
+  Manus-level depth at a fraction of Manus's cost (≤ USD 0.50 P50 per task).
+- **Zero-fee work is free to run.** Zero-fee local runs on public, synthetic or
+  owner-declared-public inputs need no approval entry, named authority, slot or
+  claim (PLAN.md §4(c)). Paid runs, real private data, new egress destinations and
+  public pushes keep their gates.
+- **E3 and E4 are approved** against the Phase 4 harness track line: E3, the
+  closed-corpus route round, with a cap of USD 20.4; E4, the Manus-bar web round,
+  with a cap of USD 20.5. E4 starts only if the line's balance after E3 covers its
+  cap. E4's two paid judges run at api.openai.com: GPT-5.5 for DeepResearch Bench
+  RACE with the key the owner names JAO, and LiveDRBench's official grader with the
+  key the owner names JAT.
+- **Who decides the cloud's role:** E3's pre-registered rule picks it for the
+  harness, E4's result decides what runs behind the desktop's assist toggle, and
+  the owner decides trades and ties.
+
+### 4. Still open, and what each blocks
+
+| Owner decision (review §5.10) | Blocks |
+| --- | --- |
+| 1: is the endpoint's model the one qualified on 2026-11-04? | Whether E0 is a delta check; E0's probe P1 and the owner answer it |
+| 6: which provider carries the assists and E3's arm D | E3's card |
+| 7: a thinking-off writer arm | That E2 arm only |
+| 8: SearXNG or a keyed search API | Backlog item 12 and E4 |
+| 9: the P11 transport timeline | Any labelled work |
+| 10: the Manus product baseline | The E4 option only |
+| 11: blind proxy grades as provisional | E3's and E4's verdicts |
+| 12: numbered briefs; disclosing the public brief | Task authoring; the first assist packet |
+| 13: the Phase 2 dashboard reconciliation; D20(b) | The uncached baselines; coding |
+| 2, last part: whether the assist toggle starts on | Only once E4 ships a cloud-assisted arm |
+
+### 5. Act next, in this order
+
+Follow the order in review §5.6. Each step is done when its condition holds.
+
+1. **Backlog items 1-5 and item 10's assist-purpose exception** (review §5.7), as
+   small PRs with tests. Item 1 includes the fix for finding D14. A change to a
+   persisted contract or to dispatch semantics gets its build-log decision entry
+   first. Done: the tests and CI pass, and the entries are appended.
+2. **E0** from the owner's Mac against the new endpoint, at zero fee and with no
+   approval entry: probes P1-P9 in `scripts/serving-probe.py`, the new P10, P11 and
+   adapter probe (backlog item 5), and the role fixtures. Done: a serving card that
+   records the alias, engine version and context, never the address, with every
+   stage bound re-derived from it.
+3. **E1**, the recoverability tests with no live model. Done: its gate in review
+   §5.6 passes.
+4. **The owner's P11 interim** (an SSH local forward) and the box checklist, and
+   **E5** on the existing local routes in the owner's desktop build, with backlog
+   item 2's verdict capture.
+5. **E2 and E6**, backlog items 6-11, and the start of item 12.
+6. **E3**, once decisions 6 and 11 are made and its card is committed. The card
+   names the provider and D's call allowance, and shows that the allowance fits
+   USD 3.00 on f2.
+7. **E4**, once decision 8 is made, item 12 is done and its card is committed;
+   then backlog item 13, the desktop wiring.
+
+### 6. Rules for every step
+
+- Follow `AGENTS.md` and the log rules at the top of BUILD_LOG.md: UTC entry IDs,
+  append-only entries, and corrections only as new `Correction` entries. Keep
+  `Proposed`, `Approved`, `Implemented`, `Verified` and `Released` distinct.
+- The endpoint's address lives only in the owner's ignored `.env.local`
+  (`SOAR_VLLM_BASE_URL`, `SOAR_VLLM_MODEL`, `SOAR_VLLM_COST_POLICY=local_zero_cost`;
+  review §5.9). The JAO and JAT keys live only in the owner's local configuration.
+  Never commit or log an address, a key, a local path, a raw trace or gold.
+- Run paid work only inside an approved cap, after its card is committed, with one
+  registry row per run that records the three columns.
+- Before pushing, run `pnpm --silent validate:build-log -- --base-ref origin/main`,
+  `pnpm typecheck`, `pnpm validate:readiness` and the tests for what changed.
+
+### 7. Known limits
+
+Five adversarial checks of the review converged, confirming 96, 54, 37, 17 and 2
+findings, but each check after the first covered only the previous revision's
+changes. Finding D14 (a retried research call loses a completed stage) was found by
+reading code and has not been reproduced.
+
+## September 2026 record
+
 Reviewed: **2026-09-28**. Latest substantive product experiment: **2026-09-14**.
 
 SOAR has a working general-task prototype and useful safety/accounting machinery.

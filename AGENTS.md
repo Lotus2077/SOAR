@@ -2,6 +2,8 @@
 
 - Use multiple agents for independent, parallelizable research, implementation,
   or review when doing so materially improves speed or confidence.
+- Start from the "Start here" section of `docs/HANDOFF.md` for the current state,
+  the decisions in force and the next actions.
 - Read `docs/BUILD_LOG.md` before material work. Append a complete entry for
   every crucial product, architecture, persisted-contract, provider, cost,
   permission, evaluation, failure, or milestone change before calling it

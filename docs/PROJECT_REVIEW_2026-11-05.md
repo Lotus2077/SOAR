@@ -2,11 +2,13 @@
 
 Reviewed: **2026-11-05**, on `main` at `153b8e6`, identical to `origin/main`. Code
 and PLAN.md line numbers refer to that commit.
-Status: **review complete; every recommendation in it, and every reading of the
-owner's direction, is `Proposed`** and needs the owner's recorded decision before it
-takes effect. The owner's own directions of 2026-11-05 are recorded verbatim in
-BL-20261105-1821-owner-direction-equal-weights-new-model, except the first message's
-standing instruction (direction 4 below), which
+Status: **review complete. On 2026-11-07 the owner confirmed §5.10 items 2 and 3 and
+approved items 4 and 5 (BL-20261107-0650-owner-decisions-review-items-2-5); every
+other recommendation stays `Proposed`** and needs the owner's recorded decision
+before it takes effect. The next session starts at [HANDOFF.md](HANDOFF.md)'s "Start
+here (2026-11-07)" section. The owner's own directions of 2026-11-05 are recorded
+verbatim in BL-20261105-1821-owner-direction-equal-weights-new-model, except the
+first message's standing instruction (direction 4 below), which
 BL-20261105-2016-correction-direction-and-review-entries records verbatim. That
 entry, BL-20261105-1357-second-check-corrections-utc-reset,
 BL-20261105-1550-third-check-corrections, BL-20261105-1650-fourth-check-corrections
@@ -40,24 +42,24 @@ comparable products used public web pages only.
    goal and all following experiment design and steps should stick follow and stick
    to that goal"; the standing instruction is recorded verbatim in
    BL-20261105-2016-correction-direction-and-review-entries. §2 is this review's
-   clarification of that goal; like the readings below, it stays `Proposed` until
-   the owner confirms it (§5.10, item 3).
+   clarification of that goal; the owner confirmed it, with the readings below, on
+   2026-11-07 (§5.10, item 3).
 
 The direction replaces the order "privacy >= quality > savings > latency" (PLAN.md
-§1, and the privacy-first design whose order PLAN.md §8 listed as kept) and
-PLAN.md §1's line "Savings are descriptive only". This review reads the same
-direction as also superseding two more lines, pending the owner's confirmation
-(§5.10, item 3): PLAN.md §1's rule that USD per accepted job is reported "never as
-gates", and the first item of PLAN.md §2's W10 Stop row, "Treating API savings as a
-design driver" (its second item, on the "Hybrid +4.93%" figure, stands). On that
-reading OAJ stays the adoption north star and route decisions use the three
-columns.
+§1, and the privacy-first design whose order PLAN.md §8 listed as kept) and PLAN.md
+§1's line "Savings are descriptive only". This review reads the same direction as
+also superseding two more lines, which the owner confirmed on 2026-11-07 (§5.10,
+item 3): PLAN.md §1's rule that USD per accepted job is reported "never as gates",
+and the first item of PLAN.md §2's W10 Stop row, "Treating API savings as a design
+driver" (its second item, on the "Hybrid +4.93%" figure, stands). On that reading
+OAJ stays the adoption north star and route decisions use the three columns.
 
 The owner did not address labelled data on 2026-11-05. This review reads the
-2026-09-29 privacy rule and D15 as unchanged. Labelled data never reaches the
-cloud automatically, and D15's planned path (one derived-material packet per task,
-under the owner's exact-byte approval) stays behind its gates. Within that
-constraint the three columns weigh equally. The owner is asked to confirm these readings (§5.10, item 3).
+2026-09-29 privacy rule and D15 as unchanged. Labelled data never reaches the cloud
+automatically, and D15's planned path (one derived-material packet per task, under
+the owner's exact-byte approval) stays behind its gates. Within that constraint the
+three columns weigh equally. The owner confirmed these readings on 2026-11-07
+(§5.10, item 3).
 
 ---
 
@@ -78,7 +80,7 @@ constraint the three columns weigh equally. The owner is asked to confirm these 
 
 ---
 
-## 2. The ultimate goal (proposed)
+## 2. The ultimate goal (confirmed by the owner, 2026-11-07)
 
 > **Deliver Manus-level results on the owner's real work, public deep research
 > first, at a fraction of Manus's cost, without private data ever leaving the owned
@@ -654,7 +656,7 @@ per run.
 | E1 | **Recoverability**, no live model | extend `private-agent-broker.test.ts`, the runner and pipeline tests, `private-agent-research-session.test.ts`, `private-agent-research-seed.test.ts` and `phase4-loop.test.ts`: cancel mid-call at each stage, an upstream close (also retried inside a research stage that the session runs on the real broker, and a `superseded` row given to the producer, D14), invalid JSON twice, a cloud timeout on an assist, stdout over 256 KiB, more than 1,024 files, a 500 KB synthetic corpus | 0 | 2 | The gate for any live run: zero zero-fee UNKNOWN rows, a research stage with a retried call still reaches the writer, local work continues after a cloud UNKNOWN, cancellation still stops the stage |
 | E2 | **Writer policy** on byte-identical packets | writer-1, the current Heavy writer; writer-2, a preloaded presentation with an output budget from E0, thinking on; r3 plus 2 synthetic packets, 2 repeats: 12 runs. writer-3, writer-2 with thinking off, adds 6 runs only on the owner's named decision. Blind proxy grades | 0, plus ≤ 1 for fixtures (synthetic line) | 3 | The E3 and E4 writer; the never-run 12-call bound and thinking-off are hypotheses here |
 | E3 | **Closed-corpus route round** on the frozen fresh tasks f1-f3 (204-513 KB, 23 critical checks) | A all-local v5 × 2 repeats; B local-first with T1 and T2 × 2 (cap 0.60 per run); C forced split × 2 (0.60); D all-cloud ceiling × 1 (3.00), cached, on a provider and with a call allowance that the E3 card names, the allowance set above the 78-80 calls the all-cloud loop used on r1-r3 (uncached r1-r3 runs cost USD 3.05-3.77, above this cap); the card shows that the chosen allowance's projected fee, late reservation included, stays under USD 3.00 on f2 (512,514 bytes; the cached projection for r1, 499,438 bytes, was USD 2.12 with its late reservation at the 80 calls of r1's earlier all-cloud run), or the owner raises D's cap, and E3's cap of 20.4 with it, and the card re-derives E3's expected spend; one r3 calibration run per arm: 25 runs | 20.4 (expected about 6.6 if each D run costs about 1.2, as the cached r3 runs did at 79-80 calls on r3's 77 KB corpus; D may cost more on f1-f3 at a higher allowance: the cached r1 projections put D's fee at about 1.6 on a 499 KB corpus at 80 calls (USD 2.12 less its USD 0.51 late reservation for `claude-sonnet-5-5`, 1.65 for `gpt-6-sol`), about the 1.5-1.6 average above which, with both assists firing on every B and C run, E4 needs the reallocation (Budget)) | 7 | The harness default for public research on files, including when the cloud fires (always, on local failure, or never), and, through its result for B and C, the cloud-assisted route E4 tests; measured trigger rates (gate signals logged on every arm) |
-| E4 | **Manus-bar public round**, web scale | 2 pinned LiveDRBench cases, 2 pinned DeepResearch Bench prompts and 2 fresh planted-conflict tasks; arm A and one cloud-assisted route, chosen in this order: the one E3 made the default, if that is B or C; else, if E3 was not harness-limited, the only eligible one of B and C, or, when both are eligible, the one that beats the other under the frontier rule; else (E3 harness-limited, neither eligible, or B and C trading under §2.1 or equal within every tolerance) the owner's choice under §5.10, item 2, recorded before E4 starts; 3 repeats: 36 runs. Each task-repeat runs R0-R5 once and both arms read the same retained pages (a paired design), so arm differences reflect the cloud steps and search is paid once. The shared retrieval's search fee is ledgered once and counted both in each arm's cloud-plus-search cost and in each arm's USD 0.75 episode cap (see the cap check in §5.2). Graders: the official LiveDRBench grader, DeepResearch Bench RACE (GPT-5.5 judge) as `SOAR-pilot`, the local citation checker, conflict gold, blind proxy acceptance. The external ceiling is the published product scores; no all-cloud web arm is built | 20.5: 18 task-repeats × 0.75 + judge fees ≤ 6 + fixtures ≤ 1 (expected about 7 with SearXNG). The episode caps include search, so a keyed search API (18 retrievals × 30 queries: up to 5.40 at USD 10 per 1,000, or 7.56 at Gemini grounding's USD 14 per 1,000 if bought above its 5,000 free a month) raises the expected spend, not the cap. At R2's 30 queries the episode cap can refuse the synthesis retry above about USD 6.3 per 1,000 (search above 0.19 with T1 at its 0.10 maximum; about USD 8.3 after a v3-like 0.04 plan) and T2 itself above about USD 10.7 per 1,000 (search above 0.32; about USD 12.7 after a v3-like plan), so every cloud step of the cloud-assisted arm is certain to fit only below about USD 6.3 per 1,000 (§5.2) | 10 | Whether public deep research ships to the desktop, on which arm, and which criterion is the next lever |
+| E4 | **Manus-bar public round**, web scale | 2 pinned LiveDRBench cases, 2 pinned DeepResearch Bench prompts and 2 fresh planted-conflict tasks; arm A and one cloud-assisted route, chosen in this order: the one E3 made the default, if that is B or C; else, if E3 was not harness-limited, the only eligible one of B and C, or, when both are eligible, the one that beats the other under the frontier rule; else (E3 harness-limited, neither eligible, or B and C trading under §2.1 or equal within every tolerance) the owner's choice under §5.10, item 2, recorded before E4 starts; 3 repeats: 36 runs. Each task-repeat runs R0-R5 once and both arms read the same retained pages (a paired design), so arm differences reflect the cloud steps and search is paid once. The shared retrieval's search fee is ledgered once and counted both in each arm's cloud-plus-search cost and in each arm's USD 0.75 episode cap (see the cap check in §5.2). Graders: the official LiveDRBench grader, DeepResearch Bench RACE (GPT-5.5 judge at OpenAI directly) as `SOAR-pilot`, the local citation checker, conflict gold, blind proxy acceptance. The external ceiling is the published product scores; no all-cloud web arm is built | 20.5: 18 task-repeats × 0.75 + judge fees ≤ 6 + fixtures ≤ 1 (expected about 7 with SearXNG). The episode caps include search, so a keyed search API (18 retrievals × 30 queries: up to 5.40 at USD 10 per 1,000, or 7.56 at Gemini grounding's USD 14 per 1,000 if bought above its 5,000 free a month) raises the expected spend, not the cap. At R2's 30 queries the episode cap can refuse the synthesis retry above about USD 6.3 per 1,000 (search above 0.19 with T1 at its 0.10 maximum; about USD 8.3 after a v3-like 0.04 plan) and T2 itself above about USD 10.7 per 1,000 (search above 0.32; about USD 12.7 after a v3-like plan), so every cloud step of the cloud-assisted arm is certain to fit only below about USD 6.3 per 1,000 (§5.2) | 10 | Whether public deep research ships to the desktop, on which arm, and which criterion is the next lever |
 | E5 | **Desktop real-jobs trial (OAJ)** | The owner's real public or synthetic jobs in the shipped build, from week 1 on the routes that exist (document review, deck, site; local only); the research route joins in week 6 only if E4 ships an arm, on that arm, with the per-task assist toggle only when that arm is cloud-assisted, in which case toggle-off and file-only research jobs run arm A only if A itself qualified and otherwise get no research route (E4 rule) | 0 local; assists from the weekly public-work line, ≤ 0.75 per task | 14+ | OAJ ≥ 3 of 5 marks the routes `Verified` and makes P1 next; 1-2 means one lever per the trial-first rule; 0 means no route work until the cause is named |
 | E6 | **Document review, two samples** | review-1, a single sample, against review-2, two samples with host selection and local critique and repair; 3 synthetic planted-defect `.docx` files; 12 runs | ≤ 1 (fixtures, synthetic line) | 4 | The desktop review route; the numeric cross-check and clause-inversion flags (backlog item 7(d)) ship either way |
 | E7 | **Coding review packet (T3)** | only if E5 reaches OAJ ≥ 3 and the owner asks: L against L+T3 on c1 plus 2 synthetic tasks | 1.5, from the line its approval names | 3 | Whether coding gets any cloud |
@@ -863,6 +865,8 @@ gets its decision entry first.
 
 ### 5.10 Decisions the owner must record
 
+Items 2 to 5 were decided on 2026-11-07 (BL-20261107-0650-owner-decisions-review-items-2-5); items 1 and 6 to 13 remain open.
+
 1. Is the model now served at your endpoint the one qualified on 2026-11-04 (model
    root `Qwen3.8-Flash-Next-NVFP4`, 262,144-token context, vLLM
    0.33.0rc1.dev617+g821038729)? The
@@ -870,39 +874,43 @@ gets its decision entry first.
    probe P1 can show a difference but cannot prove identical weights. If you confirm
    the same model and probe P1 matches, the 2026-11-04 figures are admissible and
    E0 is a delta check; otherwise none of them apply.
-2. The cloud's role in public research, in the harness and behind the desktop's
-   per-task assist toggle (desktop routes are local-only by default, §5.2, unless
-   you decide below that the toggle starts on): always plan and synthesise (the
-   forced split, which F1 calls your thesis), step in only after two failed local
-   attempts (local-first), or not at all (all-local). The proposal is that E3's
-   pre-registered rule picks the harness role and you record the result. What runs
-   behind the toggle is E4's result instead: E4 tests one cloud-assisted route even
-   when E3 picks all-local, and the toggle exists only if E4 ships that route (§5.6,
-   E4). On the closed corpus all-local pays no fee and discloses nothing, so no
-   route whose assists fire can beat it under the frontier rule, and it beats any
-   such route that is not better on quality beyond tolerance. The rule therefore
-   makes a cloud-assisted route the default by itself only when all-local is
-   ineligible or that route's assists never fired. You choose where routes trade under §2.1 (for example a cloud-assisted route better on quality
+2. **Confirmed 2026-11-07**; whether the toggle starts on stays open until E4 ships
+   a cloud-assisted arm. The cloud's role in public research, in the harness and
+   behind the desktop's per-task assist toggle (desktop routes are local-only by
+   default, §5.2, unless you decide below that the toggle starts on): always plan
+   and synthesise (the forced split, which F1 calls your thesis), step in only after
+   two failed local attempts (local-first), or not at all (all-local). The proposal
+   is that E3's pre-registered rule picks the harness role and you record the
+   result. What runs behind the toggle is E4's result instead: E4 tests one
+   cloud-assisted route even when E3 picks all-local, and the toggle exists only if
+   E4 ships that route (§5.6, E4). On the closed corpus all-local pays no fee and
+   discloses nothing, so no route whose assists fire can beat it under the frontier
+   rule, and it beats any such route that is not better on quality beyond tolerance.
+   The rule therefore makes a cloud-assisted route the default by itself only when
+   all-local is ineligible or that route's assists never fired. You choose where
+   routes trade under §2.1 (for example a cloud-assisted route better on quality
    beyond tolerance) or are equal within every tolerance, and you name E4's
    cloud-assisted arm when E3 cannot (§5.6, E4). Also decide whether the per-task
    assist toggle starts on for URL-backed public tasks once E4 ships a
    cloud-assisted arm. You may instead fix the role now.
-3. Confirm the readings of your direction: §2's statement of the ultimate goal,
-   which you asked this review to clarify; the 2026-09-29 labelled-data rule and
-   D15 are unchanged; equal weight also supersedes PLAN.md's "never as gates" rule
-   for USD per accepted job and the first item of PLAN.md §2's W10 Stop row,
-   "Treating API savings as a design driver"; OAJ stays the adoption north star
-   beside the three columns.
-4. Backlog item 0, the zero-fee process entry.
-5. A named `Approved` entry for E3 and E4 against the harness line, with E4's
-   admission condition or a reallocation from the weekly public-work line. E4's
-   entry must also name its paid judges and the destination and key each uses, since
-   the backend decides the egress destination (PLAN.md §4): GPT-5.5 for DeepResearch
-   Bench RACE at the pinned revision, at OpenAI directly (`LLM_BACKEND=openai`) or
-   through OpenRouter (`openai/gpt-5.5`), which that revision's README makes the
-   default; and the OpenAI model and separately authorized key for LiveDRBench's
-   official grader. Neither model is in the standing envelope (PLAN.md §4(b) names
-   `gpt-6-sol` and `claude-sonnet-5-5`).
+3. **Confirmed 2026-11-07.** Confirm the readings of your direction: §2's statement
+   of the ultimate goal, which you asked this review to clarify; the 2026-09-29
+   labelled-data rule and D15 are unchanged; equal weight also supersedes PLAN.md's
+   "never as gates" rule for USD per accepted job and the first item of PLAN.md §2's
+   W10 Stop row, "Treating API savings as a design driver"; OAJ stays the adoption
+   north star beside the three columns.
+4. **Approved 2026-11-07.** Backlog item 0, the zero-fee process entry.
+5. **Approved 2026-11-07**, with E4 under its admission condition and both judges at
+   OpenAI directly (`api.openai.com`): RACE with the key named JAO, the LiveDRBench
+   grader with the key named JAT. A named `Approved` entry for E3 and E4 against the
+   harness line, with E4's admission condition or a reallocation from the weekly
+   public-work line. E4's entry must also name its paid judges and the destination
+   and key each uses, since the backend decides the egress destination (PLAN.md §4):
+   GPT-5.5 for DeepResearch Bench RACE at the pinned revision, at OpenAI directly
+   (`LLM_BACKEND=openai`) or through OpenRouter (`openai/gpt-5.5`), which that
+   revision's README makes the default; and the OpenAI model and separately
+   authorized key for LiveDRBench's official grader. Neither model is in the
+   standing envelope (PLAN.md §4(b) names `gpt-6-sol` and `claude-sonnet-5-5`).
 6. Which provider carries the assists and the E3 ceiling arm D:
    `claude-sonnet-5-5` (the 2026-10-30 decision) or `gpt-6-sol` (the only one with
    measured assist receipts).

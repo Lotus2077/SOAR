@@ -37,6 +37,23 @@ const tokenStopSchema = z.object({
   code: z.enum(LOCAL_TOKEN_ADMISSION_CODES), bodySha256: sha256Schema, policySha256: sha256Schema.optional(),
 }).strict();
 export type ModelRequestTokenAdmissionStop = z.infer<typeof tokenStopSchema>;
+/**
+ * Backlog item 3 (finding A5, BL-20261107-0901): the broker refused the request before any row existed, so nothing was sent and
+ * nothing is uncertain; `code` is the broker's own fixed code. A cancel ends the run as cancelled (or paused), an unavailable
+ * scanner resumably (`packet_scan_unavailable`), a blocked scan, a missing destination or a size excess without its numbers
+ * permanently (`model_request_denied`; a size excess with its numbers records the size stop instead), and a ledger refusal as
+ * `unresolved_dispatch_no_replay`.
+ */
+export const BROKER_DENIED_STOP = "broker_denied";
+export const BROKER_DENIAL_CODES = ["request_cancelled", "packet_scan_failed", "packet_scan_incomplete_or_blocked", "packet_size_exceeded", "destination_missing", "unresolved_dispatch"] as const;
+export type BrokerDenialCode = (typeof BROKER_DENIAL_CODES)[number];
+export const PACKET_SCAN_UNAVAILABLE_STOP = "packet_scan_unavailable";
+export const MODEL_REQUEST_DENIED_STOP = "model_request_denied";
+const brokerDeniedSchema = z.object({
+  type: z.literal("model_request_not_dispatched"), contextId: privateAgentId, operationId: z.string().uuid(),
+  promptProtocolSha256: sha256Schema, reason: z.literal(BROKER_DENIED_STOP), dispatched: z.literal(false), code: z.enum(BROKER_DENIAL_CODES),
+}).strict();
+export type ModelRequestBrokerDenied = z.infer<typeof brokerDeniedSchema>;
 
 function notDispatchedJoin(events: Record<string, unknown>[], start: Record<string, unknown>): Record<string, unknown> | undefined {
   if (start.type !== "model_started") return;
@@ -58,6 +75,10 @@ export function modelRequestFeeStop(events: Record<string, unknown>[], start: Re
 export function modelRequestTokenAdmissionStop(events: Record<string, unknown>[], start: Record<string, unknown>): ModelRequestTokenAdmissionStop | undefined {
   const marker = notDispatchedJoin(events, start); if (!marker) return;
   const parsed = tokenStopSchema.safeParse(marker); return parsed.success ? parsed.data : undefined;
+}
+export function modelRequestBrokerDenied(events: Record<string, unknown>[], start: Record<string, unknown>): ModelRequestBrokerDenied | undefined {
+  const marker = notDispatchedJoin(events, start); if (!marker) return;
+  const parsed = brokerDeniedSchema.safeParse(marker); return parsed.success ? parsed.data : undefined;
 }
 
 export const MODEL_UNAVAILABLE_STOP = "model_unavailable";
@@ -82,7 +103,7 @@ export function modelRequestFailed(events: Record<string, unknown>[], start: Rec
 
 export function hasInvalidModelRequestSizeStop(events: Record<string, unknown>[]): boolean {
   return events.some(marker => marker.type === "model_request_not_dispatched" &&
-    !events.some(start => (modelRequestSizeStop(events, start) ?? modelRequestFeeStop(events, start) ?? modelRequestTokenAdmissionStop(events, start))?.operationId === marker.operationId));
+    !events.some(start => (modelRequestSizeStop(events, start) ?? modelRequestFeeStop(events, start) ?? modelRequestTokenAdmissionStop(events, start) ?? modelRequestBrokerDenied(events, start))?.operationId === marker.operationId));
 }
 export function hasInvalidModelRequestTokenAdmissionStop(events: Record<string, unknown>[]): boolean {
   return events.some(marker => marker.type === "model_request_not_dispatched" && marker.reason === LOCAL_TOKEN_ADMISSION_STOP &&

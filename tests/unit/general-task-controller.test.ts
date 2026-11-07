@@ -14,6 +14,7 @@ import { EXECUTION_PROGRESS_STOP } from "../../src/main/private-agent/progress";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import type { BrokerDestination } from "../../src/main/private-agent/broker";
 import { flashNextAdmissionFixture } from "../helpers/flash-next-admission-fixture";
+import { workspaceListing } from "../helpers/workspace-listing";
 
 const cleanup: (() => Promise<void> | void)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const fn of cleanup.splice(0).reverse()) await fn(); });
@@ -147,7 +148,7 @@ describe("desktop general-task host controller", () => {
     vi.spyOn(DockerSandbox, "cleanupOwnedContext").mockResolvedValue(undefined);
     vi.spyOn(DockerSandbox, "create").mockImplementation(async input => ({
       async execute() { return { exitCode: 1, stdout: "", stderr: "deterministic synthetic failure" }; },
-      async listFiles() { return input.files.map(file => file.path); },
+      async listFiles() { return workspaceListing(new Map(input.files.map(file => [file.path, file.bytes]))); },
       async readFile(path: string) { return input.files.find(file => file.path === path)!.bytes; }, async close() {},
     } as unknown as DockerSandbox));
     let requests = 0;
@@ -228,6 +229,38 @@ describe("desktop general-task host controller", () => {
     expect(f.executions).toHaveLength(1);
     expect(reopened.artifact({ id: task.id, path: after.artifacts[0]!.path, sha256: after.artifacts[0]!.sha256 }).bytes.toString()).toBe("saved partial artifact");
     expect(f.executions[0]!.store.dispatches(task.id)).toHaveLength(variant === "unknown" ? 1 : 0);
+  });
+
+  it.each([
+    { reason: "packet_scan_unavailable", code: "packet_scan_failed", resumable: true, text: "scanner" },
+    { reason: "model_request_denied", code: "destination_missing", resumable: false, text: "refused" },
+    { reason: "model_request_denied", code: "not_a_broker_code", resumable: false, text: "uncertain outcome" },
+  ])("maps a pre-dispatch broker refusal ($reason, $code) to its fixed text and resumability after reopening (backlog item 3)", async ({ reason, code, resumable, text }) => {
+    const f = fixture();
+    f.options.testing!.runnerFactory = args => ({ pause() {}, cancel() {}, async run() {
+      f.executions.push(args);
+      const { store, jobId, contextId, checkpoints } = args;
+      const start = { type: "model_started", operationId: randomUUID(), contextId, promptProtocolSha256: digest("fixture-protocol") };
+      store.append(jobId, start);
+      store.append(jobId, { ...start, type: "model_request_not_dispatched", reason: "broker_denied", dispatched: false, code });
+      const snapshot = checkpoints.save([...args.files, { path: args.contract.requiredArtifacts[0]!.path, bytes: Buffer.from("saved partial artifact") }]);
+      store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
+      store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
+      return { status: "incomplete", reason, snapshot, checks: [], modelCalls: 1 };
+    } });
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    const before = f.controller.get(task.id);
+    expect(before).toMatchObject({ status: "incomplete", canResume: resumable, modelCalls: 1, cleanupConfirmed: true });
+    expect(before.reason).toContain(text);
+    if (text !== "uncertain outcome") expect(before.reason).not.toContain("uncertain outcome");
+    // The event summary keys on the marker's reason, whatever its code; the task's own reason is what flags a malformed marker.
+    expect(before.events.find(event => event.type === "model_request_not_dispatched")!.summary).toContain("refused");
+    await f.controller.close();
+    const reopened = new GeneralTaskController(f.options); cleanup.push(() => reopened.close());
+    expect(reopened.get(task.id)).toMatchObject({ reason: before.reason, canResume: resumable });
+    if (!resumable) expect(() => reopened.resume(task.id)).toThrow("general_task_resume_denied");
+    expect(f.executions).toHaveLength(1);
+    expect(reopened.artifact({ id: task.id, path: before.artifacts[0]!.path, sha256: before.artifacts[0]!.sha256 }).bytes.toString()).toBe("saved partial artifact");
   });
 
   it.each(["valid", "malformed", "missing", "orphan", "unknown"])("preserves the %s token-admission stop without replay after reopening", async variant => {

@@ -9,10 +9,13 @@ import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel, type GeneralMessage, type PrivateModelConfig } from "../../src/main/private-agent/model";
 import { GeneralAgentRunner, type GeneralJobContract, type GeneralJobOptions } from "../../src/main/private-agent/runner";
-import { DockerSandbox } from "../../src/main/private-agent/sandbox";
+import { DockerSandbox, SandboxError, type SandboxErrorCode, type WorkspaceListing } from "../../src/main/private-agent/sandbox";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { LocalTokenAdmissionError, LOCAL_TOKEN_ADMISSION_STOP } from "../../src/main/private-agent/flash-next-admission";
-import { EXECUTION_OBSERVATION_MAX_BYTES, EXECUTION_OBSERVATION_BUDGET_BYTES } from "../../src/main/private-agent/observations";
+import { TOOL_ERROR_FEEDBACK } from "../../src/main/private-agent/tool-errors";
+import { BROKER_DENIED_STOP, MODEL_REQUEST_DENIED_STOP, MODEL_REQUEST_SIZE_STOP, PACKET_SCAN_UNAVAILABLE_STOP } from "../../src/main/private-agent/model";
+import { workspaceListing } from "../helpers/workspace-listing";
+import { EXECUTION_OBSERVATION_MAX_BYTES, EXECUTION_OBSERVATION_BUDGET_BYTES, verifyExecutionObservations } from "../../src/main/private-agent/observations";
 import { EXECUTION_PROGRESS_STOP, readExecutionProgressStop } from "../../src/main/private-agent/progress";
 import { CLAIMS_LEDGER_CHECK_ID, claimsLedgerCheck } from "../../src/main/private-agent/claims";
 import { researchTransferPhase, type SessionPhase } from "../../src/main/private-agent/session";
@@ -56,6 +59,7 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
   let currentContents = new Map<string, Buffer>();
   let afterExecute: (command: string) => void = () => {};
   let beforeListFiles: () => void = () => {};
+  let listingExtra: Partial<WorkspaceListing> = {};
   const create = vi.spyOn(DockerSandbox, "create").mockImplementation(async input => {
     clock += 25;
     const contents = new Map(input.files.map(file => [file.path, Buffer.from(file.bytes)]));
@@ -66,12 +70,15 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
       if (command === "write empty") contents.set("output.txt", Buffer.alloc(0));
       if (command === "fail with progress") contents.set("diagnostic.txt", Buffer.from(String(commands.length)));
       if (command === "throw failure") throw new Error("PRIVATE-HOST-PATH-AND-DIAGNOSTIC");
+      if (command.startsWith("throw sandbox ")) throw new SandboxError(command.slice("throw sandbox ".length) as SandboxErrorCode);
       afterExecute(command);
       return { exitCode: command.startsWith("fail ") ? 1 : command.includes("python3 -I -c") ? limits.checkExitCode ?? 0 : 0, stdout: limits.toolStdout ?? "synthetic evidence", stderr: "" };
-    }, async listFiles() { beforeListFiles(); return [...contents.keys()].sort(); },
+    }, async listFiles() { beforeListFiles(); return workspaceListing(contents, listingExtra); },
     async readFile(path: string) { return Buffer.from(contents.get(path)!); },
     async editFile(mode: "write" | "append" | "replace", path: string, payload: Buffer, replacement?: Buffer) {
       clock += 10; commands.push(`${mode}:${path}`);
+      // The real protocol refuses a path outside the workspace before anything runs.
+      if (path.split("/").some(part => part === "" || part === "." || part === "..")) throw new SandboxError("invalid_input");
       if (mode === "replace") {
         const current = contents.get(path); if (!current) return { ok: false, reason: "file_missing" };
         const count = current.toString("utf8").split(payload.toString("utf8")).length - 1;
@@ -102,6 +109,8 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
   return { options, dbPath, requests, complete, create, commands, advance: (ms: number) => { clock += ms; },
     mutateWorkspace: (path: string, bytes: Buffer) => { currentContents.set(path, Buffer.from(bytes)); },
     beforeListFiles: (callback: () => void) => { beforeListFiles = callback; },
+    /** What the fixture lister reports besides the live contents (omitted entries, counts, an incomplete walk). */
+    setListing: (extra: Partial<WorkspaceListing>) => { listingExtra = extra; },
     afterExecute: (callback: (command: string) => void) => { afterExecute = callback; },
     afterResponse: (callback: (count: number) => void) => { afterResponse = callback; } };
 }
@@ -278,17 +287,118 @@ describe("general runner host budget and argument recovery", () => {
     expect(f.requests).toHaveLength(3);
   });
 
-  it("does not replay a warned response when pre-stop capture fails before a marker can be saved", async () => {
-    const f = fixture([failed, failed, failed, finish]);
-    f.afterResponse(count => { if (count === 3) f.beforeListFiles(() => { throw new Error("synthetic capture failure"); }); });
-    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "runtime_failure_progress_preserved", modelCalls: 3 });
-    expect(f.options.store.events(f.options.jobId).some(event => event.type === "model_action_not_started")).toBe(false);
-    // H1 completion: the failure class is recorded (a name or sandbox code only), so a hang or host sleep can be told from a code fault.
-    expect(f.options.store.events(f.options.jobId).filter(event => event.type === "runtime_failure")).toMatchObject([{ code: "Error" }]);
-    expect(f.commands).toEqual(["fail same", "fail same"]);
+  it("runs the warned action against the recreated checkpoint when the pre-stop recheck capture fails, instead of refusing replay (backlog item 3)", async () => {
+    // Before item 3 this capture failure ended the run as runtime_failure_progress_preserved and every later run as unresolved_operation_no_replay.
+    const f = fixture([failed, failed, failed, write, finish], { maxModelCalls: 5 });
+    let failures = 0;
+    f.afterResponse(count => { if (count === 3) f.beforeListFiles(() => { if (failures++ === 0) throw new SandboxError("unavailable"); }); });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 5 });
+    expect(f.commands.filter(command => command === "fail same")).toHaveLength(3);
+    const events = f.options.store.events(f.options.jobId);
+    expect(events.some(event => event.type === "model_action_not_started" || event.type === "runtime_failure")).toBe(false);
+    const third = events.filter(event => event.type === "tool_finished")[2]!;
+    expect(third).toMatchObject({ recheckCaptureFailure: { code: "sandbox_unavailable" }, executionCapture: "retained" });
+    expect(third.captureFailure).toBeUndefined();
+    // The container was recreated from the last checkpoint before the action ran: the initial one, the recreation, the verifier.
+    expect(f.create).toHaveBeenCalledTimes(3);
+    expect(f.create.mock.calls[1]![0].files.map(file => file.path)).toEqual(["input.txt"]);
+    // The model learns it from the host notice that follows the tool result, as a user message.
+    const notice = f.requests[3]!.findIndex(message => message.role === "user" && message.content!.includes("workspace_capture_failed"));
+    expect(f.requests[3]![notice - 1]).toMatchObject({ role: "tool", tool_call_id: "tool_2" });
+    expect(JSON.parse(f.requests[3]![notice]!.content!)).toEqual({ recheck: { error: "workspace_capture_failed", code: "sandbox_unavailable", instruction: expect.stringContaining("recreated from the last checkpoint") } });
+  });
+
+  it("records a failed post-action capture on the closed operation, recreates the container from the last checkpoint and continues (backlog item 3)", async () => {
+    const f = fixture([write, write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    let failures = 0;
+    f.beforeListFiles(() => { if (failures++ === 0) throw new SandboxError("unusable"); });
+    const result = await new GeneralAgentRunner(f.options).run();
+    expect(result).toMatchObject({ status: "completed", reason: "critical_checks_passed", modelCalls: 3 });
+    const events = f.options.store.events(f.options.jobId), finished = events.filter(event => event.type === "tool_finished");
+    expect(events.filter(event => event.type === "tool_started")).toHaveLength(3); expect(finished).toHaveLength(3);
+    expect(finished[0]).toMatchObject({ captureFailure: { code: "sandbox_unusable" }, executionCapture: "retained" });
+    // The output stays the observation module's own rendering, and the checkpoint before it carries the prior snapshot unchanged.
+    expect(JSON.parse(String(finished[0]!.output))).toMatchObject({ exitCode: 0, stdout: "synthetic evidence" });
+    expect(events[events.indexOf(finished[0]!) - 1]).toMatchObject({ type: "checkpoint", snapshot: events.find(event => event.type === "checkpoint")!.snapshot });
+    expect(finished[1]!.captureFailure).toBeUndefined(); expect(events.some(event => event.type === "runtime_failure")).toBe(false);
+    // Recreated from that checkpoint, so the first write's effect is gone, and the model is told right after the tool result.
+    expect(f.create).toHaveBeenCalledTimes(3);
+    expect(f.create.mock.calls[1]![0].files.map(file => file.path)).toEqual(["input.txt"]);
+    const notice = f.requests[1]!.findIndex(message => message.role === "user" && message.content!.includes("workspace_capture_failed"));
+    expect(notice).toBe(f.requests[1]!.findIndex(message => message.role === "tool") + 1);
+    expect(JSON.parse(f.requests[1]![notice]!.content!)).toMatchObject({ error: "workspace_capture_failed", code: "sandbox_unusable", completed: false, actionInvoked: true });
+    expect(JSON.stringify(f.requests[1])).not.toContain("Private sandbox");
+    expect(f.options.checkpoints.load(result.snapshot).find(file => file.path === "output.txt")!.bytes.toString()).toBe("computed fixture result");
+    expect((await new GeneralAgentRunner(f.options).run()).reason).toBe("job_already_completed");
+  });
+
+  it("ends after two consecutive capture failures as before, with every operation closed, and a later run resumes from the last checkpoint", async () => {
+    const f = fixture([write, write, finish, write, finish], { maxModelCalls: 5, maxToolCalls: 6 });
+    let failures = 0;
+    f.beforeListFiles(() => { if (failures++ < 2) throw new SandboxError("unavailable"); });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "runtime_failure_progress_preserved", modelCalls: 2 });
+    const events = f.options.store.events(f.options.jobId);
+    expect(events.filter(event => event.type === "tool_started")).toHaveLength(2);
+    expect(events.filter(event => event.type === "tool_finished").map(event => event.captureFailure)).toEqual([{ code: "sandbox_unavailable" }, { code: "sandbox_unavailable" }]);
+    expect(events.filter(event => event.type === "runtime_failure")).toMatchObject([{ code: "sandbox_unavailable" }]);
+    // No operation is open, so the next run goes on from the initial checkpoint (nothing was retained) and completes.
     const reopened = new Database(f.dbPath); cleanup.push(() => reopened.close());
-    expect(await new GeneralAgentRunner({ ...f.options, store: new PrivateAgentStore(reopened) }).run()).toMatchObject({ reason: "unresolved_operation_no_replay" });
-    expect(f.requests).toHaveLength(3); expect(f.create).toHaveBeenCalledTimes(1);
+    expect(await new GeneralAgentRunner({ ...f.options, store: new PrivateAgentStore(reopened) }).run()).toMatchObject({ status: "completed", modelCalls: 5 });
+    expect(f.requests).toHaveLength(5);
+    expect(JSON.parse(f.requests[2]!.filter(message => message.role === "user").at(-2)!.content!)).toMatchObject({ error: "workspace_capture_failed" });
+  });
+
+  it("answers a finish whose capture failed without verifying, recreates the container and lets a later finish complete", async () => {
+    const f = fixture([write, finish, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    let listings = 0;
+    f.beforeListFiles(() => { if (++listings === 2) throw new SandboxError("command_timeout"); });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 3 });
+    const finished = f.options.store.events(f.options.jobId).filter(event => event.type === "tool_finished");
+    expect(JSON.parse(String(finished[1]!.output))).toEqual({ complete: false, error: "workspace_capture_failed", code: "sandbox_command_timeout" });
+    expect(finished[1]).toMatchObject({ captureFailure: { code: "sandbox_command_timeout" }, allowanceFinalizationEligible: false });
+    expect(JSON.parse(String(finished[2]!.output))).toMatchObject({ complete: true });
+    // No verifier ran for the failed finish: the initial container, the recreation, the second finish's verifier.
+    expect(f.commands.filter(command => command.includes("python3 -I -c"))).toHaveLength(1);
+    expect(f.create).toHaveBeenCalledTimes(3);
+  });
+
+  it("closes the allowance validation when its capture fails, so a later run finds a finished validation and never an unresolved one", async () => {
+    const f = fixture([write], { maxModelCalls: 1 });
+    let listings = 0;
+    f.beforeListFiles(() => { if (++listings === 2) throw new SandboxError("unavailable"); });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "bounded_allowance_exhausted", modelCalls: 1 });
+    const events = f.options.store.events(f.options.jobId);
+    expect(events.filter(event => event.type === "host_validation_started")).toHaveLength(1);
+    expect(events.find(event => event.type === "host_validation_finished")).toMatchObject({ passed: false, checks: [], missingArtifacts: [], captureFailure: { code: "sandbox_unavailable" } });
+    expect(events.some(event => event.type === "completed" || event.type === "runtime_failure")).toBe(false);
+    expect((await new GeneralAgentRunner(f.options).run()).reason).toBe("host_validation_not_replayed");
+    expect(f.requests).toHaveLength(1); expect(f.create).toHaveBeenCalledTimes(1);
+  });
+
+  it("tells the model what the checkpoint leaves out when the lister reports omitted entries (backlog item 3)", async () => {
+    const f = fixture([write, finish]);
+    f.setListing({ omitted: [{ path: "venv/bin/python", reason: "symlink" }, { path: "big.bin", reason: "oversize" }], counts: { symlink: 3, hard_link: 0, special: 1, oversize: 1, name_invalid: 0, cap: 0 } });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed" });
+    const first = f.options.store.events(f.options.jobId).find(event => event.type === "tool_finished")!;
+    expect(first.captureOmitted).toEqual({ total: 5, reasons: { symlink: 3, special: 1, oversize: 1 }, paths: ["venv/bin/python", "big.bin"], complete: true });
+    expect(first.captureFailure).toBeUndefined();
+    const notice = f.requests[1]!.find(message => message.role === "user" && message.content!.includes("workspace_capture_incomplete"))!;
+    expect(JSON.parse(notice.content!)).toMatchObject({ warning: "workspace_capture_incomplete", omitted: { total: 5, paths: ["venv/bin/python", "big.bin"], complete: true } });
+    expect(JSON.parse(notice.content!)).not.toHaveProperty("error");
+  });
+
+  it("answers execution_context_unavailable when the container cannot be recreated before the action, and tries again on the next one", async () => {
+    const f = fixture([failed, failed, failed, write, finish], { maxModelCalls: 5 });
+    let listings = 0;
+    f.afterResponse(count => { if (count === 3) f.beforeListFiles(() => { if (listings++ === 0) throw new SandboxError("unavailable"); }); });
+    const create = f.create.getMockImplementation()!;
+    f.create.mockImplementation(async input => { if (f.create.mock.calls.length === 2) throw new SandboxError("unavailable"); return create(input); });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 5 });
+    expect(f.commands.filter(command => command === "fail same")).toHaveLength(2);
+    const third = f.options.store.events(f.options.jobId).filter(event => event.type === "tool_finished")[2]!;
+    expect(third).toMatchObject({ executionCapture: "not_invoked", recheckCaptureFailure: { code: "sandbox_unavailable" }, allowanceFinalizationEligible: false });
+    expect(JSON.parse(String(third.output))).toEqual(TOOL_ERROR_FEEDBACK.execution_context_unavailable);
+    expect(f.create).toHaveBeenCalledTimes(4);
   });
 
   it("keeps a current missing-artifact reminder until the required file is nonempty", async () => {
@@ -1009,7 +1119,7 @@ describe("general runner claims ledger tool", () => {
     expect(await new GeneralAgentRunner(g.options).run()).toMatchObject({ status: "completed" });
     expect(g.commands.filter(command => command.includes(CLAIMS_LEDGER_CHECK_ID))).toEqual([]);
     const refused = g.options.store.events(g.options.jobId).filter(event => event.type === "tool_finished").map(event => JSON.parse(String(event.output)));
-    expect(refused[0]).toMatchObject({ error: "action_failed_or_not_permitted", completed: false });
+    expect(refused[0]).toEqual(TOOL_ERROR_FEEDBACK.tool_unknown);
   });
   const judged = JSON.stringify({ passed: true, claims: [
     { id: "C1", found: true, locator: "line 1", sentence: "The input is synthetic.", quote: "synthetic input", context: "synthetic input" },
@@ -1060,5 +1170,114 @@ describe("general runner claims ledger tool", () => {
     expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "bounded_allowance_exhausted" });
     const finished = f.options.store.events(f.options.jobId).filter(event => event.type === "tool_finished").map(event => JSON.parse(String(event.output)));
     expect(finished.at(-1)).toMatchObject({ complete: false, checks: [{ id: "fixture_check", passed: false }, { id: CLAIMS_LEDGER_CHECK_ID, passed: false }] });
+  });
+});
+
+describe("general runner pre-dispatch broker denials (backlog item 3, finding A5)", () => {
+  const denied = (f: ReturnType<typeof fixture>, code: string, details?: { bodyBytes: number; limitBytes: number }) =>
+    f.complete.mockImplementationOnce(async () => { throw new BrokerError(code, details); });
+  const markers = (f: ReturnType<typeof fixture>) => f.options.store.events(f.options.jobId).filter(row => row.type === "model_request_not_dispatched");
+  it("records a cancelled request as not dispatched and ends cancelled, or paused when a pause was pending, then resumes", async () => {
+    const f = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    denied(f, "request_cancelled");
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "cancelled_or_deadline", modelCalls: 1 });
+    expect(markers(f)).toMatchObject([{ reason: BROKER_DENIED_STOP, code: "request_cancelled", dispatched: false }]);
+    expect(f.options.store.dispatches(f.options.jobId)).toEqual([]); expect(f.requests).toHaveLength(0);
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed", modelCalls: 3 });
+    expect(f.requests).toHaveLength(2);
+    const paused = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    const runner = new GeneralAgentRunner(paused.options);
+    paused.complete.mockImplementationOnce(async () => { runner.pause(); throw new BrokerError("request_cancelled"); });
+    expect(await runner.run()).toMatchObject({ status: "paused", reason: "checkpoint_saved", modelCalls: 1 });
+    expect(await new GeneralAgentRunner(paused.options).run()).toMatchObject({ status: "completed" });
+  });
+  it("ends resumably when the packet scanner was unavailable and completes on the next run after reopening", async () => {
+    const f = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    denied(f, "packet_scan_failed");
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: PACKET_SCAN_UNAVAILABLE_STOP, modelCalls: 1 });
+    expect(markers(f)).toMatchObject([{ reason: BROKER_DENIED_STOP, code: "packet_scan_failed", dispatched: false }]);
+    expect(f.options.store.dispatches(f.options.jobId)).toEqual([]);
+    const reopened = new Database(f.dbPath); cleanup.push(() => reopened.close());
+    expect(await new GeneralAgentRunner({ ...f.options, store: new PrivateAgentStore(reopened) }).run()).toMatchObject({ status: "completed", modelCalls: 3 });
+    expect(f.requests).toHaveLength(2);
+  });
+  it.each(["packet_scan_incomplete_or_blocked", "destination_missing", "packet_size_exceeded"])("records %s as a refusal that recurs, ending this run and every later one without a request", async code => {
+    const f = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    denied(f, code);
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: MODEL_REQUEST_DENIED_STOP, modelCalls: 1 });
+    expect(markers(f)).toMatchObject([{ reason: BROKER_DENIED_STOP, code, dispatched: false }]);
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ reason: MODEL_REQUEST_DENIED_STOP, modelCalls: 1 });
+    expect(f.requests).toHaveLength(0); expect(f.options.store.dispatches(f.options.jobId)).toEqual([]); expect(f.commands).toEqual([]);
+  });
+  it("records a body over the destination's cap as the size stop when the broker reports its numbers", async () => {
+    const f = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    denied(f, "packet_size_exceeded", { bodyBytes: 200_001, limitBytes: 200_000 });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: MODEL_REQUEST_SIZE_STOP, modelCalls: 1 });
+    expect(markers(f)).toMatchObject([{ reason: MODEL_REQUEST_SIZE_STOP, dispatched: false, bodyBytes: 200_001, limitBytes: 200_000 }]);
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ reason: MODEL_REQUEST_SIZE_STOP });
+    // Numbers that do not prove a size excess fall back to the generic marker.
+    const g = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    denied(g, "packet_size_exceeded", { bodyBytes: 10, limitBytes: 10 });
+    expect(await new GeneralAgentRunner(g.options).run()).toMatchObject({ reason: MODEL_REQUEST_DENIED_STOP });
+    expect(markers(g)).toMatchObject([{ reason: BROKER_DENIED_STOP, code: "packet_size_exceeded" }]);
+  });
+  it("ends unresolved_dispatch_no_replay when the ledger refused the row, with the refusal recorded and nothing sent", async () => {
+    const f = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    denied(f, "unresolved_dispatch");
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "unresolved_dispatch_no_replay", modelCalls: 1 });
+    expect(markers(f)).toMatchObject([{ reason: BROKER_DENIED_STOP, code: "unresolved_dispatch", dispatched: false }]);
+    // The marker closes the operation; whether a later run proceeds is the ledger's own decision (here it holds no unresolved row).
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed" });
+  });
+  it("reaches the runner typed through the real broker when the ledger refuses the row for an unknown judge row the runner itself exempts", async () => {
+    const f = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4, maxRequests: 20 });
+    f.complete.mockRestore();
+    const { store, broker, jobId, contextId } = f.options;
+    const { text: _text, ...preview } = broker.preview({ jobId, contextId, destinationId: "model", purpose: "claims entailment judgement", method: "POST", body: "{}", maxFeeMicrousd: 0 });
+    store.unknown(store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_inside_boundary" } }, () => {}).id);
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "unresolved_dispatch_no_replay", modelCalls: 1 });
+    expect(markers(f)).toMatchObject([{ reason: BROKER_DENIED_STOP, code: "unresolved_dispatch", dispatched: false }]);
+    expect(store.dispatches(jobId)).toHaveLength(1); expect(f.commands).toEqual([]);
+  });
+  it("still ends an uncertain broker outcome without resume, now with the broker's code recorded beside the class (finding B2)", async () => {
+    const f = fixture([write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+    denied(f, "transport_or_settlement_unknown");
+    expect((await new GeneralAgentRunner(f.options).run()).reason).toBe("runtime_failure_progress_preserved");
+    expect(f.options.store.events(f.options.jobId).filter(row => row.type === "runtime_failure")).toEqual([expect.objectContaining({ code: "BrokerError", brokerCode: "transport_or_settlement_unknown" })]);
+    expect(f.options.store.events(f.options.jobId).some(row => row.type === "model_request_not_dispatched")).toBe(false);
+    expect((await new GeneralAgentRunner(f.options).run()).reason).toBe("unresolved_operation_no_replay");
+  });
+});
+
+describe("general runner specific tool errors (backlog item 3, finding B5)", () => {
+  const outputs = (f: ReturnType<typeof fixture>) => f.options.store.events(f.options.jobId).filter(event => event.type === "tool_finished").map(event => JSON.parse(String(event.output)));
+  it("returns each sandbox code as its own fixed object for an execute the sandbox refused or lost, and the run goes on", async () => {
+    for (const code of ["invalid_input", "busy", "unusable", "unavailable", "command_timeout", "cancelled", "unsafe_file"] as const) {
+      const f = fixture([{ name: "execute", arguments: JSON.stringify({ command: `throw sandbox ${code}` }) }, write, finish], { maxModelCalls: 4, maxToolCalls: 4 });
+      expect(await new GeneralAgentRunner(f.options).run(), code).toMatchObject({ status: "completed" });
+      expect(outputs(f)[0], code).toEqual(TOOL_ERROR_FEEDBACK[`sandbox_${code}`]);
+      expect(JSON.stringify(outputs(f)[0]), code).not.toContain("Private sandbox");
+      const event = f.options.store.events(f.options.jobId).find(row => row.type === "tool_finished")!;
+      expect(event, code).toMatchObject({ executionCapture: "unavailable", allowanceFinalizationEligible: false, invalidExecuteAtOutputLimit: false });
+      // Completion ran the observation verifier over the recorded failure object.
+      expect(() => verifyExecutionObservations({ store: f.options.store, checkpoints: f.options.checkpoints, jobId: f.options.jobId, contextId: f.options.contextId }), code).not.toThrow();
+    }
+  });
+  it("returns tool_unknown, consultation_unavailable, path_invalid and a read refusal as fixed objects, none invoking anything", async () => {
+    const f = fixture([
+      { name: "unavailable_tool", arguments: "{}" },
+      { name: "check_claims", arguments: "{}" },
+      { name: "request_consultation", arguments: JSON.stringify({ question: "Is this right?", artifactPaths: ["input.txt"] }) },
+      { name: "write_file", arguments: JSON.stringify({ path: "../escape.txt", content: "x" }) },
+      { name: "read_observation", arguments: JSON.stringify({ observationId: randomUUID(), sha256: digest("none"), stream: "stdout", offset: 0, maxBytes: 64 }) },
+      write, finish], { maxModelCalls: 8, maxToolCalls: 8 });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", modelCalls: 7 });
+    const [unknown, claims, consultation, path, read] = outputs(f);
+    expect(unknown).toEqual(TOOL_ERROR_FEEDBACK.tool_unknown); expect(claims).toEqual(TOOL_ERROR_FEEDBACK.tool_unknown);
+    expect(consultation).toEqual(TOOL_ERROR_FEEDBACK.consultation_unavailable);
+    expect(path).toEqual(TOOL_ERROR_FEEDBACK.path_invalid);
+    expect(read).toEqual(TOOL_ERROR_FEEDBACK.observation_not_authorized);
+    expect(f.options.store.events(f.options.jobId).filter(event => event.type === "tool_finished")[4]).toMatchObject({ observationCapture: "not_invoked" });
+    expect(f.commands).toEqual(["write:../escape.txt", "write result", expect.stringMatching(/^python3 -I -c/u)]);
   });
 });

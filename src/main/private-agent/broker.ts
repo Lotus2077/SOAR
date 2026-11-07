@@ -116,7 +116,8 @@ export interface PacketPreview {
 }
 
 export class BrokerError extends Error {
-  constructor(readonly code: string) { super(code); this.name = "BrokerError"; }
+  /** `details` carries fixed host numbers only (the body size and the cap of a `packet_size_exceeded`); never provider text. */
+  constructor(readonly code: string, readonly details?: Readonly<{ bodyBytes: number; limitBytes: number }>) { super(code); this.name = "BrokerError"; }
 }
 
 type TransportFailureCode = Extract<UnknownRequestDiagnostic, { phase: "transport" }>["code"];
@@ -354,7 +355,10 @@ export class PrivateAgentBroker {
     const approval = parsedApproval?.success ? parsedApproval.data : undefined;
     if (approval && (!destination.requireExactGrant || approval.priceProfileSha256 !== destination.approvalPriceProfileSha256 ||
         approval.maxFeeMicrousd !== input.maxFeeMicrousd)) deny("packet_approval_mismatch");
-    if (Buffer.byteLength(body) > (destination.maxRequestBytes ?? BROKER_MAX_BODY_BYTES) || url.href.length > 8192) deny("packet_size_exceeded");
+    // A body over the destination's cap carries its numbers, so the runner can record the size stop (backlog item 3, finding A5).
+    const bodyBytes = Buffer.byteLength(body), bodyLimit = destination.maxRequestBytes ?? BROKER_MAX_BODY_BYTES;
+    if (bodyBytes > bodyLimit) throw new BrokerError("packet_size_exceeded", { bodyBytes, limitBytes: bodyLimit });
+    if (url.href.length > 8192) deny("packet_size_exceeded");
     if (input.localReplyContract !== undefined) {
       if (destination.kind !== "local_model" || input.maxFeeMicrousd !== 0) deny("local_reply_contract_invalid");
       try { validateFlashNextRequest(input.localReplyContract, body); } catch { deny("local_reply_contract_invalid"); }
@@ -496,6 +500,8 @@ export class PrivateAgentBroker {
       } catch (error) {
         // The fee or request allowance refused the row inside the transaction: nothing was inserted or sent.
         if (error instanceof Error && error.message === "private_agent_budget_denied") deny("budget_denied");
+        // An unresolved row of this job blocks every dispatch at the ledger: nothing was inserted or sent (backlog item 3, finding A5).
+        if (error instanceof Error && error.message === "private_agent_unresolved_dispatch") deny("unresolved_dispatch");
         if (error instanceof LocalTokenAdmissionError) {
           if (attempt > 1) deny("request_failed");
           throw new LocalTokenAdmissionError(error.code, digest(frozen.body!), frozen.localTokenAdmission?.policySha256);

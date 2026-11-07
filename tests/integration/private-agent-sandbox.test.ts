@@ -46,10 +46,11 @@ describe.skipIf(!enabled)("real credential-free isolated private-agent tools", (
       expect(await sandbox.readFile("inputs/数据.txt", 100)).toEqual(Buffer.from("测试"));
       expect(await sandbox.execute(python("from pathlib import Path\np=Path('out'); p.mkdir()\np.joinpath('report.txt').write_text(Path('inputs/数据.txt').read_text() + ':done')\nprint('completed')"), { timeoutMs: 10_000 })).toEqual({ exitCode: 0, stdout: "completed\n", stderr: "" });
       expect((await sandbox.readFile("out/report.txt", 100)).toString("utf8")).toBe("测试:done");
-      expect(await sandbox.listFiles()).toEqual(["inputs/source.txt", "inputs/数据.txt", "out/report.txt"]);
+      expect(await sandbox.listFiles()).toEqual({ files: [{ path: "inputs/source.txt", size: bytes.length }, { path: "inputs/数据.txt", size: 6 }, { path: "out/report.txt", size: 11 }],
+        omitted: [], counts: { symlink: 0, hard_link: 0, special: 0, oversize: 0, name_invalid: 0, cap: 0 }, complete: true });
       expect((await sandbox.execute("exit 7", { timeoutMs: 5000 })).exitCode).toBe(7);
       other = await make(jobId);
-      expect(await other.listFiles()).toEqual([]);
+      expect((await other.listFiles()).files).toEqual([]);
       expect((await other.execute("test ! -e inputs/source.txt", { timeoutMs: 5000 })).exitCode).toBe(0);
       const ids = await containers(jobId);
       expect(ids).toHaveLength(2);
@@ -136,14 +137,21 @@ describe.skipIf(!enabled)("real credential-free isolated private-agent tools", (
     }
   }, 60_000);
 
-  it.each(["file-symlink", "directory-symlink", "fifo", "hardlink"])("rejects %s during artifact export and destroys the context", async kind => {
+  it.each(["file-symlink", "directory-symlink", "fifo", "hardlink"])("omits a %s from the listing with its reason and keeps the container usable (backlog item 3)", async kind => {
     const jobId = randomUUID(), sandbox = await make(jobId, [{ path: "source", bytes: Buffer.from("synthetic") }]);
     try {
       const command = kind === "file-symlink" ? "ln -s /etc/passwd output" : kind === "directory-symlink" ? "ln -s /etc output"
         : kind === "fifo" ? "mkfifo output" : "ln source output";
       expect((await sandbox.execute(command, { timeoutMs: 5000 })).exitCode).toBe(0);
-      await expect(kind === "directory-symlink" ? sandbox.listFiles() : sandbox.readFile("output", 10000)).rejects.toMatchObject({ code: "unsafe_file" });
-      await expect(sandbox.listFiles()).rejects.toMatchObject({ code: "unusable" });
+      const listing = await sandbox.listFiles(), reason = kind === "hardlink" ? "hard_link" : kind === "fifo" ? "special" : "symlink";
+      expect(listing.omitted).toContainEqual({ path: "output", reason }); expect(listing.complete).toBe(true);
+      // A directory symlink is never followed, so nothing under /etc is listed; a hard link makes both names multi-link.
+      expect(listing.files).toEqual(kind === "hardlink" ? [] : [{ path: "source", size: 9 }]);
+      expect(listing.counts[reason]).toBe(kind === "hardlink" ? 2 : 1);
+      expect(await sandbox.execute("echo alive", { timeoutMs: 5000 })).toMatchObject({ exitCode: 0, stdout: "alive\n" });
+      expect(await containers(jobId)).toHaveLength(1);
+      // The read protocol is the last line of defence and still fails closed on a link or special file, destroying the context.
+      await expect(sandbox.readFile("output", 10000)).rejects.toMatchObject({ code: "unsafe_file" });
       expect(await containers(jobId)).toEqual([]);
     } finally { await sandbox.close(); }
   }, 60_000);
@@ -175,12 +183,18 @@ describe.skipIf(!enabled)("real credential-free isolated private-agent tools", (
     expect(await containers(jobId)).toEqual([]);
   }, 60_000);
 
-  it("bounds output and removes the emitting process before reporting overflow", async () => {
+  it("bounds a command's output at the cap, keeps the container usable and marks the cut (backlog item 3, finding A4)", async () => {
     const jobId = randomUUID(), sandbox = await make(jobId);
     try {
-      await expect(sandbox.execute(`python3 -I -c 'print("x" * ${PRIVATE_SANDBOX_LIMITS.outputBytes + 1})'`, { timeoutMs: 5000 })).rejects.toMatchObject({ code: "output_limit" });
-      expect(await containers(jobId)).toEqual([]);
+      const result = await sandbox.execute(`python3 -I -c 'import sys; sys.stdout.write("x" * ${PRIVATE_SANDBOX_LIMITS.outputBytes + 4096}); sys.stdout.flush(); sys.stderr.write("tail")'`, { timeoutMs: 20_000 });
+      expect(result.exitCode).toBe(0);
+      const retained = result.stderr.indexOf("\n[host]");
+      expect(Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr.slice(0, retained))).toBe(PRIVATE_SANDBOX_LIMITS.outputBytes);
+      expect(result.stderr).toContain(`[host] The command's output exceeded ${PRIVATE_SANDBOX_LIMITS.outputBytes} bytes`);
+      expect(await containers(jobId)).toHaveLength(1);
+      expect(await sandbox.execute("echo alive", { timeoutMs: 5000 })).toMatchObject({ exitCode: 0, stdout: "alive\n" });
     } finally { await sandbox.close(); }
+    expect(await containers(jobId)).toEqual([]);
   }, 60_000);
 
   it("recovers only the exact owned context on the pinned daemon", async () => {
@@ -259,7 +273,7 @@ describe.skipIf(!enabled)("real credential-free isolated private-agent tools", (
       expect(await sandbox.editFile("write", "dir", Buffer.from("x"))).toEqual({ ok: false, reason: "path_not_regular_file" });
       expect(await sandbox.editFile("write", "dir/keep.txt/child.txt", Buffer.from("x"))).toEqual({ ok: false, reason: "path_not_writable" });
       await expect(sandbox.editFile("write", "../escape.txt", Buffer.from("x"))).rejects.toMatchObject({ code: "invalid_input" });
-      expect(await sandbox.listFiles()).toEqual(["dir/keep.txt", "out/notes.txt"]);
+      expect((await sandbox.listFiles()).files.map(file => file.path)).toEqual(["dir/keep.txt", "out/notes.txt"]);
       expect(await sandbox.execute("cat out/notes.txt | wc -c", { timeoutMs: 10_000 })).toMatchObject({ exitCode: 0, stdout: "38\n" });
     } finally { await sandbox.close(); }
     expect(await containers(jobId)).toEqual([]);

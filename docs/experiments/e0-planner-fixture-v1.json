@@ -1,0 +1,21 @@
+{
+ "schemaVersion": 1,
+ "name": "e0-planner-fixture-v1",
+ "status": "template",
+ "note": "Template, hashes only. The owner fills indexSha256 (the exposed r3 run's context/research/index.json), briefSha256 (the r3 task brief), sourceIdsSha256 (sha256 of the canonical JSON array of the index's sourceId values in ascending UTF-16 order), sourceCount and mandatorySourceChunks (the chunk count in that run's coverage.json), then sets status to pinned. The index and the brief stay under the ignored .soar; scripts/planner-fixture.ts refuses a template or a mismatch before any request. The three conditions and the 3 x 10 design are a proposal for the E0 card.",
+ "task": "r3-grid-batteries",
+ "exposure": "exposed",
+ "indexVersion": 2,
+ "indexSha256": null,
+ "briefSha256": null,
+ "sourceIdsSha256": null,
+ "sourceCount": null,
+ "mandatorySourceChunks": null,
+ "extractionCallBudget": 40,
+ "conditions": [
+  "legacy-thinking",
+  "flash-thinking",
+  "thinking-off"
+ ],
+ "repeats": 10
+}

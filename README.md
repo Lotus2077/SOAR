@@ -101,12 +101,22 @@ model traffic into the proxy's tunnel.
 It changes a task's configuration identity: switch it when no task is paused,
 or paused tasks are refused until the setting is restored (H2a).
 
-Two read-only diagnostics are available:
+Diagnostics for the inference endpoint (synthetic prompts only; results stay under
+the ignored `.soar/`, and no address is printed or stored):
 
 - `python3 scripts/box-checklist.py`: run on the inference device. It prints a
   whitelisted summary that is safe to review before sharing.
-- `python3 scripts/serving-probe.py`: run from the Mac. It measures the endpoint.
-  Its full results stay under the ignored `.soar/`.
+- `python3 scripts/serving-probe.py [--only P1,P10 | --skip P8]`: run from the Mac.
+  It measures the endpoint with probes P1-P11 and the adapter probe (experiment E0).
+  Run `pnpm probe:export-schemas` first: it writes the role schemas that probe P10
+  sends. Afterwards `pnpm probe:assess -- --probe <probe.json>` validates the
+  retained P10 replies with the real schemas and writes the counts back.
+- `pnpm card:serving -- --input <probe.json>`: prints the serving card (Markdown)
+  from a probe result for review before it is committed; it refuses any
+  address-like string.
+- `pnpm fixture:planner -- --index <index.json> --brief <brief> [--dry-run]`: the
+  E0 planner fixture, checked against the hashes-only manifest
+  `docs/experiments/e0-planner-fixture-v1.json`; raw replies stay under `.soar/`.
 
 ## Commands
 
@@ -117,6 +127,8 @@ Two read-only diagnostics are available:
 | `pnpm test:e2e` | Electron end-to-end tests (after `pnpm build`) |
 | `pnpm setup:general` | Doctor for the general task runtime: Node, Docker, the qualified image, the model endpoint; `--write` records the image id and profile in the app's user-data settings |
 | `pnpm check:general-consultant` | Check the optional consultant environment without printing values |
+| `pnpm probe:export-schemas` / `pnpm probe:assess` | Write the role schemas probe P10 sends; validate its retained replies with the real schemas |
+| `pnpm card:serving` / `pnpm fixture:planner` | Print the serving card from a probe result; run the E0 planner fixture against its manifest |
 | `pnpm setup:patch-pilot` / `pnpm dev:patch` | Coding pilot setup and cloud-only launch |
 | `pnpm check:release-head` | Release-only gate on a clean committed head |
 

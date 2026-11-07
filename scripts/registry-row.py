@@ -101,7 +101,15 @@ def main() -> int:
     return 0
 
 
-SUMMED = ("modelCalls", "toolCalls", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "usd", "unknownDispatches", "retriedDispatches", "failedDispatches")
+SUMMED = ("modelCalls", "toolCalls", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "usd", "unknownDispatches", "retriedDispatches", "failedDispatches",
+          "assistSkippedDispatches", "assistFailedDispatches")
+# The sealed cloud one-shots' purposes (src/main/private-agent/dispatch-purposes.ts; backlog item 10): an unknown or failed assist row is
+# counted in its own column and never as an unresolved or failed dispatch of the run.
+ASSIST_PURPOSES = ("research plan assist", "research synthesis assist")
+
+
+def is_assist(item: dict) -> bool:
+    return item.get("purpose") in ASSIST_PURPOSES
 
 
 def cloud_fields(freeze: dict) -> dict:
@@ -157,10 +165,12 @@ def run_counts(run_dir: str) -> dict:
         "cacheWriteTokens": sum(item.get("cacheWriteTokens") or 0 for item in usage) + sum(int((event.get("usage") or {}).get("cacheWriteTokens") or 0) for event in research),
         "lengthStops": sum(1 for event in finished if event.get("finishReason") == "length") + sum(int(event.get("truncatedReplies") or 0) for event in research),
         "usd": sum(item.get("feeMicrousd") or 0 for item in dispatches) / 1_000_000,
-        "unknownDispatches": sum(1 for item in dispatches if item.get("status") in ("unknown", "committed")),
+        "unknownDispatches": sum(1 for item in dispatches if item.get("status") == "committed" or (item.get("status") == "unknown" and not is_assist(item))),
         # PR-C: attempts superseded by a retry and confirmed failures are resolved rows, never uncertain ones.
         "retriedDispatches": sum(1 for item in dispatches if item.get("status") == "superseded"),
-        "failedDispatches": sum(1 for item in dispatches if item.get("status") == "failed"),
+        "failedDispatches": sum(1 for item in dispatches if item.get("status") == "failed" and not is_assist(item)),
+        "assistSkippedDispatches": sum(1 for item in dispatches if item.get("status") == "unknown" and is_assist(item)),
+        "assistFailedDispatches": sum(1 for item in dispatches if item.get("status") == "failed" and is_assist(item)),
     }
 
 

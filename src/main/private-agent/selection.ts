@@ -4,6 +4,7 @@ import { sha256Schema } from "./contracts";
 import { join } from "node:path";
 import { z } from "zod";
 import { canonical, digest } from "./contracts";
+import { isAssistDispatch } from "./dispatch-purposes";
 
 /**
  * H4 select-and-repair loop (design BL-20261026 H4 entry): the host-checked, deterministic selection between two
@@ -39,6 +40,8 @@ export interface CandidateSummary {
   checksCurrent: boolean;
   modelCalls: number; toolCalls: number; inputTokens: number; outputTokens: number; cachedTokens: number; cacheWriteTokens: number; lengthStops: number;
   feeMicrousd: number; unknownDispatches: number; retriedDispatches: number; failedDispatches: number;
+  /** Assist rows (backlog item 10) are counted apart: an `unknown` assist was skipped with its reservation pinned, a `failed` one fell to the host fallback; neither stops a stage. */
+  assistSkippedDispatches: number; assistFailedDispatches: number;
   candidateSha256: string; freezeSha256: string; resultSha256: string;
   startedAt: string; finishedAt: string;
 }
@@ -70,7 +73,7 @@ export function compareCandidates(first: CandidateSummary, second: CandidateSumm
 
 const resultSchema = z.object({ status: z.enum(["submitted", "paused", "incomplete"]), reason: z.string(), finishedAt: z.string(), snapshotSha256: z.string(),
   candidateFiles: z.array(z.object({ path: z.string(), sha256: z.string() }).passthrough()),
-  dispatches: z.array(z.object({ status: z.string(), feeMicrousd: z.number().optional().nullable() }).passthrough()) }).passthrough();
+  dispatches: z.array(z.object({ status: z.string(), feeMicrousd: z.number().optional().nullable(), purpose: z.string().optional() }).passthrough()) }).passthrough();
 const freezeSchema = z.object({ jobId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/u), startedAt: z.string(), sourceFreezeSha256: sha256Schema,
   taskBinding: z.object({ jobSha256: sha256Schema, briefSha256: sha256Schema }).passthrough(),
   researchFrom: z.object({ sourceJobId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/u), snapshotSha256: sha256Schema }).passthrough().optional(),
@@ -133,9 +136,12 @@ export function summarizeRun(runDirectory: string, deliverables: string[]): Cand
     inputTokens: sum("inputTokens"), outputTokens: sum("outputTokens"), cachedTokens: sum("cacheReadTokens"), cacheWriteTokens: sum("cacheWriteTokens"),
     lengthStops: finished.filter(event => event.finishReason === "length").length + stages.reduce((total, event) => total + usageNumber(event, "truncatedReplies"), 0),
     feeMicrousd: result.dispatches.reduce((total, row) => total + (row.feeMicrousd ?? 0), 0),
-    unknownDispatches: result.dispatches.filter(row => row.status === "unknown" || row.status === "committed").length,
+    // An unknown or failed assist row is reported in its own column and stops nothing (backlog item 10); a committed one still counts as unresolved.
+    unknownDispatches: result.dispatches.filter(row => row.status === "committed" || (row.status === "unknown" && !isAssistDispatch(row))).length,
     retriedDispatches: result.dispatches.filter(row => row.status === "superseded").length,
-    failedDispatches: result.dispatches.filter(row => row.status === "failed").length,
+    failedDispatches: result.dispatches.filter(row => row.status === "failed" && !isAssistDispatch(row)).length,
+    assistSkippedDispatches: result.dispatches.filter(row => row.status === "unknown" && isAssistDispatch(row)).length,
+    assistFailedDispatches: result.dispatches.filter(row => row.status === "failed" && isAssistDispatch(row)).length,
     candidateSha256: digest(canonical(result.candidateFiles.map(file => ({ path: file.path, sha256: file.sha256 })))), freezeSha256: digest(freezeBytes), resultSha256: digest(resultBytes),
     startedAt: freeze.startedAt, finishedAt: result.finishedAt };
 }

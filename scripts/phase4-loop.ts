@@ -59,10 +59,10 @@ export interface LoopRecord {
     | { failure: string; feeMicrousd: number; finishReason: string | null; usage: CritiqueUsage | null; modelCalls: number } | null;
   selected: { stage1: { candidate: "a" | "b"; step: SelectionStep; entailmentRates: [number | null, number | null] } | null;
     final: { candidate: LoopCandidate; step: SelectionStep | "stage_failed" | "no_draft" | "critique_failed"; entailmentRates?: [number | null, number | null] } | null };
-  totals: Record<"modelCalls" | "toolCalls" | "inputTokens" | "outputTokens" | "cachedTokens" | "cacheWriteTokens" | "lengthStops" | "feeMicrousd" | "unknownDispatches" | "retriedDispatches" | "failedDispatches", number>;
+  totals: Record<"modelCalls" | "toolCalls" | "inputTokens" | "outputTokens" | "cachedTokens" | "cacheWriteTokens" | "lengthStops" | "feeMicrousd" | "unknownDispatches" | "retriedDispatches" | "failedDispatches" | "assistSkippedDispatches" | "assistFailedDispatches", number>;
   failure: string | null;
 }
-const TOTAL_KEYS = ["modelCalls", "toolCalls", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "feeMicrousd", "unknownDispatches", "retriedDispatches", "failedDispatches"] as const;
+const TOTAL_KEYS = ["modelCalls", "toolCalls", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "feeMicrousd", "unknownDispatches", "retriedDispatches", "failedDispatches", "assistSkippedDispatches", "assistFailedDispatches"] as const;
 const USAGE_KEYS = [["inputTokens", "inputTokens"], ["outputTokens", "outputTokens"], ["cachedTokens", "cacheReadTokens"], ["cacheWriteTokens", "cacheWriteTokens"]] as const;
 /** A recorded failure is a code, never a message: a thrown message may carry a host path or a file excerpt. */
 const CODE = /^[a-z0-9_]{1,80}$/u;
@@ -135,7 +135,9 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
     record.candidates[name] = summary; for (const key of TOTAL_KEYS) record.totals[key] += summary[key];
     // A completed research packet does not resolve a later writer request. Keep
     // this stage's evidence/counts, but never admit another stage past uncertain
-    // dispatches (including committed receipts) or a failed transport.
+    // dispatches (including committed receipts) or a failed transport. An assist
+    // skipped (unknown) or failed into the host fallback is counted apart and
+    // admitted (backlog item 10): the cloud row stays at-most-once, local work went on.
     if (summary.unknownDispatches !== 0) throw new Error("loop_stage_unresolved_dispatch");
     if (summary.failedDispatches !== 0) throw new Error("loop_stage_failed_dispatch");
     return summary;

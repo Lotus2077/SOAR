@@ -1,5 +1,191 @@
 # SOAR handoff
 
+## Start here (2026-11-07)
+
+This section is the entrypoint for the next session. It supersedes every earlier
+"next step" in this file; the rest of the file is the September 2026 record.
+
+### 1. Get the work
+
+Everything after `main`'s `153b8e6` (the 2026-11-05 review, its five checks and the
+2026-11-07 owner decisions) is on branch `claude/great-meitner-kri52m`, not yet
+merged to `main`. Select Node 22.22.2 and pnpm 10.12.4 first ("Setup and safe
+verification" below): `.npmrc` sets `engine-strict=true`, so another Node major
+fails the install.
+
+```sh
+git fetch origin claude/great-meitner-kri52m
+git checkout claude/great-meitner-kri52m
+pnpm install --frozen-lockfile
+```
+
+Then run the checks in "Setup and safe verification" below. CI runs only on pull
+requests and on pushes to `main`. Ask the owner whether to merge this branch into
+`main` first, through a pull request from `claude/great-meitner-kri52m` (PLAN.md D10
+approves pushing reviewed work to public `main`); then base each new pull request
+on `main`. Until then, base new pull requests on this branch.
+
+### 2. Read, in this order
+
+1. [PROJECT_REVIEW_2026-11-05.md](PROJECT_REVIEW_2026-11-05.md): §2 (the goal
+   statement, confirmed; §2.1-2.5 stay proposed except where E3's and E4's approved
+   rules use them), §5.2 (architecture v5: local volume work, sealed cloud
+   assists), §5.6 (experiments E0-E7, their caps and pre-registered rules, and
+   their order), §5.7 (the engineering backlog, in order) and §5.10 (owner
+   decisions).
+2. [PLAN.md](PLAN.md): the owner-direction note in §1 and the envelope in §4.
+3. [BUILD_LOG.md](BUILD_LOG.md): BL-20261107-0650-owner-decisions-review-items-2-5
+   and its correction BL-20261107-0718-correction-owner-decisions-record (what is approved and what still
+   gates each experiment), then BL-20261105-1821-owner-direction-equal-weights-new-model
+   and BL-20261105-1822-project-review-reset-proposed with their corrections,
+   BL-20261105-2016-correction-direction-and-review-entries through
+   BL-20261105-1722-fifth-check-corrections.
+
+### 3. Decided
+
+- **The goal** (review §2; the statement was confirmed on 2026-11-07): "Deliver
+  Manus-level results on the owner's real work, public deep research first, at a
+  fraction of Manus's cost, without private data ever leaving the owned device
+  unless the owner approves the exact bytes: the local model does all the volume
+  work at zero fee, and the cloud takes only the hardest step, as sealed one-shot
+  packets." Privacy, result quality and token cost weigh equally; the 2026-09-29
+  labelled-data rule and D15 are unchanged, and OAJ stays the adoption north star.
+  The ≤ USD 0.50 P50 cost target (review §2.3) is proposed and binds only through
+  E4's approved decision rule.
+- **Zero-fee work needs no approval.** Zero-fee local runs on public, synthetic or
+  owner-declared-public inputs within the Heavy caps need no approval entry and no
+  per-trial named authority (PLAN.md §4(c)). Retiring slot, claim and allocation
+  accounting and the untracked launcher as gates is part of the review's stop list
+  (§5.8), which stays proposed. Paid runs, real private data, new egress
+  destinations and public pushes keep their gates.
+- **E3 and E4 are approved** against the Phase 4 harness track line (USD 33, about
+  USD 28.4-28.7 left): E3, the closed-corpus route round, with a cap of USD 20.4,
+  and E4, the Manus-bar web round, with a cap of USD 20.5. The owner chose neither
+  E4's admission condition nor a reallocation, so the record applies the admission
+  condition: E4 starts only if the line's balance after E3 settles covers its cap,
+  unless the owner records a reallocation from the weekly public-work line. The
+  record reads the approval as covering the T1 and T2 packets that E3's and E4's
+  cloud-assisted arms send, including each task's brief.
+- **E4's paid judges** run at api.openai.com: GPT-5.5 for DeepResearch Bench RACE
+  with the key the owner names JAO, and LiveDRBench's official grader with the key
+  the owner names JAT. The grader's judge model is not yet named: its wrapper takes
+  it as the required `--judge` argument (`benchmarks/harness/evaluate_livedr_row.py`),
+  so E4's card proposes it and the owner records it before E4 starts. The wrapper
+  reads `OPENAI_API_KEY`, so each judge run sets that variable, in its own process,
+  to the named key's value.
+- **Who decides the cloud's role:** E3's pre-registered rule picks it for the
+  harness, E4's result decides what runs behind the desktop's assist toggle, and
+  the owner decides trades and ties.
+
+### 4. Still open, and what each blocks
+
+| Owner decision (review §5.10) | Blocks |
+| --- | --- |
+| 1: is the endpoint's model the one qualified on 2026-11-04? | Whether E0 is a delta check; E0's probe P1 and the owner answer it |
+| 5, open parts: a reallocation from the weekly public-work line; the LiveDRBench grader's judge model | The reallocation only if the line's balance after E3 settles is below USD 20.5; the model before E4 starts |
+| 6: which provider carries the assists and E3's arm D | E3's card |
+| 7: a thinking-off writer arm | That E2 arm only |
+| 8: SearXNG or a keyed search API | Backlog item 12's search destination (R2) and E4 |
+| 9: the P11 transport timeline | Any labelled work |
+| 10: the Manus product baseline | The E4 option only |
+| 11: blind proxy grades as provisional | E3's and E4's verdicts |
+| 12: numbered briefs; disclosing the public brief | Task authoring (D11's brief units) and the desktop's first assist packet on a public task (backlog item 13); E3's and E4's approved arms carry their own task briefs in T1 and T2 |
+| 13: the Phase 2 dashboard reconciliation; D20(b) | The uncached all-cloud baselines (USD 3.05-3.77); T3 and any coding on private source code |
+| 2, last part: whether the assist toggle starts on | The toggle's default for URL-backed public tasks in the desktop wiring (backlog item 13), once E4 ships a cloud-assisted arm |
+
+### 5. Act next, in this order
+
+Follow the order in review §5.6. Each step is done when its condition holds.
+
+1. **Backlog items 1-5 and item 10's assist-purpose exception** (review §5.7), as
+   small PRs with tests. Item 1 includes the fix for finding D14. A change to a
+   persisted contract or to dispatch semantics gets its build-log decision entry
+   first. Done: the tests and CI pass, and the entries are appended.
+2. **E0** from the owner's Mac against the new endpoint, at zero fee and with no
+   approval entry, after its card is committed: probes P1-P9 in
+   `scripts/serving-probe.py`, the new P10, P11 and adapter probe (backlog item 5),
+   and the role fixtures. Done: a serving card that records the alias, engine
+   version and context, never the address, with every stage bound re-derived from
+   it.
+3. **E1**, the recoverability tests with no live model. Done: its gate in review
+   §5.6 passes.
+4. **E5** on the existing local routes in the owner's desktop build, with backlog
+   item 2's verdict capture. Ask the owner about the P11 interim (an SSH local
+   forward, whose timeline is open decision 9) and the box checklist (deferred at
+   the owner's request, PLAN.md D5); both gate labelled work only, so the steps
+   below do not wait for them.
+5. **E2 and E6**, backlog items 6-11, and the start of item 12.
+6. **E3**, once backlog items 6-11 are done (among them item 10's assist wrapper,
+   which arms B and C and E3's zero-cache-write condition need, and item 11's
+   harness changes), decisions 6 and 11 are made, and its card is committed. The
+   card names the provider and D's call allowance, and shows that the allowance's
+   projected fee, late reservation included, stays under USD 3.00 on f2, or the
+   owner raises D's cap and E3's with it.
+7. **E4**, once E3 has settled and the harness line's balance covers E4's USD 20.5
+   cap (or the owner records a reallocation), decision 8 is made, items 11
+   (paired retrieval) and 12 are done, its cloud-assisted arm is chosen from E3's
+   result or named by the owner, the grader's judge model is recorded, and its
+   card, with the RACE threshold set from GPT-5.5-judged product scores (review
+   §2.2, criterion 4), is committed. Then backlog item 13, the desktop wiring.
+
+**Progress on step 1** (2026-11-07, a later session on the owner's Mac). Backlog items 1-5
+and item 10's assist-purpose exception are implemented as small pull requests with
+deterministic tests, each with a `Proposed` decision entry before its code and an
+`Implemented` entry after it; CI is green on every one at the time of writing. All are
+based on this branch until the owner merges it (PR #39); #38 is stacked on #37, and items
+3 and 4 on #38. Retarget the stack as it merges, and re-sort each branch's new build-log
+entries into timestamp order when a rebase puts them side by side.
+
+| Item | Pull request | Branch | Entries |
+| --- | --- | --- | --- |
+| 1 (with D14) | #37 | `fix/zero-fee-failures-resolve` | BL-20261107-0809, -0812 |
+| 10 (week 1) | #38, on #37 | `fix/assist-purpose-exception` | BL-20261107-0839, -0842 |
+| 2 | #40 | `fix/owner-verdict-capture` | BL-20261107-0829, -0852 |
+| 5 | #41 | `feat/serving-probe-extensions` | BL-20261107-0900 |
+| 3 | #43, on #38 | `fix/stop-bricking-tasks` | BL-20261107-0901, -0936, -1006, -1041, -1110, -1111 |
+| 4 | #42, on #38 | `feat/label-keyed-diagnostics` | BL-20261107-0859, -0923 |
+
+Item 3's implementation went through three adversarial review rounds; the brick paths they
+found and the smaller corrections are decided in BL-20261107-1006 and BL-20261107-1041 and
+implemented in the same pull request, and its Docker-gated sandbox suite was run on the
+owner's Mac (the `Verified` entry). Finding D14 is reproduced by a deterministic session
+test and fixed in #37 (see §7). Step 1 is done once the stack is merged. The owner questions
+these entries leave open: whether a desktop consultation may follow a skipped assist, and
+whether the pre-commit refusals outside item 3's seven denial codes should record a marker
+now or wait for item 13 (items 10 and 3); the second-verdict policy, `git` on superseding
+rows and the `verdictBy` enum (item 2); which r3 index the planner fixture pins and whether
+reasoning text may ever be retained (items 4 and 5); the E0 card still gates every live
+probe. Steps 2 onwards have not been started: E0 needs the owner's `.env.local`, which no
+agent session has.
+
+### 6. Rules for every step
+
+- Follow `AGENTS.md` and the log rules at the top of BUILD_LOG.md: UTC entry IDs,
+  append-only entries, and corrections only as new `Correction` entries. Keep
+  `Proposed`, `Approved`, `Implemented`, `Verified` and `Released` distinct.
+- The endpoint's address lives only in the owner's ignored `.env.local`
+  (`SOAR_VLLM_BASE_URL`, `SOAR_VLLM_MODEL`, `SOAR_VLLM_COST_POLICY=local_zero_cost`;
+  review §5.9). The JAO and JAT keys live only in the owner's local configuration.
+  Never commit or log an address, a key, a local path, a raw trace or gold.
+- Every experiment, zero-fee ones included, is pre-registered: commit its card
+  (hypothesis, arms, budget, decision rule, stop rule; PLAN.md §4) before it runs,
+  and write one registry row per run with the three columns. E0's card sets the
+  judge fixture's agreement level before that fixture runs, and a separate session
+  labels its claim set (review §5.6). Run paid work only inside an approved cap.
+- Before pushing, run `pnpm --silent validate:build-log -- --base-ref origin/main`,
+  `pnpm typecheck`, `pnpm validate:readiness` and the tests for what changed.
+
+### 7. Known limits
+
+Five adversarial checks of the review converged, confirming 96, 54, 37, 17 and 2
+findings, but each check after the first covered only the previous revision's
+changes. Finding D14 (a retried research call loses a completed stage) was found by
+reading code; a later session reproduced it with a deterministic session test and fixed
+it in PR #37 (BL-20261107-0812). One independent review checked the
+2026-11-07 decision record; BL-20261107-0718-correction-owner-decisions-record records its fixes.
+
+## September 2026 record
+
 Reviewed: **2026-09-28**. Latest substantive product experiment: **2026-09-14**.
 
 SOAR has a working general-task prototype and useful safety/accounting machinery.

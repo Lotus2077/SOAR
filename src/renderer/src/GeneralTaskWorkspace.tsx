@@ -12,6 +12,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
   GeneralTaskCreateInputSchema,
+  GeneralTaskVerdictInputSchema,
   type GeneralTaskArtifact,
   type GeneralTaskArtifactPreview,
   type GeneralTaskAvailability,
@@ -95,6 +96,11 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
   const [consultationPreview, setConsultationPreview] = useState<{ id: string; value: GeneralTaskConsultationPreview } | null>(null);
   const [loadingConsultation, setLoadingConsultation] = useState(false);
   const [previewTime, setPreviewTime] = useState(Date.now);
+  // The owner's verdict form: a decision, whole-number effort fields and the export declaration. No free text.
+  const [verdictDecision, setVerdictDecision] = useState<"" | "accept" | "reject">("");
+  const [verdictMinutes, setVerdictMinutes] = useState("");
+  const [verdictInterventions, setVerdictInterventions] = useState("");
+  const [verdictExported, setVerdictExported] = useState(false);
   const mounted = useRef(true), busy = useRef(false);
   const selected = useRef<string | null>(null);
   const selectionEpoch = useRef(0), availabilityEpoch = useRef(0), previewEpoch = useRef(0);
@@ -120,6 +126,9 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
   }, []);
   const resetConsultation = useCallback(() => {
     consultationEpoch.current += 1; setConsultationPreview(null); setLoadingConsultation(false);
+  }, []);
+  const resetVerdict = useCallback(() => {
+    setVerdictDecision(""); setVerdictMinutes(""); setVerdictInterventions(""); setVerdictExported(false);
   }, []);
   const refreshAvailability = useCallback(async () => {
     if (!api) return;
@@ -171,14 +180,14 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
 
   const newTask = () => {
     selectionEpoch.current += 1; selected.current = null; setSelectedId(null); setLoadingTask(false);
-    setError(null); setNotice(null); resetPreview(); resetConsultation();
+    setError(null); setNotice(null); resetPreview(); resetConsultation(); resetVerdict();
   };
   // Runs during mount too, before the history load can auto-select the latest task.
   useEffect(() => { if (newTaskRequest) { newTask(); onNewTaskRequestHandled?.(); } }, [newTaskRequest]); // eslint-disable-line react-hooks/exhaustive-deps
   const selectTask = async (id: string) => {
     if (!api) return;
     const epoch = ++selectionEpoch.current;
-    selected.current = id; setSelectedId(id); setLoadingTask(true); setError(null); setNotice(null); resetPreview(); resetConsultation();
+    selected.current = id; setSelectedId(id); setLoadingTask(true); setError(null); setNotice(null); resetPreview(); resetConsultation(); resetVerdict();
     try { const value = await api.getGeneralTask(id); if (mounted.current && epoch === selectionEpoch.current) accept(value); }
     catch { if (mounted.current && epoch === selectionEpoch.current) setError("This task could not be refreshed. Its last saved state is shown."); }
     finally { if (mounted.current && epoch === selectionEpoch.current) setLoadingTask(false); }
@@ -299,6 +308,33 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
       const value = await api.exportGeneralTaskBundle(ref);
       if (mounted.current && selected.current === ref.id) setNotice(value.exported ? "ZIP bundle exported." : "ZIP export cancelled.");
     } catch { if (mounted.current && selected.current === ref.id) setError("The ZIP bundle could not be exported. Refresh the task and try the native save dialog again."); }
+    finally { busy.current = false; if (mounted.current) setAction(null); }
+  };
+  const verdictInput = task ? { id: task.id, ...(verdictDecision ? { decision: verdictDecision } : {}),
+    ...(verdictMinutes.trim() ? { ownerMinutes: Number(verdictMinutes) } : {}), ...(verdictInterventions.trim() ? { interventions: Number(verdictInterventions) } : {}),
+    exportedThroughApp: verdictExported } : null;
+  const validVerdict = verdictInput !== null && GeneralTaskVerdictInputSchema.safeParse(verdictInput).success;
+  const recordVerdict = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!api || !task || busy.current || typeof api.recordGeneralTaskVerdict !== "function" || task.status !== "submitted" || task.verdict) return;
+    const parsed = GeneralTaskVerdictInputSchema.safeParse(verdictInput);
+    if (!parsed.success) { setError("Choose Accept or Reject, then enter your minutes (0 to 600) and interventions (0 to 99)."); return; }
+    const id = task.id;
+    busy.current = true; setAction("verdict"); setError(null); setNotice(null);
+    try {
+      const value = await api.recordGeneralTaskVerdict(parsed.data);
+      if (value.id !== id) throw new Error("wrong_task");
+      accept(value);
+      if (mounted.current && selected.current === id) { resetVerdict(); setNotice("Verdict recorded. Export the verdict receipt to write its registry row."); }
+    } catch { if (mounted.current && selected.current === id) setError("The verdict could not be recorded. Refresh the task: a verdict is accepted once, on a submitted task."); }
+    finally { busy.current = false; if (mounted.current) setAction(null); }
+  };
+  const exportVerdictReceipt = async () => {
+    if (!api || !task?.verdict || busy.current || typeof api.exportGeneralTaskVerdictReceipt !== "function") return;
+    const id = task.id;
+    busy.current = true; setAction("export-receipt"); setError(null); setNotice(null);
+    try { const value = await api.exportGeneralTaskVerdictReceipt(id); if (mounted.current && selected.current === id) setNotice(value.exported ? "Verdict receipt exported." : "Receipt export cancelled."); }
+    catch { if (mounted.current && selected.current === id) setError("The verdict receipt could not be exported. Try the native save dialog again."); }
     finally { busy.current = false; if (mounted.current) setAction(null); }
   };
   const validOutputName = GeneralTaskCreateInputSchema.shape.outputName.safeParse(outputName).success;
@@ -434,6 +470,25 @@ export function GeneralTaskWorkspace({ api: suppliedApi, newTaskRequest = 0, onN
             {!task.artifacts.length ? <p className="general-hint">No saved artifacts yet. They will appear after a workspace checkpoint.</p> : <><ul className="general-artifact-list">{task.artifacts.map(file => <li key={`${file.path}:${file.sha256}`}><div><button className="general-button general-button-quiet" disabled={task.status === "running" || !task.cleanupConfirmed} aria-label={`Preview ${file.path}`} onClick={() => void readArtifact(file)}>{file.path}</button><small>{size(file.bytes)} · SHA {file.sha256.slice(0, 12)}</small></div><button className="general-button" disabled={!!action || task.status === "running" || !task.cleanupConfirmed} aria-label={`Export ${file.path}`} onClick={() => void exportArtifact(file)}><DownloadSimple aria-hidden="true" />Export</button></li>)}</ul>{(task.status === "running" || !task.cleanupConfirmed) && <p className="general-hint">Preview and export become available after the task stops and cleanup is confirmed.</p>}</>}
             {previewPath && <section className="general-preview" aria-label="Artifact preview"><header><strong>{previewPath}</strong></header>{loadingPreview ? <p className="general-preview-empty" role="status">Loading verified preview…</p> : preview ? <ArtifactContent preview={preview} /> : <p className="general-preview-empty">No verified preview is available.</p>}</section>}
           </section>
+          {task.status === "submitted" && typeof api?.recordGeneralTaskVerdict === "function" && <section className="general-section general-verdict" aria-label="Owner verdict"><h3>Owner verdict</h3>
+            {task.verdict ? <>
+              <p className="general-hint">Recorded {new Date(task.verdict.recordedAt).toLocaleString()}. It is final in the app; a correction is a superseding registry row. Independent acceptance stays not evaluated.</p>
+              <dl className="general-metrics"><div><dt>Decision</dt><dd>{task.verdict.decision === "accept" ? "Accepted" : "Rejected"}</dd></div><div><dt>Your minutes</dt><dd>{task.verdict.ownerMinutes}</dd></div><div><dt>Interventions</dt><dd>{task.verdict.interventions}</dd></div></dl>
+              <p className="general-hint">Exported through the app: {task.verdict.exportedThroughApp ? "yes" : "no"}.</p>
+              <div className="general-actions"><button className="general-button" disabled={!!action || typeof api?.exportGeneralTaskVerdictReceipt !== "function"} onClick={() => void exportVerdictReceipt()}><DownloadSimple aria-hidden="true" />{action === "export-receipt" ? "Exporting…" : "Export verdict receipt"}</button></div>
+              <p className="general-hint">The receipt holds hashes, counts and this verdict only, never the goal or file names. Write the registry row with scripts/registry-row.py --verdict-file.</p>
+            </> : <form className="general-verdict-form" aria-label="Record owner verdict" noValidate onSubmit={event => void recordVerdict(event)}>
+              <p className="general-hint">Record your verdict once, with the effort the job took you. It is the owner-accepted-job mark, not independent acceptance, and it holds no free text.</p>
+              <fieldset className="general-verdict-decision"><legend>Decision</legend>
+                <label className="general-ack"><input type="radio" name="general-verdict-decision" value="accept" checked={verdictDecision === "accept"} disabled={!!action} onChange={() => setVerdictDecision("accept")} /><span>Accept</span></label>
+                <label className="general-ack"><input type="radio" name="general-verdict-decision" value="reject" checked={verdictDecision === "reject"} disabled={!!action} onChange={() => setVerdictDecision("reject")} /><span>Reject</span></label>
+              </fieldset>
+              <label className="general-field"><span id="general-verdict-minutes-label">Your minutes on this job</span><input type="number" inputMode="numeric" min={0} max={600} step={1} value={verdictMinutes} disabled={!!action} aria-labelledby="general-verdict-minutes-label" aria-describedby="general-verdict-minutes-hint" onChange={event => setVerdictMinutes(event.target.value)} /><small id="general-verdict-minutes-hint">Review and edits, 0 to 600.</small></label>
+              <label className="general-field"><span id="general-verdict-interventions-label">Manual interventions</span><input type="number" inputMode="numeric" min={0} max={99} step={1} value={verdictInterventions} disabled={!!action} aria-labelledby="general-verdict-interventions-label" aria-describedby="general-verdict-interventions-hint" onChange={event => setVerdictInterventions(event.target.value)} /><small id="general-verdict-interventions-hint">Times you stepped in; an edit pass counts as one. 0 to 99.</small></label>
+              <label className="general-ack"><input type="checkbox" checked={verdictExported} disabled={!!action} onChange={event => setVerdictExported(event.target.checked)} /><span>I exported the deliverable through the app.</span></label>
+              <button className="general-button general-button-primary" type="submit" disabled={!!action || !validVerdict}><CheckCircle aria-hidden="true" />{action === "verdict" ? "Recording…" : "Record verdict"}</button>
+            </form>}
+          </section>}
           <details className="general-section" aria-label="Progress"><summary>Progress · {task.events.length} events</summary><p className="general-hint">Monospace action lines are the agent's own tool-call text. Untrusted: they are not host facts and do not report check results.</p><ol className="general-progress">{task.events.map(event => <li key={event.sequence}><span>{event.summary}</span>{event.detail && <code className="general-action-detail" title="Untrusted: the agent's own action text">{event.detail}</code>}</li>)}</ol></details>
           <details className="general-section"><summary>Inputs and structural checks</summary>{!task.inputs.length && <p className="general-hint">No input files were attached.</p>}<ul className="general-selected-files">{task.inputs.map(file => <li className="general-file-row" key={file.path}><span>{file.name}</span><small>{size(file.bytes)}</small></li>)}</ul>
             <ul>{task.checks.map(check => <li key={check.id}>{check.id.replaceAll("_", " ")}: {check.passed ? "passed" : "failed"}</li>)}</ul><p className="general-hint">Independent acceptance: not evaluated. Cleanup: {task.cleanupConfirmed ? "confirmed" : "not yet confirmed"}.</p></details>

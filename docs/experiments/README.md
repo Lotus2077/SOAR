@@ -49,18 +49,73 @@ unresolved outcomes. H4/H5 acceptance remains unestablished.
 | `outcome` | `accepted`, `rejected`, `incomplete` or `infra_invalid` |
 | `terminalCause` | Why the run ended, for example `submitted`, `session_deadline`, `request_body_size_exceeded` |
 | `criticalChecks` | Pre-written critical checks passed / total, or `null` |
-| `verdictBy` | `owner`, `agent_diagnostic` or `none` |
+| `verdictBy` | `owner`, `agent_diagnostic` or `none`; `registry-row.py` refuses any other value. Rows written before 2026-11-07 also carry the legacy values `host_gate`, `qualified_checker`, `qualified_checker+agent_screenshot_review`, `agent_diagnostic_blind` and free-text strings naming the checking model; they are historical and are never re-rowed |
+| `verdictAt` | Optional UTC ISO 8601 instant of the verdict in `verdictBy`. `registry-row.py` writes it on every `--supersedes` row (default: the writing time) and on every `--verdict-file` row (the receipt's record time); `--verdict-at` adds it to any row |
+| `supersedes` | The id of the row this row corrects; a superseding row repeats the original's measurements. `registry-row.py --supersedes ROW_ID` copies the row verbatim (every measurement, `taskJobSha256`, `date`, `usd`, `entailment`, `loop`) and changes only `id`, `supersedes`, `outcome`, `verdictBy`, `ownerMinutes`, `interventions`, `lesson`, `verdictAt` and `git`, which is the commit the row was written at (the superseded row keeps the run's); `batch`, `task`, `family`, `exposure` and `arm` are copied unless re-declared. It refuses an unknown id, an id another row already supersedes and a new id that already exists. The five rows superseding before 2026-11-07 were hand-written and kept the original `git` |
 | `calibrationGate`, `calibrationReviewedAt` | Optional calibration-only acceptance and review time, separate from the task's `outcome` and `verdictBy`; acceptance here does not supply a capability grade |
 | `consoleChargeUsd`, `settledStep0And1Usd`, `consoleDifferenceUsd`, `consoleToleranceUsd` | Optional historical Claude step-0/1 reconciliation amounts; the Console display is rounded and the difference must fit the approved tolerance with no competing usage |
 | `localJudgeProvenance` | Optional explicit description of the historical judge tier; never relabel old entailment counts after changing the local model |
-| `ownerMinutes`, `interventions` | Owner effort (owner-run jobs only) |
+| `ownerMinutes`, `interventions` | Owner effort (owner-run jobs only). With `verdictBy: owner` both are required: minutes as a finite number of at least 0, interventions as an integer of at least 0 (an edit pass counts as one, PLAN.md section 1). Other rows carry `ownerMinutes: null` and `interventions: 0` |
+| `exportedThroughApp` | Owner rows written from a desktop verdict receipt only: whether the owner declared the deliverable exported through the app, an OAJ condition (PLAN.md section 1) |
 | `lesson` | One line |
 | `loop` | H4 select-and-repair loop rows only (`scripts/phase4-loop.ts`, `registry-row.py --loop-dir`): `version`, `rule` (the selection protocol version), `samples`, `repaired`, `seeded` (whether sample `b` and the repair wrote from sample `a`'s evidence packet), `stage1` (the sample the host-checked selection chose), `selected` (the loop's deliverable: `a`, `b` or `repair`), `step` (the rule step that decided it), `critiqued` and `critiqueFailure`, `writeIdentityEqual` (whether the two samples' write phases carried the same identity) and `candidates` (every sample's own `status` and `terminalCause`, so the harness-terminal rate is computed per sample). The row's counts sum the loop's runs plus the critique's one call (from `critique.json`, or `critique-failure.json` when the critic answered and the tool refused the reply), `wallSeconds` spans the loop from its earliest start to its latest end over its runs, and status, cause, binding and entailment are the selected run's; the all-cloud arm has no loop and no such field |
 
-Rows are append-only. Correct a row by appending a new row with `supersedes`.
-The Claude step-1 reconciliation correction updates calibration status only;
-its original `incomplete` task outcome, absent capability verdict, measurements
-and old-local-judge entailments are preserved. Exclude superseded rows from totals.
+Rows are append-only. Correct a row by appending a new row with `supersedes`
+(`registry-row.py --supersedes`, above). The Claude step-1 reconciliation
+correction updates calibration status only; its original `incomplete` task
+outcome, absent capability verdict, measurements and old-local-judge entailments
+are preserved. Exclude superseded rows from totals: a superseding row repeats the
+original's `usd` and counts, so a naive sum counts them twice (review finding E11).
+
+## Owner verdict rows (desktop jobs)
+
+A desktop task has no run directory: its record and events live in the app's
+database, which the registry writer never opens. Instead the app captures the
+owner's verdict and exports a receipt (BL-20261107-0829-owner-verdict-capture-design):
+
+1. On a `submitted` task the general-task workspace's "Owner verdict" section
+   records accept or reject, the owner's minutes, the manual interventions and
+   whether the deliverable was exported through the app. It is recorded once; the
+   app refuses a second verdict, and a correction is a `--supersedes` row. The
+   task's independent acceptance stays `not_evaluated`: the verdict is the OAJ
+   mark (PLAN.md section 1), not a correctness grade.
+2. "Export verdict receipt" saves a JSON receipt holding exactly these keys:
+   `version` (1), `taskId`, `taskJobSha256` (the task's attestation identity,
+   the binding the first owner row `oaj-20261012-document-review-1` used),
+   `date` (the UTC date the task started), `profile`, `thinking`,
+   `maxOutputTokens`, `runStatus`, `terminalCause`, `modelCalls`, `toolCalls`,
+   `wallSeconds` (the task time the app shows), `inputTokens`, `outputTokens`,
+   `cachedTokens`, `cacheWriteTokens`, `lengthStops`, `usd` (settled fees),
+   `unknownDispatches`, `retriedDispatches`, `failedDispatches`, `entailment`
+   (counts, calls, truncation and support rate, or `null`), `arm`
+   (`local-<profile>`, or `local-<profile>-consulted` when a consultation
+   settled), `verdict` (`decision`, `ownerMinutes`, `interventions`,
+   `exportedThroughApp`, `recordedAt` in UTC), `cloudModel: null` and
+   `cloudApi: null`. Never the goal, a file name, a path, a URL or model text.
+   Tokens and length stops sum the local writer's `model_finished` events, as for
+   every row; the entailment pass writes no model events and stays excluded, and a
+   consultation's tokens are not in the token columns (its settled fee is in `usd`).
+3. The operator writes the row:
+
+   ```sh
+   python3 scripts/registry-row.py --verdict-file verdict-receipt-<id>.json \
+       --id oaj-<date>-<family>-<n> --batch <the E5 card's batch> \
+       --task owner-<first 8 hex of the task id> --family document_review \
+       --exposure fresh --verdict-by owner --lesson "..." >> docs/experiments/registry.jsonl
+   ```
+
+   The receipt supplies the measurements, `arm`, `outcome` (accept to `accepted`,
+   reject to `rejected`), `ownerMinutes`, `interventions`, `verdictAt` and
+   `exportedThroughApp`; `--outcome`, `--owner-minutes`, `--interventions`,
+   `--verdict-at` and `--arm` may repeat the receipt's values but a different value
+   is refused. The writer refuses a receipt with any other key, a wrong `version`
+   or a missing `verdict`, so nothing typed in the app and no file name reaches the
+   public registry; the one-line `lesson` is typed at the command line. `git` is
+   the commit the row was written at, as for every row.
+
+An owner verdict on a run that already has a row, for example an E3 or E4 harness
+run the owner graded later, is a `--supersedes` row with `--verdict-by owner`,
+`--owner-minutes` and `--interventions`.
 
 ## Historical metric corrections (2026-10-31)
 

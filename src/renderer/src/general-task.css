@@ -137,6 +137,12 @@
 .general-consultation-metadata { display: grid; grid-template-columns: minmax(100px, 1fr) minmax(0, 2fr); gap: 7px 12px; }
 .general-consultation-metadata dt { color: var(--text-secondary); }
 .general-consultation-metadata dd { margin: 0; overflow-wrap: anywhere; }
+.general-verdict { font-size: 12px; }
+.general-verdict-form { display: grid; gap: 13px; margin-top: 12px; }
+.general-verdict-decision { display: flex; flex-wrap: wrap; gap: 16px; margin: 0; padding: 0; border: 0; }
+.general-verdict-decision legend { padding: 0; margin-bottom: 7px; font-size: 12px; font-weight: 600; }
+.general-verdict-decision label { align-items: center; }
+.general-verdict-form .general-field input { max-width: 180px; }
 .general-consultation-packet { max-height: 400px; overflow: auto; padding: 12px; background: var(--surface-muted); white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.6 Menlo, Monaco, monospace; user-select: text; }
 @media (max-width: 760px) {
   .general-workspace { padding: 22px 18px 36px; }

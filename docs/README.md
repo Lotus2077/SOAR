@@ -7,7 +7,7 @@ not active requirements.
 
 The planner contract repair is implemented and independently reviewed offline
 (BL-20261105-0944): 159 focused tests and both TypeScript checks pass. Both CI jobs passed
-for repair commit `181f024`; no new live attempt or relaxed acceptance rule is authorized. On 2026-11-07 the owner restored zero-fee runs without named authority (BL-20261107-0650-owner-decisions-review-items-2-5); paid runs keep their gates.
+for repair commit `181f024`; that record authorized no new live attempt or relaxed acceptance rule. On 2026-11-07 the owner restored zero-fee runs without per-trial named authority (BL-20261107-0650-owner-decisions-review-items-2-5); paid runs keep their gates.
 
 **Start here:** [HANDOFF.md](HANDOFF.md)'s "Start here (2026-11-07)" section.
 

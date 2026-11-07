@@ -80,13 +80,17 @@ three columns weigh equally. The owner confirmed these readings on 2026-11-07
 
 ---
 
-## 2. The ultimate goal (confirmed by the owner, 2026-11-07)
+## 2. The ultimate goal (statement confirmed by the owner, 2026-11-07)
 
 > **Deliver Manus-level results on the owner's real work, public deep research
 > first, at a fraction of Manus's cost, without private data ever leaving the owned
 > device unless the owner approves the exact bytes: the local model does all the
 > volume work at zero fee, and the cloud takes only the hardest step, as sealed
 > one-shot packets.**
+
+The owner confirmed this statement on 2026-11-07 (§5.10, item 3; BL-20261107-0650-owner-decisions-review-items-2-5). The
+columns, bars and consequences in §2.1-2.5 stay proposed, except where E3's and E4's
+approved rules (§5.6) use them.
 
 ### 2.1 Three equal columns, recorded for every run
 
@@ -865,7 +869,10 @@ gets its decision entry first.
 
 ### 5.10 Decisions the owner must record
 
-Items 2 to 5 were decided on 2026-11-07 (BL-20261107-0650-owner-decisions-review-items-2-5); items 1 and 6 to 13 remain open.
+Items 2 to 5 were decided on 2026-11-07 (BL-20261107-0650-owner-decisions-review-items-2-5, corrected in
+BL-20261107-0718-correction-owner-decisions-record), except item 2's last part, whether the toggle
+starts on, and item 5's reallocation and the LiveDRBench grader's judge model; items 1
+and 6 to 13 remain open.
 
 1. Is the model now served at your endpoint the one qualified on 2026-11-04 (model
    root `Qwen3.8-Flash-Next-NVFP4`, 262,144-token context, vLLM
@@ -900,9 +907,11 @@ Items 2 to 5 were decided on 2026-11-07 (BL-20261107-0650-owner-decisions-review
    W10 Stop row, "Treating API savings as a design driver"; OAJ stays the adoption
    north star beside the three columns.
 4. **Approved 2026-11-07.** Backlog item 0, the zero-fee process entry.
-5. **Approved 2026-11-07**, with E4 under its admission condition and both judges at
-   OpenAI directly (`api.openai.com`): RACE with the key named JAO, the LiveDRBench
-   grader with the key named JAT. A named `Approved` entry for E3 and E4 against the
+5. **Approved 2026-11-07**, with both judges at OpenAI directly (`api.openai.com`): RACE
+   with the key named JAO, the LiveDRBench grader with the key named JAT, its judge
+   model still to be named before E4 starts. The owner chose neither E4's admission
+   condition nor a reallocation, so the record applies the admission condition; a
+   reallocation from the weekly public-work line needs the owner's separate record. A named `Approved` entry for E3 and E4 against the
    harness line, with E4's admission condition or a reallocation from the weekly
    public-work line. E4's entry must also name its paid judges and the destination
    and key each uses, since the backend decides the egress destination (PLAN.md §4):

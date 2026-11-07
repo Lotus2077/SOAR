@@ -664,6 +664,24 @@ describe("desktop general-task host controller", () => {
     const after = JSON.parse((reopened.prepare("SELECT value FROM general_tasks WHERE id=?").get(task.id) as { value: string }).value);
     expect(after.startedAt).toBe(before.startedAt); expect(after.phaseIdentity).toBe(before.phaseIdentity);
   });
+  it("keeps a paused task resumable past a skipped assist row, but not past any other unknown row (backlog item 10)", async () => {
+    const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1)); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
+    const args = f.executions[0]!;
+    // The reading stage's context, where a sealed cloud one-shot's row would sit; the writer's own context is args.contextId.
+    args.store.createContext({ id: "reader", jobId: task.id, sources: [{ id: "corpus", version: digest("synthetic corpus"), classification: "public", synthetic: true }] });
+    const unknownRow = (purpose: string, contextId: string) => {
+      const { text: _packet, ...preview } = args.broker.preview({ jobId: task.id, contextId, destinationId: "desktop_local", purpose: "agent reasoning and tool selection", method: "POST", body: "{}", maxFeeMicrousd: 0 });
+      args.store.unknown(args.store.commit({ ...preview, purpose, reservedFeeMicrousd: 0, scan: { status: "not_required_for_synthetic_local_test" } }, () => {}).id);
+    };
+    unknownRow("research synthesis assist", "reader");
+    expect(f.controller.get(task.id)).toMatchObject({ status: "paused", canResume: true, reason: "Paused with progress saved." });
+    unknownRow("agent reasoning and tool selection", args.contextId);
+    const blocked = f.controller.get(task.id);
+    expect(blocked.reason).toContain("uncertain"); expect(blocked.canResume).toBe(false);
+    // The text describes the row that blocks, never the skipped assist.
+    expect(blocked.reason).toContain("Resume is blocked");
+  });
   it("never resumes an unknown dispatch or cancelled task", async () => {
     const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
     await vi.waitFor(() => expect(f.executions).toHaveLength(1)); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);

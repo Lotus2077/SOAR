@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { LocalTokenAdmissionEvidenceAnySchema, type LocalTokenAdmissionEvidence } from "./flash-next-admission";
+import { isAssistDispatch } from "./dispatch-purposes";
 import {
   ContextSchema, ExactApprovalSchema, GrantSchema, JobPolicySchema, canonical, contextFingerprint,
   privateAgentId, type ExactApproval, type PrivateAgentContext, type PrivateAgentGrant, type PrivateJobPolicy,
@@ -79,6 +80,18 @@ export function isRetryableAbort(failure: UnknownRequestDiagnostic | undefined):
 export type DispatchStatus = "committed" | "settled" | "unknown" | "superseded" | "failed";
 export function isResolvedDispatch(receipt: { status: DispatchStatus }): boolean {
   return receipt.status === "settled" || receipt.status === "superseded" || receipt.status === "failed";
+}
+/**
+ * A row that stops later work: unresolved (`committed`, or `unknown`), unless it is an `unknown` assist row, a sealed cloud
+ * one-shot of the reading stage whose outcome stayed uncertain (backlog item 10). Such a row is never closed: it keeps its
+ * reservation pinned for the job's life and bars any further grant-free cloud call (see `commit()` and the broker), but local
+ * work continues. With `ownContextId`, an unknown assist row in that context (the writer's own) still blocks: only another
+ * context's rows, the reading stage's, are the ones the research producer binds. A `committed` assist row always blocks: the
+ * process died mid-dispatch, nothing was recorded about the outcome, and nothing can resolve it.
+ */
+export function isBlockingDispatch(receipt: { status: DispatchStatus; purpose?: unknown; contextId?: unknown }, ownContextId?: string): boolean {
+  if (isResolvedDispatch(receipt)) return false;
+  return !(receipt.status === "unknown" && isAssistDispatch(receipt) && (ownContextId === undefined || receipt.contextId !== ownContextId));
 }
 
 export interface DispatchReceipt {
@@ -224,7 +237,12 @@ export class PrivateAgentStore {
       }
       validate(policy, context);
       const history = this.dispatches(policy.id);
-      if (history.some(receipt => !isResolvedDispatch(receipt))) throw new Error("private_agent_unresolved_dispatch");
+      // Backlog item 10: an `unknown` assist row (a sealed cloud one-shot whose outcome stayed uncertain) keeps its reservation
+      // pinned in the exposure below and bars any further assist in the job; every other unresolved row blocks everything, as
+      // before. The broker refuses every grant-free cloud dispatch after such a row before this check; this is the ledger's own
+      // guarantee for any other writer.
+      if (history.some(receipt => isBlockingDispatch(receipt))) throw new Error("private_agent_unresolved_dispatch");
+      if (isAssistDispatch(input) && history.some(receipt => !isResolvedDispatch(receipt))) throw new Error("private_agent_assist_after_unknown");
       if (approval && this.db.prepare("SELECT 1 FROM private_agent_dispatches WHERE json_extract(value, '$.approval.proposalId') = ? LIMIT 1")
         .get(approval.proposalId)) throw new Error("private_agent_proposal_already_dispatched");
       const exposure = history.reduce((sum, receipt) => sum + (receipt.status === "settled" ? receipt.feeMicrousd! : isResolvedDispatch(receipt) ? 0 : receipt.reservedFeeMicrousd), 0);

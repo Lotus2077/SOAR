@@ -745,6 +745,25 @@ describe("general runner host budget and argument recovery", () => {
     expect(f.options.store.events(f.options.jobId).some(event => event.type === "host_validation_started" || event.type === "completed")).toBe(false);
   });
 
+  it("goes on to terminal verification past the reading stage's skipped assist row, but not past one in its own context (backlog item 10)", async () => {
+    /** An unknown assist row in `contextId`, as the broker leaves a sealed cloud one-shot whose outcome stayed uncertain. */
+    const skippedAssist = (f: ReturnType<typeof fixture>, contextId: string) => {
+      const { text: _text, ...preview } = f.options.broker.preview({ jobId: f.options.jobId, contextId,
+        destinationId: "model", purpose: "agent reasoning and tool selection", method: "POST", body: "synthetic assist", maxFeeMicrousd: 0 });
+      const row = f.options.store.commit({ ...preview, purpose: "research plan assist", reservedFeeMicrousd: 0, scan: { status: "not_required_inside_boundary" } }, () => {});
+      f.options.store.unknown(row.id, { phase: "transport", code: "request_timeout", elapsedMs: 900000, timeoutMs: 900000 });
+    };
+    const f = fixture([write], { maxModelCalls: 1 });
+    f.options.store.createContext({ id: "reader", jobId: f.options.jobId, sources: [{ id: "corpus", version: digest("synthetic corpus"), classification: "private", synthetic: true }] });
+    f.afterExecute(command => { if (command === "write result") skippedAssist(f, "reader"); });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed_at_allowance" });
+    expect(f.options.store.dispatches(f.options.jobId).map(row => [row.contextId, row.purpose, row.status])).toContainEqual(["reader", "research plan assist", "unknown"]);
+    expect(f.options.store.events(f.options.jobId).some(event => event.type === "completed")).toBe(true);
+    // The same row in the writer's own context is nobody's to bind: it blocks like any other unknown row.
+    const own = fixture([write], { maxModelCalls: 1 });
+    own.afterExecute(command => { if (command === "write result") skippedAssist(own, own.options.contextId); });
+    expect((await new GeneralAgentRunner(own.options).run()).reason).toBe("unresolved_dispatch_no_replay");
+  });
   it("does not submit passing terminal checks if a dispatch becomes unknown during verification", async () => {
     const f = fixture([write], { maxModelCalls: 1 });
     f.afterExecute(command => {

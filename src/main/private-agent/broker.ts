@@ -11,6 +11,7 @@ import {
   privateAgentId, ExactApprovalSchema, sha256Schema, type ExactApproval, type PrivateAgentContext, type PrivateJobPolicy,
 } from "./contracts";
 import { ANTHROPIC_ERROR_TYPES, isConfirmedAbort, isRetryableAbort, settlementSubcode, PrivateAgentStore, type DispatchReceipt, type UnknownRequestDiagnostic } from "./store";
+import { isAssistDispatch } from "./dispatch-purposes";
 
 export const BROKER_MAX_BODY_BYTES = 192 * 1024;
 /** Ceiling for a destination's own request body cap; profiles choose values below it. */
@@ -338,6 +339,9 @@ export class PrivateAgentBroker {
     const policy = this.store.policy(input.jobId), context = this.store.context(input.contextId);
     if (context.jobId !== policy.id || !input.purpose || input.purpose.length > 500) deny("packet_context_invalid");
     exactText(input.purpose);
+    // Backlog item 10: an assist purpose exempts its row from the unresolved rule and the harness stops, so only a sealed cloud
+    // one-shot may carry it; a priced local or web row never can.
+    if (isAssistDispatch(input) && destination.kind !== "cloud_model") deny("assist_destination_invalid");
     const endpoint = new URL(destination.endpoint), url = new URL(input.url ?? destination.endpoint);
     if (url.username || url.password || url.hash || url.origin !== endpoint.origin ||
         (destination.kind !== "public_web" && url.href !== endpoint.href) ||
@@ -476,6 +480,11 @@ export class PrivateAgentBroker {
           ...(localTokenAdmissionEvidence ? { localTokenAdmission: localTokenAdmissionEvidence } : {}) },
           (policy, context) => {
             this.eligible(policy, context, packet.destination, frozen.grantId);
+            // Backlog item 10 (§5.2: after an UNKNOWN, no further cloud call in the job): once an assist's outcome stayed uncertain,
+            // no grant-free cloud dispatch of any purpose follows in that job, inside the same transaction as the row it would add.
+            // A grant-backed call (the owner's exact-packet consultation) is not refused here: item 13 decides where it is declined.
+            if (packet.destination.kind === "cloud_model" && frozen.grantId === undefined && !packet.preview.approval &&
+                this.store.dispatches(frozen.jobId).some(row => row.status === "unknown" && isAssistDispatch(row))) deny("cloud_after_assist_unknown");
             if (frozen.signal?.aborted) {
               if (admission) throw new LocalTokenAdmissionError("local_token_admission_cancelled");
               deny("request_cancelled");

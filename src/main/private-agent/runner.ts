@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { canonical, digest, exactText, contextFingerprint } from "./contracts";
-import { PrivateAgentStore, isResolvedDispatch } from "./store";
+import { PrivateAgentStore, isBlockingDispatch } from "./store";
 import { PrivateAgentBroker, BrokerError, RETRY_WAIT_CANCELLED } from "./broker";
 import { LOCAL_TOKEN_ADMISSION_STOP, LocalTokenAdmissionError } from "./flash-next-admission";
 import { DockerSandbox, PRIVATE_SANDBOX_LIMITS, SandboxError, type SandboxExecution } from "./sandbox";
@@ -305,8 +305,10 @@ export class GeneralAgentRunner {
     let ownsClaim = false;
     let endpoint = "";
     let completionPending = false;
-    // Judge dispatches (the session's entailment pass) are never replayed and never gate completion.
-    const unsettledDispatch = () => store.dispatches(jobId).some(receipt => !isResolvedDispatch(receipt) && !isEntailmentDispatch(receipt));
+    // Judge dispatches (the session's entailment pass) are never replayed and never gate completion; nor does a skipped assist
+    // (an unknown cloud one-shot of another context, the reading stage's; backlog item 10), whose reservation stays pinned while
+    // this context's work goes on. An unknown assist row in this very context still blocks.
+    const unsettledDispatch = () => store.dispatches(jobId).some(receipt => isBlockingDispatch(receipt, contextId) && !isEntailmentDispatch(receipt));
     // Public fetch allowance: attempts superseded by a retry do not count against the five fetches.
     const publicFetches = () => store.dispatches(jobId).filter(row => row.purpose === "public source retrieval" && row.status !== "superseded").length;
     const started = performance.now();

@@ -29,7 +29,8 @@ import { bundleManifest, buildArtifactBundle } from "./artifact-bundle";
 import { EXECUTION_PROGRESS_STOP, readExecutionProgressStop, hasUnresolvedExecutionProgressAction } from "../private-agent/progress";
 import { COORDINATOR_PROFILES, DEFAULT_COORDINATOR_PROFILE, GENERAL_TASK_BUDGETS, type CoordinatorProfileName } from "../private-agent/profiles";
 import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, claimsInstructions, claimsLedgerCheck, isEntailmentDispatch } from "../private-agent/claims";
-import { isResolvedDispatch } from "../private-agent/store";
+import { isBlockingDispatch, isResolvedDispatch } from "../private-agent/store";
+import { isAssistDispatch } from "../private-agent/dispatch-purposes";
 import { HEARTBEAT_INTERVAL_MS, heartbeatLateness, localStreamSettings } from "../liveness";
 
 /** Cap on one assembled local model reply. */
@@ -398,7 +399,9 @@ export class GeneralTaskController {
 
   private uncertain(events: Record<string, unknown>[], id: string): boolean {
     const stopped = this.progressStop(events, id);
-    return readConsultation(this.runtime, id)?.uncertain === true || this.runtime.dispatches(id).some(row => !isResolvedDispatch(row) && !isEntailmentDispatch(row)) || hasInvalidModelRequestSizeStop(events) || hasInvalidModelRequestTokenAdmissionStop(events) ||
+    // A skipped assist (an unknown cloud one-shot of the reading stage, backlog item 10) leaves the task resumable; every other unresolved non-judge row makes it uncertain.
+    const privateContextId = this.privateContextIdOrUndefined(id);
+    return readConsultation(this.runtime, id)?.uncertain === true || this.runtime.dispatches(id).some(row => isBlockingDispatch(row, privateContextId) && !isEntailmentDispatch(row)) || hasInvalidModelRequestSizeStop(events) || hasInvalidModelRequestTokenAdmissionStop(events) ||
       this.unresolvedProgressAction(events, id) || events.some(event => event.type === "model_action_not_started" &&
       (!stopped || canonical(event) !== canonical(stopped)) ||
       ["model_started", "tool_started", "host_validation_started"].includes(String(event.type)) && !modelRequestSizeStop(events, event) && !modelRequestFeeStop(events, event) && !modelRequestTokenAdmissionStop(events, event) && !modelRequestFailed(events, event) &&
@@ -431,8 +434,13 @@ export class GeneralTaskController {
     if (this.runtime.context(contextId).jobId !== id) throw new Error("general_task_context_changed");
     return contextId;
   }
+  /** The writer's context for the blocking predicate; a context that cannot be resolved keeps every unknown row blocking. */
+  private privateContextIdOrUndefined(id: string): string | undefined {
+    try { return this.contextId(id); } catch { return undefined; }
+  }
   private unknownReason(id: string): string {
-    const last = [...this.runtime.dispatches(id)].reverse().find(receipt => receipt.status === "unknown");
+    // The row that blocks resume, never a skipped assist (backlog item 10), which blocks nothing and is counted apart.
+    const last = [...this.runtime.dispatches(id)].reverse().find(receipt => receipt.status === "unknown" && !isAssistDispatch(receipt));
     const parsed = UnknownRequestDiagnosticSchema.safeParse(last?.failure);
     if (!parsed.success) return fixedReasons.interrupted_unknown!;
     const failure = parsed.data;

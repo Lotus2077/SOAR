@@ -128,6 +128,36 @@ Follow the order in review §5.6. Each step is done when its condition holds.
    card, with the RACE threshold set from GPT-5.5-judged product scores (review
    §2.2, criterion 4), is committed. Then backlog item 13, the desktop wiring.
 
+**Progress on step 1** (2026-11-07, a later session on the owner's Mac). Backlog items 1-5
+and item 10's assist-purpose exception are implemented as small pull requests with
+deterministic tests, each with a `Proposed` decision entry before its code and an
+`Implemented` entry after it; CI is green on every one at the time of writing. All are
+based on this branch until the owner merges it (PR #39); #38 is stacked on #37, and items
+3 and 4 on #38. Retarget the stack as it merges, and re-sort each branch's new build-log
+entries into timestamp order when a rebase puts them side by side.
+
+| Item | Pull request | Branch | Entries |
+| --- | --- | --- | --- |
+| 1 (with D14) | #37 | `fix/zero-fee-failures-resolve` | BL-20261107-0809, -0812 |
+| 10 (week 1) | #38, on #37 | `fix/assist-purpose-exception` | BL-20261107-0839, -0842 |
+| 2 | #40 | `fix/owner-verdict-capture` | BL-20261107-0829, -0852 |
+| 5 | #41 | `feat/serving-probe-extensions` | BL-20261107-0900 |
+| 3 | #43, on #38 | `fix/stop-bricking-tasks` | BL-20261107-0901, -0936, -1006, -1041, -1110, -1111 |
+| 4 | #42, on #38 | `feat/label-keyed-diagnostics` | BL-20261107-0859, -0923 |
+
+Item 3's implementation went through three adversarial review rounds; the brick paths they
+found and the smaller corrections are decided in BL-20261107-1006 and BL-20261107-1041 and
+implemented in the same pull request, and its Docker-gated sandbox suite was run on the
+owner's Mac (the `Verified` entry). Finding D14 is reproduced by a deterministic session
+test and fixed in #37 (see §7). Step 1 is done once the stack is merged. The owner questions
+these entries leave open: whether a desktop consultation may follow a skipped assist, and
+whether the pre-commit refusals outside item 3's seven denial codes should record a marker
+now or wait for item 13 (items 10 and 3); the second-verdict policy, `git` on superseding
+rows and the `verdictBy` enum (item 2); which r3 index the planner fixture pins and whether
+reasoning text may ever be retained (items 4 and 5); the E0 card still gates every live
+probe. Steps 2 onwards have not been started: E0 needs the owner's `.env.local`, which no
+agent session has.
+
 ### 6. Rules for every step
 
 - Follow `AGENTS.md` and the log rules at the top of BUILD_LOG.md: UTC entry IDs,
@@ -150,7 +180,8 @@ Follow the order in review §5.6. Each step is done when its condition holds.
 Five adversarial checks of the review converged, confirming 96, 54, 37, 17 and 2
 findings, but each check after the first covered only the previous revision's
 changes. Finding D14 (a retried research call loses a completed stage) was found by
-reading code and has not been reproduced. One independent review checked the
+reading code; a later session reproduced it with a deterministic session test and fixed
+it in PR #37 (BL-20261107-0812). One independent review checked the
 2026-11-07 decision record; BL-20261107-0718-correction-owner-decisions-record records its fixes.
 
 ## September 2026 record

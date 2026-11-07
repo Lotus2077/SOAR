@@ -191,8 +191,9 @@ describe("Anthropic destination transport", () => {
     const f = await fixture((_, response) => ok(response));
     await expect(f.broker.request(f.input, () => { throw new Error("model_served_mismatch"); })).rejects.toThrow("transport_or_settlement_unknown");
     expect(f.rows()[0]!.status).toBe("unknown");
-    expect(Object.keys(f.rows()[0]!.failure!).sort()).toEqual(["attempt", "code", "elapsedMs", "phase", "requestId", "timeoutMs"]);
-    expect(f.rows()[0]!.failure).toMatchObject({ phase: "settlement", code: "response_or_usage_invalid", requestId: "req_011okfixture" });
+    // Backlog item 1 (finding B1): a settlement row names the refusing check as its sub-code, from a fixed list, on every destination.
+    expect(Object.keys(f.rows()[0]!.failure!).sort()).toEqual(["attempt", "code", "elapsedMs", "phase", "requestId", "subcode", "timeoutMs"]);
+    expect(f.rows()[0]!.failure).toMatchObject({ phase: "settlement", code: "response_or_usage_invalid", subcode: "model_served_mismatch", requestId: "req_011okfixture" });
   });
 
   it("still rejects at once, unread, on a destination without the field even when the error body stalls", async () => {
@@ -210,7 +211,8 @@ describe("Anthropic destination transport", () => {
     expect(Object.keys(f.rows()[0]!.failure!).sort()).toEqual(["code", "elapsedMs", "phase", "status", "timeoutMs"]);
     const g = await fixture((_, response) => ok(response), { anthropic: false });
     await expect(g.broker.request(g.input, () => { throw new Error("x"); })).rejects.toThrow("transport_or_settlement_unknown");
-    expect(Object.keys(g.rows()[0]!.failure!).sort()).toEqual(["code", "elapsedMs", "phase", "timeoutMs"]);
+    expect(Object.keys(g.rows()[0]!.failure!).sort()).toEqual(["code", "elapsedMs", "phase", "subcode", "timeoutMs"]);
+    expect(g.rows()[0]!.failure).toMatchObject({ subcode: "other" });
   });
 
   it("drops a diagnostic key whose value is undefined instead of leaving the row committed for good", async () => {

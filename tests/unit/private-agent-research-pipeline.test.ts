@@ -133,5 +133,19 @@ describe("research v4 actual serialized stages", () => {
     const m = models((stage, input, n, system) => stage === "extract" ? JSON.stringify({ questions: input.plan.questions.map((q: any) => ({ questionId: q.id, status: "evidence_found" })), quotes: input.chunk.text.split("\n").map((quote: string) => ({ quote, questionIds: ["Q1"], note: "x".repeat(200) })), conflicts: [] }) : happy(stage, input, n, system));
     const result = await run(m, { sources: corpus }); expect(result.reason).toBe("research_packet_cap_omission"); expect(parsed(result, RESEARCH_FILES.coverage).omissions.length).toBeGreaterThan(0); expect(m.calls.some(c => c.stage === "synthesise")).toBe(false);
   });
+  it("does not start a stage call that the deadline could cut when the model says so, and consults the guard only with a deadline (finding A8)", async () => {
+    const m = models(), events: ResearchStageCounts[] = [];
+    // The fixture broker has no clock accessors, so every role's guard is stubbed: the planner refuses, the others admit.
+    for (const model of [m.models.reader, m.models.synthesiser]) vi.spyOn(model, "deadlineRefuses").mockReturnValue(false);
+    const guard = vi.spyOn(m.models.planner, "deadlineRefuses").mockReturnValue(true);
+    const outcome = await run(m, { deadlineMs: performance.now() + 60_000 }, events);
+    expect(outcome).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(events.map(e => [e.stage, e.calls, e.denied])).toEqual([["index", 1, undefined], ["plan", 0, "deadline_before_request"]]);
+    expect(m.calls.map(c => c.stage)).toEqual(["index"]);
+    expect(guard).toHaveBeenCalledTimes(1); expect(guard.mock.calls[0]![0]).toBeLessThanOrEqual(60_000);
+    // Without a deadline the guard is never consulted, so a fixture broker without the accessors runs the whole pipeline.
+    const plain = models(); const spy = vi.spyOn(plain.models.planner, "deadlineRefuses");
+    expect((await run(plain)).status).toBe("completed"); expect(spy).not.toHaveBeenCalled();
+  });
   it("stops cancellation without a request", async () => { const controller = new AbortController(); controller.abort(); const m = models(); expect((await run(m, { signal: controller.signal })).reason).toBe("research_cancelled"); expect(m.request).not.toHaveBeenCalled(); });
 });

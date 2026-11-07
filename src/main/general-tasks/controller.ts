@@ -16,7 +16,7 @@ import { PrivateAgentBroker, isPublicAddress, type BrokerDestination } from "../
 import { loadFlashNextTokenAdmission, LOCAL_TOKEN_ADMISSION_STOP } from "../private-agent/flash-next-admission";
 import { isIP } from "node:net";
 import { readPublicSources } from "../private-agent/public-sources";
-import { MODEL_FEE_CAP_STOP, MODEL_UNAVAILABLE_STOP, modelRequestFailed, modelRequestFeeStop, PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop, modelIdentity,
+import { MODEL_FEE_CAP_STOP, DEADLINE_BEFORE_REQUEST_STOP, MODEL_UNAVAILABLE_STOP, modelRequestFailed, modelRequestFeeStop, PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop, modelIdentity,
   modelRequestTokenAdmissionStop, hasInvalidModelRequestTokenAdmissionStop } from "../private-agent/model";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "../private-agent/checkpoints";
 import { GeneralAgentSession, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../private-agent/session";
@@ -55,6 +55,7 @@ const fixedReasons: Record<string, string> = {
   local_token_admission_denied: "The next local-model request could not pass its context and deployment checks and was not sent. Saved progress is retained; this task cannot resume.",
   repeated_identical_execution_failure: "The agent selected the same failed command after a recovery warning. The command was stopped before execution. Saved progress is retained; this task cannot resume.",
   deadline: "The task reached its time limit.",
+  deadline_before_request: "The time left was shorter than one model request's limit, so no further request was sent. Nothing is uncertain; saved progress is retained, and this task cannot resume.",
   fee_cap_reached: "The task reached its cloud fee cap before the next request; nothing more was sent. Saved progress is retained; this task cannot resume.",
   model_unavailable: "The local model could not be reached after the permitted attempts. Nothing is uncertain; resume when the model is back.",
   public_model_unavailable: "The local model could not be reached during public retrieval after the permitted attempts. Nothing is uncertain; resume when the model is back.",
@@ -450,7 +451,8 @@ export class GeneralTaskController {
       stream_invalid: "The streamed reply could not be assembled into a complete response.",
       stream_error: "The streamed reply ended with an error from the model server.",
     };
-    return `${descriptions[failure.code]} Its outcome remains uncertain. Resume is blocked; the request will not be replayed.`;
+    const subcode = failure.phase === "settlement" && failure.subcode ? ` (${failure.subcode})` : "";
+    return `${descriptions[failure.code]}${subcode} Its outcome remains uncertain. Resume is blocked; the request will not be replayed.`;
   }
   get(id: string): GeneralTaskSnapshot {
     const record = this.record(id), events = this.runtime.events(id), active = this.active.has(id);
@@ -621,7 +623,7 @@ export class GeneralTaskController {
       if (judged) next.entailment = { counts: judged.counts, entailmentCalls: judged.entailmentCalls, truncated: judged.truncated, claims: judged.verdicts };
       next.status = submitted ? "submitted" : active.cancelRequested ? "cancelled" : result.status === "paused" ? "paused" : "incomplete";
       next.reason = !preserved ? "configuration_changed" : result.reason === "consultation_pending" ? "consultation_pending" :
-        result.reason === MODEL_REQUEST_SIZE_STOP ? MODEL_REQUEST_SIZE_STOP : result.reason === MODEL_FEE_CAP_STOP ? MODEL_FEE_CAP_STOP : result.reason === LOCAL_TOKEN_ADMISSION_STOP ? LOCAL_TOKEN_ADMISSION_STOP : (result.reason === MODEL_UNAVAILABLE_STOP || result.reason === `public_${MODEL_UNAVAILABLE_STOP}`) && next.status === "incomplete" ? result.reason : next.status; this.save(next);
+        result.reason === MODEL_REQUEST_SIZE_STOP ? MODEL_REQUEST_SIZE_STOP : result.reason === MODEL_FEE_CAP_STOP ? MODEL_FEE_CAP_STOP : result.reason === LOCAL_TOKEN_ADMISSION_STOP ? LOCAL_TOKEN_ADMISSION_STOP : (result.reason === MODEL_UNAVAILABLE_STOP || result.reason === `public_${MODEL_UNAVAILABLE_STOP}` || result.reason === DEADLINE_BEFORE_REQUEST_STOP) && next.status === "incomplete" ? result.reason : next.status; this.save(next);
     } catch (error) {
       const record = this.record(id); record.status = active.cancelRequested ? "cancelled" : "incomplete";
       record.reason = error instanceof Error && error.message === "general_task_configuration_changed" ? "configuration_changed" : "runtime_unavailable"; this.save(record);

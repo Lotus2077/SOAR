@@ -379,7 +379,7 @@ export class GeneralAgentSession {
           let outcome: Awaited<ReturnType<typeof runResearchPipeline>>;
           try {
             outcome = await runResearchPipeline({ brief: privatePhase.contract.goal, sources, models: researchModels, signal: AbortSignal.any([boundedSignal, this.stageAbort.signal]), budget: options.research.budget,
-              record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }) });
+              deadlineMs: sessionDeadlineMs, record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }) });
           } finally { this.stageAbort = undefined; }
           if (policyChanged()) return result("incomplete", policyReason());
           if (outcome.status !== "completed") return result(this.pauseRequested ? "paused" : "incomplete", outcome.reason);

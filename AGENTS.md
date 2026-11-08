@@ -17,3 +17,22 @@
   paid work until the required approval is durably recorded.
 - Never commit credentials, private endpoints, local paths, raw private traces,
   evaluator gold, or generated databases/artifacts.
+
+## Agent skills
+
+### Issue tracker
+
+Issues are tracked in GitHub Issues on `Lotus2077/SOAR` via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default five-role vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: root `GLOSSARY.md` (created lazily) plus `docs/adr/`. See `docs/agents/domain.md`.
+
+### Skill routing
+
+When a plan settles, needs tickets, spans sessions, or issues need triage,
+read `docs/agents/skill-routing.md` and suggest the matching slash command.

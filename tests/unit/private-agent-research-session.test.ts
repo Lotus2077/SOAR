@@ -8,9 +8,9 @@ import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { PrivateAgentBroker, type BrokerDestination } from "../../src/main/private-agent/broker";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
-import { digest, restrictedContext } from "../../src/main/private-agent/contracts";
+import { diagnosticRetention, digest, restrictedContext } from "../../src/main/private-agent/contracts";
 import { GeneralAgentSession, RESEARCH_TRANSFER_CHECK_ID, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../../src/main/private-agent/session";
-import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET } from "../../src/main/private-agent/research-pipeline";
+import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, type ResearchDiagnostic } from "../../src/main/private-agent/research-pipeline";
 import { researchV4Reply } from "../helpers/research-v4-fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -23,12 +23,13 @@ function phase(): SessionPhase {
     requiredArtifacts: [{ path: "output/report.md", description: "report" }], requiredChecks: ["structure"], maxModelCalls: 40, maxToolCalls: 80, maxElapsedMs: 1_800_000 } };
 }
 /** A loopback model whose reply depends on the stage named by the system prompt; `planReply` lets a test break the plan; `onRequest` lets one pause mid-call. */
-async function fixture(planReply?: () => string) {
-  const bodies: { system: string; user: string }[] = [], hooks: { onRequest?: (system: string) => void } = {};
+/** `recoverable` flags both destinations for owner decision D4's bounded retry; `onRequest` may return "destroy" to drop the socket before any reply. */
+async function fixture(planReply?: () => string, options: { recoverable?: boolean } = {}) {
+  const bodies: { system: string; user: string }[] = [], hooks: { onRequest?: (system: string, request: http.IncomingMessage) => void | "destroy" } = {};
   const server = http.createServer((request, response) => {
     let raw = ""; request.on("data", chunk => { raw += chunk; }); request.on("end", () => {
       const body = JSON.parse(raw) as { messages: { content: string }[] }, system = body.messages[0]!.content, user = body.messages[1]!.content;
-      bodies.push({ system, user }); hooks.onRequest?.(system);
+      bodies.push({ system, user }); if (hooks.onRequest?.(system, request) === "destroy") { request.socket.destroy(); return; }
       const content = system.startsWith("You plan") && planReply ? planReply() : researchV4Reply(system, user);
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
@@ -40,7 +41,8 @@ async function fixture(planReply?: () => string) {
   const root = mkdtempSync(join(tmpdir(), "soar-research-session-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const db = new Database(":memory:"); cleanups.push(() => { db.close(); });
   const store = new PrivateAgentStore(db);
-  const base = { kind: "local_model" as const, endpoint: `${endpoint}/v1/chat/completions`, accountId: "fixture", credentialVersion: 0, loopbackFixture: true, timeoutMs: 2000, maxResponseBytes: 65536 };
+  const base = { kind: "local_model" as const, endpoint: `${endpoint}/v1/chat/completions`, accountId: "fixture", credentialVersion: 0, loopbackFixture: true, timeoutMs: 2000, maxResponseBytes: 65536,
+    ...(options.recoverable ? { recoverable: true } : {}) };
   // "model" admits synthetic lineage only (the shape of a cloud destination); "private-model" admits private data (the owned local server).
   const destinations: BrokerDestination[] = [{ id: "model", ...base, privateDataAdmitted: false, syntheticOnly: true }, { id: "private-model", ...base, privateDataAdmitted: true }];
   const broker = new PrivateAgentBroker(store, destinations, { scan: async () => ({ complete: true, blocked: false, detector: "deliberate-false-negative-fixture" }) });
@@ -198,6 +200,29 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(() => new GeneralAgentSession(reserved)).toThrow("session_research_paths_reserved");
   });
 
+  it("D14: a stage whose extraction call was retried once still reaches the writer, and the producer binds the superseded row uncounted", async () => {
+    const f = await fixture(undefined, { recoverable: true }), runs: Run[] = [], config = options(f, "job-retried", runs);
+    let dropped = false;
+    // The first extraction request is cut after it was sent: a confirmed upstream_closed on a zero-fee packet, retried once by the broker (D4).
+    f.hooks.onRequest = system => { if (system.startsWith("You extract") && !dropped) { dropped = true; return "destroy"; } return undefined; };
+    const result = await new GeneralAgentSession(config).run();
+    expect(result).toMatchObject({ status: "submitted" });
+    expect(runs).toHaveLength(1);
+    const rows = f.store.dispatches("job-retried");
+    expect(rows.map(row => [row.purpose, row.status])).toEqual([["research source index", "settled"], ["research plan", "settled"],
+      ["research evidence extraction", "superseded"], ["research evidence extraction", "settled"], ["research synthesis", "settled"]]);
+    expect(rows[2]!.failure).toMatchObject({ phase: "transport", code: "upstream_closed", attempt: 1 });
+    const stages = f.store.events("job-retried").filter(event => event.type === "research_stage");
+    expect(stages.map(event => [event.stage, event.calls])).toEqual([["index", 1], ["plan", 1], ["extract", 1], ["synthesise", 1]]);
+    const transfer = f.store.events("job-retried").find(event => event.type === "research_transfer")!;
+    const producer = (transfer.binding as { producer: { receipts: { id: string; stage: string; status?: string }[] } }).producer;
+    expect(producer.receipts.map(receipt => [receipt.stage, receipt.status])).toEqual([["index", undefined], ["plan", undefined], ["extract", "superseded"], ["extract", undefined], ["synthesise", undefined]]);
+    expect(producer.receipts.map(receipt => receipt.id)).toEqual(rows.map(row => row.id));
+    // A resume re-validates the same producer against the ledger and reuses the packet without another stage call.
+    expect(await new GeneralAgentSession(options(f, "job-retried", runs)).run()).toMatchObject({ status: "submitted" });
+    expect(f.store.dispatches("job-retried")).toHaveLength(5); expect(f.bodies).toHaveLength(5);
+  }, 20_000);
+
   it("leaves a session without the stage byte-for-byte unchanged: no reader context, no research events", async () => {
     const f = await fixture(), runs: Run[] = [], config = options(f, "job-plain", runs);
     delete config.research;
@@ -206,5 +231,32 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(start).not.toHaveProperty("readerContextId");
     expect(f.store.events("job-plain").some(event => String(event.type).startsWith("research_"))).toBe(false);
     expect(runs[0]!.files).not.toContain(RESEARCH_FILES.evidence); expect(runs[0]!.goal).not.toContain("reading stage");
+  });
+
+  it("backlog item 4: forwards the diagnostics sink for a synthetic-attested job and withholds it for a labelled one, with no other difference in events or receipts", async () => {
+    const f = await fixture(() => "not a plan");
+    const retained: ResearchDiagnostic[] = [], withheld: ResearchDiagnostic[] = [];
+    // The headless driver's shape: private sources under the synthetic attestation, so the reader context's retention is raw.
+    const synthetic = options(f, "job-raw", []); synthetic.research = { ...synthetic.research!, diagnostics: { retain: entry => retained.push(entry) } };
+    expect(await new GeneralAgentSession(synthetic).run()).toMatchObject({ status: "incomplete", reason: "research_plan_invalid" });
+    expect(retained.map(entry => [entry.stage, entry.ordinal, entry.purpose, entry.content])).toEqual([["plan", 1, "research plan", "not a plan"], ["plan", 2, "research plan", "not a plan"]]);
+    expect(retained.every(entry => entry.reasons.length === 1 && entry.reasons[0]!.code === "invalid_json")).toBe(true);
+    // A labelled job: private lineage without the attestation, every role on the destination that admits private data; the sink is never called.
+    const labelled = options(f, "job-labelled", [], "private-model"); delete labelled.syntheticInputApproval;
+    labelled.research = { ...labelled.research!, diagnostics: { retain: entry => withheld.push(entry) } };
+    expect(await new GeneralAgentSession(labelled).run()).toMatchObject({ status: "incomplete", reason: "research_plan_invalid" });
+    expect(withheld).toEqual([]);
+    const reader = (jobId: string) => String(f.store.events(jobId).find(event => event.type === "session_started")!.readerContextId);
+    expect(diagnosticRetention(f.store.context(reader("job-raw")))).toBe("raw"); expect(diagnosticRetention(f.store.context(reader("job-labelled")))).toBe("hash_only");
+    // Beside the sink, nothing differs: the same stage events (hash-only, no reply text) and the same receipts, purpose for purpose.
+    const stages = (jobId: string) => f.store.events(jobId).filter(event => event.type === "research_stage").map(({ contextId: _context, ...rest }) => rest);
+    expect(stages("job-labelled")).toEqual(stages("job-raw")); expect(JSON.stringify(stages("job-raw"))).not.toContain("not a plan");
+    const rows = (jobId: string) => f.store.dispatches(jobId).map(row => [row.purpose, row.status, row.responseSha256]);
+    expect(rows("job-labelled")).toEqual(rows("job-raw")); expect(rows("job-raw")).toHaveLength(3);
+    // A sink is no part of the session identity: the same job without one starts with the same identity and records the same events.
+    const plain = options(f, "job-plain-sink", []);
+    expect(await new GeneralAgentSession(plain).run()).toMatchObject({ reason: "research_plan_invalid" });
+    const start = (jobId: string) => f.store.events(jobId).find(event => event.type === "session_started")!;
+    expect(start("job-plain-sink").identity).toBe(start("job-raw").identity); expect(stages("job-plain-sink")).toEqual(stages("job-raw"));
   });
 });

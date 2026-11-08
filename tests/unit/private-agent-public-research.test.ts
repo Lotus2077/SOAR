@@ -14,6 +14,8 @@ import { DockerSandbox } from "../../src/main/private-agent/sandbox";
 import { GeneralAgentSession, sessionPhaseIdentity, type GeneralSessionOptions } from "../../src/main/private-agent/session";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { CLAIMS_LEDGER_CHECK_ID, claimsLedgerCheck, publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
+import { TOOL_ERROR_FEEDBACK } from "../../src/main/private-agent/tool-errors";
+import { workspaceListing } from "../helpers/workspace-listing";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const close of cleanup.splice(0).reverse()) close(); });
@@ -108,7 +110,7 @@ function runnerFixture(actions: string[], options: { unknown?: boolean; body?: B
     snapshots.push(new Map(input.files.map(file => [file.path, Buffer.from(file.bytes)])));
     return { async execute(command: string) { commands.push(command); if (command === "write report") files.set("output/report.md", Buffer.from("Public report with citation.")); return { exitCode: 0, stdout: "", stderr: "" }; },
       async editFile(mode: string, path: string, payload: Buffer) { if (mode !== "write") throw new Error("unexpected edit mode"); files.set(path, Buffer.from(payload)); writes.push(path); return { ok: true, bytes: payload.length }; },
-      async listFiles() { return [...files.keys()]; }, async readFile(name: string) { return files.get(name)!; }, async close() {} } as unknown as DockerSandbox;
+      async listFiles() { return workspaceListing(files); }, async readFile(name: string) { return files.get(name)!; }, async close() {} } as unknown as DockerSandbox;
   });
   const messages: GeneralMessage[][] = [];
   let afterResponse = () => {};
@@ -117,8 +119,8 @@ function runnerFixture(actions: string[], options: { unknown?: boolean; body?: B
     if (!name) throw new Error("unexpected model call");
     f.settled(Buffer.from(name), { ...f.request, destinationId: "model", purpose: "synthetic model fixture", method: "POST", url: f.modelDestination.endpoint, body: canonical(input) });
     afterResponse();
-    return { content: "", finishReason: "tool_calls", toolCalls: [{ id: `tool_${index}`, type: "function", function: { name,
-      arguments: canonical(name === "fetch_public" ? { destinationId: "web", url } : name === "execute" ? { command: "write report" }
+    return { content: "", finishReason: "tool_calls", toolCalls: [{ id: `tool_${index}`, type: "function", function: { name: name === "fetch_denied" ? "fetch_public" : name,
+      arguments: canonical(name === "fetch_public" ? { destinationId: "web", url } : name === "fetch_denied" ? { destinationId: "nowhere", url } : name === "execute" ? { command: "write report" }
         : name === "write_file" ? { path: publicSourceWorkspacePath(url), content: "forged source text" } : name === "check_claims" ? {} : { summary: "Submit the public report." }) } }], costUsd: 0, durationMs: 1 };
   });
   const requests = vi.spyOn(f.broker, "request").mockImplementation(async request => {
@@ -173,12 +175,36 @@ describe("public retrieval through the single bounded runner", () => {
     expect(f.snapshots.at(-1)!.get(path)!.equals(hostBytes)).toBe(true);
     expect(f.commands.filter(entry => entry.includes("SOAR_CLAIMS_RETAINED="))).toHaveLength(2);
   });
+  it("refuses a destination outside the context's admitted set with its own fixed object, sending nothing (backlog item 3)", async () => {
+    const f = runnerFixture(["fetch_denied", "execute", "finish"]);
+    expect((await new GeneralAgentRunner(f.args).run()).status).toBe("completed");
+    const outputs = f.store.events(f.jobId).filter(row => row.type === "tool_finished").map(row => JSON.parse(String(row.output)));
+    expect(outputs[0]).toEqual(TOOL_ERROR_FEEDBACK.destination_denied);
+    expect(f.requests).not.toHaveBeenCalled(); expect(f.store.dispatches(f.jobId).every(row => row.destinationId === "model")).toBe(true);
+  });
   it("returns a confirmed fetch failure to the model as an observation and keeps running", async () => {
     const f = runnerFixture(["fetch_public", "execute", "finish"]);
     f.requests.mockImplementationOnce(async () => { throw new BrokerError("request_failed"); });
     expect((await new GeneralAgentRunner(f.args).run()).status).toBe("completed");
     const outputs = f.store.events(f.jobId).filter(row => row.type === "tool_finished").map(row => JSON.parse(String(row.output)));
     expect(outputs[0]).toMatchObject({ error: "public_fetch_failed", completed: false, actionInvoked: true });
+    expect(f.messages).toHaveLength(3);
+  });
+  it("returns a cut or timed-out zero-risk fetch as a failed row and an observation, and keeps running (backlog item 1)", async () => {
+    const f = runnerFixture(["fetch_public", "execute", "finish"]);
+    f.requests.mockImplementationOnce(async request => {
+      // What the broker now does for a zero-risk GET the deadline, a timeout or an oversize reply cut: the row resolves `failed`.
+      const { text: _text, ...preview } = f.broker.preview(request);
+      const receipt = f.store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "complete", detector: "synthetic-unit" } }, () => {});
+      f.store.resolveFailure(receipt.id, "failed", { phase: "transport", code: "request_timeout", elapsedMs: 1000, timeoutMs: 1000 }, true);
+      throw new BrokerError("request_failed");
+    });
+    expect((await new GeneralAgentRunner(f.args).run()).status).toBe("completed");
+    const outputs = f.store.events(f.jobId).filter(row => row.type === "tool_finished").map(row => JSON.parse(String(row.output)));
+    expect(outputs[0]).toMatchObject({ error: "public_fetch_failed", completed: false, actionInvoked: true });
+    expect(String(outputs[0].instruction)).toContain("not retried"); expect(String(outputs[0].instruction)).not.toContain("permitted attempts");
+    expect(f.store.dispatches(f.jobId).filter(row => row.destinationId === "web").map(row => [row.status, row.failure?.code])).toEqual([["failed", "request_timeout"]]);
+    expect(f.store.dispatches(f.jobId).every(row => row.status !== "unknown")).toBe(true);
     expect(f.messages).toHaveLength(3);
   });
   it("stops immediately after an unknown fetch and never retries it on resume", async () => {

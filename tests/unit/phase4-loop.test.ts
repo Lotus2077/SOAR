@@ -12,7 +12,7 @@ afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
 const h = (n: string) => n.repeat(64);
 const summary = (over: Partial<CandidateSummary> = {}): CandidateSummary => ({ jobId: "ja", taskJobSha256: h("1"), taskBriefSha256: h("2"), runtimeSha256: h("4"), researchFrom: null, repairSource: null,
   status: "submitted", reason: "independent_acceptance_pending", checksPassed: 2, checksTotal: 2, checksCurrent: true, artifactsPresent: 2, artifactsTotal: 2,
-  entailment: null, writeIdentity: null, modelCalls: 10, toolCalls: 8, inputTokens: 1000, outputTokens: 100, cachedTokens: 500, cacheWriteTokens: 0, lengthStops: 0, feeMicrousd: 0, unknownDispatches: 0, retriedDispatches: 0, failedDispatches: 0,
+  entailment: null, writeIdentity: null, modelCalls: 10, toolCalls: 8, inputTokens: 1000, outputTokens: 100, cachedTokens: 500, cacheWriteTokens: 0, lengthStops: 0, feeMicrousd: 0, unknownDispatches: 0, retriedDispatches: 0, failedDispatches: 0, assistSkippedDispatches: 0, assistFailedDispatches: 0,
   candidateSha256: h("a"), freezeSha256: h("b"), resultSha256: h("c"), startedAt: "t0", finishedAt: "t1", ...over });
 /** The candidates of one well-formed loop: b and the repair seeded from a on a research task, the repair bound to the selected draft. */
 function candidates(research: boolean, over: Partial<Record<"a" | "b" | "repair", Partial<CandidateSummary>>> = {}): Record<string, CandidateSummary> {
@@ -44,7 +44,7 @@ function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?:
     },
     readCritique(directory) { return JSON.parse(readFileSync(join(directory, "critique.json"), "utf8")) as CritiqueRecord; },
     summarize(directory) { const name = directory.split("/").pop()!; const found = input.summaries[name]; if (!found) throw new Error(`no summary for ${name}`); return found; },
-    transferSnapshot: snapshot,
+    transferStatus: directory => { const sha256 = snapshot(directory); return { snapshotSha256: sha256, code: sha256 ? null : "research_seed_no_transfer" }; },
     deliverables: () => ["output/report.md", "output/claims.json"],
     now: () => `t${tick++}`,
   };
@@ -52,13 +52,13 @@ function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?:
 }
 function loopDir() { const dir = mkdtempSync(join(tmpdir(), "soar-loop-")); cleanups.push(() => rmSync(dir, { recursive: true, force: true })); return join(dir, "loop"); }
 const read = (dir: string) => JSON.parse(readFileSync(join(dir, "loop.json"), "utf8")) as LoopRecord;
-/** Real result-to-summary mapping: committed receipts must block just like UNKNOWN. */
-function transportStoppedSummary(status: "unknown" | "committed" | "failed"): CandidateSummary {
+/** Real result-to-summary mapping: committed receipts must block just like UNKNOWN; an assist row carries its purpose. */
+function transportStoppedSummary(status: "unknown" | "committed" | "failed", purpose?: string): CandidateSummary {
   const directory = loopDir(); mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "freeze.json"), JSON.stringify({ jobId: "ja", startedAt: "t0", sourceFreezeSha256: h("4"),
     taskBinding: { jobSha256: h("1"), briefSha256: h("2") } }));
   writeFileSync(join(directory, "result.json"), JSON.stringify({ status: "incomplete", reason: "runtime_failure_progress_preserved",
-    finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [], dispatches: [{ status, feeMicrousd: 0 }] }));
+    finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [], dispatches: [{ status, feeMicrousd: 0, ...(purpose ? { purpose, reservedFeeMicrousd: 160_000 } : {}) }] }));
   const db = new Database(join(directory, "state.sqlite"));
   db.exec("CREATE TABLE private_agent_events (job_id TEXT, sequence INTEGER, value TEXT)"); db.close();
   return summarizeRun(directory, []);
@@ -83,6 +83,7 @@ describe("H4 select-and-repair loop", () => {
     expect(saved).toMatchObject({ version: LOOP_VERSION, selectionRule: 1, arm: "local", pipeline: null, runtimeSha256: h("4"), startedAt: "t0", finishedAt: expect.any(String) });
     expect(JSON.stringify(saved)).not.toContain(dir);
     expect(readFileSync(join(dir, "log.txt"), "utf8")).toContain("final repair (tie)");
+    expect(existsSync(join(dir, "errors.txt"))).toBe(false);  // backlog item 4: the error side file exists only when something was caught
     expect(loopExitCode(record)).toBe(0);
   });
   it("adds a truncated critique to the samples' length stops without changing the selection rule", async () => {
@@ -113,6 +114,19 @@ describe("H4 select-and-repair loop", () => {
     const reused = fakes({ summaries: candidates(true, { a }), transfers: ["a"] });
     await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, reused.deps)).rejects.toThrow(code);
     expect(reused.calls.runs).toHaveLength(0); expect(reused.calls.critiques).toHaveLength(0);
+  });
+  it.each([["unknown", "research plan assist", "assistSkippedDispatches"], ["failed", "research synthesis assist", "assistFailedDispatches"]] as const)("admits a sample whose assist row is %s (backlog item 10) and goes on to b, the critique and the repair, counting it apart", async (status, purpose, column) => {
+    const dir = loopDir(), a = transportStoppedSummary(status, purpose);
+    expect(a).toMatchObject({ unknownDispatches: 0, failedDispatches: 0, [column]: 1 });
+    const { deps, calls } = fakes({ summaries: candidates(true, { a }), transfers: ["a"] });
+    const record = await runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, deps);
+    expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b", "repair"]);
+    expect(record.failure).toBeNull(); expect(record.totals).toMatchObject({ unknownDispatches: 0, failedDispatches: 0, [column]: 1 });
+    expect(record.selected.final).not.toBeNull();
+    // A committed assist row is still an unresolved dispatch: the process died mid-call and nothing can resolve it.
+    const committed = transportStoppedSummary("committed", purpose);
+    expect(committed).toMatchObject({ unknownDispatches: 1, assistSkippedDispatches: 0, assistFailedDispatches: 0 });
+    await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: loopDir() }, fakes({ summaries: candidates(true, { a: committed }), transfers: ["a"] }).deps)).rejects.toThrow("loop_stage_unresolved_dispatch");
   });
   it.each([{ unknownDispatches: 1 }, { failedDispatches: 1 }])("does not admit a critique or repair after b has stopped dispatches: %j", async stopped => {
     const dir = loopDir();
@@ -152,8 +166,10 @@ describe("H4 select-and-repair loop", () => {
     const dir3 = loopDir();
     const third = fakes({ summaries: { a: summary({ status: "incomplete", reason: "research_plan_invalid", artifactsPresent: 0 }) } });
     const record3 = await runSelectionLoop({ base: base({ pipeline: "research", cloudArm: cloud }), loopDirectory: dir3 }, third.deps);
-    expect(record3.selected).toEqual({ stage1: null, final: { candidate: "a", step: "stage_failed" } }); expect(third.calls.runs).toHaveLength(1); expect(third.calls.critiques).toHaveLength(0);
-    expect(record3.seeded).toEqual({ b: false, repair: false, snapshotSha256: null }); expect(read(dir3)).toMatchObject({ selected: { final: { step: "stage_failed" } }, failure: null });
+    expect(record3.selected).toEqual({ stage1: null, final: { candidate: "a", step: "stage_failed", seedRefusal: "research_seed_no_transfer" } }); expect(third.calls.runs).toHaveLength(1); expect(third.calls.critiques).toHaveLength(0);
+    expect(record3.seeded).toEqual({ b: false, repair: false, snapshotSha256: null }); expect(read(dir3)).toMatchObject({ selected: { final: { step: "stage_failed", seedRefusal: "research_seed_no_transfer" } }, failure: null });
+    // Backlog item 4: the seed loader's refusal code is in the log too, and a loop that ended by rule wrote no error side file.
+    expect(readFileSync(join(dir3, "log.txt"), "utf8")).toContain("stage failed in a (research_seed_no_transfer): loop ends"); expect(existsSync(join(dir3, "errors.txt"))).toBe(false);
     expect(loopExitCode(record3)).toBe(2);
   });
   it("stops without a critique when the selected sample left no draft, keeps the stage-1 choice when the critique fails and counts the call it made, and is terminal afterwards", async () => {
@@ -176,6 +192,9 @@ describe("H4 select-and-repair loop", () => {
     const record3 = await runSelectionLoop({ base: base(), loopDirectory: dir3 }, early.deps);
     expect(record3.critique).toEqual({ failure: "repair_critique_failed", feeMicrousd: 0, finishReason: null, usage: null, modelCalls: 0 }); expect(record3.totals).toMatchObject({ modelCalls: 20, lengthStops: 0 });
     expect(readFileSync(join(dir3, "loop.json"), "utf8")).not.toContain("/Users"); expect(readFileSync(join(dir3, "log.txt"), "utf8")).not.toContain("/Users");
+    // Backlog item 4 (finding B6): the full error, name and message, reaches the operator through the side file beside its code.
+    expect(readFileSync(join(dir3, "errors.txt"), "utf8")).toMatch(/ repair_critique_failed Error: ENOENT: no such file or directory, lstat '\/Users\/someone\/task'\n$/u);
+    expect(readFileSync(join(dir2, "errors.txt"), "utf8")).toContain(" repair_critique_empty Error: repair_critique_empty\n");
     // A loop that chose is terminal whether or not the critique directory exists: a rerun is refused, never retried.
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, fakes({ summaries: candidates(false) }).deps)).rejects.toThrow("loop_terminal");
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: candidates(false) }).deps)).rejects.toThrow("loop_terminal");
@@ -187,6 +206,9 @@ describe("H4 select-and-repair loop", () => {
     const stopped = read(dir);
     expect(stopped).toMatchObject({ failure: "loop_failed", startedAt: "t0", finishedAt: expect.any(String) }); expect(stopped.selected.final).toBeNull();
     expect(JSON.stringify(stopped)).not.toContain("/Users"); expect(existsSync(join(dir, "log.txt"))).toBe(true);
+    // Backlog item 4 (finding B6): errors.txt holds the name and message; loop.json and log.txt keep the code.
+    expect(readFileSync(join(dir, "errors.txt"), "utf8")).toMatch(/ loop_failed Error: ENOSPC: no space left on device, write '\/Users\/someone\/loop\/repair\/x'\n$/u);
+    expect(readFileSync(join(dir, "log.txt"), "utf8")).not.toContain("/Users");
     const reusedTimes = Object.fromEntries(stopped.stages.map(stage => [stage.stage, [stage.startedAt, stage.finishedAt]]));
     // The operator moves the unfinished repair aside and reruns: a, b and the critique are reused with their first times, the clock keeps its start.
     rmSync(join(dir, "repair"), { recursive: true, force: true });

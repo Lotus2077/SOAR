@@ -11,6 +11,7 @@ const cleanups: (() => void)[] = [];
 afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
 const base: CandidateSummary = { jobId: "j", taskJobSha256: "1".repeat(64), taskBriefSha256: "2".repeat(64), runtimeSha256: "4".repeat(64), researchFrom: null, repairSource: null, status: "submitted", reason: "independent_acceptance_pending", checksPassed: 3, checksTotal: 3, checksCurrent: true, artifactsPresent: 2, artifactsTotal: 2,
   entailment: null, writeIdentity: null, modelCalls: 10, toolCalls: 9, inputTokens: 100, outputTokens: 10, cachedTokens: 0, cacheWriteTokens: 0, lengthStops: 0, feeMicrousd: 0, unknownDispatches: 0, retriedDispatches: 0, failedDispatches: 0,
+  assistSkippedDispatches: 0, assistFailedDispatches: 0,
   candidateSha256: "a".repeat(64), freezeSha256: "b".repeat(64), resultSha256: "c".repeat(64), startedAt: "2026-10-26T00:00:00.000Z", finishedAt: "2026-10-26T00:10:00.000Z" };
 const entailed = (supported: number, contradicted = 0, unsupported = 0, truncated = false) => ({ supported, partial: 1, unsupported, contradicted, not_judged: 0, truncated });
 
@@ -58,13 +59,16 @@ describe("H4 selection rule", () => {
     store.append(jobId, { type: "tool_finished", contextId: "p", operationId: "t1", toolCallId: "c1", output: canonical({ complete: false, missingArtifacts: [], checks: [{ id: "a", passed: true }, { id: "b", passed: false }] }) });
     const empty = digest(Buffer.alloc(0)), files = [{ path: "output/report.md", sha256: "9".repeat(64) }, { path: "output/claims.json", sha256: empty }, { path: "input/a.md", sha256: "8".repeat(64) }];
     const result = { status: "incomplete", reason: "bounded_allowance_exhausted", finishedAt: "2026-10-26T10:12:00.000Z", candidateFiles: files, snapshotSha256: verified,
-      dispatches: [{ status: "settled", feeMicrousd: 12_000 }, { status: "superseded", feeMicrousd: 0 }, { status: "failed" }, { status: "unknown", feeMicrousd: 500 }] };
+      // Assist rows (backlog item 10) are counted apart from the run's own unresolved and failed rows; a committed assist is still unresolved.
+      dispatches: [{ status: "settled", feeMicrousd: 12_000 }, { status: "superseded", feeMicrousd: 0 }, { status: "failed" }, { status: "unknown", feeMicrousd: 500 },
+        { status: "unknown", purpose: "research plan assist", reservedFeeMicrousd: 160_000 }, { status: "failed", purpose: "research synthesis assist" }, { status: "superseded", purpose: "research plan assist" }, { status: "committed", purpose: "research synthesis assist" }] };
     writeFileSync(join(dir, "result.json"), `${canonical(result)}\n`);
     const deliverables = ["output/report.md", "output/claims.json"];
     const summary = summarizeRun(dir, deliverables);
     expect(summary).toMatchObject({ jobId, taskJobSha256: "1".repeat(64), taskBriefSha256: "2".repeat(64), runtimeSha256: "4".repeat(64), researchFrom: { sourceJobId: "job-a", snapshotSha256: "f".repeat(64) }, repairSource: { resultSha256: "c".repeat(64), freezeSha256: "b".repeat(64) },
       status: "incomplete", reason: "bounded_allowance_exhausted", checksPassed: 1, checksTotal: 2, checksCurrent: true, artifactsPresent: 1, artifactsTotal: 2, entailment: null,
-      writeIdentity: "5".repeat(64), modelCalls: 6, toolCalls: 1, inputTokens: 2600, outputTokens: 150, cachedTokens: 1800, cacheWriteTokens: 0, lengthStops: 1, feeMicrousd: 12_500, unknownDispatches: 1, retriedDispatches: 1, failedDispatches: 1,
+      writeIdentity: "5".repeat(64), modelCalls: 6, toolCalls: 1, inputTokens: 2600, outputTokens: 150, cachedTokens: 1800, cacheWriteTokens: 0, lengthStops: 1, feeMicrousd: 12_500, unknownDispatches: 2, retriedDispatches: 2, failedDispatches: 1,
+      assistSkippedDispatches: 1, assistFailedDispatches: 1,
       candidateSha256: digest(canonical(files)), startedAt: freeze.startedAt, finishedAt: result.finishedAt });
     expect(summary.freezeSha256).toBe(digest(`${canonical(freeze)}\n`)); expect(summary.resultSha256).toBe(digest(`${canonical(result)}\n`));
     // Pipeline replies have stage counts rather than model_finished events; a legacy stage without truncation counts adds zero.

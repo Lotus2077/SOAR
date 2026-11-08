@@ -21,6 +21,7 @@ import { withDocumentReview } from "../src/main/private-agent/document-review";
 import { loadRepairDirectory, repairMatchesRun, repairSeedMatches, withRepair } from "../src/main/private-agent/repair";
 import { DECK_CHECK_VERSION, deckArtifacts, withDeckValidity } from "../src/main/private-agent/ooxml";
 import { loadResearchSeed, seededPipelineFreeze } from "../src/main/private-agent/research-seed";
+import { assertRunDirectoryIgnored, createDiagnosticsFileSink } from "../src/main/private-agent/research-diagnostics";
 import { buildPublicRetrievalPhase, loadPreparedOperatorTask, selectPreparedPublicInputs, startControlledSnapshotReceiver,
   type PreparedOperatorTask } from "./private-agent-run";
 import { localStreamSettings } from "../src/main/liveness";
@@ -262,6 +263,12 @@ export async function runLocalArtifactScreen(input: {
   repairFrom?: string;
   /** H4: write from the evidence packet another run's reading stage produced (that run's directory) instead of running the stage; local writer, claims ledger, heavy profile. */
   researchFrom?: string;
+  /**
+   * Backlog item 4: retain every rejected or truncated reading-stage reply, with its validation reasons, as files under
+   * `<output-directory>/diagnostics/`; refused unless git ignores the output directory. The driver's lineage is
+   * synthetic-attested, so the session's label gate admits the sink; a seeded run has no stage and builds none.
+   */
+  retainDiagnostics?: boolean;
 }) {
   if (![input.expectedJobSha256, input.expectedBriefSha256, input.syntheticAuthoritySha256, input.expectedRuntimeSha256].every(hash => /^[a-f0-9]{64}$/u.test(hash)) ||
       !/^sha256:[a-f0-9]{64}$/u.test(input.imageId) ||
@@ -295,6 +302,8 @@ export async function runLocalArtifactScreen(input: {
   const config = loadConfig();
   if (config.providerMode !== "local" || config.vllm.costPolicy !== "local_zero_cost") throw new Error("local_screen_provider_not_admitted");
   const directory = resolve(input.outputDirectory);
+  // Retained model text may only ever sit in a path the repository ignores (backlog item 4); refused before anything is created.
+  if (input.retainDiagnostics) assertRunDirectoryIgnored(directory);
   mkdirSync(directory, { mode: 0o700 });
   const save = (name: string, value: unknown) => writeFileSync(join(directory, name), `${canonical(value)}\n`, { flag: "wx", mode: 0o600 });
   if (publicSnapshot) {
@@ -358,6 +367,8 @@ export async function runLocalArtifactScreen(input: {
     // The all-cloud arm writes with the cloud model; under the research pipeline the writer and reader are local and the cloud plans and synthesises (split arm).
     const pipeline = input.pipeline === "research";
     const modelConfig = cloud && !pipeline ? cloud.modelConfig : localModelConfig;
+    // Backlog item 4: the file sink exists only for a run with a reading stage and the operator's flag; the freeze records the fact, never the text.
+    const diagnostics = input.retainDiagnostics && pipeline ? createDiagnosticsFileSink(directory) : undefined;
     const freeze = { version: 1, jobId, sourceFreeze: sourceFreeze.files, sourceFreezeSha256: sourceFreeze.sha256, imageId: input.imageId,
       modelConfig, endpointIdentitySha256: digest(destinations[0]!.endpoint), deployment: "synthetic_only_unverified_for_private_data",
       taskBinding: task.binding, sourceBindingSha256: task.sourceBindingSha256, ...(cloud ? { judgeModelConfig: localModelConfig } : {}),
@@ -367,6 +378,7 @@ export async function runLocalArtifactScreen(input: {
       scanner: "rules_only_not_a_privacy_classifier", pauseAfterTools: input.pauseAfterTools ?? null,
       profile: profileName, claimsLedger: input.claimsLedger === true, ...(input.documentReview ? { documentReview: true } : {}), ...(repair ? { repair: repair.binding } : {}), arm: cloud ? cloud.freeze : { arm: "local" as const },
       ...(pipeline ? { pipeline: { name: "research", version: RESEARCH_PIPELINE_VERSION, protocolSha256: researchProtocolSha256(), budget: RESEARCH_PIPELINE_BUDGET, planner: cloud ? "cloud" : "local", writer: "local" } } : {}),
+      ...(diagnostics ? { diagnosticsRetained: true } : {}),
       ...(pipeline || seed ? { researchPresentationPolicySha256: researchPresentationPolicySha256() } : {}),
       ...(pipeline && !publicPhase ? { researchInput: createResearchInput(privatePhase.contract.goal,
         privatePhase.files.filter(file => file.path.startsWith("input/")).map(file => ({ id: file.path, path: file.path, bytes: file.bytes }))) } : {}),
@@ -383,7 +395,8 @@ export async function runLocalArtifactScreen(input: {
       ...(cloud ? { cloudArm: { destinationId: cloud.destination.id, maxFeeMicrousd: cloud.maxFeeMicrousd },
         judgeModelFactory: (contextId: string) => new PrivateAgentModel(broker, localModelConfig, jobId, contextId) } : {}),
       ...(pipeline ? { research: { models: (contextId: string) => ({ reader: new PrivateAgentModel(broker, localModelConfig, jobId, contextId),
-        planner: new PrivateAgentModel(broker, cloud ? cloud.modelConfig : localModelConfig, jobId, contextId), synthesiser: new PrivateAgentModel(broker, cloud ? cloud.modelConfig : localModelConfig, jobId, contextId) }) } } : {}),
+        planner: new PrivateAgentModel(broker, cloud ? cloud.modelConfig : localModelConfig, jobId, contextId), synthesiser: new PrivateAgentModel(broker, cloud ? cloud.modelConfig : localModelConfig, jobId, contextId) }),
+        ...(diagnostics ? { diagnostics } : {}) } } : {}),
       privatePhase, publicPhase, limits: { maxRequests: budget.maxRequests, maxElapsedMs: budget.maxElapsedMs },
       syntheticInputApproval: { privatePhaseSha256: sessionPhaseIdentity(privatePhase), authoritySha256: input.syntheticAuthoritySha256 } });
     let requestedPause = false, lastReported = -1;
@@ -439,7 +452,7 @@ function messagesPath(endpoint: string | undefined): boolean {
 export function parseLocalArtifactScreenArguments(args: string[]): Parameters<typeof runLocalArtifactScreen>[0] {
     const snapshotNames = ["--public-snapshot-directory", "--public-snapshot-brief-sha256", "--public-snapshot-map-sha256", "--public-snapshot-index-path"];
     const cloudNames = ["--cloud-model", "--cloud-endpoint", "--cloud-prices", "--cloud-long-context", "--max-fee-usd"];
-    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", "--document-review", "--repair-from", "--arm", ...cloudNames, "--proxy-fake-ip", "--cache-salt", "--pipeline", "--research-from", ...snapshotNames];
+    const names = ["--task-directory", "--job-sha256", "--brief-sha256", "--authority-sha256", "--image-id", "--output-directory", "--runtime-sha256", "--public-retrieval", "--pause-after-tools", "--profile", "--claims-ledger", "--document-review", "--repair-from", "--arm", ...cloudNames, "--proxy-fake-ip", "--cache-salt", "--pipeline", "--research-from", "--retain-diagnostics", ...snapshotNames];
     if (args[0] !== "--execute-synthetic-local" || args.length % 2 !== 1 || args.slice(1).some((arg, i) => i % 2 === 0 && !names.includes(arg)) ||
         new Set(args.filter((_, i) => i % 2 === 1)).size !== (args.length - 1) / 2) throw new Error("local_screen_cli_invalid");
     const values = new Map(args.slice(1).filter((_, i) => i % 2 === 0).map(name => [name, args[args.indexOf(name) + 1]!]));
@@ -459,6 +472,8 @@ export function parseLocalArtifactScreenArguments(args: string[]): Parameters<ty
         // H4: a seeded write phase keeps the pipeline's requirements (heavy profile, claims ledger), runs no stage of its own and never writes with the cloud model.
         (values.has("--research-from") && (!values.get("--research-from") || values.has("--pipeline") || values.get("--arm") === "cloud" || values.get("--profile") !== "heavy" ||
           values.get("--claims-ledger") !== "true" || values.has("--document-review") || values.has("--public-retrieval"))) ||
+        // Backlog item 4: retained diagnostics are a reading-stage affair and an explicit opt-in; the directory check happens in the run.
+        (values.has("--retain-diagnostics") && (values.get("--retain-diagnostics") !== "true" || values.get("--pipeline") !== "research")) ||
         (values.has("--arm") && !["local", "cloud"].includes(values.get("--arm")!))) throw new Error("local_screen_cli_invalid");
     const cloudCount = cloudNames.filter(name => values.has(name)).length, cloudArm = values.get("--arm") === "cloud";
     // `/v1/messages` takes no long-context tier for the proposed model, only the published host and only the heavy profile
@@ -482,6 +497,7 @@ export function parseLocalArtifactScreenArguments(args: string[]): Parameters<ty
       ...(values.get("--document-review") === "true" ? { documentReview: true } : {}),
       ...(values.has("--repair-from") ? { repairFrom: values.get("--repair-from")! } : {}),
       ...(values.has("--research-from") ? { researchFrom: values.get("--research-from")! } : {}),
+      ...(values.get("--retain-diagnostics") === "true" ? { retainDiagnostics: true } : {}),
       ...(cloudArm ? { cloudArm: { model: values.get("--cloud-model")!, endpoint: values.get("--cloud-endpoint")!, prices: parseCloudPrices(values.get("--cloud-prices")!), maxFeeUsd: Number(values.get("--max-fee-usd")),
         ...(values.has("--cloud-long-context") ? { longContext: parseCloudLongContext(values.get("--cloud-long-context")!) } : {}),
         ...(values.get("--proxy-fake-ip") === "true" ? { proxyFakeIp: true as const } : {}) } } : {}),

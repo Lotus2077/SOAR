@@ -2,7 +2,30 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { BROKER_MAX_BODY_BYTES, type PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { digest } from "../../src/main/private-agent/contracts";
-import { MAX_MODEL_OUTPUT_TOKENS, PrivateAgentModel, ModelRequestBodyTooLarge, modelRequestSizeStop, hasInvalidModelRequestSizeStop, vllmCacheSalt } from "../../src/main/private-agent/model";
+import { MAX_MODEL_OUTPUT_TOKENS, PrivateAgentModel, ModelRequestBodyTooLarge, modelRequestSizeStop, hasInvalidModelRequestSizeStop, vllmCacheSalt,
+  BROKER_DENIED_STOP, modelRequestBrokerDenied } from "../../src/main/private-agent/model";
+
+describe("pre-dispatch broker denial markers (backlog item 3, finding A5)", () => {
+  it("accepts the broker-denied marker only as one exact join after its start, with a code from the fixed enum", () => {
+    const start = { type: "model_started", operationId: randomUUID(), contextId: "context", promptProtocolSha256: digest("protocol") };
+    const marker = { ...start, type: "model_request_not_dispatched", reason: BROKER_DENIED_STOP, dispatched: false, code: "packet_scan_failed" };
+    expect(modelRequestBrokerDenied([start, marker], start)).toEqual(marker);
+    expect(hasInvalidModelRequestSizeStop([start, marker])).toBe(false);
+    // The seventh code (BL-20261107-1006, 3) is admitted; a pre-commit refusal outside the enum is not.
+    expect(modelRequestBrokerDenied([start, { ...marker, code: "cloud_after_assist_unknown" }], start)).toEqual({ ...marker, code: "cloud_after_assist_unknown" });
+    for (const events of [
+      [marker], [marker, start], [start, marker, marker], [start, marker, { ...start, type: "model_finished" }],
+      [start, { ...marker, code: "budget_denied" }], [start, { ...marker, code: "request_failed" }], [start, { ...marker, code: "job_cancelled" }], [start, { ...marker, dispatched: true }],
+      [start, { ...marker, extra: "not admitted" }], [start, { ...marker, contextId: "other" }], [start, { ...marker, promptProtocolSha256: digest("other") }],
+    ]) {
+      expect(modelRequestBrokerDenied(events, start)).toBeUndefined();
+      expect(hasInvalidModelRequestSizeStop(events)).toBe(true);
+    }
+    // A size stop is not a broker denial and the other way round.
+    expect(modelRequestBrokerDenied([start, { ...start, type: "model_request_not_dispatched", reason: "request_body_size_exceeded", dispatched: false, bodyBytes: 2, limitBytes: 1 }], start)).toBeUndefined();
+    expect(modelRequestSizeStop([start, marker], start)).toBeUndefined();
+  });
+});
 
 describe("model request size before dispatch", () => {
   it("admits exactly the UTF-8 byte cap and rejects one byte over without calling the broker", async () => {

@@ -9,9 +9,10 @@ import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchProtocolSha256, runResearchPipeline } from "../../src/main/private-agent/research-pipeline";
 import { createResearchInput, createResearchProducer, validateResearchProducer, type ResearchProducer } from "../../src/main/private-agent/research-producer";
-import { loadResearchSeed, researchTransferPresent, researchTransferSnapshot, seededPipelineFreeze } from "../../src/main/private-agent/research-seed";
+import { loadResearchSeed, researchTransferPresent, researchTransferSnapshot, researchTransferStatus, seededPipelineFreeze } from "../../src/main/private-agent/research-seed";
 import { RESEARCH_TRANSFER_CHECK_ID, researchTransferPhase, sessionFileManifest, sessionPhaseIdentity, type SessionFile, type SessionPhase } from "../../src/main/private-agent/session";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
+import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
 import { RESEARCH_V4_TEST_BRIEF, researchV4Reply, researchV4Sources } from "../helpers/research-v4-fixture";
 
 const cleanups: (() => void)[] = [];
@@ -88,6 +89,7 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     expect(loaded.seed.producer.receipts).toHaveLength(receipts.length);
     expect(seededPipelineFreeze(loaded.pipeline, loaded.seed)).toEqual({ ...pipeline(), seededFrom: jobId });
     expect(researchTransferSnapshot(dir)).toBe(loaded.seed.snapshotSha256); expect(researchTransferPresent(dir)).toBe(true);
+    expect(researchTransferStatus(dir)).toEqual({ snapshotSha256: loaded.seed.snapshotSha256, code: null });
     expect(digest(readFileSync(join(dir, "state.sqlite")))).toBe(before); expect(readdirSync(dir)).toEqual(names);
     if (kind === "controlled_pipeline") { const db = new Database(join(dir, "state.sqlite"), { readonly: true });
       try { expect(db.prepare("SELECT COUNT(*) AS n FROM private_agent_events").get()).toEqual({ n: 0 }); } finally { db.close(); } }
@@ -111,12 +113,13 @@ describe("v4 research seeds require the ready packet and actual producer receipt
   ] as [string, Options, string][])("refuses %s", (_name, options, code) => {
     const dir = sourceRun(options); expect(() => loadResearchSeed(dir, task)).toThrow(code);
     // Discovery has no caller-supplied task; the subsequent loader must enforce that separate binding.
-    if (_name !== "task") expect(researchTransferPresent(dir)).toBe(false);
+    if (_name !== "task") { expect(researchTransferPresent(dir)).toBe(false); expect(researchTransferStatus(dir)).toEqual({ snapshotSha256: null, code }); }  // backlog item 4: the refusal's code beside the null
   });
   it("refuses legacy protocols and non-default budgets even with a self-consistent alternate digest", () => {
     for (const changed of [{ ...pipeline(), version: 3 }, { ...pipeline(), protocolSha256: h("4") },
       { ...pipeline(), budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 3 }, protocolSha256: researchProtocolSha256({ ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 3 }) }]) {
       const dir = sourceRun({ freeze: { pipeline: changed } }); expect(() => loadResearchSeed(dir, task)).toThrow("research_seed_protocol_mismatch"); expect(researchTransferSnapshot(dir)).toBeNull();
+      expect(researchTransferStatus(dir)).toEqual({ snapshotSha256: null, code: "research_seed_protocol_mismatch" });
     }
   });
   it("rejects goal/source/context substitutions, missing or changed receipts, UNKNOWN and extra stage dispatches", () => {
@@ -154,21 +157,98 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     }
   });
   it("refuses corrupt/missing checkpoints and symlinked ledgers without creating missing state", () => {
-    expect(() => loadResearchSeed(sourceRun({ corrupt: true }), task)).toThrow(/checkpoint_(file_invalid|digest_mismatch)/u);
+    const corrupt = sourceRun({ corrupt: true });
+    expect(() => loadResearchSeed(corrupt, task)).toThrow(/checkpoint_(file_invalid|digest_mismatch)/u);
+    expect(researchTransferStatus(corrupt)).toEqual({ snapshotSha256: null, code: expect.stringMatching(/^checkpoint_(file_invalid|digest_mismatch)$/u) });
     const pruned = sourceRun(); rmSync(join(pruned, "checkpoints"), { recursive: true, force: true });
     expect(() => loadResearchSeed(pruned, task)).toThrow("research_seed_checkpoints_missing"); expect(existsSync(join(pruned, "checkpoints"))).toBe(false);
+    expect(researchTransferStatus(pruned)).toEqual({ snapshotSha256: null, code: "research_seed_checkpoints_missing" });
+    // Backlog item 4: an exception that is not a code (a missing directory) maps to one fixed code; no message leaves the loader.
+    expect(researchTransferStatus(join(pruned, "missing"))).toEqual({ snapshotSha256: null, code: "research_seed_load_failed" });
     const linked = sourceRun(), elsewhere = mkdtempSync(join(tmpdir(), "soar-seed-elsewhere-")); cleanups.push(() => rmSync(elsewhere, { recursive: true, force: true }));
     renameSync(join(linked, "state.sqlite"), join(elsewhere, "state.sqlite")); symlinkSync(join(elsewhere, "state.sqlite"), join(linked, "state.sqlite"));
     expect(() => loadResearchSeed(linked, task)).toThrow("research_seed_directory_invalid"); expect(() => researchTransferSnapshot(linked)).toThrow("research_seed_directory_invalid");
+    expect(() => researchTransferStatus(linked)).toThrow("research_seed_directory_invalid");
   });
-  it("binds the complete persisted receipt bytes and rejects non-settled or unrelated-purpose rows", () => {
+  it("binds the complete persisted receipt bytes and rejects unresolved, malformed or unrelated-purpose rows", () => {
     const input = { kind: "controlled_pipeline" as const, jobId, contextId, brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), files: produced, receipts };
     const producer = createResearchProducer(input);
     expect(producer.receipts.map(row => row.sha256)).toEqual(receipts.map(row => digest(canonical(row))));
+    expect(producer.receipts.every(row => !("status" in row))).toBe(true);
     expect(validateResearchProducer(producer, { jobId, files: produced, receipts, input: researchInput() })).toEqual(producer);
     expect(() => createResearchProducer({ ...input, receipts: [] })).toThrow("research_producer_receipt_count");
+    for (const status of ["committed", "unknown"]) expect(() => createResearchProducer({ ...input, receipts: receipts.map((r, i) => i ? r : { ...r, status }) })).toThrow("research_producer_unsettled_receipt");
+    // A row resolved without a response never carries one: a "failed" row that still has a response hash or a fee is malformed.
     expect(() => createResearchProducer({ ...input, receipts: receipts.map((r, i) => i ? r : { ...r, status: "failed" }) })).toThrow("research_producer_unsettled_receipt");
     expect(() => createResearchProducer({ ...input, receipts: receipts.map((r, i) => i ? r : { ...r, purpose: "judge" }) })).toThrow("research_producer_unknown_purpose");
+  });
+  it("admits a row a retry superseded without counting it, and a failed row counted toward its stage (finding D14)", () => {
+    const input = { kind: "controlled_pipeline" as const, jobId, contextId, brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), files: produced, receipts };
+    const extract = receipts.findIndex(row => row.purpose === "research evidence extraction");
+    const resolvedRow = (row: Record<string, unknown>, status: "superseded" | "failed", id: string, failure: Record<string, unknown> = { phase: "transport", code: "upstream_closed", attempt: 1, elapsedMs: 12, timeoutMs: 900000 }, extra: Record<string, unknown> = {}): Record<string, unknown> => {
+      const { responseSha256: _response, feeMicrousd: _fee, ...rest } = row;
+      return { ...rest, ...extra, id, status, failure };
+    };
+    // The D4 retry: the superseded attempt sits before the settled one in the ledger; the stage still made one call.
+    const retried = [...receipts.slice(0, extract), resolvedRow(receipts[extract]!, "superseded", "receipt-retried"), ...receipts.slice(extract)];
+    const producer = createResearchProducer({ ...input, receipts: retried });
+    expect(producer.receipts.map(row => [row.stage, row.status])).toEqual(retried.map(row => [row.purpose === "research evidence extraction" ? "extract" : row.purpose === "research source index" ? "index" : row.purpose === "research plan" ? "plan" : "synthesise", row.status === "superseded" ? "superseded" : undefined]));
+    expect(producer.receipts.find(row => row.status === "superseded")!.sha256).toBe(digest(canonical(retried[extract])));
+    expect(validateResearchProducer(producer, { jobId, files: produced, receipts: retried, input: researchInput() })).toEqual(producer);
+    // The ledger and the producer must still agree row for row: a superseded row the producer never saw is drift.
+    expect(() => validateResearchProducer(createResearchProducer(input), { jobId, files: produced, receipts: retried, input: researchInput() })).toThrow("research_producer_receipts_drift");
+    // A superseded row with a response is malformed; a settled row that goes missing breaks the count.
+    expect(() => createResearchProducer({ ...input, receipts: [...receipts, { ...receipts[extract]!, id: "receipt-dup", status: "superseded" }] })).toThrow("research_producer_unsettled_receipt");
+    expect(() => createResearchProducer({ ...input, receipts: [...receipts.slice(0, extract), resolvedRow(receipts[extract]!, "superseded", "receipt-only"), ...receipts.slice(extract + 1)] })).toThrow("research_producer_receipt_count");
+    // A failed row counts as the stage's call (no retry superseded it), so it stands in for the settled row's count.
+    const failed = receipts.map((row, i) => i === extract ? resolvedRow(row, "failed", row.id as string) : row);
+    expect(createResearchProducer({ ...input, receipts: failed }).receipts[extract]).toMatchObject({ stage: "extract", status: "failed" });
+    // The cloud half of D14: the Anthropic destination's 429/529 retry leaves a priced superseded planner row with its rejection fields.
+    const plan = receipts.findIndex(row => row.purpose === "research plan");
+    const cloudRetried = [...receipts.slice(0, plan), resolvedRow(receipts[plan]!, "superseded", "receipt-cloud-retried",
+      { phase: "transport", code: "http_rejected", status: 529, errorType: "overloaded_error", requestId: "req_011fixtureretry", attempt: 1, elapsedMs: 40, timeoutMs: 900000 },
+      { reservedFeeMicrousd: 330000, destinationId: "cloud-planner" }), ...receipts.slice(plan)];
+    const cloudProducer = createResearchProducer({ ...input, receipts: cloudRetried });
+    expect(cloudProducer.receipts.filter(row => row.status === "superseded")).toEqual([{ id: "receipt-cloud-retried", stage: "plan", status: "superseded", sha256: digest(canonical(cloudRetried[plan])) }]);
+    expect(validateResearchProducer(cloudProducer, { jobId, files: produced, receipts: cloudRetried, input: researchInput() })).toEqual(cloudProducer);
+    // The seed loader takes the retried ledger through the same producer path.
+    const dir = sourceRun({ receipts: () => retried, producer: () => createResearchProducer({ ...input, kind: "session", receipts: retried }) });
+    expect(loadResearchSeed(dir, task).seed.producer.receipts.filter(row => row.status === "superseded")).toHaveLength(1);
+    expect(researchTransferPresent(dir)).toBe(true);
+  });
+  it("binds assist rows to the stage their purpose names: a settled assist is the stage's call, a skipped, failed or superseded one binds uncounted (backlog item 10)", () => {
+    const input = { kind: "controlled_pipeline" as const, jobId, contextId, brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), files: produced, receipts };
+    const plan = receipts.findIndex(row => row.purpose === "research plan"), synthesis = receipts.findIndex(row => row.purpose === "research synthesis");
+    const cloudFailure = { phase: "transport", code: "request_timeout", attempt: 1, elapsedMs: 900000, timeoutMs: 900000 };
+    /** The row of a cloud one-shot: a priced reservation on the cloud destination; a response only when settled. */
+    const assist = (row: Record<string, unknown>, purpose: string, status: string, id = row.id as string): Record<string, unknown> => {
+      const { responseSha256, feeMicrousd, ...rest } = row;
+      return { ...rest, id, purpose, status, destinationId: "cloud-assist", reservedFeeMicrousd: 160000,
+        ...(status === "settled" ? { responseSha256, feeMicrousd: 34000 } : { failure: cloudFailure }) };
+    };
+    const bound = (rows: Record<string, unknown>[]) => { const producer = createResearchProducer({ ...input, receipts: rows });
+      expect(validateResearchProducer(producer, { jobId, files: produced, receipts: rows, input: researchInput() })).toEqual(producer); return producer; };
+    // The forced split: the plan stage's only call is its settled assist, which stands in for the local call the summary counts.
+    const forced = receipts.map((row, i) => i === plan ? assist(row, PLAN_ASSIST_PURPOSE, "settled") : row);
+    expect(bound(forced).receipts[plan]).toEqual({ id: receipts[plan]!.id, stage: "plan", role: "assist", sha256: digest(canonical(forced[plan])) });
+    // Local-first: the assist was skipped (unknown) or failed into the local fallback beside the local call that answered; it binds uncounted.
+    for (const status of ["unknown", "failed", "superseded"]) {
+      const rows = [...receipts.slice(0, synthesis), assist(receipts[synthesis]!, SYNTHESIS_ASSIST_PURPOSE, status, `receipt-assist-${status}`), ...receipts.slice(synthesis)];
+      expect(bound(rows).receipts.filter(row => row.role === "assist")).toEqual([{ id: `receipt-assist-${status}`, stage: "synthesise", role: "assist", status, sha256: digest(canonical(rows[synthesis])) }]);
+    }
+    // A settled assist beside the stage's settled local call is one reply too many; an unknown row of a local stage still refuses the binding;
+    // a skipped assist that still carries a response hash is forged; a skipped assist as a stage's only row leaves the stage's call unaccounted.
+    expect(() => createResearchProducer({ ...input, receipts: [...receipts, assist(receipts[plan]!, PLAN_ASSIST_PURPOSE, "settled", "receipt-second-reply")] })).toThrow("research_producer_receipt_count");
+    expect(() => createResearchProducer({ ...input, receipts: receipts.map((row, i) => i === plan ? { ...assist(row, "research plan", "unknown"), destinationId: row.destinationId } : row) })).toThrow("research_producer_unsettled_receipt");
+    expect(() => createResearchProducer({ ...input, receipts: receipts.map((row, i) => i === plan ? { ...assist(row, PLAN_ASSIST_PURPOSE, "unknown"), responseSha256: row.responseSha256 } : row) })).toThrow("research_producer_unsettled_receipt");
+    expect(() => createResearchProducer({ ...input, receipts: receipts.map((row, i) => i === plan ? assist(row, PLAN_ASSIST_PURPOSE, "unknown") : row) })).toThrow("research_producer_receipt_count");
+    // The producer schema admits status "unknown" only with the assist role, and a changed binding is drift.
+    const producer = bound(forced);
+    expect(() => validateResearchProducer({ ...producer, receipts: producer.receipts.map((row, i) => i === plan ? { ...row, status: "unknown" } : row) }, { jobId, files: produced, receipts: forced, input: researchInput() })).toThrow("research_producer_receipts_drift");
+    expect(() => validateResearchProducer({ ...producer, receipts: producer.receipts.map((row, i) => i === plan ? { id: row.id, stage: row.stage, sha256: row.sha256, status: "unknown" } : row) }, { jobId, files: produced, receipts: forced, input: researchInput() })).toThrow();
+    // The seed loader takes a forced-split ledger through the same producer path.
+    const dir = sourceRun({ receipts: () => forced, producer: () => createResearchProducer({ ...input, kind: "session", receipts: forced }) });
+    expect(loadResearchSeed(dir, task).seed.producer.receipts[plan]).toMatchObject({ stage: "plan", role: "assist" });
   });
   it("uses the same production transfer path for a loaded seed and a freshly generated packet", () => {
     const base: SessionPhase = { files: researchV4Sources().map(({ path, bytes }) => ({ path, bytes })), checks: [{ id: "c", python: "pass" }],

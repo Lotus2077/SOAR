@@ -18,7 +18,7 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { canonical } from "../src/main/private-agent/contracts";
 import { repairDraftPaths } from "../src/main/private-agent/repair";
-import { researchTransferSnapshot } from "../src/main/private-agent/research-seed";
+import { researchTransferStatus } from "../src/main/private-agent/research-seed";
 import { SELECTION_PROTOCOL_VERSION, compareCandidates, summarizeRun, type CandidateSummary, type SelectionStep } from "../src/main/private-agent/selection";
 import { critique, type CritiqueArguments } from "./phase2-repair";
 import { loadPreparedOperatorTask } from "./private-agent-run";
@@ -41,8 +41,8 @@ export interface LoopDependencies {
   /** The critique tool's own record of a finished critique (critique.json), read back when the stage is reused. */
   readCritique(directory: string): CritiqueRecord;
   summarize(runDirectory: string, deliverables: string[]): CandidateSummary;
-  /** The packet fingerprint a run's stage produced (its research_transfer), or null. */
-  transferSnapshot(runDirectory: string): string | null;
+  /** The packet fingerprint a run's stage produced (its research_transfer), or null beside the seed loader's refusal code (backlog item 4). */
+  transferStatus(runDirectory: string): { snapshotSha256: string | null; code: string | null };
   deliverables(): string[];
   now(): string;
 }
@@ -58,11 +58,12 @@ export interface LoopRecord {
   critique: { packetSha256: string; critiqueSha256: string; feeMicrousd: number; finishReason: string | null; usage: CritiqueUsage | null; modelCalls: number }
     | { failure: string; feeMicrousd: number; finishReason: string | null; usage: CritiqueUsage | null; modelCalls: number } | null;
   selected: { stage1: { candidate: "a" | "b"; step: SelectionStep; entailmentRates: [number | null, number | null] } | null;
-    final: { candidate: LoopCandidate; step: SelectionStep | "stage_failed" | "no_draft" | "critique_failed"; entailmentRates?: [number | null, number | null] } | null };
-  totals: Record<"modelCalls" | "toolCalls" | "inputTokens" | "outputTokens" | "cachedTokens" | "cacheWriteTokens" | "lengthStops" | "feeMicrousd" | "unknownDispatches" | "retriedDispatches" | "failedDispatches", number>;
+    /** `seedRefusal`: the seed loader's code when a research loop ends at `stage_failed` because a left no packet to seed from (backlog item 4; additive, LOOP_VERSION unchanged). */
+    final: { candidate: LoopCandidate; step: SelectionStep | "stage_failed" | "no_draft" | "critique_failed"; entailmentRates?: [number | null, number | null]; seedRefusal?: string } | null };
+  totals: Record<"modelCalls" | "toolCalls" | "inputTokens" | "outputTokens" | "cachedTokens" | "cacheWriteTokens" | "lengthStops" | "feeMicrousd" | "unknownDispatches" | "retriedDispatches" | "failedDispatches" | "assistSkippedDispatches" | "assistFailedDispatches", number>;
   failure: string | null;
 }
-const TOTAL_KEYS = ["modelCalls", "toolCalls", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "feeMicrousd", "unknownDispatches", "retriedDispatches", "failedDispatches"] as const;
+const TOTAL_KEYS = ["modelCalls", "toolCalls", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "feeMicrousd", "unknownDispatches", "retriedDispatches", "failedDispatches", "assistSkippedDispatches", "assistFailedDispatches"] as const;
 const USAGE_KEYS = [["inputTokens", "inputTokens"], ["outputTokens", "outputTokens"], ["cachedTokens", "cacheReadTokens"], ["cacheWriteTokens", "cacheWriteTokens"]] as const;
 /** A recorded failure is a code, never a message: a thrown message may carry a host path or a file excerpt. */
 const CODE = /^[a-z0-9_]{1,80}$/u;
@@ -72,7 +73,7 @@ export function failureCode(error: unknown, fallback: string): string {
 
 /** The production dependencies: the headless driver, the Phase 2 critique tool and the run summariser. */
 export function productionDependencies(input: LoopInput): LoopDependencies {
-  return { runSample: runLocalArtifactScreen, critique, summarize: summarizeRun, transferSnapshot: researchTransferSnapshot, now: () => new Date().toISOString(),
+  return { runSample: runLocalArtifactScreen, critique, summarize: summarizeRun, transferStatus: researchTransferStatus, now: () => new Date().toISOString(),
     readCritique: directory => {
       const saved = JSON.parse(readFileSync(join(directory, "critique.json"), "utf8")) as CritiqueRecord;
       return { packetSha256: saved.packetSha256, critiqueSha256: saved.critiqueSha256, feeMicrousd: saved.feeMicrousd ?? 0, finishReason: saved.finishReason ?? null, usage: saved.usage ?? null,
@@ -105,6 +106,8 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
     totals: Object.fromEntries(TOTAL_KEYS.map(key => [key, 0])) as LoopRecord["totals"], failure: null };
   const save = () => writeFileSync(join(loop, "loop.json"), `${canonical(record)}\n`, { mode: 0o600 });
   const log = (line: string) => appendFileSync(join(loop, "log.txt"), `${deps.now()} ${line}\n`, { mode: 0o600 });
+  /** The full caught error, name and message, for the operator (backlog item 4, finding B6); loop.json and log.txt keep codes only, since a message may carry a host path or a file excerpt. */
+  const sideError = (code: string, error: unknown) => appendFileSync(join(loop, "errors.txt"), `${deps.now()} ${code} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}\n`, { mode: 0o600 });
   const deliverables = deps.deliverables();
   const research = input.base.pipeline === "research";
   const interrupted = () => control.signal?.aborted === true;
@@ -135,7 +138,9 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
     record.candidates[name] = summary; for (const key of TOTAL_KEYS) record.totals[key] += summary[key];
     // A completed research packet does not resolve a later writer request. Keep
     // this stage's evidence/counts, but never admit another stage past uncertain
-    // dispatches (including committed receipts) or a failed transport.
+    // dispatches (including committed receipts) or a failed transport. An assist
+    // skipped (unknown) or failed into the host fallback is counted apart and
+    // admitted (backlog item 10): the cloud row stays at-most-once, local work went on.
     if (summary.unknownDispatches !== 0) throw new Error("loop_stage_unresolved_dispatch");
     if (summary.failedDispatches !== 0) throw new Error("loop_stage_failed_dispatch");
     return summary;
@@ -153,8 +158,12 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
     await stage("a", "result.json", () => deps.runSample({ ...input.base, outputDirectory: aDir }));
     const a = summarise("a", { seededFrom: null });
     // One reading stage per loop: without a's packet there is nothing b or the repair may write from, and no second stage is paid for.
-    const packet = research ? deps.transferSnapshot(aDir) : null;
-    if (research && packet === null) { record.selected.final = { candidate: "a", step: "stage_failed" }; log("stage failed in a: loop ends"); return record; }
+    const transfer = research ? deps.transferStatus(aDir) : null, packet = transfer?.snapshotSha256 ?? null;
+    if (research && packet === null) {
+      // The seed loader's code says why a cannot be seeded from (no transfer, a protocol mismatch, a tampered packet); it is a host constant, safe in the log and the record.
+      const seedRefusal = transfer?.code ?? undefined;
+      record.selected.final = { candidate: "a", step: "stage_failed", ...(seedRefusal ? { seedRefusal } : {}) }; log(`stage failed in a (${seedRefusal ?? "no_packet"}): loop ends`); return record;
+    }
     record.seeded.b = research; record.seeded.snapshotSha256 = packet;
     await stage("b", "result.json", () => deps.runSample({ ...input.base, outputDirectory: bDir, ...(research ? seeded(aDir) : {}) }));
     const b = summarise("b", research ? { seededFrom: a.jobId, packet } : { seededFrom: null });
@@ -177,6 +186,7 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
     } catch (error) {
       const code = failureCode(error, "repair_critique_failed");
       if (code === "loop_stage_incomplete" || code === "loop_stage_mismatch" || code === "loop_interrupted") throw error;
+      sideError(code, error);
       // A refused critique that reached the model is still one call of the loop's own (the tool attaches its usage and fee to the error).
       const detail = error as { usage?: CritiqueUsage | null; feeMicrousd?: number | null; finishReason?: string | null };
       const made = detail.usage !== undefined && detail.usage !== null;
@@ -195,7 +205,7 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
     log(`final ${record.selected.final.candidate} (${second.step})`);
     return record;
   } catch (error) {
-    record.failure = failureCode(error, "loop_failed"); log(`failure ${record.failure}`);
+    record.failure = failureCode(error, "loop_failed"); log(`failure ${record.failure}`); sideError(record.failure, error);
     throw error;
   } finally { record.finishedAt = deps.now(); save(); }
 }

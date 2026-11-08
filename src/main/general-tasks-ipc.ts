@@ -7,7 +7,7 @@ import type { z } from "zod";
 import {
   GENERAL_TASK_IPC_CHANNELS as channels,
   GeneralTaskArtifactRefSchema, GeneralTaskBundleRefSchema, GeneralTaskCreateInputSchema, GeneralTaskIdSchema,
-  GeneralTaskConsultationRefSchema, GeneralTaskConsultationDecisionSchema,
+  GeneralTaskConsultationRefSchema, GeneralTaskConsultationDecisionSchema, GeneralTaskVerdictInputSchema,
   type GeneralTaskArtifactPreview,
 } from "../shared/general-task-contracts";
 import { assertCredentialIpcSender, type CredentialIpcAuthority } from "./ipc";
@@ -105,6 +105,20 @@ export function registerGeneralTaskIpc({ controller, authority }: {
     if (result.canceled || !result.filePath) return { exported: false };
     const archive = await controller.bundle(ref);
     await saveArtifactBytes(result.filePath, archive.bytes, assertCurrent);
+    return { exported: true, filePath: result.filePath };
+  });
+  // The owner's verdict: a strict, free-text-free payload; the controller admits it once, on a submitted task.
+  handle(channels.recordVerdict, value => controller.recordVerdict(parse(GeneralTaskVerdictInputSchema, value)));
+  handle(channels.exportVerdictReceipt, async (value, assertCurrent) => {
+    const id = parse(GeneralTaskIdSchema, value);
+    // Resolve before showing a native dialog and again after its asynchronous wait, as for every export.
+    controller.verdictReceipt(id);
+    const result = await dialog.showSaveDialog({ title: "Export verdict receipt", defaultPath: `verdict-receipt-${id.slice(0, 8)}.json`,
+      filters: [{ name: "JSON", extensions: ["json"] }] });
+    assertCurrent();
+    if (result.canceled || !result.filePath) return { exported: false };
+    const receipt = controller.verdictReceipt(id);
+    await saveArtifactBytes(result.filePath, receipt.bytes, assertCurrent);
     return { exported: true, filePath: result.filePath };
   });
   return () => { for (const channel of Object.values(channels)) if (channel !== channels.update) ipcMain.removeHandler(channel); };

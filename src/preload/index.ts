@@ -40,6 +40,8 @@ const api: SoarRendererApi = {
   readGeneralTaskArtifact: input => ipcRenderer.invoke("soar:general-task-read-artifact", input),
   exportGeneralTaskArtifact: input => ipcRenderer.invoke("soar:general-task-export-artifact", input),
   exportGeneralTaskBundle: input => ipcRenderer.invoke("soar:general-task-export-bundle", input),
+  recordGeneralTaskVerdict: input => ipcRenderer.invoke("soar:general-task-record-verdict", input),
+  exportGeneralTaskVerdictReceipt: id => ipcRenderer.invoke("soar:general-task-export-verdict-receipt", id),
   subscribeGeneralTasks: listener => {
     const handler = (_event: Electron.IpcRendererEvent, snapshot: GeneralTaskSnapshot): void => listener(snapshot);
     ipcRenderer.on("soar:general-task-update", handler);

@@ -69,8 +69,10 @@ describe("registry row of an H4 loop", () => {
     // A single run rows as before, and the two modes are exclusive.
     const single = row(["--run-dir", join(root, "a")]);
     expect(single).toMatchObject({ modelCalls: 6, inputTokens: 400, cacheWriteTokens: 20, lengthStops: 3, usd: 0.12, wallSeconds: 600, runStatus: "submitted" }); expect(single).not.toHaveProperty("loop");
-    expect(() => row(["--run-dir", join(root, "a"), "--loop-dir", root])).toThrow();
-    expect(() => row([])).toThrow();
+    // Exactly one source: every pair of the four is refused, as is no source at all.
+    const sources = [["--run-dir", join(root, "a")], ["--loop-dir", root], ["--verdict-file", join(root, "receipt.json")], ["--supersedes", "x"]];
+    for (let i = 0; i < sources.length; i++) for (let j = i + 1; j < sources.length; j++) expect(() => row([...sources[i]!, ...sources[j]!])).toThrow(/exactly one/u);
+    expect(() => row([])).toThrow(/exactly one/u);
   });
 
   it("reports no support rate when no claims were judged, and zero when judged claims have no support", () => {

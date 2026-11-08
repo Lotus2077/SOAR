@@ -168,6 +168,19 @@ describe("desktop consultation authority and continuity", () => {
     expect(args.store.dispatches(task.id)).toEqual([]);
     expect(args.store.context(args.contextId).sources.some(source => source.id.startsWith("consult_"))).toBe(true);
   });
+  it("records a verdict on a version 3 submitted task without moving its finish time, and receipts a declined consultation as a local arm", async () => {
+    const f = fixture(), task = await f.start();
+    f.controller.decideConsultation({ ...f.ref(task), decision: "decline" }); f.finish();
+    f.controller.resume(task.id); await f.controller.wait(task.id);
+    const done = f.controller.get(task.id); expect(done).toMatchObject({ status: "submitted", consultation: { state: "declined" } });
+    const after = f.controller.recordVerdict({ id: task.id, decision: "accept", ownerMinutes: 5, interventions: 0, exportedThroughApp: true });
+    expect(after).toMatchObject({ status: "submitted", independentAcceptance: "not_evaluated", updatedAt: done.updatedAt, elapsedMs: done.elapsedMs, fees: { settledMicrousd: 0 } });
+    const receipt = JSON.parse(f.controller.verdictReceipt(task.id).bytes.toString("utf8"));
+    expect(receipt).toMatchObject({ arm: "local-standard", usd: 0, modelCalls: done.modelCalls, toolCalls: done.toolCalls, wallSeconds: Math.round(done.elapsedMs / 100) / 10, runStatus: "submitted" });
+    expect(JSON.stringify(receipt)).not.toContain("consultant.example"); expect(JSON.stringify(receipt)).not.toContain("Make an arbitrary");
+    await f.reopen();
+    expect(f.controller.get(task.id)).toMatchObject({ verdict: after.verdict, updatedAt: done.updatedAt });
+  });
   it("blocks approval until the active worker and its claim are released", async () => {
     const f = fixture(); f.hold(); const task = f.create(); f.controller.start(task.id);
     for (let i = 0; i < 30 && !f.controller.get(task.id).consultation; i++) await Promise.resolve();

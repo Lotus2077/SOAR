@@ -61,6 +61,21 @@ export const GeneralTaskBundleRefSchema = z.object({
 }).strict();
 export type GeneralTaskBundleRef = z.infer<typeof GeneralTaskBundleRefSchema>;
 export interface GeneralTaskBundle { manifestSha256: string; fileCount: number; totalBytes: number }
+/** The owner's verdict on a submitted task (review item 2, S12): a decision and the owner's effort, never free text. */
+export const GeneralTaskVerdictInputSchema = z.object({
+  id: GeneralTaskIdSchema,
+  decision: z.enum(["accept", "reject"]),
+  /** Minutes the owner spent reviewing and editing the deliverable. */
+  ownerMinutes: z.number().finite().min(0).max(600),
+  /** Manual interventions the job needed (PLAN.md section 1 counts an edit pass as one). */
+  interventions: z.number().int().min(0).max(99),
+  /** The owner's declaration that the deliverable left through the app's export (an OAJ condition). */
+  exportedThroughApp: z.boolean(),
+}).strict();
+export type GeneralTaskVerdictInput = z.infer<typeof GeneralTaskVerdictInputSchema>;
+/** The persisted and projected verdict: the input without the task id, plus the host's record time. */
+export const GeneralTaskVerdictSchema = GeneralTaskVerdictInputSchema.omit({ id: true }).extend({ recordedAt: z.number().int().positive() }).strict();
+export type GeneralTaskVerdict = z.infer<typeof GeneralTaskVerdictSchema>;
 
 export interface GeneralTaskInputFile { name: string; path: string; bytes: number; sha256: string }
 export interface GeneralTaskInputSelection { id: string; files: GeneralTaskInputFile[] }
@@ -123,6 +138,8 @@ export interface GeneralTaskSnapshot {
   /** Includes cancellation still waiting for its active session to stop. */
   cleanupInProgress?: boolean;
   independentAcceptance: "not_evaluated";
+  /** The owner's recorded verdict on a submitted task; absent until recorded. It is the OAJ mark, not independent acceptance. */
+  verdict?: GeneralTaskVerdict;
   /** `detail` is a one-line, untrusted description of the agent's action derived from its own tool call. */
   events: { sequence: number; type: string; summary: string; detail?: string }[];
   canResume: boolean;
@@ -151,6 +168,9 @@ export interface SoarGeneralTaskApi {
   readGeneralTaskArtifact(input: GeneralTaskArtifactRef): Promise<GeneralTaskArtifactPreview>;
   exportGeneralTaskArtifact(input: GeneralTaskArtifactRef): Promise<{ exported: boolean; filePath?: string }>;
   exportGeneralTaskBundle(input: GeneralTaskBundleRef): Promise<{ exported: boolean; filePath?: string }>;
+  recordGeneralTaskVerdict(input: GeneralTaskVerdictInput): Promise<GeneralTaskSnapshot>;
+  /** Saves the hashes-and-counts verdict receipt that scripts/registry-row.py --verdict-file rows. */
+  exportGeneralTaskVerdictReceipt(id: string): Promise<{ exported: boolean; filePath?: string }>;
   subscribeGeneralTasks(listener: (snapshot: GeneralTaskSnapshot) => void): () => void;
 }
 export const GENERAL_TASK_IPC_CHANNELS = {
@@ -168,5 +188,7 @@ export const GENERAL_TASK_IPC_CHANNELS = {
   readArtifact: "soar:general-task-read-artifact",
   exportArtifact: "soar:general-task-export-artifact",
   exportBundle: "soar:general-task-export-bundle",
+  recordVerdict: "soar:general-task-record-verdict",
+  exportVerdictReceipt: "soar:general-task-export-verdict-receipt",
   update: "soar:general-task-update",
 } as const;

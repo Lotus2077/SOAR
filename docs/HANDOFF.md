@@ -5,6 +5,14 @@
 This section is the entrypoint for the next session. It supersedes every earlier
 "next step" in this file; the rest of the file is the September 2026 record.
 
+**Planning map (2026-11-08).** Steps 2 to 7 of §5 are charted as parallel lanes in the
+GitHub issue [Wayfinder map: route the next milestones (E0 to E4) in parallel
+lanes](https://github.com/Lotus2077/SOAR/issues/46). Its child issues hold the open
+owner decisions of §4 and the experiment cards that gate each lane, and their blocking
+links show which ones can be taken now. Read the map before acting on §5. A ticket's
+resolution stays `Proposed` until the owner's build-log entry records it. E1 and
+backlog items 6-11 need no owner decision.
+
 ### 1. Get the work
 
 Everything after `main`'s `153b8e6` (the 2026-11-05 review, its five checks and the

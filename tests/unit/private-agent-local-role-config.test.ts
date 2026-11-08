@@ -1,10 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 
 import type { SoarConfig } from "../../src/main/config";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { modelIdentity } from "../../src/main/private-agent/model";
 import { COORDINATOR_PROFILES, type CoordinatorProfileName } from "../../src/main/private-agent/profiles";
-import { buildLocalScreenModelConfig } from "../../scripts/private-agent-local-screen";
+import { DEFAULT_SERVING_POLICY, servingCardFreeze } from "../../src/main/private-agent/serving-card";
+import { buildLocalScreenModelConfig, buildLocalScreenServingCard, localScreenSourceFreeze, runLocalArtifactScreen } from "../../scripts/private-agent-local-screen";
+import { ADOPTING_ENTRY, adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
+
+const cleanups: (() => void)[] = [];
+afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
+function workspace(): string { const root = mkdtempSync(join(tmpdir(), "soar-local-card-")); cleanups.push(() => rmSync(root, { recursive: true, force: true })); return root; }
 
 const config = (streamingEnabled: boolean): Pick<SoarConfig, "vllm" | "streamingEnabled"> => ({ streamingEnabled,
   vllm: { baseUrl: "http://127.0.0.1:8000/v1", apiKey: "synthetic-local-token", model: "qwen3.8-flash-next",
@@ -54,5 +63,43 @@ describe("shared harness local role configuration", () => {
     expect(modelIdentity(buildLocalScreenModelConfig(roleConfig, COORDINATOR_PROFILES.heavy))).toEqual(modelIdentity(model));
     roleConfig.vllm.localTokenAdmission.sha256 = "b".repeat(64);
     expect(modelIdentity(buildLocalScreenModelConfig(roleConfig, COORDINATOR_PROFILES.heavy))).not.toEqual(modelIdentity(model));
+  });
+
+  it("L1: builds the serving card only through the pair, records its digest and never its path, and leaves every model config unchanged (SC)", () => {
+    expect(buildLocalScreenServingCard(config(true))).toBeUndefined();
+    const root = workspace(), card = adopt(proposedServingCard(probe => { probe.P1.models[0].id = "qwen3.8-flash-next"; }), ADOPTING_ENTRY, { defaults: true });
+    const written = writeCard(root, card), descriptor = { path: written.path, sha256: written.sha256 };
+    const paired = config(true); paired.vllm.servingCard = descriptor;
+    const loaded = buildLocalScreenServingCard(paired)!;
+    expect(loaded.policy).toEqual(DEFAULT_SERVING_POLICY);
+    expect(servingCardFreeze(loaded)).toEqual({ servingCard: { sha256: written.sha256, version: 1, date: "2026-11-08", entry: ADOPTING_ENTRY } });
+    expect(canonical(servingCardFreeze(loaded))).not.toContain(root);
+    for (const row of LEGACY_CONFIGS) {
+      const withPair = config(row.streaming); withPair.vllm.servingCard = descriptor;
+      const model = buildLocalScreenModelConfig(withPair, COORDINATOR_PROFILES[row.profile], row.salted);
+      expect(digest(canonical(model))).toBe(row.sha256); expect(canonical(model)).not.toContain(root);
+    }
+  });
+
+  it("L2: refuses a card before any directory, database or request exists, reading configuration only from its arguments (SC)", async () => {
+    const root = workspace(), cwd = join(root, "empty-cwd"), task = join(root, "operator-task"); mkdirSync(cwd); mkdirSync(join(task, "input"), { recursive: true });
+    const data = Buffer.from("21"), brief = "Read input/input.txt, double its integer and write output/result.txt. Keep all input files unchanged.";
+    const job = canonical({ schemaVersion: 1, jobId: "synthetic_operator_fixture", goalFile: "brief.md",
+      inputs: [{ path: "input.txt", sha256: digest(data), bytes: data.length, confidentiality: "private" }],
+      requiredArtifacts: ["output/result.txt"], requiredCapabilities: ["local_calculation"],
+      permissions: { externalModelDisclosure: "none", publicWeb: "none", publish: false, send: false, mutateInputs: false },
+      verification: { deterministic: "independent arithmetic", humanCriteria: ["computed result"], runtimeAndPrivacyReceiptRequired: true },
+      labelIsMetadataOnly: true, synthetic: true });
+    writeFileSync(join(task, "job.json"), job); writeFileSync(join(task, "brief.md"), brief); writeFileSync(join(task, "input/input.txt"), data);
+    const options = { taskDirectory: task, expectedJobSha256: digest(job), expectedBriefSha256: digest(brief), syntheticAuthoritySha256: digest("authored synthetic fixture"),
+      expectedRuntimeSha256: localScreenSourceFreeze().sha256, imageId: `sha256:${"0".repeat(64)}`, outputDirectory: join(root, "operator-result") };
+    const environment = (card: { path: string; sha256: string }) => ({ SOAR_PROVIDER_MODE: "local", SOAR_VLLM_BASE_URL: "http://127.0.0.1:9/v1",
+      SOAR_VLLM_COST_POLICY: "local_zero_cost", SOAR_VLLM_MODEL: "RM-01 VLM", SOAR_SERVING_CARD_FILE: card.path, SOAR_SERVING_CARD_SHA256: card.sha256 });
+    const proposed = writeCard(root, proposedServingCard(), "proposed.json");
+    const otherAlias = writeCard(root, adopt(proposedServingCard(probe => { probe.P1.models[0].id = "another-model"; }), ADOPTING_ENTRY, { defaults: true }), "other.json");
+    for (const [card, code, parameter] of [[proposed, "serving_card_not_adopted", "decision"], [otherAlias, "serving_card_model_mismatch", "identity.servedModel"]] as const) {
+      await expect(runLocalArtifactScreen(options, { environment: environment(card), cwd })).rejects.toMatchObject({ code, parameter, message: code });
+      expect(existsSync(options.outputDirectory)).toBe(false);
+    }
   });
 });

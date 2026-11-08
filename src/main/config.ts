@@ -4,6 +4,7 @@ import path from "node:path";
 import dotenv from "dotenv";
 import { z } from "zod";
 import type { FlashNextAdmissionDescriptor } from "./private-agent/flash-next-admission";
+import type { ServingCardDescriptor } from "./private-agent/serving-card";
 
 const booleanString = z
   .enum(["true", "false"])
@@ -47,6 +48,9 @@ const environmentSchema = z.object({
   /** Main-process-only exact-token policy. Omitted permits offline fixture preparation, never Flash dispatch. */
   SOAR_VLLM_TOKEN_ADMISSION_FILE: z.string().refine(value => path.isAbsolute(value) && !/[\x00-\x1f\x7f]/u.test(value), "SOAR_VLLM_TOKEN_ADMISSION_FILE must be an absolute file path.").optional(),
   SOAR_VLLM_TOKEN_ADMISSION_SHA256: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
+  /** SC: the adopted machine-readable serving card the headless driver reads, pinned by its sha256; both or neither. */
+  SOAR_SERVING_CARD_FILE: z.string().refine(value => path.isAbsolute(value) && !/[\x00-\x1f\x7f]/u.test(value), "SOAR_SERVING_CARD_FILE must be an absolute file path.").optional(),
+  SOAR_SERVING_CARD_SHA256: z.string().regex(/^[a-f0-9]{64}$/u).optional(),
   SOAR_VLLM_COST_POLICY: z
     .enum(["local_zero_cost"])
     .default("local_zero_cost"),
@@ -103,6 +107,10 @@ const environmentSchema = z.object({
   if ((admissionFile !== undefined || admissionSha256 !== undefined) && environment.SOAR_VLLM_REPLY_CONTRACT !== "flash_next_v1") {
     context.addIssue({ code: "custom", path: ["SOAR_VLLM_TOKEN_ADMISSION_FILE"], message: "Token admission requires SOAR_VLLM_REPLY_CONTRACT=flash_next_v1." });
   }
+  // A legacy-contract endpoint has a serving card too, so the pair does not require flash_next_v1.
+  if ((environment.SOAR_SERVING_CARD_FILE === undefined) !== (environment.SOAR_SERVING_CARD_SHA256 === undefined)) {
+    context.addIssue({ code: "custom", path: ["SOAR_SERVING_CARD_FILE"], message: "SOAR_SERVING_CARD_FILE and SOAR_SERVING_CARD_SHA256 must be supplied together." });
+  }
 });
 
 export interface SoarConfig {
@@ -121,6 +129,8 @@ export interface SoarConfig {
     localReplyContract?: "flash_next_v1";
     localContextTokens?: number;
     localTokenAdmission?: FlashNextAdmissionDescriptor;
+    /** SC: present only when both SOAR_SERVING_CARD_FILE and SOAR_SERVING_CARD_SHA256 are set; only the headless driver reads it. */
+    servingCard?: ServingCardDescriptor;
     costPolicy: "local_zero_cost";
     maxOutputTokens: number;
     timeoutMs: number;
@@ -251,6 +261,9 @@ export function loadConfig(options: LoadConfigOptions = {}): SoarConfig {
         : {}),
       ...(env.SOAR_VLLM_TOKEN_ADMISSION_FILE && env.SOAR_VLLM_TOKEN_ADMISSION_SHA256
         ? { localTokenAdmission: { path: env.SOAR_VLLM_TOKEN_ADMISSION_FILE, sha256: env.SOAR_VLLM_TOKEN_ADMISSION_SHA256 } }
+        : {}),
+      ...(env.SOAR_SERVING_CARD_FILE && env.SOAR_SERVING_CARD_SHA256
+        ? { servingCard: { path: env.SOAR_SERVING_CARD_FILE, sha256: env.SOAR_SERVING_CARD_SHA256 } }
         : {}),
       costPolicy: env.SOAR_VLLM_COST_POLICY,
       maxOutputTokens: env.SOAR_MAX_OUTPUT_TOKENS,

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { summarizeRun, type CandidateSummary } from "../../src/main/private-agent/selection";
+import { ServingCardError } from "../../src/main/private-agent/serving-card";
 import { LOOP_VERSION, failureCode, loopExitCode, parseLoopArguments, runSelectionLoop, type CritiqueRecord, type DriverInput, type LoopDependencies, type LoopInput, type LoopRecord } from "../../scripts/phase4-loop";
 import { localScreenSourceFreeze, parseLocalArtifactScreenArguments } from "../../scripts/private-agent-local-screen";
 
@@ -287,5 +288,18 @@ describe("H4 select-and-repair loop", () => {
       ["--profile", "heavy", "--claims-ledger", "true", "--research-from", "a", ...cloudFlags]]) {
       expect(() => parseLocalArtifactScreenArguments(["--execute-synthetic-local", ...run, ...bad])).toThrow("local_screen_cli_invalid");
     }
+  });
+  it("records a serving-card refusal as the loop's failure code, creates no stage directory and stays resumable (SC)", async () => {
+    const dir = loopDir();
+    // The driver refuses a card before it creates the stage's directory, so the loop's own stage guard never sees a half-made stage.
+    const refused = fakes({ summaries: candidates(false), onRun: run => { if (run.outputDirectory.endsWith("/a")) throw new ServingCardError("serving_card_not_adopted", "decision"); } });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, refused.deps)).rejects.toThrow("serving_card_not_adopted");
+    expect(read(dir)).toMatchObject({ failure: "serving_card_not_adopted", selected: { stage1: null, final: null } });
+    expect(existsSync(join(dir, "a"))).toBe(false);
+    expect(readFileSync(join(dir, "log.txt"), "utf8")).toContain("failure serving_card_not_adopted");
+    const resumed = fakes({ summaries: candidates(false) });
+    const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, resumed.deps);
+    expect(record.failure).toBeNull(); expect(resumed.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b", "repair"]);
+    expect(record.selected.final).toMatchObject({ candidate: "repair" });
   });
 });

@@ -2,7 +2,7 @@ import Database from "better-sqlite3";
 import http from "node:http";
 import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -15,6 +15,7 @@ import { PrivateAgentModel, type GeneralMessage } from "../../src/main/private-a
 import { GeneralAgentRunner, type GeneralJobContract, type GeneralJobOptions } from "../../src/main/private-agent/runner";
 import { DockerSandbox } from "../../src/main/private-agent/sandbox";
 import { localScreenSourceFreeze, runLocalArtifactScreen } from "../../scripts/private-agent-local-screen";
+import { ADOPTING_ENTRY, adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
 
 const enabled = process.env.SOAR_RUN_PRIVATE_AGENT_RUNTIME === "true";
 const imageId = "sha256:95be0fdf09ef20ff31c5f605108f068422a58edb93b35834c5cfaf45312d3071";
@@ -68,6 +69,31 @@ async function prepare(actions: Action[], custom?: { checkPython?: string; maxEl
 
 const calculate: Action = { name: "execute", arguments: { command: "python3 -I -c \"from pathlib import Path; Path('output.txt').write_text(str(int(Path('input.txt').read_text()) * 2))\"" } };
 const finish: Action = { name: "finish", arguments: { summary: "Computed the result and wrote output.txt." } };
+const operatorCalculate: Action = { name: "execute", arguments: { command: "mkdir output; python3 -I -c \"from pathlib import Path; Path('output/result.txt').write_text(str(int(Path('input/input.txt').read_text()) * 2))\"" } };
+
+/** The hash-bound synthetic operator task of the operator-entry cases (input 21, output 42). */
+function operatorTask(f: { directory: string }) {
+  const task = join(f.directory, "operator-task"), output = join(f.directory, "operator-result");
+  mkdirSync(join(task, "input"), { recursive: true });
+  const data = Buffer.from("21"), brief = "Read input/input.txt, double its integer and write output/result.txt. Keep all input files unchanged.";
+  const job = canonical({ schemaVersion: 1, jobId: "synthetic_operator_fixture", goalFile: "brief.md",
+    inputs: [{ path: "input.txt", sha256: digest(data), bytes: data.length, confidentiality: "private" }],
+    requiredArtifacts: ["output/result.txt"], requiredCapabilities: ["local_calculation"],
+    permissions: { externalModelDisclosure: "none", publicWeb: "none", publish: false, send: false, mutateInputs: false },
+    verification: { deterministic: "independent arithmetic", humanCriteria: ["computed result"], runtimeAndPrivacyReceiptRequired: true },
+    labelIsMetadataOnly: true, synthetic: true });
+  writeFileSync(join(task, "job.json"), job); writeFileSync(join(task, "brief.md"), brief); writeFileSync(join(task, "input/input.txt"), data);
+  const options = { taskDirectory: task, expectedJobSha256: digest(job), expectedBriefSha256: digest(brief),
+    syntheticAuthoritySha256: digest("authored synthetic fixture"), expectedRuntimeSha256: localScreenSourceFreeze().sha256,
+    imageId, outputDirectory: output };
+  return { options, output };
+}
+/** The driver's configuration, passed explicitly with an empty working directory, so a run never reads the repository's .env.local (SC). */
+function operatorConfig(f: { directory: string; destination: { endpoint: string } }, extra: Record<string, string> = {}) {
+  const cwd = join(f.directory, "config-cwd"); mkdirSync(cwd, { recursive: true });
+  return { cwd, environment: { SOAR_PROVIDER_MODE: "local", SOAR_VLLM_BASE_URL: f.destination.endpoint.slice(0, -"/chat/completions".length),
+    SOAR_VLLM_MODEL: "synthetic-model", SOAR_VLLM_COST_POLICY: "local_zero_cost", SOAR_VLLM_API_KEY: "fixture-host-credential", ...extra } };
+}
 
 describe.skipIf(!enabled)("general loop through real broker and isolated Docker tools", () => {
   it("runs model → tool → model → independently verified artifact", async () => {
@@ -230,31 +256,33 @@ describe.skipIf(!enabled)("general loop through real broker and isolated Docker 
   }, 90000);
 
   it("executes the hash-bound operator entry point and preserves a provisional immutable artifact", async () => {
-    const f = await prepare([{ name: "execute", arguments: { command: "mkdir output; python3 -I -c \"from pathlib import Path; Path('output/result.txt').write_text(str(int(Path('input/input.txt').read_text()) * 2))\"" } }, finish]);
-    const task = join(f.directory, "operator-task"), output = join(f.directory, "operator-result");
-    mkdirSync(join(task, "input"), { recursive: true });
-    const data = Buffer.from("21"), brief = "Read input/input.txt, double its integer and write output/result.txt. Keep all input files unchanged.";
-    const job = canonical({ schemaVersion: 1, jobId: "synthetic_operator_fixture", goalFile: "brief.md",
-      inputs: [{ path: "input.txt", sha256: digest(data), bytes: data.length, confidentiality: "private" }],
-      requiredArtifacts: ["output/result.txt"], requiredCapabilities: ["local_calculation"],
-      permissions: { externalModelDisclosure: "none", publicWeb: "none", publish: false, send: false, mutateInputs: false },
-      verification: { deterministic: "independent arithmetic", humanCriteria: ["computed result"], runtimeAndPrivacyReceiptRequired: true },
-      labelIsMetadataOnly: true, synthetic: true });
-    writeFileSync(join(task, "job.json"), job); writeFileSync(join(task, "brief.md"), brief); writeFileSync(join(task, "input/input.txt"), data);
-    vi.stubEnv("SOAR_PROVIDER_MODE", "local"); vi.stubEnv("SOAR_VLLM_BASE_URL", f.destination.endpoint.slice(0, -"/chat/completions".length));
-    vi.stubEnv("SOAR_VLLM_MODEL", "synthetic-model"); vi.stubEnv("SOAR_VLLM_COST_POLICY", "local_zero_cost");
-    vi.stubEnv("SOAR_VLLM_API_KEY", "fixture-host-credential");
-    const options = { taskDirectory: task, expectedJobSha256: digest(job), expectedBriefSha256: digest(brief),
-      syntheticAuthoritySha256: digest("authored synthetic fixture"), expectedRuntimeSha256: localScreenSourceFreeze().sha256,
-      imageId, outputDirectory: output };
-    await expect(runLocalArtifactScreen({ ...options, expectedRuntimeSha256: "0".repeat(64) })).rejects.toThrow("local_screen_reviewed_source_changed");
+    const f = await prepare([operatorCalculate, finish]);
+    // SC: the configuration is passed explicitly with an empty working directory instead of stubbing the environment, so the run
+    // never inherits the repository's .env.local.
+    const { options, output } = operatorTask(f), configOptions = operatorConfig(f);
+    await expect(runLocalArtifactScreen({ ...options, expectedRuntimeSha256: "0".repeat(64) }, configOptions)).rejects.toThrow("local_screen_reviewed_source_changed");
     expect(existsSync(output)).toBe(false); expect(f.requests).toHaveLength(0);
-    const result = await runLocalArtifactScreen(options);
+    const result = await runLocalArtifactScreen(options, configOptions);
     expect(result).toMatchObject({ status: "submitted", artifactAccepted: null, independentAcceptanceRequired: true, requests: 2 });
     expect(readFileSync(join(output, "candidate/output/result.txt"), "utf8")).toBe("42");
     const receipt = JSON.parse(readFileSync(join(output, "result.json"), "utf8"));
     expect(receipt.closedSourceSha256).toBe(options.expectedRuntimeSha256);
     expect(JSON.stringify(receipt)).not.toContain("fixture-host-credential");
     expect((await exec("docker", ["ps", "--all", "--quiet", "--filter", `label=soar.private-job-id=${result.jobId}`], { timeout: 5000 })).stdout.trim()).toBe("");
+  }, 90000);
+
+  it("records an adopted all-default serving card's digest in the freeze and keeps its pinned bytes beside it (SC)", async () => {
+    const f = await prepare([operatorCalculate, finish]);
+    const { options, output } = operatorTask(f);
+    const card = writeCard(f.directory, adopt(proposedServingCard(probe => { probe.P1.models[0].id = "synthetic-model"; }), ADOPTING_ENTRY, { defaults: true }));
+    const result = await runLocalArtifactScreen(options, operatorConfig(f, { SOAR_SERVING_CARD_FILE: card.path, SOAR_SERVING_CARD_SHA256: card.sha256 }));
+    expect(result).toMatchObject({ status: "submitted", artifactAccepted: null, requests: 2 });
+    const freezeText = readFileSync(join(output, "freeze.json"), "utf8"), freeze = JSON.parse(freezeText), resultText = readFileSync(join(output, "result.json"), "utf8");
+    expect(freeze.servingCard).toEqual({ sha256: card.sha256, version: 1, date: "2026-11-08", entry: ADOPTING_ENTRY });
+    expect(freeze).not.toHaveProperty("pipeline");
+    expect(freezeText).not.toContain(card.path); expect(resultText).not.toContain(card.path);
+    expect(JSON.parse(resultText).freezeSha256).toBe(digest(canonical(freeze)));
+    expect(readFileSync(join(output, "serving-card.json")).equals(readFileSync(card.path))).toBe(true);
+    expect(statSync(join(output, "serving-card.json")).mode & 0o777).toBe(0o600);
   }, 90000);
 });

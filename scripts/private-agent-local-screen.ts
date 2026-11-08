@@ -5,7 +5,7 @@ import http from "node:http";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
-import { loadConfig, type SoarConfig } from "../src/main/config";
+import { loadConfig, type LoadConfigOptions, type SoarConfig } from "../src/main/config";
 import { PrivateAgentBroker, type BrokerDestination } from "../src/main/private-agent/broker";
 import { canonical, digest } from "../src/main/private-agent/contracts";
 import { PrivateCheckpointStore } from "../src/main/private-agent/checkpoints";
@@ -28,6 +28,7 @@ import { localStreamSettings } from "../src/main/liveness";
 import { RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, RESEARCH_SPLIT_MAX_FEE_USD, researchProtocolSha256 } from "../src/main/private-agent/research-pipeline";
 import { createResearchInput } from "../src/main/private-agent/research-producer";
 import { researchPresentationPolicySha256, researchPresentationIdentity } from "../src/main/private-agent/research-presentation";
+import { ServingCardError, loadServingCard, servingCardExpectation, servingCardFreeze, type LoadedServingCard } from "../src/main/private-agent/serving-card";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
 /** Cap on one assembled reply from the owned model. */
@@ -158,6 +159,13 @@ export function buildLocalScreenModelConfig(
 export function buildLocalScreenTokenAdmission(config: Pick<SoarConfig, "vllm">) {
   return config.vllm.localTokenAdmission ? loadFlashNextTokenAdmission(config.vllm.localTokenAdmission) : undefined;
 }
+/**
+ * SC: the adopted serving card the operator's env pair selects, read and checked before any run directory, database or
+ * request exists; undefined without the pair. A refusal throws ServingCardError. Nothing consumes its policy yet.
+ */
+export function buildLocalScreenServingCard(config: Pick<SoarConfig, "vllm">): LoadedServingCard | undefined {
+  return config.vllm.servingCard ? loadServingCard(config.vllm.servingCard, servingCardExpectation(config)) : undefined;
+}
 /** Headless budgets: "standard" keeps the Phase 0 driver values so earlier rows stay comparable. */
 const LOCAL_SCREEN_BUDGETS: Readonly<Record<LocalScreenProfile, { maxModelCalls: number; maxToolCalls: number; maxElapsedMs: number; maxRequests: number }>> = Object.freeze({
   standard: { maxModelCalls: 40, maxToolCalls: 80, maxElapsedMs: SESSION_LIMITS.maxElapsedMs, maxRequests: SESSION_LIMITS.maxRequests },
@@ -269,7 +277,9 @@ export async function runLocalArtifactScreen(input: {
    * synthetic-attested, so the session's label gate admits the sink; a seeded run has no stage and builds none.
    */
   retainDiagnostics?: boolean;
-}) {
+},
+/** For tests only, so a test never reads the repository's .env.local; the CLI and the loop never pass it, and undefined is loadConfig()'s default. */
+configOptions?: LoadConfigOptions) {
   if (![input.expectedJobSha256, input.expectedBriefSha256, input.syntheticAuthoritySha256, input.expectedRuntimeSha256].every(hash => /^[a-f0-9]{64}$/u.test(hash)) ||
       !/^sha256:[a-f0-9]{64}$/u.test(input.imageId) ||
       (input.pauseAfterTools !== undefined && (!Number.isInteger(input.pauseAfterTools) || input.pauseAfterTools < 1 || input.pauseAfterTools > 20))
@@ -299,13 +309,17 @@ export async function runLocalArtifactScreen(input: {
   const privatePhase = repair ? withRepair(seededPhase, repair) : seededPhase;
   // Bind all explicit public metadata and original public bytes before receiver/model/DB effects.
   const publicSnapshot = input.publicSnapshot ? preparePublicSnapshot(task, input.publicSnapshot) : undefined;
-  const config = loadConfig();
+  const config = loadConfig(configOptions);
   if (config.providerMode !== "local" || config.vllm.costPolicy !== "local_zero_cost") throw new Error("local_screen_provider_not_admitted");
+  // SC: a refused card stops the run before the output directory, the database or any request exists, so a loop stays resumable.
+  const servingCard = buildLocalScreenServingCard(config);
   const directory = resolve(input.outputDirectory);
   // Retained model text may only ever sit in a path the repository ignores (backlog item 4); refused before anything is created.
   if (input.retainDiagnostics) assertRunDirectoryIgnored(directory);
   mkdirSync(directory, { mode: 0o700 });
   const save = (name: string, value: unknown) => writeFileSync(join(directory, name), `${canonical(value)}\n`, { flag: "wx", mode: 0o600 });
+  // The pinned card bytes stay beside freeze.json, which records their sha256 and never the path.
+  if (servingCard) writeFileSync(join(directory, "serving-card.json"), servingCard.bytes, { flag: "wx", mode: 0o600 });
   if (publicSnapshot) {
     writeFileSync(join(directory, "public-snapshot-brief.md"), publicSnapshot.brief, { flag: "wx", mode: 0o600 });
     writeFileSync(join(directory, "public-snapshot-map.json"), publicSnapshot.mapBytes, { flag: "wx", mode: 0o600 });
@@ -386,6 +400,8 @@ export async function runLocalArtifactScreen(input: {
       // H4: a seeded run carries the source's pipeline block (so rows keep the pipeline columns) and names its seed; a deck task records the check it ran under.
       ...(seed ? { researchFrom: seed.seed, pipeline: seededPipelineFreeze(seed.pipeline, seed.seed) } : {}),
       ...(deckArtifacts(modePhase).length ? { deckCheck: { version: DECK_CHECK_VERSION, paths: deckArtifacts(modePhase) } } : {}),
+      // SC: {sha256, version, date, entry} only when the pair selects a card; never the path, never inside `pipeline`.
+      ...servingCardFreeze(servingCard),
       limits: { requests: budget.maxRequests, modelCalls: budget.maxModelCalls, toolCalls: budget.maxToolCalls, outputTokens: modelConfig.maxOutputTokens,
         inputBytes: coordinator.maxRequestBytes, requestTimeoutMs: cloud && !pipeline ? cloud.destination.timeoutMs : coordinator.requestTimeoutMs, elapsedMs: budget.maxElapsedMs, feeMicrousd: cloud?.maxFeeMicrousd ?? 0 },
       startedAt: new Date().toISOString(), artifactAccepted: null };
@@ -509,5 +525,10 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   try {
     const result = await runLocalArtifactScreen(parseLocalArtifactScreenArguments(process.argv.slice(2)));
     if (result.status !== "submitted") process.exitCode = 2;
-  } catch { process.stderr.write(`${canonical({ state: "incomplete", error: "local_screen_failed_no_replay" })}\n`); process.exitCode = 1; }
+  } catch (error) {
+    // A serving-card refusal also names its fixed code and allowlisted key path; every other failure prints the same line as before.
+    process.stderr.write(`${canonical({ state: "incomplete", error: "local_screen_failed_no_replay",
+      ...(error instanceof ServingCardError ? { code: error.code, ...(error.parameter ? { parameter: error.parameter } : {}) } : {}) })}\n`);
+    process.exitCode = 1;
+  }
 }

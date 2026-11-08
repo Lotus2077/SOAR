@@ -82,6 +82,30 @@ describe("loadConfig", () => {
     }
   });
 
+  it("accepts the serving-card pair only together, as an absolute path and a lowercase sha256, with or without the Flash contract (SC)", async () => {
+    const roots = await createConfigRoots();
+    const flash = { SOAR_VLLM_REPLY_CONTRACT: "flash_next_v1", SOAR_VLLM_CONTEXT_TOKENS: "262144" };
+    const card = { SOAR_SERVING_CARD_FILE: path.join(roots.root, "serving-card-2026-11-08.json"), SOAR_SERVING_CARD_SHA256: "a".repeat(64) };
+    const descriptor = { path: card.SOAR_SERVING_CARD_FILE, sha256: card.SOAR_SERVING_CARD_SHA256 };
+    // Configuration loading never reads the card; only the headless driver does.
+    expect(loadConfig({ ...roots, environment: {} }).vllm).not.toHaveProperty("servingCard");
+    expect(loadConfig({ ...roots, environment: flash }).vllm).not.toHaveProperty("servingCard");
+    expect(loadConfig({ ...roots, environment: card }).vllm.servingCard).toEqual(descriptor);
+    expect(loadConfig({ ...roots, environment: { ...flash, ...card } }).vllm.servingCard).toEqual(descriptor);
+    // The pair adds the descriptor and changes nothing else.
+    const { servingCard: _descriptor, ...rest } = loadConfig({ ...roots, environment: { ...flash, ...card } }).vllm;
+    expect(rest).toEqual(loadConfig({ ...roots, environment: flash }).vllm);
+    for (const partial of [{ SOAR_SERVING_CARD_FILE: card.SOAR_SERVING_CARD_FILE }, { SOAR_SERVING_CARD_SHA256: card.SOAR_SERVING_CARD_SHA256 }]) {
+      expect(() => loadConfig({ ...roots, environment: partial })).toThrow(/SOAR_SERVING_CARD_FILE and SOAR_SERVING_CARD_SHA256 must be supplied together/u);
+    }
+    for (const file of ["", "relative.json", "/tmp/card\n.json", "/tmp/card\0.json"]) {
+      expect(() => loadConfig({ ...roots, environment: { ...card, SOAR_SERVING_CARD_FILE: file } }), JSON.stringify(file)).toThrow();
+    }
+    for (const hash of ["", "a".repeat(63), "A".repeat(64), "g".repeat(64)]) {
+      expect(() => loadConfig({ ...roots, environment: { ...card, SOAR_SERVING_CARD_SHA256: hash } }), hash).toThrow();
+    }
+  });
+
   it("loads Finder configuration from userData before cwd and app files", async () => {
     const roots = await createConfigRoots();
     await Promise.all([

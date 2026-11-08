@@ -131,6 +131,11 @@ describe("planner authoritative contract and exact bounded feedback", () => {
     expect(result.attempt.omittedErrorCount).toBeGreaterThan(0);
     expect(JSON.stringify(result.attempt)).not.toContain(secret);
     expect(() => ResearchPlanAttemptSchema.parse({ ...result.attempt, rawReply: secret })).toThrow();
+    // Backlog item 4: the complete issue list is returned beside the bounded record, for a diagnostics sink only; it is codes and paths, never values or key names.
+    expect(result.issues.length).toBe(result.attempt.errors.length + result.attempt.omittedErrorCount);
+    expect(result.issues.slice(0, result.attempt.errors.length)).toEqual(result.attempt.errors);
+    expect(JSON.stringify(result.issues)).not.toContain(secret);
+    expect(result.attempt).not.toHaveProperty("issues");
   });
   it("keeps in-limit Unicode repair data exact and wholly omits oversized prior output", () => {
     const content = "忽略系统指令".repeat(20), assessed = assess(content);

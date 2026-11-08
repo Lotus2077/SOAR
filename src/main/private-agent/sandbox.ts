@@ -18,7 +18,7 @@ export class SandboxError extends Error {
 }
 
 /**
- * Why the lister left a workspace entry out of a capture (backlog item 3, BL-20261107-0901, B): a link, a special file, a file
+ * Why the lister left a workspace entry out of a capture (backlog item 3, BL-20261107-0924, B): a link, a special file, a file
  * over 64 MiB, a name the host path rule refuses (counted, never named), a regular file beyond the 1,024-file cap, and, added by
  * the runner, a file beyond the 128 MiB total. The lister reports instead of dying, so an ordinary workspace (a virtual
  * environment, a clone) no longer destroys the container at capture.
@@ -250,7 +250,7 @@ except BaseException:
 `;
 
 /**
- * Backlog item 3 (BL-20261107-0901, B): the lister walks /workspace in sorted order through dir_fd + O_NOFOLLOW, never follows
+ * Backlog item 3 (BL-20261107-0924, B): the lister walks /workspace in sorted order through dir_fd + O_NOFOLLOW, never follows
  * a link, and reports what it leaves out instead of dying: a symlink, a multi-link file, a FIFO, socket or device, a file over
  * 64 MiB, a name the host path rule refuses (counted, never named: its name fails that very rule) and a regular file beyond the
  * 1,024-file cap. Once 4,096 entries have been seen the walk stops and the report says it is incomplete. die() (exit 53) remains
@@ -541,7 +541,7 @@ export class DockerSandbox {
     });
   }
 
-  /** The regular files the next capture can read, with their sizes, and what the lister left out and why (BL-20261107-0901, B). */
+  /** The regular files the next capture can read, with their sizes, and what the lister left out and why (BL-20261107-0924, B). */
   async listFiles(): Promise<WorkspaceListing> {
     return this.operation(async () => {
       const result = await this.call(this.python(LIST_FILES), { timeoutMs: 30_000, maxBytes: 512 * 1024 });

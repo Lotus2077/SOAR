@@ -124,7 +124,7 @@ function compactRead(ref: ObservationReadReference): string { return encode({ ..
 function validateFailure(event: Record<string, unknown>, tool: "execute" | "read_observation", unavailable: boolean): void {
   integrity(event.allowanceFinalizationEligible === false && typeof event.output === "string" && typeof event.invalidExecuteAtOutputLimit === "boolean");
   const output = JSON.parse(event.output as string);
-  // The fixed host failure objects (BL-20261107-0901, E), byte for byte: for an execute the sandbox refused or lost, the legacy generic or its
+  // The fixed host failure objects (BL-20261107-0924, E), byte for byte: for an execute the sandbox refused or lost, the legacy generic or its
   // sandbox code; for an execute or read whose container could not be prepared, execution_context_unavailable; for a refused read, the
   // legacy generic or the two read refusals. Anything else must be the argument feedback below.
   const fixed: readonly { readonly error: string }[] = unavailable ? [GENERIC_TOOL_FAILURE, ...SANDBOX_TOOL_ERROR_CODES.map(code => TOOL_ERROR_FEEDBACK[code])]

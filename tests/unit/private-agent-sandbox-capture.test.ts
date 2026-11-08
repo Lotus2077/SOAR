@@ -7,7 +7,7 @@ import { LIST_FILES, PRIVATE_SANDBOX_LIMITS, SandboxError, WORKSPACE_LISTING_MAX
   boundedOutputCollector, parseWorkspaceListing } from "../../src/main/private-agent/sandbox";
 
 /**
- * Backlog item 3 (BL-20261107-0901, B and C), without Docker: the container's lister script runs under the machine's python3 with a
+ * Backlog item 3 (BL-20261107-0924, B and C), without Docker: the container's lister script runs under the machine's python3 with a
  * temporary directory in place of /workspace, and the host-side parser and output collector are exercised directly. The Docker-gated
  * suite (tests/integration/private-agent-sandbox.test.ts) is the live proof of the same contract inside the container.
  */

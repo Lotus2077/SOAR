@@ -1,7 +1,7 @@
 import { SANDBOX_ERROR_CODES, type SandboxErrorCode } from "./sandbox";
 
 /**
- * Backlog item 3 (finding B5, BL-20261107-0901): the fixed, host-authored feedback a tool failure returns to the model, keyed on
+ * Backlog item 3 (finding B5, BL-20261107-0924): the fixed, host-authored feedback a tool failure returns to the model, keyed on
  * a code, so the model gets a repair signal instead of one generic error. Every object is a host constant: no message, path,
  * command or provider text ever enters one. `actionInvoked` is stated only where the host knows it. None of these objects is
  * bound into the prompt protocol (binding would move `promptProtocolSha256` and end every paused task in `runtime_contract_drift`),

@@ -38,7 +38,7 @@ const tokenStopSchema = z.object({
 }).strict();
 export type ModelRequestTokenAdmissionStop = z.infer<typeof tokenStopSchema>;
 /**
- * Backlog item 3 (finding A5, BL-20261107-0901): the broker refused the request before any row existed, so nothing was sent and
+ * Backlog item 3 (finding A5, BL-20261107-0924): the broker refused the request before any row existed, so nothing was sent and
  * nothing is uncertain; `code` is the broker's own fixed code. A cancel ends the run as cancelled (or paused), an unavailable
  * scanner resumably (`packet_scan_unavailable`), a blocked scan, a missing destination, a size excess without its numbers or a cloud
  * call after an assist whose outcome stayed unknown (BL-20261107-1006, 3) permanently (`model_request_denied`; a size excess with its

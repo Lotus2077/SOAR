@@ -103,7 +103,11 @@ function boundedErrors(all: readonly SafePlanError[]): { errors: SafePlanError[]
   }
   return { errors, omittedErrorCount: all.length - errors.length };
 }
-export function assessResearchPlanReply(input: { content: string; truncated: boolean; ordinal: number; units: readonly BindingInput[]; sources: readonly BindingInput[] }): { attempt: ResearchPlanAttempt; plan?: ResearchPlan } {
+/**
+ * `issues` is the complete code-and-path list before bounding (backlog item 4): it carries no model text and is returned to
+ * the caller only, for a diagnostics sink; the persisted attempt record keeps its bounded `errors` unchanged.
+ */
+export function assessResearchPlanReply(input: { content: string; truncated: boolean; ordinal: number; units: readonly BindingInput[]; sources: readonly BindingInput[] }): { attempt: ResearchPlanAttempt; plan?: ResearchPlan; issues: SafePlanError[] } {
   const attempt: ResearchPlanAttempt = { version: 1, ordinal: input.ordinal, replyContentSha256: digest(input.content), replyBytes: Buffer.byteLength(input.content), truncated: input.truncated,
     accepted: false, bindingInspection: "not_run", errors: [], omittedErrorCount: 0, acceptedPlanSha256: null, repairContext: "not_used" };
   let plan: ResearchPlan | undefined, errors: SafePlanError[];
@@ -119,7 +123,7 @@ export function assessResearchPlanReply(input: { content: string; truncated: boo
   }
   Object.assign(attempt, boundedErrors(errors));
   if (plan) { attempt.accepted = true; attempt.acceptedPlanSha256 = digest(canonical(plan)); }
-  return { attempt: ResearchPlanAttemptSchema.parse(attempt), ...(plan ? { plan } : {}) };
+  return { attempt: ResearchPlanAttemptSchema.parse(attempt), issues: errors, ...(plan ? { plan } : {}) };
 }
 export interface ResearchPlanRepair {
   instruction: string; errors: SafePlanError[]; omittedErrorCount: number;

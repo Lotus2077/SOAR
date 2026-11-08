@@ -9,7 +9,7 @@ import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchProtocolSha256, runResearchPipeline } from "../../src/main/private-agent/research-pipeline";
 import { createResearchInput, createResearchProducer, validateResearchProducer, type ResearchProducer } from "../../src/main/private-agent/research-producer";
-import { loadResearchSeed, researchTransferPresent, researchTransferSnapshot, seededPipelineFreeze } from "../../src/main/private-agent/research-seed";
+import { loadResearchSeed, researchTransferPresent, researchTransferSnapshot, researchTransferStatus, seededPipelineFreeze } from "../../src/main/private-agent/research-seed";
 import { RESEARCH_TRANSFER_CHECK_ID, researchTransferPhase, sessionFileManifest, sessionPhaseIdentity, type SessionFile, type SessionPhase } from "../../src/main/private-agent/session";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
@@ -89,6 +89,7 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     expect(loaded.seed.producer.receipts).toHaveLength(receipts.length);
     expect(seededPipelineFreeze(loaded.pipeline, loaded.seed)).toEqual({ ...pipeline(), seededFrom: jobId });
     expect(researchTransferSnapshot(dir)).toBe(loaded.seed.snapshotSha256); expect(researchTransferPresent(dir)).toBe(true);
+    expect(researchTransferStatus(dir)).toEqual({ snapshotSha256: loaded.seed.snapshotSha256, code: null });
     expect(digest(readFileSync(join(dir, "state.sqlite")))).toBe(before); expect(readdirSync(dir)).toEqual(names);
     if (kind === "controlled_pipeline") { const db = new Database(join(dir, "state.sqlite"), { readonly: true });
       try { expect(db.prepare("SELECT COUNT(*) AS n FROM private_agent_events").get()).toEqual({ n: 0 }); } finally { db.close(); } }
@@ -112,12 +113,13 @@ describe("v4 research seeds require the ready packet and actual producer receipt
   ] as [string, Options, string][])("refuses %s", (_name, options, code) => {
     const dir = sourceRun(options); expect(() => loadResearchSeed(dir, task)).toThrow(code);
     // Discovery has no caller-supplied task; the subsequent loader must enforce that separate binding.
-    if (_name !== "task") expect(researchTransferPresent(dir)).toBe(false);
+    if (_name !== "task") { expect(researchTransferPresent(dir)).toBe(false); expect(researchTransferStatus(dir)).toEqual({ snapshotSha256: null, code }); }  // backlog item 4: the refusal's code beside the null
   });
   it("refuses legacy protocols and non-default budgets even with a self-consistent alternate digest", () => {
     for (const changed of [{ ...pipeline(), version: 3 }, { ...pipeline(), protocolSha256: h("4") },
       { ...pipeline(), budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 3 }, protocolSha256: researchProtocolSha256({ ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 3 }) }]) {
       const dir = sourceRun({ freeze: { pipeline: changed } }); expect(() => loadResearchSeed(dir, task)).toThrow("research_seed_protocol_mismatch"); expect(researchTransferSnapshot(dir)).toBeNull();
+      expect(researchTransferStatus(dir)).toEqual({ snapshotSha256: null, code: "research_seed_protocol_mismatch" });
     }
   });
   it("rejects goal/source/context substitutions, missing or changed receipts, UNKNOWN and extra stage dispatches", () => {
@@ -155,12 +157,18 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     }
   });
   it("refuses corrupt/missing checkpoints and symlinked ledgers without creating missing state", () => {
-    expect(() => loadResearchSeed(sourceRun({ corrupt: true }), task)).toThrow(/checkpoint_(file_invalid|digest_mismatch)/u);
+    const corrupt = sourceRun({ corrupt: true });
+    expect(() => loadResearchSeed(corrupt, task)).toThrow(/checkpoint_(file_invalid|digest_mismatch)/u);
+    expect(researchTransferStatus(corrupt)).toEqual({ snapshotSha256: null, code: expect.stringMatching(/^checkpoint_(file_invalid|digest_mismatch)$/u) });
     const pruned = sourceRun(); rmSync(join(pruned, "checkpoints"), { recursive: true, force: true });
     expect(() => loadResearchSeed(pruned, task)).toThrow("research_seed_checkpoints_missing"); expect(existsSync(join(pruned, "checkpoints"))).toBe(false);
+    expect(researchTransferStatus(pruned)).toEqual({ snapshotSha256: null, code: "research_seed_checkpoints_missing" });
+    // Backlog item 4: an exception that is not a code (a missing directory) maps to one fixed code; no message leaves the loader.
+    expect(researchTransferStatus(join(pruned, "missing"))).toEqual({ snapshotSha256: null, code: "research_seed_load_failed" });
     const linked = sourceRun(), elsewhere = mkdtempSync(join(tmpdir(), "soar-seed-elsewhere-")); cleanups.push(() => rmSync(elsewhere, { recursive: true, force: true }));
     renameSync(join(linked, "state.sqlite"), join(elsewhere, "state.sqlite")); symlinkSync(join(elsewhere, "state.sqlite"), join(linked, "state.sqlite"));
     expect(() => loadResearchSeed(linked, task)).toThrow("research_seed_directory_invalid"); expect(() => researchTransferSnapshot(linked)).toThrow("research_seed_directory_invalid");
+    expect(() => researchTransferStatus(linked)).toThrow("research_seed_directory_invalid");
   });
   it("binds the complete persisted receipt bytes and rejects unresolved, malformed or unrelated-purpose rows", () => {
     const input = { kind: "controlled_pipeline" as const, jobId, contextId, brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), files: produced, receipts };

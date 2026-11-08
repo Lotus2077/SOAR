@@ -530,7 +530,7 @@ export class GeneralTaskController {
             "The action stop could not be verified; replay is blocked." : event.type === "model_request_not_dispatched" && event.reason === LOCAL_TOKEN_ADMISSION_STOP ?
               "The next local-model request failed its context or deployment checks and was not sent." : event.type === "model_request_not_dispatched" && event.reason === BROKER_DENIED_STOP ?
                 "The broker refused the next model request before it was sent; nothing is uncertain." : event.type === "nudge" && event.kind === "length" ? "The reply was cut at the output limit; the host asked for smaller writes." :
-                  // A validation the host closed without a verifier result (BL-20261107-0901 A; BL-20261107-1041, 12) recorded no checks.
+                  // A validation the host closed without a verifier result (BL-20261107-0924 A; BL-20261107-1041, 12) recorded no checks.
                   event.type === "host_validation_finished" && event.passed === false && (event.verificationFailure !== undefined || event.captureFailure !== undefined) ?
                     "The frozen artifact could not be verified; the validation is closed and nothing is uncertain." : summaries[String(event.type)] ?? "Task state updated." })) };
   }

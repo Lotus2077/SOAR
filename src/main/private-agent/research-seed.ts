@@ -123,17 +123,23 @@ export function loadResearchSeed(runDirectory: string, expected: { jobSha256: st
   return { seed, pipeline, files };
 }
 
-/** A fingerprint is offered only when the complete v4 seed, input, packet and actual receipts validate read-only. */
-export function researchTransferSnapshot(runDirectory: string): string | null {
+/**
+ * The transfer's fingerprint, or null beside the loader's snake_case refusal code (backlog item 4, finding B6): a complete
+ * v4 seed, input, packet and actual receipts must validate read-only. An exception that is not a code (a Zod or SQLite
+ * message, a missing directory) maps to `research_seed_load_failed`; a symlinked or escaping run directory still throws.
+ */
+export function researchTransferStatus(runDirectory: string): { snapshotSha256: string | null; code: string | null } {
   try {
     const { value: freeze } = readFreeze(realpathSync(runDirectory));
     const expected = z.object({ jobSha256: sha256Schema, briefSha256: sha256Schema }).parse(freeze.taskBinding);
-    return loadResearchSeed(runDirectory, expected).seed.snapshotSha256;
+    return { snapshotSha256: loadResearchSeed(runDirectory, expected).seed.snapshotSha256, code: null };
   } catch (error) {
     if (error instanceof Error && error.message === "research_seed_directory_invalid") throw error;
-    return null;
+    return { snapshotSha256: null, code: error instanceof Error && /^[a-z0-9_]{1,80}$/u.test(error.message) ? error.message : "research_seed_load_failed" };
   }
 }
+/** A fingerprint is offered only when the complete v4 seed, input, packet and actual receipts validate read-only. */
+export function researchTransferSnapshot(runDirectory: string): string | null { return researchTransferStatus(runDirectory).snapshotSha256; }
 /** Whether a run's ledger holds a research transfer the loop can seed from (the stage completed). */
 export function researchTransferPresent(runDirectory: string): boolean { return researchTransferSnapshot(runDirectory) !== null; }
 

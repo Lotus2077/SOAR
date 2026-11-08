@@ -123,7 +123,7 @@ describe("priced exact consultation", () => {
     expect(f.store.dispatches("job")[0]).toMatchObject({ status: "unknown", reservedFeeMicrousd: f.prepared.maxFeeMicrousd,
       failure: { phase: "settlement", code: "response_or_usage_invalid" } });
     expect(f.store.dispatches("job")[0]!.feeMicrousd).toBeUndefined();
-    await expect(f.dispatch(f.grant())).rejects.toThrow("private_agent_unresolved_dispatch");
+    await expect(f.dispatch(f.grant())).rejects.toMatchObject({ code: "unresolved_dispatch" });
     expect(f.requests).toHaveLength(1);
   });
 
@@ -237,6 +237,6 @@ describe("priced exact consultation", () => {
     expect(f.store.dispatches("job")[0]).toMatchObject({ approval: f.approval, status: "unknown", reservedFeeMicrousd: f.prepared.maxFeeMicrousd,
       failure: { phase: "settlement", code: "response_or_usage_invalid" } });
     expect(f.store.dispatches("job")[0]!.feeMicrousd).toBeUndefined();
-    await expect(f.dispatch(f.grant())).rejects.toThrow("private_agent_unresolved_dispatch"); expect(f.requests).toHaveLength(1);
+    await expect(f.dispatch(f.grant())).rejects.toMatchObject({ code: "unresolved_dispatch" }); expect(f.requests).toHaveLength(1);
   });
 });

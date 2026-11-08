@@ -8,12 +8,34 @@ export const PRIVATE_SANDBOX_LIMITS = Object.freeze({
 /** A command the model runs is stopped inside the container at this exit code; the container survives. */
 export const SANDBOX_COMMAND_TIMEOUT_EXIT_CODE = 124;
 
-export type SandboxErrorCode = "invalid_input" | "unavailable" | "command_timeout" | "cancelled"
-  | "output_limit" | "unsafe_file" | "unusable" | "busy" | "cleanup_failed";
+export const SANDBOX_ERROR_CODES = ["invalid_input", "unavailable", "command_timeout", "cancelled",
+  "output_limit", "unsafe_file", "unusable", "busy", "cleanup_failed"] as const;
+export type SandboxErrorCode = (typeof SANDBOX_ERROR_CODES)[number];
 
 /** Errors deliberately contain no daemon diagnostics, commands, file contents or host paths. */
 export class SandboxError extends Error {
   constructor(readonly code: SandboxErrorCode) { super(`Private sandbox: ${code}`); this.name = "SandboxError"; }
+}
+
+/**
+ * Why the lister left a workspace entry out of a capture (backlog item 3, BL-20261107-0924, B): a link, a special file, a file
+ * over 64 MiB, a name the host path rule refuses (counted, never named), a regular file beyond the 1,024-file cap, and, added by
+ * the runner, a file beyond the 128 MiB total. The lister reports instead of dying, so an ordinary workspace (a virtual
+ * environment, a clone) no longer destroys the container at capture.
+ */
+export const LISTER_OMISSION_REASONS = ["symlink", "hard_link", "special", "oversize", "name_invalid", "cap"] as const;
+export const WORKSPACE_OMISSION_REASONS = [...LISTER_OMISSION_REASONS, "total_cap"] as const;
+export type WorkspaceOmissionReason = (typeof WORKSPACE_OMISSION_REASONS)[number];
+/** The walk stops once this many entries have been seen; the report then says it is incomplete. */
+export const WORKSPACE_LISTING_MAX_ENTRIES = 4096;
+/** At most this many omitted paths are named; every omission is counted per reason. */
+export const WORKSPACE_LISTING_MAX_OMITTED_PATHS = 32;
+export interface WorkspaceListing {
+  files: { path: string; size: number }[];
+  omitted: { path: string; reason: WorkspaceOmissionReason }[];
+  counts: Record<(typeof LISTER_OMISSION_REASONS)[number], number>;
+  /** False when the walk stopped at the entry cap, so more entries may be missing than were counted. */
+  complete: boolean;
 }
 
 export interface DockerSandboxInput {
@@ -63,8 +85,34 @@ function checkedInput(input: DockerSandboxInput): DockerSandboxInput {
     endpoint: input.endpoint, lifetimeSeconds: input.lifetimeSeconds ?? 1800 };
 }
 
-interface ProcessResult { exitCode: number; stdout: Buffer; stderr: Buffer }
-interface ProcessOptions { timeoutMs: number; maxBytes: number; signal?: AbortSignal; input?: AsyncIterable<Buffer> }
+interface ProcessResult { exitCode: number; stdout: Buffer; stderr: Buffer; truncated: boolean }
+interface ProcessOptions {
+  timeoutMs: number; maxBytes: number; signal?: AbortSignal; input?: AsyncIterable<Buffer>;
+  /** Keep the first `maxBytes` of both streams and discard the rest instead of failing closed (the model's `execute` only). */
+  truncate?: boolean;
+}
+
+/**
+ * Host-side output bound (backlog item 3, finding A4). Every protocol call fails closed at its cap, since more output than the
+ * protocol allows means a malformed reply. The model's `execute` instead keeps the first `maxBytes` of stdout and stderr together
+ * in arrival order, cutting the chunk that crosses the cap, and discards the rest while the client stays attached, so the command
+ * runs to its own end (or to the in-container timeout), its exit code is its own and the container stays usable. Exported for the
+ * unit test; `push` returns false when the caller must fail.
+ */
+export function boundedOutputCollector(maxBytes: number, truncate: boolean): { push(target: Buffer[], chunk: Buffer): boolean; truncated(): boolean } {
+  let size = 0, truncated = false;
+  return {
+    push(target, chunk) {
+      const room = maxBytes - size;
+      if (chunk.length <= room) { size += chunk.length; target.push(chunk); return true; }
+      if (!truncate) return false;
+      truncated = true;
+      if (room > 0) { target.push(chunk.subarray(0, room)); size = maxBytes; }
+      return true;
+    },
+    truncated: () => truncated,
+  };
+}
 
 // These variables configure the trusted Docker client only. None is passed to the container.
 function clientEnvironment(pinned: boolean): NodeJS.ProcessEnv {
@@ -81,7 +129,8 @@ function docker(args: string[], options: ProcessOptions): Promise<ProcessResult>
   return new Promise((resolve, reject) => {
     const child = spawn("docker", args, { env: clientEnvironment(args[0] === "--host"), stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
     const stdout: Buffer[] = [], stderr: Buffer[] = [];
-    let settled = false, size = 0;
+    let settled = false;
+    const bound = boundedOutputCollector(options.maxBytes, options.truncate === true);
     const cleanup = () => { clearTimeout(timer); options.signal?.removeEventListener("abort", cancelled); };
     const fail = (code: SandboxErrorCode) => {
       if (settled) return;
@@ -95,9 +144,7 @@ function docker(args: string[], options: ProcessOptions): Promise<ProcessResult>
     if (options.signal?.aborted) cancelled();
     const collect = (target: Buffer[], chunk: Buffer) => {
       if (settled) return;
-      size += chunk.length;
-      if (size > options.maxBytes) { fail("output_limit"); return; }
-      target.push(chunk);
+      if (!bound.push(target, chunk)) fail("output_limit");
     };
     child.stdout.on("data", (chunk: Buffer) => collect(stdout, chunk));
     child.stderr.on("data", (chunk: Buffer) => collect(stderr, chunk));
@@ -107,7 +154,7 @@ function docker(args: string[], options: ProcessOptions): Promise<ProcessResult>
       if (settled) return;
       settled = true; cleanup();
       if (code === null) reject(new SandboxError("unavailable"));
-      else resolve({ exitCode: code, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) });
+      else resolve({ exitCode: code, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr), truncated: bound.truncated() });
     });
     void (async () => {
       try {
@@ -128,7 +175,10 @@ import os, sys, stat, json
 def die():
     sys.exit(53)
 def valid(p):
-    return isinstance(p, str) and 0 < len(p.encode('utf-8')) <= 240 and len(p.split('/')) <= 32 and all(x not in ('', '.', '..') for x in p.split('/')) and not any(ord(c) < 32 or ord(c) == 127 or c == '\\' for c in p)
+    try:
+        return isinstance(p, str) and 0 < len(p.encode('utf-8')) <= 240 and len(p.split('/')) <= 32 and all(x not in ('', '.', '..') for x in p.split('/')) and not any(ord(c) < 32 or ord(c) == 127 or c == '\\' for c in p)
+    except UnicodeEncodeError:
+        return False
 def root():
     return os.open('/workspace', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
 def parent(p, create=False):
@@ -199,30 +249,79 @@ except BaseException:
     die()
 `;
 
-const LIST_FILES = FILE_HELPERS + String.raw`
+/**
+ * Backlog item 3 (BL-20261107-0924, B): the lister walks /workspace in sorted order through dir_fd + O_NOFOLLOW, never follows
+ * a link, and reports what it leaves out instead of dying: a symlink, a multi-link file, a FIFO, socket or device, a file over
+ * 64 MiB, a name the host path rule refuses (counted, never named: its name fails that very rule) and a regular file beyond the
+ * 1,024-file cap. Once 4,096 entries have been seen the walk stops and the report says it is incomplete. die() (exit 53) remains
+ * only for the walk's own failure, which the host maps to unsafe_file as before. Exported for the host-side unit test, which
+ * runs it under the machine's python3 against a temporary directory in place of /workspace.
+ */
+export const LIST_FILES = FILE_HELPERS + String.raw`
 try:
-    paths, seen = [], [0]
+    files, omitted, seen, complete = [], [], [0], [True]
+    counts = {'symlink': 0, 'hard_link': 0, 'special': 0, 'oversize': 0, 'name_invalid': 0, 'cap': 0}
+    def omit(p, reason):
+        counts[reason] += 1
+        if p is not None and len(omitted) < 32: omitted.append([p, reason])
     def walk(fd, prefix=''):
-        for entry in os.scandir(fd):
+        for entry in sorted(os.scandir(fd), key=lambda e: e.name):
+            if seen[0] >= 4096:
+                complete[0] = False
+                return
             seen[0] += 1
             p = prefix + entry.name
-            if seen[0] > 4096 or not valid(p): die()
+            if not valid(p):
+                omit(None, 'name_invalid')
+                continue
             s = entry.stat(follow_symlinks=False)
             if stat.S_ISDIR(s.st_mode):
                 sub = os.open(entry.name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
                 try: walk(sub, p + '/')
                 finally: os.close(sub)
-            elif regular(s) and s.st_size <= 67108864:
-                paths.append(p)
-                if len(paths) > 1024: die()
-            else: die()
+                if not complete[0]: return
+            elif stat.S_ISLNK(s.st_mode): omit(p, 'symlink')
+            elif not stat.S_ISREG(s.st_mode): omit(p, 'special')
+            elif s.st_nlink != 1: omit(p, 'hard_link')
+            elif s.st_size > 67108864: omit(p, 'oversize')
+            elif len(files) >= 1024: omit(p, 'cap')
+            else: files.append([p, s.st_size])
     fd = root()
     try: walk(fd)
     finally: os.close(fd)
-    print(json.dumps(sorted(paths), ensure_ascii=True))
+    files.sort()
+    print(json.dumps({'files': files, 'omitted': omitted, 'counts': counts, 'complete': complete[0]}, ensure_ascii=True))
 except BaseException:
     die()
 `;
+
+/**
+ * Parses and validates the lister's reply; any other shape is refused as unsafe_file (the container is then closed, and the
+ * runner recreates it from the last checkpoint). Exported for the unit test.
+ */
+export function parseWorkspaceListing(raw: Buffer | string): WorkspaceListing {
+  const refuse = () => new SandboxError("unsafe_file");
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw.toString("utf8")); } catch { throw refuse(); }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || Object.keys(parsed).sort().join() !== "complete,counts,files,omitted") throw refuse();
+  const { files, omitted, counts, complete } = parsed as Record<string, unknown>;
+  if (typeof complete !== "boolean" || !Array.isArray(files) || files.length > PRIVATE_SANDBOX_LIMITS.files || !Array.isArray(omitted) || omitted.length > WORKSPACE_LISTING_MAX_OMITTED_PATHS ||
+      !counts || typeof counts !== "object" || Array.isArray(counts) || Object.keys(counts).sort().join() !== [...LISTER_OMISSION_REASONS].sort().join()) throw refuse();
+  const sizes = Object.values(counts as Record<string, unknown>);
+  if (!sizes.every(count => typeof count === "number" && Number.isSafeInteger(count) && count >= 0)) throw refuse();
+  const names = new Set<string>();
+  const listed = files.map(item => {
+    if (!Array.isArray(item) || item.length !== 2 || typeof item[0] !== "string" || !validPath(item[0]) || names.has(item[0]) ||
+        typeof item[1] !== "number" || !Number.isSafeInteger(item[1]) || item[1] < 0 || item[1] > PRIVATE_SANDBOX_LIMITS.fileBytes) throw refuse();
+    names.add(item[0]); return { path: item[0], size: item[1] };
+  });
+  const left = omitted.map(item => {
+    if (!Array.isArray(item) || item.length !== 2 || typeof item[0] !== "string" || !validPath(item[0]) || names.has(item[0]) ||
+        typeof item[1] !== "string" || !(LISTER_OMISSION_REASONS as readonly string[]).includes(item[1])) throw refuse();
+    names.add(item[0]); return { path: item[0], reason: item[1] as WorkspaceOmissionReason };
+  });
+  return { files: listed, omitted: left, counts: counts as WorkspaceListing["counts"], complete };
+}
 
 const EDIT_FILE = FILE_HELPERS + String.raw`
 def soft(reason, **extra):
@@ -416,16 +515,19 @@ export class DockerSandbox {
       // command becomes an observation; the Docker-side deadline is only a backstop.
       const seconds = Math.max(1, Math.floor(options.timeoutMs / 1000));
       const startedAt = performance.now();
+      // Backlog item 3 (finding A4): output beyond the cap is discarded, never a reason to fail the exec and destroy the container.
       const result = await this.call(["exec", "-i", "--user", "65534:65534", "--workdir", "/workspace", this.name,
         "/usr/bin/env", "-i", "PATH=/usr/local/bin:/usr/bin:/bin", "HOME=/tmp", "LANG=C.UTF-8", "PYTHONDONTWRITEBYTECODE=1",
         "/usr/bin/timeout", "-k", "5", String(seconds), "/bin/sh", "-c", command],
-      { timeoutMs: options.timeoutMs + 15_000, maxBytes: PRIVATE_SANDBOX_LIMITS.outputBytes, signal: options.signal });
+      { timeoutMs: options.timeoutMs + 15_000, maxBytes: PRIVATE_SANDBOX_LIMITS.outputBytes, signal: options.signal, truncate: true });
       if (!this.usable) throw new SandboxError("unusable");
       // 137 after the deadline means the command ignored SIGTERM and took the SIGKILL.
       const killed = result.exitCode === 137 && performance.now() - startedAt >= seconds * 1000;
       const note = result.exitCode === SANDBOX_COMMAND_TIMEOUT_EXIT_CODE ? `\n[host] The command was stopped after ${seconds} s (exit ${SANDBOX_COMMAND_TIMEOUT_EXIT_CODE}); the workspace remains usable.`
         : killed ? `\n[host] The command ignored the stop signal and was killed after ${seconds} s (exit 137); the workspace remains usable.` : "";
-      return { exitCode: result.exitCode, stdout: result.stdout.toString("utf8"), stderr: result.stderr.toString("utf8") + note };
+      // A fixed note, like the timeout's, so the observation blob's strict schema and the progress hash are unchanged.
+      const overflow = result.truncated ? `\n[host] The command's output exceeded ${PRIVATE_SANDBOX_LIMITS.outputBytes} bytes; only the first ${PRIVATE_SANDBOX_LIMITS.outputBytes} bytes of stdout and stderr together, in arrival order, were retained and the rest was discarded. The workspace remains usable: write large output to a file under /workspace and inspect it in parts.` : "";
+      return { exitCode: result.exitCode, stdout: result.stdout.toString("utf8"), stderr: result.stderr.toString("utf8") + note + overflow };
     });
   }
 
@@ -439,15 +541,14 @@ export class DockerSandbox {
     });
   }
 
-  async listFiles(): Promise<string[]> {
+  /** The regular files the next capture can read, with their sizes, and what the lister left out and why (BL-20261107-0924, B). */
+  async listFiles(): Promise<WorkspaceListing> {
     return this.operation(async () => {
       const result = await this.call(this.python(LIST_FILES), { timeoutMs: 30_000, maxBytes: 512 * 1024 });
       if (result.exitCode !== 0) throw new SandboxError("unsafe_file");
-      const paths: unknown = JSON.parse(result.stdout.toString("utf8"));
-      if (!Array.isArray(paths) || paths.length > PRIVATE_SANDBOX_LIMITS.files
-        || !paths.every(item => typeof item === "string" && validPath(item)) || new Set(paths).size !== paths.length) throw new SandboxError("unsafe_file");
+      const listing = parseWorkspaceListing(result.stdout);
       if (!this.usable) throw new SandboxError("unusable");
-      return paths;
+      return listing;
     });
   }
 

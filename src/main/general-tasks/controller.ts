@@ -17,7 +17,7 @@ import { loadFlashNextTokenAdmission, LOCAL_TOKEN_ADMISSION_STOP } from "../priv
 import { isIP } from "node:net";
 import { readPublicSources } from "../private-agent/public-sources";
 import { MODEL_FEE_CAP_STOP, DEADLINE_BEFORE_REQUEST_STOP, MODEL_UNAVAILABLE_STOP, modelRequestFailed, modelRequestFeeStop, PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop, modelIdentity,
-  modelRequestTokenAdmissionStop, hasInvalidModelRequestTokenAdmissionStop } from "../private-agent/model";
+  modelRequestTokenAdmissionStop, hasInvalidModelRequestTokenAdmissionStop, BROKER_DENIED_STOP, MODEL_REQUEST_DENIED_STOP, PACKET_SCAN_UNAVAILABLE_STOP, modelRequestBrokerDenied } from "../private-agent/model";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "../private-agent/checkpoints";
 import { GeneralAgentSession, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../private-agent/session";
 import { DockerSandbox } from "../private-agent/sandbox";
@@ -60,6 +60,8 @@ const fixedReasons: Record<string, string> = {
   fee_cap_reached: "The task reached its cloud fee cap before the next request; nothing more was sent. Saved progress is retained; this task cannot resume.",
   model_unavailable: "The local model could not be reached after the permitted attempts. Nothing is uncertain; resume when the model is back.",
   public_model_unavailable: "The local model could not be reached during public retrieval after the permitted attempts. Nothing is uncertain; resume when the model is back.",
+  packet_scan_unavailable: "The scanner that checks an outbound request was unavailable, so the next model request was not sent. Nothing is uncertain; resume when the scanner is available.",
+  model_request_denied: "The broker refused the next model request before it was sent (a destination, packet or ledger rule), so nothing is uncertain. Saved progress is retained; this task cannot resume.",
   cleanup_in_progress: "The task remains cancelled while its interrupted execution workspace is cleaned up. No request will be replayed.",
   cleanup_blocked: "Cancellation is recorded, but interrupted execution cleanup could not be confirmed. No request will be replayed.",
   consultation_pending: "Progress saved. Review the exact consultation packet before deciding whether to send it.",
@@ -404,7 +406,7 @@ export class GeneralTaskController {
     return readConsultation(this.runtime, id)?.uncertain === true || this.runtime.dispatches(id).some(row => isBlockingDispatch(row, privateContextId) && !isEntailmentDispatch(row)) || hasInvalidModelRequestSizeStop(events) || hasInvalidModelRequestTokenAdmissionStop(events) ||
       this.unresolvedProgressAction(events, id) || events.some(event => event.type === "model_action_not_started" &&
       (!stopped || canonical(event) !== canonical(stopped)) ||
-      ["model_started", "tool_started", "host_validation_started"].includes(String(event.type)) && !modelRequestSizeStop(events, event) && !modelRequestFeeStop(events, event) && !modelRequestTokenAdmissionStop(events, event) && !modelRequestFailed(events, event) &&
+      ["model_started", "tool_started", "host_validation_started"].includes(String(event.type)) && !modelRequestSizeStop(events, event) && !modelRequestFeeStop(events, event) && !modelRequestTokenAdmissionStop(events, event) && !modelRequestBrokerDenied(events, event) && !modelRequestFailed(events, event) &&
       !events.some(other => other.type === String(event.type).replace("_started", "_finished") && other.operationId === event.operationId));
   }
   private unresolvedProgressAction(events: Record<string, unknown>[], id: string): boolean {
@@ -482,7 +484,7 @@ export class GeneralTaskController {
     const progressStopped = this.progressStop(events, id);
     // A durable private completion only needs finalisation (submission and the evidence pass), which no allowance or deadline gates.
     const finalising = contextId !== undefined && events.some(event => event.type === "completed" && event.contextId === contextId);
-    const canResume = !this.closing && !active && (record.status === "paused" || record.status === "incomplete" && (record.reason === "interrupted" || record.reason === MODEL_UNAVAILABLE_STOP || record.reason === `public_${MODEL_UNAVAILABLE_STOP}`)) &&
+    const canResume = !this.closing && !active && (record.status === "paused" || record.status === "incomplete" && (record.reason === "interrupted" || record.reason === MODEL_UNAVAILABLE_STOP || record.reason === `public_${MODEL_UNAVAILABLE_STOP}` || record.reason === PACKET_SCAN_UNAVAILABLE_STOP)) &&
       (finalising || models < this.budget(record).modelCalls && tools < this.budget(record).toolCalls && !expired) && !uncertain && !sizeStopped && !feeStopped && !tokenStopped && !progressStopped && consultation?.status !== "pending" &&
       !(consultation?.status === "approved" && models > this.budget(record).modelCalls - 2);
     const reason = record.status === "cancelled" && cleanupConfirmed ? "cancelled" : !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : feeStopped ? MODEL_FEE_CAP_STOP : tokenStopped ? LOCAL_TOKEN_ADMISSION_STOP : progressStopped ? EXECUTION_PROGRESS_STOP : expired ? "deadline" :
@@ -526,7 +528,11 @@ export class GeneralTaskController {
         summary: event.type === "model_action_not_started" && event.reason === EXECUTION_PROGRESS_STOP ?
           progressStopped && canonical(event) === canonical(progressStopped) ? "The unchanged failed command was stopped before execution." :
             "The action stop could not be verified; replay is blocked." : event.type === "model_request_not_dispatched" && event.reason === LOCAL_TOKEN_ADMISSION_STOP ?
-              "The next local-model request failed its context or deployment checks and was not sent." : event.type === "nudge" && event.kind === "length" ? "The reply was cut at the output limit; the host asked for smaller writes." : summaries[String(event.type)] ?? "Task state updated." })) };
+              "The next local-model request failed its context or deployment checks and was not sent." : event.type === "model_request_not_dispatched" && event.reason === BROKER_DENIED_STOP ?
+                "The broker refused the next model request before it was sent; nothing is uncertain." : event.type === "nudge" && event.kind === "length" ? "The reply was cut at the output limit; the host asked for smaller writes." :
+                  // A validation the host closed without a verifier result (BL-20261107-0924 A; BL-20261107-1041, 12) recorded no checks.
+                  event.type === "host_validation_finished" && event.passed === false && (event.verificationFailure !== undefined || event.captureFailure !== undefined) ?
+                    "The frozen artifact could not be verified; the validation is closed and nothing is uncertain." : summaries[String(event.type)] ?? "Task state updated." })) };
   }
   list(): GeneralTaskSnapshot[] { return this.records().map(record => this.get(record.id)); }
 
@@ -631,7 +637,9 @@ export class GeneralTaskController {
       if (judged) next.entailment = { counts: judged.counts, entailmentCalls: judged.entailmentCalls, truncated: judged.truncated, claims: judged.verdicts };
       next.status = submitted ? "submitted" : active.cancelRequested ? "cancelled" : result.status === "paused" ? "paused" : "incomplete";
       next.reason = !preserved ? "configuration_changed" : result.reason === "consultation_pending" ? "consultation_pending" :
-        result.reason === MODEL_REQUEST_SIZE_STOP ? MODEL_REQUEST_SIZE_STOP : result.reason === MODEL_FEE_CAP_STOP ? MODEL_FEE_CAP_STOP : result.reason === LOCAL_TOKEN_ADMISSION_STOP ? LOCAL_TOKEN_ADMISSION_STOP : (result.reason === MODEL_UNAVAILABLE_STOP || result.reason === `public_${MODEL_UNAVAILABLE_STOP}` || result.reason === DEADLINE_BEFORE_REQUEST_STOP) && next.status === "incomplete" ? result.reason : next.status; this.save(next);
+        result.reason === MODEL_REQUEST_SIZE_STOP ? MODEL_REQUEST_SIZE_STOP : result.reason === MODEL_FEE_CAP_STOP ? MODEL_FEE_CAP_STOP : result.reason === LOCAL_TOKEN_ADMISSION_STOP ? LOCAL_TOKEN_ADMISSION_STOP :
+        // Backlog item 3 (finding A5): an unavailable scanner stays resumable, a recurring broker refusal does not; both keep their fixed text.
+        (result.reason === MODEL_UNAVAILABLE_STOP || result.reason === `public_${MODEL_UNAVAILABLE_STOP}` || result.reason === DEADLINE_BEFORE_REQUEST_STOP || result.reason === PACKET_SCAN_UNAVAILABLE_STOP || result.reason === MODEL_REQUEST_DENIED_STOP) && next.status === "incomplete" ? result.reason : next.status; this.save(next);
     } catch (error) {
       const record = this.record(id); record.status = active.cancelRequested ? "cancelled" : "incomplete";
       record.reason = error instanceof Error && error.message === "general_task_configuration_changed" ? "configuration_changed" : "runtime_unavailable"; this.save(record);

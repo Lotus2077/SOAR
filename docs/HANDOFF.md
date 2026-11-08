@@ -143,7 +143,7 @@ rebase puts them side by side.
 | 10 (week 1) | #38, on #37 | `fix/assist-purpose-exception` | BL-20261107-0839, -0842 |
 | 2 | #40 | `fix/owner-verdict-capture` | BL-20261107-0829, -0852 |
 | 5 | #41 | `feat/serving-probe-extensions` | BL-20261107-0900 |
-| 3 | #43, on #38 | `fix/stop-bricking-tasks` | BL-20261107-0901, -0936, -1006, -1041, -1110, -1111 |
+| 3 | #43, on #38 | `fix/stop-bricking-tasks` | BL-20261107-0924, -0936, -1006, -1041, -1110, -1111 |
 | 4 | #42, on #38 | `feat/label-keyed-diagnostics` | BL-20261107-0859, -0923 |
 
 Item 3's implementation went through three adversarial review rounds; the brick paths they

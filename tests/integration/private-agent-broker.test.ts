@@ -151,7 +151,7 @@ describe("private agent real host transport", () => {
     const reopened = new Database(join(dir, "state.sqlite")); cleanups.push(() => { reopened.close(); });
     const second = new PrivateAgentBroker(new PrivateAgentStore(reopened), [f.destination], clean);
     expect(new PrivateAgentStore(reopened).dispatches("job")).toEqual(f.store.dispatches("job"));
-    await expect(second.request(f.input)).rejects.toThrow("private_agent_unresolved_dispatch");
+    await expect(second.request(f.input)).rejects.toMatchObject({ code: "unresolved_dispatch" });
     expect(f.requests).toHaveLength(1);
   });
 
@@ -221,13 +221,13 @@ describe("unknown request diagnostics", () => {
     expect(failure.elapsedMs).toBeGreaterThanOrEqual(90);
     external.abort(new Error(sensitive));
     expect(f.store.dispatches("job")[0]!.failure).toEqual(failure);
-    await expect(f.broker.request(f.input)).rejects.toThrow("private_agent_unresolved_dispatch");
+    await expect(f.broker.request(f.input)).rejects.toMatchObject({ code: "unresolved_dispatch" });
     const originalReceipts = f.store.dispatches("job");
     f.db.close();
     const reopened = new Database(databasePath, { fileMustExist: true }); cleanups.push(() => { reopened.close(); });
     const restored = new PrivateAgentStore(reopened);
     expect(restored.dispatches("job")).toEqual(originalReceipts);
-    await expect(new PrivateAgentBroker(restored, [f.destination], clean).request(f.input)).rejects.toThrow("private_agent_unresolved_dispatch");
+    await expect(new PrivateAgentBroker(restored, [f.destination], clean).request(f.input)).rejects.toMatchObject({ code: "unresolved_dispatch" });
     expect(f.requests).toHaveLength(1);
   });
 
@@ -238,7 +238,7 @@ describe("unknown request diagnostics", () => {
     await seen; external.abort(new Error(sensitive));
     await expect(pending).rejects.toThrow("transport_or_settlement_unknown");
     diagnostic(f, "transport", "cancelled");
-    await expect(f.broker.request(f.input)).rejects.toThrow("private_agent_unresolved_dispatch");
+    await expect(f.broker.request(f.input)).rejects.toMatchObject({ code: "unresolved_dispatch" });
     expect(f.requests).toHaveLength(1);
   });
 
@@ -249,7 +249,7 @@ describe("unknown request diagnostics", () => {
     } });
     await expect(f.broker.request(f.input)).rejects.toThrow("transport_or_settlement_unknown");
     diagnostic(f, "transport", "response_oversize");
-    await expect(f.broker.request(f.input)).rejects.toThrow("private_agent_unresolved_dispatch");
+    await expect(f.broker.request(f.input)).rejects.toMatchObject({ code: "unresolved_dispatch" });
     expect(f.requests).toHaveLength(1);
   });
   it("classifies an error answer as a confirmed abort for any destination: resolved, never retried without the flag, never blocking", async () => {
@@ -272,7 +272,7 @@ describe("unknown request diagnostics", () => {
     await expect(cloud.broker.request(cloud.input)).rejects.toThrow("transport_or_settlement_unknown");
     expect(cloud.store.dispatches("job")[0]).toMatchObject({ status: "unknown", failure: { phase: "transport", code: "upstream_closed" } });
     expect(JSON.stringify(cloud.store.dispatches("job")[0])).not.toContain(sensitive);
-    await expect(cloud.broker.request(cloud.input)).rejects.toThrow("private_agent_unresolved_dispatch");
+    await expect(cloud.broker.request(cloud.input)).rejects.toMatchObject({ code: "unresolved_dispatch" });
     const local = await fixture({ kind: "local_model", privateDataAdmitted: true, classification: "public", handler: request => request.socket.destroy(new Error(sensitive)) });
     await expect(local.broker.request({ ...local.input, maxFeeMicrousd: 0 })).rejects.toThrow("request_failed");
     expect(local.store.dispatches("job")[0]).toMatchObject({ status: "failed", failure: { code: "upstream_closed" } });
@@ -295,7 +295,7 @@ describe("unknown request diagnostics", () => {
       throw new Error(sensitive);
     })).rejects.toThrow("transport_or_settlement_unknown");
     diagnostic(f, "settlement", "response_or_usage_invalid");
-    await expect(f.broker.request(f.input)).rejects.toThrow("private_agent_unresolved_dispatch");
+    await expect(f.broker.request(f.input)).rejects.toMatchObject({ code: "unresolved_dispatch" });
   });
 
   it.each([101, Number.NaN, -1])("records invalid settled fee %s as settlement, retaining the reservation", async fee => {
@@ -667,7 +667,7 @@ describe("zero-risk failures resolve (backlog item 1 of the 2026-11-05 review)",
     const f = await fixture({ classification: "public" });
     await expect(f.broker.request(f.input, () => { throw new Error("model_usage_outside_envelope"); })).rejects.toThrow("transport_or_settlement_unknown");
     expect(f.store.dispatches("job")[0]).toMatchObject({ status: "unknown", reservedFeeMicrousd: 100, failure: { phase: "settlement", code: "response_or_usage_invalid", subcode: "model_usage_outside_envelope" } });
-    await expect(f.broker.request(f.input)).rejects.toThrow("private_agent_unresolved_dispatch");
+    await expect(f.broker.request(f.input)).rejects.toMatchObject({ code: "unresolved_dispatch" });
     const slow = await fixture({ classification: "public", timeoutMs: 200, handler: () => {} });
     await expect(slow.broker.request(slow.input)).rejects.toThrow("transport_or_settlement_unknown");
     expect(slow.store.dispatches("job")[0]).toMatchObject({ status: "unknown", failure: { code: "request_timeout" } });

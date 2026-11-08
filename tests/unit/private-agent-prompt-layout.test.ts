@@ -13,6 +13,7 @@ import { EXECUTION_PROGRESS_POLICY } from "../../src/main/private-agent/progress
 import { CURRENT_PROMPT_LAYOUT_VERSION, GeneralAgentRunner, promptProtocol, type GeneralJobContract, type GeneralJobOptions } from "../../src/main/private-agent/runner";
 import { DockerSandbox } from "../../src/main/private-agent/sandbox";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
+import { workspaceListing } from "../helpers/workspace-listing";
 
 const cleanup: (() => void)[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const done of cleanup.splice(0).reverse()) done(); });
@@ -72,7 +73,7 @@ function fixture(actions: Action[], variant: "plain" | "public" = "plain", limit
       clock += 50; commands.push(command);
       if (command === "write result") contents.set("output.txt", Buffer.from("computed fixture result"));
       return { exitCode: command.startsWith("fail ") ? 1 : 0, stdout: "synthetic evidence", stderr: "" };
-    }, async listFiles() { return [...contents.keys()].sort(); },
+    }, async listFiles() { return workspaceListing(contents); },
     async readFile(path: string) { return Buffer.from(contents.get(path)!); },
     async editFile() { return { ok: true, bytes: 0 }; }, async close() { clock += 5; } } as unknown as DockerSandbox;
   });

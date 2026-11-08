@@ -8,9 +8,9 @@ import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { PrivateAgentBroker, type BrokerDestination } from "../../src/main/private-agent/broker";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
-import { digest, restrictedContext } from "../../src/main/private-agent/contracts";
+import { diagnosticRetention, digest, restrictedContext } from "../../src/main/private-agent/contracts";
 import { GeneralAgentSession, RESEARCH_TRANSFER_CHECK_ID, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../../src/main/private-agent/session";
-import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET } from "../../src/main/private-agent/research-pipeline";
+import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, type ResearchDiagnostic } from "../../src/main/private-agent/research-pipeline";
 import { researchV4Reply } from "../helpers/research-v4-fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -231,5 +231,32 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(start).not.toHaveProperty("readerContextId");
     expect(f.store.events("job-plain").some(event => String(event.type).startsWith("research_"))).toBe(false);
     expect(runs[0]!.files).not.toContain(RESEARCH_FILES.evidence); expect(runs[0]!.goal).not.toContain("reading stage");
+  });
+
+  it("backlog item 4: forwards the diagnostics sink for a synthetic-attested job and withholds it for a labelled one, with no other difference in events or receipts", async () => {
+    const f = await fixture(() => "not a plan");
+    const retained: ResearchDiagnostic[] = [], withheld: ResearchDiagnostic[] = [];
+    // The headless driver's shape: private sources under the synthetic attestation, so the reader context's retention is raw.
+    const synthetic = options(f, "job-raw", []); synthetic.research = { ...synthetic.research!, diagnostics: { retain: entry => retained.push(entry) } };
+    expect(await new GeneralAgentSession(synthetic).run()).toMatchObject({ status: "incomplete", reason: "research_plan_invalid" });
+    expect(retained.map(entry => [entry.stage, entry.ordinal, entry.purpose, entry.content])).toEqual([["plan", 1, "research plan", "not a plan"], ["plan", 2, "research plan", "not a plan"]]);
+    expect(retained.every(entry => entry.reasons.length === 1 && entry.reasons[0]!.code === "invalid_json")).toBe(true);
+    // A labelled job: private lineage without the attestation, every role on the destination that admits private data; the sink is never called.
+    const labelled = options(f, "job-labelled", [], "private-model"); delete labelled.syntheticInputApproval;
+    labelled.research = { ...labelled.research!, diagnostics: { retain: entry => withheld.push(entry) } };
+    expect(await new GeneralAgentSession(labelled).run()).toMatchObject({ status: "incomplete", reason: "research_plan_invalid" });
+    expect(withheld).toEqual([]);
+    const reader = (jobId: string) => String(f.store.events(jobId).find(event => event.type === "session_started")!.readerContextId);
+    expect(diagnosticRetention(f.store.context(reader("job-raw")))).toBe("raw"); expect(diagnosticRetention(f.store.context(reader("job-labelled")))).toBe("hash_only");
+    // Beside the sink, nothing differs: the same stage events (hash-only, no reply text) and the same receipts, purpose for purpose.
+    const stages = (jobId: string) => f.store.events(jobId).filter(event => event.type === "research_stage").map(({ contextId: _context, ...rest }) => rest);
+    expect(stages("job-labelled")).toEqual(stages("job-raw")); expect(JSON.stringify(stages("job-raw"))).not.toContain("not a plan");
+    const rows = (jobId: string) => f.store.dispatches(jobId).map(row => [row.purpose, row.status, row.responseSha256]);
+    expect(rows("job-labelled")).toEqual(rows("job-raw")); expect(rows("job-raw")).toHaveLength(3);
+    // A sink is no part of the session identity: the same job without one starts with the same identity and records the same events.
+    const plain = options(f, "job-plain-sink", []);
+    expect(await new GeneralAgentSession(plain).run()).toMatchObject({ reason: "research_plan_invalid" });
+    const start = (jobId: string) => f.store.events(jobId).find(event => event.type === "session_started")!;
+    expect(start("job-plain-sink").identity).toBe(start("job-raw").identity); expect(stages("job-plain-sink")).toEqual(stages("job-raw"));
   });
 });

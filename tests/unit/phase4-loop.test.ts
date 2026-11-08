@@ -44,7 +44,7 @@ function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?:
     },
     readCritique(directory) { return JSON.parse(readFileSync(join(directory, "critique.json"), "utf8")) as CritiqueRecord; },
     summarize(directory) { const name = directory.split("/").pop()!; const found = input.summaries[name]; if (!found) throw new Error(`no summary for ${name}`); return found; },
-    transferSnapshot: snapshot,
+    transferStatus: directory => { const sha256 = snapshot(directory); return { snapshotSha256: sha256, code: sha256 ? null : "research_seed_no_transfer" }; },
     deliverables: () => ["output/report.md", "output/claims.json"],
     now: () => `t${tick++}`,
   };
@@ -83,6 +83,7 @@ describe("H4 select-and-repair loop", () => {
     expect(saved).toMatchObject({ version: LOOP_VERSION, selectionRule: 1, arm: "local", pipeline: null, runtimeSha256: h("4"), startedAt: "t0", finishedAt: expect.any(String) });
     expect(JSON.stringify(saved)).not.toContain(dir);
     expect(readFileSync(join(dir, "log.txt"), "utf8")).toContain("final repair (tie)");
+    expect(existsSync(join(dir, "errors.txt"))).toBe(false);  // backlog item 4: the error side file exists only when something was caught
     expect(loopExitCode(record)).toBe(0);
   });
   it("adds a truncated critique to the samples' length stops without changing the selection rule", async () => {
@@ -165,8 +166,10 @@ describe("H4 select-and-repair loop", () => {
     const dir3 = loopDir();
     const third = fakes({ summaries: { a: summary({ status: "incomplete", reason: "research_plan_invalid", artifactsPresent: 0 }) } });
     const record3 = await runSelectionLoop({ base: base({ pipeline: "research", cloudArm: cloud }), loopDirectory: dir3 }, third.deps);
-    expect(record3.selected).toEqual({ stage1: null, final: { candidate: "a", step: "stage_failed" } }); expect(third.calls.runs).toHaveLength(1); expect(third.calls.critiques).toHaveLength(0);
-    expect(record3.seeded).toEqual({ b: false, repair: false, snapshotSha256: null }); expect(read(dir3)).toMatchObject({ selected: { final: { step: "stage_failed" } }, failure: null });
+    expect(record3.selected).toEqual({ stage1: null, final: { candidate: "a", step: "stage_failed", seedRefusal: "research_seed_no_transfer" } }); expect(third.calls.runs).toHaveLength(1); expect(third.calls.critiques).toHaveLength(0);
+    expect(record3.seeded).toEqual({ b: false, repair: false, snapshotSha256: null }); expect(read(dir3)).toMatchObject({ selected: { final: { step: "stage_failed", seedRefusal: "research_seed_no_transfer" } }, failure: null });
+    // Backlog item 4: the seed loader's refusal code is in the log too, and a loop that ended by rule wrote no error side file.
+    expect(readFileSync(join(dir3, "log.txt"), "utf8")).toContain("stage failed in a (research_seed_no_transfer): loop ends"); expect(existsSync(join(dir3, "errors.txt"))).toBe(false);
     expect(loopExitCode(record3)).toBe(2);
   });
   it("stops without a critique when the selected sample left no draft, keeps the stage-1 choice when the critique fails and counts the call it made, and is terminal afterwards", async () => {
@@ -189,6 +192,9 @@ describe("H4 select-and-repair loop", () => {
     const record3 = await runSelectionLoop({ base: base(), loopDirectory: dir3 }, early.deps);
     expect(record3.critique).toEqual({ failure: "repair_critique_failed", feeMicrousd: 0, finishReason: null, usage: null, modelCalls: 0 }); expect(record3.totals).toMatchObject({ modelCalls: 20, lengthStops: 0 });
     expect(readFileSync(join(dir3, "loop.json"), "utf8")).not.toContain("/Users"); expect(readFileSync(join(dir3, "log.txt"), "utf8")).not.toContain("/Users");
+    // Backlog item 4 (finding B6): the full error, name and message, reaches the operator through the side file beside its code.
+    expect(readFileSync(join(dir3, "errors.txt"), "utf8")).toMatch(/ repair_critique_failed Error: ENOENT: no such file or directory, lstat '\/Users\/someone\/task'\n$/u);
+    expect(readFileSync(join(dir2, "errors.txt"), "utf8")).toContain(" repair_critique_empty Error: repair_critique_empty\n");
     // A loop that chose is terminal whether or not the critique directory exists: a rerun is refused, never retried.
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, fakes({ summaries: candidates(false) }).deps)).rejects.toThrow("loop_terminal");
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: candidates(false) }).deps)).rejects.toThrow("loop_terminal");
@@ -200,6 +206,9 @@ describe("H4 select-and-repair loop", () => {
     const stopped = read(dir);
     expect(stopped).toMatchObject({ failure: "loop_failed", startedAt: "t0", finishedAt: expect.any(String) }); expect(stopped.selected.final).toBeNull();
     expect(JSON.stringify(stopped)).not.toContain("/Users"); expect(existsSync(join(dir, "log.txt"))).toBe(true);
+    // Backlog item 4 (finding B6): errors.txt holds the name and message; loop.json and log.txt keep the code.
+    expect(readFileSync(join(dir, "errors.txt"), "utf8")).toMatch(/ loop_failed Error: ENOSPC: no space left on device, write '\/Users\/someone\/loop\/repair\/x'\n$/u);
+    expect(readFileSync(join(dir, "log.txt"), "utf8")).not.toContain("/Users");
     const reusedTimes = Object.fromEntries(stopped.stages.map(stage => [stage.stage, [stage.startedAt, stage.finishedAt]]));
     // The operator moves the unfinished repair aside and reruns: a, b and the critique are reused with their first times, the clock keeps its start.
     rmSync(join(dir, "repair"), { recursive: true, force: true });

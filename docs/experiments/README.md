@@ -4,7 +4,16 @@ This folder holds the committed, sanitized record of live trials (see
 [PLAN.md](../PLAN.md) section 4):
 
 - `registry.jsonl`: one JSON object per run.
-- `serving-card-*.md`: measured behaviour of the inference endpoint.
+- `serving-card-*.md`: measured behaviour of the inference endpoint. The 2026-09-28
+  card was written by hand from the probe JSON; later cards are printed by
+  `scripts/serving-card.py` from a `scripts/serving-probe.py` result (probe version
+  2: P1-P11 and the adapter probe), reviewed by the operator and then committed. The
+  writer keeps the alias, engine version, context and transport class, never the
+  address, and refuses any address-like string.
+- `e0-planner-fixture-v1.json`: the hashes-only manifest of the E0 planner fixture
+  (`scripts/planner-fixture.ts`): the exposed r3 index, its brief and source ids by
+  sha256, the chunk count and the proposed 3 x 10 design. It is a template until the
+  owner fills its hashes; the index and the brief stay under the ignored `.soar/`.
 - Experiment cards, one per batch: hypothesis, arms, budget, decision rule and stop
   rule.
 - `phase2-tasks-v1.json`: the hashes-only manifest of the frozen Phase 2 tasks (task
@@ -16,7 +25,9 @@ This folder holds the committed, sanitized record of live trials (see
 
 The following stay outside Git, under the ignored `.soar/experiments/`:
 
-- raw outputs, traces and databases;
+- raw outputs, traces and databases, including the probe results and the raw model
+  replies the probes and fixtures retain (`serving-probe-*/`, `e0-planner-fixture-*/`,
+  `role-schemas.json`);
 - task gold data and endpoints;
 - anything derived from personal or professional data.
 

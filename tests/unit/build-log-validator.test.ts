@@ -267,6 +267,34 @@ describe("build-log validator", () => {
     expect(laterRewind.errors).toEqual(expect.arrayContaining([expect.stringContaining("timestamp precedes")]));
   });
 
+  it("allows the exact 2026-11-05 second-check UTC correction and later UTC entries", () => {
+    const result = validateBuildLog(log(
+      entry({ id: "BL-20261105-2016-correction-direction-and-review-entries", date: "2026-11-05" }),
+      entry({ id: "BL-20261105-1357-second-check-corrections-utc-reset", date: "2026-11-05",
+        title: "Correction: resume UTC IDs after the second check",
+        decisions: "Timestamp sequence reset after: `BL-20261105-2016-correction-direction-and-review-entries`." }),
+      entry({ id: "BL-20261105-1357-same-minute-follow-up", date: "2026-11-05" }),
+      entry({ id: "BL-20261105-1500-later-utc-entry", date: "2026-11-05" }),
+    ));
+    expect(result.errors).toEqual([]);
+  });
+
+  it("does not extend the 2026-11-05 reset to another predecessor or a later rewind", () => {
+    const prior = entry({ id: "BL-20261105-2016-correction-direction-and-review-entries", date: "2026-11-05" });
+    const reset = entry({ id: "BL-20261105-1357-second-check-corrections-utc-reset", date: "2026-11-05",
+      title: "Correction: resume UTC IDs after the second check",
+      decisions: "Timestamp sequence reset after: `BL-20261105-2016-correction-direction-and-review-entries`." });
+    const wrongPredecessor = validateBuildLog(log(prior,
+      entry({ id: "BL-20261105-2017-unrelated", date: "2026-11-05" }), reset));
+    expect(wrongPredecessor.errors).toEqual(expect.arrayContaining([
+      expect.stringContaining("timestamp sequence reset marker is invalid"),
+      expect.stringContaining("timestamp precedes"),
+    ]));
+    const laterRewind = validateBuildLog(log(prior, reset,
+      entry({ id: "BL-20261105-1356-unregistered-rewind", date: "2026-11-05" })));
+    expect(laterRewind.errors).toEqual(expect.arrayContaining([expect.stringContaining("timestamp precedes")]));
+  });
+
   it.each([
     {
       label: "a non-correction title",

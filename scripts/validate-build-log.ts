@@ -81,6 +81,8 @@ export const KNOWN_TIMESTAMP_SEQUENCE_RESETS = Object.freeze({
   "BL-20260902-0357-pr6ra-utc-reset": "BL-20260902-0445-pr6ra-approved",
   "BL-20260913-1555-desktop-research-utc-reset":
     "BL-20260913-2328-desktop-general-complete",
+  "BL-20261105-1357-second-check-corrections-utc-reset":
+    "BL-20261105-2016-correction-direction-and-review-entries",
 } as const);
 const ALLOWED_STATUS_SET = new Set<string>(ALLOWED_BUILD_LOG_STATUSES);
 const HTML_BLOCK_TAGS = new Set([

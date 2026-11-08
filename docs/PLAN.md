@@ -31,6 +31,30 @@ from the first week and keeps every protection that matters.
 agent runs on the owned device, and the priority order is privacy >= quality >
 savings > latency.
 
+**Owner direction, 2026-11-05 (BL-20261105-1821-owner-direction-equal-weights-new-model,
+corrected in BL-20261105-2016-correction-direction-and-review-entries and
+BL-20261105-1357-second-check-corrections-utc-reset; readings confirmed on 2026-11-07 in
+BL-20261107-0650-owner-decisions-review-items-2-5).**
+Privacy, result quality and token cost now weigh equally. The local model does the
+volume work and the cloud takes only the hardest step. Public deep research targets
+Manus-level depth at a fraction of Manus's cost. All later experiment design and
+steps must stick to the project's goal, which the owner states as "to preserve
+privacy while providing good results and saving tokens", the three weighed equally
+(the owner's standing instruction: "all following experiment design and steps should
+stick follow and stick to that goal"). Later local work uses the owner's new
+endpoint, which stays unqualified until its serving card exists. This supersedes the
+priority order above, which §8 also listed as kept from the privacy-first design,
+and the line "Savings are descriptive only" below. The owner confirmed on 2026-11-07 (review
+§5.10, item 3) that the direction also supersedes the "never as gates"
+status of USD per accepted job below and the first item of the W10 Stop row in §2,
+"Treating API savings as a design driver" (its second item, on the "Hybrid +4.93%"
+figure, stands), with OAJ kept as the adoption north star and route decisions made
+on the three columns, and that it leaves the privacy rule for labelled data and D15 unchanged. The owner also confirmed the
+[2026-11-05 review](PROJECT_REVIEW_2026-11-05.md)'s §2 goal statement and its cloud-role
+procedure (§5.10, item 2) and approved its zero-fee process entry and E3 and E4 (items 4 and
+5); the rest of the review stays proposed. The next session starts at
+[HANDOFF.md](HANDOFF.md)'s "Start here (2026-11-07)" section.
+
 The owner's own jobs, in priority order (2026-09-29):
 1. deep and reliable research;
 2. document review and amendment;
@@ -76,7 +100,7 @@ Tier O is open.
 - `infra_invalid` share;
 - owner minutes per job;
 - wall time against the owner's stated tolerance;
-- USD per accepted job per route;
+- USD per accepted job per route (a route-decision column since the owner's 2026-11-07 confirmation; see the owner-direction note above);
 - live trials per week (target ≥ 8);
 - days since the last owner verdict (target ≤ 3).
 
@@ -109,7 +133,7 @@ section 4. Local runs are unlimited.
 | Start | **Document review and amendment** as a family: the model writes an edit plan, a deterministic script produces redlines, and fidelity checks follow. | Owner answer; design §4 |
 | Change | **Research reliability comes from host checks:** a claims ledger, verbatim-quote verification against sources, and a local entailment pass. Unsupported claims are shown, not hidden. | Owner answer ("deep and reliable"); design §4 |
 | Stop | Per-trial approval entries for zero-fee work; n=1 reruns of already-seen tasks; building new evaluators or qualification layers per task; new routers or export features before the fair test reports. | W8 |
-| Stop | Treating API savings as a design driver; leading documents with the "Hybrid +4.93%" figure. | W10 |
+| Stop | Treating API savings as a design driver (superseded 2026-11-07; see §1's owner-direction note); leading documents with the "Hybrid +4.93%" figure. | W10 |
 | Defer | Deleting *wired* legacy code (flag it off in PR-F, delete later; dead and unshipped code was already removed on 2026-09-29 at the owner's direction); build-log rotation (needs a validator redesign); moving the runner to an always-on host; research search tooling; visual feedback. Each is triggered by a result below. | W6, W9 |
 
 ## 3. Phases
@@ -541,6 +565,18 @@ agent's favour.
 
 ### Phase 4: A real week of use (Oct 21 – Oct 27, branch review Oct 27)
 
+**Proposed reset, November 5, 2026 (BL-20261105-1822-project-review-reset-proposed).**
+The [2026-11-05 review](PROJECT_REVIEW_2026-11-05.md) proposes closing H4 as a gate
+and H5 as shaped. In their place it proposes a re-gated program: qualification of
+the new endpoint (E0), recoverability (E1), writer policy (E2), a closed-corpus
+route round (E3), a Manus-bar public round (E4), owner jobs from week 1 (E5), a
+document-review round (E6) and a conditional coding-packet test (E7). On 2026-11-07 the
+owner approved E3 and E4, the zero-fee process entry, the goal statement and the cloud-role
+procedure (BL-20261107-0650-owner-decisions-review-items-2-5). The rest of the reset, including closing H4 and H5
+(review §5.8), stays proposed, and the status below is the record until then, except that zero-fee
+runs on public or synthetic inputs no longer need the new named authority it requires
+(§4(c)).
+
 **Current status, November 5, 2026 (Asia/Shanghai):** the owner-approved
 [API-only route](plans/PHASE4_API_ONLY_ENDPOINT_CONTINUATION_V1.md) supersedes
 old-host SSH, disk and restoration prerequisites for this public/synthetic trial.
@@ -882,8 +918,16 @@ a real requirement (see Later).
     | Public-work cloud route after Phase 2, weekly | 25 |
     | **Hard total** | **300** |
 
-    Remaining budget is tracked in the registry;
-  - (c) no approval entries for offline or USD 0 work.
+    Remaining budget is tracked in the registry. On 2026-11-07 the owner approved the
+    2026-11-05 review's E3 (cap USD 20.4) and E4 (cap USD 20.5) against the Phase 4
+    harness track line; E4 starts only if the line's balance after E3 settles covers its
+    cap; the owner did not choose this over a reallocation from the weekly public-work
+    line, which the owner may still record.
+    E4's two paid judges run at api.openai.com: GPT-5.5 for DeepResearch Bench RACE
+    with the key the owner names JAO, and LiveDRBench's official grader with the key
+    named JAT, its judge model not yet named (BL-20261107-0650-owner-decisions-review-items-2-5, corrected in
+    BL-20261107-0718-correction-owner-decisions-record);
+  - (c) no approval entries for offline or USD 0 work. Restored on 2026-11-07 (BL-20261107-0650-owner-decisions-review-items-2-5, corrected in BL-20261107-0718-correction-owner-decisions-record): zero-fee local runs on public, synthetic or owner-declared-public inputs within the Heavy caps also need no per-trial named authority. Retiring slot, claim and allocation accounting as a gate is part of the review's stop list (§5.8), which stays proposed.
 
   Still needing an explicit owner approval each time:
   - real private data (Tier O);
@@ -939,6 +983,8 @@ or publication actions.
 | D18 | **Mac state:** FileVault, Desktop & Documents iCloud sync, Advanced Data Protection, Time Machine encryption. | Assume unsafe until checked; Tier O stays blocked. |
 | D19 | **Provider-side AI** (Gemini in Gmail, Copilot in Outlook) also reads your mail. SOAR cannot control it; do you want to turn it off? | Informational only. |
 
+**Review decisions, 2026-11-07** (BL-20261107-0650-owner-decisions-review-items-2-5): the 2026-11-05 review's §5.10 items 2 and 3 are confirmed and items 4 and 5 approved; items 1 and 6-13, item 2's toggle start, item 5's reallocation and the LiveDRBench grader's judge model remain open (corrected in BL-20261107-0718-correction-owner-decisions-record).
+
 ## 6. Risks
 
 | Risk | Mitigation |
@@ -979,7 +1025,8 @@ or publication actions.
   the cheapest sufficient tier). Replaced: its SWE-rebench coding workload, by the
   owner's workload plus two coding tasks, run on the existing harness.
 - **[Privacy-first design](plans/MVP_PRIVACY_FIRST_AGENT_V1.md) (September 11).**
-  Kept: the goal, trusted-boundary rules and priority order. Superseded on
+  Kept: the goal and trusted-boundary rules, and its priority order until the
+  owner's 2026-11-05 direction replaced it with equal weight (§1). Superseded on
   approval: its Stage B/C/D ladder, and the four-family equal-certification framing.
 - **[Course correction](MVP_COMPLETION_AUDIT.md) and [handoff](HANDOFF.md)
   (September 14 and 28).** Kept: the diagnosis and the stop rules against unchanged

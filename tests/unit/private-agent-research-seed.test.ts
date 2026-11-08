@@ -12,6 +12,7 @@ import { createResearchInput, createResearchProducer, validateResearchProducer, 
 import { loadResearchSeed, researchTransferPresent, researchTransferSnapshot, seededPipelineFreeze } from "../../src/main/private-agent/research-seed";
 import { RESEARCH_TRANSFER_CHECK_ID, researchTransferPhase, sessionFileManifest, sessionPhaseIdentity, type SessionFile, type SessionPhase } from "../../src/main/private-agent/session";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
+import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
 import { RESEARCH_V4_TEST_BRIEF, researchV4Reply, researchV4Sources } from "../helpers/research-v4-fixture";
 
 const cleanups: (() => void)[] = [];
@@ -206,6 +207,40 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     const dir = sourceRun({ receipts: () => retried, producer: () => createResearchProducer({ ...input, kind: "session", receipts: retried }) });
     expect(loadResearchSeed(dir, task).seed.producer.receipts.filter(row => row.status === "superseded")).toHaveLength(1);
     expect(researchTransferPresent(dir)).toBe(true);
+  });
+  it("binds assist rows to the stage their purpose names: a settled assist is the stage's call, a skipped, failed or superseded one binds uncounted (backlog item 10)", () => {
+    const input = { kind: "controlled_pipeline" as const, jobId, contextId, brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), files: produced, receipts };
+    const plan = receipts.findIndex(row => row.purpose === "research plan"), synthesis = receipts.findIndex(row => row.purpose === "research synthesis");
+    const cloudFailure = { phase: "transport", code: "request_timeout", attempt: 1, elapsedMs: 900000, timeoutMs: 900000 };
+    /** The row of a cloud one-shot: a priced reservation on the cloud destination; a response only when settled. */
+    const assist = (row: Record<string, unknown>, purpose: string, status: string, id = row.id as string): Record<string, unknown> => {
+      const { responseSha256, feeMicrousd, ...rest } = row;
+      return { ...rest, id, purpose, status, destinationId: "cloud-assist", reservedFeeMicrousd: 160000,
+        ...(status === "settled" ? { responseSha256, feeMicrousd: 34000 } : { failure: cloudFailure }) };
+    };
+    const bound = (rows: Record<string, unknown>[]) => { const producer = createResearchProducer({ ...input, receipts: rows });
+      expect(validateResearchProducer(producer, { jobId, files: produced, receipts: rows, input: researchInput() })).toEqual(producer); return producer; };
+    // The forced split: the plan stage's only call is its settled assist, which stands in for the local call the summary counts.
+    const forced = receipts.map((row, i) => i === plan ? assist(row, PLAN_ASSIST_PURPOSE, "settled") : row);
+    expect(bound(forced).receipts[plan]).toEqual({ id: receipts[plan]!.id, stage: "plan", role: "assist", sha256: digest(canonical(forced[plan])) });
+    // Local-first: the assist was skipped (unknown) or failed into the local fallback beside the local call that answered; it binds uncounted.
+    for (const status of ["unknown", "failed", "superseded"]) {
+      const rows = [...receipts.slice(0, synthesis), assist(receipts[synthesis]!, SYNTHESIS_ASSIST_PURPOSE, status, `receipt-assist-${status}`), ...receipts.slice(synthesis)];
+      expect(bound(rows).receipts.filter(row => row.role === "assist")).toEqual([{ id: `receipt-assist-${status}`, stage: "synthesise", role: "assist", status, sha256: digest(canonical(rows[synthesis])) }]);
+    }
+    // A settled assist beside the stage's settled local call is one reply too many; an unknown row of a local stage still refuses the binding;
+    // a skipped assist that still carries a response hash is forged; a skipped assist as a stage's only row leaves the stage's call unaccounted.
+    expect(() => createResearchProducer({ ...input, receipts: [...receipts, assist(receipts[plan]!, PLAN_ASSIST_PURPOSE, "settled", "receipt-second-reply")] })).toThrow("research_producer_receipt_count");
+    expect(() => createResearchProducer({ ...input, receipts: receipts.map((row, i) => i === plan ? { ...assist(row, "research plan", "unknown"), destinationId: row.destinationId } : row) })).toThrow("research_producer_unsettled_receipt");
+    expect(() => createResearchProducer({ ...input, receipts: receipts.map((row, i) => i === plan ? { ...assist(row, PLAN_ASSIST_PURPOSE, "unknown"), responseSha256: row.responseSha256 } : row) })).toThrow("research_producer_unsettled_receipt");
+    expect(() => createResearchProducer({ ...input, receipts: receipts.map((row, i) => i === plan ? assist(row, PLAN_ASSIST_PURPOSE, "unknown") : row) })).toThrow("research_producer_receipt_count");
+    // The producer schema admits status "unknown" only with the assist role, and a changed binding is drift.
+    const producer = bound(forced);
+    expect(() => validateResearchProducer({ ...producer, receipts: producer.receipts.map((row, i) => i === plan ? { ...row, status: "unknown" } : row) }, { jobId, files: produced, receipts: forced, input: researchInput() })).toThrow("research_producer_receipts_drift");
+    expect(() => validateResearchProducer({ ...producer, receipts: producer.receipts.map((row, i) => i === plan ? { id: row.id, stage: row.stage, sha256: row.sha256, status: "unknown" } : row) }, { jobId, files: produced, receipts: forced, input: researchInput() })).toThrow();
+    // The seed loader takes a forced-split ledger through the same producer path.
+    const dir = sourceRun({ receipts: () => forced, producer: () => createResearchProducer({ ...input, kind: "session", receipts: forced }) });
+    expect(loadResearchSeed(dir, task).seed.producer.receipts[plan]).toMatchObject({ stage: "plan", role: "assist" });
   });
   it("uses the same production transfer path for a loaded seed and a freshly generated packet", () => {
     const base: SessionPhase = { files: researchV4Sources().map(({ path, bytes }) => ({ path, bytes })), checks: [{ id: "c", python: "pass" }],

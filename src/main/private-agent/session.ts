@@ -9,7 +9,7 @@ import { readPublicSources } from "./public-sources";
 import type { GeneralConsultation } from "./consultation";
 import { readPublicSourceFiles } from "./public-sources";
 import { ClaimsVerifiedSchema, ENTAILMENT_MAX_MS, ENTAILMENT_PROMPT_VERSION, ENTAILMENT_SYSTEM_PROMPT, isEntailmentDispatch, judgeClaims, publicSourceWorkspacePath, type EntailmentOutcome } from "./claims";
-import { isResolvedDispatch } from "./store";
+import { isBlockingDispatch, isResolvedDispatch } from "./store";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchBudgetTotal, researchProtocolSha256, researchWriteInstructions, runResearchPipeline, type ResearchBudget, type ResearchModels } from "./research-pipeline";
 import { validateReadyResearchPacket } from "./research-coverage";
 import { buildResearchPresentation, researchPresentationIdentity, validateResearchPresentation, type ResearchPresentationV1 } from "./research-presentation";
@@ -367,7 +367,8 @@ export class GeneralAgentSession {
         } else {
           if (this.pauseRequested || boundedSignal.aborted) return result(this.pauseRequested ? "paused" : "incomplete", "session_stopped");
           // An unresolved dispatch from an interrupted stage is never replayed past; the operator resolves it first, as the runner requires.
-          const unresolved = () => store.dispatches(jobId).some(row => !isResolvedDispatch(row) && !isEntailmentDispatch(row));
+          // A skipped assist (an unknown cloud one-shot of the reading stage, backlog item 10) is not one: local work goes on past it.
+          const unresolved = () => store.dispatches(jobId).some(row => isBlockingDispatch(row, privateContextId) && !isEntailmentDispatch(row));
           if (unresolved()) return result("incomplete", "unresolved_dispatch_no_replay");
           // There is no persisted per-chunk continuation protocol. Restarting a partial
           // stage would reset its role ceilings while keeping the earlier spent calls.
@@ -400,7 +401,7 @@ export class GeneralAgentSession {
       finalSnapshot = privateResult.snapshot;
       if (policyChanged()) return result("incomplete", policyReason());
       if (privateResult.status !== "completed") return result(privateResult.status, privateResult.reason);
-      if (store.dispatches(jobId).some(row => !isResolvedDispatch(row) && !isEntailmentDispatch(row)) || signal.aborted) return result("incomplete", "session_unresolved_or_deadline");
+      if (store.dispatches(jobId).some(row => isBlockingDispatch(row, privateContextId) && !isEntailmentDispatch(row)) || signal.aborted) return result("incomplete", "session_unresolved_or_deadline");
       if (!this.events().some(event => event.type === "session_submitted")) store.append(jobId, { type: "session_submitted", snapshotSha256: checkpoints.fingerprint(finalSnapshot), independentAcceptanceRequired: true });
       // Evidence after the fact: submission is durable, so the pass can only add verdicts; a pause leaves it for the next resume.
       if (await this.entailment(privateContextId, judgeModel ?? privateModel, signal) === "paused") return result("paused", "session_stopped");

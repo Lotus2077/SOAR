@@ -12,7 +12,7 @@ afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
 const h = (n: string) => n.repeat(64);
 const summary = (over: Partial<CandidateSummary> = {}): CandidateSummary => ({ jobId: "ja", taskJobSha256: h("1"), taskBriefSha256: h("2"), runtimeSha256: h("4"), researchFrom: null, repairSource: null,
   status: "submitted", reason: "independent_acceptance_pending", checksPassed: 2, checksTotal: 2, checksCurrent: true, artifactsPresent: 2, artifactsTotal: 2,
-  entailment: null, writeIdentity: null, modelCalls: 10, toolCalls: 8, inputTokens: 1000, outputTokens: 100, cachedTokens: 500, cacheWriteTokens: 0, lengthStops: 0, feeMicrousd: 0, unknownDispatches: 0, retriedDispatches: 0, failedDispatches: 0,
+  entailment: null, writeIdentity: null, modelCalls: 10, toolCalls: 8, inputTokens: 1000, outputTokens: 100, cachedTokens: 500, cacheWriteTokens: 0, lengthStops: 0, feeMicrousd: 0, unknownDispatches: 0, retriedDispatches: 0, failedDispatches: 0, assistSkippedDispatches: 0, assistFailedDispatches: 0,
   candidateSha256: h("a"), freezeSha256: h("b"), resultSha256: h("c"), startedAt: "t0", finishedAt: "t1", ...over });
 /** The candidates of one well-formed loop: b and the repair seeded from a on a research task, the repair bound to the selected draft. */
 function candidates(research: boolean, over: Partial<Record<"a" | "b" | "repair", Partial<CandidateSummary>>> = {}): Record<string, CandidateSummary> {
@@ -52,13 +52,13 @@ function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?:
 }
 function loopDir() { const dir = mkdtempSync(join(tmpdir(), "soar-loop-")); cleanups.push(() => rmSync(dir, { recursive: true, force: true })); return join(dir, "loop"); }
 const read = (dir: string) => JSON.parse(readFileSync(join(dir, "loop.json"), "utf8")) as LoopRecord;
-/** Real result-to-summary mapping: committed receipts must block just like UNKNOWN. */
-function transportStoppedSummary(status: "unknown" | "committed" | "failed"): CandidateSummary {
+/** Real result-to-summary mapping: committed receipts must block just like UNKNOWN; an assist row carries its purpose. */
+function transportStoppedSummary(status: "unknown" | "committed" | "failed", purpose?: string): CandidateSummary {
   const directory = loopDir(); mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "freeze.json"), JSON.stringify({ jobId: "ja", startedAt: "t0", sourceFreezeSha256: h("4"),
     taskBinding: { jobSha256: h("1"), briefSha256: h("2") } }));
   writeFileSync(join(directory, "result.json"), JSON.stringify({ status: "incomplete", reason: "runtime_failure_progress_preserved",
-    finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [], dispatches: [{ status, feeMicrousd: 0 }] }));
+    finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [], dispatches: [{ status, feeMicrousd: 0, ...(purpose ? { purpose, reservedFeeMicrousd: 160_000 } : {}) }] }));
   const db = new Database(join(directory, "state.sqlite"));
   db.exec("CREATE TABLE private_agent_events (job_id TEXT, sequence INTEGER, value TEXT)"); db.close();
   return summarizeRun(directory, []);
@@ -113,6 +113,19 @@ describe("H4 select-and-repair loop", () => {
     const reused = fakes({ summaries: candidates(true, { a }), transfers: ["a"] });
     await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, reused.deps)).rejects.toThrow(code);
     expect(reused.calls.runs).toHaveLength(0); expect(reused.calls.critiques).toHaveLength(0);
+  });
+  it.each([["unknown", "research plan assist", "assistSkippedDispatches"], ["failed", "research synthesis assist", "assistFailedDispatches"]] as const)("admits a sample whose assist row is %s (backlog item 10) and goes on to b, the critique and the repair, counting it apart", async (status, purpose, column) => {
+    const dir = loopDir(), a = transportStoppedSummary(status, purpose);
+    expect(a).toMatchObject({ unknownDispatches: 0, failedDispatches: 0, [column]: 1 });
+    const { deps, calls } = fakes({ summaries: candidates(true, { a }), transfers: ["a"] });
+    const record = await runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, deps);
+    expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b", "repair"]);
+    expect(record.failure).toBeNull(); expect(record.totals).toMatchObject({ unknownDispatches: 0, failedDispatches: 0, [column]: 1 });
+    expect(record.selected.final).not.toBeNull();
+    // A committed assist row is still an unresolved dispatch: the process died mid-call and nothing can resolve it.
+    const committed = transportStoppedSummary("committed", purpose);
+    expect(committed).toMatchObject({ unknownDispatches: 1, assistSkippedDispatches: 0, assistFailedDispatches: 0 });
+    await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: loopDir() }, fakes({ summaries: candidates(true, { a: committed }), transfers: ["a"] }).deps)).rejects.toThrow("loop_stage_unresolved_dispatch");
   });
   it.each([{ unknownDispatches: 1 }, { failedDispatches: 1 }])("does not admit a critique or repair after b has stopped dispatches: %j", async stopped => {
     const dir = loopDir();

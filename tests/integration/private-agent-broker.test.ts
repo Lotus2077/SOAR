@@ -8,6 +8,7 @@ import { STREAM_BYTES_PER_TOKEN_BOUND, localStreamSettings } from "../../src/mai
 import { BROKER_MAX_BODY_BYTES, BrokerError, PrivateAgentBroker, STREAM_MAX_RAW_BYTES, SseStreamError, SseTruncated, assembleSseChatCompletion, isPublicAddress, type BrokerDestination, type BrokerRequest, type LocalPacketScanner } from "../../src/main/private-agent/broker";
 import { PrivateAgentStore, SETTLEMENT_SUBCODES, UnknownRequestDiagnosticSchema, isConfirmedAbort, isRetryableAbort, type UnknownRequestDiagnostic } from "../../src/main/private-agent/store";
 import { digest } from "../../src/main/private-agent/contracts";
+import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
 
 const clean: LocalPacketScanner = { scan: async () => ({ complete: true, blocked: false, detector: "deliberate-false-negative-fixture" }) };
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -713,5 +714,73 @@ describe("zero-risk failures resolve (backlog item 1 of the 2026-11-05 review)",
       expect(isConfirmedAbort(settlement, true)).toBe(true); expect(isConfirmedAbort(settlement)).toBe(false); expect(isRetryableAbort(settlement)).toBe(false);
     }
     expect(isConfirmedAbort(undefined, true)).toBe(false);
+  });
+});
+
+describe("the assist-purpose exception in the ledger (backlog item 10)", () => {
+  const scan = { status: "complete" as const, detector: "synthetic" };
+  it("lets local work continue past a skipped assist while pinning its reservation and barring a second assist", async () => {
+    // A sealed cloud one-shot whose outcome stayed uncertain: the cloud destination never answers inside its timeout.
+    const f = await fixture({ classification: "public", timeoutMs: 200, handler: () => {} });
+    await expect(f.broker.request({ ...f.input, purpose: PLAN_ASSIST_PURPOSE })).rejects.toThrow("transport_or_settlement_unknown");
+    expect(f.store.dispatches("job")[0]).toMatchObject({ status: "unknown", purpose: PLAN_ASSIST_PURPOSE, reservedFeeMicrousd: 100, failure: { code: "request_timeout" } });
+    // A local-stage dispatch of the job commits and settles: nothing blocks it.
+    const { text: _text, ...local } = f.broker.preview({ ...f.input, purpose: "research evidence extraction", maxFeeMicrousd: 0 });
+    const row = f.store.commit({ ...local, reservedFeeMicrousd: 0, scan }, () => {});
+    f.store.settle(row.id, 0, digest("reply"));
+    // The job may make no second assist: the cloud row stays at-most-once.
+    const { text: _assist, ...assist } = f.broker.preview({ ...f.input, purpose: SYNTHESIS_ASSIST_PURPOSE });
+    expect(() => f.store.commit({ ...assist, reservedFeeMicrousd: 100, scan }, () => {})).toThrow("private_agent_assist_after_unknown");
+    expect(() => f.store.commit({ ...assist, purpose: PLAN_ASSIST_PURPOSE, reservedFeeMicrousd: 100, scan }, () => {})).toThrow("private_agent_assist_after_unknown");
+    // The skipped assist's reservation stays pinned: the cap (1,000) has 900 left for later rows.
+    expect(() => f.store.commit({ ...local, reservedFeeMicrousd: 901, scan }, () => {})).toThrow("private_agent_budget_denied");
+    const admitted = f.store.commit({ ...local, reservedFeeMicrousd: 900, scan }, () => {}); f.store.settle(admitted.id, 0, digest("reply"));
+    expect(f.store.dispatches("job").map(row => row.status)).toEqual(["unknown", "settled", "settled"]);
+  });
+  it("admits an assist purpose on a cloud destination only, before any row or request", async () => {
+    const localModel = await fixture({ kind: "local_model", privateDataAdmitted: true, classification: "public" });
+    expect(() => localModel.broker.preview({ ...localModel.input, purpose: PLAN_ASSIST_PURPOSE, maxFeeMicrousd: 0 })).toThrow("assist_destination_invalid");
+    await expect(localModel.broker.request({ ...localModel.input, purpose: SYNTHESIS_ASSIST_PURPOSE, maxFeeMicrousd: 0 })).rejects.toThrow("assist_destination_invalid");
+    const web = await fixture({ kind: "public_web", classification: "public" });
+    expect(() => web.broker.preview({ ...web.input, purpose: PLAN_ASSIST_PURPOSE, maxFeeMicrousd: 0 })).toThrow("assist_destination_invalid");
+    expect(localModel.requests).toEqual([]); expect(localModel.store.dispatches("job")).toEqual([]); expect(web.store.dispatches("job")).toEqual([]);
+    const cloud = await fixture({ classification: "public" });
+    expect(cloud.broker.preview({ ...cloud.input, purpose: PLAN_ASSIST_PURPOSE }).purpose).toBe(PLAN_ASSIST_PURPOSE);
+  });
+  it("refuses every grant-free cloud dispatch after a skipped assist, admits the job's local work, and leaves a granted consultation to its own rules", async () => {
+    const f = await fixture({ classification: "public", timeoutMs: 200, handler: () => {} });
+    await expect(f.broker.request({ ...f.input, purpose: PLAN_ASSIST_PURPOSE })).rejects.toThrow("transport_or_settlement_unknown");
+    // The same job gains a local destination served by the same loopback server, which answers at once.
+    const local: BrokerDestination = { ...f.destination, id: "local", kind: "local_model", privateDataAdmitted: true, timeoutMs: 1000 };
+    f.store.revisePolicy("job", { mode: "cloud_help", destinations: ["target", "local"] });
+    const broker = new PrivateAgentBroker(f.store, [f.destination, local], clean);
+    for (const purpose of [SYNTHESIS_ASSIST_PURPOSE, PLAN_ASSIST_PURPOSE, "agent reasoning and tool selection", "bounded consultation"]) {
+      await expect(broker.request({ ...f.input, purpose })).rejects.toThrow("cloud_after_assist_unknown");
+    }
+    expect(f.requests).toHaveLength(1); expect(f.store.dispatches("job")).toHaveLength(1);
+    // Local work goes on: a zero-fee local request commits, but the server never answers it inside its timeout here, so it resolves failed.
+    const settledLocal = await fixture({ classification: "public" });
+    const result = await broker.request({ ...f.input, destinationId: "local", purpose: "research evidence extraction", maxFeeMicrousd: 0 }).catch(error => error);
+    expect(result).toBeInstanceOf(BrokerError); expect((result as BrokerError).code).toBe("request_failed");
+    expect(f.store.dispatches("job").map(row => [row.destinationId, row.status])).toEqual([["target", "unknown"], ["local", "failed"]]);
+    expect(settledLocal.store.dispatches("job")).toEqual([]);
+    // A grant-backed cloud call (the owner's exact-packet consultation) is not refused by this rule: it keeps its own semantics
+    // and, here, ends uncertain like any priced request the server never answers. Item 13 decides where it is declined instead.
+    const granted = f.release("grant");
+    await expect(broker.request(granted)).rejects.toThrow("transport_or_settlement_unknown");
+    expect(f.requests).toHaveLength(3);
+  });
+  it("still blocks everything on an unknown row of any other purpose and on a committed assist row", async () => {
+    const f = await fixture({ classification: "public", timeoutMs: 200, handler: () => {} });
+    await expect(f.broker.request(f.input)).rejects.toThrow("transport_or_settlement_unknown");
+    const { text: _text, ...local } = f.broker.preview({ ...f.input, purpose: "research evidence extraction", maxFeeMicrousd: 0 });
+    expect(() => f.store.commit({ ...local, reservedFeeMicrousd: 0, scan }, () => {})).toThrow("private_agent_unresolved_dispatch");
+    // A committed assist row (the process died mid-dispatch) has no diagnostic and nothing resolves it: it blocks too.
+    const g = await fixture({ classification: "public" });
+    const { text: _preview, ...assist } = g.broker.preview({ ...g.input, purpose: PLAN_ASSIST_PURPOSE });
+    g.store.commit({ ...assist, reservedFeeMicrousd: 100, scan }, () => {});
+    const { text: _local, ...localG } = g.broker.preview({ ...g.input, purpose: "research evidence extraction", maxFeeMicrousd: 0 });
+    expect(() => g.store.commit({ ...localG, reservedFeeMicrousd: 0, scan }, () => {})).toThrow("private_agent_unresolved_dispatch");
+    expect(g.requests).toEqual([]);
   });
 });

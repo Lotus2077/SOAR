@@ -8,22 +8,22 @@ This section is the entrypoint for the next session. It supersedes every earlier
 ### 1. Get the work
 
 Everything after `main`'s `153b8e6` (the 2026-11-05 review, its five checks and the
-2026-11-07 owner decisions) is on branch `claude/great-meitner-kri52m`, not yet
-merged to `main`. Select Node 22.22.2 and pnpm 10.12.4 first ("Setup and safe
-verification" below): `.npmrc` sets `engine-strict=true`, so another Node major
-fails the install.
+2026-11-07 owner decisions) was developed on branch `claude/great-meitner-kri52m` and
+merged into `main` on 2026-11-08 as PR #39, so work from `main`. Select Node 22.22.2
+and pnpm 10.12.4 first ("Setup and safe verification" below): `.npmrc` sets
+`engine-strict=true`, so another Node major fails the install.
 
 ```sh
-git fetch origin claude/great-meitner-kri52m
-git checkout claude/great-meitner-kri52m
+git fetch origin main
+git checkout main
 pnpm install --frozen-lockfile
 ```
 
 Then run the checks in "Setup and safe verification" below. CI runs only on pull
-requests and on pushes to `main`. Ask the owner whether to merge this branch into
-`main` first, through a pull request from `claude/great-meitner-kri52m` (PLAN.md D10
-approves pushing reviewed work to public `main`); then base each new pull request
-on `main`. Until then, base new pull requests on this branch.
+requests and on pushes to `main`. Base each new pull request on `main` (PLAN.md D10
+approves pushing reviewed work to public `main`). The step-1 pull requests listed
+under §5 were based on the merged branch; #37, #40 and #41 now target `main`, and
+#38, #42 and #43 follow as their bases merge.
 
 ### 2. Read, in this order
 
@@ -131,10 +131,11 @@ Follow the order in review §5.6. Each step is done when its condition holds.
 **Progress on step 1** (2026-11-07, a later session on the owner's Mac). Backlog items 1-5
 and item 10's assist-purpose exception are implemented as small pull requests with
 deterministic tests, each with a `Proposed` decision entry before its code and an
-`Implemented` entry after it; CI is green on every one at the time of writing. All are
-based on this branch until the owner merges it (PR #39); #38 is stacked on #37, and items
-3 and 4 on #38. Retarget the stack as it merges, and re-sort each branch's new build-log
-entries into timestamp order when a rebase puts them side by side.
+`Implemented` entry after it; CI is green on every one at the time of writing. The
+handoff branch they were based on is merged (PR #39, 2026-11-08); #37, #40 and #41 target
+`main`, #38 is stacked on #37, and items 3 and 4 on #38. Retarget the rest of the stack as
+it merges, and re-sort each branch's new build-log entries into timestamp order when a
+rebase puts them side by side.
 
 | Item | Pull request | Branch | Entries |
 | --- | --- | --- | --- |

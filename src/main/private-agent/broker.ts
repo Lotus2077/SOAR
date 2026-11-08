@@ -10,7 +10,8 @@ import {
   canonical, contextFingerprint, digest, exactText, restrictedContext, syntheticContext,
   privateAgentId, ExactApprovalSchema, sha256Schema, type ExactApproval, type PrivateAgentContext, type PrivateJobPolicy,
 } from "./contracts";
-import { ANTHROPIC_ERROR_TYPES, isConfirmedAbort, isRetryableAbort, PrivateAgentStore, type DispatchReceipt, type UnknownRequestDiagnostic } from "./store";
+import { ANTHROPIC_ERROR_TYPES, isConfirmedAbort, isRetryableAbort, settlementSubcode, PrivateAgentStore, type DispatchReceipt, type UnknownRequestDiagnostic } from "./store";
+import { isAssistDispatch } from "./dispatch-purposes";
 
 export const BROKER_MAX_BODY_BYTES = 192 * 1024;
 /** Ceiling for a destination's own request body cap; profiles choose values below it. */
@@ -54,9 +55,10 @@ export interface BrokerDestination {
   timeoutMs: number;
   /**
    * PR-B: this local model destination may answer with a streamed chat completion, which the transport assembles into
-   * the non-streaming shape. The stream is aborted (unknown outcome, never retried) when no bytes arrive for
-   * `inactivityTimeoutMs` after the first one, and refused as oversize beyond `maxRawBytes`. Undeclared destinations
-   * never assemble: their bytes are returned as received.
+   * the non-streaming shape. The stream is aborted when no bytes arrive for `inactivityTimeoutMs` after the first one,
+   * and refused as oversize beyond `maxRawBytes`; neither is retried, and for a zero-risk packet both resolve `failed`
+   * (backlog item 1; a priced packet's stays uncertain). Undeclared destinations never assemble: their bytes are returned
+   * as received.
    */
   stream?: { inactivityTimeoutMs: number; maxRawBytes: number };
   /** Optional per-destination request body cap; absent means BROKER_MAX_BODY_BYTES. */
@@ -114,7 +116,8 @@ export interface PacketPreview {
 }
 
 export class BrokerError extends Error {
-  constructor(readonly code: string) { super(code); this.name = "BrokerError"; }
+  /** `details` carries fixed host numbers only (the body size and the cap of a `packet_size_exceeded`); never provider text. */
+  constructor(readonly code: string, readonly details?: Readonly<{ bodyBytes: number; limitBytes: number }>) { super(code); this.name = "BrokerError"; }
 }
 
 type TransportFailureCode = Extract<UnknownRequestDiagnostic, { phase: "transport" }>["code"];
@@ -337,6 +340,9 @@ export class PrivateAgentBroker {
     const policy = this.store.policy(input.jobId), context = this.store.context(input.contextId);
     if (context.jobId !== policy.id || !input.purpose || input.purpose.length > 500) deny("packet_context_invalid");
     exactText(input.purpose);
+    // Backlog item 10: an assist purpose exempts its row from the unresolved rule and the harness stops, so only a sealed cloud
+    // one-shot may carry it; a priced local or web row never can.
+    if (isAssistDispatch(input) && destination.kind !== "cloud_model") deny("assist_destination_invalid");
     const endpoint = new URL(destination.endpoint), url = new URL(input.url ?? destination.endpoint);
     if (url.username || url.password || url.hash || url.origin !== endpoint.origin ||
         (destination.kind !== "public_web" && url.href !== endpoint.href) ||
@@ -349,7 +355,10 @@ export class PrivateAgentBroker {
     const approval = parsedApproval?.success ? parsedApproval.data : undefined;
     if (approval && (!destination.requireExactGrant || approval.priceProfileSha256 !== destination.approvalPriceProfileSha256 ||
         approval.maxFeeMicrousd !== input.maxFeeMicrousd)) deny("packet_approval_mismatch");
-    if (Buffer.byteLength(body) > (destination.maxRequestBytes ?? BROKER_MAX_BODY_BYTES) || url.href.length > 8192) deny("packet_size_exceeded");
+    // A body over the destination's cap carries its numbers, so the runner can record the size stop (backlog item 3, finding A5).
+    const bodyBytes = Buffer.byteLength(body), bodyLimit = destination.maxRequestBytes ?? BROKER_MAX_BODY_BYTES;
+    if (bodyBytes > bodyLimit) throw new BrokerError("packet_size_exceeded", { bodyBytes, limitBytes: bodyLimit });
+    if (url.href.length > 8192) deny("packet_size_exceeded");
     if (input.localReplyContract !== undefined) {
       if (destination.kind !== "local_model" || input.maxFeeMicrousd !== 0) deny("local_reply_contract_invalid");
       try { validateFlashNextRequest(input.localReplyContract, body); } catch { deny("local_reply_contract_invalid"); }
@@ -380,6 +389,24 @@ export class PrivateAgentBroker {
   }
 
   preview(input: BrokerRequest): PacketPreview { return this.packet(input).preview; }
+
+  /** A destination's transport timeout, so a caller can weigh it against the time it has left before dispatching (finding A8). */
+  requestTimeoutMs(destinationId: string): number {
+    const destination = this.destinations.get(destinationId);
+    if (!destination) deny("destination_missing");
+    return destination.timeoutMs;
+  }
+  /**
+   * Whether `request()` treats a packet of this shape as zero-risk, that is re-sendable without cost or side effect: no
+   * grant or approval, and either a zero-fee local request or a public GET. Every failure of such a packet resolves
+   * (backlog item 1); an uncertain failure of any other packet stays `unknown` with its reservation pinned.
+   */
+  zeroRiskDispatch(input: Pick<BrokerRequest, "destinationId" | "maxFeeMicrousd" | "method" | "grantId" | "approval">): boolean {
+    const destination = this.destinations.get(input.destinationId);
+    if (!destination) deny("destination_missing");
+    return input.grantId === undefined && input.approval === undefined &&
+      ((destination.kind === "local_model" && input.maxFeeMicrousd === 0) || (destination.kind === "public_web" && input.method === "GET"));
+  }
 
   private eligible(policy: PrivateJobPolicy, context: PrivateAgentContext, destination: BrokerDestination, grantId?: string): void {
     if (policy.cancelled) deny("job_cancelled");
@@ -443,13 +470,16 @@ export class PrivateAgentBroker {
     }
     const { text: _text, ...identity } = packet.preview;
     // A zero-risk packet can be re-sent without cost or side effect: a zero-fee local request or a public GET without a grant.
-    const zeroRisk = frozen.grantId === undefined && !packet.preview.approval &&
-      ((packet.destination.kind === "local_model" && frozen.maxFeeMicrousd === 0) || (packet.destination.kind === "public_web" && frozen.method === "GET"));
+    const zeroRisk = this.zeroRiskDispatch({ destinationId: packet.destination.id, maxFeeMicrousd: frozen.maxFeeMicrousd, method: frozen.method,
+      grantId: frozen.grantId, approval: packet.preview.approval });
     // D4: only such a packet, on a destination flagged recoverable, is retried, and only after a confirmed abort.
     const recoverable = packet.destination.recoverable === true && zeroRisk;
     const anthropic = packet.destination.anthropicVersion !== undefined;
     for (let attempt = 1; ; attempt++) {
-      if (attempt > 1 && frozen.signal?.aborted) deny("request_cancelled");
+      // A cancel seen here follows a sent attempt resolved `superseded`, so the request was dispatched: the retry-wait code, which the runner
+      // records as a failed request (`dispatched: true`), not the pre-dispatch refusal (BL-20261107-1006, 7). No await separates this check
+      // from the post-backoff one, so it is a guard only.
+      if (attempt > 1 && frozen.signal?.aborted) deny(RETRY_WAIT_CANCELLED);
       // Each attempt is its own committed row: it re-checks eligibility and consumes one session request.
       let receipt: DispatchReceipt;
       try {
@@ -457,9 +487,15 @@ export class PrivateAgentBroker {
           ...(localTokenAdmissionEvidence ? { localTokenAdmission: localTokenAdmissionEvidence } : {}) },
           (policy, context) => {
             this.eligible(policy, context, packet.destination, frozen.grantId);
+            // Backlog item 10 (§5.2: after an UNKNOWN, no further cloud call in the job): once an assist's outcome stayed uncertain,
+            // no grant-free cloud dispatch of any purpose follows in that job, inside the same transaction as the row it would add.
+            // A grant-backed call (the owner's exact-packet consultation) is not refused here: item 13 decides where it is declined.
+            if (packet.destination.kind === "cloud_model" && frozen.grantId === undefined && !packet.preview.approval &&
+                this.store.dispatches(frozen.jobId).some(row => row.status === "unknown" && isAssistDispatch(row))) deny("cloud_after_assist_unknown");
             if (frozen.signal?.aborted) {
               if (admission) throw new LocalTokenAdmissionError("local_token_admission_cancelled");
-              deny("request_cancelled");
+              // On a retry attempt an earlier attempt was sent (BL-20261107-1041, 13); a guard only, like the top-of-attempt check.
+              deny(attempt > 1 ? RETRY_WAIT_CANCELLED : "request_cancelled");
             }
             if (admission) admission.validateAtCommit(localTokenAdmissionEvidence!, frozen.body!, packet.url.href,
               frozen.localReplyContract!.model, frozen.localTokenAdmission!.contextTokens);
@@ -468,6 +504,8 @@ export class PrivateAgentBroker {
       } catch (error) {
         // The fee or request allowance refused the row inside the transaction: nothing was inserted or sent.
         if (error instanceof Error && error.message === "private_agent_budget_denied") deny("budget_denied");
+        // An unresolved row of this job blocks every dispatch at the ledger: nothing was inserted or sent (backlog item 3, finding A5).
+        if (error instanceof Error && error.message === "private_agent_unresolved_dispatch") deny("unresolved_dispatch");
         if (error instanceof LocalTokenAdmissionError) {
           if (attempt > 1) deny("request_failed");
           throw new LocalTokenAdmissionError(error.code, digest(frozen.body!), frozen.localTokenAdmission?.policySha256);
@@ -520,7 +558,8 @@ export class PrivateAgentBroker {
           ...(details.spendLimit ? { spendLimit: true as const } : {}) } : {};
         const failure: UnknownRequestDiagnostic = phase === "transport"
           ? { phase: "transport", code: error instanceof TransportFailure ? error.code : "transport_failed", ...status, ...rejection, ...requestId, ...timing }
-          : { phase: "settlement", code: phase === "response_validation" ? "response_or_usage_invalid" : "fee_settlement_failed", ...requestId, ...timing };
+          : { phase: "settlement", code: phase === "response_validation" ? "response_or_usage_invalid" : "fee_settlement_failed", subcode: settlementSubcode(error), ...requestId, ...timing };
+        // Only a priced or cloud packet can leave its upstream state uncertain; a zero-risk one always resolves (item 1).
         if (!isConfirmedAbort(failure, zeroRisk)) {
           this.store.unknown(receipt.id, failure);
           // Never expose provider text, private URL, system exception or API key.
@@ -544,6 +583,7 @@ export class PrivateAgentBroker {
           if (!frozen.signal?.aborted) { this.store.resolveFailure(receipt.id, "superseded", failure, zeroRisk); continue; }
         }
         // A confirmed abort with no attempt to follow is a resolved failure: the ledger stays replay-safe and never blocks.
+        // For a zero-risk packet this covers a cancel or deadline mid-request too: the caller tells them apart by its own signal.
         this.store.resolveFailure(receipt.id, "failed", failure, zeroRisk);
         return deny("request_failed");
       } finally {

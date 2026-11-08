@@ -13,6 +13,7 @@ import { consultantPriceProfileSha256 } from "../../src/main/private-agent/consu
 import { PrivateAgentModel, type GeneralMessage } from "../../src/main/private-agent/model";
 import { GeneralAgentRunner, type GeneralJobOptions } from "../../src/main/private-agent/runner";
 import { DockerSandbox } from "../../src/main/private-agent/sandbox";
+import { workspaceListing } from "../helpers/workspace-listing";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => { vi.restoreAllMocks(); for (const cleanup of cleanups.splice(0).reverse()) cleanup(); });
@@ -38,7 +39,7 @@ function fixture(actions: { name: string; arguments: string }[], maxModelCalls =
   vi.spyOn(DockerSandbox, "currentEndpoint").mockResolvedValue("unix:///tmp/fixture.sock"); vi.spyOn(DockerSandbox, "cleanupOwnedContext").mockResolvedValue();
   const create = vi.spyOn(DockerSandbox, "create").mockImplementation(async input => {
     const content = new Map(input.files.map(f => [f.path, Buffer.from(f.bytes)]));
-    return { async execute(command: string) { commands.push(command); if (command === "write result") content.set("output.txt", Buffer.from("computed result")); return { exitCode: 0, stdout: "fixture evidence", stderr: "" }; }, async listFiles() { return [...content.keys()]; }, async readFile(path: string) { return Buffer.from(content.get(path)!); }, async close() {} } as unknown as DockerSandbox;
+    return { async execute(command: string) { commands.push(command); if (command === "write result") content.set("output.txt", Buffer.from("computed result")); return { exitCode: 0, stdout: "fixture evidence", stderr: "" }; }, async listFiles() { return workspaceListing(content); }, async readFile(path: string) { return Buffer.from(content.get(path)!); }, async close() {} } as unknown as DockerSandbox;
   });
   vi.spyOn(model, "complete").mockImplementation(async (messages, definitions) => {
     requests.push(structuredClone(messages)); const n = requests.length, action = actions[n-1]; if (!action) throw new Error("unexpected local request");

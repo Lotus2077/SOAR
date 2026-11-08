@@ -54,12 +54,13 @@ describe("bounded public DNS resolver", () => {
       let resolve!: (value: never) => void;
       vi.mocked(lookup).mockReturnValue(new Promise(yes => { resolve = yes; }) as never);
       const calls = transportMock(), f = fixture("public", false), abort = new AbortController();
-      const result = expect(f.broker.request({ ...f.input, signal: abort.signal })).rejects.toThrow("transport_or_settlement_unknown");
+      // Nothing was sent, and the packet is a zero-risk public GET: the cut lookup resolves the row `failed` (backlog item 1).
+      const result = expect(f.broker.request({ ...f.input, signal: abort.signal })).rejects.toThrow("request_failed");
       await vi.advanceTimersByTimeAsync(0);
       expect(lookup).toHaveBeenCalledTimes(1);
       if (reason === "cancel") abort.abort(); else await vi.advanceTimersByTimeAsync(5000);
       await result;
-      expect(f.store.dispatches("job")).toMatchObject([{ status: "unknown" }]);
+      expect(f.store.dispatches("job")).toMatchObject([{ status: "failed", failure: { phase: "transport", code: reason === "cancel" ? "cancelled" : "request_timeout" } }]);
       expect(calls).toEqual([]);
       resolve([{ address: "93.184.216.34", family: 4 }] as never);
       await vi.advanceTimersByTimeAsync(0);
@@ -142,10 +143,11 @@ describe("bounded public DNS resolver", () => {
       expect(calls).toHaveLength(1); expect(f.store.events("job")[1]).toMatchObject({ status: "failed", errorCode: "public_dns_transport_failed" });
     });
   });
-  it("records mid-resolution cancellation and performs no target request", async () => {
+  it("records mid-resolution cancellation as a resolved failure and performs no target request", async () => {
     const abort = new AbortController(), calls = transportMock({ abort }), f = fixture();
-    await expect(f.broker.request({ ...f.input, signal: abort.signal })).rejects.toThrow("transport_or_settlement_unknown");
+    await expect(f.broker.request({ ...f.input, signal: abort.signal })).rejects.toThrow("request_failed");
     expect(calls).toHaveLength(1); expect(f.store.events("job")[1]).toMatchObject({ status: "failed", errorCode: "public_dns_cancelled" });
+    expect(f.store.dispatches("job")).toMatchObject([{ status: "failed", failure: { code: "cancelled" } }]);
   });
   it("performs no resolver exchange or metadata event when already cancelled", async () => {
     const calls = transportMock(), abort = new AbortController(); abort.abort(); const events: PublicDnsEvent[] = [];

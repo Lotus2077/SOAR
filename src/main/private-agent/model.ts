@@ -37,6 +37,24 @@ const tokenStopSchema = z.object({
   code: z.enum(LOCAL_TOKEN_ADMISSION_CODES), bodySha256: sha256Schema, policySha256: sha256Schema.optional(),
 }).strict();
 export type ModelRequestTokenAdmissionStop = z.infer<typeof tokenStopSchema>;
+/**
+ * Backlog item 3 (finding A5, BL-20261107-0924): the broker refused the request before any row existed, so nothing was sent and
+ * nothing is uncertain; `code` is the broker's own fixed code. A cancel ends the run as cancelled (or paused), an unavailable
+ * scanner resumably (`packet_scan_unavailable`), a blocked scan, a missing destination, a size excess without its numbers or a cloud
+ * call after an assist whose outcome stayed unknown (BL-20261107-1006, 3) permanently (`model_request_denied`; a size excess with its
+ * numbers records the size stop instead), and a ledger refusal as `unresolved_dispatch_no_replay`.
+ */
+export const BROKER_DENIED_STOP = "broker_denied";
+export const BROKER_DENIAL_CODES = ["request_cancelled", "packet_scan_failed", "packet_scan_incomplete_or_blocked", "packet_size_exceeded", "destination_missing", "unresolved_dispatch",
+  "cloud_after_assist_unknown"] as const;
+export type BrokerDenialCode = (typeof BROKER_DENIAL_CODES)[number];
+export const PACKET_SCAN_UNAVAILABLE_STOP = "packet_scan_unavailable";
+export const MODEL_REQUEST_DENIED_STOP = "model_request_denied";
+const brokerDeniedSchema = z.object({
+  type: z.literal("model_request_not_dispatched"), contextId: privateAgentId, operationId: z.string().uuid(),
+  promptProtocolSha256: sha256Schema, reason: z.literal(BROKER_DENIED_STOP), dispatched: z.literal(false), code: z.enum(BROKER_DENIAL_CODES),
+}).strict();
+export type ModelRequestBrokerDenied = z.infer<typeof brokerDeniedSchema>;
 
 function notDispatchedJoin(events: Record<string, unknown>[], start: Record<string, unknown>): Record<string, unknown> | undefined {
   if (start.type !== "model_started") return;
@@ -59,8 +77,17 @@ export function modelRequestTokenAdmissionStop(events: Record<string, unknown>[]
   const marker = notDispatchedJoin(events, start); if (!marker) return;
   const parsed = tokenStopSchema.safeParse(marker); return parsed.success ? parsed.data : undefined;
 }
+export function modelRequestBrokerDenied(events: Record<string, unknown>[], start: Record<string, unknown>): ModelRequestBrokerDenied | undefined {
+  const marker = notDispatchedJoin(events, start); if (!marker) return;
+  const parsed = brokerDeniedSchema.safeParse(marker); return parsed.success ? parsed.data : undefined;
+}
 
 export const MODEL_UNAVAILABLE_STOP = "model_unavailable";
+/**
+ * Backlog item 1 (finding A8): the time left was shorter than the destination's request timeout, so a request that the
+ * deadline could cut, and whose row would then stay uncertain, was not started. Nothing was recorded or sent.
+ */
+export const DEADLINE_BEFORE_REQUEST_STOP = "deadline_before_request";
 
 const failedRequestSchema = z.object({
   type: z.literal("model_request_failed"), contextId: privateAgentId, operationId: z.string().uuid(),
@@ -77,7 +104,7 @@ export function modelRequestFailed(events: Record<string, unknown>[], start: Rec
 
 export function hasInvalidModelRequestSizeStop(events: Record<string, unknown>[]): boolean {
   return events.some(marker => marker.type === "model_request_not_dispatched" &&
-    !events.some(start => (modelRequestSizeStop(events, start) ?? modelRequestFeeStop(events, start) ?? modelRequestTokenAdmissionStop(events, start))?.operationId === marker.operationId));
+    !events.some(start => (modelRequestSizeStop(events, start) ?? modelRequestFeeStop(events, start) ?? modelRequestTokenAdmissionStop(events, start) ?? modelRequestBrokerDenied(events, start))?.operationId === marker.operationId));
 }
 export function hasInvalidModelRequestTokenAdmissionStop(events: Record<string, unknown>[]): boolean {
   return events.some(marker => marker.type === "model_request_not_dispatched" && marker.reason === LOCAL_TOKEN_ADMISSION_STOP &&
@@ -287,6 +314,21 @@ export class PrivateAgentModel {
     }
     this.config = Object.freeze({ ...config, maxRequestBytes, ...(config.sampling ? { sampling: Object.freeze({ ...config.sampling }) } : {}),
       ...(config.longContext ? { longContext: Object.freeze({ ...config.longContext }) } : {}) });
+  }
+
+  /**
+   * Pre-dispatch guard for finding A8 (backlog item 1): true when less time remains than the destination's request timeout
+   * and the call would not be zero-risk at the broker (a priced reservation, or any cloud destination), so a deadline cut
+   * would leave an `unknown` row with its reservation pinned. A zero-risk call is never refused here: the deadline then
+   * resolves its row `failed`. The reservation is zero exactly when every configured rate is zero, since the prompt bound
+   * and the output tokens are always positive.
+   */
+  deadlineRefuses(remainingMs: number): boolean {
+    const long = this.config.longContext;
+    const zeroFee = this.config.inputUsdPerMillion === 0 && this.config.outputUsdPerMillion === 0 && (this.config.cacheWriteUsdPerMillion ?? 0) === 0 &&
+      (long === undefined || (long.inputUsdPerMillion === 0 && long.outputUsdPerMillion === 0 && (long.cacheWriteUsdPerMillion ?? 0) === 0));
+    return remainingMs < this.broker.requestTimeoutMs(this.config.destinationId) &&
+      !this.broker.zeroRiskDispatch({ destinationId: this.config.destinationId, maxFeeMicrousd: zeroFee ? 0 : 1, method: "POST" });
   }
 
   /** Host-side calls (the entailment judge) narrow the same destination to thinking off and a short reply; they never widen anything. */

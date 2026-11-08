@@ -4,6 +4,7 @@ import type { PrivateCheckpointStore } from "./checkpoints";
 import type { PrivateAgentStore } from "./store";
 import type { GeneralMessage, GeneralToolDefinition } from "./model";
 import type { SandboxExecution } from "./sandbox";
+import { GENERIC_TOOL_FAILURE, SANDBOX_TOOL_ERROR_CODES, TOOL_ERROR_FEEDBACK, ToolError } from "./tool-errors";
 
 /**
  * Projection policies, recorded in the `started` event and fixed for the task's lifetime. Version 1 (rolling) refills the
@@ -108,7 +109,7 @@ function compactExecution(ref: ExecutionObservationReference): string {
 }
 function readOutput(ref: ExecutionObservationReference, result: SandboxExecution, args: ReadObservationArguments): { reference: ObservationReadReference; output: string } {
   const bytes = Buffer.from(result[args.stream], "utf8");
-  if (args.offset > bytes.length) throw new Error("observation_range_invalid");
+  if (args.offset > bytes.length) throw new ToolError("observation_range_invalid");
   let maximum = args.maxBytes;
   for (;;) {
     const part = range(bytes, args.offset, maximum);
@@ -123,9 +124,14 @@ function compactRead(ref: ObservationReadReference): string { return encode({ ..
 function validateFailure(event: Record<string, unknown>, tool: "execute" | "read_observation", unavailable: boolean): void {
   integrity(event.allowanceFinalizationEligible === false && typeof event.output === "string" && typeof event.invalidExecuteAtOutputLimit === "boolean");
   const output = JSON.parse(event.output as string);
-  const generic = { error: "action_failed_or_not_permitted", completed: false };
-  if (unavailable || tool === "read_observation" && output?.error === generic.error) {
-    integrity(event.invalidExecuteAtOutputLimit === false && event.output === canonical(generic)); return;
+  // The fixed host failure objects (BL-20261107-0924, E), byte for byte: for an execute the sandbox refused or lost, the legacy generic or its
+  // sandbox code; for an execute or read whose container could not be prepared, execution_context_unavailable; for a refused read, the
+  // legacy generic or the two read refusals. Anything else must be the argument feedback below.
+  const fixed: readonly { readonly error: string }[] = unavailable ? [GENERIC_TOOL_FAILURE, ...SANDBOX_TOOL_ERROR_CODES.map(code => TOOL_ERROR_FEEDBACK[code])]
+    : tool === "read_observation" ? [GENERIC_TOOL_FAILURE, TOOL_ERROR_FEEDBACK.observation_not_authorized, TOOL_ERROR_FEEDBACK.observation_range_invalid, TOOL_ERROR_FEEDBACK.execution_context_unavailable]
+    : [TOOL_ERROR_FEEDBACK.execution_context_unavailable];
+  if (unavailable || fixed.some(item => item.error === output?.error)) {
+    integrity(event.invalidExecuteAtOutputLimit === false && fixed.some(item => event.output === canonical(item))); return;
   }
   const parameters = tool === "read_observation" ? READ_OBSERVATION_TOOL.function.parameters :
     { type: "object", properties: { command: { type: "string" } }, required: ["command"], additionalProperties: false };
@@ -200,7 +206,7 @@ export function verifiedExecutionResults(scope: ExecutionObservationScope): { re
 export function readExecutionObservation(scope: ExecutionObservationScope, args: ReadObservationArguments): { reference: ObservationReadReference; output: string } {
   const parsed = readObservationArguments.parse(args);
   const original = validated(scope).retained.get(parsed.observationId);
-  if (!original || original.reference.sha256 !== parsed.sha256) throw new Error("observation_not_authorized");
+  if (!original || original.reference.sha256 !== parsed.sha256) throw new ToolError("observation_not_authorized");
   return readOutput(original.reference, original.result, parsed);
 }
 

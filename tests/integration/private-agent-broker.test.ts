@@ -6,8 +6,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { STREAM_BYTES_PER_TOKEN_BOUND, localStreamSettings } from "../../src/main/liveness";
 import { BROKER_MAX_BODY_BYTES, BrokerError, PrivateAgentBroker, STREAM_MAX_RAW_BYTES, SseStreamError, SseTruncated, assembleSseChatCompletion, isPublicAddress, type BrokerDestination, type BrokerRequest, type LocalPacketScanner } from "../../src/main/private-agent/broker";
-import { PrivateAgentStore, UnknownRequestDiagnosticSchema, type UnknownRequestDiagnostic } from "../../src/main/private-agent/store";
+import { PrivateAgentStore, SETTLEMENT_SUBCODES, UnknownRequestDiagnosticSchema, isConfirmedAbort, isRetryableAbort, type UnknownRequestDiagnostic } from "../../src/main/private-agent/store";
 import { digest } from "../../src/main/private-agent/contracts";
+import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
 
 const clean: LocalPacketScanner = { scan: async () => ({ complete: true, blocked: false, detector: "deliberate-false-negative-fixture" }) };
 const cleanups: (() => Promise<void> | void)[] = [];
@@ -150,7 +151,7 @@ describe("private agent real host transport", () => {
     const reopened = new Database(join(dir, "state.sqlite")); cleanups.push(() => { reopened.close(); });
     const second = new PrivateAgentBroker(new PrivateAgentStore(reopened), [f.destination], clean);
     expect(new PrivateAgentStore(reopened).dispatches("job")).toEqual(f.store.dispatches("job"));
-    await expect(second.request(f.input)).rejects.toThrow("private_agent_unresolved_dispatch");
+    await expect(second.request(f.input)).rejects.toMatchObject({ code: "unresolved_dispatch" });
     expect(f.requests).toHaveLength(1);
   });
 
@@ -206,7 +207,7 @@ describe("unknown request diagnostics", () => {
     expect(UnknownRequestDiagnosticSchema.safeParse(receipt.failure).success).toBe(true);
     expect(receipt.failure!.elapsedMs).toBeGreaterThanOrEqual(0);
     expect(JSON.stringify(receipt)).not.toContain(sensitive);
-    expect(Object.keys(receipt.failure!).sort()).toEqual(["code", "elapsedMs", "phase", "timeoutMs"]);
+    expect(Object.keys(receipt.failure!).sort()).toEqual(phase === "settlement" ? ["code", "elapsedMs", "phase", "subcode", "timeoutMs"] : ["code", "elapsedMs", "phase", "timeoutMs"]);
     return receipt.failure!;
   }
 
@@ -220,13 +221,13 @@ describe("unknown request diagnostics", () => {
     expect(failure.elapsedMs).toBeGreaterThanOrEqual(90);
     external.abort(new Error(sensitive));
     expect(f.store.dispatches("job")[0]!.failure).toEqual(failure);
-    await expect(f.broker.request(f.input)).rejects.toThrow("private_agent_unresolved_dispatch");
+    await expect(f.broker.request(f.input)).rejects.toMatchObject({ code: "unresolved_dispatch" });
     const originalReceipts = f.store.dispatches("job");
     f.db.close();
     const reopened = new Database(databasePath, { fileMustExist: true }); cleanups.push(() => { reopened.close(); });
     const restored = new PrivateAgentStore(reopened);
     expect(restored.dispatches("job")).toEqual(originalReceipts);
-    await expect(new PrivateAgentBroker(restored, [f.destination], clean).request(f.input)).rejects.toThrow("private_agent_unresolved_dispatch");
+    await expect(new PrivateAgentBroker(restored, [f.destination], clean).request(f.input)).rejects.toMatchObject({ code: "unresolved_dispatch" });
     expect(f.requests).toHaveLength(1);
   });
 
@@ -237,7 +238,7 @@ describe("unknown request diagnostics", () => {
     await seen; external.abort(new Error(sensitive));
     await expect(pending).rejects.toThrow("transport_or_settlement_unknown");
     diagnostic(f, "transport", "cancelled");
-    await expect(f.broker.request(f.input)).rejects.toThrow("private_agent_unresolved_dispatch");
+    await expect(f.broker.request(f.input)).rejects.toMatchObject({ code: "unresolved_dispatch" });
     expect(f.requests).toHaveLength(1);
   });
 
@@ -248,7 +249,7 @@ describe("unknown request diagnostics", () => {
     } });
     await expect(f.broker.request(f.input)).rejects.toThrow("transport_or_settlement_unknown");
     diagnostic(f, "transport", "response_oversize");
-    await expect(f.broker.request(f.input)).rejects.toThrow("private_agent_unresolved_dispatch");
+    await expect(f.broker.request(f.input)).rejects.toMatchObject({ code: "unresolved_dispatch" });
     expect(f.requests).toHaveLength(1);
   });
   it("classifies an error answer as a confirmed abort for any destination: resolved, never retried without the flag, never blocking", async () => {
@@ -271,7 +272,7 @@ describe("unknown request diagnostics", () => {
     await expect(cloud.broker.request(cloud.input)).rejects.toThrow("transport_or_settlement_unknown");
     expect(cloud.store.dispatches("job")[0]).toMatchObject({ status: "unknown", failure: { phase: "transport", code: "upstream_closed" } });
     expect(JSON.stringify(cloud.store.dispatches("job")[0])).not.toContain(sensitive);
-    await expect(cloud.broker.request(cloud.input)).rejects.toThrow("private_agent_unresolved_dispatch");
+    await expect(cloud.broker.request(cloud.input)).rejects.toMatchObject({ code: "unresolved_dispatch" });
     const local = await fixture({ kind: "local_model", privateDataAdmitted: true, classification: "public", handler: request => request.socket.destroy(new Error(sensitive)) });
     await expect(local.broker.request({ ...local.input, maxFeeMicrousd: 0 })).rejects.toThrow("request_failed");
     expect(local.store.dispatches("job")[0]).toMatchObject({ status: "failed", failure: { code: "upstream_closed" } });
@@ -294,7 +295,7 @@ describe("unknown request diagnostics", () => {
       throw new Error(sensitive);
     })).rejects.toThrow("transport_or_settlement_unknown");
     diagnostic(f, "settlement", "response_or_usage_invalid");
-    await expect(f.broker.request(f.input)).rejects.toThrow("private_agent_unresolved_dispatch");
+    await expect(f.broker.request(f.input)).rejects.toMatchObject({ code: "unresolved_dispatch" });
   });
 
   it.each([101, Number.NaN, -1])("records invalid settled fee %s as settlement, retaining the reservation", async fee => {
@@ -309,7 +310,7 @@ describe("unknown request diagnostics", () => {
     const row = f.store.commit({ ...preview, reservedFeeMicrousd: 100, scan: { status: "complete", detector: "synthetic" } }, () => {});
     const valid = { phase: "transport", code: "request_timeout", elapsedMs: 101, timeoutMs: 100 } as const;
     for (const change of [{ code: sensitive }, { phase: "settlement" }, { elapsedMs: -1 }, { elapsedMs: 3_600_001 },
-      { elapsedMs: Number.NaN }, { elapsedMs: 0.5 }, { timeoutMs: 900_001 }, { timeoutMs: 0 }, { detail: sensitive }]) {
+      { elapsedMs: Number.NaN }, { elapsedMs: 0.5 }, { timeoutMs: 900_001 }, { timeoutMs: 0 }, { detail: sensitive }, { subcode: "other" }]) {
       expect(() => f.store.unknown(row.id, { ...valid, ...change } as UnknownRequestDiagnostic)).toThrow("private_agent_unknown_diagnostic_invalid");
       expect(f.store.dispatch(row.id)).toEqual(row);
     }
@@ -318,6 +319,12 @@ describe("unknown request diagnostics", () => {
     const legacy = f.store.dispatch(row.id); expect(legacy.failure).toBeUndefined();
     f.store.unknown(row.id, valid); expect(f.store.dispatch(row.id)).toEqual(legacy);
     expect(f.requests).toEqual([]);
+    // A settlement diagnostic may name the refusing check from the fixed list only; rows written before the field have none.
+    const settlement = { phase: "settlement", code: "fee_settlement_failed", elapsedMs: 1, timeoutMs: 100 } as const;
+    expect(UnknownRequestDiagnosticSchema.safeParse(settlement).success).toBe(true);
+    for (const subcode of SETTLEMENT_SUBCODES) expect(UnknownRequestDiagnosticSchema.safeParse({ ...settlement, subcode }).success).toBe(true);
+    expect(UnknownRequestDiagnosticSchema.safeParse({ ...settlement, subcode: sensitive }).success).toBe(false);
+    expect(UnknownRequestDiagnosticSchema.safeParse({ ...settlement, subcode: "" }).success).toBe(false);
   });
 });
 
@@ -415,9 +422,10 @@ describe("recoverable dispatch (owner decision D4)", () => {
     const bad = await fixture({ ...local, handler: flaky(1, "400") });
     await expect(bad.broker.request(zeroFee(bad))).rejects.toThrow("request_failed");
     expect(bad.store.dispatches("job").map(row => row.status)).toEqual(["failed"]); expect(bad.requests).toHaveLength(1);
+    // A zero-fee timeout resolves `failed` (backlog item 1) and is not worth another attempt.
     const slow = await fixture({ ...local, timeoutMs: 200, handler: () => {} });
-    await expect(slow.broker.request(zeroFee(slow))).rejects.toThrow("transport_or_settlement_unknown");
-    expect(slow.store.dispatches("job").map(row => row.status)).toEqual(["unknown"]);
+    await expect(slow.broker.request(zeroFee(slow))).rejects.toThrow("request_failed");
+    expect(slow.store.dispatches("job").map(row => [row.status, row.failure?.code])).toEqual([["failed", "request_timeout"]]); expect(slow.requests).toHaveLength(1);
     // A priced request is not zero-risk: a peer close stays uncertain and is never retried.
     const priced = await fixture({ ...local, handler: flaky(1, "socket") });
     await expect(priced.broker.request({ ...zeroFee(priced), maxFeeMicrousd: 1 })).rejects.toThrow("transport_or_settlement_unknown");
@@ -523,26 +531,30 @@ describe("streamed replies (PR-B)", () => {
     const json = await fixture({ ...local, handler: (_request, response) => { response.writeHead(200, { "content-type": "application/json" }); response.end('{"ok":true}'); } });
     await declared(json, { inactivityTimeoutMs: 1000, maxRawBytes: 4096 }).request(zeroFee(json), bytes => { expect(bytes.toString("utf8")).toBe('{"ok":true}'); return 0; });
   });
-  it("starts the inactivity clock at the first byte, and records a mid-stream stall as an unknown inactivity_timeout that is never retried", async () => {
+  it("starts the inactivity clock at the first byte, and records a mid-stream stall as a failed inactivity_timeout that is never retried", async () => {
     const body = sse([chunk({ content: "a" }), chunk({ content: "b" }, "stop"), usage(1, 2)]);
     // Prefill: headers at once, the first byte 1.5 s later, past the 1 s inactivity limit but inside the request deadline.
     const prefill = await fixture({ ...local, recoverable: true, timeoutMs: 5000, handler: streamed(body, { firstByteMs: 1500 }) });
     expect((await declared(prefill, { inactivityTimeoutMs: 1000, maxRawBytes: 64 * 1024 }).request(zeroFee(prefill), () => 0)).receipt.status).toBe("settled");
     const stalled = await fixture({ ...local, recoverable: true, timeoutMs: 5000, handler: streamed(body, { gapMs: 1500 }) });
-    await expect(declared(stalled, { inactivityTimeoutMs: 1000, maxRawBytes: 64 * 1024 }).request(zeroFee(stalled))).rejects.toThrow("transport_or_settlement_unknown");
-    expect(stalled.store.dispatches("job").map(row => [row.status, row.failure?.code])).toEqual([["unknown", "inactivity_timeout"]]); expect(stalled.requests).toHaveLength(1);
+    await expect(declared(stalled, { inactivityTimeoutMs: 1000, maxRawBytes: 64 * 1024 }).request(zeroFee(stalled))).rejects.toThrow("request_failed");
+    expect(stalled.store.dispatches("job").map(row => [row.status, row.failure?.code])).toEqual([["failed", "inactivity_timeout"]]); expect(stalled.requests).toHaveLength(1);
   }, 20_000);
-  it("caps the raw stream and the assembled reply separately, both as unknown oversize", async () => {
+  it("caps the raw stream and the assembled reply separately, both as a failed oversize on a zero-fee packet", async () => {
     const chatty = sse([...Array.from({ length: 40 }, () => chunk({ reasoning: "x".repeat(40) })), chunk({ content: "ok" }, "stop"), usage(1, 41)]);
     const raw = await fixture({ ...local, maxResponseBytes: 2048, handler: streamed(chatty) });
-    await expect(declared(raw, { inactivityTimeoutMs: 1000, maxRawBytes: 4096 }).request(zeroFee(raw))).rejects.toThrow("transport_or_settlement_unknown");
-    expect(raw.store.dispatches("job")[0]).toMatchObject({ status: "unknown", failure: { code: "response_oversize" } });
+    await expect(declared(raw, { inactivityTimeoutMs: 1000, maxRawBytes: 4096 }).request(zeroFee(raw))).rejects.toThrow("request_failed");
+    expect(raw.store.dispatches("job")[0]).toMatchObject({ status: "failed", failure: { code: "response_oversize" } });
     const long = sse([chunk({ content: "y".repeat(3000) }, "stop"), usage(1, 1)]);
     const assembled = await fixture({ ...local, maxResponseBytes: 2048, handler: streamed(long) });
-    await expect(declared(assembled, { inactivityTimeoutMs: 1000, maxRawBytes: 64 * 1024 }).request(zeroFee(assembled))).rejects.toThrow("transport_or_settlement_unknown");
-    expect(assembled.store.dispatches("job")[0]).toMatchObject({ status: "unknown", failure: { code: "response_oversize" } });
+    await expect(declared(assembled, { inactivityTimeoutMs: 1000, maxRawBytes: 64 * 1024 }).request(zeroFee(assembled))).rejects.toThrow("request_failed");
+    expect(assembled.store.dispatches("job")[0]).toMatchObject({ status: "failed", failure: { code: "response_oversize" } });
+    // Priced, the same oversize reply is not zero-risk and stays uncertain.
+    const priced = await fixture({ ...local, maxResponseBytes: 2048, handler: streamed(long) });
+    await expect(declared(priced, { inactivityTimeoutMs: 1000, maxRawBytes: 64 * 1024 }).request({ ...zeroFee(priced), maxFeeMicrousd: 1 })).rejects.toThrow("transport_or_settlement_unknown");
+    expect(priced.store.dispatches("job")[0]).toMatchObject({ status: "unknown", failure: { code: "response_oversize" } });
   });
-  it("treats the server's in-band error like an HTTP error and an early end like a cut connection; only a malformed stream stays unknown", async () => {
+  it("treats the server's in-band error like an HTTP error and an early end like a cut connection; a malformed stream resolves failed without a retry", async () => {
     const stream = { inactivityTimeoutMs: 1000, maxRawBytes: 64 * 1024 };
     const error = (code?: number) => sse([chunk({ role: "assistant", content: "" }), { error: { object: "error", message: "synthetic engine failure", type: "InternalServerError", param: null, ...(code ? { code } : {}) } }]);
     const engine = await fixture({ ...local, recoverable: true, handler: streamed(error(500)) });
@@ -563,8 +575,12 @@ describe("streamed replies (PR-B)", () => {
     const priced = await fixture({ ...local, handler: streamed(error(500)) });
     await expect(declared(priced, stream).request({ ...zeroFee(priced), maxFeeMicrousd: 1 })).rejects.toThrow("transport_or_settlement_unknown");
     const broken = await fixture({ ...local, recoverable: true, handler: streamed(sse([chunk({ content: "x" }, "stop")])) });
-    await expect(declared(broken, stream).request(zeroFee(broken))).rejects.toThrow("transport_or_settlement_unknown");
-    expect(broken.store.dispatches("job").map(row => [row.status, row.failure?.code])).toEqual([["unknown", "stream_invalid"]]);
+    await expect(declared(broken, stream).request(zeroFee(broken))).rejects.toThrow("request_failed");
+    expect(broken.store.dispatches("job").map(row => [row.status, row.failure?.code])).toEqual([["failed", "stream_invalid"]]); expect(broken.requests).toHaveLength(1);
+    // Priced, the malformed stream stays uncertain.
+    const brokenPriced = await fixture({ ...local, handler: streamed(sse([chunk({ content: "x" }, "stop")])) });
+    await expect(declared(brokenPriced, stream).request({ ...zeroFee(brokenPriced), maxFeeMicrousd: 1 })).rejects.toThrow("transport_or_settlement_unknown");
+    expect(brokenPriced.store.dispatches("job").map(row => [row.status, row.failure?.code])).toEqual([["unknown", "stream_invalid"]]);
   }, 20_000);
   it("admits a stream declaration only on a local model destination with sane bounds", async () => {
     const f = await fixture(local);
@@ -577,5 +593,194 @@ describe("streamed replies (PR-B)", () => {
     expect(make({ kind: "cloud_model", privateDataAdmitted: false, stream: { inactivityTimeoutMs: 1000, maxRawBytes: 4096 } })).toThrow("destination_stream_invalid");
     expect(localStreamSettings(300_000, 256 * 1024, 4096)).toEqual({ inactivityTimeoutMs: 120_000, maxRawBytes: 256 * 1024 + 4096 * STREAM_BYTES_PER_TOKEN_BOUND });
     expect(localStreamSettings(60_000, 1024, 1).inactivityTimeoutMs).toBe(60_000);
+  });
+});
+
+describe("zero-risk failures resolve (backlog item 1 of the 2026-11-05 review)", () => {
+  const local = { kind: "local_model" as const, privateDataAdmitted: true, classification: "public" as const };
+  const zeroFee = (f: Awaited<ReturnType<typeof fixture>>) => ({ ...f.input, maxFeeMicrousd: 0, purpose: "agent reasoning and tool selection" });
+  const sensitive = "synthetic-private-provider-detail";
+  /** The one row of the job resolved `failed` with its fixed diagnostic: no fee, no response, nothing uncertain left behind. */
+  function resolved(f: Awaited<ReturnType<typeof fixture>>, phase: string, code: string, extra: Record<string, unknown> = {}) {
+    const rows = f.store.dispatches("job");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({ status: "failed", reservedFeeMicrousd: 0, failure: { phase, code, timeoutMs: f.destination.timeoutMs, ...extra } });
+    expect(rows[0]!.feeMicrousd).toBeUndefined(); expect(rows[0]!.responseSha256).toBeUndefined();
+    expect(UnknownRequestDiagnosticSchema.safeParse(rows[0]!.failure).success).toBe(true);
+    expect(JSON.stringify(rows[0])).not.toContain(sensitive);
+    return rows[0]!;
+  }
+  it("resolves a zero-fee request timeout as failed, never retried, and admits the next request", async () => {
+    const f = await fixture({ ...local, recoverable: true, timeoutMs: 200, handler: () => {} });
+    await expect(f.broker.request(zeroFee(f))).rejects.toThrow("request_failed");
+    resolved(f, "transport", "request_timeout", { attempt: 1 }); expect(f.requests).toHaveLength(1);
+    await expect(f.broker.request(zeroFee(f))).rejects.toThrow("request_failed");
+    expect(f.store.dispatches("job").map(row => row.status)).toEqual(["failed", "failed"]); expect(f.requests).toHaveLength(2);
+  });
+  it("resolves an external cancel and a job cancel mid-request as failed `cancelled` rows without the raw reason", async () => {
+    let arrived!: () => void; const seen = new Promise<void>(resolve => { arrived = resolve; });
+    let held = true;
+    const f = await fixture({ ...local, handler: (_request, response) => { if (held) { held = false; arrived(); return; } response.end('{"ok":true}'); } });
+    const external = new AbortController(), pending = f.broker.request({ ...zeroFee(f), signal: external.signal });
+    await seen; external.abort(new Error(sensitive));
+    await expect(pending).rejects.toThrow("request_failed");
+    resolved(f, "transport", "cancelled");
+    await f.broker.request(zeroFee(f), () => 0); // nothing is unresolved: the next request settles
+    expect(f.store.dispatches("job").map(row => row.status)).toEqual(["failed", "settled"]);
+    let arrivedAgain!: () => void; const seenAgain = new Promise<void>(resolve => { arrivedAgain = resolve; });
+    const g = await fixture({ ...local, recoverable: true, handler: () => arrivedAgain() });
+    const cancelled = g.broker.request(zeroFee(g)); await seenAgain; g.broker.cancelJob("job");
+    await expect(cancelled).rejects.toThrow("request_failed");
+    resolved(g, "transport", "cancelled", { attempt: 1 }); expect(g.requests).toHaveLength(1);
+    await expect(g.broker.request(zeroFee(g))).rejects.toThrow("job_cancelled");
+  });
+  it("resolves a declared and a streamed oversize reply and an unclassified transport failure as failed", async () => {
+    const declared = await fixture({ ...local, maxResponseBytes: 8, handler: (_request, response) => { response.writeHead(200, { "content-length": String(sensitive.length) }); response.end(sensitive); } });
+    await expect(declared.broker.request(zeroFee(declared))).rejects.toThrow("request_failed");
+    resolved(declared, "transport", "response_oversize");
+    const streamed = await fixture({ ...local, maxResponseBytes: 8, handler: (_request, response) => { response.write(sensitive); response.end(); } });
+    await expect(streamed.broker.request(zeroFee(streamed))).rejects.toThrow("request_failed");
+    resolved(streamed, "transport", "response_oversize");
+    // An unclassified socket error before anything was sent is a non-dispatch for every destination; after the request was
+    // written and with no fixed code it is `transport_failed`, confirmed only because the packet is zero-risk.
+    const odd = await fixture({ ...local });
+    await expect(odd.broker.request({ ...zeroFee(odd), url: odd.destination.endpoint })).resolves.toMatchObject({ receipt: { status: "settled" } });
+  });
+  it("resolves the settlement failures of a zero-fee reply as failed with the refusing check as the sub-code", async () => {
+    const decoder = await fixture(local);
+    await expect(decoder.broker.request(zeroFee(decoder), () => { throw new Error("private_model_response_invalid"); })).rejects.toThrow("request_failed");
+    resolved(decoder, "settlement", "response_or_usage_invalid", { subcode: "private_model_response_invalid" });
+    const unlisted = await fixture(local);
+    await expect(unlisted.broker.request(zeroFee(unlisted), () => { throw new Error(sensitive); })).rejects.toThrow("request_failed");
+    resolved(unlisted, "settlement", "response_or_usage_invalid", { subcode: "other" });
+    const spoofed = await fixture(local);
+    await expect(spoofed.broker.request(zeroFee(spoofed), () => { throw new BrokerError("transport_status_denied"); })).rejects.toThrow("request_failed");
+    resolved(spoofed, "settlement", "response_or_usage_invalid", { subcode: "other" });
+    // A zero-fee reply that reports a fee cannot settle: the store's check is the sub-code, and the job is not blocked.
+    const fee = await fixture(local);
+    await expect(fee.broker.request(zeroFee(fee), () => 1)).rejects.toThrow("request_failed");
+    resolved(fee, "settlement", "fee_settlement_failed", { subcode: "private_agent_settlement_invalid" });
+    await fee.broker.request(zeroFee(fee), () => 0);
+    expect(fee.store.dispatches("job").map(row => row.status)).toEqual(["failed", "settled"]);
+  });
+  it("keeps the same failures uncertain for a priced packet, now with the sub-code recorded, and still blocks the job", async () => {
+    const f = await fixture({ classification: "public" });
+    await expect(f.broker.request(f.input, () => { throw new Error("model_usage_outside_envelope"); })).rejects.toThrow("transport_or_settlement_unknown");
+    expect(f.store.dispatches("job")[0]).toMatchObject({ status: "unknown", reservedFeeMicrousd: 100, failure: { phase: "settlement", code: "response_or_usage_invalid", subcode: "model_usage_outside_envelope" } });
+    await expect(f.broker.request(f.input)).rejects.toMatchObject({ code: "unresolved_dispatch" });
+    const slow = await fixture({ classification: "public", timeoutMs: 200, handler: () => {} });
+    await expect(slow.broker.request(slow.input)).rejects.toThrow("transport_or_settlement_unknown");
+    expect(slow.store.dispatches("job")[0]).toMatchObject({ status: "unknown", failure: { code: "request_timeout" } });
+    // A local request with a fee reservation is priced too: its timeout stays uncertain.
+    const pricedLocal = await fixture({ ...local, timeoutMs: 200, handler: () => {} });
+    await expect(pricedLocal.broker.request({ ...zeroFee(pricedLocal), maxFeeMicrousd: 1 })).rejects.toThrow("transport_or_settlement_unknown");
+    expect(pricedLocal.store.dispatches("job")[0]).toMatchObject({ status: "unknown", failure: { code: "request_timeout" } });
+  });
+  it("resolves a zero-risk public GET timeout as failed, but not a granted one", async () => {
+    const web = await fixture({ kind: "public_web", classification: "public", timeoutMs: 200, handler: () => {} });
+    await expect(web.broker.request({ ...web.input, maxFeeMicrousd: 0, purpose: "public source retrieval" })).rejects.toThrow("request_failed");
+    resolved(web, "transport", "request_timeout");
+    const granted = await fixture({ kind: "public_web", timeoutMs: 200, handler: () => {} });
+    await expect(granted.broker.request({ ...granted.release(), maxFeeMicrousd: 100 })).rejects.toThrow();
+    expect(granted.store.dispatches("job").map(row => row.status)).toEqual(["unknown"]);
+  });
+  it("exposes the request timeout and the zero-risk predicate it applies itself", async () => {
+    const f = await fixture({ ...local, timeoutMs: 1234 });
+    expect(f.broker.requestTimeoutMs("target")).toBe(1234);
+    expect(() => f.broker.requestTimeoutMs("missing")).toThrow("destination_missing");
+    const shape = { destinationId: "target", method: "POST" as const };
+    expect(f.broker.zeroRiskDispatch({ ...shape, maxFeeMicrousd: 0 })).toBe(true);
+    expect(f.broker.zeroRiskDispatch({ ...shape, maxFeeMicrousd: 1 })).toBe(false);
+    expect(f.broker.zeroRiskDispatch({ ...shape, maxFeeMicrousd: 0, grantId: "grant" })).toBe(false);
+    expect(f.broker.zeroRiskDispatch({ ...shape, maxFeeMicrousd: 0, approval: { proposalId: "p", priceProfileSha256: "a".repeat(64), maxFeeMicrousd: 0 } as never })).toBe(false);
+    const cloud = await fixture({ classification: "public" });
+    expect(cloud.broker.zeroRiskDispatch({ ...shape, maxFeeMicrousd: 0 })).toBe(false);
+    const web = await fixture({ kind: "public_web", classification: "public" });
+    expect(web.broker.zeroRiskDispatch({ destinationId: "target", method: "GET", maxFeeMicrousd: 0 })).toBe(true);
+    expect(web.broker.zeroRiskDispatch({ destinationId: "target", method: "GET", maxFeeMicrousd: 0, grantId: "grant" })).toBe(false);
+    expect(() => web.broker.zeroRiskDispatch({ destinationId: "missing", method: "GET", maxFeeMicrousd: 0 })).toThrow("destination_missing");
+  });
+  it("confirms every zero-risk failure but retries only the transient aborts", () => {
+    const transport = (code: string, status?: number) => ({ phase: "transport", code, elapsedMs: 1, timeoutMs: 1000, ...(status === undefined ? {} : { status }) }) as UnknownRequestDiagnostic;
+    for (const code of ["connection_failed", "upstream_closed", "response_interrupted"]) expect(isRetryableAbort(transport(code))).toBe(true);
+    for (const status of [500, 503, 429]) { expect(isRetryableAbort(transport("http_rejected", status))).toBe(true); expect(isRetryableAbort(transport("stream_error", status))).toBe(true); }
+    for (const status of [400, 404, 302, undefined]) { expect(isRetryableAbort(transport("http_rejected", status))).toBe(false); expect(isRetryableAbort(transport("stream_error", status))).toBe(false); }
+    for (const code of ["request_timeout", "cancelled", "response_oversize", "transport_failed", "inactivity_timeout", "stream_invalid"]) {
+      expect(isConfirmedAbort(transport(code), true)).toBe(true); expect(isConfirmedAbort(transport(code))).toBe(false); expect(isRetryableAbort(transport(code))).toBe(false);
+    }
+    for (const code of ["connection_failed", "http_rejected"]) expect(isConfirmedAbort(transport(code))).toBe(true);
+    for (const code of ["response_or_usage_invalid", "fee_settlement_failed"] as const) {
+      const settlement = { phase: "settlement", code, elapsedMs: 1, timeoutMs: 1000 } as UnknownRequestDiagnostic;
+      expect(isConfirmedAbort(settlement, true)).toBe(true); expect(isConfirmedAbort(settlement)).toBe(false); expect(isRetryableAbort(settlement)).toBe(false);
+    }
+    expect(isConfirmedAbort(undefined, true)).toBe(false);
+  });
+});
+
+describe("the assist-purpose exception in the ledger (backlog item 10)", () => {
+  const scan = { status: "complete" as const, detector: "synthetic" };
+  it("lets local work continue past a skipped assist while pinning its reservation and barring a second assist", async () => {
+    // A sealed cloud one-shot whose outcome stayed uncertain: the cloud destination never answers inside its timeout.
+    const f = await fixture({ classification: "public", timeoutMs: 200, handler: () => {} });
+    await expect(f.broker.request({ ...f.input, purpose: PLAN_ASSIST_PURPOSE })).rejects.toThrow("transport_or_settlement_unknown");
+    expect(f.store.dispatches("job")[0]).toMatchObject({ status: "unknown", purpose: PLAN_ASSIST_PURPOSE, reservedFeeMicrousd: 100, failure: { code: "request_timeout" } });
+    // A local-stage dispatch of the job commits and settles: nothing blocks it.
+    const { text: _text, ...local } = f.broker.preview({ ...f.input, purpose: "research evidence extraction", maxFeeMicrousd: 0 });
+    const row = f.store.commit({ ...local, reservedFeeMicrousd: 0, scan }, () => {});
+    f.store.settle(row.id, 0, digest("reply"));
+    // The job may make no second assist: the cloud row stays at-most-once.
+    const { text: _assist, ...assist } = f.broker.preview({ ...f.input, purpose: SYNTHESIS_ASSIST_PURPOSE });
+    expect(() => f.store.commit({ ...assist, reservedFeeMicrousd: 100, scan }, () => {})).toThrow("private_agent_assist_after_unknown");
+    expect(() => f.store.commit({ ...assist, purpose: PLAN_ASSIST_PURPOSE, reservedFeeMicrousd: 100, scan }, () => {})).toThrow("private_agent_assist_after_unknown");
+    // The skipped assist's reservation stays pinned: the cap (1,000) has 900 left for later rows.
+    expect(() => f.store.commit({ ...local, reservedFeeMicrousd: 901, scan }, () => {})).toThrow("private_agent_budget_denied");
+    const admitted = f.store.commit({ ...local, reservedFeeMicrousd: 900, scan }, () => {}); f.store.settle(admitted.id, 0, digest("reply"));
+    expect(f.store.dispatches("job").map(row => row.status)).toEqual(["unknown", "settled", "settled"]);
+  });
+  it("admits an assist purpose on a cloud destination only, before any row or request", async () => {
+    const localModel = await fixture({ kind: "local_model", privateDataAdmitted: true, classification: "public" });
+    expect(() => localModel.broker.preview({ ...localModel.input, purpose: PLAN_ASSIST_PURPOSE, maxFeeMicrousd: 0 })).toThrow("assist_destination_invalid");
+    await expect(localModel.broker.request({ ...localModel.input, purpose: SYNTHESIS_ASSIST_PURPOSE, maxFeeMicrousd: 0 })).rejects.toThrow("assist_destination_invalid");
+    const web = await fixture({ kind: "public_web", classification: "public" });
+    expect(() => web.broker.preview({ ...web.input, purpose: PLAN_ASSIST_PURPOSE, maxFeeMicrousd: 0 })).toThrow("assist_destination_invalid");
+    expect(localModel.requests).toEqual([]); expect(localModel.store.dispatches("job")).toEqual([]); expect(web.store.dispatches("job")).toEqual([]);
+    const cloud = await fixture({ classification: "public" });
+    expect(cloud.broker.preview({ ...cloud.input, purpose: PLAN_ASSIST_PURPOSE }).purpose).toBe(PLAN_ASSIST_PURPOSE);
+  });
+  it("refuses every grant-free cloud dispatch after a skipped assist, admits the job's local work, and leaves a granted consultation to its own rules", async () => {
+    const f = await fixture({ classification: "public", timeoutMs: 200, handler: () => {} });
+    await expect(f.broker.request({ ...f.input, purpose: PLAN_ASSIST_PURPOSE })).rejects.toThrow("transport_or_settlement_unknown");
+    // The same job gains a local destination served by the same loopback server, which answers at once.
+    const local: BrokerDestination = { ...f.destination, id: "local", kind: "local_model", privateDataAdmitted: true, timeoutMs: 1000 };
+    f.store.revisePolicy("job", { mode: "cloud_help", destinations: ["target", "local"] });
+    const broker = new PrivateAgentBroker(f.store, [f.destination, local], clean);
+    for (const purpose of [SYNTHESIS_ASSIST_PURPOSE, PLAN_ASSIST_PURPOSE, "agent reasoning and tool selection", "bounded consultation"]) {
+      await expect(broker.request({ ...f.input, purpose })).rejects.toThrow("cloud_after_assist_unknown");
+    }
+    expect(f.requests).toHaveLength(1); expect(f.store.dispatches("job")).toHaveLength(1);
+    // Local work goes on: a zero-fee local request commits, but the server never answers it inside its timeout here, so it resolves failed.
+    const settledLocal = await fixture({ classification: "public" });
+    const result = await broker.request({ ...f.input, destinationId: "local", purpose: "research evidence extraction", maxFeeMicrousd: 0 }).catch(error => error);
+    expect(result).toBeInstanceOf(BrokerError); expect((result as BrokerError).code).toBe("request_failed");
+    expect(f.store.dispatches("job").map(row => [row.destinationId, row.status])).toEqual([["target", "unknown"], ["local", "failed"]]);
+    expect(settledLocal.store.dispatches("job")).toEqual([]);
+    // A grant-backed cloud call (the owner's exact-packet consultation) is not refused by this rule: it keeps its own semantics
+    // and, here, ends uncertain like any priced request the server never answers. Item 13 decides where it is declined instead.
+    const granted = f.release("grant");
+    await expect(broker.request(granted)).rejects.toThrow("transport_or_settlement_unknown");
+    expect(f.requests).toHaveLength(3);
+  });
+  it("still blocks everything on an unknown row of any other purpose and on a committed assist row", async () => {
+    const f = await fixture({ classification: "public", timeoutMs: 200, handler: () => {} });
+    await expect(f.broker.request(f.input)).rejects.toThrow("transport_or_settlement_unknown");
+    const { text: _text, ...local } = f.broker.preview({ ...f.input, purpose: "research evidence extraction", maxFeeMicrousd: 0 });
+    expect(() => f.store.commit({ ...local, reservedFeeMicrousd: 0, scan }, () => {})).toThrow("private_agent_unresolved_dispatch");
+    // A committed assist row (the process died mid-dispatch) has no diagnostic and nothing resolves it: it blocks too.
+    const g = await fixture({ classification: "public" });
+    const { text: _preview, ...assist } = g.broker.preview({ ...g.input, purpose: PLAN_ASSIST_PURPOSE });
+    g.store.commit({ ...assist, reservedFeeMicrousd: 100, scan }, () => {});
+    const { text: _local, ...localG } = g.broker.preview({ ...g.input, purpose: "research evidence extraction", maxFeeMicrousd: 0 });
+    expect(() => g.store.commit({ ...localG, reservedFeeMicrousd: 0, scan }, () => {})).toThrow("private_agent_unresolved_dispatch");
+    expect(g.requests).toEqual([]);
   });
 });

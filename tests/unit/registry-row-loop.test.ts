@@ -18,7 +18,9 @@ function run(root: string, name: string, input: { calls: number; tokens: number;
   writeFileSync(join(dir, "freeze.json"), `${canonical({ version: 1, jobId, startedAt: input.startedAt, taskBinding: { jobSha256: h("1"), briefSha256: h("2") }, profile: "heavy",
     modelConfig: { maxOutputTokens: 16384, thinking: "medium" }, ...(input.pipeline ? { pipeline: input.pipeline } : {}), ...(input.arm ? { arm: input.arm } : {}) })}\n`);
   writeFileSync(join(dir, "result.json"), `${canonical({ status: input.status, reason: input.status === "submitted" ? "independent_acceptance_pending" : "bounded_allowance_exhausted", finishedAt: input.finishedAt,
-    candidateFiles: [{ path: "output/report.md", sha256: h("9") }], dispatches: [{ status: "settled", feeMicrousd: input.fee }, { status: "superseded", feeMicrousd: 0 }] })}\n`);
+    candidateFiles: [{ path: "output/report.md", sha256: h("9") }], dispatches: [{ status: "settled", feeMicrousd: input.fee }, { status: "superseded", feeMicrousd: 0 },
+      // Backlog item 10: an unknown or failed assist row is counted in its own column, never as the run's unresolved or failed dispatch.
+      { status: "unknown", purpose: "research plan assist", reservedFeeMicrousd: 160_000 }, { status: "failed", purpose: "research synthesis assist" }] })}\n`);
   const db = new Database(join(dir, "state.sqlite")); const store = new PrivateAgentStore(db);
   store.createJob({ version: 1, id: jobId, mode: "private", revision: 0, cancelled: false, destinations: ["m"], maxRequests: 10, maxFeeMicrousd: 0 });
   store.append(jobId, { type: "session_started", identity: h("3"), startedAt: 1, privateContextId: "p", publicContextId: "q" });
@@ -50,7 +52,7 @@ describe("registry row of an H4 loop", () => {
       selected: { stage1: { candidate: "a", step: "submitted" }, final: { candidate: "repair", step: "entailment" } } })}\n`);
     const loop = row(["--loop-dir", root]);
     // The three runs' counts plus the critique's one call; every sample's own ending stays in the row.
-    expect(loop).toMatchObject({ modelCalls: 13, toolCalls: 3, inputTokens: 3 * 100 + 2 * 200 + 4 * 50 + 700 + 100, outputTokens: 160, cachedTokens: 95, cacheWriteTokens: 20, lengthStops: 6, usd: 0.12, retriedDispatches: 3, failedDispatches: 0, unknownDispatches: 0,
+    expect(loop).toMatchObject({ modelCalls: 13, toolCalls: 3, inputTokens: 3 * 100 + 2 * 200 + 4 * 50 + 700 + 100, outputTokens: 160, cachedTokens: 95, cacheWriteTokens: 20, lengthStops: 6, usd: 0.12, retriedDispatches: 3, failedDispatches: 0, unknownDispatches: 0, assistSkippedDispatches: 3, assistFailedDispatches: 3,
       wallSeconds: 1650, runStatus: "submitted", terminalCause: "independent_acceptance_pending", date: "2026-10-26", taskJobSha256: h("1"), pipeline: "research", pipelinePlanner: "cloud", profile: "heavy",
       loop: { version: 1, rule: 1, samples: 2, repaired: true, seeded: { b: true, repair: true, snapshotSha256: h("f") }, stage1: "a", selected: "repair", step: "entailment", critiqued: true, critiqueFailure: null, writeIdentityEqual: true,
         candidates: { a: { status: "submitted", terminalCause: "independent_acceptance_pending" }, b: { status: "incomplete", terminalCause: "cancelled_or_deadline" }, repair: { status: "submitted", terminalCause: "independent_acceptance_pending" } } },
@@ -67,8 +69,10 @@ describe("registry row of an H4 loop", () => {
     // A single run rows as before, and the two modes are exclusive.
     const single = row(["--run-dir", join(root, "a")]);
     expect(single).toMatchObject({ modelCalls: 6, inputTokens: 400, cacheWriteTokens: 20, lengthStops: 3, usd: 0.12, wallSeconds: 600, runStatus: "submitted" }); expect(single).not.toHaveProperty("loop");
-    expect(() => row(["--run-dir", join(root, "a"), "--loop-dir", root])).toThrow();
-    expect(() => row([])).toThrow();
+    // Exactly one source: every pair of the four is refused, as is no source at all.
+    const sources = [["--run-dir", join(root, "a")], ["--loop-dir", root], ["--verdict-file", join(root, "receipt.json")], ["--supersedes", "x"]];
+    for (let i = 0; i < sources.length; i++) for (let j = i + 1; j < sources.length; j++) expect(() => row([...sources[i]!, ...sources[j]!])).toThrow(/exactly one/u);
+    expect(() => row([])).toThrow(/exactly one/u);
   });
 
   it("reports no support rate when no claims were judged, and zero when judged claims have no support", () => {

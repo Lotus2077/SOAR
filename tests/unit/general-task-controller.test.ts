@@ -2,10 +2,10 @@ import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
 import { mkdtempSync, writeFileSync, symlinkSync, linkSync, rmSync, renameSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GeneralTaskController, type GeneralTaskControllerOptions } from "../../src/main/general-tasks/controller";
+import { GeneralTaskController, VERDICT_RECEIPT_KEYS, type GeneralTaskControllerOptions } from "../../src/main/general-tasks/controller";
 import type { SoarConfig } from "../../src/main/config";
 import { canonical, digest, contextFingerprint } from "../../src/main/private-agent/contracts";
 import { GeneralAgentRunner, type GeneralJobOptions } from "../../src/main/private-agent/runner";
@@ -14,6 +14,7 @@ import { EXECUTION_PROGRESS_STOP } from "../../src/main/private-agent/progress";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import type { BrokerDestination } from "../../src/main/private-agent/broker";
 import { flashNextAdmissionFixture } from "../helpers/flash-next-admission-fixture";
+import { workspaceListing } from "../helpers/workspace-listing";
 
 const cleanup: (() => Promise<void> | void)[] = [];
 afterEach(async () => { vi.restoreAllMocks(); for (const fn of cleanup.splice(0).reverse()) await fn(); });
@@ -44,7 +45,8 @@ function fixture(cleanupConfirmed = true) {
         store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed, elapsedMs: 12 });
         return { status: "incomplete", reason: "model_unavailable", snapshot: [], checks: [], modelCalls: executions.length };
       }
-      store.append(jobId, { type: "model_finished", contextId, operationId: op });
+      // The reply's usage and finish reason, as the runner records them (the verdict receipt sums these).
+      store.append(jobId, { type: "model_finished", contextId, operationId: op, finishReason: "stop", usage: { inputTokens: 120, outputTokens: 30, cacheReadTokens: 40, cacheWriteTokens: 0 } });
       const snapshot = checkpoints.save([...args.files, { path: args.contract.requiredArtifacts[0]!.path, bytes: Buffer.from("unit artifact") }]);
       store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
       const status = cancelled || signal?.aborted ? "incomplete" : paused ? "paused" : "completed";
@@ -147,7 +149,7 @@ describe("desktop general-task host controller", () => {
     vi.spyOn(DockerSandbox, "cleanupOwnedContext").mockResolvedValue(undefined);
     vi.spyOn(DockerSandbox, "create").mockImplementation(async input => ({
       async execute() { return { exitCode: 1, stdout: "", stderr: "deterministic synthetic failure" }; },
-      async listFiles() { return input.files.map(file => file.path); },
+      async listFiles() { return workspaceListing(new Map(input.files.map(file => [file.path, file.bytes]))); },
       async readFile(path: string) { return input.files.find(file => file.path === path)!.bytes; }, async close() {},
     } as unknown as DockerSandbox));
     let requests = 0;
@@ -228,6 +230,60 @@ describe("desktop general-task host controller", () => {
     expect(f.executions).toHaveLength(1);
     expect(reopened.artifact({ id: task.id, path: after.artifacts[0]!.path, sha256: after.artifacts[0]!.sha256 }).bytes.toString()).toBe("saved partial artifact");
     expect(f.executions[0]!.store.dispatches(task.id)).toHaveLength(variant === "unknown" ? 1 : 0);
+  });
+
+  it.each([
+    { reason: "packet_scan_unavailable", code: "packet_scan_failed", resumable: true, text: "scanner" },
+    { reason: "model_request_denied", code: "destination_missing", resumable: false, text: "refused" },
+    { reason: "model_request_denied", code: "cloud_after_assist_unknown", resumable: false, text: "refused" },
+    { reason: "model_request_denied", code: "not_a_broker_code", resumable: false, text: "uncertain outcome" },
+  ])("maps a pre-dispatch broker refusal ($reason, $code) to its fixed text and resumability after reopening (backlog item 3)", async ({ reason, code, resumable, text }) => {
+    const f = fixture();
+    f.options.testing!.runnerFactory = args => ({ pause() {}, cancel() {}, async run() {
+      f.executions.push(args);
+      const { store, jobId, contextId, checkpoints } = args;
+      const start = { type: "model_started", operationId: randomUUID(), contextId, promptProtocolSha256: digest("fixture-protocol") };
+      store.append(jobId, start);
+      store.append(jobId, { ...start, type: "model_request_not_dispatched", reason: "broker_denied", dispatched: false, code });
+      const snapshot = checkpoints.save([...args.files, { path: args.contract.requiredArtifacts[0]!.path, bytes: Buffer.from("saved partial artifact") }]);
+      store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
+      store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
+      return { status: "incomplete", reason, snapshot, checks: [], modelCalls: 1 };
+    } });
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    const before = f.controller.get(task.id);
+    expect(before).toMatchObject({ status: "incomplete", canResume: resumable, modelCalls: 1, cleanupConfirmed: true });
+    expect(before.reason).toContain(text);
+    if (text !== "uncertain outcome") expect(before.reason).not.toContain("uncertain outcome");
+    // The event summary keys on the marker's reason, whatever its code; the task's own reason is what flags a malformed marker.
+    expect(before.events.find(event => event.type === "model_request_not_dispatched")!.summary).toContain("refused");
+    await f.controller.close();
+    const reopened = new GeneralTaskController(f.options); cleanup.push(() => reopened.close());
+    expect(reopened.get(task.id)).toMatchObject({ reason: before.reason, canResume: resumable });
+    if (!resumable) expect(() => reopened.resume(task.id)).toThrow("general_task_resume_denied");
+    expect(f.executions).toHaveLength(1);
+    expect(reopened.artifact({ id: task.id, path: before.artifacts[0]!.path, sha256: before.artifacts[0]!.sha256 }).bytes.toString()).toBe("saved partial artifact");
+  });
+
+  it("summarises a validation the host closed without a verifier result as closed, never as recorded checks or an uncertain outcome (BL-20261107-1041, 12)", async () => {
+    const f = fixture();
+    f.options.testing!.runnerFactory = args => ({ pause() {}, cancel() {}, async run() {
+      f.executions.push(args);
+      const { store, jobId, contextId, checkpoints } = args;
+      const snapshot = checkpoints.save(args.files);
+      store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
+      const operationId = randomUUID();
+      store.append(jobId, { type: "host_validation_started", contextId, operationId, trigger: "model_or_tool_allowance_exhausted" });
+      store.append(jobId, { type: "host_validation_finished", contextId, operationId, passed: false, checks: [], missingArtifacts: [args.contract.requiredArtifacts[0]!.path], verificationFailure: { code: "sandbox_unavailable" } });
+      store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
+      return { status: "incomplete", reason: "bounded_allowance_exhausted", snapshot, checks: [], modelCalls: 1 };
+    } });
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    const snapshot = f.controller.get(task.id);
+    expect(snapshot).toMatchObject({ status: "incomplete", canResume: false, cleanupConfirmed: true });
+    expect(snapshot.reason).not.toContain("uncertain");
+    const summary = snapshot.events.find(event => event.type === "host_validation_finished")!.summary;
+    expect(summary).toBe("The frozen artifact could not be verified; the validation is closed and nothing is uncertain.");
   });
 
   it.each(["valid", "malformed", "missing", "orphan", "unknown"])("preserves the %s token-admission stop without replay after reopening", async variant => {
@@ -664,6 +720,24 @@ describe("desktop general-task host controller", () => {
     const after = JSON.parse((reopened.prepare("SELECT value FROM general_tasks WHERE id=?").get(task.id) as { value: string }).value);
     expect(after.startedAt).toBe(before.startedAt); expect(after.phaseIdentity).toBe(before.phaseIdentity);
   });
+  it("keeps a paused task resumable past a skipped assist row, but not past any other unknown row (backlog item 10)", async () => {
+    const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1)); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
+    const args = f.executions[0]!;
+    // The reading stage's context, where a sealed cloud one-shot's row would sit; the writer's own context is args.contextId.
+    args.store.createContext({ id: "reader", jobId: task.id, sources: [{ id: "corpus", version: digest("synthetic corpus"), classification: "public", synthetic: true }] });
+    const unknownRow = (purpose: string, contextId: string) => {
+      const { text: _packet, ...preview } = args.broker.preview({ jobId: task.id, contextId, destinationId: "desktop_local", purpose: "agent reasoning and tool selection", method: "POST", body: "{}", maxFeeMicrousd: 0 });
+      args.store.unknown(args.store.commit({ ...preview, purpose, reservedFeeMicrousd: 0, scan: { status: "not_required_for_synthetic_local_test" } }, () => {}).id);
+    };
+    unknownRow("research synthesis assist", "reader");
+    expect(f.controller.get(task.id)).toMatchObject({ status: "paused", canResume: true, reason: "Paused with progress saved." });
+    unknownRow("agent reasoning and tool selection", args.contextId);
+    const blocked = f.controller.get(task.id);
+    expect(blocked.reason).toContain("uncertain"); expect(blocked.canResume).toBe(false);
+    // The text describes the row that blocks, never the skipped assist.
+    expect(blocked.reason).toContain("Resume is blocked");
+  });
   it("never resumes an unknown dispatch or cancelled task", async () => {
     const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
     await vi.waitFor(() => expect(f.executions).toHaveLength(1)); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
@@ -883,5 +957,83 @@ describe("desktop general-task host controller", () => {
     const f = fixture(); f.removeImage();
     expect(await f.controller.availability()).toMatchObject({ available: false, executionMode: "unavailable", publicOrSyntheticOnly: true });
     expect(f.controller.list()).toEqual([]); expect(f.executions).toEqual([]);
+  });
+  it("records the owner's verdict once, on a submitted inactive task only, persists it across reopening and leaves acceptance and reported issues unchanged", async () => {
+    const f = fixture(); f.narrate = true;
+    const updates: string[] = [];
+    const controller = new GeneralTaskController({ ...f.options, onUpdate: snapshot => { if (snapshot.verdict) updates.push(snapshot.id); } }); cleanup.push(() => controller.close());
+    const task = controller.create({ goal: "Make a small report.", inputSelectionId: controller.selectInputs([f.input]).id, outputName: "report.md", publicOrSynthetic: true });
+    const verdict = { id: task.id, decision: "accept" as const, ownerMinutes: 8, interventions: 1, exportedThroughApp: true };
+    // Queued, running (active), paused: no verdict yet.
+    expect(() => controller.recordVerdict(verdict)).toThrow("general_task_verdict_denied");
+    f.hold(); controller.start(task.id); await vi.waitFor(() => expect(f.executions).toHaveLength(1));
+    expect(() => controller.recordVerdict(verdict)).toThrow("general_task_verdict_denied");
+    controller.pause(task.id); f.release(); await controller.wait(task.id);
+    expect(controller.get(task.id).status).toBe("paused");
+    expect(() => controller.recordVerdict(verdict)).toThrow("general_task_verdict_denied");
+    f.resetPaused(); controller.resume(task.id); await controller.wait(task.id);
+    const before = controller.get(task.id);
+    expect(before).toMatchObject({ status: "submitted", independentAcceptance: "not_evaluated" }); expect(before.verdict).toBeUndefined(); expect(before.reportedIssues!.length).toBeGreaterThan(0);
+    // Strict input: no free text, no renderer-added field, finite minutes, integer interventions.
+    for (const invalid of [{ ...verdict, note: "free text" }, { ...verdict, goal: "x" }, { ...verdict, ownerMinutes: Number.NaN }, { ...verdict, ownerMinutes: -1 }, { ...verdict, interventions: 1.5 }, { ...verdict, decision: "maybe" }])
+      expect(() => controller.recordVerdict(invalid as never)).toThrow();
+    expect(controller.get(task.id).verdict).toBeUndefined();
+    const after = controller.recordVerdict(verdict);
+    expect(after.verdict).toMatchObject({ decision: "accept", ownerMinutes: 8, interventions: 1, exportedThroughApp: true });
+    expect(after.verdict!.recordedAt).toBeGreaterThanOrEqual(before.updatedAt);
+    expect(after.revision).toBeGreaterThan(before.revision);
+    // The verdict changes nothing else: not acceptance, not the host's issues, not the task's own times.
+    expect(after).toMatchObject({ status: "submitted", independentAcceptance: "not_evaluated", reportedIssues: before.reportedIssues, updatedAt: before.updatedAt, elapsedMs: before.elapsedMs, modelCalls: before.modelCalls });
+    expect(updates).toEqual([task.id]);
+    expect(() => controller.recordVerdict({ ...verdict, decision: "reject" })).toThrow("general_task_verdict_recorded");
+    expect(controller.get(task.id).verdict).toEqual(after.verdict);
+    expect(() => controller.cancel(task.id)).toThrow("general_task_terminal");
+    // Incomplete and cancelled tasks take no verdict: OAJ counts submitted jobs.
+    f.failModel = true; const failed = controller.create({ goal: "Make a small report.", inputSelectionId: controller.selectInputs([f.input]).id, outputName: "report.md", publicOrSynthetic: true });
+    controller.start(failed.id); await controller.wait(failed.id); f.failModel = false;
+    expect(controller.get(failed.id).status).toBe("incomplete");
+    expect(() => controller.recordVerdict({ ...verdict, id: failed.id })).toThrow("general_task_verdict_denied");
+    const cancelled = controller.create({ goal: "Make a small report.", outputName: "report.md", publicOrSynthetic: true }); controller.cancel(cancelled.id);
+    expect(() => controller.recordVerdict({ ...verdict, id: cancelled.id })).toThrow("general_task_verdict_denied");
+    // The verdict survives reopening, and a tampered one is refused like every other record invariant.
+    await controller.close();
+    const reopened = new GeneralTaskController(f.options); cleanup.push(() => reopened.close());
+    expect(reopened.get(task.id).verdict).toEqual(after.verdict);
+    expect(reopened.get(task.id)).toMatchObject({ status: "submitted", independentAcceptance: "not_evaluated", updatedAt: before.updatedAt });
+    const row = JSON.parse((f.db.prepare("SELECT value FROM general_tasks WHERE id=?").get(task.id) as { value: string }).value);
+    f.db.prepare("UPDATE general_tasks SET value=? WHERE id=?").run(canonical({ ...row, verdict: { ...row.verdict, decision: "maybe" } }), task.id);
+    expect(() => reopened.get(task.id)).toThrow("general_task_record_invalid");
+    f.db.prepare("UPDATE general_tasks SET value=? WHERE id=?").run(canonical({ ...row, verdict: { ...row.verdict, note: "free text" } }), task.id);
+    expect(() => reopened.get(task.id)).toThrow("general_task_record_invalid");
+  });
+  it("exports a verdict receipt of hashes, counts and the verdict only, which registry-row.py rows as an owner row", async () => {
+    const f = fixture(), task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    expect(() => f.controller.verdictReceipt(task.id)).toThrow("general_task_verdict_missing");
+    const args = f.executions[0]!;
+    // A second writer reply cut at the output limit, with its usage, as the runner records one; it is not a model_started, so it is not a call.
+    args.store.append(task.id, { type: "model_finished", contextId: args.contextId, operationId: "unit_length", finishReason: "length", usage: { inputTokens: 500, outputTokens: 50, cacheReadTokens: 100, cacheWriteTokens: 0 } });
+    const snapshot = f.controller.recordVerdict({ id: task.id, decision: "reject", ownerMinutes: 12.5, interventions: 2, exportedThroughApp: false });
+    const receipt = f.controller.verdictReceipt(task.id), text = receipt.bytes.toString("utf8"), parsed = JSON.parse(text);
+    expect(receipt.sha256).toBe(digest(receipt.bytes)); expect(text.endsWith("\n")).toBe(true);
+    expect(Object.keys(parsed).sort()).toEqual([...VERDICT_RECEIPT_KEYS].sort());
+    const record = JSON.parse((f.db.prepare("SELECT value FROM general_tasks WHERE id=?").get(task.id) as { value: string }).value);
+    expect(record.attestationIdentity).toMatch(/^[a-f0-9]{64}$/u);
+    expect(parsed).toEqual({ version: 1, taskId: task.id, taskJobSha256: record.attestationIdentity, date: new Date(record.startedAt).toISOString().slice(0, 10),
+      profile: "standard", thinking: "disabled", maxOutputTokens: 4096, runStatus: "submitted", terminalCause: "submitted", modelCalls: snapshot.modelCalls, toolCalls: snapshot.toolCalls,
+      wallSeconds: Math.round(snapshot.elapsedMs / 100) / 10, inputTokens: 120 + 500, outputTokens: 30 + 50, cachedTokens: 40 + 100, cacheWriteTokens: 0, lengthStops: 1, usd: 0,
+      unknownDispatches: 0, retriedDispatches: 0, failedDispatches: 0, entailment: null, arm: "local-standard", cloudModel: null, cloudApi: null,
+      verdict: { decision: "reject", ownerMinutes: 12.5, interventions: 2, exportedThroughApp: false, recordedAt: new Date(snapshot.verdict!.recordedAt).toISOString() } });
+    expect(snapshot.modelCalls).toBe(1);
+    // Nothing of the task's content, names or host: not the goal, the output name, the input file, the storage root, the endpoint or the key.
+    for (const secret of ["Make a small report", "report.md", "source.csv", "input/", "output/", f.root, "127.0.0.1", "host-key", "unit artifact"]) expect(text).not.toContain(secret);
+    // The registry writer rows this receipt as an owner row, taking outcome, effort and the verdict time from the receipt and the enums from the operator.
+    const path = join(f.root, "receipt.json"); writeFileSync(path, receipt.bytes);
+    const row = JSON.parse(execFileSync("python3", ["-I", resolve(__dirname, "..", "..", "scripts", "registry-row.py"), "--verdict-file", path, "--id", "oaj-unit-1", "--batch", "owner-real-jobs",
+      "--task", `owner-${task.id.slice(0, 8)}`, "--family", "document_review", "--exposure", "fresh", "--verdict-by", "owner", "--lesson", "unit"], { cwd: resolve(__dirname, "..", ".."), encoding: "utf8" }));
+    expect(row).toMatchObject({ id: "oaj-unit-1", batch: "owner-real-jobs", task: `owner-${task.id.slice(0, 8)}`, family: "document_review", exposure: "fresh", taskJobSha256: record.attestationIdentity, arm: "local-standard",
+      outcome: "rejected", verdictBy: "owner", ownerMinutes: 12.5, interventions: 2, exportedThroughApp: false, verdictAt: new Date(snapshot.verdict!.recordedAt).toISOString().replace(/\.\d{3}Z$/u, "Z"),
+      modelCalls: 1, inputTokens: 620, lengthStops: 1, usd: 0, cloudModel: null, cloudApi: null, criticalChecks: null, lesson: "unit", profile: "standard", thinking: "disabled" });
+    expect(row).not.toHaveProperty("taskId"); expect(row).not.toHaveProperty("verdict"); expect(row.git).toMatch(/^[a-f0-9]{12}$/u);
+    for (const secret of ["Make a small report", "source.csv", f.root, "127.0.0.1"]) expect(JSON.stringify(row)).not.toContain(secret);
   });
 });

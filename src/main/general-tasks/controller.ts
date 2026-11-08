@@ -7,17 +7,19 @@ import { promisify } from "node:util";
 import type { SoarConfig } from "../config";
 import { GeneralTaskCreateInputSchema, GeneralTaskArtifactRefSchema, GeneralTaskIdSchema, GeneralTaskPublicSourcesSchema,
   GeneralTaskConsultationRefSchema, GeneralTaskConsultationDecisionSchema, GeneralTaskBundleRefSchema,
+  GeneralTaskVerdictInputSchema, GeneralTaskVerdictSchema,
   type GeneralTaskCreateInput, type GeneralTaskSnapshot, type GeneralTaskInputSelection, type GeneralTaskInputFile,
   type GeneralTaskAvailability, type GeneralTaskArtifactRef, type GeneralTaskPublicSources, type GeneralTaskBundleRef,
-  type GeneralTaskConsultationRef, type GeneralTaskConsultationDecision, type GeneralTaskConsultationPreview, type GeneralTaskEntailment } from "../../shared/general-task-contracts";
+  type GeneralTaskConsultationRef, type GeneralTaskConsultationDecision, type GeneralTaskConsultationPreview, type GeneralTaskEntailment,
+  type GeneralTaskVerdict, type GeneralTaskVerdictInput } from "../../shared/general-task-contracts";
 import { canonical, digest, exactText } from "../private-agent/contracts";
 import { PrivateAgentStore, UnknownRequestDiagnosticSchema } from "../private-agent/store";
 import { PrivateAgentBroker, isPublicAddress, type BrokerDestination } from "../private-agent/broker";
 import { loadFlashNextTokenAdmission, LOCAL_TOKEN_ADMISSION_STOP } from "../private-agent/flash-next-admission";
 import { isIP } from "node:net";
 import { readPublicSources } from "../private-agent/public-sources";
-import { MODEL_FEE_CAP_STOP, MODEL_UNAVAILABLE_STOP, modelRequestFailed, modelRequestFeeStop, PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop, modelIdentity,
-  modelRequestTokenAdmissionStop, hasInvalidModelRequestTokenAdmissionStop } from "../private-agent/model";
+import { MODEL_FEE_CAP_STOP, DEADLINE_BEFORE_REQUEST_STOP, MODEL_UNAVAILABLE_STOP, modelRequestFailed, modelRequestFeeStop, PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop, modelIdentity,
+  modelRequestTokenAdmissionStop, hasInvalidModelRequestTokenAdmissionStop, BROKER_DENIED_STOP, MODEL_REQUEST_DENIED_STOP, PACKET_SCAN_UNAVAILABLE_STOP, modelRequestBrokerDenied } from "../private-agent/model";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "../private-agent/checkpoints";
 import { GeneralAgentSession, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../private-agent/session";
 import { DockerSandbox } from "../private-agent/sandbox";
@@ -29,7 +31,8 @@ import { bundleManifest, buildArtifactBundle } from "./artifact-bundle";
 import { EXECUTION_PROGRESS_STOP, readExecutionProgressStop, hasUnresolvedExecutionProgressAction } from "../private-agent/progress";
 import { COORDINATOR_PROFILES, DEFAULT_COORDINATOR_PROFILE, GENERAL_TASK_BUDGETS, type CoordinatorProfileName } from "../private-agent/profiles";
 import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, claimsInstructions, claimsLedgerCheck, isEntailmentDispatch } from "../private-agent/claims";
-import { isResolvedDispatch } from "../private-agent/store";
+import { isBlockingDispatch, isResolvedDispatch } from "../private-agent/store";
+import { isAssistDispatch } from "../private-agent/dispatch-purposes";
 import { HEARTBEAT_INTERVAL_MS, heartbeatLateness, localStreamSettings } from "../liveness";
 
 /** Cap on one assembled local model reply. */
@@ -55,9 +58,12 @@ const fixedReasons: Record<string, string> = {
   local_token_admission_denied: "The next local-model request could not pass its context and deployment checks and was not sent. Saved progress is retained; this task cannot resume.",
   repeated_identical_execution_failure: "The agent selected the same failed command after a recovery warning. The command was stopped before execution. Saved progress is retained; this task cannot resume.",
   deadline: "The task reached its time limit.",
+  deadline_before_request: "The time left was shorter than one model request's limit, so no further request was sent. Nothing is uncertain; saved progress is retained, and this task cannot resume.",
   fee_cap_reached: "The task reached its cloud fee cap before the next request; nothing more was sent. Saved progress is retained; this task cannot resume.",
   model_unavailable: "The local model could not be reached after the permitted attempts. Nothing is uncertain; resume when the model is back.",
   public_model_unavailable: "The local model could not be reached during public retrieval after the permitted attempts. Nothing is uncertain; resume when the model is back.",
+  packet_scan_unavailable: "The scanner that checks an outbound request was unavailable, so the next model request was not sent. Nothing is uncertain; resume when the scanner is available.",
+  model_request_denied: "The broker refused the next model request before it was sent (a destination, packet or ledger rule), so nothing is uncertain. Saved progress is retained; this task cannot resume.",
   cleanup_in_progress: "The task remains cancelled while its interrupted execution workspace is cleaned up. No request will be replayed.",
   cleanup_blocked: "Cancellation is recorded, but interrupted execution cleanup could not be confirmed. No request will be replayed.",
   consultation_pending: "Progress saved. Review the exact consultation packet before deciding whether to send it.",
@@ -147,7 +153,14 @@ interface TaskRecord {
   publicSources?: GeneralTaskPublicSources;
   routing?: "ask_before_consulting";
   consultantIdentity?: string;
+  /** The owner's verdict on a submitted task (BL-20261108-0904-owner-verdict-capture-design); absent until recorded, never rewritten. */
+  verdict?: GeneralTaskVerdict;
 }
+/** The verdict receipt's key set: hashes, counts, enums and the verdict only. The registry writer refuses any other key. */
+export const VERDICT_RECEIPT_KEYS = Object.freeze(["version", "taskId", "taskJobSha256", "date", "profile", "thinking", "maxOutputTokens", "runStatus", "terminalCause",
+  "modelCalls", "toolCalls", "wallSeconds", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "usd",
+  "unknownDispatches", "retriedDispatches", "failedDispatches", "entailment", "arm", "verdict", "cloudModel", "cloudApi"] as const);
+export type VerdictReceipt = Record<typeof VERDICT_RECEIPT_KEYS[number], unknown>;
 interface Active { promise: Promise<void>; session?: GeneralAgentSession; consultation?: GeneralConsultation; abort: AbortController; pauseRequested: boolean; cancelRequested: boolean }
 export interface GeneralTaskControllerOptions {
   database: Database.Database;
@@ -226,10 +239,13 @@ export class GeneralTaskController {
         record.version === 3 && (record.routing !== "ask_before_consulting" || !/^[a-f0-9]{64}$/u.test(record.consultantIdentity ?? "")) ||
         record.version !== 3 && (record.routing !== undefined || record.consultantIdentity !== undefined)) throw new Error("general_task_record_invalid");
     if (record.publicSources !== undefined) GeneralTaskPublicSourcesSchema.parse(record.publicSources);
+    if (record.verdict !== undefined && !GeneralTaskVerdictSchema.safeParse(record.verdict).success) throw new Error("general_task_record_invalid");
     return record;
   }
-  private save(record: TaskRecord): void {
-    record.updatedAt = Date.now(); record.revision++;
+  /** `touch: false` keeps `updatedAt`: the version 3 elapsed-time projection reads it as the finish time, which the owner's later verdict must not move. */
+  private save(record: TaskRecord, { touch = true } = {}): void {
+    if (touch) record.updatedAt = Date.now();
+    record.revision++;
     this.options.database.prepare("UPDATE general_tasks SET value=? WHERE id=?").run(canonical(record), record.id);
   }
   private storageUnchanged(): void {
@@ -397,10 +413,12 @@ export class GeneralTaskController {
 
   private uncertain(events: Record<string, unknown>[], id: string): boolean {
     const stopped = this.progressStop(events, id);
-    return readConsultation(this.runtime, id)?.uncertain === true || this.runtime.dispatches(id).some(row => !isResolvedDispatch(row) && !isEntailmentDispatch(row)) || hasInvalidModelRequestSizeStop(events) || hasInvalidModelRequestTokenAdmissionStop(events) ||
+    // A skipped assist (an unknown cloud one-shot of the reading stage, backlog item 10) leaves the task resumable; every other unresolved non-judge row makes it uncertain.
+    const privateContextId = this.privateContextIdOrUndefined(id);
+    return readConsultation(this.runtime, id)?.uncertain === true || this.runtime.dispatches(id).some(row => isBlockingDispatch(row, privateContextId) && !isEntailmentDispatch(row)) || hasInvalidModelRequestSizeStop(events) || hasInvalidModelRequestTokenAdmissionStop(events) ||
       this.unresolvedProgressAction(events, id) || events.some(event => event.type === "model_action_not_started" &&
       (!stopped || canonical(event) !== canonical(stopped)) ||
-      ["model_started", "tool_started", "host_validation_started"].includes(String(event.type)) && !modelRequestSizeStop(events, event) && !modelRequestFeeStop(events, event) && !modelRequestTokenAdmissionStop(events, event) && !modelRequestFailed(events, event) &&
+      ["model_started", "tool_started", "host_validation_started"].includes(String(event.type)) && !modelRequestSizeStop(events, event) && !modelRequestFeeStop(events, event) && !modelRequestTokenAdmissionStop(events, event) && !modelRequestBrokerDenied(events, event) && !modelRequestFailed(events, event) &&
       !events.some(other => other.type === String(event.type).replace("_started", "_finished") && other.operationId === event.operationId));
   }
   private unresolvedProgressAction(events: Record<string, unknown>[], id: string): boolean {
@@ -430,8 +448,13 @@ export class GeneralTaskController {
     if (this.runtime.context(contextId).jobId !== id) throw new Error("general_task_context_changed");
     return contextId;
   }
+  /** The writer's context for the blocking predicate; a context that cannot be resolved keeps every unknown row blocking. */
+  private privateContextIdOrUndefined(id: string): string | undefined {
+    try { return this.contextId(id); } catch { return undefined; }
+  }
   private unknownReason(id: string): string {
-    const last = [...this.runtime.dispatches(id)].reverse().find(receipt => receipt.status === "unknown");
+    // The row that blocks resume, never a skipped assist (backlog item 10), which blocks nothing and is counted apart.
+    const last = [...this.runtime.dispatches(id)].reverse().find(receipt => receipt.status === "unknown" && !isAssistDispatch(receipt));
     const parsed = UnknownRequestDiagnosticSchema.safeParse(last?.failure);
     if (!parsed.success) return fixedReasons.interrupted_unknown!;
     const failure = parsed.data;
@@ -450,7 +473,8 @@ export class GeneralTaskController {
       stream_invalid: "The streamed reply could not be assembled into a complete response.",
       stream_error: "The streamed reply ended with an error from the model server.",
     };
-    return `${descriptions[failure.code]} Its outcome remains uncertain. Resume is blocked; the request will not be replayed.`;
+    const subcode = failure.phase === "settlement" && failure.subcode ? ` (${failure.subcode})` : "";
+    return `${descriptions[failure.code]}${subcode} Its outcome remains uncertain. Resume is blocked; the request will not be replayed.`;
   }
   get(id: string): GeneralTaskSnapshot {
     const record = this.record(id), events = this.runtime.events(id), active = this.active.has(id);
@@ -472,7 +496,7 @@ export class GeneralTaskController {
     const progressStopped = this.progressStop(events, id);
     // A durable private completion only needs finalisation (submission and the evidence pass), which no allowance or deadline gates.
     const finalising = contextId !== undefined && events.some(event => event.type === "completed" && event.contextId === contextId);
-    const canResume = !this.closing && !active && (record.status === "paused" || record.status === "incomplete" && (record.reason === "interrupted" || record.reason === MODEL_UNAVAILABLE_STOP || record.reason === `public_${MODEL_UNAVAILABLE_STOP}`)) &&
+    const canResume = !this.closing && !active && (record.status === "paused" || record.status === "incomplete" && (record.reason === "interrupted" || record.reason === MODEL_UNAVAILABLE_STOP || record.reason === `public_${MODEL_UNAVAILABLE_STOP}` || record.reason === PACKET_SCAN_UNAVAILABLE_STOP)) &&
       (finalising || models < this.budget(record).modelCalls && tools < this.budget(record).toolCalls && !expired) && !uncertain && !sizeStopped && !feeStopped && !tokenStopped && !progressStopped && consultation?.status !== "pending" &&
       !(consultation?.status === "approved" && models > this.budget(record).modelCalls - 2);
     const reason = record.status === "cancelled" && cleanupConfirmed ? "cancelled" : !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : feeStopped ? MODEL_FEE_CAP_STOP : tokenStopped ? LOCAL_TOKEN_ADMISSION_STOP : progressStopped ? EXECUTION_PROGRESS_STOP : expired ? "deadline" :
@@ -510,13 +534,18 @@ export class GeneralTaskController {
       canRetryCleanup: !this.closing && record.status === "cancelled" && !active && claim !== undefined && claim.state !== "released",
       cleanupInProgress: record.status === "cancelled" && active,
       independentAcceptance: "not_evaluated", canResume,
+      ...(record.verdict ? { verdict: structuredClone(record.verdict) } : {}),
       ...(record.profile ? { profile: record.profile } : {}), ...projectAgentText(events, contextId),
       ...(record.status === "submitted" ? { reportedIssues: reportedIssues(events, contextId, record.entailment) } : {}),
       events: events.map((event, i) => ({ sequence: i + 1, type: String(event.type), ...(actionDetail(events, event) ? { detail: actionDetail(events, event) } : {}),
         summary: event.type === "model_action_not_started" && event.reason === EXECUTION_PROGRESS_STOP ?
           progressStopped && canonical(event) === canonical(progressStopped) ? "The unchanged failed command was stopped before execution." :
             "The action stop could not be verified; replay is blocked." : event.type === "model_request_not_dispatched" && event.reason === LOCAL_TOKEN_ADMISSION_STOP ?
-              "The next local-model request failed its context or deployment checks and was not sent." : event.type === "nudge" && event.kind === "length" ? "The reply was cut at the output limit; the host asked for smaller writes." : summaries[String(event.type)] ?? "Task state updated." })) };
+              "The next local-model request failed its context or deployment checks and was not sent." : event.type === "model_request_not_dispatched" && event.reason === BROKER_DENIED_STOP ?
+                "The broker refused the next model request before it was sent; nothing is uncertain." : event.type === "nudge" && event.kind === "length" ? "The reply was cut at the output limit; the host asked for smaller writes." :
+                  // A validation the host closed without a verifier result (BL-20261107-0924 A; BL-20261107-1041, 12) recorded no checks.
+                  event.type === "host_validation_finished" && event.passed === false && (event.verificationFailure !== undefined || event.captureFailure !== undefined) ?
+                    "The frozen artifact could not be verified; the validation is closed and nothing is uncertain." : summaries[String(event.type)] ?? "Task state updated." })) };
   }
   list(): GeneralTaskSnapshot[] { return this.records().map(record => this.get(record.id)); }
 
@@ -621,7 +650,9 @@ export class GeneralTaskController {
       if (judged) next.entailment = { counts: judged.counts, entailmentCalls: judged.entailmentCalls, truncated: judged.truncated, claims: judged.verdicts };
       next.status = submitted ? "submitted" : active.cancelRequested ? "cancelled" : result.status === "paused" ? "paused" : "incomplete";
       next.reason = !preserved ? "configuration_changed" : result.reason === "consultation_pending" ? "consultation_pending" :
-        result.reason === MODEL_REQUEST_SIZE_STOP ? MODEL_REQUEST_SIZE_STOP : result.reason === MODEL_FEE_CAP_STOP ? MODEL_FEE_CAP_STOP : result.reason === LOCAL_TOKEN_ADMISSION_STOP ? LOCAL_TOKEN_ADMISSION_STOP : (result.reason === MODEL_UNAVAILABLE_STOP || result.reason === `public_${MODEL_UNAVAILABLE_STOP}`) && next.status === "incomplete" ? result.reason : next.status; this.save(next);
+        result.reason === MODEL_REQUEST_SIZE_STOP ? MODEL_REQUEST_SIZE_STOP : result.reason === MODEL_FEE_CAP_STOP ? MODEL_FEE_CAP_STOP : result.reason === LOCAL_TOKEN_ADMISSION_STOP ? LOCAL_TOKEN_ADMISSION_STOP :
+        // Backlog item 3 (finding A5): an unavailable scanner stays resumable, a recurring broker refusal does not; both keep their fixed text.
+        (result.reason === MODEL_UNAVAILABLE_STOP || result.reason === `public_${MODEL_UNAVAILABLE_STOP}` || result.reason === DEADLINE_BEFORE_REQUEST_STOP || result.reason === PACKET_SCAN_UNAVAILABLE_STOP || result.reason === MODEL_REQUEST_DENIED_STOP) && next.status === "incomplete" ? result.reason : next.status; this.save(next);
     } catch (error) {
       const record = this.record(id); record.status = active.cancelRequested ? "cancelled" : "incomplete";
       record.reason = error instanceof Error && error.message === "general_task_configuration_changed" ? "configuration_changed" : "runtime_unavailable"; this.save(record);
@@ -719,6 +750,55 @@ export class GeneralTaskController {
       if (error instanceof Error && /^general_task_[a-z_]+$/u.test(error.message)) throw error;
       throw new Error("general_task_bundle_unavailable");
     }
+  }
+  /**
+   * The owner's verdict on a submitted task (review item 2, S12): recorded once, on a task with no active session, and
+   * never rewritten; a correction is a `supersedes` row written at the CLI. It is the OAJ mark, not independent acceptance.
+   */
+  recordVerdict(raw: GeneralTaskVerdictInput): GeneralTaskSnapshot {
+    const input = GeneralTaskVerdictInputSchema.parse(raw);
+    this.runtime.atomic(() => {
+      const record = this.record(input.id);
+      if (record.status !== "submitted" || this.active.has(input.id)) throw new Error("general_task_verdict_denied");
+      if (record.verdict) throw new Error("general_task_verdict_recorded");
+      record.verdict = { decision: input.decision, ownerMinutes: input.ownerMinutes, interventions: input.interventions, exportedThroughApp: input.exportedThroughApp, recordedAt: Date.now() };
+      this.save(record, { touch: false });
+    });
+    this.publish(input.id); return this.get(input.id);
+  }
+  /**
+   * The verdict receipt for `scripts/registry-row.py --verdict-file`: canonical JSON over VERDICT_RECEIPT_KEYS only. Hashes, counts,
+   * enums and the verdict; never the goal, a file name, a path, a URL or model text. Counts follow the registry writer: tokens and
+   * length stops from the writer's `model_finished` events (the entailment pass writes none, so it stays excluded), fees settled.
+   */
+  verdictReceipt(id: string): { bytes: Buffer; sha256: string } {
+    const record = this.record(id);
+    if (!record.verdict) throw new Error("general_task_verdict_missing");
+    if (this.active.has(id)) throw new Error("general_task_verdict_busy");
+    const snapshot = this.get(id), events = this.runtime.events(id), dispatches = this.runtime.dispatches(id);
+    const name = this.profileName(record), coordinator = COORDINATOR_PROFILES[name];
+    const finished = events.filter(event => event.type === "model_finished");
+    const usage = finished.map(event => (event.usage && typeof event.usage === "object" ? event.usage : {}) as Record<string, unknown>);
+    const sum = (key: string) => usage.reduce((total, item) => total + (Number.isFinite(Number(item[key] ?? 0)) ? Number(item[key] ?? 0) : 0), 0);
+    const counts = record.entailment?.counts;
+    const judged = counts ? counts.supported + counts.partial + counts.unsupported + counts.contradicted : 0;
+    const entailment = record.entailment ? { counts: { ...record.entailment.counts }, entailmentCalls: record.entailment.entailmentCalls, truncated: record.entailment.truncated,
+      supportRate: judged ? Math.round(record.entailment.counts.supported / judged * 1000) / 1000 : null } : null;
+    const consulted = readConsultation(this.runtime, id)?.status === "settled";
+    const receipt: VerdictReceipt = { version: 1, taskId: id, taskJobSha256: record.attestationIdentity,
+      date: new Date(record.startedAt ?? record.createdAt).toISOString().slice(0, 10), profile: name, thinking: coordinator.thinking, maxOutputTokens: coordinator.maxOutputTokens,
+      runStatus: record.status, terminalCause: record.reason, modelCalls: snapshot.modelCalls, toolCalls: snapshot.toolCalls, wallSeconds: Math.round(snapshot.elapsedMs / 100) / 10,
+      inputTokens: sum("inputTokens"), outputTokens: sum("outputTokens"), cachedTokens: sum("cacheReadTokens"), cacheWriteTokens: sum("cacheWriteTokens"),
+      lengthStops: finished.filter(event => event.finishReason === "length").length,
+      usd: dispatches.filter(row => row.status === "settled").reduce((total, row) => total + (row.feeMicrousd ?? 0), 0) / 1_000_000,
+      unknownDispatches: dispatches.filter(row => row.status === "unknown" || row.status === "committed").length,
+      retriedDispatches: dispatches.filter(row => row.status === "superseded").length, failedDispatches: dispatches.filter(row => row.status === "failed").length,
+      entailment, arm: `local-${name}${consulted ? "-consulted" : ""}`,
+      verdict: { decision: record.verdict.decision, ownerMinutes: record.verdict.ownerMinutes, interventions: record.verdict.interventions,
+        exportedThroughApp: record.verdict.exportedThroughApp, recordedAt: new Date(record.verdict.recordedAt).toISOString() },
+      cloudModel: null, cloudApi: null };
+    const bytes = Buffer.from(`${canonical(receipt)}\n`);
+    return { bytes, sha256: digest(bytes) };
   }
   async wait(id: string): Promise<void> { await this.active.get(id)?.promise; }
   async close(): Promise<void> {

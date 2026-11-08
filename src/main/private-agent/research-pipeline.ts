@@ -5,7 +5,7 @@
 import { z } from "zod";
 import { BrokerError } from "./broker";
 import { canonical, digest } from "./contracts";
-import { ModelRequestBodyTooLarge, type PrivateAgentModel } from "./model";
+import { DEADLINE_BEFORE_REQUEST_STOP, ModelRequestBodyTooLarge, type PrivateAgentModel } from "./model";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_VERSION, RESEARCH_PIPELINE_BUDGET, RESEARCH_COVERAGE_POLICY, RESEARCH_PRESENTATION_POLICY, type ResearchBudget } from "./research-contract";
 import { ResearchPlanSchema, ResearchEvidenceSchema, ResearchCoverageSchema, ResearchSynthesisSchema, deriveBriefUnits, inventoryResearchSources, validateReadyResearchPacket, renderResearchEvidence,
   normalizeQuoteText, locateChunkQuote, locateQuote, researchSourceText, type ResearchPlan, type ResearchCoverage, type ResearchEvidence } from "./research-coverage";
@@ -56,7 +56,21 @@ export interface ResearchStageCounts {
   unresolvedModelSummaries?: number; chunksPlanned?: number; chunksComplete?: number;
 }
 export interface ResearchSummary { version: number; protocolSha256: string; budget: ResearchBudget; stages: ResearchStageCounts[] }
-export interface ResearchPipelineInput { brief: string; sources: ResearchSource[]; models: ResearchModels; signal: AbortSignal; budget?: ResearchBudget; record: (event: ResearchStageCounts) => void }
+/** One reason a settled reply was rejected: a fixed host code with the schema path it concerns; never model, source or provider text. */
+export interface ResearchDiagnosticReason { code: string; path?: (string | number)[]; expected?: string; minimum?: number; maximum?: number; requirementId?: string; count?: number }
+/**
+ * Backlog item 4 (review finding F3): a rejected or truncated settled reply with its content and every reason the stage
+ * computed. The pipeline never persists it; it reaches only the optional sink below, which the session hands over solely
+ * while the reader context's retention is `raw` (contracts.ts, `diagnosticRetention`). Nothing here is part of
+ * ResearchStageCounts, summary.json, coverage.json or the protocol hash.
+ */
+export interface ResearchDiagnostic { stage: ResearchStageCounts["stage"]; ordinal: number; purpose: string; replyContentSha256: string; replyBytes: number; truncated: boolean; content: string; reasons: ResearchDiagnosticReason[] }
+export interface ResearchDiagnosticsSink { retain(entry: ResearchDiagnostic): void }
+export interface ResearchPipelineInput { brief: string; sources: ResearchSource[]; models: ResearchModels; signal: AbortSignal; budget?: ResearchBudget; record: (event: ResearchStageCounts) => void;
+  /** The session's wall deadline in `performance.now()` milliseconds; set, a priced call that it could cut is not started (finding A8). Absent, no such check. */
+  deadlineMs?: number;
+  /** Receives every rejected or truncated settled reply (never a denied call, never an accepted reply); absent, the pipeline is byte-identical. */
+  diagnostics?: ResearchDiagnosticsSink }
 export interface ResearchPipelineOutcome { status: "completed" | "incomplete"; reason: string; files: { path: string; bytes: Buffer }[]; summary: ResearchSummary }
 export function researchProtocolSha256(budget: ResearchBudget = RESEARCH_PIPELINE_BUDGET): string {
   return digest(canonical({ version: RESEARCH_PIPELINE_VERSION, prompts: { INDEX_SYSTEM, PLAN_SYSTEM, EXTRACT_SYSTEM, SYNTHESIS_SYSTEM, writer: researchWriteInstructions() },
@@ -87,6 +101,12 @@ const zeroUsage = (): ResearchUsage => ({ inputTokens: 0, outputTokens: 0, cache
 const addUsage = (a: ResearchUsage, b: ResearchUsage) => { a.inputTokens += b.inputTokens; a.outputTokens += b.outputTokens; a.cacheReadTokens += b.cacheReadTokens; a.cacheWriteTokens += b.cacheWriteTokens; };
 const unique = (ids: readonly string[]) => new Set(ids).size === ids.length;
 const preview = (bytes: Buffer): string => { let end = Math.min(bytes.length, RESEARCH_INDEX_BATCH_BYTES); while (end < bytes.length && end > 0 && (bytes[end]! & 0xc0) === 0x80) end--; return bytes.subarray(0, end).toString("utf8"); };
+/** Zod issues reduced to fixed codes and schema paths for the diagnostics sink: known field names and indexes survive, never values, messages or unknown keys. */
+const EXTRACT_KEYS: ReadonlySet<string> = new Set(["questions", "questionId", "status", "quotes", "quote", "questionIds", "note", "conflicts"]);
+const SYNTHESIS_KEYS: ReadonlySet<string> = new Set(["version", "argument", "questions", "questionId", "disposition", "evidenceIds"]);
+function schemaReasons(issues: readonly z.core.$ZodIssue[], known: ReadonlySet<string>): ResearchDiagnosticReason[] {
+  return issues.map(issue => ({ code: `schema_${issue.code}`, path: issue.path.map(part => typeof part === "number" ? part : typeof part === "string" && known.has(part) ? part : "?") }));
+}
 export async function runResearchPipeline(input: ResearchPipelineInput): Promise<ResearchPipelineOutcome> {
   const parsedBudget = z.object({ indexCalls: z.number().int().min(1).max(24), extractionCalls: z.number().int().min(1).max(40), plannerCalls: z.number().int().min(1).max(2), synthesisCalls: z.number().int().min(1).max(2) }).strict().safeParse(input.budget === undefined ? RESEARCH_PIPELINE_BUDGET : input.budget);
   const budget = parsedBudget.success ? parsedBudget.data : RESEARCH_PIPELINE_BUDGET, stages: ResearchStageCounts[] = [], files = new Map<string, Buffer>();
@@ -101,6 +121,8 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const record = (counts: ResearchStageCounts) => { stages.push(counts); input.record(counts); };
   const call = async (model: PrivateAgentModel, system: string, user: unknown, maxOutputTokens: number, purpose: string, thinking: "disabled" | "model"): Promise<CallResult> => {
     if (input.signal.aborted) return { denied: "cancelled" };
+    // A priced call (a cloud planner or synthesiser) that the deadline could cut is not started: its row would stay uncertain.
+    if (input.deadlineMs !== undefined && model.deadlineRefuses(input.deadlineMs - performance.now())) return { denied: DEADLINE_BEFORE_REQUEST_STOP };
     try { const reply = await model.complete([{ role: "system", content: system }, { role: "user", content: canonical(user) }], [], input.signal,
       { ...(thinking === "disabled" ? { thinking: "disabled" as const } : {}), maxOutputTokens, purpose });
       const usage = reply.usage; return { content: reply.content, truncated: reply.finishReason === "length", usage: { inputTokens: usage?.inputTokens ?? 0, outputTokens: usage?.outputTokens ?? 0, cacheReadTokens: usage?.cacheReadTokens ?? 0, cacheWriteTokens: usage?.cacheWriteTokens ?? 0 } };
@@ -108,6 +130,10 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   };
   const settled = (counts: ResearchStageCounts, reply: Exclude<CallResult, { denied: string }>) => { counts.calls++; addUsage(counts.usage, reply.usage); if (reply.truncated) counts.truncatedReplies = (counts.truncatedReplies ?? 0) + 1; };
   const denied = (counts: ResearchStageCounts, reason: string) => { counts.denied = reason; record(counts); return finish("incomplete", reason === "cancelled" ? "research_cancelled" : "research_request_denied"); };
+  /** Backlog item 4: a rejected or truncated settled reply goes to the sink with its content and reasons; counts and files never carry either. */
+  const retain = (counts: ResearchStageCounts, purpose: string, reply: Exclude<CallResult, { denied: string }>, reasons: ResearchDiagnosticReason[]) => {
+    input.diagnostics?.retain({ stage: counts.stage, ordinal: counts.calls, purpose, replyContentSha256: digest(reply.content), replyBytes: Buffer.byteLength(reply.content), truncated: reply.truncated, content: reply.content, reasons });
+  };
   if (input.signal.aborted) return finish("incomplete", "research_cancelled");
   if (!parsedBudget.success) return finish("incomplete", "research_budget_invalid");
   let inventory: ReturnType<typeof inventoryResearchSources>;
@@ -128,7 +154,12 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     if ("denied" in reply) return reply.denied;
     settled(indexCounts, reply); if (repair) indexCounts.repairCalls!++; else indexCounts.initialCalls!++;
     const assessed = assessIndexBatch({ content: reply.content, truncated: reply.truncated, expectedSourceIds: batch.map(s => s.id) }); batchAssessments.push(assessed);
-    if (!assessed.exactCoverage) indexCounts.invalidReplies++;
+    if (!assessed.exactCoverage) {
+      indexCounts.invalidReplies++;
+      // Reasons: each source's fixed issue codes by batch position, plus the batch-level codes no source carries (unexpected or malformed rows).
+      retain(indexCounts, PURPOSES.index, reply, [...assessed.sources.flatMap((item, i) => item.issues.map(code => ({ code, path: ["sources", i] }))),
+        ...assessed.issues.filter(code => !assessed.sources.some(item => item.issues.includes(code))).map(code => ({ code }))]);
+    }
     for (const item of assessed.sources) { attempts.set(item.sourceId, (attempts.get(item.sourceId) ?? 0) + 1); assessments.set(item.sourceId, item); }
     return undefined;
   };
@@ -145,7 +176,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     if ("denied" in reply) return denied(planCounts, reply.denied); settled(planCounts, reply);
     const assessed = assessResearchPlanReply({ content: reply.content, truncated: reply.truncated, ordinal: planCounts.calls, units: coverage.units, sources: inventory.sources });
     planCounts.planAttempts!.push(assessed.attempt); plan = assessed.plan;
-    if (!plan) { planCounts.invalidReplies++; if (planCounts.calls < budget.plannerCalls) repair = buildResearchPlanRepair(reply.content, assessed.attempt); }
+    if (!plan) { planCounts.invalidReplies++; retain(planCounts, PURPOSES.plan, reply, assessed.issues); if (planCounts.calls < budget.plannerCalls) repair = buildResearchPlanRepair(reply.content, assessed.attempt); }
   }
   planCounts.questions = plan?.questions.length ?? 0; record(planCounts); if (!plan) return finish("incomplete", "research_plan_invalid"); put(RESEARCH_FILES.plan, plan);
   const questions = new Set(plan.questions.map(q => q.id)), verified: ResearchEvidence["quotes"] = [], conflicts: ResearchEvidence["conflicts"] = [], quoteMap = new Map<string, ResearchEvidence["quotes"][number]>();
@@ -158,29 +189,47 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     if ("denied" in reply) return reply.denied;
     settled(extractCounts, reply); if (repair) extractCounts.repairCalls!++; else { extractCounts.initialCalls!++; extractCounts.pairsExtracted!++; }
     let state: "complete" | "invalid" | "truncated" | "needs_followup" = reply.truncated ? "truncated" : "invalid";
+    // Backlog item 4: the fixed reasons a reply is not complete, by position only; they reach the diagnostics sink and nothing else.
+    const reasons: ResearchDiagnosticReason[] = reply.truncated ? [{ code: "truncated", path: [] }] : [];
     if (!reply.truncated) {
-      const parsed = ExtractReplySchema.safeParse(parseJsonReply(reply.content));
-      if (parsed.success) {
+      const decoded = parseJsonReply(reply.content), parsed = decoded === undefined ? undefined : ExtractReplySchema.safeParse(decoded);
+      if (parsed === undefined) reasons.push({ code: "invalid_json", path: [] });
+      else if (!parsed.success) reasons.push(...schemaReasons(parsed.error.issues, EXTRACT_KEYS));
+      else {
         const value = parsed.data, exactQuestions = unique(value.questions.map(q => q.questionId)) && canonical(value.questions.map(q => q.questionId).sort()) === canonical([...questions].sort());
         const candidateQuotes: ResearchEvidence["quotes"] = [];
         let valid = exactQuestions;
-        for (const q of value.quotes) {
-          const normalized = normalizeQuoteText(q.quote), length = [...normalized].length, location = length >= RESEARCH_QUOTE_MIN_CHARS && length <= RESEARCH_QUOTE_MAX_CHARS ? locateChunkQuote(chunkText, normalized, chunk.startLine) : undefined;
+        if (!exactQuestions) reasons.push({ code: "question_set_mismatch", path: ["questions"] });
+        for (const [i, q] of value.quotes.entries()) {
+          const normalized = normalizeQuoteText(q.quote), length = [...normalized].length, inRange = length >= RESEARCH_QUOTE_MIN_CHARS && length <= RESEARCH_QUOTE_MAX_CHARS;
+          const location = inRange ? locateChunkQuote(chunkText, normalized, chunk.startLine) : undefined;
+          if (!inRange) reasons.push({ code: "quote_length", path: ["quotes", i, "quote"], minimum: RESEARCH_QUOTE_MIN_CHARS, maximum: RESEARCH_QUOTE_MAX_CHARS });
+          else if (!location) reasons.push({ code: "quote_not_located", path: ["quotes", i, "quote"] });
+          if (!unique(q.questionIds)) reasons.push({ code: "duplicate_question_id", path: ["quotes", i, "questionIds"] });
+          if (q.questionIds.some(id => !questions.has(id))) reasons.push({ code: "unknown_question_id", path: ["quotes", i, "questionIds"] });
           if (!location || !unique(q.questionIds) || q.questionIds.some(id => !questions.has(id))) { valid = false; extractCounts.quotesDropped!++; continue; }
           const locator = location.locator;
           candidateQuotes.push({ id: "", questionIds: [...q.questionIds].sort(), sourceId: source.id, sourceSha256: chunk.sourceSha256, chunkIds: [chunk.id], locator, quote: normalized, note: q.note ?? "" });
         }
-        if (value.conflicts.some(c => !unique(c.questionIds) || c.questionIds.some(q => !questions.has(q)))) valid = false;
-        for (const q of value.questions) { const found = candidateQuotes.some(c => c.questionIds.includes(q.questionId)); if ((q.status === "evidence_found" && !found) || (q.status === "no_verified_evidence" && found)) valid = false; }
+        for (const [i, c] of value.conflicts.entries()) {
+          if (!unique(c.questionIds)) { valid = false; reasons.push({ code: "duplicate_question_id", path: ["conflicts", i, "questionIds"] }); }
+          if (c.questionIds.some(q => !questions.has(q))) { valid = false; reasons.push({ code: "unknown_question_id", path: ["conflicts", i, "questionIds"] }); }
+        }
+        for (const [i, q] of value.questions.entries()) {
+          const found = candidateQuotes.some(c => c.questionIds.includes(q.questionId));
+          if (q.status === "evidence_found" && !found) { valid = false; reasons.push({ code: "evidence_found_without_quote", path: ["questions", i] }); }
+          if (q.status === "no_verified_evidence" && found) { valid = false; reasons.push({ code: "no_verified_evidence_with_quote", path: ["questions", i] }); }
+        }
         if (valid) {
           state = value.questions.some(q => q.status === "needs_followup") ? "needs_followup" : "complete";
+          for (const [i, q] of value.questions.entries()) if (q.status === "needs_followup") reasons.push({ code: "needs_followup", path: ["questions", i] });
           for (const q of candidateQuotes) { const key = `${q.sourceId}\u0000${q.locator}\u0000${q.quote}`; const prior = quoteMap.get(key); if (prior) { prior.questionIds = [...new Set([...prior.questionIds, ...q.questionIds])].sort(); prior.chunkIds = [...new Set([...prior.chunkIds, chunk.id])]; extractCounts.quotesDropped!++; } else { q.id = `E${verified.length + 1}`; verified.push(q); quoteMap.set(key, q); } }
           conflicts.push(...value.conflicts.map(c => ({ questionIds: c.questionIds, sourceId: source.id, note: c.note })));
           chunk.questions = value.questions.map(q => ({ questionId: q.questionId, status: q.status === "needs_followup" ? "needs_followup" : q.status === "evidence_found" ? "evidence_retained" : "no_verified_evidence", evidenceIds: [] }));
         }
       }
     }
-    if (state !== "complete") extractCounts.invalidReplies++;
+    if (state !== "complete") { extractCounts.invalidReplies++; retain(extractCounts, PURPOSES.extract, reply, reasons); }
     chunk.status = state; chunk.attempts.push({ responseSha256: digest(reply.content), status: state });
     return undefined;
   };
@@ -206,15 +255,25 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   while (argument === undefined && synthesisCounts.calls < budget.synthesisCalls) {
     const reply = await call(input.models.synthesiser, SYNTHESIS_SYSTEM, { brief: input.brief, units: coverage.units, plan, evidence, coverage, repairReason: synthesisCounts.calls ? "previous_synthesis_incomplete_or_invalid; return complete concise structure with both sections" : null }, OUTPUT_TOKENS.synthesis, PURPOSES.synthesis, THINKING.synthesis);
     if ("denied" in reply) return denied(synthesisCounts, reply.denied); settled(synthesisCounts, reply);
-    const parsed = ResearchSynthesisSchema.safeParse(parseJsonReply(reply.content));
-    if (!reply.truncated && parsed.success) {
-      const value = parsed.data, ids = new Set(evidence.quotes.map(q => q.id)), matches = [...value.argument.matchAll(/\bE[0-9]{1,4}\b/gu)];
-      const valid = unique(value.questions.map(q => q.questionId)) && canonical(value.questions.map(q => q.questionId).sort()) === canonical([...questions].sort()) &&
-        value.questions.every(q => unique(q.evidenceIds) && q.evidenceIds.every(e => evidence.quotes.some(quote => quote.id === e && quote.questionIds.includes(q.questionId))) && (q.disposition === "unresolved" || q.evidenceIds.length > 0)) &&
-        matches.every(m => ids.has(m[0])) && /^## Conflicting evidence\s*$/mu.test(value.argument) && /^## Unanswered questions\s*$/mu.test(value.argument);
-      if (valid) { argument = `${value.argument.trim()}\n`; coverage.synthesis = { status: "complete", argumentSha256: digest(Buffer.from(argument)), questions: value.questions }; }
+    // Backlog item 4: the fixed reasons a reply is not accepted, by position only; they reach the diagnostics sink and nothing else.
+    const reasons: ResearchDiagnosticReason[] = reply.truncated ? [{ code: "truncated", path: [] }] : [];
+    const decoded = reply.truncated ? undefined : parseJsonReply(reply.content), parsed = decoded === undefined ? undefined : ResearchSynthesisSchema.safeParse(decoded);
+    if (!reply.truncated && parsed === undefined) reasons.push({ code: "invalid_json", path: [] });
+    else if (parsed && !parsed.success) reasons.push(...schemaReasons(parsed.error.issues, SYNTHESIS_KEYS));
+    else if (parsed?.success) {
+      const value = parsed.data, ids = new Set(evidence.quotes.map(q => q.id)), unknownCitations = [...value.argument.matchAll(/\bE[0-9]{1,4}\b/gu)].filter(m => !ids.has(m[0])).length;
+      if (!unique(value.questions.map(q => q.questionId)) || canonical(value.questions.map(q => q.questionId).sort()) !== canonical([...questions].sort())) reasons.push({ code: "question_set_mismatch", path: ["questions"] });
+      for (const [i, q] of value.questions.entries()) {
+        if (!unique(q.evidenceIds)) reasons.push({ code: "duplicate_evidence_id", path: ["questions", i, "evidenceIds"] });
+        if (q.evidenceIds.some(e => !evidence.quotes.some(quote => quote.id === e && quote.questionIds.includes(q.questionId)))) reasons.push({ code: "unknown_evidence_id", path: ["questions", i, "evidenceIds"] });
+        if (q.disposition !== "unresolved" && !q.evidenceIds.length) reasons.push({ code: "disposition_without_evidence", path: ["questions", i, "evidenceIds"] });
+      }
+      if (unknownCitations) reasons.push({ code: "unknown_citation", path: ["argument"], count: unknownCitations });
+      if (!/^## Conflicting evidence\s*$/mu.test(value.argument)) reasons.push({ code: "conflicting_evidence_heading_missing", path: ["argument"] });
+      if (!/^## Unanswered questions\s*$/mu.test(value.argument)) reasons.push({ code: "unanswered_questions_heading_missing", path: ["argument"] });
+      if (!reasons.length) { argument = `${value.argument.trim()}\n`; coverage.synthesis = { status: "complete", argumentSha256: digest(Buffer.from(argument)), questions: value.questions }; }
     }
-    if (argument === undefined) { synthesisCounts.invalidReplies++; coverage.synthesis.status = "invalid"; }
+    if (argument === undefined) { synthesisCounts.invalidReplies++; coverage.synthesis.status = "invalid"; retain(synthesisCounts, PURPOSES.synthesis, reply, reasons); }
   }
   synthesisCounts.argumentBytes = argument === undefined ? 0 : Buffer.byteLength(argument); record(synthesisCounts);
   if (argument === undefined) return finish("incomplete", "research_synthesis_invalid"); files.set(RESEARCH_FILES.argument, Buffer.from(argument));

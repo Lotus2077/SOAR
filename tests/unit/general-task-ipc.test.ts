@@ -32,7 +32,7 @@ const authority = { expectedRendererUrl: url, currentWindow: () => allowed ? win
 const controller = {
   availability: vi.fn(), selectInputs: vi.fn(), create: vi.fn(), list: vi.fn(), get: vi.fn(),
   start: vi.fn(), pause: vi.fn(), resume: vi.fn(), cancel: vi.fn(), artifact: vi.fn(), bundle: vi.fn(),
-  previewConsultation: vi.fn(), decideConsultation: vi.fn(),
+  previewConsultation: vi.fn(), decideConsultation: vi.fn(), recordVerdict: vi.fn(), verdictReceipt: vi.fn(),
 };
 const roots: string[] = [];
 let unregister: () => void;
@@ -214,6 +214,39 @@ describe("general task host IPC boundary", () => {
     await expect(invoke(channels.exportArtifact, ref)).resolves.toEqual({ exported: false });
     expect(controller.artifact).toHaveBeenCalledTimes(1);
     unregister(); expect(electron.handlers.size).toBe(0);
+  });
+
+  it("records a verdict only from a strict, free-text-free payload and exports its receipt through the native save path", async () => {
+    const verdict = { id, decision: "accept", ownerMinutes: 8, interventions: 1, exportedThroughApp: true };
+    for (const invalid of [{ ...verdict, note: "free text" }, { ...verdict, goal: "Summarize" }, { ...verdict, ownerMinutes: -1 }, { ...verdict, ownerMinutes: Number.POSITIVE_INFINITY },
+      { ...verdict, ownerMinutes: "8" }, { ...verdict, interventions: 1.5 }, { ...verdict, decision: "maybe" }, { ...verdict, id: "not-a-uuid" }, { id, decision: "accept", ownerMinutes: 8, interventions: 1 }, id])
+      await expect(invoke(channels.recordVerdict, invalid)).rejects.toThrow("Invalid general-task request");
+    expect(controller.recordVerdict).not.toHaveBeenCalled();
+    controller.recordVerdict.mockReturnValue({ id, status: "submitted" });
+    await expect(invoke(channels.recordVerdict, verdict)).resolves.toEqual({ id, status: "submitted" });
+    expect(controller.recordVerdict).toHaveBeenCalledExactlyOnceWith(verdict);
+    // The receipt is resolved before the dialog and again after it; cancellation writes nothing.
+    const bytes = Buffer.from('{"version":1}\n'), destination = await temporaryFile("verdict-receipt.json");
+    controller.verdictReceipt.mockReturnValue({ bytes, sha256 });
+    electron.dialog.showSaveDialog.mockResolvedValueOnce({ canceled: true });
+    await expect(invoke(channels.exportVerdictReceipt, id)).resolves.toEqual({ exported: false });
+    expect(controller.verdictReceipt).toHaveBeenCalledExactlyOnceWith(id);
+    electron.dialog.showSaveDialog.mockResolvedValueOnce({ canceled: false, filePath: destination });
+    await expect(invoke(channels.exportVerdictReceipt, id)).resolves.toEqual({ exported: true, filePath: destination });
+    expect(controller.verdictReceipt).toHaveBeenCalledTimes(3);
+    expect(await readFile(destination)).toEqual(bytes);
+    expect(electron.dialog.showSaveDialog).toHaveBeenLastCalledWith(expect.objectContaining({ defaultPath: `verdict-receipt-${id.slice(0, 8)}.json` }));
+    await expect(invoke(channels.exportVerdictReceipt, { id })).rejects.toThrow("Invalid general-task request");
+    // No verdict, no receipt and no dialog.
+    controller.verdictReceipt.mockImplementationOnce(() => { throw new Error("general_task_verdict_missing"); });
+    await expect(invoke(channels.exportVerdictReceipt, id)).rejects.toThrow("general_task_verdict_missing");
+    expect(electron.dialog.showSaveDialog).toHaveBeenCalledTimes(2);
+    // Authority lost during the dialog leaves the destination untouched.
+    await writeFile(destination, "preserved");
+    electron.dialog.showSaveDialog.mockImplementationOnce(async () => { allowed = false; return { canceled: false, filePath: destination }; });
+    await expect(invoke(channels.exportVerdictReceipt, id)).rejects.toThrow("unavailable from this renderer");
+    expect(await readFile(destination, "utf8")).toBe("preserved");
+    expect(controller.start).not.toHaveBeenCalled(); expect(controller.resume).not.toHaveBeenCalled();
   });
 
   it("does not expose native save paths in filesystem failure messages", async () => {

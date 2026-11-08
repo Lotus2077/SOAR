@@ -1,13 +1,15 @@
 import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import { canonical, digest, exactText, contextFingerprint } from "./contracts";
-import { PrivateAgentStore, isResolvedDispatch } from "./store";
+import { PrivateAgentStore, isBlockingDispatch } from "./store";
 import { PrivateAgentBroker, BrokerError, RETRY_WAIT_CANCELLED } from "./broker";
 import { LOCAL_TOKEN_ADMISSION_STOP, LocalTokenAdmissionError } from "./flash-next-admission";
-import { DockerSandbox, PRIVATE_SANDBOX_LIMITS, SandboxError, type SandboxExecution } from "./sandbox";
+import { DockerSandbox, PRIVATE_SANDBOX_LIMITS, SandboxError, WORKSPACE_LISTING_MAX_OMITTED_PATHS, type SandboxErrorCode, type SandboxExecution, type WorkspaceOmissionReason } from "./sandbox";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "./checkpoints";
-import { PrivateAgentModel, ModelRequestBodyTooLarge, MODEL_FEE_CAP_STOP, MODEL_REQUEST_SIZE_STOP, MODEL_UNAVAILABLE_STOP, modelRequestSizeStop, modelRequestFeeStop, modelRequestFailed, hasInvalidModelRequestSizeStop,
-  type GeneralMessage, type GeneralToolDefinition, modelIdentity, modelRequestTokenAdmissionStop } from "./model";
+import { PrivateAgentModel, ModelRequestBodyTooLarge, DEADLINE_BEFORE_REQUEST_STOP, MODEL_FEE_CAP_STOP, MODEL_REQUEST_SIZE_STOP, MODEL_UNAVAILABLE_STOP, modelRequestSizeStop, modelRequestFeeStop, modelRequestFailed, hasInvalidModelRequestSizeStop,
+  type GeneralMessage, type GeneralToolDefinition, modelIdentity, modelRequestTokenAdmissionStop,
+  BROKER_DENIAL_CODES, BROKER_DENIED_STOP, MODEL_REQUEST_DENIED_STOP, PACKET_SCAN_UNAVAILABLE_STOP, modelRequestBrokerDenied, type BrokerDenialCode } from "./model";
+import { GENERIC_TOOL_FAILURE, TOOL_ERROR_FEEDBACK, ToolError, type ToolErrorCode, type ToolErrorFeedback } from "./tool-errors";
 import { readPublicSources, readPublicSourceFiles, retainPublicSource, PUBLIC_SOURCE_OBSERVATION_BYTES } from "./public-sources";
 import { GeneralConsultation } from "./consultation";
 import { READ_OBSERVATION_TOOL, readObservationArguments, ObservationIntegrityError, retainExecutionObservation, readExecutionObservation,
@@ -143,6 +145,68 @@ function sandboxLifetime(remainingMs: number): number {
 function outputLimitFeedback(maxOutputTokens: number): Record<string, unknown> {
   return { ...argumentFeedback("execute"), observedOutputTokens: maxOutputTokens, configuredMaxOutputTokens: maxOutputTokens,
     instruction: `The response used the configured ${maxOutputTokens}-token output limit, but execute arguments were invalid. Zero command invocations occurred for this action. This observation does not establish why the arguments were incomplete. Next, return a complete execute JSON object with a command of at most 1500 characters: make one small incremental file write and read it back. Do not resend the full file; use only the remaining allowance.` };
+}
+
+const EDIT_TOOLS: ReadonlySet<string> = new Set(["write_file", "append_file", "str_replace"]);
+/** A resolved fetch failure (backlog item 1): every attempt ended confirmed, nothing is uncertain and nothing is replayed. Unbound, like the generic. */
+const PUBLIC_FETCH_FAILED = Object.freeze({ error: "public_fetch_failed", completed: false, actionInvoked: true,
+  instruction: "The source could not be retrieved: the request failed, timed out or was cut before a usable reply arrived, and it is not retried. State the resulting evidence limit or use another permitted source; do not invent its content." });
+/**
+ * The fixed object an action's failure returns to the model (BL-20261107-0924, E): the argument feedback, the host's own refusals and the
+ * sandbox codes, each a host constant; the generic object stays the fallback for an unclassified error. `contextReady` is false until the
+ * container was recreated before the action, and that recreation (the checkpoint read and the create) is the only code that runs before
+ * then, so any failure while it is false means nothing was invoked, whatever the error's class (BL-20261107-1006, 1).
+ */
+function toolFailureFeedback(error: unknown, tool: string, contextReady: boolean, invalidExecuteAtOutputLimit: boolean, maxOutputTokens: number): Record<string, unknown> | ToolErrorFeedback {
+  if (!contextReady) return TOOL_ERROR_FEEDBACK.execution_context_unavailable;
+  if (invalidExecuteAtOutputLimit) return outputLimitFeedback(maxOutputTokens);
+  if (error instanceof InvalidToolArguments) return argumentFeedback(error.tool);
+  if (error instanceof ToolError) return TOOL_ERROR_FEEDBACK[error.code];
+  if (error instanceof SandboxError) {
+    // An edit tool's `invalid_input` is the path rule alone: the argument schemas keep content at or under 32,768 UTF-16 units (98,304 bytes),
+    // `old` non-empty and a replace at or under 196,608 bytes combined, all below the sandbox's size rules (BL-20261107-1006, 9).
+    const code: ToolErrorCode = error.code === "invalid_input" && EDIT_TOOLS.has(tool) ? "path_invalid" : `sandbox_${error.code}`;
+    return TOOL_ERROR_FEEDBACK[code];
+  }
+  if (error instanceof BrokerError && error.code === "request_failed") return PUBLIC_FETCH_FAILED;
+  return GENERIC_TOOL_FAILURE;
+}
+
+/** Why a workspace capture failed (BL-20261107-0924, A): a fixed code only; the original error is kept for the outer catch. */
+type CaptureFailureCode = `sandbox_${SandboxErrorCode}` | "checkpoint_write_failed" | "capture_failed";
+/** Why an allowance-path validation closed without a verifier result (BL-20261107-1041, 12): a fixed code only. */
+type VerificationFailureCode = `sandbox_${SandboxErrorCode}` | "cancelled_or_deadline" | "verification_failed";
+/** What a successful capture left out of the checkpoint, from the lister's report plus the runner's total cap. */
+interface CaptureOmissions { total: number; reasons: Partial<Record<WorkspaceOmissionReason, number>>; paths: string[]; complete: boolean }
+type CaptureOutcome = { ok: true; snapshot: WorkspaceSnapshot; files: { path: string; bytes: Buffer }[]; omitted?: CaptureOmissions }
+  | { ok: false; code: CaptureFailureCode; error: unknown };
+/**
+ * The broker refusals that would recur on every later run (a blocked scan, a size excess, a missing destination, and a cloud call after an
+ * assist whose row stayed unknown, which nothing resolves today); a run that finds one in its history ends the same way (BL-20261107-0924, D;
+ * BL-20261107-1006, 3).
+ */
+const DENIED_WITHOUT_RESUME: ReadonlySet<BrokerDenialCode> = new Set<BrokerDenialCode>(["packet_scan_incomplete_or_blocked", "packet_size_exceeded", "destination_missing", "cloud_after_assist_unknown"]);
+/**
+ * The host notice that follows a tool result whose capture failed or left entries out: a pure function of the recorded `tool_finished`
+ * fields, so the live turn and every replay send the same user message. Host-authored, never bound into the prompt protocol; its objects
+ * are pinned by tests/unit/private-agent-tool-errors-golden.test.ts (BL-20261107-1006, 8). Exported for that pin only.
+ */
+export function captureNotice(event: Record<string, unknown>): string | undefined {
+  const failure = event.captureFailure as { code: string } | undefined, recheck = event.recheckCaptureFailure as { code: string } | undefined;
+  const omitted = event.captureOmitted as CaptureOmissions | undefined;
+  if (!failure && !recheck && !omitted) return;
+  return canonical({
+    ...(failure ? { error: "workspace_capture_failed", code: failure.code, completed: false, actionInvoked: true,
+      instruction: "The action ran, but the host could not capture the workspace afterwards. The workspace was recreated from the last checkpoint, so every change since that checkpoint, this action's included, is not retained; rewrite what you need and verify it. The action's allowance was consumed." } : {}),
+    // Two forms (BL-20261107-1041, 11): after a failed recreation nothing ran, and the notice must not say otherwise; after a recreation the
+    // action was started, and only its own result says how it ended (a lost container leaves that unknown).
+    ...(recheck ? { recheck: { error: "workspace_capture_failed", code: recheck.code,
+      instruction: event.executionCapture === "not_invoked"
+        ? "Before this action, the host could not capture the workspace to check it for changes; the host recreates the workspace from the last checkpoint, so changes made since that checkpoint by background processes are not retained. This action did not run, as its result says."
+        : "Before this action, the host could not capture the workspace to check it for changes; the workspace was recreated from the last checkpoint and the action was started against it (its result says how it ended), so changes made since that checkpoint by background processes were not retained." } } : {}),
+    ...(omitted ? { warning: "workspace_capture_incomplete", omitted: { ...omitted,
+      instruction: "The checkpoint leaves these workspace entries out: links, special files, files over 64 MiB, names the host refuses, and files beyond the 1,024-file or 128 MiB caps are never retained, so a later checkpoint or resume will not have them. Keep required outputs as ordinary files within the caps." } } : {}),
+  });
 }
 
 function systemPrompt(contract: GeneralJobContract, webDestinations: string[]): string {
@@ -299,14 +363,18 @@ export class GeneralAgentRunner {
     let incompleteExecuteStreak = 0;
     let noActionStreak = 0;
     let lengthStreak = 0;
+    /** Consecutive workspace-capture failures in this run; the second ends the run as before, with its operation closed (BL-20261107-0924, A). */
+    let captureFailures = 0;
     let allowanceFinalizationEligible = false;
     let elapsed = 0;
     const ownerId = randomUUID();
     let ownsClaim = false;
     let endpoint = "";
     let completionPending = false;
-    // Judge dispatches (the session's entailment pass) are never replayed and never gate completion.
-    const unsettledDispatch = () => store.dispatches(jobId).some(receipt => !isResolvedDispatch(receipt) && !isEntailmentDispatch(receipt));
+    // Judge dispatches (the session's entailment pass) are never replayed and never gate completion; nor does a skipped assist
+    // (an unknown cloud one-shot of another context, the reading stage's; backlog item 10), whose reservation stays pinned while
+    // this context's work goes on. An unknown assist row in this very context still blocks.
+    const unsettledDispatch = () => store.dispatches(jobId).some(receipt => isBlockingDispatch(receipt, contextId) && !isEntailmentDispatch(receipt));
     // Public fetch allowance: attempts superseded by a retry do not count against the five fetches.
     const publicFetches = () => store.dispatches(jobId).filter(row => row.purpose === "public source retrieval" && row.status !== "superseded").length;
     const started = performance.now();
@@ -350,7 +418,7 @@ export class GeneralAgentRunner {
       const progressStopped = readExecutionProgressStop({ ...observationScope, snapshot });
       if (hasUnresolvedExecutionProgressAction({ ...observationScope, snapshot }) || history.some(event => event.type === "model_action_not_started" &&
           (!progressStopped || canonical(event) !== canonical(progressStopped))) || hasInvalidModelRequestSizeStop(history) ||
-          history.some(event => event.type === "model_started" && !modelRequestSizeStop(history, event) && !modelRequestFeeStop(history, event) && !modelRequestTokenAdmissionStop(history, event) && !modelRequestFailed(history, event) && !history.some(other => other.type === "model_finished" && other.operationId === event.operationId)) ||
+          history.some(event => event.type === "model_started" && !modelRequestSizeStop(history, event) && !modelRequestFeeStop(history, event) && !modelRequestTokenAdmissionStop(history, event) && !modelRequestBrokerDenied(history, event) && !modelRequestFailed(history, event) && !history.some(other => other.type === "model_finished" && other.operationId === event.operationId)) ||
           history.some(event => event.type === "tool_started" && !history.some(other => other.type === "tool_finished" && other.operationId === event.operationId)) ||
           history.some(event => event.type === "host_validation_started" && !history.some(other => other.type === "host_validation_finished" && other.operationId === event.operationId))) {
         return finish("incomplete", "unresolved_operation_no_replay");
@@ -364,6 +432,9 @@ export class GeneralAgentRunner {
       if (history.some(event => modelRequestSizeStop(history, event))) return finish("incomplete", MODEL_REQUEST_SIZE_STOP);
       if (history.some(event => modelRequestFeeStop(history, event))) return finish("incomplete", MODEL_FEE_CAP_STOP);
       if (history.some(event => modelRequestTokenAdmissionStop(history, event))) return finish("incomplete", LOCAL_TOKEN_ADMISSION_STOP);
+      // A broker refusal that recurs on every run (a blocked scan, a missing destination, a size excess without its numbers, a cloud call
+      // after an unknown assist) ends this one too.
+      if (history.some(event => { const denied = modelRequestBrokerDenied(history, event); return denied !== undefined && DENIED_WITHOUT_RESUME.has(denied.code); })) return finish("incomplete", MODEL_REQUEST_DENIED_STOP);
       // Only host-authored completion metadata counts, never model text or tool stdout.
       for (const event of history) if (event.type === "tool_finished") {
         incompleteExecuteStreak = event.invalidExecuteAtOutputLimit === true ? incompleteExecuteStreak + 1 : 0;
@@ -408,7 +479,11 @@ export class GeneralAgentRunner {
       if (this.options.initialEvidence) messages.push({ role: "user", content: this.options.initialEvidence.rendered });
       for (const event of history) {
         if (event.type === "model_finished") messages.push(event.message as unknown as GeneralMessage);
-        else if (event.type === "tool_finished") messages.push({ role: "tool", tool_call_id: String(event.toolCallId), content: event.consultationProposalId && consultationOutput !== undefined ? consultationOutput : String(event.output) });
+        else if (event.type === "tool_finished") {
+          messages.push({ role: "tool", tool_call_id: String(event.toolCallId), content: event.consultationProposalId && consultationOutput !== undefined ? consultationOutput : String(event.output) });
+          // The host notice about a failed or partial capture follows its tool result on replay exactly as it did live (BL-20261107-0924, A).
+          const notice = captureNotice(event); if (notice) messages.push({ role: "user", content: notice });
+        }
         else if (event.type === "steering") messages.push({ role: "user", content: String(event.message) });
         else if (event.type === "nudge") messages.push({ role: "user", content: String(event.message) });
       }
@@ -431,6 +506,15 @@ export class GeneralAgentRunner {
             publicFetches()) }) };
         if (!budget.remainingActiveMs) return finish("incomplete", "cancelled_or_deadline");
         if (!budget.remainingBrokerRequests) return finish("incomplete", "bounded_allowance_exhausted");
+        // Finding A8 (backlog item 1): a request the deadline could cut is not started when less time remains than its transport
+        // allows, unless it is zero-risk, whose row the deadline then resolves `failed`; a priced or cloud row would stay uncertain
+        // with its reservation pinned. Nothing is recorded or sent, so nothing is left to replay.
+        let deadlineRefuses: boolean;
+        // The guard reads the destination's timeout, so a missing destination is the broker's refusal before anything is open: the run ends as
+        // the decided outcome with no marker to record (BL-20261107-1006, 4); any other refusal there keeps the runtime-failure outcome.
+        try { deadlineRefuses = model.deadlineRefuses(budget.remainingActiveMs); }
+        catch (error) { if (error instanceof BrokerError && error.code === "destination_missing") return finish("incomplete", MODEL_REQUEST_DENIED_STOP); throw error; }
+        if (deadlineRefuses) return finish("incomplete", DEADLINE_BEFORE_REQUEST_STOP);
         // Derive the same bounded view from immutable host observations on each
         // turn and after restart. Never mutate the saved conversation itself.
         const projected = projectExecutionObservations(observationScope, messages, layout.observationPolicyVersion);
@@ -473,16 +557,33 @@ export class GeneralAgentRunner {
               maxFeeMicrousd: store.policy(jobId).maxFeeMicrousd, settledFeeMicrousd });
             return finish("incomplete", MODEL_FEE_CAP_STOP);
           }
-          // A cancel or deadline during the Anthropic destination's retry wait: every row is resolved, so the operation is
-          // closed like a confirmed abort, but the run ends as cancelled, not as an unavailable model (BL-20261030-0620).
-          if (error instanceof BrokerError && error.code === RETRY_WAIT_CANCELLED) {
+          // Every attempt ended in a confirmed abort: no row is unknown and the operation is closed. A stop the host asked for
+          // ends the run as such: a pause mid-request pauses it, and a cancel or the deadline (also one that arrived during the
+          // Anthropic destination's retry wait, BL-20261030-0620) ends it as cancelled. Any other confirmed failure of a
+          // zero-fee call (a timeout, a cut connection, an invalid reply; backlog item 1) leaves the task resumable.
+          if (error instanceof BrokerError && (error.code === "request_failed" || error.code === RETRY_WAIT_CANCELLED)) {
             this.record({ type: "model_request_failed", operationId, promptProtocolSha256, reason: MODEL_UNAVAILABLE_STOP, dispatched: true });
-            return finish("incomplete", "cancelled_or_deadline");
+            if (this.pauseRequested) { this.record({ type: "paused" }); return finish("paused", "checkpoint_saved"); }
+            const stopped = error.code === RETRY_WAIT_CANCELLED || boundedSignal.aborted || store.policy(jobId).cancelled || remainingActiveMs() <= 0;
+            return finish("incomplete", stopped ? "cancelled_or_deadline" : MODEL_UNAVAILABLE_STOP);
           }
-          // Every attempt ended in a confirmed abort: no row is unknown, the operation is closed, and the task can resume later.
-          if (error instanceof BrokerError && error.code === "request_failed") {
-            this.record({ type: "model_request_failed", operationId, promptProtocolSha256, reason: MODEL_UNAVAILABLE_STOP, dispatched: true });
-            return finish("incomplete", MODEL_UNAVAILABLE_STOP);
+          // BL-20261107-0924 (D, finding A5): the broker refused the request before any row existed, so nothing was sent and nothing is
+          // uncertain; one strict marker closes the operation. A body over the destination's cap records the size stop with its numbers.
+          if (error instanceof BrokerError && (BROKER_DENIAL_CODES as readonly string[]).includes(error.code)) {
+            const code = error.code as BrokerDenialCode, details = error.details;
+            if (code === "packet_size_exceeded" && details && Number.isSafeInteger(details.bodyBytes) && Number.isSafeInteger(details.limitBytes) && details.limitBytes > 0 && details.bodyBytes > details.limitBytes) {
+              this.record({ type: "model_request_not_dispatched", operationId, promptProtocolSha256,
+                reason: MODEL_REQUEST_SIZE_STOP, dispatched: false, bodyBytes: details.bodyBytes, limitBytes: details.limitBytes });
+              return finish("incomplete", MODEL_REQUEST_SIZE_STOP);
+            }
+            this.record({ type: "model_request_not_dispatched", operationId, promptProtocolSha256, reason: BROKER_DENIED_STOP, dispatched: false, code });
+            if (code === "request_cancelled") {
+              if (this.pauseRequested) { this.record({ type: "paused" }); return finish("paused", "checkpoint_saved"); }
+              return finish("incomplete", "cancelled_or_deadline");
+            }
+            if (code === "packet_scan_failed") return finish("incomplete", PACKET_SCAN_UNAVAILABLE_STOP);
+            if (code === "unresolved_dispatch") return finish("incomplete", "unresolved_dispatch_no_replay");
+            return finish("incomplete", MODEL_REQUEST_DENIED_STOP);
           }
           throw error;
         }
@@ -523,15 +624,16 @@ export class GeneralAgentRunner {
         }
         noActionStreak = 0; lengthStreak = 0;
         const action = response.toolCalls[0]!;
-        const execution = sandbox;
+        let execution: DockerSandbox | undefined = sandbox;
+        let recheckCaptureFailure: { code: CaptureFailureCode } | undefined;
         if (seenToolCalls.has(action.id)) return finish("incomplete", "duplicate_tool_call_id");
         if (executionProgressBlocks(progress, action, snapshot)) {
           // A background process may have changed inputs since the last saved
           // action. Recheck content before denying a retry; no command is run.
-          const current = checkpoints.save(await this.capture(execution));
-          const changed = checkpoints.fingerprint(current) !== checkpoints.fingerprint(snapshot);
-          if (changed) {
-            snapshot = current;
+          const current = await this.captureCheckpoint(execution);
+          const changed = current.ok && checkpoints.fingerprint(current.snapshot) !== checkpoints.fingerprint(snapshot);
+          if (current.ok && changed) {
+            snapshot = current.snapshot;
             this.record({ type: "checkpoint", snapshot, sha256: checkpoints.fingerprint(snapshot) });
           }
           // Capture is asynchronous and may itself consume the remaining time.
@@ -539,7 +641,14 @@ export class GeneralAgentRunner {
             this.record({ type: "model_action_not_started", operationId, reason: "cancelled_or_deadline" });
             return finish("incomplete", "cancelled_or_deadline");
           }
-          if (!changed) {
+          if (!current.ok) {
+            // BL-20261107-0924 (A): the recheck is inconclusive, so the warned action is neither refused (a refusal needs the snapshot proof)
+            // nor left unresolved. The container is recreated from the last checkpoint once the action has started, the action runs against
+            // it, and the notice after its result tells the model that the live state could not be read.
+            recheckCaptureFailure = { code: current.code }; captureFailures++;
+            try { await execution.close(); } catch { /* cleanupOwnedContext removes it at run end */ }
+            sandbox = undefined; execution = undefined;
+          } else if (!changed) {
             const marker = executionProgressStop({ ...observationScope, snapshot }, operationId);
             if (!marker) throw new Error("execution_progress_stop_proof_invalid");
             this.record(marker);
@@ -551,6 +660,8 @@ export class GeneralAgentRunner {
         this.record({ type: "tool_started", operationId: toolOperationId, toolCallId: action.id, name: action.function.name }); tools++;
         let output: string;
         let complete = false;
+        let contextReady = execution !== undefined;
+        let finishCapture: CaptureOutcome | undefined;
         let invalidExecuteAtOutputLimit = false;
         let publicResponseReceived = false;
         let consultationRequest: z.infer<typeof consultationArguments> | undefined;
@@ -561,8 +672,11 @@ export class GeneralAgentRunner {
         let observationCapture: "retained" | "not_invoked" | undefined;
         allowanceFinalizationEligible = false;
         try {
+          if (action.function.name === "execute") executionCapture = "not_invoked";
+          else if (action.function.name === "read_observation") observationCapture = "not_invoked";
+          // After an inconclusive recheck the container is recreated from the last checkpoint before the action runs (BL-20261107-0924, A).
+          if (!execution) { execution = sandbox = await DockerSandbox.create({ imageId, jobId, contextId, endpoint, files: checkpoints.load(snapshot), lifetimeSeconds: sandboxLifetime(remainingActiveMs()) }); contextReady = true; }
           if (action.function.name === "execute") {
-            executionCapture = "not_invoked";
             const { command } = validatedArguments(action.function.arguments, executeArguments, "execute");
             executionCapture = "unavailable";
             executionResult = await execution.execute(command, { signal: boundedSignal, timeoutMs: COMMAND_TIMEOUT_MS });
@@ -576,7 +690,6 @@ export class GeneralAgentRunner {
             const edit = await execution.editFile("replace", path, Buffer.from(before, "utf8"), Buffer.from(after, "utf8"));
             output = canonical({ ...edit, path, completed: edit.ok });
           } else if (action.function.name === "read_observation") {
-            observationCapture = "not_invoked";
             const request = validatedArguments(action.function.arguments, readObservationArguments, "read_observation");
             const observed = readExecutionObservation(observationScope, request);
             observationRead = observed.reference; observationCapture = "retained"; output = observed.output;
@@ -584,16 +697,16 @@ export class GeneralAgentRunner {
             const { plan } = validatedArguments(action.function.arguments, planArguments, "remember_plan"); this.record({ type: "plan", plan });
             output = canonical({ saved: true });
           } else if (action.function.name === "request_consultation") {
-            if (!this.options.consultation) throw new Error("consultation_unavailable");
+            if (!this.options.consultation) throw new ToolError("consultation_unavailable");
             const request = validatedArguments(action.function.arguments, consultationArguments, "request_consultation");
             if (contract.maxModelCalls - calls < 2 || contract.maxToolCalls - tools < 1 || store.policy(jobId).maxRequests - store.dispatches(jobId).length < 2) {
               output = canonical({ error: "consultation_budget_unavailable", completed: false, actionInvoked: false });
             } else { consultationRequest = request; output = canonical({ consultation: "pending", sent: false, completed: false }); }
           } else if (action.function.name === "fetch_public") {
             const request = validatedArguments(action.function.arguments, fetchArguments, "fetch_public");
-            if (!this.options.webDestinations?.includes(request.destinationId)) throw new Error("destination_denied");
+            if (!this.options.webDestinations?.includes(request.destinationId)) throw new ToolError("destination_denied");
             if (this.options.maxPublicFetches !== undefined && publicFetches() >= this.options.maxPublicFetches) {
-              throw new Error("public_fetch_limit_reached");
+              throw new ToolError("public_fetch_limit_reached");
             }
             const response = await this.options.broker.request({ jobId, contextId, destinationId: request.destinationId, purpose: "public source retrieval",
               method: "GET", url: request.url, maxFeeMicrousd: 0, signal: boundedSignal });
@@ -609,7 +722,7 @@ export class GeneralAgentRunner {
             output = canonical({ ...source, workspacePath, workspaceCopy: copied.ok, text, observedBytes: Buffer.byteLength(text), truncated: response.bytes.length > PUBLIC_SOURCE_OBSERVATION_BYTES,
               ...(response.bytes.length > PUBLIC_SOURCE_OBSERVATION_BYTES ? { instruction: "Only this prefix was observed. Complete original bytes are retained by the host. Do not claim facts from unseen content; report the research incomplete where those facts are required." } : {}) });
           } else if (action.function.name === "check_claims") {
-            if (!claimsCheck) throw new Error("tool_unknown");
+            if (!claimsCheck) throw new ToolError("tool_unknown");
             validatedArguments(action.function.arguments || "{}", noArguments, "check_claims");
             // The host restores its retained public sources first, so the check reads host bytes even after a stray edit.
             const retained = this.retainedSources();
@@ -620,20 +733,28 @@ export class GeneralAgentRunner {
             output = canonical({ passed: checked.exitCode === 0, exitCode: checked.exitCode, result: checked.stdout.slice(0, 32768), stderr: checked.stderr.slice(0, 2048) });
           } else if (action.function.name === "finish") {
             validatedArguments(action.function.arguments, finishArguments, "finish");
-            const files = await this.capture(execution);
-            snapshot = checkpoints.save(files);
-            // Kill every agent descendant before verification. Completion uses
-            // exactly these immutable bytes, never a second mutable capture.
-            await execution.close(); sandbox = undefined;
-            const missing = contract.requiredArtifacts.filter(artifact => !files.some(file => file.path === artifact.path && file.bytes.length));
-            const verified = missing.length ? { checks: [] } : await this.verify(files, boundedSignal, endpoint);
-            checks = verified.checks;
-            complete = !missing.length && checks.length === contract.requiredChecks.length && checks.every(check => check.passed);
-            output = canonical({ complete, missingArtifacts: missing.map(artifact => artifact.path), checks });
-            if (complete) this.recordVerifiedClaims(verified.claimsOutput);
-            if (!complete) sandbox = await DockerSandbox.create({ imageId, jobId, contextId, endpoint, files,
-              lifetimeSeconds: sandboxLifetime(remainingActiveMs()) });
-          } else throw new Error("tool_unknown");
+            finishCapture = await this.captureCheckpoint(execution);
+            if (!finishCapture.ok) {
+              // BL-20261107-0924 (A): without the frozen bytes nothing is verified; the model learns it here and in the notice that follows.
+              output = canonical({ complete: false, error: "workspace_capture_failed", code: finishCapture.code });
+            } else {
+              const { files } = finishCapture; snapshot = finishCapture.snapshot;
+              // Kill every agent descendant before verification. Completion uses
+              // exactly these immutable bytes, never a second mutable capture.
+              const frozen = execution; sandbox = undefined;
+              const missing = contract.requiredArtifacts.filter(artifact => !files.some(file => file.path === artifact.path && file.bytes.length));
+              let verified: { checks: GeneralJobResult["checks"]; claimsOutput?: string };
+              // The snapshot has advanced to this capture, so a failure from here on loses nothing: the model is told that verification did not
+              // run, never that the workspace was recreated from an older checkpoint (BL-20261107-1006, 5).
+              try { await frozen.close(); verified = missing.length ? { checks: [] } : await this.verify(files, boundedSignal, endpoint); }
+              catch (error) { if (error instanceof ObservationIntegrityError) throw error; throw new ToolError("verification_unavailable"); }
+              checks = verified.checks;
+              complete = !missing.length && checks.length === contract.requiredChecks.length && checks.every(check => check.passed);
+              output = canonical({ complete, missingArtifacts: missing.map(artifact => artifact.path), checks });
+              if (complete) this.recordVerifiedClaims(verified.claimsOutput);
+              // The container for a repair is recreated below, once the result is recorded (BL-20261107-0924, A).
+            }
+          } else throw new ToolError("tool_unknown");
           // A failed explicit finish already checked this source. Invalid or
           // uncertain actions never obtain implicit terminal validation.
           allowanceFinalizationEligible = action.function.name !== "finish" && action.function.name !== "request_consultation";
@@ -641,16 +762,15 @@ export class GeneralAgentRunner {
           if (error instanceof ObservationIntegrityError) throw error;
           if (unsettledDispatch()) return finish("incomplete", "unresolved_dispatch_no_replay");
           if (publicResponseReceived) return finish("incomplete", "public_source_retention_or_text_failed");
-          if (!sandbox) throw new Error("verification_or_cleanup_incomplete");
-          // Never return host paths, raw exceptions, provider diagnostics or verifier gold.
+          // Never return host paths, raw exceptions, provider diagnostics or verifier gold: a fixed object per code (BL-20261107-0924, E), the
+          // generic for anything unclassified. A container the failure closed is recreated below, once the result is recorded.
           invalidExecuteAtOutputLimit = error instanceof InvalidToolArguments && error.tool === "execute" &&
             response.usage?.outputTokens === model.config.maxOutputTokens;
-          output = canonical(invalidExecuteAtOutputLimit ? outputLimitFeedback(model.config.maxOutputTokens) :
-            error instanceof InvalidToolArguments ? argumentFeedback(error.tool) :
-              error instanceof Error && error.message === "public_fetch_limit_reached" ? { error: "public_fetch_limit_reached", completed: false, actionInvoked: false } :
-              error instanceof BrokerError && error.code === "request_failed" ? { error: "public_fetch_failed", completed: false, actionInvoked: true,
-                instruction: "The source could not be retrieved after the permitted attempts. State the resulting evidence limit or use another permitted source; do not invent its content." } :
-                { error: "action_failed_or_not_permitted", completed: false });
+          output = canonical(toolFailureFeedback(error, action.function.name, contextReady, invalidExecuteAtOutputLimit, model.config.maxOutputTokens));
+          // BL-20261107-1041 (10): a sandbox failure inside a call destroyed the container (`operation()` closes on every such error; only the two
+          // pre-call refusals leave it intact), so nothing is captured on it: the result already says the workspace is recreated from the last
+          // checkpoint, and the recreation below does that. Only a live container's capture can fail or omit, and only that counts.
+          if (error instanceof SandboxError && error.code !== "invalid_input" && error.code !== "busy") sandbox = undefined;
         }
         if (executionResult) {
           // Outside ordinary action-error handling: a retention failure after
@@ -658,15 +778,23 @@ export class GeneralAgentRunner {
           const retained = retainExecutionObservation(checkpoints, { jobId, contextId, operationId: toolOperationId, toolCallId: action.id, result: executionResult });
           executionObservation = retained.reference; output = retained.output; executionCapture = "retained";
         }
-        // Persist content before acknowledging action completion. Failure leaves an
-        // explicit uncertain operation rather than replaying partially executed code.
-        if (sandbox) snapshot = checkpoints.save(await this.capture(sandbox));
+        // Persist content before acknowledging action completion. A capture failure no longer leaves the operation open (BL-20261107-0924, A):
+        // the checkpoint then carries the prior snapshot unchanged, the failure is recorded on the event and told to the model, and the
+        // container is recreated from that checkpoint below; a second consecutive failure ends the run as before, with the operation closed.
+        const captured = finishCapture ?? (sandbox ? await this.captureCheckpoint(sandbox) : undefined);
+        let captureFailure: { code: CaptureFailureCode } | undefined;
+        if (captured?.ok) { snapshot = captured.snapshot; captureFailures = 0; }
+        else if (captured) { captureFailure = { code: captured.code }; captureFailures++; }
+        const extras = { ...(executionCapture ? { executionCapture } : {}), ...(executionObservation ? { executionObservation } : {}),
+          ...(observationCapture ? { observationCapture } : {}), ...(observationRead ? { observationRead } : {}),
+          ...(captureFailure ? { captureFailure } : {}), ...(recheckCaptureFailure ? { recheckCaptureFailure } : {}),
+          ...(captured?.ok && captured.omitted ? { captureOmitted: captured.omitted } : {}) };
         if (consultationRequest) {
           try {
             store.atomic(() => {
               this.record({ type: "checkpoint", snapshot, sha256: checkpoints.fingerprint(snapshot) });
               const proposal = this.options.consultation!.propose(consultationRequest!, snapshot);
-              this.record({ type: "tool_finished", operationId: toolOperationId, toolCallId: action.id, output, invalidExecuteAtOutputLimit: false, allowanceFinalizationEligible: false, consultationProposalId: proposal.proposalId });
+              this.record({ type: "tool_finished", operationId: toolOperationId, toolCallId: action.id, output, invalidExecuteAtOutputLimit: false, allowanceFinalizationEligible: false, consultationProposalId: proposal.proposalId, ...extras });
               this.record({ type: "paused", reason: "consultation_pending", proposalId: proposal.proposalId });
             });
             return finish("paused", "consultation_pending");
@@ -674,14 +802,22 @@ export class GeneralAgentRunner {
         }
         store.atomic(() => {
           this.record({ type: "checkpoint", snapshot, sha256: checkpoints.fingerprint(snapshot) });
-          this.record({ type: "tool_finished", operationId: toolOperationId, toolCallId: action.id, output, invalidExecuteAtOutputLimit, allowanceFinalizationEligible,
-            ...(executionCapture ? { executionCapture } : {}), ...(executionObservation ? { executionObservation } : {}),
-            ...(observationCapture ? { observationCapture } : {}), ...(observationRead ? { observationRead } : {}) });
+          this.record({ type: "tool_finished", operationId: toolOperationId, toolCallId: action.id, output, invalidExecuteAtOutputLimit, allowanceFinalizationEligible, ...extras });
         });
         messages.push({ role: "tool", tool_call_id: action.id, content: output });
+        const notice = captureNotice(extras); if (notice) messages.push({ role: "user", content: notice });
         incompleteExecuteStreak = invalidExecuteAtOutputLimit ? incompleteExecuteStreak + 1 : 0;
         if (incompleteExecuteStreak >= INCOMPLETE_EXECUTE_LIMIT) return finish("incomplete", INCOMPLETE_EXECUTE_STOP);
         if (complete) { readPublicSources(store, checkpoints, jobId, contextId); verifyExecutionObservations(observationScope); completionPending = true; return finish("completed", "critical_checks_passed"); }
+        // The second consecutive capture failure ends the run as before (runtime_failure with the original code), the operation now closed.
+        if (captured && !captured.ok && captureFailures >= 2) throw captured.error;
+        if (captureFailure || !sandbox) {
+          // The live state could not be read, or the container is gone: continue from the last checkpoint, which the model was just told.
+          if (this.pauseRequested) { this.record({ type: "paused" }); return finish("paused", "checkpoint_saved"); }
+          if (boundedSignal.aborted || store.policy(jobId).cancelled || remainingActiveMs() <= 0) return finish("incomplete", "cancelled_or_deadline");
+          if (sandbox) { try { await sandbox.close(); } catch { /* cleanupOwnedContext removes it at run end */ } }
+          sandbox = await DockerSandbox.create({ imageId, jobId, contextId, endpoint, files: checkpoints.load(snapshot), lifetimeSeconds: sandboxLifetime(remainingActiveMs()) });
+        }
       }
       // Ordinary model/tool exhaustion can submit existing work without spending
       // another model call on finish. All early failure/unknown returns bypass this.
@@ -691,13 +827,34 @@ export class GeneralAgentRunner {
       if (sandbox && allowanceFinalizationEligible) {
         const operationId = randomUUID();
         this.record({ type: "host_validation_started", operationId, trigger: "model_or_tool_allowance_exhausted" });
-        const files = await this.capture(sandbox);
-        snapshot = checkpoints.save(files);
+        const captured = await this.captureCheckpoint(sandbox);
+        if (!captured.ok) {
+          // BL-20261107-0924 (A): nothing can be verified without the frozen bytes; the operation is closed with the failure recorded, so a
+          // later run finds a finished validation (host_validation_not_replayed), never an unresolved one.
+          this.record({ type: "host_validation_finished", operationId, passed: false, checks: [],
+            missingArtifacts: contract.requiredArtifacts.filter(artifact => !snapshot.some(file => file.path === artifact.path && file.bytes > 0)).map(artifact => artifact.path),
+            captureFailure: { code: captured.code } });
+          return finish("incomplete", "bounded_allowance_exhausted");
+        }
+        const { files } = captured; snapshot = captured.snapshot;
         this.record({ type: "checkpoint", snapshot, sha256: checkpoints.fingerprint(snapshot) });
-        await sandbox.close(); sandbox = undefined;
-        if (boundedSignal.aborted || store.policy(jobId).cancelled || remainingActiveMs() <= 0) return finish("incomplete", "cancelled_or_deadline");
         const missing = contract.requiredArtifacts.filter(artifact => !files.some(file => file.path === artifact.path && file.bytes.length));
-        const verified = missing.length ? { checks: [] } : await this.verify(files, boundedSignal, endpoint);
+        // BL-20261107-1041 (12): the checkpoint is recorded, so a failure from here on loses nothing and closes the validation with a fixed code
+        // instead of leaving it open; a later run then finds a finished validation (host_validation_not_replayed), never an uncertain one.
+        let verified: { checks: GeneralJobResult["checks"]; claimsOutput?: string } | undefined, verificationFailure: VerificationFailureCode | undefined;
+        try {
+          const frozen = sandbox; sandbox = undefined; await frozen.close();
+          if (boundedSignal.aborted || store.policy(jobId).cancelled || remainingActiveMs() <= 0) verificationFailure = "cancelled_or_deadline";
+          else verified = missing.length ? { checks: [] } : await this.verify(files, boundedSignal, endpoint);
+        } catch (error) {
+          if (error instanceof ObservationIntegrityError) throw error;
+          verificationFailure = error instanceof SandboxError ? `sandbox_${error.code}` : "verification_failed";
+        }
+        if (!verified) {
+          this.record({ type: "host_validation_finished", operationId, passed: false, checks: [], missingArtifacts: missing.map(artifact => artifact.path),
+            verificationFailure: { code: verificationFailure ?? "verification_failed" } });
+          return finish("incomplete", verificationFailure === "cancelled_or_deadline" ? "cancelled_or_deadline" : "bounded_allowance_exhausted");
+        }
         checks = verified.checks;
         const passed = !missing.length && checks.length === contract.requiredChecks.length && checks.every(check => check.passed);
         this.record({ type: "host_validation_finished", operationId, passed, checks,
@@ -707,9 +864,10 @@ export class GeneralAgentRunner {
       }
       return finish("incomplete", "bounded_allowance_exhausted");
     } catch (error) {
-      // Only the failure class is kept (a sandbox code, an abort, an error name): never a message, command or path.
-      // Recording it must not mask the preserved-progress outcome, so a failing store is swallowed here.
-      try { this.record({ type: "runtime_failure", code: error instanceof SandboxError ? `sandbox_${error.code}` : error instanceof Error ? error.name : "unknown" }); } catch { /* store unavailable */ }
+      // Only the failure class is kept (a sandbox code, an abort, an error name), plus a broker's own fixed code (finding B2, BL-20261107-0924):
+      // never a message, command or path. Recording it must not mask the preserved-progress outcome, so a failing store is swallowed here.
+      try { this.record({ type: "runtime_failure", code: error instanceof SandboxError ? `sandbox_${error.code}` : error instanceof Error ? error.name : "unknown",
+        ...(error instanceof BrokerError ? { brokerCode: error.code } : {}) }); } catch { /* store unavailable */ }
       return finish("incomplete", "runtime_failure_progress_preserved");
     } finally {
       let cleanupConfirmed = false;
@@ -740,16 +898,34 @@ export class GeneralAgentRunner {
     }
   }
 
-  private async capture(sandbox: DockerSandbox): Promise<{ path: string; bytes: Buffer }[]> {
-    const names = await sandbox.listFiles();
-    const files: { path: string; bytes: Buffer }[] = [];
-    let total = 0;
-    for (const name of names) {
-      const bytes = await sandbox.readFile(name, 64 * 1024 * 1024); total += bytes.length;
-      if (total > 128 * 1024 * 1024) throw new Error("workspace_size_exceeded");
-      files.push({ path: name, bytes });
+  /**
+   * Lists and reads the workspace, then saves the checkpoint; never throws (BL-20261107-0924, A). A failure comes back with a fixed code and
+   * the original error, which the caller records on the event and, on a second consecutive failure, hands to the outer catch as before.
+   */
+  private async captureCheckpoint(sandbox: DockerSandbox): Promise<CaptureOutcome> {
+    let captured: { files: { path: string; bytes: Buffer }[]; omitted?: CaptureOmissions };
+    try { captured = await this.capture(sandbox); }
+    catch (error) { return { ok: false, code: error instanceof SandboxError ? `sandbox_${error.code}` : "capture_failed", error }; }
+    try { return { ok: true, snapshot: this.options.checkpoints.save(captured.files), ...captured }; }
+    catch (error) { return { ok: false, code: "checkpoint_write_failed", error }; }
+  }
+
+  /** The regular files the lister kept, read within the per-file cap; a file beyond the 128 MiB total is omitted with `total_cap`, never a throw. */
+  private async capture(sandbox: DockerSandbox): Promise<{ files: { path: string; bytes: Buffer }[]; omitted?: CaptureOmissions }> {
+    const listing = await sandbox.listFiles();
+    const files: { path: string; bytes: Buffer }[] = [], paths = listing.omitted.map(item => item.path);
+    const reasons: Partial<Record<WorkspaceOmissionReason, number>> = {};
+    for (const [reason, count] of Object.entries(listing.counts) as [WorkspaceOmissionReason, number][]) if (count > 0) reasons[reason] = count;
+    let total = 0, omittedCount = Object.values(listing.counts).reduce((sum, count) => sum + count, 0);
+    const omit = (path: string) => { omittedCount++; reasons.total_cap = (reasons.total_cap ?? 0) + 1; if (paths.length < WORKSPACE_LISTING_MAX_OMITTED_PATHS) paths.push(path); };
+    for (const file of listing.files) {
+      if (total + file.size > PRIVATE_SANDBOX_LIMITS.importBytes) { omit(file.path); continue; }
+      const bytes = await sandbox.readFile(file.path, PRIVATE_SANDBOX_LIMITS.fileBytes);
+      // The file grew between the listing and the read.
+      if (total + bytes.length > PRIVATE_SANDBOX_LIMITS.importBytes) { omit(file.path); continue; }
+      total += bytes.length; files.push({ path: file.path, bytes });
     }
-    return files;
+    return { files, ...(omittedCount || !listing.complete ? { omitted: { total: omittedCount, reasons, paths, complete: listing.complete } } : {}) };
   }
 
   /** Every public source the host retained for this job (any phase), at its workspace path with the host's bytes. */

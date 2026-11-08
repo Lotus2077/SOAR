@@ -36,6 +36,8 @@ function fixture(history: GeneralTaskSnapshot[] = [], availability = ready) {
     readGeneralTaskArtifact: vi.fn().mockResolvedValue({ id, ...artifact, kind: "text", text: "# Report\n\nThree rows need review.", truncated: false } satisfies GeneralTaskArtifactPreview),
     exportGeneralTaskArtifact: vi.fn().mockResolvedValue({ exported: true, filePath: "/tmp/report.md" }),
     exportGeneralTaskBundle: vi.fn().mockResolvedValue({ exported: true, filePath: "/tmp/task.zip" }),
+    recordGeneralTaskVerdict: vi.fn(),
+    exportGeneralTaskVerdictReceipt: vi.fn().mockResolvedValue({ exported: true, filePath: "/tmp/verdict-receipt.json" }),
     subscribeGeneralTasks: vi.fn((value: (snapshot: GeneralTaskSnapshot) => void) => { listener = value; return unsubscribe; }),
   } satisfies SoarGeneralTaskApi;
   return { api, unsubscribe, emit: (value: GeneralTaskSnapshot) => listener?.(value) };
@@ -489,6 +491,59 @@ describe("general task workspace", () => {
     render(<App />);
     await user.click(await screen.findByText("Old investigation"));
     expect(screen.queryByRole("form", { name: "New general task" })).toBeNull();
+  });
+  it("records the owner's verdict on a submitted task with the exact payload and no free text, then offers the receipt", async () => {
+    const user = userEvent.setup(), { api } = fixture([submitted()]);
+    const recorded = submitted({ revision: 5, verdict: { decision: "accept", ownerMinutes: 8, interventions: 1, exportedThroughApp: true, recordedAt: 1700000000000 } });
+    api.recordGeneralTaskVerdict.mockResolvedValue(recorded);
+    render(<GeneralTaskWorkspace api={api} />);
+    const section = await screen.findByRole("region", { name: "Owner verdict" });
+    expect(within(section).queryByRole("textbox")).not.toBeInTheDocument();
+    const submit = within(section).getByRole("button", { name: "Record verdict" }); expect(submit).toBeDisabled();
+    await user.click(within(section).getByRole("radio", { name: "Accept" }));
+    await user.type(within(section).getByRole("spinbutton", { name: "Your minutes on this job" }), "8");
+    expect(submit).toBeDisabled();
+    await user.type(within(section).getByRole("spinbutton", { name: "Manual interventions" }), "1");
+    expect(submit).toBeEnabled();
+    await user.click(within(section).getByRole("checkbox", { name: /exported the deliverable through the app/u }));
+    await user.click(submit);
+    expect(api.recordGeneralTaskVerdict).toHaveBeenCalledExactlyOnceWith({ id, decision: "accept", ownerMinutes: 8, interventions: 1, exportedThroughApp: true });
+    expect(await screen.findByText("Verdict recorded. Export the verdict receipt to write its registry row.")).toBeVisible();
+    const shown = screen.getByRole("region", { name: "Owner verdict" });
+    expect(shown).toHaveTextContent("Accepted"); expect(shown).toHaveTextContent("Exported through the app: yes");
+    expect(within(shown).queryByRole("button", { name: "Record verdict" })).not.toBeInTheDocument();
+    expect(screen.getByText(/has not been independently evaluated for correctness/u)).toBeVisible();
+    await user.click(within(shown).getByRole("button", { name: "Export verdict receipt" }));
+    expect(api.exportGeneralTaskVerdictReceipt).toHaveBeenCalledExactlyOnceWith(id);
+    expect(await screen.findByText("Verdict receipt exported.")).toBeVisible();
+    expect(api.startGeneralTask).not.toHaveBeenCalled(); expect(api.resumeGeneralTask).not.toHaveBeenCalled(); expect(api.createGeneralTask).not.toHaveBeenCalled();
+  });
+  it("reports a refused verdict without host details and keeps the form", async () => {
+    const user = userEvent.setup(), { api } = fixture([submitted()]); api.recordGeneralTaskVerdict.mockRejectedValue(new Error("general_task_verdict_recorded private diagnostic"));
+    render(<GeneralTaskWorkspace api={api} />);
+    const section = await screen.findByRole("region", { name: "Owner verdict" });
+    await user.click(within(section).getByRole("radio", { name: "Reject" }));
+    await user.type(within(section).getByRole("spinbutton", { name: "Your minutes on this job" }), "3");
+    await user.type(within(section).getByRole("spinbutton", { name: "Manual interventions" }), "0");
+    await user.click(within(section).getByRole("button", { name: "Record verdict" }));
+    expect(api.recordGeneralTaskVerdict).toHaveBeenCalledExactlyOnceWith({ id, decision: "reject", ownerMinutes: 3, interventions: 0, exportedThroughApp: false });
+    expect(await screen.findByRole("alert")).toHaveTextContent("The verdict could not be recorded");
+    expect(screen.queryByText(/private diagnostic/u)).not.toBeInTheDocument();
+    expect(within(screen.getByRole("region", { name: "Owner verdict" })).getByRole("button", { name: "Record verdict" })).toBeInTheDocument();
+  });
+  it.each([task({ status: "incomplete", artifacts: [artifact] }), task({ status: "cancelled" }), task({ status: "paused", canResume: true }), task({ status: "running", cleanupConfirmed: false })])(
+    "shows no verdict section for a task that did not submit (%j)", async value => {
+      const { api } = fixture([value]); render(<GeneralTaskWorkspace api={api} />);
+      await screen.findByRole("article", { name: "Selected general task" });
+      expect(screen.queryByRole("region", { name: "Owner verdict" })).not.toBeInTheDocument();
+    });
+  it("hides the verdict section when the bridge lacks the verdict method, keeping the rest of the workspace", async () => {
+    const { recordGeneralTaskVerdict: _record, exportGeneralTaskVerdictReceipt: _export, ...partial } = fixture([submitted()]).api;
+    render(<GeneralTaskWorkspace api={partial as unknown as SoarGeneralTaskApi} />);
+    await screen.findByRole("article", { name: "Selected general task" });
+    expect(screen.queryByRole("region", { name: "Owner verdict" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Export output/report.md" })).toBeEnabled();
+    expect(screen.getByText(/has not been independently evaluated for correctness/u)).toBeVisible();
   });
   it("unsubscribes and ignores a history response after unmount", async () => {
     const pending = deferred<GeneralTaskSnapshot[]>(), { api, unsubscribe } = fixture(); api.listGeneralTasks.mockReturnValue(pending.promise);

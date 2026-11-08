@@ -2,6 +2,7 @@ import { z } from "zod";
 import { canonical, digest, privateAgentId, sha256Schema } from "./contracts";
 import { validateReadyResearchPacket } from "./research-coverage";
 import type { ResearchSourceIdentity } from "./research-contract";
+import { ASSIST_PURPOSES, assistStage, isAssistDispatch } from "./dispatch-purposes";
 
 const sourceSchema = z.object({ id: z.string().min(1).max(2048), path: z.string().min(1).max(2048),
   sha256: sha256Schema, bytes: z.number().int().nonnegative().safe() }).strict();
@@ -14,10 +15,19 @@ const stagePurposes: Readonly<Record<Stage, string>> = Object.freeze({ index: "r
   extract: "research evidence extraction", synthesise: "research synthesis" });
 export const ResearchInputSchema = z.object({ originalGoalSha256: sha256Schema, sourceManifest: sourcesSchema }).strict();
 export type ResearchInput = z.infer<typeof ResearchInputSchema>;
+/** A reader-context row that resolved without a response: `superseded` (a retry followed) or `failed` (none did). Absent on a settled row, so every earlier producer is byte-identical. */
+const resolvedStatusSchema = z.enum(["superseded", "failed"]);
+/**
+ * A binding's `role: "assist"` marks a sealed cloud one-shot (backlog item 10): its purpose names the stage it stood in for,
+ * and `status: "unknown"` records an assist that was skipped with its reservation pinned. Both keys are absent on every local
+ * row, so every earlier producer is byte-identical.
+ */
+const bindingStatusSchema = z.enum(["superseded", "failed", "unknown"]);
 export const ResearchProducerSchema = z.object({ version: z.literal(2), kind: z.enum(["session", "controlled_pipeline"]),
   sourceJobId: privateAgentId, contextId: privateAgentId, originalGoalSha256: sha256Schema, sourceManifest: sourcesSchema,
   protocolSha256: sha256Schema, budget: budgetSchema,
-  receipts: z.array(z.object({ id: privateAgentId, stage: stageSchema, sha256: sha256Schema }).strict()).min(1).max(1000),
+  receipts: z.array(z.object({ id: privateAgentId, stage: stageSchema, sha256: sha256Schema, role: z.literal("assist").optional(), status: bindingStatusSchema.optional() }).strict()
+    .refine(binding => binding.status !== "unknown" || binding.role === "assist", "only an assist row may bind as unknown")).min(1).max(1000),
 }).strict();
 export type ResearchProducer = z.infer<typeof ResearchProducerSchema>;
 type File = { path: string; bytes: Buffer };
@@ -32,12 +42,30 @@ export function createResearchInput(brief: string, sources: readonly Source[]): 
   return ResearchInputSchema.parse({ originalGoalSha256: digest(brief), sourceManifest });
 }
 
-const receiptSchema = z.object({ id: privateAgentId, jobId: privateAgentId, contextId: privateAgentId,
-  purpose: z.string(), status: z.literal("settled"), responseSha256: sha256Schema,
-  committedAt: z.number().int().nonnegative().safe(), reservedFeeMicrousd: z.number().int().nonnegative().safe(),
-  feeMicrousd: z.number().int().nonnegative().safe() }).passthrough();
+const receiptBase = { id: privateAgentId, jobId: privateAgentId, contextId: privateAgentId, purpose: z.string(),
+  committedAt: z.number().int().nonnegative().safe(), reservedFeeMicrousd: z.number().int().nonnegative().safe() };
+/**
+ * A resolved row: settled with its response, or resolved without one (`superseded` by a retry, or `failed`). Settled rows
+ * carry a response and a fee; a resolved-without-response row carries neither and never a fee. A `committed` or `unknown`
+ * row is not resolved and still refuses the binding (research_producer_unsettled_receipt).
+ */
+const receiptSchema = z.union([
+  z.object({ ...receiptBase, status: z.literal("settled"), responseSha256: sha256Schema, feeMicrousd: z.number().int().nonnegative().safe() }).passthrough(),
+  z.object({ ...receiptBase, status: resolvedStatusSchema, responseSha256: z.undefined().optional(), feeMicrousd: z.undefined().optional() }).passthrough(),
+  // A skipped assist: the only unknown row the producer admits, because local work continued past it (backlog item 10).
+  z.object({ ...receiptBase, purpose: z.enum(ASSIST_PURPOSES as [string, ...string[]]), status: z.literal("unknown"), responseSha256: z.undefined().optional(), feeMicrousd: z.undefined().optional() }).passthrough(),
+]);
 
-/** Receipt hashes cover complete persisted rows, including any native admission evidence. No authority is minted here. */
+/**
+ * Receipt hashes cover complete persisted rows, including any native admission evidence. No authority is minted here.
+ * Every resolved reader-context row is bound, so the ledger and the packet agree row for row: a row a retry superseded (the
+ * D4 local retry, or the Anthropic destination's 429/529 retry) and a failed row bind with their status; each stage's calls
+ * must equal its rows that no retry superseded (finding D14, backlog item 1 of the 2026-11-05 review). An assist row (backlog
+ * item 10) binds to the stage its purpose names: settled, it is one of the stage's calls (the reply the stage used, as in the
+ * forced split, whose plan or synthesis stage may have no other call); skipped (`unknown`), failed into the host fallback or
+ * superseded, it binds uncounted, since the stage's calls are replies and such a row has none. The ready-packet validator's
+ * per-stage bounds are therefore unchanged.
+ */
 function receiptBindings(receipts: readonly unknown[], jobId: string, contextId: string,
   summary: { stages: readonly { stage: string; calls: number }[] }): ResearchProducer["receipts"] {
   const rows = receipts.filter(receipt => typeof receipt === "object" && receipt !== null && (receipt as { contextId?: unknown }).contextId === contextId);
@@ -47,13 +75,15 @@ function receiptBindings(receipts: readonly unknown[], jobId: string, contextId:
     need(parsed.success, "research_producer_unsettled_receipt");
     const row = parsed.data;
     need(row.jobId === jobId && !seen.has(row.id), "research_producer_receipt_identity"); seen.add(row.id);
-    const stage = (Object.keys(stagePurposes) as Stage[]).find(key => stagePurposes[key] === row.purpose);
+    const assist = isAssistDispatch(row);
+    const stage = assist ? assistStage(row.purpose) : (Object.keys(stagePurposes) as Stage[]).find(key => stagePurposes[key] === row.purpose);
     need(stage, "research_producer_unknown_purpose");
-    return { id: row.id, stage, sha256: digest(canonical(raw)) };
+    return { id: row.id, stage, sha256: digest(canonical(raw)), ...(assist ? { role: "assist" as const } : {}), ...(row.status === "settled" ? {} : { status: row.status }) };
   });
   need(summary.stages.length === 4 && same(summary.stages.map(stage => stage.stage), Object.keys(stagePurposes)), "research_producer_stage_summary");
   for (const stage of summary.stages) need(Number.isSafeInteger(stage.calls) && stage.calls > 0 &&
-    bindings.filter(receipt => receipt.stage === stage.stage).length === stage.calls, "research_producer_receipt_count");
+    bindings.filter(receipt => receipt.stage === stage.stage && receipt.status !== "superseded" && !(receipt.role === "assist" && receipt.status !== undefined)).length === stage.calls,
+    "research_producer_receipt_count");
   return bindings;
 }
 

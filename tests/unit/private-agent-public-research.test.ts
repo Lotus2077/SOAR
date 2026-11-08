@@ -181,6 +181,23 @@ describe("public retrieval through the single bounded runner", () => {
     expect(outputs[0]).toMatchObject({ error: "public_fetch_failed", completed: false, actionInvoked: true });
     expect(f.messages).toHaveLength(3);
   });
+  it("returns a cut or timed-out zero-risk fetch as a failed row and an observation, and keeps running (backlog item 1)", async () => {
+    const f = runnerFixture(["fetch_public", "execute", "finish"]);
+    f.requests.mockImplementationOnce(async request => {
+      // What the broker now does for a zero-risk GET the deadline, a timeout or an oversize reply cut: the row resolves `failed`.
+      const { text: _text, ...preview } = f.broker.preview(request);
+      const receipt = f.store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "complete", detector: "synthetic-unit" } }, () => {});
+      f.store.resolveFailure(receipt.id, "failed", { phase: "transport", code: "request_timeout", elapsedMs: 1000, timeoutMs: 1000 }, true);
+      throw new BrokerError("request_failed");
+    });
+    expect((await new GeneralAgentRunner(f.args).run()).status).toBe("completed");
+    const outputs = f.store.events(f.jobId).filter(row => row.type === "tool_finished").map(row => JSON.parse(String(row.output)));
+    expect(outputs[0]).toMatchObject({ error: "public_fetch_failed", completed: false, actionInvoked: true });
+    expect(String(outputs[0].instruction)).toContain("not retried"); expect(String(outputs[0].instruction)).not.toContain("permitted attempts");
+    expect(f.store.dispatches(f.jobId).filter(row => row.destinationId === "web").map(row => [row.status, row.failure?.code])).toEqual([["failed", "request_timeout"]]);
+    expect(f.store.dispatches(f.jobId).every(row => row.status !== "unknown")).toBe(true);
+    expect(f.messages).toHaveLength(3);
+  });
   it("stops immediately after an unknown fetch and never retries it on resume", async () => {
     const f = runnerFixture(["fetch_public", "execute"], { unknown: true });
     expect((await new GeneralAgentRunner(f.args).run()).reason).toBe("unresolved_dispatch_no_replay");

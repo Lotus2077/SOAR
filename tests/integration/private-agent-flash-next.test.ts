@@ -74,33 +74,39 @@ describe("Flash-Next broker validation before settlement", () => {
     expect(f.store.dispatches("job")[0]!.status).toBe("settled");
   });
   it.each([
-    ["JSON wrong alias", "json", json({ content: "answer" }, "different"), "medium"],
-    ["JSON missing alias", "json", JSON.stringify({ choices: [{ message: { content: "answer" }, finish_reason: "stop" }], usage }), "medium"],
-    ["JSON malformed reasoning", "json", json({ content: "answer", reasoning: 8 }), "medium"],
-    ["JSON ambiguous aliases", "json", json({ content: "answer", reasoning: secret, reasoning_content: secret }), "medium"],
-    ["JSON off leakage", "json", json({ content: "answer", reasoning_content: secret }), "disabled"],
-    ["JSON unpaired closing wrapper", "json", json({ content: "I should calculate this first.\n</think>\n42" }), "disabled"],
-    ["JSON absent terminal reason", "json", JSON.stringify({ model: modelId, choices: [{ message: { content: "answer" }, finish_reason: null }], usage }), "medium"],
-    ["JSON duplicate native ids", "json", json({ content: null, tool_calls: [1, 2].map(() => ({ id: "same", type: "function", function: { name: "calculate", arguments: "{}" } })) }), "medium"],
-    ["JSON over pinned context", "json", JSON.stringify({ model: modelId, choices: [{ message: { content: "answer" }, finish_reason: "stop" }], usage: { prompt_tokens: 769, completion_tokens: 1 } }), "medium"],
-    ["JSON prompt usage differs from exact proof", "json", JSON.stringify({ model: modelId, choices: [{ message: { content: "answer" }, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 1 } }), "medium"],
-    ["JSON over output reservation", "json", JSON.stringify({ model: modelId, choices: [{ message: { content: "answer" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 257 } }), "medium"],
-    ["SSE changed alias", "sse", sse(chunk({ reasoning: secret }), chunk({ content: "answer" }, "stop", "different"), { choices: [], usage }), "medium"],
-    ["SSE post-finish reasoning", "sse", sse(chunk({ content: "answer" }, "stop"), chunk({ reasoning: secret }), { choices: [], usage }), "medium"],
-    ["SSE alias switching", "sse", sse(chunk({ reasoning: secret }), chunk({ reasoning_content: secret }), chunk({ content: "answer" }, "stop"), { choices: [], usage }), "medium"],
-    ["SSE off leakage", "sse", sse(chunk({ reasoning: secret }), chunk({ content: "answer" }, "stop"), { choices: [], usage }), "disabled"],
-    ["SSE malformed alias", "sse", sse(chunk({ reasoning_content: 8 }), chunk({ content: "answer" }, "stop"), { choices: [], usage }), "medium"],
-    ["SSE split inline wrapper", "sse", sse(chunk({ content: "<thi" }), chunk({ content: "nk>leak</think>answer" }, "stop"), { choices: [], usage }), "disabled"],
-    ["SSE unpaired closing wrapper", "sse", sse(chunk({ content: "I should calculate this first.\n</thi" }), chunk({ content: "nk>\n42" }, "stop"), { choices: [], usage }), "disabled"],
-    ["SSE absent terminal reason", "sse", sse(chunk({ content: "answer" }), { choices: [], usage }), "medium"],
-    ["SSE invalid UTF-8", "sse", Buffer.from(sse(chunk({ reasoning: "INVALID_UTF8" }), chunk({ content: "answer" }, "stop"), { choices: [], usage }).replace("INVALID_UTF8", "\xff"), "latin1"), "medium"],
-  ] as const)("keeps %s UNKNOWN without any replay", async (_label, format, raw, thinking) => {
+    ["JSON wrong alias", "json", json({ content: "answer" }, "different"), "medium", "flash_next_reply_invalid"],
+    ["JSON missing alias", "json", JSON.stringify({ choices: [{ message: { content: "answer" }, finish_reason: "stop" }], usage }), "medium", "flash_next_reply_invalid"],
+    ["JSON malformed reasoning", "json", json({ content: "answer", reasoning: 8 }), "medium", "flash_next_reply_invalid"],
+    ["JSON ambiguous aliases", "json", json({ content: "answer", reasoning: secret, reasoning_content: secret }), "medium", "flash_next_reply_invalid"],
+    ["JSON off leakage", "json", json({ content: "answer", reasoning_content: secret }), "disabled", "flash_next_reply_invalid"],
+    ["JSON unpaired closing wrapper", "json", json({ content: "I should calculate this first.\n</think>\n42" }), "disabled", "flash_next_reply_invalid"],
+    ["JSON absent terminal reason", "json", JSON.stringify({ model: modelId, choices: [{ message: { content: "answer" }, finish_reason: null }], usage }), "medium", "flash_next_reply_invalid"],
+    ["JSON duplicate native ids", "json", json({ content: null, tool_calls: [1, 2].map(() => ({ id: "same", type: "function", function: { name: "calculate", arguments: "{}" } })) }), "medium", "private_model_duplicate_tool_id"],
+    ["JSON over pinned context", "json", JSON.stringify({ model: modelId, choices: [{ message: { content: "answer" }, finish_reason: "stop" }], usage: { prompt_tokens: 769, completion_tokens: 1 } }), "medium", "local_token_admission_usage_mismatch"],
+    ["JSON prompt usage differs from exact proof", "json", JSON.stringify({ model: modelId, choices: [{ message: { content: "answer" }, finish_reason: "stop" }], usage: { prompt_tokens: 2, completion_tokens: 1 } }), "medium", "local_token_admission_usage_mismatch"],
+    ["JSON over output reservation", "json", JSON.stringify({ model: modelId, choices: [{ message: { content: "answer" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 257 } }), "medium", "model_usage_outside_envelope"],
+    ["SSE changed alias", "sse", sse(chunk({ reasoning: secret }), chunk({ content: "answer" }, "stop", "different"), { choices: [], usage }), "medium", "flash_next_reply_invalid"],
+    ["SSE post-finish reasoning", "sse", sse(chunk({ content: "answer" }, "stop"), chunk({ reasoning: secret }), { choices: [], usage }), "medium", "flash_next_reply_invalid"],
+    ["SSE alias switching", "sse", sse(chunk({ reasoning: secret }), chunk({ reasoning_content: secret }), chunk({ content: "answer" }, "stop"), { choices: [], usage }), "medium", "flash_next_reply_invalid"],
+    ["SSE off leakage", "sse", sse(chunk({ reasoning: secret }), chunk({ content: "answer" }, "stop"), { choices: [], usage }), "disabled", "flash_next_reply_invalid"],
+    ["SSE malformed alias", "sse", sse(chunk({ reasoning_content: 8 }), chunk({ content: "answer" }, "stop"), { choices: [], usage }), "medium", "flash_next_reply_invalid"],
+    ["SSE split inline wrapper", "sse", sse(chunk({ content: "<thi" }), chunk({ content: "nk>leak</think>answer" }, "stop"), { choices: [], usage }), "disabled", "flash_next_reply_invalid"],
+    ["SSE unpaired closing wrapper", "sse", sse(chunk({ content: "I should calculate this first.\n</thi" }), chunk({ content: "nk>\n42" }, "stop"), { choices: [], usage }), "disabled", "flash_next_reply_invalid"],
+    ["SSE absent terminal reason", "sse", sse(chunk({ content: "answer" }), { choices: [], usage }), "medium", "flash_next_reply_invalid"],
+    ["SSE invalid UTF-8", "sse", Buffer.from(sse(chunk({ reasoning: "INVALID_UTF8" }), chunk({ content: "answer" }, "stop"), { choices: [], usage }).replace("INVALID_UTF8", "\xff"), "latin1"), "medium", "other"],
+  ] as const)("resolves %s as a failed settlement with the check's sub-code, never replayed and never blocking", async (_label, format, raw, thinking, subcode) => {
+    // Backlog item 1 (finding A2): a fully received zero-fee reply that fails validation has known cost and side effects, so its
+    // row resolves `failed` with the refusing check named, instead of an UNKNOWN that blocked the whole job.
     const f = await fixture(raw, format, thinking);
-    await expect(f.complete()).rejects.toThrow("transport_or_settlement_unknown");
+    await expect(f.complete()).rejects.toThrow("request_failed");
     expect(f.requests()).toBe(1);
-    expect(f.store.dispatches("job")).toMatchObject([{ status: "unknown", failure: { phase: "settlement", code: "response_or_usage_invalid", attempt: 1 } }]);
+    expect(f.store.dispatches("job")).toMatchObject([{ status: "failed", failure: { phase: "settlement", code: "response_or_usage_invalid", subcode, attempt: 1 } }]);
     expect(f.store.dispatches("job")).toHaveLength(1);
+    expect(f.store.dispatches("job")[0]!.feeMicrousd).toBeUndefined();
     expect(f.db.serialize().includes(Buffer.from(secret))).toBe(false);
+    // Nothing is unresolved: the next request of the job commits (and is refused the same way by the same reply).
+    await expect(f.complete()).rejects.toThrow("request_failed");
+    expect(f.store.dispatches("job").map(row => row.status)).toEqual(["failed", "failed"]); expect(f.requests()).toBe(2);
   });
   it("refuses a validator on a cloud/priced destination and request/metadata drift before dispatch", async () => {
     const f = await fixture(json({ content: "answer" }), "json");

@@ -23,12 +23,13 @@ function phase(): SessionPhase {
     requiredArtifacts: [{ path: "output/report.md", description: "report" }], requiredChecks: ["structure"], maxModelCalls: 40, maxToolCalls: 80, maxElapsedMs: 1_800_000 } };
 }
 /** A loopback model whose reply depends on the stage named by the system prompt; `planReply` lets a test break the plan; `onRequest` lets one pause mid-call. */
-async function fixture(planReply?: () => string) {
-  const bodies: { system: string; user: string }[] = [], hooks: { onRequest?: (system: string) => void } = {};
+/** `recoverable` flags both destinations for owner decision D4's bounded retry; `onRequest` may return "destroy" to drop the socket before any reply. */
+async function fixture(planReply?: () => string, options: { recoverable?: boolean } = {}) {
+  const bodies: { system: string; user: string }[] = [], hooks: { onRequest?: (system: string, request: http.IncomingMessage) => void | "destroy" } = {};
   const server = http.createServer((request, response) => {
     let raw = ""; request.on("data", chunk => { raw += chunk; }); request.on("end", () => {
       const body = JSON.parse(raw) as { messages: { content: string }[] }, system = body.messages[0]!.content, user = body.messages[1]!.content;
-      bodies.push({ system, user }); hooks.onRequest?.(system);
+      bodies.push({ system, user }); if (hooks.onRequest?.(system, request) === "destroy") { request.socket.destroy(); return; }
       const content = system.startsWith("You plan") && planReply ? planReply() : researchV4Reply(system, user);
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
@@ -40,7 +41,8 @@ async function fixture(planReply?: () => string) {
   const root = mkdtempSync(join(tmpdir(), "soar-research-session-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
   const db = new Database(":memory:"); cleanups.push(() => { db.close(); });
   const store = new PrivateAgentStore(db);
-  const base = { kind: "local_model" as const, endpoint: `${endpoint}/v1/chat/completions`, accountId: "fixture", credentialVersion: 0, loopbackFixture: true, timeoutMs: 2000, maxResponseBytes: 65536 };
+  const base = { kind: "local_model" as const, endpoint: `${endpoint}/v1/chat/completions`, accountId: "fixture", credentialVersion: 0, loopbackFixture: true, timeoutMs: 2000, maxResponseBytes: 65536,
+    ...(options.recoverable ? { recoverable: true } : {}) };
   // "model" admits synthetic lineage only (the shape of a cloud destination); "private-model" admits private data (the owned local server).
   const destinations: BrokerDestination[] = [{ id: "model", ...base, privateDataAdmitted: false, syntheticOnly: true }, { id: "private-model", ...base, privateDataAdmitted: true }];
   const broker = new PrivateAgentBroker(store, destinations, { scan: async () => ({ complete: true, blocked: false, detector: "deliberate-false-negative-fixture" }) });
@@ -197,6 +199,29 @@ describe("H2b/H2c: the research stage inside a session", () => {
     reserved.privatePhase = { ...reserved.privatePhase, files: [...reserved.privatePhase.files, { path: RESEARCH_FILES.evidence, bytes: Buffer.from("{}") }] };
     expect(() => new GeneralAgentSession(reserved)).toThrow("session_research_paths_reserved");
   });
+
+  it("D14: a stage whose extraction call was retried once still reaches the writer, and the producer binds the superseded row uncounted", async () => {
+    const f = await fixture(undefined, { recoverable: true }), runs: Run[] = [], config = options(f, "job-retried", runs);
+    let dropped = false;
+    // The first extraction request is cut after it was sent: a confirmed upstream_closed on a zero-fee packet, retried once by the broker (D4).
+    f.hooks.onRequest = system => { if (system.startsWith("You extract") && !dropped) { dropped = true; return "destroy"; } return undefined; };
+    const result = await new GeneralAgentSession(config).run();
+    expect(result).toMatchObject({ status: "submitted" });
+    expect(runs).toHaveLength(1);
+    const rows = f.store.dispatches("job-retried");
+    expect(rows.map(row => [row.purpose, row.status])).toEqual([["research source index", "settled"], ["research plan", "settled"],
+      ["research evidence extraction", "superseded"], ["research evidence extraction", "settled"], ["research synthesis", "settled"]]);
+    expect(rows[2]!.failure).toMatchObject({ phase: "transport", code: "upstream_closed", attempt: 1 });
+    const stages = f.store.events("job-retried").filter(event => event.type === "research_stage");
+    expect(stages.map(event => [event.stage, event.calls])).toEqual([["index", 1], ["plan", 1], ["extract", 1], ["synthesise", 1]]);
+    const transfer = f.store.events("job-retried").find(event => event.type === "research_transfer")!;
+    const producer = (transfer.binding as { producer: { receipts: { id: string; stage: string; status?: string }[] } }).producer;
+    expect(producer.receipts.map(receipt => [receipt.stage, receipt.status])).toEqual([["index", undefined], ["plan", undefined], ["extract", "superseded"], ["extract", undefined], ["synthesise", undefined]]);
+    expect(producer.receipts.map(receipt => receipt.id)).toEqual(rows.map(row => row.id));
+    // A resume re-validates the same producer against the ledger and reuses the packet without another stage call.
+    expect(await new GeneralAgentSession(options(f, "job-retried", runs)).run()).toMatchObject({ status: "submitted" });
+    expect(f.store.dispatches("job-retried")).toHaveLength(5); expect(f.bodies).toHaveLength(5);
+  }, 20_000);
 
   it("leaves a session without the stage byte-for-byte unchanged: no reader context, no research events", async () => {
     const f = await fixture(), runs: Run[] = [], config = options(f, "job-plain", runs);

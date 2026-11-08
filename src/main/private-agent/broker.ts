@@ -10,7 +10,7 @@ import {
   canonical, contextFingerprint, digest, exactText, restrictedContext, syntheticContext,
   privateAgentId, ExactApprovalSchema, sha256Schema, type ExactApproval, type PrivateAgentContext, type PrivateJobPolicy,
 } from "./contracts";
-import { ANTHROPIC_ERROR_TYPES, isConfirmedAbort, isRetryableAbort, PrivateAgentStore, type DispatchReceipt, type UnknownRequestDiagnostic } from "./store";
+import { ANTHROPIC_ERROR_TYPES, isConfirmedAbort, isRetryableAbort, settlementSubcode, PrivateAgentStore, type DispatchReceipt, type UnknownRequestDiagnostic } from "./store";
 
 export const BROKER_MAX_BODY_BYTES = 192 * 1024;
 /** Ceiling for a destination's own request body cap; profiles choose values below it. */
@@ -54,9 +54,10 @@ export interface BrokerDestination {
   timeoutMs: number;
   /**
    * PR-B: this local model destination may answer with a streamed chat completion, which the transport assembles into
-   * the non-streaming shape. The stream is aborted (unknown outcome, never retried) when no bytes arrive for
-   * `inactivityTimeoutMs` after the first one, and refused as oversize beyond `maxRawBytes`. Undeclared destinations
-   * never assemble: their bytes are returned as received.
+   * the non-streaming shape. The stream is aborted when no bytes arrive for `inactivityTimeoutMs` after the first one,
+   * and refused as oversize beyond `maxRawBytes`; neither is retried, and for a zero-risk packet both resolve `failed`
+   * (backlog item 1; a priced packet's stays uncertain). Undeclared destinations never assemble: their bytes are returned
+   * as received.
    */
   stream?: { inactivityTimeoutMs: number; maxRawBytes: number };
   /** Optional per-destination request body cap; absent means BROKER_MAX_BODY_BYTES. */
@@ -381,6 +382,24 @@ export class PrivateAgentBroker {
 
   preview(input: BrokerRequest): PacketPreview { return this.packet(input).preview; }
 
+  /** A destination's transport timeout, so a caller can weigh it against the time it has left before dispatching (finding A8). */
+  requestTimeoutMs(destinationId: string): number {
+    const destination = this.destinations.get(destinationId);
+    if (!destination) deny("destination_missing");
+    return destination.timeoutMs;
+  }
+  /**
+   * Whether `request()` treats a packet of this shape as zero-risk, that is re-sendable without cost or side effect: no
+   * grant or approval, and either a zero-fee local request or a public GET. Every failure of such a packet resolves
+   * (backlog item 1); an uncertain failure of any other packet stays `unknown` with its reservation pinned.
+   */
+  zeroRiskDispatch(input: Pick<BrokerRequest, "destinationId" | "maxFeeMicrousd" | "method" | "grantId" | "approval">): boolean {
+    const destination = this.destinations.get(input.destinationId);
+    if (!destination) deny("destination_missing");
+    return input.grantId === undefined && input.approval === undefined &&
+      ((destination.kind === "local_model" && input.maxFeeMicrousd === 0) || (destination.kind === "public_web" && input.method === "GET"));
+  }
+
   private eligible(policy: PrivateJobPolicy, context: PrivateAgentContext, destination: BrokerDestination, grantId?: string): void {
     if (policy.cancelled) deny("job_cancelled");
     if (destination.requireExactGrant && !grantId) deny("exact_grant_required");
@@ -443,8 +462,8 @@ export class PrivateAgentBroker {
     }
     const { text: _text, ...identity } = packet.preview;
     // A zero-risk packet can be re-sent without cost or side effect: a zero-fee local request or a public GET without a grant.
-    const zeroRisk = frozen.grantId === undefined && !packet.preview.approval &&
-      ((packet.destination.kind === "local_model" && frozen.maxFeeMicrousd === 0) || (packet.destination.kind === "public_web" && frozen.method === "GET"));
+    const zeroRisk = this.zeroRiskDispatch({ destinationId: packet.destination.id, maxFeeMicrousd: frozen.maxFeeMicrousd, method: frozen.method,
+      grantId: frozen.grantId, approval: packet.preview.approval });
     // D4: only such a packet, on a destination flagged recoverable, is retried, and only after a confirmed abort.
     const recoverable = packet.destination.recoverable === true && zeroRisk;
     const anthropic = packet.destination.anthropicVersion !== undefined;
@@ -520,7 +539,8 @@ export class PrivateAgentBroker {
           ...(details.spendLimit ? { spendLimit: true as const } : {}) } : {};
         const failure: UnknownRequestDiagnostic = phase === "transport"
           ? { phase: "transport", code: error instanceof TransportFailure ? error.code : "transport_failed", ...status, ...rejection, ...requestId, ...timing }
-          : { phase: "settlement", code: phase === "response_validation" ? "response_or_usage_invalid" : "fee_settlement_failed", ...requestId, ...timing };
+          : { phase: "settlement", code: phase === "response_validation" ? "response_or_usage_invalid" : "fee_settlement_failed", subcode: settlementSubcode(error), ...requestId, ...timing };
+        // Only a priced or cloud packet can leave its upstream state uncertain; a zero-risk one always resolves (item 1).
         if (!isConfirmedAbort(failure, zeroRisk)) {
           this.store.unknown(receipt.id, failure);
           // Never expose provider text, private URL, system exception or API key.
@@ -544,6 +564,7 @@ export class PrivateAgentBroker {
           if (!frozen.signal?.aborted) { this.store.resolveFailure(receipt.id, "superseded", failure, zeroRisk); continue; }
         }
         // A confirmed abort with no attempt to follow is a resolved failure: the ledger stays replay-safe and never blocks.
+        // For a zero-risk packet this covers a cancel or deadline mid-request too: the caller tells them apart by its own signal.
         this.store.resolveFailure(receipt.id, "failed", failure, zeroRisk);
         return deny("request_failed");
       } finally {

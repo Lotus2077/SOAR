@@ -22,8 +22,8 @@ pnpm install --frozen-lockfile
 Then run the checks in "Setup and safe verification" below. CI runs only on pull
 requests and on pushes to `main`. Base each new pull request on `main` (PLAN.md D10
 approves pushing reviewed work to public `main`). The step-1 pull requests listed
-under §5 were based on the merged branch; #37, #40 and #41 now target `main`, and
-#38, #42 and #43 follow as their bases merge.
+under §5 (#37, #38 and #40 to #44) are all merged into `main` as of 2026-11-08, so the
+next action is step 2, E0.
 
 ### 2. Read, in this order
 
@@ -100,7 +100,8 @@ Follow the order in review §5.6. Each step is done when its condition holds.
 1. **Backlog items 1-5 and item 10's assist-purpose exception** (review §5.7), as
    small PRs with tests. Item 1 includes the fix for finding D14. A change to a
    persisted contract or to dispatch semantics gets its build-log decision entry
-   first. Done: the tests and CI pass, and the entries are appended.
+   first. Done: the tests and CI pass, and the entries are appended. **Done on
+   2026-11-08**: see the progress note below.
 2. **E0** from the owner's Mac against the new endpoint, at zero fee and with no
    approval entry, after its card is committed: probes P1-P9 in
    `scripts/serving-probe.py`, the new P10, P11 and adapter probe (backlog item 5),
@@ -131,11 +132,12 @@ Follow the order in review §5.6. Each step is done when its condition holds.
 **Progress on step 1** (2026-11-07, a later session on the owner's Mac). Backlog items 1-5
 and item 10's assist-purpose exception are implemented as small pull requests with
 deterministic tests, each with a `Proposed` decision entry before its code and an
-`Implemented` entry after it; CI is green on every one at the time of writing. The
-handoff branch they were based on is merged (PR #39, 2026-11-08); #37, #40 and #41 target
-`main`, #38 is stacked on #37, and items 3 and 4 on #38. Retarget the rest of the stack as
-it merges, and re-sort each branch's new build-log entries into timestamp order when a
-rebase puts them side by side.
+`Implemented` entry after it. Every one is merged into `main` (2026-11-08, in the order
+#37, #38, #42, #44, #43, #40, #41; `main` is a240afc). Three entries carry IDs later than
+their authoring minute because the ledger appends in merge chronology and its validator
+refuses an ID that precedes the base's tail: the corrections BL-20261108-0856, -0906 and
+-0912 record the original times. When a sibling branch merges after another, re-stamp its
+entries after `main`'s tail and add such a correction; never interleave.
 
 | Item | Pull request | Branch | Entries |
 | --- | --- | --- | --- |
@@ -150,7 +152,7 @@ Item 3's implementation went through three adversarial review rounds; the brick 
 found and the smaller corrections are decided in BL-20261107-1006 and BL-20261107-1041 and
 implemented in the same pull request, and its Docker-gated sandbox suite was run on the
 owner's Mac (the `Verified` entry). Finding D14 is reproduced by a deterministic session
-test and fixed in #37 (see §7). Step 1 is done once the stack is merged. The owner questions
+test and fixed in #37 (see §7). Step 1 is complete; nothing live has run. The owner questions
 these entries leave open: whether a desktop consultation may follow a skipped assist, and
 whether the pre-commit refusals outside item 3's seven denial codes should record a marker
 now or wait for item 13 (items 10 and 3); the second-verdict policy, `git` on superseding

@@ -295,4 +295,16 @@ describe("serving-card writer: the machine-readable card (--policy-out, SC)", ()
     const result = JSON.parse(execFileSync("python3", ["-I", "-c", PLANTED_KEY, SCRIPT, input], { encoding: "utf8", env: { PATH: process.env.PATH ?? "" }, timeout: PYTHON_TIMEOUT_MS }));
     expect(result).toEqual({ clean: "passed", planted: "refused: an address-like string at $.evidence.p11.kStreams.<redacted-key>; the card was not written" });
   });
+
+  it("W6: reads its flags after the leading `--` that pnpm 10 passes through, so `pnpm card:serving -- --input ...` works", () => {
+    const { root, envFile } = workspace(), input = join(root, "probe.json"), out = join(root, "serving-card.json");
+    writeFileSync(input, JSON.stringify(syntheticProbe()));
+    const run = (args: string[]) => spawnSync("python3", ["-I", SCRIPT, ...args], { encoding: "utf8", env: { PATH: process.env.PATH ?? "" }, timeout: PYTHON_TIMEOUT_MS });
+    const plain = card(syntheticProbe(), COMPARE), dashed = run(["--", "--input", input, "--env-file", envFile, ...COMPARE, "--policy-out", out]);
+    expect(dashed.status).toBe(0); expect(dashed.stderr).toBe(""); expect(dashed.stdout).toBe(plain.stdout);
+    expect(readFileSync(out).equals(runCardWriter(syntheticProbe(), COMPARE).policy!)).toBe(true);
+    // Only one leading `--` is dropped: a second one still leaves argparse without --input.
+    const twice = run(["--", "--", "--input", input, "--env-file", envFile]);
+    expect(twice.status).toBe(2); expect(twice.stdout).toBe(""); expect(twice.stderr).toContain("the following arguments are required: --input");
+  });
 });

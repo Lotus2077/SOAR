@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { LocalTokenAdmissionError, pinned } from "../../src/main/private-agent/flash-next-admission";
@@ -9,8 +9,8 @@ import { COORDINATOR_PROFILES } from "../../src/main/private-agent/profiles";
 import { OUTPUT_TOKENS, THINKING } from "../../src/main/private-agent/research-pipeline";
 import { DEFAULT_RESEARCH_ROLE_POLICY, RESEARCH_ROLES, STRUCTURED_OUTPUT_ROLES, nonDefaultRoleParameters, type ResearchRolePolicy } from "../../src/main/private-agent/research-roles";
 import { DEFAULT_SERVING_POLICY, P10_RULE, RESEARCH_ROLE_MAX_OUTPUT_TOKENS, SERVING_CARD_CODES, SERVING_CARD_CONSUMED, SERVING_CARD_PARAMETER_PATHS,
-  ServingCardError, currentRoleSchemaSha256, loadServingCard, nonDefaultParameters, parseServingCard, servingCardFreeze, type ServingCardCode,
-  type ServingCardExpectation, type ServingCardV1 } from "../../src/main/private-agent/serving-card";
+  ServingCardError, currentRoleSchemaSha256, isServingCardParameterPath, loadServingCard, nonDefaultParameters, parseServingCard, servingCardFreeze,
+  servingCardRefusal, type ServingCardCode, type ServingCardExpectation, type ServingCardV1 } from "../../src/main/private-agent/serving-card";
 import { buildRoleSchemaExport } from "../../scripts/export-role-schemas";
 import { failureCode } from "../../scripts/phase4-loop";
 import { ADOPTING_ENTRY, PYTHON_TIMEOUT_MS, SERVING_CARD_WRITER, adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
@@ -35,6 +35,12 @@ function refusal(run: () => unknown): ServingCardError {
   throw new Error("expected a ServingCardError");
 }
 const loadFrom = (card: unknown, expectation: ServingCardExpectation = EXPECT) => (dir: string) => loadServingCard(writeCard(dir, card), expectation);
+/** The adopted all-default card as the writer formats it, with `edit` applied to its text (which must change it). */
+function editedText(edit: (text: string) => string): Buffer {
+  const text = `${JSON.stringify(allDefault(), null, 2)}\n`, changed = edit(text);
+  if (changed === text) throw new Error("the text edit did not apply");
+  return Buffer.from(changed);
+}
 
 describe("serving-card reader (SC)", () => {
   it("R1: round-trips the writer's card: proposed is refused, adopted as written is refused as unconsumed, adopted all-default is accepted", () => {
@@ -67,7 +73,9 @@ describe("serving-card reader (SC)", () => {
       return loadServingCard(writeCard(dir, Buffer.concat([bytes, Buffer.alloc(65_537 - bytes.length, 0x20)])), EXPECT); }],
     ["serving_card_pin_drift", "a missing file", dir => loadServingCard({ path: join(dir, "absent.json"), sha256: "a".repeat(64) }, EXPECT)],
     ["serving_card_pin_drift", "a FIFO", dir => { const fifo = join(dir, "card.fifo"); execFileSync("mkfifo", [fifo]); return loadServingCard({ path: fifo, sha256: "a".repeat(64) }, EXPECT); }],
-    ["serving_card_pin_drift", "a relative path", dir => loadServingCard({ path: "serving-card.json", sha256: writeCard(dir, allDefault()).sha256 }, EXPECT)],
+    // A relative path to a card that exists and matches its digest: only the absolute-path check can refuse it.
+    ["serving_card_pin_drift", "a relative path", dir => { const written = writeCard(dir, allDefault());
+      return loadServingCard({ path: relative(process.cwd(), written.path), sha256: written.sha256 }, EXPECT); }],
     ["serving_card_version_unsupported", "version 2", loadFrom(edited(card => { card.version = 2; }))],
     ["serving_card_invalid", "not JSON", dir => loadServingCard(writeCard(dir, Buffer.from("{\"kind\": \"soar_serving_card\",")), EXPECT)],
     ["serving_card_invalid", "not UTF-8", dir => loadServingCard(writeCard(dir, Buffer.from([0x7b, 0xff, 0x7d])), EXPECT)],
@@ -75,6 +83,13 @@ describe("serving-card reader (SC)", () => {
     ["serving_card_invalid", "an extra key", loadFrom(edited(card => { card.reviewedBy = "owner"; }))],
     ["serving_card_invalid", "an extra nested key", loadFrom(edited(card => { card.evidence.p11.kStreams["8"].note = "fine"; }))],
     ["serving_card_invalid", "a __proto__ key", dir => loadServingCard(writeCard(dir, Buffer.from(JSON.stringify(allDefault()).replace(/^\{/u, "{\"__proto__\":{},"))), EXPECT)],
+    // JSON.parse keeps a repeated key's last value: the earlier one would look in force to a reviewer, and the kept bytes would hold it unvalidated.
+    ["serving_card_invalid", "a duplicate decision key", dir => loadServingCard(writeCard(dir, editedText(text => text.replace(/^\{/u,
+      "{\n  \"decision\": {\"status\": \"proposed\", \"entry\": null},"))), EXPECT)],
+    ["serving_card_invalid", "a duplicate identity.servedModel", dir => loadServingCard(writeCard(dir, editedText(text => text.replace(`"servedModel": "${ALIAS}"`,
+      `"servedModel": "/synthetic/models/private-finetune", "servedModel": "${ALIAS}"`))), EXPECT)],
+    ["serving_card_invalid", "a duplicate key spelled with an escape", dir => loadServingCard(writeCard(dir, editedText(text => text.replace(`"servedModel": "${ALIAS}"`,
+      `"servedModel": "${ALIAS}", "served\\u004dodel": "${ALIAS}"`))), EXPECT)],
     ["serving_card_invalid", "a missing key", loadFrom(edited(card => { delete card.admission; }))],
     ["serving_card_invalid", "counts that do not sum", loadFrom(edited(card => { card.evidence.p10.cells["plan/on"].valid = 20; }))],
     ["serving_card_invalid", "both structured-output flags false", loadFrom(edited(flag("plan", false, false)))],
@@ -127,7 +142,7 @@ describe("serving-card reader (SC)", () => {
     expect(error).toBeInstanceOf(ServingCardError);
     expect(error.code).toBe(code); expect(error.message).toBe(code);
     expect(error.message).not.toContain(dir); expect(error.message).not.toContain(ALIAS);
-    if (error.parameter !== undefined) expect(SERVING_CARD_PARAMETER_PATHS.has(error.parameter)).toBe(true);
+    if (error.parameter !== undefined) expect(isServingCardParameterPath(error.parameter)).toBe(true);
     if (["serving_card_pin_drift", "serving_card_version_unsupported", "serving_card_invalid"].includes(code)) expect(error.parameter).toBeUndefined();
     else expect(error.parameter).toBeDefined();
     if (parameter !== undefined) expect(error.parameter).toBe(parameter);
@@ -139,6 +154,21 @@ describe("serving-card reader (SC)", () => {
     for (const code of SERVING_CARD_CODES) expect(code).toMatch(/^[a-z0-9_]{1,79}$/u);
     expect(new ServingCardError("serving_card_invalid", "/synthetic/operator/serving-card.json").parameter).toBeUndefined();
     expect(new ServingCardError("serving_card_not_adopted", "decision").parameter).toBe("decision");
+    // The allowlist is a frozen array, and the lookup behind the predicate is private, so no importer can extend it.
+    expect(Object.isFrozen(SERVING_CARD_PARAMETER_PATHS)).toBe(true);
+    expect(() => (SERVING_CARD_PARAMETER_PATHS as string[]).push("/synthetic/operator")).toThrow(TypeError);
+    expect(isServingCardParameterPath("/synthetic/operator")).toBe(false); expect(isServingCardParameterPath(undefined)).toBe(false);
+    expect(SERVING_CARD_PARAMETER_PATHS.every(isServingCardParameterPath)).toBe(true);
+    for (const path of SERVING_CARD_PARAMETER_PATHS) expect(path).toMatch(/^[a-z]+(?:\.[a-zA-Z]+)*(?:\[[01]\])?$/u);
+    // A printed refusal re-checks the code and the key path, so a value written onto the error after construction is never printed.
+    const tampered = new ServingCardError("serving_card_not_adopted", "decision");
+    (tampered as { parameter?: string }).parameter = "/synthetic/operator/serving-card.json";
+    expect(servingCardRefusal(tampered)).toEqual({ code: "serving_card_not_adopted" });
+    const recoded = new ServingCardError("serving_card_invalid"); (recoded as { code: string }).code = "/synthetic/operator";
+    expect(servingCardRefusal(recoded)).toBeUndefined();
+    expect(servingCardRefusal(new ServingCardError("serving_card_cap_out_of_range", "roles.plan.maxOutputTokens[0]")))
+      .toEqual({ code: "serving_card_cap_out_of_range", parameter: "roles.plan.maxOutputTokens[0]" });
+    expect(servingCardRefusal(new Error("serving_card_invalid"))).toBeUndefined();
   });
 
   it("R2: the pinned read refuses a FIFO without blocking, for the token admission too", () => {
@@ -147,6 +177,8 @@ describe("serving-card reader (SC)", () => {
     try { pinned(fifo, "a".repeat(64)); } catch (error) { expect((error as LocalTokenAdmissionError).code).toBe("local_token_admission_pin_drift"); }
     const written = writeCard(dir, allDefault());
     expect(pinned(written.path, written.sha256).equals(readFileSync(written.path))).toBe(true);
+    // A relative path to the same file, with the right digest, is refused by the absolute-path check alone.
+    expect(() => pinned(relative(process.cwd(), written.path), written.sha256)).toThrow(LocalTokenAdmissionError);
   });
 
   it("R4: the defaults are today's OUTPUT_TOKENS and THINKING on both attempts, every flag is false and the rule matches the writer", () => {
@@ -174,7 +206,7 @@ describe("serving-card reader (SC)", () => {
     expect(nonDefaultParameters(policy)).toEqual([...nonDefaultRoleParameters(roles), { parameter: "localStreams", at: "concurrency.localStreams" },
       { parameter: "admission", at: "admission.basis" }]);
     expect(nonDefaultParameters(DEFAULT_SERVING_POLICY)).toEqual([]);
-    for (const { at } of nonDefaultParameters(policy)) expect(SERVING_CARD_PARAMETER_PATHS.has(at)).toBe(true);
+    for (const { at } of nonDefaultParameters(policy)) expect(isServingCardParameterPath(at)).toBe(true);
   });
 
   it("R5: the reader's role-schema digests equal the export's and the probe's canonical_json digests", () => {
@@ -242,5 +274,20 @@ describe("serving-card reader (SC)", () => {
 
   it("R9: every refusal code survives the loop's failure record", () => {
     for (const code of SERVING_CARD_CODES) expect(failureCode(new ServingCardError(code), "loop_failed")).toBe(code);
+  });
+
+  it("R10: outside the reader, no production module parses a card or reads the pair's descriptor, so every value passes the fail-closed load", () => {
+    const root = resolve(__dirname, "..", ".."), reader = join("src", "main", "private-agent", "serving-card.ts"), driver = join("scripts", "private-agent-local-screen.ts");
+    const files = ["src", "scripts"].flatMap(top => readdirSync(join(root, top), { recursive: true, encoding: "utf8" })
+      .filter(name => /\.(?:[cm]?[jt]s|tsx)$/u.test(name)).map(name => join(top, name)));
+    expect(files).toContain(reader); expect(files).toContain(driver);
+    for (const file of files.filter(name => name !== reader)) {
+      const text = readFileSync(join(root, file), "utf8"), reads = text.match(/\bvllm\??\.servingCard\b/gu) ?? [];
+      // The raw parse and the schema return values no adoption, pin or consumed-flag check has seen.
+      expect(text.match(/\b(?:parseServingCard|ServingCardV1Schema)\b/gu) ?? [], file).toEqual([]);
+      if (file !== driver) { expect(reads, file).toEqual([]); continue; }
+      const builder = /\nexport function buildLocalScreenServingCard\b[\s\S]*?\n\}\n/u.exec(text)?.[0] ?? "";
+      expect(reads.length).toBeGreaterThan(0); expect(builder.match(/\bvllm\??\.servingCard\b/gu)?.length).toBe(reads.length);
+    }
   });
 });

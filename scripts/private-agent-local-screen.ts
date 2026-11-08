@@ -28,7 +28,7 @@ import { localStreamSettings } from "../src/main/liveness";
 import { RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, RESEARCH_SPLIT_MAX_FEE_USD, researchProtocolSha256 } from "../src/main/private-agent/research-pipeline";
 import { createResearchInput } from "../src/main/private-agent/research-producer";
 import { researchPresentationPolicySha256, researchPresentationIdentity } from "../src/main/private-agent/research-presentation";
-import { ServingCardError, loadServingCard, servingCardExpectation, servingCardFreeze, type LoadedServingCard } from "../src/main/private-agent/serving-card";
+import { loadServingCard, servingCardExpectation, servingCardFreeze, servingCardRefusal, type LoadedServingCard } from "../src/main/private-agent/serving-card";
 
 const sha256 = z.string().regex(/^[a-f0-9]{64}$/u);
 /** Cap on one assembled reply from the owned model. */
@@ -165,6 +165,13 @@ export function buildLocalScreenTokenAdmission(config: Pick<SoarConfig, "vllm">)
  */
 export function buildLocalScreenServingCard(config: Pick<SoarConfig, "vllm">): LoadedServingCard | undefined {
   return config.vllm.servingCard ? loadServingCard(config.vllm.servingCard, servingCardExpectation(config)) : undefined;
+}
+/**
+ * The CLI's one failure line. A serving-card refusal adds its fixed code and allowlisted key path; every other failure prints
+ * the bytes it printed before SC.
+ */
+export function localScreenFailureLine(error: unknown): string {
+  return `${canonical({ state: "incomplete", error: "local_screen_failed_no_replay", ...servingCardRefusal(error) })}\n`;
 }
 /** Headless budgets: "standard" keeps the Phase 0 driver values so earlier rows stay comparable. */
 const LOCAL_SCREEN_BUDGETS: Readonly<Record<LocalScreenProfile, { maxModelCalls: number; maxToolCalls: number; maxElapsedMs: number; maxRequests: number }>> = Object.freeze({
@@ -525,10 +532,5 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
   try {
     const result = await runLocalArtifactScreen(parseLocalArtifactScreenArguments(process.argv.slice(2)));
     if (result.status !== "submitted") process.exitCode = 2;
-  } catch (error) {
-    // A serving-card refusal also names its fixed code and allowlisted key path; every other failure prints the same line as before.
-    process.stderr.write(`${canonical({ state: "incomplete", error: "local_screen_failed_no_replay",
-      ...(error instanceof ServingCardError ? { code: error.code, ...(error.parameter ? { parameter: error.parameter } : {}) } : {}) })}\n`);
-    process.exitCode = 1;
-  }
+  } catch (error) { process.stderr.write(localScreenFailureLine(error)); process.exitCode = 1; }
 }

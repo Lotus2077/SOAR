@@ -99,23 +99,37 @@ export const SERVING_CARD_CODES = ["serving_card_pin_drift", "serving_card_versi
   "serving_card_structured_output_below_rule", "serving_card_streams_unproven", "serving_card_parameter_unconsumed"] as const;
 export type ServingCardCode = (typeof SERVING_CARD_CODES)[number];
 
-/** Every key path a refusal may carry, built from the fixed role and mode names; never a card key, card text or the file path. */
-export const SERVING_CARD_PARAMETER_PATHS: ReadonlySet<string> = Object.freeze(new Set([
+/**
+ * Every key path a refusal may carry, built from the fixed role and mode names; never a card key, card text or the file path.
+ * A frozen array, because Object.freeze leaves a Set's contents mutable; the lookup Set stays private to this module.
+ */
+export const SERVING_CARD_PARAMETER_PATHS: readonly string[] = Object.freeze([
   "decision", "identity.servedModel", "identity.contextTokens",
   ...RESEARCH_ROLES.flatMap(role => [`roles.${role}.maxOutputTokens`, `roles.${role}.maxOutputTokens[0]`, `roles.${role}.maxOutputTokens[1]`, `roles.${role}.thinking`]),
   ...STRUCTURED_OUTPUT_ROLES.flatMap(role => [`roles.${role}.structuredOutput`, `roles.${role}.structuredOutput.thinkingOff`, `roles.${role}.structuredOutput.thinkingOn`]),
   "concurrency.localStreams", "admission.basis",
-]));
+]);
+const PARAMETER_PATHS: ReadonlySet<string> = new Set(SERVING_CARD_PARAMETER_PATHS);
+export function isServingCardParameterPath(value: unknown): value is string { return typeof value === "string" && PARAMETER_PATHS.has(value); }
 
 /** The message is the code. The three file-level codes carry no key path; the others carry one from SERVING_CARD_PARAMETER_PATHS. */
 export class ServingCardError extends Error {
   readonly parameter?: string;
   constructor(readonly code: ServingCardCode, parameter?: string) {
     super(code); this.name = "ServingCardError";
-    if (parameter !== undefined && SERVING_CARD_PARAMETER_PATHS.has(parameter)) this.parameter = parameter;
+    if (isServingCardParameterPath(parameter)) this.parameter = parameter;
   }
 }
 function refuse(code: ServingCardCode, parameter?: string): never { throw new ServingCardError(code, parameter); }
+
+/**
+ * What a failure line may print about a serving-card refusal: its fixed code and allowlisted key path, both checked again here
+ * because they are printed; undefined for any other error, so that error's line keeps its earlier bytes.
+ */
+export function servingCardRefusal(error: unknown): { code: ServingCardCode; parameter?: string } | undefined {
+  if (!(error instanceof ServingCardError) || !(SERVING_CARD_CODES as readonly string[]).includes(error.code)) return undefined;
+  return { code: error.code, ...(isServingCardParameterPath(error.parameter) ? { parameter: error.parameter } : {}) };
+}
 
 /** What a consumer reads: never the raw card. */
 export interface ServingPolicy { roles: ResearchRolePolicy; localStreams: number; admission: { basis: "none" | "serving_card" } }
@@ -141,14 +155,51 @@ export function currentRoleSchemaSha256(): Readonly<Record<StructuredOutputRole,
     synthesis: digest(canonical(z.toJSONSchema(ResearchSynthesisSchema))) });
 }
 
-/** Syntax only (tests, round trips); no consumer reads a value from its result. A `__proto__` key, which zod would drop silently, is invalid. */
+const JSON_WHITESPACE = new Set([" ", "\t", "\n", "\r"]);
+/**
+ * True when one object of `text` repeats a key, compared after unescaping. `text` is JSON that JSON.parse has accepted, which
+ * keeps only a repeated key's last value: a reviewer reading the file from the top would then see another value than the
+ * reader resolves, and the bytes kept in the run directory would hold an unvalidated value.
+ */
+function repeatsKey(text: string): boolean {
+  const open: (Set<string> | undefined)[] = [];
+  for (let at = 0; at < text.length; at++) {
+    const char = text[at];
+    if (char === "{") open.push(new Set());
+    else if (char === "[") open.push(undefined);
+    else if (char === "}" || char === "]") open.pop();
+    else if (char === "\"") {
+      let end = at + 1;
+      while (end < text.length && text[end] !== "\"") end += text[end] === "\\" ? 2 : 1;
+      let next = end + 1;
+      while (JSON_WHITESPACE.has(text[next] ?? "")) next++;
+      // In valid JSON a string is a key exactly when it sits directly in an object and a colon follows it.
+      const keys = open[open.length - 1];
+      if (keys && text[next] === ":") {
+        const key = JSON.parse(text.slice(at, end + 1)) as string;
+        if (keys.has(key)) return true;
+        keys.add(key);
+      }
+      at = end;
+    }
+  }
+  return false;
+}
+
+/**
+ * Syntax only (tests, round trips); no consumer reads a value from its result, and a guard test (R10) refuses any production
+ * module other than this one that names it or ServingCardV1Schema. A `__proto__` key, which zod would drop silently, and a
+ * key repeated within one object, which JSON.parse would resolve to its last value, are invalid.
+ */
 export function parseServingCard(bytes: Uint8Array): ServingCardV1 {
   let value: unknown;
   try {
-    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes), (key, item: unknown) => {
+    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    value = JSON.parse(text, (key, item: unknown) => {
       if (key === "__proto__") throw new Error("serving_card_invalid");
       return item;
     });
+    if (repeatsKey(text)) throw new Error("serving_card_invalid");
   } catch { return refuse("serving_card_invalid"); }
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
     const head = value as { kind?: unknown; version?: unknown };
@@ -214,7 +265,7 @@ export interface LoadedServingCard {
   readonly sha256: string; readonly version: 1; readonly date: string; readonly entry: string;
   readonly identity: Readonly<ServingCardV1["identity"]>; readonly evidence: Readonly<ServingCardV1["evidence"]>;
   readonly policy: Readonly<ServingPolicy>;
-  /** The pinned bytes, only for the run directory's copy; nothing parses them. */
+  /** The pinned bytes, only for the run directory's copy; nothing parses them. No key repeats, so every value in them was validated. */
   readonly bytes: Buffer;
 }
 

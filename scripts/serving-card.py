@@ -869,7 +869,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--env-file", default=None, help="env file whose SOAR_VLLM_BASE_URL host is also refused (default: the repository's .env.local)")
     parser.add_argument("--policy-out", default=None,
                         help="also write the machine-readable card (kind soar_serving_card, version 1, status proposed); an existing file is refused")
-    args = parser.parse_args(list(argv) if argv is not None else None)
+    arguments = list(argv) if argv is not None else sys.argv[1:]
+    # pnpm 10 passes the `--` of `pnpm card:serving -- --input ...` through, and argparse would read every flag after it as a
+    # positional; the parser has no positional, so dropping one leading `--` changes no invocation that worked before.
+    if arguments[:1] == ["--"]:
+        arguments = arguments[1:]
+    args = parser.parse_args(arguments)
     written: Optional[str] = None
     try:
         with open(args.input, "rb") as handle:

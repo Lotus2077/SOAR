@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { summarizeRun, type CandidateSummary } from "../../src/main/private-agent/selection";
 import { ServingCardError } from "../../src/main/private-agent/serving-card";
-import { LOOP_VERSION, failureCode, loopExitCode, parseLoopArguments, runSelectionLoop, type CritiqueRecord, type DriverInput, type LoopDependencies, type LoopInput, type LoopRecord } from "../../scripts/phase4-loop";
+import { LOOP_VERSION, failureCode, loopExitCode, loopFailureLine, parseLoopArguments, runSelectionLoop, type CritiqueRecord, type DriverInput, type LoopDependencies, type LoopInput, type LoopRecord } from "../../scripts/phase4-loop";
 import { localScreenSourceFreeze, parseLocalArtifactScreenArguments } from "../../scripts/private-agent-local-screen";
 
 const cleanups: (() => void)[] = [];
@@ -289,14 +289,22 @@ describe("H4 select-and-repair loop", () => {
       expect(() => parseLocalArtifactScreenArguments(["--execute-synthetic-local", ...run, ...bad])).toThrow("local_screen_cli_invalid");
     }
   });
-  it("records a serving-card refusal as the loop's failure code, creates no stage directory and stays resumable (SC)", async () => {
+  it("records a serving-card refusal as the loop's failure code, names its key path in the logs, creates no stage directory and stays resumable (SC)", async () => {
     const dir = loopDir();
     // The driver refuses a card before it creates the stage's directory, so the loop's own stage guard never sees a half-made stage.
     const refused = fakes({ summaries: candidates(false), onRun: run => { if (run.outputDirectory.endsWith("/a")) throw new ServingCardError("serving_card_not_adopted", "decision"); } });
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, refused.deps)).rejects.toThrow("serving_card_not_adopted");
     expect(read(dir)).toMatchObject({ failure: "serving_card_not_adopted", selected: { stage1: null, final: null } });
     expect(existsSync(join(dir, "a"))).toBe(false);
-    expect(readFileSync(join(dir, "log.txt"), "utf8")).toContain("failure serving_card_not_adopted");
+    // The allowlisted key path follows the code in log.txt, errors.txt and the CLI line, as on the driver's failure line; loop.json keeps the code.
+    expect(readFileSync(join(dir, "log.txt"), "utf8")).toMatch(/ failure serving_card_not_adopted at decision\n$/u);
+    expect(readFileSync(join(dir, "errors.txt"), "utf8")).toMatch(/ serving_card_not_adopted ServingCardError: serving_card_not_adopted at decision\n$/u);
+    expect(loopFailureLine(new ServingCardError("serving_card_cap_out_of_range", "roles.plan.maxOutputTokens[0]")))
+      .toBe("{\"error\":\"serving_card_cap_out_of_range\",\"parameter\":\"roles.plan.maxOutputTokens[0]\",\"state\":\"incomplete\"}\n");
+    expect(loopFailureLine(new ServingCardError("serving_card_pin_drift"))).toBe("{\"error\":\"serving_card_pin_drift\",\"state\":\"incomplete\"}\n");
+    // Every other failure prints the bytes it printed before SC.
+    expect(loopFailureLine(new Error("loop_stage_mismatch"))).toBe("{\"error\":\"loop_stage_mismatch\",\"state\":\"incomplete\"}\n");
+    expect(loopFailureLine(new Error("ENOSPC: no space left on device, write '/Users/someone/loop'"))).toBe("{\"error\":\"loop_failed\",\"state\":\"incomplete\"}\n");
     const resumed = fakes({ summaries: candidates(false) });
     const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, resumed.deps);
     expect(record.failure).toBeNull(); expect(resumed.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b", "repair"]);

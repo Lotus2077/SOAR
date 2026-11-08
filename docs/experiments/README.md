@@ -43,7 +43,10 @@ This folder holds the committed, sanitized record of live trials (see
     passing cell does not show that the pipeline's own requests pass. The K bursts
     use a one-sentence prompt and show decode concurrency only.
   - **The run record.** `freeze.json` records `servingCard {sha256, version, date,
-    entry}`, and the run directory keeps `serving-card.json`.
+    entry}`, and the run directory keeps `serving-card.json`. A refused card leaves
+    no run directory. The driver's and the loop's failure lines, and the loop's
+    `log.txt` and `errors.txt`, name the refusal's code and, except for a file-level
+    refusal, its key path.
 - `e0-planner-fixture-v1.json`: the hashes-only manifest of the E0 planner fixture
   (`scripts/planner-fixture.ts`): the exposed r3 index, its brief and source ids by
   sha256, the chunk count and the proposed 3 x 10 design. It is a template until the

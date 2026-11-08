@@ -7,8 +7,9 @@ import type { SoarConfig } from "../../src/main/config";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { modelIdentity } from "../../src/main/private-agent/model";
 import { COORDINATOR_PROFILES, type CoordinatorProfileName } from "../../src/main/private-agent/profiles";
-import { DEFAULT_SERVING_POLICY, servingCardFreeze } from "../../src/main/private-agent/serving-card";
-import { buildLocalScreenModelConfig, buildLocalScreenServingCard, localScreenSourceFreeze, runLocalArtifactScreen } from "../../scripts/private-agent-local-screen";
+import { LocalTokenAdmissionError } from "../../src/main/private-agent/flash-next-admission";
+import { DEFAULT_SERVING_POLICY, ServingCardError, servingCardExpectation, servingCardFreeze } from "../../src/main/private-agent/serving-card";
+import { buildLocalScreenModelConfig, buildLocalScreenServingCard, localScreenFailureLine, localScreenSourceFreeze, runLocalArtifactScreen } from "../../scripts/private-agent-local-screen";
 import { ADOPTING_ENTRY, adopt, proposedServingCard, writeCard } from "../helpers/serving-card-fixture";
 
 const cleanups: (() => void)[] = [];
@@ -100,6 +101,38 @@ describe("shared harness local role configuration", () => {
     for (const [card, code, parameter] of [[proposed, "serving_card_not_adopted", "decision"], [otherAlias, "serving_card_model_mismatch", "identity.servedModel"]] as const) {
       await expect(runLocalArtifactScreen(options, { environment: environment(card), cwd })).rejects.toMatchObject({ code, parameter, message: code });
       expect(existsSync(options.outputDirectory)).toBe(false);
+    }
+  });
+
+  it("L3: compares the card's context only under flash_next_v1, against SOAR_VLLM_CONTEXT_TOKENS (SC)", () => {
+    const root = workspace(), card = adopt(proposedServingCard(probe => { probe.P1.models[0].id = "qwen3.8-flash-next"; }), ADOPTING_ENTRY, { defaults: true });
+    expect(card.identity.contextTokens).toBe(262_144);
+    const written = writeCard(root, card), descriptor = { path: written.path, sha256: written.sha256 };
+    const flash = (contextTokens: number) => { const value = config(true); Object.assign(value.vllm, { localReplyContract: "flash_next_v1", localContextTokens: contextTokens, servingCard: descriptor }); return value; };
+    expect(servingCardExpectation(flash(131_072))).toEqual({ model: "qwen3.8-flash-next", contextTokens: 131_072 });
+    let refused: unknown;
+    try { buildLocalScreenServingCard(flash(131_072)); } catch (error) { refused = error; }
+    expect(refused).toBeInstanceOf(ServingCardError);
+    expect(refused).toMatchObject({ code: "serving_card_context_mismatch", parameter: "identity.contextTokens", message: "serving_card_context_mismatch" });
+    expect(buildLocalScreenServingCard(flash(262_144))!.policy).toEqual(DEFAULT_SERVING_POLICY);
+    // Under the legacy contract the context is not compared, even when a configuration object carries one.
+    const legacy = config(true); Object.assign(legacy.vllm, { localContextTokens: 131_072, servingCard: descriptor });
+    expect(servingCardExpectation(legacy)).toEqual({ model: "qwen3.8-flash-next" });
+    expect(buildLocalScreenServingCard(legacy)!.policy).toEqual(DEFAULT_SERVING_POLICY);
+  });
+
+  it("L4: the CLI's failure line keeps its earlier bytes for every other failure and adds only a refusal's code and allowlisted key path (SC)", () => {
+    const base = "{\"error\":\"local_screen_failed_no_replay\",\"state\":\"incomplete\"}\n";
+    for (const error of [new Error("local_screen_provider_not_admitted"), new Error("ENOENT: no such file or directory, open '/Users/someone/task'"),
+      new LocalTokenAdmissionError("local_token_admission_pin_drift"), "a thrown string", undefined]) expect(localScreenFailureLine(error)).toBe(base);
+    expect(localScreenFailureLine(new ServingCardError("serving_card_cap_out_of_range", "roles.plan.maxOutputTokens[0]")))
+      .toBe("{\"code\":\"serving_card_cap_out_of_range\",\"error\":\"local_screen_failed_no_replay\",\"parameter\":\"roles.plan.maxOutputTokens[0]\",\"state\":\"incomplete\"}\n");
+    expect(localScreenFailureLine(new ServingCardError("serving_card_pin_drift")))
+      .toBe("{\"code\":\"serving_card_pin_drift\",\"error\":\"local_screen_failed_no_replay\",\"state\":\"incomplete\"}\n");
+    // A key path outside the allowlist, given at construction or written later, never reaches the line.
+    const tampered = new ServingCardError("serving_card_not_adopted", "decision"); (tampered as { parameter?: string }).parameter = "/synthetic/operator/serving-card.json";
+    for (const error of [tampered, new ServingCardError("serving_card_invalid", "/synthetic/operator/serving-card.json")]) {
+      expect(localScreenFailureLine(error)).not.toContain("/synthetic"); expect(localScreenFailureLine(error)).not.toContain("parameter");
     }
   });
 });

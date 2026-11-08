@@ -30209,3 +30209,205 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI green on pull request #41 after this merge commit; its merge into `main`, which completes step 1 of docs/HANDOFF.md.
 
 References: BL-20261108-0911-probe-extensions-implemented; BL-20261108-0906-correction-owner-verdict-capture-ids; BL-20261108-0856-correction-stop-bricking-tasks-design-id; the log rules at the top of this file.
+
+
+### BL-20261108-1459-serving-card-reader-design -- 2026-11-08 -- Serving-card reader decided: the writer's machine-readable card, an env-pinned reader that reads only adopted cards and refuses every value no consumer reads yet, and the card's digest and copy in each run
+
+Status: `Proposed`
+
+Scope or hypothesis: This is the decision entry for SC, the shared serving-card reader in the plan for E1 and backlog items 6-11 charted under the wayfinder map (#46). It replaces three separate proposals in that plan with one contract:
+- a card-contract change (a zod schema, plus the writer's JSON emission);
+- a reader for item 7(a)'s caps and thinking and item 9's structured output;
+- a numbers-only parameters file read through a `--serving-card` driver flag, for item 8's K.
+
+It is recorded before its code because it adds a persisted input (the machine-readable serving card), two configuration variables, a freeze key and a file in each run directory. Review section 5.2, principle 6, re-derives every stage bound from the E0 serving card. Today no code reads a card: the writer prints only Markdown, the one committed card (2026-09-28) was written by hand, and E0's card does not exist yet. #57's step 4 must follow this change, because the card needs P1, P10, P11 and the adapter probe from one probe run. Based on `main` at 0e644e5. This is zero-fee code with deterministic tests and no endpoint, so it needs no approval under PLAN.md section 4(c). The implementation follows in the same pull request.
+
+Decisions: (1) The card. `scripts/serving-card.py --policy-out <path>` writes a tracked JSON card, `docs/experiments/serving-card-<date>.json`, beside the Markdown card. It has `kind` "soar_serving_card", `version` 1 and exactly these keys:
+- `date`;
+- `decision` {`status` "proposed" or "adopted", `entry` a BL ID or null};
+- `identity` {`servedModel`, `engineVersion`, `contextTokens`, `modelRootBasename`}, from probe P1;
+- `probe` {`probeVersion` 2, `sha256` of the probe JSON the writer read, and the names of the probes run, skipped and failed};
+- `roles`;
+- `concurrency` {`localStreams`, K from 1 to 8};
+- `admission` {`basis` "none" or "serving_card"};
+- `evidence` {`p10`, `p11`, `bounds`, `adapter`}, each null when its probe did not run.
+
+Each role has `maxOutputTokens` and `thinking` ("disabled" or "model"), each with exactly two entries: attempt 1, then attempt 2 (the repair or second call). Plan, extract and synthesis also have `structuredOutput`: null, or {`variant`, `thinkingOff`, `thinkingOn`} with at least one flag true.
+
+P10 evidence holds:
+- the calls per cell, the requested variant and each role's acceptance of both variants;
+- the role export's protocol hash, the three schema digests, and the assessor's protocol hash and match, which must agree with the two hashes;
+- for each cell, the variant it ran, its max_tokens, every class count (summing to the total), and the mean completion and reasoning tokens of settled replies. The writer computes the means because the probe records only medians.
+
+P11 evidence holds:
+- per prompt size: prompt and completion tokens, first-token time, the prefill and thinking-off decode rates, and tokens per word;
+- the refused sizes;
+- per extraction layout: cache-salt acceptance and each request's prompt tokens, cached tokens and first-token time, with the packet and chunk bytes;
+- per K: streams, errors, median and aggregate decode, the maximum first-token and total times, and the running maximum.
+
+`bounds` are the Markdown table's 300 s and 900 s ceilings. They may be zero or negative, and they are informational. `adapter` holds the two consistency verdicts and /tokenize parity. Every object is strict and every key is present, null where a value is absent. The card never holds an address, a path, a key, a timestamp other than its date, or reply text.
+
+(2) The writer.
+- For both outputs, it refuses (exit 2, nothing printed) a served alias or engine version that looks like a file path. The message names only the JSON path and asks for `--served-model-name`. For every other input the base writer accepted, the Markdown is byte-identical with or without the flag.
+- `--policy-out` is refused when:
+  - P1 does not give exactly one served alias;
+  - the role export's caps and thinking are missing;
+  - the date is not valid;
+  - the probe exceeds the card's list bounds; or
+  - the file already exists.
+- It runs `refuse_addresses` over the JSON and encodes both outputs before creating the file, with O_EXCL. It removes the file on any later failure, including a failed Markdown write, and never prints the path.
+- It writes `decision` {"proposed", null} and proposes:
+  - caps and thinking as the role export sent them;
+  - structured output for a role and thinking mode only when P10 was assessed under the protocol it sent, and the cell ran the requested variant with no unassessed reply, at least 20 calls and at least 95% valid;
+  - `localStreams` 1;
+  - admission "none".
+
+(3) Selection. `SOAR_SERVING_CARD_FILE` (an absolute path without control characters) and `SOAR_SERVING_CARD_SHA256` (64 lowercase hexadecimal characters) must be set together or not at all. config.ts validates them like the token-admission pair, but without its flash_next_v1 requirement, and produces `config.vllm.servingCard` only when both are set. Both live in the ignored `.env.local`. There is no driver flag and no separate parameters file.
+
+(4) The reader. The new `src/main/private-agent/serving-card.ts` comes with two leaf modules: `research-roles.ts` (the role policy schema, defaults equal to today's OUTPUT_TOKENS and THINKING, and the shared non-default predicate) and `serving-card-flags.ts` (the consumed flags). It checks in this order:
+- The pinned read uses flash-next-admission.ts's `pinned`, now exported and opened with O_NONBLOCK, so a FIFO is refused instead of blocking. It requires an absolute path, no symlink, a regular file of at most 64 KiB, no change during the read and an equal sha256, else `serving_card_pin_drift`.
+- UTF-8 JSON of kind "soar_serving_card": another version gives `serving_card_version_unsupported`; anything else that fails the strict schema, a path-like alias included, gives `serving_card_invalid`.
+- Status "adopted" with an entry, else `serving_card_not_adopted`.
+- `servedModel` equal to SOAR_VLLM_MODEL, else `serving_card_model_mismatch`.
+- Under flash_next_v1, `contextTokens` equal to SOAR_VLLM_CONTEXT_TOKENS, else `serving_card_context_mismatch`.
+- Every cap between 128 and 16,384, else `serving_card_cap_out_of_range`; it is refused, never clamped. 16,384 is the heavy profile's limit, and every research role runs under heavy: the driver refuses the pipeline, a seeded run and the loop under any other profile.
+- For every flagged structured-output mode:
+  - an assessed P10, else `serving_card_structured_output_unassessed`;
+  - the export's and the assessor's protocol hashes equal to today's `researchProtocolSha256()`, else `serving_card_p10_protocol_drift`;
+  - the role's schema digest equal to sha256(canonical(current role schema)), else `serving_card_schema_drift`;
+  - the cell present with no unassessed reply, else `serving_card_structured_output_unassessed`;
+  - the flag's variant equal to the requested variant and to the cell's, else `serving_card_structured_output_variant_mismatch`;
+  - at least 20 calls and at least 95% valid, else `serving_card_structured_output_below_rule`.
+- K above 1 only with a P11 burst at that K with K streams and zero errors, else `serving_card_streams_unproven`.
+
+Each refusal is a `ServingCardError` whose message is its code. The three file-level codes carry no key path. The others carry one fixed key path from an exported allowlist, never card text, a card key or the file path. The resolver has no override argument; tests flip flags only by mocking the flags module.
+
+(5) Fail closed. After those checks, any value that differs from today's default is refused with `serving_card_parameter_unconsumed` until its consumer flips its flag. Such values are a role's caps or thinking on either attempt, a non-null structured output, K other than 1, or admission other than "none".
+- The flags are flipped as follows: `maxOutputTokens` and `thinking` by item 7(a)'s caps-and-thinking PR, `structuredOutput` by item 9, `localStreams` by item 8's loop PR, and `admission` by item 7(b)'s admission PR.
+- All five are false here, so an adopted all-default card is accepted and any other adopted card is refused.
+- Effective values come only from the resolved policy. A consumer reads evidence only to refuse, or under a policy value that its flag guards; item 7(b) reads it only when the admission basis is "serving_card".
+- Item 7(a)'s hash binding and this gate share one role-level predicate.
+
+(6) Defaults. Without the pair nothing reads a file, and the policy is today's caps and thinking on both attempts, no structured output, K 1 and admission "none".
+
+(7) The driver. scripts/private-agent-local-screen.ts loads the card right after its provider check, before the run directory, the database or any request exists, so a refusal leaves nothing behind and a loop stays resumable. When a card is set, it:
+- saves the pinned bytes as serving-card.json (wx, 0600) beside freeze.json;
+- adds a top-level `servingCard` {sha256, version, date, entry} to freeze.json, never the path;
+- on a card refusal, adds the refusal's code and key path to the existing failure line.
+
+An optional second argument passes configuration options to loadConfig, so tests never read the repository's `.env.local`; the CLI and the loop never pass it. Nothing else consumes the card: the session, the pipeline, the model configurations, phase2-repair's critic and the desktop read nothing.
+
+(8) Byte identity. Without a card, the following stay as they are:
+- every request body;
+- every model and session identity;
+- `researchProtocolSha256()` (3453710315d7226ea4d6195ec7401d000f86c5b0d9afa9839a801d5c6d391262 at 0e644e5), with both pins untouched and no new test pinning it;
+- loadConfig's result;
+- the freeze, except the source-freeze digests.
+
+With a card, only freeze.json (and so result.json's `freezeSha256`) differs, plus the copy in the run directory. The `pinned` change alters only non-regular files: they are now refused instead of blocking.
+
+(9) Owner defaults recorded here.
+- Only adopted cards are read. `decision.entry` names the BL entry that records E0's result, set only once that entry's ID is final on main; its format is checked, not its presence in this ledger.
+- P10 evidence is bound to the whole default protocol hash.
+- The card records the variant P10 ran, which is the requested variant unless the server refused it. Structured output is proposed and accepted only on the requested variant: strict by default, the probe's default.
+- A cap above the heavy limit is refused, not clamped.
+- Refreshing any evidence means re-running P1, P10, P11 and the adapter together and adopting a new card.
+
+Changes: Planned in this pull request:
+- scripts/serving-card.py: `--policy-out`, the JSON builder, the path-like identity refusal, and a ceiling helper the Markdown table shares unchanged.
+- New src/main/private-agent/research-roles.ts, serving-card-flags.ts and serving-card.ts.
+- src/main/private-agent/flash-next-admission.ts: `pinned` exported and opened with O_NONBLOCK.
+- src/main/config.ts: the pair and `vllm.servingCard`.
+- scripts/private-agent-local-screen.ts: `buildLocalScreenServingCard`, the optional configuration argument, the load, the run-directory copy, the freeze key and the catch.
+- .env.example, README.md and docs/experiments/README.md.
+- Tests:
+  - extended: serving-card-writer.test.ts, config.test.ts, private-agent-local-role-config.test.ts and phase4-loop.test.ts (one appended test);
+  - new: serving-card-reader.test.ts, serving-card-reader-consumed.test.ts and tests/helpers/serving-card-fixture.ts;
+  - tests/integration/private-agent-runtime.test.ts (Docker-gated): its configuration is passed explicitly, plus one case with a card.
+
+Evidence: None yet; this entry decides. Three adversarial design reviews (contract and privacy, consumers and tests, spec fidelity) checked the design against the code at 0e644e5 and raised 22 findings, five of them major. Each was checked against the code and confirmed.
+
+Applied:
+- the writer refuses a file-path-like served alias (1);
+- no consumed-flag override, a leaf flags module, and a loaded card that exposes the policy, never the raw values (2);
+- encode-before-create JSON writing with cleanup and no path in messages (3);
+- `probe.sha256` (4);
+- the run-directory copy (5);
+- the key-path allowlist (6);
+- O_NONBLOCK in `pinned` (7);
+- P10 evidence bound to today's protocol hash (8);
+- the configuration argument for driver tests (9);
+- writer-to-reader round trips on edge-case probes, with negative ceilings allowed (10);
+- caps bounded by the heavy profile without a default exemption (11, 18);
+- a Docker-gated freeze-placement case and a loop-record test (12, in part);
+- the shared role predicate (13);
+- the full re-probe rule (14);
+- `maxTotalS` and the short-prompt limitation (15, in part);
+- no third protocol-hash pin (16, 19);
+- the requested-variant rule (17);
+- the gates' limits stated (20);
+- the #57 constraints (21);
+- traceable references (22).
+
+Not applied:
+- a pure freeze-builder refactor (12): it would turn the plan's trivial overlap with item 11's freeze change into a refactor conflict;
+- per-burst prompt tokens (15): probe version 2 does not record them.
+
+Reproduced in a scratch directory, outside the repository:
+- a served alias `/home/<user>/models/...` passes `refuse_addresses` and is printed in the Markdown;
+- under Python 3.9.5, `open(path, "x", encoding="utf-8")` leaves a 0-byte file when a lone surrogate fails to encode;
+- under Node 22.22.2, the pinned read's open blocks on a FIFO until a 3 s alarm, while with O_NONBLOCK the FIFO is refused as not a regular file.
+
+The design rests on a reading of the code at 0e644e5:
+- the token-admission pair and its pinned read (config.ts:48-49 and :98-105; flash-next-admission.ts:54-66);
+- loadConfig's file loading (config.ts:182-208);
+- OUTPUT_TOKENS, THINKING and the protocol hash (research-pipeline.ts:28-29 and :75-81);
+- two attempts per role unit (research-contract.ts:8 and :11);
+- the profiles' limits, the clamp at model.ts:337, and the heavy-only research paths (private-agent-local-screen.ts:278, :465 and :473; phase4-loop.ts:90);
+- the probe's P1, P10 and P11 records, including the variant fallback at serving-probe.py:361-368 and the bursts' one-sentence prompt (:802, :928);
+- the assessor's one-time `schemasProtocolMatch` (assess-probe-replies.ts:80-81);
+- the driver's config load, directory creation, snapshot copies, token-admission load and freeze (private-agent-local-screen.ts:302-312, :323 and :372-391);
+- the freeze readers, which read fields one by one.
+
+Running the base writer under python3 -I on the test fixture syntheticProbe() gives Markdown sha256 5cf363caa1c6d62bc2719501979a9056569f21c394afaac806f86ba12536f426 (9,024 bytes) with the three comparison flags, and b0278fa07d79e4db737eb6f85bae061521c2c11667969175d038055edd25b5d4 (8,508 bytes) without them; the writer test will pin both. In that fixture, plan/on (19/20), extract/on and extract/off (20/20) and synthesis/off (19/20) meet the 95% rule, while plan/off (17/20) and synthesis/on (18/20) do not.
+
+Failures or blockers: None in recording. Open for the owner, with none blocking the code:
+- whether `admission.basis` is the value item 7(b)'s admission flag guards;
+- whether per-attempt values take exactly two entries;
+- whether P10 evidence stays bound to the whole default protocol hash (the default here) or only to the role schema digests;
+- whether the writer proposes structured output by the 95% rule or leaves every proposal at its default;
+- whether a refresh may merge P10 from a second probe run instead of a full re-probe; that would need per-block provenance and a card version 2;
+- whether the reader should also refuse a flash_next_v1 configuration against a card whose adapter probe was not consistent with that contract.
+
+Limitations and non-claims: This entry decides; nothing is implemented, verified or released by it, and no serving card exists until E0 (#57).
+
+Until items 7(a), 9, 8 and 7(b) merge their PRs:
+- an adopted E0 card with any proposed non-default value is refused, and a refused card stops every driver run while the pair is set;
+- only an all-default card is usable, and it changes nothing but the freeze and the run-directory copy;
+- after E0, a PR that changes `researchProtocolSha256()`'s default (items 7(c) and 7(b) in the plan) leaves structured output refused until a full re-probe and a new adopted card.
+
+The gates check the card, not the measurement:
+- The identity check compares the served alias and, under flash_next_v1, the context. It cannot establish identical weights or the engine version, and owner decision 1 stays open.
+- The evidence numbers are the writer's copy of a probe JSON kept under the ignored `.soar/`. `probe.sha256` lets a reviewer re-run the writer and compare, but the gates check only the card's internal consistency.
+- P10's thinking-off cells send the probe's own sampling, non-streaming and without preserve_thinking, so a passing cell does not show that the pipeline's own requests are at least 95% valid (P10-align is still open on #47).
+- The unchanged Markdown verdict has no 20-call minimum and ignores the protocol match, so it can say "meets" where the JSON proposes null.
+- The K gate shows decode concurrency for the probe's one-sentence prompt only, not at extraction-size prompts. Long-prompt K evidence would need a probe extension and a card version 2.
+
+Further limits:
+- `decision.entry` is checked for format only.
+- The writer's address and path patterns stay a best effort, so the operator still reviews the card before committing it.
+- Only the headless driver reads the card; the loop inherits it in process. phase2-repair's critic and the desktop read nothing, and review section 5.2 S11's card-derived critique cap has no planned consumer.
+- The two Docker-gated driver cases, the operator-entry run isolated from `.env.local` and the freeze placement with a card, run only on the owner's Mac. Until they run, the placement rests on review.
+- The harness source-freeze digest changes because files under src/main/private-agent, the driver and config.ts change; no loop may span the merge.
+
+Paid exposure: None. Zero SOAR model requests, zero endpoint requests and zero envelope spend.
+
+Next gate: The implementation, with deterministic tests and its `Implemented` entry, in this pull request. These must pass: `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck`, `pnpm validate:readiness`, the changed tests and the full suite, followed by CI. The Implemented entry states whether the Docker-gated cases ran.
+
+The merge must precede #57's step 4. After it, a note on #57 says:
+- run P1, P10, P11 and the adapter probe in one invocation, after `pnpm probe:export-schemas` and before `pnpm probe:assess`, with the model served under `--served-model-name`;
+- step 5 adds `--policy-out`;
+- adoption sets `decision` to adopted, in a reviewed commit, only once the E0 entry's ID is final on main;
+- the owner then pins the file's sha256 in the pair, adopting an all-default card until the consumers merge.
+
+References: docs/PROJECT_REVIEW_2026-11-05.md section 5.2 (principle 6, rows S1, S3, S4, S6, S8, S10 and S11, "Local fan-out"), section 5.6 (row E0) and section 5.9; docs/HANDOFF.md "Start here (2026-11-07)" sections 3-6; docs/PLAN.md section 4(c); docs/experiments/serving-card-2026-09-28.md; BL-20261108-0911-probe-extensions-implemented; BL-20261108-0912-correction-probe-extensions-id; BL-20261107-0650-owner-decisions-review-items-2-5; BL-20261107-0718-correction-owner-decisions-record; GitHub issues #46, #47 and #57.

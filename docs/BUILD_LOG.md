@@ -30411,3 +30411,119 @@ The merge must precede #57's step 4. After it, a note on #57 says:
 - the owner then pins the file's sha256 in the pair, adopting an all-default card until the consumers merge.
 
 References: docs/PROJECT_REVIEW_2026-11-05.md section 5.2 (principle 6, rows S1, S3, S4, S6, S8, S10 and S11, "Local fan-out"), section 5.6 (row E0) and section 5.9; docs/HANDOFF.md "Start here (2026-11-07)" sections 3-6; docs/PLAN.md section 4(c); docs/experiments/serving-card-2026-09-28.md; BL-20261108-0911-probe-extensions-implemented; BL-20261108-0912-correction-probe-extensions-id; BL-20261107-0650-owner-decisions-review-items-2-5; BL-20261107-0718-correction-owner-decisions-record; GitHub issues #46, #47 and #57.
+
+### BL-20261108-1649-serving-card-reader-implemented -- 2026-11-08 -- Serving-card reader implemented: the writer's machine-readable card, the env-pinned fail-closed reader, the run record, and the code-review fixes
+
+Status: `Implemented`
+
+Scope or hypothesis: SC, the shared serving-card reader decided in BL-20261108-1459-serving-card-reader-design, implemented on `feat/sc-serving-card-reader` from `main` at 0e644e5: 86d2b81 implements the design, and 8de520b applies the findings of one code review of 86d2b81. This is zero-fee code with deterministic tests; nothing touched the endpoint. The design entry's decisions (1)-(9) stand. The decisions below record only details fixed in code that extend them or that the design left open.
+
+Decisions: (1) The writer. Extending design decision (2), `--policy-out` also refuses:
+- a model root basename that is not a plain file name (a slash, a backslash, a control character or more than 256 UTF-16 code units), so the writer never writes a card its own reader would reject;
+- a `P10.assessed` whose `schemasProtocolMatch` disagrees with the export's and the assessor's protocol hashes;
+- a structurally malformed probe record, named by a fixed JSON path, never by its value;
+- a JSON card over 64 KiB;
+- a lone surrogate or a non-finite number, with a fixed message that never echoes the character.
+
+Further writer details:
+- A wrong-typed, negative or non-finite measurement becomes null. An empty engine version becomes null, matching the Markdown's "version not read", and so does an empty root basename.
+- Records are written in a fixed order: cells by role then thinking on/off, sizes and K numerically, layouts by name.
+- The writer drops one leading `--`, with or without `--policy-out`. pnpm 10 passes it through from `pnpm card:serving -- ...`, and argparse read every flag after it as a positional. The parser has no positional, so no invocation that worked before changes.
+
+(2) The reader. Extending design decision (4):
+- A `__proto__` key (zod 4 drops it silently) and a key repeated within one object (JSON.parse keeps only the last value) are `serving_card_invalid`. The resolved card, a top-down reading of the file and the bytes copied into the run directory therefore agree. Keys are compared after unescaping.
+- `serving_card_version_unsupported` needs kind "soar_serving_card" and a numeric version other than 1; a missing version is `serving_card_invalid`.
+- Identity strings refuse lone surrogates, and the date refuses the year 0000.
+
+(3) Key paths.
+- An unconsumed value carries `roles.<role>.<parameter>`, `concurrency.localStreams` or `admission.basis`.
+- A cap refusal adds `[0]` or `[1]`; a structured-output gate adds `.thinkingOff` or `.thinkingOn`.
+- The allowlist is a frozen array behind a module-private lookup, `isServingCardParameterPath`. `ServingCardError` drops any other key path. `servingCardRefusal` checks the code and the key path again before any failure line prints them.
+
+(4) Failure lines.
+- The driver's CLI line comes from `localScreenFailureLine`. A refusal adds `code` and, except for the three file-level codes, `parameter`; every other failure prints the bytes it printed at 0e644e5.
+- Extending design decision (7), the loop's `log.txt`, `errors.txt` and CLI line (`loopFailureLine`) also name the key path; `loop.json` keeps the code only. Without a refusal, each loop line keeps its earlier bytes.
+
+(5) A guard test (R10) fails when any module under src/ or scripts/ other than serving-card.ts names `parseServingCard` or `ServingCardV1Schema`, or reads `vllm.servingCard` outside `buildLocalScreenServingCard`. A consumer therefore reads values only through the pinned, adopted, fail-closed load.
+
+Changes:
+- scripts/serving-card.py: `--policy-out`, the JSON builder, the refusals above, and the leading `--`.
+- New src/main/private-agent/research-roles.ts, serving-card-flags.ts and serving-card.ts.
+- src/main/private-agent/flash-next-admission.ts: `pinned` exported and opened with O_NONBLOCK.
+- src/main/config.ts: the pair and `vllm.servingCard`.
+- scripts/private-agent-local-screen.ts: `buildLocalScreenServingCard`, `localScreenFailureLine`, the optional configuration argument, the load, the run-directory copy and the freeze key.
+- scripts/phase4-loop.ts: `loopFailureLine`, and the key path in log.txt and errors.txt.
+- .env.example, README.md and docs/experiments/README.md. .env.example now says the context is compared only under flash_next_v1, as README.md says.
+- Tests:
+  - new: tests/helpers/serving-card-fixture.ts, tests/unit/serving-card-reader.test.ts, serving-card-reader-consumed.test.ts and serving-card-reader-partial.test.ts (only item 7(a)'s two flags mocked true);
+  - extended: serving-card-writer.test.ts, config.test.ts, private-agent-local-role-config.test.ts (L1-L4) and phase4-loop.test.ts (one test);
+  - Docker-gated tests/integration/private-agent-runtime.test.ts: the configuration is passed explicitly, plus one case with a card;
+  - W5 and R5 pass their JSON to python through a temporary file, and every new python child has a 60 s timeout.
+
+Evidence: The first four commands ran on this entry's tree, which is 8de520b plus this entry; that full run is the final one. The rest ran on 8de520b's code.
+- `pnpm --silent validate:build-log -- --base-ref origin/main`: "SOAR build log valid: 511 entries; append-only against origin/main; 1 digest-bound field correction; original missing-field evidence retained."
+- `pnpm typecheck`: pass.
+- `pnpm validate:readiness`: pass ("22 research workloads, 20 coding workloads, no high-confidence tracked-file secret-pattern match").
+- `pnpm exec vitest run`: 164 files passed, 1 failed and 13 skipped (178); 2,672 tests passed, 1 failed and 84 skipped (2,757). The failure is a 5 s timeout under load in tests/unit/with-claude-key.test.ts, which this branch does not touch. Then `pnpm exec vitest run tests/unit/with-claude-key.test.ts`, run alone three times, passed 3 of 3 tests each time.
+- The 13 SC-related files, the two pins among them, plus the Docker-gated file, run together: 13 files passed and 1 skipped; 244 tests passed and 11 skipped. Per file:
+  - serving-card-writer 46, serving-card-reader 75, serving-card-reader-consumed 2, serving-card-reader-partial 1;
+  - config 12, private-agent-local-role-config 10, phase4-loop 19;
+  - role-schema-export 4 and private-agent-research-pipeline 25, the two `researchProtocolSha256()` pins, both unmodified;
+  - private-agent-identity-golden 2, private-agent-flash-next-admission 37, serving-probe-helpers 9, assess-probe-replies 2.
+- The Docker-gated D1 and D2 ran twice on 8de520b on the owner's Mac (Docker 29.8.2, the qualified image) with `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true pnpm exec vitest run tests/integration/private-agent-runtime.test.ts -t "hash-bound operator entry point|adopted all-default serving card"`. Each run: 2 passed, and the filter skipped the other 9. No container was left behind. They also ran twice at 86d2b81.
+- Mutation checks, each applied to the tree and then restored. Each of these makes at least one new test fail:
+  - removing the repeated-key check, the absolute-path check in `pinned`, or the context from `servingCardExpectation`;
+  - reducing the fail-closed step to the first non-default value;
+  - printing a refusal's fields without the re-check;
+  - dropping the loop's key path or the writer's `--` handling;
+  - naming `parseServingCard`, or reading `vllm.servingCard`, in another module.
+- W1 pins the base writer's Markdown digests at 0e644e5: 5cf363caa1c6d62bc2719501979a9056569f21c394afaac806f86ba12536f426 (9,024 bytes) with the comparison flags and b0278fa07d79e4db737eb6f85bae061521c2c11667969175d038055edd25b5d4 (8,508 bytes) without them. Both hold with and without `--policy-out`.
+- On the synthetic probe, `pnpm card:serving -- --input <probe.json> --env-file <empty file> --policy-out <new file>` exits 0 and writes the 8,508-byte Markdown and the card. At 86d2b81 the writer, given the same arguments after `--`, exited 2 with argparse's "the following arguments are required: --input" and wrote no card.
+- Code review of 86d2b81: 12 findings, all minor. Each was checked against the code and confirmed, and each was applied:
+  - the writer's leading `--` (W6);
+  - repeated keys, raised twice (correctness, privacy): three R2 rows;
+  - the driver's failure line (L4);
+  - the mutable allowlist Set (R2);
+  - the raw parse and schema exports (R10);
+  - a partly flipped flag set (serving-card-reader-partial);
+  - the flash_next_v1 context guard through the configuration (L3);
+  - the loop's lost key path (phase4-loop);
+  - the R2 relative-path row, which now uses a relative path to an existing card with the right digest, plus the same check on `pinned`;
+  - the ledger (this entry);
+  - the .env.example wording.
+
+Failures or blockers:
+- The form `pnpm card:serving -- --input ...`, documented since BL-20261108-0911-probe-extensions-implemented, failed under pnpm 10. It exited 2 and wrote nothing. It is fixed here.
+- During implementation, one run of the 13 SC test files hung: W5's python child was blocked reading a 70,692-byte input on stdin. The hang did not reproduce in 320 attempts, including runs 8 in parallel. W5 and R5 now read from a file, and every new python child has a timeout.
+- tests/unit/with-claude-key.test.ts times out at 5 s under the full suite's load here, as it did in the implementer's full run at 86d2b81. It passes when run alone.
+- Two parts of the review's suggestions were not applied:
+  - a repeated-key check in the writer's read of the probe: the writer re-encodes the card from a dictionary, so the card it writes never repeats a key, and the reviewer reviews that card;
+  - re-encoding the card for the run directory: with repeated keys refused, every value in the kept bytes has been validated.
+- The design entry's six owner questions stay open, none blocking. For each, the code applies the design's choice: `admission.basis` is the value the admission flag guards, every role has exactly two attempts, P10 is bound to the whole protocol hash, the writer proposes by the 95% rule, any refresh is a full re-probe, and the adapter verdict is not checked.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified` or `Released`. There was no live run: zero endpoint requests, and E0 (#57) has not run.
+- No serving card exists yet, and no consumer reads a policy value. Every consumed flag is false, so only an adopted all-default card is accepted. Such a card changes only freeze.json (and so result.json's `freezeSha256`) and adds the copy in the run directory.
+- As the design entry says, the gates check the card's internal consistency, not the measurement.
+- R10 is a textual check of src/ and scripts/. A module that reaches the parse without naming it, through `export *` or a computed property, escapes it, so review remains the control.
+- The Docker-gated D1 and D2 ran only on the owner's Mac; CI skips them.
+- The harness source-freeze digest changes, because files under src/main/private-agent, the driver, phase4-loop.ts and config.ts change; no loop may span the merge.
+- The desktop and phase2-repair's critic read nothing.
+
+Paid exposure: None. Zero SOAR model requests, zero endpoint requests and zero envelope spend.
+
+Next gate: Review and CI on the pull request, then merge, before #57's step 4. After the merge, a note on #57 says:
+- run P1, P10, P11 and the adapter probe in one invocation, after `pnpm probe:export-schemas` and before `pnpm probe:assess`, with the model served under `--served-model-name`;
+- step 5 adds `--policy-out`;
+- adoption sets `decision` to adopted, in a reviewed commit, only once the E0 entry's ID is final on main;
+- the owner then pins the file's sha256 in the pair, adopting an all-default card until the consumers merge.
+
+The consumers then flip their flags in their own PRs, each with a test of the applied value:
+- 7a.2: `maxOutputTokens` and `thinking`;
+- 9: `structuredOutput`;
+- 8.2b: `localStreams`;
+- 7b.3: `admission`.
+
+A consumer that needs another view of the card changes R10 in its own reviewed diff. If another entry merges first, this entry's ID is re-stamped after main's tail.
+
+References: BL-20261108-1459-serving-card-reader-design; BL-20261108-0911-probe-extensions-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.2 (principle 6), section 5.6 (row E0) and section 5.9; docs/HANDOFF.md "Start here"; docs/experiments/README.md; GitHub issues #46, #47 and #57; commits 8b7680e, 86d2b81 and 8de520b.

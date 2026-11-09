@@ -30963,3 +30963,102 @@ References:
 - docs/PROJECT_REVIEW_2026-11-05.md: section 4 rows D2, D3 and D5; section 5.2 (S4, S6, principle 5); section 5.7 item 7;
 - BL-20261109-0334-research-request-shapes-design and BL-20261109-0442-research-request-shapes-implemented;
 - BL-20261107-0859-label-keyed-diagnostics-design and BL-20261107-0923-label-keyed-diagnostics-implemented.
+
+### BL-20261109-0552-research-tolerance-implemented -- 2026-11-09 -- Backlog item 7(a), part 1, implemented: per-quote drop, host-derived outcomes, complete attempts only, unencodable text refused, heading normalisation by claims.ts's rule as claims.ts reads the report, with the code-review corrections
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261109-0447-research-tolerance-design with deterministic tests, on branch `feat/7a.1-research-tolerance`, stacked on `feat/7b.1-request-shapes` (PR #69) at 5401d0f.
+- 317e1ee implements the design.
+- The next commit applies the findings of two adversarial code reviews of 317e1ee: correctness, and contract fidelity.
+
+The hypothesis is the design entry's.
+
+Decisions: Both reviews found that the heading scan did not hold to decision (8). Corrections (1) to (4) bring it back to the rule as claims.ts applies it; (5) records consequences the design did not state. Nothing else departs from the design entry.
+(1) **Universal newlines.** claims.ts reads a Markdown report with `Path.read_text(encoding='utf-8', errors='replace')` (claims.ts:230). That call uses universal newlines, so CRLF and a lone CR become line breaks before its fence and comment patterns and its split run.
+
+The scan now ends lines at CRLF, CR or LF and keeps every separator. This supersedes decision (8)'s "split at a newline only" and "keeping a trailing carriage return". At 317e1ee a CRLF fence was not closed, so a variant heading inside it was rewritten and a missing section accepted; a lone CR did not end a line. The Python parity test now writes each case to a file and reads it with that call, and the source guard pins the call.
+(2) **Linear strip scans.** section_present's two substitutions are now linear scans over the policy's character sets. The trailing pattern, anchored only at the end, was quadratic: the reviews measured about 27 s for one 128 KiB line of spaces followed by another character, synchronous and beyond the abort signal's reach. The linear-time test now includes runs of `_`, space, `:` and `#`, and 128 Ki carriage returns.
+(3) **The exact check is the coverage check's own.** A line is already exact when the coverage check's pattern accepts it with its `mu` flags. A heading after U+2028 is no longer rewritten.
+(4) **Every scanner value comes from the policy.**
+- The pattern that blocks a Setext underline is now `setextBlockedBy`: an ATX heading or a list item. A bullet title keeps the thematic break under it.
+- The exact-heading pattern and its flags, and the target template, are policy values.
+- The unencodable rule is named: `exact_text_refuses_nul_or_lone_surrogate`.
+
+All of these move the protocol hash.
+(5) **Consequences the design did not state.**
+- A reply that marks a question needs_followup and also carries a droppable quote or conflict, or a contradicted status, is now attempt `needs_followup`; at 5401d0f it was `invalid`. Its repair request says `previous_needs_followup` instead of `previous_invalid`. This is the one extraction request-byte change, and a test pins it.
+- A run with a needs_followup attempt no longer carries that attempt's quotes, so its evidence ids and `droppedUnverifiedOrDuplicate` change.
+- `quotesDropped` still counts the failing quotes of incomplete attempts, its historical meaning. Decision (5)'s "only a complete attempt's drops are counted" applies to the new counters.
+- `argument_unencodable` also refuses a lone surrogate, which `Buffer.from` would otherwise turn into U+FFFD silently; only a NUL would wedge the presentation.
+
+Changes:
+- src/main/private-agent/research-contract.ts: `RESEARCH_TOLERANCE_POLICY`;
+- src/main/private-agent/research-pipeline.ts:
+  - the extraction acceptance, with five quote drops, the complete-attempt rule, host-derived outcomes, cleared notes and `quotesMerged`;
+  - `argument_unencodable`;
+  - `normalizeResearchHeadings` and its use;
+  - `disposition`, the stage-row counters, the hash binding and the sink comments;
+- src/main/private-agent/research-diagnostics.ts: manifest version 2;
+- session.ts and scripts/private-agent-local-screen.ts: comments;
+- docs/experiments/README.md: 7(a) part 1 among the protocol changes, and 7(a) part 2 for caps and thinking.
+
+Tests:
+- tests/helpers/research-protocol-pin.ts;
+- tests/unit/private-agent-research-pipeline.test.ts: the 7(a) block of eleven tests, the changed counts of the faulty script and the out-of-source test, and the documented keys;
+- tests/unit/private-agent-research-headings.test.ts (new, 11 tests);
+- tests/unit/private-agent-research-diagnostics.test.ts: version 2 and a disposition row.
+
+Evidence:
+- **Protocol hash.** `researchProtocolSha256()` is 01ca01a41c13410012bc386fa85bb32bdfbfaa3ec402482f8d29b8edfcaa6107 at 5401d0f (7b.1) and f03119bfd0c7d37adf12155453f9530d1281ae9ead60019b97e9b95e2ca0f413 at this entry's commit, pinned once in tests/helpers/research-protocol-pin.ts. At 317e1ee it was 9279665d9bfd9ca193399da5ff41e7a05daffd1c97ba730621643cbf3fc19d29.
+- **Request bytes.** The default fixture's index, plan and two extraction messages keep the digests 7b.1's test pins (d10e662b…, db70bd30…, cf7b50ba…, 9ff9b72f…). The contracts review ran ten fixture scenarios in a 5401d0f tree and in 317e1ee:
+  - index and plan requests are byte-identical in all of them;
+  - extraction requests are byte-identical except the repair after a needs_followup reply with drops, correction (5);
+  - synthesis requests differ only by `coverage.protocolSha256`, except in runs with a needs_followup attempt.
+- **Tests:**
+  - the pipeline and heading files: 54 passed;
+  - the research, serving-card, probe, export, planner-fixture, assessor, claims, role-config, loop, identity-golden and runner-budget suites: 24 files, 489 passed and 1 skipped (the pypdf-dependent claims case);
+  - the full suite, `pnpm exec vitest run --maxWorkers=3`: 180 files, 167 passed and 13 skipped (the environment-gated suites); 2,803 tests, 2,719 passed and 84 skipped; no failure;
+  - `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref feat/7b.1-request-shapes` pass.
+- **Before the code.** With the first seven 7(a) tests added to 5401d0f, they gave 5 failed and 2 passed; the passing two are guards.
+- **What the tests prove,** on fixture models with no endpoint:
+  - **Drops.** Unverifiable, short, unencodable (a quote that splits an astral character) and badly tagged quotes are dropped, counted and reported, and the chunk stays complete without a repair. Conflicts with bad ids or an unencodable note are dropped. A quote's unencodable note is cleared.
+  - **Outcomes.** Each question's outcome follows the verified quotes, with downgrades and upgrades counted.
+  - **Complete attempts only.** A needs_followup reply contributes no quote, conflict, outcome or correction count. Its repair says `previous_needs_followup`.
+  - **Merges.** A quote merged across overlapping chunks is counted in `quotesMerged`.
+  - **The argument.** An argument holding a NUL is rejected and repaired.
+  - **The sink.** Kept replies with drops reach the sink as `accepted_with_drops`; rejected ones carry no disposition; the manifest is version 2 and keeps the disposition.
+  - **Headings: what is rewritten.** Every variant heading normalises to the fixture's exact argument byte for byte.
+  - **Headings: what is not.**
+    - Exact headings are kept byte for byte: with trailing whitespace, with CRLF, after U+2028, and with a thematic break under them.
+    - Carriage returns are kept.
+    - Fenced code (LF, CRLF and CR fences), comments, prose, a byte-order mark and a line a comment touches are never rewritten.
+  - **Parity with claims.ts.** Normalisation agrees with claims.ts's rule, run in Python on files read as claims.ts reads them, except for the stated comment deviation. The whitespace class equals Python's `str.isspace` over every code point. claims.ts's source still holds the rule. Adversarial 128 KiB inputs normalise in well under a second.
+- **Reviews.** Three design reviews preceded the `Proposed` entry, and two code reviews of 317e1ee followed. The correctness review also fuzzed 1,600 pipeline runs (no throw, no `research_packet_binding_invalid`, consistent counts) and 110,000 heading inputs. Every confirmed finding is fixed here or recorded below.
+
+Failures or blockers:
+- **Defects found and not fixed here.** Three, each also present at 5401d0f, which they predate:
+  - model-written index fields that canonical() cannot encode (research-index.ts; `put(index)` outside `call()`'s `try`);
+  - the same for an accepted plan (research-plan.ts:125);
+  - claims.ts's own Python trailing-strip pattern `[*_:\s]+$`, which is quadratic on the writer's report.
+
+  Proposed owners: a small follow-up PR from this lane for the index, 7(c) for the planner, and the orchestrator's choice for claims.ts (E1-J and 8.2b edit that file).
+- **The full suite's known timeout.** tests/unit/with-claude-key.test.ts times out at 5 s when other sessions load this Mac, and passes alone (3 tests).
+- **CI** has not run yet.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint. Every limitation of the design entry stands; in particular:
+- one item that fails ExtractReplySchema still costs its chunk;
+- relevance stays unverified;
+- the comment-line deviation remains;
+- the counters are per reply and are disclosed only in summary.json and the stage events.
+
+Parity with claims.ts is tested on the cases listed and on the review's fuzz, not proved. In particular, the two languages' lower-casing agrees for these ASCII titles, which a brute-force check confirmed.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- Review of the pull request, and CI green.
+- The orchestrator merges it after PR #69, before E0's probe run, retargeting it to `main` once #69 merges.
+- The design entry's five owner questions stay open with their defaults.
+
+References: BL-20261109-0447-research-tolerance-design; BL-20261109-0334-research-request-shapes-design; BL-20261109-0442-research-request-shapes-implemented; BL-20261107-0859-label-keyed-diagnostics-design; docs/PROJECT_REVIEW_2026-11-05.md section 4 rows D2 and D5, section 5.2 and section 5.7 item 7.

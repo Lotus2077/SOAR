@@ -1,5 +1,6 @@
 /**
- * Backlog item 4 (review finding F3): the harness's file sink for rejected or truncated research replies. Raw model text is
+ * Backlog item 4 (review finding F3): the harness's file sink for rejected or truncated research replies, and since 7a.1 for kept
+ * extraction replies that lost or had corrected part of their content (a manifest row's `disposition`). Raw model text is
  * written in exactly one place, the headless driver's ignored run directory, and only when the operator asks for it with
  * `--retain-diagnostics true`; the desktop never builds this sink. Everything persisted elsewhere (events, receipts,
  * summary.json, coverage.json, result.json, the registry) stays hash-only for every label, and the session hands the sink to
@@ -13,7 +14,8 @@ import type { ResearchDiagnostic, ResearchDiagnosticsSink } from "./research-pip
 
 export const DIAGNOSTICS_DIRECTORY = "diagnostics";
 export const DIAGNOSTICS_MANIFEST = "manifest.json";
-export const DIAGNOSTICS_MANIFEST_VERSION = 1;
+/** 2 since 7a.1 (BL-20261109-0447-research-tolerance-design): a row may carry `disposition: "accepted_with_drops"`. */
+export const DIAGNOSTICS_MANIFEST_VERSION = 2;
 /** One manifest row: the entry without its content. */
 export type DiagnosticsManifestEntry = Omit<ResearchDiagnostic, "content">;
 export interface DiagnosticsManifest { version: typeof DIAGNOSTICS_MANIFEST_VERSION; entries: DiagnosticsManifestEntry[]; writeFailures: number }

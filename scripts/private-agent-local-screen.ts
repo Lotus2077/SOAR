@@ -279,7 +279,7 @@ export async function runLocalArtifactScreen(input: {
   /** H4: write from the evidence packet another run's reading stage produced (that run's directory) instead of running the stage; local writer, claims ledger, heavy profile. */
   researchFrom?: string;
   /**
-   * Backlog item 4: retain every rejected or truncated reading-stage reply, with its validation reasons, as files under
+   * Backlog item 4: retain every rejected or truncated reading-stage reply (and since 7a.1 every kept extraction reply with drops), with its validation reasons, as files under
    * `<output-directory>/diagnostics/`; refused unless git ignores the output directory. The driver's lineage is
    * synthetic-attested, so the session's label gate admits the sink; a seeded run has no stage and builds none.
    */

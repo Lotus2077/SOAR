@@ -4,7 +4,7 @@ import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { EXTRACT_SYSTEM, RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, SYNTHESIS_SYSTEM, normalizeQuoteText, locateQuote, parseJsonReply, researchExtractionUserContent, researchProtocolSha256, researchSourceText, runResearchPipeline, stripUnknownCitations, type ResearchDiagnostic, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
 import { planResearchIndexBatches, researchWordCount } from "../../src/main/private-agent/research-admission";
-import { validateReadyResearchPacket } from "../../src/main/private-agent/research-coverage";
+import { inventoryResearchSources, validateReadyResearchPacket } from "../../src/main/private-agent/research-coverage";
 import { ResearchPlanAttemptSchema } from "../../src/main/private-agent/research-plan";
 import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
 import { assertResearchUserLayout, parseResearchUserContent, researchV4Reply, researchV4Sources, RESEARCH_V4_TEST_BRIEF } from "../helpers/research-v4-fixture";
@@ -41,7 +41,9 @@ const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "deni
   "initialCalls", "repairCalls", "sourcesListed", "sourcesModelComplete", "sourcesLiteralFallback", "unresolvedModelSummaries", "chunksPlanned", "chunksComplete",
   "sourcesModelRepaired", "sourcesModelUnattempted", "invalidJsonReplies", "invalidSchemaReplies", "unexpectedRows", "duplicateExpectedIds", "missingSources", "emptyGists",
   // 7b.1 (BL-20261109-0334): the synthesis length cap, recorded and never enforced; all counts.
-  "lengthCapWords", "briefWordLimit", "argumentWords"]);
+  "lengthCapWords", "briefWordLimit", "argumentWords",
+  // 7a.1 (BL-20261109-0447): what a kept extraction reply lost or had corrected, and the accepted argument's rewritten headings; all counts.
+  "conflictsDropped", "notesDropped", "questionsDowngraded", "questionsUpgraded", "headingsNormalised", "quotesMerged"]);
 const hashOnlyStageRow = (stage: ResearchStageCounts) => {
   for (const [key, value] of Object.entries(stage)) {
     expect(DOCUMENTED_STAGE_KEYS.has(key)).toBe(true);
@@ -125,9 +127,11 @@ describe("research v4 actual serialized stages", () => {
     const result = await run(m, { budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 2 } }); expect(result).toMatchObject({ status: "incomplete", reason: "research_extraction_incomplete" });
     expect(m.calls.some(c => c.stage === "synthesise")).toBe(false); expect(parsed(result, RESEARCH_FILES.coverage).chunks[0].status).toBe("invalid");
   });
-  it("refuses out-of-source quotes and uses a settled repair without a blind transport replay", async () => {
+  it("drops an out-of-source quote without a repair (7a.1) and never replays a denied transport", async () => {
     const m = models((stage, input, n, system) => { const reply = JSON.parse(happy(stage, input, n, system)); if (stage === "extract" && n === 0) reply.quotes[0].quote = "Invented evidence that never occurred in the supplied source."; return JSON.stringify(reply); });
-    expect((await run(m)).status).toBe("completed"); expect(m.calls.filter(c => c.stage === "extract")).toHaveLength(3);
+    // 7a.1 (BL-20261109-0447): the invented quote is dropped and its question downgraded; before 7a.1 the chunk was repaired (3 calls).
+    const kept = await run(m); expect(kept.status).toBe("completed"); expect(m.calls.filter(c => c.stage === "extract")).toHaveLength(2);
+    expect(kept.summary.stages[2]).toMatchObject({ calls: 2, invalidReplies: 0, quotesDropped: 1, questionsDowngraded: 1 });
     const denied = models((stage, input, n, system) => stage === "extract" ? new BrokerError("synthetic_destination_private_data_denied") : happy(stage, input, n, system));
     const failure = await run(denied); expect(failure).toMatchObject({ reason: "research_request_denied" }); expect(failure.summary.stages[2]).toMatchObject({ calls: 0, denied: "synthetic_destination_private_data_denied" }); expect(denied.request).toHaveBeenCalledTimes(3);
   });
@@ -178,7 +182,7 @@ describe("research v4 actual serialized stages", () => {
 
 describe("backlog item 4: the label-keyed diagnostics sink", () => {
   const MARK = { index: "INDEX_MARKER_TEXT", plan: "PLAN_MARKER_TEXT", extract: "EXTRACT_MARKER_TEXT", synthesise: "SYNTHESIS_MARKER_TEXT" };
-  /** Every stage rejects a reply once (bad JSON index, an oversize lookFor list, a truncated first chunk, an invented quote in the second, a synthesis with an unknown citation and a missing heading); the repairs are clean. */
+  /** Every stage rejects a reply once (bad JSON index, an oversize lookFor list, a truncated first chunk, an invented quote in the second, which 7a.1 keeps with the quote dropped, a synthesis with an unknown citation and a missing heading); the repairs are clean. */
   const faulty: Script = (stage, input, n, system) => {
     if (stage === "index" && n === 0) return `not json ${MARK.index}`;
     if (stage === "plan" && n === 0) { const reply = JSON.parse(happy(stage, input, n, system)); reply.questions[0].lookFor = Array(7).fill("hint"); reply.deliverableNotes = MARK.plan; return JSON.stringify(reply); }
@@ -191,6 +195,8 @@ describe("backlog item 4: the label-keyed diagnostics sink", () => {
     const retained: ResearchDiagnostic[] = [], events: ResearchStageCounts[] = [];
     const m = models(faulty), result = await run(m, { diagnostics: { retain: entry => retained.push(entry) } }, events);
     expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    // 7a.1: the second chunk's reply, whose only quote was invented, is now kept with the quote dropped and its question downgraded.
+    expect(retained.map(e => e.disposition)).toEqual([undefined, undefined, undefined, "accepted_with_drops", undefined]);
     expect(retained.map(e => [e.stage, e.ordinal, e.purpose, e.truncated])).toEqual([["index", 1, "research source index", false], ["plan", 1, "research plan", false],
       ["extract", 1, "research evidence extraction", true], ["extract", 2, "research evidence extraction", false], ["synthesise", 1, "research synthesis", false]]);
     for (const entry of retained) {
@@ -207,7 +213,7 @@ describe("backlog item 4: the label-keyed diagnostics sink", () => {
     const persisted = [JSON.stringify(events), JSON.stringify(result.summary), ...result.files.map(f => f.bytes.toString("utf8"))];
     for (const text of persisted) for (const marker of Object.values(MARK)) expect(text).not.toContain(marker);
     for (const stage of [...events, ...result.summary.stages]) hashOnlyStageRow(stage);
-    expect(result.summary.stages.map(s => [s.stage, s.calls, s.invalidReplies, s.truncatedReplies])).toEqual([["index", 2, 1, 0], ["plan", 2, 1, undefined], ["extract", 4, 2, 1], ["synthesise", 2, 1, undefined]]);  // the index row's zero comes from summarizeIndexEntries, as before
+    expect(result.summary.stages.map(s => [s.stage, s.calls, s.invalidReplies, s.truncatedReplies])).toEqual([["index", 2, 1, 0], ["plan", 2, 1, undefined], ["extract", 3, 1, 1], ["synthesise", 2, 1, undefined]]);  // the index row's zero comes from summarizeIndexEntries, as before; 7a.1 keeps the second chunk
     validateReadyResearchPacket(result.files, { brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), protocolSha256: researchProtocolSha256(), budget: RESEARCH_PIPELINE_BUDGET });
   });
   it("retains nothing on a clean run or a denied call, and produces byte-identical files and summary with and without a sink", async () => {
@@ -336,5 +342,146 @@ describe("backlog item 7(b), part 1: request shapes (BL-20261109-0334)", () => {
       const other = models(); await run(other, { brief: `Describe the supplied synthetic observations ${stated}.` });
       expect([stated, other.calls.find(c => c.stage === "synthesise")!.input.lengthCap]).toEqual([stated, { words }]);
     }
+  });
+});
+
+describe("backlog item 7(a), part 1: per-quote tolerance and heading normalisation", () => {
+  const NUL = String.fromCharCode(0);
+  const good = (input: any) => String(input.chunk.text).split("\n").find((line: string) => !line.startsWith("#") && line.length >= 12)!;
+  const extractReply = (input: any, edit: (reply: any) => void) => { const reply = JSON.parse(researchV4Reply("You extract", JSON.stringify(input))); edit(reply); return JSON.stringify(reply); };
+  const twoQuestions = (stage: Stage, input: any, n: number, system: string) => { const reply = JSON.parse(happy(stage, input, n, system)); if (stage === "plan") reply.questions.push({ ...reply.questions[0], id: "Q2", text: "A second aspect of the same brief" }); return JSON.stringify(reply); };
+  it("drops only the quotes it cannot verify and keeps the chunk complete without a repair (D2)", async () => {
+    const retained: ResearchDiagnostic[] = [], events: ResearchStageCounts[] = [];
+    const m = models((stage, input, n, system) => stage === "extract" && n === 0 ? extractReply(input, reply => {
+      const kept = reply.quotes[0];
+      reply.quotes = [kept, { ...kept, quote: "Invented evidence that never occurred in the supplied source." }, { ...kept, questionIds: ["Q9"] }, { ...kept, questionIds: ["Q1", "Q1"] }, { ...kept, quote: "too short" }];
+    }) : happy(stage, input, n, system));
+    const result = await run(m, { diagnostics: { retain: entry => retained.push(entry) } }, events);
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(m.calls.filter(c => c.stage === "extract")).toHaveLength(2);
+    expect(result.summary.stages[2]).toMatchObject({ calls: 2, invalidReplies: 0, quotesDropped: 4, quotesVerified: 2, chunksComplete: 2 });
+    expect(parsed(result, RESEARCH_FILES.evidence).quotes.map((q: any) => q.quote)).toEqual([good({ chunk: { text: researchV4Sources()[0]!.bytes.toString() } }), good({ chunk: { text: researchV4Sources()[1]!.bytes.toString() } })]);
+    expect(retained.map(e => [e.stage, e.ordinal, e.disposition])).toEqual([["extract", 1, "accepted_with_drops"]]);
+    expect(retained[0]!.reasons).toEqual([{ code: "quote_not_located", path: ["quotes", 1, "quote"] }, { code: "unknown_question_id", path: ["quotes", 2, "questionIds"] },
+      { code: "duplicate_question_id", path: ["quotes", 3, "questionIds"] }, { code: "quote_length", path: ["quotes", 4, "quote"], minimum: 12, maximum: 300 }]);
+    for (const stage of [...events, ...result.summary.stages]) hashOnlyStageRow(stage);
+  });
+  it("drops and counts conflicts with a repeated or unknown question id", async () => {
+    const m = models((stage, input, n, system) => stage === "extract" && n === 0 ? extractReply(input, reply => {
+      reply.conflicts = [{ questionIds: ["Q1"], note: "kept conflict" }, { questionIds: ["Q9"], note: "unknown" }, { questionIds: ["Q1", "Q1"], note: "repeated" }];
+    }) : happy(stage, input, n, system));
+    const result = await run(m); expect(result.status).toBe("completed"); expect(m.calls.filter(c => c.stage === "extract")).toHaveLength(2);
+    expect(result.summary.stages[2]).toMatchObject({ invalidReplies: 0, conflictsDropped: 2, conflictsNoted: 1 });
+    expect(parsed(result, RESEARCH_FILES.evidence).conflicts.map((c: any) => c.note)).toEqual(["kept conflict"]);
+  });
+  it("derives each question's outcome from its verified quotes, downgrading and upgrading a contradicted status without a repair", async () => {
+    const m = models((stage, input, n, system) => {
+      if (stage !== "extract") return twoQuestions(stage, input, n, system);
+      return extractReply(input, reply => {
+        const quote = good(input);
+        if (n === 0) { reply.questions = [{ questionId: "Q1", status: "evidence_found" }, { questionId: "Q2", status: "evidence_found" }];
+          reply.quotes = [{ quote, questionIds: ["Q1"] }, { quote: "Invented evidence that never occurred in the supplied source.", questionIds: ["Q2"] }]; }
+        else { reply.questions = [{ questionId: "Q1", status: "no_verified_evidence" }, { questionId: "Q2", status: "no_verified_evidence" }]; reply.quotes = [{ quote, questionIds: ["Q1"] }]; }
+      });
+    });
+    const result = await run(m); expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(m.calls.filter(c => c.stage === "extract")).toHaveLength(2);
+    expect(result.summary.stages[2]).toMatchObject({ invalidReplies: 0, quotesDropped: 1, questionsDowngraded: 1, questionsUpgraded: 1 });
+    expect(parsed(result, RESEARCH_FILES.coverage).chunks.map((c: any) => c.questions.map((q: any) => [q.questionId, q.status]))).toEqual([
+      [["Q1", "evidence_retained"], ["Q2", "no_verified_evidence"]], [["Q1", "evidence_retained"], ["Q2", "no_verified_evidence"]]]);
+  });
+  it("still repairs a reply that is schema-invalid, names the wrong questions or needs follow-up", async () => {
+    const faults: ((reply: any) => void)[] = [reply => { reply.quotes[0].quote = 42; }, reply => { reply.questions = [{ questionId: "Q7", status: "no_verified_evidence" }]; reply.quotes = []; },
+      reply => { reply.questions[0].status = "needs_followup"; }];
+    for (const fault of faults) {
+      const m = models((stage, input, n, system) => stage === "extract" && n === 0 ? extractReply(input, fault) : happy(stage, input, n, system));
+      const result = await run(m); expect(result.status).toBe("completed");
+      expect(result.summary.stages[2]).toMatchObject({ calls: 3, invalidReplies: 1, repairCalls: 1 });
+    }
+  });
+  it("drops a note the packet cannot encode instead of losing the stage: the quote stays, the conflict goes", async () => {
+    const m = models((stage, input, n, system) => stage === "extract" && n === 0 ? extractReply(input, reply => {
+      reply.quotes[0].note = `bad ${NUL} note`; reply.conflicts = [{ questionIds: ["Q1"], note: `bad ${NUL} conflict` }];
+    }) : happy(stage, input, n, system));
+    const retained: ResearchDiagnostic[] = [], result = await run(m, { diagnostics: { retain: entry => retained.push(entry) } });
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(result.summary.stages[2]).toMatchObject({ invalidReplies: 0, notesDropped: 1, conflictsDropped: 1, quotesVerified: 2 });
+    expect(retained.map(e => [e.disposition, e.reasons])).toEqual([["accepted_with_drops", [{ code: "note_unencodable", path: ["quotes", 0, "note"] }, { code: "note_unencodable", path: ["conflicts", 0, "note"] }]]]);
+    const evidence = parsed(result, RESEARCH_FILES.evidence); expect(evidence.quotes[0].note).toBe(""); expect(evidence.conflicts).toEqual([]);
+  });
+  const withHeadings = (argument: (base: string) => string) => (stage: Stage, input: any, n: number, system: string) => {
+    const reply = JSON.parse(happy(stage, input, n, system)); if (stage === "synthesise") reply.argument = argument(reply.argument); return JSON.stringify(reply);
+  };
+  const swap = (base: string, conflicting: string, unanswered: string) => base.replace("## Conflicting evidence", conflicting).replace("## Unanswered questions", unanswered);
+  it("rewrites variant section headings to the exact forms claims.ts's rule accepts, counts each rewrite, and keeps one synthesis call (D5)", async () => {
+    const variants: [string, (base: string) => string, number][] = [
+      ["ATX level and colon, bold", base => swap(base, "### conflicting evidence:", "**Unanswered questions**"), 2],
+      ["upper case, underscores", base => swap(base, "# CONFLICTING EVIDENCE", "__Unanswered Questions__"), 2],
+      ["Setext underlines", base => swap(base, "Conflicting evidence\n--------------------", "Unanswered questions\n===="), 2],
+      ["one exact, one variant", base => swap(base, "## Conflicting evidence", "## Unanswered questions:"), 1],
+      ["already exact", base => base, 0],
+    ];
+    const exactArgument = (await run(models())).files.find(f => f.path === RESEARCH_FILES.argument)!.bytes.toString("utf8");
+    for (const [label, argument, rewrites] of variants) {
+      const m = models(withHeadings(argument)), result = await run(m);
+      expect([label, result.status, m.calls.filter(c => c.stage === "synthesise").length]).toEqual([label, "completed", 1]);
+      // Every variant normalises to the fixture's exact argument, byte for byte.
+      expect([label, result.files.find(f => f.path === RESEARCH_FILES.argument)!.bytes.toString("utf8")]).toEqual([label, exactArgument]);
+      expect([label, result.summary.stages[3]!.headingsNormalised]).toEqual([label, rewrites]);
+      validateReadyResearchPacket(result.files, { brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), protocolSha256: researchProtocolSha256(), budget: RESEARCH_PIPELINE_BUDGET });
+    }
+  });
+  it("never rewrites a heading inside fenced code or an HTML comment, or a prose line that only starts with the title, and still rejects a missing section", async () => {
+    const cases: [string, (base: string) => string][] = [
+      ["fenced", base => swap(base, "## Conflicting evidence", "```\n### unanswered questions\n```")],
+      ["comment", base => swap(base, "## Conflicting evidence", "<!--\nUnanswered questions\n-->")],
+      ["prose", base => swap(base, "## Conflicting evidence", "Unanswered questions remain open.")],
+    ];
+    for (const [label, argument] of cases) {
+      const m = models(withHeadings(argument)), result = await run(m);
+      expect([label, result.reason, m.calls.filter(c => c.stage === "synthesise").length]).toEqual([label, "research_synthesis_invalid", 2]);
+    }
+  });
+
+  it("drops a quote that splits an astral character of the chunk, which canonical() could not encode", async () => {
+    const tree = String.fromCodePoint(0x1f333), split = String.fromCharCode(0xd83c), sources = researchV4Sources();
+    sources[0] = { ...sources[0]!, bytes: Buffer.from(`# Synthetic alpha\nThe orchard recorded twelve healthy trees ${tree} during the autumn survey.\n`) };
+    const retained: ResearchDiagnostic[] = [];
+    const m = models((stage, input, n, system) => stage === "extract" && n === 0 ? extractReply(input, reply => {
+      reply.quotes.push({ ...reply.quotes[0], quote: `The orchard recorded twelve healthy trees ${split}` });
+    }) : happy(stage, input, n, system));
+    const result = await run(m, { sources, diagnostics: { retain: entry => retained.push(entry) } });
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(result.summary.stages[2]).toMatchObject({ calls: 2, invalidReplies: 0, quotesDropped: 1, quotesVerified: 2 });
+    expect(retained.flatMap(e => e.reasons)).toEqual([{ code: "quote_unencodable", path: ["quotes", 1, "quote"] }]);
+    expect(parsed(result, RESEARCH_FILES.evidence).quotes[0].quote).toContain(tree);
+  });
+  it("rejects an argument canonical() could not encode, so the writer's presentation never meets it, and repairs it", async () => {
+    const retained: ResearchDiagnostic[] = [];
+    const bad = models((stage, input, n, system) => { const reply = JSON.parse(happy(stage, input, n, system)); if (stage === "synthesise" && n === 0) reply.argument += ` ${NUL}`; return JSON.stringify(reply); });
+    const result = await run(bad, { diagnostics: { retain: entry => retained.push(entry) } });
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" }); expect(bad.calls.filter(c => c.stage === "synthesise")).toHaveLength(2);
+    expect(retained.map(e => [e.stage, e.reasons])).toEqual([["synthesise", [{ code: "argument_unencodable", path: ["argument"] }]]]);
+    expect(result.files.find(f => f.path === RESEARCH_FILES.argument)!.bytes.includes(0)).toBe(false);
+  });
+  it("lets only a chunk's complete attempt contribute: a needs-follow-up reply adds no quote, conflict, outcome or count", async () => {
+    const m = models((stage, input, n, system) => stage === "extract" && n === 0 ? extractReply(input, reply => {
+      reply.questions = [{ questionId: "Q1", status: "needs_followup" }];
+      reply.quotes.push({ quote: "Invented evidence that never occurred in the supplied source.", questionIds: ["Q1"] });
+      reply.conflicts = [{ questionIds: ["Q1"], note: "first attempt conflict" }, { questionIds: ["Q9"], note: "unknown" }];
+    }) : happy(stage, input, n, system));
+    const result = await run(m); expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(result.summary.stages[2]).toMatchObject({ calls: 3, invalidReplies: 1, repairCalls: 1, conflictsDropped: 0, questionsDowngraded: 0, conflictsNoted: 0, quotesVerified: 2, quotesMerged: 0 });
+    expect(parsed(result, RESEARCH_FILES.evidence).conflicts).toEqual([]);
+  });
+  it("counts a quote merged into an identical one from an overlapping chunk apart from the drops", async () => {
+    const lines = Array.from({ length: 1100 }, (_, i) => `Line ${String(i).padStart(4, "0")} records a distinct synthetic observation for the survey.`);
+    const source = { id: "input/long.md", path: "input/long.md", bytes: Buffer.from(lines.join("\n")) }, chunks = inventoryResearchSources([source]).chunks;
+    expect(chunks).toHaveLength(2);
+    const shared = lines.find(line => { const at = source.bytes.indexOf(line); return at >= chunks[1]!.startByte && at + Buffer.byteLength(line) <= chunks[0]!.endByte; })!;
+    const m = models((stage, input, n, system) => stage === "extract" ? extractReply(input, reply => { reply.quotes = [{ quote: shared, questionIds: ["Q1"] }]; }) : happy(stage, input, n, system));
+    const result = await run(m, { sources: [source] }); expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(result.summary.stages[2]).toMatchObject({ quotesVerified: 1, quotesDropped: 1, quotesMerged: 1 });
+    expect(parsed(result, RESEARCH_FILES.evidence).quotes[0].chunkIds).toEqual([chunks[0]!.id, chunks[1]!.id]);
   });
 });

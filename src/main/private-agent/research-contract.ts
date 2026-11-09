@@ -12,3 +12,22 @@ export const RESEARCH_COVERAGE_POLICY = Object.freeze({ version: 1, briefSegment
   readyRequiresAllChunks: true, readyRequiresNoVerifiedQuoteOmissions: true, readyRequiresNoConflictOmissions: true, packetBytes: 65536, maxQuestions: 12, semanticAcceptance: "independent_review_required" });
 export const RESEARCH_PRESENTATION_POLICY = Object.freeze({ version: 1, maxBytes: 196608, policy: "complete_untrusted_packet_once", encoding: "json_string_complete_utf8",
   files: [RESEARCH_FILES.argument, RESEARCH_FILES.evidenceText, RESEARCH_FILES.plan, RESEARCH_FILES.coverage], sourceInstructions: "data_only", oversize: "refuse_without_trimming" });
+/**
+ * Backlog item 7(a), part 1 (BL-20261109-0447-research-tolerance-design): what a settled reply may lose and still be accepted,
+ * and how the synthesis argument's section headings are normalised. Bound into researchProtocolSha256; the diagnostics sink is
+ * no part of it. The heading rule is claims.ts's section_present over the lines claims.ts keeps: Python's whitespace class
+ * (str.isspace), lines split at a newline only, fenced code removed before HTML comments are searched. The pipeline builds its
+ * scanner from these values, so the policy is the definition.
+ */
+export const RESEARCH_TOLERANCE_POLICY = Object.freeze({ version: 1,
+  extraction: Object.freeze({ incompleteWhen: Object.freeze(["truncated", "invalid_json", "schema_invalid", "question_set_mismatch", "needs_followup"]),
+    contributes: "complete_attempt_only",
+    quoteDrops: Object.freeze(["quote_length", "quote_unencodable", "quote_not_located", "duplicate_question_id", "unknown_question_id"]),
+    conflictDrops: Object.freeze(["duplicate_question_id", "unknown_question_id", "note_unencodable"]), unencodableQuoteNote: "cleared",
+    questionOutcome: "from_verified_quotes_except_needs_followup" }),
+  synthesis: Object.freeze({ rejectWhen: Object.freeze(["argument_unencodable"]) }),
+  synthesisHeadings: Object.freeze({ titles: Object.freeze(["Conflicting evidence", "Unanswered questions"]), target: "## <title>",
+    whitespace: "\\t\\n\\v\\f\\r\\x1c-\\x1f \\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000", leadingStrip: "#*_", trailingStrip: "*_:", compare: "to_lower_case_equality", lineBreak: "LF",
+    fenceOpen: "^[ \\t]*```", fenceClose: "^[ \\t]*```[ \\t]*$", commentOpen: "<!--", commentClose: "-->", order: "fences_then_comments",
+    lineTouchedBySpan: "unchanged", alreadyExact: "research_coverage_section_check", setextUnderline: "^ {0,3}(?:=+|-+)[ \\t]*\\r?$",
+    setextTitleLine: "no_leading_hash", carriageReturn: "kept" }) });

@@ -11,6 +11,11 @@ or an existing registry row.
 Counts come from the run's own state.sqlite and result.json. The row holds hashes,
 counts and enums only: no paths, endpoints, prompts or outputs.
 
+`git`, `gitSource` and `gitDirty` (backlog item 11, BL-20261109-0422): a run row takes the commit from the run's own
+freeze.json (`gitSource` run), a loop row from the selected run's (`run`, or `runs_differ` when the loop's stage freezes do
+not all record that commit), and a row whose run recorded none, a --verdict-file row and a --supersedes row of a row
+without a run-sourced commit take the commit the row is written at (`row_written`, `gitDirty` null).
+
 H4: `--loop-dir LOOP` instead of `--run-dir` rows a select-and-repair loop (scripts/phase4-loop.ts): the per-run
 counts of the loop's runs are summed with the same logic, status, cause and binding come from the selected run,
 wall seconds from the loop's own clock, and a `loop` field records the choice.
@@ -24,7 +29,8 @@ Owner verdicts (BL-20261108-0904-owner-verdict-capture-design):
 
     `--supersedes ROW_ID [--registry PATH]` copies the registry row with that id verbatim (every measurement,
     taskJobSha256, date, usd, entailment, loop) and changes only id, supersedes, outcome, verdictBy, ownerMinutes,
-    interventions, lesson, verdictAt and git (the commit the row is written at). It refuses an unknown id, an id
+    interventions, lesson, verdictAt and, unless the copied row's commit came from its run (gitSource run or
+    runs_differ), git, gitSource and gitDirty (the commit the row is written at). It refuses an unknown id, an id
     another row already supersedes, and a new id that already exists.
 
 Exactly one of --run-dir, --loop-dir, --verdict-file and --supersedes is accepted. `--verdict-by` is `owner`,
@@ -160,8 +166,7 @@ def main() -> int:
         row = receipt_row(args)
     else:
         row = superseding_row(args)
-    row.update({"id": args.id, "git": subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True).stdout.strip(),
-                "verdictBy": args.verdict_by, "lesson": args.lesson})
+    row.update({"id": args.id, **row_provenance(args, row), "verdictBy": args.verdict_by, "lesson": args.lesson})
     for key, value in (("batch", args.batch), ("task", args.task), ("family", args.family), ("exposure", args.exposure), ("arm", args.arm), ("outcome", args.outcome)):
         if value is not None:
             row[key] = value
@@ -219,7 +224,7 @@ def load_registry(path: str) -> list:
 
 
 def superseding_row(args) -> dict:
-    """A copy of the row with the superseded id; the caller then sets only the verdict fields (and git, the writing commit)."""
+    """A copy of the row with the superseded id; the caller then sets only the verdict fields (and git, gitSource and gitDirty, see row_provenance)."""
     rows = load_registry(args.registry)
     matches = [row for row in rows if row.get("id") == args.supersedes]
     if not matches:
@@ -337,6 +342,78 @@ def cloud_fields(freeze: dict) -> dict:
     arm = freeze.get("arm")
     config = (arm.get("modelConfig") or {}) if isinstance(arm, dict) and arm.get("arm") == "cloud" else {}
     return {"cloudModel": config.get("model"), "cloudApi": config.get("api")}
+
+
+# Read-only git as scripts/verify-release-head.ts runs it (backlog item 11, part 2): no user or system configuration, pager,
+# prompts or optional locks, no hook or file-system monitor, and no repository found above this one.
+GIT_ENVIRONMENT = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C", "TZ": "UTC", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
+                   "GIT_CONFIG_NOSYSTEM": "1", "GIT_NO_LAZY_FETCH": "1", "GIT_NO_REPLACE_OBJECTS": "1", "GIT_OPTIONAL_LOCKS": "0", "GIT_PAGER": "cat",
+                   "GIT_PROTOCOL_FROM_USER": "0", "GIT_TERMINAL_PROMPT": "0", "GIT_CEILING_DIRECTORIES": os.path.dirname(REPOSITORY_ROOT)}
+GIT_OBJECT_NAME = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
+
+
+def writing_commit() -> str:
+    """The commit this row is written at, in the registry's 12-hex form; the writer refuses to emit a row without one."""
+    try:
+        result = subprocess.run(["/usr/bin/git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "rev-parse", "--verify", "HEAD^{commit}"],
+                                cwd=REPOSITORY_ROOT, env=GIT_ENVIRONMENT, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        result = None
+    commit = result.stdout.strip() if result is not None and result.returncode == 0 else ""
+    if not GIT_OBJECT_NAME.fullmatch(commit):
+        sys.exit("cannot read the commit this row is written at: /usr/bin/git could not read HEAD of the repository this script is in")
+    return commit[:12]
+
+
+def freeze_git(run_dir: str):
+    """A run's own {commit, dirty} from its freeze.json (scripts/private-agent-local-screen.ts localScreenGitState), or None
+    when the freeze is absent or records no valid one: a malformed value is never guessed at."""
+    path = os.path.join(run_dir, "freeze.json")
+    if not os.path.exists(path):
+        return None
+    git = json.load(open(path, encoding="utf-8")).get("git")
+    if isinstance(git, dict) and set(git) == {"commit", "dirty"} and isinstance(git["commit"], str) and GIT_OBJECT_NAME.fullmatch(git["commit"]) \
+            and isinstance(git["dirty"], bool):
+        return git
+    return None
+
+
+def written_provenance() -> dict:
+    return {"git": writing_commit(), "gitSource": "row_written", "gitDirty": None}
+
+
+def run_provenance(selected_dir: str, stage_dirs: list) -> dict:
+    """A run or loop row's git from the selected run's freeze. gitSource is `run` only when every stage freeze records that same
+    commit (a stage without a valid record counts as differing); gitDirty is true if any stage was dirty, null if any stage's
+    state is unknown, else false. Without the selected run's record, the writing commit, labelled."""
+    selected = freeze_git(selected_dir)
+    if selected is None:
+        return written_provenance()
+    stages = [freeze_git(directory) for directory in stage_dirs]
+    same = all(stage is not None and stage["commit"] == selected["commit"] for stage in stages)
+    if any(stage is not None and stage["dirty"] for stage in stages + [selected]):
+        dirty = True
+    else:
+        dirty = None if any(stage is None for stage in stages) else False
+    return {"git": selected["commit"][:12], "gitSource": "run" if same else "runs_differ", "gitDirty": dirty}
+
+
+def row_provenance(args, row: dict) -> dict:
+    """git, gitSource and gitDirty for the row being written. A superseding row repeats a run's measurements, so it keeps that
+    run's provenance when the copied row recorded it (proposed default for item 2's open question); otherwise every mode
+    without a run's freeze records the writing commit."""
+    if args.run_dir is not None:
+        return run_provenance(args.run_dir, [args.run_dir])
+    if args.loop_dir is not None:
+        final = json.load(open(os.path.join(args.loop_dir, "loop.json"), encoding="utf-8"))["selected"]["final"]["candidate"]
+        # Every run directory of the loop: a, b and the repair, and any stage a later loop version moves aside (part 3).
+        stages = [os.path.join(args.loop_dir, name) for name in sorted(os.listdir(args.loop_dir)) if os.path.isfile(os.path.join(args.loop_dir, name, "freeze.json"))]
+        return run_provenance(os.path.join(args.loop_dir, final), stages)
+    if args.supersedes is not None and isinstance(row.get("git"), str) and re.fullmatch(r"[0-9a-f]{12}", row["git"]) and (
+            (row.get("gitSource") == "run" and isinstance(row.get("gitDirty"), bool))
+            or (row.get("gitSource") == "runs_differ" and (row.get("gitDirty") is None or isinstance(row.get("gitDirty"), bool)))):
+        return {"git": row["git"], "gitSource": row["gitSource"], "gitDirty": row.get("gitDirty")}
+    return written_provenance()
 
 
 def support_rate(counts: dict | None) -> float | None:

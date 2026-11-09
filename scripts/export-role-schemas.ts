@@ -15,7 +15,7 @@ import { canonical, digest } from "../src/main/private-agent/contracts";
 import { ResearchCoverageSchema, ResearchEvidenceSchema, ResearchSynthesisSchema, deriveBriefUnits, inventoryResearchSources } from "../src/main/private-agent/research-coverage";
 import { assembleIndexEntry, buildLiteralSourceCard } from "../src/main/private-agent/research-index";
 import { RESEARCH_PLAN_JSON_SCHEMA, ResearchPlanSchema } from "../src/main/private-agent/research-plan";
-import { EXTRACT_SYSTEM, OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_EXTRACT_JSON_SCHEMA, RESEARCH_PIPELINE_BUDGET, SYNTHESIS_SYSTEM, THINKING, researchProtocolSha256 } from "../src/main/private-agent/research-pipeline";
+import { EXTRACT_SYSTEM, OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_EXTRACT_JSON_SCHEMA, RESEARCH_PIPELINE_BUDGET, SYNTHESIS_SYSTEM, THINKING, researchExtractionUserContent, researchProtocolSha256, synthesisLengthCap } from "../src/main/private-agent/research-pipeline";
 
 export const ROLE_SCHEMA_EXPORT_VERSION = 1;
 export const DEFAULT_ROLE_SCHEMAS_PATH = ".soar/experiments/role-schemas.json";
@@ -63,15 +63,16 @@ export function buildRoleSchemaExport(generatedUtc = new Date().toISOString()): 
       questions: plan.questions.map(q => ({ questionId: q.id, status: c.id === chunk.id && q.id === "Q1" ? "evidence_retained" : "no_verified_evidence", evidenceIds: c.id === chunk.id && q.id === "Q1" ? ["E1"] : [] })) })),
     omissions: [], conflictOmissions: [], unresolved: [], synthesis: { status: "pending", questions: [] }, status: "incomplete", semanticAcceptance: "not_evaluated", corpusAbsenceEstablished: false });
   const planPayload = { authoritativeSchema: RESEARCH_PLAN_JSON_SCHEMA, brief, units, sourceIndex, mandatorySourceChunks: inventory.chunks.length, extractionCallBudget: RESEARCH_PIPELINE_BUDGET.extractionCalls, repair: null };
+  // The pipeline's own builder (7b.1): the stable packet line, a newline, then the chunk line, exactly as every extraction call sends it.
   const extractPayload = { brief, units, plan, source: { id: chunkSource.id, sha256: chunk.sourceSha256 }, chunk: { id: chunk.id, startByte: chunk.startByte, endByte: chunk.endByte, text: chunkText }, repairReason: null };
-  const synthesisPayload = { brief, units, plan, evidence, coverage, repairReason: null };
+  const synthesisPayload = { brief, units, plan, evidence, coverage, lengthCap: { words: synthesisLengthCap(brief).words }, repairReason: null };
   return {
     version: ROLE_SCHEMA_EXPORT_VERSION, generatedUtc, protocolSha256: researchProtocolSha256(),
     schemas: { plan: RESEARCH_PLAN_JSON_SCHEMA, extract: RESEARCH_EXTRACT_JSON_SCHEMA, synthesis: z.toJSONSchema(ResearchSynthesisSchema) },
     systems: { plan: PLAN_SYSTEM, extract: EXTRACT_SYSTEM, synthesis: SYNTHESIS_SYSTEM },
     outputTokens: OUTPUT_TOKENS, thinking: THINKING,
     payloads: { plan: { userContent: canonical(planPayload), units: units.map(u => u.id), sourceIds: inventory.sources.map(s => s.id) },
-      extract: { userContent: canonical(extractPayload) }, synthesis: { userContent: canonical(synthesisPayload) } },
+      extract: { userContent: researchExtractionUserContent(extractPayload) }, synthesis: { userContent: canonical(synthesisPayload) } },
   };
 }
 

@@ -30598,3 +30598,116 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI green on the pull request and a merge in the orchestrator's train (scripts/phase4-loop.ts: 11.1, 11.3, 10.b, 7a.2; scripts/registry-row.py: 11.1, 11.2, 11.3, 11.4, 7d.C, RA), with E1's part-1 tests flipped by whichever of the two merges second; then part 3 (11.3) before any graded loop run.
 
 References: BL-20261109-0331-loop-selection-protocol-2-design; BL-20261109-0416-correction-loop-protocol-2-rule-1-rows; BL-20261101-0436-h4-runner-controls-fixed; BL-20261107-0812-zero-fee-failures-resolve-implemented; BL-20261108-1649-serving-card-reader-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 11; docs/HANDOFF.md "Start here (2026-11-07)".
+
+
+### BL-20261109-0515-infra-classification-design -- 2026-11-09 -- Backlog item 11, part 3a decided: an `infra_invalid` classification frozen for E3 and E4, outcome checks in the registry, and a critique that honours the loop's interrupt; the zero-fee resume is decided separately
+
+Status: `Proposed`
+
+Scope or hypothesis: The decision entry for the first half of the third part of backlog item 11 of docs/PROJECT_REVIEW_2026-11-05.md section 5.7 (plan ID 11.3a, issue #46's lane C). It covers the classification half of "`infra_invalid` classification with zero-fee resume" and E1's bug (d): the harness loop's critique ignores the loop's interrupt, because the critique dependency gets no signal and scripts/phase2-repair.ts runs it only under its own 960 s timeout. Section 5.1, rule 5, governs the resume itself ("an `infra_invalid` run resumes once from its last complete stage at zero fee and never re-pays a settled assist"). The resume is part 3b, decided in its own entry, because the first design of this part also covered it and its ledger review found two blockers there: a crash between moving a stage aside and recording the move would re-pay a cloud-armed sample `a`, and with no loop lock a second invocation could move a directory a live process still owns. This entry is recorded before its code because it freezes a classification, changes what the registry writer accepts, and changes the critique's interrupt handling. It builds on part 1 (plan 11.1's design, BL-20261109-0331-loop-selection-protocol-2-design at the time of writing, pull request #67): the zero-fee destination allowlist and the interrupt mark. It reads no serving card, runs nothing live, and needs no approval under PLAN.md section 4(c); the owner may record otherwise. If another lane's entries merge first, this entry's ID is re-stamped after `main`'s tail and a correction records the original.
+
+Decisions: (1) **A classification, frozen for E3 and E4 when E3's card or the owner's answer to question (a) records it.** A new module, src/main/private-agent/run-classification.ts (RUN_CLASSIFICATION_VERSION 1), holds the lists and `classifyRunEnd`. scripts/registry-row.py mirrors both, a test keeps the lists byte-identical (as tests/unit/dispatch-purposes.test.ts does for the assist purposes), and shared fixtures keep the two functions in step. The inputs are:
+- the run's status and terminal reason;
+- the reading stage's denied code (the `research_stage` event's `denied`);
+- the failing call, meaning the last `failed` dispatch row that is not an assist, with its destination, reservation, approval and failure diagnostic;
+- the last host validation's capture or verification failure code;
+- the local token-admission code and the broker's refusal code from the run's `model_request_not_dispatched` events;
+- whether the loop's own interrupt cut the run (part 1's mark).
+
+A run that did not submit ended on infrastructure (`infra`), with the cause named in `runClass.cause`, when any of these holds:
+- (a) Its terminal reason is a host-side end: `runtime_failure_progress_preserved`, `execution_context_unavailable`, `cleanup_required`, `orphan_cleanup_required`, `job_context_busy`, `session_failure`, `source_changed_during_run`, `public_snapshot_changed_during_run`, `packet_scan_unavailable`, `unresolved_dispatch_no_replay` or `public_source_retention_or_text_failed`. The cause is the reason itself.
+- (b) It ended on a failed call: `model_unavailable`, or `research_request_denied` whose stage code is `request_failed`. The failing call must have been to a zero-fee destination (part 1's allowlist), or have failed transiently at a cloud destination: a transport answer of `connection_failed`, `upstream_closed` or `response_interrupted`, or an `http_rejected` or `stream_error` answer of 5xx or 429 without the spend-cap or spend-limit flag. Any other cloud refusal (authentication, billing, a spend cap, `request_too_large`) is the arm's or its configuration's, not infrastructure, so no paid re-run follows it. When no failed row exists, the reason alone decides, as for the registry's 13 hand-classified `model_unavailable` rows. The causes are `model_unavailable` and `research_request_failed`.
+- (c) It ended `local_token_admission_denied` with a host-side code: `local_token_admission_helper_failed`, `_timeout`, `_proof_invalid`, `_pin_drift`, `_invalid` or `_missing`. The cause is the code. `local_token_context_exceeded` is the task's.
+- (d) It ended `model_request_denied` because the broker found its destination missing (`destination_missing`, a configuration fault). The cause is `destination_missing`.
+- (e) It ended `bounded_allowance_exhausted` after its last host validation recorded a capture failure or a `sandbox_*` verification failure, so the host could not verify the work. The cause is `verification_unavailable`.
+- (f) It ended cancelled (`cancelled_or_deadline`, `research_cancelled`, `session_cancelled`, `session_stopped`, `session_unresolved_or_deadline` or `cancelled_before_completion`), and the loop's own interrupt cut it. The cause is `operator_stop`.
+
+Everything else is not infrastructure (`cause: task`, with the reason recorded beside it in the row), including:
+- `session_deadline`, `deadline_before_request` and `deadline_before_completion`;
+- a cancelled end without the loop's mark (the session's own clock; a launcher's record that it forwarded a signal is the evidence part 5 adds for a single run);
+- `fee_cap_reached` and `request_body_size_exceeded`;
+- the broker's other refusals;
+- `local_token_context_exceeded`;
+- `bounded_allowance_exhausted` with a verified validation;
+- the `research_*_invalid`, omission and drift reasons;
+- every model-output stop.
+
+A submitted run is never infrastructure. The reasons a fresh harness job cannot reach (`research_stage_not_replayed`, `checkpoint_identity_mismatch`, `runtime_contract_drift`, the session drift reasons, `consultation_*`) are not infrastructure; if one appears, the operator records it under a correction. The planning brief's `public_model_unavailable` names no code and is not listed. A critique's end is infrastructure when its failure code is `request_failed` (its critic is local, so the failing call is zero-fee) or `repair_source_changed_during_critique`, or when the loop's interrupt cut it; part 3b uses this. Every cause is a fixed identifier.
+
+(2) **The registry.** scripts/registry-row.py's `--run-dir` and `--loop-dir` rows gain `runClass: {version, infra, cause}`; a loop row classifies its selected run, with that stage's interrupt mark (a loop record without `stages` is unmarked). The writer refuses:
+- `--outcome rejected` or `incomplete` for an unsubmitted run classified as infrastructure;
+- `--outcome infra_invalid` for any other run.
+
+`accepted` stays allowed on any run, because graders have accepted unsubmitted runs whose deliverable was complete (three committed rows, one ending `runtime_failure_progress_preserved`). A card's arithmetic, such as E3's "A run that does not submit or stops at its cap counts as rejected", applies to the rows as written. A `--supersedes` row repeats these checks against the copied row's `runClass` and `runStatus` when the copy carries a `runClass`, so a correction cannot turn an infrastructure end into a rejection or the reverse. `--verdict-file` rows are not classified. `infra_invalid` is the label of an unsubmitted run that ended on infrastructure. Under criterion 8 and E3's rule, such a run counts as not accepted, like a rejected run, unless a re-run flagged under the card's rule replaces it (question (b)).
+
+(3) **The critique honours the loop's interrupt (E1's bug d).** scripts/phase2-repair.ts's `critique()` takes an optional second argument, `{signal}`, joined with its own timeout through `AbortSignal.any`; the loop passes its signal. The signal is not part of `CritiqueArguments`, so the critique's binding is unchanged. An interrupted critique stops the loop with `loop_interrupted`, which can be resumed, never with `critique_failed`, which is terminal. Its directory, which holds a failure record and no `critique.json`, is refused at the next invocation with `loop_stage_incomplete`, as an unfinished stage is today; the operator moves it aside (the critic is local, so a rerun costs nothing) until part 3b resumes it. A critique that fails before creating its directory leaves nothing to move.
+
+(4) **The record.** `CandidateSummary` gains `stageDenied`, the reading stage's denied code or null, so `loop.json`'s candidates carry it. The key is additive, so LOOP_VERSION stays 1 in this part.
+
+(5) **Part 3b** decides the zero-fee resume and everything the reviews found around it:
+- a loop lock and a write-ahead, atomically saved `resumes` record, reconciled at every start, so a crash never re-runs a cloud stage;
+- a refusal to run a cloud-armed sample `a` the record says already ran;
+- a dispatch check for a stage directory without `result.json`, read from its own ledger;
+- Docker cleanup confirmed before a rerun;
+- the seeded-writer resume of sample `a`, with its lineage taken from the moved-aside run, for every `a` that left a packet (local loops included, so the resume starts "from its last complete stage");
+- moved-aside spend in the loop's totals, and moved-aside runs found by a scan of the loop directory that is shared with pull request #73's provenance and cross-checked against `resumes`;
+- a `stage_run` helper that names the run whose freeze holds the loop's cloud fields (part 11.4 and the assist receipt fields will use it too);
+- a registry row for a loop that infrastructure stops for good, allowed only as `infra_invalid`.
+
+Until then, an infrastructure end is classified and rowed but not resumed.
+
+(6) **Runtime identity.** run-classification.ts (by the source freeze's directory scan), selection.ts, scripts/phase4-loop.ts and scripts/phase2-repair.ts are inside `localScreenSourceFreeze`, so this change rotates the runtime hash; no loop may span its merge. `researchProtocolSha256()`, request bodies and the identity golden test are unchanged.
+
+Open owner questions, with the proposed defaults this entry records (this entry does not answer them for the owner, and none gates this part):
+- (a) Which ends are `infra_invalid`, frozen for E3 and E4? Proposed default: decision (1).
+- (b) How does an `infra_invalid` row count in an experiment's arithmetic? Is PLAN.md's R0 (a Phase 2 rule, "frozen with the task tag", for 12 runs per arm) extended to E3 and E4? If so: what is its threshold for E3's six-run arms and D's three runs; do resumed runs count toward it; and does a re-run, which pays a cloud arm again inside the card's cap, replace the row in accepts(·) and in mean USD? Proposed default: an `infra_invalid` row counts as not accepted. R0 is not extended automatically, and each card states its own re-run rule, which the E3 card (#63) proposes.
+- (c) What is the evidence that a stop was the operator's, not the task's? Proposed default: the loop's own interrupt mark for a loop stage, and for a single run the launcher's record that it forwarded a signal (part 5). Without either, a cancelled end is the session's clock.
+- (d) Is a cloud call refused with a 4xx other than a transient 429 (authentication, billing, a spend cap or limit, a body too large) infrastructure? Proposed default: no. It counts against the arm, as stopping at its cap does, so no paid re-run follows a configuration failure the card's pre-flight should catch.
+
+Changes: Planned in this pull request:
+- src/main/private-agent/run-classification.ts (new: the lists and `classifyRunEnd`);
+- src/main/private-agent/selection.ts (`stageDenied` and the classification inputs);
+- scripts/phase4-loop.ts (the critique's signal and the interrupted critique);
+- scripts/phase2-repair.ts (the critique's signal);
+- scripts/registry-row.py (the mirrored lists and function, `runClass`, the outcome checks): new functions next to part 1's predicate, called from the run, loop and supersedes branches, with `run_counts`' returned columns and `SUMMED` untouched;
+- docs/experiments/README.md (`runClass` and the outcome rule, as new rows beside `outcome`).
+
+Tests:
+- tests/unit/run-classification.test.ts (new): every list entry and its neighbours, each reason checked against its literal in the source, and the Python mirror byte for byte;
+- tests/unit/registry-row-infra.test.ts (new): `runClass` on run and loop rows, the outcome checks, supersedes rows and parity with the TypeScript function;
+- tests/unit/phase4-loop.test.ts: a critique that honours the signal, and an interrupt during it giving `loop_interrupted`;
+- tests/unit/phase2-repair.test.ts: the joined signal aborts a request held open by a loopback server;
+- tests/unit/private-agent-selection.test.ts: `stageDenied`;
+- tests/unit/registry-row-zero-fee.test.ts: part 1's `model_unavailable` fixture rowed as `infra_invalid`.
+
+Evidence: The decision reads the code at part 1's head (9eed3d7) on `main` 2982ca7:
+- the terminal reasons and stop constants in runner.ts, session.ts, model.ts and research-pipeline.ts, including the stage's `denied` code and its `research_request_denied` and `research_cancelled` ends;
+- the runner's records of a token-admission code, a broker refusal code, and a host validation's capture or verification failure;
+- the broker's failure diagnostics (`isRetryableAbort` and the Anthropic spend flags in store.ts);
+- the driver's `session_failure`, `source_changed_during_run` and `public_snapshot_changed_during_run`;
+- the critique tool's failure record and timeout;
+- the registry's 17 `infra_invalid` rows (13 `model_unavailable`, 3 `runtime_failure_progress_preserved` and 1 `cleanup_required`) and its three accepted rows whose run did not submit.
+
+Three adversarial reviews read a first design that also covered the resume:
+- **Ledger and replay safety:** two blockers in the resume, recorded above and moved to part 3b. It also found that a cloud 4xx such as billing, authentication or a spend cap ends a run `model_unavailable` or `request_failed`, so an unrefined list would let R0 pay to re-run it (now (b) and question (d)). And it found that the "whatever its reason" form of (f) would turn a fee-cap stop that an interrupt crossed into infrastructure (now limited to cancelled ends).
+- **Downstream consumers and tests:** a blocker in the resume (a resumed sample `a` loses the loop's cloud fields) and its lineage and accounting gaps, all kept for part 3b. It also found the superseding-row check, the persisted causes, the test fixtures the outcome check breaks, and edit placement away from pull request #73's lines.
+- **Specification fidelity:** criterion 8's and E3's "counts as rejected", R0's Phase 2 scope (question (b)), the borderline codes now in (a) and (c) to (e), the masking paths now in Limitations, and the registry gaps now in (2) and part 3b.
+
+Every confirmed finding that falls in this part is applied above.
+
+Failures or blockers: None in recording.
+
+Limitations and non-claims: This entry decides; nothing is implemented or verified by it. Classification can mask a task failure, which is why the lists are fixed in advance and every input is a recorded code:
+- `request_failed` covers any failed call, and a zero-fee deadline that fires mid-request too;
+- `model_unavailable` covers an invalid local reply;
+- `session_failure` covers every exception from the session, including integrity refusals;
+- `runtime_failure_progress_preserved` can come from the model's own command;
+- an operator's stop and the session clock both end `cancelled_or_deadline`, so a stop counts as the operator's only with the loop's or the launcher's own record.
+
+Until part 3b, nothing is resumed, and a loop that infrastructure stops for good still cannot be rowed. No model, endpoint, Docker container or paid call is involved.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation with deterministic tests in this pull request, stacked on pull request #67, an adversarial code review, and its `Implemented` entry. Then CI and a merge in the orchestrator's train (scripts/phase4-loop.ts: 11.1, 11.3, 10.b, 7a.2; scripts/registry-row.py: 11.1, 11.2, 11.3, 11.4, 7d.C, RA), rebased onto part 2 (pull request #73) when it merges first. Then part 3b's design.
+
+References: docs/PROJECT_REVIEW_2026-11-05.md section 2.2 (criterion 8), section 4 table E (finding E1), section 5.1 rule 5, section 5.6 (E1, E3) and section 5.7 item 11; docs/PLAN.md R0; plan 11.1's design entry (BL-20261109-0331-loop-selection-protocol-2-design at the time of writing); docs/experiments/registry.jsonl; issue #46; issue #63.

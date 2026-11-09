@@ -1,11 +1,11 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, writeFileSync, symlinkSync, linkSync, rmSync, renameSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, symlinkSync, linkSync, rmSync, renameSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GeneralTaskController, VERDICT_RECEIPT_KEYS, type GeneralTaskControllerOptions } from "../../src/main/general-tasks/controller";
+import { GENERAL_TASK_LIMITS, GeneralTaskController, VERDICT_RECEIPT_KEYS, type GeneralTaskControllerOptions } from "../../src/main/general-tasks/controller";
 import type { SoarConfig } from "../../src/main/config";
 import { canonical, digest, contextFingerprint } from "../../src/main/private-agent/contracts";
 import { GeneralAgentRunner, type GeneralJobOptions } from "../../src/main/private-agent/runner";
@@ -1132,11 +1132,11 @@ describe("desktop general-task host controller", () => {
     stopOnce(f, "model_output_incomplete");
     const spent = f.create(); f.controller.start(spent.id); await f.controller.wait(spent.id);
     const context = f.executions[1]!.contextId;
-    for (let i = 0; i < 19; i++) {
+    for (let i = 1; i < GENERAL_TASK_LIMITS.modelCalls; i++) {
       f.executions[1]!.store.append(spent.id, { type: "model_started", contextId: context, operationId: `spent_${i}` });
       f.executions[1]!.store.append(spent.id, { type: "model_finished", contextId: context, operationId: `spent_${i}` });
     }
-    expect(f.controller.get(spent.id)).toMatchObject({ canResume: false, modelCalls: 20 });
+    expect(f.controller.get(spent.id)).toMatchObject({ canResume: false, modelCalls: GENERAL_TASK_LIMITS.modelCalls });
     expect(f.controller.get(spent.id).reason).toContain("cut at the output limit");
     expect(f.executions).toHaveLength(2);
   });
@@ -1156,26 +1156,49 @@ describe("desktop general-task host controller", () => {
     reopened.resume(task.id); await reopened.wait(task.id);
     expect(reopened.get(task.id)).toMatchObject({ status: "submitted" }); expect(f.executions).toHaveLength(2);
   });
-  it.each(["input", "storage", "checkpoint"] as const)("backlog item 6: ends a task whose stored %s no longer matches as the terminal task_integrity_failed", async kind => {
+  it.each(["input", "storage", "checkpoint", "resized blob", "linked directory", "missing blob", "missing storage"] as const)("backlog item 6: ends a task whose stored %s fails its integrity check as the terminal task_integrity_failed", async kind => {
     const f = fixture(), task = f.create();
     if (kind === "input") rewriteRecord(f, task.id, { attestationIdentity: digest("another attestation") });
     else if (kind === "storage") {
       const checkpoints = join(f.root, "tasks", "checkpoints");
-      renameSync(checkpoints, `${checkpoints}-moved`); execFileSync("cp", ["-R", `${checkpoints}-moved`, checkpoints]);
-    } else writeFileSync(join(f.root, "tasks", "checkpoints", task.id, task.inputs[0]!.sha256), "value\n22\n");
+      // A replaced directory: storageUnchanged() refuses its new inode before any read.
+      renameSync(checkpoints, `${checkpoints}-moved`); mkdirSync(checkpoints);
+    } else if (kind === "checkpoint") writeFileSync(join(f.root, "tasks", "checkpoints", task.id, task.inputs[0]!.sha256), "value\n22\n");
+    // checkpoint_file_invalid: the blob's size no longer matches its record.
+    else if (kind === "resized blob") writeFileSync(join(f.root, "tasks", "checkpoints", task.id, task.inputs[0]!.sha256), "value\n2\n");
+    // checkpoint_directory_invalid: the task's own checkpoint directory is a symlink.
+    else if (kind === "linked directory") {
+      const own = join(f.root, "tasks", "checkpoints", task.id); renameSync(own, `${own}-real`); symlinkSync(`${own}-real`, own);
+    }
+    // A missing file or directory under the task storage root is lost storage, never a transient runtime failure.
+    else if (kind === "missing blob") rmSync(join(f.root, "tasks", "checkpoints", task.id, task.inputs[0]!.sha256));
+    else rmSync(join(f.root, "tasks", "checkpoints"), { recursive: true, force: true });
     f.controller.start(task.id); await f.controller.wait(task.id);
     expect(storedRecord(f, task.id).reason).toBe("task_integrity_failed");
     const ended = f.controller.get(task.id);
     expect(ended).toMatchObject({ status: "incomplete", canResume: false });
-    expect(ended.reason).toContain("this task cannot resume"); expect(ended.reason).not.toContain("uncertain");
+    expect(ended.reason).toContain("cannot resume"); expect(ended.reason).not.toContain("uncertain"); expect(ended.reason).not.toContain("retained");
     expect(() => f.controller.resume(task.id)).toThrow("general_task_resume_denied");
     expect(f.executions).toHaveLength(0);
+  });
+  it("backlog item 6: keeps a cancelled task cancelled when its start then fails with a resumable reason", async () => {
+    const f = fixture(); let fail!: () => void;
+    f.options.testing!.readiness = () => new Promise<void>((_, no) => { fail = () => no(new Error("synthetic docker unavailable")); });
+    const task = f.create(); f.controller.start(task.id); f.controller.cancel(task.id); fail(); await f.controller.wait(task.id);
+    expect(storedRecord(f, task.id)).toMatchObject({ status: "cancelled", reason: "runtime_unavailable" });
+    expect(f.controller.get(task.id)).toMatchObject({ status: "cancelled", canResume: false });
+    expect(() => f.controller.resume(task.id)).toThrow("general_task_resume_denied"); expect(f.executions).toEqual([]);
   });
   it("backlog item 6: records a code the session threw as itself, terminal, and anything else as runtime_unavailable", async () => {
     const f = fixture(); stopOnce(f, "unused", new Error("session_completed_snapshot_drift"));
     const drifted = f.create(); f.controller.start(drifted.id); await f.controller.wait(drifted.id);
     expect(storedRecord(f, drifted.id).reason).toBe("session_completed_snapshot_drift");
     expect(f.controller.get(drifted.id)).toMatchObject({ status: "incomplete", canResume: false, reason: GENERIC_INCOMPLETE });
+    // The runner's refusal of its own contract when it is built is kept as itself and is terminal.
+    stopOnce(f, "unused", new Error("general_job_contract_invalid"));
+    const refused = f.create(); f.controller.start(refused.id); await f.controller.wait(refused.id);
+    expect(storedRecord(f, refused.id).reason).toBe("general_job_contract_invalid");
+    expect(f.controller.get(refused.id)).toMatchObject({ status: "incomplete", canResume: false, reason: GENERIC_INCOMPLETE });
     stopOnce(f, "unused", new Error("Synthetic transport failure"));
     const transient = f.create(); f.controller.start(transient.id); await f.controller.wait(transient.id);
     expect(storedRecord(f, transient.id).reason).toBe("runtime_unavailable");
@@ -1201,7 +1224,7 @@ describe("desktop general-task host controller", () => {
     f.controller.start(paused.id); await f.controller.wait(paused.id);
     expect(f.controller.get(paused.id)).toMatchObject({ status: "paused", canResume: true });
     // Past the wall budget only submission and the evidence pass remain, which no deadline gates.
-    vi.spyOn(Date, "now").mockReturnValue(Date.now() + 900_001);
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + GENERAL_TASK_LIMITS.elapsedMs + 1);
     expect(f.controller.get(paused.id)).toMatchObject({ status: "paused", canResume: true, reason: "Paused with progress saved." });
     f.controller.resume(paused.id); await f.controller.wait(paused.id);
     expect(f.controller.get(paused.id)).toMatchObject({ status: "submitted", entailment: { truncated: false, counts: { supported: 2 } } });

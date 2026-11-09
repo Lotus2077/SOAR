@@ -229,8 +229,8 @@ describe("desktop consultation authority and continuity", () => {
     f.controller.resume(task.id); await f.controller.wait(task.id);
     const stopped = f.controller.get(task.id);
     expect(stopped).toMatchObject({ status: "incomplete", canResume: true });
-    const later = Date.now() + 60_000; vi.spyOn(Date, "now").mockReturnValue(later);
-    try { expect(f.controller.get(task.id).elapsedMs - stopped.elapsedMs).toBeGreaterThanOrEqual(60_000); } finally { vi.restoreAllMocks(); }
+    const later = Date.now() + 60_000, clock = vi.spyOn(Date, "now").mockReturnValue(later);
+    try { expect(f.controller.get(task.id).elapsedMs - stopped.elapsedMs).toBeGreaterThanOrEqual(60_000); } finally { clock.mockRestore(); }
     f.options.testing!.readiness = async () => {}; f.finish();
     f.controller.resume(task.id); await f.controller.wait(task.id);
     expect(f.controller.get(task.id)).toMatchObject({ status: "submitted", consultation: { state: "declined" } });
@@ -248,10 +248,59 @@ describe("desktop consultation authority and continuity", () => {
     expect(readConsultation(args.store, task.id)).toMatchObject({ status: "failed", uncertain: false });
     const view = f.controller.get(task.id);
     expect(view).toMatchObject({ status: "paused", canResume: false });
-    expect(view.reason).toContain("consultation request failed"); expect(view.reason).not.toContain("_");
+    expect(view.reason).toContain("consultation request was attempted and did not succeed"); expect(view.reason).not.toContain("_");
+    // The panel labels a failed consultation uncertain, so the text claims no certainty of its own.
+    expect(view.consultation?.state).toBe("uncertain"); expect(view.reason).not.toContain("confirmed");
     expect(() => f.controller.resume(task.id)).toThrow("general_task_resume_denied");
     await f.reopen();
     expect(f.controller.get(task.id)).toMatchObject({ canResume: false, reason: view.reason });
     expect(f.executions).toHaveLength(1);
+  });
+  it("backlog item 6: keys the version 3 clock on the reason's class, live past a withheld Resume and stopped for a terminal reason", async () => {
+    // A resumable runtime_unavailable stop whose allowance is spent offers no Resume, and its clock still runs to the budget.
+    const f = fixture(), task = await f.start(), args = f.executions[0]!;
+    f.controller.decideConsultation({ ...f.ref(task), decision: "decline" });
+    f.options.testing!.readiness = async () => { throw new Error("synthetic docker unavailable"); };
+    f.controller.resume(task.id); await f.controller.wait(task.id);
+    for (let i = 0; i < 20; i++) {
+      args.store.append(task.id, { type: "model_started", operationId: `spent_${i}`, contextId: args.contextId });
+      args.store.append(task.id, { type: "model_finished", operationId: `spent_${i}`, contextId: args.contextId });
+    }
+    const spent = f.controller.get(task.id);
+    expect(spent).toMatchObject({ status: "incomplete", canResume: false });
+    let clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
+    try { expect(f.controller.get(task.id).elapsedMs - spent.elapsedMs).toBeGreaterThanOrEqual(60_000); } finally { clock.mockRestore(); }
+    // A terminal stop's clock stays at its last update.
+    const g = fixture(), other = await g.start();
+    g.controller.decideConsultation({ ...g.ref(other), decision: "decline" });
+    const row = JSON.parse((g.db.prepare("SELECT value FROM general_tasks WHERE id=?").get(other.id) as { value: string }).value);
+    g.db.prepare("UPDATE general_tasks SET value=? WHERE id=?").run(canonical({ ...row, attestationIdentity: digest("another attestation") }), other.id);
+    g.controller.resume(other.id); await g.controller.wait(other.id);
+    const ended = g.controller.get(other.id);
+    expect(ended).toMatchObject({ status: "incomplete", canResume: false }); expect(ended.reason).toContain("cannot resume");
+    clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 60_000);
+    try { expect(g.controller.get(other.id).elapsedMs).toBe(ended.elapsedMs); } finally { clock.mockRestore(); }
+  });
+  it("backlog item 6: offers no Resume when the approved consultation's request failed and the run then stopped incomplete", async () => {
+    const f = fixture(), task = await f.start(), ref = f.ref(task), first = f.options.testing!.runnerFactory!;
+    f.controller.previewConsultation(ref); f.controller.decideConsultation({ ...ref, decision: "approve" });
+    // The resumed run attempts the consultation, its request fails with a confirmed outcome, and the run stops with the error.
+    f.options.testing!.runnerFactory = args => ({ pause() {}, cancel() {}, async run() {
+      f.executions.push(args);
+      const { store, jobId, contextId } = args;
+      const grant = JSON.parse((f.db.prepare("SELECT value FROM private_agent_grants WHERE job_id=?").get(jobId) as { value: string }).value);
+      store.append(jobId, { type: "consultation_attempted", contextId, proposalId: ref.proposalId, proposalSha256: ref.proposalSha256 });
+      const receipt = store.commit({ jobId, contextId, contextSha256: grant.contextSha256, packetSha256: grant.packetSha256, destinationId: grant.destinationId,
+        destinationSha256: grant.destinationSha256, purpose: grant.purpose, policyRevision: grant.policyRevision, approval: grant.approval,
+        reservedFeeMicrousd: grant.approval.maxFeeMicrousd, scan: { status: "complete", detector: "synthetic_store_test" } }, () => {}, grant.id);
+      store.resolveFailure(receipt.id, "failed", { phase: "transport", code: "connection_failed", elapsedMs: 1, timeoutMs: 5000 });
+      throw new Error("synthetic consultation failure");
+    } });
+    f.controller.resume(task.id); await f.controller.wait(task.id);
+    f.options.testing!.runnerFactory = first;
+    const view = f.controller.get(task.id);
+    expect(view).toMatchObject({ status: "incomplete", canResume: false });
+    expect(view.reason).toContain("consultation request was attempted and did not succeed");
+    expect(() => f.controller.resume(task.id)).toThrow("general_task_resume_denied"); expect(f.executions).toHaveLength(2);
   });
 });

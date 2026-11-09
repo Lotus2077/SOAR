@@ -30,6 +30,9 @@ export const RUN_REASONS: Readonly<Record<string, RunReasonClass>> = Object.free
   repeated_incomplete_tool_arguments_at_output_limit: "terminal", duplicate_tool_call_id: "terminal", bounded_allowance_exhausted: "terminal",
   consultation_budget_unavailable: "terminal", consultation_response_missing_no_replay: "terminal",
   public_source_retention_or_text_failed: "terminal", public_retrieval_receipt_missing: "terminal", task_integrity_failed: "terminal",
+  // Terminal: the runner refused its own contract when it was built (runner.ts), which every later run repeats.
+  general_job_contract_invalid: "terminal", general_initial_evidence_missing: "terminal", general_initial_evidence_context_invalid: "terminal",
+  general_session_deadline_invalid: "terminal", general_public_fetch_limit_invalid: "terminal",
   // Terminal, because the task has already ended; and the legacy flattened reason.
   cancelled: "terminal", cleanup_in_progress: "terminal", cleanup_blocked: "terminal", incomplete: "terminal",
   // Never a stop.
@@ -72,16 +75,25 @@ export function storedRunReason(reason: unknown): string {
  */
 export const TASK_INTEGRITY_ERRORS: ReadonlySet<string> = new Set(["general_task_input_changed", "general_task_storage_changed", "general_task_context_changed",
   "checkpoint_digest_mismatch", "checkpoint_file_invalid", "checkpoint_path_invalid", "checkpoint_size_exceeded", "checkpoint_directory_invalid"]);
+/** The runner's refusals of its own contract when it is built; each is recorded as itself. */
+export const RUNNER_CONTRACT_ERRORS: ReadonlySet<string> = new Set(["general_job_contract_invalid", "general_initial_evidence_missing",
+  "general_initial_evidence_context_invalid", "general_session_deadline_invalid", "general_public_fetch_limit_invalid"]);
 /**
- * The reason a start or resume that threw records. A changed configuration and an integrity failure end the task; a session or
- * research code the session threw (a drifted completion, an invalid phase, a producer mismatch) is recorded as itself, terminal by its
- * prefix, because every run repeats it; anything else (Docker down, the model or image missing, a failed checkpoint write, a database
- * error) is `runtime_unavailable`, resumable.
+ * The reason a start or resume that threw records:
+ * - a changed configuration ends the task as `configuration_changed`;
+ * - an integrity failure, or a file or directory missing under the task storage root (`storageRoot`), ends it as `task_integrity_failed`;
+ * - a session or research code the session threw (a drifted completion, an invalid phase, a producer mismatch) and the runner's contract
+ *   refusals are recorded as themselves, terminal, because every run repeats them;
+ * - anything else (Docker down, the model or image missing, a failed checkpoint write, a database error) is `runtime_unavailable`, resumable.
  */
-export function caughtRunReason(error: unknown): string {
+export function caughtRunReason(error: unknown, storageRoot?: string): string {
   const message = error instanceof Error ? error.message : "";
   if (message === "general_task_configuration_changed") return "configuration_changed";
   if (TASK_INTEGRITY_ERRORS.has(message)) return "task_integrity_failed";
+  const missing = error instanceof Error ? error as NodeJS.ErrnoException : undefined;
+  if (storageRoot && missing?.code === "ENOENT" && typeof missing.path === "string" &&
+      (missing.path === storageRoot || missing.path.startsWith(`${storageRoot}/`))) return "task_integrity_failed";
+  if (RUNNER_CONTRACT_ERRORS.has(message)) return message;
   if (message !== "session_already_running" && RUN_REASON_SHAPE.test(message) && (message.startsWith("session_") || message.startsWith("research_"))) return message;
   return "runtime_unavailable";
 }

@@ -67,7 +67,7 @@ const fixedReasons: Record<string, string> = {
   model_request_denied: "The broker refused the next model request before it was sent (a destination, packet or ledger rule), so nothing is uncertain. Saved progress is retained; this task cannot resume.",
   // Backlog item 6 (finding A6, BL-20261109-0336): an incomplete record keeps its run's own reason. A reason's text is shown only when no
   // request or action is uncertain; none promises a resume, which the allowance, the deadline or a closing app can still withhold.
-  runtime_failure_progress_preserved: "The execution runtime failed during the run; progress up to the last saved checkpoint is retained and no request or action is uncertain. A resume continues from that checkpoint.",
+  runtime_failure_progress_preserved: "The execution runtime failed during the run; progress up to the last saved checkpoint is retained and no request or action is uncertain. A resume starts again from that checkpoint.",
   execution_context_unavailable: "The isolated execution workspace could not be prepared, so nothing more ran and no request or action is uncertain. A resume needs the Docker runtime.",
   cleanup_required: "The run ended, but cleanup of its execution workspace could not be confirmed. A resume first confirms that cleanup and sends nothing until it is confirmed.",
   orphan_cleanup_required: "An earlier execution workspace could not be cleaned up, so this run did not start. A resume first confirms that cleanup and sends nothing until it is confirmed.",
@@ -75,8 +75,8 @@ const fixedReasons: Record<string, string> = {
   cancelled_or_deadline: "The run stopped at a cancellation or time check before its next step, and no request or action is uncertain. A resume continues while time remains.",
   model_output_incomplete: "The model's last replies were cut at the output limit, so they ran nothing, and no request or action is uncertain. A resume spends at least one more model call.",
   one_complete_tool_action_required: "The model's last replies did not contain exactly one tool action, so they ran nothing, and no request or action is uncertain. A resume spends at least one more model call.",
-  task_integrity_failed: "The task's saved inputs, storage or records no longer match what it recorded, so it stopped. Saved progress is retained; this task cannot resume.",
-  consultation_failed: "The approved consultation request failed with a confirmed outcome, and a consultation is never sent twice, so this task cannot resume. Saved progress is retained.",
+  task_integrity_failed: "The task's saved inputs, storage or records are missing or no longer match what it recorded, so it stopped. This task cannot resume.",
+  consultation_failed: "The approved consultation request was attempted and did not succeed, and a consultation is never sent twice, so no Resume is offered. Saved progress is retained.",
   cleanup_in_progress: "The task remains cancelled while its interrupted execution workspace is cleaned up. No request will be replayed.",
   cleanup_blocked: "Cancellation is recorded, but interrupted execution cleanup could not be confirmed. No request will be replayed.",
   consultation_pending: "Progress saved. Review the exact consultation packet before deciding whether to send it.",
@@ -673,8 +673,9 @@ export class GeneralTaskController {
         next.status === "incomplete" ? storedRunReason(result.reason) : next.status; this.save(next);
     } catch (error) {
       const record = this.record(id); record.status = active.cancelRequested ? "cancelled" : "incomplete";
-      // Backlog item 6: a configuration change, an integrity failure and the session's own codes are terminal; anything else stays resumable.
-      record.reason = caughtRunReason(error); this.save(record);
+      // Backlog item 6: a configuration change, an integrity failure or missing storage, the session's own codes and the runner's contract refusals
+      // are terminal; anything else (Docker down, for example) stays resumable.
+      record.reason = caughtRunReason(error, this.root); this.save(record);
     } finally {
       clearInterval(poll); clearTimeout(deadline); this.active.delete(id); this.trackActivity(); this.publish(id);
     }

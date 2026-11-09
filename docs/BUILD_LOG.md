@@ -30527,3 +30527,192 @@ The consumers then flip their flags in their own PRs, each with a test of the ap
 A consumer that needs another view of the card changes R10 in its own reviewed diff. If another entry merges first, this entry's ID is re-stamped after main's tail.
 
 References: BL-20261108-1459-serving-card-reader-design; BL-20261108-0911-probe-extensions-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.2 (principle 6), section 5.6 (row E0) and section 5.9; docs/HANDOFF.md "Start here"; docs/experiments/README.md; GitHub issues #46, #47 and #57; commits 8b7680e, 86d2b81 and 8de520b.
+
+### BL-20261109-0334-research-request-shapes-design -- 2026-11-09 -- Backlog item 7(b), part 1, decided: the [system][stable packet][chunk] extraction layout, index batches by preview size, the synthesis length cap from the brief, and one shared protocol pin
+
+Status: `Proposed`
+
+Scope or hypothesis: The decision entry for 7b.1, the first of the research pipeline's tolerance PRs: backlog item 7(b) of docs/PROJECT_REVIEW_2026-11-05.md section 5.7; findings D8 (batching only), D9 and D13 of section 4; stages S1, S4 and S6 and the "Caching" paragraph of section 5.2. It is recorded before its code because it changes the research protocol, the extraction request bytes and the number and composition of index requests. It is based on `main` at 2982ca7, which carries SC (BL-20261108-1649-serving-card-reader-implemented). It is zero-fee code with deterministic tests on fixture models and needs no approval under PLAN.md section 4(c); the owner may record otherwise, in particular on the three questions below. Three adversarial reviews of a first draft (ledger and replay safety, downstream consumers and tests, specification fidelity) were folded in before this entry was committed; decisions (1), (2), (3), (5) and (6) carry their corrections. Hypothesis:
+- every extraction request of a job shares one byte-identical prefix: the system message and the stable packet;
+- the index ceiling no longer refuses a corpus the chunk ceiling admits;
+- the synthesis argument is asked for the brief's own word limit when that is lower than today's request, and for what its reply holds once the role stops thinking;
+- ceilings, budgets, packet schemas, stage order and the index and plan request bytes stay as they are.
+
+Decisions:
+(1) **Extraction layout (D9).** Every extraction request, initial and repair, keeps the system message EXTRACT_SYSTEM unchanged and sends a user message of two canonical JSON lines joined by one `\n`:
+- first `canonical({brief, plan, units})`, the job's stable packet, byte-identical for every chunk and every repair of the job;
+- then `canonical({chunk, repairReason, source})`, the per-chunk part.
+
+`canonical()` (contracts.ts) never emits a raw newline: strings are JSON-escaped and there is no whitespace. It leaves U+2028 and U+2029 raw, which is harmless because the split is on `\n` only; a test covers both. The fields and their values are today's; only their grouping and order change. Today's single sorted-key object put the chunk between the brief and the plan (D9).
+
+The builder `researchExtractionUserContent` and its descriptor `RESEARCH_EXTRACTION_LAYOUT` are exported from research-pipeline.ts. `call()` now receives a function that builds the user string and calls it inside its `try`. The draft built the string before `call()`, and the ledger review reproduced the cost: a NUL that a rejected plan reply carried into the repair payload made `canonical()` throw outside the `try`, losing the stage row and both packet files. Built inside the `try`, that refusal stays a denied call (`private_agent_invalid_text`), exactly as before. The index, plan and synthesis stages pass `canonical()` of their payloads, so the index and plan bytes are unchanged; synthesis changes only as decision (5) states.
+
+scripts/export-role-schemas.ts builds P10's extract payload with the same builder. So P10 sends the pipeline's extraction messages; P10 still adds its own `response_format` and sampling, and aligning those bodies is P10-align, which waits on #47.
+(2) **P11 alignment.** scripts/serving-probe.py's `stable_prefix` layout becomes exactly the pipeline's: `{brief, plan, units}`, then `\n`, then `{chunk, repairReason, source}`. Today it puts `source` and `repairReason` in the stable part.
+- `sorted_keys` keeps the layout before this change as P11's comparison.
+- P11's output gains `cache_layouts.stable_prefix_layout`, a copy of RESEARCH_EXTRACTION_LAYOUT that a test pins equal to the TypeScript one, so a probe JSON states which `stable_prefix` it measured.
+- `packet_sha256` and `packet_bytes` now cover the stable packet only, the shared first line without the source. That is a change of meaning under PROBE_VERSION 2. SC's writer copies `packet_bytes` into the card's `cacheLayouts.packetBytes`.
+- The layout names, the card writer, the card schema and PROBE_VERSION 2 are unchanged. The card itself records no layout identity; the probe JSON, which the card binds by `probe.sha256`, does. A probe run from a pre-merge checkout would therefore measure the earlier `stable_prefix` under the same name. None exists: E0 has not run.
+- A test proves that the probe's `stable_prefix` user message equals the TypeScript builder's bytes for the same packet and chunk.
+(3) **Index batches by preview size (D8, batching only).** A source's preview stays its first min(bytes, 20 KiB), cut back to a UTF-8 boundary, exactly as today's `preview()`. A batch takes the next source in inventory order while it holds fewer than `INDEX_LIMITS.batchSources` (3) sources and its previews total at most `batchPreviewBytes`, 60 KiB (3 × 20 KiB). Today's rule summed full source bytes against 20 KiB, so every source over 20 KiB took a batch alone.
+- **The byte cap never binds before the three-source cap,** so batches are consecutive triples. The cap is the explicit bound on one index request's source text, bound in the hash with the rest of `RESEARCH_INDEX_BATCH_POLICY`.
+- **Unchanged:** OUTPUT_TOKENS.index (1,536), INDEX_LIMITS, the preview text and `previewTruncated`.
+- **When batches differ from today's:** whenever three consecutive sources total more than 20 KiB of full bytes, and every later batch shifts with them. Example: sizes 5, 25, 5, 5 and 5 KiB give [a][b][c,d,e] today and [a,b,c][d,e] now. A corpus whose triples all fit 20 KiB batches as today.
+- **The index ceiling no longer binds under the default budget.** Every readable source yields at least one chunk, so the 40-chunk ceiling admits at most 40 sources, which is 14 batches. At least 10 index calls are always left for repairs.
+- **The only refusal is more than 40 chunks** (`research_mandatory_budget_exceeded`, before any request). Examples: 41 sources of 21 KiB, or 60 sources of 100 KiB (which plan into 20 batches but hold 120 chunks). That corrects the mapping brief's claim that the 60-source corpus is admitted. The pipeline test uses 30 sources of 30 KiB (30 chunks): refused today with 30 batches, admitted with 10.
+- **For E1-T2:** E1's brief planned to pin "25 or more sources over 20 KiB" as refused. That corpus is now admitted, so the pin must use more than 40 chunks; the orchestrator is told.
+(4) **Admission ceilings unchanged.** Before any request, batches ≤ `budget.indexCalls` and chunks ≤ `budget.extractionCalls`, else `research_mandatory_budget_exceeded`; repairs still run only within leftover calls (D3 is not addressed here). The batch planner and this check move into a new research-admission.ts, which 7b.3 extends with the card-derived ceilings, the reserved repair budget and the feasibility estimate. research-admission.ts never imports research-pipeline.ts (which imports it), and may import serving-card.ts for types only. The budget object, its maxima (24/40/2/2) and the planner payload's `extractionCallBudget` are unchanged.
+(5) **Synthesis length cap from the brief (D13).** `RESEARCH_SYNTHESIS_LENGTH_POLICY` in research-admission.ts.
+- **The parse.** The host reads the raw brief, never its units, after NFKC, lower-casing and collapsing whitespace, for an explicit English upper word limit:
+  - "at most", "no more than", "not more than", "up to", "under", "fewer than", "less than", "maximum (of)", "max (of)", "not to exceed", "not exceeding", "limited to" or "capped at", then N words;
+  - N words, then "maximum", "max", "at most", "or fewer" or "or less";
+  - "word limit" or "word count limit", then optionally "of", "is" or ":", then N;
+  - the ranges "N-M words", "N to M words" and "between N and M words", which give M.
+
+  N is written in digits, with optional comma thousands separators, from 1 to 100,000. The pattern sources are bound in the hash, so editing one moves the protocol.
+- **Several limits.** When several are stated, the largest wins, so a component's limit (an abstract's) never shrinks the argument below the report's.
+- **Not limits:**
+  - minimums: "at least", "no fewer than", "not fewer than", "no less than", "not less than", "not under";
+  - a hyphenated adjective such as "a 500-word abstract";
+  - a bare or approximate count: "N words", "about N words".
+
+  The draft read "no fewer than 800 words" as a cap of 800; the downstream review caught it, and these are now negative test cases.
+- **The ceiling.** It is what the reply holds besides its structure: floor((the synthesis output cap − 1,024 reply-overhead tokens) ÷ 1.245 tokens per word). 1.245 is scripts/serving-probe.py's TOKENS_PER_WORD, measured on 2026-09-28, and a test pins the two copies equal. While the role thinks ("model"), the ceiling is at most 1,200 words, today's request.
+
+  The draft instead held back a 4,096-token reasoning reserve, which gave 2,467 words. The specification review showed the record contradicts that reserve:
+  - three loops on 2026-11-01 had a thinking synthesis reply reach the 8,192-token cap at today's 1,200-word request (BL-20261101-0428-h4-completion-v2-interrupted, BL-20261101-1106-h4-runner-fixes-stopped, BL-20261101-2044-writer-completion-stopped);
+  - at the 4,173 argument bytes that 0428 retained, about 1,100 tokens were argument and about 7,000 went to reasoning;
+  - version 4 refuses a truncated synthesis, and there is no skeleton fallback until 7(c), so a longer request can turn runs that complete today into `research_synthesis_invalid`.
+
+  Nothing shows that a longer argument fits beside reasoning.
+- **The cap sent** is min(the stated limit, or 6,000 words when none is stated, and the ceiling). The ceiling never drops below 100 words; that floor backs up a role-derived ceiling only, and a limit the brief states always holds below it.
+
+  Under today's OUTPUT_TOKENS.synthesis (8,192) and THINKING.synthesis ("model"):
+  - a brief without a stated limit gets 1,200 words, today's request;
+  - a lower stated limit wins (r3's 1,000 words, D13);
+  - a higher one is clamped to 1,200.
+
+  With thinking disabled the ceiling would be 5,757 words at 8,192 tokens and 12,337 at 16,384, where the 6,000 default binds.
+- **The request.** The synthesis payload gains `lengthCap {words}` on both attempts, and SYNTHESIS_SYSTEM's "at most 1200 words" becomes "at most lengthCap.words words".
+- **Recorded, never enforced.** The synthesis stage row records:
+  - `lengthCapWords`;
+  - `briefWordLimit`, only when the brief states one;
+  - `argumentWords`: the accepted argument's whitespace-separated tokens that hold a letter or a digit, 0 without an accepted argument.
+
+  No reply is rejected on length.
+- **Inputs and 7a.2's part.** The clamp takes the role's cap and thinking as arguments. research-pipeline.ts's `synthesisLengthCap(brief)` passes OUTPUT_TOKENS.synthesis and THINKING.synthesis and is the one wrapper both the pipeline and the P10 export call. 7a.2 makes it read the role policy per attempt, and owns:
+  - the per-attempt record (here both attempts get the same cap, recorded once) and its stage-key change;
+  - refusing, before any request, a role policy whose ceiling on either attempt is below the 100-word floor.
+
+  No serving-card flag flips in this PR.
+- **Deviations from the lane brief, stated:**
+  - its default text says a stated limit "always wins"; here it wins up to the ceiling, so "at most N" is still honoured;
+  - a range's lower end is not used, because the cap is an upper bound;
+  - criterion 6 (2,500 to 6,000 words) binds the writer's report (S8), not the synthesis argument.
+(6) **Protocol.** `researchProtocolSha256()` binds the new SYNTHESIS_SYSTEM and a new `requestShapes` block: `{extractionLayout, indexBatching, synthesisLength}`. It moves from 3453710315d7226ea4d6195ec7401d000f86c5b0d9afa9839a801d5c6d391262 to a new value, which the `Implemented` entry records.
+
+Unchanged: RESEARCH_PIPELINE_VERSION (4; 7(c) bumps it), every packet schema, the seven files, the budget, the other three prompts, OUTPUT_TOKENS, THINKING, the role schemas and the producer.
+
+Consequences:
+- every retained v4 run directory stops seeding (`research_seed_protocol_mismatch`);
+- a paused research session resumes as `session_contract_drift`;
+- the harness source-freeze digest changes, so no loop may span the merge;
+- a serving card whose P10 export or assessment predates the merge is refused for structured output (`serving_card_p10_protocol_drift`), so this PR invalidates every earlier card's structured-output evidence. None exists: E0 has not run;
+- a P10 export made before the merge and assessed after it records `schemasProtocolMatch` false;
+- planner-fixture summaries record the protocol hash, so runs before and after the merge show different hashes for an unchanged plan request.
+
+**E0 timing:** E0's probe run (the P10 export and P11) and its assessment should follow this merge and 7a.1's. The alternative is to hold this merge until E0's assessment is written.
+
+**P10's synthesis cells** send the exported synthesis payload, whose `lengthCap` is the thinking ceiling (1,200 words) in both cells. So the off cell never measures a thinking-off request, which would ask up to 5,757 words. 7a.2 must regenerate that evidence, or the export gains one payload per thinking mode (P10-align, #47).
+
+**The split arm.** With the cloud arm the synthesiser is the cloud model, through the same prompt and payload. Its request text changes (the `lengthCap` field and the prompt's wording), and a brief's lower limit shortens it. But the requested length never exceeds today's 1,200 words (THINKING.synthesis is "model"), and its 8,192-token reservation and the USD 0.60 cap check are unchanged.
+
+The no-card path is not byte-identical, by design: for every run the extraction request bytes and the synthesis prompt and payload change, and for corpora with mid-size sources so does the index batch composition. Ceilings, budgets, stage order and the index and plan request bytes for a given batch are unchanged.
+(7) **One shared protocol pin.** The new tests/helpers/research-protocol-pin.ts exports the one pinned `researchProtocolSha256()` value. Both hard-coded pins import it:
+- tests/unit/private-agent-research-pipeline.test.ts;
+- tests/unit/role-schema-export.test.ts, in its pin test and its command-line check. That file's constant, comment and test title, which named the pre-export value, are replaced.
+
+So each later protocol-changing PR re-pins one line and records old → new in its entry.
+(8) **Failed calls unchanged.** A denied call still ends the stage (research-pipeline.ts, `denied()`), so item 1's failed-counted producer rule stays unreachable for packets. Its reconciliation stays with 7(c) (BL-20261107-0809-zero-fee-failures-resolve-design, decision 6). Decision (1)'s `try` keeps an unencodable payload a denied call.
+(9) **Stage rows.** The hash-only guard's documented key set gains `lengthCapWords`, `briefWordLimit` and `argumentWords`, all integer counts. The guard now also runs on a run whose brief states a limit. Summary stage rows are passthrough in the ready validator; `research_stage` events carry the keys additively; registry-row.py, selection.ts, the producer and the seed loader read only `stage`, `calls`, `usage` and `truncatedReplies`.
+(10) **Tests read the raw layout.** tests/helpers/research-v4-fixture.ts gains:
+- `parseResearchUserContent`, which parses each line and merges them, refusing a key that appears in two lines; researchV4Reply uses it, and E1-T2 reuses it;
+- `assertResearchUserLayout`, which the pipeline and plan-contract fixture brokers call on every request. It requires exactly two canonical lines with the literal key lists for extraction, and one canonical object for every other stage, so a merge in the parser cannot hide a layout regression.
+
+role-schema-export.test.ts parses the two lines, gains `lengthCap` in its synthesis key list, and checks that the real pipeline's first extraction message equals the export's byte for byte.
+(11) **Out of scope:**
+- D11's brief units;
+- D3's reserved repairs;
+- the card ceilings and feasibility (7b.3);
+- the priority trim and the presentation guard (7b.2);
+- per-role, per-attempt caps and thinking (7a.2);
+- repairing a truncated index triple one source at a time (see Limitations).
+
+Changes: Planned in this pull request:
+- src/main/private-agent/research-admission.ts (new): the batch policy, the preview boundary, the batch planner, the mandatory-work check, the length policy, the word-limit parser, the clamp and the word count;
+- research-pipeline.ts: the builder and layout descriptor, `synthesisLengthCap`, `call()`'s user-content function, the batching and admission calls, the synthesis payload and prompt, the stage-row counts and the hash block;
+- scripts/export-role-schemas.ts: the builder for P10's extract payload, `lengthCap` in its synthesis payload;
+- scripts/serving-probe.py: the aligned `stable_prefix`, `stable_prefix_layout`, `packet_*` over the stable packet.
+
+Tests:
+- tests/helpers/research-protocol-pin.ts (new);
+- tests/helpers/research-v4-fixture.ts: the parser and the layout assertion;
+- tests/unit/private-agent-research-admission.test.ts (new): batching and alignment, the preview boundary, the ceilings, the parser's positive and negative cases, the ceiling, the floor and the word count;
+- private-agent-research-pipeline.test.ts:
+  - the shared prefix over initial and repair calls across two sources, with newlines and U+2028;
+  - index and plan request digests equal to those captured at 2982ca7, and the extraction digests;
+  - the NUL repair that stays a denied call;
+  - the 30-source admission and the 41- and 60-source refusals with zero requests;
+  - the 1,200-word default on both attempts, a stated limit below and above the ceiling, a long argument still accepted;
+  - the key guard on a stated-limit run;
+- private-agent-research-plan-contract.test.ts: the parser and the layout assertion;
+- role-schema-export.test.ts: as in decision (10);
+- serving-probe-helpers.test.ts: probe-to-builder parity, and the layout and tokens-per-word copies.
+
+Evidence: None yet; this entry decides. The reading is from the code at 2982ca7:
+- the extraction user message is one `canonical()` object at research-pipeline.ts:187-188, built inside `call()`'s `try` at :126;
+- batching sums full source bytes at :146;
+- the ceilings are at :149;
+- SYNTHESIS_SYSTEM's "at most 1200 words" is at :35;
+- the two pins are at tests/unit/private-agent-research-pipeline.test.ts:235 and tests/unit/role-schema-export.test.ts:15, the latter used at :53 and :60;
+- P11's `extraction_layouts` puts `source` and `repairReason` in its stable part, and `packet_*` hash the whole packet (scripts/serving-probe.py:246-251 and :797);
+- the assessor never parses the extract payload (scripts/assess-probe-replies.ts);
+- SC's writer copies only the P11 fields it knows (scripts/serving-card.py:702-722);
+- every readable source yields at least one chunk (research-coverage.ts:93-107);
+- the 2026-11-01 synthesis cap hits are in the three entries cited in decision (5).
+
+Failures or blockers: None in recording. Three open questions for the owner, each with the default this PR implements:
+1. When a brief states no word limit, what cap should the local synthesis argument use? Proposed default: the largest the reply holds besides its structure, at most 6,000 words, and at most today's 1,200 words while the synthesis role thinks. That is 1,200 under today's policy. A limit stated in the brief wins, up to that ceiling. Recorded, not enforced.
+2. What ceiling should hold while the synthesis role thinks? Proposed default: today's 1,200 words, until E0's P10 synthesis/on completion and reasoning tokens, or a card value, calibrate it.
+3. When a brief states several word limits, should the largest win? Proposed default: yes.
+
+Limitations and non-claims: This entry decides; nothing is implemented or verified by it, and nothing ran live.
+- **The layout proves the prefix property only.** Reuse depends on the per-job `cache_salt` and on the server's prefix caching, which E0's P11 measures. Pipeline stages measured 0 cached tokens on 2026-10-25 and 2026-11-05, though the 2026-11-01 runs did cache (D9).
+- **The parser is heuristic.** It reads English phrasings with digits only, so a limit in words ("one thousand"), in pages, in characters or in another language is not seen and the default applies. A brief whose only stated limit belongs to a component sets the cap to that limit.
+- **The clamp's constants are protocol constants, not measurements of this endpoint.**
+  - 1.245 was measured on the prompt tokens of a synthetic word list on the 2026-09-28 model, and is applied here to JSON-escaped Markdown with [E#] citations.
+  - The 1,024-token overhead and the 1,200-word thinking ceiling are proposals.
+  - Principle 6 of section 5.2 asks for every bound to be re-derived from the serving card. 7a.2 does that for the caps and thinking. No PR in the current plan re-derives tokens per word, the overhead or the thinking ceiling; the card already carries P11's observed tokens per word as evidence. This is a recorded deviation for the orchestrator.
+- **D13 is only started.** Under thinking, today's length already truncates, so longer arguments arrive only with 7a.2's per-attempt thinking or larger caps. Those also need 7b.2's presentation-size guard: the 192 KiB writer handoff is refused only after the transfer is durable (research-presentation.ts; session.ts:400-404), and a 5,757-word argument adds about 30 KB to it.
+- **D8 is not fully fixed.** The 40-chunk ceiling still refuses web-scale corpora. 7b.3's card ceilings stay at or below today's maxima; raising them needs item 12's separate web request pool.
+- **Index triples.** Three large sources now share one 1,536-token index reply. A truncated reply leaves all three unresolved, and the repair resends the same three under the same cap, so the literal-card fallback may rise for large or non-English sources. This is honest and never ends the run; repairing a truncated triple one source at a time is a candidate for 7b.3's repair budget.
+- **Wall time (section 5.4).** Index prompts carry up to 60 KiB of previews per call instead of at most 20 KiB: fewer calls for a similar total prefill. The default synthesis output does not grow.
+
+Paid exposure: None. This PR runs nothing; the split arm's cloud synthesis request text changes as decision (6) states, with its bounds unchanged.
+
+Next gate: The implementation with deterministic tests in this pull request and its `Implemented` entry; then CI green and a merge before E0's probe run, coordinated by the orchestrator.
+
+References:
+- docs/PROJECT_REVIEW_2026-11-05.md:
+  - section 2.2 criterion 6;
+  - section 4 rows D3, D8, D9 and D13;
+  - section 5.2 (principles 5 and 6, stages S1, S4, S6 and S8, "Caching");
+  - section 5.4 ("Wall time");
+  - section 5.7 item 7;
+- docs/HANDOFF.md "Start here (2026-11-07)";
+- BL-20261105-0944-planner-contract-offline-verified (the v4 protocol value);
+- BL-20261107-0809-zero-fee-failures-resolve-design (decision 6);
+- BL-20261107-0859-label-keyed-diagnostics-design and BL-20261107-0923-label-keyed-diagnostics-implemented (the pin and the stage-key guard);
+- BL-20261108-0911-probe-extensions-implemented (P10, P11, the role export);
+- BL-20261108-1459-serving-card-reader-design and BL-20261108-1649-serving-card-reader-implemented (SC);
+- BL-20261101-0428-h4-completion-v2-interrupted, BL-20261101-1106-h4-runner-fixes-stopped and BL-20261101-2044-writer-completion-stopped (the synthesis cap hits).

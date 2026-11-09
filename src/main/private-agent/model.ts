@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { ProviderResult } from "../providers/types";
-import { anthropicBody, decodeAnthropicReply } from "./anthropic";
+import { anthropicBody, cacheWritePartsAgree, decodeAnthropicReply } from "./anthropic";
 import { BROKER_MAX_BODY_BYTES, PrivateAgentBroker } from "./broker";
 import { canonical, digest, privateAgentId, sha256Schema } from "./contracts";
 import { isAssistDispatch } from "./dispatch-purposes";
@@ -273,11 +273,8 @@ function decodeReply(api: PrivateModelConfig["api"], bytes: Uint8Array, configur
     ? (decoded.incomplete_details?.reason === "max_output_tokens" ? "length" : decoded.incomplete_details?.reason ?? "incomplete")
     : refused ? "content_filter" : toolCalls.length ? "tool_calls" : "stop";
   // The write count proves zero writes only when the reply reports it, and its TTL parts (when given) add up to it.
-  const details = decoded.usage.input_tokens_details, parts = details?.cache_write_tokens_details as { ttl_30m_tokens?: unknown; ttl_12h_tokens?: unknown } | null | undefined;
-  const part = (value: unknown) => typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
-  const cacheWriteReported = typeof details?.cache_write_tokens === "number" && (parts === undefined || parts === null ||
-    (typeof parts === "object" && part(parts.ttl_30m_tokens ?? 0) !== undefined && part(parts.ttl_12h_tokens ?? 0) !== undefined &&
-      (part(parts.ttl_30m_tokens ?? 0)! + part(parts.ttl_12h_tokens ?? 0)!) === details.cache_write_tokens));
+  const details = decoded.usage.input_tokens_details;
+  const cacheWriteReported = typeof details?.cache_write_tokens === "number" && cacheWritePartsAgree(details.cache_write_tokens_details, ["ttl_30m_tokens", "ttl_12h_tokens"], details.cache_write_tokens);
   return { model: decoded.model, serviceTier: decoded.service_tier, content, toolCalls, finishReason, promptTokens: decoded.usage.input_tokens, completionTokens: decoded.usage.output_tokens,
     cachedTokens: details?.cached_tokens ?? 0, cacheWriteTokens: details?.cache_write_tokens ?? 0, cacheWriteReported };
 }
@@ -385,8 +382,10 @@ export class PrivateAgentModel {
     // a breakpoint mode) on an assist; and the mode serves only a sealed tool-less [system, user] one-shot (review §5.2, principle 3).
     const assistMode = this.config.promptCaching === ASSIST_CACHE_MODE;
     if (isAssistDispatch({ purpose: overrides?.purpose }) && !assistMode) throw new Error("private_model_assist_cache_mode_required");
-    if (assistMode && (!isAssistDispatch({ purpose: overrides?.purpose }) || tools.length || overrides?.trailingTurnMessage || messages.length !== 2 ||
-        messages[0]!.role !== "system" || messages[1]!.role !== "user" || messages.some(message => message.tool_calls?.length || message.tool_call_id !== undefined))) {
+    // Two non-empty text messages, no tools, no trailing turn and the model's own thinking: a body that drops nothing silently.
+    if (assistMode && (!isAssistDispatch({ purpose: overrides?.purpose }) || tools.length || overrides?.trailingTurnMessage || overrides?.thinking !== undefined || messages.length !== 2 ||
+        messages[0]!.role !== "system" || messages[1]!.role !== "user" || messages.some(message => typeof message.content !== "string" || !message.content.length ||
+          message.tool_calls?.length || message.tool_call_id !== undefined))) {
       throw new Error("private_model_assist_request_invalid");
     }
     const openai = this.config.api === "openai";

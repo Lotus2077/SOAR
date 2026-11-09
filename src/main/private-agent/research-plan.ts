@@ -115,7 +115,9 @@ function boundedErrors(all: readonly SafePlanError[]): { errors: SafePlanError[]
 export function assessResearchPlanReply(input: { content: string; truncated: boolean; ordinal: number; units: readonly BindingInput[]; sources: readonly BindingInput[];
   sourceAliases?: Readonly<Record<string, string>> }): { attempt: ResearchPlanAttempt; plan?: ResearchPlan; issues: SafePlanError[] } {
   const aliases = input.sourceAliases;
-  if (aliases && Object.values(aliases).some(id => !input.sources.some(source => source.id === id))) throw Error("research_plan_alias_binding");
+  // An alias map names each source once, by an opaque S{n} key, and only sources the stage holds.
+  if (aliases && (Object.keys(aliases).some(key => !/^S[1-9][0-9]*$/u.test(key)) || new Set(Object.values(aliases)).size !== Object.keys(aliases).length ||
+      Object.values(aliases).some(id => !input.sources.some(source => source.id === id)))) throw Error("research_plan_alias_binding");
   const attempt: ResearchPlanAttempt = { version: 1, ordinal: input.ordinal, replyContentSha256: digest(input.content), replyBytes: Buffer.byteLength(input.content), truncated: input.truncated,
     accepted: false, bindingInspection: "not_run", errors: [], omittedErrorCount: 0, acceptedPlanSha256: null, repairContext: "not_used" };
   let plan: ResearchPlan | undefined, errors: SafePlanError[];

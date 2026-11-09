@@ -119,6 +119,21 @@ export function anthropicBody(input: { model: string; maxOutputTokens: number; m
     thinking: { type: "adaptive" }, output_config: { effort: "medium" }, service_tier: "standard_only", inference_geo: "global" });
 }
 
+/**
+ * Whether a reply's cache-write parts agree with its write count (backlog item 10): absent or null parts agree; given parts must
+ * be a plain object with only the provider's known keys, each a non-negative integer or null, summing to the count.
+ */
+export function cacheWritePartsAgree(parts: unknown, keys: readonly string[], total: number): boolean {
+  if (parts === undefined || parts === null) return true;
+  if (typeof parts !== "object" || Array.isArray(parts)) return false;
+  let sum = 0;
+  for (const [key, value] of Object.entries(parts)) {
+    if (!keys.includes(key) || (value !== null && !(typeof value === "number" && Number.isSafeInteger(value) && value >= 0))) return false;
+    sum += value ?? 0;
+  }
+  return sum === total;
+}
+
 const count = z.number().int().nonnegative().safe();
 const replySchema = z.object({
   type: z.literal("message"), role: z.literal("assistant"), model: z.string().min(1),
@@ -178,9 +193,8 @@ export function decodeAnthropicReply(bytes: Uint8Array, configuredModel: string)
   const kept = cut || reply.stop_reason === "tool_use" ? toolCalls : [];
   const written = usage.cache_creation_input_tokens ?? 0, read = usage.cache_read_input_tokens ?? 0;
   const thinking = usage.output_tokens_details?.thinking_tokens ?? undefined;
-  const parts = usage.cache_creation;
   const cacheWriteReported = typeof usage.cache_creation_input_tokens === "number" &&
-    (parts === undefined || parts === null || (parts.ephemeral_5m_input_tokens ?? 0) + (parts.ephemeral_1h_input_tokens ?? 0) === usage.cache_creation_input_tokens);
+    cacheWritePartsAgree(usage.cache_creation, ["ephemeral_5m_input_tokens", "ephemeral_1h_input_tokens"], usage.cache_creation_input_tokens);
   return { model: reply.model, content: /\S/u.test(text) ? text : "", toolCalls: kept, finishReason,
     promptTokens: usage.input_tokens + written + read, completionTokens: usage.output_tokens, cachedTokens: read, cacheWriteTokens: written,
     ...(thinking !== undefined ? { thinkingTokens: thinking } : {}), cacheWriteReported };

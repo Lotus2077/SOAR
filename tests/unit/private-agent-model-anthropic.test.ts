@@ -293,3 +293,22 @@ describe("the assist no-write cache mode on the Anthropic shape (backlog item 10
     expect((await run(assistModelConfig("anthropic_messages", "none"), "research plan")).usage?.cacheWriteTokens).toBe(0);
   });
 });
+
+describe("an assist's proof of zero writes on the Anthropic shape (backlog item 10)", () => {
+  const assist = assistModelConfig("anthropic_messages"), oneShot: GeneralMessage[] = [{ role: "system", content: "Plan." }, { role: "user", content: "Brief." }];
+  const answer = (fields: Record<string, unknown>) => () => reply([{ type: "text", text: "{}" }], { usage: { input_tokens: 80, output_tokens: 10, service_tier: "standard", inference_geo: "global", ...fields } });
+  it.each<[string, Record<string, unknown>, boolean]>([
+    ["no write count", {}, false], ["a null write count", { cache_creation_input_tokens: null }, false], ["a write count with no parts", { cache_creation_input_tokens: 0 }, true],
+    ["null parts", { cache_creation_input_tokens: 0, cache_creation: null }, true],
+    ["parts that agree", { cache_creation_input_tokens: 0, cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 0 } }, true],
+    ["parts that disagree", { cache_creation_input_tokens: 0, cache_creation: { ephemeral_5m_input_tokens: 7 } }, false],
+    ["an unknown part", { cache_creation_input_tokens: 0, cache_creation: { ephemeral_30m_input_tokens: 7 } }, false],
+  ])("reports %s as %s", async (_name, fields, reported) => {
+    const result = await fixture(answer(fields), assist).model.complete(oneShot, [], new AbortController().signal, { purpose: PLAN_ASSIST_PURPOSE });
+    expect(result.cacheWriteReported).toBe(reported);
+  });
+  it("adds nothing to any other call's result", async () => {
+    const result = await fixture(answer({ cache_creation_input_tokens: 0 })).model.complete(oneShot, [], new AbortController().signal, { purpose: "research plan" });
+    expect(result).not.toHaveProperty("cacheWriteReported");
+  });
+});

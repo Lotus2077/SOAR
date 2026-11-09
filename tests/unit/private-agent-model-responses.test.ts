@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PrivateAgentBroker } from "../../src/main/private-agent/broker";
+import { digest } from "../../src/main/private-agent/contracts";
 import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
 import { ModelRequestBodyTooLarge, PrivateAgentModel, responsesInput, type GeneralMessage, type PrivateModelConfig } from "../../src/main/private-agent/model";
 import { buildCloudArm } from "../../scripts/private-agent-local-screen";
@@ -287,29 +288,95 @@ describe("the assist no-write cache mode on the Responses shape (backlog item 10
   });
 });
 
-describe("requestBody is the dispatched body (backlog item 10)", () => {
+describe("every existing body and reservation is unchanged, and requestBody is the dispatched body (backlog item 10)", () => {
+  /** Computed with model.ts at 2982ca7, before 10.a: the request body's sha256 and the reserved fee for each case. */
+  const BEFORE_10A: Record<string, { body: string; fee: number }> = {
+    "vllm salted, thinking": { body: "ebdca8618d4778482b2b1fc84b34743e035b64699aad05a41471597c0c7e487a", fee: 0 },
+    "vllm salted, thinking off": { body: "63aaa865a14417f8d4c2164cb59b2d449a6d98e2a57566b41f55fe5250106bfe", fee: 0 },
+    "vllm unsalted with sampling": { body: "2c39d28870d66f4e7ad2ab84cdeeada5af65fb636d354d91592acd45083e58fa", fee: 0 },
+    "vllm unsalted, thinking off": { body: "d5eb5f4108c5b55887356ab9e183682ca91c6d362fb37412de70541830da4abd", fee: 0 },
+    "Flash contract": { body: "47181a9aa49ab5420c4a8dcffff8fe01bc2c771d2722e19fa11525dbe0a36122", fee: 0 },
+    "Flash contract, thinking off": { body: "24f201df85df62474fc579d94a7e62999347a50e831427dd9a44eb3a2f31a937", fee: 0 },
+    "chat": { body: "57faba5eaeb84787d32a2511748aa738b327fdffec25f7ecee1eeee838a3d0e7", fee: 165232 },
+    "chat, thinking off": { body: "424d7c66144a7cc5b67562205c20ff2a0b778586edf2069585bc1d34a235d7ac", fee: 164190 },
+    "Responses": { body: "e058d2258359f87fcc40152ed1e97b565f058046e36818739b171afc32602854", fee: 165348 },
+    "Responses, thinking off": { body: "b4a72917e0b94dc52d3b39b35b03c84415b505f1bbeb350e0b9b7af983190215", fee: 3018 },
+    "Responses, breakpoints": { body: "2ce061c5ab41999d7995a0b68ce274b47534ea8bbfe9b04632ca936a80ed985f", fee: 165896 },
+    "Responses, breakpoints, long context, one-shot": { body: "cff167c579ed63f1acf35d94259b3e4f32ca79a7ac33fb863863b28ea96fb435", fee: 82800 },
+    "Anthropic, layout 2": { body: "b5891bdd88be970ca065885d7ed3349916c7b4df8dc6d1f04f4b935eaa9dc19b", fee: 166168 },
+    "Anthropic, breakpoints, one-shot": { body: "947b29099e95425b873f2aa8689529335ff07157e023661a387aeb1f538bfeb5", fee: 82753 },
+    "Anthropic, no cache field": { body: "fbcbcbad71cc701e1a22aa75be3d6df6903519f5a3d1b5eba7bdfadab0529fe8", fee: 164555 }
+  };
   const flash: PrivateModelConfig = { destinationId: "local", model: "flash", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium",
     localReplyContract: "flash_next_v1", localContextTokens: 65_536 };
   const vllm: PrivateModelConfig = { destinationId: "local", model: "local", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium", promptCaching: "vllm_job_salt_v1", streaming: true };
+  const plain: PrivateModelConfig = { destinationId: "local", model: "local", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium", sampling: { temperature: 0.6, top_p: 0.95, top_k: 20 } };
   const anthropic: PrivateModelConfig = { ...config, model: "claude-sonnet-5-5", api: "anthropic_messages", cachedInputUsdPerMillion: 0.1, cacheWriteUsdPerMillion: 2.5 };
+  const long: PrivateModelConfig = { ...config, cacheWriteUsdPerMillion: 2.5, promptCaching: "responses_explicit_v1",
+    longContext: { aboveTokens: 272_000, inputUsdPerMillion: 4, outputUsdPerMillion: 15, cachedInputUsdPerMillion: 0.4, cacheWriteUsdPerMillion: 5 } };
   const oneShot: GeneralMessage[] = [{ role: "system", content: "Plan." }, { role: "user", content: "Brief." }];
   const layout2: GeneralMessage[] = [...conversation.slice(0, 4), { role: "user", content: "Guidance." }];
-  const cases: [string, PrivateModelConfig, GeneralMessage[], boolean, Parameters<PrivateAgentModel["complete"]>[3]][] = [
+  type Case = [string, PrivateModelConfig, GeneralMessage[], boolean, Parameters<PrivateAgentModel["complete"]>[3]];
+  const existing: Case[] = [
     ["vllm salted, thinking", vllm, layout2, true, undefined], ["vllm salted, thinking off", vllm, oneShot, false, { thinking: "disabled", maxOutputTokens: 256 }],
+    ["vllm unsalted with sampling", plain, layout2, true, undefined], ["vllm unsalted, thinking off", plain, oneShot, false, { thinking: "disabled" }],
     ["Flash contract", flash, layout2, true, undefined], ["Flash contract, thinking off", flash, oneShot, false, { thinking: "disabled" }],
     ["chat", { ...config, api: "openai" }, layout2, true, undefined], ["chat, thinking off", { ...config, api: "openai" }, oneShot, false, { thinking: "disabled" }],
-    ["Responses", config, layout2, true, { trailingTurnMessage: true }], ["Responses, breakpoints", { ...config, promptCaching: "responses_explicit_v1" }, layout2, true, undefined],
-    ["Responses, no-write assist", { ...config, promptCaching: "assist_no_cache_write_v1" }, oneShot, false, { purpose: PLAN_ASSIST_PURPOSE, maxOutputTokens: 8192 }],
+    ["Responses", config, layout2, true, { trailingTurnMessage: true }], ["Responses, thinking off", config, oneShot, false, { thinking: "disabled", maxOutputTokens: 256 }],
+    ["Responses, breakpoints", { ...config, promptCaching: "responses_explicit_v1" }, layout2, true, undefined],
+    ["Responses, breakpoints, long context, one-shot", long, oneShot, false, { maxOutputTokens: 8192, purpose: "research plan" }],
     ["Anthropic, layout 2", { ...anthropic, promptCaching: "anthropic_explicit_5m_v1" }, layout2, true, { trailingTurnMessage: true }],
+    ["Anthropic, breakpoints, one-shot", { ...anthropic, promptCaching: "anthropic_explicit_5m_v1" }, oneShot, false, { maxOutputTokens: 8192, purpose: "research plan" }],
     ["Anthropic, no cache field", anthropic, oneShot, false, undefined],
-    ["Anthropic, no-write assist", { ...anthropic, promptCaching: "assist_no_cache_write_v1" }, oneShot, false, { purpose: SYNTHESIS_ASSIST_PURPOSE }],
   ];
-  it.each(cases)("on %s", async (_name, modelConfig, messages, withTools, overrides) => {
-    let sent = "";
-    const broker = { request: async (input: { body: string }) => { sent = input.body; throw new Error("capture_only"); } } as unknown as PrivateAgentBroker;
+  const assist: Case[] = [["Responses, no-write assist", { ...config, promptCaching: "assist_no_cache_write_v1" }, oneShot, false, { purpose: PLAN_ASSIST_PURPOSE, maxOutputTokens: 8192 }],
+    ["Anthropic, no-write assist", { ...anthropic, promptCaching: "assist_no_cache_write_v1" }, oneShot, false, { purpose: SYNTHESIS_ASSIST_PURPOSE }]];
+  const capture = async ([, modelConfig, messages, withTools, overrides]: Case) => {
+    let body = "", fee = -1;
+    const broker = { request: async (input: { body: string; maxFeeMicrousd: number }) => { body = input.body; fee = input.maxFeeMicrousd; throw new Error("capture_only"); } } as unknown as PrivateAgentBroker;
     const model = new PrivateAgentModel(broker, modelConfig, "00000000-0000-4000-8000-000000000001", "context"), tools = withTools ? [tool] : [];
     await model.complete(messages, tools, new AbortController().signal, overrides).catch(() => undefined);
-    expect(sent).not.toBe("");
-    expect(model.requestBody(messages, tools, overrides).body).toBe(sent);
+    return { body, fee, built: model.requestBody(messages, tools, overrides).body };
+  };
+  it.each(existing)("keeps %s byte for byte, with its reservation", async (...row) => {
+    const { body, fee, built } = await capture(row);
+    expect({ body: digest(body), fee }).toEqual(BEFORE_10A[row[0]]);
+    expect(built).toBe(body);
+  });
+  it.each(assist)("sends %s as requestBody builds it", async (...row) => {
+    const { body, built } = await capture(row);
+    expect(body).not.toBe(""); expect(built).toBe(body);
+    expect(body).not.toMatch(/prompt_cache_breakpoint|cache_control/u);
+  });
+});
+
+describe("an assist's proof of zero writes on the Responses shape (backlog item 10)", () => {
+  const assist = assistModelConfig("openai_responses"), oneShot: GeneralMessage[] = [{ role: "system", content: "Plan." }, { role: "user", content: "Brief." }];
+  const reply = (details: unknown) => () => ({ model: "gpt-6-sol", service_tier: "default", status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "{}" }] }],
+    usage: { input_tokens: 80, output_tokens: 10, ...(details === undefined ? {} : { input_tokens_details: details }) } });
+  it.each<[string, unknown, boolean]>([
+    ["no details at all", undefined, false], ["no write count", { cached_tokens: 0 }, false],
+    ["a write count with no parts", { cached_tokens: 0, cache_write_tokens: 0 }, true], ["null parts", { cache_write_tokens: 0, cache_write_tokens_details: null }, true],
+    ["parts that agree", { cache_write_tokens: 0, cache_write_tokens_details: { ttl_30m_tokens: 0, ttl_12h_tokens: null } }, true],
+    ["parts that disagree", { cache_write_tokens: 0, cache_write_tokens_details: { ttl_30m_tokens: 40 } }, false],
+    ["an unknown part", { cache_write_tokens: 0, cache_write_tokens_details: { ttl_1h_tokens: 40 } }, false],
+    ["parts as an array", { cache_write_tokens: 0, cache_write_tokens_details: [0] }, false],
+  ])("reports %s as %s", async (_name, details, reported) => {
+    const result = await fixture(reply(details), assist).model.complete(oneShot, [], new AbortController().signal, { purpose: PLAN_ASSIST_PURPOSE });
+    expect(result.cacheWriteReported).toBe(reported);
+  });
+  it("refuses a null write count while settling: the decoder never reads it as zero", async () => {
+    await expect(fixture(reply({ cached_tokens: 0, cache_write_tokens: null }), assist).model.complete(oneShot, [], new AbortController().signal, { purpose: PLAN_ASSIST_PURPOSE })).rejects.toThrow();
+  });
+  it("adds nothing to any other call's result, and refuses a one-shot that would lose text, a thinking override or a trailing turn", async () => {
+    const plain = await fixture(reply({ cache_write_tokens: 0 }), { ...assist, promptCaching: "responses_explicit_v1" }).model.complete(oneShot, [], new AbortController().signal, { purpose: "research plan" });
+    expect(plain).not.toHaveProperty("cacheWriteReported");
+    const f = fixture(reply({ cache_write_tokens: 0 }), assist), signal = new AbortController().signal;
+    for (const [messages, overrides] of [[[{ role: "system", content: "Plan." }, { role: "user", content: "" }], undefined], [[{ role: "system", content: null }, { role: "user", content: "Brief." }], undefined],
+      [oneShot, { thinking: "disabled" as const }], [oneShot, { trailingTurnMessage: true }], [[{ role: "system", content: "Plan." }, { role: "user", content: "Brief.", tool_call_id: "call_1" }], undefined],
+      [[{ role: "user", content: "Plan." }, { role: "system", content: "Brief." }], undefined]] as const) {
+      await expect(f.model.complete([...messages] as GeneralMessage[], [], signal, { purpose: PLAN_ASSIST_PURPOSE, ...(overrides ?? {}) })).rejects.toThrow("private_model_assist_request_invalid");
+    }
+    expect(f.requests).toHaveLength(0);
   });
 });

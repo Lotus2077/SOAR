@@ -116,9 +116,12 @@ describe("T1, the plan assist packet", () => {
       expect(rejected.plan).toBeUndefined();
       expect(rejected.attempt.errors).toEqual([{ code: "unknown_source_id", path: ["questions", 0, "sourceIds", 0] }]);
     }
-    // An alias map that names an unknown source is a host error, never a binding.
-    expect(() => assessResearchPlanReply({ content: outcome.content, truncated: false, ordinal: 1, units: run.plan.units, sources: run.plan.sources, sourceAliases: { S1: "input/elsewhere.md" } }))
-      .toThrow("research_plan_alias_binding");
+    // An alias map that names an unknown source, keys a real id, or names one source twice is a host error, never a binding.
+    const ids = run.plan.sources.map(s => s.id);
+    const maps: Record<string, string>[] = [{ S1: "input/elsewhere.md" }, { [ids[1]!]: ids[0]! }, { S1: ids[0]!, S2: ids[0]! }, { S0: ids[0]! }, { s1: ids[0]! }];
+    for (const sourceAliases of maps) {
+      expect(() => assessResearchPlanReply({ content: outcome.content, truncated: false, ordinal: 1, units: run.plan.units, sources: run.plan.sources, sourceAliases })).toThrow("research_plan_alias_binding");
+    }
   });
 
   it("refuses an authored brief over 8 KiB as a recorded fallback, never trimmed, and stops on one that is not the goal's prefix", async () => {
@@ -135,7 +138,7 @@ describe("T1, the plan assist packet", () => {
     expect(f.requests).toHaveLength(1);
   });
 
-  it("cuts every gist to one common length, the largest that fits 32 KiB, and counts the trim", () => {
+  it("cuts every gist to one common length, the largest that fits 32 KiB, back to a word boundary, and counts the trim", () => {
     const sources = Array.from({ length: 40 }, (_, i) => ({ id: `input/s${String(i).padStart(2, "0")}.md`, path: `input/s${String(i).padStart(2, "0")}.md`, sha256: "0".repeat(64), bytes: 10 }));
     const authored = `${"Requirement text. ".repeat(400)}\n`, units = deriveBriefUnits(authored);
     const entry = (id: string, i: number) => ({ sourceId: id, sourceSha256: "0".repeat(64), bytes: 10, lines: 1, title: "", date: "", gist: `${"word ".repeat(119)}${i}`, figures: [], modelStatus: "model_complete" as const,
@@ -150,9 +153,10 @@ describe("T1, the plan assist packet", () => {
     expect(built.requestBytes).toBeLessThanOrEqual(ASSIST_BOUNDS.planBodyBytes);
     expect(built.packet.gistsTrimmed).toBe(40);
     const max = built.packet.gistMaxChars!, gists = (JSON.parse(built.user).sources as { gist: string }[]).map(s => s.gist);
-    expect(gists.every(g => [...g].length === max)).toBe(true);
-    // One more code point per gist would not fit.
-    const wider = JSON.parse(built.user); wider.sources = wider.sources.map((s: any, i: number) => ({ ...s, gist: [...request.sourceIndex.sources[i]!.gist].slice(0, max + 1).join("") }));
+    // Each cut gist is a whole-word prefix of its gist, at most max code points: no alias or placeholder is cut into another.
+    gists.forEach((gist, i) => { const full = request.sourceIndex.sources[i]!.gist; expect([...gist].length).toBeLessThanOrEqual(max); expect(full.startsWith(gist)).toBe(true); expect(full[gist.length]).toBe(" "); });
+    // One more word per gist would not fit.
+    const wider = JSON.parse(built.user); wider.sources = wider.sources.map((s: any, i: number) => ({ ...s, gist: request.sourceIndex.sources[i]!.gist.split(" ").slice(0, s.gist.split(" ").length + 1).join(" ") }));
     expect(Buffer.byteLength(model.requestBody([{ role: "system", content: PLAN_ASSIST_SYSTEM }, { role: "user", content: canonical(wider) }], [], { maxOutputTokens: 8192, purpose: PLAN_ASSIST_PURPOSE }).body)).toBeGreaterThan(ASSIST_BOUNDS.planBodyBytes);
   });
 });
@@ -401,6 +405,8 @@ describe("zero cache writes on both shapes", () => {
       expect(outcome.usage.cacheWriteTokens).toBe(0);
       expect(attemptRecord(outcome).usage).toMatchObject({ cacheWriteTokens: 0, cacheWriteReported: true });
     }
+    // The mode marks nothing at all, whatever the prompt's size: the proof is the mechanism, not a minimum.
+    for (const request of f.requests) expect(request.body).not.toMatch(/prompt_cache_breakpoint|cache_control/u);
     // Negative control: each body is long enough to be written under the provider's default handling.
     for (const request of f.requests) {
       const body = JSON.parse(request.body);
@@ -422,7 +428,11 @@ describe("the assist protocol block and the records", () => {
   it("binds the prompts, bounds, caps, cache mode, policy and codes, and leaves the default research protocol unchanged", () => {
     const block = researchAssistProtocol("forced_split");
     expect(block).toMatchObject({ version: 1, firing: "forced_split", prompts: { plan: PLAN_ASSIST_SYSTEM, synthesis: SYNTHESIS_ASSIST_SYSTEM }, bounds: ASSIST_BOUNDS,
-      outputTokens: ASSIST_OUTPUT_TOKENS, thinking: "model", cacheMode: "assist_no_cache_write_v1", triggers: { rejectedLocalPlans: 2, refusedLocalSyntheses: 2 } });
+      outputTokens: ASSIST_OUTPUT_TOKENS, thinking: "model_medium_only", cacheMode: "assist_no_cache_write_v1", triggers: { rejectedLocalPlans: 2, refusedLocalSyntheses: 2 } });
+    // The patterns that apply the rules are bound too, so changing a matcher changes the block.
+    expect(block.packet.patterns.url.length).toBeGreaterThan(3);
+    expect(block.packet.patterns.path.length).toBeGreaterThan(5);
+    expect(block.packet.evidenceTemplate).toContain("notes withheld");
     expect(researchAssistProtocolSha256("forced_split")).toBe(researchAssistProtocolSha256("forced_split"));
     expect(researchAssistProtocolSha256("forced_split")).not.toBe(researchAssistProtocolSha256("local_first"));
     expect(researchProtocolSha256()).toBe("3453710315d7226ea4d6195ec7401d000f86c5b0d9afa9839a801d5c6d391262");
@@ -446,5 +456,107 @@ describe("the assist protocol block and the records", () => {
     const goal = assistComposedGoal();
     expect(goal.startsWith(ASSIST_AUTHORED_BRIEF)).toBe(true);
     expect(goal.slice(ASSIST_AUTHORED_BRIEF.length)).toContain(PLANTED.alphaId);
+  });
+});
+
+describe("the code review's cases: names, paths, URLs and digests in any form", () => {
+  const model = () => new PrivateAgentModel(capturingBroker(() => ({})).broker, assistModelConfig("openai_responses"), "job", "reader");
+  /** The fixture's T1 and T2 requests with the first source renamed and the first gist, plan text or first quote replaced. */
+  async function variant(edit: { id?: string; gist?: string; question?: string; quote?: string; locator?: string; extraPlanKey?: boolean }) {
+    const run = await assistRequests(), first = run.plan.sources[0]!, id = edit.id ?? first.id;
+    const sources = run.plan.sources.map((s, i) => i === 0 ? { ...s, id, path: edit.id ?? s.path } : s);
+    const sourceIndex = { version: 2 as const, sources: run.plan.sourceIndex.sources.map((entry, i) => i === 0 ? { ...entry, sourceId: id, ...(edit.gist !== undefined ? { gist: edit.gist } : {}) } : entry) };
+    const remap = (sourceId: string) => sourceId === first.id ? id : sourceId;
+    const plan = { ...run.synthesis.plan, ...(edit.extraPlanKey ? { rationale: `see ${PLANTED.alphaId}` } : {}),
+      questions: run.synthesis.plan.questions.map((q, i) => ({ ...q, sourceIds: q.sourceIds.map(remap), ...(i === 0 && edit.question !== undefined ? { text: edit.question } : {}) })) };
+    const evidence = { ...run.synthesis.evidence, conflicts: run.synthesis.evidence.conflicts.map(c => ({ ...c, sourceId: remap(c.sourceId) })),
+      quotes: run.synthesis.evidence.quotes.map((q, i) => ({ ...q, sourceId: remap(q.sourceId), ...(i === 0 && edit.quote !== undefined ? { quote: edit.quote } : {}), ...(i === 0 && edit.locator !== undefined ? { locator: edit.locator } : {}) })) };
+    const t1 = buildPlanAssistPacket(frozen({ ...run.plan, sources, sourceIndex }), { firing: "forced_split", authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() });
+    const t2 = buildSynthesisAssistPacket(frozen({ ...run.synthesis, sources, sourceIndex, plan, evidence }), { authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() });
+    return { run, t1, t2, alias: `S1` };
+  }
+  const gistOf = (built: ReturnType<typeof buildPlanAssistPacket>) => { if (!built.ok) throw new Error(built.code); return JSON.parse(built.user).sources[0].gist as string; };
+  const t2Of = (built: ReturnType<typeof buildSynthesisAssistPacket>) => { if (!built.ok) throw new Error(built.code); return JSON.parse(built.user) as Record<string, any>; };
+
+  it("replaces absolute, home, Windows, UNC and backslash paths, whole URLs with digests or brackets in them, scheme-less hosts and IPv4 addresses", async () => {
+    const gist = ["from /Users/alice/Clients/Acme/merger-plan.docx", "~/Documents/Acme/merger-plan.docx", "C:\\Users\\alice\\Acme\\merger-plan.docx", "\\\\fileserver\\share\\plan.docx",
+      "Acme\\plans\\merger.docx", `https://files.acme.example/share/${"a".repeat(64)}/board-minutes-q3.pdf`, "https://acme.example/x?names[]=Alice+Smith&case=4471",
+      "https://acme.example/HR_(layoffs_2025)/list", "github.com/acme-corp/merger-tools-private", "10.20.30.40/admin/backup-keys", "(see https://acme.example/a)."].join("; ");
+    expect(gistOf((await variant({ gist })).t1)).toBe("from [file]; [file]; [file]; [file]; [file]; [url]; [url]; [url]; [url]; [url]; (see [url]).");
+  });
+
+  it("replaces a source's name glued to other text, with another extension, without its extension, or in dotted capitals", async () => {
+    const { run, t1 } = await variant({ gist: "copy_of_alpha-field-notes.md, old-alpha-field-notes.md, alpha-field-notes.md.bak, alpha-field-notes.mdx, beta-ledger.xlsx, alpha-field-notes-v2, annual-2025.pdf" });
+    const a = aliasOf(run, 0), b = aliasOf(run, 1), w = aliasOf(run, 2);
+    expect(gistOf(t1)).toBe(`copy_of_${a}, old-${a}, ${a}, ${a}, ${b}, ${a}-v2, ${w}`);
+    const turkish = await variant({ id: "input/corpus/İzmir-rapor-2024.md", gist: "Bkz. İzmir-rapor-2024.md tablosu ve izmir-rapor-2024.md." });
+    expect(gistOf(turkish.t1)).toBe("Bkz. S1 tablosu ve S1.");
+  });
+
+  it("matches names through zero-width characters, soft hyphens and Unicode hyphens, and finds a known digest's prefix, tail or 0x form", async () => {
+    const { run, t1 } = await variant({ gist: "alpha-field-\u200bnotes.md, alpha\u00ad-field-notes.md, alpha\u2010field\u2010notes.md" });
+    const a = aliasOf(run, 0);
+    expect(gistOf(t1)).toBe(`${a}, ${a}, ${a}`);
+    const hash = run.plan.sources[0]!.sha256;
+    expect(gistOf((await variant({ gist: `0x${hash.slice(0, 20)}, tail ${hash.slice(40)}, short ${hash.slice(0, 9)}` })).t1)).toBe("0x[digest], tail [digest], short [digest]");
+  });
+
+  it("keeps a stem in the owner's brief and in quotes, where it is a word, and replaces it in model text", async () => {
+    const stemmed = await variant({ id: "input/data/budget_2024_acme", gist: "see budget_2024_acme and 1x2Y3z4W5v6U7t8S9r0QpOn" });
+    expect(gistOf(stemmed.t1)).toBe("see S1 and 1x2Y3z4W5v6U7t8S9r0QpOn");
+    const opaque = await variant({ id: "https://docs.example/document/d/1x2Y3z4W5v6U7t8S9r0QpOn/view", gist: "doc 1x2Y3z4W5v6U7t8S9r0QpOn" });
+    expect(gistOf(opaque.t1)).toBe("doc S1");
+    const quoted = t2Of((await variant({ id: "input/data/budget_2024_acme", quote: "The budget_2024_acme line holds twelve entries." })).t2);
+    expect(quoted.evidenceText).toContain("The budget_2024_acme line holds twelve entries.");
+  });
+
+  it("replaces file paths and URLs inside verified quotes too, and sends only the plan schema's fields", async () => {
+    const { t2 } = await variant({ quote: "See /Users/alice/x.docx and https://elsewhere.test/a for the tally.", extraPlanKey: true });
+    const packet = t2Of(t2);
+    expect(packet.evidenceText).toContain("See [file] and [url] for the tally.");
+    expect(Object.keys(packet.plan).sort()).toEqual(["conflictsToCheck", "deliverableNotes", "questions", "version"]);
+    expect((await variant({ locator: "line 3 of input/corpus/alpha-field-notes.md" })).t2).toMatchObject({ ok: false, code: ASSIST_CODES.requestInvalid });
+  });
+
+  it("keeps a root URL's host bounded, and never audits the fixed schema against a json-schema.org source", async () => {
+    const root = await variant({ id: "https://example.org/", gist: "notexample.org, example.organization, example.org.au, www.example.org, https://example.org" });
+    expect(gistOf(root.t1)).toBe("notexample.org, example.organization, example.org.au, www.S1, S1");
+    expect((await variant({ id: "https://json-schema.org/draft/2020-12/schema" })).t1.ok).toBe(true);
+  });
+
+  it("refuses copies the audit reads case-folded and with names kept: an uppercased opening, a source passage naming a file", async () => {
+    const run = await assistRequests(), opening = run.plan.sourceIndex.sources[1]!.literal.opening.text;
+    expect((await variant({ gist: opening.slice(0, 120).toUpperCase() })).t1).toMatchObject({ ok: false, packet: { auditFinding: "literal_text" } });
+    expect((await variant({ question: "Is it true that the ledger cites alpha-field-notes.md as its source for the orchard tally?" })).t2).toMatchObject({ ok: false, packet: { auditFinding: "literal_text" } });
+  });
+
+  it("scans a hostile brief in linear time and refuses a T2 brief too large for its body before any scan", async () => {
+    const hostile = `${"a.a.".repeat(1900)}\n`, run = await assistRequests({ authored: hostile });
+    const started = performance.now();
+    expect(buildPlanAssistPacket(run.plan, { firing: "forced_split", authoredBrief: hostile, model: model() }).ok).toBe(true);
+    expect(buildSynthesisAssistPacket(run.synthesis, { authoredBrief: hostile, model: model() }).ok).toBe(true);
+    expect(performance.now() - started).toBeLessThan(5_000);
+    const huge = `${"Brief sentence. ".repeat(3200)}\n`, big = await assistRequests({ authored: huge });
+    expect(buildSynthesisAssistPacket(big.synthesis, { authoredBrief: huge, model: model() })).toMatchObject({ ok: false, code: ASSIST_CODES.packetSize });
+  });
+
+  it("lets a cancel win over a used slot, refuses a thinking-off assist model, and checks the stage record's own rules", async () => {
+    const run = await frozenRun(), f = cachingAssistModel("openai_responses", answer), assists = wrap(f.model);
+    await assists.plan!(run.plan, signal());
+    const aborted = new AbortController(); aborted.abort();
+    expect(await assists.plan!(run.plan, aborted.signal)).toMatchObject({ kind: "stop", code: "cancelled" });
+    expect(() => wrap(new PrivateAgentModel(capturingBroker(() => ({})).broker, { ...assistModelConfig("openai_responses"), thinking: "disabled" }, "job", "reader"))).toThrow("research_assist_config_invalid");
+    const settled = { version: 1, touchpoint: "T1", ordinal: 1, retryAfterTruncation: false, outcome: "settled", dispatched: true, finish: "stop", feeMicrousd: 1,
+      usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0, cacheWriteReported: true } };
+    const skipped = { version: 1, touchpoint: "T1", ordinal: 1, retryAfterTruncation: false, outcome: "skipped", code: "transport_or_settlement_unknown", dispatched: true };
+    const stage = { version: 1, touchpoint: "T1", policy: "forced_split", fired: true, trigger: "forced_split", accepted: false };
+    const zero = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+    expect(ResearchAssistStageRecordSchema.safeParse({ ...stage, attempts: [skipped], outcome: "skipped", code: "transport_or_settlement_unknown", usage: zero }).success).toBe(false);
+    expect(ResearchAssistStageRecordSchema.safeParse({ ...stage, attempts: [{ ...settled, touchpoint: "T2" }], outcome: "settled", usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 } }).success).toBe(false);
+    expect(ResearchAssistStageRecordSchema.safeParse({ ...stage, fired: false, trigger: null, attempts: [settled], usage: null }).success).toBe(false);
+    expect(ResearchAssistStageRecordSchema.safeParse({ ...stage, attempts: [skipped], outcome: "skipped", accepted: true, usage: null }).success).toBe(false);
+    expect(ResearchAssistStageRecordSchema.safeParse({ ...stage, attempts: [settled], outcome: "settled", accepted: true, usage: zero }).success).toBe(false);
+    expect(ResearchAssistStageRecordSchema.safeParse({ ...stage, attempts: [settled], outcome: "settled", accepted: true, usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 } }).success).toBe(true);
+    expect(ResearchAssistStageRecordSchema.safeParse({ ...stage, fired: false, trigger: null, attempts: [], usage: null }).success).toBe(true);
   });
 });

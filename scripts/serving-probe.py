@@ -265,6 +265,15 @@ def extraction_layouts(system: str, packet: Dict[str, Any], chunk: Dict[str, Any
             "stable_prefix": [{"role": "system", "content": system}, {"role": "user", "content": stable_user}]}
 
 
+def cache_layouts_record(packet: Dict[str, Any], chunks: List[Dict[str, Any]], layouts: Dict[str, Any]) -> Dict[str, Any]:
+    """P11's cache_layouts block: the pipeline's layout descriptor, then packet_* over the stable packet (the first line every
+    extraction request of a job shares; since 7b.1 it holds no source), the chunks' digests and sizes, and the layouts' rows."""
+    stable = canonical_json(stable_packet(packet))
+    return {"stable_prefix_layout": EXTRACTION_LAYOUT, "packet_sha256": sha256_text(stable), "packet_bytes": len(stable.encode("utf-8")),
+            "chunk_sha256": [sha256_text(chunk["text"]) for chunk in chunks], "chunk_bytes": [chunk["endByte"] for chunk in chunks],
+            "layouts": layouts}
+
+
 def stable_prefix_of(messages: List[Dict[str, str]]) -> str:
     """The part of a stable_prefix layout before its chunk (what a second request can reuse)."""
     return messages[1]["content"].split("\n", 1)[0]
@@ -808,11 +817,7 @@ def probe_p11(ep: Endpoint, card: dict, ctx: dict) -> dict:
                          "cached_tokens": result.get("cached_tokens"), "ttft_s": result.get("ttft_s"), "total_s": result.get("total_s")})
         layouts[layout_name] = {"requests": rows, "cache_salt_accepted": all(row["status"] == 200 for row in rows),
                                 "second_request_cached_tokens": rows[-1]["cached_tokens"] if rows else None}
-    # packet_* cover the stable packet, the first line every extraction request of a job shares (since 7b.1, without the source).
-    stable = canonical_json(stable_packet(packet))
-    out["cache_layouts"] = {"stable_prefix_layout": EXTRACTION_LAYOUT, "packet_sha256": sha256_text(stable), "packet_bytes": len(stable.encode("utf-8")),
-                            "chunk_sha256": [sha256_text(chunk["text"]) for chunk in chunks], "chunk_bytes": [chunk["endByte"] for chunk in chunks],
-                            "layouts": layouts}
+    out["cache_layouts"] = cache_layouts_record(packet, chunks, layouts)
     k_streams: Dict[str, Any] = {}
     for k in args.p11_ks:
         results, samples = run_streams(ep, ctx["prose"], 900, k)

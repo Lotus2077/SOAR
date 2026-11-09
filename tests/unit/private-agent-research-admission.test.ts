@@ -55,22 +55,46 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       ["Write the report in at most 1,000 words.", 1000], ["No more than 750 words, please.", 750], ["not more than 640 words", 640], ["Use up to 2000 words.", 2000],
       ["Keep it under 900 words.", 900], ["fewer than 300 words", 300], ["less than 1,250 words", 1250], ["A maximum of 1,200 words.", 1200], ["maximum 450 words", 450],
       ["Max. 800 words", 800], ["max of 650 words", 650], ["not to exceed 3,000 words", 3000], ["Not exceeding 2,200 words.", 2200], ["limited to 1500 words", 1500],
-      ["capped at 4,000 words", 4000], ["1,200 words maximum", 1200], ["800 words max", 800], ["1000 words at most", 1000], ["600 words or fewer", 600],
+      ["capped at 4,000 words", 4000], ["Do not exceed 1,000 words.", 1000], ["It must not exceed 2,000 words.", 2000], ["The report shouldn't exceed 1,500 words.", 1500],
+      ["never exceed 900 words", 900], ["1,200 words maximum", 1200], ["800 words max", 800], ["1000 words at most", 1000], ["600 words or fewer", 600],
       ["500 words or less", 500], ["Word limit: 1,500.", 1500], ["word limit of 2000", 2000], ["Word count limit is 2,400.", 2400], ["word limit 900", 900],
-      ["2,500-6,000 words", 6000], ["2,500–6,000 words", 6000], ["1000 to 1500 words", 1500], ["between 800 and 1,200 words", 1200], ["at most 1 word", 1],
-      ["AT MOST 1,000 WORDS", 1000], ["at\nmost\t1,000   words", 1000], ["at most １，０００ words", 1000],
+      ["Word limit: 2,000-2,500.", 2500], ["word limit 1000 to 1500", 1500],
+      ["2,500-6,000 words", 6000], ["2,500\u20136,000 words", 6000], ["1000 to 1500 words", 1500], ["between 800 and 1,200 words", 1200],
+      ["Give each question a 2-3 word label; keep the report under 2,000 words.", 2000], ["Keep it under 900 words, not counting references.", 900],
+      ["AT MOST 1,000 WORDS", 1000], ["at\nmost\t1,000   words", 1000], ["at most \uff11\uff0c\uff10\uff10\uff10 words", 1000],
     ];
     for (const [brief, limit] of cases) expect([brief, briefWordLimit(brief)]).toEqual([brief, limit]);
   });
-  it("lets the largest stated limit win, so a component's limit never shrinks the report's", () => {
+  it("lets the largest stated limit win, so a part's limit never shrinks the report's", () => {
     expect(briefWordLimit("Write at most 3,000 words, with an abstract of at most 200 words.")).toBe(3000);
     expect(briefWordLimit("An abstract of up to 150 words, then a report of 1,200-1,800 words.")).toBe(1800);
+    expect(briefWordLimit("No more than 900 words. Keep it under 1,500 words.")).toBe(1500);
   });
-  it("reads no limit from minimums, hyphenated adjectives, bare counts, other units or out-of-range numbers", () => {
-    for (const brief of ["Write at least 2,000 words.", "A minimum of 1,000 words.", "more than 500 words", "over 900 words", "Include a 500-word abstract.", "a 3,000-word report",
-      "The corpus holds 40,000 words.", "Write about 1,000 words.", "around 800 words", "at most 12 sources", "up to 10 pages", "at most 0 words", "at most 100,001 words", "",
-      "Describe the supplied synthetic observations and their limitations.", "6,000-2,500 words", "between 900 and 400 words", "1,00 words at most",
-      "No fewer than 800 words.", "not fewer than 300 words", "no less than 1,000 words", "Not less than 500 words.", "not under 900 words"]) expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
+  it("reads no limit from a minimum or a negated limit, wherever the negation sits in its clause", () => {
+    for (const brief of ["Write at least 2,000 words.", "A minimum of 1,000 words.", "more than 500 words", "over 900 words",
+      "No fewer than 800 words.", "not fewer than 300 words", "no less than 1,000 words", "Not less than 500 words.", "not under 900 words",
+      "nothing less than 900 words", "never fewer than 800 words", "never under 700 words", "It must not be under 1,500 words.", "Do not write under 800 words.",
+      "Don't go under 1,000 words.", "Don\u2019t go under 1,000 words.", "Under no circumstances fewer than 1,000 words.", "Fewer than 500 words is not acceptable.",
+      "Less than 1,000 words will be rejected.", "Under 600 words is too short.", "You are not limited to 1,000 words.", "It is not capped at 900 words.",
+      "You do not need to stay under 1,000 words."]) expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
+  });
+  it("reads no limit from a part of the report, a compound adjective, a bare or approximate count, or a value below 100 words", () => {
+    for (const brief of ["Write 2,500 words; abstract at most 150 words.", "An executive summary of at most 300 words.", "Use headings of 3-5 words.",
+      "at most 500 words per section", "Each section at most 400 words.", "a title of at most 120 words", "captions under 200 words",
+      "Give each question a 2-3 word label.", "a 5-10 word heading", "a 3\u20135 word title", "2 to 3 word phrases", "at most 3 word tags", "at most 1 word",
+      "Include a 500-word abstract.", "a 3,000-word report", "The corpus holds 40,000 words.", "Write about 1,000 words.", "around 800 words", "Write 2,500 words.",
+      "at most 12 words", "between 10 and 90 words", "at most 99 words"]) expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
+  });
+  it("reads no limit from other units, out-of-range, malformed, decimal or grouped numbers, or a reversed range", () => {
+    for (const brief of ["at most 12 sources", "up to 10 pages", "at most 0 words", "at most 100,001 words", "", "Describe the supplied synthetic observations and their limitations.",
+      "6,000-2,500 words", "between 900 and 400 words", "1,00 words at most", "Word limit: 1.500.", "word limit 2.000 words", "1.200 words max", "1,50 words at most",
+      "word count limit is 3.5k", "up to 12.5 words", "Word limit: 2.500", "Word limit: 2.5k", "Word limit: 2 500", "Word limit: 2\u00a0500", "2 500 words max",
+      "Section 3.200 words or fewer", "word limit: 2,500-2,000"]) expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
+  });
+  it("parses a 32 KiB adversarial brief in linear time", () => {
+    for (const brief of ["111,".repeat(8192), `between ${"111,".repeat(8190)}`, "\uff11\uff11\uff11\uff0c".repeat(8192), "at most ".repeat(4096), "words ".repeat(5461)]) {
+      const started = performance.now(); briefWordLimit(brief); expect(performance.now() - started).toBeLessThan(1000);
+    }
   });
   it("keeps today's 1,200 words while the role thinks, fits the reply when it does not, and defaults to 6,000 words", () => {
     expect(RESEARCH_SYNTHESIS_LENGTH_POLICY).toMatchObject({ defaultMaxWords: 6000, tokensPerWord: 1.245, replyOverheadTokens: 1024, thinkingCeilingWords: 1200, minimumWords: 100, enforcement: "recorded_not_enforced" });
@@ -82,17 +106,19 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
     expect(researchSynthesisLengthCap("No limit is stated.", { maxOutputTokens: 8192, thinking: "disabled" })).toEqual({ words: 5757, ceilingWords: 5757 });
     expect(researchSynthesisLengthCap("No limit is stated.", { maxOutputTokens: 16384, thinking: "disabled" })).toEqual({ words: 6000, ceilingWords: 12337 });
     expect(researchSynthesisLengthCap("No limit is stated.", { maxOutputTokens: 16384, thinking: "model" })).toEqual({ words: 1200, ceilingWords: 1200 });
-    // A stated limit wins below the ceiling and is clamped above it; criterion 6's minimum in a range is not used (the cap is an upper bound).
+    // A stated limit wins below the ceiling and is clamped above it; a range's lower end is not used (the cap is an upper bound).
     expect(researchSynthesisLengthCap("Write at most 1,000 words.", { maxOutputTokens: 8192, thinking: "model" })).toEqual({ words: 1000, ceilingWords: 1200, briefWordLimit: 1000 });
-    expect(researchSynthesisLengthCap("Write at most 12 words.", { maxOutputTokens: 8192, thinking: "model" })).toEqual({ words: 12, ceilingWords: 1200, briefWordLimit: 12 });
+    expect(researchSynthesisLengthCap("Write at most 150 words.", { maxOutputTokens: 8192, thinking: "model" })).toEqual({ words: 150, ceilingWords: 1200, briefWordLimit: 150 });
     expect(researchSynthesisLengthCap("Write 2,500-6,000 words.", { maxOutputTokens: 8192, thinking: "model" })).toEqual({ words: 1200, ceilingWords: 1200, briefWordLimit: 6000 });
     expect(researchSynthesisLengthCap("Write at most 8,000 words.", { maxOutputTokens: 16384, thinking: "disabled" })).toEqual({ words: 8000, ceilingWords: 12337, briefWordLimit: 8000 });
+    // A value below the 100-word floor is a part's length, never the argument's: the default applies.
+    expect(researchSynthesisLengthCap("Write at most 12 words.", { maxOutputTokens: 8192, thinking: "model" })).toEqual({ words: 1200, ceilingWords: 1200 });
     // A role cap too small for the floor still names the floor; 7a.2 refuses such a role policy before any request.
     expect(researchSynthesisLengthCap("No limit.", { maxOutputTokens: 1024, thinking: "disabled" })).toEqual({ words: 100, ceilingWords: 0 });
     expect(researchSynthesisLengthCap("No limit.", { maxOutputTokens: 1100, thinking: "model" })).toEqual({ words: 100, ceilingWords: 61 });
   });
   it("counts recorded words as whitespace-separated tokens that hold a letter or a digit", () => {
-    expect(researchWordCount("## Heading\nTwo words [E1].\n\n- item 42 — done")).toBe(7);
-    expect(researchWordCount("")).toBe(0); expect(researchWordCount(" \n ## -- ")).toBe(0); expect(researchWordCount("Ünïcode wörds 数据")).toBe(3);
+    expect(researchWordCount("## Heading\nTwo words [E1].\n\n- item 42 \u2014 done")).toBe(7);
+    expect(researchWordCount("")).toBe(0); expect(researchWordCount(" \n ## -- ")).toBe(0); expect(researchWordCount("\u00dcn\u00efcode w\u00f6rds \u6570\u636e")).toBe(3);
   });
 });

@@ -249,9 +249,9 @@ describe("backlog item 7(b), part 1: request shapes (BL-20261109-0334)", () => {
     return { id, path: id, bytes: Buffer.from(lines.join("\n")) };
   });
   it("sends every extraction request, initial and repair, as one byte-identical stable-packet line, a newline and the chunk line (D9)", async () => {
-    // Newlines, and a U+2028 that JSON.stringify leaves raw, in the brief and in a source: canonical() escapes the newlines only.
-    const brief = "Context line.\n1. Explain the orchard. \n2. Explain the meadow and its limits.\n";
-    const sources = researchV4Sources(); sources[1] = { ...sources[1]!, bytes: Buffer.from("# Synthetic beta\nThe meadow recorded seven healthy trees  during the spring survey.\n") };
+    // Newlines, and a U+2028 and a U+2029 that JSON.stringify leaves raw, in the brief and in a source: canonical() escapes the newlines only.
+    const brief = "Context line.\n1. Explain the orchard.\u2028\n2. Explain the meadow\u2029 and its limits.\n";
+    const sources = researchV4Sources(); sources[1] = { ...sources[1]!, bytes: Buffer.from("# Synthetic beta\nThe meadow recorded seven healthy trees\u2028 during the spring survey.\n") };
     // The first chunk's reply is invalid, so the run ends with that chunk's repair: initial, initial, repair across two sources.
     const m = models((stage, input, n, system) => stage === "extract" && n === 0 ? "bad JSON" : happy(stage, input, n, system));
     const result = await run(m, { brief, sources }); expect(result.status).toBe("completed");
@@ -269,7 +269,8 @@ describe("backlog item 7(b), part 1: request shapes (BL-20261109-0334)", () => {
       expect(lines[0]).not.toContain(call.input.chunk.id); expect(lines[0]).not.toContain(JSON.stringify(call.input.chunk.text).slice(1, 40));
       expect(content).toBe(researchExtractionUserContent({ brief, units, plan, ...perChunk }));
     }
-    expect(extracts.some(c => (c.body.messages[1].content as string).includes(" "))).toBe(true);
+    for (const separator of ["\u2028", "\u2029"]) expect(extracts.every(c => (c.body.messages[1].content as string).split("\n")[0]!.includes(separator))).toBe(true);
+    expect(extracts.some(c => (c.body.messages[1].content as string).split("\n")[1]!.includes("\u2028"))).toBe(true);
     // Every other stage still sends one canonical object, byte-identical to canonical() of what it parsed.
     for (const call of m.calls.filter(c => c.stage !== "extract")) expect(call.body.messages[1].content).toBe(canonical(call.input));
   });
@@ -321,13 +322,19 @@ describe("backlog item 7(b), part 1: request shapes (BL-20261109-0334)", () => {
     expect(row).toMatchObject({ lengthCapWords: 1200, argumentWords: researchWordCount(argument) }); expect(row.argumentWords).toBeGreaterThan(0); expect("briefWordLimit" in row).toBe(false);
   });
   it("lets a word limit stated in the brief win below the ceiling, records it hash-only, and never rejects an argument longer than the cap", async () => {
-    const brief = "Describe the supplied synthetic observations and their limitations in at most 12 words.", events: ResearchStageCounts[] = [];
-    const m = models(), result = await run(m, { brief }, events); expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
-    expect(m.calls.find(c => c.stage === "synthesise")!.input.lengthCap).toEqual({ words: 12 });
-    const row = result.summary.stages[3]!; expect(row).toMatchObject({ lengthCapWords: 12, briefWordLimit: 12 }); expect(row.argumentWords).toBeGreaterThan(12);
+    const brief = "Describe the supplied synthetic observations and their limitations in at most 150 words.", events: ResearchStageCounts[] = [];
+    // The scripted argument runs to about 300 words, twice the stated cap, and is still accepted: the cap is a request, never a check.
+    const long = (stage: Stage, input: any, n: number, system: string) => {
+      const reply = JSON.parse(happy(stage, input, n, system)); if (stage === "synthesise") reply.argument = `${"The supplied source states a bounded synthetic finding [E1]. ".repeat(33)}${reply.argument}`; return JSON.stringify(reply);
+    };
+    const m = models(long), result = await run(m, { brief }, events); expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(m.calls.find(c => c.stage === "synthesise")!.input.lengthCap).toEqual({ words: 150 });
+    const row = result.summary.stages[3]!; expect(row).toMatchObject({ lengthCapWords: 150, briefWordLimit: 150 }); expect(row.argumentWords).toBeGreaterThan(300);
     for (const stage of [...events, ...result.summary.stages]) hashOnlyStageRow(stage);
-    // A stated limit above the ceiling is clamped to it: the brief's limit wins only up to what the role allows.
-    const above = models(); await run(above, { brief: "Describe the supplied synthetic observations in no more than 3,000 words." });
-    expect(above.calls.find(c => c.stage === "synthesise")!.input.lengthCap).toEqual({ words: 1200 });
+    // A stated limit above the ceiling is clamped to it, and one below the 100-word floor is a part's length: the default applies.
+    for (const [stated, words] of [["in no more than 3,000 words", 1200], ["with a title of at most 12 words", 1200]] as const) {
+      const other = models(); await run(other, { brief: `Describe the supplied synthetic observations ${stated}.` });
+      expect([stated, other.calls.find(c => c.stage === "synthesise")!.input.lengthCap]).toEqual([stated, { words }]);
+    }
   });
 });

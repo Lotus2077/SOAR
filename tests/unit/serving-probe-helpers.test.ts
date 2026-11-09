@@ -3,8 +3,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { digest } from "../../src/main/private-agent/contracts";
 import { RESEARCH_SYNTHESIS_LENGTH_POLICY } from "../../src/main/private-agent/research-admission";
 import { RESEARCH_EXTRACTION_LAYOUT, researchExtractionUserContent } from "../../src/main/private-agent/research-pipeline";
+import { currentSyntheticProbe, runCardWriter } from "../helpers/serving-card-fixture";
 
 const SCRIPT = resolve(__dirname, "..", "..", "scripts", "serving-probe.py");
 const root = mkdtempSync(join(tmpdir(), "soar-probe-helpers-"));
@@ -95,6 +97,20 @@ describe("serving-probe pure helpers (python3 -I, no endpoint)", () => {
     // P11 records this descriptor in cache_layouts.stable_prefix_layout, so a probe JSON states which stable_prefix it measured.
     expect(constants.layout).toEqual({ ...RESEARCH_EXTRACTION_LAYOUT, stable: [...RESEARCH_EXTRACTION_LAYOUT.stable], perChunk: [...RESEARCH_EXTRACTION_LAYOUT.perChunk] });
     expect(constants.tokensPerWord).toBe(RESEARCH_SYNTHESIS_LENGTH_POLICY.tokensPerWord);
+  });
+
+  it("records the pipeline's layout and the stable packet's digest and size in P11's cache_layouts, which the card writer accepts and drops (7b.1)", () => {
+    const [packet, chunk1, chunk2] = values([{ fn: "synthetic_packet", args: [5, 2000] }, { fn: "synthetic_chunk", args: [3000, 11] }, { fn: "synthetic_chunk", args: [3000, 12] }]);
+    const [layouts, record] = values([{ fn: "extraction_layouts", args: ["SYSTEM", packet, chunk1] }, { fn: "cache_layouts_record", args: [packet, [chunk1, chunk2], { stable_prefix: { requests: [] } }] }]);
+    // packet_* cover the shared first line only, which since 7b.1 holds no source.
+    const firstLine = (layouts.stable_prefix[1].content as string).split("\n")[0]!;
+    expect(record.stable_prefix_layout).toEqual({ ...RESEARCH_EXTRACTION_LAYOUT, stable: [...RESEARCH_EXTRACTION_LAYOUT.stable], perChunk: [...RESEARCH_EXTRACTION_LAYOUT.perChunk] });
+    expect(record).toMatchObject({ packet_sha256: digest(firstLine), packet_bytes: Buffer.byteLength(firstLine), chunk_bytes: [chunk1.endByte, chunk2.endByte], layouts: { stable_prefix: { requests: [] } } });
+    expect(firstLine).not.toContain(packet.source.id);
+    const plain = runCardWriter(currentSyntheticProbe()), probe = currentSyntheticProbe(); probe.P11.cache_layouts.stable_prefix_layout = record.stable_prefix_layout;
+    const withLayout = runCardWriter(probe);
+    expect([plain.status, withLayout.status]).toEqual([0, 0]);
+    expect(JSON.parse(withLayout.policy!.toString("utf8")).evidence.p11).toEqual(JSON.parse(plain.policy!.toString("utf8")).evidence.p11);
   });
 
   it("parses K lists and aggregates a burst of streams with its load samples", () => {

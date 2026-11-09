@@ -1084,7 +1084,8 @@ describe("desktop general-task host controller", () => {
     ["runtime_contract_drift", GENERIC_INCOMPLETE], ["checkpoint_identity_mismatch", GENERIC_INCOMPLETE], ["host_validation_not_replayed", GENERIC_INCOMPLETE],
     ["repeated_incomplete_tool_arguments_at_output_limit", GENERIC_INCOMPLETE], ["duplicate_tool_call_id", GENERIC_INCOMPLETE],
     ["bounded_allowance_exhausted", GENERIC_INCOMPLETE], ["consultation_budget_unavailable", GENERIC_INCOMPLETE],
-    ["public_source_retention_or_text_failed", GENERIC_INCOMPLETE], ["research_stage_not_replayed", GENERIC_INCOMPLETE],
+    // Backlog item 6 (A7): a stage that cannot continue has its own text.
+    ["public_source_retention_or_text_failed", GENERIC_INCOMPLETE], ["research_stage_not_replayed", "research stage stopped before its evidence was handed to the writer"],
     ["research_request_denied", GENERIC_INCOMPLETE], ["session_contract_drift", GENERIC_INCOMPLETE], ["unresolved_dispatch_no_replay", GENERIC_INCOMPLETE],
     ["cancelled_before_completion", GENERIC_INCOMPLETE], ["deadline_before_completion", GENERIC_INCOMPLETE], ["public_session_stopped", GENERIC_INCOMPLETE],
     ["a_reason_no_pull_request_classified", GENERIC_INCOMPLETE], ["constructor", GENERIC_INCOMPLETE],
@@ -1228,5 +1229,62 @@ describe("desktop general-task host controller", () => {
     expect(f.controller.get(paused.id)).toMatchObject({ status: "paused", canResume: true, reason: "Paused with progress saved." });
     f.controller.resume(paused.id); await f.controller.wait(paused.id);
     expect(f.controller.get(paused.id)).toMatchObject({ status: "submitted", entailment: { truncated: false, counts: { supported: 2 } } });
+  });
+
+  // Backlog item 6, finding A7 (BL-20261109-0501-research-stage-pause-design): an unfinished research stage offers no Resume.
+  const RESEARCH_STOP = "The research stage stopped before its evidence was handed to the writer.";
+  /** The first execution records what the session records for a reading stage before the writer runs (its input and one stage event), plus
+   * the given extras, then ends as `end` says; every later execution is the fixture's own. */
+  function researchStageOnce(f: ReturnType<typeof fixture>, end: "paused" | "throw" | "research_plan_invalid", extra: { transferred?: boolean; committedRow?: boolean } = {}) {
+    const original = f.options.testing!.runnerFactory!; let once = false;
+    f.options.testing!.runnerFactory = args => once ? original(args) : { pause() {}, cancel() {}, async run() {
+      once = true; f.executions.push(args);
+      const { store, jobId, contextId } = args;
+      store.createContext({ id: "reader", jobId, sources: [{ id: "corpus", version: digest("synthetic corpus"), classification: "public", synthetic: true }] });
+      store.append(jobId, { type: "research_input", contextId: "reader", recordedAt: Date.now(), input: {} });
+      store.append(jobId, { type: "research_stage", contextId: "reader", stage: "index", calls: 1 });
+      if (extra.transferred) store.append(jobId, { type: "research_transfer", contextId: "reader", binding: {} });
+      if (extra.committedRow) {
+        const { text: _text, ...preview } = args.broker.preview({ jobId, contextId: "reader", destinationId: "desktop_local", purpose: "research plan", method: "POST", body: "{}", maxFeeMicrousd: 0 });
+        store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_for_synthetic_local_test" } }, () => {});
+      }
+      store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
+      if (end === "throw") throw new Error("synthetic failure after the stage spent");
+      return end === "paused" ? { status: "paused", reason: "checkpoint_saved", snapshot: [], checks: [], modelCalls: 0 } : { status: "incomplete", reason: end, snapshot: [], checks: [], modelCalls: 0 };
+    } };
+  }
+  it.each(["paused", "throw"] as const)("backlog item 6 (A7): offers no Resume for a research stage that started and never transferred, after a %s and after a crash", async end => {
+    const f = fixture(); researchStageOnce(f, end);
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    // A pause is stored paused; an error thrown after the stage spent is stored as the resumable runtime_unavailable, which the guard blocks.
+    expect(storedRecord(f, task.id)).toMatchObject(end === "paused" ? { status: "paused" } : { status: "incomplete", reason: "runtime_unavailable" });
+    const stopped = f.controller.get(task.id);
+    expect(stopped).toMatchObject({ canResume: false }); expect(stopped.reason).toContain(RESEARCH_STOP);
+    expect(stopped.reason).not.toContain("_"); expect(stopped.reason).not.toContain("uncertain");
+    expect(() => f.controller.resume(task.id)).toThrow("general_task_resume_denied");
+    // Past the wall budget the unfinished stage, a permanent stop like the size or fee-cap stops, still names itself, not the time limit.
+    const late = vi.spyOn(Date, "now").mockReturnValue(Date.now() + GENERAL_TASK_LIMITS.elapsedMs + 1);
+    expect(f.controller.get(task.id)).toMatchObject({ canResume: false, reason: stopped.reason }); late.mockRestore();
+    // A crash mid-stage: the next app start projects the running record interrupted, and the stage still blocks Resume.
+    await f.controller.close();
+    rewriteRecord(f, task.id, { status: "running", reason: "running" });
+    const reopened = new GeneralTaskController(f.options); cleanup.push(() => reopened.close());
+    expect(reopened.get(task.id)).toMatchObject({ status: "incomplete", canResume: false, reason: stopped.reason });
+    expect(() => reopened.resume(task.id)).toThrow("general_task_resume_denied"); expect(f.executions).toHaveLength(1);
+  });
+
+  it("backlog item 6 (A7): a transferred stage stays resumable, a terminal stored research reason keeps its own text, and an uncertain reader row shows the uncertain-request text first", async () => {
+    const transferred = fixture(); researchStageOnce(transferred, "paused", { transferred: true });
+    let task = transferred.create(); transferred.controller.start(task.id); await transferred.controller.wait(task.id);
+    expect(transferred.controller.get(task.id)).toMatchObject({ status: "paused", canResume: true, reason: "Paused with progress saved." });
+    transferred.controller.resume(task.id); await transferred.controller.wait(task.id);
+    expect(transferred.controller.get(task.id)).toMatchObject({ status: "submitted" });
+    const failed = fixture(); researchStageOnce(failed, "research_plan_invalid");
+    task = failed.create(); failed.controller.start(task.id); await failed.controller.wait(task.id);
+    expect(failed.controller.get(task.id)).toMatchObject({ status: "incomplete", canResume: false, reason: GENERIC_INCOMPLETE });
+    const uncertain = fixture(); researchStageOnce(uncertain, "paused", { committedRow: true });
+    task = uncertain.create(); uncertain.controller.start(task.id); await uncertain.controller.wait(task.id);
+    const blocked = uncertain.controller.get(task.id);
+    expect(blocked).toMatchObject({ canResume: false }); expect(blocked.reason).toContain("uncertain outcome"); expect(blocked.reason).not.toContain(RESEARCH_STOP);
   });
 });

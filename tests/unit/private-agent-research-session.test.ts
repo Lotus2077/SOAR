@@ -9,7 +9,7 @@ import { PrivateAgentBroker, type BrokerDestination } from "../../src/main/priva
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
 import { diagnosticRetention, digest, restrictedContext } from "../../src/main/private-agent/contracts";
-import { GeneralAgentSession, RESEARCH_TRANSFER_CHECK_ID, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../../src/main/private-agent/session";
+import { GeneralAgentSession, RESEARCH_TRANSFER_CHECK_ID, researchStageUnfinished, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../../src/main/private-agent/session";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, type ResearchDiagnostic } from "../../src/main/private-agent/research-pipeline";
 import { researchV4Reply } from "../helpers/research-v4-fixture";
 
@@ -44,11 +44,16 @@ async function fixture(planReply?: () => string, options: { recoverable?: boolea
   const base = { kind: "local_model" as const, endpoint: `${endpoint}/v1/chat/completions`, accountId: "fixture", credentialVersion: 0, loopbackFixture: true, timeoutMs: 2000, maxResponseBytes: 65536,
     ...(options.recoverable ? { recoverable: true } : {}) };
   // "model" admits synthetic lineage only (the shape of a cloud destination); "private-model" admits private data (the owned local server).
-  const destinations: BrokerDestination[] = [{ id: "model", ...base, privateDataAdmitted: false, syntheticOnly: true }, { id: "private-model", ...base, privateDataAdmitted: true }];
+  const destinations: BrokerDestination[] = [{ id: "model", ...base, privateDataAdmitted: false, syntheticOnly: true }, { id: "private-model", ...base, privateDataAdmitted: true },
+    // A priced cloud planner on loopback (backlog item 6): a pause that aborts its call leaves the row unknown.
+    { id: "priced-planner", kind: "cloud_model", endpoint: base.endpoint, accountId: "fixture", credentialVersion: 1, loopbackFixture: true, timeoutMs: 2000, maxResponseBytes: 65536,
+      privateDataAdmitted: false, syntheticOnly: true, grantFreeSynthetic: true }];
   const broker = new PrivateAgentBroker(store, destinations, { scan: async () => ({ complete: true, blocked: false, detector: "deliberate-false-negative-fixture" }) });
   return { store, broker, root, bodies, hooks };
 }
 type Run = { files: string[]; goal: string; checks: string[]; required: string[]; restricted: boolean; initialEvidence?: string };
+/** The research stage events of a job as [stage, calls, denied]: every call the stage stops records one, even before its row is committed. */
+const stageEvents = (store: PrivateAgentStore, jobId: string) => store.events(jobId).filter(event => event.type === "research_stage").map(event => [event.stage, event.calls, event.denied]);
 function options(f: Awaited<ReturnType<typeof fixture>>, jobId: string, runs: Run[], destination = "model"): GeneralSessionOptions {
   const privatePhase = phase(), checkpoints = new PrivateCheckpointStore(f.root, jobId);
   const config = (destinationId: string) => ({ destinationId, model: "fixture", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" as const });
@@ -165,7 +170,7 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "submitted" });
   });
 
-  it("does not restart a partial reading stage after a settled-call pause", async () => {
+  it("backlog item 6 (A7): a pause after a settled stage call ends the task incomplete at once, never paused, and the next run refuses the same way", async () => {
     const f = await fixture(), runs: Run[] = [], config = options(f, "job-settled-pause", runs);
     const make = config.research!.models;
     let session: GeneralAgentSession;
@@ -175,26 +180,29 @@ describe("H2b/H2c: the research stage inside a session", () => {
       return models;
     } };
     session = new GeneralAgentSession(config);
-    expect(await session.run()).toMatchObject({ status: "paused", reason: "research_cancelled" });
+    expect(await session.run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    // The planner's call is refused before dispatch: no row was aborted, and the stopped call still records its stage event.
     expect(f.store.dispatches(config.jobId)).toMatchObject([{ status: "settled" }]);
+    expect(stageEvents(f.store, config.jobId)).toEqual([["index", 1, undefined], ["plan", 0, "cancelled"]]);
+    expect(researchStageUnfinished(f.store.events(config.jobId), f.store.dispatches(config.jobId))).toBe(true);
     expect(await new GeneralAgentSession(options(f, config.jobId, runs)).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
     expect(f.store.dispatches(config.jobId)).toHaveLength(1); expect(f.bodies).toHaveLength(1); expect(runs).toHaveLength(0);
   });
 
-  it("honours pause during the stage and reserves the stage's output paths before any call", async () => {
+  it("backlog item 6 (A7): a pause mid-call ends the task incomplete, its aborted zero-fee row failed and never unknown, and reserves the stage's paths before any call", async () => {
     const f = await fixture(), runs: Run[] = [], config = options(f, "job-pause", runs);
     const session = new GeneralAgentSession(config);
     f.hooks.onRequest = system => { if (system.startsWith("You plan")) session.pause(); };
-    const paused = await session.run();
-    expect(paused).toMatchObject({ status: "paused", reason: "research_cancelled" });
+    expect(await session.run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
     expect(runs).toHaveLength(0);
+    expect(f.store.dispatches("job-pause").map(row => [row.purpose, row.status])).toEqual([["research source index", "settled"], ["research plan", "failed"]]);
+    expect(f.store.dispatches("job-pause")[1]!.failure).toMatchObject({ code: "cancelled" });
+    expect(stageEvents(f.store, "job-pause")).toEqual([["index", 1, undefined], ["plan", 0, "cancelled"]]);
     expect(f.store.events("job-pause").some(event => event.type === "research_transfer")).toBe(false);
     f.hooks.onRequest = undefined;
-    // Partial reading has no durable per-chunk continuation; neither an unresolved
-    // request nor previously spent settled stage calls grant a fresh stage budget.
-    const resumed = await new GeneralAgentSession(options(f, "job-pause", runs)).run();
-    expect(resumed.status).toBe("incomplete");
-    expect(["unresolved_dispatch_no_replay", "research_stage_not_replayed"]).toContain(resumed.reason);
+    const sent = f.bodies.length;
+    expect(await new GeneralAgentSession(options(f, "job-pause", runs)).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    expect(f.store.dispatches("job-pause")).toHaveLength(2); expect(f.bodies).toHaveLength(sent); expect(runs).toHaveLength(0);
     const reserved = options(f, "job-reserved", []);
     reserved.privatePhase = { ...reserved.privatePhase, files: [...reserved.privatePhase.files, { path: RESEARCH_FILES.evidence, bytes: Buffer.from("{}") }] };
     expect(() => new GeneralAgentSession(reserved)).toThrow("session_research_paths_reserved");
@@ -258,5 +266,101 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(await new GeneralAgentSession(plain).run()).toMatchObject({ reason: "research_plan_invalid" });
     const start = (jobId: string) => f.store.events(jobId).find(event => event.type === "session_started")!;
     expect(start("job-plain-sink").identity).toBe(start("job-raw").identity); expect(stages("job-plain-sink")).toEqual(stages("job-raw"));
+  });
+
+  it("backlog item 6 (A7): a pause before the stage starts (the session's own check) stays paused with nothing spent, and the next run executes the whole stage", async () => {
+    const f = await fixture(), runs: Run[] = [], config = options(f, "job-early-pause", runs);
+    const session = new GeneralAgentSession(config), append = f.store.append.bind(f.store);
+    // The pause lands as the stage's input is recorded, before the session's last check ahead of the stage.
+    vi.spyOn(f.store, "append").mockImplementation((jobId, event) => { const out = append(jobId, event); if (event.type === "research_input") session.pause(); return out; });
+    expect(await session.run()).toMatchObject({ status: "paused", reason: "session_stopped" });
+    vi.restoreAllMocks();
+    expect(f.store.dispatches("job-early-pause")).toEqual([]); expect(stageEvents(f.store, "job-early-pause")).toEqual([]);
+    expect(f.store.events("job-early-pause").some(event => event.type === "research_input")).toBe(true);
+    expect(researchStageUnfinished(f.store.events("job-early-pause"), f.store.dispatches("job-early-pause"))).toBe(false);
+    expect(await new GeneralAgentSession(options(f, "job-early-pause", runs)).run()).toMatchObject({ status: "submitted" });
+    expect(f.store.dispatches("job-early-pause")).toHaveLength(4); expect(runs).toHaveLength(1);
+    expect(stageEvents(f.store, "job-early-pause").map(([stage]) => stage)).toEqual(["index", "plan", "extract", "synthesise"]);
+  });
+
+  it("limitation until backlog items 7 and 8: a pause inside the stage before its first request is committed still ends the task, with nothing sent", async () => {
+    const f = await fixture(), runs: Run[] = [], config = options(f, "job-uncommitted-pause", runs);
+    const make = config.research!.models;
+    let session: GeneralAgentSession;
+    // The pause lands as the stage's first call begins, before the broker commits its row, as a pause during a cloud call's scan or
+    // local token admission would: the stopped call records a stage event, so the stage has started.
+    config.research = { ...config.research!, models: contextId => {
+      const models = make(contextId), complete = models.reader.complete.bind(models.reader);
+      models.reader.complete = async (...args) => { session.pause(); return complete(...args); };
+      return models;
+    } };
+    session = new GeneralAgentSession(config);
+    expect(await session.run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    expect(f.store.dispatches(config.jobId)).toEqual([]); expect(f.bodies).toHaveLength(0);
+    expect(stageEvents(f.store, config.jobId)).toEqual([["index", 0, "cancelled"]]);
+    expect(await new GeneralAgentSession(options(f, config.jobId, runs)).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    expect(f.store.dispatches(config.jobId)).toEqual([]); expect(f.bodies).toHaveLength(0); expect(runs).toHaveLength(0);
+  });
+
+  it("backlog item 6 (A7): a cancel or an external abort mid-stage keeps its result, a failure while a pause was pending keeps its own reason, and each next run ends as pinned", async () => {
+    const f = await fixture(), cancelled = options(f, "job-cancel", []);
+    const session = new GeneralAgentSession(cancelled);
+    f.hooks.onRequest = system => { if (system.startsWith("You plan")) session.cancel(); };
+    expect(await session.run()).toMatchObject({ status: "incomplete", reason: "session_cancelled" });
+    const aborted = options(f, "job-abort", []), controller = new AbortController();
+    f.hooks.onRequest = system => { if (system.startsWith("You plan")) controller.abort(); };
+    expect(await new GeneralAgentSession(aborted).run(controller.signal)).toMatchObject({ status: "incomplete", reason: "research_cancelled" });
+    f.hooks.onRequest = undefined;
+    const sent = f.bodies.length;
+    // A cancel changed the job's policy, so every later run ends cancelled; an aborted stage started and cannot continue.
+    expect(await new GeneralAgentSession(options(f, "job-cancel", [])).run()).toMatchObject({ status: "incomplete", reason: "session_cancelled" });
+    expect(await new GeneralAgentSession(options(f, "job-abort", [])).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    expect(f.bodies).toHaveLength(sent);
+    // An invalid plan while a pause was pending (asked after the planner's last reply, so nothing was cut) is that failure, not a pause.
+    const g = await fixture(() => "not a plan"), invalid = options(g, "job-invalid", []), make = invalid.research!.models;
+    let paused: GeneralAgentSession, replies = 0;
+    invalid.research = { ...invalid.research!, models: contextId => {
+      const models = make(contextId), complete = models.planner.complete.bind(models.planner);
+      models.planner.complete = async (...args) => { const reply = await complete(...args); if (++replies === 2) paused.pause(); return reply; };
+      return models;
+    } };
+    paused = new GeneralAgentSession(invalid);
+    expect(await paused.run()).toMatchObject({ status: "incomplete", reason: "research_plan_invalid" });
+    expect(await new GeneralAgentSession(options(g, "job-invalid", [])).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+  });
+
+  it("researchStageUnfinished holds only for a stage that started and never transferred", () => {
+    const input = { type: "research_input", contextId: "reader" }, stage = { type: "research_stage", contextId: "reader" }, transfer = { type: "research_transfer", contextId: "reader" };
+    expect(researchStageUnfinished([], [])).toBe(false);
+    expect(researchStageUnfinished([input], [])).toBe(false);
+    expect(researchStageUnfinished([input, stage], [])).toBe(true);
+    expect(researchStageUnfinished([input], [{ contextId: "reader" }])).toBe(true);
+    expect(researchStageUnfinished([input], [{ contextId: "writer" }])).toBe(false);
+    expect(researchStageUnfinished([input, { type: "research_stage", contextId: "writer" }], [])).toBe(false);
+    expect(researchStageUnfinished([input, stage, transfer], [{ contextId: "reader" }])).toBe(false);
+    expect(researchStageUnfinished([stage], [{ contextId: "reader" }])).toBe(false);
+    // A call stopped before its row was committed records a zero-call stage event: the stage has started.
+    expect(researchStageUnfinished([input, { type: "research_stage", contextId: "reader", stage: "index", calls: 0, denied: "cancelled" }], [])).toBe(true);
+    // A public phase's rows sit in their own context, recorded before the stage's input.
+    expect(researchStageUnfinished([input], [{ contextId: "public" }])).toBe(false);
+  });
+
+  it("pinned until backlog item 10.b retires the plain-purpose split arm (E1 bug (b)): a pause aborts a priced stage call at once, leaving its row unknown, and the task ends unresolved_dispatch_no_replay", async () => {
+    const f = await fixture(), runs: Run[] = [], config = options(f, "job-priced-pause", runs);
+    const priced = { destinationId: "priced-planner", model: "fixture", maxOutputTokens: 4096, inputUsdPerMillion: 1, outputUsdPerMillion: 1, thinking: "disabled" as const };
+    const local = config.research!.models;
+    config.research = { ...config.research!, models: contextId => ({ ...local(contextId), planner: new PrivateAgentModel(f.broker, priced, config.jobId, contextId) }) };
+    config.cloudArm = { destinationId: "priced-planner", maxFeeMicrousd: 8_000_000 };
+    const session = new GeneralAgentSession(config);
+    f.hooks.onRequest = system => { if (system.startsWith("You plan")) session.pause(); };
+    expect(await session.run()).toMatchObject({ status: "incomplete", reason: "unresolved_dispatch_no_replay" });
+    expect(f.store.dispatches(config.jobId).map(row => [row.purpose, row.status])).toEqual([["research source index", "settled"], ["research plan", "unknown"]]);
+    // The request was on the wire when the pause aborted it; its reservation stays counted for the job's life.
+    const plan = f.store.dispatches(config.jobId)[1]!;
+    expect(plan.failure).toMatchObject({ code: "cancelled" }); expect(plan.reservedFeeMicrousd).toBeGreaterThan(0);
+    f.hooks.onRequest = undefined;
+    const sent = f.bodies.length;
+    expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "incomplete", reason: "unresolved_dispatch_no_replay" });
+    expect(f.bodies).toHaveLength(sent); expect(runs).toHaveLength(0);
   });
 });

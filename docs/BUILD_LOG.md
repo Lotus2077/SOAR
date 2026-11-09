@@ -30552,3 +30552,77 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The implementation with deterministic tests in this pull request, an adversarial code review, and its `Implemented` entry; then CI and a merge in the orchestrator's train (scripts/private-agent-local-screen.ts: SC, 11.2, 7d.B, 10.b, 7a.2, 8.2b, 7b.3; scripts/registry-row.py: 11.1, 11.2, 11.3, 11.4, 7d.C, RA), rebased onto part 1 if part 1 merges first.
 
 References: docs/PROJECT_REVIEW_2026-11-05.md section 4 table E (finding E4) and section 5.7 item 11; the log rules at the top of this file; BL-20261108-0904-owner-verdict-capture-design and BL-20261108-0905-owner-verdict-capture-implemented (item 2's writing-commit rule and its open question); BL-20261108-1649-serving-card-reader-implemented (the freeze's `servingCard`); plan 11.1's design entry (BL-20261109-0331-loop-selection-protocol-2-design at the time of writing, on pull request #67); scripts/verify-release-head.ts; docs/experiments/README.md; issue #46.
+
+
+### BL-20261109-0509-correction-registry-run-commit-dirty -- 2026-11-09 -- Correction: two checks did not make `dirty: false` mean that a checkout of the commit reproduces the source freeze
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct decision (1) of BL-20261109-0422-registry-run-commit-design, which says: "With both checks, `dirty: false` means a checkout of `commit` reproduces `sourceFreezeSha256`." The adversarial code review of the implementation found it false, with reproductions on scratch repositories. The rest of that entry stands.
+
+Decisions: The two checks (the repository's clean test, and each frozen path's blob compared with its bytes) leave three gaps. (a) A tracked frozen file deleted behind a skip-worktree or assume-unchanged bit, or left out by a sparse checkout, is in neither the status nor the source freeze's listing, which reads the directory from disk, so its blob is never compared, and a checkout of the commit restores it and changes the hash. (b) The tree was read at `HEAD`, not at the commit recorded, so a commit made while the tree was read could pair the old commit with the new tree. (c) The blob check re-read the frozen files instead of checking the bytes the source freeze hashed. The implementation adds three checks. Any index entry whose `git ls-files -z -v` tag is not `H` marks the tree dirty. The tree is read at the recorded commit, and each frozen file's bytes must match both the source freeze's own sha256 and the commit's blob. A last `rev-parse` records `git: null` when `HEAD` moved while the tree was read. With these, `dirty: false` means a checkout of `commit` reproduces `sourceFreezeSha256`, as long as a checkout writes blobs unchanged, which holds under this repository's `.gitattributes` (no filter, `ident` or CRLF conversion). docs/experiments/README.md says this.
+
+Changes: scripts/private-agent-local-screen.ts (the helper), docs/experiments/README.md (the `gitDirty` row) and tests/unit/registry-row-git.test.ts (the three cases), in the implementation's pull request. The design entry is unchanged.
+
+Evidence: The reviewer ran the real `localScreenSourceFreeze()` and the helper on scratch repositories and compared each result with a fresh clone checked out at the recorded commit. A skip-worktree deletion, an assume-unchanged deletion and a non-cone sparse checkout each gave `dirty: false` with a different hash. A commit landing between the first `rev-parse` and the tree read, and an edit reverted between the freeze and the blob read, also gave a false clean. The new tests reproduce the deletions, the sparse checkout and the stale bytes, and check that each is now dirty.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only; nothing is verified by it. The guarantee still assumes that a checkout writes blobs unchanged.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation pull request's merge.
+
+References: BL-20261109-0422-registry-run-commit-design; scripts/verify-release-head.ts; `.gitattributes`.
+
+
+### BL-20261109-0510-registry-run-commit-implemented -- 2026-11-09 -- Backlog item 11, part 2 implemented: the driver's freeze records the run's commit and tree state, and registry rows take `git` from it with a labelled source
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261109-0422-registry-run-commit-design as decided and as BL-20261109-0509-correction-registry-run-commit-dirty corrects it, with deterministic tests, on branch `feat/11.2-registry-run-commit` based on `main` 2982ca7. Hypothesis: with these changes a run's `freeze.json` names the commit it started at, and whether a checkout of that commit would fail to reproduce its frozen sources. It is read without any user or system configuration, hook, file-system monitor or filter, and never from another repository. Every registry row then says where its `git` came from: run and loop rows from the runs' freezes, superseding rows of a run-sourced row by copy, and every other row from the commit it is written at, labelled as such.
+
+Decisions: Beyond the design entry and its correction, the adversarial code review fixed these details in code. (1) A repository with any `filter.*` key configured (found with `git config --name-only --get-regexp '^filter\.'`, which runs nothing and also reads included files) records `git: null`, because the status would otherwise run the filter command. The design's "no hook or monitor runs" had not covered filters. (2) The root and the working directory are compared through `realpathSync.native`, so a case-variant path on macOS cannot record `null` by accident. (3) The clean test reads the repository's own ignore rules and not the user's global ignore file, as scripts/verify-release-head.ts does. `.gitignore` gains Claude Code's machine-local `.claude/settings.local.json` and `.claude/worktrees/`, so they cannot mark every run's tree dirty. The main checkout already excludes the worktrees locally. (4) A loop row compares every run directory of the loop that holds a `freeze.json`. That includes the stage directories that part 3 is planned to move aside, so the label stays true once part 3 lands. (5) A superseding row copies `gitSource: run` only with a boolean `gitDirty`, the only pair the writer produces. (6) The writer's refusal names `/usr/bin/git` and `HEAD`.
+
+Changes:
+- scripts/private-agent-local-screen.ts: `localScreenGitRunner`, with the release verifier's environment and overrides; `localScreenGitState`, with the filter, clean, index-flag, byte and blob checks and the final `HEAD` check; and the freeze's `git`, read right after the source-freeze check.
+- scripts/registry-row.py: `writing_commit`, hardened, which refuses to emit a row without a commit; `freeze_git`, `run_provenance` and `row_provenance`; the module and `superseding_row` docstrings.
+- docs/experiments/README.md: the `git`, `gitSource` and `gitDirty` rows; the supersedes row's "changes only" list, which now names `criticalChecks` too; the owner-verdict passage.
+- .gitignore: the two Claude Code paths.
+- tests/unit/registry-row-git.test.ts (new):
+  - run rows from the freeze, nine fallback and malformed shapes, and nine loop shapes, among them a-only and a-and-b loops and a moved-aside run;
+  - the writer's refusal outside a repository, and its isolation from an inherited `GIT_DIR`;
+  - the helper's exact git questions, six dirty and ten null answers through an injected runner;
+  - in real temporary repositories: an unborn HEAD; ignored and untracked files; staged and unstaged edits; an untracked frozen file hidden by an ignore rule; stale bytes; a skip-worktree edit; skip-worktree and assume-unchanged deletions; a sparse checkout; a configured filter that never runs; an inherited `GIT_DIR`; an ignored directory inside an enclosing repository;
+  - this repository's commit, and the driver's source writing the helper's value into the freeze.
+- tests/unit/registry-row-verdict.test.ts: the superseding row's key set and the receipt row gain the provenance keys. Run-sourced and `runs_differ` rows are copied. A `row_written` or malformed one takes the writing commit, which the test pins.
+- tests/integration/private-agent-runtime.test.ts (Docker-gated): the freeze records this checkout's commit.
+
+Evidence:
+- At this entry's commit, `pnpm exec vitest run`: 179 files, 165 passed, 13 skipped (the environment-gated suites) and 1 failed; 2,766 tests, 2,681 passed, 84 skipped and 1 failed. The failure is tests/unit/with-claude-key.test.ts, which timed out under the full suite's load (7.7 s against its 5 s limit); it exercises scripts/with-claude-key.sh, imports none of the changed modules, and passes alone (3 passed). The full run before the code review's fixes passed every file (166 passed and 13 skipped; 2,682 tests passed and 84 skipped).
+- The changed test files (`pnpm exec vitest run tests/unit/registry-row-git.test.ts tests/unit/registry-row-verdict.test.ts tests/unit/registry-row-loop.test.ts tests/unit/private-agent-local-role-config.test.ts tests/unit/phase4-loop.test.ts tests/integration/private-agent-runtime.test.ts`): 5 files passed and 1 skipped (the Docker-gated suite); 45 tests passed and 11 skipped.
+- `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass.
+- scripts/registry-row.py parses and runs under the machine's Python 3.9.5.
+- In this worktree, the helper reads the checkout's commit in about 50 ms and reports the tree dirty while edits are uncommitted.
+
+Two adversarial code reviews read the diff:
+- **Helper hardening.** It reproduced the false clean, which the correction records, and the filter that ran during the status (decision (1)). It also asked for a test of the `--show-toplevel` comparison. Its checks found these sound: SHA-256 repositories, line-ending edits, case-only renames, linked worktrees, shallow clones, paths with tabs and newlines, no network, `/usr/bin/git` on macOS and ubuntu-latest, and nothing that names a path leaving the helper.
+- **Registry provenance and docs.** Mutations it ran survived the first tests: a `row_written` copy, a loop without its later stages, and a writer that kept the caller's environment. The tests now catch each one. It also found the moved-aside runs, decision (4), and the README wording. In a scratch clone, it checked that this branch merges with pull request #67 without conflict outside the build log's tail, and that the merged tree passes the registry tests.
+
+Failures or blockers: None. CI has not run on this branch yet.
+
+Limitations and non-claims:
+- Deterministic tests on fixtures, fakes and temporary repositories only. No run, model request, endpoint, Docker container or paid call ran.
+- Nothing is `Verified`: the first E3 batch's rows verify the provenance end to end.
+- CI checks the freeze's `git` through the helper's tests and the driver's source text. The end-to-end assertion runs only where the Docker-gated suite runs.
+- `dirty` describes the tree at the run's start, and it is conservative: a mode-only change, or a file only the user's global ignore covers, counts as dirty.
+- A repository with a configured filter records `git: null`.
+- Rows already in the registry keep their `git` and gain no provenance keys.
+- That the driver and the loop load no repository module outside the source freeze is a reviewer's measurement, not a test. A test pinning it is a follow-up.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green on the pull request and a merge in the orchestrator's train. On scripts/private-agent-local-screen.ts the order is SC, 11.2, 7d.B, 10.b, 7a.2, 8.2b, 7b.3; on scripts/registry-row.py it is 11.1, 11.2, and the rest. This branch is rebased onto part 1 (pull request #67) if part 1 merges first.
+
+References: BL-20261109-0422-registry-run-commit-design; BL-20261109-0509-correction-registry-run-commit-dirty; BL-20261108-0904-owner-verdict-capture-design; BL-20261108-1649-serving-card-reader-implemented; scripts/verify-release-head.ts; docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 11.

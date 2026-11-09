@@ -1,7 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PrivateAgentBroker } from "../../src/main/private-agent/broker";
-import { PrivateAgentModel, responsesInput, type GeneralMessage, type PrivateModelConfig } from "../../src/main/private-agent/model";
+import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
+import { ModelRequestBodyTooLarge, PrivateAgentModel, responsesInput, type GeneralMessage, type PrivateModelConfig } from "../../src/main/private-agent/model";
 import { buildCloudArm } from "../../scripts/private-agent-local-screen";
+import { assistModelConfig, capturingBroker, responsesCachingReply } from "../helpers/research-assist-fixture";
 
 const config: PrivateModelConfig = { destinationId: "cloud", model: "gpt-6-sol", api: "openai_responses", maxOutputTokens: 16_384,
   inputUsdPerMillion: 2, outputUsdPerMillion: 10, cachedInputUsdPerMillion: 0.2, thinking: "medium" };
@@ -225,5 +227,89 @@ describe("H1: explicit prompt-cache breakpoints and cache-write settlement", () 
     const chat = buildCloudArm({ model: "gpt-6-sol", endpoint: "https://api.openai.com/v1/chat/completions", prices: { input: 2, output: 10, cached: 0.2, write: 2 }, maxFeeUsd: 8 }, environment, coordinator);
     expect(chat.freeze.modelConfig).not.toHaveProperty("promptCaching");
     expect(chat.freeze.modelConfig).not.toHaveProperty("cacheWriteUsdPerMillion");
+  });
+});
+
+describe("the assist no-write cache mode on the Responses shape (backlog item 10)", () => {
+  const assist = assistModelConfig("openai_responses"), oneShot: GeneralMessage[] = [{ role: "system", content: "Plan." }, { role: "user", content: "Brief." }];
+  const text = (body: string) => ({ status: "completed", output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text: "{}" }] }], usage: usage(body) });
+
+  it("sends explicit mode and no breakpoint anywhere, byte for byte, and requestBody returns exactly the dispatched body", async () => {
+    const f = fixture(text, assist);
+    await f.model.complete(oneShot, [], new AbortController().signal, { maxOutputTokens: 8192, purpose: PLAN_ASSIST_PURPOSE });
+    expect(f.requests[0]!.body).toBe('{"input":[{"content":"Plan.","role":"system","type":"message"},{"content":"Brief.","role":"user","type":"message"}],"max_output_tokens":8192,'
+      + '"model":"gpt-6-sol","prompt_cache_options":{"mode":"explicit"},"reasoning":{"effort":"medium"},"service_tier":"default","store":false}');
+    expect(f.model.requestBody(oneShot, [], { maxOutputTokens: 8192, purpose: PLAN_ASSIST_PURPOSE }).body).toBe(f.requests[0]!.body);
+    // The reservation keeps the shipped formula: the body at the dearer of the input and write rates, plus the cap at the output rate.
+    expect(f.requests[0]!.maxFeeMicrousd).toBe(Math.ceil(Buffer.byteLength(f.requests[0]!.body) * 2.5 + 8192 * 10));
+  });
+
+  it("refuses an assist under any other cache mode, and the mode outside a sealed tool-less one-shot assist, before any request", async () => {
+    const signal = new AbortController().signal;
+    for (const promptCaching of [undefined, "responses_explicit_v1"] as const) {
+      const f = fixture(text, { ...assist, promptCaching });
+      await expect(f.model.complete(oneShot, [], signal, { purpose: SYNTHESIS_ASSIST_PURPOSE })).rejects.toThrow("private_model_assist_cache_mode_required");
+      expect(f.requests).toHaveLength(0);
+    }
+    const f = fixture(text, assist);
+    for (const [messages, tools, overrides] of [[oneShot, [], { purpose: "research plan" }], [oneShot, [], undefined], [oneShot, [tool], { purpose: PLAN_ASSIST_PURPOSE }],
+      [[...oneShot, { role: "assistant", content: "earlier" }, { role: "user", content: "again" }], [], { purpose: PLAN_ASSIST_PURPOSE }],
+      [[{ role: "user", content: "Brief." }], [], { purpose: PLAN_ASSIST_PURPOSE }]] as const) {
+      await expect(f.model.complete([...messages] as GeneralMessage[], [...tools], signal, overrides)).rejects.toThrow("private_model_assist_request_invalid");
+    }
+    expect(f.requests).toHaveLength(0);
+    // Admitted on the Responses and Anthropic shapes only: the chat shape cannot prove zero writes and the owned server takes none.
+    expect(() => fixture(text, { ...assist, api: "openai" })).toThrow("private_model_configuration_invalid");
+    expect(() => fixture(text, { ...assist, api: undefined, inputUsdPerMillion: 0, outputUsdPerMillion: 0, cachedInputUsdPerMillion: undefined, cacheWriteUsdPerMillion: undefined })).toThrow("private_model_configuration_invalid");
+  });
+
+  it("narrows the body bound per call, and refuses a malformed bound", async () => {
+    const f = fixture(text, assist), signal = new AbortController().signal, long = [oneShot[0]!, { role: "user" as const, content: "x".repeat(40_000) }];
+    const error = await f.model.complete(long, [], signal, { purpose: PLAN_ASSIST_PURPOSE, maxRequestBytes: 32_768 }).catch(caught => caught);
+    expect(error).toBeInstanceOf(ModelRequestBodyTooLarge); expect(error.limitBytes).toBe(32_768);
+    for (const maxRequestBytes of [0, 1.5, Number.NaN]) await expect(f.model.complete(oneShot, [], signal, { purpose: PLAN_ASSIST_PURPOSE, maxRequestBytes })).rejects.toThrow("private_model_request_bound_invalid");
+    // A bound above the configured cap does not widen it.
+    const capped = await fixture(text, { ...assist, maxRequestBytes: 8192 }).model.complete(long, [], signal, { purpose: PLAN_ASSIST_PURPOSE, maxRequestBytes: 1_000_000 }).catch(caught => caught);
+    expect(capped).toBeInstanceOf(ModelRequestBodyTooLarge); expect(capped.limitBytes).toBe(8192);
+    expect(f.requests).toHaveLength(0);
+  });
+
+  it("writes nothing under the provider's documented caching rules, where the breakpoint mode and the implicit default write the same long prompt", async () => {
+    const system = `You plan research. ${"Plan carefully and cover every requirement. ".repeat(160)}`, messages: GeneralMessage[] = [{ role: "system", content: system }, { role: "user", content: "Brief." }];
+    const run = async (config: PrivateModelConfig, purpose: string) => {
+      const captured = capturingBroker(body => responsesCachingReply(body, "{}"));
+      return new PrivateAgentModel(captured.broker, config, "job", "reader").complete(messages, [], new AbortController().signal, { maxOutputTokens: 8192, purpose });
+    };
+    expect((await run(assist, PLAN_ASSIST_PURPOSE)).usage?.cacheWriteTokens).toBe(0);
+    // Negative controls: a marked system block over 1,024 tokens is written, and so is the whole prompt with no cache field at all.
+    expect((await run(assistModelConfig("openai_responses", "responses_explicit_v1"), "research plan")).usage?.cacheWriteTokens).toBeGreaterThan(1024);
+    expect((await run(assistModelConfig("openai_responses", "none"), "research plan")).usage?.cacheWriteTokens).toBeGreaterThan(1024);
+  });
+});
+
+describe("requestBody is the dispatched body (backlog item 10)", () => {
+  const flash: PrivateModelConfig = { destinationId: "local", model: "flash", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium",
+    localReplyContract: "flash_next_v1", localContextTokens: 65_536 };
+  const vllm: PrivateModelConfig = { destinationId: "local", model: "local", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium", promptCaching: "vllm_job_salt_v1", streaming: true };
+  const anthropic: PrivateModelConfig = { ...config, model: "claude-sonnet-5-5", api: "anthropic_messages", cachedInputUsdPerMillion: 0.1, cacheWriteUsdPerMillion: 2.5 };
+  const oneShot: GeneralMessage[] = [{ role: "system", content: "Plan." }, { role: "user", content: "Brief." }];
+  const layout2: GeneralMessage[] = [...conversation.slice(0, 4), { role: "user", content: "Guidance." }];
+  const cases: [string, PrivateModelConfig, GeneralMessage[], boolean, Parameters<PrivateAgentModel["complete"]>[3]][] = [
+    ["vllm salted, thinking", vllm, layout2, true, undefined], ["vllm salted, thinking off", vllm, oneShot, false, { thinking: "disabled", maxOutputTokens: 256 }],
+    ["Flash contract", flash, layout2, true, undefined], ["Flash contract, thinking off", flash, oneShot, false, { thinking: "disabled" }],
+    ["chat", { ...config, api: "openai" }, layout2, true, undefined], ["chat, thinking off", { ...config, api: "openai" }, oneShot, false, { thinking: "disabled" }],
+    ["Responses", config, layout2, true, { trailingTurnMessage: true }], ["Responses, breakpoints", { ...config, promptCaching: "responses_explicit_v1" }, layout2, true, undefined],
+    ["Responses, no-write assist", { ...config, promptCaching: "assist_no_cache_write_v1" }, oneShot, false, { purpose: PLAN_ASSIST_PURPOSE, maxOutputTokens: 8192 }],
+    ["Anthropic, layout 2", { ...anthropic, promptCaching: "anthropic_explicit_5m_v1" }, layout2, true, { trailingTurnMessage: true }],
+    ["Anthropic, no cache field", anthropic, oneShot, false, undefined],
+    ["Anthropic, no-write assist", { ...anthropic, promptCaching: "assist_no_cache_write_v1" }, oneShot, false, { purpose: SYNTHESIS_ASSIST_PURPOSE }],
+  ];
+  it.each(cases)("on %s", async (_name, modelConfig, messages, withTools, overrides) => {
+    let sent = "";
+    const broker = { request: async (input: { body: string }) => { sent = input.body; throw new Error("capture_only"); } } as unknown as PrivateAgentBroker;
+    const model = new PrivateAgentModel(broker, modelConfig, "00000000-0000-4000-8000-000000000001", "context"), tools = withTools ? [tool] : [];
+    await model.complete(messages, tools, new AbortController().signal, overrides).catch(() => undefined);
+    expect(sent).not.toBe("");
+    expect(model.requestBody(messages, tools, overrides).body).toBe(sent);
   });
 });

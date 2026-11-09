@@ -139,6 +139,11 @@ const replySchema = z.object({
 export interface AnthropicReply {
   model: string; content: string; toolCalls: { id: string; type: "function"; function: { name: string; arguments: string } }[]; finishReason: string;
   promptTokens: number; completionTokens: number; cachedTokens: number; cacheWriteTokens: number; thinkingTokens?: number;
+  /**
+   * Whether the reply itself reported its cache writes (backlog item 10): `cache_creation_input_tokens` present, and equal to
+   * the sum of its `cache_creation` parts when those are given. A missing field decodes as 0 writes but proves nothing.
+   */
+  cacheWriteReported: boolean;
 }
 
 /**
@@ -173,7 +178,10 @@ export function decodeAnthropicReply(bytes: Uint8Array, configuredModel: string)
   const kept = cut || reply.stop_reason === "tool_use" ? toolCalls : [];
   const written = usage.cache_creation_input_tokens ?? 0, read = usage.cache_read_input_tokens ?? 0;
   const thinking = usage.output_tokens_details?.thinking_tokens ?? undefined;
+  const parts = usage.cache_creation;
+  const cacheWriteReported = typeof usage.cache_creation_input_tokens === "number" &&
+    (parts === undefined || parts === null || (parts.ephemeral_5m_input_tokens ?? 0) + (parts.ephemeral_1h_input_tokens ?? 0) === usage.cache_creation_input_tokens);
   return { model: reply.model, content: /\S/u.test(text) ? text : "", toolCalls: kept, finishReason,
     promptTokens: usage.input_tokens + written + read, completionTokens: usage.output_tokens, cachedTokens: read, cacheWriteTokens: written,
-    ...(thinking !== undefined ? { thinkingTokens: thinking } : {}) };
+    ...(thinking !== undefined ? { thinkingTokens: thinking } : {}), cacheWriteReported };
 }

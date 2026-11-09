@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
-import { PrivateAgentBroker, type BrokerDestination } from "../../src/main/private-agent/broker";
+import { BrokerError, PrivateAgentBroker, type BrokerDestination } from "../../src/main/private-agent/broker";
+import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
 import { diagnosticRetention, digest, restrictedContext } from "../../src/main/private-agent/contracts";
@@ -23,13 +24,18 @@ function phase(): SessionPhase {
     requiredArtifacts: [{ path: "output/report.md", description: "report" }], requiredChecks: ["structure"], maxModelCalls: 40, maxToolCalls: 80, maxElapsedMs: 1_800_000 } };
 }
 /** A loopback model whose reply depends on the stage named by the system prompt; `planReply` lets a test break the plan; `onRequest` lets one pause mid-call. */
-/** `recoverable` flags both destinations for owner decision D4's bounded retry; `onRequest` may return "destroy" to drop the socket before any reply. */
+/** `recoverable` flags both destinations for owner decision D4's bounded retry; `onRequest` may return "destroy" to drop the socket before any reply, or "hold" to never answer. */
 async function fixture(planReply?: () => string, options: { recoverable?: boolean } = {}) {
-  const bodies: { system: string; user: string }[] = [], hooks: { onRequest?: (system: string, request: http.IncomingMessage) => void | "destroy" } = {};
+  const bodies: { system: string; user: string }[] = [], hooks: { onRequest?: (system: string, request: http.IncomingMessage) => void | "destroy" | "hold" } = {};
   const server = http.createServer((request, response) => {
     let raw = ""; request.on("data", chunk => { raw += chunk; }); request.on("end", () => {
+      // The cloud destination (E1, gate clause 3) never answers inside its timeout.
+      if (request.url?.startsWith("/cloud")) return;
       const body = JSON.parse(raw) as { messages: { content: string }[] }, system = body.messages[0]!.content, user = body.messages[1]!.content;
-      bodies.push({ system, user }); if (hooks.onRequest?.(system, request) === "destroy") { request.socket.destroy(); return; }
+      bodies.push({ system, user });
+      const decision = hooks.onRequest?.(system, request);
+      if (decision === "destroy") { request.socket.destroy(); return; }
+      if (decision === "hold") return;
       const content = system.startsWith("You plan") && planReply ? planReply() : researchV4Reply(system, user);
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
@@ -47,7 +53,10 @@ async function fixture(planReply?: () => string, options: { recoverable?: boolea
   const destinations: BrokerDestination[] = [{ id: "model", ...base, privateDataAdmitted: false, syntheticOnly: true }, { id: "private-model", ...base, privateDataAdmitted: true },
     // A priced cloud planner on loopback (backlog item 6): a pause that aborts its call leaves the row unknown.
     { id: "priced-planner", kind: "cloud_model", endpoint: base.endpoint, accountId: "fixture", credentialVersion: 1, loopbackFixture: true, timeoutMs: 2000, maxResponseBytes: 65536,
-      privateDataAdmitted: false, syntheticOnly: true, grantFreeSynthetic: true }];
+      privateDataAdmitted: false, syntheticOnly: true, grantFreeSynthetic: true },
+    // A grant-free synthetic cloud destination like the headless driver's split arm, used only by the assist emulation (E1, gate clause 3).
+    { id: "cloud", kind: "cloud_model", endpoint: `${endpoint}/cloud/v1/messages`, accountId: "fixture-cloud", credentialVersion: 0, privateDataAdmitted: false, syntheticOnly: true,
+      grantFreeSynthetic: true, loopbackFixture: true, timeoutMs: 200, maxResponseBytes: 65536 }];
   const broker = new PrivateAgentBroker(store, destinations, { scan: async () => ({ complete: true, blocked: false, detector: "deliberate-false-negative-fixture" }) });
   return { store, broker, root, bodies, hooks };
 }
@@ -399,4 +408,119 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "incomplete", reason: "unresolved_dispatch_no_replay" });
     expect(f.bodies).toHaveLength(sent); expect(runs).toHaveLength(0);
   });
+});
+
+describe("E1 recoverability: a research stage stopped mid-call on the real broker (S1)", () => {
+  const stages = [["index", "You index"], ["plan", "You plan"], ["extract", "You extract"], ["synthesise", "You write"]] as const;
+  const purposes = { index: "research source index", plan: "research plan", extract: "research evidence extraction", synthesise: "research synthesis" } as const;
+  type Mode = "cancel" | "external abort" | "session deadline";
+  /** Runs a session whose call at `stage` is held open and stopped by `mode`; returns what a test asserts on, and a resume. */
+  async function stoppedAt(stage: (typeof stages)[number], mode: Mode) {
+    const f = await fixture(), runs: Run[] = [], jobId = `job-${mode.replace(" ", "-")}-${stage[0]}`, config = options(f, jobId, runs);
+    if (mode === "session deadline") config.limits = { ...config.limits!, maxElapsedMs: 1200 };
+    const session = new GeneralAgentSession(config), external = new AbortController();
+    f.hooks.onRequest = system => {
+      if (!system.startsWith(stage[1])) return undefined;
+      if (mode === "cancel") session.cancel(); else if (mode === "external abort") external.abort();
+      return "hold";
+    };
+    const result = await session.run(external.signal);
+    f.hooks.onRequest = undefined;
+    const sent = f.bodies.length, rows = f.store.dispatches(jobId);
+    const stageEvents = f.store.events(jobId).filter(event => event.type === "research_stage");
+    // The resume keeps the same limits: they are part of the session's identity.
+    const again = options(f, jobId, runs); again.limits = config.limits;
+    const resumed = await new GeneralAgentSession(again).run();
+    return { f, jobId, runs, result, rows, stageEvents, sent, resumed };
+  }
+  /** The run's own outcome and the resume's, per stop: a cancel ends the job; an external abort or the session's deadline ends the run. */
+  const outcomes: Record<Mode, [string, string]> = { cancel: ["session_cancelled", "session_cancelled"], "external abort": ["research_cancelled", "research_stage_not_replayed"],
+    "session deadline": ["research_cancelled", "session_deadline"] };
+  it.each(stages.flatMap(stage => (["cancel", "external abort", "session deadline"] as const).map(mode => [stage[0], mode, stage] as const)))(
+    "%s, %s: the stopped call resolves failed with code cancelled, the stage records denied cancelled, the run ends, and a resume sends nothing again", async (name, mode, stage) => {
+      const { f, jobId, runs, result, rows, stageEvents, sent, resumed } = await stoppedAt(stage, mode);
+      expect(result).toMatchObject({ status: "incomplete", reason: outcomes[mode][0] }); expect(resumed).toMatchObject({ status: "incomplete", reason: outcomes[mode][1] });
+      expect(rows.some(row => row.status === "unknown" || row.status === "committed")).toBe(false);
+      expect(rows.at(-1)).toMatchObject({ purpose: purposes[name], status: "failed", failure: { phase: "transport", code: "cancelled" } });
+      expect(rows.slice(0, -1).every(row => row.status === "settled")).toBe(true);
+      expect(stageEvents.at(-1)).toMatchObject({ stage: name, denied: "cancelled" });
+      expect(runs).toHaveLength(0);
+      expect(f.bodies).toHaveLength(sent); expect(f.store.dispatches(jobId)).toHaveLength(rows.length);
+    }, 20_000);
+});
+
+describe("E1 recoverability: a research stage whose call the broker retried still reaches the writer, at every stage (S2, D14, gate clause 2)", () => {
+  const stages = [["index", "You index", "research source index"], ["plan", "You plan", "research plan"], ["extract", "You extract", "research evidence extraction"],
+    ["synthesise", "You write", "research synthesis"]] as const;
+  it.each(stages)("%s: one cut call is retried (D4), the writer is reached, the producer binds the superseded row uncounted, and a resume reuses the packet", async (name, prompt, purpose) => {
+    const f = await fixture(undefined, { recoverable: true }), runs: Run[] = [], jobId = `job-retried-${name}`, config = options(f, jobId, runs);
+    let cut = false;
+    f.hooks.onRequest = system => { if (system.startsWith(prompt) && !cut) { cut = true; return "destroy"; } return undefined; };
+    expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "submitted" });
+    expect(runs).toHaveLength(1);
+    const rows = f.store.dispatches(jobId);
+    expect(rows.filter(row => row.status === "superseded").map(row => [row.purpose, row.failure?.code, row.failure?.attempt])).toEqual([[purpose, "upstream_closed", 1]]);
+    expect(rows.every(row => row.status === "settled" || row.status === "superseded")).toBe(true);
+    const stageEvents = f.store.events(jobId).filter(event => event.type === "research_stage");
+    expect(stageEvents.map(event => [event.stage, event.calls, event.denied])).toEqual(stages.map(([stage]) => [stage, 1, undefined]));
+    const transfer = f.store.events(jobId).find(event => event.type === "research_transfer")!;
+    const receipts = (transfer.binding as { producer: { receipts: { id: string; stage: string; status?: string }[] } }).producer.receipts;
+    expect(receipts.map(receipt => receipt.id)).toEqual(rows.map(row => row.id));
+    expect(receipts.filter(receipt => receipt.status !== undefined)).toEqual([expect.objectContaining({ stage: name, status: "superseded" })]);
+    const sent = f.bodies.length;
+    expect(await new GeneralAgentSession(options(f, jobId, runs)).run()).toMatchObject({ status: "submitted" });
+    expect(f.bodies).toHaveLength(sent); expect(f.store.dispatches(jobId)).toHaveLength(rows.length);
+  }, 20_000);
+  it.each(stages)("%s: three cut calls exhaust the retries, the stage is denied request_failed with nothing unresolved, and a resume does not replay it", async (name, prompt, purpose) => {
+    const f = await fixture(undefined, { recoverable: true }), runs: Run[] = [], jobId = `job-exhausted-${name}`, config = options(f, jobId, runs);
+    f.hooks.onRequest = system => system.startsWith(prompt) ? "destroy" : undefined;
+    expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    const rows = f.store.dispatches(jobId);
+    expect(rows.filter(row => row.purpose === purpose).map(row => [row.status, row.failure?.attempt])).toEqual([["superseded", 1], ["superseded", 2], ["failed", 3]]);
+    expect(rows.some(row => row.status === "unknown" || row.status === "committed")).toBe(false);
+    expect(f.store.events(jobId).filter(event => event.type === "research_stage").at(-1)).toMatchObject({ stage: name, denied: "request_failed" });
+    expect(runs).toHaveLength(0);
+    const sent = f.bodies.length;
+    f.hooks.onRequest = undefined;
+    expect(await new GeneralAgentSession(options(f, jobId, runs)).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    expect(f.bodies).toHaveLength(sent); expect(runs).toHaveLength(0);
+  }, 20_000);
+});
+
+describe("E1 recoverability: local work continues after a cloud assist stays UNKNOWN, emulated test-locally (S4, gate clause 3)", () => {
+  // Item 10's wrapper does not exist yet: here the planner and the synthesiser are wrapped in the test, the way it will call a sealed cloud
+  // one-shot before the local stage call. Its PR (10.b) re-proves this end to end; this case proves the ledger, broker, session and producer
+  // parts on the real broker.
+  it("lets a plan assist that timed out stay unknown with its reservation pinned, refuses any later cloud call before a row, and reaches the writer", async () => {
+    const f = await fixture(), runs: Run[] = [], jobId = "job-assist-unknown", config = options(f, jobId, runs);
+    config.cloudArm = { destinationId: "cloud", maxFeeMicrousd: 1000 };
+    const make = config.research!.models;
+    const assist = (contextId: string, purpose: string) => f.broker.request({ jobId, contextId, destinationId: "cloud", purpose, method: "POST", body: "{\"assist\":true}", maxFeeMicrousd: 500 })
+      .then(() => undefined, (error: unknown) => error);
+    const refusals: unknown[] = [];
+    config.research = { ...config.research!, models: contextId => {
+      const models = make(contextId), plan = models.planner.complete.bind(models.planner), write = models.synthesiser.complete.bind(models.synthesiser);
+      models.planner.complete = async (...args) => { refusals.push(await assist(contextId, PLAN_ASSIST_PURPOSE)); return plan(...args); };
+      models.synthesiser.complete = async (...args) => { refusals.push(await assist(contextId, SYNTHESIS_ASSIST_PURPOSE)); return write(...args); };
+      return models;
+    } };
+    expect(await new GeneralAgentSession(config).run()).toMatchObject({ status: "submitted" });
+    expect(runs).toHaveLength(1);
+    // The plan assist's outcome stayed uncertain; the synthesis assist was refused before any row existed.
+    expect(refusals).toHaveLength(2);
+    expect(refusals[0]).toBeInstanceOf(BrokerError); expect((refusals[0] as BrokerError).code).toBe("transport_or_settlement_unknown");
+    expect(refusals[1]).toBeInstanceOf(BrokerError); expect((refusals[1] as BrokerError).code).toBe("cloud_after_assist_unknown");
+    const rows = f.store.dispatches(jobId);
+    const assists = rows.filter(row => row.destinationId === "cloud");
+    expect(assists).toEqual([expect.objectContaining({ purpose: PLAN_ASSIST_PURPOSE, status: "unknown", reservedFeeMicrousd: 500, failure: expect.objectContaining({ code: "request_timeout" }) })]);
+    expect(rows.filter(row => row.destinationId !== "cloud").every(row => row.status === "settled")).toBe(true);
+    // The producer binds the skipped assist to its stage, uncounted, beside the plan stage's own call.
+    const transfer = f.store.events(jobId).find(event => event.type === "research_transfer")!;
+    const receipts = (transfer.binding as { producer: { receipts: { id: string; stage: string; status?: string; role?: string }[] } }).producer.receipts;
+    expect(receipts.filter(receipt => receipt.role === "assist")).toEqual([expect.objectContaining({ id: assists[0]!.id, stage: "plan", role: "assist", status: "unknown" })]);
+    // The reservation stays pinned: of the job's 1,000 fee cap, 500 are left for any later row, so a row reserving 501 is refused.
+    const reader = String(f.store.events(jobId).find(event => event.type === "session_started")!.readerContextId);
+    const { text: _text, ...packet } = f.broker.preview({ jobId, contextId: reader, destinationId: "model", purpose: "research evidence extraction", method: "POST", body: "{}", maxFeeMicrousd: 501 });
+    expect(() => f.store.commit({ ...packet, reservedFeeMicrousd: 501, scan: { status: "not_required_for_synthetic_local_test" } }, () => {})).toThrow("private_agent_budget_denied");
+  }, 20_000);
 });

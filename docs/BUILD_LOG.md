@@ -30527,3 +30527,41 @@ The consumers then flip their flags in their own PRs, each with a test of the ap
 A consumer that needs another view of the card changes R10 in its own reviewed diff. If another entry merges first, this entry's ID is re-stamped after main's tail.
 
 References: BL-20261108-1459-serving-card-reader-design; BL-20261108-0911-probe-extensions-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.2 (principle 6), section 5.6 (row E0) and section 5.9; docs/HANDOFF.md "Start here"; docs/experiments/README.md; GitHub issues #46, #47 and #57; commits 8b7680e, 86d2b81 and 8de520b.
+
+
+### BL-20261109-0411-judge-cancel-label-design -- 2026-11-09 -- E1-J decided: a judge call stopped mid-request is recorded by why it stopped, not as a request failure
+
+Status: `Proposed`
+
+Scope or hypothesis: The decision entry for E1's bug (c), lane S-e1's PR E1-J in the plan for E1 and backlog items 6-11 charted under the wayfinder map (#46). E1 is experiment E1 of docs/PROJECT_REVIEW_2026-11-05.md section 5.6. It is recorded before its code because it changes values the persisted `claims_entailment` event carries. It is zero-fee code with deterministic tests and needs no approval under PLAN.md section 4. One adversarial design review covering the three lenses (ledger and replay safety; downstream consumers and tests; specification fidelity) found no blocker; its findings are folded in below.
+
+Hypothesis. Today `judgeClaims` (src/main/private-agent/claims.ts) labels every judge call that throws `stopReason: "request_failed"`, with the claim's verdict reason `judge_request_failed`, also when the host itself stopped the call. Every host stop reaches a judge call through the pass's one joined signal: the session's `cancel()` and `pause()` abort the pass's own controller; the pass's clock (`ENTAILMENT_MAX_MS`) is joined into the signal as `AbortSignal.timeout`; and the session's run signal is joined too, which the desktop controller's task-deadline timer, the controller's cancel and the headless driver's SIGINT or SIGTERM abort. The same stops between calls are labelled `deadline_or_cancelled` and `paused`. After this change a call stopped mid-request carries the label of what stopped it.
+
+Decisions:
+(1) When a judge call throws, the pass reads its own signal at that moment:
+- aborted, with the pause flag (`stop()`) set: `stopReason: "paused"`, and the claim's reason `paused`;
+- aborted without it (a cancel, the pass's clock, the desktop's deadline, the driver's interrupt): `deadline_or_cancelled` for both;
+- not aborted: `request_failed` and `judge_request_failed`, as today, even when a pause was requested or little time remains, because the call failed on its own.
+Later claims stay `pass_stopped`, and `entailmentCalls` still counts the stopped call, which was launched.
+(2) These are existing values of `EntailmentStopReason` and of the boundary verdict reasons: no new value, no schema change; the `claims_entailment` event stays version 1, and the entailment prompt protocol is unchanged. `counts`, `truncated` and `entailmentCalls` are unchanged. One meaning widens: today a claim reason of `deadline_or_cancelled` or `paused` always means no call was sent for that claim; after this change it can also mark the one claim whose call was launched and stopped (its row resolves `failed` with code `cancelled`). Which it was stays derivable: `entailmentCalls` minus the claims that got a verdict, `judge_reply_invalid` or `judge_request_failed`. claims.ts is in the headless driver's source freeze, so its runtime digest changes.
+(3) Where the values go:
+- The session discards a truncated outcome when a pause was asked (BL-20261007-0120-pr-j2-entailment-implemented: a pause "records nothing and returns `paused`"; the code is `this.pauseRequested && outcome.truncated`, and `stop()` reads that same flag), so the new `paused` label is never persisted; a pass stopped by a cancel, its clock, the desktop's deadline or the driver's interrupt is persisted with `deadline_or_cancelled` instead of `request_failed`.
+- The desktop controller copies the verdicts, not `stopReason`, to the task record; the renderer's claims list then shows the stopped claim as "not judged · deadline or cancelled" instead of "not judged · judge request failed".
+- Selection, the registry writer and the verdict receipt read only `counts`, `truncated` and `entailmentCalls`.
+(4) The broker's row for the stopped call is unchanged: a zero-fee judge call cut by its signal resolves `failed` with code `cancelled` (backlog item 1). Judge rows are never replayed, and a resume depends only on whether the event exists.
+(5) This rule differs from two earlier texts, deliberately. BL-20261107-0809-zero-fee-failures-resolve-design decision 5 has the runner label a failed call paused whenever a pause is pending, whatever its signal says, and count the job's recorded cancel or no remaining time as a host stop. The runner's pause does not abort the call it waits for, so the pending flag is its only evidence; the judge's pause aborts its call, and every stop inside this process aborts the joined signal, so the signal is the judge's evidence. The lane brief's "an aborted call gives `deadline_or_cancelled`" is refined only for a pause, which the session never persists. Left over: a durable cancel or policy revision that does not abort this pass's signal (another host's, say) still records `request_failed`.
+(6) Owner questions. None blocks this. Two defaults are recorded: label by cause, and keep today's label for a call that failed while nothing stopped it; and, from E1's card, label-only defects such as this one are fixed in small PRs and do not hold E1's gate.
+
+Changes: Planned in this pull request, on branch `fix/e1-j-judge-cancel-label`: the catch in `judgeClaims` (src/main/private-agent/claims.ts); the "E1 recoverability" E1-J blocks in tests/unit/private-agent-claims.test.ts (a cancel, the pass's clock and a pause mid-request, and a call that failed with a pause requested and the clock run down) and tests/unit/private-agent-session.test.ts (the session's cancel mid-call persists `deadline_or_cancelled`; the session's pause mid-call records nothing and the next run judges from the start).
+
+Evidence: Reproduced at 2982ca7, with the reproduction tests uncommitted on top: `pnpm exec vitest run tests/unit/private-agent-claims.test.ts tests/unit/private-agent-session.test.ts -t "E1 recoverability"` gives 4 failed, 2 passed and 49 skipped. The three stopped-call cases in claims and the session's cancel case record `request_failed` and `judge_request_failed`. The two that pass pin what stays: a call that failed while nothing stopped it keeps today's label, and a pause mid-call records nothing. The clock's wiring into the same signal (session.ts joins `AbortSignal.timeout(ENTAILMENT_MAX_MS)` into the signal it passes) is shown by reading the code; the claims case drives the abort directly.
+
+Failures or blockers: None in recording.
+
+Limitations and non-claims: This entry decides; nothing is implemented or verified by it. The tests stub the judge call with the broker's answer to a cut zero-fee call; the broker's own resolution of that row is backlog item 1's tested contract. The loop's critique ignoring interrupts (E1's bug (d)) belongs to item 11's PR 11.3. Item 8's PR 8.2b, which runs judge calls K at a time, must apply this labelling to each call; its mapping still describes a failure as `judge_request_failed`, and claims.ts merges E1-J first.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation with deterministic tests in this pull request and its `Implemented` entry, then CI green and the owner's merge go-ahead.
+
+References: docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E1; BL-20261006-1241-pr-j2-entailment-design; BL-20261007-0120-pr-j2-entailment-implemented; BL-20261107-0809-zero-fee-failures-resolve-design.

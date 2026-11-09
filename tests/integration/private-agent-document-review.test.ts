@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { DOCUMENT_REVIEW_EDITS_PATH, documentReviewApplierFile, documentReviewCheck } from "../../src/main/private-agent/document-review";
+import { DocumentReviewFlagsSchema } from "../../src/main/private-agent/document-review-flags";
 import { checkCommand } from "../../src/main/private-agent/runner";
 import { DockerSandbox } from "../../src/main/private-agent/sandbox";
 import { AGREEMENT_EDITS, DOCUMENT_FIXTURE_PY } from "../helpers/document-review-fixtures";
@@ -12,7 +13,7 @@ const SOURCE = "input/agreement.docx";
 const APPLY = `python3 -I review/soar_redline.py ${SOURCE} ${DOCUMENT_REVIEW_EDITS_PATH} output`;
 
 /** A sandbox with the applier and a generated source; returns helpers that run commands, the applier and the host check. */
-async function session(kind: "nda" | "tracked" | "commented" | "objects" | "header_tracked" | "hidden" | "word_like" | "long", edits: readonly object[]) {
+async function session(kind: "nda" | "tracked" | "commented" | "objects" | "header_tracked" | "hidden" | "word_like" | "long" | "flags", edits: readonly object[]) {
   const sandbox = await DockerSandbox.create({ imageId, jobId: `review-${randomUUID().slice(0, 8)}`, contextId: randomUUID(), files: [
     documentReviewApplierFile(), { path: "fixture.py", bytes: Buffer.from(DOCUMENT_FIXTURE_PY) },
     { path: DOCUMENT_REVIEW_EDITS_PATH, bytes: Buffer.from(JSON.stringify({ version: 1, edits })) }] });
@@ -43,7 +44,7 @@ describe.skipIf(!enabled)("document review inside the real sandbox image (PR-I)"
       expect(passed).toMatchObject({ exitCode: 0, result: { passed: true, failures: [] } });
       expect(passed.elapsedMs).toBeLessThan(60_000);
       // Same plan, same bytes.
-      expect((await s.sh(`python3 -I review/soar_redline.py ${SOURCE} ${DOCUMENT_REVIEW_EDITS_PATH} /tmp/again && cmp output/redline.docx /tmp/again/redline.docx && cmp output/clean.docx /tmp/again/clean.docx`)).exitCode).toBe(0);
+      expect((await s.sh(`python3 -I review/soar_redline.py ${SOURCE} ${DOCUMENT_REVIEW_EDITS_PATH} /tmp/again && cmp output/redline.docx /tmp/again/redline.docx && cmp output/clean.docx /tmp/again/clean.docx && cmp output/review-flags.json /tmp/again/review-flags.json`)).exitCode).toBe(0);
       // Model text is stored as text, never as a formula.
       expect((await s.sh(`python3 -I -c "from openpyxl import load_workbook; c = load_workbook('output/issues.xlsx').active.cell(3, 7); print(c.data_type, c.value[:10])"`)).stdout.trim()).toBe("s =HYPERLINK");
       // A hand edit of any output, a changed applier and a changed source are each caught.
@@ -139,6 +140,31 @@ describe.skipIf(!enabled)("document review inside the real sandbox image (PR-I)"
       expect(await s.check()).toMatchObject({ exitCode: 0, result: { passed: true } });
       expect(JSON.parse((await s.sh("cat output/hygiene.json")).stdout)).toMatchObject({ source: { commentAuthors: ["Counsel"], comments: 1 },
         redline: { commentAuthors: ["Counsel", "SOAR draft"], comments: 2 } });
+    } finally { await s.sandbox.close(); }
+  }, 300_000);
+  it("backlog item 7(d): writes the host flags for a fee table its prose contradicts and two clauses a negation apart, deterministically, and refuses a hand-edited flags file", async () => {
+    const s = await session("flags", [
+      { id: "E1", anchor: "USD 75", action: "comment", rationale: "Check the fee against the table.", severity: "medium" },
+      { id: "E2", anchor: "shall not be liable", action: "replace", newText: "shall be liable", rationale: "Match clause 3.", severity: "high" }]);
+    try {
+      const applied = await s.apply();
+      expect(applied).toMatchObject({ exitCode: 0, report: { ok: true, edits: 2, flags: { numericSource: 1, numericUnaddressed: 0, numericIntroduced: 0, numericResolved: 0,
+        inversionEdits: 1, inversionSource: 1, inversionUnaddressed: 0, inversionIntroduced: 0 } } });
+      const flags = DocumentReviewFlagsSchema.parse(JSON.parse((await s.sh("cat output/review-flags.json")).stdout));
+      // The applier's input builder ran inside the image (CI has no lxml): no rule and no step recorded an error.
+      expect(flags.error).toBeUndefined(); for (const list of [flags.numeric, flags.edits, flags.clauses]) expect(list.error).toBeUndefined();
+      // Paragraphs as --list numbers them: the table's four cells are 2-5, the fee sentence 6, the two clauses 7 and 8.
+      expect(flags.numeric.flags).toEqual([{ table: 1, row: 2, paragraph: 6, inSource: true, inClean: true, addressedBy: ["E1"],
+        source: { row: ["50 USD"], prose: ["75 USD"] }, clean: { row: ["50 USD"], prose: ["75 USD"] } }]);
+      expect(flags.edits.flags).toEqual([{ id: "E2", codes: ["negation_flipped"] }]);
+      expect(flags.clauses.flags).toEqual([{ paragraphs: [7, 8], inSource: true, inClean: false, addressedBy: ["E2"] }]);
+      expect(await s.check()).toMatchObject({ exitCode: 0, result: { passed: true, failures: [] } });
+      // Same plan, same bytes, in another process (the check's own re-derivation is a third).
+      expect((await s.sh(`python3 -I review/soar_redline.py ${SOURCE} ${DOCUMENT_REVIEW_EDITS_PATH} /tmp/again && cmp output/review-flags.json /tmp/again/review-flags.json`)).exitCode).toBe(0);
+      await s.sh("cp output/review-flags.json /tmp/flags.json && printf ' ' >> output/review-flags.json");
+      expect((await s.check()).result.failures).toEqual([{ code: "output_differs", path: "output/review-flags.json" }]);
+      await s.sh("rm output/review-flags.json");
+      expect((await s.check()).result.failures).toEqual([{ code: "artifact_missing", path: "output/review-flags.json" }]);
     } finally { await s.sandbox.close(); }
   }, 300_000);
 });

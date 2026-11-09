@@ -113,10 +113,23 @@ def long():
     b = io.BytesIO(); d.save(b); return b.getvalue()
 
 
+def flags():
+    """Backlog item 7(d): a fee table its prose contradicts, and two clauses that differ by a negation."""
+    d = docx.Document()
+    d.add_paragraph("1. Fees are payable as set out in the table below.")
+    t = d.add_table(rows=2, cols=2)
+    t.cell(0, 0).text = "Item"; t.cell(0, 1).text = "Fee (USD)"
+    t.cell(1, 0).text = "Late payment fee"; t.cell(1, 1).text = "50"
+    d.add_paragraph("2. The late payment fee is USD 75 per invoice.")
+    d.add_paragraph("3. The Supplier shall be liable for loss of data caused by its negligence.")
+    d.add_paragraph("4. The Supplier shall not be liable for loss of data caused by its negligence.")
+    b = io.BytesIO(); d.save(b); return b.getvalue()
+
+
 kind, path = sys.argv[1], sys.argv[2]
 with open(path, "wb") as handle:
     handle.write({"nda": nda, "tracked": tracked, "commented": commented, "objects": objects, "header_tracked": header_tracked, "hidden": hidden,
-                  "word_like": word_like, "long": long}[kind]())
+                  "word_like": word_like, "long": long, "flags": flags}[kind]())
 `;
 
 /** A plan over the synthetic agreement: a bold run inside an anchor, a table cell, Chinese text, a bookmark inside a deletion, text after a field. */

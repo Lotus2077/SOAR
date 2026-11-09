@@ -48,7 +48,8 @@ describe("Phase 2 repair pair: packet and seeding", () => {
       { type: "tool_finished", contextId: "q", operationId: "y", output: "public" }];
     expect(selfCheckFromEvents(phased)).toEqual({ finish: "private" });
     expect(repairDraftPaths({ requiredArtifacts: ["output/report.md"], claimsLedger: true, documentReview: false })).toEqual(["output/claims.json", "output/report.md"]);
-    expect(repairDraftPaths({ requiredArtifacts: ["output/summary.md"], claimsLedger: false, documentReview: true })).toContain("review/edits.json");
+    expect(repairDraftPaths({ requiredArtifacts: ["output/summary.md"], claimsLedger: false, documentReview: true })).toEqual(["output/clean.docx",
+      "output/hygiene.json", "output/issues.xlsx", "output/redline.docx", "output/review-flags.json", "output/summary.md", "review/edits.json"]);
   });
   const phase = (): SessionPhase => ({ files: [{ path: "brief.md", bytes: Buffer.from("brief") }, { path: "input/a.txt", bytes: Buffer.from("in") }],
     checks: [{ id: "c", python: "pass" }], contract: { version: 1, goal: "Do the task.", requiredArtifacts: [{ path: "output/report.md", description: "r" }],

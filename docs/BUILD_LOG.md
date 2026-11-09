@@ -30649,3 +30649,73 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The implementation in this pull request and its `Implemented` entry, with green `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` and `pnpm validate:readiness`, the changed tests and the full `pnpm exec vitest run`. The identity and tool-error golden tests must pass untouched. Then review, CI and a merge per the merge train (controller.ts: 6.1, then 6.2, then 7d.C). If another entry merges first, this entry's ID is re-stamped after main's tail with a correction entry.
 
 References: docs/PROJECT_REVIEW_2026-11-05.md section 4 rows A6, A7 and D7, section 5.2 principle 5 and section 5.7 item 6; docs/HANDOFF.md "Start here"; BL-20261006-1008-box-checklist-and-phase1-start; BL-20261006-1055-phase1-pr-a-d-implemented; BL-20261025-0939-h2a-vllm-cache-salt-implemented; BL-20261107-0809-zero-fee-failures-resolve-design (decisions 4-6); BL-20261107-0839-assist-purpose-exception-design (decision 5); BL-20261107-0924-stop-bricking-tasks-design (decisions D and F, and its limitations); BL-20261107-1006-stop-bricking-tasks-review-corrections (decision 4); BL-20261108-0904-owner-verdict-capture-design; GitHub issue #46.
+
+
+### BL-20261109-0459-desktop-resume-reasons-implemented -- 2026-11-09 -- Backlog item 6, part 1 (finding A6) implemented: the run-reasons table and its contract test, each run's own reason kept, transient stops resumable, `task_integrity_failed` (also for missing storage), the failed-consultation guard and the live version 3 clock
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry implements BL-20261109-0336-desktop-resume-reasons-design, with deterministic tests, in branch `fix/6.1-desktop-resume-reasons` (plan ID 6.1, lane S-desk), based on `main` at 2982ca7. The design commit is 2231b3f, the implementation commit d34a4b2 and the code-review corrections a49e4b1.
+
+Decisions: Two adversarial code reviews ran on d34a4b2: one on correctness and safety, one on the tests and the inventory, with mutation testing. They found no path where a resume replays an open operation, re-sends an unknown dispatch or re-sends a consultation, and no production bug. Their confirmed findings change three things the design entry stated. They are recorded here as superseding decisions; the design entry stays as written.
+
+(a) Missing storage. An ENOENT whose path lies under the task storage root is recorded as `task_integrity_failed`, terminal. This supersedes the design entry's limitation that "a missing input blob (ENOENT) stays `runtime_unavailable`". Under the design, a deleted checkpoint blob or a deleted checkpoints directory stayed resumable. On a finalising task, whose deadline `finalising` waives, Resume then stayed offered after the deadline, and every attempt failed at once. A missing path outside the root (the docker CLI, say) stays `runtime_unavailable`.
+
+(b) The runner's contract refusals when it is built are recorded as themselves and classified terminal in the table, beside the session's own codes, because every run repeats them. They are `general_job_contract_invalid`, `general_initial_evidence_missing`, `general_initial_evidence_context_invalid`, `general_session_deadline_invalid` and `general_public_fetch_limit_invalid`.
+
+(c) Texts.
+- `consultation_failed` no longer calls the outcome confirmed, because the consultation panel labels a failed request "uncertain". It says the request was attempted and did not succeed and that no Resume is offered. A revoke can still re-enable one, and nothing is re-sent.
+- `task_integrity_failed` no longer says saved progress is retained, since the saved progress may be what failed.
+- `runtime_failure_progress_preserved` says a resume starts again from the checkpoint, not that it continues from it.
+
+Changes:
+- src/main/general-tasks/run-reasons.ts (new):
+  - `RUN_REASONS`, the terminal prefixes and suffix, and the `public_` rule;
+  - `RUN_REASON_SHAPE`, `PROJECTION_ONLY_REASONS`, `TASK_INTEGRITY_ERRORS` and `RUNNER_CONTRACT_ERRORS`;
+  - `classifiedRunReason`, `runReasonClass`, `isResumableRunReason`, `storedRunReason` and `caughtRunReason(error, storageRoot)`.
+- src/main/general-tasks/controller.ts:
+  - execute() stores `storedRunReason(result.reason)` for an incomplete record, and the catch stores `caughtRunReason(error, this.root)`;
+  - canResume reads the table for incomplete records, plus the `consultationFailed` guard;
+  - the projection gains `consultation_failed` and reads `expired && !finalising`;
+  - the text lookup reads own keys only, and there are ten new texts;
+  - the version 3 clock is live for resumable incomplete records;
+  - four imports that are no longer used were dropped.
+- tests/helpers/run-reason-scan.ts (new): the inventory.
+  - It fails closed on a reason it cannot evaluate, on a stop object outside the result helpers, on a computed status or a shorthand reason, on an ambiguous or non-`const` constant, and on a computed reason assignment or a record spread.
+  - It reads `caughtRunReason`'s returns from its source.
+- tests/unit/general-task-run-reasons.test.ts (new), tests/unit/general-task-controller.test.ts (cases appended at the end), tests/unit/general-task-consultation-controller.test.ts (four cases), and tests/e2e/general-task-progress.spec.ts (one assertion).
+
+Evidence: At commit a49e4b1:
+- `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` (exit 0) and `pnpm validate:readiness` all pass.
+- The changed tests pass:
+  - tests/unit/general-task-run-reasons.test.ts: 5 of 5;
+  - tests/unit/general-task-controller.test.ts: 144 of 144;
+  - tests/unit/general-task-consultation-controller.test.ts: 22 of 22.
+
+  tests/unit/private-agent-identity-golden.test.ts and tests/unit/private-agent-tool-errors-golden.test.ts are untouched and pass, 4 of 4.
+- The full `pnpm exec vitest run`:
+  - 179 files: 165 passed, 13 skipped (the environment-gated suites, as before) and 1 failed;
+  - 2,808 tests: 2,723 passed, 84 skipped and 1 failed.
+
+  The failure is tests/unit/with-claude-key.test.ts, timing out at 5 s while other lanes' suites ran on this Mac; alone it passes 3 of 3. The baseline at 2982ca7 was 178 files and 2,757 tests (2,672 passed, 84 skipped, and the same file timing out under load). The 51 new tests account for the difference.
+- Mutation checks:
+  - The code review's tests reviewer ran 77 production mutations. 57 were killed; it reported 20 survivors, four of them real test gaps.
+  - In a scratch copy at a49e4b1, the five mutations behind those gaps now each fail a test: canResume without the incomplete-status check, the failed-consultation guard and its projection limited to paused records, and the clock live for every incomplete record or keyed on canResume.
+  - So do six inventory forms that previously passed unnoticed: a direct stop object in the runner, a shorthand reason in the session, a record spread, a computed reason assignment, a `let` constant and an ambiguous constant.
+  - The finalising-past-deadline test fails with the old projection.
+
+Failures or blockers: None. CI has not run yet; it runs on the pull request.
+
+Limitations and non-claims:
+- This is `Implemented`, not `Verified` or `Released`: deterministic tests on fixtures only. No endpoint, model, Docker container or paid call ran.
+- The Docker-gated e2e assertion change is proved only by the owner's run: `SOAR_RUN_GENERAL_TASK_E2E=true SOAR_GENERAL_TASK_IMAGE_ID=<the installed image id> pnpm test:e2e tests/e2e/general-task-progress.spec.ts`.
+- Other deterministic errors that reach the controller's catch stay a resumable `runtime_unavailable`, futile at zero fee and zero dispatch, as accepted under Q2: a store refusal while the session creates a context, or a schema error while it copies a phase. Persistent consultation refusals inside the runner (a moved checkpoint, a drifted preview) are recorded as `runtime_failure_progress_preserved`.
+- The five texts that say "no request or action is uncertain" rest on `uncertain()`. It deliberately skips another context's unknown assist rows and the entailment pass's rows. Neither can coexist with these stops on today's desktop, which runs no research stage. Backlog item 13 must re-check these texts when it adds one.
+- The contract test's inventory is syntactic. A reason assembled in a way it does not model fails the test rather than passing it, but a reason introduced outside the four scanned files is not seen.
+- The design entry's other limitations stand.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Review and CI on the pull request, then the merge train (controller.ts: 6.1, then 6.2, then 7d.C). 6.2 stacks on this branch. If another entry merges first, this entry's ID and the design entry's are re-stamped after main's tail with a correction entry.
+
+References: BL-20261109-0336-desktop-resume-reasons-design; docs/PROJECT_REVIEW_2026-11-05.md section 4 row A6 and section 5.7 item 6; docs/HANDOFF.md "Start here".

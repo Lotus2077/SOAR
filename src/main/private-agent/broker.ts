@@ -485,7 +485,7 @@ export class PrivateAgentBroker {
     // D4: only such a packet, on a destination flagged recoverable, is retried, and only after a confirmed abort.
     const recoverable = packet.destination.recoverable === true && zeroRisk;
     const anthropic = packet.destination.anthropicVersion !== undefined;
-    // E1-R (BL-20261109-0337): a retried attempt stays `committed` until the next attempt's commit closes it `superseded` in the same
+    // E1-R (the retry-wait design entry in docs/BUILD_LOG.md): a retried attempt stays `committed` until the next attempt's commit closes it `superseded` in the same
     // transaction; a retry that does not follow resolves it `failed` with its own diagnostic. Each path has one code for a retry a cancel
     // stops: `retry_wait_cancelled` on the Anthropic destination, `request_failed` for D4, which never produces the retry-wait code.
     const cancelCode = anthropic ? RETRY_WAIT_CANCELLED : "request_failed";

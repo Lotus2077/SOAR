@@ -95,7 +95,7 @@ export function isBlockingDispatch(receipt: { status: DispatchStatus; purpose?: 
 }
 
 /**
- * The attempt a retry replaces (E1-R, BL-20261109-0337): `commit` closes it `superseded`, with its confirmed-abort diagnostic, in the
+ * The attempt a retry replaces (E1-R, the retry-wait design entry in docs/BUILD_LOG.md): `commit` closes it `superseded`, with its confirmed-abort diagnostic, in the
  * transaction that inserts the attempt that follows it: after the input's own parses and the admission check, before `validate` and every
  * other check. Those checks therefore see the ledger exactly as they saw it when the earlier attempt was superseded first, and any refusal
  * rolls both writes back: the earlier row stays `committed` for the broker to resolve `failed`, and a `superseded` row never lacks its

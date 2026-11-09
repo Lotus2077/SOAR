@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { GeneralTaskController, type GeneralTaskControllerOptions } from "../../src/main/general-tasks/controller";
 import { resolveConsultantProfile } from "../../src/main/general-tasks/consultant-config";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
@@ -220,5 +220,38 @@ describe("desktop consultation authority and continuity", () => {
     expect(unknown.revision).toBeGreaterThan(committed.revision);
     expect(unknown).toMatchObject({ canResume: false, modelCalls: 2, consultation: { state: "uncertain" } });
     expect(unknown.fees).toEqual(committed.fees);
+  });
+  // Backlog item 6, finding A6 (BL-20261109-0336-desktop-resume-reasons-design).
+  it("backlog item 6: keeps the version 3 clock live while a resumable runtime_unavailable stop waits, and resumes once the runtime is back", async () => {
+    const f = fixture(), task = await f.start();
+    f.controller.decideConsultation({ ...f.ref(task), decision: "decline" });
+    f.options.testing!.readiness = async () => { throw new Error("synthetic docker unavailable"); };
+    f.controller.resume(task.id); await f.controller.wait(task.id);
+    const stopped = f.controller.get(task.id);
+    expect(stopped).toMatchObject({ status: "incomplete", canResume: true });
+    const later = Date.now() + 60_000; vi.spyOn(Date, "now").mockReturnValue(later);
+    try { expect(f.controller.get(task.id).elapsedMs - stopped.elapsedMs).toBeGreaterThanOrEqual(60_000); } finally { vi.restoreAllMocks(); }
+    f.options.testing!.readiness = async () => {}; f.finish();
+    f.controller.resume(task.id); await f.controller.wait(task.id);
+    expect(f.controller.get(task.id)).toMatchObject({ status: "submitted", consultation: { state: "declined" } });
+  });
+  it("backlog item 6: offers no Resume once the approved consultation's one request failed with a confirmed outcome", async () => {
+    const f = fixture(), task = await f.start(), args = f.executions[0]!, ref = f.ref(task);
+    f.controller.previewConsultation(ref); f.controller.decideConsultation({ ...ref, decision: "approve" });
+    const grant = JSON.parse((f.db.prepare("SELECT value FROM private_agent_grants WHERE job_id=?").get(task.id) as { value: string }).value);
+    args.store.append(task.id, { type: "consultation_attempted", contextId: args.contextId, proposalId: ref.proposalId, proposalSha256: ref.proposalSha256 });
+    const receipt = args.store.commit({ jobId: task.id, contextId: args.contextId, contextSha256: grant.contextSha256,
+      packetSha256: grant.packetSha256, destinationId: grant.destinationId, destinationSha256: grant.destinationSha256,
+      purpose: grant.purpose, policyRevision: grant.policyRevision, approval: grant.approval,
+      reservedFeeMicrousd: grant.approval.maxFeeMicrousd, scan: { status: "complete", detector: "synthetic_store_test" } }, () => {}, grant.id);
+    args.store.resolveFailure(receipt.id, "failed", { phase: "transport", code: "connection_failed", elapsedMs: 1, timeoutMs: 5000 });
+    expect(readConsultation(args.store, task.id)).toMatchObject({ status: "failed", uncertain: false });
+    const view = f.controller.get(task.id);
+    expect(view).toMatchObject({ status: "paused", canResume: false });
+    expect(view.reason).toContain("consultation request failed"); expect(view.reason).not.toContain("_");
+    expect(() => f.controller.resume(task.id)).toThrow("general_task_resume_denied");
+    await f.reopen();
+    expect(f.controller.get(task.id)).toMatchObject({ canResume: false, reason: view.reason });
+    expect(f.executions).toHaveLength(1);
   });
 });

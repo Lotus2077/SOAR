@@ -30565,3 +30565,43 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The implementation with deterministic tests in this pull request and its `Implemented` entry, then CI green and the owner's merge go-ahead.
 
 References: docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E1; BL-20261006-1241-pr-j2-entailment-design; BL-20261007-0120-pr-j2-entailment-implemented; BL-20261107-0809-zero-fee-failures-resolve-design.
+
+
+### BL-20261109-0444-judge-cancel-label-implemented -- 2026-11-09 -- E1-J implemented: a judge call stopped mid-request is recorded by why it stopped
+
+Status: `Implemented`
+
+Scope or hypothesis: Implements BL-20261109-0411-judge-cancel-label-design as decided, with deterministic tests, on branch `fix/e1-j-judge-cancel-label` based on `main` at 2982ca7. Hypothesis: a judge call the host stopped mid-request (the session's cancel or pause, the pass's clock, or whatever aborts the run's signal) is labelled `deadline_or_cancelled` or `paused`, and a call that failed while nothing stopped it keeps `request_failed`.
+
+Decisions: None new beyond the design entry. One adversarial code review found no blocker; its findings are applied (two more stop paths tested, two comments corrected) or recorded below. Corrections and narrowings of the design entry's text:
+- Decisions (2) and (4) say the stopped call's row resolves `failed` with code `cancelled`. That holds only once the call's row was committed: a stop during token admission, before the commit or during a retry wait leaves no new row, yet `entailmentCalls` still counts the call. Deriving which claim was launched from `entailmentCalls` still works.
+- The design entry's Evidence counts 4 failed and 2 passed for the reproduction tests then written; the final set, with the run-signal case and a real-timer clock case, gives 5 failed and 2 passed on main (below).
+- The code comment cites "E1-J", not the entry ID, which a re-stamp at merge would change.
+
+Changes:
+- src/main/private-agent/claims.ts: the catch in `judgeClaims` reads the pass's signal (`paused` when aborted with the stop flag, `deadline_or_cancelled` when aborted otherwise, `request_failed` otherwise); the stop flag's doc says it also labels a call it stopped.
+- tests/unit/private-agent-claims.test.ts, "E1 recoverability: a judge call stopped mid-request is labelled by why it stopped (E1-J)": a cancel mid-request; the pass's clock, as a real `AbortSignal.timeout` cutting a call that never answers; a pause mid-request; and a call that failed with a pause requested and the clock run down, which keeps `judge_request_failed`.
+- tests/unit/private-agent-session.test.ts, "E1 recoverability: a judge call the session stops mid-request (E1-J)": the session's cancel mid-call and the run's own signal mid-call each persist `deadline_or_cancelled` in the `claims_entailment` event; the session's pause mid-call records nothing and the next run judges from the start.
+
+Evidence: On the owner's Mac, with other sessions' suites running:
+- At d3c7a7f, `pnpm exec vitest run -t "E1 recoverability"`: 2 files passed and 176 skipped; 7 tests passed and 2,757 skipped.
+- The same 7 tests against main's claims.ts (copied into the worktree for the run, then restored): 5 failed and 2 passed. The two that pass pin what stays: a call that failed while nothing stopped it keeps `judge_request_failed`, and the session's pause mid-call records nothing.
+- tests/unit/private-agent-claims.test.ts and tests/unit/private-agent-session.test.ts, twice: 55 passed and 1 skipped (the existing case that needs an isolated pypdf).
+- At d3c7a7f, `pnpm exec vitest run` (the full suite): 178 files, 165 passed and 13 skipped; 2,764 tests, 2,680 passed and 84 skipped, none failed. At 5a544bb, before the review fixes, one unrelated test (tests/unit/patch-routing-comparison.test.ts) had timed out at 5 s under load and passed alone.
+- `pnpm typecheck` passed with no error; `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+- The reviewer's runs: the six suites that read entailment results passed (272 tests), the golden and freeze suites passed (31), and inline runs confirmed that an abort after a valid or a garbage reply keeps that claim's verdict and labels only the next claim.
+
+Failures or blockers: None open. CI has not run on this branch yet.
+
+Limitations and non-claims:
+- A call that failed on its own takes the stop's label when a stop lands before the catch runs (for example a `transport_or_settlement_unknown` together with an abort). This is harmless: the stop ends the pass either way.
+- A durable cancel or policy revision that does not abort this pass's signal (another host's, say) still records `request_failed`.
+- The session's own `maxElapsedMs` deadline does not reach the pass: the pass runs on its own clock and the run's signal, which the desktop's task deadline aborts.
+- This PR also appends to tests/unit/private-agent-session.test.ts, which item 6's PR 6.2, 7d.B and 8.2b also edit (a tail-append conflict only).
+- No model, endpoint, Docker container or paid call ran.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green on the pull request and the owner's merge go-ahead; the orchestrator re-stamps this PR's entry IDs after main's tail at merge. claims.ts then goes to 8.2b, which must apply this labelling to each of its concurrent judge calls.
+
+References: BL-20261109-0411-judge-cancel-label-design; BL-20261007-0120-pr-j2-entailment-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E1.

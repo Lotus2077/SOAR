@@ -311,3 +311,50 @@ describe("H4 select-and-repair loop", () => {
     expect(record.selected.final).toMatchObject({ candidate: "repair" });
   });
 });
+
+describe("E1 recoverability: the harness loop admits retried rows and stops on an interrupt in any later sample (S1, S2)", () => {
+  /** A sample whose result lists these dispatch rows, read through the real result-to-summary mapping (selection.ts). */
+  function ledgerSummary(rows: { status: string; purpose?: string }[]): CandidateSummary {
+    const directory = loopDir(); mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, "freeze.json"), JSON.stringify({ jobId: "ja", startedAt: "t0", sourceFreezeSha256: h("4"), taskBinding: { jobSha256: h("1"), briefSha256: h("2") } }));
+    writeFileSync(join(directory, "result.json"), JSON.stringify({ status: "incomplete", reason: "runtime_failure_progress_preserved", finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [],
+      dispatches: rows.map(row => ({ feeMicrousd: 0, ...row })) }));
+    const db = new Database(join(directory, "state.sqlite"));
+    db.exec("CREATE TABLE private_agent_events (job_id TEXT, sequence INTEGER, value TEXT)"); db.close();
+    return summarizeRun(directory, []);
+  }
+
+  it("admits a sample whose ledger holds rows a zero-fee retry superseded, goes on to b, the critique and the repair, and counts them as retried", async () => {
+    // Finding D14's shape: the extraction call was cut once and retried (superseded, then settled), and an Anthropic-shaped planner call was retried after a 529.
+    const dir = loopDir(), a = ledgerSummary([{ status: "settled" }, { status: "superseded" }, { status: "settled" }, { status: "superseded", purpose: "research plan" }, { status: "settled" }]);
+    expect(a).toMatchObject({ retriedDispatches: 2, unknownDispatches: 0, failedDispatches: 0, assistSkippedDispatches: 0, assistFailedDispatches: 0 });
+    const { deps, calls } = fakes({ summaries: candidates(true, { a }), transfers: ["a"] });
+    const record = await runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, deps);
+    expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b", "repair"]); expect(calls.critiques).toHaveLength(1);
+    expect(record.failure).toBeNull(); expect(record.selected.final).not.toBeNull();
+    expect(record.totals).toMatchObject({ retriedDispatches: 2, unknownDispatches: 0, failedDispatches: 0 });
+  });
+
+  it.each([["b", ["a", "b"], 0, ["repair"], 1], ["repair", ["a", "b", "repair"], 1, [], 0]] as const)(
+    "stops after %s on an interrupt during it, starts nothing after it, and a rerun reuses every finished stage and selects", async (name, ran, critiques, rerun, recritiques) => {
+      // In production the driver's own interrupt handler cancels the sample's session, so the interrupted sample ends cancelled.
+      const cancelled = { status: "incomplete", reason: "cancelled_or_deadline" } as const;
+      const summaries = candidates(false, { [name]: cancelled });
+      const dir = loopDir(), abort = new AbortController();
+      const { deps, calls } = fakes({ summaries, onRun: run => { if (run.outputDirectory.endsWith(`/${name}`)) abort.abort(); } });
+      await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, deps, { signal: abort.signal })).rejects.toThrow("loop_interrupted");
+      expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(ran); expect(calls.critiques).toHaveLength(critiques);
+      expect(read(dir)).toMatchObject({ failure: "loop_interrupted", selected: { final: null }, finishedAt: expect.any(String) });
+      expect(loopExitCode(read(dir))).toBe(2);
+      // The interrupted loop is not terminal: the rerun reuses the cancelled stage and every one before it, and makes the final choice.
+      // The winner of a tie is item 11's PR 11.1's to change, so only choices that are not ties are asserted.
+      const again = fakes({ summaries });
+      const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, again.deps);
+      expect(again.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(rerun); expect(again.calls.critiques).toHaveLength(recritiques);
+      expect(record.failure).toBeNull(); expect(record.selected.final).not.toBeNull();
+      // A cancelled b loses stage 1 to a; a cancelled repair loses the final to the draft it repaired.
+      if (name === "b") expect(record.selected.stage1).toMatchObject({ candidate: "a", step: "submitted" });
+      else expect(record.selected.final).toMatchObject({ candidate: record.selected.stage1!.candidate, step: "submitted" });
+      expect(record.stages.filter(stage => stage.reused).map(stage => stage.stage)).toEqual(name === "b" ? ["a", "b"] : ["a", "b", "critique", "repair"]);
+    });
+});

@@ -30849,3 +30849,85 @@ References:
 - BL-20261107-0839-assist-purpose-exception-design (decision 5).
 - BL-20261109-0336-desktop-resume-reasons-design and BL-20261109-0459-desktop-resume-reasons-implemented.
 - GitHub issue #46 and pull request #72.
+
+
+### BL-20261109-0607-research-stage-pause-implemented -- 2026-11-09 -- Backlog item 6, part 2 (finding A7) implemented: a pause that stops a started research stage ends the task incomplete, the desktop offers no Resume for an unfinished stage and names it, and E1's bug (b) is pinned
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261109-0501-research-stage-pause-design, with deterministic tests, in branch `fix/6.2-research-stage-pause`. The branch is stacked on `fix/6.1-desktop-resume-reasons` at dc2cfad (pull request #72, plan ID 6.1); this is plan ID 6.2, lane S-desk:
+- the design commit 7e66702;
+- the implementation commit d41e9e1;
+- the code-review corrections dacfb00.
+
+Decisions: One adversarial code review covered correctness and replay safety, fidelity to the design, and the tests. It found no blocking issue: no production path returns `paused` for a started stage, and the guard spares a transferred stage, a public phase alone, a job without research, a seeded run and other contexts. Its confirmed findings change four things the design entry says, recorded here; the design entry stays as written.
+- (a) Decision (4) said a terminal stored reason keeps its own text. The session's own stored `research_stage_not_replayed` is now named before the time limit too, like a guarded record that would otherwise read as resumable. Otherwise the stored form read "The task reached its time limit." once the wall budget passed, while the guarded form kept the research text. Every other terminal stored reason keeps its own text, and the time-limit text past the budget, as before.
+- (b) Decision (3) said the paused arm is unreachable through session.run(). Precisely, no production caller can reach it: pause() always runs in its own event-loop task (IPC, the driver's timer, close()), and nothing awaits between the session's check and the pipeline's entry check. A synchronous pause inside the stage's set-up reaches it, and a test now pins its result: `paused` / `session_stopped`, nothing spent, the next run executing the stage whole.
+- (c) The tests now pin the predicate's row half. The pipeline records a stage's event once, at its end or on a denial. So a crash during an index stage of several calls leaves settled reader rows and no stage event. Before, the session's refusal and the desktop guard were each tested only through stage events, and either survived ignoring the rows. The tests also pin that a paused record with only the stage's input keeps Resume.
+- (d) Corrections to the design entry's text:
+  - "Unchanged, with the results the tests pin" holds for a cancel and an external abort, which the tests pin. The session deadline during a zero-fee call is unchanged code that this pull request does not pin. The design reviews ran it in scratch: `research_cancelled`, then `session_deadline`.
+  - The projection's place after the size, fee-cap, token-admission and execution-progress checks is not pinned; each of those texts also says the task cannot resume.
+  - The session's comment that "the operator resolves it first" now says that nothing resolves an unknown row today.
+
+The desktop text is fixed: "The research stage stopped before its evidence was handed to the writer. A partly run research stage cannot continue, so this task cannot resume."
+
+Changes:
+- src/main/private-agent/session.ts:
+  - `researchStageUnfinished(events, dispatches)`, exported and used by the refusal before the stage;
+  - the result mapping when a pause stopped the stage;
+  - the comments.
+- src/main/general-tasks/controller.ts:
+  - the predicate's guard in canResume;
+  - the projection to `research_stage_not_replayed` before the deadline check;
+  - that reason's fixed text;
+  - one dispatch read per get().
+- tests/unit/private-agent-research-session.test.ts:
+  - the fixture's `priced-planner` destination (kind `cloud_model`, loopback, grant-free synthetic, not `recoverable`) and a `stageEvents` helper;
+  - the two pause tests rewritten, with stage events and the failed row's code pinned;
+  - eight tests appended:
+    - a pause before the stage starts;
+    - a pause inside the stage before its first row is committed;
+    - a cancel, an external abort, a pause beside an abort, and a failure while a pause was pending, with each next run;
+    - a settled reader row with no stage event;
+    - the defensive paused arm;
+    - the predicate's cases;
+    - the pinned priced pause, with its `cancelled` failure and pinned reservation.
+- tests/unit/general-task-controller.test.ts:
+  - the 6.1 row for `research_stage_not_replayed` now expects its own text;
+  - an it.each over a pause and a thrown error, each also after a crash, with the full text and the time-limit order;
+  - a transferred stage that resumes, a terminal research reason keeping its text, and a committed reader row showing the uncertain-request text;
+  - a settled reader row alone, an input alone that resumes, and the stored refusal past the time limit.
+
+Evidence: At commit dacfb00:
+- `pnpm --silent validate:build-log -- --base-ref origin/fix/6.1-desktop-resume-reasons`, `pnpm typecheck` (exit 0) and `pnpm validate:readiness` pass.
+- The changed tests: private-agent-research-session 17 of 17; general-task-controller 148 of 148; general-task-run-reasons 5 of 5, its reason inventory still reading every new `result(...)` call; general-task-consultation-controller 22 of 22. The identity and tool-error golden tests, untouched, pass 4 of 4.
+- The full `pnpm exec vitest run`: 179 files, 166 passed and 13 skipped (the environment-gated suites, as before); 2,819 tests, 2,735 passed and 84 skipped, none failed. At 6.1's commit a49e4b1 it was 2,808 tests; the 11 new tests account for the difference.
+- Mutation checks:
+  - 19 single mutations, each applied alone to the final code in a scratch copy and run against the two changed test files. Every one is killed by a 6.2 test:
+    - the old pause mapping;
+    - the predicate ignoring the transfer, the stage events or the reader context;
+    - the pause branch skipping `unresolved()`, or always paused;
+    - a pending pause keeping paused for other failures;
+    - the refusal ignoring rows;
+    - the defensive arm made incomplete;
+    - an abort beside the pause taking the other branch;
+    - the desktop guard dropped, ignoring rows, or blocking an input alone;
+    - the projection dropped, unconditional, losing the stored reason, or moved after the deadline;
+    - the text removed, or its second sentence changed.
+  - The scratch copy has no git checkout, so the registry-row test that needs one fails there in every run, mutated or not.
+- The design reviews' scenario runs (recorded in the design entry): every pause inside the stage ended with the next run's reason, and a pause after the stage's last reply resumed to a submission with nothing replayed.
+
+Failures or blockers: None. CI has not run yet; it runs on the pull request.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified` or `Released`: deterministic tests on loopback fixtures only. No endpoint, model, Docker container or paid call ran.
+- The desktop guard is proved with a scripted runner that records what a session records for a reading stage. The desktop runs no research stage before backlog item 13.
+- E1's bug (b) stays, pinned by a test named after backlog item 10.b.
+- Outside this diff, a controller comment says an unresolved context "keeps every unknown row blocking", but `isBlockingDispatch(row, undefined)` treats an unknown assist row as non-blocking. It is left for item 10 or 13.
+- The design entry's limitations stand.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Review and CI on the pull request, merged after #72 (controller.ts: 6.1, then 6.2, then 7d.C; session.ts: 6.2, then 7d.B). E1-T3 (lane S-e1) asserts these results and merges after this; a hand-over note with the per-stage results is in the shared notes folder. If another entry merges first, this entry's ID and the design entry's are re-stamped after main's tail with a correction entry.
+
+References: BL-20261109-0501-research-stage-pause-design; BL-20261109-0459-desktop-resume-reasons-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 4 row A7 and section 5.7 item 6; pull request #72.

@@ -57,7 +57,7 @@ export type EntailmentComplete = (messages: GeneralMessage[], tools: [], signal:
  * of not_judged, a transport failure or an exhausted allowance also stops the pass (truncated).
  */
 export async function judgeClaims(input: { claims: EntailmentClaim[]; complete: EntailmentComplete; signal: AbortSignal; remainingMs: () => number;
-  /** A pause request: honoured at the next claim boundary, so the session can leave the rest for a resume. */
+  /** A pause request: honoured at the next claim boundary, so the session can leave the rest for a resume; it also labels a call it stopped. */
   stop?: () => boolean }): Promise<EntailmentOutcome> {
   const verdicts: EntailmentRecord[] = []; let calls = 0, stopReason: EntailmentStopReason | undefined;
   for (const claim of input.claims) {
@@ -71,9 +71,9 @@ export async function judgeClaims(input: { claims: EntailmentClaim[]; complete: 
       calls++;
       reply = (await input.complete(entailmentMessages(claim), [], input.signal, { thinking: "disabled", maxOutputTokens: ENTAILMENT_OUTPUT_TOKENS, purpose: ENTAILMENT_PURPOSE })).content;
     } catch {
-      // Every host stop (a pause, a cancel, the pass's own clock, the run's deadline or interrupt) reaches the call through this signal, so a
-      // call stopped mid-request carries the label the same stop gets between calls; one that failed while nothing stopped it is the
-      // judge's own failure (E1-J, BL-20261109-0411).
+      // Every host stop (a pause, a cancel, the pass's own clock, and whatever aborts the run's signal: the desktop's task deadline, the
+      // driver's interrupt) reaches the call through this signal, so a call stopped mid-request carries the label the same stop gets
+      // between calls; one that failed while nothing stopped it is the judge's own failure (E1-J).
       stopReason = !input.signal.aborted ? "request_failed" : input.stop?.() ? "paused" : "deadline_or_cancelled";
       verdicts.push({ id: claim.id, verdict: "not_judged", reason: stopReason === "request_failed" ? "judge_request_failed" : stopReason });
       continue;

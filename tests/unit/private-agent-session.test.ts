@@ -391,6 +391,15 @@ describe("E1 recoverability: a judge call the session stops mid-request (E1-J)",
         counts: { not_judged: 2 }, verdicts: [{ id: "C1", verdict: "not_judged", reason: "deadline_or_cancelled" }, { id: "C2", verdict: "not_judged", reason: "pass_stopped" }] });
     } finally { spy.mockRestore(); }
   });
+  it("persists a pass whose judge call the run's own signal stopped mid-request (the desktop's deadline, the driver's interrupt) as deadline_or_cancelled", async () => {
+    const f = await fixture(), session = new GeneralAgentSession(options(f, "judged-run-abort", "PRIVATE-RUN-ABORT")), run = new AbortController();
+    const spy = stoppedBy(() => run.abort());
+    try {
+      await session.run(run.signal);
+      expect(f.store.events("judged-run-abort").find(e => e.type === "claims_entailment")).toMatchObject({ entailmentCalls: 1, truncated: true, stopReason: "deadline_or_cancelled",
+        verdicts: [{ id: "C1", verdict: "not_judged", reason: "deadline_or_cancelled" }, { id: "C2", verdict: "not_judged", reason: "pass_stopped" }] });
+    } finally { spy.mockRestore(); }
+  });
   it("records nothing for a pass whose judge call the session's pause stopped mid-request, and the next run judges from the start", async () => {
     const f = await fixture(), config = options(f, "judged-pause-call", "PRIVATE-PAUSE-CALL"), session = new GeneralAgentSession(config);
     const spy = stoppedBy(() => session.pause());

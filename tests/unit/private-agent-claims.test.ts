@@ -292,10 +292,11 @@ describe("E1 recoverability: a judge call stopped mid-request is labelled by why
       verdicts: [{ id: "C1", verdict: "not_judged", reason: "deadline_or_cancelled" }, ...rest] });
   });
   it("records a judge call the pass's own clock cut mid-request as deadline_or_cancelled", async () => {
-    // The session joins the pass's deadline into the signal (AbortSignal.timeout), so a cut by the clock reaches the call as an abort.
-    const clock = new AbortController();
-    let remaining = 600_000;
-    const outcome = await judgeClaims({ claims, signal: clock.signal, remainingMs: () => remaining, complete: stoppedCall(() => { remaining = 0; clock.abort(); }) });
+    // The session joins the pass's deadline into the signal as AbortSignal.timeout; here a real 5 ms timer cuts a call that would never answer.
+    const signal = AbortSignal.any([AbortSignal.timeout(5)]);
+    const hanging = (_messages: unknown, _tools: [], callSignal: AbortSignal) => new Promise<{ content: string }>((_resolve, reject) =>
+      callSignal.addEventListener("abort", () => reject(new BrokerError("request_failed")), { once: true }));
+    const outcome = await judgeClaims({ claims, signal, remainingMs: () => 600_000, complete: hanging });
     expect(outcome).toMatchObject({ entailmentCalls: 1, truncated: true, stopReason: "deadline_or_cancelled", verdicts: [{ id: "C1", verdict: "not_judged", reason: "deadline_or_cancelled" }, ...rest] });
   });
   it("records a judge call a pause stopped mid-request as paused, as a pause at a claim boundary is", async () => {

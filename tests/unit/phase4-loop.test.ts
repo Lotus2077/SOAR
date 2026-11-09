@@ -337,24 +337,32 @@ describe("E1 recoverability: the harness loop admits retried rows and stops on a
 
   it.each([["b", ["a", "b"], 0, ["repair"], 1], ["repair", ["a", "b", "repair"], 1, [], 0]] as const)(
     "stops after %s on an interrupt during it, starts nothing after it, and a rerun reuses every finished stage and selects", async (name, ran, critiques, rerun, recritiques) => {
-      // In production the driver's own interrupt handler cancels the sample's session, so the interrupted sample ends cancelled.
-      const cancelled = { status: "incomplete", reason: "cancelled_or_deadline" } as const;
-      const summaries = candidates(false, { [name]: cancelled });
+      // The interrupted stage here submitted before the interrupt was seen, so every loop version reuses it; a stage the interrupt cut before it
+      // submitted is the pin below. No tie winner is asserted: item 11's PR 11.1 changes the tie rule.
       const dir = loopDir(), abort = new AbortController();
-      const { deps, calls } = fakes({ summaries, onRun: run => { if (run.outputDirectory.endsWith(`/${name}`)) abort.abort(); } });
+      const { deps, calls } = fakes({ summaries: candidates(false), onRun: run => { if (run.outputDirectory.endsWith(`/${name}`)) abort.abort(); } });
       await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, deps, { signal: abort.signal })).rejects.toThrow("loop_interrupted");
       expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(ran); expect(calls.critiques).toHaveLength(critiques);
       expect(read(dir)).toMatchObject({ failure: "loop_interrupted", selected: { final: null }, finishedAt: expect.any(String) });
       expect(loopExitCode(read(dir))).toBe(2);
-      // The interrupted loop is not terminal: the rerun reuses the cancelled stage and every one before it, and makes the final choice.
-      // The winner of a tie is item 11's PR 11.1's to change, so only choices that are not ties are asserted.
-      const again = fakes({ summaries });
+      const again = fakes({ summaries: candidates(false) });
       const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, again.deps);
       expect(again.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(rerun); expect(again.calls.critiques).toHaveLength(recritiques);
       expect(record.failure).toBeNull(); expect(record.selected.final).not.toBeNull();
-      // A cancelled b loses stage 1 to a; a cancelled repair loses the final to the draft it repaired.
-      if (name === "b") expect(record.selected.stage1).toMatchObject({ candidate: "a", step: "submitted" });
-      else expect(record.selected.final).toMatchObject({ candidate: record.selected.stage1!.candidate, step: "submitted" });
       expect(record.stages.filter(stage => stage.reused).map(stage => stage.stage)).toEqual(name === "b" ? ["a", "b"] : ["a", "b", "critique", "repair"]);
     });
+
+  it("pins a limitation item 11's PR 11.1 flips: a rerun reuses a sample the loop's interrupt cut before it submitted", async () => {
+    // In production the driver's own interrupt handler cancels the sample's session, so the cut sample ends cancelled. Today the rerun reuses it
+    // and never runs it again; 11.1 refuses such a stage on resume with loop_stage_interrupted instead.
+    const summaries = candidates(false, { b: { status: "incomplete", reason: "cancelled_or_deadline" } });
+    const dir = loopDir(), abort = new AbortController();
+    const { deps } = fakes({ summaries, onRun: run => { if (run.outputDirectory.endsWith("/b")) abort.abort(); } });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, deps, { signal: abort.signal })).rejects.toThrow("loop_interrupted");
+    const again = fakes({ summaries });
+    const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, again.deps);
+    expect(again.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["repair"]);
+    expect(record.stages.filter(stage => stage.reused).map(stage => stage.stage)).toEqual(["a", "b"]);
+    expect(record.selected.stage1).toMatchObject({ candidate: "a", step: "submitted" });
+  });
 });

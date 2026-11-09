@@ -42,7 +42,8 @@ export interface CritiqueRecord { packetSha256: string; critiqueSha256: string; 
   source?: { resultSha256: string; freezeSha256: string }; researchSnapshotSha256?: string }
 export interface LoopDependencies {
   runSample(input: DriverInput): Promise<unknown>;
-  critique(input: CritiqueArguments): Promise<{ binding: { packetSha256: string; critiqueSha256: string; source: { resultSha256: string; freezeSha256: string } }; feeMicrousd: number; finishReason: string | null; usage: CritiqueUsage | null }>;
+  /** The critique tool; `control.signal` is the loop's interrupt (backlog item 11, part 3a; E1's bug d), never part of the critique's arguments. */
+  critique(input: CritiqueArguments, control?: { signal?: AbortSignal }): Promise<{ binding: { packetSha256: string; critiqueSha256: string; source: { resultSha256: string; freezeSha256: string } }; feeMicrousd: number; finishReason: string | null; usage: CritiqueUsage | null }>;
   /** The critique tool's own record of a finished critique (critique.json), read back when the stage is reused. */
   readCritique(directory: string): CritiqueRecord;
   summarize(runDirectory: string, deliverables: string[]): CandidateSummary;
@@ -229,12 +230,14 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
     let critiqued: CritiqueRecord;
     try {
       await stage("critique", "critique.json", () => deps.critique({ runDirectory: join(loop, chosen), taskDirectory: input.base.taskDirectory, expectedJobSha256: input.base.expectedJobSha256,
-        expectedBriefSha256: input.base.expectedBriefSha256, imageId: input.base.imageId, outputDirectory: critiqueDir, critic: "local" }));
+        expectedBriefSha256: input.base.expectedBriefSha256, imageId: input.base.imageId, outputDirectory: critiqueDir, critic: "local" }, { signal: control.signal }));
       // The critique tool's own record is the critique, fresh or reused, so a resumed loop counts the call it already made; it must be a critique of the draft chosen now, on this loop's packet.
       critiqued = deps.readCritique(critiqueDir);
       if (critiqued.source && (critiqued.source.resultSha256 !== selected.resultSha256 || critiqued.source.freezeSha256 !== selected.freezeSha256)) throw new Error("loop_stage_mismatch");
       if ((critiqued.researchSnapshotSha256 ?? null) !== (research ? packet : null)) throw new Error("loop_stage_mismatch");
     } catch (error) {
+      // The loop's interrupt stopped the critique (E1's bug d): the loop can be resumed, never ended on a critique failure.
+      if (interrupted()) { if (failureCode(error, "") !== "loop_interrupted") sideError("loop_interrupted", error); throw new Error("loop_interrupted"); }
       const code = failureCode(error, "repair_critique_failed");
       if (code === "loop_stage_incomplete" || code === "loop_stage_mismatch" || code === "loop_interrupted") throw error;
       sideError(code, error);

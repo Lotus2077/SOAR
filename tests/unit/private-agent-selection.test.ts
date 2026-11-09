@@ -11,7 +11,7 @@ const cleanups: (() => void)[] = [];
 afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
 const base: CandidateSummary = { jobId: "j", taskJobSha256: "1".repeat(64), taskBriefSha256: "2".repeat(64), runtimeSha256: "4".repeat(64), researchFrom: null, repairSource: null, status: "submitted", reason: "independent_acceptance_pending", checksPassed: 3, checksTotal: 3, checksCurrent: true, artifactsPresent: 2, artifactsTotal: 2,
   entailment: null, writeIdentity: null, modelCalls: 10, toolCalls: 9, inputTokens: 100, outputTokens: 10, cachedTokens: 0, cacheWriteTokens: 0, lengthStops: 0, feeMicrousd: 0, unknownDispatches: 0, retriedDispatches: 0, failedDispatches: 0, zeroFeeFailedDispatches: 0,
-  assistSkippedDispatches: 0, assistFailedDispatches: 0,
+  assistSkippedDispatches: 0, assistFailedDispatches: 0, stageDenied: null,
   candidateSha256: "a".repeat(64), freezeSha256: "b".repeat(64), resultSha256: "c".repeat(64), startedAt: "2026-10-26T00:00:00.000Z", finishedAt: "2026-10-26T00:10:00.000Z" };
 const entailed = (supported: number, contradicted = 0, unsupported = 0, truncated = false) => ({ supported, partial: 1, unsupported, contradicted, not_judged: 0, truncated });
 
@@ -77,6 +77,10 @@ describe("H4 selection rule", () => {
       assistSkippedDispatches: 1, assistFailedDispatches: 1,
       candidateSha256: digest(canonical(files)), startedAt: freeze.startedAt, finishedAt: result.finishedAt });
     expect(summary.freezeSha256).toBe(digest(`${canonical(freeze)}\n`)); expect(summary.resultSha256).toBe(digest(`${canonical(result)}\n`));
+    // Backlog item 11, part 3a: the reading stage's denied code, the last one a stage event recorded, is one input of the run's class.
+    expect(summary.stageDenied).toBeNull();
+    store.append(jobId, { type: "research_stage", contextId: "r", stage: "plan", calls: 0, denied: "request_failed" });
+    expect(summarizeRun(dir, deliverables)).toMatchObject({ stageDenied: "request_failed", modelCalls: 6 });
     // Pipeline replies have stage counts rather than model_finished events; a legacy stage without truncation counts adds zero.
     store.append(jobId, { type: "research_stage", contextId: "r", stage: "extract", calls: 2, truncatedReplies: 2, usage: { inputTokens: 20, outputTokens: 10 } });
     expect(summarizeRun(dir, deliverables)).toMatchObject({ modelCalls: 8, inputTokens: 2620, outputTokens: 160, cachedTokens: 1800, lengthStops: 3 });

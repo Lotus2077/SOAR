@@ -10,7 +10,7 @@ import { CRITIC_PURPOSE, CRITIC_SYSTEM_PROMPT, REPAIR_CRITIQUE_PATH, REPAIR_INST
   loadRepairDirectory, repairDraftPaths, repairMatchesRun, repairSeedMatches, selfCheckFromEvents, withRepair, type RepairBinding } from "../../src/main/private-agent/repair";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import type { SessionPhase } from "../../src/main/private-agent/session";
-import { loadFailedRun, parseCritiqueArguments, runCritique } from "../../scripts/phase2-repair";
+import { critiqueSignal, loadFailedRun, parseCritiqueArguments, runCritique } from "../../scripts/phase2-repair";
 import { parseLocalArtifactScreenArguments } from "../../scripts/private-agent-local-screen";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -170,6 +170,41 @@ describe("Phase 2 repair pair: the failed run and the critic", () => {
     // This call passes its own model configuration, so no salt is sent; the driver's local configuration adds one (H2a).
     expect(sent).not.toHaveProperty("cache_salt");
     expect(store.dispatches(answer.jobId)).toMatchObject([{ status: "settled", purpose: CRITIC_PURPOSE }]);
+  });
+  it("joins the loop's interrupt with the critique's own timeout, so an interrupt cuts the request it is waiting on (backlog item 11, part 3a; E1's bug d)", async () => {
+    // The signal alone: the timeout still fires, and the caller's abort fires at once.
+    const timed = critiqueSignal(20); await new Promise(resolve => setTimeout(resolve, 60)); expect(timed.aborted).toBe(true);
+    const caller = new AbortController(), joined = critiqueSignal(60_000, caller.signal);
+    expect(joined.aborted).toBe(false); caller.abort(); expect(joined.aborted).toBe(true);
+    // A critic that never answers: the joined signal, aborted by the caller, ends the request, and its zero-fee row resolves failed.
+    let received = 0;
+    const server = http.createServer(request => { received += 1; request.resume(); });
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+    cleanups.push(() => new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); }));
+    const db = new Database(":memory:"); cleanups.push(() => { db.close(); });
+    const store = new PrivateAgentStore(db);
+    const destination: BrokerDestination = { id: "owned_local_model", kind: "local_model", endpoint: `http://127.0.0.1:${(server.address() as { port: number }).port}/v1/chat/completions`,
+      accountId: "fixture", credentialVersion: 1, privateDataAdmitted: false, syntheticOnly: true, loopbackFixture: true, maxResponseBytes: 64 * 1024, timeoutMs: 60_000 };
+    const broker = new PrivateAgentBroker(store, [destination], { scan: async () => ({ complete: true, blocked: false, detector: "fixture" }) });
+    const packet = buildRepairPacket({ brief: "Write a memo.", artifacts: [{ path: "output/report.md", text: "x" }], selfCheck: {} });
+    const loop = new AbortController();
+    const pending = runCritique({ store, broker, destination, packet, maxFeeMicrousd: 0, signal: critiqueSignal(60_000, loop.signal),
+      modelConfig: { destinationId: destination.id, model: "fixture", maxOutputTokens: 16_384, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" } });
+    const settled = pending.then(() => "answered", (error: unknown) => (error as Error).message);
+    for (let i = 0; i < 100 && received === 0; i++) await new Promise(resolve => setTimeout(resolve, 10));
+    expect(received).toBe(1);
+    const started = Date.now(); loop.abort();
+    expect(await settled).toBe("request_failed"); expect(Date.now() - started).toBeLessThan(5000);
+    const jobs = db.prepare("SELECT DISTINCT job_id FROM private_agent_dispatches").all() as { job_id: string }[];
+    expect(jobs).toHaveLength(1); expect(store.dispatches(jobs[0]!.job_id)).toMatchObject([{ status: "failed", purpose: CRITIC_PURPOSE }]);
+  });
+  it("passes the caller's signal to the critique request in critique() itself", async () => {
+    // critique() needs Docker and the configuration to run, so its source pins the wiring.
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync(join(__dirname, "..", "..", "scripts", "phase2-repair.ts"), "utf8");
+    expect(source).toContain("export async function critique(input: CritiqueArguments, control: { signal?: AbortSignal } = {})");
+    expect(source).toContain("signal: critiqueSignal(heavy.requestTimeoutMs + 60_000, control.signal)");
+    expect(source).not.toMatch(/signal: AbortSignal\.timeout\(heavy\.requestTimeoutMs/u);
   });
   it("parses the critique command line, and the driver's --repair-from, which is local only", () => {
     const base = ["--critique", "--run-directory", "r", "--task-directory", "t", "--job-sha256", h("a"), "--brief-sha256", h("b"), "--image-id", `sha256:${h("c")}`, "--output-directory", "o"];

@@ -10,6 +10,43 @@ This folder holds the committed, sanitized record of live trials (see
   2: P1-P11 and the adapter probe), reviewed by the operator and then committed. The
   writer keeps the alias, engine version, context and transport class, never the
   address, and refuses any address-like string.
+- `serving-card-*.json`: the machine-readable serving card, `kind`
+  `soar_serving_card` and `version` 1, written by `scripts/serving-card.py
+  --policy-out` from the same probe result as the Markdown card. It holds the
+  identity, the probe's digest and probe names, the policy values research code may
+  read, and the evidence behind them; it never holds an address, a path or a key.
+  - **Probe in one run.** Run P1, P10, P11 and the adapter probe in one
+    `serving-probe.py` invocation, after `pnpm probe:export-schemas` and before
+    `pnpm probe:assess`. Serve the model under `--served-model-name`: the writer
+    refuses a path-like alias.
+  - **The writer's proposals.** The writer marks the card `proposed`. It proposes
+    structured output by the 95% rule on the requested variant (at least 20 assessed
+    calls), today's caps and thinking, K 1 and admission `none`. The Markdown's P10
+    verdict keeps its older wording (no 20-call minimum, no protocol check); the
+    JSON is authoritative.
+  - **Adoption** is a reviewed commit that sets `decision` to `{status: adopted,
+    entry: <the BL entry that records E0's result>}`. It is made only once that
+    entry's ID is final on `main`, since IDs are re-stamped at merge. The owner then
+    computes the sha256 and sets the pair `SOAR_SERVING_CARD_FILE` and
+    `SOAR_SERVING_CARD_SHA256` in the ignored `.env.local`.
+  - **Audit.** A reviewer re-runs the writer on the retained probe with the same
+    `--date` and checks `probe.sha256`: only `decision`, `roles`, `concurrency` and
+    `admission` may differ.
+  - **Only adopted cards are read.** A value that differs from today's default is
+    refused until the backlog item that uses it merges: 7(a) for caps and thinking,
+    9 for structured output, 8 for K and 7(b) for admission. Until then, adopt an
+    all-default card or leave the pair unset.
+  - **What the gates do not show.** The reader binds P10 evidence to the current
+    research protocol hash: after any change to it (backlog items 7(b) and 7(c) in
+    the plan), re-run P1, P10, P11 and the adapter together and adopt a new card.
+    P10's thinking-off cells use the probe's own sampling, non-streaming, so a
+    passing cell does not show that the pipeline's own requests pass. The K bursts
+    use a one-sentence prompt and show decode concurrency only.
+  - **The run record.** `freeze.json` records `servingCard {sha256, version, date,
+    entry}`, and the run directory keeps `serving-card.json`. A refused card leaves
+    no run directory. The driver's and the loop's failure lines, and the loop's
+    `log.txt` and `errors.txt`, name the refusal's code and, except for a file-level
+    refusal, its key path.
 - `e0-planner-fixture-v1.json`: the hashes-only manifest of the E0 planner fixture
   (`scripts/planner-fixture.ts`): the exposed r3 index, its brief and source ids by
   sha256, the chunk count and the proposed 3 x 10 design. It is a template until the

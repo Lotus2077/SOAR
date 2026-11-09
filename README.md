@@ -101,6 +101,16 @@ model traffic into the proxy's tunnel.
 It changes a task's configuration identity: switch it when no task is paused,
 or paused tasks are refused until the setting is restored (H2a).
 
+After E0, `SOAR_SERVING_CARD_FILE` and `SOAR_SERVING_CARD_SHA256` in `.env.local`
+(both or neither) select an adopted serving card for the headless driver, which
+reads it before any run directory exists. A fixed `serving_card_*` code refuses a
+card that is not adopted, was measured on another served alias or (under
+`flash_next_v1`) another context, lacks the probe evidence for a value, or sets a
+value whose consumer has not merged. The card's sha256, version, date and adopting
+entry are recorded in `freeze.json` (never the path), and a copy of the card stays
+in the run directory. Without the pair nothing changes; the desktop does not read
+the card.
+
 Diagnostics for the inference endpoint (synthetic prompts only; results stay under
 the ignored `.soar/`, and no address is printed or stored):
 
@@ -111,9 +121,11 @@ the ignored `.soar/`, and no address is printed or stored):
   Run `pnpm probe:export-schemas` first: it writes the role schemas that probe P10
   sends. Afterwards `pnpm probe:assess -- --probe <probe.json>` validates the
   retained P10 replies with the real schemas and writes the counts back.
-- `pnpm card:serving -- --input <probe.json>`: prints the serving card (Markdown)
-  from a probe result for review before it is committed; it refuses any
-  address-like string.
+- `pnpm card:serving -- --input <probe.json> [--policy-out docs/experiments/serving-card-<date>.json]`:
+  prints the serving card (Markdown) from a probe result for review before it is
+  committed. With `--policy-out` it also writes the machine-readable card (status
+  `proposed`) and refuses an existing file. It refuses any address-like string in
+  either output, and a served alias or engine version that looks like a file path.
 - `pnpm fixture:planner -- --index <index.json> --brief <brief> [--dry-run]`: the
   E0 planner fixture, checked against the hashes-only manifest
   `docs/experiments/e0-planner-fixture-v1.json`; raw replies stay under `.soar/`.
@@ -128,7 +140,7 @@ the ignored `.soar/`, and no address is printed or stored):
 | `pnpm setup:general` | Doctor for the general task runtime: Node, Docker, the qualified image, the model endpoint; `--write` records the image id and profile in the app's user-data settings |
 | `pnpm check:general-consultant` | Check the optional consultant environment without printing values |
 | `pnpm probe:export-schemas` / `pnpm probe:assess` | Write the role schemas probe P10 sends; validate its retained replies with the real schemas |
-| `pnpm card:serving` / `pnpm fixture:planner` | Print the serving card from a probe result; run the E0 planner fixture against its manifest |
+| `pnpm card:serving` / `pnpm fixture:planner` | Print the serving card from a probe result (with `--policy-out`, also write its machine-readable JSON); run the E0 planner fixture against its manifest |
 | `pnpm setup:patch-pilot` / `pnpm dev:patch` | Coding pilot setup and cloud-only launch |
 | `pnpm check:release-head` | Release-only gate on a clean committed head |
 

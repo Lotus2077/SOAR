@@ -20,6 +20,7 @@ import { canonical } from "../src/main/private-agent/contracts";
 import { repairDraftPaths } from "../src/main/private-agent/repair";
 import { researchTransferStatus } from "../src/main/private-agent/research-seed";
 import { SELECTION_PROTOCOL_VERSION, compareCandidates, summarizeRun, type CandidateSummary, type SelectionStep } from "../src/main/private-agent/selection";
+import { servingCardRefusal } from "../src/main/private-agent/serving-card";
 import { critique, type CritiqueArguments } from "./phase2-repair";
 import { loadPreparedOperatorTask } from "./private-agent-run";
 import { parseLocalArtifactScreenArguments, runLocalArtifactScreen } from "./private-agent-local-screen";
@@ -70,6 +71,16 @@ const CODE = /^[a-z0-9_]{1,80}$/u;
 export function failureCode(error: unknown, fallback: string): string {
   return error instanceof Error && CODE.test(error.message) ? error.message : fallback;
 }
+/** SC: a serving-card refusal's allowlisted key path, as " at <path>" after its code, as the driver's failure line names it; "" otherwise. */
+function keyPathSuffix(error: unknown): string {
+  const at = servingCardRefusal(error)?.parameter;
+  return at ? ` at ${at}` : "";
+}
+/** The loop CLI's failure line: the failure code, plus a serving-card refusal's allowlisted key path; any other failure keeps its earlier bytes. */
+export function loopFailureLine(error: unknown): string {
+  const at = servingCardRefusal(error)?.parameter;
+  return `${canonical({ state: "incomplete", error: failureCode(error, "loop_failed"), ...(at ? { parameter: at } : {}) })}\n`;
+}
 
 /** The production dependencies: the headless driver, the Phase 2 critique tool and the run summariser. */
 export function productionDependencies(input: LoopInput): LoopDependencies {
@@ -107,7 +118,7 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
   const save = () => writeFileSync(join(loop, "loop.json"), `${canonical(record)}\n`, { mode: 0o600 });
   const log = (line: string) => appendFileSync(join(loop, "log.txt"), `${deps.now()} ${line}\n`, { mode: 0o600 });
   /** The full caught error, name and message, for the operator (backlog item 4, finding B6); loop.json and log.txt keep codes only, since a message may carry a host path or a file excerpt. */
-  const sideError = (code: string, error: unknown) => appendFileSync(join(loop, "errors.txt"), `${deps.now()} ${code} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}\n`, { mode: 0o600 });
+  const sideError = (code: string, error: unknown) => appendFileSync(join(loop, "errors.txt"), `${deps.now()} ${code} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}${keyPathSuffix(error)}\n`, { mode: 0o600 });
   const deliverables = deps.deliverables();
   const research = input.base.pipeline === "research";
   const interrupted = () => control.signal?.aborted === true;
@@ -205,7 +216,7 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
     log(`final ${record.selected.final.candidate} (${second.step})`);
     return record;
   } catch (error) {
-    record.failure = failureCode(error, "loop_failed"); log(`failure ${record.failure}`); sideError(record.failure, error);
+    record.failure = failureCode(error, "loop_failed"); log(`failure ${record.failure}${keyPathSuffix(error)}`); sideError(record.failure, error);
     throw error;
   } finally { record.finishedAt = deps.now(); save(); }
 }
@@ -238,6 +249,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     const final = record.selected.final;
     process.exitCode = loopExitCode(record);
     process.stdout.write(`${canonical({ state: process.exitCode === 0 ? "selected" : "ended", candidate: final?.candidate ?? null, step: final?.step ?? null, totals: record.totals })}\n`);
-  } catch (error) { process.stderr.write(`${canonical({ state: "incomplete", error: failureCode(error, "loop_failed") })}\n`); process.exitCode = 1; }
+  } catch (error) { process.stderr.write(loopFailureLine(error)); process.exitCode = 1; }
   finally { process.removeListener("SIGINT", stop); process.removeListener("SIGTERM", stop); }
 }

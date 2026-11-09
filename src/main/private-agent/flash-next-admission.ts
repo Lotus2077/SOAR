@@ -51,10 +51,15 @@ export class LocalTokenAdmissionError extends Error {
 }
 function invalid(code: LocalTokenAdmissionCode = "local_token_admission_pin_drift"): never { throw new LocalTokenAdmissionError(code); }
 
-function pinned(path: string, expected: string, executable = false, maxBytes = 16 * 1024 * 1024): Buffer {
+/**
+ * The bytes of an absolute, non-symlinked regular file whose sha256 is `expected`, unchanged during the read; any failure is
+ * `local_token_admission_pin_drift`. O_NONBLOCK keeps a FIFO (or another special file) at the path from blocking the open,
+ * so the regular-file check refuses it; a regular file reads exactly as without the flag. Also the serving card's read (SC).
+ */
+export function pinned(path: string, expected: string, executable = false, maxBytes = 16 * 1024 * 1024): Buffer {
   try {
     if (!isAbsolute(path) || !sha256Schema.safeParse(expected).success) invalid();
-    const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
       const before = fstatSync(fd);
       if (!before.isFile() || before.size > maxBytes || executable && !(before.mode & 0o111)) invalid();

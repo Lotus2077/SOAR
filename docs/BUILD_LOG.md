@@ -33709,3 +33709,65 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The owner's go-ahead to push the integration branch, retarget #74, #77, #78 and #83 to `main`, open the integration pull request and, after CI passes, merge it with a merge commit. Then an operator recomputes `--runtime-sha256` before any loop or E-run; S-e1's docs-only Correction pull request for #66, #70 and #74 follows the merge; and a handoff note replaces the stale "Start here" text and says whether docs/HANDOFF.md section 5's re-stamp rule still holds. Train 2 starts with #79 once the owner decides how entries whose IDs precede `main`'s tail are ordered.
 
 References: BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0331-loop-selection-protocol-2-design; BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0354-document-review-flags-design; BL-20261109-0422-registry-run-commit-design; BL-20261109-0447-research-tolerance-design; BL-20261109-0456-ordered-pool-implemented; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0501-research-stage-pause-design; BL-20261109-0515-infra-classification-design; BL-20261109-0552-research-tolerance-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261110-0712-correction-research-tolerance-repin; BL-20261110-0712-document-review-flags-implemented; BL-20261110-0723-correction-infra-classification-train-review; BL-20261110-0900-correction-research-tolerance-held-repair; BL-20261110-0933-document-review-flags-party-terms-bounded; BL-20261110-1100-document-review-flags-party-terms-pinned; BL-20261110-1100-correction-research-train-1-review-pins; pull requests #66, #67, #68, #69, #70, #71, #72, #73, #74, #76, #77, #78, #81 and #83; docs/HANDOFF.md section 5; docs/experiments/README.md; scripts/validate-build-log.ts; scripts/private-agent-local-screen.ts (`localScreenSourceFreeze`); tests/helpers/research-protocol-pin.ts; tests/unit/phase4-loop.test.ts.
+
+### BL-20261109-0530-e1-recoverability-session-implemented -- 2026-11-09 -- E1-T3 implemented: the research session's stop matrix, retried stage calls, two pinned limitations and the emulated cloud assist, on the real broker; the pause column waits for 6.2
+
+Status: `Implemented`
+
+Scope or hypothesis: The session test PR under E1's card (the `Proposed` E1 card entry in lane S-e1's E1-T1 pull request, Lotus2077/SOAR#66, not yet on `main`), on branch `test/e1-t3-recoverability-session-matrix` based on `main` at 2982ca7. It adds the card's scenarios S1, S2 and S4 for the research stage that a session runs on the real broker against a loopback model: gate clause 4 (cancellation still stops the stage), clause 2 (a stage with a retried call still reaches the writer) and, emulated test-locally, clause 3 (local work continues after a cloud UNKNOWN). Hypothesis: each case passes on today's `main` without a source change.
+
+Decisions: None beyond the card. One adversarial review of the tests (do they prove what they claim; flakiness and cost; scope against the lane brief) found one blocker and seven should-fix items, all applied before this entry:
+- the blocker, no build-log entry: this entry;
+- the exhausted-retry cases are pinned as a known limitation, the item-7 gap of BL-20261107-0809-zero-fee-failures-resolve-design decision 6 (a denied call ends its stage), in their own block rather than under clause 2, and cut from four stages to one: the rule does not depend on the stage, and each case spends 4 s of real D4 backoff;
+- three cases were added: a cancel during the broker's D4 backoff inside a stage, the split arm's cloud planner left UNKNOWN (pinned for item 10's PR 10.b), and a stop on the second of two extraction calls;
+- the emulated assist's fee check is two-sided (a row reserving 501 is refused and one reserving 500 admitted), and its block is titled "until 10.b";
+- the extraction stage's own retry case was dropped from the new block, because the existing "D14: a stage whose extraction call was retried once still reaches the writer" test covers it; the session-deadline allowance is 0.4 s instead of 1.2 s;
+- the fixture's `/cloud` path answers through an optional `onCloud` hook, which the split arm's abort case uses;
+- the card's S1 wording is corrected below, and the coordination point with PR 6.2 is recorded under Next gate.
+
+Correction to the card's S1 (the card entry is not rewritten): "an external abort leaves it resumable" holds for the writer (E1-T1's external-abort case completes on rerun) but not at the research stage: on today's `main` the resume after an external abort mid-stage ends `research_stage_not_replayed` and sends nothing. Likewise "the run ends cancelled or at its deadline": a session deadline that cuts a stage's call ends the run `research_cancelled`, and only the resume reports `session_deadline`.
+
+Changes: Tests only; no `src/` file changes. tests/unit/private-agent-research-session.test.ts:
+- The fixture: `onRequest` may return "hold" (never answer); the broker gains a grant-free synthetic `cloud` destination (`cloud_model`, 200 ms timeout) whose `/cloud` path never answers unless a test's `onCloud` hook does. Only the new cases configure a job that uses it.
+- "E1 recoverability: a research stage stopped mid-call on the real broker (S1)":
+  - a cancel, an external abort of the run's signal and the session's own deadline, each while the index, plan, extraction or synthesis call is held open (12 cases): the call's row resolves `failed` with code `cancelled`, the earlier rows are settled and none is `unknown` or `committed`, the stage records `denied: "cancelled"`, the writer is not reached, the run ends `session_cancelled` (cancel) or `research_cancelled` (abort, deadline), the resume ends `session_cancelled`, `research_stage_not_replayed` or `session_deadline`, and nothing is sent again;
+  - a cancel or an external abort on the second of two extraction calls (the phase gets a second source; 2 cases): the first chunk's row stays settled and the stage records one call, with the same outcomes.
+- "E1 recoverability: a research stage whose call the broker retried still reaches the writer (S2, D14, gate clause 2)":
+  - one cut call at the index, plan or synthesis stage is retried (3 cases): the writer is reached, the producer binds every row and the one superseded row uncounted, and a resume reuses the packet with nothing sent;
+  - a cancel during the broker's first D4 backoff inside the plan stage, triggered by a `setTimeout` spy on the first 1,000 ms timer after the cut, so it runs inside the wait: the cut call resolves `failed` (`upstream_closed`, attempt 1), no second plan request is sent, the stage records `denied: "cancelled"`, and the run and its resume end `session_cancelled`.
+- "E1 recoverability: known limitations of the research stage, pinned until the item that changes them":
+  - the item-7 gap: three cut plan calls leave `superseded`, `superseded` and `failed` rows, the stage is denied `request_failed` with nothing unresolved, and the resume ends `research_stage_not_replayed`;
+  - for item 10's PR 10.b (2 cases): the split arm's cloud planner (the plain `research plan` purpose on the `cloud` destination) is left `unknown` by no answer (`request_timeout`; the stage denied `transport_or_settlement_unknown`; the run `research_request_denied`) or by an external abort mid-call (`cancelled`; the stage denied `cancelled`; the run `research_cancelled`), and the resume is refused `unresolved_dispatch_no_replay`.
+- "E1 recoverability: local work continues after a cloud assist stays UNKNOWN, emulated test-locally until 10.b (S4, gate clause 3)": the planner and the synthesiser are wrapped in the test to call a cloud one-shot with the assist purposes first. The plan assist times out and stays `unknown` with its 500 reservation pinned; the synthesis assist is refused `cloud_after_assist_unknown` before any row; every local row settles; the producer binds the assist uncounted to the plan stage with `role: "assist"`; the writer is reached and the session submits. Of the job's 1,000 fee cap, a row reserving 501 is then refused and one reserving 500 admitted.
+
+Evidence: On the owner's Mac, at the branch's final test file (load average about 9):
+- `pnpm exec vitest run tests/unit/private-agent-research-session.test.ts -t "E1 recoverability"`: 22 passed and 10 skipped (32).
+- The same file unfiltered, three runs in a row: 32 passed each time, about 11.4 s per run.
+- `pnpm exec vitest run` (the full suite): 178 files, 165 passed and 13 skipped; 2,779 tests, 2,695 passed, 84 skipped and 0 failed (41 s).
+- One mutation run: with the D4 branch's post-backoff abort check removed from broker.ts, the D4-backoff cancel case fails; broker.ts was restored before the commit.
+- `pnpm typecheck` passed with no error; `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+
+Failures or blockers: None open. The pause column is not written: it waits for PR 6.2. CI has not run on this branch yet.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. The tests prove their stated contracts on a loopback model, with the real broker, store, session, pipeline and producer and a stub writer (the runner factory records its inputs and returns a completed snapshot). No model, endpoint, Docker container or paid call ran.
+- The S1 matrix has no pause column. PR 6.2 changes what a pause during the research stage does (finding A7), and this PR then asserts 6.2's result. The existing pause tests, the :197 resume assertion among them, are unchanged.
+- Clause 3 is component-proven only. The "wrapper" here is test code that calls `broker.request` with an assist purpose before each wrapped stage call. Item 10's PR 10.b must still prove, end to end:
+  - the wrapper's own skip after an UNKNOWN;
+  - its handling of the stage's signal and deadline;
+  - the sealed packet and its cache mode;
+  - the stage summary's assist record (BL-20261107-0839-assist-purpose-exception-design decision 7);
+  - the protocol and identity binding;
+  - the refusal of an invalid configuration.
+- The emulation borrows `cloudArm` with a local writer, a combination no current driver configures. E3 must not rely on E1 alone.
+- The stop cases assume one in-flight dispatch per job. Once item 8 lands, they must be rerun with K > 1.
+- The D4-backoff trigger relies on the broker's first backoff being the only 1,000 ms `setTimeout` started after the cut. A change to `BROKER_RETRY_BACKOFF_MS` or to the fixture's 2,000 ms transport timeout needs the trigger revisited; the test asserts that the trigger fired.
+- Not covered here:
+  - the pipeline, seed and producer cases, a malformed body in a stage, the Anthropic 529 split-arm planner and the 500 KB corpus (E1-T2, after 7b.1);
+  - bug (b), a pause aborting a priced or cloud stage call, which 6.2 pins.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: S-desk's PR 6.2 merges first, since it rewrites this file's pause tests (merge order in the lane plan). This branch then rebases onto `main`, adds the pause column asserting 6.2's result, and leaves draft. For that rebase: lane S-desk's 6.2 brief says "session.cancel() mid-stage still gives research_cancelled", but on today's `main` a cancel mid-stage ends the session `session_cancelled`, which this PR pins; the rebase reconciles the two. After that: CI green and the owner's merge go-ahead. The orchestrator re-stamps this entry's ID after main's tail at merge.
+
+References: E1's card (the `Proposed` entry in Lotus2077/SOAR#66); docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E1; BL-20261107-0809-zero-fee-failures-resolve-design (decision 6 and finding D14); BL-20261107-0839-assist-purpose-exception-design; BL-20261025-1242-h2b-h2c-research-pipeline-design (the stage's pause and cancel results).

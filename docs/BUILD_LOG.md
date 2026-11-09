@@ -30527,3 +30527,232 @@ The consumers then flip their flags in their own PRs, each with a test of the ap
 A consumer that needs another view of the card changes R10 in its own reviewed diff. If another entry merges first, this entry's ID is re-stamped after main's tail.
 
 References: BL-20261108-1459-serving-card-reader-design; BL-20261108-0911-probe-extensions-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.2 (principle 6), section 5.6 (row E0) and section 5.9; docs/HANDOFF.md "Start here"; docs/experiments/README.md; GitHub issues #46, #47 and #57; commits 8b7680e, 86d2b81 and 8de520b.
+
+### BL-20261109-0417-assist-wrapper-design -- 2026-11-09 -- Backlog item 10's assist wrapper decided: slim T1 and T2 packets with opaque source ids, a no-write cache mode on both cloud shapes, per-touchpoint caps, the fallback, stop and skip codes, the attempt and stage records, the assist protocol block and the hook contract
+
+Status: `Proposed`
+
+Scope or hypothesis: This is the decision entry for the rest of backlog item 10 (docs/PROJECT_REVIEW_2026-11-05.md section 5.7): the assist wrapper for T1, the plan assist (S3c), and T2, the synthesis assist (S6c), of section 5.2. Week 1's assist-purpose exception is merged (BL-20261107-0839, BL-20261107-0842); it left the stage record (its decision 7) and every code path that dispatches an assist to this entry. The entry comes before any code because the wrapper adds cloud egress (two new packet shapes), a persisted model-configuration value, a hook contract shared with item 7(c), and, in its later pull requests, dispatch semantics and stage records. Lane S-assist of the next-milestones plan delivers the item as three pull requests:
+- 10.a: this entry, the hook contract, `research-assist.ts`, the model's no-write cache mode and the alias-aware plan assessment. The pipeline's behaviour does not change.
+- 10.b: both firing policies through item 7(c)'s hook, the stage record, the protocol binding, the session and driver plumbing, the legacy split arm and the end-to-end tests. It starts after 7(c) and 7(b)-2 merge.
+- RA: the registry receipt fields, with item 11's run columns.
+
+Based on `main` at 2982ca7. This is zero-fee code with deterministic tests on fixtures: no cloud, paid or live call, so no approval is needed under PLAN.md section 4(c). Owner decision 6 (#59) picks only a value, because the wrapper is provider-agnostic.
+
+Decisions: (1) Cache mode. One new `promptCaching` value, `assist_no_cache_write_v1`, is admitted only on `openai_responses` and `anthropic_messages`. The model refuses it on `openai` chat, whose decoder hard-codes `cacheWriteTokens` 0 and so cannot prove zero writes, and on `vllm`.
+- On Responses it sends `prompt_cache_options: {mode: "explicit"}` and no `prompt_cache_breakpoint` anywhere.
+- On Anthropic it sends no `cache_control` anywhere.
+
+These are the two mechanisms found by the assist-provider research (issue #49; branch `research/assist-provider`, `docs/ASSIST_PROVIDER_RESEARCH.md` section 2): OpenAI caches by default and writes nothing only in explicit mode with no breakpoint; Anthropic caches only on `cache_control`. Two refusals come before any body exists:
+- A call whose purpose is an assist purpose is refused unless its configuration carries this mode (`private_model_assist_cache_mode_required`). So `promptCaching` is never undefined, or any other value, on an assist.
+- A call under this mode is refused unless its purpose is an assist purpose and it is a tool-less `[system, user]` one-shot without the trailing-turn option (`private_model_assist_request_invalid`).
+
+This keeps review section 5.2's rule that `promptCaching` is never left undefined on an assist, but supersedes its mechanism ("only the sub-1,024-token system block is marked"). No block is marked, so zero writes follow from the mode rather than from a size estimate; besides, 1,024 tokens is OpenAI's minimum and Claude's is 512 (#49). Existing modes and bodies stay byte-identical: the breakpoint switches now name the two breakpoint modes, which the constructor already makes equivalent to today's `promptCaching !== undefined` tests on those shapes. A zero write count proves nothing when the reply never reported one: both decoders already read a missing field as 0. So under this mode only, `complete()` also returns `cacheWriteReported`. It is true when the reply carried the provider's write count (`input_tokens_details.cache_write_tokens`; `cache_creation_input_tokens`) and its TTL parts, when given, add up to it.
+
+(2) Exact request bytes.
+- `PrivateAgentModel.requestBody(messages, tools, overrides)` returns the exact body `complete()` sends, and `complete()` builds its body through it.
+- `reservationMicrousd(promptBound, maxOutputTokens)` is the reservation formula `complete()` uses, factored out unchanged.
+- `complete()` takes an optional narrowing `maxRequestBytes`. A malformed value is refused (`private_model_request_bound_invalid`); a larger one never widens the configured cap; a body over it is refused as `ModelRequestBodyTooLarge`.
+- The wrapper measures and trims on these bytes and passes its bound, so the bound holds on the dispatched body. Every existing body is unchanged: the identity golden test pins them, and a table test checks `requestBody` against the dispatched body for every shape, mode, thinking setting and option.
+
+(3) Packets. `research-assist.ts` builds them from the hook request. A packet never carries model output of another packet, except a host-validated plan (review section 5.1, rule 6).
+- T1, the plan assist. The user message has exactly these keys:
+  - `authoritativeSchema` (RESEARCH_PLAN_JSON_SCHEMA);
+  - `brief`;
+  - `units`, as {id, text};
+  - `sources`, as {id, gist} with opaque ids;
+  - `budget` {mandatorySourceChunks, extractionCallBudget};
+  - under local-first only, `priorAttempts` [{ordinal, truncated, errors, omittedErrorCount}]: each error re-parsed by SafePlanErrorSchema, so only safe codes, schema paths and unit ids. Never a reply, its content or any hash.
+
+  Index titles, dates, figures and the literal cards are not sent: the touchpoint table names gists.
+- T2, the synthesis assist:
+  - `brief` and `units` (as {id, text});
+  - `plan`, the host-validated plan with its sourceIds replaced by opaque ids;
+  - `evidenceText`, from a new renderer: each verified quote as `- [E1] S2 (line 3; Q1, Q2): "quote"`, conflicts as question ids and opaque source ids only, no extractor note text, at most 65,536 bytes. `renderResearchEvidence` and the local packet are untouched;
+  - `coverage`, counts only: sources, chunks, quotes verified, in the packet and trimmed, conflicts noted and in the packet, and per question the chunks with retained evidence, the chunks without verified evidence, and its quotes in the packet;
+  - `repairReason`: null, or a fixed reason on the retry.
+- Previewable (rule 6): the builders return the exact user message and body bytes before any dispatch. 10.b decides what the driver shows; the desktop's per-task preview is item 13's (decision 12 of section 5.10 stays open).
+
+(4) The authored brief.
+- The wrapper is built with the authored brief: the prepared task's `brief.md` text for the headless driver, and the typed goal on the desktop later (item 13). In 10.b the driver binds it to the `brief.md` bytes whose digest is `task.binding.briefSha256`, never to `task.phase.contract.goal`, which already holds the evidence instructions.
+- The wrapper refuses to be built around a brief that is empty, is not exact text, or holds any host marker. The markers open the text the driver, the session and the pipeline append: "Claims ledger requirement:", "Additional evidence contract:", "A separately isolated public retrieval phase supplied" and "A host-run research stage supplied". A test ties each marker to its source.
+- Per call, the brief must be an exact prefix of the request's brief (the composed goal), or the call stops as `assist_brief_not_prefix`: a configuration error, never a fallback.
+- Both packets carry the authored brief, and the units cut at its byte length. Unit ids are unchanged; a unit that lies wholly after the brief carries "". So the claims-ledger and transfer instructions that the driver and the session append, which list file paths, never leave as such.
+- An authored brief over 8,192 bytes refuses T1 as a recorded fallback (`assist_brief_too_large`), never trimmed. T2 has no brief bound of its own: the touchpoint table names one for T1 only, and T2's body bound governs.
+
+(5) Opaque ids, substitution and the audit.
+- Source n of the inventory order is `S{n}` in both packets: the order of `coverage.sources` and of the chunk ids `S{n}C{k}`. A real source id or path matching `^S\d+$` (ignoring case) refuses the touchpoint (`assist_source_alias_collision`).
+- Before serialization, every text field is normalized to NFC and then substituted. The fields are the brief, the unit texts, the gists, the plan texts and the quotes.
+  - Source identities become their opaque id. They are each source's id and path; every path suffix of two or more segments; a URL with and without its scheme, trailing slash, query and fragment, percent-decoded and with a Unicode host; the host itself; the file name with its extension; and a stem of at least six code points that holds a digit, `_` or `-`.
+    - Matching ignores case.
+    - Names, stems and hosts match only at word boundaries.
+    - A URL form also takes a query or fragment written after it.
+    - A form that two sources share becomes `[source]`.
+  - File names and paths in the text appended after the authored brief become `[file]`.
+  - Every hexadecimal run of 64 or more characters, and every run of 8 or more that begins a digest the request holds or implies, becomes `[digest]`. Those digests include the source, chunk, unit, brief, reply and span hashes, and the `sources/<16 hex>.bin` stems.
+  - Outside quotes, any other URL becomes `[url]` and any other file path with an extension becomes `[file]`.
+  - Every replacement is counted in the record.
+- The finished packet is then audited, on the decoded strings normalized to NFKC. A finding refuses the touchpoint as a recorded fallback (`assist_packet_audit_failed`, with the finding's kind only, never the matched text). The packet must not hold:
+  - a source identity or digest by the same rules, anywhere;
+  - a URL or file path outside quotes;
+  - in a model-authored field (a T1 gist, T2 plan text):
+    - a window of 64 code points of a source's literal opening (T1) or of its whole text (T2), after quote normalization;
+    - a whole literal heading of at least 32 code points;
+    - a window of 32 code points of the appended host text.
+- The builders emit only allowlisted fields, so no reply content, hash, path or literal card is copied in by construction. The audit is the check, not the mechanism.
+
+(6) Replies.
+- T1's reply names sources by opaque id, and the reply outcome carries the alias map. `assessResearchPlanReply` gains an optional `sourceAliases`. Binding then runs against the opaque ids, so a real id or an unknown opaque id is `unknown_source_id`, and the whole plan is rejected, as a local plan is today (finding D1). An accepted plan is translated to the real ids before its hash is taken, so `replyContentSha256` stays the raw reply's hash and `acceptedPlanSha256` covers the plan kept. Absent the option, nothing changes.
+  - This supersedes 7(c)'s plan to validate a hook reply "exactly like a stage reply": against the real ids, every opaque hint fails. 7(c) must pass `sourceAliases`, and the fixture ships an opaque-id fake hook for its tests.
+  - 10.a's tests prove only the sole forced-split T1 attempt, at ordinal 1. Ordinals above 2, the attempt slot and mixed sequences need 7(c)'s widened attempt schema and are tested in 10.b.
+- T2's reply outcome carries `evidenceIds`, the E ids its packet held. The pipeline must refuse a citation of any other id, which trimming makes likely. Its prompt tells the model to cite only those ids and to name no source.
+- An opaque id written into free text (plan text, the argument) reaches plan.json or argument.md as written. There it names the source's chunk prefix `S{n}C{k}`, which the local stages see. The host rewrites no model text.
+
+(7) Bounds, caps, trimming and thinking.
+- The constants are separate from OUTPUT_TOKENS and from any serving-card value:
+  - T1: body at most 32,768 bytes, output 8,192 tokens;
+  - T2: body at most 98,304 bytes, evidence text at most 65,536 bytes, output 8,192 tokens;
+  - the T2 retry: evidence text at most 32,768 bytes and at most half the first T2 packet's, so the retry always trims (review section 5.2, S6c: "with trimmed evidence").
+- Each call reserves on its actual body bytes with the unchanged formula, so at most about USD 0.164 and 0.328 at the bounds at USD 2 input, 2.50 cache write and 10 output per million tokens: review section 5.2's 0.16 and 0.33.
+- The wrapper refuses to be built when T1 and T2, reserved at their body bounds at the configured prices, exceed the job's fee cap. At USD 3, 3.75 and 15 they reserve about 0.737, which no 0.60 cap holds, and E3 would otherwise measure fallbacks. A retry the cap cannot admit is refused as `budget_denied`, a recorded fallback (rule 8).
+- Trimming is deterministic and counted:
+  - T1 cuts every gist to one common maximum length in code points, the largest that fits the body bound (`gistsTrimmed`, `gistMaxChars`). Gists are scrubbed and audited whole before any cut.
+  - T2 orders quotes round-robin over the plan's questions in plan order, each question's quotes in E order and a shared quote taken once. It keeps the longest prefix of that order that fits both the evidence bound and the body bound, and renders it in E order (`quotesInPacket`, `quotesTrimmed`).
+  - A packet that cannot fit (T1 with empty gists, T2 with no quote) refuses the touchpoint (`assist_packet_size_exceeded`).
+- The assist model must be configured with at least 8,192 output tokens and 98,304 request bytes, or the wrapper is not built.
+- Thinking is the cloud model's own setting (`model`): adaptive effort medium on Anthropic, reasoning effort medium on Responses. Thinking tokens are recorded only where the provider's reply reports them (the Anthropic shape). Thinking-off assists are out of scope.
+
+(8) Prompts. PLAN_ASSIST_SYSTEM and SYNTHESIS_ASSIST_SYSTEM are the local PLAN_SYSTEM and SYNTHESIS_SYSTEM adapted to opaque ids, to gists that may be shortened, to `priorAttempts` without any earlier reply, to citations limited to the evidence shown, and to a retry that says its evidence was trimmed without carrying the first reply. They are literals in `research-assist.ts`, which never imports research-pipeline.ts at runtime (a test keeps it so). The local prompts are unchanged.
+
+(9) Codes. A failure's code is read by its type. A broker code comes from `BrokerError`; the size stop from `ModelRequestBodyTooLarge`; the ledger's assist backstop `private_agent_assist_after_unknown` and the model's own `private_model_*` refusals from a plain Error. Anything else is `assist_failure_unclassified`. An aborted signal wins over every code: a pause or the deadline mid-request stops the stage as `cancelled`, even when the row went `unknown`, and the record keeps the dispatch. Then:
+- Skip (`no_reply`, `skipped`): `transport_or_settlement_unknown`. The row stays `unknown` with its reservation pinned.
+- Fallback after a dispatch (`no_reply`, `failed`): a `BrokerError` `request_failed`, the broker's confirmed failure.
+- Fallback without a dispatch (`no_reply`, `refused`):
+  - from the review's list: `budget_denied` (review section 5.1, rule 8), `cloud_mode_denied`, `exact_grant_required`, `private_disclosure_requires_exact_grant`, `synthetic_destination_private_data_denied`, `packet_size_exceeded`, `request_body_size_exceeded`;
+  - proposed here: `offline_network_denied` (an offline policy refuses before the mode check), `deadline_before_request`, `packet_scan_incomplete_or_blocked`, `cloud_after_assist_unknown` and `private_agent_assist_after_unknown`;
+  - the wrapper's own: `assist_brief_too_large`, `assist_source_alias_collision`, `assist_packet_size_exceeded`, `assist_packet_audit_failed`, `assist_suppressed_after_unknown`.
+- Stop (`stop`):
+  - the cancels: `cancelled`, `job_cancelled`, `request_cancelled`, `retry_wait_cancelled`;
+  - `packet_scan_failed`, an unavailable scanner, which stops on the writer's path too, so a B or C run never degrades on an infrastructure fault;
+  - the configuration codes: `destination_missing`, `assist_destination_invalid`, `private_model_thinking_unsupported`, `private_model_assist_cache_mode_required`, `private_model_assist_request_invalid`, `private_model_request_bound_invalid`, `unresolved_dispatch`, `assist_brief_not_prefix`, `assist_request_invalid`, `assist_deadline_missing`, `assist_slot_exhausted` and `assist_failure_unclassified`;
+  - every other code. This is a deliberate fail-closed departure from section 5.2's principle 5 ("no single failure ends a task"): an unexpected failure ends the stage as today (`research_request_denied`) rather than letting an assisted arm run unassisted unnoticed.
+
+After any of `transport_or_settlement_unknown`, `cloud_after_assist_unknown` or `private_agent_assist_after_unknown`, the wrapper sends no further cloud call in the job: a later touchpoint answers `assist_suppressed_after_unknown` without a request. The broker's and the ledger's own refusals stay as backstops. An invalid settled reply (bad JSON, schema or binding; a truncation after T2's retry; a refusal reported as `content_filter`) is a `reply` outcome that the pipeline rejects, and the schedule then falls back. A golden test pins the table.
+
+(10) Slots and the deadline.
+- One wrapper serves one reading stage. It makes at most one T1 call and at most two T2 calls; the second T2 call needs `retryAfterTruncation` and a first T2 reply that settled truncated (review section 5.2, principle 3). Any other call stops as `assist_slot_exhausted` without a request. A refused or skipped touchpoint has used its slot.
+- Every request carries the session's deadline, and an assist without one stops (`assist_deadline_missing`). The deadline guard (`deadlineRefuses`, finding A8) runs immediately before the call, and a refusal there falls back as `deadline_before_request`.
+- The Anthropic shape's 429 and 529 retries start inside the broker after their wait without a new deadline check. A cut there leaves the row `unknown`, which is safe through the skip. 10.b may pass the deadline to the broker so such a retry resolves `failed`.
+
+(11) The hook contract, types only, in `src/main/private-agent/research-assist-contract.ts`, which item 7(c) imports. It refines the shapes in 7(c)'s brief, decision 11, which it supersedes.
+- `ResearchAssists {firing: "local_first" | "forced_split", plan?(request, signal), synthesis?(request, signal)}`. Each returns a `ResearchAssistOutcome`, one of:
+  - `{kind: "reply", content, usage, truncated, sourceAliases?, evidenceIds?, record?}`;
+  - `{kind: "no_reply", outcome: "skipped" | "failed" | "refused", code, record?}`;
+  - `{kind: "stop", code, record?}`.
+- Both requests carry the composed brief, the units, the inventory's sources, each source's whole text (`sourceTexts`, the audit's reference), the index document and the deadline (`deadlineMs`, required: a test without a session passes Infinity).
+- The plan request adds `mandatorySourceChunks`, `extractionCallBudget` and the prior plan attempts (codes and hashes only).
+- The synthesis request adds the validated plan, the evidence object, the coverage and `retryAfterTruncation`. It carries no `evidenceText`: the wrapper renders its own evidence text, so the request carries no packet text.
+- The request is host data inside the process. Only the wrapper turns it into egress.
+
+(12) The records.
+- Each outcome carries an attempt record: {version 1, touchpoint, ordinal, retryAfterTruncation, outcome (settled, skipped, failed, refused or stopped), code, dispatched, requestBytes, reservedFeeMicrousd, usage, finish (stop, length, content_filter or other), feeMicrousd, packet}.
+  - `usage` appears on a settled attempt only: input, output, cache read, cache write, thinking where reported, and `cacheWriteReported`.
+  - `feeMicrousd` is the settled row's integer fee, recovered exactly by rounding `costUsd` × 10^6.
+  - `packet` holds the brief bytes; the unit, source and prior-attempt counts; the trim counts; each field's serialized bytes, so unique disclosed bytes can be counted (rule 2); the substitution counts; and the audit finding's kind.
+  - One call may commit up to three ledger rows (the Anthropic retries). The record describes the call, and the ledger stays the authority on rows, reservations and fees.
+- 10.b builds the stage summary's `ResearchStageCounts.assist` per touchpoint: {version 1, touchpoint, policy, fired, trigger, attempts, outcome, accepted, code, usage}.
+  - `attempts` keeps every attempt record whole.
+  - `usage` sums the settled attempts only, and is null when none settled.
+  - `calls` still counts replies (BL-20261107-0839, decision 7).
+  - E3's zero-cache-write condition reads every settled assist attempt: `cacheWriteReported` true and `cacheWriteTokens` 0. A skipped assist has no usage and is read by its outcome, never as zero writes.
+- `research-assist.ts` holds strict schemas for both records.
+
+(13) The protocol block. `researchAssistProtocol(firing)` is the canonical block of the prompts, bounds, caps, cache mode, policy, the local-first triggers (two rejected local plans; two refused syntheses), the code lists, the packet fields, the alias, substitution, audit and trim rules, and the retry. 10.b binds it into the research protocol only when an assist is configured, with these rules:
+- `researchProtocolSha256` takes an options object, since 7(c) also adds a parameter.
+- Every site that recomputes the hash passes the block: the seed loader, the session identity and the driver's freeze.
+- The ready gate parses the stage record strictly, and the stage-row guard admits it.
+
+The protocol hash of a run without an assist is unchanged by item 10. 10.a leaves 3453710315d7… as it is; 10.b leaves the no-assist value wherever 7(b)-1, 7(a)-1, 7(c) and 7(b)-2 have moved it.
+
+(14) What 10.b decides within this entry, unless it records otherwise:
+- Forced split: T1 and T2 always, in place of S3 and S6. After a refused, failed or skipped assist, or an invalid reply (for T2, after its retry), S3 or S6 runs twice, then 7(c)'s host fallback. After a T1 skip, T2 is not sent.
+- Local-first: T1 after two settled local plans the host rejected, T2 after two such syntheses. A local denial is no signal.
+- Under either policy, S3 and S6 run on the zero-fee local model. The session refuses an assist configuration whose planner or synthesiser is not a zero-fee local model: the legacy split arm's cloud planner would otherwise send its old packet after a fallback, and be refused outright after a skip.
+- 7(c)'s pipeline checks the stage signal before either host fallback, so a cancel never completes as a fallback.
+- The session refuses, before any dispatch, an assist without `cloud_help` mode and a fee cap, or on another cache mode. Its request-pool check adds the assists' worst case of nine rows: three calls, each with up to three attempts.
+- Until item 13, the harness discloses fallbacks through the stage record, summary.json and RA's columns; `reportedIssues` exists only in the desktop controller.
+- The stage record and the protocol binding; the freeze's effective assist configuration and pipeline `assist` block; the seed loader's optional block; the legacy split arm.
+
+RA adds the registry columns: per touchpoint, plus the summed assistCalls, assistCacheWriteTokens and assistCapRefusals. Loop rows take them from sample a.
+
+(15) Non-goals:
+- cloud structured output (#49, section 3: neither provider accepts the current schemas);
+- thinking-off assists;
+- the desktop toggle, badge, preview and `reportedIssues` (item 13);
+- gate signals on every arm (item 11);
+- budgets and host fallbacks (item 7(c));
+- concurrency (item 8). Assists stay serialized and at most once.
+
+Owner questions, each `Proposed` with the default this design uses:
+- Decision 6 (#59), sub-question 3: may the wrapper hard-pin the chosen provider? Default: no; it is provider-agnostic. The endpoint path selects only the request shape and the key variable (`buildCloudArm`); the model, prices and fee cap come from the run's flags. The only shape-specific code is the no-write branch. Tests cover both shapes, and E3's card names the endpoint, model and prices.
+- May T2's evidence carry the extractor's unverified notes and conflict notes? Default: no. Each quote keeps its E id, opaque source id, locator and question ids; each conflict keeps its question ids and opaque source id. Revisit after E3 if criterion 5 (planted conflicts) suffers on arms B or C.
+- The legacy split arm (`--pipeline research --arm cloud`: a cloud planner and synthesiser under the plain stage purposes, whose packets name files and hashes): switch it to the forced split, or keep it byte-identical? Default: switch it in 10.b, as BL-20261107-0839 anticipates; earlier freezes and registry rows keep it as history.
+- May model-written text in a packet (T1's gists, T2's plan text) carry source text that the audit cannot detect: a paraphrase, a verbatim copy shorter than its windows, or a T1 gist's copy from beyond the 512-byte opening (the index model reads a 20 KiB preview)? Default: accept it for public and synthetic tasks on E3's and E4's approved arms only. BL-20261107-0718, correction 6, reads E3's and E4's approval as covering their T1 and T2 packets, and that is the record's reading, not the owner's statement. Decision 12 of section 5.10 stays open. Revisit before any labelled task reaches an assist (T4, P1).
+
+Changes: Planned in 10.a:
+- docs/BUILD_LOG.md: this entry, then the `Implemented` entry.
+- src/main/private-agent/research-assist-contract.ts (new, types only).
+- src/main/private-agent/research-assist.ts (new): the builders, aliases, substitution, audit, trimming, prompts, caps, codes, slots, the hook factory `createResearchAssists`, the record schemas and the protocol block.
+- src/main/private-agent/model.ts: the mode, `requestBody`, `reservationMicrousd`, the narrowing `maxRequestBytes`, the assist refusals, `cacheWriteReported`. src/main/private-agent/anthropic.ts: the decoder's `cacheWriteReported`.
+- src/main/private-agent/research-plan.ts: `assessResearchPlanReply`'s optional `sourceAliases`.
+- tests/helpers/research-assist-fixture.ts (new): provider-faithful caching fakes for both shapes that encode the documented minimums, a capturing broker, requests from a real pipeline run with planted names and hashes, and the opaque-id fake hook for 7(c).
+- tests/unit/private-agent-research-assist.test.ts (new); tests/unit/private-agent-model-responses.test.ts and tests/unit/private-agent-model-anthropic.test.ts: the mode's exact bodies and refusals, the request-body table, zero writes and the negative controls.
+
+10.a changes no pipeline, session, driver, store, broker, producer or registry code.
+
+Evidence: Four adversarial design reviews ran on the draft of this entry, through four lenses: ledger and replay safety; downstream consumers and tests; specification fidelity; and the privacy of the packet contents. Their confirmed findings are folded into the decisions above:
+- a cancel wins over the skip code (a pause mid-T2 would otherwise complete as a fallback);
+- codes are read by error type, with the ledger's backstop treated like the broker's;
+- the cap feasibility check at construction, and the reservation stated on actual body bytes;
+- the required deadline, checked inside the call;
+- the alias-aware assessment moved into research-plan.ts, so the pipeline never imports the wrapper, and the claim scoped to ordinal 1;
+- citations limited to the packet's evidence;
+- the exact fee;
+- `cacheWriteReported`, and usage null when nothing settled;
+- per-field bytes and the reservation in each attempt record;
+- the retry's half-evidence bound;
+- `offline_network_denied` moved to the fallbacks and `packet_scan_failed` to the stops;
+- the 8 KiB brief bound dropped from T2;
+- the host-appended file names and sentences, the wider name and URL variants, hosts, stems, short digests, and URLs and paths outside quotes;
+- T2 plan text audited against whole source texts, and whole headings;
+- the host-marker refusal for the authored brief;
+- the corrected statements about `buildCloudArm`, the no-assist hash and translation.
+
+Code anchors at 2982ca7:
+- model.ts: the breakpoint switches keyed on `promptCaching !== undefined`; the constructor's mode-per-shape rule; the reservation; the decoders' `?? 0` on write counts.
+- anthropic.ts: `breakpointIndexes`; `decodeAnthropicReply`.
+- research-pipeline.ts: `call()`'s code mapping; the plan and synthesis packets.
+- research-coverage.ts: `deriveBriefUnits`; `inventoryResearchSources` and its chunk ids.
+- research-plan.ts: `assessResearchPlanReply`; `validateResearchPlanAttempts`.
+- research-index.ts: the literal cards and the 20 KiB index preview.
+- broker.ts: the denial codes and where each arises.
+- store.ts: the week-1 commit rule.
+- session.ts: the composed goal and the transfer note.
+- scripts/private-agent-run.ts and scripts/private-agent-local-screen.ts: the goal's composition, `withClaimsLedger` and `buildCloudArm`.
+
+Failures or blockers: None in recording. 10.b needs item 7(c)'s hook and budgets (a hard dependency), and item 7(b)-2 merged first (an ordering one).
+
+Limitations and non-claims: This entry decides; nothing is implemented or verified by it.
+- A deterministic zero-write test proves only what its fakes encode, the documented provider rules. The real proof is E3's live receipts. A receipt that reports writes cannot be undone: the record keeps it, and E3's eligibility rule excludes the arm.
+- Substitution and the audit catch known names, host file names, digests, URLs and paths outside quotes, and long verbatim runs of literal or source text. They cannot prove that model-written text holds no paraphrased source text, no verbatim copy shorter than its windows, or (in a T1 gist) no copy from beyond the opening. That residue is the fourth owner question.
+- Verified quotes are source text by design. The cloud sees them in T2 with source identities and digests replaced, but with other URLs and file names they quote.
+- A bare file name with no extension that no source or host text names, and a directory name, are not treated as names.
+- The authored brief is the owner's text. Source names, host file names, digests, URLs and paths in it are replaced, and everything else is sent as written.
+- T1's measured support (three of three cloud plans valid at about 22 KB) came from packets with real ids, titles and literal cards. The slim packet is unmeasured until E3.
+- Until 10.b, the wrapper has no production caller.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: 10.a's code with deterministic tests and its `Implemented` entry, after an adversarial code review; then CI green and a merge; then 10.b, after items 7(c) and 7(b)-2 merge.
+
+References: docs/PROJECT_REVIEW_2026-11-05.md section 5.1 (rules 2, 5, 6, 8 and 9), section 5.2 (principles, the stage graph, the cloud touchpoints, the cap check, Escalation, Forced split, Caching, Privacy), section 5.6 (E3) and section 5.7 items 7, 8, 10, 11 and 13; docs/HANDOFF.md "Start here"; BL-20261107-0839-assist-purpose-exception-design; BL-20261107-0842-assist-purpose-exception-implemented; BL-20261107-0809-zero-fee-failures-resolve-design (the deadline guard); BL-20261107-0859-label-keyed-diagnostics-design (hash-only stage rows); BL-20261107-0650-owner-decisions-review-items-2-5 and BL-20261107-0718-correction-owner-decisions-record (correction 6); issue #49 and `docs/ASSIST_PROVIDER_RESEARCH.md` on branch `research/assist-provider`; owner decision 6 (#59).

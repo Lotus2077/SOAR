@@ -30527,3 +30527,70 @@ The consumers then flip their flags in their own PRs, each with a test of the ap
 A consumer that needs another view of the card changes R10 in its own reviewed diff. If another entry merges first, this entry's ID is re-stamped after main's tail.
 
 References: BL-20261108-1459-serving-card-reader-design; BL-20261108-0911-probe-extensions-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.2 (principle 6), section 5.6 (row E0) and section 5.9; docs/HANDOFF.md "Start here"; docs/experiments/README.md; GitHub issues #46, #47 and #57; commits 8b7680e, 86d2b81 and 8de520b.
+
+### BL-20261109-0456-ordered-pool-implemented -- 2026-11-09 -- Backlog item 8, part 2a, implemented: the ordered pool that runs independent zero-risk local calls K at a time and applies their results in item order, with no caller yet
+
+Status: `Implemented`
+
+Scope or hypothesis: Part 2a of backlog item 8 (docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 8; finding D12; section 5.2 "Local fan-out") in lane S-assist's plan: the pool utility alone, as new files, on `feat/8.2a-ordered-pool` from `main` at 2982ca7. Nothing calls it yet:
+- 8.2b puts the index, extraction and judge loops on it, after the ledger admits concurrent zero-risk local rows (8.1).
+- 8.1 carries the `Proposed` entry for all of item 8, including the owner questions this pool serves: whether to abort or drain siblings on a denial, and whether to keep judge verdicts after a failure.
+
+So this entry changes no dispatch semantics, persisted contract or egress. It is zero-fee code with deterministic tests, and needs no approval under PLAN.md section 4(c).
+
+Decisions: The pool's contract, as `src/main/private-agent/ordered-pool.ts` states it:
+- `runOrderedPool({items, limit, signal, beforeLaunch?, launch, interrupt?, apply})` launches items in item order, with at most `limit` (K, an integer from 1 to 8) launched and not yet applied. A slot is refilled only after an apply, so K = 1 is the serial loop: launch, settle, apply, launch.
+- `apply` sees every launched item exactly once, strictly in item order: the value its launch returned, or the error it threw or rejected with. It returns what follows: continue; `stop` (no further launches; in-flight items finish); or `abort` (no further launches; the in-flight items' signals abort).
+- `interrupt` sees each outcome as it settles, before its turn. It returns the same decision as `apply`: stop launching (the judge, on a failure) or abort the siblings at once (a research-stage denial). The outcome is still applied in its turn.
+- Each launch gets its own signal. It aborts when the stage's signal aborts or when the pool aborts the siblings.
+- An outcome is marked `afterAbort` when the pool's own sibling abort had reached that call's signal by the time it settled. The pool reads this from the signal's abort reason as the call settles, so the stage's own abort never marks an outcome, and two denials that settle together both stay genuine. A call that failed for its own reason at that same moment is marked too, so 8.2b confirms a sibling stop by what the call reports about its signal: the pipeline's `call()` answers `cancelled`.
+- Nothing launches once the stage's signal has aborted.
+- `beforeLaunch` runs in item order just before each launch, once a slot is free. False stops launching: the judge's pause and deadline checks.
+- The pool returns, or rethrows a throw from one of its callbacks, only after every launched item has settled. No call is ever left in flight behind it. After a callback throws, nothing more is applied.
+- One combined signal per pool carries one relay listener per in-flight launch. K = 8 therefore never trips Node's MaxListenersExceededWarning, whatever each call adds to its own signal.
+
+How 8.2b is expected to use it: these are item 8's proposed defaults, which 8.1's entry decides.
+- The index and extraction loops abort the siblings on a denial and drain them. They apply every settled reply in item order, so `calls` equals the stage's settled rows, and report the lowest-index genuine denial: the first denial applied without `afterAbort`.
+- The judge stops launching after a failure and keeps the verdicts that arrive.
+
+Changes:
+- src/main/private-agent/ordered-pool.ts (new);
+- tests/unit/ordered-pool.test.ts (new: 10 tests);
+- this entry.
+
+No existing file changes.
+
+Evidence: At this entry's commit, from the worktree with Node 22.22.2 and pnpm 10.12.4:
+- `pnpm exec vitest run tests/unit/ordered-pool.test.ts`: 10 passed. They prove the following on hand-settled promises, nothing live:
+  - at most K launched and unapplied, with apply in item order when calls finish newest first;
+  - the exact serial event order at K = 1;
+  - on a denial, the interrupt aborts the in-flight siblings at once, every launched item is applied in order with the sibling stops marked, and the first unmarked denial is the lowest-index genuine one;
+  - two denials that settle in one synchronous block are both unmarked, so the lower index is the stage's denial;
+  - the stage's own abort reaches every launch unmarked, even when the first cancelled outcome triggers an abort; an already-aborted stage launches nothing;
+  - a throw from apply, interrupt or beforeLaunch waits for the in-flight calls before it propagates;
+  - the judge mode: a settled failure stops launching at once (not at its turn), the siblings finish and their results are applied; `beforeLaunch` (the pause check) runs only when a slot is free;
+  - a synchronous launch throw is applied as a rejected outcome in its turn;
+  - K outside 1 to 8 is refused; an empty list returns at once; no MaxListenersExceededWarning at K = 8 with three listeners per call.
+- `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass.
+- The full `pnpm exec vitest run` at the fixes' commit: 166 files passed and 13 skipped (the environment-gated suites). Tests: 2,682 passed, 84 skipped, and 1 failed, `tests/unit/with-claude-key.test.ts`. That test is a shell-script test outside this change; it times out at its 5 s limit under full-suite load on `main` too, and it passed alone (3 of 3).
+
+Failures or blockers: An adversarial code review of the first commit (23fa2b7) confirmed these, all fixed at 0ab1789:
+- `afterAbort` was read one reaction late. A genuine denial that settled together with another could be marked a sibling stop, and after the stage's own cancel every later outcome was marked one too.
+- `interrupt` could only abort, so a judge failure stopped launching only at its turn to be applied.
+- `stopped` and `aborted` were wrong at the edges.
+- An aborted stage signal did not stop launching.
+- Five tests could not catch the faults they named.
+
+8.1 waits for S-e1's E1-R (the atomic supersede on the shared commit path) to merge.
+
+Limitations and non-claims:
+- The pool has no caller: no research or judge loop runs concurrently yet, and nothing here is `Verified`.
+- The tests drive hand-settled promises, not the broker, the ledger or a model.
+- An early interrupt aborts in-flight siblings with a lower index than the denial, which the serial loop would have let finish. The stage ends denied either way.
+- The pool applies what `launch` returns. Whether a call is zero-risk, and so may run beside others, is the ledger's and the caller's decision (8.1, 8.2b), never the pool's.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green on the pull request and a merge; then 8.1's `Proposed` entry and ledger change after E1-R merges; then 8.2b on SC, 8.1 and this pool.
+
+References: docs/PROJECT_REVIEW_2026-11-05.md section 4 row D12, section 5.2 ("Local fan-out"; rows S2, S4, S10) and section 5.7 item 8; docs/HANDOFF.md "Start here"; BL-20261107-0809-zero-fee-failures-resolve-design (why a zero-fee local row never stays unknown); BL-20261107-0859-label-keyed-diagnostics-design (the per-stage ordinals that in-order apply keeps).

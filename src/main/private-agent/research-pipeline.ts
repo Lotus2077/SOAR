@@ -131,22 +131,23 @@ export function stripUnknownCitations(argument: string, known: ReadonlySet<strin
 const encodable = (text: string): boolean => { try { exactText(text); return true; } catch { return false; } };
 /**
  * 7a.1 (D5): rewrites the argument's section headings to the exact forms research-coverage.ts checks, by claims.ts's rule
- * (RESEARCH_TOLERANCE_POLICY.synthesisHeadings). Lines are split at a newline only. Fenced code goes first, as claims.ts
- * removes it first (an opening line pairs with the next closing line); HTML comments are then found in what remains. On every
- * other line, one that section_present matches to a title becomes "## <title>" (a trailing carriage return kept), unless the
- * coverage check already accepts it; a Setext underline under a title line without a leading "#" is removed with it. A line
- * a comment touches is left as it is. Linear in the argument's length. Returns the text and the headings rewritten.
+ * (RESEARCH_TOLERANCE_POLICY.synthesisHeadings). Lines end at CRLF, CR or LF, as claims.ts reads the report (Path.read_text,
+ * universal newlines), and every separator is kept. Fenced code goes first, as claims.ts removes it first (an opening line pairs
+ * with the next closing line); HTML comments are then found in what remains. On every other line, one that section_present
+ * matches to a title becomes the target heading, unless the coverage check already accepts it; a Setext underline under a title
+ * line that is neither an ATX heading nor a list item is removed with it. A line a comment touches is left as it is. Linear in the argument's length.
  */
 export function normalizeResearchHeadings(argument: string): { text: string; rewritten: number } {
-  const policy = RESEARCH_TOLERANCE_POLICY.synthesisHeadings, lines = argument.split("\n"), skipped = lines.map(() => false);
-  const opens = new RegExp(policy.fenceOpen, "u"), closes = new RegExp(policy.fenceClose, "u");
+  const policy = RESEARCH_TOLERANCE_POLICY.synthesisHeadings, parts = argument.split(/(\r\n|\r|\n)/u), lines: string[] = [], breaks: string[] = [];
+  parts.forEach((part, i) => (i % 2 ? breaks : lines).push(part));
+  const skipped = lines.map(() => false), opens = new RegExp(policy.fenceOpen, "u"), closes = new RegExp(policy.fenceClose, "u");
   const closing = lines.flatMap((line, i) => closes.test(line) ? [i] : []), units: (number | undefined)[] = [];
   for (let i = 0, next = 0; i < lines.length; i++) {
     while (next < closing.length && closing[next]! <= i) next++;
     if (opens.test(lines[i]!) && next < closing.length) { const end = closing[next]!; for (let k = i; k <= end; k++) skipped[k] = true; units.push(undefined); i = end; continue; }
     units.push(i);
   }
-  // The text claims.ts searches for comments: each fenced block collapses to one empty line.
+  // The text claims.ts searches for comments: newlines only, and each fenced block collapsed to one empty line.
   const starts: number[] = []; let rest = "";
   for (const unit of units) { starts.push(rest.length); rest += `${unit === undefined ? "" : lines[unit]!}\n`; }
   for (let open = rest.indexOf(policy.commentOpen); open >= 0;) {
@@ -155,19 +156,27 @@ export function normalizeResearchHeadings(argument: string): { text: string; rew
     for (let u = unitAt(starts, open), last = unitAt(starts, end - 1); u <= last; u++) { const unit = units[u]; if (unit !== undefined) skipped[unit] = true; }
     open = rest.indexOf(policy.commentOpen, end);
   }
-  const leading = new RegExp(`^[${escapeClass(policy.leadingStrip)}${policy.whitespace}]+`, "u"), trailing = new RegExp(`[${escapeClass(policy.trailingStrip)}${policy.whitespace}]+$`, "u");
-  const underline = new RegExp(policy.setextUnderline, "u"), hashed = /^[ \t]*#/u, out: string[] = [];
+  // section_present's two substitutions as linear scans: a regex anchored only at the end retries at every position.
+  const space = new RegExp(`^[${policy.whitespace}]$`, "u");
+  const stripped = (line: string) => {
+    let start = 0, end = line.length;
+    while (start < end && (policy.leadingStrip.includes(line[start]!) || space.test(line[start]!))) start++;
+    while (end > start && (policy.trailingStrip.includes(line[end - 1]!) || space.test(line[end - 1]!))) end--;
+    return line.slice(start, end).toLowerCase();
+  };
+  // A Setext underline belongs to a paragraph line: under an ATX heading or a list item the same line is a thematic break.
+  const blocked = new RegExp(policy.setextBlockedBy, "u"), underline = new RegExp(policy.setextUnderline, "u");
+  const exact = (title: string) => new RegExp(policy.exactHeading.replace("{title}", title), policy.exactHeadingFlags);
+  const out: string[] = [];
   let rewritten = 0;
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!, key = skipped[i] ? undefined : line.replace(leading, "").replace(trailing, "").toLowerCase();
-    const title = key === undefined ? undefined : policy.titles.find(t => t.toLowerCase() === key);
-    if (title === undefined) { out.push(line); continue; }
-    const next = lines[i + 1], setext = !hashed.test(line) && next !== undefined && !skipped[i + 1] && underline.test(next);
-    const exact = new RegExp(`^## ${title}\\s*$`, "u").test(line);
-    if (setext) i++;
-    if (setext || !exact) { rewritten++; out.push(`## ${title}${line.endsWith("\r") ? "\r" : ""}`); } else out.push(line);
+    const line = lines[i]!, key = skipped[i] ? undefined : stripped(line), title = key === undefined ? undefined : policy.titles.find(t => t.toLowerCase() === key);
+    if (title === undefined) { out.push(line, breaks[i] ?? ""); continue; }
+    const target = policy.target.replace("{title}", title);
+    if (!blocked.test(line) && i + 1 < lines.length && !skipped[i + 1] && underline.test(lines[i + 1]!)) { rewritten++; out.push(target, breaks[i + 1] ?? ""); i++; continue; }
+    if (exact(title).test(line)) out.push(line, breaks[i] ?? ""); else { rewritten++; out.push(target, breaks[i] ?? ""); }
   }
-  return { text: out.join("\n"), rewritten };
+  return { text: out.join(""), rewritten };
 }
 /** The index of the last unit starting at or before `position` (binary search over ascending starts). */
 const unitAt = (starts: readonly number[], position: number): number => {
@@ -175,7 +184,6 @@ const unitAt = (starts: readonly number[], position: number): number => {
   while (low < high) { const middle = (low + high + 1) >> 1; if (starts[middle]! <= position) low = middle; else high = middle - 1; }
   return low;
 };
-const escapeClass = (characters: string) => characters.replace(/[\\\]^-]/gu, "\\$&");
 
 type CallResult = { content: string; usage: ResearchUsage; truncated: boolean } | { denied: string };
 const zeroUsage = (): ResearchUsage => ({ inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });
@@ -274,7 +282,8 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     if ("denied" in reply) return reply.denied;
     settled(extractCounts, reply); if (repair) extractCounts.repairCalls!++; else { extractCounts.initialCalls!++; extractCounts.pairsExtracted!++; }
     let state: "complete" | "invalid" | "truncated" | "needs_followup" = reply.truncated ? "truncated" : "invalid";
-    // Backlog item 4: the fixed reasons a reply is not complete, by position only; they reach the diagnostics sink and nothing else.
+    // Backlog item 4: the fixed reasons a reply is not complete, and since 7a.1 what a kept reply lost or had corrected, by position
+    // only; they reach the diagnostics sink and nothing else.
     const reasons: ResearchDiagnosticReason[] = reply.truncated ? [{ code: "truncated", path: [] }] : [];
     if (!reply.truncated) {
       const decoded = parseJsonReply(reply.content), parsed = decoded === undefined ? undefined : ExtractReplySchema.safeParse(decoded);

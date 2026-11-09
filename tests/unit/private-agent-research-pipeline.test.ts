@@ -464,15 +464,27 @@ describe("backlog item 7(a), part 1: per-quote tolerance and heading normalisati
     expect(retained.map(e => [e.stage, e.reasons])).toEqual([["synthesise", [{ code: "argument_unencodable", path: ["argument"] }]]]);
     expect(result.files.find(f => f.path === RESEARCH_FILES.argument)!.bytes.includes(0)).toBe(false);
   });
-  it("lets only a chunk's complete attempt contribute: a needs-follow-up reply adds no quote, conflict, outcome or count", async () => {
+  it("lets only a chunk's complete attempt contribute: a needs-follow-up reply adds no quote, conflict, outcome or correction count", async () => {
+    // Three questions; the first reply marks Q1 needs_followup and carries what a kept reply would count: a downgrade (Q2), an
+    // upgrade (Q3, tagged on a verified quote), a cleared note, a dropped conflict and a conflict that would be kept.
+    const threeQuestions = (stage: Stage, input: any, n: number, system: string) => {
+      const reply = JSON.parse(happy(stage, input, n, system));
+      if (stage === "plan") for (const id of ["Q2", "Q3"]) reply.questions.push({ ...reply.questions[0], id, text: `Aspect ${id} of the same brief` });
+      return JSON.stringify(reply);
+    };
     const m = models((stage, input, n, system) => stage === "extract" && n === 0 ? extractReply(input, reply => {
-      reply.questions = [{ questionId: "Q1", status: "needs_followup" }];
-      reply.quotes.push({ quote: "Invented evidence that never occurred in the supplied source.", questionIds: ["Q1"] });
+      reply.questions = [{ questionId: "Q1", status: "needs_followup" }, { questionId: "Q2", status: "evidence_found" }, { questionId: "Q3", status: "no_verified_evidence" }];
+      reply.quotes = [{ quote: good(input), questionIds: ["Q1", "Q3"], note: `bad ${NUL} note` }, { quote: "Invented evidence that never occurred in the supplied source.", questionIds: ["Q2"] }];
       reply.conflicts = [{ questionIds: ["Q1"], note: "first attempt conflict" }, { questionIds: ["Q9"], note: "unknown" }];
-    }) : happy(stage, input, n, system));
+    }) : threeQuestions(stage, input, n, system));
     const result = await run(m); expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
-    expect(result.summary.stages[2]).toMatchObject({ calls: 3, invalidReplies: 1, repairCalls: 1, conflictsDropped: 0, questionsDowngraded: 0, conflictsNoted: 0, quotesVerified: 2, quotesMerged: 0 });
+    // quotesDropped keeps its meaning: it still counts the failing quote of the needs-follow-up reply, as before 7a.1.
+    expect(result.summary.stages[2]).toMatchObject({ calls: 3, invalidReplies: 1, repairCalls: 1, quotesDropped: 1, conflictsDropped: 0, notesDropped: 0,
+      questionsDowngraded: 0, questionsUpgraded: 0, conflictsNoted: 0, quotesVerified: 2, quotesMerged: 0 });
     expect(parsed(result, RESEARCH_FILES.evidence).conflicts).toEqual([]);
+    // That reply's attempt is needs_followup, not invalid, so its repair says so (before 7a.1 the failing quote made it invalid).
+    expect(m.calls.filter(c => c.stage === "extract").map(c => c.input.repairReason)).toEqual([null, null, "previous_needs_followup; return compact COMPLETE JSON for every question"]);
+    expect(parsed(result, RESEARCH_FILES.coverage).chunks[0].attempts.map((a: any) => a.status)).toEqual(["needs_followup", "complete"]);
   });
   it("counts a quote merged into an identical one from an overlapping chunk apart from the drops", async () => {
     const lines = Array.from({ length: 1100 }, (_, i) => `Line ${String(i).padStart(4, "0")} records a distinct synthetic observation for the survey.`);

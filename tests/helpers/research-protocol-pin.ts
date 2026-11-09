@@ -9,7 +9,7 @@
  *   (BL-20261105-0944), pinned by backlog item 4 (BL-20261107-0923) and unchanged by item 5's exports (BL-20261108-0911) and SC.
  * - 01ca01a41c13410012bc386fa85bb32bdfbfaa3ec402482f8d29b8edfcaa6107: backlog item 7(b), part 1 (BL-20261109-0334, implemented in
  *   BL-20261109-0442): the extraction layout, index batches by preview size and the synthesis length cap.
- * - 9279665d9bfd9ca193399da5ff41e7a05daffd1c97ba730621643cbf3fc19d29: backlog item 7(a), part 1 (BL-20261109-0447): per-quote drop, host-derived
+ * - f03119bfd0c7d37adf12155453f9530d1281ae9ead60019b97e9b95e2ca0f413: backlog item 7(a), part 1 (BL-20261109-0447, implemented in BL-20261109-0552): per-quote drop, host-derived
  *   outcomes, complete attempts only, unencodable text refused and heading normalisation.
  */
-export const RESEARCH_PROTOCOL_SHA256 = "9279665d9bfd9ca193399da5ff41e7a05daffd1c97ba730621643cbf3fc19d29";
+export const RESEARCH_PROTOCOL_SHA256 = "f03119bfd0c7d37adf12155453f9530d1281ae9ead60019b97e9b95e2ca0f413";

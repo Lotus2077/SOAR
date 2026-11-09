@@ -24,10 +24,14 @@ export const RESEARCH_TOLERANCE_POLICY = Object.freeze({ version: 1,
     contributes: "complete_attempt_only",
     quoteDrops: Object.freeze(["quote_length", "quote_unencodable", "quote_not_located", "duplicate_question_id", "unknown_question_id"]),
     conflictDrops: Object.freeze(["duplicate_question_id", "unknown_question_id", "note_unencodable"]), unencodableQuoteNote: "cleared",
+    /** canonical()'s exactText (contracts.ts): text holding a NUL or a lone surrogate cannot be encoded. */
+    unencodable: "exact_text_refuses_nul_or_lone_surrogate",
     questionOutcome: "from_verified_quotes_except_needs_followup" }),
   synthesis: Object.freeze({ rejectWhen: Object.freeze(["argument_unencodable"]) }),
-  synthesisHeadings: Object.freeze({ titles: Object.freeze(["Conflicting evidence", "Unanswered questions"]), target: "## <title>",
-    whitespace: "\\t\\n\\v\\f\\r\\x1c-\\x1f \\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000", leadingStrip: "#*_", trailingStrip: "*_:", compare: "to_lower_case_equality", lineBreak: "LF",
+  synthesisHeadings: Object.freeze({ titles: Object.freeze(["Conflicting evidence", "Unanswered questions"]), target: "## {title}",
+    /** claims.ts reads a Markdown report with Path.read_text (universal newlines), so CRLF, CR and LF all end a line; separators are kept. */
+    lineBreaks: "universal_newlines", separators: "kept",
+    whitespace: "\\t\\n\\v\\f\\r\\x1c-\\x1f \\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000", leadingStrip: "#*_", trailingStrip: "*_:", strip: "linear_scan", compare: "to_lower_case_equality",
     fenceOpen: "^[ \\t]*```", fenceClose: "^[ \\t]*```[ \\t]*$", commentOpen: "<!--", commentClose: "-->", order: "fences_then_comments",
-    lineTouchedBySpan: "unchanged", alreadyExact: "research_coverage_section_check", setextUnderline: "^ {0,3}(?:=+|-+)[ \\t]*\\r?$",
-    setextTitleLine: "no_leading_hash", carriageReturn: "kept" }) });
+    lineTouchedBySpan: "unchanged", exactHeading: "^## {title}\\s*$", exactHeadingFlags: "mu",
+    setextBlockedBy: "^[ \\t]*(?:#|[*+-][ \\t])", setextUnderline: "^ {0,3}(?:=+|-+)[ \\t]*$" }) });

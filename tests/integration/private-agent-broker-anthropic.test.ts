@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import http from "node:http";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ANTHROPIC_API_VERSION } from "../../src/main/private-agent/anthropic";
 import { ANTHROPIC_RETRY_DELAYS_MS, BrokerError, PrivateAgentBroker, RETRY_WAIT_CANCELLED, type BrokerDestination, type BrokerRequest } from "../../src/main/private-agent/broker";
 import { buildCloudArm } from "../../scripts/private-agent-local-screen";
@@ -369,7 +369,28 @@ describe("E1 recoverability: an Anthropic retry wait cut short never leaves a su
     expect(shape(f.rows())).toEqual([["failed", "http_rejected", 529, 1]]);
   });
 
-  it("supersedes the rejected attempt inside the successor's commit, so the successor's own commit-time check already reads it superseded", async () => {
+  it("keeps the retry-wait code when another host's cancel lands between the wait and the successor's commit", async () => {
+    const f = await fixture(firstRejected, { delays: [20, 20] });
+    // Another host records the cancel after the post-wait check and before this host's commit transaction starts.
+    const commit = f.store.commit.bind(f.store);
+    let commits = 0;
+    const spy = vi.spyOn(f.store, "commit").mockImplementation((...args: Parameters<typeof commit>) => { if (++commits === 2) f.store.cancel("job"); return commit(...args); });
+    cleanups.push(() => spy.mockRestore());
+    expect((await brokerRejection(f.broker.request(unaborted(f), () => 5))).code).toBe(RETRY_WAIT_CANCELLED);
+    expect(commits).toBe(2); expect(f.seen).toHaveLength(1);
+    expect(shape(f.rows())).toEqual([["failed", "http_rejected", 529, 1]]);
+  });
+
+  it("does not wait at all, and keeps the plain failure code, when another host's cancel is recorded before the wait would start", async () => {
+    let f!: Awaited<ReturnType<typeof fixture>>;
+    f = await fixture((request, response) => { f.store.cancel("job"); rejectWith(529, "overloaded_error")(request, response); }, { delays: [123, 123] });
+    const waits = watchWaits(cleanups);
+    expect((await brokerRejection(f.broker.request(unaborted(f), () => 5))).code).toBe("request_failed");
+    expect(waits).not.toContain(123); expect(f.seen).toHaveLength(1);
+    expect(shape(f.rows())).toEqual([["failed", "http_rejected", 529, 1]]);
+  });
+
+  it("lets the successor's own commit-time check read the rejected attempt superseded, as it did when the broker closed it first (an equivalence pin)", async () => {
     const f = await fixture(firstRejected, { delays: [20, 20] });
     const seen: string[][] = [];
     await f.broker.request(unaborted(f), () => 5, () => { seen.push(f.rows().map(row => row.status)); });

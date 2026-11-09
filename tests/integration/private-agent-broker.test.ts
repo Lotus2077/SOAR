@@ -3,7 +3,7 @@ import http from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { STREAM_BYTES_PER_TOKEN_BOUND, localStreamSettings } from "../../src/main/liveness";
 import { BROKER_MAX_BODY_BYTES, BrokerError, PrivateAgentBroker, STREAM_MAX_RAW_BYTES, SseStreamError, SseTruncated, assembleSseChatCompletion, isPublicAddress, type BrokerDestination, type BrokerRequest, type LocalPacketScanner } from "../../src/main/private-agent/broker";
 import { PrivateAgentStore, SETTLEMENT_SUBCODES, UnknownRequestDiagnosticSchema, isConfirmedAbort, isRetryableAbort, type DispatchReceipt, type UnknownRequestDiagnostic } from "../../src/main/private-agent/store";
@@ -843,6 +843,25 @@ describe("E1 recoverability: a D4 retry wait cut short never leaves a superseded
     expect(shape(f.store.dispatches("job"))).toEqual([["failed", "upstream_closed", 1]]); expect(f.requests).toHaveLength(1);
   });
 
+  it("keeps request_failed, D4's one cancel code, when another host's cancel lands between the backoff and the successor's commit", async () => {
+    const f = await fixture({ ...local, handler: cutFirst(1) });
+    const commit = f.store.commit.bind(f.store);
+    let commits = 0;
+    const spy = vi.spyOn(f.store, "commit").mockImplementation((...args: Parameters<typeof commit>) => { if (++commits === 2) f.store.cancel("job"); return commit(...args); });
+    cleanups.push(() => spy.mockRestore());
+    expect((await brokerRejection(f.broker.request(zeroFee(f)))).code).toBe("request_failed");
+    expect(commits).toBe(2); expect(f.requests).toHaveLength(1);
+    expect(shape(f.store.dispatches("job"))).toEqual([["failed", "upstream_closed", 1]]);
+  }, 15_000);
+
+  it.each(["private_agent_budget_denied", "private_agent_unresolved_dispatch"])("ends a retry whose commit is refused with %s as a dispatched failure, never as the pre-dispatch code", async message => {
+    const f = await fixture({ ...local, handler: cutFirst(1) });
+    let commits = 0;
+    const pending = f.broker.request(zeroFee(f), () => 0, () => { if (++commits === 2) throw new Error(message); });
+    expect((await brokerRejection(pending)).code).toBe("request_failed");
+    expect(shape(f.store.dispatches("job"))).toEqual([["failed", "upstream_closed", 1]]); expect(f.requests).toHaveLength(1);
+  }, 15_000);
+
   it("resolves the earlier attempt failed when the caller's own commit-time check refuses the retry, and sends nothing more", async () => {
     const f = await fixture({ ...local, handler: cutFirst(1) });
     let commits = 0;
@@ -876,8 +895,11 @@ describe("E1 recoverability: a D4 retry wait cut short never leaves a superseded
     let seen: string | undefined;
     g.store.commit({ ...gPreview, reservedFeeMicrousd: 0, scan }, () => { seen = g.store.dispatch(earlier.id).status; }, undefined, undefined, { supersedes: { id: earlier.id, failure: cutAttempt(), zeroRisk: true } });
     expect(seen).toBe("superseded");
-    expect(() => (g.store.resolveFailure as (id: string, status: string, failure: UnknownRequestDiagnostic, zeroRisk: boolean) => void)(g.store.dispatches("job")[1]!.id, "superseded", cutAttempt(), true))
-      .toThrow();
+    // resolveFailure writes `failed` only, so commit is the one writer of `superseded`.
+    const open = g.store.dispatches("job")[1]!;
+    expect(() => (g.store.resolveFailure as (id: string, status: string, failure: UnknownRequestDiagnostic, zeroRisk: boolean) => void)(open.id, "superseded", cutAttempt(), true))
+      .toThrow("private_agent_resolution_invalid");
+    expect(g.store.dispatch(open.id).status).toBe("committed");
   });
 
   it("treats the earlier attempt as superseded for the blocking rule, the assist rule and the fee exposure, and still counts it toward the allowance", async () => {
@@ -902,12 +924,12 @@ describe("E1 recoverability: a D4 retry wait cut short never leaves a superseded
     const valid = { id: first.id, failure: cutAttempt(), zeroRisk: true };
     const attempt = (over: Record<string, unknown>, supersedes: typeof valid, validate: () => void = () => {}) =>
       () => f.store.commit({ ...preview, reservedFeeMicrousd: 0, scan, ...over }, validate, undefined, undefined, { supersedes });
-    // The admission check runs first (context, revision and destination); the other identity fields the successor must share are compared here.
+    // Each identity field is compared with the earlier row itself; the admission check only compares the successor with the job's current state.
     for (const over of [{ packetSha256: digest("another packet") }, { destinationSha256: digest("another destination") }, { purpose: "another purpose" }, { reservedFeeMicrousd: 1 }]) {
       expect(attempt(over, valid), JSON.stringify(over)).toThrow("private_agent_supersede_invalid");
     }
     expect(attempt({}, { ...valid, id: "missing-row" })).toThrow("private_agent_supersede_invalid");
-    // A priced packet's timeout is not a confirmed abort, so it can never be superseded.
+    // A timeout is a confirmed abort only for a zero-risk packet, so one claimed as not zero-risk can never be superseded.
     expect(attempt({}, { ...valid, failure: { phase: "transport", code: "request_timeout", attempt: 1, elapsedMs: 3, timeoutMs: 5000 }, zeroRisk: false })).toThrow("private_agent_supersede_invalid");
     expect(attempt({}, { ...valid, failure: { ...cutAttempt(), elapsedMs: -1 } })).toThrow("private_agent_unknown_diagnostic_invalid");
     // A refusal after the supersede (here the caller's own check) rolls it back with the insert.
@@ -917,6 +939,18 @@ describe("E1 recoverability: a D4 retry wait cut short never leaves a superseded
     f.store.revisePolicy("job", { mode: "cloud_help", destinations: ["target"] });
     expect(attempt({}, valid)).toThrow("private_agent_admission_changed");
     expect(f.store.dispatches("job").map(row => [row.id, row.status])).toEqual([[first.id, "committed"]]);
+    // A successor in another context of the job, after a context change, or at a later policy revision passes the admission check but not the
+    // supersede: each must name an earlier row of its own context, context hash and revision.
+    const h = await fixture(local), hPreview = previewOf(h), hFirst = h.store.commit({ ...hPreview, reservedFeeMicrousd: 0, scan }, () => {});
+    const hValid = { id: hFirst.id, failure: cutAttempt(), zeroRisk: true };
+    h.store.createContext({ id: "second-context", jobId: "job", sources: [{ id: "input", version: digest("private input"), classification: "public", synthetic: true }] });
+    expect(() => h.store.commit({ ...previewOf(h, { contextId: "second-context" }), reservedFeeMicrousd: 0, scan }, () => {}, undefined, undefined, { supersedes: hValid }))
+      .toThrow("private_agent_supersede_invalid");
+    h.store.addSources("context", [{ id: "added", version: digest("added source"), classification: "public", synthetic: true }]);
+    expect(() => h.store.commit({ ...previewOf(h), reservedFeeMicrousd: 0, scan }, () => {}, undefined, undefined, { supersedes: hValid })).toThrow("private_agent_supersede_invalid");
+    h.store.revisePolicy("job", { mode: "cloud_help", destinations: ["target"] });
+    expect(() => h.store.commit({ ...previewOf(h), reservedFeeMicrousd: 0, scan }, () => {}, undefined, undefined, { supersedes: hValid })).toThrow("private_agent_supersede_invalid");
+    expect(h.store.dispatches("job").map(row => row.status)).toEqual(["committed"]);
     // An attempt already resolved, or another job's row, cannot be superseded.
     const g = await fixture(local), gPreview = previewOf(g), settled = g.store.commit({ ...gPreview, reservedFeeMicrousd: 0, scan }, () => {});
     g.store.settle(settled.id, 0, digest("reply"));

@@ -129,7 +129,7 @@ describe("Flash-Next broker validation before settlement", () => {
 });
 
 describe("E1 recoverability: a D4 retry under flash_next_v1 token admission (E1-R)", () => {
-  it("supersedes the cut attempt inside the successor's commit, with the same exact-token proof on both rows", async () => {
+  it("retries a cut attempt under token admission: the cut attempt is superseded and both rows carry the same exact-token proof (an equivalence pin)", async () => {
     const f = await fixture(json({ content: "answer" }), "json", "medium", 1, { cuts: 1 });
     expect((await f.complete()).content).toBe("answer");
     const rows = f.store.dispatches("job");

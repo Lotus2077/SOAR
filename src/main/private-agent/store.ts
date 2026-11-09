@@ -96,10 +96,10 @@ export function isBlockingDispatch(receipt: { status: DispatchStatus; purpose?: 
 
 /**
  * The attempt a retry replaces (E1-R, BL-20261109-0337): `commit` closes it `superseded`, with its confirmed-abort diagnostic, in the
- * transaction that inserts the attempt that follows it, before any of that commit's checks run. Every check therefore sees the ledger
- * exactly as it was when the earlier attempt was superseded first, and any refusal rolls both writes back: the earlier row stays
- * `committed` for the broker to resolve `failed`, and a `superseded` row never lacks its successor. `zeroRisk` is the broker's own
- * predicate for the packet, as for `resolveFailure`.
+ * transaction that inserts the attempt that follows it: after the input's own parses and the admission check, before `validate` and every
+ * other check. Those checks therefore see the ledger exactly as they saw it when the earlier attempt was superseded first, and any refusal
+ * rolls both writes back: the earlier row stays `committed` for the broker to resolve `failed`, and a `superseded` row never lacks its
+ * successor. `zeroRisk` is the broker's own predicate for the packet, as for `resolveFailure`.
  */
 export interface SupersededAttempt { id: string; failure: UnknownRequestDiagnostic; zeroRisk: boolean }
 /** Optional `commit` inputs; backlog item 8's concurrent admission adds its own field beside `supersedes`. */
@@ -331,10 +331,10 @@ export class PrivateAgentStore {
   }
 
   /**
-   * Closes the attempt `supersedes` names, inside `commit`'s transaction: it must be this job's `committed` row of the same packet,
-   * destination, purpose, reservation, approval and admission proof as the successor (`approval` and `admission` as `commit` parsed them,
-   * which is how the earlier row stored its own), and its diagnostic a confirmed abort for that packet (the rule `resolveFailure`
-   * applies). It is written exactly as `resolveFailure` writes a row, with `superseded`.
+   * Closes the attempt `supersedes` names, inside `commit`'s transaction: it must be this job's `committed` row of the same context, context
+   * hash, packet, destination, destination hash, purpose, policy revision, reservation, approval and admission proof as the successor
+   * (`approval` and `admission` as `commit` parsed them, which is how the earlier row stored its own), and its diagnostic a confirmed abort
+   * for that packet (the rule `resolveFailure` applies). It is written exactly as `resolveFailure` writes a row, with `superseded`.
    */
   private supersede(input: Omit<DispatchReceipt, "id" | "status" | "committedAt" | "failure">, supersedes: SupersededAttempt,
     approval: ExactApproval | undefined, admission: LocalTokenAdmissionEvidence | undefined): void {

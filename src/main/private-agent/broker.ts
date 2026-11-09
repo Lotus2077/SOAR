@@ -212,7 +212,8 @@ export const ANTHROPIC_RETRY_DELAYS_MS: readonly number[] = Object.freeze([30_00
 export const ANTHROPIC_MAX_RETRY_AFTER_SECONDS = 120;
 /**
  * The broker code for a cancel or deadline that arrived while the Anthropic destination waited to retry (the caller's signal, `cancelJob`
- * or the job's recorded cancel); every row is resolved. A D4 retry that a cancel stops ends `request_failed` instead (BL-20261030-0850).
+ * or the job's recorded cancel), or that was found when the retry's own commit was refused; every row is resolved. A D4 retry that a
+ * cancel stops ends `request_failed` instead (BL-20261030-0850).
  */
 export const RETRY_WAIT_CANCELLED = "retry_wait_cancelled";
 /** A rejection's error body is read only this far and this long, outside the request timer, so it can never relabel the rejection. */
@@ -226,7 +227,10 @@ function classifySocketError(error: unknown, sent: boolean): TransportFailureCod
   if (UPSTREAM_CLOSED_CODES.has(code)) return sent ? "upstream_closed" : "connection_failed";
   return "transport_failed";
 }
-/** A retry's wait, ended early by `signal`: the attempt's own controller, which the caller's signal and `cancelJob` both abort (E1-R). */
+/**
+ * A retry's wait, ended early by `signal`: the attempt's own controller, which the caller's signal and `cancelJob` both abort (E1-R). Its
+ * check for a signal already aborted is a guard only: the caller checks the same controller synchronously just before.
+ */
 function backoff(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise(resolve => {
     if (signal.aborted) { resolve(); return; }
@@ -486,15 +490,21 @@ export class PrivateAgentBroker {
     // stops: `retry_wait_cancelled` on the Anthropic destination, `request_failed` for D4, which never produces the retry-wait code.
     const cancelCode = anthropic ? RETRY_WAIT_CANCELLED : "request_failed";
     let pending: SupersededAttempt | undefined;
-    const abandon = (code: string): never => {
+    /** Resolves the attempt a retry would have replaced, then denies with the code `code()` picks, read only after that write. */
+    const abandon = (code: () => string): never => {
       if (pending) this.store.resolveFailure(pending.id, "failed", pending.failure, pending.zeroRisk);
-      return deny(code);
+      return deny(code());
+    };
+    /** A cancel the caller's signal or the job's record shows; a failed read of the record falls back to "not cancelled". */
+    const cancelled = () => {
+      if (frozen.signal?.aborted) return true;
+      try { return this.store.policy(frozen.jobId).cancelled; } catch { return false; }
     };
     for (let attempt = 1; ; attempt++) {
       // A cancel seen here follows an attempt whose row was committed, so the request counts as dispatched: the path's cancel code, which the
       // runner records as a failed request (`dispatched: true`), never the pre-dispatch refusal (BL-20261107-1006, 7). No await separates
       // this check from the post-wait one, so it is a guard only.
-      if (attempt > 1 && frozen.signal?.aborted) abandon(cancelCode);
+      if (attempt > 1 && frozen.signal?.aborted) abandon(() => cancelCode);
       // Each attempt is its own committed row: it re-checks eligibility and consumes one session request.
       let receipt: DispatchReceipt;
       try {
@@ -521,7 +531,7 @@ export class PrivateAgentBroker {
         // was committed, so the request counts as dispatched: every refusal here ends it as a failed request, never as a pre-dispatch code
         // (`budget_denied`, `unresolved_dispatch`) or a raw store error. A cancel recorded meanwhile, even by another host, keeps the
         // path's cancel code.
-        if (pending) abandon(frozen.signal?.aborted || this.store.policy(frozen.jobId).cancelled ? cancelCode : "request_failed");
+        if (pending) abandon(() => cancelCode !== "request_failed" && cancelled() ? cancelCode : "request_failed");
         // The fee or request allowance refused the row inside the transaction: nothing was inserted or sent.
         if (error instanceof Error && error.message === "private_agent_budget_denied") deny("budget_denied");
         // An unresolved row of this job blocks every dispatch at the ledger: nothing was inserted or sent (backlog item 3, finding A5).
@@ -586,7 +596,7 @@ export class PrivateAgentBroker {
         // `committed` through the wait and becomes `superseded` only inside the successor's commit (E1-R).
         const admissible = this.store.dispatches(frozen.jobId).length < this.store.policy(frozen.jobId).maxRequests;
         // The wait listens to this attempt's controller, which the caller's signal and `cancelJob` both abort; a cancel another host
-        // recorded is read from the job when the wait ends (E1-R).
+        // recorded is read from the job before the wait and when it ends (E1-R).
         const stopped = () => frozen.signal?.aborted === true || controller.signal.aborted || this.store.policy(frozen.jobId).cancelled;
         // Anthropic: a 429 or 529 is a confirmed, unbilled rejection and transient, so it is retried at most twice, never
         // when it reports the monthly spend cap or asks to wait more than 120 s. As in D4, the row stays `committed` until the
@@ -604,8 +614,8 @@ export class PrivateAgentBroker {
           if (!stopped()) { pending = { id: receipt.id, failure, zeroRisk }; continue; }
         }
         // A confirmed abort with no attempt to follow is a resolved failure: the ledger stays replay-safe and never blocks.
-        // For a zero-risk packet this covers a cancel or deadline mid-request, before a retry or during its D4 backoff too:
-        // the caller tells them apart by its own signal and the job's recorded cancel.
+        // For a zero-risk packet this covers a cancel or deadline mid-request, or during its D4 backoff, and on either path a
+        // retry that a cancel stopped before its wait began: the caller tells them apart by its own signal and the job's record.
         this.store.resolveFailure(receipt.id, "failed", failure, zeroRisk);
         return deny("request_failed");
       } finally {

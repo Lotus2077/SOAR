@@ -18,6 +18,8 @@ export function everySupersededRowHasASuccessor(rows: readonly DispatchReceipt[]
  * Watches the timers the code under test starts and returns every timeout requested. When a timer of exactly `ms` starts, `then` runs once,
  * in the next microtask: the broker is then inside that wait, with its abort listener attached, and nothing else has happened. A test can
  * so cancel or change a job during a retry wait deterministically, never by guessing a delay. The spy is removed by `cleanups`.
+ * Precondition: `ms` differs from every timer the code starts before that wait (the destination's transport timeout, the Anthropic
+ * error-body timer of 2,000 ms), or `then` runs at the wrong moment.
  */
 export function watchWaits(cleanups: (() => void | Promise<void>)[], ms?: number, then?: () => void): number[] {
   const real = globalThis.setTimeout, waits: number[] = [];

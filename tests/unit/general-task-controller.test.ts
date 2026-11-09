@@ -1235,18 +1235,20 @@ describe("desktop general-task host controller", () => {
   const RESEARCH_STOP = "The research stage stopped before its evidence was handed to the writer.";
   /** The first execution records what the session records for a reading stage before the writer runs (its input and one stage event), plus
    * the given extras, then ends as `end` says; every later execution is the fixture's own. */
-  function researchStageOnce(f: ReturnType<typeof fixture>, end: "paused" | "throw" | "research_plan_invalid", extra: { transferred?: boolean; committedRow?: boolean } = {}) {
+  function researchStageOnce(f: ReturnType<typeof fixture>, end: "paused" | "throw" | "research_plan_invalid",
+    extra: { transferred?: boolean; committedRow?: boolean; settledRow?: boolean; noStageEvent?: boolean } = {}) {
     const original = f.options.testing!.runnerFactory!; let once = false;
     f.options.testing!.runnerFactory = args => once ? original(args) : { pause() {}, cancel() {}, async run() {
       once = true; f.executions.push(args);
       const { store, jobId, contextId } = args;
       store.createContext({ id: "reader", jobId, sources: [{ id: "corpus", version: digest("synthetic corpus"), classification: "public", synthetic: true }] });
       store.append(jobId, { type: "research_input", contextId: "reader", recordedAt: Date.now(), input: {} });
-      store.append(jobId, { type: "research_stage", contextId: "reader", stage: "index", calls: 1 });
+      if (!extra.noStageEvent) store.append(jobId, { type: "research_stage", contextId: "reader", stage: "index", calls: 1 });
       if (extra.transferred) store.append(jobId, { type: "research_transfer", contextId: "reader", binding: {} });
-      if (extra.committedRow) {
-        const { text: _text, ...preview } = args.broker.preview({ jobId, contextId: "reader", destinationId: "desktop_local", purpose: "research plan", method: "POST", body: "{}", maxFeeMicrousd: 0 });
-        store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_for_synthetic_local_test" } }, () => {});
+      if (extra.committedRow || extra.settledRow) {
+        const { text: _text, ...preview } = args.broker.preview({ jobId, contextId: "reader", destinationId: "desktop_local", purpose: "research source index", method: "POST", body: "{}", maxFeeMicrousd: 0 });
+        const row = store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_for_synthetic_local_test" } }, () => {});
+        if (extra.settledRow) store.settle(row.id, 0, digest("synthetic reply"));
       }
       store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
       if (end === "throw") throw new Error("synthetic failure after the stage spent");
@@ -1259,7 +1261,8 @@ describe("desktop general-task host controller", () => {
     // A pause is stored paused; an error thrown after the stage spent is stored as the resumable runtime_unavailable, which the guard blocks.
     expect(storedRecord(f, task.id)).toMatchObject(end === "paused" ? { status: "paused" } : { status: "incomplete", reason: "runtime_unavailable" });
     const stopped = f.controller.get(task.id);
-    expect(stopped).toMatchObject({ canResume: false }); expect(stopped.reason).toContain(RESEARCH_STOP);
+    expect(stopped).toMatchObject({ canResume: false });
+    expect(stopped.reason).toBe(`${RESEARCH_STOP} A partly run research stage cannot continue, so this task cannot resume.`);
     expect(stopped.reason).not.toContain("_"); expect(stopped.reason).not.toContain("uncertain");
     expect(() => f.controller.resume(task.id)).toThrow("general_task_resume_denied");
     // Past the wall budget the unfinished stage, a permanent stop like the size or fee-cap stops, still names itself, not the time limit.
@@ -1286,5 +1289,25 @@ describe("desktop general-task host controller", () => {
     task = uncertain.create(); uncertain.controller.start(task.id); await uncertain.controller.wait(task.id);
     const blocked = uncertain.controller.get(task.id);
     expect(blocked).toMatchObject({ canResume: false }); expect(blocked.reason).toContain("uncertain outcome"); expect(blocked.reason).not.toContain(RESEARCH_STOP);
+  });
+
+  it("backlog item 6 (A7): a settled reader row alone marks the stage started, an input alone does not, and the stored refusal names itself past the time limit", async () => {
+    // A crash after a settled index call of a stage with several calls leaves its row and no stage event.
+    const rows = fixture(); researchStageOnce(rows, "paused", { noStageEvent: true, settledRow: true });
+    let task = rows.create(); rows.controller.start(task.id); await rows.controller.wait(task.id);
+    const stopped = rows.controller.get(task.id);
+    expect(stopped).toMatchObject({ canResume: false }); expect(stopped.reason).toContain(RESEARCH_STOP);
+    // Only the input: the session's own pause before the stage, the one resumable stage pause.
+    const input = fixture(); researchStageOnce(input, "paused", { noStageEvent: true });
+    task = input.create(); input.controller.start(task.id); await input.controller.wait(task.id);
+    expect(input.controller.get(task.id)).toMatchObject({ status: "paused", canResume: true, reason: "Paused with progress saved." });
+    input.controller.resume(task.id); await input.controller.wait(task.id);
+    expect(input.controller.get(task.id)).toMatchObject({ status: "submitted" });
+    // The session's own refusal, stored terminal, keeps naming the stage once the wall budget has passed.
+    const stored = fixture(); stopOnce(stored, "research_stage_not_replayed");
+    task = stored.create(); stored.controller.start(task.id); await stored.controller.wait(task.id);
+    const late = vi.spyOn(Date, "now").mockReturnValue(Date.now() + GENERAL_TASK_LIMITS.elapsedMs + 1);
+    expect(stored.controller.get(task.id)).toMatchObject({ status: "incomplete", canResume: false }); expect(stored.controller.get(task.id).reason).toContain(RESEARCH_STOP);
+    late.mockRestore();
   });
 });

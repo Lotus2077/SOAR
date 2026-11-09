@@ -310,6 +310,10 @@ describe("H2b/H2c: the research stage inside a session", () => {
     const aborted = options(f, "job-abort", []), controller = new AbortController();
     f.hooks.onRequest = system => { if (system.startsWith("You plan")) controller.abort(); };
     expect(await new GeneralAgentSession(aborted).run(controller.signal)).toMatchObject({ status: "incomplete", reason: "research_cancelled" });
+    // A pause and an external abort at the same moment: the pause branch applies, so the run ends with the next run's refusal.
+    const both = options(f, "job-pause-abort", []), stop = new AbortController(), pausing = new GeneralAgentSession(both);
+    f.hooks.onRequest = system => { if (system.startsWith("You plan")) { stop.abort(); pausing.pause(); } };
+    expect(await pausing.run(stop.signal)).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
     f.hooks.onRequest = undefined;
     const sent = f.bodies.length;
     // A cancel changed the job's policy, so every later run ends cancelled; an aborted stage started and cannot continue.
@@ -326,7 +330,39 @@ describe("H2b/H2c: the research stage inside a session", () => {
     } };
     paused = new GeneralAgentSession(invalid);
     expect(await paused.run()).toMatchObject({ status: "incomplete", reason: "research_plan_invalid" });
+    expect(replies).toBe(2);  // the pause was asked, after the planner's last reply
     expect(await new GeneralAgentSession(options(g, "job-invalid", [])).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+  });
+
+  it("backlog item 6 (A7): a settled reader row with no stage event (a crash during the index stage) is refused by the next run with nothing sent", async () => {
+    const f = await fixture(), runs: Run[] = [], config = options(f, "job-rows-only", runs);
+    const session = new GeneralAgentSession(config), append = f.store.append.bind(f.store);
+    vi.spyOn(f.store, "append").mockImplementation((jobId, event) => { const out = append(jobId, event); if (event.type === "research_input") session.pause(); return out; });
+    expect(await session.run()).toMatchObject({ status: "paused", reason: "session_stopped" });
+    vi.restoreAllMocks();
+    // A stage records its event at its end or on a denial, so an index stage of several calls that crashed after one leaves only that row.
+    const reader = String(f.store.events("job-rows-only").find(event => event.type === "session_started")!.readerContextId);
+    const { text: _text, ...preview } = f.broker.preview({ jobId: "job-rows-only", contextId: reader, destinationId: "model", purpose: "research source index", method: "POST", body: "{}", maxFeeMicrousd: 0 });
+    f.store.settle(f.store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_for_synthetic_local_test" } }, () => {}).id, 0, digest("reply"));
+    expect(stageEvents(f.store, "job-rows-only")).toEqual([]);
+    const sent = f.bodies.length;
+    expect(await new GeneralAgentSession(options(f, "job-rows-only", runs)).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    expect(f.bodies).toHaveLength(sent); expect(runs).toHaveLength(0);
+  });
+
+  it("backlog item 6 (A7): the defensive paused arm: a pause between the session's check and the pipeline's entry stays paused, and the next run executes the stage whole", async () => {
+    // No production caller can pause there (pause() always runs in its own event-loop task); a synchronous pause inside the stage's set-up can.
+    const f = await fixture(), runs: Run[] = [], config = options(f, "job-defensive", runs);
+    config.research = { ...config.research!, diagnostics: { retain() {} } };
+    const session = new GeneralAgentSession(config), append = f.store.append.bind(f.store), context = f.store.context.bind(f.store);
+    let armed = false;
+    vi.spyOn(f.store, "append").mockImplementation((jobId, event) => { const out = append(jobId, event); if (event.type === "research_input") armed = true; return out; });
+    vi.spyOn(f.store, "context").mockImplementation(id => { const out = context(id); if (armed) { armed = false; session.pause(); } return out; });
+    expect(await session.run()).toMatchObject({ status: "paused", reason: "session_stopped" });
+    vi.restoreAllMocks();
+    expect(stageEvents(f.store, "job-defensive")).toEqual([]); expect(f.store.dispatches("job-defensive")).toEqual([]);
+    const again = options(f, "job-defensive", runs); again.research = { ...again.research!, diagnostics: { retain() {} } };
+    expect(await new GeneralAgentSession(again).run()).toMatchObject({ status: "submitted" });
   });
 
   it("researchStageUnfinished holds only for a stage that started and never transferred", () => {

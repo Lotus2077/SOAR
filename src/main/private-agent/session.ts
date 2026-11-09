@@ -391,7 +391,8 @@ export class GeneralAgentSession {
           validateResearchProducer(binding.producer, { jobId, files: produced, receipts: store.dispatches(jobId), input: researchInput });
         } else {
           if (this.pauseRequested || boundedSignal.aborted) return result(this.pauseRequested ? "paused" : "incomplete", "session_stopped");
-          // An unresolved dispatch from an interrupted stage is never replayed past; the operator resolves it first, as the runner requires.
+          // An unresolved dispatch from an interrupted stage is never replayed past, as in the runner; nothing resolves an unknown row today,
+          // so every later run refuses until the deadline or a cancel.
           // A skipped assist (an unknown cloud one-shot of the reading stage, backlog item 10) is not one: local work goes on past it.
           const unresolved = () => store.dispatches(jobId).some(row => isBlockingDispatch(row, privateContextId) && !isEntailmentDispatch(row));
           if (unresolved()) return result("incomplete", "unresolved_dispatch_no_replay");
@@ -409,9 +410,10 @@ export class GeneralAgentSession {
           } finally { this.stageAbort = undefined; }
           if (policyChanged()) return result("incomplete", policyReason());
           if (outcome.status !== "completed") {
-            // Backlog item 6 (finding A7): a pause that stopped the stage ends as a resume would: blocked by an unresolved row, or refused
-            // because the stage started. Every call the stage stops records a stage event, so the paused arm is defensive: it is truthful
-            // (the stage never started) and unreachable today. Any other failure keeps its own reason, even with a pause pending.
+            // Backlog item 6 (finding A7): a pause that stopped the stage ends incomplete with the refusal the next run gives (an unresolved
+            // row, or a stage that started). Every call the stage stops records a stage event, so the paused arm is defensive: no production
+            // caller can pause between the session's check and the pipeline's entry, and the arm is truthful there (the stage never started).
+            // Any other failure keeps its own reason, even with a pause pending.
             if (!this.pauseRequested || outcome.reason !== "research_cancelled") return result("incomplete", outcome.reason);
             if (unresolved()) return result("incomplete", "unresolved_dispatch_no_replay");
             return researchStageUnfinished(this.events(), store.dispatches(jobId)) ? result("incomplete", "research_stage_not_replayed") : result("paused", "session_stopped");

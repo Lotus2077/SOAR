@@ -172,6 +172,20 @@ function toolFailureFeedback(error: unknown, tool: string, contextReady: boolean
   return GENERIC_TOOL_FAILURE;
 }
 
+/**
+ * The host-owned paths a capture keeps first (E1-L), in order and each once: the contract's required artifacts, the claims ledger when the
+ * claims check is configured, the workspace copies of the public sources the job retained, then every file the host placed (the inputs and
+ * the research packet). Never model-supplied. A failure reading the retained sources leaves them out and never fails the capture.
+ * Exported for the unit test.
+ */
+export function capturePinnedPaths(input: { contract: Pick<GeneralJobContract, "requiredArtifacts">; checks: readonly { id: string }[];
+  files: readonly { path: string }[]; retainedSources: () => readonly string[] }): string[] {
+  let sources: readonly string[] = [];
+  try { sources = input.retainedSources(); } catch { sources = []; }
+  return [...new Set([...input.contract.requiredArtifacts.map(artifact => artifact.path),
+    ...(input.checks.some(check => check.id === CLAIMS_LEDGER_CHECK_ID) ? [CLAIMS_LEDGER_PATH] : []), ...sources, ...input.files.map(file => file.path)])];
+}
+
 /** Why a workspace capture failed (BL-20261107-0924, A): a fixed code only; the original error is kept for the outer catch. */
 type CaptureFailureCode = `sandbox_${SandboxErrorCode}` | "checkpoint_write_failed" | "capture_failed";
 /** Why an allowance-path validation closed without a verifier result (BL-20261107-1041, 12): a fixed code only. */
@@ -910,23 +924,16 @@ export class GeneralAgentRunner {
     catch (error) { return { ok: false, code: "checkpoint_write_failed", error }; }
   }
 
-  /**
-   * The host-owned paths every capture keeps first (E1-L): the contract's required artifacts, the claims ledger when the claims check is
-   * configured, the workspace copies of the public sources this job retained, then every file the host placed (the inputs and the research
-   * packet). Never model-supplied. A failure reading the retained sources leaves them out; it never fails the capture.
-   */
+  /** The host-owned paths every capture keeps first (E1-L); see `capturePinnedPaths`. */
   private pinnedPaths(): string[] {
     const { contract, checks, files, store, checkpoints, jobId } = this.options;
-    let sources: string[] = [];
-    try { sources = readPublicSources(store, checkpoints, jobId).map(source => publicSourceWorkspacePath(source.url)); } catch { sources = []; }
-    return [...new Set([...contract.requiredArtifacts.map(artifact => artifact.path),
-      ...(checks.some(check => check.id === CLAIMS_LEDGER_CHECK_ID) ? [CLAIMS_LEDGER_PATH] : []), ...sources, ...files.map(file => file.path)])];
+    return capturePinnedPaths({ contract, checks, files, retainedSources: () => readPublicSources(store, checkpoints, jobId).map(source => publicSourceWorkspacePath(source.url)) });
   }
 
   /**
    * The regular files the lister kept, read within the per-file cap; a file beyond the 128 MiB total is omitted with `total_cap`, never a
    * throw. The lister keeps the pinned paths first, and they are read first too, so the total reaches them last; the checkpoint lists the
-   * kept files in the lister's order, so a workspace under the caps checkpoints exactly as before (E1-L).
+   * kept files in the lister's order, so a workspace whose walk completes under both caps checkpoints exactly as before (E1-L).
    */
   private async capture(sandbox: DockerSandbox): Promise<{ files: { path: string; bytes: Buffer }[]; omitted?: CaptureOmissions }> {
     const pinned = this.pinnedPaths(), listing = await sandbox.listFiles(pinned);

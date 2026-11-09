@@ -142,8 +142,10 @@ describe("E1 recoverability: the lister keeps the host's pinned paths first (S6,
     expect(listing.files).toHaveLength(PRIVATE_SANDBOX_LIMITS.files);
   });
   it("skips a pinned path that is missing, a link, inside a linked directory, special, oversize or refused, never follows a link, and lets the walk report each", () => {
-    const root = workspace();
-    writeFileSync(join(root, "kept.txt"), "x"); symlinkSync("/etc/hosts", join(root, "link.txt")); symlinkSync(tmpdir(), join(root, "linked"));
+    const root = workspace(), outside = workspace();
+    // The linked directory really holds the pinned leaf, so only the no-follow open of `linked` keeps it out.
+    writeFileSync(join(outside, "hosts"), "outside the workspace");
+    writeFileSync(join(root, "kept.txt"), "x"); symlinkSync("/etc/hosts", join(root, "link.txt")); symlinkSync(outside, join(root, "linked"));
     execFileSync("mkfifo", [join(root, "pipe")]); writeFileSync(join(root, "big.bin"), ""); truncateSync(join(root, "big.bin"), PRIVATE_SANDBOX_LIMITS.fileBytes + 1);
     // Sent raw, so the script's own rule meets the refused name the host would have filtered.
     const result = listRaw(root, `${JSON.stringify(["missing.txt", "link.txt", "linked/hosts", "pipe", "big.bin", "../escape", "kept.txt", "kept.txt"])}\n`);
@@ -151,7 +153,7 @@ describe("E1 recoverability: the lister keeps the host's pinned paths first (S6,
     const listing = parseWorkspaceListing(result.stdout);
     expect(listing.files).toEqual([{ path: "kept.txt", size: 1 }]);
     expect(listing.counts).toEqual({ symlink: 2, hard_link: 0, special: 1, oversize: 1, name_invalid: 0, cap: 0 });
-    expect(result.stdout).not.toContain(tmpdir());
+    expect(result.stdout).not.toContain(tmpdir()); expect(result.stdout).not.toContain("outside the workspace");
   });
   it("lists exactly as before for a workspace under the cap, pinned or not", () => {
     const root = workspace();

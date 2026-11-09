@@ -9,7 +9,7 @@ import { BROKER_MAX_BODY_BYTES, PrivateAgentBroker, BrokerError, RETRY_WAIT_CANC
 import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel, type GeneralMessage, type PrivateModelConfig } from "../../src/main/private-agent/model";
-import { GeneralAgentRunner, type GeneralJobContract, type GeneralJobOptions } from "../../src/main/private-agent/runner";
+import { GeneralAgentRunner, capturePinnedPaths, type GeneralJobContract, type GeneralJobOptions } from "../../src/main/private-agent/runner";
 import { DockerSandbox, PRIVATE_SANDBOX_LIMITS, SandboxError, WORKSPACE_LISTING_MAX_ENTRIES, WORKSPACE_LISTING_MAX_OMITTED_PATHS, type SandboxErrorCode, type WorkspaceListing } from "../../src/main/private-agent/sandbox";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { LocalTokenAdmissionError, LOCAL_TOKEN_ADMISSION_STOP } from "../../src/main/private-agent/flash-next-admission";
@@ -1537,7 +1537,7 @@ describe("E1 recoverability: the writer's output and workspace bounds (S5, S6)",
     const notice = f.requests[1]!.find(message => message.role === "user" && message.content!.includes("workspace_capture_incomplete"))!;
     expect(JSON.parse(notice.content!)).toMatchObject({ warning: "workspace_capture_incomplete", omitted: { total: capped, complete: false } });
     // The checkpoint recorded with that result holds exactly what the capture kept: the depth-first, name-ordered first 1,024 files.
-    // E1-L's capture priority is expected to change which files these are; these numbers pin today's lister.
+    // The pinned input and deliverable sort before zz/, so pinning them first keeps these same files (E1-L).
     expect(recorded[at - 1]!.type).toBe("checkpoint");
     const files = f.options.checkpoints.load(recorded[at - 1]!.snapshot as Parameters<PrivateCheckpointStore["load"]>[0]).map(file => file.path).sort();
     expect(files).toEqual(["input.txt", "output.txt", ...Array.from({ length: kept }, (_, i) => `zz/f${String(i).padStart(4, "0")}.txt`)]);
@@ -1575,6 +1575,23 @@ describe("E1 recoverability: the capture keeps the inputs, the research packet a
     expect(files).toEqual(expect.arrayContaining([...phase.files.map(file => file.path), "output.txt"])); expect(files).toHaveLength(PRIVATE_SANDBOX_LIMITS.files);
     expect(f.listedWith[0]).toEqual(["output.txt", ...phase.files.map(file => file.path)]);
   }, 30_000);
+  it("reads the pinned files first, so the 128 MiB total reaches them last and names the files it omitted", async () => {
+    // Two 64 MiB files sorting first fill the total on their own; read in the lister's order they would push out the input and the deliverable.
+    const f = fixture([write, finish]), big = Buffer.alloc(PRIVATE_SANDBOX_LIMITS.fileBytes);
+    f.afterExecute(command => { if (command === "write result") { f.mutateWorkspace("a1.bin", big); f.mutateWorkspace("a2.bin", big); } });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed" });
+    const { finished, files } = checkpointAfterAction(f);
+    expect(files).toEqual(["a1.bin", "input.txt", "output.txt"]);
+    expect(finished.captureOmitted).toEqual({ total: 1, reasons: { total_cap: 1 }, paths: ["a2.bin"], complete: true });
+  }, 30_000);
+  it("orders the pinned paths deliverables, claims ledger, retained sources, host files, each once, and leaves the sources out when reading them fails", () => {
+    const contract = { requiredArtifacts: [{ path: "output/report.md", description: "report" }, { path: "output/claims.json", description: "ledger" }] };
+    const checks = [{ id: "structure" }, { id: CLAIMS_LEDGER_CHECK_ID }], files = [{ path: "input/a.md" }, { path: "context/research/evidence.json" }, { path: "input/a.md" }];
+    expect(capturePinnedPaths({ contract, checks, files, retainedSources: () => ["sources/0123456789abcdef.bin"] }))
+      .toEqual(["output/report.md", "output/claims.json", "sources/0123456789abcdef.bin", "input/a.md", "context/research/evidence.json"]);
+    expect(capturePinnedPaths({ contract, checks: [{ id: "structure" }], files, retainedSources: () => { throw new Error("public_source_identity_invalid"); } }))
+      .toEqual(["output/report.md", "output/claims.json", "input/a.md", "context/research/evidence.json"]);
+  });
   it("pins the claims ledger after the deliverables when the claims check is configured", async () => {
     const f = fixture([write, finish], { claimsLedger: true });
     await new GeneralAgentRunner(f.options).run();

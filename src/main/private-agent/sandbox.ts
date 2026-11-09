@@ -321,10 +321,6 @@ except BaseException:
 `;
 
 /**
- * Parses and validates the lister's reply; any other shape is refused as unsafe_file (the container is then closed, and the
- * runner recreates it from the last checkpoint). Exported for the unit test.
- */
-/**
  * The lister's first stdin line (E1-L): the host's pinned paths, each once and in order, only those the host path rule admits, at most
  * 1,024. It never throws for a path, so no pinned path can make a capture fail. Exported for the unit test.
  */
@@ -332,6 +328,10 @@ export function pinnedListingHeader(pinned: readonly string[]): Buffer {
   return Buffer.from(`${JSON.stringify([...new Set(pinned)].filter(path => typeof path === "string" && validPath(path)).slice(0, PRIVATE_SANDBOX_LIMITS.files))}\n`);
 }
 
+/**
+ * Parses and validates the lister's reply; any other shape is refused as unsafe_file (the container is then closed, and the
+ * runner recreates it from the last checkpoint). Exported for the unit test.
+ */
 export function parseWorkspaceListing(raw: Buffer | string): WorkspaceListing {
   const refuse = () => new SandboxError("unsafe_file");
   let parsed: unknown;
@@ -348,8 +348,9 @@ export function parseWorkspaceListing(raw: Buffer | string): WorkspaceListing {
         typeof item[1] !== "number" || !Number.isSafeInteger(item[1]) || item[1] < 0 || item[1] > PRIVATE_SANDBOX_LIMITS.fileBytes) throw refuse();
     names.add(item[0]); return { path: item[0], size: item[1] };
   });
-  // E1-L: the pinned pass and the walk are two passes, so a path that changed kind between them could list a file beside a file under
-  // it. DockerSandbox.create refuses such a pair for good, so it is refused here, the way today's races already end.
+  // E1-L: the pinned pass and the walk are two passes, so a pinned file whose parent directory became a file between them would be listed
+  // beside that file. DockerSandbox.create refuses such a pair for good, so it is refused here, the way today's races already end. (A pinned
+  // file that became a directory is skipped by the walk before it is opened, and its read then fails as any changed file's does.)
   for (const name of names) {
     const parts = name.split("/");
     for (let i = 1; i < parts.length; i++) if (names.has(parts.slice(0, i).join("/"))) throw refuse();
@@ -580,10 +581,9 @@ export class DockerSandbox {
     });
   }
 
-  /** The regular files the next capture can read, with their sizes, and what the lister left out and why (BL-20261107-0924, B). */
   /**
-   * Lists the workspace for a capture. `pinned` are host-owned paths the lister keeps first (E1-L): only paths the host path rule admits, each
-   * once, at most 1,024; the model never supplies them.
+   * The regular files the next capture can read, with their sizes, and what the lister left out and why (BL-20261107-0924, B). `pinned` are
+   * host-owned paths the lister keeps first (E1-L): only paths the host path rule admits, each once, at most 1,024; never model-supplied.
    */
   async listFiles(pinned: readonly string[] = []): Promise<WorkspaceListing> {
     const header = pinnedListingHeader(pinned);

@@ -256,14 +256,38 @@ except BaseException:
  * 1,024-file cap. Once 4,096 entries have been seen the walk stops and the report says it is incomplete. die() (exit 53) remains
  * only for the walk's own failure, which the host maps to unsafe_file as before. Exported for the host-side unit test, which
  * runs it under the machine's python3 against a temporary directory in place of /workspace.
+ *
+ * E1-L (BL-20261109-0423): the first stdin line is a JSON array of at most 1,024 host-pinned paths. Before the walk each is looked up from
+ * the root without following a link (a missing, linked or non-directory component skips it); a regular, single-link file of at most
+ * 64 MiB is kept first, in the host's order and within the cap. The walk then skips the files already kept, so they are neither listed
+ * twice nor counted against the cap, and a directory that sorts first can no longer push them out. The pinned pass does not count toward
+ * the 4,096-entry walk limit.
  */
 export const LIST_FILES = FILE_HELPERS + String.raw`
 try:
-    files, omitted, seen, complete = [], [], [0], [True]
+    header = sys.stdin.buffer.readline(1048577)
+    if len(header) > 1048576 or not header.endswith(b'\n'): die()
+    wanted = json.loads(header)
+    if not isinstance(wanted, list) or len(wanted) > 1024 or not all(isinstance(p, str) for p in wanted): die()
+    files, omitted, seen, complete, kept = [], [], [0], [True], set()
     counts = {'symlink': 0, 'hard_link': 0, 'special': 0, 'oversize': 0, 'name_invalid': 0, 'cap': 0}
     def omit(p, reason):
         counts[reason] += 1
         if p is not None and len(omitted) < 32: omitted.append([p, reason])
+    def pinned(p):
+        if not valid(p): return None
+        try: fd, name = parent(p)
+        except OSError: return None
+        try: s = os.stat(name, dir_fd=fd, follow_symlinks=False)
+        except OSError: return None
+        finally: os.close(fd)
+        return s if regular(s) and s.st_size <= 67108864 else None
+    for p in wanted:
+        if p in kept or len(files) >= 1024: continue
+        s = pinned(p)
+        if s is not None:
+            files.append([p, s.st_size])
+            kept.add(p)
     def walk(fd, prefix=''):
         for entry in sorted(os.scandir(fd), key=lambda e: e.name):
             if seen[0] >= 4096:
@@ -271,6 +295,7 @@ try:
                 return
             seen[0] += 1
             p = prefix + entry.name
+            if p in kept: continue
             if not valid(p):
                 omit(None, 'name_invalid')
                 continue
@@ -299,6 +324,14 @@ except BaseException:
  * Parses and validates the lister's reply; any other shape is refused as unsafe_file (the container is then closed, and the
  * runner recreates it from the last checkpoint). Exported for the unit test.
  */
+/**
+ * The lister's first stdin line (E1-L): the host's pinned paths, each once and in order, only those the host path rule admits, at most
+ * 1,024. It never throws for a path, so no pinned path can make a capture fail. Exported for the unit test.
+ */
+export function pinnedListingHeader(pinned: readonly string[]): Buffer {
+  return Buffer.from(`${JSON.stringify([...new Set(pinned)].filter(path => typeof path === "string" && validPath(path)).slice(0, PRIVATE_SANDBOX_LIMITS.files))}\n`);
+}
+
 export function parseWorkspaceListing(raw: Buffer | string): WorkspaceListing {
   const refuse = () => new SandboxError("unsafe_file");
   let parsed: unknown;
@@ -315,6 +348,12 @@ export function parseWorkspaceListing(raw: Buffer | string): WorkspaceListing {
         typeof item[1] !== "number" || !Number.isSafeInteger(item[1]) || item[1] < 0 || item[1] > PRIVATE_SANDBOX_LIMITS.fileBytes) throw refuse();
     names.add(item[0]); return { path: item[0], size: item[1] };
   });
+  // E1-L: the pinned pass and the walk are two passes, so a path that changed kind between them could list a file beside a file under
+  // it. DockerSandbox.create refuses such a pair for good, so it is refused here, the way today's races already end.
+  for (const name of names) {
+    const parts = name.split("/");
+    for (let i = 1; i < parts.length; i++) if (names.has(parts.slice(0, i).join("/"))) throw refuse();
+  }
   const left = omitted.map(item => {
     if (!Array.isArray(item) || item.length !== 2 || typeof item[0] !== "string" || !validPath(item[0]) || names.has(item[0]) ||
         typeof item[1] !== "string" || !(LISTER_OMISSION_REASONS as readonly string[]).includes(item[1])) throw refuse();
@@ -542,9 +581,15 @@ export class DockerSandbox {
   }
 
   /** The regular files the next capture can read, with their sizes, and what the lister left out and why (BL-20261107-0924, B). */
-  async listFiles(): Promise<WorkspaceListing> {
+  /**
+   * Lists the workspace for a capture. `pinned` are host-owned paths the lister keeps first (E1-L): only paths the host path rule admits, each
+   * once, at most 1,024; the model never supplies them.
+   */
+  async listFiles(pinned: readonly string[] = []): Promise<WorkspaceListing> {
+    const header = pinnedListingHeader(pinned);
+    async function* input() { yield header; }
     return this.operation(async () => {
-      const result = await this.call(this.python(LIST_FILES), { timeoutMs: 30_000, maxBytes: 512 * 1024 });
+      const result = await this.call(this.python(LIST_FILES), { timeoutMs: 30_000, maxBytes: 512 * 1024, input: input() });
       if (result.exitCode !== 0) throw new SandboxError("unsafe_file");
       const listing = parseWorkspaceListing(result.stdout);
       if (!this.usable) throw new SandboxError("unusable");

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
-import { PrivateAgentBroker } from "../../src/main/private-agent/broker";
+import { BrokerError, PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
 import { canonical, digest, restrictedContext } from "../../src/main/private-agent/contracts";
@@ -375,5 +375,33 @@ describe("operator loader", () => {
     expect(await third.run()).toMatchObject({ status: "incomplete", reason: "session_contract_drift" });
     const invalid = new GeneralAgentSession({ ...options(f, "invalid-allowance", "PRIVATE-DELTA"), limits: { maxRequests: 0, maxElapsedMs: 1 } });
     expect(await invalid.run()).toMatchObject({ status: "incomplete", reason: "session_limits_invalid" });
+  });
+});
+
+describe("E1 recoverability: a judge call the session stops mid-request (E1-J)", () => {
+  /** The broker's answer to a zero-fee judge call cut by the pass's signal: its row resolves `failed` and the call rejects `request_failed`. */
+  const stoppedBy = (stop: () => void) => vi.spyOn(PrivateAgentModel.prototype, "complete").mockImplementation(async () => { stop(); throw new BrokerError("request_failed"); });
+  it("persists a pass whose judge call the session's cancel stopped mid-request as deadline_or_cancelled, not as a request failure", async () => {
+    const f = await fixture(), session = new GeneralAgentSession(options(f, "judged-cancel", "PRIVATE-CANCEL"));
+    const spy = stoppedBy(() => session.cancel());
+    try {
+      await session.run();
+      expect(f.store.events("judged-cancel").some(e => e.type === "session_submitted")).toBe(true);
+      expect(f.store.events("judged-cancel").find(e => e.type === "claims_entailment")).toMatchObject({ entailmentCalls: 1, truncated: true, stopReason: "deadline_or_cancelled",
+        counts: { not_judged: 2 }, verdicts: [{ id: "C1", verdict: "not_judged", reason: "deadline_or_cancelled" }, { id: "C2", verdict: "not_judged", reason: "pass_stopped" }] });
+    } finally { spy.mockRestore(); }
+  });
+  it("records nothing for a pass whose judge call the session's pause stopped mid-request, and the next run judges from the start", async () => {
+    const f = await fixture(), config = options(f, "judged-pause-call", "PRIVATE-PAUSE-CALL"), session = new GeneralAgentSession(config);
+    const spy = stoppedBy(() => session.pause());
+    try {
+      expect(await session.run()).toMatchObject({ status: "paused", reason: "session_stopped" });
+      expect(f.store.events("judged-pause-call").some(e => e.type === "claims_entailment")).toBe(false);
+    } finally { spy.mockRestore(); }
+    const resumed = vi.spyOn(PrivateAgentModel.prototype, "complete").mockResolvedValue({ content: '{"verdict":"supported"}', toolCalls: [], finishReason: "stop", costUsd: 0, durationMs: 1 });
+    try {
+      expect((await new GeneralAgentSession(config).run()).status).toBe("submitted");
+      expect(f.store.events("judged-pause-call").find(e => e.type === "claims_entailment")).toMatchObject({ entailmentCalls: 2, truncated: false, counts: { supported: 2 } });
+    } finally { resumed.mockRestore(); }
   });
 });

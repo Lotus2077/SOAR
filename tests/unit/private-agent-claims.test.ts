@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { CLAIMS_CONTEXT_BYTES, CLAIMS_CONTEXT_CHARS, CLAIMS_CONTEXT_ENV, CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, CLAIMS_OUTPUT_BUDGET_BYTES, CLAIMS_RETAINED_ENV, CheckClaimsOutputSchema, ClaimsLedgerSchema, ClaimsVerifiedClaimSchema, ENTAILMENT_PURPOSE, ENTAILMENT_SYSTEM_PROMPT, EntailmentReplySchema, claimsInstructions, claimsLedgerCheck, encodeRetainedClaimsSources, entailmentMessages, judgeClaims, publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
+import { BrokerError } from "../../src/main/private-agent/broker";
 import { digest } from "../../src/main/private-agent/contracts";
 import { buildBinarySource, hasIsolatedPypdf } from "../helpers/claims-fixtures";
 
@@ -276,5 +277,38 @@ describe("research claims entailment hardening", () => {
     const outcome = await judgeClaims({ claims, signal: new AbortController().signal, remainingMs: () => 600_000, stop: () => paused,
       complete: async () => { paused = true; return { content: '{"verdict":"supported"}' }; } });
     expect(outcome).toMatchObject({ entailmentCalls: 1, truncated: true, stopReason: "paused", verdicts: [{ id: "C1", verdict: "supported" }, { id: "C2", verdict: "not_judged", reason: "paused" }] });
+  });
+});
+
+describe("E1 recoverability: a judge call stopped mid-request is labelled by why it stopped (E1-J)", () => {
+  const claims = [{ id: "C1", sentence: "a", quote: "q1", context: "ctx1" }, { id: "C2", sentence: "b", quote: "q2", context: "ctx2" }, { id: "C3", sentence: "c", quote: "q3", context: "ctx3" }];
+  const rest = [{ id: "C2", verdict: "not_judged", reason: "pass_stopped" }, { id: "C3", verdict: "not_judged", reason: "pass_stopped" }];
+  /** The broker's answer to a zero-fee judge call cut by its own signal: the row resolves `failed` and the call rejects `request_failed`. */
+  const stoppedCall = (stop: () => void) => async () => { stop(); throw new BrokerError("request_failed"); };
+  it("records a judge call cancelled mid-request as deadline_or_cancelled, not as a request failure", async () => {
+    const cancel = new AbortController();
+    const outcome = await judgeClaims({ claims, signal: cancel.signal, remainingMs: () => 600_000, complete: stoppedCall(() => cancel.abort()) });
+    expect(outcome).toEqual({ entailmentCalls: 1, truncated: true, stopReason: "deadline_or_cancelled", counts: { supported: 0, partial: 0, unsupported: 0, contradicted: 0, not_judged: 3 },
+      verdicts: [{ id: "C1", verdict: "not_judged", reason: "deadline_or_cancelled" }, ...rest] });
+  });
+  it("records a judge call the pass's own clock cut mid-request as deadline_or_cancelled", async () => {
+    // The session joins the pass's deadline into the signal (AbortSignal.timeout), so a cut by the clock reaches the call as an abort.
+    const clock = new AbortController();
+    let remaining = 600_000;
+    const outcome = await judgeClaims({ claims, signal: clock.signal, remainingMs: () => remaining, complete: stoppedCall(() => { remaining = 0; clock.abort(); }) });
+    expect(outcome).toMatchObject({ entailmentCalls: 1, truncated: true, stopReason: "deadline_or_cancelled", verdicts: [{ id: "C1", verdict: "not_judged", reason: "deadline_or_cancelled" }, ...rest] });
+  });
+  it("records a judge call a pause stopped mid-request as paused, as a pause at a claim boundary is", async () => {
+    // The session's pause aborts the pass's own signal and sets the stop flag; it then discards a truncated outcome for the resume.
+    const pass = new AbortController();
+    let paused = false;
+    const outcome = await judgeClaims({ claims, signal: pass.signal, remainingMs: () => 600_000, stop: () => paused, complete: stoppedCall(() => { paused = true; pass.abort(); }) });
+    expect(outcome).toMatchObject({ entailmentCalls: 1, truncated: true, stopReason: "paused", verdicts: [{ id: "C1", verdict: "not_judged", reason: "paused" }, ...rest] });
+  });
+  it("keeps judge_request_failed for a call that failed while nothing stopped it, even with a pause requested and the clock run down", async () => {
+    let paused = false, remaining = 600_000;
+    const outcome = await judgeClaims({ claims, signal: new AbortController().signal, remainingMs: () => remaining, stop: () => paused,
+      complete: async () => { paused = true; remaining = 0; throw new BrokerError("request_failed"); } });
+    expect(outcome).toMatchObject({ entailmentCalls: 1, truncated: true, stopReason: "request_failed", verdicts: [{ id: "C1", verdict: "not_judged", reason: "judge_request_failed" }, ...rest] });
   });
 });

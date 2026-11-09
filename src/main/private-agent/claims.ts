@@ -70,7 +70,14 @@ export async function judgeClaims(input: { claims: EntailmentClaim[]; complete: 
     try {
       calls++;
       reply = (await input.complete(entailmentMessages(claim), [], input.signal, { thinking: "disabled", maxOutputTokens: ENTAILMENT_OUTPUT_TOKENS, purpose: ENTAILMENT_PURPOSE })).content;
-    } catch { stopReason = "request_failed"; verdicts.push({ id: claim.id, verdict: "not_judged", reason: "judge_request_failed" }); continue; }
+    } catch {
+      // Every host stop (a pause, a cancel, the pass's own clock, the run's deadline or interrupt) reaches the call through this signal, so a
+      // call stopped mid-request carries the label the same stop gets between calls; one that failed while nothing stopped it is the
+      // judge's own failure (E1-J, BL-20261109-0411).
+      stopReason = !input.signal.aborted ? "request_failed" : input.stop?.() ? "paused" : "deadline_or_cancelled";
+      verdicts.push({ id: claim.id, verdict: "not_judged", reason: stopReason === "request_failed" ? "judge_request_failed" : stopReason });
+      continue;
+    }
     try {
       const text = String(reply).trim(), json = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
       const verdict = EntailmentReplySchema.parse(JSON.parse(json));

@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { summarizeRun, type CandidateSummary } from "../../src/main/private-agent/selection";
 import { ServingCardError } from "../../src/main/private-agent/serving-card";
-import { LOOP_VERSION, failureCode, loopExitCode, loopFailureLine, parseLoopArguments, runSelectionLoop, type CritiqueRecord, type DriverInput, type LoopDependencies, type LoopInput, type LoopRecord } from "../../scripts/phase4-loop";
+import { LOOP_VERSION, failureCode, loopExitCode, loopFailureLine, parseLoopArguments, productionDependencies, runSelectionLoop, type CritiqueRecord, type DriverInput, type LoopDependencies, type LoopInput, type LoopRecord } from "../../scripts/phase4-loop";
 import { localScreenSourceFreeze, parseLocalArtifactScreenArguments } from "../../scripts/private-agent-local-screen";
 
 const cleanups: (() => void)[] = [];
@@ -13,7 +13,7 @@ afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
 const h = (n: string) => n.repeat(64);
 const summary = (over: Partial<CandidateSummary> = {}): CandidateSummary => ({ jobId: "ja", taskJobSha256: h("1"), taskBriefSha256: h("2"), runtimeSha256: h("4"), researchFrom: null, repairSource: null,
   status: "submitted", reason: "independent_acceptance_pending", checksPassed: 2, checksTotal: 2, checksCurrent: true, artifactsPresent: 2, artifactsTotal: 2,
-  entailment: null, writeIdentity: null, modelCalls: 10, toolCalls: 8, inputTokens: 1000, outputTokens: 100, cachedTokens: 500, cacheWriteTokens: 0, lengthStops: 0, feeMicrousd: 0, unknownDispatches: 0, retriedDispatches: 0, failedDispatches: 0, assistSkippedDispatches: 0, assistFailedDispatches: 0,
+  entailment: null, writeIdentity: null, modelCalls: 10, toolCalls: 8, inputTokens: 1000, outputTokens: 100, cachedTokens: 500, cacheWriteTokens: 0, lengthStops: 0, feeMicrousd: 0, unknownDispatches: 0, retriedDispatches: 0, failedDispatches: 0, zeroFeeFailedDispatches: 0, assistSkippedDispatches: 0, assistFailedDispatches: 0,
   candidateSha256: h("a"), freezeSha256: h("b"), resultSha256: h("c"), startedAt: "t0", finishedAt: "t1", ...over });
 /** The candidates of one well-formed loop: b and the repair seeded from a on a research task, the repair bound to the selected draft. */
 function candidates(research: boolean, over: Partial<Record<"a" | "b" | "repair", Partial<CandidateSummary>>> = {}): Record<string, CandidateSummary> {
@@ -27,13 +27,13 @@ function base(over: Partial<DriverInput> = {}): LoopInput["base"] {
 }
 const cloud = { model: "m", endpoint: "https://api.example.invalid/v1/responses", prices: { input: 2, output: 10, cached: 0.2 }, maxFeeUsd: 0.6 };
 /** Fakes standing in for the driver, the critique tool and the summariser; each stage leaves the marker file the real tool leaves. */
-function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?: string[]; critiqueFails?: string | Error; critiqueFinishReason?: string; onRun?: (run: DriverInput) => void }) {
+function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?: string[]; critiqueFails?: string | Error; critiqueFinishReason?: string; onRun?: (run: DriverInput) => void; onWritten?: (run: DriverInput) => void; runtime?: string }) {
   const calls: { runs: DriverInput[]; critiques: Parameters<LoopDependencies["critique"]>[0][] } = { runs: [], critiques: [] };
   let tick = 0;
   const snapshot = (directory: string) => (input.transfers ?? []).includes(directory.split("/").pop()!) ? h("f") : null;
   const usage = { inputTokens: 500, outputTokens: 40, cacheReadTokens: 100 };
   const deps: LoopDependencies = {
-    async runSample(run) { calls.runs.push(run); input.onRun?.(run); mkdirSync(run.outputDirectory, { recursive: true }); writeFileSync(join(run.outputDirectory, "result.json"), "{}"); },
+    async runSample(run) { calls.runs.push(run); input.onRun?.(run); mkdirSync(run.outputDirectory, { recursive: true }); writeFileSync(join(run.outputDirectory, "result.json"), "{}"); input.onWritten?.(run); },
     async critique(request) {
       calls.critiques.push(request);
       if (input.critiqueFails) throw typeof input.critiqueFails === "string" ? new Error(input.critiqueFails) : input.critiqueFails;
@@ -48,6 +48,7 @@ function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?:
     transferStatus: directory => { const sha256 = snapshot(directory); return { snapshotSha256: sha256, code: sha256 ? null : "research_seed_no_transfer" }; },
     deliverables: () => ["output/report.md", "output/claims.json"],
     now: () => `t${tick++}`,
+    runtimeSha256: () => input.runtime ?? h("4"),
   };
   return { deps, calls };
 }
@@ -65,8 +66,20 @@ function transportStoppedSummary(status: "unknown" | "committed" | "failed", pur
   return summarizeRun(directory, []);
 }
 
+/** The real summary of an incomplete run whose one dispatch row is `row`, under a freeze whose arm is `arm` (backlog item 11's zero-fee predicate). */
+function rowSummary(row: Record<string, unknown>, arm?: Record<string, unknown>): CandidateSummary {
+  const directory = loopDir(); mkdirSync(directory, { recursive: true });
+  writeFileSync(join(directory, "freeze.json"), JSON.stringify({ jobId: "ja", startedAt: "t0", sourceFreezeSha256: h("4"), taskBinding: { jobSha256: h("1"), briefSha256: h("2") }, ...(arm ? { arm } : {}) }));
+  writeFileSync(join(directory, "result.json"), JSON.stringify({ status: "incomplete", reason: "model_unavailable", finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [], dispatches: [row] }));
+  const db = new Database(join(directory, "state.sqlite"));
+  db.exec("CREATE TABLE private_agent_events (job_id TEXT, sequence INTEGER, value TEXT)"); db.close();
+  return summarizeRun(directory, []);
+}
+/** A zero-fee local reader row the broker resolved `failed` (backlog item 1). */
+const ZERO_FEE_FAILED = { status: "failed", destinationId: "owned_local_model", purpose: "research source index", reservedFeeMicrousd: 0 };
+
 describe("H4 select-and-repair loop", () => {
-  it("runs a, b, the critique of the selected sample and the repair, prefers a and then the repair on ties, and records counts only", async () => {
+  it("runs a, b, the critique of the selected sample and the repair, keeps a and then the selected draft on ties (selection protocol 2), and records counts only", async () => {
     const dir = loopDir();
     const { deps, calls } = fakes({ summaries: candidates(false, { repair: { modelCalls: 7 } }) });
     const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, deps);
@@ -74,16 +87,16 @@ describe("H4 select-and-repair loop", () => {
     expect(calls.runs.every(run => run.researchFrom === undefined && run.pipeline === undefined && run.cloudArm === undefined)).toBe(true);
     expect(calls.runs[2]).toMatchObject({ repairFrom: join(dir, "critique") });
     expect(calls.critiques).toEqual([{ runDirectory: join(dir, "a"), taskDirectory: "task", expectedJobSha256: h("1"), expectedBriefSha256: h("2"), imageId: `sha256:${h("5")}`, outputDirectory: join(dir, "critique"), critic: "local" }]);
-    expect(record.selected).toEqual({ stage1: { candidate: "a", step: "tie", entailmentRates: [null, null] }, final: { candidate: "repair", step: "tie", entailmentRates: [null, null] } });
+    expect(record.selected).toEqual({ stage1: { candidate: "a", step: "tie", entailmentRates: [null, null] }, final: { candidate: "a", step: "tie", entailmentRates: [null, null] } });
     expect(record.seeded).toEqual({ b: false, repair: false, snapshotSha256: null }); expect(record.failure).toBeNull(); expect(record.writeIdentityEqual).toBeNull();
     expect(record.critique).toEqual({ packetSha256: h("d"), critiqueSha256: h("e"), feeMicrousd: 0, finishReason: "stop", usage: { inputTokens: 500, outputTokens: 40, cacheReadTokens: 100 }, modelCalls: 1 });
     // The critique's one call and its usage join the totals beside the three runs.
     expect(record.totals).toMatchObject({ modelCalls: 28, toolCalls: 24, inputTokens: 3500, outputTokens: 340, cachedTokens: 1600, feeMicrousd: 0 });
     expect(record.stages.map(stage => [stage.stage, stage.reused])).toEqual([["a", false], ["b", false], ["critique", false], ["repair", false]]);
     const saved = read(dir);
-    expect(saved).toMatchObject({ version: LOOP_VERSION, selectionRule: 1, arm: "local", pipeline: null, runtimeSha256: h("4"), startedAt: "t0", finishedAt: expect.any(String) });
+    expect(saved).toMatchObject({ version: LOOP_VERSION, selectionRule: 2, arm: "local", pipeline: null, runtimeSha256: h("4"), startedAt: "t0", finishedAt: expect.any(String) });
     expect(JSON.stringify(saved)).not.toContain(dir);
-    expect(readFileSync(join(dir, "log.txt"), "utf8")).toContain("final repair (tie)");
+    expect(readFileSync(join(dir, "log.txt"), "utf8")).toContain("final a (tie)");
     expect(existsSync(join(dir, "errors.txt"))).toBe(false);  // backlog item 4: the error side file exists only when something was caught
     expect(loopExitCode(record)).toBe(0);
   });
@@ -92,7 +105,7 @@ describe("H4 select-and-repair loop", () => {
     const { deps } = fakes({ summaries: candidates(false, { a: { lengthStops: 2 }, b: { lengthStops: 1 }, repair: { lengthStops: 1 } }), critiqueFinishReason: "length" });
     const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, deps);
     expect(record.totals.lengthStops).toBe(5);
-    expect(record.selected.final).toMatchObject({ candidate: "repair", step: "tie" });
+    expect(record.selected.final).toMatchObject({ candidate: "a", step: "tie" });
   });
   it("picks the submitted sample, and the draft over a repair that failed to submit", async () => {
     const dir = loopDir();
@@ -101,10 +114,20 @@ describe("H4 select-and-repair loop", () => {
     expect(record.selected).toMatchObject({ stage1: { candidate: "b", step: "submitted" }, final: { candidate: "b", step: "submitted" } });
     expect(calls.critiques[0]!.runDirectory).toBe(join(dir, "b")); expect(loopExitCode(record)).toBe(0);
   });
-  it.each(["unknown", "committed", "failed"] as const)("stops after a %s receipt even when a completed research packet exists", async status => {
+  it("chooses the repair only when it beats the selected draft on submission, checks or deliverables; the entailment rates are evidence only (protocol 2)", async () => {
+    const entailed = (supported: number, contradicted = 0) => ({ supported, partial: 0, unsupported: 0, contradicted, not_judged: 0, truncated: false });
+    const pick = async (over: Parameters<typeof candidates>[1]) => (await runSelectionLoop({ base: base(), loopDirectory: loopDir() }, fakes({ summaries: candidates(false, over) }).deps)).selected;
+    expect((await pick({ a: { checksPassed: 1 }, b: { checksPassed: 1 }, repair: { checksPassed: 2 } })).final).toEqual({ candidate: "repair", step: "checks", entailmentRates: [null, null] });
+    expect((await pick({ a: { status: "incomplete", reason: "x" }, b: { status: "incomplete", reason: "y" } })).final).toEqual({ candidate: "repair", step: "submitted", entailmentRates: [null, null] });
+    expect((await pick({ a: { artifactsPresent: 2 }, repair: { artifactsPresent: 1 } })).final).toEqual({ candidate: "a", step: "artifacts", entailmentRates: [null, null] });
+    // A repair whose balance rate is far higher, or a b whose rate is, wins nothing on it: the rates are recorded [first, second] and the tie keeps the original.
+    const rated = await pick({ a: { entailment: entailed(10, 5) }, b: { entailment: entailed(30) }, repair: { entailment: entailed(30) } });
+    expect(rated).toEqual({ stage1: { candidate: "a", step: "tie", entailmentRates: [5 / 15, 1] }, final: { candidate: "a", step: "tie", entailmentRates: [5 / 15, 1] } });
+  });
+  it.each(["unknown", "committed", "failed"] as const)("stops after a %s receipt (a failed one with no recorded zero reservation) even when a completed research packet exists", async status => {
     const dir = loopDir(), a = transportStoppedSummary(status);
     const code = status === "failed" ? "loop_stage_failed_dispatch" : "loop_stage_unresolved_dispatch";
-    expect(a).toMatchObject({ unknownDispatches: status === "failed" ? 0 : 1, failedDispatches: status === "failed" ? 1 : 0 });
+    expect(a).toMatchObject({ unknownDispatches: status === "failed" ? 0 : 1, failedDispatches: status === "failed" ? 1 : 0, zeroFeeFailedDispatches: 0 });
     const { deps, calls } = fakes({ summaries: candidates(true, { a }), transfers: ["a"] });
     await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, deps)).rejects.toThrow(code);
     expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a"]); expect(calls.critiques).toHaveLength(0);
@@ -115,6 +138,36 @@ describe("H4 select-and-repair loop", () => {
     const reused = fakes({ summaries: candidates(true, { a }), transfers: ["a"] });
     await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, reused.deps)).rejects.toThrow(code);
     expect(reused.calls.runs).toHaveLength(0); expect(reused.calls.critiques).toHaveLength(0);
+  });
+  it("admits a sample whose failed rows are all resolved zero-fee failures (backlog item 11), and still stops on a priced, cloud, approved or unreserved failure", async () => {
+    const a = rowSummary(ZERO_FEE_FAILED);
+    expect(a).toMatchObject({ unknownDispatches: 0, failedDispatches: 1, zeroFeeFailedDispatches: 1 });
+    const dir = loopDir();
+    const { deps, calls } = fakes({ summaries: candidates(true, { a }), transfers: ["a"] });
+    const record = await runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, deps);
+    expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b", "repair"]); expect(calls.critiques).toHaveLength(1);
+    expect(record.failure).toBeNull(); expect(record.totals).toMatchObject({ failedDispatches: 1, zeroFeeFailedDispatches: 1 });
+    expect(record.selected).toMatchObject({ stage1: { candidate: "b", step: "submitted" }, final: { candidate: "b", step: "tie" } });
+    expect(read(dir).totals).toMatchObject({ failedDispatches: 1, zeroFeeFailedDispatches: 1 });
+    const cloudArm = { arm: "cloud", modelConfig: { destinationId: "cloud_coordinator" } };
+    const stopping: [Record<string, unknown>, Record<string, unknown>?][] = [[{ ...ZERO_FEE_FAILED, reservedFeeMicrousd: 160_000 }], [{ ...ZERO_FEE_FAILED, destinationId: "cloud_coordinator" }, cloudArm],
+      [{ ...ZERO_FEE_FAILED, approval: { proposalId: "p", maxFeeMicrousd: 0 } }], [{ ...ZERO_FEE_FAILED, reservedFeeMicrousd: undefined }], [{ ...ZERO_FEE_FAILED, feeMicrousd: 1 }]];
+    for (const [row, arm] of stopping) {
+      const stopped = rowSummary(row, arm);
+      expect(stopped).toMatchObject({ failedDispatches: 1, zeroFeeFailedDispatches: 0 });
+      const run = fakes({ summaries: candidates(true, { a: stopped }), transfers: ["a"] });
+      await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: loopDir() }, run.deps)).rejects.toThrow("loop_stage_failed_dispatch");
+      expect(run.calls.runs).toHaveLength(1); expect(run.calls.critiques).toHaveLength(0);
+    }
+  });
+  it("ends at stage_failed with the seed refusal, a final selection, when a's reading stage left a zero-fee failure and no packet (backlog item 11)", async () => {
+    const dir = loopDir();
+    const { deps, calls } = fakes({ summaries: { a: rowSummary(ZERO_FEE_FAILED) } });
+    const record = await runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, deps);
+    expect(record.selected).toEqual({ stage1: null, final: { candidate: "a", step: "stage_failed", seedRefusal: "research_seed_no_transfer" } });
+    expect(record.failure).toBeNull(); expect(calls.runs).toHaveLength(1); expect(calls.critiques).toHaveLength(0);
+    expect(record.totals).toMatchObject({ failedDispatches: 1, zeroFeeFailedDispatches: 1 }); expect(loopExitCode(record)).toBe(2);
+    expect(read(dir)).toMatchObject({ failure: null, selected: { final: { step: "stage_failed" } } });
   });
   it.each([["unknown", "research plan assist", "assistSkippedDispatches"], ["failed", "research synthesis assist", "assistFailedDispatches"]] as const)("admits a sample whose assist row is %s (backlog item 10) and goes on to b, the critique and the repair, counting it apart", async (status, purpose, column) => {
     const dir = loopDir(), a = transportStoppedSummary(status, purpose);
@@ -129,10 +182,10 @@ describe("H4 select-and-repair loop", () => {
     expect(committed).toMatchObject({ unknownDispatches: 1, assistSkippedDispatches: 0, assistFailedDispatches: 0 });
     await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: loopDir() }, fakes({ summaries: candidates(true, { a: committed }), transfers: ["a"] }).deps)).rejects.toThrow("loop_stage_unresolved_dispatch");
   });
-  it.each([{ unknownDispatches: 1 }, { failedDispatches: 1 }])("does not admit a critique or repair after b has stopped dispatches: %j", async stopped => {
+  it.each([[{ unknownDispatches: 1 }, "loop_stage_unresolved_dispatch"], [{ failedDispatches: 1 }, "loop_stage_failed_dispatch"], [{ failedDispatches: 2, zeroFeeFailedDispatches: 1 }, "loop_stage_failed_dispatch"]] as const)("does not admit a critique or repair after b has stopped dispatches: %j", async (stopped, code) => {
     const dir = loopDir();
     const { deps, calls } = fakes({ summaries: candidates(true, { b: { ...stopped, status: "incomplete" } }), transfers: ["a"] });
-    await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, deps)).rejects.toThrow("loop_stage_");
+    await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, deps)).rejects.toThrow(code);
     expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b"]);
     expect(calls.critiques).toHaveLength(0); expect(existsSync(join(dir, "repair"))).toBe(false);
     expect(read(dir).selected).toEqual({ stage1: null, final: null });
@@ -257,9 +310,107 @@ describe("H4 select-and-repair loop", () => {
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, deps, { signal: abort.signal })).rejects.toThrow("loop_interrupted");
     expect(calls.runs).toHaveLength(1); expect(read(dir)).toMatchObject({ failure: "loop_interrupted", finishedAt: expect.any(String) });
     // The interrupted loop is not terminal: a rerun reuses a and carries on.
+    // Backlog item 11: the stage running when the interrupt fired is marked; a marked stage that still submitted is complete and reused.
+    const marked = read(dir).stages;
+    expect(marked).toEqual([{ stage: "a", startedAt: expect.any(String), finishedAt: expect.any(String), reused: false, interrupted: true }]);
     const again = fakes({ summaries: candidates(false) });
-    expect((await runSelectionLoop({ base: base(), loopDirectory: dir }, again.deps)).selected.final).toEqual({ candidate: "repair", step: "tie", entailmentRates: [null, null] });
+    const resumed = await runSelectionLoop({ base: base(), loopDirectory: dir }, again.deps);
+    expect(resumed.selected.final).toEqual({ candidate: "a", step: "tie", entailmentRates: [null, null] });
     expect(again.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["b", "repair"]);
+    expect(resumed.stages[0]).toEqual({ ...marked[0], reused: true }); expect(resumed.stages.slice(1).every(entry => entry.interrupted === undefined)).toBe(true);
+  });
+  it("never reuses a stage its own interrupt cut as a candidate (backlog item 11): the mark survives the refusal, and the stage counts again once it runs afresh", async () => {
+    const dir = loopDir();
+    const abort = new AbortController();
+    // The driver cancels the running stage on the same signal: its in-flight zero-fee request resolves failed and the run ends cancelled_or_deadline.
+    const cutA = rowSummary({ ...ZERO_FEE_FAILED, failure: { phase: "transport", code: "cancelled" } });
+    expect(cutA).toMatchObject({ status: "incomplete", failedDispatches: 1, zeroFeeFailedDispatches: 1 });
+    const first = fakes({ summaries: candidates(true, { a: cutA }), transfers: ["a"], onRun: run => { if (run.outputDirectory.endsWith("/a")) abort.abort(); } });
+    await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, first.deps, { signal: abort.signal })).rejects.toThrow("loop_interrupted");
+    // A rerun refuses the cut stage rather than evaluating it, or ending the loop at stage_failed for want of a packet; the record keeps the mark.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const rerun = fakes({ summaries: candidates(true, { a: cutA }) });
+      await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, rerun.deps)).rejects.toThrow("loop_stage_interrupted");
+      expect(rerun.calls.runs).toHaveLength(0); expect(read(dir)).toMatchObject({ failure: "loop_stage_interrupted", selected: { stage1: null, final: null }, stages: [{ stage: "a", reused: true, interrupted: true }] });
+    }
+    // The operator moves the cut stage aside, as for an unfinished one: the stage runs afresh, loses its mark and the loop carries on.
+    rmSync(join(dir, "a"), { recursive: true, force: true });
+    const fresh = fakes({ summaries: candidates(true), transfers: ["a"] });
+    const record = await runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, fresh.deps);
+    expect(fresh.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b", "repair"]); expect(record.failure).toBeNull();
+    expect(record.stages.every(entry => entry.interrupted === undefined)).toBe(true);
+    // A stage cut without a request in flight holds no failed row and was reused as an ordinary candidate before this change; it is refused too.
+    const dir2 = loopDir(), abort2 = new AbortController();
+    const quiet = candidates(false, { b: { status: "incomplete", reason: "cancelled_or_deadline" } });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, fakes({ summaries: quiet, onRun: run => { if (run.outputDirectory.endsWith("/b")) abort2.abort(); } }).deps, { signal: abort2.signal })).rejects.toThrow("loop_interrupted");
+    const rerun2 = fakes({ summaries: quiet });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, rerun2.deps)).rejects.toThrow("loop_stage_interrupted"); expect(rerun2.calls.runs).toHaveLength(0);
+    // A stage that ended on the session deadline, with no interrupt from the loop, is unmarked and stays an ordinary candidate.
+    const deadline = fakes({ summaries: candidates(false, { b: { status: "incomplete", reason: "cancelled_or_deadline" } }) });
+    expect((await runSelectionLoop({ base: base(), loopDirectory: loopDir() }, deadline.deps)).selected).toMatchObject({ stage1: { candidate: "a", step: "submitted" }, final: { candidate: "a" } });
+  });
+  it("refuses, before any stage, a stale runtime hash and a prior record of another protocol, version, runtime, task, arm or pipeline, leaving that record as it was (backlog item 11)", async () => {
+    // The live source freeze must be the one the operator names: a reused stage never calls the driver that checks it.
+    const dir = loopDir();
+    const stale = fakes({ summaries: candidates(false), runtime: h("9") });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, stale.deps)).rejects.toThrow("loop_reviewed_source_changed");
+    expect(existsSync(dir)).toBe(false); expect(stale.calls.runs).toHaveLength(0);
+    // A loop that stopped before the protocol bump, with every stage on disk, is never finished under protocol 2.
+    const stopped = loopDir();
+    const firstPass = fakes({ summaries: candidates(false), onRun: run => { if (run.outputDirectory.endsWith("repair")) throw new Error("stop_here"); } });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: stopped }, firstPass.deps)).rejects.toThrow("stop_here");
+    const saved = readFileSync(join(stopped, "loop.json"), "utf8");
+    const rewrite = (over: Record<string, unknown>) => writeFileSync(join(stopped, "loop.json"), JSON.stringify({ ...JSON.parse(saved), ...over }));
+    for (const over of [{ selectionRule: 1 }, { version: 0 }, { runtimeSha256: h("9") }, { task: { jobSha256: h("9"), briefSha256: h("2") } }, { task: { jobSha256: h("1"), briefSha256: h("9") } }, { task: null },
+      { arm: "cloud" }, { pipeline: "research" }, { stages: null }]) {
+      rewrite(over);
+      const before = readFileSync(join(stopped, "loop.json"), "utf8");
+      const resumed = fakes({ summaries: candidates(false) });
+      await expect(runSelectionLoop({ base: base(), loopDirectory: stopped }, resumed.deps)).rejects.toThrow("loop_record_mismatch");
+      expect(resumed.calls.runs).toHaveLength(0); expect(readFileSync(join(stopped, "loop.json"), "utf8")).toBe(before);
+    }
+    // The same record under its own protocol resumes as before.
+    rewrite({});
+    rmSync(join(stopped, "repair"), { recursive: true, force: true });
+    const resumed = fakes({ summaries: candidates(false) });
+    expect((await runSelectionLoop({ base: base(), loopDirectory: stopped }, resumed.deps)).selected.final).toMatchObject({ candidate: "a", step: "tie" });
+    expect(resumed.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["repair"]);
+    // The production dependency is the live source freeze the driver itself checks.
+    expect(productionDependencies({ base: base(), loopDirectory: dir }).runtimeSha256()).toBe(localScreenSourceFreeze().sha256);
+  });
+  it("keeps an interrupt mark across invocations that stop before reaching the marked stage, and marks a cut stage whose run then threw (backlog item 11)", async () => {
+    // Interrupted during b; the rerun refuses b; the operator re-samples a, and that run is interrupted too: b keeps its mark.
+    const dir = loopDir(), abort = new AbortController();
+    const quiet = candidates(false, { b: { status: "incomplete", reason: "cancelled_or_deadline" } });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: quiet, onRun: run => { if (run.outputDirectory.endsWith("/b")) abort.abort(); } }).deps, { signal: abort.signal })).rejects.toThrow("loop_interrupted");
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: quiet }).deps)).rejects.toThrow("loop_stage_interrupted");
+    rmSync(join(dir, "a"), { recursive: true, force: true });
+    const abort2 = new AbortController();
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: quiet, onRun: run => { if (run.outputDirectory.endsWith("/a")) abort2.abort(); } }).deps, { signal: abort2.signal })).rejects.toThrow("loop_interrupted");
+    expect(read(dir).stages.map(entry => [entry.stage, entry.interrupted === true])).toEqual(expect.arrayContaining([["a", true], ["b", true]]));
+    rmSync(join(dir, "a"), { recursive: true, force: true });
+    const again = fakes({ summaries: candidates(false, { a: { checksPassed: 0 }, b: { status: "incomplete", reason: "cancelled_or_deadline" } }) });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, again.deps)).rejects.toThrow("loop_stage_interrupted");
+    expect(again.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a"]);
+    // A transient failure before the marked stage is reached keeps the mark: the cut repair is never selected later.
+    const dir2 = loopDir(), abort3 = new AbortController();
+    const cutRepair = candidates(false, { repair: { status: "incomplete", reason: "cancelled_or_deadline", checksPassed: 3 } });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, fakes({ summaries: cutRepair, onRun: run => { if (run.outputDirectory.endsWith("/repair")) abort3.abort(); } }).deps, { signal: abort3.signal })).rejects.toThrow("loop_interrupted");
+    const flaky = fakes({ summaries: cutRepair }); flaky.deps.summarize = () => { throw new Error("EMFILE: too many open files"); };
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, flaky.deps)).rejects.toThrow("EMFILE");
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, fakes({ summaries: cutRepair }).deps)).rejects.toThrow("loop_stage_interrupted");
+    // The driver writes result.json and then throws (a cleanup failure) while the interrupt has fired: the stage is still marked.
+    const dir3 = loopDir(), abort4 = new AbortController();
+    const throwing = fakes({ summaries: quiet, onWritten: run => { if (run.outputDirectory.endsWith("/b")) { abort4.abort(); throw new Error("public_snapshot_cleanup_failed"); } } });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, throwing.deps, { signal: abort4.signal })).rejects.toThrow("public_snapshot_cleanup_failed");
+    expect(read(dir3).stages.find(entry => entry.stage === "b")).toMatchObject({ reused: false, interrupted: true });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, fakes({ summaries: quiet }).deps)).rejects.toThrow("loop_stage_interrupted");
+  });
+  it("refuses a summary that lacks a count the totals add, and still records the failure", async () => {
+    const dir = loopDir();
+    const { zeroFeeFailedDispatches: _dropped, ...partial } = summary();
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: { ...candidates(false), a: partial as CandidateSummary } }).deps)).rejects.toThrow("loop_stage_mismatch");
+    expect(read(dir)).toMatchObject({ failure: "loop_stage_mismatch", finishedAt: expect.any(String) });
   });
   it("parses the loop's command line from the driver's flags, refuses the flags the loop sets itself, a cloud writer without the pipeline and any profile but heavy; the driver accepts --research-from only as a local heavy claims-ledger writer", () => {
     const driver = ["--task-directory", "t", "--job-sha256", h("1"), "--brief-sha256", h("2"), "--authority-sha256", h("3"), "--image-id", `sha256:${h("4")}`, "--runtime-sha256", h("5"), "--profile", "heavy", "--claims-ledger", "true"];
@@ -308,6 +459,6 @@ describe("H4 select-and-repair loop", () => {
     const resumed = fakes({ summaries: candidates(false) });
     const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, resumed.deps);
     expect(record.failure).toBeNull(); expect(resumed.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b", "repair"]);
-    expect(record.selected.final).toMatchObject({ candidate: "repair" });
+    expect(record.selected.final).toMatchObject({ candidate: "a" });
   });
 });

@@ -30597,3 +30597,51 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The implementation with deterministic tests in this pull request and its `Implemented` entry, then CI green and the owner's merge go-ahead. S-assist's 8.1 then builds concurrent admission on `supersedes`.
 
 References: docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E1 and section 5.7 items 1 and 8; BL-20261007-0321-pr-c-recoverable-dispatch-design; BL-20261007-0530-pr-c-recoverable-dispatch-implemented; BL-20261030-0620-claude-cloud-adapter-design; BL-20261030-0850-claude-cloud-adapter-implemented; BL-20261107-0809-zero-fee-failures-resolve-design; BL-20261107-0812-zero-fee-failures-resolve-implemented; BL-20261107-0839-assist-purpose-exception-design; BL-20261107-1006-stop-bricking-tasks-review-corrections; BL-20261107-1041-stop-bricking-tasks-second-review-corrections; docs/PLAN.md decision D4.
+
+
+### BL-20261109-0436-retry-wait-atomic-supersede-implemented -- 2026-11-09 -- E1-R implemented: a retried attempt is closed `superseded` inside its successor's commit, and a retry that does not follow resolves it `failed` with a typed code
+
+Status: `Implemented`
+
+Scope or hypothesis: Implements BL-20261109-0337-retry-wait-atomic-supersede-design as decided, with deterministic tests, on branch `fix/e1-r-atomic-retry-supersede` based on `main` at 2982ca7. Hypothesis: a cancel, a policy or context change, or any refusal of the next attempt's commit, during or after a D4 or Anthropic 429/529 retry wait, no longer leaves a `superseded` row without a successor or a raw store error; `cancelJob` ends a wait at once; every retry that does follow writes the rows it wrote before.
+
+Decisions: None new beyond the design entry. Two adversarial code reviews (correctness and ledger safety; tests and documentation) found no blocker; their confirmed findings are applied, and these details are fixed in code:
+- `resolveFailure` refuses any status but `failed` with `private_agent_resolution_invalid`, at run time as well as by type.
+- The supersede compares the approval and the token-admission proof as `commit` parsed them, which is how the earlier row stored its own.
+- A `supersedes` whose diagnostic does not parse is refused with the store's existing `private_agent_unknown_diagnostic_invalid`, as `resolveFailure` refuses one, not with `private_agent_supersede_invalid` as the design entry said; every other mismatch is `private_agent_supersede_invalid`.
+- When a retry's commit is refused, the broker resolves the earlier attempt `failed` first, then reads the job's cancel flag, only on the Anthropic path where it can change the code, and treats a failed read as not cancelled.
+- The wait's check for an already aborted controller is a guard only: the caller checks the same controller synchronously just before.
+Correction to the design entry's Evidence: it says the nine broker cases fail because the rejection is a raw `Error`. Eight do; the ninth, the Anthropic `cancelJob` case, never rejects on main and fails at the test's 5 s timeout, because main does not cut its ten-minute wait.
+
+Changes:
+- src/main/private-agent/store.ts: `SupersededAttempt`, `CommitOptions` and the supersede step inside `commit` (after the input's parses and the admission check, before `validate` and every other check); `resolveFailure` narrowed to `failed`; one diagnostic normalisation shared with `close`.
+- src/main/private-agent/broker.ts: the carried predecessor (`pending`); the wait on the attempt's own controller; the job-flag reads before and after the wait; one cancel code per path for the guards and the give-up; `abandon`, which resolves the earlier attempt `failed` before denying; comments.
+- tests/helpers/retry-waits.ts (new): `everySupersededRowHasASuccessor` and `watchWaits`, a `setTimeout` spy that runs a callback in the microtask after a timer of a given length starts, so a test cancels or changes a job during a wait deterministically.
+- tests/integration/private-agent-broker.test.ts, "E1 recoverability: a D4 retry wait cut short never leaves a superseded row without a successor (E1-R)": a `cancelJob` during the 3 s backoff with the caller's signal not aborted; a policy revision and another host's cancel during the backoff; another host's cancel before the backoff (no wait at all) and between the backoff and the successor's commit; a retry refused by the caller's commit-time check and by the store's budget and unresolved messages; the store's supersede written exactly as before and read as superseded by the successor's own check; the blocking rule, the assist rule and the fee exposure seeing it resolved while the allowance still counts it; refusals for each identity mismatch tested (packet, destination hash, purpose, reservation, context, context hash, policy revision), a missing row, an unconfirmed or invalid diagnostic, a resolved row and another job's row, each rolled back.
+- tests/integration/private-agent-broker-anthropic.test.ts, the Anthropic counterpart: a `cancelJob` during a ten-minute wait; a revision and another host's cancel during the wait; a cancel as the successor commits; another host's cancel between the wait and the commit, and before the wait; and an equivalence pin.
+- tests/integration/private-agent-flash-next.test.ts: a D4 retry under flash_next_v1 token admission (both rows carry the same proof) and a retry the exact-token check refuses at commit; the fixture gains a `cuts` option and exposes its admission.
+- The invariant check on five existing retry tests.
+
+Evidence: On the owner's Mac, with other sessions' suites running (load average up to 63):
+- At f637ee8, `pnpm exec vitest run -t "E1 recoverability"`: 3 files passed and 175 skipped; 20 tests passed and 2,757 skipped.
+- The same 20 tests against main's broker.ts and store.ts (copied into the worktree for the run, then restored): 18 failed and 2 passed. The two that pass are equivalence pins: the successor's commit-time check reads the earlier attempt `superseded`, as it did when the broker closed it first, and a token-admission retry leaves both rows with the same proof. The invariant lines added to five existing retry tests also pass on main.
+- At f637ee8, the four changed or guarding files (the two broker files, flash-next and tests/unit/private-agent-identity-golden.test.ts): 164 passed.
+- At f637ee8, `pnpm exec vitest run` (the full suite): 178 files, 163 passed, 2 failed and 13 skipped; 2,777 tests, 2,691 passed, 2 failed and 84 skipped. Both failures are timeouts under that load, in tests/unit/patch-routing-comparison.test.ts (5 s) and tests/integration/local-repository-investigator.test.ts (15 s); neither imports the broker or the store, and run alone they pass (79 passed, 1 skipped). At bba2c95, before the review fixes, the full suite gave 2,687 passed, 84 skipped and 1 failed (tests/unit/with-claude-key.test.ts at its 5 s timeout; it passes alone).
+- `pnpm typecheck` passed with no error; `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+- The test reviewer ran the E1 tests once, in four concurrent runs and in eight concurrent runs beside six CPU burners, with no flake, and logged every timer the watched tests start: only the broker's own (the transport timeout, the 2,000 ms error-body timer and the waits). Its mutation probes found three decided branches untested; tests now cover each.
+
+Failures or blockers: None open. CI has not run on this branch yet.
+
+Limitations and non-claims:
+- The tests drive the broker and store directly on loopback fixtures. "Another host" is a cancel recorded without this broker's `cancelJob`, simulated on the same database connection, not a second process.
+- The rollback claim rests on better-sqlite3's transaction semantics and the store-level refusal tests; no fault-injection test makes the insert fail after the supersede is written.
+- A destination-id, approval or token-proof mismatch is refused by the code but not tested.
+- A policy revision seen before a wait does not shorten it: the broker waits, then the commit refuses. Only a cancel ends a wait early.
+- The design entry's limitations stand: a crash during a wait or between a refused commit and the give-up leaves the earlier attempt `committed`; a database failure while resolving it propagates; an approval-backed retry is always refused after its wait; item 8's PR 8.1 must map a retry refused because a sibling took the last request to the allowance stop; item 7 must still reconcile failed reader rows with the stage counts.
+- No model, endpoint, Docker container or paid call ran.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green on the pull request and the owner's merge go-ahead; the orchestrator re-stamps this PR's entry IDs after main's tail at merge. Then S-assist's 8.1 builds concurrent admission on `supersedes`.
+
+References: BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261007-0530-pr-c-recoverable-dispatch-implemented; BL-20261030-0850-claude-cloud-adapter-implemented; BL-20261107-0809-zero-fee-failures-resolve-design; docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E1 and section 5.7 item 8.

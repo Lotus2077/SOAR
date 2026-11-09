@@ -10,7 +10,8 @@ import {
   canonical, contextFingerprint, digest, exactText, restrictedContext, syntheticContext,
   privateAgentId, ExactApprovalSchema, sha256Schema, type ExactApproval, type PrivateAgentContext, type PrivateJobPolicy,
 } from "./contracts";
-import { ANTHROPIC_ERROR_TYPES, isConfirmedAbort, isRetryableAbort, settlementSubcode, PrivateAgentStore, type DispatchReceipt, type UnknownRequestDiagnostic } from "./store";
+import { ANTHROPIC_ERROR_TYPES, isConfirmedAbort, isRetryableAbort, settlementSubcode, PrivateAgentStore, type DispatchReceipt, type SupersededAttempt,
+  type UnknownRequestDiagnostic } from "./store";
 import { isAssistDispatch } from "./dispatch-purposes";
 
 export const BROKER_MAX_BODY_BYTES = 192 * 1024;
@@ -209,7 +210,10 @@ export const BROKER_RETRY_BACKOFF_MS: readonly number[] = Object.freeze([1000, 3
 /** The Anthropic destination's waits before its two retries of a 429 or 529; a longer `retry-after` wins, up to 120 s. */
 export const ANTHROPIC_RETRY_DELAYS_MS: readonly number[] = Object.freeze([30_000, 60_000]);
 export const ANTHROPIC_MAX_RETRY_AFTER_SECONDS = 120;
-/** The broker code for a cancel or deadline that arrived while the Anthropic destination waited to retry; every row is resolved. */
+/**
+ * The broker code for a cancel or deadline that arrived while the Anthropic destination waited to retry (the caller's signal, `cancelJob`
+ * or the job's recorded cancel); every row is resolved. A D4 retry that a cancel stops ends `request_failed` instead (BL-20261030-0850).
+ */
 export const RETRY_WAIT_CANCELLED = "retry_wait_cancelled";
 /** A rejection's error body is read only this far and this long, outside the request timer, so it can never relabel the rejection. */
 const ANTHROPIC_ERROR_BODY_BYTES = 8 * 1024, ANTHROPIC_ERROR_BODY_MS = 2000;
@@ -222,11 +226,13 @@ function classifySocketError(error: unknown, sent: boolean): TransportFailureCod
   if (UPSTREAM_CLOSED_CODES.has(code)) return sent ? "upstream_closed" : "connection_failed";
   return "transport_failed";
 }
-function backoff(ms: number, signal: AbortSignal | undefined): Promise<void> {
+/** A retry's wait, ended early by `signal`: the attempt's own controller, which the caller's signal and `cancelJob` both abort (E1-R). */
+function backoff(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise(resolve => {
-    const timer = setTimeout(() => { signal?.removeEventListener("abort", stop); resolve(); }, ms);
+    if (signal.aborted) { resolve(); return; }
+    const timer = setTimeout(() => { signal.removeEventListener("abort", stop); resolve(); }, ms);
     const stop = () => { clearTimeout(timer); resolve(); };
-    signal?.addEventListener("abort", stop, { once: true });
+    signal.addEventListener("abort", stop, { once: true });
   });
 }
 
@@ -475,11 +481,20 @@ export class PrivateAgentBroker {
     // D4: only such a packet, on a destination flagged recoverable, is retried, and only after a confirmed abort.
     const recoverable = packet.destination.recoverable === true && zeroRisk;
     const anthropic = packet.destination.anthropicVersion !== undefined;
+    // E1-R (BL-20261109-0337): a retried attempt stays `committed` until the next attempt's commit closes it `superseded` in the same
+    // transaction; a retry that does not follow resolves it `failed` with its own diagnostic. Each path has one code for a retry a cancel
+    // stops: `retry_wait_cancelled` on the Anthropic destination, `request_failed` for D4, which never produces the retry-wait code.
+    const cancelCode = anthropic ? RETRY_WAIT_CANCELLED : "request_failed";
+    let pending: SupersededAttempt | undefined;
+    const abandon = (code: string): never => {
+      if (pending) this.store.resolveFailure(pending.id, "failed", pending.failure, pending.zeroRisk);
+      return deny(code);
+    };
     for (let attempt = 1; ; attempt++) {
-      // A cancel seen here follows a sent attempt resolved `superseded`, so the request was dispatched: the retry-wait code, which the runner
-      // records as a failed request (`dispatched: true`), not the pre-dispatch refusal (BL-20261107-1006, 7). No await separates this check
-      // from the post-backoff one, so it is a guard only.
-      if (attempt > 1 && frozen.signal?.aborted) deny(RETRY_WAIT_CANCELLED);
+      // A cancel seen here follows an attempt whose row was committed, so the request counts as dispatched: the path's cancel code, which the
+      // runner records as a failed request (`dispatched: true`), never the pre-dispatch refusal (BL-20261107-1006, 7). No await separates
+      // this check from the post-wait one, so it is a guard only.
+      if (attempt > 1 && frozen.signal?.aborted) abandon(cancelCode);
       // Each attempt is its own committed row: it re-checks eligibility and consumes one session request.
       let receipt: DispatchReceipt;
       try {
@@ -494,29 +509,31 @@ export class PrivateAgentBroker {
                 this.store.dispatches(frozen.jobId).some(row => row.status === "unknown" && isAssistDispatch(row))) deny("cloud_after_assist_unknown");
             if (frozen.signal?.aborted) {
               if (admission) throw new LocalTokenAdmissionError("local_token_admission_cancelled");
-              // On a retry attempt an earlier attempt was sent (BL-20261107-1041, 13); a guard only, like the top-of-attempt check.
-              deny(attempt > 1 ? RETRY_WAIT_CANCELLED : "request_cancelled");
+              // On a retry attempt an earlier attempt's row was committed (BL-20261107-1041, 13); a guard only, like the top-of-attempt check.
+              deny(attempt > 1 ? cancelCode : "request_cancelled");
             }
             if (admission) admission.validateAtCommit(localTokenAdmissionEvidence!, frozen.body!, packet.url.href,
               frozen.localReplyContract!.model, frozen.localTokenAdmission!.contextTokens);
             validateAtCommit?.(localTokenAdmissionEvidence);
-          }, frozen.grantId);
+          }, frozen.grantId, undefined, pending ? { supersedes: pending } : {});
       } catch (error) {
+        // E1-R: a retry attempt's commit was refused and rolled back, so the attempt it would have replaced is still `committed`. Its row
+        // was committed, so the request counts as dispatched: every refusal here ends it as a failed request, never as a pre-dispatch code
+        // (`budget_denied`, `unresolved_dispatch`) or a raw store error. A cancel recorded meanwhile, even by another host, keeps the
+        // path's cancel code.
+        if (pending) abandon(frozen.signal?.aborted || this.store.policy(frozen.jobId).cancelled ? cancelCode : "request_failed");
         // The fee or request allowance refused the row inside the transaction: nothing was inserted or sent.
         if (error instanceof Error && error.message === "private_agent_budget_denied") deny("budget_denied");
         // An unresolved row of this job blocks every dispatch at the ledger: nothing was inserted or sent (backlog item 3, finding A5).
         if (error instanceof Error && error.message === "private_agent_unresolved_dispatch") deny("unresolved_dispatch");
-        if (error instanceof LocalTokenAdmissionError) {
-          if (attempt > 1) deny("request_failed");
-          throw new LocalTokenAdmissionError(error.code, digest(frozen.body!), frozen.localTokenAdmission?.policySha256);
-        }
+        if (error instanceof LocalTokenAdmissionError) throw new LocalTokenAdmissionError(error.code, digest(frozen.body!), frozen.localTokenAdmission?.policySha256);
         if (admission && error instanceof Error && ["private_agent_admission_changed", "job_cancelled"].includes(error.message)) {
-          if (attempt > 1) deny("request_failed");
           throw new LocalTokenAdmissionError(error.message === "job_cancelled" ? "local_token_admission_cancelled" : "local_token_admission_invalid",
             digest(frozen.body!), frozen.localTokenAdmission!.policySha256);
         }
         throw error;
       }
+      pending = undefined;
       const controller = new AbortController();
       const group = this.active.get(frozen.jobId) ?? new Set<AbortController>();
       group.add(controller); this.active.set(frozen.jobId, group);
@@ -565,25 +582,30 @@ export class PrivateAgentBroker {
           // Never expose provider text, private URL, system exception or API key.
           return deny("transport_or_settlement_unknown");
         }
-        // Another attempt needs a free session request; the committed row only becomes `superseded` once the retry is certain.
+        // Another attempt needs a free session request: an advisory check, since the successor's commit decides. The row stays
+        // `committed` through the wait and becomes `superseded` only inside the successor's commit (E1-R).
         const admissible = this.store.dispatches(frozen.jobId).length < this.store.policy(frozen.jobId).maxRequests;
+        // The wait listens to this attempt's controller, which the caller's signal and `cancelJob` both abort; a cancel another host
+        // recorded is read from the job when the wait ends (E1-R).
+        const stopped = () => frozen.signal?.aborted === true || controller.signal.aborted || this.store.policy(frozen.jobId).cancelled;
         // Anthropic: a 429 or 529 is a confirmed, unbilled rejection and transient, so it is retried at most twice, never
-        // when it reports the monthly spend cap or asks to wait more than 120 s. As in D4, the row becomes `superseded` only
-        // once the retry is certain. A cancel or deadline during the wait resolves it `failed` and says so with its own
+        // when it reports the monthly spend cap or asks to wait more than 120 s. As in D4, the row stays `committed` until the
+        // successor's commit closes it. A cancel or deadline during the wait resolves it `failed` and says so with its own
         // code, so the run ends as cancelled rather than as an unavailable model.
         if (anthropic && failure.phase === "transport" && failure.code === "http_rejected" && (failure.status === 429 || failure.status === 529) &&
-            !details.spendCap && (details.retryAfterSeconds ?? 0) <= ANTHROPIC_MAX_RETRY_AFTER_SECONDS && attempt < BROKER_MAX_ATTEMPTS && admissible && !frozen.signal?.aborted) {
-          await backoff(Math.max(this.anthropicRetryDelaysMs[attempt - 1]!, (details.retryAfterSeconds ?? 0) * 1000), frozen.signal);
-          if (!frozen.signal?.aborted) { this.store.resolveFailure(receipt.id, "superseded", failure, zeroRisk); continue; }
+            !details.spendCap && (details.retryAfterSeconds ?? 0) <= ANTHROPIC_MAX_RETRY_AFTER_SECONDS && attempt < BROKER_MAX_ATTEMPTS && admissible && !stopped()) {
+          await backoff(Math.max(this.anthropicRetryDelaysMs[attempt - 1]!, (details.retryAfterSeconds ?? 0) * 1000), controller.signal);
+          if (!stopped()) { pending = { id: receipt.id, failure, zeroRisk }; continue; }
           this.store.resolveFailure(receipt.id, "failed", failure, zeroRisk);
           return deny(RETRY_WAIT_CANCELLED);
         }
-        if (recoverable && isRetryableAbort(failure) && attempt < BROKER_MAX_ATTEMPTS && admissible && !frozen.signal?.aborted) {
-          await backoff(BROKER_RETRY_BACKOFF_MS[attempt - 1] ?? BROKER_RETRY_BACKOFF_MS.at(-1)!, frozen.signal);
-          if (!frozen.signal?.aborted) { this.store.resolveFailure(receipt.id, "superseded", failure, zeroRisk); continue; }
+        if (recoverable && isRetryableAbort(failure) && attempt < BROKER_MAX_ATTEMPTS && admissible && !stopped()) {
+          await backoff(BROKER_RETRY_BACKOFF_MS[attempt - 1] ?? BROKER_RETRY_BACKOFF_MS.at(-1)!, controller.signal);
+          if (!stopped()) { pending = { id: receipt.id, failure, zeroRisk }; continue; }
         }
         // A confirmed abort with no attempt to follow is a resolved failure: the ledger stays replay-safe and never blocks.
-        // For a zero-risk packet this covers a cancel or deadline mid-request too: the caller tells them apart by its own signal.
+        // For a zero-risk packet this covers a cancel or deadline mid-request, before a retry or during its D4 backoff too:
+        // the caller tells them apart by its own signal and the job's recorded cancel.
         this.store.resolveFailure(receipt.id, "failed", failure, zeroRisk);
         return deny("request_failed");
       } finally {

@@ -1,10 +1,12 @@
 import Database from "better-sqlite3";
 import http from "node:http";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PrivateAgentBroker, type BrokerRequest } from "../../src/main/private-agent/broker";
 import { digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
+import { LocalTokenAdmissionError } from "../../src/main/private-agent/flash-next-admission";
+import { everySupersededRowHasASuccessor } from "../helpers/retry-waits";
 import { flashNextAdmissionFixture } from "../helpers/flash-next-admission-fixture";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -16,10 +18,14 @@ const chunk = (delta: Record<string, unknown>, finish: string | null = null, mod
 const sse = (...chunks: unknown[]) => chunks.map(item => `data: ${JSON.stringify(item)}\n\n`).join("") + "data: [DONE]\n\n";
 const json = (message: Record<string, unknown>, model: unknown = modelId) => JSON.stringify({ model, choices: [{ message, finish_reason: "stop" }], usage });
 
-async function fixture(raw: string | Buffer, format: "json" | "sse", thinking: "medium" | "disabled" = "medium", promptTokens = 1) {
+/** `cuts`: the first requests have their socket destroyed after arriving, a confirmed abort the recoverable destination retries (D4). */
+async function fixture(raw: string | Buffer, format: "json" | "sse", thinking: "medium" | "disabled" = "medium", promptTokens = 1, options: { cuts?: number } = {}) {
   let requests = 0;
   const server = http.createServer((request, response) => {
-    request.resume(); request.on("end", () => { requests++; response.writeHead(200, { "content-type": format === "sse" ? "text/event-stream" : "application/json" }); response.end(raw); });
+    request.resume(); request.on("end", () => {
+      if (++requests <= (options.cuts ?? 0)) { request.socket.destroy(); return; }
+      response.writeHead(200, { "content-type": format === "sse" ? "text/event-stream" : "application/json" }); response.end(raw);
+    });
   });
   await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
   cleanups.push(() => new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); }));
@@ -37,7 +43,7 @@ async function fixture(raw: string | Buffer, format: "json" | "sse", thinking: "
   const model = new PrivateAgentModel(broker, { destinationId: "local", model: modelId, api: "vllm", localReplyContract: "flash_next_v1", streaming: true,
     maxOutputTokens: 256, localContextTokens: 1024, localTokenAdmissionSha256: admission.descriptor.sha256,
     inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking }, "job", "context");
-  return { db, store, broker, model, destination, requests: () => requests,
+  return { db, store, broker, model, destination, admission: admission.admission, requests: () => requests,
     complete: (overrides?: { maxOutputTokens?: number }) => model.complete([{ role: "user" as const, content: "synthetic" }], [], new AbortController().signal, overrides) };
 }
 
@@ -120,4 +126,28 @@ describe("Flash-Next broker validation before settlement", () => {
     await expect(cloud.request(input)).rejects.toThrow("local_reply_contract_invalid");
     expect(f.requests()).toBe(0); expect(f.store.dispatches("job")).toEqual([]);
   });
+});
+
+describe("E1 recoverability: a D4 retry under flash_next_v1 token admission (E1-R)", () => {
+  it("supersedes the cut attempt inside the successor's commit, with the same exact-token proof on both rows", async () => {
+    const f = await fixture(json({ content: "answer" }), "json", "medium", 1, { cuts: 1 });
+    expect((await f.complete()).content).toBe("answer");
+    const rows = f.store.dispatches("job");
+    expect(rows.map(row => [row.status, row.failure?.code, row.failure?.attempt])).toEqual([["superseded", "upstream_closed", 1], ["settled", undefined, undefined]]);
+    expect(rows[1]!.localTokenAdmission).toEqual(rows[0]!.localTokenAdmission); expect(rows[0]!.localTokenAdmission).toMatchObject({ promptTokens: 1 });
+    everySupersededRowHasASuccessor(rows); expect(f.requests()).toBe(2);
+  }, 15_000);
+  it("resolves the cut attempt failed when the exact-token check refuses the retry's commit, and sends nothing more", async () => {
+    const f = await fixture(json({ content: "answer" }), "json", "medium", 1, { cuts: 1 });
+    const check = f.admission.validateAtCommit.bind(f.admission);
+    // Only the retry's commit runs after the first request arrived; admission itself and the first commit run before it.
+    const spy = vi.spyOn(f.admission, "validateAtCommit").mockImplementation((...args: Parameters<typeof check>) => {
+      if (f.requests() > 0) throw new LocalTokenAdmissionError("local_token_admission_invalid");
+      return check(...args);
+    });
+    cleanups.push(() => spy.mockRestore());
+    await expect(f.complete()).rejects.toMatchObject({ code: "request_failed" });
+    expect(f.store.dispatches("job").map(row => [row.status, row.failure?.code, row.failure?.attempt])).toEqual([["failed", "upstream_closed", 1]]);
+    expect(f.requests()).toBe(1);
+  }, 15_000);
 });

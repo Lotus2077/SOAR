@@ -2,14 +2,15 @@ import Database from "better-sqlite3";
 import http from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { ANTHROPIC_API_VERSION } from "../../src/main/private-agent/anthropic";
-import { ANTHROPIC_RETRY_DELAYS_MS, PrivateAgentBroker, RETRY_WAIT_CANCELLED, type BrokerDestination, type BrokerRequest } from "../../src/main/private-agent/broker";
+import { ANTHROPIC_RETRY_DELAYS_MS, BrokerError, PrivateAgentBroker, RETRY_WAIT_CANCELLED, type BrokerDestination, type BrokerRequest } from "../../src/main/private-agent/broker";
 import { buildCloudArm } from "../../scripts/private-agent-local-screen";
 import { PROBE_MAX_FEE_USD, PROBE_MODEL, PROBE_PRICES, runProbe, summarizeProbe } from "../../scripts/anthropic-probe";
 import { ANTHROPIC_MESSAGES_ENDPOINT } from "../../src/main/private-agent/anthropic";
 import { COORDINATOR_PROFILES } from "../../src/main/private-agent/profiles";
 import { digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel, type PrivateModelConfig } from "../../src/main/private-agent/model";
-import { PrivateAgentStore } from "../../src/main/private-agent/store";
+import { everySupersededRowHasASuccessor, watchWaits } from "../helpers/retry-waits";
+import { PrivateAgentStore, type DispatchReceipt } from "../../src/main/private-agent/store";
 
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
@@ -68,7 +69,7 @@ describe("Anthropic destination transport", () => {
     const result = await f.broker.request(f.input, () => 5);
     expect(result.receipt.status).toBe("settled");
     const rows = f.rows();
-    expect(rows.map(row => row.status)).toEqual(["superseded", "superseded", "settled"]);
+    expect(rows.map(row => row.status)).toEqual(["superseded", "superseded", "settled"]); everySupersededRowHasASuccessor(rows);
     expect(rows[0]!.failure).toEqual({ phase: "transport", code: "http_rejected", status, attempt: 1, errorType: status === 429 ? "rate_limit_error" : "overloaded_error",
       requestId: `req_011rejected${status}`, elapsedMs: rows[0]!.failure!.elapsedMs, timeoutMs: 5000 });
     expect(rows[1]!.failure).toMatchObject({ attempt: 2 });
@@ -109,7 +110,7 @@ describe("Anthropic destination transport", () => {
   it("ends after the third rejected attempt as a failed row", async () => {
     const f = await fixture(rejectWith(529, "overloaded_error"));
     await expect(f.broker.request(f.input, () => 5)).rejects.toThrow("request_failed");
-    expect(f.rows().map(row => [row.status, row.failure?.attempt])).toEqual([["superseded", 1], ["superseded", 2], ["failed", 3]]);
+    expect(f.rows().map(row => [row.status, row.failure?.attempt])).toEqual([["superseded", 1], ["superseded", 2], ["failed", 3]]); everySupersededRowHasASuccessor(f.rows());
   });
 
   it.each<[string, Answer, Record<string, unknown>]>([
@@ -249,7 +250,7 @@ describe("the local retry path is unchanged", () => {
       { scan: async () => ({ complete: true, blocked: false, detector: "fixture" }) });
     await expect(broker.request({ jobId: "job", contextId: "context", destinationId: "local", purpose: "local", method: "POST", body: "{}", maxFeeMicrousd: 0 })).rejects.toThrow("request_failed");
     const rows = store.dispatches("job");
-    expect(rows.map(row => row.status)).toEqual(["superseded", "superseded", "failed"]);
+    expect(rows.map(row => row.status)).toEqual(["superseded", "superseded", "failed"]); everySupersededRowHasASuccessor(rows);
     for (const [index, row] of rows.entries()) expect(row.failure).toEqual({ phase: "transport", code: "http_rejected", status: 503, attempt: index + 1, elapsedMs: row.failure!.elapsedMs, timeoutMs: 5000 });
   }, 15_000);
 });
@@ -316,5 +317,65 @@ describe("Anthropic model through the real broker and a mock Messages server", (
     const sent = JSON.parse(f.seen[0]!.body);
     expect(sent.messages.at(-1)).toEqual({ role: "system", content: "guidance" });
     expect(f.seen[0]!.headers["anthropic-version"]).toBe(ANTHROPIC_API_VERSION);
+  });
+});
+
+describe("E1 recoverability: an Anthropic retry wait cut short never leaves a superseded row without a successor (E1-R)", () => {
+  async function brokerRejection(pending: Promise<unknown>): Promise<BrokerError> {
+    const error = await pending.then(() => undefined, (failure: unknown) => failure);
+    expect(error).toBeInstanceOf(BrokerError);
+    return error as BrokerError;
+  }
+  const shape = (rows: readonly DispatchReceipt[]) => rows.map(row => [row.status, row.failure?.code, row.failure?.phase === "transport" ? row.failure.status : undefined, row.failure?.attempt]);
+  /** A production caller always passes a signal; here it is never aborted, so only the job's own cancel or policy can stop the retry. */
+  const unaborted = (f: Awaited<ReturnType<typeof fixture>>, signal = new AbortController().signal) => ({ ...f.input, signal });
+  const firstRejected = (request: http.IncomingMessage, response: http.ServerResponse, index: number) =>
+    index === 0 ? rejectWith(529, "overloaded_error")(request, response) : ok(response);
+
+  it("stops a ten-minute wait at once when the job is cancelled while the caller's signal is not aborted, with the retry-wait code", async () => {
+    const f = await fixture(rejectWith(529, "overloaded_error"), { delays: [600_000, 600_000] });
+    let cancelledAt = 0;
+    watchWaits(cleanups, 600_000, () => { cancelledAt = performance.now(); f.broker.cancelJob("job"); });
+    expect((await brokerRejection(f.broker.request(unaborted(f), () => 5))).code).toBe(RETRY_WAIT_CANCELLED);
+    expect(performance.now() - cancelledAt).toBeLessThan(1000);
+    expect(f.seen).toHaveLength(1);
+    expect(shape(f.rows())).toEqual([["failed", "http_rejected", 529, 1]]);
+    await expect(f.broker.request(unaborted(f), () => 5)).rejects.toThrow("job_cancelled");
+  });
+
+  it.each([
+    ["a policy revision", (f: Awaited<ReturnType<typeof fixture>>) => { f.store.revisePolicy("job", { mode: "cloud_help", destinations: ["cloud_coordinator"] }); }, "request_failed"],
+    ["a cancel recorded by another host", (f: Awaited<ReturnType<typeof fixture>>) => { f.store.cancel("job"); }, RETRY_WAIT_CANCELLED],
+  ] as const)("resolves the rejected attempt failed when %s lands during the wait, and never re-sends under the changed policy", async (_name, change, code) => {
+    const f = await fixture(firstRejected, { delays: [123, 123] });
+    watchWaits(cleanups, 123, () => change(f));
+    expect((await brokerRejection(f.broker.request(unaborted(f), () => 5))).code).toBe(code);
+    expect(f.seen).toHaveLength(1);
+    const rows = f.rows();
+    expect(shape(rows)).toEqual([["failed", "http_rejected", 529, 1]]);
+    everySupersededRowHasASuccessor(rows);
+    // Nothing is left unresolved: under the new revision a fresh request is admitted, or the cancelled job refuses it before any row.
+    if (code === RETRY_WAIT_CANCELLED) await expect(f.broker.request(unaborted(f), () => 5)).rejects.toThrow("job_cancelled");
+    else await expect(f.broker.request(unaborted(f), () => 5)).resolves.toMatchObject({ receipt: { status: "settled", feeMicrousd: 5 } });
+  });
+
+  it("keeps the retry-wait code when a cancel arrives as the successor commits and the commit is refused", async () => {
+    const f = await fixture(firstRejected, { delays: [20, 20] });
+    const caller = new AbortController();
+    let commits = 0;
+    const pending = f.broker.request(unaborted(f, caller.signal), () => 5, () => { if (++commits === 2) { caller.abort(); throw new Error("synthetic_commit_check_refused"); } });
+    expect((await brokerRejection(pending)).code).toBe(RETRY_WAIT_CANCELLED);
+    expect(commits).toBe(2); expect(f.seen).toHaveLength(1);
+    expect(shape(f.rows())).toEqual([["failed", "http_rejected", 529, 1]]);
+  });
+
+  it("supersedes the rejected attempt inside the successor's commit, so the successor's own commit-time check already reads it superseded", async () => {
+    const f = await fixture(firstRejected, { delays: [20, 20] });
+    const seen: string[][] = [];
+    await f.broker.request(unaborted(f), () => 5, () => { seen.push(f.rows().map(row => row.status)); });
+    expect(seen).toEqual([[], ["superseded"]]);
+    const rows = f.rows();
+    expect(shape(rows)).toEqual([["superseded", "http_rejected", 529, 1], ["settled", undefined, undefined, undefined]]);
+    everySupersededRowHasASuccessor(rows);
   });
 });

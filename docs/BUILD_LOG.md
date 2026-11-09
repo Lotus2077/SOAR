@@ -30716,3 +30716,114 @@ References:
 - BL-20261108-0911-probe-extensions-implemented (P10, P11, the role export);
 - BL-20261108-1459-serving-card-reader-design and BL-20261108-1649-serving-card-reader-implemented (SC);
 - BL-20261101-0428-h4-completion-v2-interrupted, BL-20261101-1106-h4-runner-fixes-stopped and BL-20261101-2044-writer-completion-stopped (the synthesis cap hits).
+
+### BL-20261109-0442-research-request-shapes-implemented -- 2026-11-09 -- Backlog item 7(b), part 1, implemented: the [system][stable packet][chunk] extraction layout, index batches by preview size, the synthesis length cap from the brief, the aligned P11 layout and one shared protocol pin, with the code-review corrections
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261109-0334-research-request-shapes-design with deterministic tests, on branch `feat/7b.1-request-shapes` from `main` at 2982ca7.
+- a0fd58b implements the design.
+- The next commit applies the findings of two adversarial code reviews of a0fd58b: correctness and regressions, and contracts and test adequacy.
+
+The hypothesis is the design entry's.
+
+Decisions: The code reviews found that the word-limit parse misread common phrasings as caps, and every such misreading shrinks the argument below today's request. The corrections below narrow decision (5)'s parse, and (6) completes decision (2); nothing else departs from the design entry. The parse now prefers missing a limit, which leaves today's default, to misreading one.
+(1) **Plural "words" only.** Every phrasing needs the plural "words" after its number, so a compound adjective in the singular is no limit. At a0fd58b, "Give each question a 2-3 word label." gave 3.
+(2) **Whole numbers only.** A number is never part of a longer or grouped number: no digit, "." or "," touches it, and no space-separated digit group sits beside it.
+- At a0fd58b, "Word limit: 1.500." gave 1, "1.200 words max" gave 200 and "Word limit: 2 500" gave 2.
+- The guard also removes a quadratic backtracking case. The correctness review measured about 280 to 355 ms on a 32 KiB brief; it now takes under 2 ms, and a test bounds it.
+(3) **Clause guards** replace the draft's two adjacent-negation lookbehinds. A clause ends at `,`, `;`, `.`, `!`, `?`, `:`, `(` or `)`. A candidate is dropped when:
+- a negator is among the four words before its phrase or the four after it: no, not, never, nothing, nor, cannot, or a word ending in n't;
+- a rejection marker is among the four words after it: unacceptable, rejected, insufficient, too short, too brief;
+- a part of the report is earlier in its clause or among the four words after it: abstract, summary, synopsis, title, heading, headline, label, caption, tag, sentence, paragraph, bullet (each with its plural), each, per.
+
+At a0fd58b, "It must not be under 1,500 words.", "Fewer than 500 words is not acceptable." and "Write 2,500 words; abstract at most 150 words." gave caps of 1,500, 500 and 150.
+(4) **Values below the floor are ignored.** A stated value below the 100-word floor is a part's length (a heading, a label), never the argument's, so the default applies. This supersedes decision (5)'s "a limit the brief states always holds below it" for values under 100 words. From 100 words up, a stated limit still holds below the ceiling.
+(5) **Added phrasings:**
+- "do", "does", "must", "should", "shall", "may", "can" or "will" with "not exceed" or "n't exceed", "never exceed" and "cannot exceed", then N words;
+- a word limit stated as a range ("word limit: 2,000-2,500"), which gives its upper end.
+(6) **P11's record.** P11's `cache_layouts` block is built by a pure helper, `cache_layouts_record`, so a test pins what the probe emits: the layout descriptor, and `packet_*` over the shared first line.
+
+Changes:
+- src/main/private-agent/research-admission.ts (new):
+  - `RESEARCH_INDEX_BATCH_POLICY`, `researchIndexPreviewEnd`, `planResearchIndexBatches`, `researchMandatoryWorkFits`;
+  - `RESEARCH_SYNTHESIS_LENGTH_POLICY`, with the limit patterns, the clause guards and the constants;
+  - `briefWordLimit`, `researchSynthesisLengthCap` and `researchWordCount`.
+- src/main/private-agent/research-pipeline.ts:
+  - `RESEARCH_EXTRACTION_LAYOUT`, `researchExtractionUserContent` and `synthesisLengthCap`;
+  - `call()` takes a user-content function and invokes it inside its `try`;
+  - the batch planner and the ceiling check; the stable packet;
+  - the synthesis payload's `lengthCap` and SYNTHESIS_SYSTEM's wording;
+  - the stage-row counts `lengthCapWords`, `briefWordLimit` and `argumentWords`;
+  - the `requestShapes` block in `researchProtocolSha256()`.
+- scripts/export-role-schemas.ts: P10's extract payload comes from the builder, and its synthesis payload carries `lengthCap`.
+- scripts/serving-probe.py: `EXTRACTION_LAYOUT`, `stable_packet`, the aligned `stable_prefix`, and `cache_layouts_record` with `stable_prefix_layout` and `packet_*` over the stable packet.
+- scripts/serving-card.py: one comment, on the index prompt size since 7b.1. No value or output changes, so the writer's pinned output digests are untouched.
+- Tests:
+  - tests/helpers/research-protocol-pin.ts (new);
+  - tests/helpers/research-v4-fixture.ts: `parseResearchUserContent` and `assertResearchUserLayout`;
+  - tests/unit/private-agent-research-admission.test.ts (new, 13 tests);
+  - private-agent-research-pipeline.test.ts: the stage-key guard moved to module scope, and seven 7b.1 tests;
+  - private-agent-research-plan-contract.test.ts, role-schema-export.test.ts and serving-probe-helpers.test.ts.
+
+Evidence:
+- **Protocol hash.** `researchProtocolSha256()` is 3453710315d7226ea4d6195ec7401d000f86c5b0d9afa9839a801d5c6d391262 at 2982ca7 and 01ca01a41c13410012bc386fa85bb32bdfbfaa3ec402482f8d29b8edfcaa6107 at this entry's commit, pinned once in tests/helpers/research-protocol-pin.ts. At a0fd58b it was f68147d9f9d3f7c829ead9bba026c4f1aa16789f5ac16a3c87435aabdec91262; the corrections moved the pattern sources it binds.
+- **Request bytes against 2982ca7.** One fixture run in each tree, comparing digests of the user message:
+  - index d10e662b830fa5c23d1318424c62726a17b63536995c01ca0d45970386fcc15e and plan db70bd30a913d4433bb9e89cff8e3fc24e8a030d89eae13d4d478ee072e1b927 are identical, and a test pins both;
+  - the two extraction messages move from 176f81fb… and a8419157… to cf7b50ba8c99f4383dbb40dacce86f4a50fb8ddf43bf142c2a5ed8ba39ecf4c6 and 9ff9b72f9d3d634203af95455834ea44db057af9c74f789268bbfbbfed847f77, also pinned. Merged back into one object they equal the old messages;
+  - the synthesis payload differs by `lengthCap` and by `coverage.protocolSha256`, which moves with every protocol change. The contracts review reproduced the 2982ca7 digest (d3c1089e…) after removing the first and resetting the second.
+- **Tests:**
+  - the five changed or new test files: 99 passed;
+  - the research, serving-card, probe, export, planner-fixture, assessor, role-config, loop, identity-golden and runner-budget suites: 22 files, 444 tests passed;
+  - the full suite, `pnpm exec vitest run --maxWorkers=3`: 179 files, 166 passed and 13 skipped (the environment-gated suites); 2,780 tests, 2,696 passed and 84 skipped; no failure;
+  - `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass.
+- **What the tests prove,** on fixture models with no endpoint:
+  - **The layout.** Every extraction request, initial and repair across two sources, sends exactly two canonical lines. The first is byte-identical across the job and equals `canonical({brief, plan, units})`, with the literal key lists, when the brief and a source contain newlines, U+2028 and U+2029. Every other stage sends one canonical object. The pipeline's and the plan contract's fixture brokers check this layout on every request.
+  - **Unchanged bytes.** The index and plan request bytes are those of 2982ca7.
+  - **The denied call.** A NUL that a rejected plan reply carried into its repair payload ends `research_request_denied`. The plan row is denied (`private_agent_invalid_text`), two requests went out, and coverage.json, index.json and summary.json are written. The ledger design review reproduced the throw on the uncommitted draft that built the content before `call()`; a0fd58b builds it inside the `try`, and the test fails if it moves out.
+  - **Batching.** Thirty 30 KiB sources are admitted with ten index requests of three; the earlier rule refused them. Forty-one 21 KiB sources and sixty 100 KiB sources are refused with zero requests.
+  - **The length cap.**
+    - Without a stated limit the synthesis is asked for 1,200 words on both attempts.
+    - "At most 150 words" gives 150.
+    - A limit above the ceiling, or one below the floor, gives 1,200.
+    - An argument twice the cap is accepted.
+    - The stage rows record the cap, the brief's limit and the argument's words, and pass the hash-only key guard.
+  - **The parser.** It reads 39 positive phrasings and refuses 64 negative ones (minimums, negations, parts of the report, adjectives, counts, other units, malformed and grouped numbers), and parses a 32 KiB adversarial brief in well under a second. The clamp is checked at 8,192 and 16,384 tokens with and without thinking, together with the floor.
+  - **P10.** The export equals the pipeline's first extraction message byte for byte and carries the same `lengthCap`.
+  - **P11.**
+    - Its `stable_prefix` equals the builder's bytes.
+    - The probe's layout descriptor and tokens per word equal the TypeScript copies.
+    - `cache_layouts_record` emits the descriptor, with `packet_*` over the shared first line.
+    - The card writer accepts the new key and drops it.
+- **Reviews.** Three design reviews preceded the `Proposed` entry, and two code reviews of a0fd58b followed. Every confirmed finding is fixed here or recorded below.
+
+Failures or blockers:
+- **Two defects that exist at 2982ca7, not introduced here and not fixed here.** The correctness review reproduced both, and both happen outside `call()`'s `try`. session.ts's try/finally then reports a session failure.
+  - A planner reply whose accepted plan holds a NUL or a lone surrogate makes `assessResearchPlanReply` throw at `digest(canonical(plan))` (research-plan.ts), so the plan row is lost.
+  - An extraction quote note holding a NUL throws at `put(RESEARCH_FILES.evidence, …)` (research-pipeline.ts), so every file is lost.
+
+  Proposed owners: 7a.1, whose per-quote drop can drop and count an unencodable quote or note, and 7c for the planner (research-plan.ts).
+- **One unrelated timeout.** Two earlier full runs with the default worker count, while other sessions loaded this Mac, each had tests/unit/with-claude-key.test.ts time out at 5 s. The file passes alone (3 tests) and in the three-worker run above.
+- **CI** has not run yet; it runs on the pull request.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint. Every limitation of the design entry stands; in particular:
+- the layout proves the prefix property only;
+- the thinking synthesis keeps today's 1,200-word request, so D13's longer arguments wait for 7a.2 and 7b.2;
+- D8's 40-chunk ceiling remains;
+- the clamp's constants have no route to the card (principle 6).
+
+The parser is heuristic and now deliberately conservative. When it misses a limit, today's default applies. It misses a limit stated:
+- in words, pages, characters or another language;
+- inside a negated or part-of-the-report clause;
+- below 100 words.
+
+P11's change is tested offline only: the helpers, the parity with the TypeScript builder and descriptor, and the card writer's acceptance. Its behaviour against a server is for E0. The derived-bounds table in scripts/serving-card.py keeps a 20,000-token index prompt size. That fits English previews (about 16k tokens at 3.8 bytes per token) but may understate denser scripts.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- Review of the pull request, and CI green.
+- The orchestrator merges it before E0's probe run and before 7a.1, which is stacked on this branch.
+- The design entry's three owner questions stay open with their defaults.
+
+References: BL-20261109-0334-research-request-shapes-design; BL-20261108-1649-serving-card-reader-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 4 rows D8, D9 and D13, section 5.2 and section 5.7 item 7.

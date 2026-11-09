@@ -20,7 +20,9 @@ export const DOCUMENT_REVIEW_FLAG_UNITS = Object.freeze(["CNY", "EUR", "GBP", "J
 export const DOCUMENT_REVIEW_FLAG_CODES = Object.freeze(["negation_flipped", "polarity_swapped", "parties_swapped", "modality_changed"] as const);
 export const DOCUMENT_REVIEW_FLAG_COUNTS = Object.freeze(["inversionEdits", "inversionIntroduced", "inversionSource", "inversionUnaddressed",
   "numericIntroduced", "numericResolved", "numericSource", "numericUnaddressed"] as const);
-export const DOCUMENT_REVIEW_FLAG_READ_CAPS = Object.freeze(["comparisonsCapped", "paragraphsClipped", "rowsCapped", "sentencesCapped", "termsCapped"] as const);
+/** Which read cap was reached: `paragraphsClipped` counts clipped paragraphs; every other cap is a flag. */
+export const DOCUMENT_REVIEW_FLAG_READ_CAPS = Object.freeze(["comparisonsCapped", "figuresCapped", "labelsCapped", "paragraphsClipped", "rowsCapped",
+  "sentencesCapped", "termsCapped"] as const);
 
 /** A normalized amount and its unit, "50 USD": at most 15 integer digits and 6 decimals, no trailing zeros. */
 export const DOCUMENT_REVIEW_FLAG_VALUE = new RegExp(`^(?:0|[1-9][0-9]{0,14})(?:\\.[0-9]{0,5}[1-9])? (?:${DOCUMENT_REVIEW_FLAG_UNITS.join("|")})$`, "u");
@@ -30,20 +32,33 @@ const editIds = z.array(editId).max(200);
 const values = z.array(z.string().regex(DOCUMENT_REVIEW_FLAG_VALUE)).max(DOCUMENT_REVIEW_FLAG_VALUES_MAX);
 const side = z.object({ row: values, prose: values }).strict();
 const errorName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,63}$/u);
+/** A list of one rule's flags: a rule that failed holds none, and a truncated list holds exactly the maximum. */
 const list = <T extends z.ZodType>(entry: T) => z.object({ flags: z.array(entry).max(DOCUMENT_REVIEW_FLAG_LIST_MAX), truncated: z.boolean(),
-  error: errorName.optional() }).strict();
+  error: errorName.optional() }).strict()
+  .refine(value => (value.error === undefined || value.flags.length === 0 && !value.truncated) && (!value.truncated || value.flags.length === DOCUMENT_REVIEW_FLAG_LIST_MAX),
+    "A failed rule holds no flags, and a truncated list holds exactly the maximum.");
 const count = z.number().int().min(0).max(100_000_000);
 export const DocumentReviewFlagsSchema = z.object({
   version: z.literal(DOCUMENT_REVIEW_FLAGS_VERSION),
   rules: z.object({ inversion: z.literal(1), numeric: z.literal(1) }).strict(),
   counts: z.object({ inversionEdits: count, inversionIntroduced: count, inversionSource: count, inversionUnaddressed: count,
     numericIntroduced: count, numericResolved: count, numericSource: count, numericUnaddressed: count }).strict(),
-  read: z.object({ comparisonsCapped: z.boolean(), paragraphsClipped: count, rowsCapped: z.boolean(), sentencesCapped: z.boolean(), termsCapped: z.boolean() }).strict(),
+  read: z.object({ comparisonsCapped: z.boolean(), figuresCapped: z.boolean(), labelsCapped: z.boolean(), paragraphsClipped: count, rowsCapped: z.boolean(),
+    sentencesCapped: z.boolean(), termsCapped: z.boolean() }).strict(),
+  // A flag holds in the source, the clean text or both, and carries a side exactly where it holds.
   numeric: list(z.object({ table: position, row: position, paragraph: position, inSource: z.boolean(), inClean: z.boolean(), addressedBy: editIds,
-    source: side.nullable(), clean: side.nullable() }).strict()),
+    source: side.nullable(), clean: side.nullable() }).strict()
+    .refine(value => (value.inSource || value.inClean) && (value.source === null) === !value.inSource && (value.clean === null) === !value.inClean,
+      "A numeric flag carries a side exactly where it holds.")),
   edits: list(z.object({ id: editId, codes: z.array(z.enum(DOCUMENT_REVIEW_FLAG_CODES)).min(1).max(4) }).strict()),
-  clauses: list(z.object({ paragraphs: z.tuple([position, position]), inSource: z.boolean(), inClean: z.boolean(), addressedBy: editIds }).strict()),
-  /** Present only when the whole step failed: the exception's class name; every list is then empty and every count zero. */
+  clauses: list(z.object({ paragraphs: z.tuple([position, position]), inSource: z.boolean(), inClean: z.boolean(), addressedBy: editIds }).strict()
+    .refine(value => (value.inSource || value.inClean) && value.paragraphs[0] <= value.paragraphs[1], "A clause flag holds somewhere, its lower paragraph first.")),
+  /** Present only when the whole step failed: the exception's class name; every list is then empty, every count zero and nothing read. */
   error: errorName.optional(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (value.error !== undefined && (Object.values(value.counts).some(n => n !== 0) || Object.values(value.read).some(Boolean) ||
+    [value.numeric, value.edits, value.clauses].some(rule => rule.flags.length > 0 || rule.truncated || rule.error !== undefined))) {
+    context.addIssue({ code: "custom", message: "A failed step records no flags, counts or reads." });
+  }
+});
 export type DocumentReviewFlags = z.infer<typeof DocumentReviewFlagsSchema>;

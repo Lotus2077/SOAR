@@ -46,6 +46,10 @@ FLAG_VALUES_MAX = 4
 FLAG_SENTENCES_MAX = 5000
 FLAG_ROWS_MAX = 200
 FLAG_LABEL_CHARS = 200
+FLAG_LABEL_TOKENS = 16
+FLAG_NAMED_MAX = 10
+FLAG_FIGURES_MAX = 50
+FLAG_LABEL_CHECKS = 200000
 FLAG_COMPARISONS_MAX = 50
 FLAG_TERMS_MAX = 64
 FLAG_WINDOW_CHARS = 2000
@@ -64,18 +68,18 @@ FLAG_UNIT_WORDS = "|".join(re.escape(word) for word in sorted(FLAG_UNITS, key=la
 FLAG_NUMBER_WORDS = dict(zip("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen "
                              "eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety".split(), list(range(21)) + list(range(30, 100, 10))))
 FLAG_NUM = r"[0-9]{1,3}(?:,[0-9]{3}){1,4}(?:\.[0-9]{1,6})?|[0-9]{1,15}(?:\.[0-9]{1,6})?"
-FLAG_END = r"(?![0-9]|[.,][0-9])"
+FLAG_END = r"(?![0-9]|[.,/\u2044][0-9])"
 FLAG_WORD_NUMBER = (r"(?:(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[\s-](?:one|two|three|four|five|six|seven|eight|nine)|"
                     + "|".join(sorted(FLAG_NUMBER_WORDS, key=lambda word: (-len(word), word))) + r")")
 FLAG_RESTATED = r"(?:\s?\((?:[0-9]{1,15}|[A-Za-z]+(?:[\s-][A-Za-z]+)?)\))?"
-FLAG_QUANTITY = re.compile(r"(?<![\w.,$])(?:(?P<sign>US\$|[$\u00a3\u20ac])\s?|(?P<code>USD|EUR|GBP|CNY|JPY)\s?)?(?P<num>" + FLAG_NUM + r")" + FLAG_END
+FLAG_QUANTITY = re.compile(r"(?<![\w.,$/\u2044])(?:(?P<sign>US\$|[$\u00a3\u20ac])\s?|(?P<code>USD|EUR|GBP|CNY|JPY)\s?)?(?P<num>" + FLAG_NUM + r")" + FLAG_END
                            + FLAG_RESTATED + r"(?:[\s-]?(?P<unit>" + FLAG_UNIT_WORDS + r")(?!\w))?", re.IGNORECASE)
-FLAG_RANGE = re.compile(r"(?<![\w.,$])(?P<low>" + FLAG_NUM + r")" + FLAG_END + r"\s?(?:-|\u2013|\u2014|to)\s?(?P<high>" + FLAG_NUM + r")" + FLAG_END
+FLAG_RANGE = re.compile(r"(?<![\w.,$/\u2044])(?P<low>" + FLAG_NUM + r")" + FLAG_END + r"\s?(?:-|\u2013|\u2014|to)\s?(?P<high>" + FLAG_NUM + r")" + FLAG_END
                         + r"[\s-]?(?P<unit>" + FLAG_UNIT_WORDS + r")(?!\w)", re.IGNORECASE)
 FLAG_PAREN_QUANTITY = re.compile(r"\((?P<num>[0-9]{1,15}(?:\.[0-9]{1,6})?)\)[\s-]?(?P<unit>" + FLAG_UNIT_WORDS + r")(?!\w)", re.IGNORECASE)
 FLAG_WORD_QUANTITY = re.compile(r"\b(?P<word>" + FLAG_WORD_NUMBER + r")" + FLAG_RESTATED + r"[\s-](?P<unit>" + FLAG_UNIT_WORDS + r")(?!\w)", re.IGNORECASE)
 FLAG_SCALE_BEFORE = re.compile(r"(?:hundred|thousand|million|billion|and)[\s-]+$", re.IGNORECASE)
-FLAG_SCALE_AFTER = re.compile(r"\s?(?:million|billion|thousand|bn|mm|m|k)(?!\w)", re.IGNORECASE)
+FLAG_SCALE_AFTER = re.compile(r"\s?(?:(?:-|\u2013|\u2014|to)\s?(?:" + FLAG_NUM + r")" + FLAG_END + r"\s?)?(?:million|billion|thousand|bn|mm|m|k)(?!\w)", re.IGNORECASE)
 FLAG_HEADER_UNIT = re.compile(r"(?<!\w)(?:" + FLAG_UNIT_WORDS + r"|usd|eur|gbp|cny|jpy)(?!\w)|US\$|[$\u00a3\u20ac]", re.IGNORECASE)
 FLAG_HEADER_SCALE = re.compile(r"(?<!\w)(?:thousands?|millions?|billions?|bn|mm|m|k|'000|000s)(?!\w)", re.IGNORECASE)
 FLAG_REFERENCE = re.compile(r"(?<![A-Za-z])(?:section|clause|article|schedule|annex|appendix|exhibit|table|figure|page|paragraph|item)s?\.?\s*(?=[0-9])"
@@ -84,6 +88,7 @@ FLAG_LIST_MARKER = re.compile(r"\s*\(?[0-9]{1,3}[.)](?=\s)")
 FLAG_YEAR = re.compile(r"(?:19|20)[0-9]{2}")
 FLAG_SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'(\[\u201c\u2018])")
 FLAG_TOKEN = re.compile(r"[a-z]+")
+FLAG_WORD = re.compile(r"\w+|[^\w\s]")
 FLAG_NEGATORS = frozenset(("not", "no", "never", "neither", "nor", "none", "nothing", "nobody", "without", "non"))
 FLAG_PAIRS = tuple(tuple(pair.split("/")) for pair in ("including/excluding include/exclude includes/excludes included/excluded before/after prior/subsequent "
     "earlier/later minimum/maximum least/most increase/decrease increases/decreases increased/decreased higher/lower more/less above/below "
@@ -168,7 +173,7 @@ def flag_sentences(text):
 
 def flag_tokens(text):
     text = unicodedata.normalize("NFKC", text).casefold().translate(FLAG_STRAIGHT).replace("n't", " not").replace("cannot", "can not")
-    return FLAG_TOKEN.findall(re.sub(r"\bnon-", "non ", text))
+    return FLAG_TOKEN.findall(text)
 
 
 def flag_value_key(value):
@@ -192,11 +197,12 @@ def flag_list(rows, key):
 def flag_bounded(texts, read):
     out, total = [], 0
     for text in texts:
-        clipped = text[:max(0, min(FLAG_PARAGRAPH_CHARS, FLAG_TOTAL_CHARS - total))]
-        if len(clipped) < len(text):
+        room = max(0, min(FLAG_PARAGRAPH_CHARS, FLAG_TOTAL_CHARS - total))
+        normal = unicodedata.normalize("NFKC", text[:room])
+        if len(text) > room or len(normal) > room:
             read["paragraphsClipped"] += 1
-        total += len(clipped)
-        out.append(clipped)
+        out.append(normal[:room])
+        total += len(out[-1])
     return out
 
 
@@ -216,26 +222,52 @@ def flag_table_rows(units, texts, read):
         if 1 not in columns:
             continue
         label = flag_text(" ".join(texts[n] for n in columns[1])[:FLAG_PARAGRAPH_CHARS]).casefold().strip(" :.-*")
-        if len(label) > FLAG_LABEL_CHARS or sum(ch.isalpha() for ch in label) < 4 or re.search(r"[0-9]", label):
+        words = tuple(FLAG_WORD.findall(label))
+        if len(label) > FLAG_LABEL_CHARS or len(words) > FLAG_LABEL_TOKENS or sum(ch.isalpha() for ch in label) < 4 or re.search(r"[0-9]", label):
             continue
         values = []
         for col in sorted(columns):
             if col > 1:
                 values.extend(flag_quantities(flag_text(" ".join(texts[n] for n in columns[col])[:FLAG_PARAGRAPH_CHARS]), headers.get((table, col))))
+        values = list(dict.fromkeys(values))
         if not values:
             continue
+        if len(values) > FLAG_FIGURES_MAX:
+            read["figuresCapped"] = True
+            values = values[:FLAG_FIGURES_MAX]
         if len(rows) == FLAG_ROWS_MAX:
             read["rowsCapped"] = True
             break
         members = sorted(n + 1 for col in columns for n in columns[col])
-        rows.append((table, row, label, re.compile(r"(?<!\w)" + re.escape(label) + r"(?!\w)"), frozenset(values),
-                     frozenset(value.split(" ", 1)[1] for value in values), members))
+        rows.append((table, row, label, words, frozenset(values), frozenset(value.split(" ", 1)[1] for value in values), members))
     return rows
 
 
+def flag_named(words, starts, labels, budget):
+    found = set()
+    for i, word in enumerate(words):
+        for size in starts.get(word, ()):
+            if budget is not None:
+                if budget[0] <= 0:
+                    return found, False
+                budget[0] -= 1
+            if tuple(words[i:i + size]) in labels:
+                found.add(tuple(words[i:i + size]))
+    return found, True
+
+
 def flag_table_vs_prose(units, texts, rows, read):
-    found, scanned = {}, 0
-    containers = dict((entry[2], frozenset(other[2] for other in rows if other[2] != entry[2] and entry[2] in other[2])) for entry in rows)
+    labels, starts = {}, {}
+    for entry in rows:
+        labels.setdefault(entry[3], []).append(entry)
+        starts.setdefault(entry[3][0], set()).add(len(entry[3]))
+    starts = dict((word, sorted(sizes)) for word, sizes in starts.items())
+    containers = dict((key, set()) for key in labels)
+    for key in labels:
+        for inner in flag_named(key, starts, labels, None)[0]:
+            if inner != key:
+                containers[inner].add(key)
+    found, scanned, budget = {}, 0, [FLAG_LABEL_CHECKS]
     for number, unit in enumerate(units):
         if unit["kind"] != "prose":
             continue
@@ -245,18 +277,28 @@ def flag_table_vs_prose(units, texts, rows, read):
                 read["sentencesCapped"] = True
                 return found
             sentence = flag_text(texts[number][start:end])
-            folded = sentence.casefold()
-            named = [entry for entry in rows if entry[2] in folded and entry[3].search(folded)]
-            if not named:
+            named, whole = flag_named(FLAG_WORD.findall(sentence.casefold()), starts, labels, budget)
+            if not whole:
+                read["labelsCapped"] = True
+            entries = sorted((entry for key in named if not containers[key] & named for entry in labels[key]), key=lambda entry: entry[:2])
+            if not entries:
                 continue
-            labels = frozenset(entry[2] for entry in named)
+            if len(entries) > FLAG_NAMED_MAX:
+                read["labelsCapped"] = True
+                entries = entries[:FLAG_NAMED_MAX]
             given = flag_quantities(sentence)
-            for table, row, label, pattern, values, kinds, members in named:
-                if containers[label] & labels:
-                    continue
-                mentioned = [value for value in given if value.split(" ", 1)[1] in kinds]
-                if mentioned and not any(value in values for value in mentioned):
-                    found.setdefault((table, row, number + 1), set()).update(mentioned)
+            if len(given) > FLAG_FIGURES_MAX:
+                read["figuresCapped"] = True
+                given = given[:FLAG_FIGURES_MAX]
+            by_unit = {}
+            for value in sorted(given, key=flag_value_key):
+                by_unit.setdefault(value.split(" ", 1)[1], []).append(value)
+            given = frozenset(given)
+            for table, row, label, words, values, kinds, members in entries:
+                mentioned = [value for kind in sorted(kinds) for value in by_unit.get(kind, [])][:FLAG_VALUES_MAX]
+                if mentioned and values.isdisjoint(given):
+                    key = (table, row, number + 1)
+                    found[key] = tuple(flag_values(set(found.get(key, ())) | set(mentioned)))
     return found
 
 
@@ -292,23 +334,22 @@ def flag_inversion_codes(before, after, pattern):
     if len(parties_before) >= 2 and sorted(parties_before) == sorted(parties_after) and parties_before != parties_after:
         codes.append("parties_swapped")
     strong_before, strong_after = bool(set(b) & {"shall", "must"}), bool(set(a) & {"shall", "must"})
-    if strong_before and not strong_after and "may" in a or "may" in b and "may" not in a and strong_after:
+    if strong_before and not strong_after and "may" in a or strong_after and not strong_before and "may" in b:
         codes.append("modality_changed")
     return codes
 
 
 def flag_edit_inversions(edits, texts, pattern):
-    flagged, spans_of = [], {}
+    flagged = []
     for edit in edits:
         if edit["action"] not in ("replace", "delete", "insert_after"):
             continue
         text, start, end, new = texts[edit["paragraph"] - 1], edit["start"], edit["end"], edit.get("newText", "")
-        if edit["paragraph"] not in spans_of:
-            spans_of[edit["paragraph"]] = flag_sentences(text)
-        overlapping = [(s, e) for s, e in spans_of[edit["paragraph"]] if s < max(end, start + 1) and e > start]
+        lo = max(0, start - FLAG_WINDOW_CHARS)
+        overlapping = [(lo + s, lo + e) for s, e in flag_sentences(text[lo:end + FLAG_WINDOW_CHARS]) if lo + s < max(end, start + 1) and lo + e > start]
         if not overlapping:
             continue
-        s0, e0 = max(overlapping[0][0], start - FLAG_WINDOW_CHARS), min(overlapping[-1][1], end + FLAG_WINDOW_CHARS)
+        s0, e0 = overlapping[0][0], overlapping[-1][1]
         if edit["action"] == "replace":
             after = text[s0:start] + new + text[end:e0]
         elif edit["action"] == "delete":
@@ -367,71 +408,76 @@ def flag_clause_contradictions(texts, terms, read):
 
 def flag_rule(record, name, run):
     try:
-        return run()
+        record[name], counts = run()
+        record["counts"].update(counts)
     except Exception as error:
         if isinstance(error, MemoryError) or type(error).__name__ == "PlanError":
             raise
         record[name] = {"error": type(error).__name__, "flags": [], "truncated": False}
-        return None
+
+
+def flag_read():
+    return {"comparisonsCapped": False, "figuresCapped": False, "labelsCapped": False, "paragraphsClipped": 0, "rowsCapped": False,
+            "sentencesCapped": False, "termsCapped": False}
 
 
 def review_flags(units, source, clean, edits):
     if not len(units) == len(source) == len(clean):
         raise ValueError("flag_input_mismatch")
-    read = {"comparisonsCapped": False, "paragraphsClipped": 0, "rowsCapped": False, "sentencesCapped": False, "termsCapped": False}
-    record = {"version": FLAG_VERSION, "rules": dict(FLAG_RULES), "read": read}
+    read = flag_read()
+    record = {"version": FLAG_VERSION, "rules": dict(FLAG_RULES), "read": read, "counts": dict((name, 0) for name in FLAG_COUNTS)}
     touched = {}
     for edit in edits:
         touched.setdefault(edit["paragraph"], []).append(edit["id"])
     def addressed(paragraphs):
         return flag_ids(i for p in paragraphs for i in touched.get(p, []))
+    def listed(flags):
+        return {"flags": flags[:FLAG_LIST_MAX], "truncated": len(flags) > FLAG_LIST_MAX}
     bounded_source, bounded_clean = flag_bounded(source, read), flag_bounded(clean, {"paragraphsClipped": 0})
     def numeric():
         source_rows, clean_rows = flag_table_rows(units, bounded_source, read), flag_table_rows(units, bounded_clean, read)
         before, after = flag_table_vs_prose(units, bounded_source, source_rows, read), flag_table_vs_prose(units, bounded_clean, clean_rows, read)
         rows = {"source": dict((entry[:2], entry) for entry in source_rows), "clean": dict((entry[:2], entry) for entry in clean_rows)}
-        shown = {"source": dict((key, flag_values(entry[4])) for key, entry in rows["source"].items()),
-                 "clean": dict((key, flag_values(entry[4])) for key, entry in rows["clean"].items())}
-        out = []
-        for key in sorted(set(before) | set(after)):
-            table, row, paragraph = key
-            entry = rows["source"].get((table, row)) or rows["clean"][(table, row)]
-            out.append({"table": table, "row": row, "paragraph": paragraph, "inSource": key in before, "inClean": key in after,
-                        "addressedBy": addressed([paragraph] + entry[6]),
-                        "source": {"row": shown["source"][(table, row)], "prose": flag_values(before[key])} if key in before else None,
-                        "clean": {"row": shown["clean"][(table, row)], "prose": flag_values(after[key])} if key in after else None})
-        return out
-    numeric_flags = flag_rule(record, "numeric", numeric)
-    terms, pattern = flag_party_pattern(source, read)
-    edit_flags = flag_rule(record, "edits", lambda: flag_edit_inversions(edits, source, pattern))
+        def members(key):
+            return (rows["source"].get(key[:2]) or rows["clean"][key[:2]])[6]
+        def side(name, found, key):
+            return {"row": flag_values(rows[name][key[:2]][4]), "prose": list(found[key])} if key in found else None
+        keys = sorted(set(before) | set(after))
+        flags = [{"table": key[0], "row": key[1], "paragraph": key[2], "inSource": key in before, "inClean": key in after,
+                  "addressedBy": addressed([key[2]] + members(key)), "source": side("source", before, key), "clean": side("clean", after, key)}
+                 for key in keys[:FLAG_LIST_MAX + 1]]
+        open_rows = {}
+        for key in before:
+            if key[:2] not in open_rows:
+                open_rows[key[:2]] = not any(p in touched for p in members(key))
+        return listed(flags), {"numericSource": len(before), "numericIntroduced": sum(key not in before for key in after),
+                               "numericResolved": sum(key not in after for key in before),
+                               "numericUnaddressed": sum(key in after and key[2] not in touched and open_rows[key[:2]] for key in before)}
+    def edits_rule():
+        flags = sorted(flag_edit_inversions(edits, source, flag_party_pattern(source, read)[1]), key=lambda f: (int(f["id"][1:]), f["id"]))
+        return listed(flags), {"inversionEdits": len(flags)}
     def clauses():
-        c_before, c_after = flag_clause_contradictions(bounded_source, terms, read), flag_clause_contradictions(bounded_clean, terms, read)
-        return [{"paragraphs": list(key), "inSource": key in c_before, "inClean": key in c_after, "addressedBy": addressed(list(key))}
-                for key in sorted(c_before | c_after)]
-    clause_flags = flag_rule(record, "clauses", clauses)
-    numeric_flags, edit_flags, clause_flags = numeric_flags or [], edit_flags or [], clause_flags or []
-    record["counts"] = {"numericSource": sum(f["inSource"] for f in numeric_flags),
-                        "numericUnaddressed": sum(f["inSource"] and f["inClean"] and not f["addressedBy"] for f in numeric_flags),
-                        "numericIntroduced": sum(f["inClean"] and not f["inSource"] for f in numeric_flags),
-                        "numericResolved": sum(f["inSource"] and not f["inClean"] for f in numeric_flags),
-                        "inversionEdits": len(edit_flags), "inversionSource": sum(f["inSource"] for f in clause_flags),
-                        "inversionUnaddressed": sum(f["inSource"] and f["inClean"] and not f["addressedBy"] for f in clause_flags),
-                        "inversionIntroduced": sum(f["inClean"] and not f["inSource"] for f in clause_flags)}
-    for name, flags, key in (("numeric", numeric_flags, lambda f: (f["table"], f["row"], f["paragraph"])),
-                             ("edits", edit_flags, lambda f: (int(f["id"][1:]), f["id"])), ("clauses", clause_flags, lambda f: tuple(f["paragraphs"]))):
-        if name not in record:
-            record[name] = flag_list(flags, key)
+        terms = flag_party_pattern(source, read)[0]
+        before, after = flag_clause_contradictions(bounded_source, terms, read), flag_clause_contradictions(bounded_clean, terms, read)
+        keys = sorted(before | after)
+        flags = [{"paragraphs": list(key), "inSource": key in before, "inClean": key in after, "addressedBy": addressed(list(key))} for key in keys[:FLAG_LIST_MAX + 1]]
+        return listed(flags), {"inversionSource": len(before), "inversionIntroduced": len(after - before),
+                               "inversionUnaddressed": sum(key in after and key[0] not in touched and key[1] not in touched for key in before)}
+    flag_rule(record, "numeric", numeric)
+    flag_rule(record, "edits", edits_rule)
+    flag_rule(record, "clauses", clauses)
     return record
 
 
 def review_flags_or_error(inputs):
     try:
-        return review_flags(*inputs())
+        record = review_flags(*inputs())
+        review_flags_json(record)
+        return record
     except Exception as error:
         if isinstance(error, MemoryError) or type(error).__name__ == "PlanError":
             raise
-        return {"version": FLAG_VERSION, "rules": dict(FLAG_RULES), "counts": dict((name, 0) for name in FLAG_COUNTS),
-                "read": {"comparisonsCapped": False, "paragraphsClipped": 0, "rowsCapped": False, "sentencesCapped": False, "termsCapped": False},
+        return {"version": FLAG_VERSION, "rules": dict(FLAG_RULES), "counts": dict((name, 0) for name in FLAG_COUNTS), "read": flag_read(),
                 "numeric": {"flags": [], "truncated": False}, "edits": {"flags": [], "truncated": False},
                 "clauses": {"flags": [], "truncated": False}, "error": type(error).__name__}
 
@@ -578,7 +624,7 @@ def load_plan(raw):
         if set(edit) != allowed:
             errors.append({"id": label, "code": "fields_invalid", "expected": sorted(allowed)})
             continue
-        if not isinstance(edit["id"], str) or not ID_RE.match(edit["id"]) or edit["id"] in seen:
+        if not isinstance(edit["id"], str) or not ID_RE.fullmatch(edit["id"]) or edit["id"] in seen:
             errors.append({"id": label, "code": "id_invalid_or_duplicate", "note": "ids are E1, E2, ... and unique"})
         else:
             seen.add(edit["id"])

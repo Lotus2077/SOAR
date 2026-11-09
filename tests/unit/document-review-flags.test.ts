@@ -93,7 +93,7 @@ describe("backlog item 7(d): the applier's host flags, rules v1 (BL-20261109-035
     const { value } = flags([...t.units, ...prose(45)], [...t.texts, ...sentences]);
     expect(value.numeric).toMatchObject({ truncated: true }); expect(value.numeric.flags).toHaveLength(DOCUMENT_REVIEW_FLAG_LIST_MAX);
     expect(value.counts.numericSource).toBe(45);
-    expect(value.read).toEqual({ comparisonsCapped: false, paragraphsClipped: 0, rowsCapped: false, sentencesCapped: false, termsCapped: false });
+    expect(value.read).toEqual({ comparisonsCapped: false, figuresCapped: false, labelsCapped: false, paragraphsClipped: 0, rowsCapped: false, sentencesCapped: false, termsCapped: false });
   });
   it("gives the same bytes in separate processes under any hash seed", () => {
     const t = feeTable("Late payment fee", "$50"), units = [...t.units, ...prose(4)];

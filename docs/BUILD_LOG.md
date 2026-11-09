@@ -30527,3 +30527,219 @@ The consumers then flip their flags in their own PRs, each with a test of the ap
 A consumer that needs another view of the card changes R10 in its own reviewed diff. If another entry merges first, this entry's ID is re-stamped after main's tail.
 
 References: BL-20261108-1459-serving-card-reader-design; BL-20261108-0911-probe-extensions-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.2 (principle 6), section 5.6 (row E0) and section 5.9; docs/HANDOFF.md "Start here"; docs/experiments/README.md; GitHub issues #46, #47 and #57; commits 8b7680e, 86d2b81 and 8de520b.
+
+
+### BL-20261109-0354-document-review-flags-design -- 2026-11-09 -- Backlog item 7(d), part A decided: the pinned applier writes host flags for the owner's attention, a numeric table-against-prose check and a clause-inversion check, in `output/review-flags.json` version 1 under rules v1
+
+Status: `Proposed`
+
+Scope or hypothesis: This is the decision entry for the first of three pull requests for backlog item 7(d) of docs/PROJECT_REVIEW_2026-11-05.md section 5.7: "a numeric table-against-prose cross-check and clause-inversion flag (`document-review.ts`)". It is plan ID 7d.A of lane S-desk. 7d.B (the absence-claim flag and the `host_flags` event) and 7d.C (the desktop and registry surfaces) follow. It is recorded before its code because it adds a required artifact to the document-review output contract and changes the pinned applier and its finish check. It is based on `main` at 2982ca7. It is zero-fee code with deterministic tests and no endpoint, so it needs no approval under PLAN.md section 4(c), and the implementation follows in the same pull request.
+
+Hypothesis: a deterministic, stdlib-only pass over the paragraphs the applier already reads can point the owner at two defect classes:
+- a figure in the prose that disagrees with the table defining it;
+- an edit, or a pair of clauses in one document, that turns a clause around.
+
+The flags' content never decides a check's `passed`, a run's status, H4 selection, the E3 or E4 rules or acceptance. It makes no model call and writes no ledger row. The consequences below are what the file itself changes.
+
+Decisions:
+
+(1) Placement. The rules are a Python literal, `REVIEW_FLAGS_PY`, exported from src/main/private-agent/document-review.ts.
+- It imports only `decimal`, `json`, `re` and `unicodedata`, so CI runs it under `python3 -I` without lxml. It is ASCII-only, uses Python 3.9 syntax and `re` features only (no f-strings, no atomic or possessive groups), and is free of backticks and dollar-brace sequences.
+- Every top-level name it defines starts with `FLAG_`, `flag_` or `review_flags`, so none shadows the applier's own names (`NUMBER_RE`, `LOOKALIKES`, `w`, `local`, `run`, `main` and the rest).
+- It is concatenated into the pinned applier just before the main guard.
+- The applier's lxml code builds the input after it has located the plan:
+  - every body paragraph, numbered 1-based as `--list` and issues.xlsx number them (table cells included), as `prose` or as a `cell` with its 1-based table, row and column. These come from the nearest w:tbl, w:tr and w:tc ancestors. A table's number is its order among the body's tables, excluding tables inside text boxes and counting nested ones. A row counts only its own table's rows, and a cell only its own row's cells;
+  - the source and clean texts of every paragraph, with field text (a table of contents, a cross-reference) masked as the applier's search view masks it. Hidden text is read;
+  - the located edits (id, action, paragraph, start, end and newText), with offsets into the source paragraph's own text.
+
+(2) The file. The applier writes `output/review-flags.json` beside its other outputs, with sorted keys, indent 1 and a trailing newline. Its exact shape, which `DocumentReviewFlagsSchema` enforces strictly:
+- `version` 1; `rules` {`numeric`: 1, `inversion`: 1}; `counts`, the eight integers below;
+- `read` {`paragraphsClipped`, `rowsCapped`, `sentencesCapped`, `comparisonsCapped`, `termsCapped`}, which says when a read cap in (7) was reached;
+- `numeric`, `edits` and `clauses`, each {`flags`, `truncated`} with at most 40 entries and, when that rule failed, its own `error` (an exception class name);
+- a top-level `error` only when the whole step failed (see (7)).
+
+It holds document figures but no document words: table, row and paragraph numbers, edit ids, rule codes, and values written as one string of a normalized number and a unit ("50 USD", "30 business day"). 7d.B's event, the registry row and the desktop's reported issues carry counts, positions and ids only, never these values. The applier's stdout summary gains `flags` (the counts, plus `error` when there is one), and its `outputs` list names the file.
+
+(3) Quantities. Each paragraph is read as NFKC text with straight quotes and collapsed whitespace, at most 20,000 characters per paragraph and 2,000,000 per document view.
+- A number is digits with optional thousands commas and an optional decimal part: at most 15 integer digits and 6 decimals. It is not preceded by a letter, digit, point, comma or dollar sign, and not followed by a digit or by a point or comma and a digit. So "USD 5,000, payable" is read, and a dotted clause number such as 4.2.1 never matches.
+- Its unit is one of these:
+  - a currency before it: `$` and `US$` for USD, `£` for GBP, `€` for EUR, or the codes USD, EUR, GBP, CNY and JPY;
+  - a unit after it, optionally after a space or a hyphen ("30-day"): `%`, `percent` and `per cent` become `%`; day, week, month, year, hour, minute and unit become singular; business day and working day both become `business day` (a deliberate choice; calendar day is not read); mg, mcg, g, kg, ml, l and IU stay as they are.
+- A restatement in parentheses between a number and its unit is skipped: "two (2) years", "30 (thirty) days". A parenthesized digit restatement right before its unit is read ("one hundred and twenty (120) days").
+- A range gives both its ends: "30-45 days", "30 to 45 days".
+- A number word (zero to twenty, the tens, and a tens word with a digit word, with a hyphen or a space) counts only before its unit. It is never read after hundred, thousand, million, billion or "and".
+- These are never quantities:
+  - a number right after section, clause, article, schedule, annex, appendix, exhibit, table, figure, page, paragraph or item (or their plurals), or after `§`;
+  - a list marker at the start of a paragraph;
+  - a number followed by million, billion, thousand, bn, mm, m or k;
+  - a bare 19xx or 20xx, unless its column header names an amount (a currency or `%`).
+- A bare number in a table cell takes the unit of its column header (the same column in the table's first row) when that header names exactly one unit and no scale word ("USD thousands" names none). A bare number in prose is ignored.
+- Values compare as `Decimal`. Every lookup tolerates text it does not know, so a letter such as the Turkish dotless i leaves a quantity unread instead of failing the rule.
+
+(4) Rule N1, a table against the prose. It runs on the source texts and on the clean texts.
+- A row qualifies when its first cell has at least four letters, no digit and at most 200 characters. That text, casefolded and stripped of surrounding spaces, colons, points, hyphens and asterisks, is the row's label. The row's values are the quantities with units in its other cells.
+- At most 200 qualifying rows with values are read, in table and row order. Rows are grouped once, so the cost is linear in the cells.
+- A prose sentence is flagged against a row when:
+  - it contains the label as a whole phrase;
+  - no longer label it also contains includes this one (so "late fee cap" is not read against "late fee");
+  - it gives at least one quantity in one of the row's units;
+  - none of those quantities equals one of the row's values.
+- Sentences end after `.`, `!` or `?` followed by whitespace and an uppercase letter, a digit, a quote, a parenthesis or a bracket. At most 5,000 prose sentences are read.
+- A flag is keyed by (table, row, paragraph). It records `inSource`, `inClean`, `addressedBy` (the ids of the edits located in that paragraph or in the row's cells, comment edits included), and on each side where it holds (`source` and `clean`, else null) the row's values and the paragraph's flagged values, each at most 4, smallest first by unit and amount.
+- Counts: `numericSource` (in the source), `numericUnaddressed` (in both, with no edit), `numericIntroduced` (in the clean text only) and `numericResolved` (in the source only).
+
+(5) Rule C1, an edit that turns its clause around. It applies to each replace, delete and insert_after edit. The source sentences that overlap the anchor are compared with the same span after applying only that edit. Both spans are taken at the located offsets in the paragraph's own text, so a double space or a tab before the anchor cannot shift them, and each is clipped to 2,000 characters either side of the anchor.
+- Tokens: NFKC casefold; "n't" becomes " not", "cannot" becomes "can not" and "non-" becomes "non "; then every `[a-z]+` run.
+- `negation_flipped`: the parity of not, no, never, neither, nor, none, nothing, nobody, without and non differs.
+- `polarity_swapped`: a word of a fixed pair appears only before the edit and its partner only after. The pairs:
+  - including/excluding, include/exclude, includes/excludes, included/excluded;
+  - before/after, prior/subsequent, earlier/later;
+  - minimum/maximum, least/most;
+  - increase/decrease, increases/decreases, increased/decreased;
+  - higher/lower, more/less, above/below, upper/lower;
+  - permitted/prohibited, permit/prohibit, allow/prohibit, allowed/prohibited;
+  - mandatory/optional, required/optional;
+  - accept/reject, accepted/rejected, approve/reject, approved/rejected;
+  - grant/deny, granted/denied, unlimited/limited;
+  - buyer/seller, lessor/lessee, licensor/licensee, employer/employee, landlord/tenant, creditor/debtor, discloser/recipient and disclosing/receiving.
+- `parties_swapped`: the same set of at least two party terms appears in a different order of first appearance.
+  - The party terms are the source's defined terms matched by `\((?:the |each a )?["']([A-Z][A-Za-z]+(?: [A-Z][A-Za-z]+)?)["']\)` after straightening quotes, plus the role words Buyer, Seller, Lessor, Lessee, Licensor, Licensee, Employer, Employee, Landlord, Tenant, Creditor, Debtor, Discloser, Recipient, Disclosing and Receiving.
+  - They are found case-sensitively, as whole words, with one compiled alternation, longest first. At most 64 terms are used: the role words, then the defined terms in sorted order.
+- `modality_changed`: shall or must before and may after (with neither shall nor must), or the reverse.
+- An entry {`id`, `codes`} is recorded for each edit with at least one code. Count: `inversionEdits`.
+
+(6) Rule C2, clauses of one document that contradict each other. It runs on the source texts and on the clean texts.
+- Every sentence of every paragraph is read, at most 5,000.
+- A sentence's signature is its sorted content tokens, without the negators and a fixed stopword list.
+- A polar word becomes its class's token, so "permitted" and "prohibited" share one. A class is one token with two sides, so a word in two pairs has one class:
+  - including against excluding;
+  - before, prior and earlier against after, subsequent and later;
+  - minimum and least against maximum and most;
+  - increase against decrease;
+  - higher, upper, more and above against lower, less and below;
+  - permit, permitted, allow and allowed against prohibit and prohibited;
+  - mandatory and required against optional;
+  - accept, accepted, approve and approved against reject and rejected;
+  - grant against deny;
+  - unlimited against limited.
+- The words of a party term stay as they are, in any case. So a mutual clause, the same obligation stated for each party, never pairs when it names its parties by a role word or a defined term.
+- A signature needs at least five tokens. Two sentences with the same signature are flagged when their negation parity or their polar sides differ. At most 50 comparisons are made per signature, the earliest pairs first.
+- A flag is keyed by its two paragraph numbers, the lower first; both may be the same paragraph. It records `inSource`, `inClean` and `addressedBy` (edits in either paragraph).
+- Counts: `inversionSource`, `inversionUnaddressed` and `inversionIntroduced`, as in (4).
+
+(7) Bounds, determinism and failure.
+- Every cap is a size, never a time:
+  - 20,000 characters per paragraph and 2,000,000 per view;
+  - 200 rows of at most 200-character labels;
+  - 5,000 sentences per rule pass;
+  - 50 comparisons per signature;
+  - 64 party terms;
+  - a 2,000-character C1 window;
+  - 4 values per side;
+  - 40 entries per list.
+- Caps take items in document order. Every list is sorted by an explicit, tie-free key before it is cut:
+  - numeric by (table, row, paragraph);
+  - edits by (the integer in the id, the id), so E1 and E01 cannot tie;
+  - clauses by the two paragraph numbers.
+
+  Ids are sorted the same way. No output depends on set iteration, time or hash seeds. This matters because the agent's run and the check's re-derivation are separate `python3 -I` processes, whose string hashing is randomized: a time- or order-dependent output would fail `output_differs` and brick every review.
+- The counts cover every flag found within the read caps, before the 40-entry cut, and `read` says when a cap was reached.
+- Each rule runs in its own try: a rule that raises leaves only its own list empty, with its `error`.
+- The whole step (the lxml input builder, every rule and the serializer) runs inside one more try, whose fallback is built from constants: version, rules, zero counts, empty lists and the top-level `error`.
+- A deadline (`PlanError`) and a `MemoryError`, which depends on the machine rather than the document, are re-raised, never recorded. The rules never call the deadline themselves, and the applier's existing deadline check before it writes its outputs still applies, so a document that takes too long still ends `source_too_complex`, as today.
+
+(8) The check. Its OUTPUTS and its byte-for-byte comparison gain `output/review-flags.json`. A hand-edited flags file fails `output_differs`, and a missing one fails `artifact_missing`, as for the other outputs. Nothing in the flags' content can fail the check, and every other verdict is unchanged.
+
+(9) TypeScript.
+- A new leaf module, src/main/private-agent/document-review-flags.ts, which imports zod only, exports `DOCUMENT_REVIEW_FLAGS_PATH`, `DOCUMENT_REVIEW_FLAGS_VERSION`, `DOCUMENT_REVIEW_FLAG_RULES`, the counts, codes, units and caps, and `DocumentReviewFlagsSchema`. So 7d.B and 7d.C read the file without loading the applier.
+- `DOCUMENT_REVIEW_ARTIFACTS` gains the file with the description: "Host flags for the owner's attention, written only by the applier in step 3; never write or edit it. A flag never fails the check; the file is compared byte for byte like the other outputs."
+- The instructions' step 3 names the file and says to re-run the applier once more before finishing if any output is missing.
+- The applier's docstring lists the file.
+- `repairDraftPaths` includes the file through the artifact list, so repair drafts and the critic packet carry it. scripts/phase2-blind.py is unchanged, so blind bundles exclude it.
+
+Changes: Planned in this pull request:
+- src/main/private-agent/document-review.ts: the rules literal, the applier's input builder and output, the check, the artifact list, the instructions and the docstring.
+- src/main/private-agent/document-review-flags.ts (new): the leaf module.
+- tests/unit/document-review-flags.test.ts (new). It runs the literal under `python3 -I` on synthetic paragraphs, writing the exact bytes the applier writes, and covers:
+  - N1: a positive, a unit mismatch, an absent label, equal values, header units, excluded references and years, a scale word, and flags introduced, resolved and addressed;
+  - C1: each code, a neutral edit, a comment, and raw offsets past a double space;
+  - C2: a negation pair, a polar pair, and mutual clauses left unflagged;
+  - the 40-entry cut and the counts;
+  - the read caps, with a time bound at the caps;
+  - the error records;
+  - byte-identical output across separate processes and hash seeds;
+  - schema validation of every output;
+  - the static checks: Python 3.9 syntax, the import allow-list, the name prefixes, names disjoint from the applier's, the applier importing with a stub lxml and keeping its own names, ASCII, and no atomic or possessive syntax;
+  - a mirror of the constants against the TypeScript exports.
+- tests/unit/document-review.test.ts: the six artifact paths pinned as literals, the reserved path, the literal embedded before the main guard, Python 3.9 syntax, and the size bound unchanged.
+- tests/unit/phase2-repair.test.ts: the draft paths.
+- tests/unit/phase2-blind.test.ts: a mirror test that the blind tuple is the artifact list minus the flags file.
+- tests/helpers/document-review-fixtures.ts and tests/integration/private-agent-document-review.test.ts (Docker-gated): a fixture with a fee table its prose contradicts and two clauses a negation apart. It checks the file and the stdout counts, that there is no `error`, that the check passes, that a tampered file gives `output_differs` and a removed one `artifact_missing`, and `cmp` determinism; the existing determinism test also compares the flags file.
+- README.md: the document-review row names the flags.
+
+Consequences:
+- `DOCUMENT_REVIEW_APPLIER_SHA256` and the check's embedded applier change, so every document-review phase identity changes (sessionPhaseIdentity digests the contract and the checks). The headless source freeze, which hashes every file under src/main/private-agent/, changes for every headless run. So no E2, E3 or E6 run may span the merge.
+- The flags' cost counts against the applier's 30-second deadline. The rules are linear in the document, and the Implemented entry records their measured cost at the caps.
+- The agent can read the file and its counts, so it may change its plan in response (see Q2).
+- A task's own required artifacts may number at most 24 instead of 25, under the contract's cap of 30.
+- A draft made before this change lacks the file. A repair passes only after the agent re-runs the applier, which step 3 now asks for.
+- The file counts as one deliverable in H4's artifacts step, like the other applier outputs, though its content never feeds selection. It takes a share of the critic packet; its values are compact strings.
+- Document review runs only in the headless driver today, so no desktop task is affected. Historical runs and bundles stay valid evidence of the applier they recorded.
+- The research protocol hash, claims.ts, the research files, runner.ts and repair.ts are untouched.
+
+Evidence: The design was reviewed before this commit through three adversarial lenses: determinism, contract and replay safety; downstream consumers and tests; specification fidelity. Their confirmed findings are applied above:
+- per-rule and whole-step failure isolation, covering the lxml builder;
+- determinism invariants with tie-free keys and a seed sweep;
+- linear-time rules, a clipped C1 window and one compiled party pattern;
+- the name prefixes and disjointness checks;
+- the number grammar: punctuation commas, ranges, restatements, scale words, references right before a number, bounded digits and safe lookups;
+- the longest label;
+- polar classes, and Disclosing and Receiving;
+- raw C1 offsets;
+- masked fields;
+- the `read` caps;
+- the exact schema in a leaf module;
+- the artifact description;
+- the re-run instruction;
+- the blind-bundle mirror test;
+- the README row.
+
+A scratch prototype of the rules, timed on this Mac under Python 3.9, took:
+- 0.6 s on a label-only table of 8,000 rows;
+- 2.6 s on a 2.2-million-character document in which every sentence names 200 labels;
+- 0.1 s on a 60,000-character paragraph with 199 edits and 100 defined terms;
+- 0.5 s on a typical 1.9-million-character contract.
+
+These are design inputs, not this entry's evidence.
+
+Failures or blockers: None in recording. Open for the owner, each with the proposed default this pull request implements and none blocking the code:
+- Should v1 include a table-arithmetic rule, flagging a total or subtotal row that is not the sum of the same-unit values above it (the fee-arithmetic miss of BL-20261019-0838)? Proposed default: not in v1. A later entry may add it as rule N2, with its own tests and a rules version bump, and with a decision on the command-size budget it needs.
+- E6's card (#54): may the review agent, the S11 local critic, the Phase 2 H arm's cloud critic and blind graders see `output/review-flags.json`, and does E6 pre-register flag recall on its planted defects? Proposed default:
+  - the agent and the critics see it, since it is an applier output and a repair draft path;
+  - blind bundles exclude it;
+  - E6 records no flag measure unless its card adds one;
+  - the flags' content never feeds host selection.
+
+  The agent's own summary may restate the flags, so graders could see their content indirectly. If E6's card bars a critic from the file, that needs a later change to repair.ts.
+
+The entry itself decides that number words count, only directly before a unit, as in (3), because contracts often spell durations; the owner may override it.
+
+Limitations and non-claims:
+- This entry decides; nothing is implemented or verified by it.
+- The rules are heuristics with false positives and false negatives. They are for the owner's attention only, and every rule change bumps its version in a new entry. Rules v1 are fixed by `REVIEW_FLAGS_PY` as this pull request merges it, and its sha256 is recorded in the `Implemented` entry, before E6's fixtures (#54) exist.
+- N1 reads a sentence that names two labels against both rows. A row whose first cell is a number, or carries a footnote digit (NFKC turns ¹ into 1), never qualifies.
+- C2 finds only contradictions inside one document, not a clause inverted against market norms. A one-sided clause already present in the source is not an inversion. Merged cells (gridSpan, vMerge) can misalign a column header. Scale words, calendar days and amounts with the currency after the number ("500 USD") are not read.
+- This pull request does not test the hypothesis on real defects. E6 records no flag measure by default.
+- Tuning leakage: no implementer reads E6's planted-defect gold, the f1-f3 or E4 gold, the Phase 2 d-task gold or the frozen briefs. Every fixture is synthetic. The rule classes come from defect classes recorded in earlier entries, so flag recall on those tasks would not be an unbiased measure.
+- CI has no lxml, and its runners' python3 is not the image's 3.11 (this Mac runs 3.9). So the applier's full path (the units, the file and the check) runs only in the Docker-gated suite on the owner's Mac, with the qualified image (sha256:e5c7075f…) present locally. Until that run is recorded in a `Verified` entry, the review flags are `Implemented`, not `Verified`. The command is `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true pnpm exec vitest run tests/integration/private-agent-document-review.test.ts`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation in this pull request and its `Implemented` entry, with:
+- green `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` and `pnpm validate:readiness`;
+- the changed tests and the full `pnpm exec vitest run`;
+- the check command measured under its unchanged bound.
+
+Then review, CI, a merge, and the owner's Docker-gated run with its `Verified` entry. 7d.B reads the leaf module and merges after this pull request. If another entry merges first, this entry's ID is re-stamped after main's tail with a correction entry.
+
+References: docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E6 and section 5.7 item 7(d); docs/HANDOFF.md "Start here"; BL-20261007-1448-pr-i-document-review-dry-run; BL-20261019-0838-phase2-repair-pair-and-close; BL-20261107-1111-stop-bricking-tasks-docker-suite-verified; BL-20261108-0904-owner-verdict-capture-design; GitHub issues #46 and #54.

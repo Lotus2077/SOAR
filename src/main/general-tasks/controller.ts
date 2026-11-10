@@ -629,7 +629,8 @@ export class GeneralTaskController {
         this.consultationManager(record, contextId).decide(decision);
       } else if (active?.consultation) active.consultation.decide(decision);
       else decideWithoutDispatch(this.runtime, input.id, { ...decision, decision: input.decision });
-      if (!active) { record.status = "paused"; record.reason = "consultation_ready"; this.save(record); }
+      // Backlog item 6 (6.3): a decision is recorded either way, but it never re-opens a record a terminal stop ended (a damaged storage, say).
+      if (!active && (record.status === "paused" || isResumableRunReason(record.reason))) { record.status = "paused"; record.reason = "consultation_ready"; this.save(record); }
     });
     this.consultationPreviews.delete(input.id);
     this.publish(input.id); return this.get(input.id);

@@ -1385,35 +1385,61 @@ describe("desktop general-task host controller", () => {
     expect(f.controller.get(task.id)).toMatchObject({ canResume: true });
   });
 
+  const SOURCE_URL = "https://public.example.test/facts";
+  /** A web task whose first run retains one public source, then ends as `end` says: a runtime failure first deletes the source's blob, and
+   * "submitted" hands over to the fixture's own runner. */
+  function sourcedTask(f: ReturnType<typeof fixture>, end: "paused" | "incomplete" | "submitted", bytes: Buffer) {
+    const original = f.options.testing!.runnerFactory!;
+    f.options.testing!.runnerFactory = args => ({ pause() {}, cancel() {}, async run(signal) {
+      const { store, jobId, contextId, checkpoints } = args;
+      const { text: _text, ...preview } = args.broker.preview({ jobId, contextId, destinationId: "desktop_web_1", purpose: "public source retrieval", method: "GET", url: SOURCE_URL, maxFeeMicrousd: 0 });
+      const row = store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_for_synthetic_local_test" } }, () => {});
+      store.settle(row.id, 0, digest(bytes));
+      retainPublicSource(store, checkpoints, { jobId, contextId, url: SOURCE_URL, bytes, receipt: store.dispatch(row.id) });
+      if (end === "submitted") return original(args).run(signal);
+      f.executions.push(args);
+      const snapshot = checkpoints.save([...args.files]);
+      store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
+      store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
+      if (end === "incomplete") rmSync(blobPath(f, jobId, digest(bytes)));
+      return end === "paused" ? { status: "paused", reason: "checkpoint_saved", snapshot, checks: [], modelCalls: 0 } :
+        { status: "incomplete", reason: "runtime_failure_progress_preserved", snapshot, checks: [], modelCalls: 0 };
+    } });
+    return f.controller.create({ goal: "Summarize the source.", inputSelectionId: f.controller.selectInputs([f.input]).id, outputName: "memo.md", publicOrSynthetic: true,
+      publicSources: { urls: [SOURCE_URL], allowPublicRetrieval: true, dnsResolver: "system" } });
+  }
   it("backlog item 6 (6.3): a damaged public-source blob ends the task, and get(), list() and resume() still answer for it and every other task", async () => {
-    const url = "https://public.example.test/facts";
-    const sourced = (f: ReturnType<typeof fixture>, end: "paused" | "incomplete", bytes: Buffer) => {
-      f.options.testing!.runnerFactory = args => ({ pause() {}, cancel() {}, async run() {
-        f.executions.push(args);
-        const { store, jobId, contextId, checkpoints } = args;
-        const { text: _text, ...preview } = args.broker.preview({ jobId, contextId, destinationId: "desktop_web_1", purpose: "public source retrieval", method: "GET", url, maxFeeMicrousd: 0 });
-        const row = store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_for_synthetic_local_test" } }, () => {});
-        store.settle(row.id, 0, digest(bytes));
-        retainPublicSource(store, checkpoints, { jobId, contextId, url, bytes, receipt: store.dispatch(row.id) });
-        const snapshot = checkpoints.save([...args.files]);
-        store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
-        store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
-        rmSync(blobPath(f, jobId, digest(bytes)));
-        return end === "paused" ? { status: "paused", reason: "checkpoint_saved", snapshot, checks: [], modelCalls: 0 } :
-          { status: "incomplete", reason: "runtime_failure_progress_preserved", snapshot, checks: [], modelCalls: 0 };
-      } });
-      return f.controller.create({ goal: "Summarize the source.", inputSelectionId: f.controller.selectInputs([f.input]).id, outputName: "memo.md", publicOrSynthetic: true,
-        publicSources: { urls: [url], allowPublicRetrieval: true, dnsResolver: "system" } });
-    };
     for (const end of ["incomplete", "paused"] as const) {
-      const f = fixture(), plain = f.create(), task = sourced(f, end, Buffer.from(`retained public bytes ${end}`));
+      const f = fixture(), plain = f.create(), bytes = Buffer.from(`retained public bytes ${end}`), task = sourcedTask(f, end, bytes);
       f.controller.start(task.id); await f.controller.wait(task.id);
       // A runtime failure is scanned and stored terminal; a pause is not scanned, and get() itself names the damage.
+      if (end === "paused") rmSync(blobPath(f, task.id, digest(bytes)));
       expect(storedRecord(f, task.id).reason).toBe(end === "incomplete" ? "task_integrity_failed" : "paused");
       expect(f.controller.get(task.id)).toMatchObject({ canResume: false, reason: INTEGRITY, sources: [] });
       expect(f.controller.list().map(item => item.id).sort()).toEqual([plain.id, task.id].sort());
       expect(f.controller.get(plain.id)).toMatchObject({ status: "queued" });
       expect(() => f.controller.resume(task.id)).toThrow("general_task_resume_denied");
     }
+  });
+
+  it("backlog item 6 (6.3): get()'s source read fails closed: an unreadable blob only empties the sources, damage names itself past the time limit, and a submitted task keeps its outcome", async () => {
+    const f = fixture(), bytes = Buffer.from("retained public bytes, unreadable"), task = sourcedTask(f, "paused", bytes);
+    f.controller.start(task.id); await f.controller.wait(task.id);
+    const healthy = f.controller.get(task.id);
+    expect(healthy).toMatchObject({ status: "paused", canResume: true }); expect(healthy.sources).toHaveLength(1);
+    // A permission error is environmental: the sources are left out, and nothing else changes.
+    const path = blobPath(f, task.id, digest(bytes)); chmodSync(path, 0o000); cleanup.push(() => { try { chmodSync(path, 0o600); } catch { /* removed below */ } });
+    expect(f.controller.get(task.id)).toMatchObject({ status: "paused", canResume: true, reason: healthy.reason, sources: [] });
+    chmodSync(path, 0o600); rmSync(path);
+    // Damage is a permanent stop, named before the time limit.
+    const late = vi.spyOn(Date, "now").mockReturnValue(Date.now() + GENERAL_TASK_LIMITS.elapsedMs + 1);
+    expect(f.controller.get(task.id)).toMatchObject({ canResume: false, reason: INTEGRITY }); late.mockRestore();
+    // A submitted task keeps its outcome; only its sources are left out.
+    const g = fixture(), done = Buffer.from("retained public bytes, submitted"), submitted = sourcedTask(g, "submitted", done);
+    g.controller.start(submitted.id); await g.controller.wait(submitted.id);
+    const before = g.controller.get(submitted.id);
+    expect(before.status).toBe("submitted");
+    rmSync(blobPath(g, submitted.id, digest(done)));
+    expect(g.controller.get(submitted.id)).toMatchObject({ status: "submitted", reason: before.reason, canResume: false, sources: [] });
   });
 });

@@ -53,10 +53,25 @@ describe("backlog item 6, plan 6.3: the blobs a private context's records refere
     expect(s.failed()).toBe(true);
   });
 
-  it("ends when a consultation response no longer matches its recorded content digest, or names no file", () => {
+  it("ends when a consultation response no longer matches its recorded content digest, and leaves a response it cannot read alone", () => {
     const s = storage(), response = s.events.at(-1)!;
     expect(s.failed([...s.events.slice(0, -1), { ...response, contentSha256: digest("other advice") }])).toBe(true);
-    expect(s.failed([...s.events.slice(0, -1), { ...response, response: [] }])).toBe(true);
+    // No file, or no digest: the runner never loads such a response (it reads as uncertain), so the scan skips it.
+    expect(s.failed([...s.events.slice(0, -1), { ...response, response: [] }])).toBe(false);
+    const { contentSha256: _digest, ...undigested } = response;
+    expect(s.failed([...s.events.slice(0, -1), undigested])).toBe(false);
+  });
+
+  it("finds a missing blob behind an unreadable one in the same snapshot, in either order, and reads each blob once even then", () => {
+    const s = storage(), unreadable = s.blob(s.workspace[0]!.sha256), shared = s.workspace[1]!;
+    chmodSync(unreadable, 0o000); cleanups.push(() => chmodSync(unreadable, 0o600));
+    const lost = s.checkpoints.save([{ path: "output/lost.md", bytes: Buffer.from("lost bytes") }])[0]!;
+    rmSync(s.blob(lost.sha256));
+    for (const rows of [[s.workspace[0]!, lost], [lost, s.workspace[0]!]]) expect(s.failed([{ type: "checkpoint", contextId: "private", snapshot: rows }])).toBe(true);
+    // Five snapshots share a blob that sits behind the unreadable one: it is still read once.
+    const load = vi.spyOn(s.checkpoints, "load");
+    expect(s.failed(Array.from({ length: 5 }, () => ({ type: "checkpoint", contextId: "private", snapshot: [s.workspace[0]!, shared] })))).toBe(false);
+    expect(load.mock.calls.filter(([rows]) => (rows as WorkspaceSnapshot).some(row => row.sha256 === shared.sha256))).toHaveLength(1);
   });
 
   it("leaves an environmental error, an unreadable record and another context's records alone", () => {

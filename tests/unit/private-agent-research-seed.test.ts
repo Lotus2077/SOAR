@@ -260,3 +260,48 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     expect(() => researchTransferPhase({ ...base, files: [...base.files, { path: RESEARCH_FILES.summary, bytes: Buffer.from("x") }] }, produced)).toThrow("research_transfer_collision");
   });
 });
+
+describe("E1 recoverability: retried and skipped rows through the producer and the seed (S2, S4)", () => {
+  const session = () => ({ kind: "session" as const, jobId, contextId, brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), files: produced });
+  const stageOf: Readonly<Record<string, string>> = { "research source index": "index", "research plan": "plan", "research evidence extraction": "extract", "research synthesis": "synthesise" };
+  /** The settled row's packet as an earlier attempt a D4 retry superseded: no response, no fee, the close that ended it. */
+  const superseded = (row: Record<string, unknown>, id: string, attempt: number): Record<string, unknown> => {
+    const { responseSha256: _response, feeMicrousd: _fee, ...packet } = row;
+    return { ...packet, id, status: "superseded", failure: { phase: "transport", code: "upstream_closed", attempt, elapsedMs: 12, timeoutMs: 900000 } };
+  };
+  /** The producer validates against the ledger, the seed loads read-only, and the transfer status names its snapshot with no code. */
+  const seeds = (rows: Record<string, unknown>[], producer: ResearchProducer) => {
+    expect(validateResearchProducer(producer, { jobId, files: produced, receipts: rows, input: researchInput() })).toEqual(producer);
+    const dir = sourceRun({ receipts: () => rows, producer: () => producer }), before = digest(readFileSync(join(dir, "state.sqlite"))), names = readdirSync(dir);
+    const loaded = loadResearchSeed(dir, task);
+    expect(loaded.seed.producer).toEqual(producer); expect(loaded.files).toEqual(produced);
+    expect(researchTransferPresent(dir)).toBe(true); expect(researchTransferStatus(dir)).toEqual({ snapshotSha256: loaded.seed.snapshotSha256, code: null });
+    expect(digest(readFileSync(join(dir, "state.sqlite")))).toBe(before); expect(readdirSync(dir)).toEqual(names);
+  };
+  it("binds a superseded row before each stage's first call, two before the plan's (D4's three attempts), all uncounted, and the seed loads with code null", () => {
+    const retried = receipts.flatMap((row, i) => {
+      if (receipts.findIndex(other => other.purpose === row.purpose) !== i) return [row];
+      const attempts = row.purpose === "research plan" ? [1, 2] : [1];
+      return [...attempts.map(attempt => superseded(row, `${row.id as string}-attempt-${attempt}`, attempt)), row];
+    });
+    const producer = createResearchProducer({ ...session(), receipts: retried });
+    expect(producer.receipts.map(binding => binding.id)).toEqual(retried.map(row => row.id));
+    expect(producer.receipts.filter(binding => binding.status === "superseded").map(binding => binding.stage)).toEqual(["index", "plan", "plan", "extract", "synthesise"]);
+    expect(producer.receipts.filter(binding => binding.status === undefined).map(binding => binding.stage)).toEqual(receipts.map(row => stageOf[row.purpose as string]));
+    seeds(retried, producer);
+  });
+  it("binds a skipped (unknown) assist and a superseded local attempt in one stage, both uncounted beside the stage's settled call, and the seed loads with code null", () => {
+    // Local-first (backlog item 10): the plan assist timed out and stayed unknown, then the local planner's first attempt was cut and retried (D4).
+    const plan = receipts.findIndex(row => row.purpose === "research plan"), row = receipts[plan]!;
+    const { responseSha256: _response, feeMicrousd: _fee, ...packet } = row;
+    const assist = { ...packet, id: "receipt-plan-assist", purpose: PLAN_ASSIST_PURPOSE, status: "unknown", destinationId: "cloud-assist", reservedFeeMicrousd: 160000,
+      failure: { phase: "transport", code: "request_timeout", attempt: 1, elapsedMs: 900000, timeoutMs: 900000 } };
+    const retry = superseded(row, "receipt-plan-retried", 1), rows = [...receipts.slice(0, plan), assist, retry, ...receipts.slice(plan)];
+    const producer = createResearchProducer({ ...session(), receipts: rows });
+    expect(producer.receipts.filter(binding => binding.stage === "plan")).toEqual([
+      { id: "receipt-plan-assist", stage: "plan", role: "assist", status: "unknown", sha256: digest(canonical(assist)) },
+      { id: "receipt-plan-retried", stage: "plan", status: "superseded", sha256: digest(canonical(retry)) },
+      { id: row.id, stage: "plan", sha256: digest(canonical(row)) }]);
+    seeds(rows, producer);
+  });
+});

@@ -14,5 +14,7 @@
  * - 925433f9ba8e9c531b51150b769b6bec382331b6d0824d37d151d1f9fdfbea88: its follow-up (BL-20261110-0709): the word-limit
  *   parser reads a part named by a heading or a parenthesis, and more part nouns, as a part's limit, reads no limit when its guards
  *   drop the largest one, and against 7b.1 only ever drops a limit.
+ * - 9066d7de5d1c52e1cb0616a4b68ea157638749810ac5fabbd8863db6a288c6d3: the delta review's rules A (comma chains) and B (the sentence before)
+ *   (BL-20261110-0848): a part named there marks a part's limit too.
  */
-export const RESEARCH_PROTOCOL_SHA256 = "925433f9ba8e9c531b51150b769b6bec382331b6d0824d37d151d1f9fdfbea88";
+export const RESEARCH_PROTOCOL_SHA256 = "9066d7de5d1c52e1cb0616a4b68ea157638749810ac5fabbd8863db6a288c6d3";

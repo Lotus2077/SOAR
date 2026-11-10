@@ -84,7 +84,19 @@ const LIMIT_PATTERNS = Object.freeze([
  *   ("each", "per", "every") is never cancelled. So against 7b.1 the correction only drops limits: on every brief it reads
  *   7b.1's limit or none.
  * - Question, reference and footnote are no part nouns: "Answer the research question in at most 1,000 words" and "under 900
- *   words excluding references" limit the report, and "each" and "every" already mark a per-question limit.
+ *   words excluding references" limit the report; "each", "every" and "per" mark a per-question limit within the clause, its
+ *   comma chain and the sentence before (below).
+ *
+ * Correction BL-20261110-0848 (the delta review of PR #69, rules A and B; each only adds a reason to drop a limit):
+ * - A, `commaChain`: a clause opened by a comma belongs to its comma chain. Under a heading opener on the same line
+ *   ("Abstract (required, max 150 words)", "Executive summary: one page, no more than 200 words") the heading is read as if the
+ *   clause opened there; and a distributive anywhere in the chain on the same line ("For each source, write up to 150 words")
+ *   marks a part's limit. Part nouns in the chain are not read: "An abstract of up to 150 words, then a report of 1,200-1,800
+ *   words" keeps 1,800.
+ * - B, `previousSentence`: when a limit opens its sentence, or a `referring` word stands before it in the sentence, the sentence
+ *   before it is read (sentences end at ".", ";", "!", "?" or a line break), and a part noun or a distributive there marks a
+ *   part's limit ("Include an abstract. Max 150 words.", "Start with an executive summary. Keep it under 200 words."). The
+ *   "word limit N" phrasing is exempt: it names the document's limit.
  */
 const CLAUSE_GUARDS = Object.freeze({ delimiters: ",;.!?:()", headingOpeners: ":(", headingEnds: ".;!?", headingEndsAtLineBreaks: true, windowWords: 4,
   negators: Object.freeze(["no", "not", "never", "nothing", "nor", "cannot"]), negatorSuffix: "n't",
@@ -95,7 +107,10 @@ const CLAUSE_GUARDS = Object.freeze({ delimiters: ",;.!?:()", headingOpeners: ":
   addedParts: Object.freeze(["section", "sections", "introduction", "introductions", "conclusion", "conclusions", "appendix", "appendices", "method", "methods",
     "quote", "quotes", "quotation", "quotations"]),
   headingParts: Object.freeze(["overview", "overviews", "background", "results", "discussion", "findings", "recommendations", "limitations"]), headingPartsMaxWords: 4,
-  exclusions: Object.freeze(["excluding", "including", "except", "without", "excl", "incl"]), exclusionsOnlyOpeningParenthesis: Object.freeze(["including", "incl"]) });
+  exclusions: Object.freeze(["excluding", "including", "except", "without", "excl", "incl"]), exclusionsOnlyOpeningParenthesis: Object.freeze(["including", "incl"]),
+  commaChain: "heading_opener_and_distributives_same_line",
+  referring: Object.freeze(["it", "its", "this", "that", "these", "those", "they", "them", "there"]),
+  previousSentence: "parts_and_distributives_when_the_limit_opens_its_sentence_or_follows_a_referring_word_except_word_limit" });
 
 /**
  * The synthesis length cap (D13): an explicit word limit stated in the brief wins over the default; the largest stated limit
@@ -161,7 +176,11 @@ interface ClauseToken { start: number; end: number; word: string }
  * line breaks.
  */
 interface ClauseIndex { text: string; delimiters: number[]; sentenceEnds: number[]; headingEnds: number[]; tokens: ClauseToken[]; tokenStarts: number[];
-  distributivesBefore: number[]; partsBefore: number[]; liveParts: number[]; liveHeadingParts: number[] }
+  distributivesBefore: number[]; partsBefore: number[]; liveParts: number[]; liveHeadingParts: number[];
+  /** Rule A: for each delimiter, the index of the delimiter that opened its comma chain (itself unless it is a comma), or -1. */
+  anchors: number[]; lineBreaks: readonly number[];
+  /** Rule B: the referring words among the first k words. */
+  referringBefore: number[] }
 function indexClauses(text: string, lineBreaks: readonly number[]): ClauseIndex {
   const delimiters: number[] = [], sentenceEnds: number[] = [], tokens: ClauseToken[] = [];
   for (let i = 0, start = -1; i <= text.length; i++) {
@@ -173,11 +192,12 @@ function indexClauses(text: string, lineBreaks: readonly number[]): ClauseIndex 
   }
   const merge = (a: readonly number[], b: readonly number[]) => [...a, ...b].sort((x, y) => x - y);
   // An exclusion's scope ends at the next delimiter or line break.
-  const boundaries = merge(delimiters, lineBreaks), distributivesBefore = [0], partsBefore = [0], liveParts = [0], liveHeadingParts = [0];
+  const boundaries = merge(delimiters, lineBreaks), distributivesBefore = [0], partsBefore = [0], liveParts = [0], liveHeadingParts = [0], referringBefore = [0];
   let scopeEnd = -1;
   for (const token of tokens) {
     const live = token.start >= scopeEnd, part = isPart(token.word);
     distributivesBefore.push(distributivesBefore.at(-1)! + (CLAUSE_GUARDS.distributives.includes(token.word) ? 1 : 0));
+    referringBefore.push(referringBefore.at(-1)! + (CLAUSE_GUARDS.referring.includes(token.word) ? 1 : 0));
     partsBefore.push(partsBefore.at(-1)! + (part ? 1 : 0));
     liveParts.push(liveParts.at(-1)! + (part && live ? 1 : 0));
     liveHeadingParts.push(liveHeadingParts.at(-1)! + (live && CLAUSE_GUARDS.headingParts.includes(token.word) ? 1 : 0));
@@ -188,8 +208,11 @@ function indexClauses(text: string, lineBreaks: readonly number[]): ClauseIndex 
       }
     }
   }
+  // One pass: a comma continues the chain of the delimiter before it; any other delimiter opens a chain of its own.
+  const anchors: number[] = [];
+  for (let i = 0; i < delimiters.length; i++) anchors.push(text[delimiters[i]!] === "," ? (i ? anchors[i - 1]! : -1) : i);
   return { text, delimiters, sentenceEnds, headingEnds: merge(sentenceEnds, lineBreaks), tokens, tokenStarts: tokens.map(token => token.start),
-    distributivesBefore, partsBefore, liveParts, liveHeadingParts };
+    distributivesBefore, partsBefore, liveParts, liveHeadingParts, anchors, lineBreaks, referringBefore };
 }
 /** The number of sorted values below `value` (strict) or at most `value` (inclusive). */
 function rank(sorted: readonly number[], value: number, inclusive: boolean): number {
@@ -206,7 +229,7 @@ const afterMarksPart = (words: readonly string[]): boolean => {
     || (exclusion < 0 ? words : words.slice(0, exclusion)).some(word => CLAUSE_GUARDS.addedParts.includes(word));
 };
 /** True when the clause around a candidate says it is no upper limit on the report (CLAUSE_GUARDS). */
-function guarded(index: ClauseIndex, start: number, end: number): boolean {
+function guarded(index: ClauseIndex, start: number, end: number, wordLimitPhrase: boolean): boolean {
   const { text, delimiters, tokens, tokenStarts } = index, window = CLAUSE_GUARDS.windowWords;
   const opened = rank(delimiters, start - 1, true), open = opened ? delimiters[opened - 1]! : -1;
   const closed = rank(delimiters, end, false), close = closed < delimiters.length ? delimiters[closed]! : text.length;
@@ -222,17 +245,34 @@ function guarded(index: ClauseIndex, start: number, end: number): boolean {
   const after: string[] = cutAfter ? [strip(text.slice(end, tokens[afterStart - 1]!.end))].filter(Boolean) : [];
   for (let i = afterStart; after.length < window && i < tokens.length && tokens[i]!.start < close; i++) after.push(tokens[i]!.word);
   const afterText = after.join(" ");
+  // Rule A: a clause a comma opens belongs to its comma chain; its heading opener (on the same line) stands in for the comma,
+  // and a distributive in the chain (on the same line) marks a part's limit. The anchors were found once, so this stays linear.
+  const comma = open >= 0 && text[open] === ",", anchor = comma ? index.anchors[opened - 1]! : -1, chainOpen = comma ? (anchor >= 0 ? delimiters[anchor]! : -1) : open;
+  const broken = rank(index.lineBreaks, start, false), lineStart = broken ? index.lineBreaks[broken - 1]! : -1;
+  const headOpen = comma ? (chainOpen > lineStart ? chainOpen : -1) : open;
+  const chained = comma && span(index.distributivesBefore, rank(tokenStarts, Math.max(chainOpen, lineStart), true), first) > 0;
   // A heading: the clause opens at ":" or "(", and the heading is every word from the opener's last word back to a sentence end
   // or line break. A line break between that word and the opener is skipped; a sentence end there leaves no heading.
   let heading = false;
-  const hi = open >= 0 && CLAUSE_GUARDS.headingOpeners.includes(text[open]!) ? rank(tokenStarts, open, false) : 0;
-  if (hi > 0 && rank(index.sentenceEnds, open, false) === rank(index.sentenceEnds, tokens[hi - 1]!.end, false)) {
+  const hi = headOpen >= 0 && CLAUSE_GUARDS.headingOpeners.includes(text[headOpen]!) ? rank(tokenStarts, headOpen, false) : 0;
+  if (hi > 0 && rank(index.sentenceEnds, headOpen, false) === rank(index.sentenceEnds, tokens[hi - 1]!.end, false)) {
     const ended = rank(index.headingEnds, tokens[hi - 1]!.start, false), lo = rank(tokenStarts, ended ? index.headingEnds[ended - 1]! : -1, true);
     heading = span(index.distributivesBefore, lo, hi) + span(index.liveParts, lo, hi) + (hi - lo <= CLAUSE_GUARDS.headingPartsMaxWords ? span(index.liveHeadingParts, lo, hi) : 0) > 0;
   }
+  // Rule B: a limit that opens its sentence, or follows a referring word in it, may belong to a part the sentence before names.
+  let previous = false;
+  const ends = wordLimitPhrase ? 0 : rank(index.headingEnds, start, false);
+  if (ends > 0) {
+    const sentenceFirst = rank(tokenStarts, index.headingEnds[ends - 1]!, true);
+    // The sentence before is the one holding the last word before this sentence: an empty one between ("." then a line break) is skipped.
+    if (sentenceFirst > 0 && ((sentenceFirst >= wholeBefore && !cutWord) || span(index.referringBefore, sentenceFirst, wholeBefore) > 0 || CLAUSE_GUARDS.referring.includes(cutWord))) {
+      const earlier = rank(index.headingEnds, tokens[sentenceFirst - 1]!.start, false), previousFirst = rank(tokenStarts, earlier ? index.headingEnds[earlier - 1]! : -1, true);
+      previous = span(index.distributivesBefore, previousFirst, sentenceFirst) + span(index.partsBefore, previousFirst, sentenceFirst) > 0;
+    }
+  }
   return [...clauseBefore, ...after].some(word => CLAUSE_GUARDS.negators.includes(word) || word.endsWith(CLAUSE_GUARDS.negatorSuffix))
     || CLAUSE_GUARDS.rejections.some(marker => ` ${afterText} `.includes(` ${marker} `))
-    || before || heading || afterMarksPart(after);
+    || before || heading || chained || previous || afterMarksPart(after);
 }
 
 /**
@@ -244,12 +284,13 @@ function guarded(index: ClauseIndex, start: number, end: number): boolean {
 export function briefWordLimit(brief: string): number | undefined {
   const policy = RESEARCH_SYNTHESIS_LENGTH_POLICY, { text, lineBreaks } = normalizeBrief(brief), index = indexClauses(text, lineBreaks);
   let largest: number | undefined, kept = false;
-  for (const pattern of policy.limitPatterns) for (const match of text.matchAll(new RegExp(pattern, "gu"))) {
+  for (const [patternIndex, pattern] of policy.limitPatterns.entries()) for (const match of text.matchAll(new RegExp(pattern, "gu"))) {
     const ends = match.slice(1).filter((group): group is string => group !== undefined).map(parseLimit);
     if (!ends.length || ends.some(end => end === undefined) || ends.some((end, i) => i > 0 && end! < ends[i - 1]!)) continue;
     const limit = ends.at(-1)!;
     if (limit < policy.minimumWords) continue;
-    const unguarded = !guarded(index, match.index, match.index + match[0].length);
+    // LIMIT_PATTERNS[2] is the "word limit N" phrasing, which names the document's own limit: rule B does not read before it.
+    const unguarded = !guarded(index, match.index, match.index + match[0].length, patternIndex === 2);
     if (largest === undefined || limit > largest) { largest = limit; kept = unguarded; } else if (limit === largest && unguarded) kept = true;
   }
   return kept ? largest : undefined;

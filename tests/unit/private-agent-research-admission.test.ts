@@ -140,6 +140,72 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
     for (const lineBreak of ["\r", "\r\n", "\n", String.fromCharCode(0x2028), String.fromCharCode(0x2029), "\v", "\f"])
       expect([lineBreak, briefWordLimit(`Sections: Abstract, Results${lineBreak}Length: at most 2,000 words`)]).toEqual([lineBreak, 2000]);
   });
+  it("rule A: reads no limit from a part named before a comma chain, under a heading opener or after a distributive (BL-20261110-0848)", () => {
+    for (const brief of ["Abstract (required, max 150 words)", "Abstract: concise, at most 150 words", "Executive summary: one page, no more than 200 words",
+      "Executive summary (one page, no more than 200 words)", "Introduction: set the scene, at most 200 words.", "Conclusion: one paragraph, at most 150 words.",
+      "Per source, at most 150 words.", "For each source, write up to 150 words.", "For every study, write at most 150 words.", "For each of the five papers, write no more than 200 words.",
+      "Cover five papers; for each, at most 200 words.", "Each section (required, 300-400 words)", "Three sections; each, at most 300 words."])
+      expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
+  });
+  it("rule B: reads no limit from a part named in the sentence before a limit that opens its sentence or follows a referring word (BL-20261110-0848)", () => {
+    for (const brief of ["Include an abstract. Max 150 words.", "Abstract. At most 150 words.", "Add an abstract.\nMax 150 words.", "Start with an abstract. Keep it under 150 words.",
+      "Start with an executive summary. No more than 200 words.", "Include an executive summary. It should be no more than 200 words.",
+      "Write a 3,000-word report. Include an executive summary. Keep it under 200 words.", "End with a conclusion. Keep it to at most 150 words.", "Include an abstract. (Max 150 words.)",
+      "Each source gets a note. Max 120 words.", "Please include an abstract. It must not exceed 250 words.", "There should be a short introduction. No more than 150 words there. The rest is up to you.",
+      "Add a methods note at the end.\nMaximum 300 words.\n\nThe main report has no length limit.",
+      "Write me a report on the competitor pricing documents. Aim for about 1,500 words. Start with an executive summary; keep that to under 150 words.",
+      "Write the full report. Then write the summary. Under 200 words for that.",
+      "Deliverable 1, the evidence report. No word limit, but be concise.\nDeliverable 2, a summary for the newsletter. No more than 300 words.",
+      "Compare the three vendors' pricing. Begin with an executive summary. It must not exceed 250 words. Then give a detailed analysis.",
+      "Requirements:\n- Include an abstract. Maximum 200 words.\n- Cite every source.", "Abstract; at most 150 words", "Abstract (structured; max 150 words)",
+      "Deliverable 1 \u2014 Evidence report. No word limit, but be concise.\nDeliverable 2 \u2014 Summary for the newsletter. No more than 300 words."])
+      expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
+  });
+  it("still reads the report's limit beside rules A and B: their positive controls", () => {
+    const cases: [string, number][] = [["Write a report on X. Max 2,000 words.", 2000], ["Summarize the paper. Keep it under 500 words.", 500], ["Compare A and B. No more than 900 words.", 900],
+      ["Write a report of at most 3,000 words. Include an executive summary. Keep it under 200 words.", 3000], ["An abstract of up to 150 words, then a report of 1,200-1,800 words.", 1800],
+      ["Write a report on the attached sources. It must not exceed 1,000 words.", 1000], ["Include an abstract. The report must not exceed 2,000 words.", 2000],
+      ["Write a report. Include an abstract. Word limit: 2,000.", 2000], ["Write a report. It must not exceed 2,000 words.", 2000], ["Report: concise, at most 2,000 words", 2000],
+      ["Give each question a 2-3 word label; keep the report under 2,000 words.", 2000],
+      // A comma chain's heading opener counts only on the limit's own line.
+      ["Sections:\nbe concise, at most 2,000 words", 2000]];
+    for (const [brief, limit] of cases) expect([brief, briefWordLimit(brief)]).toEqual([brief, limit]);
+  });
+  it("misses these report limits under rules A and B, as the parse prefers (new known misses)", () => {
+    for (const brief of ["Cite every source, and keep the report under 2,000 words.", "Write a report with an abstract. Max 2,000 words.", "Write a summary of the paper. Max 300 words.",
+      "Answer every question. Keep it under 900 words.", "Write the report. Do not include an abstract. Keep it under 800 words.", "I need a summary of the audit findings for the board. Max 500 words.",
+      "Give each question a 2-3 word label, and keep the report under 2,000 words.", "Write the following sections: introduction, body, and a conclusion, at most 3,000 words in total.",
+      "Include an abstract. This report must not exceed 2,000 words.", "Write the abstract first. (At most 2,000 words.)"])
+      expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
+  });
+  it("still misreads these part limits after rules A and B (known misreads, stated in BL-20261110-0848)", () => {
+    const cases: [string, number][] = [["Abstract, at most 150 words", 150], ["For the abstract, use at most 150 words.", 150], ["- Abstract, 150 words max", 150],
+      ["Max 120 words. That is for the summary.", 120], ["Include an executive summary, and keep it under 200 words.", 200],
+      // Heading-only nouns outside ":" or "(", nouns glued by "/" or an apostrophe, off-list nouns, and a part more than four words after the limit.
+      ["## Results\nUp to 600 words.", 600], ["Keep the discussion under 400 words.", 400], ["Abstract/summary: at most 150 words", 150], ["The abstract's length: at most 150 words", 150],
+      ["Keep the intro under 300 words.", 300], ["TL;DR: at most 120 words.", 120], ["Methodology: at most 400 words", 400], ["Key takeaways: at most 200 words", 200],
+      ["Keep the literature review under 800 words.", 800], ["At most 300 words in the very last conclusion.", 300],
+      // A one-line comma list of parts, an exclusion that cancels every part noun in its heading, and the part in a parenthesis after the limit.
+      ["Overview (max 200 words), findings (max 800 words), recommendations (max 400 words).", 800], ["Write a report without jargon and an abstract (max. 150 words).", 150],
+      ["At most 150 words (abstract).", 150],
+      // A floor stated by its consequence or as a range, a limit of another document, and a companion deliverable.
+      ["Reports under 1,000 words will be penalised.", 1000], ["Write at least 800 to 1,000 words.", 1000],
+      ["For context, the previous consultant's report was capped at 500 words and missed half the issues. Yours should be thorough.", 500],
+      ["Full report please, plus a press release of no more than 400 words.", 400],
+      // Before #69: a digit on the next line makes a range read as its lower end (NUMBER's lookahead); noted for a later PR.
+      ["Word limit: 600-900\n3 sources minimum", 600]];
+    for (const [brief, limit] of cases) expect([brief, briefWordLimit(brief)]).toEqual([brief, limit]);
+    // Report limits still missed on line-structured briefs, with an exclusion off the list, and in phrasings no pattern matches.
+    for (const brief of ["Sections: three\nAt most 900 words", "Word limit (not including the abstract): at most 900 words", "Maximum length: 1,500 words.", "No longer than 1,000 words."])
+      expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
+  });
+  it("pins each rule no test isolated at 5e16e20 (the delta review's surviving mutants)", () => {
+    const cases: [string, number | undefined][] = [["Length (excluding limitations): at most 2,000 words", 2000], ["Write the abstract first. (Overall at most 2,000 words.)", 2000],
+      ["Abstract/max 150 words", undefined], ["Each of the following (max 200 words)", undefined], ["Abstract-max 150 words", undefined], ["each\u2014at most 150 words", undefined],
+      ["not-at most 500 words", undefined], ["At most 500 words/section", undefined], ["Each source: at most 150 words", undefined], ["Background and prior work: up to 600 words", undefined],
+      ["Limit (excluding findings): at most 900 words", 900], ["The abstract should be written in at most 150 words", undefined]];
+    for (const [brief, limit] of cases) expect([brief, briefWordLimit(brief)]).toEqual([brief, limit]);
+  });
   it("misses, rather than misreads, a report limit that sits beside a part noun", () => {
     // Known misses: the default applies (and while the role thinks, 1,200 words binds below these limits anyway).
     for (const brief of ["The report should be at most 3,000 words across all sections.", "Write at most 2,000 words and cite every source.",
@@ -173,6 +239,8 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
     // One long word of punctuation or emoji: 7b.1's two-sided strip backtracked quadratically on it (1.8 to 6.5 s at c7b6093;
     // the one-clause inputs above took 1 to 4 s at 5401d0f).
     oneClause.push(`a${"-".repeat(32766)}b`, `a${String.fromCodePoint(0x1f600).repeat(16382)}b`);
+    // Rules A and B: one long comma chain, thousands of sentences, and thousands of referring words before one limit.
+    oneClause.push(`${"abstract, ".repeat(3276)}at most 150 words`, "Include an abstract. Max 150 words. ".repeat(910), `${"it ".repeat(10922)}max 150 words`, "For each source, at most 150 words. ".repeat(910));
     for (const brief of ["111,".repeat(8192), `between ${"111,".repeat(8190)}`, "\uff11\uff11\uff11\uff0c".repeat(8192), "at most ".repeat(4096), "words ".repeat(5461), ...oneClause]) {
       const started = performance.now(); briefWordLimit(brief); expect(performance.now() - started).toBeLessThan(1000);
     }

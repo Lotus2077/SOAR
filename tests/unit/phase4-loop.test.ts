@@ -534,17 +534,17 @@ describe("E1 recoverability: the harness loop admits retried rows and stops on a
       expect(record.stages.filter(stage => stage.reused).map(stage => stage.stage)).toEqual(name === "b" ? ["a", "b"] : ["a", "b", "critique", "repair"]);
     });
 
-  it("pins a limitation item 11's PR 11.1 flips: a rerun reuses a sample the loop's interrupt cut before it submitted", async () => {
-    // In production the driver's own interrupt handler cancels the sample's session, so the cut sample ends cancelled. Today the rerun reuses it
-    // and never runs it again; 11.1 refuses such a stage on resume with loop_stage_interrupted instead.
+  it("pins the limitation item 11's PR 11.1 flipped: a rerun refuses, with loop_stage_interrupted, a sample the loop's interrupt cut before it submitted", async () => {
+    // In production the driver's own interrupt handler cancels the sample's session, so the cut sample ends cancelled. Before 11.1 the rerun reused it
+    // and never ran it again; since 11.1 the rerun refuses such a stage with loop_stage_interrupted, runs nothing and keeps the stage's mark.
     const summaries = candidates(false, { b: { status: "incomplete", reason: "cancelled_or_deadline" } });
     const dir = loopDir(), abort = new AbortController();
     const { deps } = fakes({ summaries, onRun: run => { if (run.outputDirectory.endsWith("/b")) abort.abort(); } });
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, deps, { signal: abort.signal })).rejects.toThrow("loop_interrupted");
     const again = fakes({ summaries });
-    const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, again.deps);
-    expect(again.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["repair"]);
-    expect(record.stages.filter(stage => stage.reused).map(stage => stage.stage)).toEqual(["a", "b"]);
-    expect(record.selected.stage1).toMatchObject({ candidate: "a", step: "submitted" });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, again.deps)).rejects.toThrow("loop_stage_interrupted");
+    expect(again.calls.runs).toHaveLength(0);
+    expect(read(dir)).toMatchObject({ failure: "loop_stage_interrupted", selected: { stage1: null, final: null },
+      stages: [{ stage: "a", reused: true }, { stage: "b", reused: true, interrupted: true }] });
   });
 });

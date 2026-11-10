@@ -355,10 +355,13 @@ describe("H2b/H2c: the research stage inside a session", () => {
     const f = await fixture(), runs: Run[] = [], config = options(f, "job-defensive", runs);
     config.research = { ...config.research!, diagnostics: { retain() {} } };
     const session = new GeneralAgentSession(config), append = f.store.append.bind(f.store), context = f.store.context.bind(f.store);
-    let armed = false;
+    let armed = false, stageBegun = false;
     vi.spyOn(f.store, "append").mockImplementation((jobId, event) => { const out = append(jobId, event); if (event.type === "research_input") armed = true; return out; });
-    vi.spyOn(f.store, "context").mockImplementation(id => { const out = context(id); if (armed) { armed = false; session.pause(); } return out; });
+    // 6.3: the pause lands after the stage's abort controller exists, so the session's own check before the stage has passed.
+    vi.spyOn(f.store, "context").mockImplementation(id => { const out = context(id);
+      if (armed) { armed = false; stageBegun = (session as unknown as { stageAbort?: AbortController }).stageAbort !== undefined; session.pause(); } return out; });
     expect(await session.run()).toMatchObject({ status: "paused", reason: "session_stopped" });
+    expect(stageBegun).toBe(true);
     vi.restoreAllMocks();
     expect(stageEvents(f.store, "job-defensive")).toEqual([]); expect(f.store.dispatches("job-defensive")).toEqual([]);
     const again = options(f, "job-defensive", runs); again.research = { ...again.research!, diagnostics: { retain() {} } };

@@ -189,18 +189,13 @@ def flag_ids(ids):
     return sorted(set(ids), key=lambda i: (int(i[1:]), i))
 
 
-def flag_list(rows, key):
-    rows = sorted(rows, key=key)
-    return {"flags": rows[:FLAG_LIST_MAX], "truncated": len(rows) > FLAG_LIST_MAX}
-
-
-def flag_bounded(texts, read):
+def flag_bounded(texts, clipped):
     out, total = [], 0
-    for text in texts:
+    for number, text in enumerate(texts):
         room = max(0, min(FLAG_PARAGRAPH_CHARS, FLAG_TOTAL_CHARS - total))
         normal = unicodedata.normalize("NFKC", text[:room])
         if len(text) > room or len(normal) > room:
-            read["paragraphsClipped"] += 1
+            clipped.add(number)
         out.append(normal[:room])
         total += len(out[-1])
     return out
@@ -433,7 +428,9 @@ def review_flags(units, source, clean, edits):
         return flag_ids(i for p in paragraphs for i in touched.get(p, []))
     def listed(flags):
         return {"flags": flags[:FLAG_LIST_MAX], "truncated": len(flags) > FLAG_LIST_MAX}
-    bounded_source, bounded_clean = flag_bounded(source, read), flag_bounded(clean, {"paragraphsClipped": 0})
+    clipped = set()
+    bounded_source, bounded_clean = flag_bounded(source, clipped), flag_bounded(clean, clipped)
+    read["paragraphsClipped"] = len(clipped)
     def numeric():
         source_rows, clean_rows = flag_table_rows(units, bounded_source, read), flag_table_rows(units, bounded_clean, read)
         before, after = flag_table_vs_prose(units, bounded_source, source_rows, read), flag_table_vs_prose(units, bounded_clean, clean_rows, read)

@@ -6,9 +6,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { STREAM_BYTES_PER_TOKEN_BOUND, localStreamSettings } from "../../src/main/liveness";
 import { BROKER_MAX_BODY_BYTES, BrokerError, PrivateAgentBroker, STREAM_MAX_RAW_BYTES, SseStreamError, SseTruncated, assembleSseChatCompletion, isPublicAddress, type BrokerDestination, type BrokerRequest, type LocalPacketScanner } from "../../src/main/private-agent/broker";
-import { PrivateAgentStore, SETTLEMENT_SUBCODES, UnknownRequestDiagnosticSchema, isConfirmedAbort, isRetryableAbort, type DispatchReceipt, type UnknownRequestDiagnostic } from "../../src/main/private-agent/store";
+import { PrivateAgentStore, SETTLEMENT_SUBCODES, UnknownRequestDiagnosticSchema, isBlockingDispatch, isConfirmedAbort, isRetryableAbort, type DispatchReceipt, type UnknownRequestDiagnostic } from "../../src/main/private-agent/store";
 import { digest } from "../../src/main/private-agent/contracts";
 import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
+import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { everySupersededRowHasASuccessor, watchWaits } from "../helpers/retry-waits";
 
 const clean: LocalPacketScanner = { scan: async () => ({ complete: true, blocked: false, detector: "deliberate-false-negative-fixture" }) };
@@ -715,6 +716,59 @@ describe("zero-risk failures resolve (backlog item 1 of the 2026-11-05 review)",
       expect(isConfirmedAbort(settlement, true)).toBe(true); expect(isConfirmedAbort(settlement)).toBe(false); expect(isRetryableAbort(settlement)).toBe(false);
     }
     expect(isConfirmedAbort(undefined, true)).toBe(false);
+  });
+});
+
+describe("E1 recoverability: zero-fee bad bodies and eight zero-fee failure modes leave nothing unresolved (S3, gate clause 1)", () => {
+  const local = { kind: "local_model" as const, privateDataAdmitted: true, classification: "public" as const };
+  const reply = JSON.stringify({ model: "synthetic", choices: [{ message: { content: "ready" }, finish_reason: "stop" }], usage: { prompt_tokens: 1, completion_tokens: 1 } });
+  it("resolves two consecutive zero-fee replies that are not JSON as failed settlement rows with sub-code `other` through the real decoder, and admits the next request", async () => {
+    let count = 0;
+    const f = await fixture({ ...local, handler: (_request, response) => { response.setHeader("content-type", "application/json"); response.end(++count <= 2 ? "{\"choices\": [ not json" : reply); } });
+    const model = new PrivateAgentModel(f.broker, { destinationId: "target", model: "synthetic", maxOutputTokens: 256, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" }, "job", "context");
+    const call = () => model.complete([{ role: "user", content: "synthetic" }], [], new AbortController().signal);
+    // The decoder's SyntaxError is not one of the listed sub-codes, so it records `other`; a bad body is never retried.
+    for (let attempt = 0; attempt < 2; attempt++) await expect(call()).rejects.toMatchObject({ code: "request_failed" });
+    expect(f.store.dispatches("job").map(row => [row.status, row.failure])).toEqual([0, 1].map(() =>
+      ["failed", expect.objectContaining({ phase: "settlement", code: "response_or_usage_invalid", subcode: "other" })]));
+    await expect(call()).resolves.toMatchObject({ content: "ready" });
+    expect(f.store.dispatches("job").map(row => row.status)).toEqual(["failed", "failed", "settled"]); expect(f.requests).toHaveLength(3);
+  });
+  it("never leaves a zero-fee row unknown or blocking across eight failure modes in one job, and the next request settles after each", async () => {
+    // The other zero-fee diagnostics (connection_failed, transport_failed and the stream codes) are covered by the zero-risk and stream tests above.
+    type Step = "hang" | "cut" | "oversize" | "invalid" | "rejected" | "interrupted" | "fee" | "cancel" | "ok";
+    const failures: Step[] = ["hang", "cut", "oversize", "invalid", "rejected", "interrupted", "fee", "cancel"];
+    // Each failing request is followed by one that answers, in arrival order.
+    const plan: Step[] = failures.flatMap(step => [step, "ok" as const]);
+    let index = 0, current: Step = "ok", arrived = () => {};
+    const f = await fixture({ ...local, maxResponseBytes: 64, maxRequests: 20, handler: (request, response) => {
+      const step = current = plan[index++] ?? "ok";
+      arrived();
+      if (step === "hang" || step === "cancel") return;
+      if (step === "cut") { request.socket.destroy(new Error("synthetic reset")); return; }
+      if (step === "oversize") { response.end("x".repeat(65)); return; }
+      if (step === "invalid") { response.end("not json"); return; }
+      if (step === "rejected") { response.writeHead(503); response.end(); return; }
+      if (step === "interrupted") { response.writeHead(200, { "content-length": "40" }); response.write('{"ok":'); setTimeout(() => response.socket?.destroy(), 20); return; }
+      response.end('{"ok":true}');
+    } });
+    // The fee step's reply reports a fee on a zero reservation, which the store refuses at settlement.
+    const settle = (bytes: Buffer) => { JSON.parse(bytes.toString("utf8")); return current === "fee" ? 1 : 0; };
+    const zeroFee = { ...f.input, maxFeeMicrousd: 0, purpose: "agent reasoning and tool selection" };
+    const codes: string[] = [];
+    for (const step of failures) {
+      const external = new AbortController();
+      if (step === "cancel") arrived = () => { arrived = () => {}; external.abort(); };
+      const failure = await f.broker.request({ ...zeroFee, signal: external.signal }, settle).then(() => undefined, (error: unknown) => error);
+      expect(failure, step).toBeInstanceOf(BrokerError); expect((failure as BrokerError).code, step).toBe("request_failed");
+      const rows = f.store.dispatches("job");
+      expect(rows.some(row => row.status === "unknown" || row.status === "committed" || isBlockingDispatch(row)), step).toBe(false);
+      codes.push(rows.at(-1)!.failure!.code);
+      // Nothing is unresolved: the next request of the job is admitted and settles.
+      await expect(f.broker.request(zeroFee, settle), step).resolves.toMatchObject({ receipt: { status: "settled" } });
+    }
+    expect(codes).toEqual(["request_timeout", "upstream_closed", "response_oversize", "response_or_usage_invalid", "http_rejected", "response_interrupted", "fee_settlement_failed", "cancelled"]);
+    expect(f.store.dispatches("job").map(row => row.status)).toEqual(failures.flatMap(() => ["failed", "settled"]));
   });
 });
 

@@ -1,5 +1,6 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
+import http from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -9,12 +10,12 @@ import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel, type GeneralMessage, type PrivateModelConfig } from "../../src/main/private-agent/model";
 import { GeneralAgentRunner, type GeneralJobContract, type GeneralJobOptions } from "../../src/main/private-agent/runner";
-import { DockerSandbox, SandboxError, type SandboxErrorCode, type WorkspaceListing } from "../../src/main/private-agent/sandbox";
+import { DockerSandbox, PRIVATE_SANDBOX_LIMITS, SandboxError, WORKSPACE_LISTING_MAX_ENTRIES, WORKSPACE_LISTING_MAX_OMITTED_PATHS, type SandboxErrorCode, type WorkspaceListing } from "../../src/main/private-agent/sandbox";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { LocalTokenAdmissionError, LOCAL_TOKEN_ADMISSION_STOP } from "../../src/main/private-agent/flash-next-admission";
 import { TOOL_ERROR_FEEDBACK } from "../../src/main/private-agent/tool-errors";
 import { BROKER_DENIED_STOP, MODEL_REQUEST_DENIED_STOP, MODEL_REQUEST_SIZE_STOP, PACKET_SCAN_UNAVAILABLE_STOP } from "../../src/main/private-agent/model";
-import { workspaceListing } from "../helpers/workspace-listing";
+import { listedByLister, workspaceListing } from "../helpers/workspace-listing";
 import { EXECUTION_OBSERVATION_MAX_BYTES, EXECUTION_OBSERVATION_BUDGET_BYTES, verifyExecutionObservations } from "../../src/main/private-agent/observations";
 import { EXECUTION_PROGRESS_STOP, readExecutionProgressStop } from "../../src/main/private-agent/progress";
 import { CLAIMS_LEDGER_CHECK_ID, claimsLedgerCheck } from "../../src/main/private-agent/claims";
@@ -28,7 +29,7 @@ type Action = { name: string; arguments: string; outputTokens?: number; reply?: 
 const write: Action = { name: "execute", arguments: '{"command":"write result"}' };
 const finish: Action = { name: "finish", arguments: '{"summary":"Artifacts are ready for host checks."}' };
 
-function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "maxModelCalls" | "maxToolCalls" | "maxElapsedMs">> & { maxRequests?: number; checkExitCode?: number; toolStdout?: string; claimsLedger?: boolean; phase?: SessionPhase; priced?: boolean } = {}) {
+function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "maxModelCalls" | "maxToolCalls" | "maxElapsedMs">> & { maxRequests?: number; checkExitCode?: number; toolStdout?: string; toolStderr?: string; claimsLedger?: boolean; phase?: SessionPhase; priced?: boolean } = {}) {
   const directory = mkdtempSync(join(tmpdir(), "soar-runner-budget-"));
   cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
   const dbPath = join(directory, "state.sqlite"), db = new Database(dbPath); cleanup.push(() => db.close());
@@ -61,6 +62,7 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
   let beforeListFiles: () => void = () => {};
   let beforeClose: () => void = () => {};
   let listingExtra: Partial<WorkspaceListing> = {};
+  let lister: ((contents: Map<string, Buffer>) => WorkspaceListing) | undefined;
   const create = vi.spyOn(DockerSandbox, "create").mockImplementation(async input => {
     clock += 25;
     const contents = new Map(input.files.map(file => [file.path, Buffer.from(file.bytes)]));
@@ -81,8 +83,8 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
         throw new SandboxError(code);
       }
       afterExecute(command);
-      return { exitCode: command.startsWith("fail ") ? 1 : command.includes("python3 -I -c") ? limits.checkExitCode ?? 0 : 0, stdout: limits.toolStdout ?? "synthetic evidence", stderr: "" };
-    }, async listFiles() { guard(); beforeListFiles(); return workspaceListing(contents, listingExtra); },
+      return { exitCode: command.startsWith("fail ") ? 1 : command.includes("python3 -I -c") ? limits.checkExitCode ?? 0 : 0, stdout: limits.toolStdout ?? "synthetic evidence", stderr: limits.toolStderr ?? "" };
+    }, async listFiles() { guard(); beforeListFiles(); return lister ? lister(contents) : workspaceListing(contents, listingExtra); },
     async readFile(path: string) { guard(); return Buffer.from(contents.get(path)!); },
     async editFile(mode: "write" | "append" | "replace", path: string, payload: Buffer, replacement?: Buffer) {
       guard(); clock += 10; commands.push(`${mode}:${path}`);
@@ -122,6 +124,8 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
     beforeClose: (callback: () => void) => { beforeClose = callback; },
     /** What the fixture lister reports besides the live contents (omitted entries, counts, an incomplete walk). */
     setListing: (extra: Partial<WorkspaceListing>) => { listingExtra = extra; },
+    /** Replaces the fixture lister, e.g. with the container's own script run under python3 (`listedByLister`, E1 scenario S6). */
+    setLister: (next: (contents: Map<string, Buffer>) => WorkspaceListing) => { lister = next; },
     afterExecute: (callback: (command: string) => void) => { afterExecute = callback; },
     afterResponse: (callback: (count: number) => void) => { afterResponse = callback; } };
 }
@@ -1379,4 +1383,160 @@ describe("general runner specific tool errors (backlog item 3, finding B5)", () 
     // None of these refusals destroyed the container: the initial one and the verifier only.
     expect(f.create).toHaveBeenCalledTimes(2);
   });
+});
+
+/**
+ * E1: the runner fixture with the real model and broker against a loopback server, so a cancel, the deadline, a pause, a D4 retry and a
+ * bad body go through the real transport, ledger and reply decoder. The sandbox stays mocked; every clock and timer is real. `onRequest`
+ * decides each request in arrival order: "hold" keeps it open until `release()`, "cut" destroys the socket after the request arrived,
+ * "invalid" answers 200 with a body that is not JSON; otherwise the next scripted action is answered as one native tool call.
+ */
+async function loopbackFixture(actions: Action[], limits: Parameters<typeof fixture>[1] = {}, transport: { recoverable?: boolean } = {}) {
+  const f = fixture([], limits);
+  vi.mocked(performance.now).mockRestore();
+  const hooks: { onRequest?: (index: number) => "hold" | "cut" | "invalid" | void } = {};
+  let arrivals = 0, answered = 0;
+  const held: (() => void)[] = [];
+  const answer = (response: http.ServerResponse) => {
+    const action = actions[answered++];
+    response.setHeader("content-type", "application/json");
+    if (!action) { response.statusCode = 400; response.end("{}"); return; }
+    response.end(JSON.stringify({ model: "synthetic", choices: [{ message: { content: null, tool_calls: [{ id: `call_${answered}`, type: "function",
+      function: { name: action.name, arguments: action.arguments } }] }, finish_reason: "tool_calls" }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
+  };
+  const server = http.createServer((request, response) => {
+    request.resume();
+    request.on("end", () => {
+      const decision = hooks.onRequest?.(arrivals++);
+      if (decision === "cut") { request.socket.destroy(); return; }
+      if (decision === "invalid") { response.setHeader("content-type", "application/json"); response.end("{\"choices\": [ not json"); return; }
+      if (decision === "hold") { held.push(() => answer(response)); return; }
+      answer(response);
+    });
+  });
+  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
+  cleanup.push(() => { server.closeAllConnections(); server.close(); });
+  const broker = new PrivateAgentBroker(f.options.store, [{ id: "model", kind: "local_model", endpoint: `http://127.0.0.1:${(server.address() as { port: number }).port}/v1/chat/completions`,
+    accountId: "fixture", credentialVersion: 0, privateDataAdmitted: true, loopbackFixture: true, maxResponseBytes: 65536, timeoutMs: 5000, ...(transport.recoverable ? { recoverable: true } : {}) }],
+  { scan: async () => { throw new Error("A destination inside the boundary is never scanned."); } });
+  const model = new PrivateAgentModel(broker, { destinationId: "model", model: "synthetic", maxOutputTokens: 4096, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" },
+    f.options.jobId, f.options.contextId);
+  const rows = () => f.options.store.dispatches(f.options.jobId).map(row => [row.status, row.failure?.code]);
+  return { ...f, options: { ...f.options, broker, model }, hooks, rows, arrivals: () => arrivals, release: () => { for (const go of held.splice(0)) go(); } };
+}
+
+describe("E1 recoverability: the writer's model call through the real broker (S1, S2, S3)", () => {
+  const events = (f: { options: GeneralJobOptions }) => f.options.store.events(f.options.jobId);
+  it("ends a call cancelled mid-request as cancelled_or_deadline with one failed `cancelled` row and nothing unknown, and a rerun stays cancelled", async () => {
+    const f = await loopbackFixture([write, finish]);
+    const runner = new GeneralAgentRunner(f.options);
+    f.hooks.onRequest = () => { runner.cancel(); return "hold"; };
+    expect(await runner.run()).toMatchObject({ status: "incomplete", reason: "cancelled_or_deadline", modelCalls: 1 });
+    expect(f.rows()).toEqual([["failed", "cancelled"]]);
+    expect(events(f).find(event => event.type === "model_request_failed")).toMatchObject({ reason: "model_unavailable", dispatched: true });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "cancelled_or_deadline" });
+    expect(f.arrivals()).toBe(1); expect(f.rows()).toEqual([["failed", "cancelled"]]);
+  });
+  it("ends a call the run's own deadline cut mid-request as cancelled_or_deadline with one failed `cancelled` row, before the transport timeout", async () => {
+    const f = await loopbackFixture([write, finish], { maxElapsedMs: 1500 });
+    f.hooks.onRequest = () => "hold";
+    const started = performance.now();
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "cancelled_or_deadline", modelCalls: 1 });
+    expect(performance.now() - started).toBeLessThan(4500);
+    expect(f.rows()).toEqual([["failed", "cancelled"]]);
+    expect(events(f).find(event => event.type === "model_request_failed")).toMatchObject({ dispatched: true });
+    // The allowance is spent: a rerun ends at its deadline before sending anything.
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "cancelled_or_deadline" });
+    expect(f.arrivals()).toBe(1); expect(f.rows()).toEqual([["failed", "cancelled"]]);
+  }, 15_000);
+  it("ends a call the caller's own signal aborted mid-request as cancelled_or_deadline, and, the job not being cancelled, a rerun completes", async () => {
+    const f = await loopbackFixture([write, finish]);
+    const external = new AbortController();
+    f.hooks.onRequest = index => { if (index === 0) { external.abort(); return "hold"; } };
+    expect(await new GeneralAgentRunner(f.options).run(external.signal)).toMatchObject({ status: "incomplete", reason: "cancelled_or_deadline", modelCalls: 1 });
+    expect(f.rows()).toEqual([["failed", "cancelled"]]); expect(f.options.store.policy(f.options.jobId).cancelled).toBe(false);
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed" });
+    expect(f.rows()).toEqual([["failed", "cancelled"], ["settled", undefined], ["settled", undefined]]);
+  });
+  it("lets a call paused mid-request settle and its action run, then pauses with nothing open, and the resumed run completes", async () => {
+    const f = await loopbackFixture([write, finish]);
+    const runner = new GeneralAgentRunner(f.options);
+    f.hooks.onRequest = index => { if (index === 0) { runner.pause(); setTimeout(() => f.release(), 50); return "hold"; } };
+    expect(await runner.run()).toMatchObject({ status: "paused", reason: "checkpoint_saved", modelCalls: 1 });
+    expect(f.commands).toEqual(["write result"]); expect(f.rows()).toEqual([["settled", undefined]]);
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed" });
+    expect(f.rows()).toEqual([["settled", undefined], ["settled", undefined]]);
+  });
+  it("completes a call the broker retried after a cut socket (D4), keeping the superseded attempt, and a run paused after it resumes and completes", async () => {
+    const f = await loopbackFixture([write, finish], {}, { recoverable: true });
+    const runner = new GeneralAgentRunner(f.options);
+    f.hooks.onRequest = index => { if (index === 0) return "cut"; if (index === 1) runner.pause(); };
+    expect(await runner.run()).toMatchObject({ status: "paused", reason: "checkpoint_saved", modelCalls: 1 });
+    expect(f.rows()).toEqual([["superseded", "upstream_closed"], ["settled", undefined]]);
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed" });
+    expect(f.rows()).toEqual([["superseded", "upstream_closed"], ["settled", undefined], ["settled", undefined]]); expect(f.arrivals()).toBe(3);
+  }, 15_000);
+  it("ends two runs model_unavailable on two bodies that are not JSON, each a failed settlement row with sub-code `other`, and the third run completes", async () => {
+    const f = await loopbackFixture([write, finish], { maxModelCalls: 6 });
+    f.hooks.onRequest = index => index < 2 ? "invalid" : undefined;
+    for (let run = 0; run < 2; run++) expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "incomplete", reason: "model_unavailable", modelCalls: run + 1 });
+    expect(f.options.store.dispatches(f.options.jobId).map(row => row.failure)).toEqual([0, 1].map(() => expect.objectContaining({ phase: "settlement", code: "response_or_usage_invalid", subcode: "other" })));
+    expect(f.rows()).toEqual([["failed", "response_or_usage_invalid"], ["failed", "response_or_usage_invalid"]]);
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed" });
+    expect(f.arrivals()).toBe(4);
+  });
+});
+
+describe("E1 recoverability: known limitations of the writer, pinned until their fix", () => {
+  it("pins E1 bug (e), which waits for E0's adapter verdict: a cancel during flash_next_v1 token admission ends with the admission stop, not as cancelled", async () => {
+    // The broker's own refusal is tested in tests/unit/private-agent-flash-next-admission.test.ts; here the runner maps it. Nothing was sent.
+    const f = fixture([write, finish]), runner = new GeneralAgentRunner(f.options), bodySha256 = digest("fixture body"), policySha256 = digest("fixture policy");
+    f.complete.mockImplementationOnce(async () => { runner.cancel(); throw new LocalTokenAdmissionError("local_token_admission_cancelled", bodySha256, policySha256); });
+    expect(await runner.run()).toMatchObject({ status: "incomplete", reason: LOCAL_TOKEN_ADMISSION_STOP, modelCalls: 1 });
+    expect(f.options.store.events(f.options.jobId).find(event => event.type === "model_request_not_dispatched"))
+      .toMatchObject({ reason: LOCAL_TOKEN_ADMISSION_STOP, code: "local_token_admission_cancelled", dispatched: false });
+    expect(f.options.store.dispatches(f.options.jobId)).toEqual([]);
+  });
+});
+
+describe("E1 recoverability: the writer's output and workspace bounds (S5, S6)", () => {
+  it("keeps the whole observation of an execute whose output reached the 256 KiB cap, shows the model a bounded excerpt marked truncated, and completes", async () => {
+    // What DockerSandbox.execute returns on overflow: the first 262,144 bytes of stdout and stderr together (here all stdout) and the host's
+    // fixed note appended to stderr. The note is copied from sandbox.ts's execute(); a change there does not fail this test.
+    const limit = PRIVATE_SANDBOX_LIMITS.outputBytes, stdout = "0123456789abcdef".repeat(limit / 16);
+    const overflow = `\n[host] The command's output exceeded ${limit} bytes; only the first ${limit} bytes of stdout and stderr together, in arrival order, were retained and the rest was discarded. The workspace remains usable: write large output to a file under /workspace and inspect it in parts.`;
+    const f = fixture([write, finish], { toolStdout: stdout, toolStderr: overflow });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed" });
+    const finished = f.options.store.events(f.options.jobId).find(event => event.type === "tool_finished" && event.executionCapture === "retained")!;
+    expect(finished.captureFailure).toBeUndefined();
+    const reference = finished.executionObservation as { snapshot: Parameters<PrivateCheckpointStore["load"]>[0]; stdoutBytes: number; stderrBytes: number };
+    expect(reference).toMatchObject({ stdoutBytes: limit, stderrBytes: Buffer.byteLength(overflow) });
+    expect(JSON.parse(f.options.checkpoints.load(reference.snapshot)[0]!.bytes.toString("utf8")).result).toEqual({ exitCode: 0, stdout, stderr: overflow });
+    const shown = f.requests[1]!.find(message => message.role === "tool")!.content!;
+    expect(Buffer.byteLength(shown)).toBeLessThanOrEqual(EXECUTION_OBSERVATION_MAX_BYTES); expect(shown).not.toContain(stdout);
+    const excerpt = JSON.parse(shown);
+    expect(excerpt).toMatchObject({ kind: "execution_observation", truncated: true, exitCode: 0, stdout: { bytes: limit }, stderr: { bytes: Buffer.byteLength(overflow) } });
+    expect(`${excerpt.stderr.head.text}${excerpt.stderr.tail.text}`).toContain(`[host] The command's output exceeded ${limit} bytes`);
+  });
+  it("tells the model what the checkpoint leaves out when the container's own lister reaches its file cap and its walk limit, and completes with the files that sort first", async () => {
+    const f = fixture([write, finish]);
+    f.setLister(listedByLister);
+    // A bulky directory sorting after input.txt and output.txt holds more entries than the walk's limit.
+    const bulk = WORKSPACE_LISTING_MAX_ENTRIES + 4;
+    f.afterExecute(command => { if (command === "write result") for (let i = 0; i < bulk; i++) f.mutateWorkspace(`zz/f${String(i).padStart(4, "0")}.txt`, Buffer.from("x")); });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed" });
+    const recorded = f.options.store.events(f.options.jobId), at = recorded.findIndex(event => event.type === "tool_finished"), finished = recorded[at]!;
+    expect(finished.captureFailure).toBeUndefined();
+    // The walk sees input.txt, output.txt and zz, then stops inside zz at 4,096 entries: 1,022 of zz's files fit the 1,024-file cap, the rest are capped.
+    const kept = PRIVATE_SANDBOX_LIMITS.files - 2, capped = WORKSPACE_LISTING_MAX_ENTRIES - 3 - kept;
+    expect(finished.captureOmitted).toEqual({ total: capped, reasons: { cap: capped }, complete: false,
+      paths: Array.from({ length: WORKSPACE_LISTING_MAX_OMITTED_PATHS }, (_, i) => `zz/f${String(kept + i).padStart(4, "0")}.txt`) });
+    const notice = f.requests[1]!.find(message => message.role === "user" && message.content!.includes("workspace_capture_incomplete"))!;
+    expect(JSON.parse(notice.content!)).toMatchObject({ warning: "workspace_capture_incomplete", omitted: { total: capped, complete: false } });
+    // The checkpoint recorded with that result holds exactly what the capture kept: the depth-first, name-ordered first 1,024 files.
+    // E1-L's capture priority is expected to change which files these are; these numbers pin today's lister.
+    expect(recorded[at - 1]!.type).toBe("checkpoint");
+    const files = f.options.checkpoints.load(recorded[at - 1]!.snapshot as Parameters<PrivateCheckpointStore["load"]>[0]).map(file => file.path).sort();
+    expect(files).toEqual(["input.txt", "output.txt", ...Array.from({ length: kept }, (_, i) => `zz/f${String(i).padStart(4, "0")}.txt`)]);
+  }, 30_000);
 });

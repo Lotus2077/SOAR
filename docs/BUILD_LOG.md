@@ -30935,6 +30935,64 @@ Next gate: The implementation with deterministic tests in this pull request and 
 References: docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E1 and section 5.7 items 1 and 8; BL-20261007-0321-pr-c-recoverable-dispatch-design; BL-20261007-0530-pr-c-recoverable-dispatch-implemented; BL-20261030-0620-claude-cloud-adapter-design; BL-20261030-0850-claude-cloud-adapter-implemented; BL-20261107-0809-zero-fee-failures-resolve-design; BL-20261107-0812-zero-fee-failures-resolve-implemented; BL-20261107-0839-assist-purpose-exception-design; BL-20261107-1006-stop-bricking-tasks-review-corrections; BL-20261107-1041-stop-bricking-tasks-second-review-corrections; docs/PLAN.md decision D4.
 
 
+### BL-20261109-0351-e1-recoverability-card -- 2026-11-09 -- E1 card: the recoverability tests that gate any live run, with no model, no Docker and no fee
+
+Status: `Proposed`
+
+Scope or hypothesis: The card of experiment E1 in docs/PROJECT_REVIEW_2026-11-05.md section 5.6 (recoverability, no live model; fee cap USD 0; two days), docs/HANDOFF.md "Start here" section 5 step 3, planned as lane S-e1 under the wayfinder map (#46). No model runs, so this entry is the card: there is no card file under docs/experiments/ and no registry row (owner question 1 below). Hypothesis: on deterministic tests, the review's four gate clauses hold:
+1. zero zero-fee UNKNOWN rows;
+2. a research stage with a retried call still reaches the writer;
+3. local work continues after a cloud UNKNOWN;
+4. cancellation still stops the stage.
+
+Decisions:
+(1) The arms are the review's seven scenarios. Each test lives in a describe block named "E1 recoverability: <area>", so `pnpm exec vitest run -t "E1 recoverability"` runs the whole set.
+- S1, cancel mid-call: a cancel, pause, external abort or deadline at the index, plan, extraction and synthesis stages, the writer, the judge and the loop's samples. A zero-fee call that a cancel, an external abort or a deadline cuts resolves `failed` with code `cancelled`, never `unknown`; a research stage records `denied: "cancelled"`; the run ends cancelled or at its deadline; the stopped call is never sent again. A cancel ends the job; an external abort leaves it resumable. A pause differs by arm: the writer's pause lets the call settle and its action run, then pauses, and the resumed run sends the next call; the session's pause aborts a stage's call (bug (b) below).
+- S2, upstream close: the broker's D4 retries; a retry inside each research stage the session runs on the real broker (finding D14 at every stage); retries exhausted (`failed`, `research_request_denied`); the cloud half of D14 (an Anthropic-shaped split-arm planner answering 529, then 200); `superseded` rows at the producer and the harness loop. A retried stage reaches the writer.
+- S3, invalid JSON twice: as a bad body, two `failed` settlement rows with sub-code `other` and the next request admitted (the writer ends `model_unavailable` twice and completes on the third run); as bad content, the index falls back to literal cards, the plan ends `research_plan_invalid`, extraction ends incomplete and synthesis `research_synthesis_invalid`.
+- S4, a cloud timeout on an assist: rows injected at each consumer, plus a session-level, test-local emulation of the assist (the `unknown` assist row is bound uncounted and the writer is reached).
+- S5, command output over 256 KiB: the observation is retained whole, the model sees a bounded excerpt marked truncated, no capture fails and the run completes.
+- S6, more than 1,024 files: the capture names its omissions, with `cap` counts and an incomplete walk, and keeps the files that sort first. Predicted defect: a bulky directory that sorts before the inputs, the research packet or the deliverables pushes them out of the checkpoint.
+- S7, a 500 KB corpus: an invented corpus with f2's aggregate shape completes with every row settled and reaches the writer.
+(2) Budget USD 0: no model, endpoint, Docker container, paid call or registry row. CI runs every case. The Docker-gated suites (`SOAR_RUN_PRIVATE_AGENT_RUNTIME=true`) stay the container's own proof and are not part of the gate unless a fix changes the lister. E1 reads no serving-card value: its cancel and close cases assume one zero-fee dispatch in flight per job (K = 1, today's serial ledger), so once item 8 admits K > 1 they must be run again with K > 1 from a test card.
+(3) Decision rule: the gate passes when every "E1 recoverability" test passes in CI on the commit that merges the last E1 PR. A failure caused by a defect holds the gate until its fix merges. The result is recorded as a `Verified` entry that maps each clause to named tests with counts.
+(4) Known limitations, pinned by tests named after the item that flips them:
+- A7, a paused research stage cannot resume: item 6 (PR 6.2).
+- D8, a web-shaped corpus refused at admission: item 7(b).
+- D4, the packet-cap omission at f2's quote density: item 7(b).
+- A malformed zero-fee body ends a research stage, because a denied call is final (BL-20261107-0809-zero-fee-failures-resolve-design decision 6): item 7.
+- The legacy split arm's cloud UNKNOWN stops its stage: item 10's wrapper (PR 10.b).
+- Not pinned, because PR 11.1 changes it: the harness loop stops on a zero-fee `failed` row (item 11).
+(5) Defects the mapping predicted, and where each goes:
+- (a) a cancel or policy change during a retry wait leaves a `superseded` row without a successor and a raw error: PR E1-R, whose own design entry decides the fix;
+- (b) a session pause aborts a priced or cloud stage call: PR 6.2;
+- (c) a judge call cancelled mid-request is labelled a request failure: PR E1-J;
+- (d) the loop's critique ignores interrupts: PR 11.3;
+- (e) a cancel during flash_next_v1 token admission ends with the admission stop: waits for E0's adapter verdict;
+- the lister cap dropping the inputs, the packet or the deliverables: PR E1-L.
+(6) The PRs: E1-T1 (the broker, writer and loop tests that pass today, and the capped-lister helper), E1-R, E1-L, E1-J, E1-T3 (the session matrix, after 6.2), E1-T2 (pipeline, seed and producer, after 7b.1) and E1-G (the `Verified` entry and the handoff note).
+(7) Open owner questions, each with the proposed default this card applies until the owner records otherwise:
+- Is this entry enough as E1's card, or should a card file exist under docs/experiments/? Default: this entry is the card; no file and no registry row.
+- May clause 3 pass on injected rows and a session-level emulation before item 10's wrapper exists? Default: yes. Clause 3 is vacuous for the local-only live runs (E2, E5, E6); PR 10.b re-proves it end to end under the same describe name, and E3's card must cite that test.
+- Does the gate wait for defects outside the clauses' wording? Default: it waits for E1-R and E1-L, the defects that leave a task unable to complete or resume. Bug (b) goes to item 6; the label defects (c, e) and the critique (d) are fixed without holding the gate.
+- May the corpus copy the frozen fresh tasks' file sizes? Default: no; invented sizes with the same aggregate shape, and nothing reads `.soar/`, so the tasks' authoring separation (BL-20261027-0145-phase4-tasks-design) is untouched.
+- Does E1 gate E0? Default: no. E1 gates agent-runtime runs (E2 to E6 and loops), and E0's probes and planner fixture use no broker or session, so the handoff's order E0 then E1 stands and the two can proceed in parallel.
+
+Changes: None in this entry. E1-T1 adds tests only, recorded in its `Implemented` entry; no `src/` file changes in E1's test PRs.
+
+Evidence: None yet; this entry decides the card.
+
+Failures or blockers: None in recording.
+
+Limitations and non-claims: The tests prove their stated contracts on loopback fixtures and mocks only. They prove nothing about the new endpoint, product quality or a live run. Clause 3 is proven only component by component until item 10's wrapper. The container halves of S5 and S6 are proven only by the Docker-gated suites, which CI skips.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: E1-T1's `Implemented` entry; then the other E1 PRs; then E1-G's `Verified` entry once every E1 PR has merged with CI green.
+
+References: docs/PROJECT_REVIEW_2026-11-05.md section 4 rows A7, D4, D8, D14 and E1, section 5.6 row E1 and section 5.7 items 1, 3, 6, 7, 10 and 11; docs/HANDOFF.md "Start here" section 5; BL-20261107-0809-zero-fee-failures-resolve-design; BL-20261107-0812-zero-fee-failures-resolve-implemented; BL-20261107-0839-assist-purpose-exception-design; BL-20261107-0842-assist-purpose-exception-implemented; BL-20261107-0924-stop-bricking-tasks-design; BL-20261107-1111-stop-bricking-tasks-docker-suite-verified; BL-20261027-0145-phase4-tasks-design.
+
+
 ### BL-20261109-0416-correction-loop-protocol-2-rule-1-rows -- 2026-11-09 -- Correction: rule-1 loop rows carry `failedDispatches` 0 only for loops run after BL-20261101-0436, not for every rule-1 loop
 
 Status: `Implemented`
@@ -30979,6 +31037,46 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI green on the pull request and a merge in the orchestrator's train (scripts/phase4-loop.ts: 11.1, 11.3, 10.b, 7a.2; scripts/registry-row.py: 11.1, 11.2, 11.3, 11.4, 7d.C, RA), with E1's part-1 tests flipped by whichever of the two merges second; then part 3 (11.3) before any graded loop run.
 
 References: BL-20261109-0331-loop-selection-protocol-2-design; BL-20261109-0416-correction-loop-protocol-2-rule-1-rows; BL-20261101-0436-h4-runner-controls-fixed; BL-20261107-0812-zero-fee-failures-resolve-implemented; BL-20261108-1649-serving-card-reader-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 11; docs/HANDOFF.md "Start here (2026-11-07)".
+
+
+### BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented -- 2026-11-09 -- E1-T1 implemented: the E1 recoverability tests for the broker, the writer and the harness loop that pass on today's main
+
+Status: `Implemented`
+
+Scope or hypothesis: The first test PR under BL-20261109-0351-e1-recoverability-card, on branch `test/e1-t1-recoverability-broker-writer-loop` based on `main` at 2982ca7. It adds the card's scenarios S1, S2, S3, S5 and S6 for the broker, the writer (the runner) and the harness loop that hold on today's code. Hypothesis: each passes without a source change; the defects the card predicts are left to their own PRs.
+
+Decisions: None beyond the card. One adversarial review of the tests (do they prove what they claim; flakiness; arithmetic; scope against the lane brief) found one blocker and five should-fix items, all applied before this entry: the S6 lister case gets a 30 s timeout (it took about 1.8 s idle, 3.7 s in the full suite and over 6 s under six parallel runs, against vitest's 5 s default); the loop's interrupt cases assert no tie winner, since item 11's PR 11.1 changes the tie rule, and a sample the interrupt cut before it submitted (as the driver's own interrupt handler leaves it) is pinned separately, named for 11.1, which refuses to reuse such a stage (lane S-harn's note); the card's S1 outcome is stated per arm; the broker's one-job case is named for the eight failure modes it covers, two of them (an interrupted body, a refused fee settlement) added; an external abort of the writer's run is added; the S6 checkpoint is compared in full.
+
+Changes: Tests and a helper only; no `src/` file changes.
+- tests/unit/private-agent-runner-budget.test.ts:
+  - `loopbackFixture`, the runner fixture with the real `PrivateAgentModel` and broker against a loopback server (the sandbox stays mocked; every clock and timer is real), and two default-preserving fixture hooks, `toolStderr` and `setLister`;
+  - "E1 recoverability: the writer's model call through the real broker (S1, S2, S3)": a cancel mid-request (one `failed` row with code `cancelled`, `model_request_failed` dispatched, `cancelled_or_deadline`, and a rerun stays cancelled); the run's own deadline mid-request (the same row, then a rerun that sends nothing); an external abort of `run(signal)` mid-request (the same row, the job not cancelled, and a rerun that completes); a pause mid-request (the reply settles, its action runs, the run pauses, and the resumed run completes); a D4 retry after a cut socket (`superseded`, then `settled`, and a run paused after it resumes and completes); two bodies that are not JSON (two runs end `model_unavailable` with `failed` settlement rows, sub-code `other`, and the third completes);
+  - "E1 recoverability: known limitations of the writer, pinned until their fix": E1's bug (e), a cancel during flash_next_v1 token admission ending with the admission stop, which waits for E0's adapter verdict;
+  - "E1 recoverability: the writer's output and workspace bounds (S5, S6)": output at the 256 KiB cap with the host's overflow note (copied from sandbox.ts's `execute`) is retained whole, shown as a bounded excerpt marked truncated, with no capture failure, and the run completes; the container's own lister, run under python3 against a temporary mirror, reaches its 1,024-file cap and its 4,096-entry walk limit, the notice names `cap` counts and an incomplete walk, and the checkpoint keeps exactly the first 1,024 files in depth-first name order.
+- tests/helpers/workspace-listing.ts: `listedByLister`, the LIST_FILES script under the machine's python3 with a temporary mirror in place of /workspace, parsed by the host's own parser.
+- tests/integration/private-agent-broker.test.ts, "E1 recoverability: zero-fee bad bodies and eight zero-fee failure modes leave nothing unresolved (S3, gate clause 1)": two consecutive zero-fee replies that are not JSON, through the real decoder, resolve `failed` with sub-code `other` and the next request settles; eight zero-fee failure modes in one job (a timeout, a cut socket, an oversize reply, a bad body, a 503, an interrupted body, a refused fee settlement, a cancel) each leave no `unknown`, `committed` or blocking row, and the next request settles after each.
+- tests/unit/phase4-loop.test.ts, "E1 recoverability: the harness loop admits retried rows and stops on an interrupt in any later sample (S1, S2)": a sample whose ledger holds `superseded` rows, read through the real `summarizeRun`, is admitted and the loop runs b, the critique and the repair, counting them as retried; an interrupt during b or during the repair stops the loop after that stage, starts nothing after it, and a rerun reuses every finished stage and makes the final choice; and a pin, named for item 11's PR 11.1: a rerun reuses a sample the loop's interrupt cut before it submitted, where 11.1 refuses it with `loop_stage_interrupted`.
+
+Evidence: On the owner's Mac with other sessions' suites running (load average up to 42):
+- `pnpm exec vitest run -t "E1 recoverability"` at the loop pin's commit: 3 files passed and 175 skipped; 15 tests passed and 2,757 skipped (14 at 4a0c957, before the pin).
+- `pnpm exec vitest run` (the full suite) at cca6b5a, an earlier cut of the same tests that differs from 4a0c957 only in one describe block's name and from the final branch also in the loop pin: 178 files, 164 passed, 1 failed and 13 skipped; 2,771 tests, 2,686 passed, 1 failed and 84 skipped. The failure is tests/unit/with-claude-key.test.ts reaching its 5 s timeout under that load; this PR does not touch it or its script. Run alone it failed once more (1 failed, 2 passed) and then passed (3 passed).
+- The reviewer's runs, separately: the 13 E1 tests then present passed twice on an idle machine, and the seven files that use the changed fixtures passed (362 tests).
+- `pnpm typecheck` passed with no error; `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+
+Failures or blockers: None open. The review's blocker (the S6 timeout) is fixed above. CI has not run on this branch yet.
+
+Limitations and non-claims:
+- The tests prove their stated contracts on loopback fixtures and mocks only: no model, endpoint, Docker container or paid call ran, and nothing here measures product quality.
+- S6 runs the real lister script under host python3, not inside the container; the container halves of S5 and S6 stay with the Docker-gated suites, which CI skips. The S6 numbers pin today's depth-first lister; E1-L is expected to change which files the capture keeps.
+- The S5 overflow note is a copy of sandbox.ts's: a change there does not fail the test.
+- The loop's cases use the loop's fakes for the samples and the critique, and assert no tie winner.
+- The research pipeline, session and seed cases (E1-T2, E1-T3) and the predicted defects (E1-R, E1-L, E1-J) are not covered by this PR. Gate clause 3 is not touched here.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green on the pull request and the owner's merge go-ahead; the orchestrator re-stamps this PR's entry IDs after main's tail at merge. E1-L stacks on this branch.
+
+References: BL-20261109-0351-e1-recoverability-card; docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E1; BL-20261107-0809-zero-fee-failures-resolve-design; BL-20261107-0924-stop-bricking-tasks-design; BL-20261107-1111-stop-bricking-tasks-docker-suite-verified.
 
 
 ### BL-20261109-0436-retry-wait-atomic-supersede-implemented -- 2026-11-09 -- E1-R implemented: a retried attempt is closed `superseded` inside its successor's commit, and a retry that does not follow resolves it `failed` with a typed code

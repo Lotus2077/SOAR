@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { canonical, digest } from "./contracts";
 import { isAssistDispatch } from "./dispatch-purposes";
+import type { RunEndEvidence } from "./run-classification";
 
 /**
  * H4 select-and-repair loop (design BL-20261026 H4 entry): the host-checked, deterministic selection between two
@@ -47,6 +48,8 @@ export interface CandidateSummary {
   zeroFeeFailedDispatches: number;
   /** Assist rows (backlog item 10) are counted apart: an `unknown` assist was skipped with its reservation pinned, a `failed` one fell to the host fallback; neither stops a stage. */
   assistSkippedDispatches: number; assistFailedDispatches: number;
+  /** The reading stage's denied code (its last `research_stage` event's `denied`), or null; one input of the run's classification (backlog item 11, part 3a). */
+  stageDenied: string | null;
   candidateSha256: string; freezeSha256: string; resultSha256: string;
   startedAt: string; finishedAt: string;
 }
@@ -168,6 +171,38 @@ export function summarizeRun(runDirectory: string, deliverables: string[]): Cand
     zeroFeeFailedDispatches: result.dispatches.filter(row => isZeroFeeFailedDispatch(row)).length,
     assistSkippedDispatches: result.dispatches.filter(row => row.status === "unknown" && isAssistDispatch(row)).length,
     assistFailedDispatches: result.dispatches.filter(row => row.status === "failed" && isAssistDispatch(row)).length,
+    stageDenied: (() => { const denied = [...stages].reverse().find(event => typeof event.denied === "string"); return denied ? String(denied.denied) : null; })(),
     candidateSha256: digest(canonical(result.candidateFiles.map(file => ({ path: file.path, sha256: file.sha256 })))), freezeSha256: digest(freezeBytes), resultSha256: digest(resultBytes),
     startedAt: freeze.startedAt, finishedAt: result.finishedAt };
+}
+
+/**
+ * What a run's own records say about how it ended (backlog item 11, part 3a), for `classifyRunEnd`; the loop's interrupt mark is the
+ * caller's to add. scripts/registry-row.py's `run_end_evidence` reads the same records, and tests/unit/registry-row-infra.test.ts keeps
+ * the two in step: the last `failed` and the last `unknown` row that is not an assist, the last stage denial, host validation,
+ * runtime failure and refusal markers.
+ */
+export function readRunEndEvidence(runDirectory: string): Omit<RunEndEvidence, "stopSignalled"> {
+  const root = realpathSync(runDirectory);
+  const result = JSON.parse(insideFile(join(root, "result.json"), root).toString("utf8")) as Record<string, unknown>;
+  const database = new Database(insidePath(join(root, "state.sqlite"), root), { readonly: true, fileMustExist: true });
+  let events: Record<string, unknown>[];
+  try { events = (database.prepare("SELECT value FROM private_agent_events ORDER BY job_id, sequence").all() as { value: string }[]).map(row => JSON.parse(row.value)); }
+  finally { database.close(); }
+  const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
+  const dispatches = (Array.isArray(result.dispatches) ? result.dispatches : []).filter(object);
+  const lastRow = (status: string) => [...dispatches].reverse().find(item => item.status === status && !isAssistDispatch(item)) ?? null;
+  const lastEvent = (accept: (event: Record<string, unknown>) => boolean) => [...events].reverse().find(accept);
+  const code = (value: unknown) => object(value) && typeof value.code === "string" ? value.code : null;
+  const notDispatched = (reason: string) => {
+    const event = lastEvent(item => item.type === "model_request_not_dispatched" && item.reason === reason && typeof item.code === "string");
+    return event ? event.code as string : null;
+  };
+  const stage = lastEvent(event => event.type === "research_stage" && typeof event.denied === "string");
+  const validation = lastEvent(event => event.type === "host_validation_finished"), runtime = lastEvent(event => event.type === "runtime_failure");
+  return { status: typeof result.status === "string" ? result.status : "", reason: typeof result.reason === "string" ? result.reason : "",
+    stageDenied: stage ? stage.denied as string : null, failingCall: lastRow("failed"), uncertainCall: lastRow("unknown"),
+    runtimeBrokerCode: typeof runtime?.brokerCode === "string" ? runtime.brokerCode : null,
+    captureFailure: code(validation?.captureFailure), verificationFailure: code(validation?.verificationFailure),
+    tokenAdmissionCode: notDispatched("local_token_admission_denied"), brokerDenialCode: notDispatched("broker_denied") };
 }

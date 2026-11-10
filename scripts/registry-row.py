@@ -155,6 +155,15 @@ def main() -> int:
                           "critiqued": critiqued, "critiqueFailure": critique.get("failure"), "candidates": candidates,
                           "writeIdentityEqual": loop.get("writeIdentityEqual")}}
         row = {**selected["row"], **summed, **extra}
+        # Backlog item 11, part 3a: the selected run's class, with the loop's own interrupt mark for that stage. A loop whose critique failed
+        # on infrastructure, leaving an unsubmitted draft it would have repaired, ended on infrastructure too.
+        stages = loop.get("stages") if isinstance(loop.get("stages"), list) else []
+        marked = any(isinstance(entry, dict) and entry.get("stage") == final["candidate"] and entry.get("interrupted") is True for entry in stages)
+        row["runClass"] = classify_run_end(run_end_evidence(os.path.join(args.loop_dir, final["candidate"]), marked))
+        critique_failure = critique.get("failure") if isinstance(critique, dict) else None
+        if not row["runClass"]["infra"] and final.get("step") == "critique_failed" and row.get("runStatus") != "submitted" and listed(INFRA_CRITIQUE_CODES, critique_failure):
+            row["runClass"] = {"version": RUN_CLASSIFICATION_VERSION, "infra": True, "cause": "critique_" + critique_failure}
+        check_outcome(args.outcome, row.get("runStatus"), row["runClass"])
         # A cloud loop's cloud calls are sample a's stage; the selected run may be a local writer, and a may have no summary.
         if loop.get("arm") == "cloud":
             a_freeze = os.path.join(args.loop_dir, "a", "freeze.json")
@@ -162,10 +171,14 @@ def main() -> int:
     elif args.run_dir is not None:
         single = run_counts(args.run_dir)
         row = {**single["row"], **{key: single[key] for key in SUMMED}, "wallSeconds": single["wallSeconds"]}
+        row["runClass"] = classify_run_end(run_end_evidence(args.run_dir, False))
+        check_outcome(args.outcome, row.get("runStatus"), row["runClass"])
     elif args.verdict_file is not None:
         row = receipt_row(args)
     else:
         row = superseding_row(args)
+        # A correction repeats the class checks against the copied run's class, when the copy carries one.
+        check_outcome(args.outcome, row.get("runStatus"), row.get("runClass"))
     row.update({"id": args.id, **row_provenance(args, row), "verdictBy": args.verdict_by, "lesson": args.lesson})
     for key, value in (("batch", args.batch), ("task", args.task), ("family", args.family), ("exposure", args.exposure), ("arm", args.arm), ("outcome", args.outcome)):
         if value is not None:
@@ -209,6 +222,138 @@ def is_zero_fee_failed(item: dict) -> bool:
     admits these rows; a missing or malformed field fails closed."""
     return (item.get("status") == "failed" and not is_assist(item) and isinstance(item.get("destinationId"), str) and item["destinationId"] in ZERO_FEE_DESTINATIONS
             and is_zero(item.get("reservedFeeMicrousd")) and ("feeMicrousd" not in item or is_zero(item["feeMicrousd"])) and "approval" not in item)
+
+
+# Backlog item 11, part 3a (BL-20261109-0515-infra-classification-design): whether a run that did not submit ended on infrastructure,
+# labelled `infra_invalid`, from recorded codes only. src/main/private-agent/run-classification.ts holds the same lists and function,
+# and tests/unit/run-classification.test.ts keeps them equal.
+RUN_CLASSIFICATION_VERSION = 1
+INFRA_HOST_REASONS = ("runtime_failure_progress_preserved", "execution_context_unavailable", "cleanup_required", "orphan_cleanup_required",
+                      "job_context_busy", "session_failure", "source_changed_during_run", "public_snapshot_changed_during_run", "packet_scan_unavailable",
+                      "unresolved_dispatch_no_replay", "public_source_retention_or_text_failed")
+FAILED_CALL_STAGE_CODE = "request_failed"
+INFRA_TOKEN_ADMISSION_CODES = ("local_token_admission_helper_failed", "local_token_admission_timeout", "local_token_admission_proof_invalid",
+                               "local_token_admission_pin_drift", "local_token_admission_invalid", "local_token_admission_missing")
+INFRA_BROKER_CODES = ("destination_missing", "packet_scan_failed", "unresolved_dispatch")
+STOP_REASONS = ("cancelled_or_deadline", "research_cancelled", "session_cancelled", "session_stopped", "session_unresolved_or_deadline",
+                "cancelled_before_completion")
+STOP_TOKEN_ADMISSION_CODE = "local_token_admission_cancelled"
+UNCERTAIN_CALL_BROKER_CODE = "transport_or_settlement_unknown"
+PUBLIC_PHASE_PREFIX = "public_"
+INFRA_CRITIQUE_CODES = ("request_failed", "repair_source_changed_during_critique")
+TRANSIENT_TRANSPORT_CODES = ("connection_failed", "upstream_closed", "response_interrupted")
+
+
+def listed(values: tuple, value) -> bool:
+    return isinstance(value, str) and value in values
+
+
+def is_transient_cloud_failure(failure) -> bool:
+    """A cloud transport failure that is not the arm's or its configuration's: a transient answer, never a spend cap or limit."""
+    if not isinstance(failure, dict) or failure.get("phase") != "transport" or failure.get("spendCap") is True or failure.get("spendLimit") is True:
+        return False
+    if listed(TRANSIENT_TRANSPORT_CODES, failure.get("code")):
+        return True
+    status = failure.get("status")
+    return failure.get("code") in ("http_rejected", "stream_error") and isinstance(status, (int, float)) and not isinstance(status, bool) and (status >= 500 or status == 429)
+
+
+def failed_call_is_infra(row) -> bool:
+    if not isinstance(row, dict):
+        return True
+    return is_zero_fee_failed(row) or is_transient_cloud_failure(row.get("failure"))
+
+
+def uncertain_call_is_infra(row) -> bool:
+    if not isinstance(row, dict):
+        return True
+    failure = row.get("failure")
+    return isinstance(failure, dict) and failure.get("phase") == "transport"
+
+
+def classify_core(end: dict, reason: str):
+    """The rules of decision (1) on a reason with any public-phase prefix already stripped; None when no rule holds."""
+    denied, token, broker = end.get("stageDenied"), end.get("tokenAdmissionCode"), end.get("brokerDenialCode")
+    if listed(INFRA_HOST_REASONS, reason):
+        if reason == "runtime_failure_progress_preserved" and end.get("runtimeBrokerCode") == UNCERTAIN_CALL_BROKER_CODE and not uncertain_call_is_infra(end.get("uncertainCall")):
+            return None
+        return reason
+    if reason == "model_unavailable" and failed_call_is_infra(end.get("failingCall")):
+        return "model_unavailable"
+    if reason == "research_request_denied":
+        if denied == FAILED_CALL_STAGE_CODE and failed_call_is_infra(end.get("failingCall")):
+            return "research_request_failed"
+        if listed(INFRA_TOKEN_ADMISSION_CODES, denied) or listed(INFRA_BROKER_CODES, denied):
+            return denied
+    if reason == "local_token_admission_denied" and listed(INFRA_TOKEN_ADMISSION_CODES, token):
+        return token
+    if reason == "model_request_denied" and listed(INFRA_BROKER_CODES, broker):
+        return broker
+    verification = end.get("verificationFailure")
+    if reason == "bounded_allowance_exhausted" and (isinstance(end.get("captureFailure"), str) or (isinstance(verification, str) and verification.startswith("sandbox_"))):
+        return "verification_unavailable"
+    if end.get("stopSignalled") is True and (listed(STOP_REASONS, reason) or (reason == "local_token_admission_denied" and token == STOP_TOKEN_ADMISSION_CODE)):
+        return "operator_stop"
+    return None
+
+
+def classify_run_end(end: dict) -> dict:
+    """The run's class (run-classification.ts classifyRunEnd); a submitted run is never infrastructure."""
+    if end.get("status") == "submitted":
+        return {"version": RUN_CLASSIFICATION_VERSION, "infra": False, "cause": "submitted"}
+    reason = end.get("reason") if isinstance(end.get("reason"), str) else ""
+    cause = classify_core(end, reason)
+    # A public phase's end carries the session's prefix: the same rules apply to the phase's own reason, and the cause keeps the prefix.
+    if cause is None and reason.startswith(PUBLIC_PHASE_PREFIX):
+        inner = classify_core(end, reason[len(PUBLIC_PHASE_PREFIX):])
+        if inner is not None:
+            cause = PUBLIC_PHASE_PREFIX + inner
+    if cause is None:
+        return {"version": RUN_CLASSIFICATION_VERSION, "infra": False, "cause": "task"}
+    return {"version": RUN_CLASSIFICATION_VERSION, "infra": True, "cause": cause}
+
+
+def last_call(dispatches: list, status: str):
+    return next((item for item in reversed(dispatches) if item.get("status") == status and not is_assist(item)), None)
+
+
+def run_end_evidence(run_dir: str, stop_signalled: bool) -> dict:
+    """What a run's own records say about how it ended: result.json and its ledger's events, codes and rows only
+    (selection.ts readRunEndEvidence reads the same)."""
+    result = json.load(open(os.path.join(run_dir, "result.json"), encoding="utf-8"))
+    db = sqlite3.connect(f"file:{os.path.join(run_dir, 'state.sqlite')}?mode=ro", uri=True)
+    events = [json.loads(row[0]) for row in db.execute("select value from private_agent_events order by job_id, sequence")]
+    db.close()
+    dispatches = [item for item in (result.get("dispatches") or []) if isinstance(item, dict)]
+    stage = next((event for event in reversed(events) if event.get("type") == "research_stage" and isinstance(event.get("denied"), str)), None)
+    validation = next((event for event in reversed(events) if event.get("type") == "host_validation_finished"), None) or {}
+    runtime = next((event for event in reversed(events) if event.get("type") == "runtime_failure"), None) or {}
+
+    def code_of(value):
+        return value["code"] if isinstance(value, dict) and isinstance(value.get("code"), str) else None
+
+    def not_dispatched(reason):
+        return next((event["code"] for event in reversed(events) if event.get("type") == "model_request_not_dispatched" and event.get("reason") == reason
+                     and isinstance(event.get("code"), str)), None)
+    text = lambda value: value if isinstance(value, str) else ""
+    return {"status": text(result.get("status")), "reason": text(result.get("reason")), "stageDenied": stage["denied"] if stage else None,
+            "failingCall": last_call(dispatches, "failed"), "uncertainCall": last_call(dispatches, "unknown"),
+            "runtimeBrokerCode": runtime.get("brokerCode") if isinstance(runtime.get("brokerCode"), str) else None,
+            "captureFailure": code_of(validation.get("captureFailure")), "verificationFailure": code_of(validation.get("verificationFailure")),
+            "tokenAdmissionCode": not_dispatched("local_token_admission_denied"), "brokerDenialCode": not_dispatched("broker_denied"),
+            "stopSignalled": stop_signalled}
+
+
+def check_outcome(outcome, run_status, run_class) -> None:
+    """An unsubmitted run that ended on infrastructure is `infra_invalid`, never `rejected` or `incomplete` (`accepted` stays allowed: a
+    grader may accept a complete deliverable); a run that did not end on infrastructure is never `infra_invalid`."""
+    if not isinstance(run_class, dict) or outcome is None:
+        return
+    cause = run_class.get("cause") if isinstance(run_class.get("cause"), str) and IDENTIFIER.fullmatch(run_class["cause"]) else "unknown"
+    if run_class.get("infra") is True and run_status != "submitted" and outcome in ("rejected", "incomplete"):
+        sys.exit(f"the run ended on infrastructure ({cause}): record --outcome infra_invalid, not {outcome}")
+    if run_class.get("infra") is not True and outcome == "infra_invalid":
+        sys.exit(f"the run did not end on infrastructure ({cause}): --outcome infra_invalid is refused")
 
 
 def utc_iso(value, flag: str) -> str:

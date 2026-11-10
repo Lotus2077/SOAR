@@ -41,7 +41,8 @@ function receiptFile(value: Record<string, unknown>): string {
 }
 const operator = ["--id", "oaj-20261107-document-review-1", "--batch", "owner-real-jobs", "--task", "owner-00000000", "--family", "document_review", "--exposure", "fresh", "--verdict-by", "owner", "--lesson", "owner accepted with one edit pass"];
 
-describe("registry verdict rows", () => {
+// Each test spawns python3 up to about 24 times; under the system interpreter (about 150 ms a spawn) and full-suite load the default 5 s is too short.
+describe("registry verdict rows", { timeout: 30_000 }, () => {
   it("supersedes a row by copying its measurements verbatim and changing only the verdict fields", () => {
     const { path } = registry([original, superseded, correction]);
     const row = run(["--supersedes", original.id, "--registry", path, "--id", "p9-r1-local-heavy-owner", ...owner]);

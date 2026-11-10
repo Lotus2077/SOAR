@@ -55,7 +55,7 @@ function runDirectory(root: string, name: string, rawRows: string[]) {
   const jobId = `job-${name}`;
   writeFileSync(join(dir, "freeze.json"), `${canonical({ version: 1, jobId, startedAt: "2026-11-09T10:00:00.000Z", sourceFreezeSha256: h("4"), taskBinding: { jobSha256: h("1"), briefSha256: h("2") },
     profile: "heavy", modelConfig: { maxOutputTokens: 16384, thinking: "medium" }, arm: { arm: "local" } })}\n`);
-  writeFileSync(join(dir, "result.json"), `{"candidateFiles":[],"dispatches":[${rawRows.join(",")}],"finishedAt":"2026-11-09T10:05:00.000Z","reason":"model_unavailable","snapshotSha256":"${h("7")}","status":"incomplete"}\n`);
+  writeFileSync(join(dir, "result.json"), `{"candidateFiles":[],"dispatches":[${rawRows.join(",")}],"finishedAt":"2026-11-09T10:05:00.000Z","reason":"bounded_allowance_exhausted","snapshotSha256":"${h("7")}","status":"incomplete"}\n`);
   const db = new Database(join(dir, "state.sqlite")); const store = new PrivateAgentStore(db);
   store.createJob({ version: 1, id: jobId, mode: "private", revision: 0, cancelled: false, destinations: ["m"], maxRequests: 10, maxFeeMicrousd: 0 });
   store.append(jobId, { type: "session_started", identity: h("3"), startedAt: 1, privateContextId: "p", publicContextId: "q" });
@@ -91,7 +91,7 @@ describe("zero-fee failed dispatches in the loop summary and the registry row (b
     runDirectory(loop, "a", [JSON.stringify(local()), JSON.stringify(local({ reservedFeeMicrousd: 160_000, destinationId: "cloud_coordinator" }))]);
     runDirectory(loop, "b", [JSON.stringify(local()), JSON.stringify(local({ destinationId: "approved_public_snapshots" }))]);
     writeFileSync(join(loop, "loop.json"), `${canonical({ version: 1, selectionRule: 2, arm: "local", startedAt: "2026-11-09T09:59:00.000Z", finishedAt: "2026-11-09T10:06:00.000Z",
-      candidates: { a: { status: "incomplete", reason: "model_unavailable" }, b: { status: "incomplete", reason: "model_unavailable" } }, seeded: { b: true, repair: false, snapshotSha256: h("f") },
+      candidates: { a: { status: "incomplete", reason: "bounded_allowance_exhausted" }, b: { status: "incomplete", reason: "bounded_allowance_exhausted" } }, seeded: { b: true, repair: false, snapshotSha256: h("f") },
       writeIdentityEqual: null, critique: null, selected: { stage1: { candidate: "a", step: "tie" }, final: { candidate: "a", step: "no_draft" } } })}\n`);
     expect(row(["--loop-dir", loop])).toMatchObject({ failedDispatches: 4, zeroFeeFailedDispatches: 3, loop: { rule: 2, selected: "a", step: "no_draft" } });
   });

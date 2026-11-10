@@ -13,7 +13,7 @@ afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
 const h = (n: string) => n.repeat(64);
 const summary = (over: Partial<CandidateSummary> = {}): CandidateSummary => ({ jobId: "ja", taskJobSha256: h("1"), taskBriefSha256: h("2"), runtimeSha256: h("4"), researchFrom: null, repairSource: null,
   status: "submitted", reason: "independent_acceptance_pending", checksPassed: 2, checksTotal: 2, checksCurrent: true, artifactsPresent: 2, artifactsTotal: 2,
-  entailment: null, writeIdentity: null, modelCalls: 10, toolCalls: 8, inputTokens: 1000, outputTokens: 100, cachedTokens: 500, cacheWriteTokens: 0, lengthStops: 0, feeMicrousd: 0, unknownDispatches: 0, retriedDispatches: 0, failedDispatches: 0, zeroFeeFailedDispatches: 0, assistSkippedDispatches: 0, assistFailedDispatches: 0,
+  entailment: null, writeIdentity: null, modelCalls: 10, toolCalls: 8, inputTokens: 1000, outputTokens: 100, cachedTokens: 500, cacheWriteTokens: 0, lengthStops: 0, feeMicrousd: 0, unknownDispatches: 0, retriedDispatches: 0, failedDispatches: 0, zeroFeeFailedDispatches: 0, assistSkippedDispatches: 0, assistFailedDispatches: 0, stageDenied: null,
   candidateSha256: h("a"), freezeSha256: h("b"), resultSha256: h("c"), startedAt: "t0", finishedAt: "t1", ...over });
 /** The candidates of one well-formed loop: b and the repair seeded from a on a research task, the repair bound to the selected draft. */
 function candidates(research: boolean, over: Partial<Record<"a" | "b" | "repair", Partial<CandidateSummary>>> = {}): Record<string, CandidateSummary> {
@@ -405,6 +405,37 @@ describe("H4 select-and-repair loop", () => {
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, throwing.deps, { signal: abort4.signal })).rejects.toThrow("public_snapshot_cleanup_failed");
     expect(read(dir3).stages.find(entry => entry.stage === "b")).toMatchObject({ reused: false, interrupted: true });
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, fakes({ summaries: quiet }).deps)).rejects.toThrow("loop_stage_interrupted");
+  });
+  it("passes its interrupt to the critique, and a critique the interrupt cuts stops the loop resumably, never as a failed critique (backlog item 11, part 3a; E1's bug d)", async () => {
+    const dir = loopDir(), abort = new AbortController();
+    const { deps, calls } = fakes({ summaries: candidates(false) });
+    let seen: AbortSignal | undefined;
+    // The critique tool on the real broker: its zero-fee local call fails when the signal aborts it, it records the failure, and it throws.
+    deps.critique = async (request, control) => {
+      calls.critiques.push(request); seen = control?.signal;
+      mkdirSync(request.outputDirectory, { recursive: true });
+      abort.abort();
+      await new Promise<void>(resolve => { if (control?.signal?.aborted) resolve(); else control?.signal?.addEventListener("abort", () => resolve(), { once: true }); });
+      writeFileSync(join(request.outputDirectory, "critique-failure.json"), JSON.stringify({ critic: "local", code: "request_failed", usage: null, feeMicrousd: 0 }));
+      throw new Error("ECONNRESET: socket hang up reading /Users/someone/critique/state.sqlite");
+    };
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, deps, { signal: abort.signal })).rejects.toThrow("loop_interrupted");
+    expect(seen).toBe(abort.signal); expect(calls.critiques[0]).not.toHaveProperty("signal");
+    const record = read(dir);
+    expect(record).toMatchObject({ failure: "loop_interrupted", critique: null, selected: { final: null } });
+    expect(record.stages.find(entry => entry.stage === "critique")).toMatchObject({ reused: false, interrupted: true });
+    // The critique's own failure, whatever it names, reaches only the operator's side file; the record and the log keep the code.
+    expect(readFileSync(join(dir, "errors.txt"), "utf8")).toMatch(/ loop_interrupted Error: ECONNRESET: socket hang up reading \/Users\/someone\/critique\/state\.sqlite\n/u);
+    expect(readFileSync(join(dir, "loop.json"), "utf8")).not.toContain("/Users"); expect(readFileSync(join(dir, "log.txt"), "utf8")).not.toContain("/Users");
+    // The next invocation finds the critique directory without its record: an unfinished stage, refused until it is moved aside.
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: candidates(false) }).deps)).rejects.toThrow("loop_stage_incomplete");
+    rmSync(join(dir, "critique"), { recursive: true, force: true });
+    const resumed = fakes({ summaries: candidates(false) });
+    expect((await runSelectionLoop({ base: base(), loopDirectory: dir }, resumed.deps)).selected.final).toMatchObject({ candidate: "a", step: "tie" });
+    expect(resumed.calls.critiques).toHaveLength(1); expect(resumed.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["repair"]);
+    // A critique that fails on its own, with no interrupt, still ends the loop as before.
+    const failing = fakes({ summaries: candidates(false), critiqueFails: "request_failed" });
+    expect((await runSelectionLoop({ base: base(), loopDirectory: loopDir() }, failing.deps)).selected.final).toEqual({ candidate: "a", step: "critique_failed" });
   });
   it("refuses a summary that lacks a count the totals add, and still records the failure", async () => {
     const dir = loopDir();

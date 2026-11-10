@@ -173,7 +173,7 @@ export function normalizeResearchHeadings(argument: string): { text: string; rew
     const line = lines[i]!, key = skipped[i] ? undefined : stripped(line), title = key === undefined ? undefined : policy.titles.find(t => t.toLowerCase() === key);
     if (title === undefined) { out.push(line, breaks[i] ?? ""); continue; }
     const target = policy.target.replace("{title}", title);
-    if (!blocked.test(line) && i + 1 < lines.length && !skipped[i + 1] && underline.test(lines[i + 1]!)) { rewritten++; out.push(target, breaks[i + 1] ?? ""); i++; continue; }
+    if (!blocked.test(line) && i + 1 < lines.length && underline.test(lines[i + 1]!)) { rewritten++; out.push(target, breaks[i + 1] ?? ""); i++; continue; }
     if (exact(title).test(line)) out.push(line, breaks[i] ?? ""); else { rewritten++; out.push(target, breaks[i] ?? ""); }
   }
   return { text: out.join(""), rewritten };
@@ -222,8 +222,8 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const settled = (counts: ResearchStageCounts, reply: Exclude<CallResult, { denied: string }>) => { counts.calls++; addUsage(counts.usage, reply.usage); if (reply.truncated) counts.truncatedReplies = (counts.truncatedReplies ?? 0) + 1; };
   const denied = (counts: ResearchStageCounts, reason: string) => { counts.denied = reason; record(counts); return finish("incomplete", reason === "cancelled" ? "research_cancelled" : "research_request_denied"); };
   /** Backlog item 4: a rejected or truncated settled reply (and since 7a.1 a kept reply with drops) goes to the sink with its content and reasons; counts and files never carry either. */
-  const retain = (counts: ResearchStageCounts, purpose: string, reply: Exclude<CallResult, { denied: string }>, reasons: ResearchDiagnosticReason[], disposition?: "accepted_with_drops") => {
-    input.diagnostics?.retain({ stage: counts.stage, ordinal: counts.calls, purpose, replyContentSha256: digest(reply.content), replyBytes: Buffer.byteLength(reply.content), truncated: reply.truncated, content: reply.content, reasons, ...(disposition ? { disposition } : {}) });
+  const retain = (counts: ResearchStageCounts, purpose: string, reply: Exclude<CallResult, { denied: string }>, reasons: ResearchDiagnosticReason[], disposition?: "accepted_with_drops", ordinal = counts.calls) => {
+    input.diagnostics?.retain({ stage: counts.stage, ordinal, purpose, replyContentSha256: digest(reply.content), replyBytes: Buffer.byteLength(reply.content), truncated: reply.truncated, content: reply.content, reasons, ...(disposition ? { disposition } : {}) });
   };
   if (input.signal.aborted) return finish("incomplete", "research_cancelled");
   if (!parsedBudget.success) return finish("incomplete", "research_budget_invalid");
@@ -275,6 +275,18 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const extractCounts: ResearchStageCounts = { stage: "extract", calls: 0, invalidReplies: 0, usage: zeroUsage(), initialCalls: 0, repairCalls: 0,
     chunksPlanned: inventory.chunks.length, chunksComplete: 0, pairsPlanned: inventory.chunks.length, pairsExtracted: 0, quotesDropped: 0,
     conflictsDropped: 0, notesDropped: 0, questionsDowngraded: 0, questionsUpgraded: 0, quotesMerged: 0 };
+  /**
+   * Owner question 3's corner (BL-20261110-0726): a first attempt that dropped every quote it gave for a question it marked
+   * evidence_found is held rather than kept. Held chunks are repaired after every other repair, while the budget lasts; a held
+   * chunk left unrepaired keeps its attempt, as 7a.1 kept it; a repaired one drops it. A repair attempt is kept with its drops.
+   */
+  const held = new Map<string, { keep: () => void; reject: () => void }>();
+  const settleHeld = (keepUnrepaired: boolean) => {
+    for (const chunk of coverage.chunks) {
+      const hold = held.get(chunk.id); if (!hold) continue; held.delete(chunk.id);
+      if (keepUnrepaired && chunk.attempts.length === 1) { hold.keep(); chunk.status = "complete"; chunk.attempts[0]!.status = "complete"; } else hold.reject();
+    }
+  };
   const extract = async (chunk: ResearchCoverage["chunks"][number], repair: boolean): Promise<string | undefined> => {
     const source = ordered.find(s => s.id === chunk.sourceId)!, chunkText = source.bytes.subarray(chunk.startByte, chunk.endByte).toString("utf8");
     const reply = await call(input.models.reader, EXTRACT_SYSTEM, () => researchExtractionUserContent({ ...stablePacket, source: { id: source.id, sha256: chunk.sourceSha256 },
@@ -295,7 +307,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
         // 7a.1 (D2): each quote and conflict is judged alone. Every reason is reported for any reply, as before; a reply that names
         // every question once then keeps each quote and conflict it can verify, clears a note canonical() cannot encode, and lets
         // each question's outcome follow the verified quotes. Each drop and correction of a kept reply is counted.
-        const candidateQuotes: ResearchEvidence["quotes"] = [], keptConflicts: typeof value.conflicts = [];
+        const candidateQuotes: ResearchEvidence["quotes"] = [], keptConflicts: typeof value.conflicts = [], droppedFor = new Set<string>();
         let notes = 0, droppedConflicts = 0;
         for (const [i, q] of value.quotes.entries()) {
           const normalized = normalizeQuoteText(q.quote), length = [...normalized].length, inRange = length >= RESEARCH_QUOTE_MIN_CHARS && length <= RESEARCH_QUOTE_MAX_CHARS;
@@ -306,7 +318,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
           else if (!location) reasons.push({ code: "quote_not_located", path: ["quotes", i, "quote"] });
           if (!unique(q.questionIds)) reasons.push({ code: "duplicate_question_id", path: ["quotes", i, "questionIds"] });
           if (q.questionIds.some(id => !questions.has(id))) reasons.push({ code: "unknown_question_id", path: ["quotes", i, "questionIds"] });
-          if (!location || !unique(q.questionIds) || q.questionIds.some(id => !questions.has(id))) { extractCounts.quotesDropped!++; continue; }
+          if (!location || !unique(q.questionIds) || q.questionIds.some(id => !questions.has(id))) { extractCounts.quotesDropped!++; for (const id of q.questionIds) droppedFor.add(id); continue; }
           let note = q.note ?? "";
           if (!encodable(note)) { reasons.push({ code: "note_unencodable", path: ["quotes", i, "note"] }); notes++; note = ""; }
           candidateQuotes.push({ id: "", questionIds: [...q.questionIds].sort(), sourceId: source.id, sourceSha256: chunk.sourceSha256, chunkIds: [chunk.id], locator: location.locator, quote: normalized, note });
@@ -329,23 +341,35 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
           state = "needs_followup";
           for (const [i, q] of value.questions.entries()) if (q.status === "needs_followup") reasons.push({ code: "needs_followup", path: ["questions", i] });
         } else if (exactQuestions) {
-          // Only a chunk's complete attempt contributes quotes, conflicts and outcomes, and only its drops and corrections are counted.
-          state = "complete";
+          // Only the attempt a chunk keeps contributes quotes, conflicts and outcomes, and only its conflict, note and outcome
+          // corrections are counted; quotesDropped counts the quotes dropped from every parsed reply.
+          const ordinal = extractCounts.calls;
+          const keep = () => {
           extractCounts.conflictsDropped! += droppedConflicts; extractCounts.notesDropped! += notes; extractCounts.questionsDowngraded! += downgraded; extractCounts.questionsUpgraded! += upgraded;
           for (const q of candidateQuotes) { const key = `${q.sourceId}\u0000${q.locator}\u0000${q.quote}`; const prior = quoteMap.get(key); if (prior) { prior.questionIds = [...new Set([...prior.questionIds, ...q.questionIds])].sort(); prior.chunkIds = [...new Set([...prior.chunkIds, chunk.id])]; extractCounts.quotesDropped!++; extractCounts.quotesMerged!++; } else { q.id = `E${verified.length + 1}`; verified.push(q); quoteMap.set(key, q); } }
           conflicts.push(...keptConflicts.map(c => ({ questionIds: c.questionIds, sourceId: source.id, note: c.note })));
           chunk.questions = value.questions.map((q, i) => ({ questionId: q.questionId, status: outcomes[i]!, evidenceIds: [] }));
           // A merge with an earlier identical quote carries no reason: only a drop or a correction makes this reply worth retaining.
-          if (reasons.length) retain(extractCounts, PURPOSES.extract, reply, reasons, "accepted_with_drops");
+          if (reasons.length) retain(extractCounts, PURPOSES.extract, reply, reasons, "accepted_with_drops", ordinal);
+          };
+          const lost = value.questions.some(q => q.status === "evidence_found" && droppedFor.has(q.questionId) && !candidateQuotes.some(c => c.questionIds.includes(q.questionId)));
+          if (!repair && lost) {
+            held.set(chunk.id, { keep, reject: () => { extractCounts.invalidReplies++; retain(extractCounts, PURPOSES.extract, reply, reasons, undefined, ordinal); } });
+            state = "invalid";
+          } else { state = "complete"; keep(); }
         }
       }
     }
-    if (state !== "complete") { extractCounts.invalidReplies++; retain(extractCounts, PURPOSES.extract, reply, reasons); }
+    if (state !== "complete" && !held.has(chunk.id)) { extractCounts.invalidReplies++; retain(extractCounts, PURPOSES.extract, reply, reasons); }
     chunk.status = state; chunk.attempts.push({ responseSha256: digest(reply.content), status: state });
     return undefined;
   };
-  for (const chunk of coverage.chunks) { const refused = await extract(chunk, false); if (refused) return denied(extractCounts, refused); }
-  for (const chunk of coverage.chunks.filter(c => c.status !== "complete")) { if (extractCounts.calls >= budget.extractionCalls) break; const refused = await extract(chunk, true); if (refused) return denied(extractCounts, refused); }
+  for (const chunk of coverage.chunks) { const refused = await extract(chunk, false); if (refused) { settleHeld(false); return denied(extractCounts, refused); } }
+  // Every chunk that is not complete is repaired in order, then the held chunks, while the budget lasts.
+  for (const chunk of [...coverage.chunks.filter(c => c.status !== "complete" && !held.has(c.id)), ...coverage.chunks.filter(c => held.has(c.id))]) {
+    if (extractCounts.calls >= budget.extractionCalls) break; const refused = await extract(chunk, true); if (refused) { settleHeld(false); return denied(extractCounts, refused); }
+  }
+  settleHeld(true);
   extractCounts.chunksComplete = coverage.chunks.filter(c => c.status === "complete").length;
   const evidence: ResearchEvidence = { version: 2, quotes: [], conflicts: [], counts: { verified: verified.length, inPacket: 0, leftByCap: 0, droppedUnverifiedOrDuplicate: extractCounts.quotesDropped ?? 0, conflictsNoted: conflicts.length } };
   for (const conflict of conflicts) { if (evidence.conflicts.length >= LIMITS.packet.conflicts || Buffer.byteLength(canonical([...evidence.conflicts, conflict])) > LIMITS.packet.conflictsBytes) coverage.conflictOmissions.push({ sourceId: conflict.sourceId, questionIds: conflict.questionIds, noteSha256: digest(conflict.note), reason: "conflict_cap" }); else evidence.conflicts.push(conflict); }

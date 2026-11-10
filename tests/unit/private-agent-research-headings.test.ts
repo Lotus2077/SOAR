@@ -53,6 +53,9 @@ describe("7a.1: section headings normalised by claims.ts's rule (finding D5)", (
     const crlf = (text: string) => text.replaceAll("\n", `${CR}\n`);
     const text = crlf(EXACT.replace("## Conflicting evidence", "### Conflicting evidence:").replace("## Unanswered questions", "Unanswered questions\n-----"));
     expect(normalizeResearchHeadings(text)).toEqual({ text: crlf(EXACT), rewritten: 2 });
+    // A removed underline's own separator follows the heading: CRLF title, LF underline gives an LF; LF title, CRLF underline a CRLF.
+    expect(normalizeResearchHeadings(`Conflicting evidence${CR}\n---\nBody`)).toEqual({ text: "## Conflicting evidence\nBody", rewritten: 1 });
+    expect(normalizeResearchHeadings(`Conflicting evidence\n===${CR}\nNone.`)).toEqual({ text: `## Conflicting evidence${CR}\nNone.`, rewritten: 1 });
   });
   it("ends lines at a lone CR too, as claims.ts reads the report, keeping every separator", () => {
     expect(normalizeResearchHeadings(`Intro${CR}**Unanswered questions**${CR}more`)).toEqual({ text: `Intro${CR}## Unanswered questions${CR}more`, rewritten: 1 });

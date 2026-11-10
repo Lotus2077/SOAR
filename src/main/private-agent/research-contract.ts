@@ -16,8 +16,8 @@ export const RESEARCH_PRESENTATION_POLICY = Object.freeze({ version: 1, maxBytes
  * Backlog item 7(a), part 1 (BL-20261109-0447-research-tolerance-design): what a settled reply may lose and still be accepted,
  * and how the synthesis argument's section headings are normalised. Bound into researchProtocolSha256; the diagnostics sink is
  * no part of it. The heading rule is claims.ts's section_present over the lines claims.ts keeps: Python's whitespace class
- * (str.isspace), lines split at a newline only, fenced code removed before HTML comments are searched. The pipeline builds its
- * scanner from these values, so the policy is the definition.
+ * (str.isspace), lines ending at CRLF, CR or LF (universal newlines) with their separators kept, fenced code removed before
+ * HTML comments are searched. The pipeline builds its scanner from these values, so the policy is the definition.
  */
 export const RESEARCH_TOLERANCE_POLICY = Object.freeze({ version: 1,
   extraction: Object.freeze({ incompleteWhen: Object.freeze(["truncated", "invalid_json", "schema_invalid", "question_set_mismatch", "needs_followup"]),
@@ -26,7 +26,9 @@ export const RESEARCH_TOLERANCE_POLICY = Object.freeze({ version: 1,
     conflictDrops: Object.freeze(["duplicate_question_id", "unknown_question_id", "note_unencodable"]), unencodableQuoteNote: "cleared",
     /** canonical()'s exactText (contracts.ts): text holding a NUL or a lone surrogate cannot be encoded. */
     unencodable: "exact_text_refuses_nul_or_lone_surrogate",
-    questionOutcome: "from_verified_quotes_except_needs_followup" }),
+    questionOutcome: "from_verified_quotes_except_needs_followup",
+    /** BL-20261110-0726 (owner question 3's corner): a first attempt that lost every quote of a question it marked evidence_found. */
+    allQuotesOfAFoundQuestionDropped: "first_attempt_held_repaired_after_other_repairs_while_budget_lasts_else_kept" }),
   synthesis: Object.freeze({ rejectWhen: Object.freeze(["argument_unencodable"]) }),
   synthesisHeadings: Object.freeze({ titles: Object.freeze(["Conflicting evidence", "Unanswered questions"]), target: "## {title}",
     /** claims.ts reads a Markdown report with Path.read_text (universal newlines), so CRLF, CR and LF all end a line; separators are kept. */

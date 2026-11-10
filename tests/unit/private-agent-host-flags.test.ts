@@ -147,6 +147,8 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", ()
       expect(hits("Prices rose [C1]\n1) None of the sources mention 2025.")).toEqual([absence(2, "A1")]);
       expect(hits("Prices rose [C1]\n2. none of the sources mention 2024.")).toEqual([absence(2, "A1")]);
       expect(hits("Prices rose [C1]\n  - None of the sources mention 2025.")).toEqual([absence(2, "A1")]);
+      // Spaces and tabs are trimmed; any other leading whitespace before a marker still starts a block.
+      expect(hits("Prices rose [C1]\n\f- None of the sources mention 2025.")).toEqual([absence(2, "A1")]);
       expect(hits("Did prices rise [C1]? None of the sources mention 2025! None of the sources mention 2024.")).toEqual([absence(1, "A1"), absence(1, "A1")]);
       for (const next of ['"None of the sources mention 2025."', "'None of the sources mention 2025.'", "(None of the sources mention 2025.)", "[None of the sources mention 2025.]",
         "2025 is absent from the sources."]) expect(hits(`Prices rose [C1]. ${next}`), next).toEqual([absence(1, next.startsWith("2025") ? "A10" : "A1")]);

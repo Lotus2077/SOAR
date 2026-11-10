@@ -4,20 +4,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
-import { ENTAILMENT_MIN_JUDGED, ENTAILMENT_MIN_MARGIN, SELECTION_PROTOCOL_VERSION, compareCandidates, entailmentRate, summarizeRun, type CandidateSummary } from "../../src/main/private-agent/selection";
+import { ENTAILMENT_MIN_JUDGED, SELECTION_PROTOCOL_VERSION, compareCandidates, entailmentRate, summarizeRun, type CandidateSummary } from "../../src/main/private-agent/selection";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
 const base: CandidateSummary = { jobId: "j", taskJobSha256: "1".repeat(64), taskBriefSha256: "2".repeat(64), runtimeSha256: "4".repeat(64), researchFrom: null, repairSource: null, status: "submitted", reason: "independent_acceptance_pending", checksPassed: 3, checksTotal: 3, checksCurrent: true, artifactsPresent: 2, artifactsTotal: 2,
-  entailment: null, writeIdentity: null, modelCalls: 10, toolCalls: 9, inputTokens: 100, outputTokens: 10, cachedTokens: 0, cacheWriteTokens: 0, lengthStops: 0, feeMicrousd: 0, unknownDispatches: 0, retriedDispatches: 0, failedDispatches: 0,
+  entailment: null, writeIdentity: null, modelCalls: 10, toolCalls: 9, inputTokens: 100, outputTokens: 10, cachedTokens: 0, cacheWriteTokens: 0, lengthStops: 0, feeMicrousd: 0, unknownDispatches: 0, retriedDispatches: 0, failedDispatches: 0, zeroFeeFailedDispatches: 0,
   assistSkippedDispatches: 0, assistFailedDispatches: 0,
   candidateSha256: "a".repeat(64), freezeSha256: "b".repeat(64), resultSha256: "c".repeat(64), startedAt: "2026-10-26T00:00:00.000Z", finishedAt: "2026-10-26T00:10:00.000Z" };
 const entailed = (supported: number, contradicted = 0, unsupported = 0, truncated = false) => ({ supported, partial: 1, unsupported, contradicted, not_judged: 0, truncated });
 
 describe("H4 selection rule", () => {
-  it("orders by submission, then checks passed, then artifacts present, then the entailment balance rate, and gives every tie to the first candidate", () => {
-    expect(SELECTION_PROTOCOL_VERSION).toBe(1);
+  it("orders by submission, then checks passed, then artifacts present, gives every tie to the first candidate, and records the entailment balance rates as evidence that decides nothing (protocol 2)", () => {
+    expect(SELECTION_PROTOCOL_VERSION).toBe(2);
     const pick = (first: CandidateSummary, second: CandidateSummary) => { const { winner, step } = compareCandidates(first, second); return { winner, step }; };
     expect(pick({ ...base, status: "incomplete", reason: "bounded_allowance_exhausted" }, base)).toEqual({ winner: "second", step: "submitted" });
     expect(pick(base, { ...base, status: "incomplete", reason: "bounded_allowance_exhausted" })).toEqual({ winner: "first", step: "submitted" });
@@ -25,16 +25,21 @@ describe("H4 selection rule", () => {
     expect(pick({ ...base, status: "incomplete", checksPassed: 3 }, { ...base, status: "submitted", checksPassed: 2 })).toEqual({ winner: "second", step: "submitted" });
     expect(pick({ ...base, status: "incomplete", checksPassed: 1 }, { ...base, status: "incomplete", checksPassed: 2 })).toEqual({ winner: "second", step: "checks" });
     expect(pick({ ...base, status: "incomplete", checksPassed: 0, artifactsPresent: 2 }, { ...base, status: "incomplete", checksPassed: 0, artifactsPresent: 1 })).toEqual({ winner: "first", step: "artifacts" });
-    // Research: the entailment balance rate over judged claims separates two submitted drafts that pass every check, by at least the margin.
+    // Research: the balance rate over judged claims is computed for both candidates and recorded in the comparison's order, but
+    // decides nothing (finding E10): drafts that pass every check tie whatever their rates, and the first candidate keeps the tie.
     expect(entailmentRate(entailed(30, 2, 1))).toBeCloseTo(27 / 34); expect(entailmentRate(entailed(29))).toBeCloseTo(29 / 30);
-    expect(pick({ ...base, entailment: entailed(30, 2, 1) }, { ...base, entailment: entailed(29) })).toEqual({ winner: "second", step: "entailment" });
-    expect(pick({ ...base, entailment: entailed(33) }, { ...base, entailment: entailed(24, 3) })).toEqual({ winner: "first", step: "entailment" });
+    expect(pick({ ...base, entailment: entailed(30, 2, 1) }, { ...base, entailment: entailed(29) })).toEqual({ winner: "first", step: "tie" });
+    expect(pick({ ...base, entailment: entailed(24, 3) }, { ...base, entailment: entailed(33) })).toEqual({ winner: "first", step: "tie" });
+    expect(pick({ ...base, entailment: entailed(10) }, { ...base, entailment: entailed(12, 2) })).toEqual({ winner: "first", step: "tie" });
     expect(compareCandidates({ ...base, entailment: entailed(33) }, { ...base, entailment: entailed(24, 3) }).entailmentRates).toEqual([33 / 34, 21 / 28]);
-    // Within the margin, a truncated pass, too few judged claims, or no pass at all: the first candidate (sample a, or the repair) wins.
-    expect(ENTAILMENT_MIN_MARGIN).toBe(0.1); expect(ENTAILMENT_MIN_JUDGED).toBe(10);
+    expect(compareCandidates({ ...base, entailment: entailed(24, 3) }, { ...base, entailment: entailed(33) })).toEqual({ winner: "first", step: "tie", entailmentRates: [21 / 28, 33 / 34] });
+    // The rate never outweighs an earlier step either, and protocol 2 has no `entailment` step to report.
+    expect(pick({ ...base, checksPassed: 2, entailment: entailed(33) }, { ...base, entailment: entailed(2, 20) })).toEqual({ winner: "second", step: "checks" });
+    for (const [x, y] of [[entailed(40), entailed(0, 40)], [entailed(0, 40), entailed(40)], [null, entailed(40)]] as const) expect(compareCandidates({ ...base, entailment: x }, { ...base, entailment: y }).step).toBe("tie");
+    // A truncated pass, too few judged claims, or no pass at all records a null rate.
+    expect(ENTAILMENT_MIN_JUDGED).toBe(10);
     expect(pick(base, { ...base, modelCalls: 2 })).toEqual({ winner: "first", step: "tie" });
     expect(pick({ ...base, entailment: entailed(20) }, { ...base, entailment: entailed(19) })).toEqual({ winner: "first", step: "tie" });
-    expect(pick({ ...base, entailment: entailed(10) }, { ...base, entailment: entailed(12, 2) })).toEqual({ winner: "first", step: "entailment" });
     expect(pick({ ...base, entailment: entailed(10, 0, 0, true) }, { ...base, entailment: entailed(30) })).toEqual({ winner: "first", step: "tie" });
     expect(pick({ ...base, entailment: entailed(2) }, { ...base, entailment: entailed(30) })).toEqual({ winner: "first", step: "tie" });
     expect(entailmentRate(entailed(2))).toBeNull(); expect(entailmentRate(entailed(30, 0, 0, true))).toBeNull(); expect(entailmentRate(null)).toBeNull();
@@ -60,14 +65,15 @@ describe("H4 selection rule", () => {
     const empty = digest(Buffer.alloc(0)), files = [{ path: "output/report.md", sha256: "9".repeat(64) }, { path: "output/claims.json", sha256: empty }, { path: "input/a.md", sha256: "8".repeat(64) }];
     const result = { status: "incomplete", reason: "bounded_allowance_exhausted", finishedAt: "2026-10-26T10:12:00.000Z", candidateFiles: files, snapshotSha256: verified,
       // Assist rows (backlog item 10) are counted apart from the run's own unresolved and failed rows; a committed assist is still unresolved.
-      dispatches: [{ status: "settled", feeMicrousd: 12_000 }, { status: "superseded", feeMicrousd: 0 }, { status: "failed" }, { status: "unknown", feeMicrousd: 500 },
+      // A failed row with no recorded reservation is not zero-fee; a zero-fee local one is (backlog item 11).
+      dispatches: [{ status: "settled", feeMicrousd: 12_000 }, { status: "superseded", feeMicrousd: 0 }, { status: "failed" }, { status: "failed", destinationId: "owned_local_model", reservedFeeMicrousd: 0 }, { status: "unknown", feeMicrousd: 500 },
         { status: "unknown", purpose: "research plan assist", reservedFeeMicrousd: 160_000 }, { status: "failed", purpose: "research synthesis assist" }, { status: "superseded", purpose: "research plan assist" }, { status: "committed", purpose: "research synthesis assist" }] };
     writeFileSync(join(dir, "result.json"), `${canonical(result)}\n`);
     const deliverables = ["output/report.md", "output/claims.json"];
     const summary = summarizeRun(dir, deliverables);
     expect(summary).toMatchObject({ jobId, taskJobSha256: "1".repeat(64), taskBriefSha256: "2".repeat(64), runtimeSha256: "4".repeat(64), researchFrom: { sourceJobId: "job-a", snapshotSha256: "f".repeat(64) }, repairSource: { resultSha256: "c".repeat(64), freezeSha256: "b".repeat(64) },
       status: "incomplete", reason: "bounded_allowance_exhausted", checksPassed: 1, checksTotal: 2, checksCurrent: true, artifactsPresent: 1, artifactsTotal: 2, entailment: null,
-      writeIdentity: "5".repeat(64), modelCalls: 6, toolCalls: 1, inputTokens: 2600, outputTokens: 150, cachedTokens: 1800, cacheWriteTokens: 0, lengthStops: 1, feeMicrousd: 12_500, unknownDispatches: 2, retriedDispatches: 2, failedDispatches: 1,
+      writeIdentity: "5".repeat(64), modelCalls: 6, toolCalls: 1, inputTokens: 2600, outputTokens: 150, cachedTokens: 1800, cacheWriteTokens: 0, lengthStops: 1, feeMicrousd: 12_500, unknownDispatches: 2, retriedDispatches: 2, failedDispatches: 2, zeroFeeFailedDispatches: 1,
       assistSkippedDispatches: 1, assistFailedDispatches: 1,
       candidateSha256: digest(canonical(files)), startedAt: freeze.startedAt, finishedAt: result.finishedAt });
     expect(summary.freezeSha256).toBe(digest(`${canonical(freeze)}\n`)); expect(summary.resultSha256).toBe(digest(`${canonical(result)}\n`));

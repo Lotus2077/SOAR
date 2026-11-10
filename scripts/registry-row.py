@@ -177,7 +177,8 @@ def main() -> int:
 
 
 SUMMED = ("modelCalls", "toolCalls", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "usd", "unknownDispatches", "retriedDispatches", "failedDispatches",
-          "assistSkippedDispatches", "assistFailedDispatches")
+          "assistSkippedDispatches", "assistFailedDispatches",
+          "zeroFeeFailedDispatches")
 # The sealed cloud one-shots' purposes (src/main/private-agent/dispatch-purposes.ts; backlog item 10): an unknown or failed assist row is
 # counted in its own column and never as an unresolved or failed dispatch of the run.
 ASSIST_PURPOSES = ("research plan assist", "research synthesis assist")
@@ -185,6 +186,24 @@ ASSIST_PURPOSES = ("research plan assist", "research synthesis assist")
 
 def is_assist(item: dict) -> bool:
     return item.get("purpose") in ASSIST_PURPOSES
+
+
+# The harness destinations that never carry a fee (selection.ts ZERO_FEE_DESTINATIONS; backlog item 11): the owned local model and the
+# loopback public-snapshot fixture. An allowlist, so a destination added later is never counted as zero-fee until it is named here.
+ZERO_FEE_DESTINATIONS = ("owned_local_model", "approved_public_snapshots")
+
+
+def is_zero(value) -> bool:
+    """A JSON number equal to 0; a boolean, a string or null is not."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == 0
+
+
+def is_zero_fee_failed(item: dict) -> bool:
+    """A resolved zero-fee failure (selection.ts isZeroFeeFailedDispatch; backlog item 11): a failed row, not an assist, to a
+    destination in ZERO_FEE_DESTINATIONS, reserved at exactly 0, with no fee key or a fee of 0 and no approval key. The H4 loop
+    admits these rows; a missing or malformed field fails closed."""
+    return (item.get("status") == "failed" and not is_assist(item) and isinstance(item.get("destinationId"), str) and item["destinationId"] in ZERO_FEE_DESTINATIONS
+            and is_zero(item.get("reservedFeeMicrousd")) and ("feeMicrousd" not in item or is_zero(item["feeMicrousd"])) and "approval" not in item)
 
 
 def utc_iso(value, flag: str) -> str:
@@ -391,6 +410,8 @@ def run_counts(run_dir: str) -> dict:
         "failedDispatches": sum(1 for item in dispatches if item.get("status") == "failed" and not is_assist(item)),
         "assistSkippedDispatches": sum(1 for item in dispatches if item.get("status") == "unknown" and is_assist(item)),
         "assistFailedDispatches": sum(1 for item in dispatches if item.get("status") == "failed" and is_assist(item)),
+        # Backlog item 11: the part of failedDispatches that reserved and settled nothing, the rows the H4 loop admits.
+        "zeroFeeFailedDispatches": sum(1 for item in dispatches if is_zero_fee_failed(item)),
     }
 
 

@@ -224,3 +224,46 @@ describe("the driver's git state (backlog item 11, part 2)", () => {
     expect(literal).toMatch(/\n\s+git,\n/u);
   });
 });
+
+/** Backlog item 11, part 3b: the checks of part 2 that BL-20261110-0723 (f) deferred to it. */
+describe("registry git provenance: deferred checks (BL-20261110-0723 (f))", { timeout: 60_000 }, () => {
+  const git = (cwd: string, args: string[]) => execFileSync("/usr/bin/git", ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "commit.gpgsign=false", ...args],
+    { cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], env: { PATH: "/usr/bin:/bin", HOME: cwd, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" } });
+  /** A repository with one commit, and inside it a directory that is not a repository of its own. */
+  function enclosing() {
+    const outer = scratch("soar-git-outer-");
+    git(outer, ["init", "-q"]); writeFileSync(join(outer, ".gitignore"), "copy/\n"); git(outer, ["add", ".gitignore"]); git(outer, ["commit", "-q", "-m", "outer"]);
+    const copy = join(outer, "copy"); mkdirSync(join(copy, "scripts"), { recursive: true });
+    return { outer, copy };
+  }
+  it("never takes the commit of a repository above the writer's own: the writer's ceiling", () => {
+    const { outer, copy } = enclosing();
+    expect(git(copy, ["rev-parse", "--show-toplevel"]).trim()).toBe(outer);
+    copyFileSync(SCRIPT, join(copy, "scripts", "registry-row.py"));
+    const run = runDirectory(scratch("soar-git-ceiling-run-"), "legacy");
+    expect(() => row(["--run-dir", run], join(copy, "scripts", "registry-row.py"))).toThrow(/cannot read the commit this row is written at/u);
+  });
+  it("never takes the commit of a repository above the driver's own: the runner's ceiling", () => {
+    const { copy } = enclosing();
+    expect(() => localScreenGitRunner(copy)(["rev-parse", "--show-toplevel"])).toThrow();
+    expect(localScreenGitState([], { root: copy, cwd: copy })).toBeNull();
+  });
+  it("compares frozen files with their blobs in a SHA-256 repository", () => {
+    const repo = scratch("soar-git-sha256-");
+    git(repo, ["init", "-q", "--object-format=sha256"]); writeFileSync(join(repo, "file.ts"), "export const x = 1;\n");
+    git(repo, ["add", "file.ts"]); git(repo, ["commit", "-q", "-m", "one"]);
+    const bytes = readFileSync(join(repo, "file.ts")), commit = git(repo, ["rev-parse", "HEAD"]).trim();
+    expect(commit).toMatch(/^[0-9a-f]{64}$/u);
+    expect(localScreenGitState([{ path: "file.ts", sha256: digest(bytes) }], { root: repo, cwd: repo })).toEqual({ commit, dirty: false });
+    expect(localScreenGitState([{ path: "file.ts", sha256: h("0") }], { root: repo, cwd: repo })).toEqual({ commit, dirty: true });
+  });
+  it("gives a superseding copy of a runs_differ row with a malformed gitDirty the writing commit, labelled", () => {
+    const registry = join(scratch("soar-git-differ-"), "registry.jsonl");
+    const original = { id: "differ-1", batch: "b", task: "t", family: "research", exposure: "fresh", arm: "local-heavy", outcome: "rejected", verdictBy: "none", lesson: "l",
+      git: "cccccccccccc", gitSource: "runs_differ", gitDirty: "yes", runStatus: "submitted", runClass: { version: 1, infra: false, cause: "submitted" } };
+    writeFileSync(registry, `${JSON.stringify(original)}\n`);
+    const superseding = JSON.parse(execFileSync("python3", ["-I", SCRIPT, "--supersedes", "differ-1", "--registry", registry, "--id", "differ-2", "--outcome", "accepted", "--verdict-by", "none", "--lesson", "l"],
+      { cwd: ROOT, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] })) as Record<string, unknown>;
+    expect(superseding).toMatchObject({ git: HEAD.slice(0, 12), gitSource: "row_written", gitDirty: null });
+  });
+});

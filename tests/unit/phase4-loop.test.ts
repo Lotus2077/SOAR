@@ -82,6 +82,11 @@ function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?:
 }
 function loopDir() { const dir = mkdtempSync(join(tmpdir(), "soar-loop-")); cleanups.push(() => rmSync(dir, { recursive: true, force: true })); return join(dir, "loop"); }
 const read = (dir: string) => JSON.parse(readFileSync(join(dir, "loop.json"), "utf8")) as LoopRecord;
+/**
+ * A stage entry as the loop records it, for asserting a record's stages whole: an interrupt mark (backlog item 11) must sit on the
+ * stage it names and on no other, since the next invocation refuses or resumes a marked stage and the registry row reads the mark.
+ */
+const stageEntry = (stage: string, reused: boolean, interrupted = false) => ({ stage, startedAt: expect.any(String), finishedAt: expect.any(String), reused, ...(interrupted ? { interrupted: true } : {}) });
 /** Real result-to-summary mapping: committed receipts must block just like UNKNOWN; an assist row carries its purpose. */
 function transportStoppedSummary(status: "unknown" | "committed" | "failed", purpose?: string): CandidateSummary {
   const directory = loopDir(); mkdirSync(directory, { recursive: true });
@@ -95,11 +100,14 @@ function transportStoppedSummary(status: "unknown" | "committed" | "failed", pur
   return summarizeRun(directory, []);
 }
 
-/** The real summary of an incomplete run whose one dispatch row is `row`, under a freeze whose arm is `arm` (backlog item 11's zero-fee predicate). */
-function rowSummary(row: Record<string, unknown>, arm?: Record<string, unknown>, reason = "bounded_allowance_exhausted"): CandidateSummary {
+/**
+ * The real summary of an incomplete run whose one dispatch row is `row`, under a freeze whose arm is `arm` (backlog item 11's zero-fee
+ * predicate). A task end, so part 1's own stops are what decide: part 3b resumes an infrastructure end instead (tests/unit/phase4-loop-resume.test.ts).
+ */
+function rowSummary(row: Record<string, unknown>, arm?: Record<string, unknown>): CandidateSummary {
   const directory = loopDir(); mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "freeze.json"), JSON.stringify({ jobId: "ja", startedAt: "t0", sourceFreezeSha256: h("4"), taskBinding: { jobSha256: h("1"), briefSha256: h("2") }, ...(arm ? { arm } : {}) }));
-  writeFileSync(join(directory, "result.json"), JSON.stringify({ status: "incomplete", reason, finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [], dispatches: [row] }));
+  writeFileSync(join(directory, "result.json"), JSON.stringify({ status: "incomplete", reason: "bounded_allowance_exhausted", finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [], dispatches: [row] }));
   const db = new Database(join(directory, "state.sqlite"));
   db.exec("CREATE TABLE private_agent_events (job_id TEXT, sequence INTEGER, value TEXT)"); db.close();
   return summarizeRun(directory, []);
@@ -356,25 +364,29 @@ describe("H4 select-and-repair loop", () => {
     // The interrupted loop is not terminal: a rerun reuses a and carries on.
     // Backlog item 11: the stage running when the interrupt fired is marked; a marked stage that still submitted is complete and reused.
     const marked = read(dir).stages;
-    expect(marked).toEqual([{ stage: "a", startedAt: expect.any(String), finishedAt: expect.any(String), reused: false, interrupted: true }]);
+    expect(marked).toEqual([stageEntry("a", false, true)]);
     const again = fakes({ summaries: candidates(false) });
     const resumed = await runSelectionLoop({ base: base(), loopDirectory: dir }, again.deps);
     expect(resumed.selected.final).toEqual({ candidate: "a", step: "tie", entailmentRates: [null, null] });
     expect(again.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["b", "repair"]);
-    expect(resumed.stages[0]).toEqual({ ...marked[0], reused: true }); expect(resumed.stages.slice(1).every(entry => entry.interrupted === undefined)).toBe(true);
+    // a reused with its first times and its mark; every later stage run afresh and unmarked.
+    expect(resumed.stages).toEqual([{ ...marked[0], reused: true }, stageEntry("b", false), stageEntry("critique", false), stageEntry("repair", false)]);
   });
   it("resumes a stage its own interrupt cut, once (backlog item 11, part 3b): the mark leaves with the moved run, and a second cut stops the loop for good", async () => {
     const dir = loopDir(), abort = new AbortController();
     // The driver cancels the running stage on the same signal: the run ends cancelled_or_deadline, which part 3a gives to the operator when the loop marked it.
     const quiet = candidates(false, { b: { status: "incomplete", reason: "cancelled_or_deadline" } });
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: quiet, onRun: run => { if (run.outputDirectory.endsWith("/b")) abort.abort(); } }).deps, { signal: abort.signal })).rejects.toThrow("loop_interrupted");
-    expect(read(dir).stages.find(entry => entry.stage === "b")).toMatchObject({ interrupted: true });
+    const cut = read(dir).stages;
+    expect(cut).toEqual([stageEntry("a", false), stageEntry("b", false, true)]);
     // The rerun moves the cut b to b.infra-1 under a write-ahead entry and runs b again; the loop carries on, and the moved run's counts stay in the totals.
     const rerun = fakes({ summaries: quiet, reruns: { b: summary({ jobId: "jb2", freezeSha256: h("d"), resultSha256: h("e") }) } });
     const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, rerun.deps);
     expect(rerun.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["b", "repair"]); expect(record.failure).toBeNull();
     expect(record.resumes).toEqual([expect.objectContaining({ stage: "b", cause: "operator_stop", as: "rerun", cleanup: "not_needed" })]);
-    expect(record.stages.every(entry => entry.interrupted === undefined)).toBe(true); expect(existsSync(join(dir, "b.infra-1"))).toBe(true);
+    // The mark left with the moved run: a reused with its first times, b and the later stages run afresh, nothing marked.
+    expect(record.stages).toEqual([{ ...cut[0], reused: true }, stageEntry("b", false), stageEntry("critique", false), stageEntry("repair", false)]);
+    expect(existsSync(join(dir, "b.infra-1"))).toBe(true);
     expect(record.totals.modelCalls).toBe(4 * 10 + 1); expect(read(dir).begun.map(entry => entry.stage).sort()).toEqual(["a", "b", "critique", "repair"]);
     expect(readFileSync(join(dir, "log.txt"), "utf8")).toContain("b moved to b.infra-1 (operator_stop)");
     // A second cut of a stage that used its resume stops the loop for good.
@@ -382,20 +394,31 @@ describe("H4 select-and-repair loop", () => {
     const cutB = (signal: AbortController) => fakes({ summaries: quiet, onRun: run => { if (run.outputDirectory.endsWith("/b")) signal.abort(); } }).deps;
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, cutB(abort2), { signal: abort2.signal })).rejects.toThrow("loop_interrupted");
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, cutB(abort3), { signal: abort3.signal })).rejects.toThrow("loop_interrupted");
+    const recut = read(dir2).stages;
+    expect(recut).toEqual([stageEntry("a", true), stageEntry("b", false, true)]);
     const last = fakes({ summaries: quiet });
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, last.deps)).rejects.toThrow("loop_stage_interrupted"); expect(last.calls.runs).toHaveLength(0);
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, last.deps)).rejects.toThrow("loop_stage_interrupted");
+    expect(last.calls.runs).toHaveLength(0); expect(last.calls.critiques).toHaveLength(0);
     expect(read(dir2)).toMatchObject({ stopped: { stage: "b", failure: "loop_stage_interrupted" }, resumes: [{ stage: "b", cause: "operator_stop" }] });
+    // Both stages as last recorded, now reused, the mark on b alone: a mark leaked onto a would refuse a healthy a in a later loop state.
+    expect(read(dir2).stages).toEqual([recut[0], { ...recut[1], reused: true }]);
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, fakes({ summaries: quiet }).deps)).rejects.toThrow("loop_terminal");
     // A stage that ended on the session deadline, with no interrupt from the loop, is unmarked and stays an ordinary candidate.
     const deadline = fakes({ summaries: candidates(false, { b: { status: "incomplete", reason: "cancelled_or_deadline" } }) });
-    expect((await runSelectionLoop({ base: base(), loopDirectory: loopDir() }, deadline.deps)).selected).toMatchObject({ stage1: { candidate: "a", step: "submitted" }, final: { candidate: "a" } });
+    const unmarked = await runSelectionLoop({ base: base(), loopDirectory: loopDir() }, deadline.deps);
+    expect(unmarked.selected).toMatchObject({ stage1: { candidate: "a", step: "submitted" }, final: { candidate: "a" } });
+    expect(unmarked.stages).toEqual(["a", "b", "critique", "repair"].map(stage => stageEntry(stage, false)));
     // Decision (1): a marked stage whose end is the task's (a fee cap the interrupt crossed) is an ordinary candidate, neither refused nor resumed.
     const dir3 = loopDir(), abort4 = new AbortController();
     const capped = candidates(false, { b: { status: "incomplete", reason: "fee_cap_reached" } });
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, fakes({ summaries: capped, onRun: run => { if (run.outputDirectory.endsWith("/b")) abort4.abort(); } }).deps, { signal: abort4.signal })).rejects.toThrow("loop_interrupted");
+    const crossed = read(dir3).stages;
+    expect(crossed).toEqual([stageEntry("a", false), stageEntry("b", false, true)]);
     const kept = fakes({ summaries: capped });
     expect((await runSelectionLoop({ base: base(), loopDirectory: dir3 }, kept.deps)).selected).toMatchObject({ stage1: { candidate: "a", step: "submitted" } });
     expect(kept.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["repair"]); expect(read(dir3).resumes).toEqual([]);
+    // The reused b keeps its mark, and only b: the critique and the repair ran afresh after it.
+    expect(read(dir3).stages).toEqual([{ ...crossed[0], reused: true }, { ...crossed[1], reused: true }, stageEntry("critique", false), stageEntry("repair", false)]);
   });
   it("refuses, before any stage, a stale runtime hash and a prior record of another protocol, version, runtime, task, arm or pipeline, leaving that record as it was (backlog item 11)", async () => {
     // The live source freeze must be the one the operator names: a reused stage never calls the driver that checks it.
@@ -431,23 +454,29 @@ describe("H4 select-and-repair loop", () => {
     const dir2 = loopDir(), abort3 = new AbortController();
     const cutRepair = candidates(false, { repair: { status: "incomplete", reason: "cancelled_or_deadline", checksPassed: 3 } });
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, fakes({ summaries: cutRepair, onRun: run => { if (run.outputDirectory.endsWith("/repair")) abort3.abort(); } }).deps, { signal: abort3.signal })).rejects.toThrow("loop_interrupted");
+    const first = read(dir2).stages;
+    expect(first).toEqual([stageEntry("a", false), stageEntry("b", false), stageEntry("critique", false), stageEntry("repair", false, true)]);
     const flaky = fakes({ summaries: cutRepair }); flaky.deps.summarize = () => { throw new Error("EMFILE: too many open files"); };
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, flaky.deps)).rejects.toThrow("EMFILE");
-    expect(read(dir2).stages.find(entry => entry.stage === "repair")).toMatchObject({ interrupted: true });
+    // Only the marked entry is carried past the stop; a, reused before its summary failed, carries no mark.
+    expect(read(dir2).stages).toEqual([first[3], { ...first[0], reused: true }]);
     const resumed = fakes({ summaries: cutRepair, reruns: { repair: summary({ jobId: "jr2", freezeSha256: h("5"), resultSha256: h("6"), repairSource: { resultSha256: h("c"), freezeSha256: h("b") } }) } });
     const record = await runSelectionLoop({ base: base(), loopDirectory: dir2 }, resumed.deps);
     expect(resumed.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["repair"]); expect(record.selected.final).toMatchObject({ candidate: "a", step: "tie" });
     expect(record.resumes).toEqual([expect.objectContaining({ stage: "repair", cause: "operator_stop" })]);
+    expect(record.stages).toEqual([stageEntry("a", true), stageEntry("b", true), stageEntry("critique", true), stageEntry("repair", false)]);
     // The driver writes result.json and then throws (a cleanup failure) while the interrupt has fired: the stage is still marked, the
     // invocation stops on the interrupt (the driver's code goes to errors.txt), and the stage is resumed.
     const quiet = candidates(false, { b: { status: "incomplete", reason: "cancelled_or_deadline" } });
     const dir3 = loopDir(), abort4 = new AbortController();
     const throwing = fakes({ summaries: quiet, onWritten: run => { if (run.outputDirectory.endsWith("/b")) { abort4.abort(); throw new Error("public_snapshot_cleanup_failed"); } } });
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, throwing.deps, { signal: abort4.signal })).rejects.toThrow("loop_interrupted");
-    expect(read(dir3).stages.find(entry => entry.stage === "b")).toMatchObject({ reused: false, interrupted: true });
+    expect(read(dir3).stages).toEqual([stageEntry("a", false), stageEntry("b", false, true)]);
     expect(readFileSync(join(dir3, "errors.txt"), "utf8")).toContain("loop_interrupted Error: public_snapshot_cleanup_failed");
     const after = fakes({ summaries: quiet, reruns: { b: summary({ jobId: "jb2", freezeSha256: h("d"), resultSha256: h("e") }) } });
-    expect((await runSelectionLoop({ base: base(), loopDirectory: dir3 }, after.deps)).resumes).toEqual([expect.objectContaining({ stage: "b", cause: "operator_stop" })]);
+    const afterRecord = await runSelectionLoop({ base: base(), loopDirectory: dir3 }, after.deps);
+    expect(afterRecord.resumes).toEqual([expect.objectContaining({ stage: "b", cause: "operator_stop" })]);
+    expect(afterRecord.stages).toEqual([stageEntry("a", true), stageEntry("b", false), stageEntry("critique", false), stageEntry("repair", false)]);
   });
   it("passes its interrupt to the critique, and a critique the interrupt cuts stops the loop resumably, never as a failed critique (backlog item 11, part 3a; E1's bug d)", async () => {
     const dir = loopDir(), abort = new AbortController();
@@ -466,7 +495,7 @@ describe("H4 select-and-repair loop", () => {
     expect(seen).toBe(abort.signal); expect(calls.critiques[0]).not.toHaveProperty("signal");
     const record = read(dir);
     expect(record).toMatchObject({ failure: "loop_interrupted", critique: null, selected: { final: null } });
-    expect(record.stages.find(entry => entry.stage === "critique")).toMatchObject({ reused: false, interrupted: true });
+    expect(record.stages).toEqual([stageEntry("a", false), stageEntry("b", false), stageEntry("critique", false, true)]);
     // The critique's own failure, whatever it names, reaches only the operator's side file; the record and the log keep the code.
     expect(readFileSync(join(dir, "errors.txt"), "utf8")).toMatch(/ loop_interrupted Error: ECONNRESET: socket hang up reading \/Users\/someone\/critique\/state\.sqlite\n/u);
     expect(readFileSync(join(dir, "loop.json"), "utf8")).not.toContain("/Users"); expect(readFileSync(join(dir, "log.txt"), "utf8")).not.toContain("/Users");
@@ -475,6 +504,7 @@ describe("H4 select-and-repair loop", () => {
     expect((await runSelectionLoop({ base: base(), loopDirectory: dir }, resumed.deps)).selected.final).toMatchObject({ candidate: "a", step: "tie" });
     expect(resumed.calls.critiques).toHaveLength(1); expect(resumed.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["repair"]);
     expect(read(dir).resumes).toEqual([expect.objectContaining({ stage: "critique", cause: "operator_stop", as: "rerun" })]);
+    expect(read(dir).stages).toEqual([stageEntry("a", true), stageEntry("b", true), stageEntry("critique", false), stageEntry("repair", false)]);
     expect(existsSync(join(dir, "critique.infra-1", "critique-failure.json"))).toBe(true);
     // A critique that fails on its own, with no interrupt, still ends the loop as before.
     const failing = fakes({ summaries: candidates(false), critiqueFails: "request_failed" });

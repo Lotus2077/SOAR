@@ -88,6 +88,8 @@ function harness(input: Harness) {
 }
 function loopDir() { const dir = realpathSync(mkdtempSync(join(tmpdir(), "soar-resume-"))); cleanups.push(() => rmSync(dir, { recursive: true, force: true })); return join(dir, "loop"); }
 const read = (dir: string) => JSON.parse(readFileSync(join(dir, "loop.json"), "utf8")) as LoopRecord;
+/** A stage entry as the loop records it, for asserting a record's stages whole, so that an interrupt mark sits on the stage it names and on no other. */
+const stageEntry = (stage: string, reused: boolean, interrupted = false) => ({ stage, startedAt: expect.any(String), finishedAt: expect.any(String), reused, ...(interrupted ? { interrupted: true } : {}) });
 const ran = (calls: { runs: DriverInput[] }) => calls.runs.map(run => run.outputDirectory.split("/").pop());
 const run = (dir: string, deps: LoopDependencies, over: Partial<DriverInput> = {}, signal?: AbortSignal) => runSelectionLoop({ base: base(over), loopDirectory: dir }, deps, signal ? { signal } : {});
 /** The dependencies `--close` takes, from a harness's. */
@@ -157,8 +159,11 @@ describe("the loop's zero-fee resume (backlog item 11, part 3b)", () => {
     const dir2 = loopDir(), abort = new AbortController();
     const cut = stages(null, { a: ended("cancelled_or_deadline") });
     await expect(run(dir2, harness({ summaries: cut, onRun: () => abort.abort() }).deps, { pipeline: "research", cloudArm }, abort.signal)).rejects.toThrow("loop_interrupted");
+    const cutAt = read(dir2).stages;
+    expect(cutAt).toEqual([stageEntry("a", false, true)]);
     await expect(run(dir2, harness({ summaries: cut }).deps, { pipeline: "research", cloudArm })).rejects.toThrow("loop_stage_interrupted");
     expect(read(dir2)).toMatchObject({ stopped: { stage: "a", failure: "loop_stage_interrupted" } });
+    expect(read(dir2).stages).toEqual([{ ...cutAt[0], reused: true }]);
     // A begun cloud a whose directory is missing (a start killed before its directory existed, or a directory removed by hand) is refused, never paid again.
     const dir3 = loopDir();
     await expect(run(dir3, harness({ summaries: stages(), onRun: () => { throw new Error("stop_here"); } }).deps, { pipeline: "research", cloudArm })).rejects.toThrow("stop_here");
@@ -341,6 +346,8 @@ describe("the loop's zero-fee resume (backlog item 11, part 3b)", () => {
     const ended_ = await run(dir2, harness({ summaries: cut }).deps);
     expect(ended_.selected.final).toEqual({ candidate: "a", step: "repair_failed", cause: "operator_stop" }); expect(loopExitCode(ended_)).toBe(2);
     expect(ended_).toMatchObject({ failure: "loop_stage_interrupted", failedStage: "repair", stopped: null });
+    // The mark on the repair alone: the stages before it reused unmarked.
+    expect(ended_.stages).toEqual([stageEntry("a", true), stageEntry("b", true), stageEntry("critique", true), stageEntry("repair", true, true)]);
   });
   it("closes a loop at a resumable stop with every run's spend, after which the loop is terminal", async () => {
     const closeDeps = () => closing(harness({ summaries: stages(null, { a: ended("model_unavailable") }) }).deps);

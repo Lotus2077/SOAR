@@ -183,7 +183,7 @@ describe("research v4 actual serialized stages", () => {
 
 describe("backlog item 4: the label-keyed diagnostics sink", () => {
   const MARK = { index: "INDEX_MARKER_TEXT", plan: "PLAN_MARKER_TEXT", extract: "EXTRACT_MARKER_TEXT", synthesise: "SYNTHESIS_MARKER_TEXT" };
-  /** Every stage rejects a reply once (bad JSON index, an oversize lookFor list, a truncated first chunk, an invented quote in the second, which 7a.1 keeps with the quote dropped, a synthesis with an unknown citation and a missing heading); the repairs are clean. */
+  /** Every stage rejects a reply once (bad JSON index, an oversize lookFor list, a truncated first chunk, an invented quote in the second, whose held reply is repaired (BL-20261110-0726), a synthesis with an unknown citation and a missing heading); the repairs are clean. */
   const faulty: Script = (stage, input, n, system) => {
     if (stage === "index" && n === 0) return `not json ${MARK.index}`;
     if (stage === "plan" && n === 0) { const reply = JSON.parse(happy(stage, input, n, system)); reply.questions[0].lookFor = Array(7).fill("hint"); reply.deliverableNotes = MARK.plan; return JSON.stringify(reply); }
@@ -215,7 +215,7 @@ describe("backlog item 4: the label-keyed diagnostics sink", () => {
     const persisted = [JSON.stringify(events), JSON.stringify(result.summary), ...result.files.map(f => f.bytes.toString("utf8"))];
     for (const text of persisted) for (const marker of Object.values(MARK)) expect(text).not.toContain(marker);
     for (const stage of [...events, ...result.summary.stages]) hashOnlyStageRow(stage);
-    expect(result.summary.stages.map(s => [s.stage, s.calls, s.invalidReplies, s.truncatedReplies])).toEqual([["index", 2, 1, 0], ["plan", 2, 1, undefined], ["extract", 4, 2, 1], ["synthesise", 2, 1, undefined]]);  // the index row's zero comes from summarizeIndexEntries, as before; 7a.1 keeps the second chunk
+    expect(result.summary.stages.map(s => [s.stage, s.calls, s.invalidReplies, s.truncatedReplies])).toEqual([["index", 2, 1, 0], ["plan", 2, 1, undefined], ["extract", 4, 2, 1], ["synthesise", 2, 1, undefined]]);  // the index row's zero comes from summarizeIndexEntries, as before; the second chunk's held reply is repaired and counted invalid
     validateReadyResearchPacket(result.files, { brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), protocolSha256: researchProtocolSha256(), budget: RESEARCH_PIPELINE_BUDGET });
   });
   it("retains nothing on a clean run or a denied call, and produces byte-identical files and summary with and without a sink", async () => {
@@ -438,6 +438,61 @@ describe("backlog item 7(a), part 1: per-quote tolerance and heading normalisati
     const again = paraphrase(() => true), twice = await run(again);
     expect(twice).toMatchObject({ status: "incomplete", reason: "research_no_evidence" });
     expect(twice.summary.stages[2]).toMatchObject({ calls: 4, repairCalls: 2, invalidReplies: 2, questionsDowngraded: 2 });
+  });
+  it("counts and retains a held chunk's failed repair (BL-20261110-0900)", async () => {
+    const invented = "Invented evidence that never occurred in the supplied source.";
+    // Chunk 0's first reply loses its only quote and is held; chunk 1 is honest; chunk 0's repair is not an extraction, or truncated.
+    // At bd876d9 the repair was neither counted nor retained: invalidReplies 1, and only ordinal 1 reached the sink.
+    for (const [repairReply, status] of [["not an extraction", "invalid"], [undefined, "truncated"]] as const) {
+      const m = models((stage, input, n, system) => {
+        if (stage !== "extract") return happy(stage, input, n, system);
+        if (n === 0) { const reply = JSON.parse(happy(stage, input, n, system)); reply.quotes[0].quote = invented; return JSON.stringify(reply); }
+        return n === 1 ? happy(stage, input, n, system) : repairReply ?? { content: happy(stage, input, n, system), truncated: true };
+      });
+      const retained: ResearchDiagnostic[] = [], result = await run(m, { diagnostics: { retain: entry => retained.push(entry) } });
+      expect([status, result.reason]).toEqual([status, "research_extraction_incomplete"]);
+      expect(result.summary.stages[2]).toMatchObject({ calls: 3, repairCalls: 1, invalidReplies: 2, ...(status === "truncated" ? { truncatedReplies: 1 } : {}) });
+      expect(parsed(result, RESEARCH_FILES.coverage).chunks.map((c: any) => c.attempts.map((a: any) => a.status))).toEqual([["invalid", status], ["complete"]]);
+      expect(retained.filter(e => e.stage === "extract").map(e => e.ordinal)).toEqual([3, 1]);
+    }
+  });
+  it("settles a held attempt when a later call is denied or cancelled, and holds only a found question's lost quotes (BL-20261110-0900)", async () => {
+    const invented = "Invented evidence that never occurred in the supplied source.";
+    const unlocatable = (input: any, n: number, system: string) => { const reply = JSON.parse(happy("extract", input, n, system)); reply.quotes[0].quote = invented; return JSON.stringify(reply); };
+    const sinkRows = (retained: ResearchDiagnostic[]) => retained.filter(e => e.stage === "extract").map(e => [e.ordinal, e.disposition]);
+    const attempts = (result: Awaited<ReturnType<typeof runResearchPipeline>>) => parsed(result, RESEARCH_FILES.coverage).chunks[0].attempts.map((a: any) => a.status);
+    // A first-pass denial while chunk 0 is held: the held attempt is rejected, counted and retained without a disposition.
+    const firstPass = models((stage, input, n, system) => stage !== "extract" ? happy(stage, input, n, system) : n === 0 ? unlocatable(input, n, system) : new BrokerError("synthetic_destination_private_data_denied"));
+    const deniedSink: ResearchDiagnostic[] = [], denied = await run(firstPass, { diagnostics: { retain: entry => deniedSink.push(entry) } });
+    expect(denied.reason).toBe("research_request_denied");
+    expect(denied.summary.stages[2]).toMatchObject({ calls: 1, invalidReplies: 1, questionsDowngraded: 0 });
+    expect(sinkRows(deniedSink)).toEqual([[1, undefined]]); expect(attempts(denied)).toEqual(["invalid"]);
+    // The same when the signal is aborted during call 0.
+    const controller = new AbortController();
+    const aborting = models((stage, input, n, system) => { if (stage === "extract" && n === 0) { controller.abort(); return unlocatable(input, n, system); } return happy(stage, input, n, system); });
+    const cancelledSink: ResearchDiagnostic[] = [], cancelled = await run(aborting, { signal: controller.signal, diagnostics: { retain: entry => cancelledSink.push(entry) } });
+    expect(cancelled.reason).toBe("research_cancelled");
+    expect(cancelled.summary.stages[2]).toMatchObject({ calls: 1, invalidReplies: 1, questionsDowngraded: 0 });
+    expect(sinkRows(cancelledSink)).toEqual([[1, undefined]]); expect(attempts(cancelled)).toEqual(["invalid"]);
+    // A denial on the held chunk's repair call: the held attempt is rejected; the denied call is not counted.
+    const repairPass = models((stage, input, n, system) => stage !== "extract" ? happy(stage, input, n, system) : n === 0 ? unlocatable(input, n, system)
+      : n === 1 ? happy(stage, input, n, system) : new BrokerError("synthetic_destination_private_data_denied"));
+    const repairSink: ResearchDiagnostic[] = [], repairDenied = await run(repairPass, { diagnostics: { retain: entry => repairSink.push(entry) } });
+    expect(repairDenied.reason).toBe("research_request_denied");
+    expect(repairDenied.summary.stages[2]).toMatchObject({ calls: 2, invalidReplies: 1, questionsDowngraded: 0 });
+    expect(sinkRows(repairSink)).toEqual([[1, undefined]]); expect(attempts(repairDenied)).toEqual(["invalid"]);
+    // No budget for the repair: the held attempt is kept, and it reaches the sink once, as accepted with drops.
+    const tight = models((stage, input, n, system) => stage === "extract" && n === 0 ? unlocatable(input, n, system) : happy(stage, input, n, system));
+    const tightSink: ResearchDiagnostic[] = [], kept = await run(tight, { budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 2 }, diagnostics: { retain: entry => tightSink.push(entry) } });
+    expect(kept.status).toBe("completed"); expect(sinkRows(tightSink)).toEqual([[1, "accepted_with_drops"]]);
+    // A question the reply marked no_verified_evidence is never held: its dropped quote costs no repair.
+    const qualifier = models((stage, input, n, system) => {
+      if (stage !== "extract" || n !== 0) return happy(stage, input, n, system);
+      const reply = JSON.parse(happy(stage, input, n, system)); reply.quotes[0].quote = invented; reply.questions[0].status = "no_verified_evidence"; return JSON.stringify(reply);
+    });
+    const unheld = await run(qualifier);
+    expect(unheld.status).toBe("completed"); expect(qualifier.calls.filter(c => c.stage === "extract")).toHaveLength(2);
+    expect(unheld.summary.stages[2]).toMatchObject({ calls: 2, invalidReplies: 0, repairCalls: 0, quotesDropped: 1, questionsDowngraded: 0 });
   });
   it("still repairs a reply that is schema-invalid, names the wrong questions or needs follow-up", async () => {
     const faults: ((reply: any) => void)[] = [reply => { reply.quotes[0].quote = 42; }, reply => { reply.questions = [{ questionId: "Q7", status: "no_verified_evidence" }]; reply.quotes = []; },

@@ -360,7 +360,8 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
         }
       }
     }
-    if (state !== "complete" && !held.has(chunk.id)) { extractCounts.invalidReplies++; retain(extractCounts, PURPOSES.extract, reply, reasons); }
+    // A held first attempt is settled later (settleHeld); a held chunk's own repair that fails counts and is retained now, as any other.
+    if (state !== "complete" && (repair || !held.has(chunk.id))) { extractCounts.invalidReplies++; retain(extractCounts, PURPOSES.extract, reply, reasons); }
     chunk.status = state; chunk.attempts.push({ responseSha256: digest(reply.content), status: state });
     return undefined;
   };

@@ -31282,3 +31282,76 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The orchestrator's review of the delta (4a7b147 and this entry), CI on #76 against main, then the merge train after #69.
 
 References: BL-20261109-0552-research-tolerance-implemented (corrected); BL-20261109-0447-research-tolerance-design; BL-20261110-0625-correction-research-length-parser; BL-20261110-0709-correction-research-length-parser-exclusions; BL-20261109-0442-research-request-shapes-implemented.
+
+### BL-20261110-0726-correction-research-tolerance-total-loss -- 2026-11-10 -- Correction to BL-20261109-0447 and BL-20261109-0552: owner question 3's total-loss corner, the references that moved with #69's corrections, and four review nits
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261109-0447-research-tolerance-design and BL-20261109-0552-research-tolerance-implemented, backlog item 7(a), part 1, on pull request #76. The orchestrator's second-round merge-train review of #76 at 18655e5 had two independent reviewers. Both found "merge after fixes". Their mandatory work was the re-pin onto #69's corrections, done in BL-20261110-0712, and one decision on owner question 3's default, taken here. This entry records:
+- that decision and its code (commit 834de94);
+- the 0447 and 0552 references the corrections moved;
+- the review nits.
+
+It edits no committed entry.
+
+Decisions:
+(1) **The corner.** Owner question 3's default says a question downgraded because its quotes were dropped costs no repair. The default has a total-loss corner. A reply whose every quote for a question it marked evidence_found was dropped was accepted complete and never repaired: the repair loop visits only chunks that are not complete. The reviewers ran identical scripted models against both versions:
+- **Every chunk's first reply carries one unlocatable quote.** 18655e5 ended `research_no_evidence` after 2 of 40 extraction calls. 5401d0f, before 7a.1, completed with 4 calls, 2 repairs and 2 verified quotes.
+- **Only the first chunk's reply does.** 18655e5 shipped a ready packet with only the second source's evidence; 5401d0f kept both.
+
+A reader that paraphrases on its first pass therefore lost evidence that 7b.1 recovered.
+(2) **The rule, the reviewers' option (a), with a budget refinement.**
+- **The hold.** A first attempt that dropped every quote it gave for a question it marked evidence_found is held, not kept: its chunk is recorded `invalid` for now.
+- **The repair.** Held chunks are repaired after every other chunk's repair, while the extraction budget lasts. A held chunk that is repaired drops its held attempt, which then counts as an invalid reply.
+- **No budget left.** A held chunk the budget leaves unrepaired keeps its attempt, as 18655e5 kept it: complete, with its downgrade counted.
+- **The repair attempt.** It is kept with its drops even when it loses every quote again, so there is never a third call.
+- **The policy.** RESEARCH_TOLERANCE_POLICY gains `extraction.allQuotesOfAFoundQuestionDropped` (hashed). Its version stays 1, and the protocol hash records the change.
+- **Unchanged.** A question claimed found with no quote at all is still downgraded without a repair, and partial drops never cost a repair.
+- **The comparison.** No run is worse than at 5401d0f, which repaired every reply with an unverifiable quote. No run is worse than at 18655e5 either, except when a held chunk's repair reply is itself schema-invalid, truncated or needing follow-up. That leaves the chunk incomplete, as 5401d0f would have.
+(3) **Owner question 3, restated.** Should a first attempt that drops every quote of a question it marked evidence_found be repaired when the budget allows, rather than kept with the question downgraded? Proposed default: yes, as implemented here. In every other case owner question 3's default (no repair for a downgrade) stands. The orchestrator tells S-e1 the outcome, because #75 and E1-T2 expect it.
+(4) **What the counts count (review nit F2).** `quotesDropped` counts the quotes dropped from every parsed reply, held and repaired attempts included. The conflict, note and outcome counts (`conflictsDropped`, `notesDropped`, `questionsDowngraded`, `questionsUpgraded`) count only the attempt a chunk keeps. 0552 already records this meaning of `quotesDropped`. The pipeline's comment and the pull request body said only a complete attempt's drops are counted; both are corrected.
+(5) **References #69's corrections moved.**
+- **0447 decision (9) and 0552.** They speak of "the code at 5401d0f", and 0552's scope line says #76 is stacked on `feat/7b.1-request-shapes` at 5401d0f. #76 is based on main and contains #69's head 5e16e20 (BL-20261110-0712).
+- **0552's evidence hashes.** 01ca01a41c13… (7b.1 at 5401d0f), 9279665d9bfd… (317e1ee) and f03119bfd0c7… (18655e5) are superseded:
+  - #69's protocol is 925433f9ba8e9c531b51150b769b6bec382331b6d0824d37d151d1f9fdfbea88 (BL-20261110-0709);
+  - 0712 pinned 679e623f02795ec66f06349af4bde5ff8db83fd1d5054465c1da492d6847d3f5;
+  - this entry pins 396a15f3aca0c7b758fe4b052ee744911f0a5943dd805d518a70d9b6799ac2aa.
+
+  The consequences are 0552's, now for the new value. Every earlier serving card's P10 structured-output evidence is invalidated (`serving_card_p10_protocol_drift`), as SC's contract requires; none exists. Earlier seeds and paused sessions are refused or drift; none exists. No loop may span the change.
+- **0552's test counts.** They are superseded by the evidence below.
+- **Unchanged.** The four request digests the pipeline test inherits from #69 (index, plan and two extraction requests) do not carry the protocol hash and are unchanged; their test passes. RESEARCH_TOLERANCE_POLICY's version (1) and DIAGNOSTICS_MANIFEST_VERSION (2) are unchanged: this fix adds no diagnostics field and no disposition.
+(6) **Nits.**
+- **F3.** A test now pins which separator follows a removed Setext underline: the underline's own. It catches the reviewers' mutant M39.
+- **F4.** The unreachable `!skipped[i + 1]` in the Setext branch is removed. Behaviour is unchanged, and the hash binds policy values, not code.
+- **F5.** RESEARCH_TOLERANCE_POLICY's doc comment now says lines end at CRLF, CR or LF, as 0552's correction (1) decided.
+- **The headings test's claims.ts pins.** The text pins (lines 99 to 104) and the hand copy of the rule (`claimsPresent`) are left alone. S-e1's E1-J2 owns that fix, as the orchestrator directed.
+
+Changes: Commit 834de94 on `feat/7a.1-research-tolerance`:
+- research-pipeline.ts: the held attempts, the repair order, `retain`'s ordinal, the comment, and the removed condition;
+- research-contract.ts: the policy field and its doc comment;
+- tests/unit/private-agent-research-pipeline.test.ts:
+  - one new test for the corner: R1, R2, no budget, priority to invalid chunks, and a repair that loses its quotes again;
+  - three tests rewritten for the new rule;
+- tests/unit/private-agent-research-headings.test.ts: two separator cases (F3);
+- tests/helpers/research-protocol-pin.ts: the pin.
+
+Evidence: At 834de94, run locally:
+- **The corner test.** It reproduces both of the reviewers' scripts. With every first reply unlocatable, the run completes with 4 calls, 2 repairs and 2 verified quotes. With only the first chunk's reply unlocatable, it completes with 3 calls and evidence from both sources. With no budget left, the held attempt is kept, and both chunks' attempts are complete. With one repair left, the invalid chunk takes it. A repair that again loses every quote is kept, with no third call.
+- **Mutation.** Changing which separator follows a removed Setext underline (the reviewers' M39) fails the new headings case.
+- **Pipeline and headings tests.** The pipeline test file passes 45 tests and the headings test 11.
+- **Research suites.** The research, role-schema-export, serving-probe-helpers, planner-fixture, assess-probe-replies and local-screen suites pass: 15 files, 217 tests.
+- **Full suite.** `pnpm exec vitest run`: 166 files passed and 13 skipped; 2,725 tests passed, 1 failed and 84 skipped. The failure is with-claude-key's shell-script test, which is outside this change and passes alone (3 tests).
+- **Other checks.** `pnpm typecheck` passes, and so does `pnpm --silent validate:build-log -- --base-ref origin/main` with this entry appended.
+
+Failures or blockers: None. The corner in (1) was a behaviour regression against 5401d0f in 7a.1 as committed at 18655e5. It is recorded there, never ran live, and is fixed here.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint.
+- **A failed repair.** A held chunk whose repair reply is itself schema-invalid, truncated or needing follow-up ends the run incomplete, where 18655e5 would have kept the held attempt. The gate's rule that a chunk's last attempt is its complete one forbids falling back after a failed repair.
+- **The held attempt's other quotes.** A held attempt's verified quotes for its other questions are discarded when its chunk is repaired, so the repair must give them again, as at 5401d0f.
+- **Quote ids.** A held attempt kept for lack of budget takes its quote ids after the repairs, so its ids differ from 18655e5's.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #76; the orchestrator's review of the delta (834de94 and this entry); then the merge train.
+
+References: BL-20261109-0447-research-tolerance-design and BL-20261109-0552-research-tolerance-implemented (corrected); BL-20261110-0712-correction-research-tolerance-repin; BL-20261110-0709-correction-research-length-parser-exclusions; the orchestrator's second-round review of #76, which is review data and not committed.

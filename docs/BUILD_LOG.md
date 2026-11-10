@@ -33709,3 +33709,148 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The owner's go-ahead to push the integration branch, retarget #74, #77, #78 and #83 to `main`, open the integration pull request and, after CI passes, merge it with a merge commit. Then an operator recomputes `--runtime-sha256` before any loop or E-run; S-e1's docs-only Correction pull request for #66, #70 and #74 follows the merge; and a handoff note replaces the stale "Start here" text and says whether docs/HANDOFF.md section 5's re-stamp rule still holds. Train 2 starts with #79 once the owner decides how entries whose IDs precede `main`'s tail are ordered.
 
 References: BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0331-loop-selection-protocol-2-design; BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0354-document-review-flags-design; BL-20261109-0422-registry-run-commit-design; BL-20261109-0447-research-tolerance-design; BL-20261109-0456-ordered-pool-implemented; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0501-research-stage-pause-design; BL-20261109-0515-infra-classification-design; BL-20261109-0552-research-tolerance-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261110-0712-correction-research-tolerance-repin; BL-20261110-0712-document-review-flags-implemented; BL-20261110-0723-correction-infra-classification-train-review; BL-20261110-0900-correction-research-tolerance-held-repair; BL-20261110-0933-document-review-flags-party-terms-bounded; BL-20261110-1100-document-review-flags-party-terms-pinned; BL-20261110-1100-correction-research-train-1-review-pins; pull requests #66, #67, #68, #69, #70, #71, #72, #73, #74, #76, #77, #78, #81 and #83; docs/HANDOFF.md section 5; docs/experiments/README.md; scripts/validate-build-log.ts; scripts/private-agent-local-screen.ts (`localScreenSourceFreeze`); tests/helpers/research-protocol-pin.ts; tests/unit/phase4-loop.test.ts.
+
+### BL-20261110-0623-claims-trailing-strip-linear-design -- 2026-11-10 -- E1-J2 decided: the claims check's heading strip becomes linear with the same output; the new check text adds no refusal but changes the hash of claims-checked tasks
+
+Status: `Proposed`
+
+Scope or hypothesis: Lane S-e1's item E1-J2, given by the orchestrator on 2026-11-09. Lane S-pipe's 7a.1 code review found the defect on `main` and left it unfixed.
+
+The branch is `fix/e1-j2-linear-trailing-strip`. Until merge train 1 lands it is a draft stacked on E1-J (Lotus2077/SOAR#70). It is then rebased onto `main`, where it also updates 7a.1's heading test (Lotus2077/SOAR#76; decision (5)).
+
+The request allows an `Implemented` entry alone if the change "changes no contract". It does change one: decision (3) shows the check's text is hashed into persisted identities. So this design entry comes first.
+
+The defect: the host-owned claims ledger check (`claimsLedgerCheck` in claims.ts) is the required check of every desktop public-research task, and of the local screen's `--claims-ledger true` runs, research runs included. Its `section_present` decides whether each required section heading (two today) is in the writer's report:
+- for each title it scans the report's lines in order, stopping at the first match;
+- it strips each line with `re.sub(r'[*_:\s]+$', '', ...)`.
+
+When a run of those characters inside a line does not reach the line's end, Python's backtracking engine retries the run from each of its positions. One call's time therefore grows with the square of the run's length.
+
+Measured with scratch scripts that are not committed, with Python 3.9.5 on the owner's Mac:
+
+| Run of spaces | Time of one call |
+|---|---|
+| 5,000 | 0.12 s |
+| 10,000 | 0.47 s |
+| 20,000 | 1.9 s |
+| 40,000 | 8.3 s |
+
+The container's Python 3.11.16 is somewhat faster.
+
+The final verifier runs each check with a 90 s limit (runner.ts), and the model's `check_claims` tool with 180 s. Extrapolated from these figures, a valid report fails its required check in two cases:
+- one line before both headings holds a run of roughly 130,000 such characters (3.11; about 93,000 on 3.9.5);
+- roughly 185,000, when only one title's scan reaches the line.
+
+A degenerate reply, a padded table or a fill-in line can produce such a run. No run on record is known to have failed this way.
+
+Hypothesis: a linear strip that returns the same string on every input removes the defect and changes no check result.
+
+Decisions:
+(1) **The strip.** A Python helper, `strip_trailing(text)`, returns `text[:len(text)-re.match(r'[*_:\s]*',text[::-1]).end()]`. That is the text without its longest suffix of class characters, which is exactly what `re.sub(r'[*_:\s]+$','',text)` returns:
+   - **What `re.sub` matches.** It takes the leftmost match, and no match starts before the suffix:
+     - a run that starts earlier stops at the character just before the suffix;
+     - that character is outside the class, so it is neither the end nor a final newline (a newline is in the class), and `$` fails there.
+
+     At the suffix's first character, the greedy run first tries the whole suffix to the end, where `$` holds. No second match follows, because the pattern needs at least one character.
+   - **What the helper computes.**
+     - `[*_:\s]*` always matches, perhaps empty, so `re.match` never returns None.
+     - It matches the longest prefix of the reversed text, which is the suffix.
+     - `len(text)-k` keeps the whole text when k is 0.
+     - The same pattern text and default flags decide class membership per code point, so reversal cannot change it.
+   - **Why it is linear.** The greedy class has no tail to backtrack into, and the reversal and the slice are linear. The leading strip `^[#*_\s]+` is kept and is linear too. It can match only at position 0, and every later attempt fails at its first step. Python 3.11 and later do not try those positions at all.
+(2) **The rule as one constant.** The two functions become an exported constant, `CLAIMS_SECTION_RULE_PY`:
+   - `strip_trailing`;
+   - `section_present`, which now calls it.
+
+   The constant is written with `String.raw`, like `DECK_CHECK_PY` (ooxml.ts) and `RENDER_PY` (repair.ts), and interpolated into the check. Tests run that constant rather than a typed copy, and a typed copy elsewhere can be replaced by it (decision (5)).
+(3) **What the new text changes.** Each phase that carries the check hashes its Python text (`sessionPhaseIdentity`), and from there the text reaches persisted values. Nothing refuses work because of it beyond what any build of this change already refuses.
+   - **Desktop.** Every unfinished desktop task, of any kind, is already refused at start or resume with `general_task_configuration_changed` after any main-process build. The configuration identity hashes the built app (general-task-runtime.ts; controller.ts `launch`), and E1-J's build does the same. The phase-identity check behind it (`general_task_input_changed`) is not reached for this cause.
+   - **Local screen.** It never resumes across processes: each run makes a new job and directory. As for any change under src/main/private-agent, E1-J's included:
+     - a run given the pre-merge `--runtime-sha256` is refused `local_screen_reviewed_source_changed` before its directory exists;
+     - a run under way when the checkout changes ends `source_changed_during_run`.
+   - **Harness loop.** No loop may span the merge:
+     - resumed with the old hash, a loop is refused at its next fresh stage;
+     - resumed with the new hash, its reused stages fail `loop_stage_mismatch`.
+   - **Values that bind the text but that nothing re-verifies:**
+     - a public-research task's attestation identity, and through it the `taskJobSha256` of its verdict receipt and registry row;
+     - the session's and the runner's start identities, and the loop's `writeIdentity`;
+     - freeze.json's `privatePhaseSha256` and `publicPhaseSha256`.
+
+     The visible effect: the same public-research task gets a different `taskJobSha256` before and after the merge, so rows from either side do not match by that hash. No existing owner registry row is claims-checked.
+   - **Unaffected:**
+     - the research pipeline's protocol hash, which covers no check;
+     - the H4 seed's binding and the repair's binding;
+     - the owner's authority hashes, which are only format-checked and are recomputed where used.
+   - **Practical note.** registry-row.py records the checkout's HEAD when a row is written. Rows for runs made before the merge should therefore be written before pulling it.
+(4) **The tests.**
+   - (a) **A time bound through the real check.** The check runs under the machine's python3 on a valid report. The report holds a 1,000,000-character run of spaces, underscores, asterisks and colons inside one line before both headings, so both scans reach it. The check must finish within 20 s.
+     - The old strip needs tens of minutes there, the new one well under a second. Each side is therefore at least 100 times from the bound.
+     - Python's engine has no step counter, so a time bound with these margins stands in for one.
+     - Reproduced before the fix: the check is stopped at the bound.
+   - (b) **A differential test inside Python.** It compares the shipped `strip_trailing` with the old pattern, and with a regex-free strip that drops the last character while it is `*`, `_`, `:` or `isspace()`. The inputs:
+     - every string of up to five characters over twelve characters: `s`, `#`, a backslash, `*`, `_`, `:`, space, tab, newline, vertical tab, U+00A0 and U+200B;
+     - 2,000 seeded strings of 6 to 300 characters.
+
+     It prints only a summary. Fixed expected outputs, asserted from TypeScript, catch an escaping error that would break both regex sides alike, for example `\s` read as `s`.
+   - (c) **The source.** The check's source contains the rule constant and no longer contains the old pattern, and the constant contains a literal `\s`.
+(5) **7a.1's heading test** (#76, landing in train 1) pins the old `section_present` line character for character and runs a typed copy of the rule. After the rebase onto `main`, this PR makes two changes there:
+   - the guard asserts that the check contains `CLAIMS_SECTION_RULE_PY`;
+   - `claimsPresent` runs the constant.
+
+   Its two other mirror lines, for the fence and comment strips and for `read_text`, stay as they are. claims.ts's merge order becomes E1-J (#70), then E1-J2, then 8.2b.
+(6) **Out of scope, listed as follow-ups.** The design reviews measured, on Python 3.12, other patterns of the same check that also take quadratic time on a hostile report or source:
+
+   | Pattern | Input | Time |
+   |---|---|---|
+   | The fence strip | 40,000 lines that each open a fence | 49.5 s |
+   | The comment strip | 50,000 unclosed HTML comment openers | 31.9 s |
+   | The HTML tag strip in `units` | 150 KB | 2.6 s |
+
+   Fixing them changes the check's text once more, and with it `taskJobSha256`.
+
+Owner question: fix (6)'s patterns in one follow-up PR, which changes the check's text once more, or in this one? Proposed default: one follow-up PR after E1-J2. The request scoped E1-J2 to the trailing strip, and each pattern needs its own equality proof. The cost is one more `taskJobSha256` split for the same public-research task, and no refusal.
+
+Changes: Planned in this pull request:
+- src/main/private-agent/claims.ts: `CLAIMS_SECTION_RULE_PY` and its use;
+- tests/unit/private-agent-claims.test.ts: an optional time bound on the `run` helper, and the describe "E1 recoverability: the claims check's heading strip, same result without quadratic time (E1-J2)";
+- after the rebase, tests/unit/private-agent-research-headings.test.ts (decision (5));
+- docs/BUILD_LOG.md.
+
+Evidence:
+- **The reproduction** ran at f7251dd, E1-J's head, whose check text equals `main`'s. Its command was `pnpm exec vitest run tests/unit/private-agent-claims.test.ts -t "E1-J2"`, with the first draft of test (a), which put a 200,000-character run between the headings. Result: 1 failed and 27 skipped. The failure was "claims check stopped by SIGTERM at the 20000 ms bound", after 20.0 s.
+- **Three adversarial design reviews** ran: ledger and replay; consumers and tests; specification fidelity. They found no counterexample to decision (1). An equality run gave zero mismatches on Python 3.9.5, 3.11.16 (the container's, runtime/private-agent/Dockerfile) and 3.12.13, over:
+  - all 1,114,112 code points in twelve contexts;
+  - every string of up to four characters over a 24-character alphabet;
+  - every string of up to eight characters over a 6-character structural alphabet;
+  - 1,000,000 seeded strings.
+
+  CI's ubuntu runner uses its system python3.
+- **Their confirmed findings are folded in above:**
+  - the mechanism of (3): the first draft named `general_task_input_changed` and `session_contract_drift`, and this change causes neither;
+  - the list of bound values;
+  - the equality argument's wording;
+  - the threshold figures;
+  - the size and place of test (a)'s run;
+  - test (b)'s escaping guards;
+  - #76's pin;
+  - (6)'s other patterns.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed` only.
+- The timings come from the reviewers' and the owner's machines, and the thresholds are extrapolations.
+- The time-bound test asserts a bound, not a speed.
+- Nothing measures how often real reports contain such runs.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. The implementation and its `Implemented` entry.
+2. After train 1 lands, the rebase onto `main` with decision (5).
+3. CI green.
+4. The owner's answer to the question.
+
+The orchestrator re-stamps this entry's ID if another entry merges first.
+
+References: BL-20261006-1058-pr-j-claims-ledger-design; BL-20261006-1150-pr-j1-claims-ledger-implemented; E1-J's entries (the judge-cancel label, #70); 7a.1's research-tolerance entries (#76); lane S-pipe's 7a.1 notes.

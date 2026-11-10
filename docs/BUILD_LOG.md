@@ -30851,3 +30851,84 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: Review and CI on the pull request, then a merge, then the owner's Docker-gated run and its `Verified` entry. 7d.B reads the leaf module after this merges. If another entry merges first, this entry's ID and the design entry's are re-stamped after main's tail with a correction entry.
 
 References: BL-20261109-0354-document-review-flags-design; docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 7(d); GitHub issue #54.
+
+
+### BL-20261110-0933-document-review-flags-party-terms-bounded -- 2026-11-10 -- Backlog item 7(d), part A, review fix: the party-term step bounded, three schema guards pinned, rules v1 re-pinned, with corrections to BL-20261110-0712
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the fix that the orchestrator's review of pull request #81 (plan ID 7d.A, lane S-desk, head e267df5) required before merge. Its findings are: the party-term step was unbounded; three schema guards had no test; and the rules hash, the applier hash and the check-command size needed re-pinning. It corrects BL-20261110-0712-document-review-flags-implemented and amends two decisions of BL-20261109-0354-document-review-flags-design. Both entries stay as written. The fix is commit f5c594a on branch `feat/7d.A-document-review-flags`: zero-fee code with deterministic tests and no endpoint.
+
+Decisions:
+
+(a) The party terms are bounded. `flag_party_pattern` read every defined term in the unclipped source, bounded only by the 16 MiB part cap. Under the new constant `FLAG_TERM_CHARS = 200`:
+- a defined term longer than 200 characters is not read;
+- while reading, only the 48 smallest defined terms (in string order) are kept beside the 16 role words. That is the set the earlier sort-then-cut kept;
+- `read.termsCapped` is set when either cap applies.
+
+Two decisions of BL-20261109-0354 change:
+- In decision (5), the party terms become the source's defined terms of at most 200 characters (plus the role words). "At most 64 terms are used: the role words, then the defined terms in sorted order" still holds; the terms are now kept while reading.
+- Decision (7)'s list of caps gains "200 characters per defined term".
+
+Outside the cap, the result is the same. Over 4,000 random term lists, the new step's ordered list, compiled pattern and read flags were identical to the old step's. The callers still pass the unclipped source. Passing the bounded source instead would change which definitions are read, and would read the terms from NFKC text while C1 matches the raw text. That would be a change to decision (5)'s rule.
+
+(b) Three schema guards are now pinned by tests:
+- the value pattern's end anchor: no text after the unit, and no trailing newline;
+- its integer part: no leading zero;
+- the error name's pattern and its 64-character limit, for a rule's error and for the step's error.
+
+The schema itself is unchanged.
+
+(c) Rules v1 are re-pinned:
+- `REVIEW_FLAGS_PY`: sha256 0c4e5012a4e63b45a2e40f2749fa42bc99da450b802b5b90db9a3150c17e8a34 (24,258 bytes);
+- the pinned applier: sha256 54280f1c60ce3de134f6155bf40b5bcf38a7ac7f909f633a0faefcf097830ee8 (65,553 bytes).
+
+These replace the pins in BL-20261110-0712 (38d547ea… and c1880392…), which never merged.
+
+The check command is 39,075 bytes for the longest ASCII source path. For a 240-byte path of two-byte letters, the most bytes a path may hold, it is 39,123 bytes. The bound is unchanged at 40,960 bytes, so about 1.8 KB remains for the whole train.
+
+Corrections to BL-20261110-0712 (that entry stays as written):
+- Its cost statements ("bounded at the caps"; "the slowest, maximal NFKC expansion: 4.8 s and 4.7 s, 60 MB") did not cover the party-term step.
+  - The review measured it in the qualified image (CPython 3.11.16). One defined term of 14.4 to 15 million letters cost about 9 to 10 s and 1.5 to 2 GB. 1.2 to 1.6 million distinct terms cost 6 to 10 s and 430 to 500 MB.
+  - After this fix, the review's skeptic measured 0.24 s and 97 MB for the long term, and 1.4 s and 141 MB for 1.2 million terms.
+  - On this Mac's CPython 3.11.16, the whole rules step went from 8.64 s and 1,414 MB to 0.13 s and 47 MB for a 14.4-million-letter term. For 1.2 million distinct terms, it went from 5.71 s and 496 MB to 0.98 s and 274 MB. The flags were unchanged.
+- Its mutation statement ("307 are killed … The 7 left are equivalent") did not cover the three schema guards in (b). No test pinned them.
+
+The cost bound depends on the interpreter, a dependence 0712 did not state:
+- The bound relies on the qualified image's CPython 3.11.16. There, the canonical reordering of combining marks under NFKC is linear: the orchestrator measured 20,000 reverse-ordered marks at 0.0006 s. This Mac's Python 3.9.5, 3.9.6 and 3.12.13 take 0.37 s for the same input and scale quadratically. Those interpreters run the rules only in unit tests, on fixed inputs.
+- If the image's Python base changes, the cost at the caps must be measured again. The applier's 30 s deadline fails closed.
+- The flags' output depends on the interpreter's Unicode database. The image has 14.0.0, and the reviewers saw 6 of 6,000 fuzz inputs differ between Unicode 13 and 15. The image pin is therefore what keeps the agent's run and the check's re-derivation byte-equal.
+
+Changes:
+- src/main/private-agent/document-review.ts: `FLAG_TERM_CHARS`, and `flag_party_pattern` bounded while it reads.
+- tests/unit/document-review-flags.test.ts:
+  - a 1,000,000-letter defined term (`termsCapped`, with the role-word swap still flagged, and the 200 and 201-character edge);
+  - 100,000 distinct defined terms (`termsCapped`, with the swap still flagged), both with generous timeouts rather than wall-clock bounds;
+  - seven schema rows for (b).
+- tests/unit/document-review.test.ts: the check-command bound also for the 240-byte multibyte path.
+
+Evidence: At commit f5c594a:
+- `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` (exit 0) and `pnpm validate:readiness` pass.
+- The changed tests:
+  - document-review-flags: 150 of 150, also with python3 3.11.16 first on PATH;
+  - document-review: 9 of 9;
+  - phase2-repair: 8 of 8;
+  - phase2-blind: 4 of 4.
+- The full `pnpm exec vitest run`: 179 files, 165 passed, 13 skipped (the environment-gated suites) and 1 failed; 2,914 tests, 2,828 passed, 85 skipped and 1 failed. The failure is tests/unit/with-claude-key.test.ts, timing out at 5 s while other sessions loaded this Mac; alone it passes 3 of 3, and this push does not touch it. At e267df5 it was 2,905 tests; the 9 new tests account for the difference.
+- The 4,000-case equivalence check of the old and new party-term step: zero differences in the ordered list, the pattern and the read flags.
+
+Failures or blockers: None. CI has not run on this commit yet.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. The owner's Docker-gated run is still the proof: `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true pnpm exec vitest run tests/integration/private-agent-document-review.test.ts`.
+- This Mac's timings are native CPython 3.11.16, not the sandbox's VM. The review's own timings were taken in the qualified image.
+- Open for the owner, carried by the orchestrator with the go-ahead request:
+  - the flags step has no time budget of its own;
+  - the CPython and Unicode dependence above.
+- BL-20261110-0712's other limitations stand.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's delta review of this push. #81 joins merge train 1 if that review clears before the other heads settle; otherwise it leads train 2. Then the owner's Docker-gated run and its `Verified` entry.
+
+References: BL-20261109-0354-document-review-flags-design; BL-20261110-0712-document-review-flags-implemented; pull request #81.

@@ -34371,3 +34371,79 @@ References:
 - BL-20261109-0447-research-tolerance-design, BL-20261109-0552-research-tolerance-implemented and BL-20261110-0712-correction-research-tolerance-repin;
 - BL-20261110-0625-correction-research-length-parser and BL-20261110-0709-correction-research-length-parser-exclusions;
 - BL-20261109-0501-research-stage-pause-design (6.2).
+
+### BL-20261113-0818-research-v5-implemented -- 2026-11-13 -- Backlog item 7(c) implemented: research v5 slot schedules, host fallbacks, coverage v2, the gate's slot and fallback rules, the producer's slot binding, the presentation check, and the code-review corrections
+
+Status: `Implemented`
+
+Scope or hypothesis: The implementation of BL-20261113-0817-research-v5-design (backlog item 7(c), finding D1). It is on branch `feat/7c-research-v5`, stacked on #76's head bd876d9, and its pull request opens after #69 merges. The hypothesis is the design entry's. Nothing ran live; the assist hook is exercised only by fakes. Two adversarial code reviews ran on the first code commit:
+- correctness, ledger and replay, with exhaustive schedule fuzzing;
+- specification fidelity, tests and consumers, with 64 mutants.
+
+Their confirmed findings are fixed in 2e1dc65 and recorded here.
+
+Decisions: The design entry's 17 decisions are implemented as decided, except as recorded here.
+(1) **The contract copy (correcting 0817's stacking paragraph).** 0817 says 10.a's `host_text` removal was "not yet on its branch". 10.a had pushed it in 67e3374 before 0817 was committed, together with a change 0817 does not mention: `sourceTexts` may hold `undefined` for a source with no readable text.
+- research-assist-contract.ts now mirrors 67e3374 byte for byte, sha256 bced24dfefe448eb9dd57abd9d84bc9e7b8fac7d8d3fb5637630dd76f5d967a0. Its pinned test follows it.
+- The pipeline passes researchSourceText's answer through unchanged.
+- 10.a's own entry (BL-20261110-0639-assist-core-implemented) expects 10.a to merge before 7c. The file is identical on both branches, and so is the `sourceAliases` hunk of research-plan.ts. Whichever merges second rebases; 7c's research-plan.ts holds 10.a's hunk plus 7c's lines.
+(2) **Byte for byte, now in fact (correcting 0817 decision 9).** The gate compared the host fallback plan by canonical form, so a plan.json with a duplicate key held text the gate never parsed. The writer's presentation shows the file's text, so that text reached the writer. The gate now requires every JSON file of the packet (index, plan, evidence, summary and coverage) to be exactly `canonical(value)` plus a newline, which is how the pipeline writes them (`research_packet_json_form`). The host plan and the skeleton are then compared byte for byte.
+(3) **Assist citations fail closed (correcting decision 5's code).** A synthesis assist reply without `evidenceIds` could cite the whole packet. It now may cite none. 10.a's wrapper always sends the field.
+(4) **What the pipeline refuses before assessing is uncounted.** This is a new rule, applied to both the malformed outcome and the alias map.
+- An outcome of the wrong shape already ended the stage uncounted.
+- An alias map that does not bind (`research_plan_alias_binding`) had been counted as a call with no attempt. The reply is now assessed before it is counted, so a denied plan row's calls, attempts and invalid replies agree.
+- The wrapper's ledger row is the only trace of such a call.
+(5) **The hook object is checked at entry.** This is new. Its firing must be one the contract names, and its touchpoints functions or absent. Otherwise the run ends `research_assists_invalid` before any request. Nothing read from the hook later can throw out of the pipeline.
+(6) **Two facts in 0817.** The longest host-plan question text, at 128 units, is 137 UTF-16 units, not about 145. 7c builds on #76 at bd876d9, whose protocol is 396a15f3aca0c7b758fe4b052ee744911f0a5943dd805d518a70d9b6799ac2aa, not 873d1c7's 679e623f….
+(7) **The protocol.** `researchProtocolSha256()` moves from 396a15f3… (#76 at bd876d9) to 35a622eecf830b80c7c57d3dcd9f0a9b3ad10cc78f180bd59b5955d24c9a1e71, re-pinned in tests/helpers/research-protocol-pin.ts. The consequences are 0817 decision 14's:
+- v4 seeds are refused;
+- paused sessions drift;
+- the source-freeze digest changes, so no loop may span the merge (none is in flight);
+- every earlier card's P10 structured-output evidence is invalidated (`serving_card_p10_protocol_drift`); none exists.
+
+The code-review corrections change no hashed value.
+
+Changes: Commits d9dbcd4 (the implementation) and 2e1dc65 (the code-review corrections) on `feat/7c-research-v5`, after the design entry 204f363:
+- src/main/private-agent/research-assist-contract.ts: new, 10.a's 67e3374 bytes;
+- research-fallback.ts: new;
+- research-pipeline.ts, research-plan.ts, research-coverage.ts, research-contract.ts, research-index.ts, research-producer.ts, research-seed.ts;
+- scripts/export-role-schemas.ts and docs/experiments/README.md;
+- tests: helpers/research-protocol-pin.ts; the pipeline, plan-contract, diagnostics, session and seed tests; the new private-agent-research-presentation-guard.test.ts.
+
+The coverage test file, which 0817's Changes list names, is not changed. Its tests pass unchanged, and the gate's new rules are tested in the pipeline and seed files.
+
+Evidence: At 2e1dc65, run locally:
+- **Research suites.** The research, role-schema-export, serving-probe-helpers, planner-fixture, assess-probe-replies and local-screen suites pass: 16 files, 261 tests. Among them are the pipeline (84), plan-contract (38), seed (22), coverage (17), session (11) and presentation-guard (1) files.
+- **Full suite.** `pnpm exec vitest run`: 168 files passed and 13 skipped; 2,770 tests passed, 84 skipped, 0 failed. `pnpm typecheck` passes.
+- **Request bytes.**
+  - With no hook, the index, plan and extraction request digests pinned since 7b.1 are unchanged.
+  - The first synthesis request, with coverage reverted to v4's shape, equals #76's at bd876d9: digest f543e90e0ca9e0e3a58bf770d0657e5acda25170722f5497aae2dc262311bca5.
+  - A local-first hook that is never asked sends every request unchanged.
+  - After a rejected assist, the first stage plan request is the one pinned since 7b.1 (db70bd30…), and the first stage synthesis request equals a run's without a hook.
+- **Mutations.**
+  - The tests-and-consumers review ran 64 mutants across decisions 2 to 13 and 16; 57 were killed at d9dbcd4. Of the seven survivors, six were untested gate rules and one equivalent. 2e1dc65's tests kill each of the six.
+  - Three new rules were mutated as well: the throw after a cancel, the fail-closed citations and the JSON form. Each is killed.
+  - The check of the hook's touchpoint type is an equivalent mutant: a non-function's `bind` fails inside the same `try`.
+- **Fuzzing.** The correctness review fuzzed 575 plan schedules and 306 synthesis schedules over local outcomes, hook kinds and firings. Every completed run passed validateReadyResearchPacket and createResearchProducer, nothing threw, and every incomplete run was `research_request_denied`. Host plans and skeletons over 1 to 129 units, 1 to 8 sources and 0 to 12 quotes per chunk all validated.
+- **Consumers.** The tests-and-consumers review found no break or misreport in any of: session.ts, the seed, the presentation, selection.ts, registry-row.py, export-role-schemas, local-screen and phase4-loop.
+
+Failures or blockers: The code reviews' findings listed under Decisions (1) to (5) were confirmed and fixed before any push. Nothing else.
+
+The design entry's four owner questions stand, with their defaults:
+- proceed with a disclosed fallback;
+- a single fallback question for an unnumbered brief;
+- an unencodable rejected plan reply left out of the repair context;
+- a local `request_failed` still ends the stage.
+
+7b.1's two questions stay for 7a.2's entry: P10's synthesis/off cell, and the clamp's three constants.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint, and the hook is exercised only by fakes. Every limitation of the design entry stands.
+- **The presentation guard is checked through a stub.** Its wiring is tested with a stubbed builder. A real oversized packet needs about 40 sources and hundreds of multi-question quotes; the design review built one in its scratch space.
+- **Request-content refusals inside call() are not reachable by tests.** No request field can be unencodable, so the refusal path inside `call()`'s `try` is no longer exercised by any test.
+- **The pinned digests move with #76.** If #76 moves again, the synthesis request digest pinned against #76 (f543e90e…) and 7c's protocol move with it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Push the branch with no pull request yet. The pull request opens after #69 merges, based on main like #76, and notes that it contains #76. Then CI green, the orchestrator's review, and a merge after #76 and before 7b.2 and 10.b.
+
+References: BL-20261113-0817-research-v5-design; BL-20261110-0726-correction-research-tolerance-total-loss; BL-20261110-0712-correction-research-tolerance-repin; BL-20261109-0417-assist-wrapper-design and BL-20261110-0639-assist-core-implemented (10.a's, on its branch); docs/PROJECT_REVIEW_2026-11-05.md section 5.2 and section 5.7 item 7.

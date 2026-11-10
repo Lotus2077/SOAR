@@ -247,6 +247,16 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
     input.diagnostics?.retain({ stage: counts.stage, ordinal, purpose, replyContentSha256: digest(reply.content), replyBytes: Buffer.byteLength(reply.content), truncated: reply.truncated, content: reply.content, reasons, ...(disposition ? { disposition } : {}) });
   };
   if (input.signal.aborted) return finish("incomplete", "research_cancelled");
+  // 7(c): the hook object is the host's (item 10's wrapper). Its shape is checked here, once, so that reading it later can neither
+  // throw nor return another shape: a firing the contract names, and touchpoints that are functions or absent.
+  let hooks: { firing: ResearchAssists["firing"]; plan?: NonNullable<ResearchAssists["plan"]>; synthesis?: NonNullable<ResearchAssists["synthesis"]> } | undefined;
+  try {
+    if (input.assists !== undefined) {
+      const { firing, plan: planHook, synthesis: synthesisHook } = input.assists;
+      if ((firing !== "local_first" && firing !== "forced_split") || (planHook !== undefined && typeof planHook !== "function") || (synthesisHook !== undefined && typeof synthesisHook !== "function")) throw new Error("research_assists_invalid");
+      hooks = { firing, ...(planHook ? { plan: planHook.bind(input.assists) } : {}), ...(synthesisHook ? { synthesis: synthesisHook.bind(input.assists) } : {}) };
+    }
+  } catch { return finish("incomplete", "research_assists_invalid"); }
   if (!parsedBudget.success) return finish("incomplete", "research_budget_invalid");
   let inventory: ReturnType<typeof inventoryResearchSources>;
   try { inventory = inventoryResearchSources(input.sources); coverage = { version: 2, protocolSha256, briefSha256: digest(Buffer.from(input.brief)), briefBytes: Buffer.byteLength(input.brief),
@@ -283,8 +293,8 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const planCounts: ResearchStageCounts = { stage: "plan", calls: 0, invalidReplies: 0, usage: zeroUsage(), questions: 0, planAttempts: [] };
   // 7(c): the assist hook's shared request fields (research-assist-contract.ts); a request never carries a raw local reply. The
   // deadline is required: without a session deadline the request carries NaN, which the wrapper refuses (assist_deadline_missing).
-  const hooks = input.assists, assistBase = () => ({ brief: input.brief, units: coverage!.units, sources: inventory.sourceManifest,
-    sourceTexts: ordered.map(source => researchSourceText(source) ?? ""), sourceIndex: indexDocument, deadlineMs: input.deadlineMs ?? Number.NaN });
+  const assistBase = () => ({ brief: input.brief, units: coverage!.units, sources: inventory.sourceManifest,
+    sourceTexts: ordered.map(source => researchSourceText(source)), sourceIndex: indexDocument, deadlineMs: input.deadlineMs ?? Number.NaN });
   /**
    * One hook call. A cancel refuses it before the call, as call() refuses a stage request. The hook receives a copy, so nothing it
    * does reaches the pipeline's own records. A hook that throws breaks the contract, whose `stop` is the way to end a stage: the
@@ -316,15 +326,17 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   // The plan assist (T1): a settled reply is one of the stage's calls, assessed like a stage reply against its source aliases.
   const planAssist = async (): Promise<string | undefined> => {
     if (plan || !hooks?.plan) return undefined;
-    const outcome = await consult(hooks.plan.bind(hooks), () => ({ ...assistBase(), mandatorySourceChunks: inventory.chunks.length, extractionCallBudget: budget.extractionCalls,
+    const outcome = await consult(hooks.plan, () => ({ ...assistBase(), mandatorySourceChunks: inventory.chunks.length, extractionCallBudget: budget.extractionCalls,
       priorAttempts: planCounts.planAttempts! }));
     if (outcome.kind === "stop") return outcome.code;
     if (outcome.kind === "no_reply") return undefined;
-    settled(planCounts, outcome);
+    // The reply is assessed before it is counted: an outcome the pipeline refuses before assessing it (a malformed outcome, an
+    // alias map that does not bind) ends the stage uncounted, so the row's calls, attempts and invalid replies always agree.
     let assessed: ReturnType<typeof assessResearchPlanReply>;
-    try { assessed = assessResearchPlanReply({ content: outcome.content, truncated: outcome.truncated, ordinal: planCounts.calls, units: coverage!.units, sources: inventory.sources,
+    try { assessed = assessResearchPlanReply({ content: outcome.content, truncated: outcome.truncated, ordinal: planCounts.calls + 1, units: coverage!.units, sources: inventory.sources,
       ...(outcome.sourceAliases ? { sourceAliases: outcome.sourceAliases } : {}), slot: "assist" }); }
     catch (error) { return error instanceof Error && /^[a-z_]+$/u.test(error.message) ? error.message : "research_plan_alias_binding"; }
+    settled(planCounts, outcome);
     planCounts.planAttempts!.push(assessed.attempt); plan = assessed.plan;
     if (!plan) { planCounts.invalidReplies++; retain(planCounts, PLAN_ASSIST_PURPOSE, outcome, assessed.issues); }
     return undefined;
@@ -506,11 +518,12 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   const synthesisAssist = async (): Promise<string | undefined> => {
     if (argument !== undefined || !hooks?.synthesis) return undefined;
     for (const retryAfterTruncation of [false, true]) {
-      const outcome = await consult(hooks.synthesis.bind(hooks), () => ({ ...assistBase(), plan: stablePacket.plan, evidence, coverage: coverage!, retryAfterTruncation }));
+      const outcome = await consult(hooks.synthesis, () => ({ ...assistBase(), plan: stablePacket.plan, evidence, coverage: coverage!, retryAfterTruncation }));
       if (outcome.kind === "stop") return outcome.code;
       if (outcome.kind === "no_reply") return undefined;
       settled(synthesisCounts, outcome);
-      const citable = outcome.evidenceIds ? new Set(outcome.evidenceIds.filter(id => packetIds.has(id))) : packetIds;
+      // An assist reply may cite only the ids its packet carried; a reply that names none may cite none.
+      const citable = new Set((outcome.evidenceIds ?? []).filter(id => packetIds.has(id)));
       conclude(outcome, judge(outcome, citable), SYNTHESIS_ASSIST_PURPOSE, retryAfterTruncation ? "assist_retry" : "assist");
       if (argument !== undefined || !outcome.truncated) return undefined;
     }

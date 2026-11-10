@@ -151,8 +151,8 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     if (_name !== "task") { expect(researchTransferPresent(dir)).toBe(false); expect(researchTransferStatus(dir)).toEqual({ snapshotSha256: null, code }); }  // backlog item 4: the refusal's code beside the null
   });
   it("refuses legacy protocols and non-default budgets even with a self-consistent alternate digest", () => {
-    // 7c: a v4 freeze is refused by its version and by its protocol (7a.1's pin was the last v4 protocol).
-    const v4 = "f03119bfd0c7d37adf12155453f9530d1281ae9ead60019b97e9b95e2ca0f413";
+    // 7c: a v4 freeze is refused by its version and by its protocol (#76's 396a15f3... is the last v4 protocol).
+    const v4 = "396a15f3aca0c7b758fe4b052ee744911f0a5943dd805d518a70d9b6799ac2aa";
     for (const changed of [{ ...pipeline(), version: 3 }, { ...pipeline(), protocolSha256: h("4") }, { ...pipeline(), version: 4 }, { ...pipeline(), version: 4, protocolSha256: v4 }, { ...pipeline(), protocolSha256: v4 },
       { ...pipeline(), budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 3 }, protocolSha256: researchProtocolSha256({ ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 3 }) }]) {
       const dir = sourceRun({ freeze: { pipeline: changed } }); expect(() => loadResearchSeed(dir, task)).toThrow("research_seed_protocol_mismatch"); expect(researchTransferSnapshot(dir)).toBeNull();
@@ -191,6 +191,18 @@ describe("v4 research seeds require the ready packet and actual producer receipt
       const dir = sourceRun({ kind, files });
       expect(() => loadResearchSeed(dir, task)).toThrow("research_packet_plan_attempts");
       expect(researchTransferPresent(dir)).toBe(false);
+    }
+  });
+  it.each(["session", "controlled_pipeline"] as const)("rejects forged v5 stage records through the %s producer and seed route (7c)", kind => {
+    for (const [code, change] of [
+      ["research_packet_synthesis_attempts", (s: any) => { delete s.stages.find((r: any) => r.stage === "synthesise").synthesisAttempts; }],
+      ["research_packet_stage_success_contradiction", (s: any) => { const row = s.stages.find((r: any) => r.stage === "plan"); row.fallback = "host_plan"; }],
+      ["research_packet_stage_keys", (s: any) => { s.stages.find((r: any) => r.stage === "extract").synthesisAttempts = []; }],
+    ] as [string, (s: any) => void][]) {
+      const files = changePacket(RESEARCH_FILES.summary, change);
+      expect(() => createResearchProducer({ kind, jobId, contextId, brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), files: files(produced), receipts })).toThrow(code);
+      const dir = sourceRun({ kind, files });
+      expect(() => loadResearchSeed(dir, task)).toThrow(code); expect(researchTransferPresent(dir)).toBe(false);
     }
   });
   it("refuses corrupt/missing checkpoints and symlinked ledgers without creating missing state", () => {

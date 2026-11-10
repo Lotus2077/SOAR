@@ -154,6 +154,11 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   const parse = (path: string): unknown => { try { return JSON.parse(read(path)); } catch { return fail("json"); } };
   const coverage = ResearchCoverageSchema.parse(parse(RESEARCH_FILES.coverage)), plan = ResearchPlanSchema.parse(parse(RESEARCH_FILES.plan)), evidence = ResearchEvidenceSchema.parse(parse(RESEARCH_FILES.evidence));
   const summary = summarySchema.parse(parse(RESEARCH_FILES.summary));
+  // 7(c): every JSON file holds exactly the canonical form of its value, as the pipeline writes it. The gate checks parsed values
+  // while the writer's presentation shows the files' text, so a duplicate key or any other spelling could otherwise show the
+  // writer text the gate never saw (and the host plan's check below would not be byte for byte).
+  for (const path of [RESEARCH_FILES.index, RESEARCH_FILES.plan, RESEARCH_FILES.evidence, RESEARCH_FILES.summary, RESEARCH_FILES.coverage])
+    if (read(path) !== `${canonical(parse(path))}\n`) fail("json_form");
   if (coverage.status !== "ready" || coverage.unresolved.length || coverage.omissions.length || coverage.conflictOmissions.length || coverage.sources.some(s => !s.readable) || coverage.chunks.some(c => c.status !== "complete" || !c.attempts.length || c.attempts.at(-1)?.status !== "complete") ||
     coverage.synthesis.status !== (coverage.fallbacks.synthesis === "skeleton" ? "skeleton" : "complete")) fail("not_ready");
   if (coverage.protocolSha256 !== summary.protocolSha256 || (expected.protocolSha256 && expected.protocolSha256 !== summary.protocolSha256) || (expected.budget && canonical(expected.budget) !== canonical(summary.budget))) fail("protocol");

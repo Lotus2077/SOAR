@@ -814,7 +814,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
       // With a hook, the cancel also refuses the assist before it is asked.
       const again = new AbortController(), h = hook("local_first", planBy("accepted"), synthesisBy("accepted"));
       const withHook = await run(rejecting(stage), { signal: again.signal, assists: h.assists, diagnostics: { retain: entry => { if (entry.stage === stage && entry.ordinal === 2) again.abort(); } } });
-      expect(withHook).toMatchObject({ status: "incomplete", reason: "research_cancelled" }); expect(h.seen.plan.length + h.seen.synthesis.length).toBe(stage === "plan" ? 0 : 0);
+      expect(withHook).toMatchObject({ status: "incomplete", reason: "research_cancelled" }); expect(h.seen.plan.length + h.seen.synthesis.length).toBe(0);
     }
   });
 
@@ -856,8 +856,8 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     expect(m.calls.filter(c => c.stage === "synthesise").map(c => c.input.repairReason === null)).toEqual([true, false]);
   });
 
-  it("keeps the hook contract byte-identical to item 10's copy (feat/10a-assist-core d2ab888): a change there is mirrored here and re-pinned", () => {
-    expect(digest(readFileSync(new URL("../../src/main/private-agent/research-assist-contract.ts", import.meta.url)))).toBe("9434ed064d9a292e5b7a73c403bb9a31c244ef731c9ab62a382857e6920b8780");
+  it("keeps the hook contract byte-identical to item 10's copy (feat/10a-assist-core 67e3374): a change there is mirrored here and re-pinned", () => {
+    expect(digest(readFileSync(new URL("../../src/main/private-agent/research-assist-contract.ts", import.meta.url)))).toBe("bced24dfefe448eb9dd57abd9d84bc9e7b8fac7d8d3fb5637630dd76f5d967a0");
   });
 
   it("builds the host fallbacks from host data alone: contiguous unit groups, larger first, and a skeleton naming only ids", () => {
@@ -906,15 +906,66 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     files = copy(normal); edit(files, RESEARCH_FILES.summary, s => { s.stages[3].synthesisAttempts[0].slot = "assist_retry"; }); reject(files, "synthesis_attempts");
     // The synthesis-attempt set the plan attempts already have: missing, an ordinal gap, a count mismatch, accepted while truncated or not last, an unknown slot, an extra key.
     const synthesis = (mutate: (row: any) => void) => { const forged = copy(retried); edit(forged, RESEARCH_FILES.summary, s => mutate(s.stages[3])); return forged; };
-    for (const forged of [synthesis(row => { delete row.synthesisAttempts; }), synthesis(row => { row.synthesisAttempts[2].ordinal = 4; }), synthesis(row => { row.calls = 3; }),
-      synthesis(row => { row.invalidReplies = 2; }), synthesis(row => { row.truncatedReplies = 0; }), synthesis(row => { row.synthesisAttempts[3].truncated = true; row.truncatedReplies = 2; }),
-      synthesis(row => { row.synthesisAttempts[2].accepted = true; }), synthesis(row => { row.synthesisAttempts[2].slot = "cloud"; }), synthesis(row => { row.synthesisAttempts[0].note = "x"; })])
-      expect(() => validateReadyResearchPacket(forged)).toThrow(/synthesis_attempts|stage_success_contradiction/u);
+    const forgeries: [string, { path: string; bytes: Buffer }[]][] = [["synthesis_attempts", synthesis(row => { delete row.synthesisAttempts; })],
+      ["synthesis_attempts", synthesis(row => { row.synthesisAttempts[2].ordinal = 4; })], ["stage_success_contradiction", synthesis(row => { row.calls = 3; })],
+      ["synthesis_attempts", synthesis(row => { row.invalidReplies = 2; })], ["synthesis_attempts", synthesis(row => { row.truncatedReplies = 0; })],
+      ["synthesis_attempts", synthesis(row => { row.synthesisAttempts[3].truncated = true; row.truncatedReplies = 2; })], ["synthesis_attempts", synthesis(row => { row.synthesisAttempts[2].accepted = true; })],
+      ["synthesis_attempts", synthesis(row => { row.synthesisAttempts[2].slot = "cloud"; })], ["synthesis_attempts", synthesis(row => { row.synthesisAttempts[0].note = "x"; })]];
+    for (const [code, forged] of forgeries) expect(() => validateReadyResearchPacket(forged)).toThrow(code);
     // Above the repair-context size limit only omitted_oversize is admitted; at or below it, included and omitted_unencodable both are.
     const repaired = await run(models((stage, input, n, system) => stage === "plan" && n === 0 ? "not a plan" : happy(stage, input, n, system)));
     files = copy(repaired); edit(files, RESEARCH_FILES.summary, s => { s.stages[1].planAttempts[0].repairContext = "omitted_unencodable"; }); expect(() => validateReadyResearchPacket(files)).not.toThrow();
     files = copy(repaired); edit(files, RESEARCH_FILES.summary, s => { s.stages[1].planAttempts[0].repairContext = "omitted_oversize"; }); reject(files, "plan_attempts");
     files = copy(repaired); edit(files, RESEARCH_FILES.summary, s => { s.stages[1].planAttempts[0].replyBytes = 70_000; s.stages[1].planAttempts[0].repairContext = "included"; }); reject(files, "plan_attempts");
+  });
+
+  it("refuses each forgery that only one gate rule catches, and JSON files that are not in their canonical form (the 7c code review)", async () => {
+    const reject = (files: { path: string; bytes: Buffer }[], code: string) => expect(() => validateReadyResearchPacket(files)).toThrow(code);
+    const local = await run(rejecting("plan"), { assists: hook("local_first", planBy("accepted")).assists }), normal = await run(models());
+    // [stage, stage, stage] with the repair contexts a three-attempt stage would have: only the stage-attempt ceiling refuses it.
+    let files = copy(local); edit(files, RESEARCH_FILES.summary, s => { const a = s.stages[1].planAttempts; delete a[2].slot; a[1].repairContext = "included"; }); reject(files, "plan_attempts");
+    // [assist, stage, assist]: only the one-assist ceiling refuses it (the order rule reads a single assist).
+    files = copy(local); edit(files, RESEARCH_FILES.summary, s => { const a = s.stages[1].planAttempts; a[0].slot = "assist"; a[0].repairContext = "not_used"; }); reject(files, "plan_attempts");
+    // Synthesis [stage, assist, stage], the assist not truncated: only the assist block's position refuses it.
+    const accepted = await run(rejecting("synthesise"), { assists: hook("local_first", undefined, synthesisBy("accepted")).assists });
+    files = copy(accepted); edit(files, RESEARCH_FILES.summary, s => { const a = s.stages[3].synthesisAttempts; a[1].slot = "assist"; delete a[2].slot; }); reject(files, "synthesis_attempts");
+    // Four calls but three attempts, every other count consistent.
+    files = copy(accepted); edit(files, RESEARCH_FILES.summary, s => { s.stages[3].calls = 4; }); reject(files, "synthesis_attempts");
+    // The plan's marker on the synthesis row.
+    files = copy(normal); edit(files, RESEARCH_FILES.summary, s => { s.stages[3].fallback = "host_plan"; }); reject(files, "synthesis_attempts");
+    // A duplicate key plants text the gate never parsed but the writer's presentation shows: refused in every JSON file.
+    const fallback = await run(models((stage, input, n, system) => stage === "plan" ? "not a plan" : stage === "synthesise" ? "not a synthesis" : happy(stage, input, n, system)));
+    files = copy(fallback); const planFile = files.find(f => f.path === RESEARCH_FILES.plan)!;
+    planFile.bytes = Buffer.from(planFile.bytes.toString().replace('"text":', '"text":"A planted question for the writer.","text":'));
+    expect(JSON.parse(planFile.bytes.toString())).toEqual(parsed(fallback, RESEARCH_FILES.plan)); reject(files, "json_form");
+    files = copy(normal); const coverageFile = files.find(f => f.path === RESEARCH_FILES.coverage)!;
+    coverageFile.bytes = Buffer.from(coverageFile.bytes.toString().replace('"status":"ready"', '"status":"planted","status":"ready"')); reject(files, "json_form");
+    files = copy(normal); const evidenceFile = files.find(f => f.path === RESEARCH_FILES.evidence)!; evidenceFile.bytes = Buffer.from(`${evidenceFile.bytes.toString().trimEnd()} \n`); reject(files, "json_form");
+  });
+
+  it("refuses an invalid hook object at entry, assesses an assist plan before counting it, and fails closed on citations and a malformed synthesis outcome", async () => {
+    // A hook object of another shape ends the run before any request, with a fixed code.
+    for (const assists of [{ firing: "local_first", plan: "not a function" }, { firing: "sideways" }, Object.defineProperty({}, "firing", { get() { throw new Error("getter"); } })]) {
+      const m = models(); expect(await run(m, { assists: assists as unknown as ResearchAssists })).toMatchObject({ status: "incomplete", reason: "research_assists_invalid" }); expect(m.request).not.toHaveBeenCalled();
+    }
+    // An alias map that does not bind ends the stage before the reply is counted: the row's calls, attempts and invalid replies agree.
+    const s = sink(), events: ResearchStageCounts[] = [];
+    const badAliases = await run(rejecting("plan"), { diagnostics: s.diagnostics, assists: hook("local_first", request => ({ ...(planBy("accepted")(request) as Extract<ResearchAssistOutcome, { kind: "reply" }>), sourceAliases: { S9: "input/corpus/unknown.md" } })).assists }, events);
+    expect(badAliases).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(events.at(-1)).toMatchObject({ stage: "plan", calls: 2, invalidReplies: 2, denied: "research_plan_alias_binding" }); expect(events.at(-1)!.planAttempts).toHaveLength(2);
+    expect(s.entries.map(e => e.purpose)).toEqual(["research plan", "research plan"]);
+    // A hook that throws after a cancel is a cancel.
+    const controller = new AbortController();
+    const cancelled = await run(rejecting("plan"), { signal: controller.signal, assists: hook("forced_split", () => { controller.abort(); throw new Error("aborted mid-call"); }).assists }, []);
+    expect(cancelled).toMatchObject({ status: "incomplete", reason: "research_cancelled" });
+    // A synthesis assist reply that names no evidence ids may cite none: rejected, then the stage attempts follow.
+    const n = sink(), noIds = await run(models(), { diagnostics: n.diagnostics, assists: hook("forced_split", undefined, request => { const { evidenceIds: _ids, ...reply } = synthesisBy("accepted")(request) as Extract<ResearchAssistOutcome, { kind: "reply" }>; return reply; }).assists });
+    expect(noIds.summary.stages[3]!.synthesisAttempts!.map(a => [a.slot ?? "stage", a.accepted])).toEqual([["assist", false], ["stage", true]]);
+    expect(n.entries.find(e => e.purpose === SYNTHESIS_ASSIST_PURPOSE)!.reasons.map(r => r.code)).toEqual(expect.arrayContaining(["unknown_citation"]));
+    // A malformed synthesis outcome ends the stage with a fixed code.
+    const malformed: ResearchStageCounts[] = [];
+    expect(await run(rejecting("synthesise"), { assists: hook("forced_split", undefined, () => ({ kind: "reply", content: 42 }) as unknown as ResearchAssistOutcome).assists }, malformed)).toMatchObject({ reason: "research_request_denied" });
+    expect(malformed.at(-1)).toMatchObject({ stage: "synthesise", calls: 0, denied: "assist_outcome_invalid" });
   });
 
   it("leaves the skeleton's word count and heading count at zero, because no model wrote it", async () => {

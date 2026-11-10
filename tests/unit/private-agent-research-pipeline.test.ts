@@ -337,4 +337,14 @@ describe("backlog item 7(b), part 1: request shapes (BL-20261109-0334)", () => {
       expect([stated, other.calls.find(c => c.stage === "synthesise")!.input.lengthCap]).toEqual([stated, { words }]);
     }
   });
+  it("keeps today's 1,200 words on both attempts when the brief limits only a part under a heading or in a parenthesis (correction BL-20261110-0625)", async () => {
+    // At 5401d0f this brief sent lengthCap {words: 200} on both attempts and recorded briefWordLimit 200 as if it capped the report.
+    const brief = "1. Describe the supplied synthetic observations.\n2. Name their limitations.\n3. Executive summary: no more than 200 words.\n", events: ResearchStageCounts[] = [];
+    const m = models((stage, input, n, system) => stage === "synthesise" && n === 0 ? "not a synthesis" : happy(stage, input, n, system)), result = await run(m, { brief }, events);
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(m.calls.filter(c => c.stage === "synthesise").map(c => c.input.lengthCap)).toEqual([{ words: 1200 }, { words: 1200 }]);
+    expect(result.summary.stages[3]).toMatchObject({ lengthCapWords: 1200 }); expect("briefWordLimit" in result.summary.stages[3]!).toBe(false);
+    const other = models(); await run(other, { brief: "Describe the supplied synthetic observations. Abstract (max. 150 words)." });
+    expect(other.calls.find(c => c.stage === "synthesise")!.input.lengthCap).toEqual({ words: 1200 });
+  });
 });

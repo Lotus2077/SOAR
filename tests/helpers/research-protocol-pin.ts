@@ -9,5 +9,8 @@
  *   (BL-20261105-0944), pinned by backlog item 4 (BL-20261107-0923) and unchanged by item 5's exports (BL-20261108-0911) and SC.
  * - 01ca01a41c13410012bc386fa85bb32bdfbfaa3ec402482f8d29b8edfcaa6107: backlog item 7(b), part 1 (BL-20261109-0334, implemented in
  *   BL-20261109-0442): the extraction layout, index batches by preview size and the synthesis length cap.
+ * - d4ec0c3a1bafedbe154ddf2e4d612508fdb68ee80c3c41ad97729e6bc112cf34: the correction to 7(b), part 1 (BL-20261110-0625): the word-limit
+ *   parser reads a part named by a heading or a parenthesis, and more part nouns, as a part's limit, and reads no limit when its
+ *   guards drop the largest one.
  */
-export const RESEARCH_PROTOCOL_SHA256 = "01ca01a41c13410012bc386fa85bb32bdfbfaa3ec402482f8d29b8edfcaa6107";
+export const RESEARCH_PROTOCOL_SHA256 = "d4ec0c3a1bafedbe154ddf2e4d612508fdb68ee80c3c41ad97729e6bc112cf34";

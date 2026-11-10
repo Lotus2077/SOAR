@@ -33854,3 +33854,75 @@ Next gate:
 The orchestrator re-stamps this entry's ID if another entry merges first.
 
 References: BL-20261006-1058-pr-j-claims-ledger-design; BL-20261006-1150-pr-j1-claims-ledger-implemented; E1-J's entries (the judge-cancel label, #70); 7a.1's research-tolerance entries (#76); lane S-pipe's 7a.1 notes.
+
+### BL-20261110-0642-claims-trailing-strip-linear-implemented -- 2026-11-10 -- E1-J2 implemented: the claims check's heading rule strips in linear time with the same result, exported as one constant; the update of #76's test waits for the rebase
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements decisions (1), (2) and (4) of BL-20261110-0623-claims-trailing-strip-linear-design as decided. The branch is `fix/e1-j2-linear-trailing-strip`, a draft stacked on E1-J (`fix/e1-j-judge-cancel-label`, Lotus2077/SOAR#70, at f7251dd).
+
+Decision (5), the update of 7a.1's heading test (#76), is checked but is not on this branch, because #76 is not in its base. It lands with the rebase onto `main` after merge train 1.
+
+Hypothesis: the check's result is unchanged on every input, and a report line with a long run of the strip's characters no longer makes the check slow.
+
+Decisions: None beyond the design. One adversarial code review checked the check's escaping and byte identity, whether each test proves its title, and the conventions. It found no blocker and four should-fix or nit items, all applied before this entry:
+- **Hidden characters.** The fixed cases, their expected values and the differential alphabet held literal U+00A0 and U+200B characters. They are escapes now: an editor that normalised them would have dropped that coverage silently.
+- **The `run` helper's signal branch.** It reported any signal as the time bound, including a full output buffer or a kill. It now reports only `ETIMEDOUT` that way and rethrows anything else.
+- **The differential test's limit.** It had vitest's default 5 s limit and timed out once in a full-suite run at a load average of 141. Its limit is now 30 s.
+- **The source test.** It now asserts that each of the two definitions appears once, so no later definition can shadow the rule. The import is now in alphabetical order.
+
+The review also confirmed three things:
+- the check's Python differs from E1-J's only by the two functions; with that block masked, the rest is byte-identical;
+- the constant holds exactly the design's expression, with two backslashes;
+- nine deliberately broken helpers each fail the differential test, with 50,768 to 212,379 mismatches.
+
+Changes:
+- src/main/private-agent/claims.ts: `CLAIMS_SECTION_RULE_PY`, a `String.raw` constant holding `strip_trailing` and `section_present`, which calls it. The check interpolates the constant in place of the former `section_present`.
+- tests/unit/private-agent-claims.test.ts: the `run` helper's optional `timeoutMs`, and the describe "E1 recoverability: the claims check's heading strip, same result without quadratic time (E1-J2)". It holds four tests:
+  - **The time bound.** The check runs under the machine's python3 on a valid report with a 1,000,000-character run of spaces, underscores, asterisks and colons inside a line before both headings, and must finish within 20 s.
+  - **The differential test.** It compares `strip_trailing` with the former pattern and with a regex-free strip on 273,453 strings: every string of up to five characters over twelve, and 2,000 seeded strings of 6 to 300 characters. The comparison runs in Python.
+  - **Fixed results**, read from TypeScript, and `section_present` on two lines.
+  - **The check's source.** It contains the constant, defines each function once, and no longer contains the former pattern.
+
+Evidence: On the owner's Mac, with Python 3.9.5 as the system python3:
+- `pnpm exec vitest run tests/unit/private-agent-claims.test.ts`: 30 passed and 1 skipped (31). The four E1-J2 tests add under a second.
+- `pnpm exec vitest run` (the full suite) at 5bf4928, at a load average of about 26:
+  - 178 files: 164 passed, 1 failed and 13 skipped;
+  - 2,768 tests: 2,683 passed, 1 failed and 84 skipped.
+
+  The failure is tests/unit/with-claude-key.test.ts, which reached its 5 s limit and does not import claims.ts. Run alone, it passed (3 of 3).
+- An earlier full-suite run at e3a57ce, at a load average of 141 from other sessions' suites: 13 tests in 7 files timed out. One was this PR's differential test, fixed above. The other 12 are in six files that do not import claims.ts: hybrid-simulation-change-review, local-change-review, local-repository-investigator, inspect-git-changes, patch-routing-comparison and private-agent-observations. Run alone at a load average of about 18, those six files passed: 159 tests passed and 1 was skipped.
+- Two mutation runs on this branch's tests, with claims.ts restored after each:
+  - with the former pattern back inside the helper, the time-bound test is stopped at the 20 s bound (20.0 s), and the fixed-results and source tests fail;
+  - with `\s` read as `s` in the constant, three tests fail: the time-bound test (a heading's trailing `s` is stripped), the differential test and the fixed-results test.
+- The code review measured the final test input:
+  - the old check is stopped at 20.02 s on Python 3.9.5 and at 20.01 s on 3.12.13;
+  - the new check takes 0.07 s, 0.08 s and 0.16 s on 3.9.5, 3.11.16 and 3.12.13, and about 80 ms inside vitest at a load average of about 40.
+- Decision (5) was checked in a temporary detached checkout of #76's head (18655e5), with this PR's claims.ts change applied. Nothing was pushed to #76's branch.
+  - #76's guard "still mirrors claims.ts's rule as written there" fails as the design predicted: 1 failed and 10 passed.
+  - With the planned update (the guard asserts that the check contains `CLAIMS_SECTION_RULE_PY`, and `claimsPresent` runs the constant), the file passes 11 of 11, and the node typecheck reports no error.
+  - The patch is kept for the rebase.
+- `pnpm typecheck` passed with no error. `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/fix/e1-j-judge-cancel-label` passed.
+
+Failures or blockers: None open. CI has not run on this branch yet.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No live run took place, and nothing here measures how often real reports contain such runs.
+- The time bound is wall-clock, with the margins the design gives; it is not a step count.
+- The differential test proves equality on its own inputs. Equality on every input rests on the design's argument and on the design reviews' wider runs, on Python 3.9.5, 3.11.16 and 3.12.13.
+- Decision (5) is not on this branch until the rebase. Until then, merging this branch with #76 fails #76's guard.
+- The check's other quadratic patterns (the design's decision (6)) are unchanged, and the owner question stands.
+- As the design records:
+  - the check's new text changes the `taskJobSha256` of public-research tasks across the merge;
+  - claims.ts's change moves the local screen's source freeze, so no harness loop may span the merge.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. After merge train 1 lands, the rebase onto `main`, with decision (5)'s test update.
+2. CI green.
+3. The owner's answer to the design's question, and the merge go-ahead.
+
+The orchestrator re-stamps the entry IDs at merge.
+
+References: BL-20261110-0623-claims-trailing-strip-linear-design; E1-J's entries (#70); 7a.1's research-tolerance entries (#76).

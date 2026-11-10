@@ -31004,3 +31004,161 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI on #69 and the orchestrator's review of the delta (de3adea, a502c87, 96de34f and this entry). Then #76 takes #69's head and re-pins in its own entry.
 
 References: BL-20261110-0625-correction-research-length-parser (corrected); BL-20261109-0442-research-request-shapes-implemented; this lane's second code review of de3adea, review data that is not committed.
+
+### BL-20261110-0848-correction-research-length-parser-chains -- 2026-11-10 -- Correction to BL-20261110-0625 and BL-20261110-0709: a part's limit after a comma in its heading or clause, or in the sentence after the part, was read as the report's cap; rules A and B
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261110-0625-correction-research-length-parser and BL-20261110-0709-correction-research-length-parser-exclusions, on #69. It also narrows BL-20261109-0334-research-request-shapes-design decision (5) and that entry's owner question 3. It edits no committed entry.
+
+The orchestrator's delta review of #69 at 5e16e20 had three lenses, and two skeptics checked each finding. It found that against 5401d0f the parser only drops limits, that its timing is linear and that the ledger is append-only. It confirmed two classes of major misreads, A and B in (1). Both read the same at 5401d0f and 5e16e20, so the delta did not cause them. #69 introduces them against main, which always asks for 1,200 words. They are the first round's harm: a part's limit becomes the report's cap and asks for an argument 4 to 12 times shorter.
+
+This entry records:
+- the two classes and the two rules that answer them (commits 88b6775 and 96129a0);
+- the new protocol hash and the measured differential;
+- the new misses;
+- the claims of 0625 and 0709 it corrects;
+- the misreads that remain, stated as limits;
+- one owner question.
+
+The hypothesis is 0334's: an explicit limit stated for the report wins, and the parse prefers missing a limit to misreading one. A miss leaves the 1,200-word default.
+
+Decisions:
+(1) **The two classes.** At 5401d0f and at 5e16e20 each brief below read the part's limit as the cap.
+- **A: a limit after a comma inside its heading or clause.** A comma opens a clause, and the guards read only the limit's own clause. So the heading or the distributive before the comma was never read. There are 13 such briefs. Among them:
+  - "Abstract (required, max 150 words)" read 150;
+  - "Executive summary: one page, no more than 200 words" read 200;
+  - "For each source, write up to 150 words." read 150;
+  - "Cover five papers; for each, at most 200 words." read 200;
+  - "Each section (required, 300-400 words)" read 400.
+- **B: a limit in the sentence after the part.** There are 16 such briefs. Among them:
+  - "Include an abstract. Max 150 words." read 150;
+  - "Add an abstract.\nMax 150 words." read 150;
+  - "Include an executive summary. It should be no more than 200 words." read 200;
+  - "Write a 3,000-word report. Include an executive summary. Keep it under 200 words." read 200;
+  - "Each source gets a note. Max 120 words." read 120.
+
+  The admission test already required "Write a 3,000-word report. Executive summary: no more than 200 words." to read none, but its prose form read 200.
+(2) **Rule A, `commaChain` ("heading_opener_and_distributives_same_line").**
+- **The chain.** A comma continues the chain of the delimiter before it, and any other delimiter opens a chain. indexClauses finds each delimiter's chain opener once, in one pass, so no candidate walks back.
+- **The heading.** A clause may open at a comma. When its chain opens at ":" or "(" on the limit's own line, the heading rule reads the heading before that opener, as if the clause opened there.
+- **Distributives.** A distributive (each, every or per) anywhere in the chain on the limit's own line marks a part's limit.
+- **Part nouns.** Part nouns in the chain are not read, so "An abstract of up to 150 words, then a report of 1,200-1,800 words." keeps 1,800.
+(3) **Rule B, `referring` and `previousSentence`.**
+- **When it applies.** A limit may open its sentence, or a referring word (it, its, this, that, these, those, they, them or there) may stand before it in its sentence. Then the sentence before is read. Sentences end at ".", ";", "!", "?" and line breaks.
+- **The sentence before.** It is the one holding the last word before this sentence. An empty sentence between them, such as "." followed by a line break, is skipped.
+- **What marks a part.** A part noun or a distributive in that sentence marks a part's limit.
+- **Linear time.** A prefix array counts the referring words, so the look-back is one subtraction.
+- **The exemption.** The "word limit N" pattern (LIMIT_PATTERNS[2]) names the document's own limit and is exempt. "Write a report. Include an abstract. Word limit: 2,000." reads 2,000.
+- **The choice: part nouns and distributives.** The review left this choice to the lane.
+  - Its cost: "Answer every question. Keep it under 900 words." and "Cite every source. Keep it under 1,000 words." lose the report's limit (a new miss).
+  - With part nouns only, "Each source gets a note. Max 120 words." and "Add a short note for each source. Max 150 words." would still read the part's limit.
+  - A miss is the direction 0334 prefers.
+(4) **The invariant holds.** Each rule only adds a reason to drop a limit. The selection rule reads the largest limit only when no guard drops it. So on every brief the parser reads 5e16e20's limit or none, and by 0709 5e16e20 reads 5401d0f's limit or none. The differential checks below test both steps.
+(5) **The protocol.** The three new fields are bound into CLAUSE_GUARDS, and so into researchProtocolSha256 through RESEARCH_SYNTHESIS_LENGTH_POLICY. The default hash moves from 925433f9ba8e9c531b51150b769b6bec382331b6d0824d37d151d1f9fdfbea88 (0709) to 9066d7de5d1c52e1cb0616a4b68ea157638749810ac5fabbd8863db6a288c6d3, re-pinned in tests/helpers/research-protocol-pin.ts. The consequences are 0625's, now for the new value:
+- **Serving cards.** Every earlier card's P10 structured-output evidence is invalidated (`serving_card_p10_protocol_drift`). None exists.
+- **Seeds and sessions.** Seeds from an earlier protocol are refused, and paused sessions drift. None exists.
+- **Loops.** No loop may span the change. None is in flight.
+- **Request bytes.** Index, plan and extraction requests are unchanged. A synthesis request changes through coverage.protocolSha256, and through lengthCap for a brief whose limit the rules now drop.
+(6) **The selection rule narrows 0334.** 0625 decision (4) changed the selection rule but attributed the old rule to 0442 alone. BL-20261109-0334 decision (5) ("Several limits ... the largest wins") and the default of its owner question 3 ("yes") now read: the largest stated limit when no guard drops it, otherwise none. For example, "Abstract: at most 300 words. Keep the report under 250 words." reads none. No Proposed entry is owed. The change stays within 0334's decisions that the cap is the brief's explicit upper limit and that a miss is preferred to a misread.
+(7) **Claims of 0625 this entry corrects.**
+- **Its decision (6), "The limitation text".** It says the heading and parenthesis forms now hold. They held only when the limit's clause opened at the heading's opener. A comma inside the heading or parenthesis still read the part's limit until rule A, as in "Abstract (required, max 150 words)".
+- **Its known misreads.** They named only a part on no list and the bare appositive. The list under Limitations widens them.
+- **The comment at lines 86-87 of research-admission.ts (at 5e16e20).** It said "each" and "every" already mark a per-question limit. They did so only in the limit's own clause. The comment now names the clause, its comma chain and the sentence before.
+(8) **Claims of 0709 this entry corrects.**
+- **"An exclusion no longer over-reaches".** That holds only after the limit, where an exclusion cancels only the nouns the correction added. In a heading an exclusion still cancels every part noun up to the next delimiter or line break, 7b.1's included. This applies to excluding, except and without, and to including or incl when they open a parenthesis. "Write a report without jargon and an abstract (max. 150 words)." reads 150, as at 5401d0f. It is now pinned as a known misread.
+- **"The cut-word rule now has a test".** No test brief had a limit cut inside a word, and removing the rule in five ways failed no test. 88b6775 adds four such briefs, each reading none: "Abstract-max 150 words", "each—at most 150 words", "not-at most 500 words" and "At most 500 words/section".
+- **A misread its decision (4) re-opened without saying so.** The four-word bound on heading-only nouns let a one-line comma list of parts read a part's limit again, as at 5401d0f. "Overview (max 200 words), findings (max 800 words), recommendations (max 400 words)." read none at de3adea and has read 800 since 96de34f. It is listed under Limitations.
+(9) **A test for each rule.** The review ran single-edit mutants of the parser and found eleven that no test killed. 88b6775 adds a brief that kills ten of them. 96129a0 kills the eleventh, a strip that drops a word's edge apostrophes, by pinning "'Abstract' (max 150 words)" as a known misread. Two more mutants were killed only by the protocol pin, not by a behaviour test. 96129a0 adds a brief for each:
+- the four-word bound on heading-only nouns: "Give the evidence an overview (at most 1,500 words)" reads 1,500;
+- "incl" cancelling only when it opens a parenthesis: "Write a report incl an abstract: at most 150 words" reads none.
+
+Changes: Commits 88b6775 and 96129a0 on `feat/7b.1-request-shapes`:
+- **src/main/private-agent/research-admission.ts:**
+  - CLAUSE_GUARDS: `commaChain`, `referring` and `previousSentence`;
+  - indexClauses: the chain openers, the line breaks and the referring-word prefix;
+  - guarded(): rules A and B, with the "word limit N" exemption passed from briefWordLimit;
+  - the doc comment, which includes the fix to lines 86-87.
+- **tests/unit/private-agent-research-admission.test.ts**, six new tests and a wider timing test:
+  - rule A's 13 briefs read none;
+  - rule B's 21 briefs read none: the review's 16, one of them in a second form as well; two briefs the review expected to stay misread, "Abstract; at most 150 words" and "Abstract (structured; max 150 words)"; and two more;
+  - 12 positive controls, the review's 9 among them;
+  - 10 new known misses;
+  - 24 known misreads with their values, and 4 report limits still missed;
+  - 14 briefs for the rules no test isolated;
+  - four 32 KiB inputs in the timing test: a comma chain of 3,276 part nouns, 910 sentences of "Include an abstract. Max 150 words.", 10,922 referring words before one limit, and 910 sentences of "For each source, at most 150 words.".
+- **tests/helpers/research-protocol-pin.ts:** the pin.
+
+Evidence: The checks ran locally at 96129a0, unless a line says otherwise.
+- **The admission test.** `pnpm exec vitest run tests/unit/private-agent-research-admission.test.ts` passes 24 tests: 0709's 18 and 6 new.
+- **The review's briefs.**
+  - The 13 briefs under A and the 16 under B read none.
+  - The review's 9 positive controls read their limits: 2,000, 500, 900, 3,000, 1,800, 1,000, 2,000, 2,000 and 2,000.
+- **Mutations.** Each mutant below fails at least one test of the admission and pipeline files (57 tests):
+  - the review's eleven survivors;
+  - three of rule A: no chain heading, no chained distributives, and a chain heading not bound to its line;
+  - five of rule B: no look-back, part nouns only, no "word limit" exemption, no referring words, and a look-back on every limit.
+
+  So do the two the pin alone caught, against the admission test.
+- **Research suites.** `pnpm exec vitest run tests/unit/private-agent-research tests/unit/role-schema-export.test.ts tests/unit/serving-probe-helpers.test.ts tests/unit/planner-fixture.test.ts tests/unit/assess-probe-replies.test.ts` passes 14 files and 199 tests. 0625 and 0709 named these suites without the filter. Their counts, 192 and 193 tests, came from the same filter and the same 14 files.
+- **Full suite.** `pnpm exec vitest run` reports 166 files passed and 13 skipped, and 2,708 tests passed, 84 skipped and 0 failed.
+- **Other checks.** `pnpm typecheck` and `pnpm validate:readiness` pass. So does `pnpm --silent validate:build-log -- --base-ref origin/main` with this entry appended.
+- **Differential against 5e16e20.** It ran from a scratch script that is not committed, with 450,000 generated briefs: random word mixes, a part sentence followed by a limit sentence, and comma-chain heads.
+  - 272,586 read the same.
+  - 177,414 read no limit where 5e16e20 read one.
+  - None is newly read, and none reads a different number.
+- **Differential against 5401d0f.** 0709's scratch scripts were rerun on the new code:
+  - the strip equals 7b.1's on 300,000 random tokens;
+  - of 200,000 briefs without headings, line breaks, exclusions or the new nouns, 199,962 are identical and 38 read no limit;
+  - of 300,000 random briefs with all of them, 578 read no limit and the rest are identical;
+  - of 200,000 exclusion briefs, 40,179 read no limit and the rest are identical.
+
+  In every set no brief is newly read, and none reads a lower or a higher limit.
+- **Timing.** The scratch script's seven inputs of 32,760 to 32,779 characters parse in 1.5 to 11.4 ms. They are the one-clause "150 words max " input, the four new inputs above, and runs of "a, " and "x. " before one limit. The one-clause input is the slowest, and it took about 4.0 s at 5401d0f. The timing test bounds each input at 1 s.
+
+Failures or blockers:
+- **The two classes in (1).** They are negative results against main, found by review before any run, and they are fixed here.
+- **Rule B's first build.** It missed "Add an abstract.\nMax 150 words.": it took the empty sentence between "." and the line break as the sentence before. It now reads the sentence holding the last word before.
+- **Rule A's first tests.** A mutant that dropped the same-line bound survived them until a control was added: "Sections:\nbe concise, at most 2,000 words" reads 2,000.
+
+Neither of those two first versions was committed.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint. Every limitation of 0625 and 0709 stands, except as corrected in (7) and (8).
+- **The parser stays heuristic.** It reads English phrasings with digits only.
+- **New known misses.** Each brief below reads no limit where the report's limit was meant, and each is pinned. The parse prefers this direction. While the role thinks, a stated limit of 1,200 words or more is clamped to 1,200 anyway.
+  - Rule A: "Cite every source, and keep the report under 2,000 words."; "Give each question a 2-3 word label, and keep the report under 2,000 words."; and "Write the following sections: introduction, body, and a conclusion, at most 3,000 words in total.".
+  - Rule B: "Write a report with an abstract. Max 2,000 words."; "Write a summary of the paper. Max 300 words."; "Answer every question. Keep it under 900 words."; "Write the report. Do not include an abstract. Keep it under 800 words."; "I need a summary of the audit findings for the board. Max 500 words."; "Include an abstract. This report must not exceed 2,000 words."; and "Write the abstract first. (At most 2,000 words.)". The review had listed the last one as a positive case for 0625's same-sentence rule. That rule is now tested with "Write the abstract first. (Overall at most 2,000 words.)", which reads 2,000.
+- **Known misreads that remain, stated as limits.** Each class has at least one pinned test with its value. The first six classes read a part's limit as the report's cap.
+  - **A part before a comma with no heading opener.** "Abstract, at most 150 words" reads 150. So do "For the abstract, use at most 150 words." (150), "- Abstract, 150 words max" (150) and "Include an executive summary, and keep it under 200 words." (200). Rule A reads only distributives in a chain.
+  - **A part named in the sentence after the limit.** "Max 120 words. That is for the summary." reads 120.
+  - **Heading-only nouns outside ":" or "(".** "## Results\nUp to 600 words." reads 600, and "Keep the discussion under 400 words." reads 400.
+  - **Part nouns glued to "/", "-" or an apostrophe, and nouns on no list.**
+    - Glued: "Abstract/summary: at most 150 words" (150), "The abstract's length: at most 150 words" (150) and "'Abstract' (max 150 words)" (150).
+    - On no list: intro, TL;DR, methodology, key takeaways and literature review, as in "Keep the literature review under 800 words." (800).
+  - **A part more than four words after the limit, or in a parenthesis after it.** "At most 300 words in the very last conclusion." reads 300, and "At most 150 words (abstract)." reads 150.
+  - **A one-line comma list of parts, or a heading of more than four words.** "Overview (max 200 words), findings (max 800 words), recommendations (max 400 words)." reads 800, as in (8). The review's long headings read the same at 5401d0f and here. An example is "Limitations of this study and future work (max 200 words)", which reads 200.
+  - **An exclusion in a heading.** It cancels every part noun up to the next delimiter or line break, as in (8).
+  - **A floor stated by its consequence or as a range.** "Reports under 1,000 words will be penalised." reads 1,000, and "Write at least 800 to 1,000 words." reads 1,000.
+  - **A limit that describes another document.** "For context, the previous consultant's report was capped at 500 words and missed half the issues. Yours should be thorough." reads 500.
+  - **A companion deliverable.** "Full report please, plus a press release of no more than 400 words." reads 400.
+  - **Report limits missed.** Each brief below reads none, as a miss:
+    - line-structured briefs: "Sections: three\nAt most 900 words";
+    - exclusions on no list: "Word limit (not including the abstract): at most 900 words";
+    - plain caps that match no pattern: "Maximum length: 1,500 words." and "No longer than 1,000 words.".
+- **Before #69's delta.** A digit on the next line makes a range read as its lower end, through the NUMBER pattern's lookahead. "Word limit: 600-900\n3 sources minimum" reads 600. It is pinned and left for a later PR.
+
+The owner question: Should the remaining misreads above be accepted as stated limits, or should the rule later change to a positive test for "the report"? Under a positive test, a limit counts only when its sentence names the report or the whole document, or nothing in the brief names a part. Proposed default: accept them as stated limits in #69, and decide on the positive test after E0's briefs show which phrasings occur. A positive test would remove most of these misreads, but not those that name a report, such as the floor or the other document's limit. It would also miss limits whose sentence names neither the report nor a part while another sentence names a part, as in "Include an abstract. Max 2,000 words." Rule B already misses some of those.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator checks this push:
+- only drops against 5e16e20;
+- the briefs under A and B read none;
+- the positive controls;
+- linear timing;
+- the appended entries;
+- the hash.
+
+Then CI green on #69 and the merge train. #76 merges this head and re-pins in its own Correction entry, whose ID is later than this one.
+
+References: BL-20261110-0625-correction-research-length-parser and BL-20261110-0709-correction-research-length-parser-exclusions (corrected); BL-20261109-0334-research-request-shapes-design (decision (5) and owner question 3, narrowed); BL-20261109-0442-research-request-shapes-implemented; the orchestrator's delta review of PR #69 at 5e16e20, which is review data and not committed.

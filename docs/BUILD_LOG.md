@@ -30743,3 +30743,111 @@ Next gate: The implementation in this pull request and its `Implemented` entry, 
 Then review, CI, a merge, and the owner's Docker-gated run with its `Verified` entry. 7d.B reads the leaf module and merges after this pull request. If another entry merges first, this entry's ID is re-stamped after main's tail with a correction entry.
 
 References: docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E6 and section 5.7 item 7(d); docs/HANDOFF.md "Start here"; BL-20261007-1448-pr-i-document-review-dry-run; BL-20261019-0838-phase2-repair-pair-and-close; BL-20261107-1111-stop-bricking-tasks-docker-suite-verified; BL-20261108-0904-owner-verdict-capture-design; GitHub issues #46 and #54.
+
+
+### BL-20261110-0712-document-review-flags-implemented -- 2026-11-10 -- Backlog item 7(d), part A implemented: the applier's host flags (rules v1) in `output/review-flags.json`, bounded at the caps after the code reviews, compared byte for byte, with the schema in a leaf module
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261109-0354-document-review-flags-design, with deterministic tests, in branch `feat/7d.A-document-review-flags`, based on `main` at 2982ca7 (plan ID 7d.A, lane S-desk):
+- the design commit cc156fc;
+- the implementation commit e08bac3;
+- the code-review corrections f6798c5;
+- the review's tests and a last rules correction 83a0868.
+
+Decisions: Two adversarial code reviews ran at e08bac3, one on correctness and the pinned applier's safety, one on the tests. The design entry stays as written; their confirmed findings change it as follows, recorded here as superseding decisions.
+
+(a) Cost at the caps (the correctness review's blocking finding, confirmed by the test review). The design's caps did not bound N1. One document inside every cap took 114 s and 5.1 GB on Python 3.11: 200 labels named in each of 100 one-sentence paragraphs, each with about 3,150 distinct figures. The sandbox's 4 GB limit would have killed the applier, and the check's re-derivation would time out. Other documents inside the caps took:
+- 12 s and 747 MB with 397,600 flags;
+- 8 to 14 s for 200 qualifying rows named in 900 sentences (a leading lookbehind disabled the regular expression engine's literal-prefix scan);
+- 12 s for a substring worst case;
+- 26 s when NFKC expanded the clipped text 18 times;
+- 11 s for C1 with 200 edits in one 6,000,000-character paragraph.
+
+This supersedes parts of decisions (3), (4), (5) and (7):
+- N1 matches a label as a sequence of word and punctuation tokens (`\w+|[^\w\s]`, spacing ignored), through an index of first tokens, at most 200,000 label comparisons per pass. A label has at most 16 tokens.
+- At most 10 named labels are read per sentence, in table and row order.
+- At most 50 distinct figures are read per sentence and per table row, in document order.
+- The longest-label rule tests whole token phrases, so "rent" is no longer dropped beside "parent company guarantee".
+- A flag keeps only its 4 smallest values per side. The counts come from the flag keys, and entries are built for the 40 listed only.
+- Each paragraph is NFKC-normalized before the 20,000- and 2,000,000-character clips, so the caps bound the normalized text.
+- C1 splits sentences only inside the 2,000-character window around each edit. The codes are unchanged, except for an anchor inside a run of 2,000 or more whitespace characters.
+- `read` gains `labelsCapped` (the comparison budget or the 10-label cap was reached) and `figuresCapped` (the 50-figure cap was reached).
+
+Measured at f6798c5 on this Mac, Python 3.9.5 and 3.11.16, on every shape the reviews built (83a0868 changes only the clip count and drops dead code):
+- the 114 s document: 3.4 s and 2.4 s, 22 MB;
+- the 397,600-flag document: 1.5 s and 1.0 s;
+- the 900-sentence shape at the caps: 2.0 s and 1.4 s;
+- the substring and C1 cases: under 0.2 s;
+- the slowest, maximal NFKC expansion: 4.8 s and 4.7 s, 60 MB.
+
+(b) The plan id. The applier's plan loader matched `^E[0-9]{1,3}$`, and Python's `$` matches before a trailing newline. So "E1\n" was accepted, and the flags then failed the schema. It now uses `fullmatch`: such a plan is refused with `id_invalid_or_duplicate`, a stricter plan check than before.
+
+(c) `modality_changed` now mirrors as decision (5) says. Before, its reverse branch tested "may" absent after, instead of "shall" and "must" absent before.
+
+(d) Decision (3)'s grammar, two misreads fixed:
+- a number right after a slash or a fraction slash, or followed by one and a digit, is never read ("½ day" became "2 day" after NFKC; "1/2 day"). A currency sign or code right after a slash ("EUR/USD 1.10") is not read either;
+- a scale word after a range ("USD 5-10 million") makes both ends unread.
+
+The design's '"non-" becomes "non "' was a no-op, because `[a-z]+` already splits on the hyphen; it is removed.
+
+(e) Decision (7)'s isolation, completed:
+- the serializer now runs inside the whole step's try;
+- the party-term pattern, which C1 and C2 share, runs inside each rule's try;
+- a refused or failed rule leaves its counts at zero, as before.
+
+(f) Decision (2): the stdout summary also names a failed rule's error (`numericError`, `editsError`, `clausesError`) beside the counts. The schema now enforces its documented invariants:
+- a failed rule holds no flags;
+- a truncated list holds exactly 40;
+- a numeric flag carries a side exactly where it holds;
+- a clause flag holds somewhere, its lower paragraph first;
+- a top-level `error` means zero counts, nothing read and empty lists.
+
+(g) `read.paragraphsClipped` counts every paragraph clipped in the source or the clean view, once each. Before, it counted only the source view. A flag that read as resolved because the clean sentence was cut then came without any read cap, contrary to decision (2)'s promise that `read` says when a cap was reached. The unused `flag_list` is removed.
+
+Rules v1 are fixed by `REVIEW_FLAGS_PY` at sha256 38d547ea9c6f21616a6f0c2f6a723c2610f43e35ab6074a903312371591a8dea (23,910 bytes). The pinned applier's sha256 is c1880392ce095c89bb45b247f4962caf4fde826c79c4d5435a14e3cc14ed4eaa (65,205 bytes).
+
+Changes:
+- src/main/private-agent/document-review.ts:
+  - `REVIEW_FLAGS_PY`;
+  - the applier split into its body, the rules and the main guard;
+  - the input builder (`units_for_flags`, `masked_texts`, `edits_for_flags`) and `flags_summary`;
+  - run() writes `review-flags.json` and the stdout `flags`;
+  - the plan id's `fullmatch`;
+  - the docstring;
+  - the check's OUTPUTS and byte comparison;
+  - the artifact entry;
+  - step 3 of the instructions.
+- src/main/private-agent/document-review-flags.ts (new): the path, version, rules, caps, units, codes, counts, the value pattern and `DocumentReviewFlagsSchema` with its invariants.
+- README.md: the document-review row.
+- tests/unit/document-review-flags.test.ts (new, 141 tests).
+- tests/unit/document-review.test.ts (9 tests, 4 before), tests/unit/phase2-repair.test.ts and tests/unit/phase2-blind.test.ts.
+- tests/helpers/document-review-fixtures.ts and tests/integration/private-agent-document-review.test.ts (Docker-gated): the fixture gains a nested table, a text-box table, a REF field and hidden text, and `apply()` asserts no flags error whenever the review succeeds.
+
+Evidence: At commit 83a0868:
+- `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` (exit 0) and `pnpm validate:readiness` pass.
+- The changed tests: document-review-flags 141 of 141; document-review 9 of 9; phase2-repair 8 of 8; phase2-blind 4 of 4. The flags file also passes 141 of 141 with python3 3.11.16 first on PATH. Its two at-the-caps timing tests bound the cost at 15 s; they take about 1 to 2 s on this Mac.
+- The full `pnpm exec vitest run`: 179 files, 165 passed, 13 skipped (the environment-gated suites) and 1 failed; 2,905 tests, 2,819 passed, 85 skipped and 1 failed. The failure is tests/unit/private-agent-observations.test.ts, timing out at 5 s while other suites ran on this Mac; alone it passes 22 of 22, three times out of three, and this pull request does not touch it. The baseline at 2982ca7 was 2,757 tests; the 148 new tests (one of them Docker-gated and skipped) account for the difference.
+- Mutation testing: the test review made 152 mutants at e08bac3, and 123 survived. At the final code, a pass made 314 single mutants: 275 of the rules, 14 of the applier and check glue, and 25 of the schema. They are the review's mutants adapted to the final text, plus every change since, and every cap at one either side. 307 are killed, each by at least one assertion failure, not only a timeout. The 7 left are equivalent:
+  - NFKC applied again to text already normalized;
+  - NUL kept instead of a space;
+  - a 4-value cut repeated;
+  - an empty-anchor branch;
+  - a comment's text;
+  - two assignments reordered in one try;
+  - edits already in plan order.
+- The check command for the longest source path is 38,975 bytes against the unchanged 40,960-byte bound (29,126 bytes before this pull request). About 1.9 KB remains, so a later applier rule such as N2 needs a budget decision first.
+
+Failures or blockers: None. CI has not run yet.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. CI has no lxml, so the applier's input builder, the file and the check ran only as reviewed code and through a stub-lxml import. The owner's Docker-gated run is the proof, with the qualified image (sha256:e5c7075f…) present locally: `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true pnpm exec vitest run tests/integration/private-agent-document-review.test.ts`.
+- The timings above are from this Mac, not from the sandbox's two-CPU VM.
+- The agent sees the counts on stdout, and an intended inversion is counted (the Docker fixture's own E2 is). An agent could undo a legitimate edit because of a count. The design's second owner question covers who sees the file; this pull request does not change the instructions to steer the agent.
+- The design entry's limitations stand.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Review and CI on the pull request, then a merge, then the owner's Docker-gated run and its `Verified` entry. 7d.B reads the leaf module after this merges. If another entry merges first, this entry's ID and the design entry's are re-stamped after main's tail with a correction entry.
+
+References: BL-20261109-0354-document-review-flags-design; docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 7(d); GitHub issue #54.

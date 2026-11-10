@@ -30924,3 +30924,83 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The orchestrator's review of the delta (de3adea and this entry), CI green on #69, then the merge train. #76 rebases onto this head and re-pins in its own entry.
 
 References: BL-20261109-0442-research-request-shapes-implemented (corrected); BL-20261109-0334-research-request-shapes-design; BL-20261108-1649-serving-card-reader-implemented (the P10 drift rule); docs/PROJECT_REVIEW_2026-11-05.md section 4 row D13; the orchestrator's merge-train review of PR #69 (findings F1 to F3) and this lane's code reviews of c7b6093 and de3adea, review data that is not committed.
+
+### BL-20261110-0709-correction-research-length-parser-exclusions -- 2026-11-10 -- Correction to BL-20261110-0625: the exclusion rule read part limits as the report's; against 7b.1 the parser now only drops limits
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261110-0625-correction-research-length-parser, on #69. 0625 and its code, de3adea, were committed but not yet pushed when a second adversarial code review of de3adea found five problems. This entry records them, the fix (commit 96de34f), the new protocol hash and the claims of 0625 it corrects. 0625 is not edited; where the two disagree, this entry supersedes it. The hypothesis is 0625's: an explicit limit stated for the report wins, and the parse prefers missing a limit to misreading one.
+
+Decisions:
+(1) **The regression (high).** 0625's exclusion rule cancelled the part nouns after an exclusion word in every span, the clause before the limit included, up to the span's end. An exclusion earlier in the clause therefore cancelled the noun the limit belongs to, and de3adea read a part's limit where 5401d0f read none:
+- "Write about 2,500 words on the topic, including a short abstract of under 200 words." gave 200.
+- "Write a policy brief including an executive summary of no more than 200 words." gave 200.
+- "Requirements / - Use peer-reviewed sources, excluding preprints / - Abstract under 250 words", on separate lines, gave 250.
+
+The reviewer's generator produced 11,870 such reads in 200,000 briefs.
+(2) **The fix: exclusions cancel only where the correction added a reason to drop.**
+- **The clause before the limit.** Nothing is cancelled there, as in 7b.1.
+- **The heading.** An exclusion cancels part nouns only up to the next delimiter or line break. "including" and "incl" cancel there only when they open a parenthesis. "Write a 10-page report including an executive summary (max. 250 words)" now reads no limit, while "Length (including the abstract): at most 3,000 words" still reads 3,000.
+- **The four words after the limit.** An exclusion cancels only the part nouns this correction added (`addedParts`: section(s), introduction(s), conclusion(s), appendix, appendices, method(s), quote(s) and quotation(s)). 7b.1's own part nouns still drop a limit there, so "At most 2,500 words including the abstract." reads no limit, as at 5401d0f.
+- **The invariant.** Every rule of the correction now only adds reasons to drop a limit, and the selection rule reads the largest limit only when it is kept. On every brief the corrected parser therefore reads 7b.1's limit or none. The fuzzing below checks it.
+(3) **The heading's start (medium-low).** A line break between a heading's last word and its opener left the heading empty, so "Executive summary / (no more than 200 words)", on two lines, read 200. The heading now starts from the opener's last word, skipping line breaks between them, and stops at a sentence end.
+(4) **Heading-only nouns in a long heading.** "Provide an overview of the evidence (at most 1,500 words)." read no limit at de3adea. Heading-only nouns now count only in a heading of at most four words (`headingPartsMaxWords`), so it reads 1,500 again, as at 5401d0f.
+(5) **NEL (low).** U+0085 was in the line-break class, but JavaScript's whitespace class does not match it, so that entry never applied. It is removed. NEL stays a character inside a word, as in 7b.1.
+(6) **A test for every rule.** The second review removed each new rule in turn and found these untested:
+- the cancellation in the clause before (now removed);
+- every exclusion word but "excluding";
+- quote(s);
+- findings, recommendations and limitations;
+- the cut-word rule;
+- the tie rule;
+- every line break but LF.
+
+Each now has a test. Removing any of six rules in turn fails a test: the parenthesis restriction on "including", the line-break skip, the short-heading limit, the heading cancellation, the tie rule, and the distributives after the limit.
+(7) **Claims of 0625 this entry corrects.**
+- **The hash.** The protocol moves from 7b.1's 01ca01a41c13410012bc386fa85bb32bdfbfaa3ec402482f8d29b8edfcaa6107 to 925433f9ba8e9c531b51150b769b6bec382331b6d0824d37d151d1f9fdfbea88, not to 0625's d4ec0c3a1bafedbe154ddf2e4d612508fdb68ee80c3c41ad97729e6bc112cf34, which no run used. The consequences are 0625's:
+  - every earlier card's P10 structured-output evidence is invalidated (`serving_card_p10_protocol_drift`), and none exists;
+  - seeds from earlier protocols are refused;
+  - paused sessions drift;
+  - no loop may span the change.
+- **Exclusions and new reads.** 0625's decision (3) on exclusions, and its evidence that 12 briefs were newly read, are superseded: no brief is newly read.
+- **Timings.** 0625 gives about 3.6 and 3.1 s at 5401d0f for the one-clause inputs. The second review measured 4.0, 3.1 and 1.0 s for the three of them.
+- **A test comment.** It said every brief in the F1 list gave a limit at 5401d0f. "Quotes of at most 200 words each." gave none there, so the comment is corrected.
+
+Changes: Commit 96de34f on `feat/7b.1-request-shapes`:
+- src/main/private-agent/research-admission.ts:
+  - CLAUSE_GUARDS: `parts` and `addedParts`, `headingPartsMaxWords`, `exclusionsOnlyOpeningParenthesis`, and the line-break class without NEL;
+  - indexClauses's exclusion scopes;
+  - the heading's start;
+  - the clause before, without cancellation;
+  - afterMarksPart.
+- tests/unit/private-agent-research-admission.test.ts:
+  - one new test: 14 negative phrasings, 9 positive and 7 line-break cases;
+  - four more known misses;
+  - the corrected comments.
+- tests/helpers/research-protocol-pin.ts: the pin.
+
+Evidence: At 96de34f, run locally under load averages between 13 and 70 from other sessions:
+- **The admission test.** `pnpm exec vitest run tests/unit/private-agent-research-admission.test.ts` passes: 18 tests.
+- **Mutations.** Six rules were removed one at a time: the parenthesis restriction on "including", the line-break skip, the short-heading limit, the heading cancellation, the tie rule, and distributives always counting after the limit. Each removal fails at least one test.
+- **Research suites.** The research, role-schema-export, serving-probe-helpers, planner-fixture and assess-probe-replies suites pass: 14 files, 193 tests.
+- **Full suite.** `pnpm exec vitest run`: 165 files passed and 13 skipped; 2,701 tests passed, 1 failed and 84 skipped. The failure is with-claude-key's shell-script test, which is outside this change and passes alone (3 tests).
+- **Other checks.** `pnpm typecheck` passes, and so does `pnpm --silent validate:build-log -- --base-ref origin/main` with this entry appended.
+- **Differential checks against 5401d0f**, run from scratch scripts that are not committed:
+  - The strip equals 7b.1's on 300,000 random tokens.
+  - 200,000 briefs without headings or the new words: 199,997 identical, 3 read no limit.
+  - 300,000 random briefs with headings, line breaks, exclusions and the new nouns: 535 read no limit, the rest are identical.
+  - 200,000 briefs built from exclusion phrasings such as those in (1): 40,179 read no limit, the rest are identical.
+  - In every set, no brief is newly read, and none reads a lower or a higher limit.
+
+Failures or blockers: The negative result in (1), found by review before any push. Nothing else.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint. Every limitation of 0625 stands, except that an exclusion no longer over-reaches: within its scope it cancels only nouns the correction added. Known misses, each reading no limit where the report's limit was meant, all pinned:
+- "excl." and "incl." with a dot (the dot ends the heading);
+- a line break inside a heading's parenthesis;
+- one of 7b.1's part nouns after the limit, even after an exclusion ("At most 2,500 words including the abstract.").
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #69 and the orchestrator's review of the delta (de3adea, a502c87, 96de34f and this entry). Then #76 takes #69's head and re-pins in its own entry.
+
+References: BL-20261110-0625-correction-research-length-parser (corrected); BL-20261109-0442-research-request-shapes-implemented; this lane's second code review of de3adea, review data that is not committed.

@@ -126,7 +126,8 @@ function preparedLines(bytes: Buffer): { lines: string[]; cut: boolean } {
       if (comment) { const close = raw.indexOf("-->", at); if (close < 0) break; comment = false; at = close + 3; continue; }
       const open = raw.indexOf("<!--", at);
       if (open < 0) { line += raw.slice(at); break; }
-      line += raw.slice(at, open); comment = true; at = open + 4;
+      // From the opener's own dashes: `<!-->` and `<!--->` are complete, empty comments (HTML; CommonMark 0.31).
+      line += raw.slice(at, open); comment = true; at = open + 2;
     }
     kept.push(line);
   }

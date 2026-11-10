@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { spawnSync } from "node:child_process";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
 import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH } from "../../src/main/private-agent/claims";
@@ -34,6 +35,8 @@ const report = (text: string, path = "output/report.md") =>
   hostFlagsEvent(harness({ artifacts: [path, CLAIMS_LEDGER_PATH] }).run({ [path]: text, [CLAIMS_LEDGER_PATH]: "[]" }))!;
 const hits = (text: string) => report(text).report!.hits;
 const absence = (line: number, rule: string, cited = false) => ({ line, rule, class: "absence", cited });
+const bounded = (line: number, rule: string, cited = false) => ({ line, rule, class: "bounded", cited });
+const argumentHits = (text: string) => hostFlagsEvent(harness({ files: [{ path: RESEARCH_FILES.argument, bytes: Buffer.from(text) }] }).run({}))!.argument!.hits;
 
 describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", () => {
   describe("absence rules v1", () => {
@@ -95,6 +98,74 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", ()
       // Not a tag: a less-than sign before a space or a digit.
       expect(html("Growth was < 5% and <5% elsewhere; none of the sources quantify the cost.")).toEqual([absence(1, "A1")]);
     });
+    // The mutation review of a0c005b: every word of each rule's lists, each gap's bounds, the rule order and one hit per sentence.
+    it("matches every word of each rule's lists, within each gap's bounds, first rule only", () => {
+      const each = (rule: string, sentences: string[]) => { for (const sentence of sentences) expect(hits(sentence), sentence).toEqual([absence(1, rule)]); };
+      expect(hits("There is no evidence that none of the sources mention 2025.")).toEqual([absence(1, "A1")]);
+      each("A1", ["Not one of the sources mentions it.", ...["corpora", "file", "page", "pages", "material", "materials", "record", "records", "studies", "study", "literature",
+        "dataset", "datasets", "text", "texts", "article", "articles", "filing", "filings", "reference", "references"].map(word => `None of the ${word} mention it.`)]);
+      each("A2", ["The two retained sources do not mention the date.", "All sources do not mention the date.", "Any source does not mention the date.",
+        "This study did not mention the date.", "Those reports can not mention the date.", "The sources could not mention the date.",
+        ...["address", "discuss", "report", "provide", "state", "cover", "quantify", "describe", "contain", "include", "document", "give", "list", "identify"]
+          .map(verb => `The sources do not ${verb} the date.`)]);
+      each("A3", ["The retained documents contain no date.", ...["provides", "provide", "offers", "offer", "includes", "include", "gives", "give", "has", "mentions", "mention",
+        "reports", "report"].map(verb => `The sources ${verb} no date.`)]);
+      each("A4", ["The retained sources lack a date.", "The sources omit the date.", "The source omits the date.", "The sources are silent on the date.",
+        "This study is silent on the date.", ...["mention", "address", "report", "provide", "specify", "discuss", "state", "cover"].map(verb => `The sources fail to ${verb} the date.`)]);
+      each("A5", ["No source in the corpus states the date.", ...["mentions", "mention", "addresses", "discusses", "reports", "specifies", "specify", "documents", "covers",
+        "quantifies", "quantify", "describes", "contains", "includes"].map(verb => `No source ${verb} the date.`)]);
+      each("A6", ["There is no direct evidence of a recall.", "There are no figures for 2024.", "There was no evidence of a recall.", ...["information", "data", "statistics",
+        "mention", "record", "records", "documentation", "discussion", "indication", "estimate", "estimates"].map(noun => `There is no ${noun} of a recall.`)]);
+      each("A7", ["No data for the plant in that year is available.", "No reliable public data on emissions is available.", ...["information", "statistics", "mention", "detail",
+        "details", "estimate", "estimates"].map(noun => `No ${noun} on emissions is available.`), ...["given", "reported", "cited", "included", "present"].map(verb => `No figures are ${verb}.`)]);
+      each("A8", ["The cost is not mentioned in the retained sources.", "The costs are not mentioned anywhere.", "The cost was not mentioned anywhere.",
+        "The costs were not mentioned anywhere.", ...["addressed", "discussed", "reported", "documented", "covered", "stated", "quantified", "described", "provided", "included",
+        "available"].map(word => `The cost is not ${word} anywhere.`), "The cost is not mentioned by any source.", "The cost is not mentioned within these documents.",
+        "The cost is not mentioned across those sources."]);
+      each("A9", ["Nowhere in the retained sources is a date given.", "The date appears not anywhere in the sources.", "Nowhere across the sources is a date given.",
+        "Nowhere in any source is a date given.", "Nowhere in these documents is a date given."]);
+      each("A10", ["The date is absent from the retained sources.", "The date is absent from all sources.", "The date is missing in any source."]);
+      for (const sentence of ["The two old retained sources do not mention the date.", "None of the textbooks were late.", "The corpus contains notes on 2024.",
+        "The report does not mention the warranty.",
+        // A v1 recall limit, recorded in the Implemented entry: A2 reads "can not" but not "can't" or "cannot", as the design entry writes it.
+        "The sources can't mention the date.", "The sources cannot mention the date."]) expect(hits(sentence), sentence).toEqual([]);
+    });
+    it("classes each bounded phrase in any case, and reads every citation width but no lookalike", () => {
+      for (const sentence of ["None of the sources mention 2025 in the packet.", "None of the sources mention 2025 in the retained evidence.",
+        "None of the sources mention 2025 among the verified quotes.", "None of the sources mention 2025 in the verified evidence.",
+        "The run did not find it: none of the sources mention 2025.", "The search did not find it: none of the sources mention 2025.",
+        "The retrieval did not find it: none of the sources mention 2025.", "The review did not find it: none of the sources mention 2025.",
+        "This review did not find it: none of the sources mention 2025.", "None of the sources mention 2025 after extraction.",
+        "None of the sources mention 2025 in the extracted text."]) expect(hits(sentence), sentence).toEqual([bounded(1, "A1")]);
+      expect(hits("None of the sources quantify the cost [C100].")).toEqual([absence(1, "A1", true)]);
+      expect(argumentHits("None of the sources mention 2025 [E480].")).toEqual([absence(1, "A1", true)]);
+      expect(argumentHits("None of the sources mention ACE12.")).toEqual([absence(1, "A1")]);
+    });
+    it("ends blocks and sentences exactly where the rules say, and numbers lines past every fold", () => {
+      expect(hits("Prices rose [C1]\n* None of the sources mention 2025.\n+ None of the sources mention 2024.")).toEqual([absence(2, "A1"), absence(3, "A1")]);
+      // "1. None" already ends a sentence at the marker's own period, so a ")" marker or a lowercase item tells the block apart.
+      expect(hits("Prices rose [C1]\n1) None of the sources mention 2025.")).toEqual([absence(2, "A1")]);
+      expect(hits("Prices rose [C1]\n2. none of the sources mention 2024.")).toEqual([absence(2, "A1")]);
+      expect(hits("Prices rose [C1]\n  - None of the sources mention 2025.")).toEqual([absence(2, "A1")]);
+      expect(hits("Did prices rise [C1]? None of the sources mention 2025! None of the sources mention 2024.")).toEqual([absence(1, "A1"), absence(1, "A1")]);
+      for (const next of ['"None of the sources mention 2025."', "'None of the sources mention 2025.'", "(None of the sources mention 2025.)", "[None of the sources mention 2025.]",
+        "2025 is absent from the sources."]) expect(hits(`Prices rose [C1]. ${next}`), next).toEqual([absence(1, next.startsWith("2025") ? "A10" : "A1")]);
+      expect(hits("Prices rose [C1].  \nNone of the sources mention 2025.")).toEqual([absence(2, "A1")]);
+      expect(hits("Prices rose.\nCosts fell.\nMargins held.\nYet no\nsource provides efficiency figures.")).toEqual([absence(4, "A5")]);
+    });
+    it("finds a fence at up to three spaces of indent, blanks its lines, carries a comment across lines, and reads <!--> as an empty comment", () => {
+      expect(hits("    ```\nNone of the sources quantify the cost.")).toEqual([absence(2, "A1")]);
+      expect(hits("  ```\nNone of the sources quantify the cost.\n  ```")).toEqual([]);
+      expect(hits("Prices rose [C1]\n```\n```\nNone of the sources mention 2025.")).toEqual([absence(4, "A1")]);
+      expect(hits("<!--\nNone of the sources quantify the cost.\n-->")).toEqual([]);
+      expect(hits("<!-->\nNone of the sources quantify the cost.")).toEqual([absence(2, "A1")]);
+      expect(hits("<!--->\nNone of the sources quantify the cost.")).toEqual([absence(2, "A1")]);
+      expect(hits("<!-- a -- b -->None of the sources quantify the cost.")).toEqual([absence(1, "A1")]);
+      expect(hits("None of the <em>sources</em> quantify the cost.")).toEqual([absence(1, "A1")]);
+      expect(hits("Prices rose [C1]. \u201cNone of the sources mention 2025.\u201d")).toEqual([absence(1, "A1")]);
+      expect(hits("Prices rose [C1]. \u2018None of the sources mention 2025.\u2019")).toEqual([absence(1, "A1")]);
+      expect(hits("None of the\tsources quantify the cost.")).toEqual([absence(1, "A1")]);
+    });
     it("normalizes curly quotes and compatibility characters before matching", () => {
       expect(hits("These reports don\u2019t specify a date.")).toEqual([absence(1, "A2")]);
       expect(hits("\uff2e\uff4f\uff4e\uff45 of the sources quantify the cost.")).toEqual([absence(1, "A1")]);
@@ -129,17 +200,48 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", ()
       expect(report(`${"a".repeat(1024 * 1024 - 40)}\nNone of the sources quantify it.`).report).toMatchObject({ textCut: false, hits: [absence(2, "A1")] });
       // The cap also counts characters after NFKC: 60,000 of U+FDFA (180,000 bytes) normalize to 1,080,000 characters.
       expect(report(`${"\ufdfa".repeat(60_000)}\nNone of the sources quantify the cost.`).report).toMatchObject({ scanned: true, textCut: true, hits: [] });
+      // Exactly 1 MiB of bytes, and exactly 1 Mi characters, are read whole; one byte more is cut.
+      expect(report("a".repeat(1 << 20)).report!.textCut).toBe(false); expect(report(`${"\u00e9".repeat(1 << 19)}x`).report!.textCut).toBe(true);
+      expect(report(`None of the sources quantify the cost.\n${"a".repeat(1 << 20)}`).report).toMatchObject({ textCut: true, hits: [absence(1, "A1")] });
+      expect(report(`${"a".repeat((1 << 20) - 18)}\nNone of the stud\uff59`).report).toMatchObject({ textCut: true, hits: [] });
+      // The character cap cuts the line it falls in once, counting each line's newline, and reads nothing after it.
+      expect(report(`None of the sources quantify the cost.${"\ufdfa".repeat(58_252)}a.${"\ufdfa".repeat(10)}\nNone of the sources mention 2025.`).report)
+        .toMatchObject({ textCut: true, hits: [absence(1, "A1")] });
+      expect(report(`aaaa${"\ufdfa".repeat(58_253)}\nNone of the corpus`).report).toMatchObject({ textCut: true, hits: [] });
+      // Only the full four-byte ZIP signature is Word content.
+      expect(report("PK\x03\x05 None of the sources quantify the cost.", "output/notes.txt").report).toMatchObject({ format: "text", scanned: true });
+      // An argument that is not scanned names no rule and counts nothing.
+      const pdf = hostFlagsEvent(harness({ files: [{ path: RESEARCH_FILES.argument, bytes: Buffer.from("%PDF-1.7 None of the sources mention 2025.") }] }).run({}))!;
+      expect(pdf.argument).toMatchObject({ format: "pdf", scanned: false }); expect(pdf.rules).toEqual({}); expect(pdf.counts).toEqual({});
     });
-    it("stays well inside a generous bound on adversarial shapes at 1 MiB", () => {
-      const shapes = { tags: "<".repeat(1 << 20), unclosed: `<${"a".repeat((1 << 20) - 1)}`, comments: "<!--".repeat(1 << 18), expansion: "\ufdfa".repeat(350_000),
-        words: `${"word ".repeat(200_000)}none of the sources`, lines: "a\n".repeat(1 << 19), sentences: "A. ".repeat(349_525), blocks: "a\n\n".repeat(349_525),
-        rules: "No source the the no evidence there is no ".repeat(24_966),
-        // NFKC's canonical reordering is quadratic in a run of non-starters: 1 MiB of alternating classes took minutes before runs were cut at 30.
-        marks: `a${"\u0316\u0301".repeat(262_143)}`, halfwidth: "\uff9e\u0334".repeat(209_715), tibetan: "\u0f73".repeat(349_525),
-        tagStarts: "<a ".repeat(349_525), tagSpan: `<a${" x".repeat(524_287)}` };
-      for (const [name, text] of Object.entries(shapes)) {
-        const started = performance.now(), scan = report(text).report!;
-        expect(scan.scanned, name).toBe(true); expect(performance.now() - started, name).toBeLessThan(10_000);
+    it("stays well inside a generous bound on adversarial shapes at 1 MiB, in a child process that a regression cannot hang", () => {
+      // One child runs every shape under a hard timeout, so a step that turns quadratic fails here instead of hanging the suite: a synchronous
+      // scan cannot be interrupted by the test's own timeout. NFKC's canonical reordering is quadratic in a run of non-starters, so the three
+      // mark shapes took minutes before runs were cut at 30.
+      const shapes = `{ tags: "<".repeat(1 << 20), unclosed: "<" + "a".repeat((1 << 20) - 1), comments: "<!--".repeat(1 << 18), expansion: "\\ufdfa".repeat(350000),
+        words: "word ".repeat(200000) + "none of the sources", lines: "a\\n".repeat(1 << 19), sentences: "A. ".repeat(349525), blocks: "a\\n\\n".repeat(349525),
+        rules: "No source the the no evidence there is no ".repeat(24966), hits: "None of the sources mention it. ".repeat(32768), bullets: "- a\\n".repeat(262144),
+        marks: "a" + "\\u0316\\u0301".repeat(262143), halfwidth: "\\uff9e\\u0334".repeat(209715), tibetan: "\\u0f73".repeat(349525), tagStarts: "<a ".repeat(349525),
+        tagSpan: "<a" + " x".repeat(524287), tagLines: "<p\\n".repeat(349525), blockTags: "<li>a</li>".repeat(104857) }`;
+      const code = `import { mkdtempSync, rmSync } from "node:fs"; import { join } from "node:path"; import { tmpdir } from "node:os";
+        import { PrivateCheckpointStore } from "./src/main/private-agent/checkpoints.ts"; import { hostFlagsEvent } from "./src/main/private-agent/host-flags.ts";
+        const root = mkdtempSync(join(tmpdir(), "soar-host-flags-shapes-")), checkpoints = new PrivateCheckpointStore(root, "job-1");
+        const store = { events: () => [], dispatches: () => [], atomic: fn => fn(), append: () => 0 };
+        const phase = { contract: { requiredChecks: ["research_claims_ledger"], requiredArtifacts: [{ path: "output/report.md" }] }, files: [] };
+        try {
+          for (const [name, text] of Object.entries(${shapes})) {
+            const finalSnapshot = checkpoints.save([{ path: "output/report.md", bytes: Buffer.from(text) }]), started = performance.now();
+            const event = hostFlagsEvent({ store, jobId: "job-1", contextId: "p", checkpoints, finalSnapshot, phase });
+            console.log(JSON.stringify({ name, bytes: Buffer.byteLength(text), ms: performance.now() - started, scanned: event.report.scanned }));
+          }
+        } finally { rmSync(root, { recursive: true, force: true }); }`;
+      const child = spawnSync(process.execPath, ["--import", "tsx", "--input-type=module", "-e", code], { cwd: process.cwd(), encoding: "utf8", timeout: 150_000 });
+      expect(child.signal, "the shapes did not finish within 150 s").toBeNull(); expect(child.status, child.stderr).toBe(0);
+      const results = child.stdout.trim().split("\n").map(line => JSON.parse(line) as { name: string; bytes: number; ms: number; scanned: boolean });
+      expect(results).toHaveLength(18);
+      for (const result of results) {
+        expect(result.bytes, result.name).toBeGreaterThan(1_000_000); expect(result.bytes, result.name).toBeLessThanOrEqual(1_050_000);
+        expect(result.scanned, result.name).toBe(true); expect(result.ms, result.name).toBeLessThan(10_000);
       }
     }, 180_000);
   });
@@ -249,6 +351,20 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", ()
         edits: { flags: [], truncated: false }, clauses: { flags: [], truncated: false }, error: "ValueError" }) });
       expect(stepFailed).toEqual({ type: "host_flags", contextId: "private", version: 1, rules: { review: 1 }, counts: {}, review: { valid: true, errors: { step: "ValueError" } } });
     });
+    it("copies whether each flag was addressed, where it holds, and every code", () => {
+      const reviewOf = (file: unknown) => review({ [DOCUMENT_REVIEW_FLAGS_PATH]: JSON.stringify(file) }).review;
+      expect(reviewOf({ ...flags, numeric: { flags: [{ ...flags.numeric.flags[0], addressedBy: ["E2"] }], truncated: false } })).toMatchObject({ numeric: [{ addressed: true }] });
+      expect(reviewOf({ ...flags, clauses: { flags: [{ ...flags.clauses.flags[0], addressedBy: [] }], truncated: false } })).toMatchObject({ clauses: [{ addressed: false }] });
+      expect(reviewOf({ ...flags, numeric: { flags: [{ ...flags.numeric.flags[0], inClean: false, clean: null }], truncated: false } }))
+        .toMatchObject({ numeric: [{ inSource: true, inClean: false }] });
+      expect(reviewOf({ ...flags, edits: { flags: [{ id: "E2", codes: ["negation_flipped", "modality_changed"] }], truncated: false } }))
+        .toMatchObject({ edits: [{ id: "E2", codes: ["negation_flipped", "modality_changed"] }] });
+      expect(reviewOf({ ...flags, edits: { flags: [], truncated: false, error: "KeyError" }, clauses: { flags: [], truncated: false, error: "ValueError" },
+        counts: { ...flags.counts, inversionEdits: 0, inversionIntroduced: 0, inversionSource: 0, inversionUnaddressed: 0 } }))
+        .toMatchObject({ valid: true, errors: { edits: "KeyError", clauses: "ValueError" } });
+      // The review rules ran whatever the file holds.
+      expect(review({}).rules).toEqual({ review: 1 });
+    });
     it("records a missing, an invalid and an oversized file, and never loads the oversized one", () => {
       expect(review({}).review).toEqual({ valid: false, reason: "missing" });
       expect(review({ [DOCUMENT_REVIEW_FLAGS_PATH]: JSON.stringify({ ...flags, version: 2 }) }).review).toEqual({ valid: false, reason: "invalid" });
@@ -287,6 +403,16 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", ()
       expect(event.errors).toEqual(["argument_failed"]); expect(event).not.toHaveProperty("argument"); expect(event.report).toMatchObject({ reason: "missing" });
       expect(event.rules).toEqual({}); expect(event.misses).toEqual({ fetchFailures: 0, fetchLimitRefusals: 0 });
     });
+    it("does no work for a context already recorded, and its schema refuses anything it would not write", () => {
+      const h = harness(), input = h.run({ "output/report.md": "None of the sources quantify the cost.", [CLAIMS_LEDGER_PATH]: "[]" });
+      recordHostFlags(input); expect(h.events).toHaveLength(1);
+      const load = vi.spyOn(h.checkpoints, "load"), atomic = vi.spyOn(h.store, "atomic");
+      recordHostFlags(input); expect(load).not.toHaveBeenCalled(); expect(atomic).not.toHaveBeenCalled(); expect(h.events).toHaveLength(1);
+      const event = report("x");
+      for (const changed of [{ ...event, extra: 1 }, { ...event, errors: [] }, { ...event, rules: { absence: 2 } }])
+        expect(HostFlagsEventSchema.safeParse(changed).success, JSON.stringify(changed).slice(0, 80)).toBe(false);
+      expect(() => hostFlagsEvent({ ...input, contextId: "c".repeat(101) })).toThrow();
+    });
     it("names the claims report as withClaimsLedger always has: the first .md artifact, else the first artifact", () => {
       const path = (...paths: string[]) => claimsReportPath({ requiredArtifacts: paths.map(item => ({ path: item })) });
       expect(path("output/memo.md", "output/table.csv")).toBe("output/memo.md"); expect(path("output/table.csv", "output/memo.md")).toBe("output/memo.md");
@@ -295,6 +421,8 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", ()
       expect(path("output/report.md", CLAIMS_LEDGER_PATH)).toBe("output/report.md");
       // A contract that lists the ledger first still names the report; with no .md at all, the first artifact, as before.
       expect(path(CLAIMS_LEDGER_PATH, "output/report.md")).toBe("output/report.md"); expect(path(CLAIMS_LEDGER_PATH, "output/calculate.py")).toBe(CLAIMS_LEDGER_PATH);
+      // The first .md, and only a lowercase extension, exactly as before: the rule feeds every claims phase's identity.
+      expect(path("output/a.md", "output/b.md")).toBe("output/a.md"); expect(path("output/table.csv", "output/REPORT.MD")).toBe("output/table.csv");
     });
     it("records no event for a phase with neither check, and no report text in the one it records", () => {
       expect(hostFlagsEvent(harness({ checks: ["structure"] }).run({ "output/report.md": "None of the sources quantify the cost." }))).toBeUndefined();

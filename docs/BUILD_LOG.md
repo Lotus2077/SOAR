@@ -30932,3 +30932,82 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The orchestrator's delta review of this push. #81 joins merge train 1 if that review clears before the other heads settle; otherwise it leads train 2. Then the owner's Docker-gated run and its `Verified` entry.
 
 References: BL-20261109-0354-document-review-flags-design; BL-20261110-0712-document-review-flags-implemented; pull request #81.
+
+
+### BL-20261110-1100-document-review-flags-party-terms-pinned -- 2026-11-10 -- Backlog item 7(d), part A, round-5 review: the party-term step's skip, kept set and count bound pinned by tests, the worst check-command path recorded, and the cost figures corrected (corrections to BL-20261110-0933)
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records what the orchestrator's round-5 review of pull request #81 (plan ID 7d.A, lane S-desk, head 81d42df) asked for before merge. The review found no blocker and no major issue: the bounded party-term step equals the stated rule, and both pins reproduce. What it asked for:
+- test pins for the rewritten `flag_party_pattern`;
+- the worst admissible check-command path;
+- corrected cost figures.
+
+All of it lands in the tests commit 9d4b19d on branch `feat/7d.A-document-review-flags` and in this entry. Nothing under src/ changes, so `REVIEW_FLAGS_PY` stays at sha256 0c4e5012… (24,258 bytes) and the applier at 54280f1c… (65,553 bytes), as BL-20261110-0933 pinned them. That entry stays as written.
+
+Decisions:
+
+(a) The rewritten step is pinned by assertions, not only by timeouts. BL-20261110-0712's mutation statement does not cover the rewritten `flag_party_pattern`, and its two new tests asserted only the capped flag and a role-word swap. The new assertions:
+- **The skip.** A 200-character defined term traded with Buyer is flagged as a party swap; a 201-character term is not, and `termsCapped` is set.
+- **The kept set.** The 48 smallest defined terms are kept, in string order:
+  - with the 48 `Party…` terms plus Agent and Alpha, Agent and Alpha are parties, and the largest and second-largest of the 48 are not;
+  - with the 48 plus Zebra, Zebra is not;
+  - with exactly the 48, the largest is a party;
+  - with 50 terms whose string order is their index order, given ascending and then descending, the 1st and 48th are parties while the 49th and 50th are not.
+- **The count bound.** A defined role word (first or last) and a repeated definition take no room: `termsCapped` stays false and the largest of the 48 is still a party.
+
+Eight single mutations of the step now each fail an assertion, with no failure only by timeout:
+- the skip removed;
+- `term < worst`;
+- the eviction's `continue` made `pass`;
+- the discard removed;
+- `worst` set only once;
+- `min` for `max`;
+- the role check removed;
+- the duplicate check removed.
+
+(b) The check command's worst admissible path.
+- A double quote passes every path rule, and it costs two bytes in the command's JSON before base64. So the largest command is not the one with the most path bytes.
+- `input/` + 190 double quotes + 9 U+1D11E + U+4E2D + `.docx` (a 240-byte path, 200 characters in the name) gives 39,375 bytes. That leaves 1,585 bytes under the unchanged 40,960-byte bound, not about 1.8 KB.
+- The longest ASCII name is 200 characters, not 195. It gives 39,083 bytes.
+- The size test now covers all three paths: 200 x, the 240-byte two-byte path (39,123) and the worst.
+
+Corrections to BL-20261110-0933 (that entry stays as written):
+- **Its "about 1.8 KB remains for the whole train" is 1,585 bytes**, at the worst path in (b). Any addition to the check or the applier needs a budget decision first, as BL-20261110-0712 says.
+- **Its "1.4 s and 141 MB for 1.2 million terms" is a random-order figure.** The party-term step's cost depends on the order in which definitions arrive. The review measured the whole rules step in the qualified image (CPython 3.11.16, 2 CPUs, 4 GB):
+  - 2,097,152 distinct four-letter terms in descending string order (16 MiB) took 5.3 s (reviewer) to 6.7 s (skeptic, five runs); the same terms ascending or shuffled took about 1.9 s;
+  - combined with the maximal NFKC-expansion shape, about 1.35 million descending terms after 100 paragraphs of 20,000 U+FDFA took 7.6 s to 9.4 s. This supersedes BL-20261110-0712's "the slowest … 4.8 s";
+  - the pinned applier end to end, on the 16 MiB descending document, took 8.6 s (against 3.8 s ascending), inside the applier's 30 s deadline and the check's 40 s.
+- **Memory.** The rules step alone peaked at about 46 MB in a lean harness. The review's 175 MB figure includes its harness and is not the step's cost.
+- **What the existing tests prove.** The two cost tests from 0933 (the 1,000,000-letter term and the 100,000 distinct terms) prove the capped flag, the 200/201 edge and the role-word swap. They do not prove cost: the 100,000-term test also passes on e267df5's unbounded step. The step's time and memory are pinned by no test.
+
+Changes:
+- tests/unit/document-review-flags.test.ts: four tests for (a).
+- tests/unit/document-review.test.ts: the size test's three paths for (b), with its comment corrected.
+
+Evidence: At commit 9d4b19d:
+- `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` (exit 0) and `pnpm validate:readiness` pass.
+- The changed tests:
+  - document-review-flags: 154 of 154, also with python3 3.11.16 first on PATH;
+  - document-review: 9 of 9;
+  - phase2-repair: 8 of 8;
+  - phase2-blind: 4 of 4.
+- The full `pnpm exec vitest run`: 179 files, 166 passed and 13 skipped (the environment-gated suites); 2,918 tests, 2,833 passed and 85 skipped, none failed. At 81d42df it was 2,914 tests; the 4 new tests account for the difference.
+- The eight mutations in (a), each applied alone to a scratch copy and run against the flags tests: each is killed by an assertion, and none only by a timeout.
+- Measured at this head: 39,075 bytes (195 x), 39,083 (200 x), 39,123 (171 x and 29 two-byte letters), 39,351 (200 double quotes), and 39,375 (the worst path).
+
+Failures or blockers: None. CI has not run on this commit yet.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. The owner's Docker-gated run is still the proof: `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true pnpm exec vitest run tests/integration/private-agent-document-review.test.ts`.
+- The cost figures above are the review's, measured in the qualified image; this lane did not re-measure them.
+- Open for the owner, carried by the orchestrator:
+  - The flags step's time budget, now with the order-dependent figures. An optional batch trim of the kept set is output-identical and cut the descending shape from 6.7 s to about 2.7 s in the image. It would re-pin both hashes and spend check-command bytes, so it is not made here.
+  - The CPython and Unicode dependence BL-20261110-0933 records.
+  - A ledger question: BL-20261110-0933 amended decisions (5) and (7) of BL-20261109-0354 from an `Implemented` entry, and its code was committed 72 seconds before that entry. The question is whether such a review-fix amendment needs a `Proposed` entry before its code. Until it is answered, this lane writes such an entry first. This entry amends no decision.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's mechanical check of this push: diff scope, the build log as a byte prefix plus appended entries, both pins, the four test files, and a sample of the mutants. Then #81 rides merge train 1 or leads train 2. After that come the owner's Docker-gated run and its `Verified` entry.
+
+References: BL-20261109-0354-document-review-flags-design; BL-20261110-0712-document-review-flags-implemented; BL-20261110-0933-document-review-flags-party-terms-bounded; pull request #81.

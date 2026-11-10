@@ -31123,3 +31123,141 @@ Next gate:
 - 10.b may wire the assist's dispatch only once no review finding is open. With these fixes, it waits only for 7(c) and 7(b)-2.
 
 References: BL-20261110-0639-assist-core-implemented; BL-20261109-0417-assist-wrapper-design (its fourth owner question); pull requests #79, #69 and #76.
+
+### BL-20261110-1027-correction-assist-core-delta -- 2026-11-10 -- Correction: the assist core after the delta review of #79 at 4aeac37, with the R1 regression and four more fixes, scrub policy still version 4, and the remaining gaps stated with their bounds
+
+Status: `Implemented`
+
+Scope or hypothesis: This records the fixes for the delta review of pull request #79 at 4aeac37 (67e3374..4aeac37). It corrects BL-20261110-0820-correction-assist-core-review and BL-20261110-0639-assist-core-implemented without editing either. The fixes are in commit 6d14ac4 on `feat/10a-assist-core`, and the following are unchanged:
+- the scrub policy, still at version 4;
+- both pinned assist protocol hashes: `forced_split` 127a56d3f9a29ec2f4b13c208b7d60217075a61dce60e61bd113807164028411, `local_first` fd294f1e6d97eb9d130f307dbc4ebee99d7484c90c81b7c3290d6059d4504b75;
+- research-assist-contract.ts, byte-identical (sha256 bced24dfefe448eb9dd57abd9d84bc9e7b8fac7d8d3fb5637630dd76f5d967a0), and research-plan.ts.
+
+Decisions:
+- R1, a regression from 8090f65, is fixed.
+  - 8090f65 let a name match take the root slash of a rooted path, and that also took the second slash of `//`. A URL on another host that ends in a source's path or file name then lost a slash, and the URL rule no longer applied:
+    - `see https://other.test/reports/annual-2025.html now` went out as `see https:/S2 now`;
+    - `//cdn.other.test/…` went out as `/S2`, and `s3://bucket/corpus/alpha-field-notes.md` as `s3:/S1`.
+  - Whatever followed the name, query and fragment included, went out in clear text, and the audit passed it: `https:/S1?token=sk_live_abcdef`, `https:/S1#Layoff-List-Q3`, `https:/S1/private/acme-merger`. At 67e3374 each was `[url]`.
+  - Now the root slash is taken only when no `/` stands before it, so each of these is `[url]` again.
+  - The guard covers forward slashes only. The review's one-line guard also excluded a backslash, and that sent text 4aeac37 hid: after a leading `\\`, 4aeac37 left a single backslash, which made the rest a rooted path with an extension. A UNC path therefore keeps 4aeac37's rule: `\\fileserver\share\old-alpha-field-notes.md` gives `\[file]`, a residue.
+  - The same leak had a file-name variant, present since 8090f65, that the one-line guard does not close.
+    - A glued file name (F4) right after `//` became `[file]`. The protocol-relative URL rule needs a letter or digit after `//`, so `//cdn.other.test/x/q3-report.html?token=abc` went out as `/[file]?token=abc` at 4aeac37.
+    - Such a run now keeps its whole span but takes the source's alias, so the URL rule takes the URL whole, as `[url]`.
+- G3 is fixed. A form that a URL source and a local copy share keeps the URL form's host lead. With both sources present, `alice:hunter2@example.org/report.html` is `[url]`, not `alice:hunter2@[source]`.
+- O2 is fixed. The run of a glued file name gives back a trailing `-`, `_` or `.`, so a sentence's full stop stays: `see alpha-field-notes.md-secret. Next` gives `see [file]. Next`. The policy's `glued` sentence stays accurate.
+- V1 is fixed. T2 now compares each coverage source's id with the request's source at the same position, not only the counts. 0820's "or its coverage lists other sources than the request" was false at 4aeac37 and is true now.
+- P1 is fixed.
+  - The relative-path rule was quadratic on Han text joined by `,`, `:` or `;`, full-width or ASCII, with no `。`, `、`, space or newline. "文件在这里，" repeated took 26, 100, 403 and 1,606 ms at 2,000, 4,000, 8,000 and 16,000 characters, about 9 s for one T2 packet at the bounds. So 0639's "Every scan is linear in its text" was false for that shape.
+  - The three scans of the relative run now use a walk instead of matchAll. When no run matches at a start, it looks for the next start after the path characters read from that one. The pattern source is unchanged, so the hashes stay.
+
+Changes:
+- src/main/private-agent/research-assist-scrub.ts;
+- src/main/private-agent/research-assist.ts;
+- tests/unit/private-agent-research-assist-scrub.test.ts and tests/unit/private-agent-research-assist.test.ts;
+- docs/BUILD_LOG.md (this entry).
+
+Evidence: The runs are local, on Node 22.22.2 and pnpm 10.12.4, at 6d14ac4.
+- `pnpm typecheck` passes.
+- The tests:
+  - The four test files this PR changes pass 184 of 184: 25 scrubber, 61 assist, 47 Anthropic and 51 Responses.
+  - The unchanged plan-contract file passes 38 of 38.
+- What the new tests show:
+  - In both scopes and through a second scrub, each of these becomes `[url]` inside `see … now`:
+    - `https://other.test/reports/annual-2025.html` and `//cdn.other.test/reports/annual-2025.html`;
+    - `https://other.test/x/old-alpha-field-notes.md`;
+    - `https://hr.acme-merger.test/alpha-field-notes.md` followed by `?token=sk_live_abcdef`, `#Layoff-List-Q3` or `/private/acme-merger`;
+    - `s3://bucket/corpus/alpha-field-notes.md` and `//cdn.other.test/x/old-alpha-field-notes.md?token=abc`;
+    - `//cdn.other.test/alpha-field-notes.md-v2#Layoff-List-Q3` and `http://example.org/reports/annual-2025.html?x=1`.
+  - The first of those counts one URL.
+  - `/tmp/alpha-field-notes.md` still gives `S1`.
+  - End to end, a brief holding such a URL with a query sends `[url]`, and neither request body holds the query.
+  - The tests also pin G3's pair, O2's full stop, V1's same-length cases (one id replaced, the order reversed), and the Han-comma shapes in the linear-time test.
+  - New optional tests pin `-` before a name with no word before it, the host-lead walk's floor, and the numeric checks on a prior attempt's `ordinal` and `omittedErrorCount`.
+- A local mutation check catches each of these 10 single-line mutants:
+  - R1's guard removed;
+  - G3's merged host lead lost;
+  - O2's trim removed;
+  - V1's ids not compared;
+  - P1's walk replaced by matchAll (the linear-time test then ran 90 s and failed);
+  - nameRunStart without its word check;
+  - the host-lead walk ignoring its floor;
+  - a prior attempt's `ordinal` checked by `typeof` only;
+  - `omittedErrorCount` accepted as any non-negative number;
+  - the alias rule after `//` removed.
+- The P1 differential (local) compares matchAll(RELATIVE_RUN) with the walk on 600,000 random strings. Each string was compared raw and in the wide view, so 1,200,000 views in all, and 0 differ (by index and text):
+  - 300,000 strings use the review's alphabet: Han, ASCII letters, digits, `/ \ . , : ; - _`, the full-width `，：；。、`, space and newline. 284,547 of their views hold at least one run.
+  - 300,000 strings use a wider alphabet that adds quotes, brackets, `~ % $ @ # ? = & + !`, astral Han, kana, Hangul, Thai, full-width letters and escapes. 293,182 of their views hold at least one run.
+- The Han-comma shapes now take 15 ms at 16,000 characters and 50 to 62 ms at 64,000, for each of `，`, `,`, `：` and `;`.
+- An output differential against 4aeac37 (local) ran 200,000 token soups of source names, URL pieces, separators, words and CJK, in both scopes.
+  - 4,756 outputs differ, and 109 of them send a word that 4aeac37 hid.
+  - Each of those 109 sends the same word at 67e3374. 4aeac37 hid it only because R1's broken URL read as one relative path from the start of its run: `token，s3://mirror/reports/annual-2025.html…` sends `token，[url]`, as 67e3374 does.
+- Local probes: the third round's privacy probes send 118 cases clean, after a probe helper was made to rename a source in its coverage too, as V1 requires. Two fuzzers find 0 failures.
+- The whole suite (`pnpm exec vitest run`): Three runs while other sessions loaded the machine. The third gave files 166 passed, 1 failed and 13 skipped (180), and tests 2,801 passed, 84 skipped and 1 failed (2,886). Its failure is a 5 s timeout in tests/unit/patch-routing-comparison.test.ts. Two earlier runs, at load averages of 110 to 170, timed out 4 and 12 tests. Every failure in the three runs is a timeout, in seven files that import none of this code (patch-routing-comparison, hybrid-simulation-change-review, local-change-review, local-repository-investigator, inspect-git-changes, private-agent-observations and private-agent-sandbox-capture), and run alone those files pass: 137 passed and 1 skipped in five files, and 44 passed and 2 skipped in three. 8090f65, which this push changes only in the files above, passed the whole suite with 0 failures.
+- `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass.
+
+Failures or blockers:
+- The delta review used three lenses, with two skeptics on each major finding. It found R1, a major regression from 8090f65 that both skeptics confirmed, and G3, O2, V1 and P1. All five are fixed above.
+- It also found the gaps stated below.
+
+Limitations and non-claims: Each item below has its bound.
+- L1. Text glued directly after a source's whole path or URL form goes out beside the alias, because those forms have no right boundary. The same happened at 67e3374.
+  - `see input/corpus/alpha-field-notes.md-secret now` gives `see S1-secret now`.
+  - With a source `https://github.com/acme/public-repo`, `see github.com/acme/public-repository now` gives `see S4sitory now`.
+  - With a source `https://intranet.acme.example/doc`, `https://intranet.acme.example/docs/hr/layoff-plan-2025?employee=alice` gives `S1s/hr/layoff-plan-2025?employee=alice`.
+  - This also bounds 0820's F4 sentence "never the source's alias with the rest left around it": it holds for a source's file name, not for its whole path or URL forms.
+- L2. The generic credential rule covers only a scheme-less `user:password@host` written within these bounds:
+  - a user of 1 to 64 ASCII userinfo characters (letters, digits and `._~%!$&*+,;=-`);
+  - `:` and a password of 1 to 64 characters, with no white space, `/`, `@`, quote or angle bracket;
+  - `@` and a dotted host of ASCII letters, digits and `-`, with an optional port and path.
+
+  These go out whole, password included, and the audit passes them:
+  - a password holding a raw `@`, a quote or an angle bracket (`alice:p@ss@acme.example`);
+  - an empty user or password, or either over 64 characters;
+  - a host label holding `_` or a non-ASCII letter;
+  - a credential before `localhost`, a bracketed IPv6 address or any single-label host. The `@` also switches off the localhost and IPv6 rules, so the host, port and path go out too.
+  - a Go-style DSN `user:pw@tcp(host:3306)/db`;
+  - a credential directly after `:` or `@`, including after a full-width colon label (`账号：alice:hunter2@acme.example`);
+  - a `?x=1` or `#frag` left after `[url]` when the host has no path;
+  - `alice:P@ss@10.2.3.4:8080`, which gives `alice:P@ss@[url]`.
+
+  Schemed forms all become `[url]`. 0820's "with or without a path even when no source is involved" holds only within these bounds. The rule also replaces clock times and ratios before an `@`: `ratio 3:2@home.example`, `Meeting 10:30@room.4` and `Contact:alice@example.com` give `[url]`.
+- L3. 0820's "F3 … Fixed" is too wide. A password holding a character outside the host-lead characters, before a source's host, still goes out with its user name, and the built T1 and T2 bodies hold it. This is better than 67e3374, but not closed.
+  - `alice:pa(ss)@example.org` gives `alice:pa(ss)[url]`.
+  - `alice:p#ss@example.org` gives `alice:p#[url]`.
+  - `alice:秘密@example.org` gives `alice:秘密[url]`.
+- L4. A source's own host directly followed by a hyphenated word goes out unchanged in both scopes, because a host match is refused when the next character is `-`. Examples: `the example.org-hosted report`, `example.org-2025`, `EXAMPLE.ORG-hosted`, and the same with U+2010 or U+2011. The same happened at 67e3374.
+- L5, over-matching that only hides text. The host-lead walk runs back over `, ; = : ! $ & * + % ~` with no `@` needed:
+  - `2025,Q3,Acme Corp,example.org,42` gives `2025,Q3,Acme [url]`;
+  - `Set host=example.org and retry.` gives `Set [url] and retry.`;
+  - `site:example.org` gives `[url]`, and `**example.org**` gives `[url]**`;
+  - `S9,example.org` gives `[url]`, so another source's alias is lost;
+  - `来源：example.org` gives `来源[url]`.
+- L6. Bounds of the generic rules that no entry stated:
+  - The scheme-less host rules do not start after `@`, `:`, `_`, `.`, `-` or `/`, so `alice@files.acme.example/hr/x`, `site:acme.example/reports` and `my_host.corp-hq.internal/x` go out.
+  - An IPv6 address is replaced only when it is bracketed and followed by a port or a path.
+  - A query or fragment directly after a host with no path goes out with it.
+- Residues of this push's fixes:
+  - G3: with a single local-copy source and no URL source, `alice:hunter2@example.org/report.html` gives `alice:hunter2@S1`.
+  - O2: with no space after the full stop, the run continues into the next word, so `See beta-ledger.md-v2.Next sentence` gives `See [file] sentence`.
+  - R1, UNC: a UNC path keeps one backslash before the placeholder (`\\fileserver\share\old-alpha-field-notes.md` gives `\[file]`).
+  - R1, shared forms: a form two sources share, or a host-appended file name, right after the `//` of a protocol-relative URL is `[source]` or `[file]`. The protocol-relative rule cannot start on either, so the URL's query or tail goes out, as at 67e3374. With `report.html` shared, `//cdn.other.test/x/report.html?token=abc` gives `//[source]?token=abc`.
+- 0820 quotes "a host is bounded" as 0639's words. That phrase is a code comment in research-assist-scrub.ts, not part of 0639.
+- 0820's timings for CJK text, read together with 0639's "Every scan is linear in its text", were false at 4aeac37 for the Han-comma shape. They are true after P1.
+- No SOAR model request, endpoint, Docker container or paid call ran.
+- The two changed source files are under src/main/private-agent, so the harness source-freeze digest changes again. No owner loop or E-run may span #79's merge.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The orchestrator's re-review of #79 at its new head, then train 1 or train 2.
+- 10.b does not wire the assist's dispatch until each of L1, L2, L3, L4 and L6 is either closed by a reviewed rule change under scrub policy 5 or accepted by the owner in a recorded decision. The orchestrator carries three owner questions; an agent does not answer them, and these are only defaults.
+  - Should L1 to L4 be closed by rule under scrub policy 5 before 10.b, or accepted as limits? Default: closed by rule.
+  - Should L5 stay a stated over-matching limit, or should the lead be narrowed? Default: it stays a stated limit.
+  - Should L6 stay a stated limit, or get rules before a labelled arm? Default: stated limits for the public and synthetic arms now, and rules before any labelled arm runs an assist.
+- 10.b's obligations:
+  - Pass request.sources in coverage.sources order (the sorted inventory), and leave sourceTexts[i] undefined only where coverage marks the source unreadable.
+  - Under `local_first`, give each prior attempt a non-negative safe-integer `ordinal` and `omittedErrorCount` and a boolean `truncated`.
+  - Pass a real `deadlineMs`. NaN stops as `assist_deadline_missing` with no request, and the pipeline passes NaN when there is no session deadline.
+
+References: BL-20261110-0820-correction-assist-core-review; BL-20261110-0639-assist-core-implemented; BL-20261109-0417-assist-wrapper-design (its fourth owner question); pull request #79.

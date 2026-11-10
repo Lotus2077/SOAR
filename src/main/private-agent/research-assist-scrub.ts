@@ -5,11 +5,13 @@
  * audit reads the finished strings again the same way, and model-written text for copied source text.
  *
  * Every pattern reads a view that keeps each UTF-16 index of the text: full-width ASCII forms read as ASCII, and source
- * forms are compared case-folded. Every scan is linear in its text. Source forms are found through rolling hashes indexed by
- * their first four characters and their lengths, never by one regex of every form, and each generic pattern starts only
- * where a run of its characters starts. A letter or digit of the same script bounds a name. In scripts written without
- * spaces (CJK, Thai and their kin) a name may touch its neighbours, and their letters belong to a path, URL or file name
- * only where a connector (`/`, `.`, `=` and the like) touches them.
+ * forms are compared case-folded. Source forms are found through rolling hashes indexed by their first four characters and
+ * their lengths, never by one regex of every form, and each generic pattern starts only where a run of its characters
+ * starts. Every scan is linear in its text but one: in model-written text the bare-file-name scan also starts after an
+ * apostrophe that follows a spaceless-script letter, inside such a run, so it is quadratic on that letter, an apostrophe and
+ * a name character repeated (`汉'a汉'a…`). The callers' length caps on model-written text bound it. A letter or digit of the
+ * same script bounds a name. In scripts written without spaces (CJK, Thai and their kin) a name may touch its neighbours,
+ * and their letters belong to a path, URL or file name only where a connector (`/`, `.`, `=` and the like) touches them.
  */
 import { domainToUnicode } from "node:url";
 import type { ResearchSourceIdentity } from "./research-contract";
@@ -191,7 +193,11 @@ function relativeEnd(run: string): number {
 }
 /** A character of a bare file name: not a space, quote, angle bracket, slash or `;:!?`, spaceless-script letters included. */
 const NAME_CLASS = `[^\\s/\\\\"'<>;:!?${SPACELESS}]`, NAME_CHAR = `(?:${NAME_CLASS}|${SL}|'(?=${NAME_CLASS}))`;
-/** Where a bare file name may start: where a run of its characters starts, or after an escape (`\n`) that follows a space. */
+/**
+ * Where a bare file name may start: where a run of its characters starts, or after an escape (`\n`) that follows a space.
+ * An apostrophe after a spaceless-script letter is such a start too, though the run goes on through it: on that letter, an
+ * apostrophe and a name character repeated, the scan is quadratic, and only the callers' length caps bound it.
+ */
 const NAME_START = `(?<=^|[\\s"<>;:!?]|${SL_PUNCT}|(?<!${NAME_CLASS})'|(?:^|[\\s"'<>])\\\\[ntr])`;
 const FILE_EXTENSIONS = [...ASSIST_FILE_EXTENSIONS, ...ASSIST_FILE_EXTENSIONS.map(extension => extension.toUpperCase())];
 /**
@@ -400,7 +406,8 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
   /**
    * Where a name match really starts: a folder prefix glued to it ("Clients/Acme/alpha.md") goes with it, back to `floor`, and
    * so does the root slash of a rooted one ("/tmp/alpha.md"), but never the second slash of `//`, which leaves a URL for the
-   * generic rules (`https://other.test/alpha.md?q` is `[url]`, not `https:/S1?q`). A UNC path's backslashes keep 4aeac37's rule.
+   * generic rules (`https://other.test/alpha.md?q` is `[url]`, not `https:/S1?q`). A UNC path's `\\` has no such guard: its
+   * second backslash goes with the match, so one is left before it (`\\fileserver\share\old-alpha.md` is `\[file]`).
    */
   const absorbPrefix = (text: string, start: number, floor: number) => {
     let at = start;
@@ -478,8 +485,9 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
         if (lead.start < start) { start = lead.start; if (!lead.www) replacement = ASSIST_PLACEHOLDERS.url; }
       }
       if (hit.entry.kind !== "host") start = absorbPrefix(shown, start, floor);
-      // A glued file name right after `//` lies inside a URL (`//cdn.other.test/x/q3-report.html?token=…`): it keeps its whole span
-      // but takes the source's alias, so the URL rules, one of which needs a letter or digit after `//`, take the URL whole.
+      // A glued file name right after `//` keeps its whole span but takes its entry's replacement, the source's alias or
+      // `[source]`. Where a URL rule can start before the `//`, it takes an alias and the URL whole
+      // (`//cdn.other.test/x/q3-report.html?token=…` is `[url]`); elsewhere the alias stays (`a//old-alpha.md` is `a//S1`).
       if (replacement === ASSIST_PLACEHOLDERS.file && hit.entry.replacement !== ASSIST_PLACEHOLDERS.file && shown.slice(start - 2, start) === "//") replacement = hit.entry.replacement;
       found.push({ start, end, replacement });
       at = floor = end;

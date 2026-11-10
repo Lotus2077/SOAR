@@ -622,6 +622,7 @@ describe("the fourth review's cases: glued hosts and names, the final audit, req
     const run = await assistRequests({ authored }), f = cachingAssistModel("openai_responses", answer), assists = wrap(f.model, { authoredBrief: authored });
     expect((await assists.plan!(run.plan, signal())).kind).toBe("reply");
     expect((await assists.synthesis!(run.synthesis, signal())).kind).toBe("reply");
+    expect(f.requests).toHaveLength(2);
     for (const request of f.requests) {
       expect(assistPacketOf(request.body).brief).toContain("compare [url] with [url].");
       for (const leaked of ["payroll-2025", "intranet", "hunter2", "alice"]) expect(request.body).not.toContain(leaked);
@@ -633,6 +634,7 @@ describe("the fourth review's cases: glued hosts and names, the final audit, req
     const run = await assistRequests({ authored }), f = cachingAssistModel("openai_responses", answer), assists = wrap(f.model, { authoredBrief: authored });
     expect((await assists.plan!(run.plan, signal())).kind).toBe("reply");
     expect((await assists.synthesis!(run.synthesis, signal())).kind).toBe("reply");
+    expect(f.requests).toHaveLength(2);
     for (const request of f.requests) {
       expect(assistPacketOf(request.body).brief).toContain("see [url].");
       for (const leaked of ["sk_live_abcdef", "token=", "acme-merger"]) expect(request.body).not.toContain(leaked);

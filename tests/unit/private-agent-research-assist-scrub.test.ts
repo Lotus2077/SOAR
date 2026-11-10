@@ -171,6 +171,7 @@ describe("the assist scrubber (research-assist-scrub.ts)", () => {
     expect(text("- alpha-field-notes.md and see alpha-field-notes.md.")).toBe("- S1 and see S1.");
     // A run glued after the name gives back a full stop; a dash before the name with no word before it glues nothing.
     expect(text("see alpha-field-notes.md-secret. Next")).toBe("see [file]. Next");
+    for (const mark of ["-", "_"]) expect(text(`see alpha-field-notes.md-secret${mark} now`), mark).toBe(`see [file]${mark} now`);
     expect(text("see -alpha-field-notes.md now")).toBe("see -S1 now");
     // A host lead never walks back into an earlier match: here the earlier path match ends right before a lone `www.`.
     expect(text("input/corpus/alpha-field-notes.mdwww.example.org/news")).toBe("S1S2");
@@ -191,14 +192,15 @@ describe("the assist scrubber (research-assist-scrub.ts)", () => {
     // A rooted local path's root slash goes into the alias; a UNC path keeps one backslash before it, a residue the entry states.
     expect(text("see /tmp/alpha-field-notes.md now")).toBe("see S1 now");
     expect(text("see \\\\fileserver\\share\\old-alpha-field-notes.md now")).toBe("see \\[file] now");
+    // A single slash before a glued name is no URL's: the name is [file], and the slash, with no folder taken, stays.
+    expect(text("see /old-alpha-field-notes.md now")).toBe("see /[file] now");
   });
 
-  it("keeps the host lead of a form that a URL source and a local copy share, so no credential is left before it", () => {
-    const both = createScrubber({ sources: [identity("https://example.org/report.html", "sources/3333333333333333.bin"), identity("mirror/example.org/report.html")], suffix: "", knownDigests: [HASH] });
-    for (const scope of ["text", "model"] as const) {
-      const sent = both.scrub("see alice:hunter2@example.org/report.html now", scope).text;
-      expect(sent).not.toContain("alice");
-      expect(sent).not.toContain("hunter2");
+  it("keeps the host lead of a form that a URL source and a local copy share, in either source order, so no credential is left before it", () => {
+    const url = identity("https://example.org/report.html", "sources/3333333333333333.bin"), copy = identity("mirror/example.org/report.html");
+    for (const sources of [[url, copy], [copy, url]]) {
+      const both = createScrubber({ sources, suffix: "", knownDigests: [HASH] });
+      for (const scope of ["text", "model"] as const) expect(both.scrub("see alice:hunter2@example.org/report.html now", scope).text, `${sources[0]!.id} ${scope}`).toBe("see [url] now");
     }
   });
 
@@ -253,8 +255,13 @@ describe("the assist scrubber (research-assist-scrub.ts)", () => {
     const crafted = [`a/${"1.".repeat(32_000)}x`, "+a\\".repeat(21_000), `${"a'".repeat(32_000)}/x`, "0123456789abcdef".repeat(4_000), `${"abcd".repeat(16_000)}g`, "+a".repeat(32_000),
       `${"xx.yy.".repeat(10_000)}${"z".repeat(30)}`, "a:".repeat(32_000), "%a%".repeat(21_000), `${"a".repeat(64_000)}.docx`, "[::".repeat(21_000), `https://x.com/a${")".repeat(64_000)}`,
       "\"“/\"".repeat(16_000), `/${"汉/a汉".repeat(16_000)}`, `${"资料".repeat(32_000)}/`, `${"aa ".repeat(21_000)}q`, `a${"\u0301".repeat(32_000)}${"\u0316".repeat(32_000)}`,
-      "文件在这里，".repeat(10_000), "文件在这里,".repeat(10_000), "文件在这里：".repeat(10_000)];
+      "文件在这里，".repeat(10_000), "文件在这里,".repeat(10_000), "文件在这里：".repeat(10_000), "文件在这里;".repeat(10_000)];
+    // A run start at an astral character, alone or before an escape: the walk steps over the whole code point and returns.
+    for (const value of ["\u{20BB7}", "\u{20000}\\n"]) expect(text(value)).toBe(value);
     const started = performance.now();
+    // Building a scrubber reads the host's appended text raw with the same walk. The separator is ASCII: read raw, a full-width
+    // one is CJK punctuation, which ends every run, so it would be linear whatever the scan.
+    createScrubber({ sources: SOURCES, suffix: "文件在这里,".repeat(10_000), knownDigests: [HASH] });
     for (const value of crafted) { scrubber.scrub(value, "model"); scrubber.finding(value, "model"); }
     // Tens of milliseconds each here; the quadratic patterns these replace took from seconds to minutes at this size.
     expect(performance.now() - started).toBeLessThan(10_000);

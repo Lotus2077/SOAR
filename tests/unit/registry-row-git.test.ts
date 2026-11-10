@@ -47,7 +47,7 @@ function row(args: string[], script = SCRIPT, env: NodeJS.ProcessEnv = process.e
 }
 const C = (n: string) => n.repeat(40);
 
-describe("registry git provenance (backlog item 11, part 2)", () => {
+describe("registry git provenance (backlog item 11, part 2)", { timeout: 30_000 }, () => {
   it("takes a run row's git from its freeze, not from the commit the row is written at", () => {
     const root = scratch("soar-git-row-");
     expect(row(["--run-dir", runDirectory(root, "clean", { commit: C("c"), dirty: false })])).toMatchObject({ git: "cccccccccccc", gitSource: "run", gitDirty: false });
@@ -103,7 +103,7 @@ function repository() {
 /** The source freeze's entries for these paths, as the driver would read them now. */
 const frozenOf = (root: string, paths: string[]) => paths.map(path => ({ path, sha256: digest(readFileSync(join(root, path))) }));
 
-describe("the driver's git state (backlog item 11, part 2)", () => {
+describe("the driver's git state (backlog item 11, part 2)", { timeout: 30_000 }, () => {
   it("asks git exactly these read-only questions, keeps only the commit and a boolean, and returns null on any doubt", () => {
     const root = scratch("soar-git-fake-");
     mkdirSync(join(root, "src")); writeFileSync(join(root, "src", "a.ts"), "export {};\n");

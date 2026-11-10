@@ -30912,3 +30912,78 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI green on the pull request, which is stacked on pull request #67, and a merge in the orchestrator's train (scripts/phase4-loop.ts: 11.1, 11.3, 10.b, 7a.2; scripts/registry-row.py: 11.1, 11.2, 11.3, 11.4, 7d.C, RA). The branch is rebased onto part 2 (pull request #73) when that merges first. Then part 3b's design.
 
 References: BL-20261109-0515-infra-classification-design; BL-20261109-0606-correction-infra-classification-rules; plan 11.1's design entry (BL-20261109-0331-loop-selection-protocol-2-design at the time of writing); docs/PROJECT_REVIEW_2026-11-05.md section 5.1 rule 5 and section 5.7 item 11.
+
+
+### BL-20261110-0723-correction-infra-classification-train-review -- 2026-11-10 -- Correction: part 3a after merge train 1's review: a cloud 429 with no recorded kind, rule (d) for the writer, the Implemented entry's counts, and the review's fixes and deferrals for parts 2 and 3a
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry corrects BL-20261109-0515-infra-classification-design and BL-20261109-0607-infra-classification-implemented after the second round of merge train 1's review of pull requests #73 (part 2) and #78 (part 3a). It also records what this branch changes in answer. At the train's request, this branch now merges part 2's branch (a27652a), so the entry also records a limitation of BL-20261109-0510-registry-run-commit-implemented. The earlier entries are unchanged.
+
+Decisions: (a) **A cloud 429 with no recorded kind.**
+- **What happens.** The broker records a rejection's error kind, and its spend-cap and spend-limit flags, only for a destination with `anthropicVersion` (broker.ts:555-558). The driver gives one only to the Anthropic request shape (private-agent-local-screen.ts:297). On the `/v1/chat/completions` and `/v1/responses` arms, a rejection keeps its status alone and is never retried. A quota or billing refusal that such a provider answers with HTTP 429 (`insufficient_quota`, for example) therefore cannot be told from a rate limit.
+- **How version 1 classes it.** Version 1 classes such a 429 as transient. An end of `model_unavailable`, or a reading stage's `request_failed`, on such a row is infrastructure, and the writer refuses `rejected` and `incomplete` for it, in a superseding row too. So rule (b)'s statement that a billing or spend-cap refusal "is the arm's or its configuration's" holds for the Anthropic arm only.
+- **What changes.** The code is unchanged, and a test case now names this reading. Owner question (d) of BL-20261109-0515 gains a part: how is a 429 with no recorded kind on a non-Anthropic cloud arm classed?
+  - Proposed default: transient, as now. A card with such a writer arm checks the account's balance before its batch, and its re-run rule excludes a 429 that the provider attributes to quota.
+  - The alternative, `task`, would also count an ordinary rate limit against the arm.
+  - The answer is to be recorded before E3's card records version 1.
+
+  Recording an error kind for those arms' rejections is a broker change, for its own entry.
+
+(b) **Rule (d) for the writer.** A writer whose destination is missing ends `model_request_denied` with no marker. The model reads the destination's timeout first (model.ts:330), which throws `destination_missing`, and the runner then ends the run with nothing to record (runner.ts:513-516). Rule (d) therefore reaches `destination_missing` only through a reading stage's denied code. A writer's end of that kind is `task`, which fails closed, and a test case now pins it. Recording a marker would change a persisted event under a new classification version. Question (d) gains a proposed default for this case: no change, because a missing destination is a configuration fault that the card's pre-flight catches.
+
+(c) **Two asymmetries, both fail-closed, left to part 3b.**
+- A reading stage denied `transport_or_settlement_unknown` (an uncertain cloud call) is `task`. The same failure in a cloud writer is infrastructure under decision (b) of BL-20261109-0606. Proposed default, added to question (a): class it as the writer's is classed, as infrastructure when the uncertain row's failure lies in the transport (cause `research_request_failed`). It would be added to version 1 before E3's card records it, unless the owner answers otherwise.
+- A loop whose repair ended on infrastructure and lost the comparison, leaving an unsubmitted draft, is rowed with the draft's class, `task`, and `infra_invalid` is refused. Part 3b is to mirror the critique rule for the repair (`repair_<cause>`). It is also to add each sample's own class to `loop.candidates`, which a loop row lacks today.
+
+(d) **The Implemented entry's counts and one claim.**
+- Its fuzz reached all 24 base infrastructure causes, or 48 with their `public_` forms, not 22 as it said; 22 was the count before BL-20261109-0606. The 24 are the 11 host reasons, `model_unavailable`, `research_request_failed`, 6 token-admission codes, 3 broker codes, `verification_unavailable` and `operator_stop`.
+- Its claim that the fixtures catch every evidence-reader mutant held for the TypeScript reader only. Three Python-side mutants survived: taking the first denied stage rather than the last, taking the first runtime failure rather than the last, and loosening the check for the loop's interrupt mark. New fixtures and cases now catch all three.
+- Its Python 3.9.5 is the first python3 this lane's shell finds. The system interpreter is 3.9.6. Both reviews ran the writer under 3.9.6, and this entry's checks pass under both versions.
+
+(e) **Part 2's provenance (BL-20261109-0510), now in this branch.** A row with `gitSource: run` and `gitDirty: false` can name a commit that no public ref holds, such as a local commit never pushed. Part 5's launcher is to refuse to start a run unless the checkout's HEAD is an ancestor of `origin/main`; failing that, an E3 or E4 card is to state the same check.
+
+(f) **Deferred to part 3b:**
+- Part 2's `freeze_git` stops a loop row with a traceback when another directory of the loop holds a truncated or non-object `freeze.json`. Part 3b's shared scan reads each freeze defensively, and graded loops wait for part 3b.
+- Tests for part 2's repository ceiling in the writer and in the driver, for its SHA-256 object-format branch, and for a superseding copy of a `runs_differ` row with a malformed `gitDirty`.
+- A loop fixture in which a stage other than the final candidate carries the mark. Part 3b's resume is the first thing that makes this case reachable.
+
+Changes:
+- **The merge.** Merge commit 744c728 brings part 2's branch (pull request #73 at a27652a) into this branch.
+  - `scripts/registry-row.py` had one conflicting hunk, resolved as both reviewers' trial merges resolved it: the superseding branch keeps its class re-check, and part 2's `row_provenance` replaces the inline `git rev-parse`.
+  - The build log keeps every committed entry's bytes and ID, in ID order: #67's 0331, 0416 and 0417; #73's 0422, 0509 and 0510; #78's 0515, 0606 and 0607.
+- **tests/unit/registry-row-infra.test.ts:** a 30 s timeout on the fixture loop, and the two fixtures of (d). The loop's 48 python3 spawns take about 7 s under the system interpreter, beyond vitest's 5 s.
+- **tests/unit/registry-row-verdict.test.ts:** a 30 s timeout for the whole suite. These are item 2's tests and predate this branch. Each spawns python3 up to about 24 times. Under the system interpreter, one of them timed out at 5 s while the touched files ran together, and three timed out in a full-suite run.
+- **tests/unit/run-classification.test.ts:** the 429 case, now named for its missing kind; two values of the mark that are truthy but not `true`; and the broker refusal with no marker.
+- **tests/unit/phase2-repair.test.ts:** a pin that the pre-render abort check sits after the draft is rendered and before the critique creates its directory.
+- **docs/experiments/README.md:** (a)'s limitation, in the `runClass` row.
+
+Evidence: At this entry's commit:
+- `pnpm --silent validate:build-log -- --base-ref origin/main`, and the same against #67's head (9eed3d7): valid, 521 entries, append-only.
+- `pnpm typecheck` and `pnpm validate:readiness` pass, and scripts/registry-row.py parses under Python 3.9's grammar.
+- The ten touched test files passed 211 tests under Python 3.9.5, and twice under 3.9.6 at the default timeout. The files are run-classification, registry-row-infra, registry-row-git, phase4-loop, phase2-repair, private-agent-selection, registry-row-zero-fee, registry-row-loop, registry-row-verdict and dispatch-purposes.
+- Full `pnpm exec vitest run` under Python 3.9.6:
+  - 182 files: 169 passed and 13 skipped (the environment-gated suites).
+  - 2,928 tests: 2,844 passed, 84 skipped and 0 failed.
+  - An earlier full run, made before the verdict suite's timeout, timed out four tests at 5 s: two of that suite's, and one each in tests/unit/inspect-git-changes.test.ts and tests/unit/private-agent-observations.test.ts. This branch does not touch those two files, and the three files pass when run together.
+- **Mutation check.** With the new tests, each of the four mutants the review listed fails a test:
+  - the Python reader taking the first denied stage;
+  - the Python reader taking the first runtime failure;
+  - Python's mark check loosened to truthiness;
+  - the deleted pre-render abort check.
+
+  The review found that all four passed the suite before these tests.
+- The facts behind (a) and (b) hold at this head: broker.ts:555-558, private-agent-local-screen.ts:297, model.ts:330 and runner.ts:513-516.
+
+Failures or blockers: None. CI has not run on this head yet.
+
+Limitations and non-claims:
+- The readings in (a) and (b) stand in version 1 until the owner answers question (d).
+- The two asymmetries in (c) stand until part 3b.
+- Only deterministic tests ran: no model, endpoint, Docker container or paid call. Nothing is `Verified`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on this head, then merge train 1, for which the orchestrator retargets pull request #78 to `main`. Part 3b takes up (c) and (f).
+
+References: BL-20261109-0510-registry-run-commit-implemented; BL-20261109-0515-infra-classification-design; BL-20261109-0606-correction-infra-classification-rules; BL-20261109-0607-infra-classification-implemented; pull requests #73 and #78; src/main/private-agent/broker.ts; src/main/private-agent/model.ts; src/main/private-agent/runner.ts.

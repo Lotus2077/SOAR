@@ -31513,3 +31513,99 @@ Next gate: The orchestrator checks this push:
 Then CI green on #69 and the merge train. #76 merges this head and re-pins in its own Correction entry, whose ID is later than this one.
 
 References: BL-20261110-0625-correction-research-length-parser and BL-20261110-0709-correction-research-length-parser-exclusions (corrected); BL-20261109-0334-research-request-shapes-design (decision (5) and owner question 3, narrowed); BL-20261109-0442-research-request-shapes-implemented; the orchestrator's delta review of PR #69 at 5e16e20, which is review data and not committed.
+
+### BL-20261110-0900-correction-research-tolerance-held-repair -- 2026-11-10 -- Correction to BL-20261110-0726: a held chunk's failed repair was uncounted, the comparison with 5401d0f is withdrawn, and 7a.1 is merged onto rules A and B
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261110-0726-correction-research-tolerance-total-loss, on pull request #76 (backlog item 7(a), part 1). It also corrects one wording in BL-20261110-0712-correction-research-tolerance-repin. It edits no committed entry.
+
+The orchestrator's delta review of #76 at bd876d9 ran three lenses, and six skeptics checked the findings. All three lenses found "merge after fixes". This entry records:
+- the regression it found and its fix (commit 53d3a5c);
+- the comparison of 0726 that it withdraws;
+- the wordings it corrects;
+- the merge of #69's head 848524e (merge commit 961aea5), which brings rules A and B (BL-20261110-0848) and moves the protocol hash.
+
+Decisions:
+(1) **The regression: a held chunk's failed repair was neither counted nor retained.**
+- **The cause.** `held.set` runs only on a first attempt, and `held.delete` only when the held attempts are settled. So during the held chunk's own repair call, the guard `!held.has(chunk.id)` also suppressed `invalidReplies++` and the diagnostics sink. It was meant to defer only the held first attempt.
+- **What the review measured at bd876d9.** A held chunk whose repair is invalid JSON, schema-invalid, a wrong question set, truncated or needs follow-up ends `research_extraction_incomplete` with calls 3 and repairCalls 1. But invalidReplies was 1, and only ordinal 1 reached the sink.
+- **When it began.** It came in with 834de94. In the review's invariant grid, no cell broke at 873d1c7, 652 of 7,056 broke at bd876d9, and none breaks with the fix. No test saw it: all 45 pipeline tests passed with and without the fix.
+- **The fix.** The guard now reads `state !== "complete" && (repair || !held.has(chunk.id))`.
+- **The test.** The same script runs with an invalid and with a truncated repair. It now gives invalidReplies 2 (truncatedReplies 1 in the truncated case), chunk attempts ["invalid", "invalid"] or ["invalid", "truncated"], and extract sink rows at ordinals 3 then 1.
+(2) **"No run is worse than at 5401d0f" is withdrawn.** That sentence of 0726 decision (2), "The comparison", is false. 834de94 restores 5401d0f's result in one case only: a first attempt that drops every quote it gave for a question it marked evidence_found, when the budget allows the repair. Three classes still end with less evidence than at 5401d0f. The review ran each script at 5401d0f and at bd876d9; the fix in (1) changes none of them.
+- **(i) A question marked evidence_found that no quote names.** In the script, two chunks' first replies both mark the question found with `quotes: []`, and an honest reply is available for a repair.
+  - 5401d0f ends `research_packet_ready` with 4 calls, 2 repairs and 2 verified quotes.
+  - bd876d9 ends `research_no_evidence` after 2 calls, with questionsDowngraded 2.
+- **(ii) A question marked no_verified_evidence whose only quotes were dropped.** The hold requires the status evidence_found.
+  - 5401d0f ends ready with 4 calls and 2 quotes.
+  - bd876d9 ends `research_no_evidence` after 2 calls, and no downgrade is counted.
+- **(iii) Partial drops keep fewer quotes.** In two scripts, 5401d0f kept 4 and 3 quotes where bd876d9 keeps 2. This is 0447's standing limitation.
+
+  The exception is not "the no-quote class". That would be false for (ii) and (iii).
+(3) **The exception against 18655e5, restated.** 0726 decision (2) named three ways a held chunk's repair reply can fail. The policy lists five `incompleteWhen` codes: truncated, invalid_json, schema_invalid, question_set_mismatch and needs_followup. A repair reply that fails in any of the five leaves the chunk incomplete, where 18655e5 kept the held attempt and completed. A held chunk's repair call may also be denied, cancelled or fail. Then the run ends `research_request_denied` or `research_cancelled`, while 18655e5 made no such call and completed with the question downgraded. This also restates 0726's limitation "A failed repair".
+(4) **What else 834de94 changed.** 0726 does not state these:
+- **A denial or cancellation while a chunk is held.** When an extraction call is denied or cancelled, in either pass, every held attempt is rejected. Each is counted in invalidReplies, its chunk is recorded invalid, and its reply is retained with no disposition.
+- **The cost.** Each held chunk costs at most one more reader call, within budget.extractionCalls. A complete repair that gains nothing still costs that call.
+- **The sink order.** A held attempt's sink row is emitted when it is settled, so extract rows no longer arrive in ordinal order; for example, ordinal 3 arrives before ordinal 1. Each row keeps its own ordinal. DIAGNOSTICS_MANIFEST_VERSION rightly stays 2: no field or disposition changes.
+(5) **Owner question 3, restated (0726 decision (3)).** Should a first attempt that drops every quote of a question it marked evidence_found be repaired when the budget allows, rather than kept with the question downgraded? The proposed default is still yes, as implemented. In every other case owner question 3's default stands: a downgrade costs no repair.
+
+That default leaves (i) and (ii) in (2) as known regressions against 5401d0f. The owner chooses between accepting them and widening the hold. This PR does not widen `lost`, for two reasons: it would change the hashed policy value `allQuotesOfAFoundQuestionDropped` and the pin, and it is the owner's decision. The orchestrator tells S-e1 the outcome, because #75 and E1-T2 expect it.
+(6) **The merge and the protocol.**
+- **The merge.** 961aea5 merges #69's head 848524e, which brings rules A and B and the entry BL-20261110-0848. The build log keeps 7a.1's committed entries byte for byte and appends 0848 after 0726, in ID order.
+- **The hash.** `researchProtocolSha256()` moves from 396a15f3aca0c7b758fe4b052ee744911f0a5943dd805d518a70d9b6799ac2aa (bd876d9) to 05f342b25f3483574cca4f1bad53468219e63e94578927c069a8c831289e93a8, re-pinned in tests/helpers/research-protocol-pin.ts with a history line. #69's own protocol is now 9066d7de5d1c52e1cb0616a4b68ea157638749810ac5fabbd8863db6a288c6d3.
+- **What does not move the hash.** The fix in (1) changes no hashed value. RESEARCH_TOLERANCE_POLICY's version (1) and DIAGNOSTICS_MANIFEST_VERSION (2) are unchanged.
+- **The consequences.** They are 0552's, now for the new value. Every earlier serving card's P10 structured-output evidence is invalidated (`serving_card_p10_protocol_drift`), and none exists. Earlier seeds are refused and paused sessions drift; none exists. No loop may span the change.
+- **Request digests.** The four request digests the pipeline test inherits from #69 do not carry the hash, and they are unchanged.
+(7) **Wordings corrected in 0712 and 0726, and in the pull request body.**
+- **The research-suite line.** It names a "local-screen" suite, but no test file matches that name. A bare "research" filter also selects private-agent-public-research.test.ts, so the names as written select 16 files and 238 tests at bd876d9, by the review's count. The counts in 0712 (15 files, 216 tests) and 0726 (15 files, 217 tests) came from the path filter given under Evidence.
+- **0726 decision (6).** It cites the headings test's claims.ts pins at lines 99 to 104. They are at lines 102 to 106.
+(8) **The review's optional cases ride this push.** 53d3a5c adds the review's four mutant-killing cases at the corner test:
+- a first-pass denial while chunk 0 is held, and the same with the signal aborted during call 0;
+- a denial on the held chunk's repair call;
+- the no-budget case with a sink, which has exactly one extract row, ordinal 1, accepted with drops;
+- a quote dropped from a question marked no_verified_evidence, which is never held.
+
+It also corrects two stale comments in the diagnostics test, at its lines 186 and 218. Both said 7a.1 keeps the second chunk; that chunk is now held and repaired.
+
+Changes: The merge commit 961aea5 and the commit 53d3a5c on `feat/7a.1-research-tolerance`:
+- **961aea5:** the merge of 848524e, the build-log resolution and the pin.
+- **src/main/private-agent/research-pipeline.ts:** the guard in (1) and its comment.
+- **tests/unit/private-agent-research-pipeline.test.ts:**
+  - one test for (1), with its two variants;
+  - one test for the four cases in (8);
+  - the two comments.
+
+Evidence: The checks ran locally at 53d3a5c.
+- **The pipeline test.** `pnpm exec vitest run tests/unit/private-agent-research-pipeline.test.ts` passes 47 tests: the 45 at bd876d9 and 2 new. With the guard reverted, the new test for (1) fails and the other 46 pass.
+- **Mutations.** Nine single-edit mutants of the held-attempt code were run against the pipeline test:
+  - each of the two denial exits keeping the held attempt, or leaving it unsettled (four mutants);
+  - `lost` ignoring the status;
+  - a kept held attempt retained without its disposition, or twice;
+  - a rejected held attempt not counted;
+  - the unfixed guard.
+
+  Six survived the 45 tests at bd876d9: the four denial mutants, the status check and the unfixed guard. All nine fail a test now.
+- **Research suites.** `pnpm exec vitest run tests/unit/private-agent-research tests/unit/role-schema-export.test.ts tests/unit/serving-probe-helpers.test.ts tests/unit/planner-fixture.test.ts tests/unit/assess-probe-replies.test.ts` passes 15 files and 225 tests: 0726's 217, the merge's 6 admission tests and the 2 above. The names as 0712 and 0726 wrote them (`pnpm exec vitest run research role-schema-export serving-probe-helpers planner-fixture assess-probe-replies local-screen`) select 16 files and 247 tests here.
+- **Full suite.** `pnpm exec vitest run` reports 166 files passed, 1 failed and 13 skipped, and 2,733 tests passed, 1 failed and 84 skipped. The failure is with-claude-key.test.ts's shell-script test, which is outside this change, ran at a load average near 13 and passes alone (3 tests).
+- **Other checks.** `pnpm typecheck` and `pnpm validate:readiness` pass. So does `pnpm --silent validate:build-log -- --base-ref origin/main` with this entry appended.
+- **The hash.** `researchProtocolSha256()` at 53d3a5c returns 05f342b25f3483574cca4f1bad53468219e63e94578927c069a8c831289e93a8, the pinned value.
+
+Failures or blockers: These are negative results against 0726, found by review before any run:
+- the regression in (1);
+- the false comparison in (2);
+- the incomplete exception in (3).
+
+None ran live.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint. Every limitation of 0447, 0552 and 0726 stands, as corrected here.
+- **Less evidence than at 5401d0f.** Classes (i) to (iii) in (2) still end with less evidence than at 5401d0f, and (i) and (ii) wait on the owner.
+- **The rest of 0726 stands.** Its limitations "The held attempt's other quotes" and "Quote ids" still hold.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's checks of this push (the fix and its test, the appended entries, and that the hash reproduces), CI green on #76, then merge train 1.
+
+#69 and #76 must reach main in one push, or #76 alone, which contains #69. #76's log is not append-only against #69's head: 7a.1's entries 0447 and 0552 sit before #69's 0625 in ID order.
+
+References: BL-20261110-0726-correction-research-tolerance-total-loss and BL-20261110-0712-correction-research-tolerance-repin (corrected); BL-20261109-0447-research-tolerance-design and BL-20261109-0552-research-tolerance-implemented; BL-20261110-0848-correction-research-length-parser-chains (merged); the orchestrator's delta review of PR #76 at bd876d9, which is review data and not committed.

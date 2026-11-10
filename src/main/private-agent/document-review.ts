@@ -52,6 +52,7 @@ FLAG_FIGURES_MAX = 50
 FLAG_LABEL_CHECKS = 200000
 FLAG_COMPARISONS_MAX = 50
 FLAG_TERMS_MAX = 64
+FLAG_TERM_CHARS = 200
 FLAG_WINDOW_CHARS = 2000
 FLAG_PARAGRAPH_CHARS = 20000
 FLAG_TOTAL_CHARS = 2000000
@@ -298,14 +299,24 @@ def flag_table_vs_prose(units, texts, rows, read):
 
 
 def flag_party_pattern(texts, read):
-    terms = set(FLAG_ROLES)
+    roles, kept, room, worst = set(FLAG_ROLES), set(), FLAG_TERMS_MAX - len(FLAG_ROLES), None
     for text in texts:
         for match in FLAG_DEFINED.finditer(text.translate(FLAG_STRAIGHT)):
-            terms.add(match.group("term"))
-    ordered = sorted(terms, key=lambda term: (-len(term), term))
-    if len(ordered) > FLAG_TERMS_MAX:
-        read["termsCapped"] = True
-        ordered = sorted(set(FLAG_ROLES) | set(sorted(terms - set(FLAG_ROLES))[:FLAG_TERMS_MAX - len(FLAG_ROLES)]), key=lambda term: (-len(term), term))
+            if match.end("term") - match.start("term") > FLAG_TERM_CHARS:
+                read["termsCapped"] = True
+                continue
+            term = match.group("term")
+            if term in roles or term in kept:
+                continue
+            if len(kept) == room:
+                read["termsCapped"] = True
+                if term > worst:
+                    continue
+                kept.discard(worst)
+            kept.add(term)
+            if len(kept) == room:
+                worst = max(kept)
+    ordered = sorted(roles | kept, key=lambda term: (-len(term), term))
     return ordered, re.compile(r"(?<!\w)(?:" + "|".join(re.escape(term) for term in ordered) + r")(?!\w)")
 
 

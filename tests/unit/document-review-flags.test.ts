@@ -278,6 +278,19 @@ describe("backlog item 7(d): the applier's host flags, rules v1 (BL-20261109-035
       expect(swap(48).read.termsCapped).toBe(false);
       expect(swap(49).read.termsCapped).toBe(true);
     });
+    // The #81 review: the party terms are read from the unclipped source, so their length and number are capped too, and the role words stay.
+    const roleSwap = (definitions: string) => c1("The Buyer shall pay the Seller.", "Buyer shall pay the Seller", "Seller shall pay the Buyer", "replace", [definitions]);
+    it("reads no defined term of more than 200 characters, says the terms were capped, and still flags a role-word swap beside a 1,000,000-letter term", () => {
+      const giant = roleSwap(`(the "A${"a".repeat(999_999)}")`);
+      expect(giant.edits.flags).toEqual([{ id: "E1", codes: ["parties_swapped"] }]); expect(giant.read.termsCapped).toBe(true);
+      expect(roleSwap(`(the "A${"a".repeat(199)}")`).read.termsCapped).toBe(false);
+      expect(roleSwap(`(the "A${"a".repeat(200)}")`).read.termsCapped).toBe(true);
+    }, 120_000);
+    it("keeps 64 party terms among 100,000 distinct defined ones, says so, and still flags a role-word swap", () => {
+      const name = (i: number) => Array.from({ length: 4 }, (_, k) => String.fromCharCode(97 + Math.floor(i / 26 ** k) % 26)).join("");
+      const many = roleSwap(Array.from({ length: 100_000 }, (_, i) => `(the "Party${name(i)}")`).join(" "));
+      expect(many.edits.flags).toEqual([{ id: "E1", codes: ["parties_swapped"] }]); expect(many.read.termsCapped).toBe(true);
+    }, 120_000);
     it("compares only the sentences the edit overlaps, clipped to 2,000 characters either side", () => {
       expect(c1("Fees exclude duties. Fees include all taxes.", "include", "exclude").edits.flags).toEqual([{ id: "E1", codes: ["polarity_swapped"] }]);
       // An anchor that starts with the space after a sentence does not pull that sentence in.
@@ -735,6 +748,13 @@ print(json.dumps(out))`;
         ["a value with a word unit", record => { record.numeric.flags[0]!.source.prose = ["75 dollars"]; return record; }],
         ["a value with a trailing zero", record => { record.numeric.flags[0]!.source.prose = ["50.0 USD"]; return record; }],
         ["a 16-digit amount", record => { record.numeric.flags[0]!.source.prose = ["1234567890123456 USD"]; return record; }],
+        ["a value with text after its unit", record => { record.numeric.flags[0]!.source.prose = ["50 USD any words"]; return record; }],
+        ["a value with a trailing newline", record => { record.numeric.flags[0]!.source.prose = ["50 USD\n"]; return record; }],
+        ["a value with a leading zero", record => { record.numeric.flags[0]!.source.prose = ["007 USD"]; return record; }],
+        ["a rule's error that is not a name", record => ({ ...record, numeric: { flags: [], truncated: false, error: "Key Error" } })],
+        ["a rule's error of 65 characters", record => ({ ...record, numeric: { flags: [], truncated: false, error: "A".repeat(65) } })],
+        ["a step's error that is not a name", () => ({ ...failed(), error: "Value Error" })],
+        ["a step's error of 65 characters", () => ({ ...failed(), error: "A".repeat(65) })],
         ["41 entries", record => ({ ...record, numeric: { flags: Array.from({ length: 41 }, () => numericFlag), truncated: false } })],
         ["41 entries said to be truncated", record => ({ ...record, numeric: { flags: Array.from({ length: 41 }, () => numericFlag), truncated: true } })],
         ["an unknown code", record => { record.edits.flags[0]!.codes = ["negation_flipped", "scope_changed"]; return record; }],

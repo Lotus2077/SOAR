@@ -78,9 +78,11 @@ describe("document review (PR-I)", { timeout: 60_000 }, () => {
     expect(documentReviewInstructions("input/Smith & Co's MSA.docx")).toContain(`--list 'input/Smith & Co'\\''s MSA.docx'`);
   });
   it("keeps the whole check command well under the sandbox's command cap, even for the longest source path", () => {
-    const longest = `input/${"x".repeat(195)}.docx`;
-    const bytes = Buffer.byteLength(checkCommand(documentReviewCheck({ sourcePath: longest, sourceSha256: "a".repeat(64) })));
-    expect(bytes).toBeLessThan(PRIVATE_SANDBOX_LIMITS.commandBytes - 24 * 1024);
+    // The longest ASCII name, and the most bytes a path may hold (240, here with two-byte letters).
+    for (const longest of [`input/${"x".repeat(195)}.docx`, `input/${"x".repeat(171)}${"\u00e9".repeat(29)}.docx`]) {
+      const bytes = Buffer.byteLength(checkCommand(documentReviewCheck({ sourcePath: longest, sourceSha256: "a".repeat(64) })));
+      expect(bytes, longest).toBeLessThan(PRIVATE_SANDBOX_LIMITS.commandBytes - 24 * 1024);
+    }
   });
   // Backlog item 7(d) (BL-20261109-0354): the flags file is an output like the others.
   it("requires, compares and has the applier write exactly the outputs the artifact list names", () => {

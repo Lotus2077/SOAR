@@ -72,7 +72,8 @@ describe("backlog item 4: the headless driver's diagnostics file sink", () => {
     const config = { destinationId: "owned", model: "Synthetic", maxOutputTokens: 16384, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium" as const };
     const make = () => new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, config, "job", "reader");
     const outcome = await runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), models: { reader: make(), planner: make(), synthesiser: make() }, signal: new AbortController().signal, record() {}, diagnostics: sink });
-    expect(outcome).toMatchObject({ status: "incomplete", reason: "research_plan_invalid" });
+    // 7c: two rejected plans now fall back to the host plan and the run goes on; the rejected replies still land as files.
+    expect(outcome).toMatchObject({ status: "completed", reason: "research_packet_ready" }); expect(outcome.summary.stages[1]).toMatchObject({ fallback: "host_plan", calls: 2 });
     const saved = manifest(sink.directory);
     expect(saved.entries.map(row => [row.stage, row.ordinal, row.purpose, row.reasons])).toEqual([["plan", 1, "research plan", [{ code: "invalid_json", path: [] }]], ["plan", 2, "research plan", [{ code: "invalid_json", path: [] }]]]);
     expect(new Set(saved.entries.map(row => row.replyContentSha256)).size).toBe(2);  // two different rejected replies (the repair request differs), two files

@@ -17,7 +17,7 @@ import type { SessionFile } from "./session";
  * ran the same task under the same frozen pipeline protocol as the current code (the H5 freeze rule applied to a seed).
  */
 const manifestSchema = z.array(z.object({ path: z.string().min(1).max(240), sha256: sha256Schema }).strict()).length(7)
-  .refine(files => canonical(files.map(file => file.path).sort()) === canonical(Object.values(RESEARCH_FILES).sort()), "exact v4 packet required");
+  .refine(files => canonical(files.map(file => file.path).sort()) === canonical(Object.values(RESEARCH_FILES).sort()), "exact v5 packet required");
 export const ResearchSeedSchema = z.object({
   version: z.literal(2),
   sourceJobId: z.string().regex(/^[A-Za-z0-9_-]{1,100}$/u),
@@ -125,7 +125,7 @@ export function loadResearchSeed(runDirectory: string, expected: { jobSha256: st
 
 /**
  * The transfer's fingerprint, or null beside the loader's snake_case refusal code (backlog item 4, finding B6): a complete
- * v4 seed, input, packet and actual receipts must validate read-only. An exception that is not a code (a Zod or SQLite
+ * v5 seed, input, packet and actual receipts must validate read-only. An exception that is not a code (a Zod or SQLite
  * message, a missing directory) maps to `research_seed_load_failed`; a symlinked or escaping run directory still throws.
  */
 export function researchTransferStatus(runDirectory: string): { snapshotSha256: string | null; code: string | null } {
@@ -138,7 +138,7 @@ export function researchTransferStatus(runDirectory: string): { snapshotSha256: 
     return { snapshotSha256: null, code: error instanceof Error && /^[a-z0-9_]{1,80}$/u.test(error.message) ? error.message : "research_seed_load_failed" };
   }
 }
-/** A fingerprint is offered only when the complete v4 seed, input, packet and actual receipts validate read-only. */
+/** A fingerprint is offered only when the complete v5 seed, input, packet and actual receipts validate read-only. */
 export function researchTransferSnapshot(runDirectory: string): string | null { return researchTransferStatus(runDirectory).snapshotSha256; }
 /** Whether a run's ledger holds a research transfer the loop can seed from (the stage completed). */
 export function researchTransferPresent(runDirectory: string): boolean { return researchTransferSnapshot(runDirectory) !== null; }

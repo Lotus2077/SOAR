@@ -128,6 +128,15 @@ outcome, absent capability verdict, measurements and old-local-judge entailments
 are preserved. Exclude superseded rows from totals: a superseding row repeats the
 original's `usd` and counts, so a naive sum counts them twice (review finding E11).
 
+Research pipeline v5 (backlog item 7(c)) no longer ends a run on a rejected plan or
+synthesis. A run whose plan or synthesis attempts were all rejected goes on with
+the host fallback plan or the host skeleton argument, which state no finding, and
+can submit. Until item 11 adds registry columns for it, the fallback is disclosed
+only in the packet: `coverage.json` (`fallbacks`), the research stage rows
+(`fallback`) and the skeleton's first sentence. Read those before crediting a v5
+research row. v4 rows that ended `research_plan_invalid` or
+`research_synthesis_invalid` keep that terminal cause.
+
 ## Owner verdict rows (desktop jobs)
 
 A desktop task has no run directory: its record and events live in the app's

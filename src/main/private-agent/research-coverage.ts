@@ -2,7 +2,8 @@ import { z } from "zod";
 import { canonical, digest, sha256Schema } from "./contracts";
 import { ResearchPlanSchema, validatePlanCoverage, validateResearchPlanAttempts, type ResearchPlan } from "./research-plan";
 export { ResearchPlanSchema, validatePlanCoverage, type ResearchPlan } from "./research-plan";
-import { RESEARCH_COVERAGE_POLICY, RESEARCH_FILES, RESEARCH_PIPELINE_VERSION, type ResearchBudget, type ResearchSourceIdentity } from "./research-contract";
+import { RESEARCH_COVERAGE_POLICY, RESEARCH_FILES, RESEARCH_PIPELINE_VERSION, RESEARCH_SLOT_POLICY, type ResearchBudget, type ResearchSourceIdentity } from "./research-contract";
+import { hostFallbackPlan, hostSkeletonSynthesis } from "./research-fallback";
 
 const id = z.string().min(1).max(2048), qid = z.string().regex(/^Q[0-9]{1,2}$/u), uid = z.string().regex(/^U[0-9]{1,4}$/u), eid = z.string().regex(/^E[0-9]{1,4}$/u);
 const integer = z.number().int().nonnegative();
@@ -16,7 +17,8 @@ export const BriefUnitSchema = z.object({ id: uid, startByte: integer, endByte: 
 export type BriefUnit = z.infer<typeof BriefUnitSchema>;
 const questionOutcome = z.object({ questionId: qid, status: z.enum(["evidence_retained", "no_verified_evidence", "needs_followup"]), evidenceIds: z.array(eid).max(480) }).strict();
 const synthesisQuestion = z.object({ questionId: qid, disposition: z.enum(["findings", "conflict", "unresolved"]), evidenceIds: z.array(eid).max(480) }).strict();
-export const ResearchCoverageSchema = z.object({ version: z.literal(1), protocolSha256: sha256Schema, briefSha256: sha256Schema, briefBytes: integer,
+/** Version 2 since 7(c) (BL-20261110-0717-research-v5-design): `fallbacks` discloses a host plan or a host skeleton, and the synthesis status may be `skeleton`. */
+export const ResearchCoverageSchema = z.object({ version: z.literal(2), protocolSha256: sha256Schema, briefSha256: sha256Schema, briefBytes: integer,
   sourceManifestSha256: sha256Schema, units: z.array(BriefUnitSchema).min(1).max(128),
   sources: z.array(sourceIdentity.extend({ readable: z.boolean() }).strict()).min(1).max(4096),
   chunks: z.array(z.object({ id: z.string().min(1).max(80), sourceId: id, sourceSha256: sha256Schema, startByte: integer, endByte: integer, sha256: sha256Schema,
@@ -26,10 +28,36 @@ export const ResearchCoverageSchema = z.object({ version: z.literal(1), protocol
   omissions: z.array(z.object({ sourceId: id, questionIds: z.array(qid).min(1).max(12), quoteSha256: sha256Schema, reason: z.literal("packet_cap") }).strict()).max(480),
   conflictOmissions: z.array(z.object({ sourceId: id, questionIds: z.array(qid).min(1).max(12), noteSha256: sha256Schema, reason: z.literal("conflict_cap") }).strict()).max(160),
   unresolved: z.array(z.string().min(1).max(80)).max(4096),
-  synthesis: z.object({ status: z.enum(["pending", "complete", "invalid"]), argumentSha256: sha256Schema.optional(), questions: z.array(synthesisQuestion).max(12) }).strict(),
+  synthesis: z.object({ status: z.enum(["pending", "complete", "invalid", "skeleton"]), argumentSha256: sha256Schema.optional(), questions: z.array(synthesisQuestion).max(12) }).strict(),
+  fallbacks: z.object({ plan: z.enum(["none", "host_plan"]), synthesis: z.enum(["none", "skeleton"]) }).strict(),
   status: z.enum(["ready", "incomplete"]), semanticAcceptance: z.literal("not_evaluated"), corpusAbsenceEstablished: z.literal(false) }).strict();
 export type ResearchCoverage = z.infer<typeof ResearchCoverageSchema>;
 export const ResearchSynthesisSchema = z.object({ version: z.literal(1), argument: z.string().min(1).max(128 * 1024), questions: z.array(synthesisQuestion).min(1).max(12) }).strict();
+/**
+ * 7(c): one synthesis attempt as the synthesis stage row records it, hash-only. `slot` marks the assist and its one retry after a
+ * truncated assist reply (absent: the stage model). Ordinals run over every attempt.
+ */
+export const ResearchSynthesisAttemptSchema = z.object({ ordinal: z.number().int().min(1).max(4), slot: z.enum(["assist", "assist_retry"]).optional(),
+  replyContentSha256: sha256Schema, replyBytes: integer, truncated: z.boolean(), accepted: z.boolean() }).strict();
+export type ResearchSynthesisAttempt = z.infer<typeof ResearchSynthesisAttemptSchema>;
+/** 7(c): the synthesis attempts' order, counts and acceptance; a marked skeleton has no accepted attempt. */
+function validateSynthesisAttempts(stage: { calls: number; invalidReplies: number; truncatedReplies?: number; synthesisAttempts?: unknown; fallback?: unknown }, synthesisCalls: number): void {
+  const reject = (): never => fail("synthesis_attempts");
+  const parsed = z.array(ResearchSynthesisAttemptSchema).min(1).max(synthesisCalls + RESEARCH_SLOT_POLICY.synthesis.assist + RESEARCH_SLOT_POLICY.synthesis.assistRetryOnTruncation).safeParse(stage.synthesisAttempts);
+  if (!parsed.success) return reject();
+  const attempts = parsed.data, skeleton = stage.fallback === "skeleton";
+  if (stage.fallback !== undefined && !skeleton) reject();
+  if (attempts.length !== stage.calls || stage.invalidReplies !== attempts.filter(a => !a.accepted).length || (stage.truncatedReplies ?? 0) !== attempts.filter(a => a.truncated).length) reject();
+  const slots = attempts.map(a => a.slot ?? "stage"), first = slots.indexOf("assist"), stageAttempts = slots.filter(slot => slot === "stage").length;
+  if (stageAttempts > synthesisCalls || slots.filter(slot => slot === "assist").length > 1 || slots.filter(slot => slot === "assist_retry").length > 1) reject();
+  // The retry follows a truncated assist reply directly; the assist block (the assist and its retry) sits first or after every stage attempt.
+  if (slots.includes("assist_retry") && (first < 0 || slots[first + 1] !== "assist_retry" || !attempts[first]!.truncated)) reject();
+  // A skeleton follows only after every stage attempt was spent: a fallback taken earlier is no schedule the pipeline runs.
+  if (skeleton && stageAttempts !== synthesisCalls) reject();
+  const blockEnd = first < 0 ? -1 : first + (slots[first + 1] === "assist_retry" ? 1 : 0);
+  if (first > 0 && (stageAttempts !== synthesisCalls || blockEnd !== attempts.length - 1 || slots.slice(0, first).some(slot => slot !== "stage"))) reject();
+  for (const [i, attempt] of attempts.entries()) if (attempt.ordinal !== i + 1 || attempt.accepted !== (!skeleton && i === attempts.length - 1) || (attempt.accepted && attempt.truncated)) reject();
+}
 export type ResearchPacketFile = { path: string; bytes: Buffer };
 export interface ResearchPacketExpectation { brief?: string; sources?: readonly { id: string; path: string; bytes: Buffer }[]; sourceManifest?: readonly ResearchSourceIdentity[]; protocolSha256?: string; budget?: ResearchBudget }
 
@@ -126,15 +154,28 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   const parse = (path: string): unknown => { try { return JSON.parse(read(path)); } catch { return fail("json"); } };
   const coverage = ResearchCoverageSchema.parse(parse(RESEARCH_FILES.coverage)), plan = ResearchPlanSchema.parse(parse(RESEARCH_FILES.plan)), evidence = ResearchEvidenceSchema.parse(parse(RESEARCH_FILES.evidence));
   const summary = summarySchema.parse(parse(RESEARCH_FILES.summary));
-  if (coverage.status !== "ready" || coverage.unresolved.length || coverage.omissions.length || coverage.conflictOmissions.length || coverage.sources.some(s => !s.readable) || coverage.chunks.some(c => c.status !== "complete" || !c.attempts.length || c.attempts.at(-1)?.status !== "complete") || coverage.synthesis.status !== "complete") fail("not_ready");
+  if (coverage.status !== "ready" || coverage.unresolved.length || coverage.omissions.length || coverage.conflictOmissions.length || coverage.sources.some(s => !s.readable) || coverage.chunks.some(c => c.status !== "complete" || !c.attempts.length || c.attempts.at(-1)?.status !== "complete") ||
+    coverage.synthesis.status !== (coverage.fallbacks.synthesis === "skeleton" ? "skeleton" : "complete")) fail("not_ready");
   if (coverage.protocolSha256 !== summary.protocolSha256 || (expected.protocolSha256 && expected.protocolSha256 !== summary.protocolSha256) || (expected.budget && canonical(expected.budget) !== canonical(summary.budget))) fail("protocol");
-  const stageLimits = { index: summary.budget.indexCalls, plan: summary.budget.plannerCalls, extract: summary.budget.extractionCalls, synthesise: summary.budget.synthesisCalls };
-  if (summary.stages.some(s => s.invalidReplies > s.calls || (s.truncatedReplies ?? 0) > s.calls) || summary.stages.filter(s => s.stage === "plan" || s.stage === "synthesise").some(s => s.invalidReplies >= s.calls || (s.truncatedReplies ?? 0) > s.invalidReplies)) fail("stage_success_contradiction");
+  // 7(c): the plan and synthesis ceilings are the budget plus the assist slots; a settled assist reply is one of its stage's calls.
+  const stageLimits = { index: summary.budget.indexCalls, plan: summary.budget.plannerCalls + RESEARCH_SLOT_POLICY.plan.assist, extract: summary.budget.extractionCalls,
+    synthesise: summary.budget.synthesisCalls + RESEARCH_SLOT_POLICY.synthesis.assist + RESEARCH_SLOT_POLICY.synthesis.assistRetryOnTruncation };
+  // A marked fallback is the one stage outcome with no accepted reply: its rejected replies then equal its calls.
+  const fallbackOf = (stage: { stage: string; fallback?: unknown }) => stage.stage === "plan" ? stage.fallback === "host_plan" : stage.stage === "synthesise" ? stage.fallback === "skeleton" : false;
+  if (summary.stages.some(s => s.invalidReplies > s.calls || (s.truncatedReplies ?? 0) > s.calls) || summary.stages.filter(s => s.stage === "plan" || s.stage === "synthesise")
+    .some(s => (fallbackOf(s) ? s.invalidReplies !== s.calls : s.invalidReplies >= s.calls) || (s.truncatedReplies ?? 0) > s.invalidReplies)) fail("stage_success_contradiction");
   if (canonical(summary.stages.map(s => s.stage)) !== canonical(["index", "plan", "extract", "synthesise"]) || summary.stages.some(s => s.calls < 1 || s.calls > stageLimits[s.stage] || s.denied)) fail("stage_counts");
+  // 7(c): attempt records and fallback markers belong to their own stage's row only.
+  const stageKeys: Record<string, readonly string[]> = { index: [], plan: ["planAttempts", "fallback"], extract: [], synthesise: ["synthesisAttempts", "fallback"] };
+  if (summary.stages.some(s => ["planAttempts", "synthesisAttempts", "fallback"].some(key => key in s && !stageKeys[s.stage]!.includes(key)))) fail("stage_keys");
   const brief = coverage.units.map(u => u.text).join("");
   if (digest(Buffer.from(brief)) !== coverage.briefSha256 || Buffer.byteLength(brief) !== coverage.briefBytes || canonical(deriveBriefUnits(brief)) !== canonical(coverage.units) || (expected.brief !== undefined && expected.brief !== brief)) fail("brief");
   validatePlanCoverage(plan, coverage.units, coverage.sources);
-  validateResearchPlanAttempts(summary.stages[1]!, plan, coverage.units);
+  validateResearchPlanAttempts(summary.stages[1]!, plan, coverage.units, { plannerCalls: summary.budget.plannerCalls });
+  validateSynthesisAttempts(summary.stages[3]!, summary.budget.synthesisCalls);
+  // 7(c): a marked fallback must be the host's own recomputation, byte for byte, and only a marked stage may carry one.
+  if ((coverage.fallbacks.plan === "host_plan") !== fallbackOf(summary.stages[1]!) || (coverage.fallbacks.synthesis === "skeleton") !== fallbackOf(summary.stages[3]!)) fail("fallback_marker");
+  if (coverage.fallbacks.plan === "host_plan" && canonical(plan) !== canonical(hostFallbackPlan(coverage.units))) fail("fallback_plan");
   const sourceManifest = coverage.sources.map(({ readable: _readable, ...s }) => s);
   if (!unique(sourceManifest.map(s => s.id)) || sourceManifestIdentity(sourceManifest) !== coverage.sourceManifestSha256 || (expected.sourceManifest && sourceManifestIdentity(expected.sourceManifest) !== coverage.sourceManifestSha256)) fail("sources");
   if (expected.sources) {
@@ -182,6 +223,10 @@ export function validateReadyResearchPacket(files: readonly ResearchPacketFile[]
   const synth = coverage.synthesis.questions;
   if (!unique(synth.map(q => q.questionId)) || canonical(synth.map(q => q.questionId).sort()) !== canonical([...questions].sort()) || synth.some(q => !unique(q.evidenceIds) || q.evidenceIds.some(e => !evidence.quotes.some(quote => quote.id === e && quote.questionIds.includes(q.questionId))) || (q.disposition !== "unresolved" && !q.evidenceIds.length))) fail("synthesis_coverage");
   if (!/^## Conflicting evidence\s*$/mu.test(read(RESEARCH_FILES.argument)) || !/^## Unanswered questions\s*$/mu.test(read(RESEARCH_FILES.argument))) fail("argument_sections");
+  if (coverage.fallbacks.synthesis === "skeleton") {
+    const skeleton = hostSkeletonSynthesis(plan, evidence);
+    if (read(RESEARCH_FILES.argument) !== skeleton.argument || canonical(synth) !== canonical(skeleton.questions)) fail("fallback_skeleton");
+  }
   if (coverage.synthesis.argumentSha256 !== digest(byPath.get(RESEARCH_FILES.argument)!) || !read(RESEARCH_FILES.argument).trim()) fail("argument");
   for (const citation of read(RESEARCH_FILES.argument).matchAll(/\bE[0-9]{1,4}\b/gu)) if (!evidenceIds.has(citation[0])) fail("citation");
   const index = parse(RESEARCH_FILES.index) as { sources?: { sourceId?: string; sourceSha256?: string }[] };

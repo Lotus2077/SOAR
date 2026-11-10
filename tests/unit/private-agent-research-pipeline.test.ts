@@ -1,11 +1,15 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it, vi } from "vitest";
 import { BrokerError, type PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { EXTRACT_SYSTEM, RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, SYNTHESIS_SYSTEM, normalizeQuoteText, locateQuote, parseJsonReply, researchExtractionUserContent, researchProtocolSha256, researchSourceText, runResearchPipeline, stripUnknownCitations, type ResearchDiagnostic, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
 import { planResearchIndexBatches, researchWordCount } from "../../src/main/private-agent/research-admission";
-import { inventoryResearchSources, validateReadyResearchPacket } from "../../src/main/private-agent/research-coverage";
-import { ResearchPlanAttemptSchema } from "../../src/main/private-agent/research-plan";
+import { RESEARCH_FALLBACK_POLICY, hostFallbackPlan, hostSkeletonSynthesis } from "../../src/main/private-agent/research-fallback";
+import type { ResearchAssistFiring, ResearchAssistOutcome, ResearchAssistPlanRequest, ResearchAssistSynthesisRequest, ResearchAssists } from "../../src/main/private-agent/research-assist-contract";
+import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
+import { ResearchSynthesisAttemptSchema, inventoryResearchSources, validateReadyResearchPacket } from "../../src/main/private-agent/research-coverage";
+import { ResearchPlanAttemptSchema, ResearchPlanSchema } from "../../src/main/private-agent/research-plan";
 import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
 import { assertResearchUserLayout, parseResearchUserContent, researchV4Reply, researchV4Sources, RESEARCH_V4_TEST_BRIEF } from "../helpers/research-v4-fixture";
 
@@ -43,11 +47,15 @@ const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "deni
   // 7b.1 (BL-20261109-0334): the synthesis length cap, recorded and never enforced; all counts.
   "lengthCapWords", "briefWordLimit", "argumentWords",
   // 7a.1 (BL-20261109-0447): what a kept extraction reply lost or had corrected, and the accepted argument's rewritten headings; all counts.
-  "conflictsDropped", "notesDropped", "questionsDowngraded", "questionsUpgraded", "headingsNormalised", "quotesMerged"]);
+  "conflictsDropped", "notesDropped", "questionsDowngraded", "questionsUpgraded", "headingsNormalised", "quotesMerged",
+  // 7(c) (BL-20261110-0717): a stage's host fallback (a fixed code) and the synthesis attempts (schema-validated records).
+  "fallback", "synthesisAttempts"]);
 const hashOnlyStageRow = (stage: ResearchStageCounts) => {
   for (const [key, value] of Object.entries(stage)) {
     expect(DOCUMENTED_STAGE_KEYS.has(key)).toBe(true);
     if (key === "stage" || key === "denied") expect(value).toMatch(/^[a-z_]+$/u);
+    else if (key === "fallback") expect(value).toBe(stage.stage === "plan" ? "host_plan" : "skeleton");
+    else if (key === "synthesisAttempts") for (const attempt of value as unknown[]) expect(() => ResearchSynthesisAttemptSchema.parse(attempt)).not.toThrow();
     else if (key === "usage") expect(Object.values(value as object).every(n => typeof n === "number")).toBe(true);
     else if (key === "planAttempts") for (const attempt of value as unknown[]) expect(() => ResearchPlanAttemptSchema.parse(attempt)).not.toThrow();
     else expect(typeof value).toBe("number");
@@ -82,7 +90,7 @@ describe("research v4 actual serialized stages", () => {
     expect(m.calls.map(c => c.body.max_tokens)).toEqual([1536, 8192, 2048, 2048, 8192]);
     expect(m.calls.filter(c => c.stage === "extract").every(c => c.input.brief === RESEARCH_V4_TEST_BRIEF && c.input.plan.questions.length === 1 && c.input.units.length === 1)).toBe(true);
     expect(m.calls[0]!.body.chat_template_kwargs.enable_thinking).toBe(false); expect(m.calls[1]!.body.reasoning_effort).toBe("medium");
-    expect(JSON.stringify(events)).not.toContain("orchard"); expect(packet.summary.version).toBe(4);
+    expect(JSON.stringify(events)).not.toContain("orchard"); expect(packet.summary.version).toBe(5); expect(packet.coverage.fallbacks).toEqual({ plan: "none", synthesis: "none" });
   });
   it("preflights mandatory count and readability before ANY research dispatch", async () => {
     const m = models(); expect(await run(m, { budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 1 } })).toMatchObject({ status: "incomplete", reason: "research_mandatory_budget_exceeded" }); expect(m.request).not.toHaveBeenCalled();
@@ -140,14 +148,21 @@ describe("research v4 actual serialized stages", () => {
     const m = models((stage, input, n, system) => ({ content: happy(stage, input, n, system), truncated: (stage === "extract" || stage === "synthesise") && n === 0 }));
     const result = await run(m); expect(result.status).toBe("completed"); expect(result.summary.stages[2]).toMatchObject({ calls: 3, truncatedReplies: 1 }); expect(result.summary.stages[3]).toMatchObject({ calls: 2, truncatedReplies: 1 });
   });
-  it("retains nonempty truncated synthesis as a failure when both attempts truncate", async () => {
+  it("falls back to the host skeleton when both synthesis attempts truncate (7c), keeping neither reply's text", async () => {
     const m = models((stage, input, n, system) => ({ content: happy(stage, input, n, system), truncated: stage === "synthesise" }));
-    const result = await run(m); expect(result).toMatchObject({ reason: "research_synthesis_invalid", status: "incomplete" }); expect(result.files.some(f => f.path === RESEARCH_FILES.argument)).toBe(false);
+    const result = await run(m); expect(result).toMatchObject({ reason: "research_packet_ready", status: "completed" });
+    const argument = result.files.find(f => f.path === RESEARCH_FILES.argument)!.bytes.toString("utf8");
+    expect(argument).toBe(hostSkeletonSynthesis(parsed(result, RESEARCH_FILES.plan), parsed(result, RESEARCH_FILES.evidence)).argument);
+    expect(argument).not.toContain("bounded synthetic finding");
+    expect(result.summary.stages[3]).toMatchObject({ calls: 2, invalidReplies: 2, truncatedReplies: 2, fallback: "skeleton" });
+    expect(parsed(result, RESEARCH_FILES.coverage)).toMatchObject({ fallbacks: { plan: "none", synthesis: "skeleton" }, synthesis: { status: "skeleton" } });
   });
-  it("rejects unknown citations and missing required sections without stripping an unsupported claim", async () => {
+  it("rejects unknown citations and missing required sections without stripping an unsupported claim, then falls back to the skeleton (7c)", async () => {
     for (const defect of ["citation", "section"]) {
       const m = models((stage, input, n, system) => { const reply = JSON.parse(happy(stage, input, n, system)); if (stage === "synthesise") reply.argument = defect === "citation" ? reply.argument + " Extra [E999]." : "Nonempty narrative [E1]."; return JSON.stringify(reply); });
-      expect((await run(m)).reason).toBe("research_synthesis_invalid"); expect(m.calls.filter(c => c.stage === "synthesise")).toHaveLength(2);
+      const result = await run(m); expect([defect, result.reason]).toEqual([defect, "research_packet_ready"]); expect(m.calls.filter(c => c.stage === "synthesise")).toHaveLength(2);
+      const argument = result.files.find(f => f.path === RESEARCH_FILES.argument)!.bytes.toString("utf8");
+      expect(argument).not.toContain("E999"); expect(argument).not.toContain("Nonempty narrative"); expect(result.summary.stages[3]!.fallback).toBe("skeleton");
     }
   });
   it("never calls all-zero extraction semantic success", async () => {
@@ -292,14 +307,13 @@ describe("backlog item 7(b), part 1: request shapes (BL-20261109-0334)", () => {
     expect(Object.keys(m.calls[0]!.input)).toEqual(["repair", "sources"]); expect(Object.keys(m.calls[0]!.input.sources[0])).toEqual(["bytes", "id", "previewTruncated", "text"]);
     expect(Object.keys(m.calls[1]!.input)).toEqual(["authoritativeSchema", "brief", "extractionCallBudget", "mandatorySourceChunks", "repair", "sourceIndex", "units"]);
   });
-  it("still ends a stage as a denied call when a repair payload cannot be encoded: a NUL a reply carried into the plan repair", async () => {
-    const events: ResearchStageCounts[] = [];
+  it("leaves a plan reply it cannot encode out of the repair context (7c), so the repair still runs instead of the stage ending", async () => {
     const m = models((stage, input, n, system) => stage === "plan" && n === 0 ? "{\u0000 not a plan" : happy(stage, input, n, system));
-    const result = await run(m, {}, events);
-    expect(result).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
-    expect(events.map(e => [e.stage, e.calls, e.denied])).toEqual([["index", 1, undefined], ["plan", 1, "private_agent_invalid_text"]]);
-    expect(m.calls.map(c => c.stage)).toEqual(["index", "plan"]);
-    expect(result.files.map(f => f.path).sort()).toEqual([RESEARCH_FILES.coverage, RESEARCH_FILES.index, RESEARCH_FILES.summary].sort());
+    const result = await run(m); expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(m.calls.filter(c => c.stage === "plan")).toHaveLength(2);
+    expect(m.calls.filter(c => c.stage === "plan")[1]!.input.repair.previousReply).toMatchObject({ omissionReason: "previous_reply_not_encodable" });
+    expect("content" in m.calls.filter(c => c.stage === "plan")[1]!.input.repair.previousReply).toBe(false);
+    expect(result.summary.stages[1]!.planAttempts!.map(a => [a.accepted, a.repairContext])).toEqual([[false, "omitted_unencodable"], [true, "not_used"]]);
   });
   it("batches index requests by preview size: thirty 30 KiB sources are admitted with ten requests of three (D8)", async () => {
     const corpus = sized(30, 30 * 1024, "mid");
@@ -560,7 +574,8 @@ describe("backlog item 7(a), part 1: per-quote tolerance and heading normalisati
     ];
     for (const [label, argument] of cases) {
       const m = models(withHeadings(argument)), result = await run(m);
-      expect([label, result.reason, m.calls.filter(c => c.stage === "synthesise").length]).toEqual([label, "research_synthesis_invalid", 2]);
+      // 7c: both rejected attempts now end in the host skeleton rather than an incomplete run.
+      expect([label, result.reason, m.calls.filter(c => c.stage === "synthesise").length, result.summary.stages[3]!.fallback]).toEqual([label, "research_packet_ready", 2, "skeleton"]);
     }
   });
 
@@ -616,5 +631,353 @@ describe("backlog item 7(a), part 1: per-quote tolerance and heading normalisati
     const result = await run(m, { sources: [source] }); expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
     expect(result.summary.stages[2]).toMatchObject({ quotesVerified: 1, quotesDropped: 1, quotesMerged: 1 });
     expect(parsed(result, RESEARCH_FILES.evidence).quotes[0].chunkIds).toEqual([chunks[0]!.id, chunks[1]!.id]);
+  });
+});
+
+describe("backlog item 7(c): research v5 slots, the assist hook and the host fallbacks (BL-20261110-0717)", () => {
+  const usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  const aliases = Object.freeze({ S1: "input/corpus/alpha.md", S2: "input/corpus/beta.md" });
+  type Kind = "accepted" | "rejected" | "skipped" | "failed" | "refused" | "stop";
+  const KINDS: Kind[] = ["accepted", "rejected", "skipped", "failed", "refused", "stop"];
+  const MATRIX = KINDS.flatMap(kind => (["local_first", "forced_split"] as const).map(firing => [firing, kind] as const));
+  /** A fake hook standing in for item 10's wrapper: each touchpoint answers from its script and keeps a copy of every request it received. */
+  function hook(firing: ResearchAssistFiring, plan?: (request: ResearchAssistPlanRequest, n: number) => ResearchAssistOutcome, synthesis?: (request: ResearchAssistSynthesisRequest, n: number) => ResearchAssistOutcome) {
+    const seen: { plan: ResearchAssistPlanRequest[]; synthesis: ResearchAssistSynthesisRequest[] } = { plan: [], synthesis: [] };
+    const assists: ResearchAssists = { firing,
+      ...(plan ? { plan: async (request: ResearchAssistPlanRequest) => { seen.plan.push(structuredClone(request)); return plan(request, seen.plan.length - 1); } } : {}),
+      ...(synthesis ? { synthesis: async (request: ResearchAssistSynthesisRequest) => { seen.synthesis.push(structuredClone(request)); return synthesis(request, seen.synthesis.length - 1); } } : {}) };
+    return { assists, seen };
+  }
+  const noReply = (kind: Kind): ResearchAssistOutcome => kind === "stop" ? { kind: "stop", code: "assist_stop_fixture" } : { kind: "no_reply", outcome: kind as "skipped" | "failed" | "refused", code: `assist_${kind}_fixture` };
+  /** A plan assist reply names sources by the opaque ids of its packet; `sourceAliases` maps them back. */
+  const planBy = (kind: Kind) => (request: ResearchAssistPlanRequest): ResearchAssistOutcome => kind === "accepted"
+    ? { kind: "reply", usage, truncated: false, sourceAliases: aliases, content: JSON.stringify({ version: 2, questions: [{ id: "Q1", text: "What does the supplied evidence establish?",
+      requirementIds: request.units.map(unit => unit.id), sourceIds: ["S2", "S1"], lookFor: [] }] }) }
+    : kind === "rejected" ? { kind: "reply", usage, truncated: false, content: "not a plan from the assist" } : noReply(kind);
+  const goodSynthesis = (request: ResearchAssistSynthesisRequest) => researchV4Reply("You write", canonical({ evidence: request.evidence, plan: request.plan }));
+  const synthesisBy = (kind: Kind) => (request: ResearchAssistSynthesisRequest): ResearchAssistOutcome => kind === "accepted"
+    ? { kind: "reply", usage, truncated: false, evidenceIds: request.evidence.quotes.map(quote => quote.id), content: goodSynthesis(request) }
+    : kind === "rejected" ? { kind: "reply", usage, truncated: false, content: "not a synthesis from the assist" } : noReply(kind);
+  /** Stage models that reject every reply of one stage, so a local-first assist fires and the fallback is reachable. */
+  const rejecting = (target: Stage) => models((stage, input, n, system) => stage === target ? `not a stage ${target} reply` : happy(stage, input, n, system));
+  const sink = () => { const entries: ResearchDiagnostic[] = []; return { entries, diagnostics: { retain: (entry: ResearchDiagnostic) => { entries.push(entry); } } }; };
+  const copy = (outcome: Awaited<ReturnType<typeof runResearchPipeline>>) => outcome.files.map(file => ({ path: file.path, bytes: Buffer.from(file.bytes) }));
+  function edit(files: { path: string; bytes: Buffer }[], path: string, mutate: (value: any) => void) {
+    const file = files.find(f => f.path === path)!, value = JSON.parse(file.bytes.toString()); mutate(value); file.bytes = Buffer.from(`${canonical(value)}\n`);
+  }
+
+  it.each(MATRIX)("schedules the plan assist under %s when it is %s: calls, attempts, repairs, fallback and the T1 request", async (firing, kind) => {
+    const m = rejecting("plan"), h = hook(firing, planBy(kind)), events: ResearchStageCounts[] = [], s = sink();
+    const result = await run(m, { assists: h.assists, diagnostics: s.diagnostics }, events);
+    const stageRequests = m.calls.filter(c => c.stage === "plan");
+    expect(h.seen.plan).toHaveLength(1);
+    if (kind === "stop") {
+      // The hook's stop ends the stage through denied(), with its code, exactly as a stage model's BrokerError does.
+      expect(result).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+      expect(events.at(-1)).toMatchObject({ stage: "plan", denied: "assist_stop_fixture", calls: firing === "forced_split" ? 0 : 2 });
+      expect(stageRequests).toHaveLength(firing === "forced_split" ? 0 : 2); expect(m.calls.some(c => c.stage === "extract")).toBe(false);
+      return;
+    }
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    const stage = result.summary.stages[1]!, attempts = stage.planAttempts!, settledAssist = kind === "accepted" || kind === "rejected";
+    const stageCount = firing === "forced_split" && kind === "accepted" ? 0 : 2;
+    const slots = firing === "forced_split" ? [...(settledAssist ? ["assist"] : []), ...Array<string>(stageCount).fill("stage")] : ["stage", "stage", ...(settledAssist ? ["assist"] : [])];
+    expect(stageRequests).toHaveLength(stageCount);
+    expect(attempts.map(a => a.slot ?? "stage")).toEqual(slots); expect(attempts.map(a => a.ordinal)).toEqual(slots.map((_, i) => i + 1));
+    expect(stage).toMatchObject({ calls: slots.length, invalidReplies: kind === "accepted" ? slots.length - 1 : slots.length });
+    expect(stage.fallback).toBe(kind === "accepted" ? undefined : "host_plan");
+    // A settled assist is one of the stage's calls, its usage summed with the stage's; a no_reply outcome is counted nowhere.
+    expect(stage.usage.inputTokens).toBe(stageCount * 100 + (settledAssist ? usage.inputTokens : 0));
+    const coverage = parsed(result, RESEARCH_FILES.coverage), plan = parsed(result, RESEARCH_FILES.plan);
+    expect(coverage.version).toBe(2); expect(coverage.fallbacks).toEqual({ plan: kind === "accepted" ? "none" : "host_plan", synthesis: "none" });
+    // An accepted assist plan is kept with its aliases translated to the real ids; otherwise the host fallback plan.
+    if (kind === "accepted") expect(plan.questions[0].sourceIds).toEqual(["input/corpus/beta.md", "input/corpus/alpha.md"]);
+    else expect(plan).toEqual(hostFallbackPlan(coverage.units));
+    // Only a stage attempt followed by another stage attempt carries a repair; after an assist the first stage request starts fresh.
+    expect(stageRequests.map(c => c.input.repair === null)).toEqual(stageRequests.map((_, i) => i === 0));
+    expect(attempts.map(a => a.repairContext)).toEqual(slots.map((slot, i) => slot === "stage" && slots[i + 1] === "stage" ? "included" : "not_used"));
+    // T1: the base fields and the earlier attempt records (codes and hashes), never a raw local reply.
+    const request = h.seen.plan[0]!;
+    expect(Object.keys(request).sort()).toEqual(["brief", "deadlineMs", "extractionCallBudget", "mandatorySourceChunks", "priorAttempts", "sourceIndex", "sourceTexts", "sources", "units"]);
+    expect(request.priorAttempts).toEqual(firing === "forced_split" ? [] : attempts.slice(0, 2)); expect(JSON.stringify(request)).not.toContain("not a stage");
+    expect(request).toMatchObject({ brief: RESEARCH_V4_TEST_BRIEF, extractionCallBudget: RESEARCH_PIPELINE_BUDGET.extractionCalls, sourceIndex: parsed(result, RESEARCH_FILES.index) });
+    // No session deadline: the request carries NaN, which the real wrapper refuses as assist_deadline_missing (the contract requires one).
+    expect(request.deadlineMs).toBeNaN();
+    expect(request.sourceTexts).toEqual(researchV4Sources().map(source => source.bytes.toString()));
+    // A rejected assist reply reaches the sink under its own purpose; the stage's replies under theirs.
+    expect(s.entries.filter(e => e.stage === "plan").map(e => [e.ordinal, e.purpose])).toEqual(slots.flatMap((slot, i) => kind === "accepted" && slot === "assist" ? [] : [[i + 1, slot === "assist" ? PLAN_ASSIST_PURPOSE : "research plan"]]));
+    hashOnlyStageRow(stage);
+  });
+
+  it.each(MATRIX)("schedules the synthesis assist under %s when it is %s: calls, attempts, fallback and the T2 request", async (firing, kind) => {
+    const m = rejecting("synthesise"), h = hook(firing, undefined, synthesisBy(kind)), events: ResearchStageCounts[] = [], s = sink();
+    const result = await run(m, { assists: h.assists, diagnostics: s.diagnostics }, events);
+    const stageRequests = m.calls.filter(c => c.stage === "synthesise");
+    expect(h.seen.synthesis).toHaveLength(1); expect(h.seen.plan).toHaveLength(0);
+    if (kind === "stop") {
+      expect(result).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+      expect(events.at(-1)).toMatchObject({ stage: "synthesise", denied: "assist_stop_fixture", calls: firing === "forced_split" ? 0 : 2 });
+      expect(stageRequests).toHaveLength(firing === "forced_split" ? 0 : 2);
+      return;
+    }
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    const stage = result.summary.stages[3]!, attempts = stage.synthesisAttempts!, settledAssist = kind === "accepted" || kind === "rejected";
+    const stageCount = firing === "forced_split" && kind === "accepted" ? 0 : 2;
+    const slots = firing === "forced_split" ? [...(settledAssist ? ["assist"] : []), ...Array<string>(stageCount).fill("stage")] : ["stage", "stage", ...(settledAssist ? ["assist"] : [])];
+    expect(stageRequests).toHaveLength(stageCount);
+    expect(attempts.map(a => [a.ordinal, a.slot ?? "stage", a.accepted, a.truncated])).toEqual(slots.map((slot, i) => [i + 1, slot, kind === "accepted" && slot === "assist", false]));
+    expect(stage).toMatchObject({ calls: slots.length, invalidReplies: kind === "accepted" ? slots.length - 1 : slots.length });
+    expect(stage.fallback).toBe(kind === "accepted" ? undefined : "skeleton");
+    const coverage = parsed(result, RESEARCH_FILES.coverage), evidence = parsed(result, RESEARCH_FILES.evidence), plan = parsed(result, RESEARCH_FILES.plan);
+    const argument = result.files.find(f => f.path === RESEARCH_FILES.argument)!.bytes.toString();
+    expect(coverage.fallbacks).toEqual({ plan: "none", synthesis: kind === "accepted" ? "none" : "skeleton" });
+    expect(coverage.synthesis.status).toBe(kind === "accepted" ? "complete" : "skeleton");
+    if (kind !== "accepted") { const skeleton = hostSkeletonSynthesis(plan, evidence); expect(argument).toBe(skeleton.argument); expect(coverage.synthesis.questions).toEqual(skeleton.questions); }
+    expect(stageRequests.map(c => c.input.repairReason === null)).toEqual(stageRequests.map((_, i) => i === 0));
+    // T2: the base fields, the host-validated plan, the packet's evidence and coverage, and no raw local reply.
+    const request = h.seen.synthesis[0]!;
+    expect(Object.keys(request).sort()).toEqual(["brief", "coverage", "deadlineMs", "evidence", "plan", "retryAfterTruncation", "sourceIndex", "sourceTexts", "sources", "units"]);
+    expect(request).toMatchObject({ plan, evidence, retryAfterTruncation: false }); expect(JSON.stringify(request)).not.toContain("not a stage");
+    expect(s.entries.filter(e => e.stage === "synthesise").map(e => [e.ordinal, e.purpose])).toEqual(slots.flatMap((slot, i) => kind === "accepted" && slot === "assist" ? [] : [[i + 1, slot === "assist" ? SYNTHESIS_ASSIST_PURPOSE : "research synthesis"]]));
+    hashOnlyStageRow(stage);
+  });
+
+  it("retries a truncated synthesis assist once, right after it, and never a third time", async () => {
+    const truncated: ResearchAssistOutcome = { kind: "reply", usage, truncated: true, content: "{\"version\":1,\"argument\":\"cut" };
+    for (const firing of ["local_first", "forced_split"] as const) {
+      const m = rejecting("synthesise"), h = hook(firing, undefined, (request, n) => n === 0 ? truncated : synthesisBy("accepted")(request));
+      const result = await run(m, { assists: h.assists }); expect(result.status).toBe("completed");
+      const stage = result.summary.stages[3]!, slots = firing === "forced_split" ? ["assist", "assist_retry"] : ["stage", "stage", "assist", "assist_retry"];
+      expect(h.seen.synthesis.map(r => r.retryAfterTruncation)).toEqual([false, true]);
+      expect(stage.synthesisAttempts!.map(a => [a.slot ?? "stage", a.truncated, a.accepted])).toEqual(slots.map((slot, i) => [slot, slot === "assist", i === slots.length - 1]));
+      expect(stage).toMatchObject({ calls: slots.length, invalidReplies: slots.length - 1, truncatedReplies: 1 }); expect(stage.fallback).toBeUndefined();
+      expect(m.calls.filter(c => c.stage === "synthesise")).toHaveLength(firing === "forced_split" ? 0 : 2);
+    }
+    // A truncated retry ends the assist: no third assist call; under the forced split the stage attempts follow, then the skeleton.
+    const m = rejecting("synthesise"), h = hook("forced_split", undefined, () => truncated), result = await run(m, { assists: h.assists });
+    expect(result.status).toBe("completed"); expect(h.seen.synthesis).toHaveLength(2);
+    expect(result.summary.stages[3]!.synthesisAttempts!.map(a => a.slot ?? "stage")).toEqual(["assist", "assist_retry", "stage", "stage"]);
+    expect(result.summary.stages[3]).toMatchObject({ calls: 4, invalidReplies: 4, truncatedReplies: 2, fallback: "skeleton" });
+    // A rejected assist reply that was not truncated gets no retry.
+    const once = hook("local_first", undefined, synthesisBy("rejected")); await run(rejecting("synthesise"), { assists: once.assists }); expect(once.seen.synthesis).toHaveLength(1);
+  });
+
+  it("lets a synthesis assist cite only the evidence ids its packet carried", async () => {
+    const s = sink(), h = hook("forced_split", undefined, request => ({ kind: "reply", usage, truncated: false, evidenceIds: [], content: goodSynthesis(request) }));
+    const result = await run(rejecting("synthesise"), { assists: h.assists, diagnostics: s.diagnostics });
+    expect(result.summary.stages[3]).toMatchObject({ calls: 3, invalidReplies: 3, fallback: "skeleton" });
+    const assist = s.entries.find(e => e.purpose === SYNTHESIS_ASSIST_PURPOSE)!;
+    expect(assist.reasons.map(r => r.code)).toEqual(expect.arrayContaining(["unknown_evidence_id", "unknown_citation"]));
+    // The same reply from the stage model, which may cite the whole packet, is accepted.
+    const local = await run(models()); expect(local.summary.stages[3]!.synthesisAttempts!.map(a => a.accepted)).toEqual([true]);
+  });
+
+  it("makes no third plan request and no assist without a hook, or with a hook that has no plan touchpoint, and keeps the request bytes", async () => {
+    const bare = rejecting("plan"), result = await run(bare);
+    expect(bare.calls.filter(c => c.stage === "plan")).toHaveLength(RESEARCH_PIPELINE_BUDGET.plannerCalls);
+    expect(result.summary.stages[1]).toMatchObject({ calls: 2, invalidReplies: 2, fallback: "host_plan" });
+    for (const firing of ["local_first", "forced_split"] as const) {
+      const m = rejecting("plan"), h = hook(firing, undefined, synthesisBy("accepted")); await run(m, { assists: h.assists });
+      expect(m.calls.filter(c => c.stage === "plan").map(c => c.body)).toEqual(bare.calls.filter(c => c.stage === "plan").map(c => c.body));
+    }
+    // With a hook whose assist gave no reply, the stage requests are byte-identical to a run without a hook, under either firing.
+    for (const firing of ["local_first", "forced_split"] as const) {
+      const m = rejecting("plan"), h = hook(firing, planBy("skipped")); await run(m, { assists: h.assists });
+      expect(m.calls.filter(c => c.stage === "plan").map(c => c.body)).toEqual(bare.calls.filter(c => c.stage === "plan").map(c => c.body));
+    }
+    // Synthesis requests differ from 7a.1's only by coverage: its version, `fallbacks` and the protocol hash.
+    const clean = models(); await run(clean); const synthesis = clean.calls.find(c => c.stage === "synthesise")!.input;
+    expect(Object.keys(synthesis)).toEqual(["brief", "coverage", "evidence", "lengthCap", "plan", "repairReason", "units"]);
+    expect(synthesis.coverage).toMatchObject({ version: 2, fallbacks: { plan: "none", synthesis: "none" }, protocolSha256: RESEARCH_PROTOCOL_SHA256 });
+    // With coverage put back in 7a.1's shape (version 1, no fallbacks, 7a.1's protocol), the request is 7a.1's byte for byte
+    // (captured at #76's head 2fe1ec8, whose protocol is 05f342b2...).
+    const v4 = JSON.parse(clean.calls.find(c => c.stage === "synthesise")!.body.messages[1].content as string);
+    v4.coverage.version = 1; delete v4.coverage.fallbacks; v4.coverage.protocolSha256 = "05f342b25f3483574cca4f1bad53468219e63e94578927c069a8c831289e93a8";
+    expect(digest(canonical(v4))).toBe("03bdfb5e0fc7a0b178c5b743a5b9035fb0fdd8838f53dc701989eb35a38fce6e");
+    // A local-first hook is never asked while the stages accept, and every request is the one a run without a hook sends.
+    const quiet = hook("local_first", planBy("accepted"), synthesisBy("accepted")), hooked = models(); await run(hooked, { assists: quiet.assists });
+    expect(quiet.seen.plan.length + quiet.seen.synthesis.length).toBe(0); expect(hooked.calls.map(c => c.body)).toEqual(clean.calls.map(c => c.body));
+    // After a rejected assist, the first stage request carries no trace of it: the plan request is the one pinned before 7b.1,
+    // and the synthesis request is a first attempt's (its coverage still "pending").
+    const split = rejecting("plan"), splitHook = hook("forced_split", planBy("rejected"), synthesisBy("rejected")); await run(split, { assists: splitHook.assists });
+    expect(digest(split.calls.find(c => c.stage === "plan")!.body.messages[1].content as string)).toBe("db70bd30a913d4433bb9e89cff8e3fc24e8a030d89eae13d4d478ee072e1b927");
+    expect(split.calls.find(c => c.stage === "synthesise")!.body).toEqual(bare.calls.find(c => c.stage === "synthesise")!.body);
+  });
+
+  it("never completes a fallback after a cancel: a cancel between the last rejected reply and the fallback ends the stage as call() would", async () => {
+    for (const stage of ["plan", "synthesise"] as const) {
+      const controller = new AbortController(), events: ResearchStageCounts[] = [];
+      const diagnostics = { retain: (entry: ResearchDiagnostic) => { if (entry.stage === stage && entry.ordinal === 2) controller.abort(); } };
+      const m = rejecting(stage), result = await run(m, { signal: controller.signal, diagnostics }, events);
+      expect(result).toMatchObject({ status: "incomplete", reason: "research_cancelled" });
+      expect(events.at(-1)).toMatchObject({ stage, calls: 2, invalidReplies: 2, denied: "cancelled" }); expect(events.at(-1)!.fallback).toBeUndefined();
+      // With a hook, the cancel also refuses the assist before it is asked.
+      const again = new AbortController(), h = hook("local_first", planBy("accepted"), synthesisBy("accepted"));
+      const withHook = await run(rejecting(stage), { signal: again.signal, assists: h.assists, diagnostics: { retain: entry => { if (entry.stage === stage && entry.ordinal === 2) again.abort(); } } });
+      expect(withHook).toMatchObject({ status: "incomplete", reason: "research_cancelled" }); expect(h.seen.plan.length + h.seen.synthesis.length).toBe(stage === "plan" ? 0 : 0);
+    }
+  });
+
+  it("ends the stage with a fixed code when the hook throws, returns a malformed outcome or stops with a code that is not one, and never lets an alias binding escape", async () => {
+    const cases: [string, (request: ResearchAssistPlanRequest) => ResearchAssistOutcome][] = [
+      ["assist_hook_failed", () => { throw new Error("A message that must not reach a row"); }],
+      ["assist_outcome_invalid", () => ({ kind: "reply", content: 42, usage, truncated: false }) as unknown as ResearchAssistOutcome],
+      ["assist_outcome_invalid", () => ({ kind: "reply", content: "{}", usage: { ...usage, inputTokens: -1 }, truncated: false })],
+      ["assist_outcome_invalid", () => ({ kind: "maybe" }) as unknown as ResearchAssistOutcome],
+      ["assist_stop_code_invalid", () => ({ kind: "stop", code: "A free-text reason" })],
+      ["research_plan_alias_binding", request => ({ ...(planBy("accepted")(request) as Extract<ResearchAssistOutcome, { kind: "reply" }>), sourceAliases: { S1: "input/corpus/unknown.md" } })],
+    ];
+    for (const [code, answer] of cases) for (const firing of ["local_first", "forced_split"] as const) {
+      const events: ResearchStageCounts[] = [], result = await run(rejecting("plan"), { assists: hook(firing, answer).assists }, events);
+      expect(result).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+      expect(events.at(-1)).toMatchObject({ stage: "plan", denied: code }); hashOnlyStageRow(events.at(-1)!);
+    }
+    const events: ResearchStageCounts[] = [];
+    expect(await run(rejecting("synthesise"), { assists: hook("forced_split", undefined, () => { throw new Error("boom"); }).assists }, events)).toMatchObject({ reason: "research_request_denied" });
+    expect(events.at(-1)).toMatchObject({ stage: "synthesise", calls: 0, denied: "assist_hook_failed" });
+  });
+
+  it("passes the session deadline to the hook, and gives the hook a copy it cannot write through", async () => {
+    const h = hook("forced_split", request => { (request.units as unknown as { id: string }[]).length = 0; (request.priorAttempts as unknown[]).push("forged"); return planBy("skipped")(request); },
+      request => { request.evidence.quotes.length = 0; (request.coverage as { status: string }).status = "ready"; return synthesisBy("skipped")(request); });
+    // The fixture broker has no clock accessors, so the stage guards are stubbed to admit (as in the A8 test above).
+    const m = models(); for (const model of Object.values(m.models)) vi.spyOn(model, "deadlineRefuses").mockReturnValue(false);
+    const result = await run(m, { assists: h.assists, deadlineMs: Infinity });
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" }); expect(h.seen.plan[0]!.deadlineMs).toBe(Infinity);
+    expect(parsed(result, RESEARCH_FILES.evidence).quotes.length).toBeGreaterThan(0);
+  });
+
+  it("follows a skipped T1 and a T2 that gives no reply with the stage's own calls, then the skeleton (the forced split's no-reply path)", async () => {
+    const h = hook("forced_split", planBy("skipped"), () => ({ kind: "no_reply", outcome: "refused", code: "assist_slot_exhausted" }));
+    const m = rejecting("synthesise"), result = await run(m, { assists: h.assists });
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(result.summary.stages[1]).toMatchObject({ calls: 1, invalidReplies: 0 }); expect(result.summary.stages[1]!.planAttempts!.map(a => a.slot ?? "stage")).toEqual(["stage"]);
+    expect(result.summary.stages[3]).toMatchObject({ calls: 2, invalidReplies: 2, fallback: "skeleton" });
+    expect(m.calls.filter(c => c.stage === "synthesise").map(c => c.input.repairReason === null)).toEqual([true, false]);
+  });
+
+  it("keeps the hook contract byte-identical to item 10's copy (feat/10a-assist-core d2ab888): a change there is mirrored here and re-pinned", () => {
+    expect(digest(readFileSync(new URL("../../src/main/private-agent/research-assist-contract.ts", import.meta.url)))).toBe("9434ed064d9a292e5b7a73c403bb9a31c244ef731c9ab62a382857e6920b8780");
+  });
+
+  it("builds the host fallbacks from host data alone: contiguous unit groups, larger first, and a skeleton naming only ids", () => {
+    const units = (n: number) => Array.from({ length: n }, (_, i) => ({ id: `U${i + 1}` }));
+    expect(hostFallbackPlan(units(1))).toEqual({ version: 2, questions: [{ id: "Q1", text: RESEARCH_FALLBACK_POLICY.plan.questionText.replace("{units}", "U1"), requirementIds: ["U1"], sourceIds: [] }] });
+    expect(hostFallbackPlan(units(12)).questions.map(q => q.requirementIds.length)).toEqual(Array(12).fill(1));
+    expect(hostFallbackPlan(units(14)).questions.map(q => q.requirementIds.join(","))).toEqual(["U1,U2", "U3,U4", ...Array.from({ length: 10 }, (_, i) => `U${i + 5}`)]);
+    expect(hostFallbackPlan(units(25)).questions.map(q => q.requirementIds.length)).toEqual([3, ...Array(11).fill(2)]);
+    expect(hostFallbackPlan(units(30)).questions[0]!.text).toBe("Host fallback question: what does the corpus establish for brief requirements U1, U2, U3?");
+    // deriveBriefUnits yields at most 128 units: the largest fallback plan still parses, every text within 300 UTF-16 units.
+    const largest = hostFallbackPlan(units(128)); expect(ResearchPlanSchema.parse(largest)).toEqual(largest);
+    expect(largest.questions.map(q => q.requirementIds.length)).toEqual([...Array(8).fill(11), ...Array(4).fill(10)]); expect(Math.max(...largest.questions.map(q => q.text.length))).toBeLessThanOrEqual(300);
+    expect(() => hostFallbackPlan([])).toThrow("research_fallback_plan_units");
+    const plan = hostFallbackPlan(units(3)), evidence = { quotes: [{ id: "E1", questionIds: ["Q1", "Q3"] }, { id: "E2", questionIds: ["Q1"] }], conflicts: [{ questionIds: ["Q1"] }, { questionIds: ["Q1", "Q3"] }] };
+    const skeleton = hostSkeletonSynthesis(plan, evidence);
+    expect(skeleton.questions).toEqual([{ questionId: "Q1", disposition: "findings", evidenceIds: ["E1", "E2"] }, { questionId: "Q2", disposition: "unresolved", evidenceIds: [] }, { questionId: "Q3", disposition: "findings", evidenceIds: ["E1"] }]);
+    expect(skeleton.argument).toBe([RESEARCH_FALLBACK_POLICY.skeleton.opening, "", "## Evidence by question", "", "- Q1: [E1][E2]", "- Q2: no verified evidence was extracted.", "- Q3: [E1]", "",
+      "## Conflicting evidence", "", "- Q1: conflicts noted by the extractor: 2, listed in evidence.md.", "- Q3: conflicts noted by the extractor: 1, listed in evidence.md.", "", "## Unanswered questions", "", "- Q2", ""].join("\n"));
+    expect(hostSkeletonSynthesis(plan, { quotes: [{ id: "E1", questionIds: ["Q1", "Q2", "Q3"] }], conflicts: [] }).argument).toContain("The extractor noted no conflict.\n\n## Unanswered questions\n\nNone: every question has verified evidence ids above.\n");
+  });
+
+  it("refuses every other forged stage record: early fallbacks, disagreeing markers, stray keys, lone retries and the synthesis-attempt forgeries", async () => {
+    const reject = (files: { path: string; bytes: Buffer }[], code: string) => expect(() => validateReadyResearchPacket(files)).toThrow(code);
+    const fallback = await run(models((stage, input, n, system) => stage === "plan" ? "not a plan" : stage === "synthesise" ? "not a synthesis" : happy(stage, input, n, system)));
+    const normal = await run(models());
+    let files = copy(fallback);
+    // A fallback taken before every stage attempt was spent: one rejected attempt, then the marker.
+    edit(files, RESEARCH_FILES.summary, s => { const row = s.stages[1]; row.planAttempts = row.planAttempts.slice(0, 1); row.planAttempts[0].repairContext = "not_used"; row.calls = 1; row.invalidReplies = 1; }); reject(files, "plan_attempts");
+    files = copy(fallback); edit(files, RESEARCH_FILES.summary, s => { const row = s.stages[3]; row.synthesisAttempts = row.synthesisAttempts.slice(0, 1); row.calls = 1; row.invalidReplies = 1; }); reject(files, "synthesis_attempts");
+    // The markers and coverage disagree, both ways, and the status disagrees with the marker.
+    files = copy(fallback); edit(files, RESEARCH_FILES.summary, s => { delete s.stages[1].fallback; }); reject(files, "stage_success_contradiction");
+    files = copy(fallback); edit(files, RESEARCH_FILES.coverage, c => { c.synthesis.status = "complete"; }); reject(files, "not_ready");
+    files = copy(normal); edit(files, RESEARCH_FILES.coverage, c => { c.synthesis.status = "skeleton"; }); reject(files, "not_ready");
+    // A marker on the wrong row or with the other stage's value, and attempt records on rows that do not own them.
+    files = copy(normal); edit(files, RESEARCH_FILES.summary, s => { s.stages[2].fallback = "skeleton"; }); reject(files, "stage_keys");
+    files = copy(fallback); edit(files, RESEARCH_FILES.summary, s => { s.stages[1].fallback = "skeleton"; }); reject(files, "stage_success_contradiction");
+    files = copy(normal); edit(files, RESEARCH_FILES.summary, s => { s.stages[0].planAttempts = s.stages[1].planAttempts; }); reject(files, "stage_keys");
+    files = copy(normal); edit(files, RESEARCH_FILES.summary, s => { s.stages[2].synthesisAttempts = s.stages[3].synthesisAttempts; }); reject(files, "stage_keys");
+    // Under the default budget an assist after one stage attempt, alone or with its retry, is no schedule.
+    const local = await run(rejecting("plan"), { assists: hook("local_first", planBy("accepted")).assists });
+    files = copy(local); edit(files, RESEARCH_FILES.summary, s => { const row = s.stages[1]; row.planAttempts.splice(1, 1); row.planAttempts[0].repairContext = "not_used"; row.planAttempts[1].ordinal = 2; row.calls = 2; row.invalidReplies = 1; }); reject(files, "plan_attempts");
+    const truncated: ResearchAssistOutcome = { kind: "reply", usage, truncated: true, content: "{" };
+    const retried = await run(rejecting("synthesise"), { assists: hook("local_first", undefined, (request, n) => n === 0 ? truncated : synthesisBy("accepted")(request)).assists });
+    files = copy(retried); edit(files, RESEARCH_FILES.summary, s => { const row = s.stages[3]; row.synthesisAttempts.splice(1, 1); row.synthesisAttempts.forEach((a: any, i: number) => { a.ordinal = i + 1; }); row.calls = 3; row.invalidReplies = 2; }); reject(files, "synthesis_attempts");
+    // A lone retry fails closed with the gate's code, not a TypeError.
+    files = copy(normal); edit(files, RESEARCH_FILES.summary, s => { s.stages[3].synthesisAttempts[0].slot = "assist_retry"; }); reject(files, "synthesis_attempts");
+    // The synthesis-attempt set the plan attempts already have: missing, an ordinal gap, a count mismatch, accepted while truncated or not last, an unknown slot, an extra key.
+    const synthesis = (mutate: (row: any) => void) => { const forged = copy(retried); edit(forged, RESEARCH_FILES.summary, s => mutate(s.stages[3])); return forged; };
+    for (const forged of [synthesis(row => { delete row.synthesisAttempts; }), synthesis(row => { row.synthesisAttempts[2].ordinal = 4; }), synthesis(row => { row.calls = 3; }),
+      synthesis(row => { row.invalidReplies = 2; }), synthesis(row => { row.truncatedReplies = 0; }), synthesis(row => { row.synthesisAttempts[3].truncated = true; row.truncatedReplies = 2; }),
+      synthesis(row => { row.synthesisAttempts[2].accepted = true; }), synthesis(row => { row.synthesisAttempts[2].slot = "cloud"; }), synthesis(row => { row.synthesisAttempts[0].note = "x"; })])
+      expect(() => validateReadyResearchPacket(forged)).toThrow(/synthesis_attempts|stage_success_contradiction/u);
+    // Above the repair-context size limit only omitted_oversize is admitted; at or below it, included and omitted_unencodable both are.
+    const repaired = await run(models((stage, input, n, system) => stage === "plan" && n === 0 ? "not a plan" : happy(stage, input, n, system)));
+    files = copy(repaired); edit(files, RESEARCH_FILES.summary, s => { s.stages[1].planAttempts[0].repairContext = "omitted_unencodable"; }); expect(() => validateReadyResearchPacket(files)).not.toThrow();
+    files = copy(repaired); edit(files, RESEARCH_FILES.summary, s => { s.stages[1].planAttempts[0].repairContext = "omitted_oversize"; }); reject(files, "plan_attempts");
+    files = copy(repaired); edit(files, RESEARCH_FILES.summary, s => { s.stages[1].planAttempts[0].replyBytes = 70_000; s.stages[1].planAttempts[0].repairContext = "included"; }); reject(files, "plan_attempts");
+  });
+
+  it("leaves the skeleton's word count and heading count at zero, because no model wrote it", async () => {
+    const fallback = await run(models((stage, input, n, system) => stage === "plan" ? "not a plan" : stage === "synthesise" ? "not a synthesis" : happy(stage, input, n, system)));
+    expect(fallback.summary.stages[3]).toMatchObject({ fallback: "skeleton", argumentWords: 0, headingsNormalised: 0 });
+    expect(fallback.summary.stages[3]!.argumentBytes).toBe(fallback.files.find(f => f.path === RESEARCH_FILES.argument)!.bytes.length);
+  });
+
+  it("refuses forged slot records and forged fallbacks at the ready gate", async () => {
+    const fallback = await run(models((stage, input, n, system) => stage === "plan" ? "not a plan" : stage === "synthesise" ? "not a synthesis" : happy(stage, input, n, system)));
+    expect(fallback.status).toBe("completed"); expect(() => validateReadyResearchPacket(copy(fallback))).not.toThrow();
+    const reject = (files: { path: string; bytes: Buffer }[], code: string) => expect(() => validateReadyResearchPacket(files)).toThrow(code);
+    // An altered host plan, an altered skeleton (its hash kept consistent), and altered skeleton dispositions.
+    let files = copy(fallback); edit(files, RESEARCH_FILES.plan, p => { p.questions[0].text = "A planted question about the corpus."; }); reject(files, "fallback_plan");
+    files = copy(fallback); const forged = Buffer.from(`${files.find(f => f.path === RESEARCH_FILES.argument)!.bytes.toString()}A planted finding.\n`);
+    files.find(f => f.path === RESEARCH_FILES.argument)!.bytes = forged; edit(files, RESEARCH_FILES.coverage, c => { c.synthesis.argumentSha256 = digest(forged); }); reject(files, "fallback_skeleton");
+    files = copy(fallback); edit(files, RESEARCH_FILES.coverage, c => { c.synthesis.questions[0].disposition = "unresolved"; c.synthesis.questions[0].evidenceIds = []; }); reject(files, "fallback_skeleton");
+    // A marker on one side only, and a marker beside an accepted attempt.
+    files = copy(fallback); edit(files, RESEARCH_FILES.coverage, c => { c.fallbacks.plan = "none"; }); reject(files, "fallback_marker");
+    files = copy(fallback); edit(files, RESEARCH_FILES.coverage, c => { c.fallbacks.synthesis = "none"; }); reject(files, "not_ready");
+    const normal = await run(models());
+    files = copy(normal); edit(files, RESEARCH_FILES.coverage, c => { c.fallbacks.plan = "host_plan"; }); reject(files, "fallback_marker");
+    files = copy(normal); edit(files, RESEARCH_FILES.summary, s => { s.stages[1].fallback = "host_plan"; }); reject(files, "stage_success_contradiction");
+    files = copy(normal); edit(files, RESEARCH_FILES.summary, s => { s.stages[3].fallback = "skeleton"; }); reject(files, "stage_success_contradiction");
+    files = copy(normal); edit(files, RESEARCH_FILES.summary, s => { s.stages[1].fallback = "other"; }); reject(files, "plan_attempts");
+    // Assists out of order, three stage attempts, a retry without truncation, and a repair context before an assist.
+    const local = await run(rejecting("plan"), { assists: hook("local_first", planBy("accepted")).assists });
+    files = copy(local); edit(files, RESEARCH_FILES.summary, s => { const a = s.stages[1].planAttempts; a[1].slot = "assist"; delete a[2].slot; }); reject(files, "plan_attempts");
+    files = copy(local); edit(files, RESEARCH_FILES.summary, s => { delete s.stages[1].planAttempts[2].slot; }); reject(files, "plan_attempts");
+    files = copy(local); edit(files, RESEARCH_FILES.summary, s => { s.stages[1].planAttempts[1].repairContext = "included"; }); reject(files, "plan_attempts");
+    expect(() => validateReadyResearchPacket(copy(local))).not.toThrow();
+    const truncated: ResearchAssistOutcome = { kind: "reply", usage, truncated: true, content: "{" };
+    const retried = await run(rejecting("synthesise"), { assists: hook("local_first", undefined, (request, n) => n === 0 ? truncated : synthesisBy("accepted")(request)).assists });
+    expect(() => validateReadyResearchPacket(copy(retried))).not.toThrow();
+    files = copy(retried); edit(files, RESEARCH_FILES.summary, s => { const a = s.stages[3].synthesisAttempts; a[1].slot = "assist"; a[2].slot = "assist_retry"; delete a[3].slot; }); reject(files, "synthesis_attempts");
+    files = copy(retried); edit(files, RESEARCH_FILES.summary, s => { const a = s.stages[3].synthesisAttempts; delete a[2].slot; delete a[3].slot; }); reject(files, "synthesis_attempts");
+    files = copy(retried); edit(files, RESEARCH_FILES.summary, s => { s.stages[3].synthesisAttempts[2].truncated = false; s.stages[3].truncatedReplies = 0; }); reject(files, "synthesis_attempts");
+    files = copy(retried); edit(files, RESEARCH_FILES.summary, s => { const a = s.stages[3].synthesisAttempts; a.splice(3, 0, { ...a[1], ordinal: 4 }); a[4].ordinal = 5; s.stages[3].calls = 5; s.stages[3].invalidReplies = 4; }); reject(files, "stage_counts");
+  });
+
+  it("fixes two encoding defects already on main: an index field or a plan canonical() cannot encode is refused and repaired, never thrown at put()", async () => {
+    const lone = String.fromCharCode(0xd800);
+    // Index: the first batch reply titles one source with a lone surrogate; that row is schema-invalid and the source is repaired.
+    const badIndex = (input: any) => JSON.stringify({ sources: input.sources.map((s: any, i: number) => ({ sourceId: s.id, title: i === 0 ? `Synthetic ${lone}` : "Synthetic source", gist: "A source for the supplied questions.", date: "", figures: [] })) });
+    const repaired = await run(models((stage, input, n, system) => stage === "index" && n === 0 ? badIndex(input) : happy(stage, input, n, system)));
+    expect(repaired).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(repaired.summary.stages[0]).toMatchObject({ calls: 2, invalidReplies: 1, sourcesModelRepaired: 1, sourcesIndexed: 2 });
+    // When every reply holds it, the source keeps its literal card.
+    const literal = await run(models((stage, input, n, system) => stage === "index" ? badIndex(input) : happy(stage, input, n, system)));
+    expect(literal.status).toBe("completed"); expect(literal.summary.stages[0]).toMatchObject({ sourcesLiteralFallback: 1, sourcesIndexed: 1 });
+    expect(parsed(literal, RESEARCH_FILES.index).sources.map((s: any) => [s.modelStatus, s.metadataOrigin])).toEqual([["unresolved", "host_literal"], ["model_complete", "model_summary"]]);
+    // Plan: a schema-valid plan whose question text holds a lone surrogate is rejected at that field's path, then repaired.
+    const badPlan = (input: any) => JSON.stringify({ version: 2, questions: [{ id: "Q1", text: `What does ${lone} establish?`, requirementIds: input.units.map((u: any) => u.id), sourceIds: [], lookFor: [] }] });
+    const s = sink(), plan = await run(models((stage, input, n, system) => stage === "plan" && n === 0 ? badPlan(input) : happy(stage, input, n, system)), { diagnostics: s.diagnostics });
+    expect(plan).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(plan.summary.stages[1]!.planAttempts!.map(a => [a.accepted, a.bindingInspection, a.repairContext, a.errors])).toEqual([
+      [false, "not_run", "included", [{ code: "validation_failed", path: ["questions", 0, "text"] }]], [true, "completed", "not_used", []]]);
+    expect(s.entries.find(e => e.stage === "plan")!.reasons).toEqual([{ code: "validation_failed", path: ["questions", 0, "text"] }]);
+    // The same applies to every free-text plan field, each at its own path.
+    const everywhere = (input: any) => JSON.stringify({ version: 2, questions: [{ id: "Q1", text: "ok", requirementIds: input.units.map((u: any) => u.id), sourceIds: [], lookFor: ["fine", `bad ${lone}`] }],
+      conflictsToCheck: [`bad ${lone}`], deliverableNotes: `bad ${lone}` });
+    const fields = await run(models((stage, input, n, system) => stage === "plan" && n === 0 ? everywhere(input) : happy(stage, input, n, system)));
+    expect(fields.summary.stages[1]!.planAttempts![0]!.errors.map(e => e.path)).toEqual([["questions", 0, "lookFor", 1], ["conflictsToCheck", 0], ["deliverableNotes"]]);
+    expect(fields.status).toBe("completed");
   });
 });

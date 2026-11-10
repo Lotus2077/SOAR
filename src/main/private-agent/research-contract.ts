@@ -1,11 +1,19 @@
 /** Versioned, model-independent contracts shared by the pipeline and writer presentation. */
-export const RESEARCH_PIPELINE_VERSION = 4;
+/** 5 since backlog item 7(c) (BL-20261110-0717-research-v5-design): slot schedules, host fallbacks, coverage v2. */
+export const RESEARCH_PIPELINE_VERSION = 5;
 export const RESEARCH_CONTEXT_DIR = "context/research";
 export const RESEARCH_FILES = Object.freeze({ index: `${RESEARCH_CONTEXT_DIR}/index.json`, plan: `${RESEARCH_CONTEXT_DIR}/plan.json`,
   evidence: `${RESEARCH_CONTEXT_DIR}/evidence.json`, evidenceText: `${RESEARCH_CONTEXT_DIR}/evidence.md`, argument: `${RESEARCH_CONTEXT_DIR}/argument.md`,
   summary: `${RESEARCH_CONTEXT_DIR}/summary.json`, coverage: `${RESEARCH_CONTEXT_DIR}/coverage.json` });
 export interface ResearchBudget { indexCalls: number; extractionCalls: number; plannerCalls: number; synthesisCalls: number }
 export const RESEARCH_PIPELINE_BUDGET: Readonly<ResearchBudget> = Object.freeze({ indexCalls: 24, extractionCalls: 40, plannerCalls: 2, synthesisCalls: 2 });
+/**
+ * 7(c): the assist slots beside the budget's stage attempts. A settled assist reply is one of its stage's calls, so the ready
+ * gate's ceilings are the budget plus these: plan calls at most plannerCalls + 1, synthesis calls at most synthesisCalls + 2.
+ * The budget and its schemas stay as they are; item 10.b adds these slots to the session's request pool when it wires the hook.
+ */
+export const RESEARCH_SLOT_POLICY = Object.freeze({ version: 1, plan: Object.freeze({ assist: 1 }), synthesis: Object.freeze({ assist: 1, assistRetryOnTruncation: 1 }),
+  assistPosition: "first_under_forced_split_else_after_every_stage_attempt", stageAfterAssist: "fresh_without_repair_context" });
 export interface ResearchSourceIdentity { id: string; path: string; sha256: string; bytes: number }
 export const RESEARCH_COVERAGE_POLICY = Object.freeze({ version: 1, briefSegmentation: "exact_numbered_spans_or_whole", sourceOrder: "id_utf16_ascending", chunkBytes: 65536,
   overlapBytes: 2048, mandatoryBeforeRepair: true, indexRepairsPerBatch: 1, extractionRepairsPerChunk: 1, readyRequiresAllReadable: true,
@@ -29,6 +37,8 @@ export const RESEARCH_TOLERANCE_POLICY = Object.freeze({ version: 1,
     questionOutcome: "from_verified_quotes_except_needs_followup",
     /** BL-20261110-0726 (owner question 3's corner): a first attempt that lost every quote of a question it marked evidence_found. */
     allQuotesOfAFoundQuestionDropped: "first_attempt_held_repaired_after_other_repairs_while_budget_lasts_else_kept" }),
+  /** 7(c): a model-written index field canonical() cannot encode makes its row schema-invalid (literal card or repair). */
+  index: Object.freeze({ unencodableField: "row_schema_invalid" }),
   synthesis: Object.freeze({ rejectWhen: Object.freeze(["argument_unencodable"]) }),
   synthesisHeadings: Object.freeze({ titles: Object.freeze(["Conflicting evidence", "Unanswered questions"]), target: "## {title}",
     /** claims.ts reads a Markdown report with Path.read_text (universal newlines), so CRLF, CR and LF all end a line; separators are kept. */

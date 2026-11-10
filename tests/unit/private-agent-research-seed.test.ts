@@ -13,6 +13,7 @@ import { loadResearchSeed, researchTransferPresent, researchTransferSnapshot, re
 import { RESEARCH_TRANSFER_CHECK_ID, researchTransferPhase, sessionFileManifest, sessionPhaseIdentity, type SessionFile, type SessionPhase } from "../../src/main/private-agent/session";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
+import type { ResearchAssistOutcome, ResearchAssistPlanRequest, ResearchAssistSynthesisRequest } from "../../src/main/private-agent/research-assist-contract";
 import { RESEARCH_V4_TEST_BRIEF, researchV4Reply, researchV4Sources } from "../helpers/research-v4-fixture";
 
 const cleanups: (() => void)[] = [];
@@ -42,22 +43,25 @@ beforeAll(async () => {
 
 type Options = { kind?: ResearchProducer["kind"]; freeze?: Record<string, unknown>; transfer?: boolean; inputEvent?: boolean; inputAfterStage?: boolean; inputTime?: number;
   corrupt?: boolean; duplicateTransfer?: boolean; controlledSessionEvent?: boolean; files?: (files: SessionFile[]) => SessionFile[];
-  producer?: (producer: ResearchProducer) => unknown; receipts?: (rows: Record<string, unknown>[]) => Record<string, unknown>[] };
+  producer?: (producer: ResearchProducer) => unknown; receipts?: (rows: Record<string, unknown>[]) => Record<string, unknown>[];
+  /** 7c: another generated packet and its ledger in place of the shared happy run. */
+  base?: { files: SessionFile[]; receipts: Record<string, unknown>[] } };
 function sourceRun(input: Options = {}): string {
   const dir = mkdtempSync(join(tmpdir(), "soar-seed-v4-")); cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
   const kind = input.kind ?? "session";
   const freeze = Object.fromEntries(Object.entries({ version: 1, jobId, taskBinding: task, deployment: "synthetic_only_unverified_for_private_data",
     pipeline: pipeline(), researchInput: researchInput(), researchProducerKind: kind, startedAt: new Date(1).toISOString(), ...input.freeze }).filter(([, value]) => value !== undefined));
   writeFileSync(join(dir, "freeze.json"), `${canonical(freeze)}\n`);
-  const copies = produced.map(file => ({ ...file, bytes: Buffer.from(file.bytes) })), files = input.files?.(copies) ?? copies;
-  const originalProducer = createResearchProducer({ kind, jobId, contextId, brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), files: produced, receipts });
+  const baseFiles = input.base?.files ?? produced, baseReceipts = input.base?.receipts ?? receipts;
+  const copies = baseFiles.map(file => ({ ...file, bytes: Buffer.from(file.bytes) })), files = input.files?.(copies) ?? copies;
+  const originalProducer = createResearchProducer({ kind, jobId, contextId, brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), files: baseFiles, receipts: baseReceipts });
   const producer = input.producer?.(originalProducer) ?? originalProducer;
   const db = new Database(join(dir, "state.sqlite")), store = new PrivateAgentStore(db);
   store.createJob({ version: 1, id: jobId, mode: "private", revision: 0, cancelled: false, destinations: ["fixture"], maxRequests: 80, maxFeeMicrousd: 0 });
-  for (const row of input.receipts?.(structuredClone(receipts)) ?? receipts)
+  for (const row of input.receipts?.(structuredClone(baseReceipts)) ?? baseReceipts)
     db.prepare("INSERT INTO private_agent_dispatches (id, job_id, value) VALUES (?, ?, ?)").run(row.id, jobId, canonical(row));
   const checkpoints = new PrivateCheckpointStore(join(dir, "checkpoints"), jobId), snapshot = checkpoints.save(files);
-  const summary = JSON.parse(produced.find(file => file.path === RESEARCH_FILES.summary)!.bytes.toString());
+  const summary = JSON.parse(baseFiles.find(file => file.path === RESEARCH_FILES.summary)!.bytes.toString());
   const binding = { snapshot, snapshotSha256: checkpoints.fingerprint(snapshot), files: sessionFileManifest(files), summary };
   if (kind === "session" || input.controlledSessionEvent) {
     store.append(jobId, { type: "session_started", identity: h("3"), startedAt: 1, privateContextId: "p", publicContextId: "q", readerContextId: contextId });
@@ -73,6 +77,37 @@ function sourceRun(input: Options = {}): string {
   if (input.corrupt) writeFileSync(join(dir, "checkpoints", jobId, snapshot[0]!.sha256), "tampered");
   return dir;
 }
+  /** A fixture ledger: the stage models and the fake hook (standing in for item 10's wrapper) commit their rows to it in call order. */
+  const rows: Record<string, unknown>[] = []; // 7c: the ledger generate() fills
+  const commit = (purpose: string, body: string, status: "settled" | "unknown" | "failed", content?: string, finish = "stop") => {
+    const bytes = content === undefined ? undefined : Buffer.from(JSON.stringify({ choices: [{ message: { content }, finish_reason: finish }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
+    rows.push({ id: `receipt-${rows.length}`, jobId, contextId, contextSha256: h("3"), packetSha256: digest(body), destinationId: "fixture", destinationSha256: h("4"), purpose, policyRevision: 0,
+      committedAt: rows.length + 1, reservedFeeMicrousd: 0, status, ...(bytes ? { feeMicrousd: 0, responseSha256: digest(bytes) } : status === "failed" ? { failure: { phase: "transport", code: "request_timeout", attempt: 1, elapsedMs: 9, timeoutMs: 9 } } : {}),
+      scan: { status: "not_required_for_synthetic_local_test" } });
+    return bytes;
+  };
+  const generate = async (reply: (system: string, user: string) => string, assists: Parameters<typeof runResearchPipeline>[0]["assists"]) => {
+    rows.length = 0;
+    const request = async (input: { body: string; purpose: string }, settle: (bytes: Buffer) => number) => {
+      const body = JSON.parse(input.body) as { messages: { content: string }[] }, bytes = commit(input.purpose, input.body, "settled", reply(body.messages[0]!.content, body.messages[1]!.content))!;
+      settle(bytes); return { bytes, receipt: rows.at(-1) };
+    };
+    const config = { destinationId: "fixture", model: "cpu-fixture", maxOutputTokens: 16384, thinking: "medium" as const, inputUsdPerMillion: 0, outputUsdPerMillion: 0 };
+    const model = new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, config, jobId, contextId);
+    const outcome = await runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), models: { reader: model, planner: model, synthesiser: model }, signal: new AbortController().signal, record() {}, assists });
+    expect(outcome.status).toBe("completed"); return { files: outcome.files, receipts: [...rows], summary: outcome.summary };
+  };
+  const usage = { inputTokens: 100, outputTokens: 20, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  const planAssist = (request: ResearchAssistPlanRequest): ResearchAssistOutcome => {
+    const content = JSON.stringify({ version: 2, questions: [{ id: "Q1", text: "What does the supplied evidence establish?", requirementIds: request.units.map(u => u.id), sourceIds: ["S1"], lookFor: [] }] });
+    commit(PLAN_ASSIST_PURPOSE, canonical({ touchpoint: "T1" }), "settled", content);
+    return { kind: "reply", content, usage, truncated: false, sourceAliases: { S1: "input/corpus/beta.md" } };
+  };
+  const synthesisAssist = (request: ResearchAssistSynthesisRequest): ResearchAssistOutcome => {
+    const content = request.retryAfterTruncation ? researchV4Reply("You write", canonical({ evidence: request.evidence, plan: request.plan })) : "{\"version\":1";
+    commit(SYNTHESIS_ASSIST_PURPOSE, canonical({ touchpoint: "T2", retry: request.retryAfterTruncation }), "settled", content, request.retryAfterTruncation ? "stop" : "length");
+    return { kind: "reply", content, usage, truncated: !request.retryAfterTruncation, evidenceIds: request.evidence.quotes.map(q => q.id) };
+  };
 function changePacket(path: string, change: (value: any) => void) {
   return (files: SessionFile[]) => files.map(file => { if (file.path !== path) return file;
     const value = JSON.parse(file.bytes.toString()); change(value); return { path, bytes: Buffer.from(canonical(value) + "\n") }; });
@@ -116,7 +151,9 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     if (_name !== "task") { expect(researchTransferPresent(dir)).toBe(false); expect(researchTransferStatus(dir)).toEqual({ snapshotSha256: null, code }); }  // backlog item 4: the refusal's code beside the null
   });
   it("refuses legacy protocols and non-default budgets even with a self-consistent alternate digest", () => {
-    for (const changed of [{ ...pipeline(), version: 3 }, { ...pipeline(), protocolSha256: h("4") },
+    // 7c: a v4 freeze is refused by its version and by its protocol (7a.1's pin was the last v4 protocol).
+    const v4 = "f03119bfd0c7d37adf12155453f9530d1281ae9ead60019b97e9b95e2ca0f413";
+    for (const changed of [{ ...pipeline(), version: 3 }, { ...pipeline(), protocolSha256: h("4") }, { ...pipeline(), version: 4 }, { ...pipeline(), version: 4, protocolSha256: v4 }, { ...pipeline(), protocolSha256: v4 },
       { ...pipeline(), budget: { ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 3 }, protocolSha256: researchProtocolSha256({ ...RESEARCH_PIPELINE_BUDGET, extractionCalls: 3 }) }]) {
       const dir = sourceRun({ freeze: { pipeline: changed } }); expect(() => loadResearchSeed(dir, task)).toThrow("research_seed_protocol_mismatch"); expect(researchTransferSnapshot(dir)).toBeNull();
       expect(researchTransferStatus(dir)).toEqual({ snapshotSha256: null, code: "research_seed_protocol_mismatch" });
@@ -216,7 +253,7 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     expect(loadResearchSeed(dir, task).seed.producer.receipts.filter(row => row.status === "superseded")).toHaveLength(1);
     expect(researchTransferPresent(dir)).toBe(true);
   });
-  it("binds assist rows to the stage their purpose names: a settled assist is the stage's call, a skipped, failed or superseded one binds uncounted (backlog item 10)", () => {
+  it("binds assist rows to the stage their purpose names: a settled assist is the stage's call, a skipped, failed or superseded one binds uncounted (backlog item 10)", async () => {
     const input = { kind: "controlled_pipeline" as const, jobId, contextId, brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), files: produced, receipts };
     const plan = receipts.findIndex(row => row.purpose === "research plan"), synthesis = receipts.findIndex(row => row.purpose === "research synthesis");
     const cloudFailure = { phase: "transport", code: "request_timeout", attempt: 1, elapsedMs: 900000, timeoutMs: 900000 };
@@ -226,11 +263,16 @@ describe("v4 research seeds require the ready packet and actual producer receipt
       return { ...rest, id, purpose, status, destinationId: "cloud-assist", reservedFeeMicrousd: 160000,
         ...(status === "settled" ? { responseSha256, feeMicrousd: 34000 } : { failure: cloudFailure }) };
     };
-    const bound = (rows: Record<string, unknown>[]) => { const producer = createResearchProducer({ ...input, receipts: rows });
-      expect(validateResearchProducer(producer, { jobId, files: produced, receipts: rows, input: researchInput() })).toEqual(producer); return producer; };
-    // The forced split: the plan stage's only call is its settled assist, which stands in for the local call the summary counts.
-    const forced = receipts.map((row, i) => i === plan ? assist(row, PLAN_ASSIST_PURPOSE, "settled") : row);
-    expect(bound(forced).receipts[plan]).toEqual({ id: receipts[plan]!.id, stage: "plan", role: "assist", sha256: digest(canonical(forced[plan])) });
+    const bound = (rows: Record<string, unknown>[], files = produced) => { const producer = createResearchProducer({ ...input, files, receipts: rows });
+      expect(validateResearchProducer(producer, { jobId, files, receipts: rows, input: researchInput() })).toEqual(producer); return producer; };
+    // The forced split (7c): the plan stage's only call is its settled assist, recorded as an assist attempt.
+    const split = await generate(researchV4Reply, { firing: "forced_split", plan: async request => planAssist(request) }), forced = split.receipts;
+    const forcedPlan = forced.findIndex(row => row.purpose === PLAN_ASSIST_PURPOSE);
+    expect(split.summary.stages[1]!.planAttempts!.map(a => a.slot ?? "stage")).toEqual(["assist"]);
+    expect(bound(forced, split.files).receipts[forcedPlan]).toEqual({ id: forced[forcedPlan]!.id, stage: "plan", role: "assist", sha256: digest(canonical(forced[forcedPlan])) });
+    // 7c: a row's purpose must match its attempt's slot. A local call relabelled as an assist, or an assist relabelled as local, is refused.
+    expect(() => createResearchProducer({ ...input, receipts: receipts.map((row, i) => i === plan ? assist(row, PLAN_ASSIST_PURPOSE, "settled") : row) })).toThrow("research_producer_slot_mismatch");
+    expect(() => createResearchProducer({ ...input, files: split.files, receipts: forced.map((row, i) => i === forcedPlan ? { ...row, purpose: "research plan" } : row) })).toThrow("research_producer_slot_mismatch");
     // Local-first: the assist was skipped (unknown) or failed into the local fallback beside the local call that answered; it binds uncounted.
     for (const status of ["unknown", "failed", "superseded"]) {
       const rows = [...receipts.slice(0, synthesis), assist(receipts[synthesis]!, SYNTHESIS_ASSIST_PURPOSE, status, `receipt-assist-${status}`), ...receipts.slice(synthesis)];
@@ -243,12 +285,33 @@ describe("v4 research seeds require the ready packet and actual producer receipt
     expect(() => createResearchProducer({ ...input, receipts: receipts.map((row, i) => i === plan ? { ...assist(row, PLAN_ASSIST_PURPOSE, "unknown"), responseSha256: row.responseSha256 } : row) })).toThrow("research_producer_unsettled_receipt");
     expect(() => createResearchProducer({ ...input, receipts: receipts.map((row, i) => i === plan ? assist(row, PLAN_ASSIST_PURPOSE, "unknown") : row) })).toThrow("research_producer_receipt_count");
     // The producer schema admits status "unknown" only with the assist role, and a changed binding is drift.
-    const producer = bound(forced);
-    expect(() => validateResearchProducer({ ...producer, receipts: producer.receipts.map((row, i) => i === plan ? { ...row, status: "unknown" } : row) }, { jobId, files: produced, receipts: forced, input: researchInput() })).toThrow("research_producer_receipts_drift");
-    expect(() => validateResearchProducer({ ...producer, receipts: producer.receipts.map((row, i) => i === plan ? { id: row.id, stage: row.stage, sha256: row.sha256, status: "unknown" } : row) }, { jobId, files: produced, receipts: forced, input: researchInput() })).toThrow();
+    const producer = bound(forced, split.files);
+    expect(() => validateResearchProducer({ ...producer, receipts: producer.receipts.map((row, i) => i === forcedPlan ? { ...row, status: "unknown" } : row) }, { jobId, files: split.files, receipts: forced, input: researchInput() })).toThrow("research_producer_receipts_drift");
+    expect(() => validateResearchProducer({ ...producer, receipts: producer.receipts.map((row, i) => i === forcedPlan ? { id: row.id, stage: row.stage, sha256: row.sha256, status: "unknown" } : row) }, { jobId, files: split.files, receipts: forced, input: researchInput() })).toThrow();
     // The seed loader takes a forced-split ledger through the same producer path.
-    const dir = sourceRun({ receipts: () => forced, producer: () => createResearchProducer({ ...input, kind: "session", receipts: forced }) });
-    expect(loadResearchSeed(dir, task).seed.producer.receipts[plan]).toMatchObject({ stage: "plan", role: "assist" });
+    const dir = sourceRun({ base: split, producer: () => createResearchProducer({ ...input, kind: "session", files: split.files, receipts: forced }) });
+    expect(loadResearchSeed(dir, task).seed.producer.receipts[forcedPlan]).toMatchObject({ stage: "plan", role: "assist" });
+  });
+  it("7c: seeds a [stage, stage, assist] plan stage and a truncated synthesis assist with its retry, and binds skipped and failed assist rows uncounted", async () => {
+    const rejectLocal = (system: string, user: string) => system.startsWith("You plan") ? "not a plan" : system.startsWith("You write") ? "not a synthesis" : researchV4Reply(system, user);
+    const local = await generate(rejectLocal, { firing: "local_first", plan: async request => planAssist(request), synthesis: async request => synthesisAssist(request) });
+    expect(local.summary.stages[1]!.planAttempts!.map(a => a.slot ?? "stage")).toEqual(["stage", "stage", "assist"]);
+    expect(local.summary.stages[3]!.synthesisAttempts!.map(a => a.slot ?? "stage")).toEqual(["stage", "stage", "assist", "assist_retry"]);
+    const localInput = { kind: "session" as const, jobId, contextId, brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), files: local.files, receipts: local.receipts };
+    const localProducer = createResearchProducer(localInput);
+    expect(localProducer.receipts.filter(row => row.role === "assist").map(row => [row.stage, row.status])).toEqual([["plan", undefined], ["synthesise", undefined], ["synthesise", undefined]]);
+    const loaded = loadResearchSeed(sourceRun({ base: local, producer: () => localProducer }), task);
+    expect(loaded.files).toEqual(local.files); expect(loaded.seed.producer.receipts).toEqual(localProducer.receipts);
+    // A settled assist the summary does not count is one reply too many.
+    expect(() => createResearchProducer({ ...localInput, receipts: [...local.receipts, { ...local.receipts.find(r => r.purpose === PLAN_ASSIST_PURPOSE)!, id: "receipt-extra" }] })).toThrow("research_producer_receipt_count");
+    // The forced split with no reply: a skipped plan assist (its row unknown) and a failed synthesis assist bind uncounted beside the stage calls that answered.
+    const forced = await generate(researchV4Reply, { firing: "forced_split",
+      plan: async () => { commit(PLAN_ASSIST_PURPOSE, canonical({ touchpoint: "T1" }), "unknown"); return { kind: "no_reply", outcome: "skipped", code: "assist_skipped_fixture" }; },
+      synthesis: async () => { commit(SYNTHESIS_ASSIST_PURPOSE, canonical({ touchpoint: "T2" }), "failed"); return { kind: "no_reply", outcome: "failed", code: "assist_failed_fixture" }; } });
+    expect(forced.summary.stages.map(stage => stage.calls)).toEqual([1, 1, 2, 1]);
+    const forcedProducer = createResearchProducer({ ...localInput, files: forced.files, receipts: forced.receipts });
+    expect(forcedProducer.receipts.filter(row => row.role === "assist").map(row => [row.stage, row.status])).toEqual([["plan", "unknown"], ["synthesise", "failed"]]);
+    expect(loadResearchSeed(sourceRun({ base: forced, producer: () => forcedProducer }), task).seed.producer.receipts).toEqual(forcedProducer.receipts);
   });
   it("uses the same production transfer path for a loaded seed and a freshly generated packet", () => {
     const base: SessionPhase = { files: researchV4Sources().map(({ path, bytes }) => ({ path, bytes })), checks: [{ id: "c", python: "pass" }],

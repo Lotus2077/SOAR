@@ -291,6 +291,45 @@ describe("backlog item 7(d): the applier's host flags, rules v1 (BL-20261109-035
       const many = roleSwap(Array.from({ length: 100_000 }, (_, i) => `(the "Party${name(i)}")`).join(" "));
       expect(many.edits.flags).toEqual([{ id: "E1", codes: ["parties_swapped"] }]); expect(many.read.termsCapped).toBe(true);
     }, 120_000);
+    // The round-5 review of #81: the rewritten step's skip, kept set and count bound, each pinned by an assertion, not only a timeout.
+    const traded = (term: string, definitions: string[]) => c1(`The ${term} shall pay the Buyer.`, `${term} shall pay the Buyer`, `Buyer shall pay the ${term}`, "replace", [definitions.join(" ")]);
+    const defined = (term: string) => `(the "${term}")`;
+    it("reads a defined term of exactly 200 characters as a party, and not one of 201", () => {
+      const at200 = traded(`L${"a".repeat(199)}`, [defined(`L${"a".repeat(199)}`)]), at201 = traded(`L${"a".repeat(200)}`, [defined(`L${"a".repeat(200)}`)]);
+      expect(at200.edits.flags).toEqual([{ id: "E1", codes: ["parties_swapped"] }]); expect(at200.read.termsCapped).toBe(false);
+      expect(at201.edits.flags).toEqual([]); expect(at201.read.termsCapped).toBe(true);
+    });
+    it("keeps the 48 smallest defined terms in string order, whatever comes later", () => {
+      const party = Array.from({ length: 48 }, (_, i) => `Party${word(i)}Xyzzylongname`), sorted = [...party].sort();
+      const largest = sorted.at(-1)!, second = sorted.at(-2)!, swapped = [{ id: "E1", codes: ["parties_swapped"] }];
+      // Exactly 48: every one is a party, the largest included.
+      expect(traded(largest, party.map(defined)).edits.flags).toEqual(swapped);
+      // Agent and Alpha sort first, so they are kept and the two largest of the 48 make way for them.
+      const crowded = [...party, "Agent", "Alpha"].map(defined);
+      expect(traded("Agent", crowded).edits.flags).toEqual(swapped); expect(traded("Alpha", crowded).edits.flags).toEqual(swapped);
+      expect(traded(largest, crowded).edits.flags).toEqual([]); expect(traded(second, crowded).edits.flags).toEqual([]);
+      expect(traded(largest, crowded).read.termsCapped).toBe(true);
+      // Zebra sorts last, so it is the one left out.
+      expect(traded("Zebra", [...party, "Zebra"].map(defined)).edits.flags).toEqual([]);
+    });
+    it("keeps the same 48 whether the definitions arrive in ascending or descending order", () => {
+      // Named so that string order is index order: TermAa, TermAb, ... TermBx.
+      const terms = Array.from({ length: 50 }, (_, i) => `Term${String.fromCharCode(65 + Math.floor(i / 26))}${String.fromCharCode(97 + i % 26)}`);
+      const pair = (a: string, b: string, definitions: string[]) => c1(`The ${a} shall pay the ${b}.`, `${a} shall pay the ${b}`, `${b} shall pay the ${a}`, "replace", [definitions.join(" ")]);
+      for (const order of [terms, [...terms].reverse()]) {
+        const definitions = order.map(defined);
+        expect(pair(terms[0]!, terms[47]!, definitions).edits.flags).toEqual([{ id: "E1", codes: ["parties_swapped"] }]);
+        expect(pair(terms[0]!, terms[48]!, definitions).edits.flags).toEqual([]); expect(pair(terms[0]!, terms[49]!, definitions).edits.flags).toEqual([]);
+        expect(pair(terms[0]!, terms[47]!, definitions).read.termsCapped).toBe(true);
+      }
+    });
+    it("gives a defined role word and a repeated definition no room among the 48", () => {
+      const party = Array.from({ length: 48 }, (_, i) => `Party${word(i)}Xyzzylongname`), sorted = [...party].sort(), largest = sorted.at(-1)!;
+      for (const definitions of [[defined("Buyer"), ...party.map(defined)], [...party.map(defined), defined("Buyer")], [...party.map(defined), defined(sorted[0]!)]]) {
+        const result = traded(largest, definitions);
+        expect(result.edits.flags).toEqual([{ id: "E1", codes: ["parties_swapped"] }]); expect(result.read.termsCapped).toBe(false);
+      }
+    });
     it("compares only the sentences the edit overlaps, clipped to 2,000 characters either side", () => {
       expect(c1("Fees exclude duties. Fees include all taxes.", "include", "exclude").edits.flags).toEqual([{ id: "E1", codes: ["polarity_swapped"] }]);
       // An anchor that starts with the space after a sentence does not pull that sentence in.

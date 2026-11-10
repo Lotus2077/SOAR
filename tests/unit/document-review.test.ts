@@ -78,8 +78,10 @@ describe("document review (PR-I)", { timeout: 60_000 }, () => {
     expect(documentReviewInstructions("input/Smith & Co's MSA.docx")).toContain(`--list 'input/Smith & Co'\\''s MSA.docx'`);
   });
   it("keeps the whole check command well under the sandbox's command cap, even for the longest source path", () => {
-    // The longest ASCII name, and the most bytes a path may hold (240, here with two-byte letters).
-    for (const longest of [`input/${"x".repeat(195)}.docx`, `input/${"x".repeat(171)}${"\u00e9".repeat(29)}.docx`]) {
+    // The longest ASCII name (200 characters), a 240-byte path of two-byte letters, and the largest command an admissible path gives: a double
+    // quote costs two bytes in the command's JSON, so 190 of them with 39 more name bytes in 10 characters (240 bytes, 200 characters).
+    for (const longest of [`input/${"x".repeat(200)}.docx`, `input/${"x".repeat(171)}${"\u00e9".repeat(29)}.docx`,
+      `input/${'"'.repeat(190)}${"\u{1d11e}".repeat(9)}\u4e2d.docx`]) {
       const bytes = Buffer.byteLength(checkCommand(documentReviewCheck({ sourcePath: longest, sourceSha256: "a".repeat(64) })));
       expect(bytes, longest).toBeLessThan(PRIVATE_SANDBOX_LIMITS.commandBytes - 24 * 1024);
     }

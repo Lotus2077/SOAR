@@ -23,15 +23,16 @@
  * on stops for good (`stopped`), and `--close` ends a loop at any other stop. A loop is never resumed under another loop
  * version, selection protocol, runtime, task, arm or pipeline, and a loop that has chosen or stopped for good is terminal.
  */
-import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { canonical, digest } from "../src/main/private-agent/contracts";
 import { acquireLoopLock, directoryInode, recoverRunClaims, recoverRunLedger, syncDirectory, writeFileAtomically } from "../src/main/private-agent/loop-ledger";
 import { repairDraftPaths } from "../src/main/private-agent/repair";
 import { researchTransferStatus } from "../src/main/private-agent/research-seed";
-import { LOOP_INTEGRITY_STOPS, classifyCritiqueEnd, classifyLoopStop, classifyRunEnd, ledgerStop, type LoopStopRun, type RunClass, type RunEndEvidence } from "../src/main/private-agent/run-classification";
-import { SELECTION_PROTOCOL_VERSION, ZERO_FEE_DESTINATIONS, compareCandidates, readRunEndEvidence, readRunLedger, summarizeRun, type CandidateSummary, type RunLedger,
+import { LOOP_INTEGRITY_STOPS, RUN_CLASSIFICATION_VERSION, RUN_UNFINISHED_CAUSE, classifyCritiqueEnd, classifyLoopStop, classifyRunEnd, ledgerStop, type LoopStopRun, type RunClass,
+  type RunEndEvidence } from "../src/main/private-agent/run-classification";
+import { SELECTION_PROTOCOL_VERSION, ZERO_FEE_DESTINATIONS, compareCandidates, readRunEndEvidence, readRunLedger, readRunObject, summarizeRun, type CandidateSummary, type RunLedger,
   type SelectionStep } from "../src/main/private-agent/selection";
 import { servingCardRefusal } from "../src/main/private-agent/serving-card";
 import { critique, type CritiqueArguments } from "./phase2-repair";
@@ -109,10 +110,17 @@ export interface LoopRecord {
     /** `seedRefusal`: the seed loader's code at `stage_failed` (backlog item 4). `cause`: why a `critique_failed` or `repair_failed` loop stopped (part 3b). */
     final: { candidate: LoopCandidate; step: FinalStep; entailmentRates?: [number | null, number | null]; seedRefusal?: string; cause?: string } | null };
   totals: Totals;
+  /**
+   * Part 3b: a stopped stage's counts on disk while it is neither a candidate, the critique's record nor moved aside; carried across
+   * invocations and counted in the totals until the stage is reused, moved or held again (decision (7)).
+   */
+  held: { stage: LoopStage; counts: Totals } | null;
   failure: string | null;
   /** The stage being run or checked when an invocation stopped, or null. */
   failedStage: LoopStage | null;
   stopped: LoopStopped | null;
+  /** Part 3b: the operator ended the loop with `--close`, at a stop (`stopped`) or after stage 1 (a `critique_failed` or `repair_failed` final). */
+  closed?: true;
 }
 const TOTAL_KEYS = ["modelCalls", "toolCalls", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "feeMicrousd", "unknownDispatches", "retriedDispatches", "failedDispatches", "assistSkippedDispatches", "assistFailedDispatches",
   "zeroFeeFailedDispatches"] as const;
@@ -120,6 +128,8 @@ type Totals = Record<(typeof TOTAL_KEYS)[number], number>;
 const USAGE_KEYS = [["inputTokens", "inputTokens"], ["outputTokens", "outputTokens"], ["cachedTokens", "cacheReadTokens"], ["cacheWriteTokens", "cacheWriteTokens"]] as const;
 /** A recorded failure is a code, never a message: a thrown message may carry a host path or a file excerpt. */
 const CODE = /^[a-z0-9_]{1,80}$/u;
+/** Whether a path names anything, a symbolic link included (Python's `os.path.lexists`). */
+const present = (path: string) => { try { lstatSync(path); return true; } catch { return false; } };
 export function failureCode(error: unknown, fallback: string): string {
   return error instanceof Error && CODE.test(error.message) ? error.message : fallback;
 }
@@ -154,26 +164,29 @@ export function rerunCannotSpend(input: Partial<DriverInput>): boolean {
 export function productionDependencies(input: LoopInput): LoopDependencies {
   return { runSample: runLocalArtifactScreen, critique, summarize: summarizeRun, transferStatus: researchTransferStatus, now: () => new Date().toISOString(), runtimeSha256: () => localScreenSourceFreeze().sha256,
     ...ledgerDependencies(),
-    readCritique: directory => {
-      const saved = JSON.parse(readFileSync(join(directory, "critique.json"), "utf8")) as CritiqueRecord;
-      return { packetSha256: saved.packetSha256, critiqueSha256: saved.critiqueSha256, feeMicrousd: saved.feeMicrousd ?? 0, finishReason: saved.finishReason ?? null, usage: saved.usage ?? null,
-        ...(saved.source ? { source: { resultSha256: saved.source.resultSha256, freezeSha256: saved.source.freezeSha256 } } : {}), ...(saved.researchSnapshotSha256 ? { researchSnapshotSha256: saved.researchSnapshotSha256 } : {}) };
-    },
     deliverables: () => {
       const task = loadPreparedOperatorTask(input.base.taskDirectory, { jobSha256: input.base.expectedJobSha256, briefSha256: input.base.expectedBriefSha256 });
       return repairDraftPaths({ requiredArtifacts: task.phase.contract.requiredArtifacts.map(artifact => artifact.path), claimsLedger: input.base.claimsLedger === true, documentReview: input.base.documentReview === true });
     } };
 }
-/** Part 3b's production helpers, which `--close` needs without a task. */
-export function ledgerDependencies(): Pick<LoopDependencies, "readRunEnd" | "readLedger" | "recoverLedger" | "recoverClaims" | "lock" | "readCritiqueFailure"> {
+/** Part 3b's production helpers and the critique tool's records, which `--close` needs without a task. */
+export function ledgerDependencies(): Pick<LoopDependencies, "readRunEnd" | "readLedger" | "recoverLedger" | "recoverClaims" | "lock" | "readCritique" | "readCritiqueFailure"> {
   return { readRunEnd: readRunEndEvidence, readLedger: readRunLedger, recoverLedger: recoverRunLedger, recoverClaims: (directory, ledger) => recoverRunClaims(directory, ledger), lock: acquireLoopLock,
+    // The critique tool's records, read as a run's files are (readRunObject): a record that cannot be read is no answer.
+    readCritique: directory => {
+      const saved = readRunObject(directory, "critique.json")?.value as Partial<CritiqueRecord> | undefined;
+      if (!saved) throw new Error("loop_critique_unreadable");
+      return { packetSha256: saved.packetSha256 as string, critiqueSha256: saved.critiqueSha256 as string, feeMicrousd: saved.feeMicrousd ?? 0, finishReason: saved.finishReason ?? null,
+        usage: saved.usage ?? null, ...(saved.source ? { source: { resultSha256: saved.source.resultSha256, freezeSha256: saved.source.freezeSha256 } } : {}),
+        ...(saved.researchSnapshotSha256 ? { researchSnapshotSha256: saved.researchSnapshotSha256 } : {}) };
+    },
     readCritiqueFailure: directory => {
-      const path = join(directory, "critique-failure.json");
-      if (!existsSync(path)) return null;
-      let saved: Record<string, unknown>;
-      try { saved = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>; } catch { return { code: null, usage: null, feeMicrousd: 0, finishReason: null }; }
-      return { code: typeof saved.code === "string" ? saved.code : null, usage: saved.usage && typeof saved.usage === "object" ? saved.usage as CritiqueUsage : null,
-        feeMicrousd: typeof saved.feeMicrousd === "number" && Number.isFinite(saved.feeMicrousd) ? saved.feeMicrousd : 0, finishReason: typeof saved.finishReason === "string" ? saved.finishReason : null };
+      if (!present(join(directory, "critique-failure.json"))) return null;
+      const saved = readRunObject(directory, "critique-failure.json")?.value;
+      if (!saved) return { code: null, usage: null, feeMicrousd: 0, finishReason: null };
+      // A recorded failure is a code, never a message: the critique tool records its error's message, which may carry a host path.
+      return { code: typeof saved.code === "string" ? (CODE.test(saved.code) ? saved.code : "repair_critique_failed") : null, usage: isObject(saved.usage) ? saved.usage as CritiqueUsage : null,
+        feeMicrousd: countOf(saved.feeMicrousd), finishReason: typeof saved.finishReason === "string" ? saved.finishReason : null };
     } };
 }
 
@@ -190,24 +203,56 @@ const zeroTotals = (): Totals => Object.fromEntries(TOTAL_KEYS.map(key => [key, 
 const isCount = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0;
 const isText = (value: unknown) => typeof value === "string" && value.length > 0;
 const IDENTIFIER = /^[a-z][a-z0-9_]{0,63}$/u;
+/** A count the totals can add: a finite, non-negative number, else 0 (a record's malformed field never turns a total into NaN). */
+const countOf = (value: unknown) => isCount(value) ? value as number : 0;
+/** Whether a critique's refused call reached the model: its record carries a usage object with a field (registry-row.py `critique_totals`). */
+const madeCall = (failure: CritiqueFailureRecord | null) => failure !== null && failure.usage !== null && typeof failure.usage === "object" && !Array.isArray(failure.usage) &&
+  Object.keys(failure.usage).length > 0;
 /** A critique's call, counted as the loop's totals count it: one model call when the refused call reached the model. */
 function critiqueTotals(record: { usage: CritiqueUsage | null; feeMicrousd: number; finishReason: string | null } | null, made: boolean): Totals {
   const totals = zeroTotals();
   if (!record || !made) return totals;
-  totals.modelCalls = 1; totals.feeMicrousd = record.feeMicrousd;
+  totals.modelCalls = 1; totals.feeMicrousd = countOf(record.feeMicrousd);
   if (record.finishReason === "length") totals.lengthStops = 1;
-  for (const [key, field] of USAGE_KEYS) totals[key] = record.usage?.[field] ?? 0;
+  const usage = record.usage !== null && typeof record.usage === "object" ? record.usage : null;
+  for (const [key, field] of USAGE_KEYS) totals[key] = countOf(usage?.[field]);
   return totals;
 }
 function ledgerTotals(ledger: RunLedger): Totals {
   const totals = zeroTotals();
-  for (const key of TOTAL_KEYS) totals[key] = ledger.counts[key];
+  for (const key of TOTAL_KEYS) totals[key] = countOf(ledger.counts[key]);
   return totals;
 }
-/** A prior record's part 3b fields, each well-formed, or null: a malformed one refuses the resume (`loop_record_mismatch`). */
-function priorFields(prior: Partial<LoopRecord>): Pick<LoopRecord, "begun" | "resumes" | "voids"> | null {
-  const { begun, resumes, voids } = prior;
+/** A critique directory's one call from the tool's own record (critique.json, else critique-failure.json); a record that cannot be read counts nothing. */
+function critiqueCounts(directory: string, deps: Pick<LoopDependencies, "readCritique" | "readCritiqueFailure">): Totals {
+  try {
+    if (present(join(directory, "critique.json"))) return critiqueTotals(deps.readCritique(directory), true);
+    const failure = deps.readCritiqueFailure(directory);
+    return critiqueTotals(failure, madeCall(failure));
+  } catch { return zeroTotals(); }
+}
+/** What a resumed invocation carries from the record it resumes: part 3b's entries, and the counts and choices saved so far. */
+type CarriedFields = Pick<LoopRecord, "begun" | "resumes" | "voids" | "candidates" | "critique" | "seeded" | "writeIdentityEqual" | "held"> & { stage1: LoopRecord["selected"]["stage1"] };
+const isObject = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
+/**
+ * A prior record's carried fields, each well-formed, or null: a malformed one refuses the resume (`loop_record_mismatch`). The saved
+ * candidates and critique are carried so that every save of a resumed invocation counts what the earlier ones counted until the stage
+ * is reused, moved aside or held (decision (7)); a stage reused replaces its carried summary.
+ */
+function priorFields(prior: Partial<LoopRecord>): CarriedFields | null {
+  const { begun, resumes, voids, candidates, critique, seeded, writeIdentityEqual, held } = prior;
   if (!Array.isArray(begun) || !Array.isArray(resumes) || !Array.isArray(voids)) return null;
+  if (!isObject(candidates) || !(["a", "b", "repair"] as const).every(name => candidates[name] === null || (isObject(candidates[name]) && TOTAL_KEYS.every(key => isCount(candidates[name]![key]))))) return null;
+  if (critique !== null && !(isObject(critique) && (critique.modelCalls === 0 || critique.modelCalls === 1) && isCount(critique.feeMicrousd) &&
+      (critique.finishReason === null || typeof critique.finishReason === "string") && (critique.usage === null || isObject(critique.usage)) &&
+      ("failure" in critique ? typeof critique.failure === "string" : isText(critique.packetSha256) && isText(critique.critiqueSha256)))) return null;
+  if (!isObject(seeded) || ![seeded.a, seeded.b, seeded.repair].every(value => typeof value === "boolean") || (seeded.snapshotSha256 !== null && !isText(seeded.snapshotSha256))) return null;
+  if (writeIdentityEqual !== null && typeof writeIdentityEqual !== "boolean") return null;
+  // A record saved before `held` existed carries none.
+  if (held !== null && held !== undefined && !(isObject(held) && (STAGES as readonly unknown[]).includes(held.stage) && isObject(held.counts) && TOTAL_KEYS.every(key => isCount(held.counts[key])))) return null;
+  const stage1 = isObject(prior.selected) ? prior.selected.stage1 : undefined;
+  if (stage1 !== null && !(isObject(stage1) && (stage1.candidate === "a" || stage1.candidate === "b") && isText(stage1.step) && Array.isArray(stage1.entailmentRates) &&
+      stage1.entailmentRates.length === 2 && stage1.entailmentRates.every(rate => rate === null || (typeof rate === "number" && Number.isFinite(rate))))) return null;
   const identity = (value: unknown) => { const item = value as StageIdentity | null; return item !== null && typeof item === "object" && isText(item.inode) &&
     (item.sha256 === null || isText(item.sha256)) && (item.jobId === null || isText(item.jobId)); };
   const stage = (value: unknown) => (STAGES as readonly unknown[]).includes(value);
@@ -217,7 +262,9 @@ function priorFields(prior: Partial<LoopRecord>): Pick<LoopRecord, "begun" | "re
       (entry.cleanup === "confirmed" || entry.cleanup === "not_needed") && isText(entry.at)) || new Set(resumes.map(entry => entry.stage)).size !== resumes.length) return null;
   if (!voids.every(entry => entry && stage(entry.stage) && Number.isSafeInteger(entry.n) && entry.n >= 1 && identity(entry.identity) && isText(entry.at)) ||
       new Set(voids.map(entry => `${entry.stage}.${entry.n}`)).size !== voids.length) return null;
-  return { begun, resumes, voids };
+  return { begun, resumes, voids, candidates: { a: candidates.a ?? null, b: candidates.b ?? null, repair: candidates.repair ?? null } as LoopRecord["candidates"],
+    critique: critique as LoopRecord["critique"], seeded: seeded as LoopRecord["seeded"], writeIdentityEqual: writeIdentityEqual as boolean | null, held: (held ?? null) as LoopRecord["held"],
+    stage1: stage1 as LoopRecord["selected"]["stage1"] };
 }
 /** Where a resume or a void start moves a stage. */
 const movedName = (stage: LoopStage, kind: "infra" | "void", n = 1) => kind === "infra" ? `${stage}.infra-1` : `${stage}.void-${n}`;
@@ -278,27 +325,33 @@ async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies,
         prior.task?.jobSha256 !== input.base.expectedJobSha256 || prior.task?.briefSha256 !== input.base.expectedBriefSha256 ||
         prior.arm !== (input.base.cloudArm ? "cloud" : "local") || prior.pipeline !== (input.base.pipeline ?? null) || !priorFields(prior)) throw new Error("loop_record_mismatch");
   }
-  const carriedFields = prior ? priorFields(prior)! : { begun: [], resumes: [], voids: [] };
+  const carried: CarriedFields = prior ? priorFields(prior)! : { begun: [], resumes: [], voids: [], candidates: { a: null, b: null, repair: null }, critique: null,
+    seeded: { a: false, b: false, repair: false, snapshotSha256: null }, writeIdentityEqual: null, held: null, stage1: null };
   // Decision (3): a crash between a move's save and its rename is completed here; anything the record does not explain refuses.
-  reconcile(loop, carriedFields, log);
+  reconcile(loop, carried, log);
   const record: LoopRecord = { version: LOOP_VERSION, selectionRule: SELECTION_PROTOCOL_VERSION, startedAt: prior?.startedAt ?? deps.now(), finishedAt: null,
     task: { jobSha256: input.base.expectedJobSha256, briefSha256: input.base.expectedBriefSha256 }, runtimeSha256: input.base.expectedRuntimeSha256, arm: input.base.cloudArm ? "cloud" : "local", pipeline: input.base.pipeline ?? null,
     // A stage's interrupt mark (backlog item 11) outlives every invocation that stops before reaching that stage.
     stages: (prior?.stages ?? []).filter(entry => entry.interrupted === true).map(entry => ({ ...entry })),
-    begun: carriedFields.begun.map(entry => ({ ...entry })), resumes: carriedFields.resumes.map(entry => ({ ...entry })), voids: carriedFields.voids.map(entry => ({ ...entry })),
-    candidates: { a: null, b: null, repair: null }, seeded: { a: false, b: false, repair: false, snapshotSha256: null }, writeIdentityEqual: null, critique: null, selected: { stage1: null, final: null },
-    totals: zeroTotals(), failure: null, failedStage: null, stopped: null };
-  /** The counts of a stopped stage that is neither a candidate nor moved, added to the totals of the record saved at the stop. */
-  let pending: Totals | null = null;
+    begun: carried.begun.map(entry => ({ ...entry })), resumes: carried.resumes.map(entry => ({ ...entry })), voids: carried.voids.map(entry => ({ ...entry })),
+    // Decision (7): what the earlier invocations counted stays counted until its stage is reused, moved aside or held.
+    candidates: { ...carried.candidates }, seeded: { ...carried.seeded }, writeIdentityEqual: carried.writeIdentityEqual, critique: carried.critique,
+    selected: { stage1: carried.stage1, final: null }, totals: zeroTotals(), held: carried.held, failure: null, failedStage: null, stopped: null };
   const save = () => {
     // Decision (7): totals are recomputed at every save, so a moved run is counted once, through its resume entry, and never also as a candidate.
     const totals = zeroTotals(), add = (counts: Totals) => { for (const key of TOTAL_KEYS) totals[key] += counts[key]; };
     for (const name of ["a", "b", "repair"] as const) { const summary = record.candidates[name]; if (summary) add(summary); }
     if (record.critique) add(critiqueTotals(record.critique, record.critique.modelCalls > 0));
     for (const entry of record.resumes) add(entry.counts);
-    if (pending) add(pending);
+    if (record.held) add(record.held.counts);
     record.totals = totals;
     writeFileAtomically(join(loop, "loop.json"), `${canonical(record)}\n`);
+  };
+  /** A stopped stage's counts on disk, held in place of what the record carried for it, so the saved totals count its run once. */
+  const holdCounts = (stage: LoopStage, counts: Totals | null) => {
+    if (!counts) return;
+    record.held = { stage, counts };
+    if (stage === "critique") record.critique = null; else record.candidates[stage] = null;
   };
   /** The full caught error, name and message, for the operator (backlog item 4, finding B6); loop.json and log.txt keep codes only, since a message may carry a host path or a file excerpt. */
   const sideError = (code: string, error: unknown) => appendFileSync(join(loop, "errors.txt"), `${deps.now()} ${code} ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}${keyPathSuffix(error)}\n`, { mode: 0o600 });
@@ -312,11 +365,32 @@ async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies,
   const markOf = (stage: LoopStage) => record.stages.some(entry => entry.stage === stage && entry.interrupted === true);
   let current: LoopStage | null = null;
   const stop = (failure: string, evidence: LoopStopRun = { kind: "none" }) => new LoopStop(failure, current, evidence);
+  /** A stage's counts on disk: a run's ledger, or the critique tool's own record; null when its directory is missing or its ledger cannot be read. */
+  const onDisk = (stage: LoopStage): Totals | null => {
+    const dir = directory(stage);
+    if (!existsSync(dir)) return null;
+    if (stage === "critique") return critiqueCounts(dir, deps);
+    try { return ledgerTotals(deps.readLedger(dir)); } catch { return null; }
+  };
+  /** A held stage's counts leave the held slot once its run is counted otherwise (a candidate, the critique's record or a resume entry). */
+  const clearHeld = (stage: LoopStage) => { if (record.held?.stage === stage) record.held = null; };
+  /**
+   * A stage's span (decision (7)): the times it was recorded with (this invocation's entry, else the earlier record's first run of it),
+   * else its ledger's: the freeze's start, else its begun time, to its result's end, else its last commit after that start, else the
+   * start. The wait between invocations is never part of it.
+   */
+  const spanOf = (stage: LoopStage, ledger: RunLedger | null): { startedAt: string; finishedAt: string } => {
+    const recorded = record.stages.find(item => item.stage === stage) ?? prior?.stages.find(item => item.stage === stage && !item.reused) ?? prior?.stages.find(item => item.stage === stage);
+    if (recorded && isText(recorded.startedAt) && isText(recorded.finishedAt)) return { startedAt: recorded.startedAt, finishedAt: recorded.finishedAt };
+    const startedAt = ledger?.freeze?.startedAt ?? begunOf(stage)?.at ?? deps.now();
+    const start = Date.parse(startedAt), last = ledger?.lastCommittedAt ?? null;
+    return { startedAt, finishedAt: ledger?.finishedAt ?? (last !== null && Number.isFinite(start) && last > start ? new Date(last).toISOString() : startedAt) };
+  };
 
   /**
    * Runs a stage afresh: nothing starts after an interrupt; the stage joins `begun` in a save before its run; a stage running when
    * the loop's interrupt fired is marked (the driver cancels it on the same signal), also when the run then threw, and a stage whose
-   * run threw before its directory existed leaves `begun`.
+   * run threw before its directory existed leaves `begun`. A stage that threw or was cut holds its counts on disk until it is examined.
    */
   const runStage = async (stage: LoopStage, run: () => Promise<unknown>) => {
     if (interrupted()) throw new Error("loop_interrupted");
@@ -325,47 +399,47 @@ async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies,
     record.begun.push({ stage, at: startedAt }); save(); log(`${stage} start`);
     try { await run(); }
     catch (error) {
-      if (!existsSync(directory(stage))) dropBegun(stage);
+      if (!existsSync(directory(stage))) dropBegun(stage); else holdCounts(stage, onDisk(stage));
       if (interrupted()) record.stages.push({ stage, startedAt, finishedAt: deps.now(), reused: false, interrupted: true });
       throw error;
     }
     const cut = interrupted();
     record.stages.push({ stage, startedAt, finishedAt: deps.now(), reused: false, ...(cut ? { interrupted: true as const } : {}) }); log(`${stage} end`);
-    if (cut) throw new Error("loop_interrupted");
+    if (cut) { holdCounts(stage, onDisk(stage)); throw new Error("loop_interrupted"); }
   };
-  /** A found stage reused: the times it was first recorded with, and its carried mark, which goes with it. */
-  const reuse = (stage: LoopStage) => {
-    const marked = markOf(stage);
+  /** A found stage reused: the span it was first recorded with (`spanOf`), and its carried mark, which goes with it. */
+  const reuse = (stage: LoopStage, ledger: RunLedger | null) => {
+    const marked = markOf(stage), span = spanOf(stage, ledger);
     record.stages = record.stages.filter(entry => entry.stage !== stage);
-    const earlier = prior?.stages.find(entry => entry.stage === stage && !entry.reused) ?? prior?.stages.find(entry => entry.stage === stage);
-    record.stages.push({ stage, startedAt: earlier?.startedAt ?? deps.now(), finishedAt: earlier?.finishedAt ?? deps.now(), reused: true, ...(marked ? { interrupted: true as const } : {}) });
+    record.stages.push({ stage, startedAt: span.startedAt, finishedAt: span.finishedAt, reused: true, ...(marked ? { interrupted: true as const } : {}) });
     log(`${stage} reused`);
   };
   /**
    * Decision (3)'s write-ahead move: the entry and the stage's leaving `begun` are saved before the rename, the loop directory is
-   * synced after it, and the stage's interrupt mark leaves with it.
+   * synced after it, and the stage's interrupt mark and its carried summary or critique record leave with it (the entry counts the run).
    */
-  const moveAside = (stage: LoopStage, entry: { kind: "void" } | { kind: "infra"; cause: string; as: ResumeEntry["as"]; counts: Totals; cleanup: ResumeEntry["cleanup"] }, jobId: string | null) => {
+  const moveAside = (stage: LoopStage, entry: { kind: "void" } | { kind: "infra"; cause: string; as: ResumeEntry["as"]; counts: Totals; cleanup: ResumeEntry["cleanup"] },
+    jobId: string | null, ledger: RunLedger | null) => {
     const source = directory(stage), identity = identityOf(stage, source, jobId), at = deps.now();
     const n = entry.kind === "void" ? 1 + Math.max(0, ...record.voids.filter(item => item.stage === stage).map(item => item.n)) : 1;
-    const target = join(loop, movedName(stage, entry.kind, n));
+    const name = movedName(stage, entry.kind, n), target = join(loop, name);
     if (existsSync(target)) throw new Error("loop_resume_mismatch");
     if (entry.kind === "infra") {
-      const recorded = record.stages.find(item => item.stage === stage);
-      const span = { startedAt: recorded?.startedAt ?? begunOf(stage)?.at ?? at, endedAt: recorded?.finishedAt ?? at };
-      record.resumes.push({ stage, cause: entry.cause, as: entry.as, identity, counts: entry.counts, span, cleanup: entry.cleanup, at });
+      const span = spanOf(stage, ledger);
+      record.resumes.push({ stage, cause: entry.cause, as: entry.as, identity, counts: entry.counts, span: { startedAt: span.startedAt, endedAt: span.finishedAt }, cleanup: entry.cleanup, at });
     } else record.voids.push({ stage, n, identity, at });
     dropBegun(stage);
     record.stages = record.stages.filter(item => item.stage !== stage);
-    if (stage !== "critique") record.candidates[stage] = null;
+    if (stage === "critique") record.critique = null; else record.candidates[stage] = null;
+    clearHeld(stage);
     save();
+    log(`${stage} moved to ${name} (${entry.kind === "infra" ? entry.cause : "void"})`);
     renameSync(source, target); syncDirectory(loop);
-    log(`${stage} moved to ${movedName(stage, entry.kind, n)} (${entry.kind === "infra" ? entry.cause : "void"})`);
   };
 
   /** Every candidate, fresh or reused, must be this loop's: the task, the runtime the samples ran under, and the lineage the stage order implies. */
   type Expectation = { seededFrom?: string | null; packet?: string | null; sourceFreeze?: string | null; repairOf?: CandidateSummary };
-  const summarise = (name: LoopCandidate, expect: Expectation, evidence: LoopStopRun) => {
+  const summarise = (name: LoopCandidate, expect: Expectation, evidence: LoopStopRun, ledger: RunLedger) => {
     const summary = deps.summarize(directory(name), deliverables);
     const lineageOk = expect.seededFrom === undefined ? true
       : expect.seededFrom === null ? summary.researchFrom === null
@@ -375,8 +449,8 @@ async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies,
       : summary.repairSource?.resultSha256 === expect.repairOf.resultSha256 && summary.repairSource.freezeSha256 === expect.repairOf.freezeSha256;
     // A summary must carry every count the totals add (backlog item 11): a missing one would turn a total into NaN and lose the record.
     if (summary.taskJobSha256 !== record.task.jobSha256 || summary.taskBriefSha256 !== record.task.briefSha256 || summary.runtimeSha256 !== record.runtimeSha256 || !lineageOk || !repairOk ||
-        TOTAL_KEYS.some(key => !Number.isFinite(summary[key]) || summary[key] < 0)) throw stop("loop_stage_mismatch", evidence);
-    record.candidates[name] = summary;
+        TOTAL_KEYS.some(key => !Number.isFinite(summary[key]) || summary[key] < 0)) { holdCounts(name, ledgerTotals(ledger)); throw stop("loop_stage_mismatch", evidence); }
+    record.candidates[name] = summary; clearHeld(name);
     // A completed research packet does not resolve a later writer request. Keep this stage's evidence and counts, but never admit
     // another stage past uncertain dispatches (including committed receipts) or any failed row but a zero-fee one. An assist skipped
     // (unknown) or failed into the host fallback is counted apart and admitted (backlog item 10). Part 3b: these stops are for good.
@@ -384,9 +458,10 @@ async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies,
     if (summary.failedDispatches !== summary.zeroFeeFailedDispatches) throw stop("loop_stage_failed_dispatch", evidence);
     return summary;
   };
+  /** A dispatch row that cost nothing: a zero-fee destination with nothing reserved. */
+  const zeroFeeRow = (row: Record<string, unknown>) => (ZERO_FEE_DESTINATIONS as readonly unknown[]).includes(row.destinationId) && row.reservedFeeMicrousd === 0;
   /** Decision (2): a resumed stage's run must show it sent nothing priced: every row zero-fee in destination and reservation, and a local freeze capped at 0. */
-  const spentNothing = (ledger: RunLedger) => ledger.freeze !== null && ledger.freeze.localArm && ledger.freeze.feeCapMicrousd === 0 &&
-    ledger.dispatches.every(row => (ZERO_FEE_DESTINATIONS as readonly unknown[]).includes(row.destinationId) && row.reservedFeeMicrousd === 0);
+  const spentNothing = (ledger: RunLedger) => ledger.freeze !== null && ledger.freeze.localArm && ledger.freeze.feeCapMicrousd === 0 && ledger.dispatches.every(zeroFeeRow);
   /** Decision (2): how a candidate that ended on infrastructure is resumed at zero fee, or null when it cannot be. */
   const resumePlan = (name: LoopCandidate, rerun: () => DriverInput): ResumeEntry["as"] | null => {
     if (name === "a" && research) {
@@ -398,6 +473,8 @@ async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies,
   };
   /** A seeded stage writes from the packet of a sample whose stage completed, never with a stage or a cloud writer of its own. */
   const seeded = (from: string): Partial<DriverInput> => ({ researchFrom: from, pipeline: undefined, cloudArm: undefined });
+  /** Whether a run directory holds a readable freeze (a start that froze nothing sent nothing); a ledger that cannot be read is examined. */
+  const frozen = (dir: string) => { try { return deps.readLedger(dir).freeze !== null; } catch { return true; } };
 
   /**
    * One candidate stage (decisions (1) to (4)): a found directory is recovered, then reused, resumed (moved aside and run again),
@@ -415,7 +492,15 @@ async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies,
       if (name === "a" && cloudArmed && !resumeOf("a")) throw stop("loop_stage_missing");
       dropBegun(name); log(`${name} missing: started again`);
     }
-    await runStage(name, () => deps.runSample(rerun()));
+    try { await runStage(name, () => deps.runSample(rerun())); }
+    catch (error) {
+      // The driver threw. The loop's interrupt stays resumable; a run that froze is examined as one that may not have finished, so its
+      // end is classed and its spend held (`loop_stage_infra`, a ledger stop or `loop_stage_incomplete`); a start that froze nothing
+      // keeps its own refusal, and the next invocation moves it aside.
+      if (interrupted()) { if (failureCode(error, "") !== "loop_interrupted") sideError("loop_interrupted", error); throw new Error("loop_interrupted"); }
+      if (error instanceof LoopStop || !existsSync(dir) || !frozen(dir)) throw error;
+      sideError(failureCode(error, "loop_stage_failed"), error); log(`${name} threw: examined`);
+    }
     const kept = await examine(name, true, rerun, expect);
     if (!kept) throw stop("loop_stage_mismatch");
     return kept;
@@ -423,45 +508,53 @@ async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies,
   const examine = async (name: LoopCandidate, fresh: boolean, rerun: () => DriverInput, expect: () => Expectation): Promise<CandidateSummary | null> => {
     const dir = directory(name);
     if (!fresh) { try { deps.recoverLedger(dir); } catch { throw new Error("loop_stage_ledger_unreadable"); } }
-    const ledger = deps.readLedger(dir), hasResult = existsSync(join(dir, "result.json")), mark = markOf(name), entry = resumeOf(name);
+    let ledger: RunLedger;
+    try { ledger = deps.readLedger(dir); } catch { throw new Error("loop_stage_ledger_unreadable"); }
+    const held = ledgerTotals(ledger), resultFile = existsSync(join(dir, "result.json")), mark = markOf(name), entry = resumeOf(name);
     if (!fresh && ledger.freeze === null) {
       // Decision (3): a start that sent nothing (the driver writes its freeze before its session, the only sender, starts).
-      if (ledger.dispatches.length > 0 || hasResult) throw stop("loop_stage_mismatch", { kind: "ledger", dispatches: ledger.dispatches });
-      moveAside(name, { kind: "void" }, null); return null;
+      if (ledger.dispatches.length > 0 || resultFile) { holdCounts(name, held); throw stop("loop_stage_mismatch", { kind: "ledger", dispatches: ledger.dispatches }); }
+      moveAside(name, { kind: "void" }, null, ledger); return null;
     }
-    const end = hasResult ? { ...deps.readRunEnd(dir), stopSignalled: mark } : null;
+    // A result that cannot be read is a run that did not finish (it died while the result was written).
+    let end: RunEndEvidence | null = null;
+    if (resultFile) { try { end = { ...deps.readRunEnd(dir), stopSignalled: mark }; } catch { end = null; } }
     const evidence: LoopStopRun = end ? { kind: "result", end } : { kind: "ledger", dispatches: ledger.dispatches };
-    const runClass: RunClass = end ? classifyRunEnd(end) : { version: 1, infra: true, cause: "run_unfinished" };
-    if (entry && !spentNothing(ledger)) { pending = ledgerTotals(ledger); throw stop("loop_resume_spent", evidence); }
-    const plan = runClass.infra && !entry ? resumePlan(name, rerun) : null;
+    const runClass: RunClass = end ? classifyRunEnd(end) : { version: RUN_CLASSIFICATION_VERSION, infra: true, cause: RUN_UNFINISHED_CAUSE };
+    if (entry && !spentNothing(ledger)) { holdCounts(name, held); throw stop("loop_resume_spent", evidence); }
+    let plan: ResumeEntry["as"] | null = null;
+    try { plan = runClass.infra && !entry ? resumePlan(name, rerun) : null; } catch (error) { holdCounts(name, held); throw error; }
     if (plan) {
-      if (!fresh && ledger.freeze?.runtimeSha256 !== record.runtimeSha256) throw stop("loop_stage_mismatch", evidence);
+      if (!fresh && ledger.freeze?.runtimeSha256 !== record.runtimeSha256) { holdCounts(name, held); throw stop("loop_stage_mismatch", evidence); }
       // Decision (4): the ledger's own rows decide first (a priced unresolved or failed row is never resumed), so a stopping row
       // stops the invocation that ran the stage; then the deferral, then the stage's sandbox claims and the write-ahead move.
       const stopped = ledgerStop(ledger.dispatches);
-      if (stopped) { pending = ledgerTotals(ledger); throw stop(stopped.failure, evidence); }
-      if (fresh) { pending = ledgerTotals(ledger); throw new Error("loop_stage_infra"); }
+      if (stopped) { holdCounts(name, held); throw stop(stopped.failure, evidence); }
+      if (fresh) { holdCounts(name, held); throw new Error("loop_stage_infra"); }
       let cleanup: ResumeEntry["cleanup"];
       try { cleanup = await deps.recoverClaims(dir, ledger); }
-      catch (error) { pending = ledgerTotals(ledger); throw new Error(failureCode(error, "loop_stage_cleanup_required") === "loop_stage_mismatch" ? "loop_stage_mismatch" : "loop_stage_cleanup_required"); }
-      moveAside(name, { kind: "infra", cause: runClass.cause, as: plan, counts: ledgerTotals(ledger), cleanup }, ledger.freeze?.jobId ?? null);
+      catch (error) {
+        holdCounts(name, held);
+        if (failureCode(error, "") === "loop_stage_mismatch") throw stop("loop_stage_mismatch", evidence);
+        throw new Error("loop_stage_cleanup_required");
+      }
+      moveAside(name, { kind: "infra", cause: runClass.cause, as: plan, counts: held, cleanup }, ledger.freeze?.jobId ?? null, ledger);
       return null;
     }
-    if (!hasResult) {
-      pending = ledgerTotals(ledger);
-      throw stop(ledgerStop(ledger.dispatches)?.failure ?? "loop_stage_incomplete", evidence);
-    }
-    if (!fresh) reuse(name);
-    const summary = summarise(name, expect(), evidence);
+    if (!end) { holdCounts(name, held); throw stop(ledgerStop(ledger.dispatches)?.failure ?? "loop_stage_incomplete", evidence); }
+    if (!fresh) reuse(name, ledger);
+    const summary = summarise(name, expect(), evidence, ledger);
     // Backlog item 11: a stage the loop's own interrupt cut, whose end part 3a gives to the operator, is no candidate; part 3b resumes it
     // once, and stops here when it cannot. A marked stage that ended on the task, or submitted, is an ordinary candidate.
     if (runClass.infra && (runClass.cause === "operator_stop" || runClass.cause === "public_operator_stop")) throw stop("loop_stage_interrupted", evidence);
     return summary;
   };
 
+  /** The critique's end recorded, with its call when it reached the model; it replaces whatever the record carried or held for the critique. */
   const addCritiqueRecord = (failure: CritiqueFailureRecord | null, code: string) => {
-    const made = failure?.usage !== undefined && failure?.usage !== null;
-    record.critique = { failure: code, feeMicrousd: failure?.feeMicrousd ?? 0, finishReason: failure?.finishReason ?? null, usage: failure?.usage ?? null, modelCalls: made ? 1 : 0 };
+    record.critique = { failure: code, feeMicrousd: countOf(failure?.feeMicrousd), finishReason: typeof failure?.finishReason === "string" ? failure.finishReason : null,
+      usage: failure && isObject(failure.usage) ? failure.usage : null, modelCalls: madeCall(failure) ? 1 : 0 };
+    clearHeld("critique");
   };
 
   const aDir = directory("a"), bDir = directory("b");
@@ -504,18 +597,29 @@ async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies,
       addCritiqueRecord(failure, code);
       record.selected.final = { candidate: chosen, step: "critique_failed", cause }; log(`critique failed: ${code}`); return record;
     };
+    const critiqueLedger = () => { try { return deps.readLedger(critiqueDir); } catch { throw new Error("loop_stage_ledger_unreadable"); } };
+    /** Decision (2): a resumed critique, like any resumed stage, must have sent nothing priced, whether it answered or failed; its call's counts are held at the stop. */
+    const checkCritiqueSpend = (counts: Totals, evidence: LoopStopRun) => {
+      if (!resumeOf("critique") || !existsSync(critiqueDir) || critiqueLedger().dispatches.every(zeroFeeRow)) return;
+      holdCounts("critique", counts); throw stop("loop_resume_spent", evidence);
+    };
     let critiqued: CritiqueRecord | undefined;
     if (existsSync(critiqueDir)) {
       try { deps.recoverLedger(critiqueDir); } catch { throw new Error("loop_stage_ledger_unreadable"); }
-      if (existsSync(join(critiqueDir, "critique.json"))) { reuse("critique"); critiqued = deps.readCritique(critiqueDir); }
+      // A critique record that cannot be read is no answer: the critique is then read by its failure record, or as one that did not finish.
+      let answered: CritiqueRecord | null = null;
+      if (present(join(critiqueDir, "critique.json"))) { try { answered = deps.readCritique(critiqueDir); } catch { answered = null; } }
+      if (answered) { reuse("critique", null); critiqued = answered; }
       else {
         const failure = deps.readCritiqueFailure(critiqueDir), code = failure ? failure.code : null, mark = markOf("critique");
         const critiqueClass = classifyCritiqueEnd(code, mark), evidence: LoopStopRun = { kind: "critique", code, stopSignalled: mark };
+        const counts = critiqueTotals(failure, madeCall(failure));
+        checkCritiqueSpend(counts, evidence);
         if (critiqueClass.infra && !resumeOf("critique")) {
-          const ledger = deps.readLedger(critiqueDir), stopped = ledgerStop(ledger.dispatches);
-          if (stopped) { pending = critiqueTotals(failure, Boolean(failure?.usage)); throw stop(stopped.failure, evidence); }
-          moveAside("critique", { kind: "infra", cause: critiqueClass.cause, as: "rerun", counts: critiqueTotals(failure, Boolean(failure?.usage)), cleanup: "not_needed" }, null);
-        } else return endCritique(critiqueClass.cause, code ?? "run_unfinished", failure);
+          const ledger = critiqueLedger(), stopped = ledgerStop(ledger.dispatches);
+          if (stopped) { addCritiqueRecord(failure, stopped.failure); throw stop(stopped.failure, evidence); }
+          moveAside("critique", { kind: "infra", cause: critiqueClass.cause, as: "rerun", counts, cleanup: "not_needed" }, null, ledger);
+        } else return endCritique(critiqueClass.cause, code ?? RUN_UNFINISHED_CAUSE, failure);
       }
     } else if (begunOf("critique")) { dropBegun("critique"); log("critique missing: started again"); }
     if (!critiqued) {
@@ -531,23 +635,24 @@ async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies,
         if (code === "loop_interrupted" || error instanceof LoopStop) throw error;
         sideError(code, error);
         // A refused critique that reached the model is still one call of the loop's own (the tool attaches its usage and fee to the error).
-        const detail = error as { usage?: CritiqueUsage | null; feeMicrousd?: number | null; finishReason?: string | null };
-        const failure: CritiqueFailureRecord = { code, usage: detail.usage ?? null, feeMicrousd: detail.feeMicrousd ?? 0, finishReason: detail.finishReason ?? null };
-        const critiqueClass = classifyCritiqueEnd(code, false);
+        const detail = error as { usage?: unknown; feeMicrousd?: unknown; finishReason?: unknown };
+        const failure: CritiqueFailureRecord = { code, usage: isObject(detail.usage) ? detail.usage as CritiqueUsage : null, feeMicrousd: countOf(detail.feeMicrousd),
+          finishReason: typeof detail.finishReason === "string" ? detail.finishReason : null };
+        const critiqueClass = classifyCritiqueEnd(code, false), counts = critiqueTotals(failure, madeCall(failure));
+        checkCritiqueSpend(counts, { kind: "critique", code, stopSignalled: false });
         // Decision (1): an infrastructure failure is resumed by the next invocation, once; its call's spend counts until then.
-        if (critiqueClass.infra && !resumeOf("critique") && existsSync(critiqueDir)) { pending = critiqueTotals(failure, Boolean(failure.usage)); throw new Error("loop_stage_infra"); }
+        if (critiqueClass.infra && !resumeOf("critique") && existsSync(critiqueDir)) { holdCounts("critique", counts); throw new Error("loop_stage_infra"); }
         return endCritique(critiqueClass.cause, code, failure);
       }
     }
-    // Decision (2): a resumed critique, like any resumed stage, must have sent nothing priced.
-    if (resumeOf("critique")) {
-      const ledger = deps.readLedger(critiqueDir);
-      if (!ledger.dispatches.every(row => (ZERO_FEE_DESTINATIONS as readonly unknown[]).includes(row.destinationId) && row.reservedFeeMicrousd === 0)) throw stop("loop_resume_spent", { kind: "critique", code: null, stopSignalled: false });
-    }
+    const answered: LoopStopRun = { kind: "critique", code: null, stopSignalled: false };
+    checkCritiqueSpend(critiqueTotals(critiqued, true), answered);
     // A critique must be of the draft chosen now, on this loop's packet.
-    if (critiqued.source && (critiqued.source.resultSha256 !== selected.resultSha256 || critiqued.source.freezeSha256 !== selected.freezeSha256)) throw stop("loop_stage_mismatch", { kind: "critique", code: null, stopSignalled: false });
-    if ((critiqued.researchSnapshotSha256 ?? null) !== (research ? packet : null)) throw stop("loop_stage_mismatch", { kind: "critique", code: null, stopSignalled: false });
-    record.critique = { packetSha256: critiqued.packetSha256, critiqueSha256: critiqued.critiqueSha256, feeMicrousd: critiqued.feeMicrousd, finishReason: critiqued.finishReason, usage: critiqued.usage, modelCalls: 1 };
+    if ((critiqued.source && (critiqued.source.resultSha256 !== selected.resultSha256 || critiqued.source.freezeSha256 !== selected.freezeSha256)) ||
+        (critiqued.researchSnapshotSha256 ?? null) !== (research ? packet : null)) { holdCounts("critique", critiqueTotals(critiqued, true)); throw stop("loop_stage_mismatch", answered); }
+    record.critique = { packetSha256: critiqued.packetSha256, critiqueSha256: critiqued.critiqueSha256, feeMicrousd: countOf(critiqued.feeMicrousd),
+      finishReason: typeof critiqued.finishReason === "string" ? critiqued.finishReason : null, usage: isObject(critiqued.usage) ? critiqued.usage : null, modelCalls: 1 };
+    clearHeld("critique");
     save();
 
     record.seeded.repair = research;
@@ -585,9 +690,10 @@ async function runLocked(loop: string, input: LoopInput, deps: LoopDependencies,
 /**
  * Decision (6): `--close` ends a loop at a stop it will not be resumed from. Under the lock it reconciles, recovers each stage's
  * ledger, and records `stopped` with the totals of every run on disk; after stage 1 it ends the loop with its draft, as a stop
- * there does. It runs nothing and needs no runtime match, so a loop that a later merge strands can still be closed.
+ * there does, unless the close itself found an integrity stop. Either way the record says it was closed. It runs nothing and needs
+ * no runtime match, so a loop that a later merge strands can still be closed.
  */
-export async function closeLoop(loopDirectory: string, deps: Pick<LoopDependencies, "lock" | "recoverLedger" | "readLedger" | "readRunEnd" | "readCritiqueFailure" | "now">): Promise<LoopRecord> {
+export async function closeLoop(loopDirectory: string, deps: Pick<LoopDependencies, "lock" | "recoverLedger" | "readLedger" | "readRunEnd" | "readCritique" | "readCritiqueFailure" | "now">): Promise<LoopRecord> {
   const loop = resolve(loopDirectory);
   if (!existsSync(join(loop, "loop.json"))) throw new Error("loop_record_missing");
   const lock = deps.lock(loop);
@@ -597,29 +703,61 @@ export async function closeLoop(loopDirectory: string, deps: Pick<LoopDependenci
     const fields = record.version === LOOP_VERSION && Array.isArray(record.stages) ? priorFields(record) : null;
     if (!fields) throw new Error("loop_record_mismatch");
     const log = (line: string) => appendFileSync(join(loop, "log.txt"), `${deps.now()} ${line}\n`, { mode: 0o600 });
-    let failure = record.failure ?? "loop_closed";
+    let failure = typeof record.failure === "string" && CODE.test(record.failure) ? record.failure : "loop_closed";
     try { reconcile(loop, fields, log); } catch (error) { failure = failureCode(error, "loop_resume_mismatch"); }
-    // The stopped stage: the one recorded, else the last begun stage whose directory holds no result.
-    const unfinished = (stage: LoopStage) => existsSync(join(loop, stage)) && !existsSync(join(loop, stage, stage === "critique" ? "critique.json" : "result.json"));
-    const stage = record.failedStage ?? [...record.begun].reverse().map(entry => entry.stage).find(unfinished) ?? null;
+    const isStage = (value: unknown): value is LoopStage => (STAGES as readonly unknown[]).includes(value);
+    const markOf = (at: LoopStage) => record.stages.some(entry => isObject(entry) && entry.stage === at && entry.interrupted === true);
+    // The stopped stage: the one recorded, else the last begun stage on disk that the loop had not accepted (no candidate, or no answered
+    // critique in the record). A process killed mid-stage records none, and its stage may hold a torn result or one never examined.
+    const accepted = (at: LoopStage) => at === "critique" ? fields.critique !== null && !("failure" in fields.critique) : fields.candidates[at] !== null;
+    const stage = isStage(record.failedStage) ? record.failedStage : [...fields.begun].reverse().map(entry => entry.stage).find(at => existsSync(join(loop, at)) && !accepted(at)) ?? null;
+    /** What a stage left, for its stop's class: a run's readable result (an unreadable one is a run that did not finish), else its ledger when its freeze is readable (a start that froze nothing left nothing), the critique's failure code, or nothing. */
+    const evidenceOf = (at: LoopStage): LoopStopRun => {
+      const dir = join(loop, at), mark = markOf(at);
+      if (!existsSync(dir)) return { kind: "none" };
+      if (at === "critique") { let code: string | null = null; try { code = deps.readCritiqueFailure(dir)?.code ?? null; } catch { code = null; } return { kind: "critique", code, stopSignalled: mark }; }
+      if (existsSync(join(dir, "result.json"))) { try { return { kind: "result", end: { ...deps.readRunEnd(dir), stopSignalled: mark } }; } catch { /* read as a run that did not finish */ } }
+      try { const ledger = deps.readLedger(dir); return ledger.freeze ? { kind: "ledger", dispatches: ledger.dispatches } : { kind: "none" }; } catch { return { kind: "none" }; }
+    };
     const totals = zeroTotals(), add = (counts: Totals) => { for (const key of TOTAL_KEYS) totals[key] += counts[key]; };
     for (const name of ["a", "b", "repair"] as const) {
-      const dir = join(loop, name);
-      if (record.candidates?.[name]) add(record.candidates[name]!);
-      else if (existsSync(dir)) { try { deps.recoverLedger(dir); add(ledgerTotals(deps.readLedger(dir))); } catch { failure = "loop_stage_ledger_unreadable"; } }
+      const dir = join(loop, name), summary = fields.candidates[name];
+      if (summary) add(summary);
+      else if (existsSync(dir)) {
+        try { deps.recoverLedger(dir); add(ledgerTotals(deps.readLedger(dir))); }
+        catch { failure = "loop_stage_ledger_unreadable"; if (fields.held?.stage === name) add(fields.held.counts); }
+      } else if (fields.held?.stage === name) add(fields.held.counts);
     }
-    if (record.critique) add(critiqueTotals(record.critique, record.critique.modelCalls > 0));
-    else if (existsSync(join(loop, "critique"))) { const saved = deps.readCritiqueFailure(join(loop, "critique")); add(critiqueTotals(saved, Boolean(saved?.usage))); }
+    const critiqueDir = join(loop, "critique");
+    let answered: CritiqueRecord | null = null;
+    if (present(join(critiqueDir, "critique.json"))) { try { answered = deps.readCritique(critiqueDir); } catch { answered = null; } }
+    if (fields.critique) add(critiqueTotals(fields.critique, fields.critique.modelCalls > 0));
+    else if (existsSync(critiqueDir)) {
+      try { deps.recoverLedger(critiqueDir); } catch { failure = "loop_stage_ledger_unreadable"; }
+      add(critiqueCounts(critiqueDir, deps));
+    } else if (fields.held?.stage === "critique") add(fields.held.counts);
     for (const entry of fields.resumes) add(entry.counts);
     record.totals = totals;
-    const stage1 = record.selected?.stage1;
-    if (stage1 && (stage === "critique" || stage === "repair" || stage === null)) {
-      const at: "critique" | "repair" = stage ?? (record.critique ? "repair" : "critique");
-      const evidence: LoopStopRun = at === "critique" ? { kind: "critique", code: deps.readCritiqueFailure(join(loop, "critique"))?.code ?? null, stopSignalled: false }
-        : existsSync(join(loop, "repair", "result.json")) ? { kind: "result", end: { ...deps.readRunEnd(join(loop, "repair")), stopSignalled: false } }
-        : existsSync(join(loop, "repair")) ? { kind: "ledger", dispatches: deps.readLedger(join(loop, "repair")).dispatches } : { kind: "none" };
-      record.selected.final = { candidate: stage1.candidate, step: at === "critique" ? "critique_failed" : "repair_failed", cause: classifyLoopStop(failure, evidence).cause };
+    const stage1 = fields.stage1;
+    if (stage1 && (stage === "critique" || stage === "repair" || stage === null) && !(LOOP_INTEGRITY_STOPS as readonly string[]).includes(failure)) {
+      let at: "critique" | "repair" = stage ?? (fields.critique && !("failure" in fields.critique) ? "repair" : "critique");
+      // A critique that answered is complete, though the loop stopped before it recorded the answer: the loop stopped before its repair.
+      if (at === "critique" && answered) at = "repair";
+      record.selected.final = { candidate: stage1.candidate, step: at === "critique" ? "critique_failed" : "repair_failed", cause: classifyLoopStop(failure, evidenceOf(at)).cause };
+      if (at === "repair" && answered && !(record.critique && !("failure" in record.critique))) {
+        record.critique = { packetSha256: answered.packetSha256, critiqueSha256: answered.critiqueSha256, feeMicrousd: countOf(answered.feeMicrousd),
+          finishReason: typeof answered.finishReason === "string" ? answered.finishReason : null, usage: isObject(answered.usage) ? answered.usage : null, modelCalls: 1 };
+      }
+      if (at === "critique" && !record.critique) {
+        // As a stop at the critique records it: the critique's own code when it recorded one (as endCritique stores it), else the
+        // close's, with the call the critique tool recorded when it reached the model.
+        let saved: CritiqueFailureRecord | null = null;
+        try { saved = existsSync(critiqueDir) ? deps.readCritiqueFailure(critiqueDir) : null; } catch { saved = null; }
+        record.critique = { failure: saved?.code ?? failure, feeMicrousd: countOf(saved?.feeMicrousd), finishReason: typeof saved?.finishReason === "string" ? saved.finishReason : null,
+          usage: saved && isObject(saved.usage) ? saved.usage : null, modelCalls: madeCall(saved) ? 1 : 0 };
+      }
     } else record.stopped = { stage, failure, closed: true };
+    record.closed = true;
     record.failure = failure; record.failedStage = stage; record.finishedAt = deps.now();
     writeFileAtomically(join(loop, "loop.json"), `${canonical(record)}\n`);
     log(`closed (${failure})`);

@@ -5,9 +5,10 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { digest } from "../../src/main/private-agent/contracts";
 import { acquireLoopLock, directoryInode, recoverRunClaims, recoverRunLedger } from "../../src/main/private-agent/loop-ledger";
-import { readRunLedger, type CandidateSummary, type RunLedger } from "../../src/main/private-agent/selection";
+import { readRunEndEvidence, readRunLedger, type CandidateSummary, type RunLedger } from "../../src/main/private-agent/selection";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
-import { LOOP_VERSION, closeLoop, loopExitCode, rerunCannotSpend, runSelectionLoop, type DriverInput, type LoopDependencies, type LoopInput, type LoopRecord } from "../../scripts/phase4-loop";
+import { LOOP_VERSION, closeLoop, ledgerDependencies, loopExitCode, parseCloseArguments, productionDependencies, rerunCannotSpend, runSelectionLoop, type DriverInput, type LoopDependencies,
+  type LoopInput, type LoopRecord } from "../../scripts/phase4-loop";
 
 /**
  * Backlog item 11, part 3b (BL-20261110-0637-infra-resume-design): the loop's zero-fee resume, its lock, its write-ahead moves and
@@ -35,7 +36,9 @@ const zeroCounts = { modelCalls: 0, toolCalls: 0, inputTokens: 0, outputTokens: 
   failedDispatches: 0, zeroFeeFailedDispatches: 0, assistSkippedDispatches: 0, assistFailedDispatches: 0 };
 interface Harness { summaries: Record<string, CandidateSummary>; reruns?: Record<string, CandidateSummary>; rows?: Record<string, Record<string, unknown>[]>; failing?: Record<string, Record<string, unknown>>;
   transfers?: string[]; onRun?: (run: DriverInput) => void; onWritten?: (run: DriverInput) => void; realLock?: boolean; critique?: LoopDependencies["critique"];
-  recoverClaims?: LoopDependencies["recoverClaims"]; ledgers?: (directory: string, ledger: RunLedger) => RunLedger }
+  recoverClaims?: LoopDependencies["recoverClaims"]; ledgers?: (directory: string, ledger: RunLedger) => RunLedger;
+  /** A run whose result cannot be read (a crash while it was written). */ endFails?: (directory: string) => boolean;
+  /** The clock's minute, so a later invocation runs later. */ minute?: number }
 /** Fakes standing in for the driver, the critique tool and the readers; a stage's run writes its freeze, then its result, as the driver does. */
 function harness(input: Harness) {
   const calls: { runs: DriverInput[]; critiques: number } = { runs: [], critiques: 0 };
@@ -61,6 +64,7 @@ function harness(input: Harness) {
     readCritiqueFailure: directory => existsSync(join(directory, "critique-failure.json")) ? JSON.parse(readFileSync(join(directory, "critique-failure.json"), "utf8")) : null,
     summarize: directory => { const found_ = found(directory); if (!found_) throw new Error(`no summary for ${nameOf(directory)}`); return found_; },
     readRunEnd: directory => {
+      if (input.endFails?.(directory)) throw new SyntaxError("Unexpected end of JSON input");
       const found_ = found(directory)!, rows = input.rows?.[nameOf(directory)] ?? [];
       return { status: found_.status, reason: found_.reason, stageDenied: found_.stageDenied, failingCall: [...rows].reverse().find(row => row.status === "failed") ?? null,
         uncertainCall: [...rows].reverse().find(row => row.status === "unknown") ?? null, runtimeBrokerCode: null, captureFailure: null, verificationFailure: null, tokenAdmissionCode: null, brokerDenialCode: null };
@@ -69,7 +73,7 @@ function harness(input: Harness) {
       const found_ = found(directory), name = nameOf(directory);
       const freeze = existsSync(join(directory, "freeze.json")) && found_ ? { jobId: found_.jobId, sha256: digest(readFileSync(join(directory, "freeze.json"))), runtimeSha256: found_.runtimeSha256,
         startedAt: found_.startedAt, feeCapMicrousd: 0, localArm: true } : null;
-      const ledger: RunLedger = { freeze, dispatches: input.rows?.[name] ?? [], claims: [], counts: { ...zeroCounts, modelCalls: found_?.modelCalls ?? 0, toolCalls: found_?.toolCalls ?? 0 }, lastCommittedAt: null };
+      const ledger: RunLedger = { freeze, dispatches: input.rows?.[name] ?? [], claims: [], counts: { ...zeroCounts, modelCalls: found_?.modelCalls ?? 0, toolCalls: found_?.toolCalls ?? 0 }, lastCommittedAt: null, finishedAt: null };
       return input.ledgers ? input.ledgers(directory, ledger) : ledger;
     },
     recoverLedger: directory => recoverRunLedger(directory),
@@ -77,7 +81,7 @@ function harness(input: Harness) {
     lock: input.realLock ? acquireLoopLock : () => ({ release() { /* one invocation at a time */ } }),
     transferStatus: directory => (input.transfers ?? []).includes(nameOf(directory)) ? { snapshotSha256: h("f"), code: null } : { snapshotSha256: null, code: "research_seed_no_transfer" },
     deliverables: () => ["output/report.md"],
-    now: () => `2026-11-10T08:00:${String(tick++ % 60).padStart(2, "0")}.000Z`,
+    now: () => `2026-11-10T08:${String(input.minute ?? 0).padStart(2, "0")}:${String(tick++ % 60).padStart(2, "0")}.000Z`,
     runtimeSha256: () => h("4"),
   };
   return { deps, calls };
@@ -86,6 +90,9 @@ function loopDir() { const dir = realpathSync(mkdtempSync(join(tmpdir(), "soar-r
 const read = (dir: string) => JSON.parse(readFileSync(join(dir, "loop.json"), "utf8")) as LoopRecord;
 const ran = (calls: { runs: DriverInput[] }) => calls.runs.map(run => run.outputDirectory.split("/").pop());
 const run = (dir: string, deps: LoopDependencies, over: Partial<DriverInput> = {}, signal?: AbortSignal) => runSelectionLoop({ base: base(over), loopDirectory: dir }, deps, signal ? { signal } : {});
+/** The dependencies `--close` takes, from a harness's. */
+const closing = (deps: LoopDependencies) => ({ lock: deps.lock, recoverLedger: deps.recoverLedger, readLedger: deps.readLedger, readRunEnd: deps.readRunEnd, readCritique: deps.readCritique,
+  readCritiqueFailure: deps.readCritiqueFailure, now: deps.now });
 
 describe("the loop's zero-fee resume (backlog item 11, part 3b)", () => {
   it("defers a fresh infrastructure end to the next invocation, which moves the stage aside under a write-ahead entry and runs it again, once", async () => {
@@ -137,13 +144,15 @@ describe("the loop's zero-fee resume (backlog item 11, part 3b)", () => {
     // Finished: part 1's path, at stage_failed with the seed refusal.
     const finished = harness({ summaries: stages(null, { a: ended("model_unavailable") }), rows: { a: [zeroFeeFailed] } });
     expect((await run(loopDir(), finished.deps, { pipeline: "research", cloudArm })).selected.final).toEqual({ candidate: "a", step: "stage_failed", seedRefusal: "research_seed_no_transfer" });
-    // Unfinished: the driver died after its session started.
+    // Unfinished: the driver threw after its session started. The invocation that ran it examines it and stops for good.
     const dir = loopDir();
     const dying = harness({ summaries: stages(), onRun: call => { mkdirSync(call.outputDirectory, { recursive: true }); writeFileSync(join(call.outputDirectory, "freeze.json"), "{}"); throw new Error("driver_died"); } });
-    await expect(run(dir, dying.deps, { pipeline: "research", cloudArm })).rejects.toThrow("driver_died");
+    await expect(run(dir, dying.deps, { pipeline: "research", cloudArm })).rejects.toThrow("loop_stage_incomplete");
+    expect(read(dir)).toMatchObject({ stopped: { stage: "a", failure: "loop_stage_incomplete" }, resumes: [], totals: { modelCalls: 10 } });
+    expect(readFileSync(join(dir, "errors.txt"), "utf8")).toContain("Error: driver_died");
     const after = harness({ summaries: stages() });
-    await expect(run(dir, after.deps, { pipeline: "research", cloudArm })).rejects.toThrow("loop_stage_incomplete");
-    expect(after.calls.runs).toHaveLength(0); expect(read(dir)).toMatchObject({ stopped: { stage: "a", failure: "loop_stage_incomplete" }, resumes: [] });
+    await expect(run(dir, after.deps, { pipeline: "research", cloudArm })).rejects.toThrow("loop_terminal");
+    expect(after.calls.runs).toHaveLength(0);
     // Cut by the loop's interrupt, ended cancelled, with no packet.
     const dir2 = loopDir(), abort = new AbortController();
     const cut = stages(null, { a: ended("cancelled_or_deadline") });
@@ -191,13 +200,13 @@ describe("the loop's zero-fee resume (backlog item 11, part 3b)", () => {
     const committed = { status: "committed", destinationId: "cloud_coordinator", purpose: "research plan", reservedFeeMicrousd: 160_000 };
     const dying = (rows: Record<string, unknown>[]) => harness({ summaries: stages(), rows: { a: rows }, onRun: call => { if (call.outputDirectory.endsWith("/a")) { mkdirSync(call.outputDirectory, { recursive: true }); writeFileSync(join(call.outputDirectory, "freeze.json"), "{}"); throw new Error("driver_died"); } } });
     const dir2 = loopDir();
-    await expect(run(dir2, dying([committed]).deps)).rejects.toThrow("driver_died");
-    await expect(run(dir2, harness({ summaries: stages(), rows: { a: [committed] } }).deps)).rejects.toThrow("loop_stage_unresolved_dispatch");
+    await expect(run(dir2, dying([committed]).deps)).rejects.toThrow("loop_stage_unresolved_dispatch");
     expect(existsSync(join(dir2, "a"))).toBe(true); expect(read(dir2)).toMatchObject({ stopped: { stage: "a", failure: "loop_stage_unresolved_dispatch" } });
+    await expect(run(dir2, harness({ summaries: stages(), rows: { a: [committed] } }).deps)).rejects.toThrow("loop_terminal");
     // A zero-fee committed row is admitted: sending equivalent work again costs nothing, and the rerun is a new job.
     const local = { status: "committed", destinationId: "owned_local_model", purpose: "agent reasoning and tool selection", reservedFeeMicrousd: 0 };
     const dir3 = loopDir();
-    await expect(run(dir3, dying([local]).deps)).rejects.toThrow("driver_died");
+    await expect(run(dir3, dying([local]).deps)).rejects.toThrow("loop_stage_infra");
     const resumed = harness({ summaries: stages(), rows: { a: [local] }, reruns: { a: summary({ jobId: "ja2" }) }, ledgers: (directory, ledger) => directory.endsWith("/a") && existsSync(join(directory, "..", "a.infra-1")) ? { ...ledger, dispatches: [] } : ledger });
     expect((await run(dir3, resumed.deps)).resumes).toEqual([expect.objectContaining({ stage: "a", cause: "run_unfinished", as: "rerun" })]);
   });
@@ -334,18 +343,18 @@ describe("the loop's zero-fee resume (backlog item 11, part 3b)", () => {
     expect(ended_).toMatchObject({ failure: "loop_stage_interrupted", failedStage: "repair", stopped: null });
   });
   it("closes a loop at a resumable stop with every run's spend, after which the loop is terminal", async () => {
-    const closeDeps = () => { const { deps } = harness({ summaries: stages(null, { a: ended("model_unavailable") }) }); return { lock: deps.lock, recoverLedger: deps.recoverLedger, readLedger: deps.readLedger, readRunEnd: deps.readRunEnd, readCritiqueFailure: deps.readCritiqueFailure, now: deps.now }; };
+    const closeDeps = () => closing(harness({ summaries: stages(null, { a: ended("model_unavailable") }) }).deps);
     const dir = loopDir();
     await expect(run(dir, harness({ summaries: stages(null, { a: ended("model_unavailable") }) }).deps)).rejects.toThrow("loop_stage_infra");
     const closed = await closeLoop(dir, closeDeps());
-    expect(closed).toMatchObject({ stopped: { stage: "a", failure: "loop_stage_infra", closed: true }, totals: { modelCalls: 10 } });
+    expect(closed).toMatchObject({ stopped: { stage: "a", failure: "loop_stage_infra", closed: true }, closed: true, totals: { modelCalls: 10 } });
     await expect(run(dir, harness({ summaries: stages() }).deps)).rejects.toThrow("loop_terminal");
     await expect(closeLoop(dir, closeDeps())).rejects.toThrow("loop_terminal");
     // After stage 1, closing ends the loop with its draft.
     const dir2 = loopDir();
     await expect(run(dir2, harness({ summaries: stages(null, { repair: ended("model_unavailable") }) }).deps)).rejects.toThrow("loop_stage_infra");
     const closed2 = await closeLoop(dir2, { ...closeDeps(), readRunEnd: harness({ summaries: stages(null, { repair: ended("model_unavailable") }) }).deps.readRunEnd });
-    expect(closed2.selected.final).toEqual({ candidate: "a", step: "repair_failed", cause: "model_unavailable" }); expect(closed2.stopped).toBeNull();
+    expect(closed2.selected.final).toEqual({ candidate: "a", step: "repair_failed", cause: "model_unavailable" }); expect(closed2).toMatchObject({ stopped: null, closed: true });
     // A stray directory is recorded as the failure, and the loop is still closed.
     const dir3 = loopDir();
     await expect(run(dir3, harness({ summaries: stages(null, { a: ended("model_unavailable") }) }).deps)).rejects.toThrow("loop_stage_infra");
@@ -354,3 +363,210 @@ describe("the loop's zero-fee resume (backlog item 11, part 3b)", () => {
     await expect(closeLoop(loopDir(), closeDeps())).rejects.toThrow("loop_record_missing");
   });
 });
+
+/** A critique tool that writes its failure record, as phase2-repair.ts does, and throws its code with the call's usage. */
+const critiqueFailing = (code: string, usage: Record<string, number> | null = { inputTokens: 300 }) => (async (request: { outputDirectory: string }) => {
+  mkdirSync(request.outputDirectory, { recursive: true }); writeFileSync(join(request.outputDirectory, "critique-failure.json"), JSON.stringify({ code, usage, feeMicrousd: 0 }));
+  throw Object.assign(new Error(code), { usage, feeMicrousd: 0 });
+}) as unknown as LoopDependencies["critique"];
+/** A driver that freezes its run and then throws, as a run cut after its session started. */
+const freezesThenThrows = (stage: string, message = "driver_died") => (call: DriverInput) => {
+  if (!call.outputDirectory.endsWith(`/${stage}`)) return;
+  mkdirSync(call.outputDirectory, { recursive: true }); writeFileSync(join(call.outputDirectory, "freeze.json"), "{}"); throw new Error(message);
+};
+
+describe("part 3b after its code review: spans, carried counts, driver throws, critique resumes and --close", () => {
+  it("spans a resumed stage by the times it ran, never the wait between invocations, and an unrecorded run by its ledger", async () => {
+    const dir = loopDir(), summaries = stages(null, { a: ended("model_unavailable") });
+    await expect(run(dir, harness({ summaries }).deps)).rejects.toThrow("loop_stage_infra");
+    const ranAt = read(dir).stages.find(entry => entry.stage === "a")!;
+    const record = await run(dir, harness({ summaries, reruns: { a: summary({ jobId: "ja2" }) }, minute: 30 }).deps);
+    expect(record.resumes[0]!.span).toEqual({ startedAt: ranAt.startedAt, endedAt: ranAt.finishedAt });
+    expect(record.resumes[0]!.span.endedAt.startsWith("2026-11-10T08:00:")).toBe(true);
+    // A run cut before the loop recorded its end: its freeze's start to its last commit, else to its result's end.
+    for (const [over, endedAt] of [[{ lastCommittedAt: Date.parse("2026-11-10T07:05:00.000Z") }, "2026-11-10T07:05:00.000Z"],
+      [{ lastCommittedAt: null, finishedAt: "2026-11-10T07:09:00.000Z" }, "2026-11-10T07:09:00.000Z"], [{ lastCommittedAt: Date.parse("2026-11-10T06:00:00.000Z") }, "2026-11-10T07:00:00.000Z"]] as const) {
+      const cut = loopDir();
+      const ledgers = (directory: string, ledger: RunLedger) => ledger.freeze ? { ...ledger, ...over, freeze: { ...ledger.freeze, startedAt: "2026-11-10T07:00:00.000Z" } } : ledger;
+      await expect(run(cut, harness({ summaries: stages(), onRun: freezesThenThrows("a"), ledgers }).deps)).rejects.toThrow("loop_stage_infra");
+      expect(read(cut).stages).toEqual([]);
+      const resumed = await run(cut, harness({ summaries: stages(), reruns: { a: summary({ jobId: "ja2" }) }, ledgers, minute: 30 }).deps);
+      expect(resumed.resumes[0]!.span).toEqual({ startedAt: "2026-11-10T07:00:00.000Z", endedAt });
+    }
+  });
+  it("keeps every count an earlier invocation saved until its stage is reused, moved or held, so an early stop lowers no total", async () => {
+    const dir = loopDir(), summaries = stages(null, { b: ended("model_unavailable") });
+    await expect(run(dir, harness({ summaries }).deps)).rejects.toThrow("loop_stage_infra");
+    expect(read(dir)).toMatchObject({ totals: { modelCalls: 20 }, held: { stage: "b", counts: expect.objectContaining({ modelCalls: 10 }) }, candidates: { b: null } });
+    // The next invocation cannot read a's ledger: it stops before reusing a, and its record still counts a and the held b.
+    const unreadable = (directory: string, ledger: RunLedger) => { if (directory.endsWith("/a")) throw new Error("run_ledger_missing"); return ledger; };
+    await expect(run(dir, harness({ summaries, ledgers: unreadable }).deps)).rejects.toThrow("loop_stage_ledger_unreadable");
+    expect(read(dir)).toMatchObject({ failure: "loop_stage_ledger_unreadable", failedStage: "a", stopped: null, totals: { modelCalls: 20 }, candidates: { a: expect.objectContaining({ jobId: "ja" }) } });
+    // Resumed: b moves aside, its entry counts it, and nothing is counted twice.
+    const record = await run(dir, harness({ summaries, reruns: { b: summary({ jobId: "jb2", freezeSha256: h("d"), resultSha256: h("e") }) } }).deps);
+    expect(record).toMatchObject({ held: null, totals: { modelCalls: 41 } });
+    // A malformed carried count refuses the resume.
+    const tampered = loopDir();
+    await expect(run(tampered, harness({ summaries }).deps)).rejects.toThrow("loop_stage_infra");
+    const saved = read(tampered); (saved.candidates.a as unknown as Record<string, unknown>).modelCalls = "10"; writeFileSync(join(tampered, "loop.json"), JSON.stringify(saved));
+    await expect(run(tampered, harness({ summaries }).deps)).rejects.toThrow("loop_record_mismatch");
+  });
+  it("examines a run whose driver threw after its freeze: an unfinished local stage is deferred with its spend held, then resumed", async () => {
+    const dir = loopDir();
+    await expect(run(dir, harness({ summaries: stages(), onRun: freezesThenThrows("b", "sandbox failed at /private/var/run") }).deps)).rejects.toThrow("loop_stage_infra");
+    expect(read(dir)).toMatchObject({ failure: "loop_stage_infra", failedStage: "b", stopped: null, totals: { modelCalls: 20 } });
+    expect(readFileSync(join(dir, "errors.txt"), "utf8")).toContain("loop_stage_failed Error: sandbox failed");
+    expect(readFileSync(join(dir, "log.txt"), "utf8")).not.toContain("/private/var/run");
+    const resumed = harness({ summaries: stages(), reruns: { b: summary({ jobId: "jb2", freezeSha256: h("d"), resultSha256: h("e") }) } });
+    const record = await run(dir, resumed.deps);
+    expect(record.resumes).toEqual([expect.objectContaining({ stage: "b", cause: "run_unfinished", as: "rerun" })]); expect(ran(resumed.calls)).toEqual(["b", "repair"]);
+    // A driver that threw before it froze anything keeps its own refusal.
+    await expect(run(loopDir(), harness({ summaries: stages(), onRun: () => { throw new Error("local_screen_serving_card_refused"); } }).deps)).rejects.toThrow("local_screen_serving_card_refused");
+  });
+  it("reads a result it cannot parse as a run that did not finish, and resumes it", async () => {
+    const dir = loopDir(), torn = (directory: string) => directory.endsWith("/a") && !existsSync(join(directory, "..", "a.infra-1"));
+    await expect(run(dir, harness({ summaries: stages(), endFails: torn }).deps)).rejects.toThrow("loop_stage_infra");
+    const second = harness({ summaries: stages(), endFails: torn, reruns: { a: summary({ jobId: "ja2" }) } });
+    expect((await run(dir, second.deps)).resumes).toEqual([expect.objectContaining({ stage: "a", cause: "run_unfinished", as: "rerun" })]);
+  });
+  it("resumes an unfinished cloud-armed a whose reading stage completed as a seeded writer, and a local research a without a packet as a rerun", async () => {
+    const dir = loopDir();
+    await expect(run(dir, harness({ summaries: stages(), transfers: ["a"], onRun: freezesThenThrows("a") }).deps, { pipeline: "research", cloudArm })).rejects.toThrow("loop_stage_infra");
+    const seed = { sourceJobId: "ja", snapshotSha256: h("f"), sourceFreezeSha256: digest(readFileSync(join(dir, "a", "freeze.json"))) };
+    const second = harness({ summaries: stages(seed), transfers: ["a", "a.infra-1"], reruns: { a: summary({ jobId: "ja2", researchFrom: seed }) } });
+    const record = await run(dir, second.deps, { pipeline: "research", cloudArm });
+    expect(record.resumes).toEqual([expect.objectContaining({ stage: "a", cause: "run_unfinished", as: "seeded_writer" })]);
+    expect(second.calls.runs[0]).toMatchObject({ researchFrom: join(dir, "a.infra-1") }); expect(second.calls.runs[0]!.cloudArm).toBeUndefined();
+    // A local research a that ended on infrastructure before its packet: its reading stage costs nothing, so it is run again.
+    const dir2 = loopDir(), transfers: string[] = [];
+    await expect(run(dir2, harness({ summaries: stages(null, { a: ended("model_unavailable") }), transfers }).deps, { pipeline: "research" })).rejects.toThrow("loop_stage_infra");
+    const local = harness({ summaries: stages({ sourceJobId: "ja2", snapshotSha256: h("f") }, { a: ended("model_unavailable") }), transfers, reruns: { a: summary({ jobId: "ja2" }) },
+      onWritten: written => { if (written.outputDirectory.endsWith("/a")) transfers.push("a"); } });
+    const record2 = await run(dir2, local.deps, { pipeline: "research" });
+    expect(record2.resumes).toEqual([expect.objectContaining({ stage: "a", cause: "model_unavailable", as: "rerun" })]); expect(local.calls.runs[0]).toMatchObject({ pipeline: "research" });
+    expect(record2.seeded).toEqual({ a: false, b: true, repair: true, snapshotSha256: h("f") }); expect(record2.selected.final).toMatchObject({ candidate: "a" });
+  });
+  it("resumes a critique the loop's interrupt cancelled at its token admission, and runs again one stopped while its draft was rendered", async () => {
+    const dir = loopDir(), abort = new AbortController();
+    const admission = (async (request: { outputDirectory: string }) => {
+      mkdirSync(request.outputDirectory, { recursive: true }); abort.abort();
+      writeFileSync(join(request.outputDirectory, "critique-failure.json"), JSON.stringify({ code: "local_token_admission_cancelled", usage: null, feeMicrousd: null }));
+      throw new Error("local_token_admission_cancelled");
+    }) as unknown as LoopDependencies["critique"];
+    await expect(run(dir, harness({ summaries: stages(), critique: admission }).deps, {}, abort.signal)).rejects.toThrow("loop_interrupted");
+    const resumed = harness({ summaries: stages() });
+    const record = await run(dir, resumed.deps);
+    expect(record.resumes).toEqual([expect.objectContaining({ stage: "critique", cause: "operator_stop", as: "rerun" })]); expect(resumed.calls.critiques).toBe(1);
+    expect(record.selected.final).toMatchObject({ candidate: "a" });
+    // The critique tool stops before its directory exists when the interrupt fires while it renders the draft: the critique leaves begun.
+    const dir2 = loopDir(), abort2 = new AbortController();
+    const rendering = (async () => { abort2.abort(); throw new Error("request_cancelled"); }) as unknown as LoopDependencies["critique"];
+    await expect(run(dir2, harness({ summaries: stages(), critique: rendering }).deps, {}, abort2.signal)).rejects.toThrow("loop_interrupted");
+    expect(read(dir2).begun.map(entry => entry.stage)).toEqual(["a", "b"]); expect(existsSync(join(dir2, "critique"))).toBe(false);
+    const again = harness({ summaries: stages() });
+    expect((await run(dir2, again.deps)).selected.final).toMatchObject({ candidate: "a" }); expect(again.calls.critiques).toBe(1);
+  });
+  it("stops for good when a resumed critique that failed shows a priced row, counting its call", async () => {
+    const dir = loopDir();
+    await expect(run(dir, harness({ summaries: stages(), critique: critiqueFailing("request_failed") }).deps)).rejects.toThrow("loop_stage_infra");
+    const priced = [{ status: "settled", destinationId: "cloud_critic", reservedFeeMicrousd: 5, feeMicrousd: 5 }];
+    await expect(run(dir, harness({ summaries: stages(), critique: critiqueFailing("request_failed"), rows: { critique: priced } }).deps)).rejects.toThrow("loop_resume_spent");
+    expect(read(dir)).toMatchObject({ stopped: { stage: "critique", failure: "loop_resume_spent" }, held: { stage: "critique" }, totals: { modelCalls: 22 } });
+  });
+  it("closes a loop cut during its critique after stage 1 with the mark's class, and at a repair start that froze nothing as the task's", async () => {
+    const dir = loopDir(), abort = new AbortController();
+    const cancelled = (async (request: { outputDirectory: string }) => {
+      mkdirSync(request.outputDirectory, { recursive: true }); abort.abort();
+      writeFileSync(join(request.outputDirectory, "critique-failure.json"), JSON.stringify({ code: "request_cancelled", usage: null, feeMicrousd: null }));
+      throw new Error("request_cancelled");
+    }) as unknown as LoopDependencies["critique"];
+    await expect(run(dir, harness({ summaries: stages(), critique: cancelled }).deps, {}, abort.signal)).rejects.toThrow("loop_interrupted");
+    expect(read(dir)).toMatchObject({ failedStage: "critique", stages: expect.arrayContaining([expect.objectContaining({ stage: "critique", interrupted: true })]) });
+    const closed = await closeLoop(dir, closing(harness({ summaries: stages() }).deps));
+    // The critique's record keeps the critique's own code, as a critique that failed in the loop records it.
+    expect(closed).toMatchObject({ selected: { final: { candidate: "a", step: "critique_failed", cause: "operator_stop" } }, closed: true, stopped: null,
+      critique: { failure: "request_cancelled", modelCalls: 0 }, failure: "loop_interrupted", totals: { modelCalls: 20 } });
+    expect(loopExitCode(closed)).toBe(2);
+    const dir2 = loopDir();
+    const refusing = harness({ summaries: stages(), onRun: call => { if (call.outputDirectory.endsWith("/repair")) { mkdirSync(call.outputDirectory, { recursive: true }); throw new Error("local_screen_serving_card_refused"); } } });
+    await expect(run(dir2, refusing.deps)).rejects.toThrow("local_screen_serving_card_refused");
+    const closed2 = await closeLoop(dir2, closing(harness({ summaries: stages() }).deps));
+    expect(closed2.selected.final).toEqual({ candidate: "a", step: "repair_failed", cause: "task" }); expect(closed2.closed).toBe(true);
+    // An integrity stop the close itself finds is never converted into a final selection.
+    const dir3 = loopDir();
+    await expect(run(dir3, harness({ summaries: stages(null, { repair: ended("model_unavailable") }) }).deps)).rejects.toThrow("loop_stage_infra");
+    mkdirSync(join(dir3, "stray"));
+    expect(await closeLoop(dir3, closing(harness({ summaries: stages() }).deps))).toMatchObject({ stopped: { stage: "repair", failure: "loop_resume_mismatch", closed: true }, closed: true, selected: { final: null } });
+  });
+  it("wires part 3b's production helpers, and parses --close", () => {
+    const deps = ledgerDependencies();
+    expect(deps.readLedger).toBe(readRunLedger); expect(deps.readRunEnd).toBe(readRunEndEvidence); expect(deps.recoverLedger).toBe(recoverRunLedger); expect(deps.lock).toBe(acquireLoopLock);
+    const production = productionDependencies({ base: base(), loopDirectory: "loop" });
+    for (const key of ["readLedger", "readRunEnd", "recoverLedger", "lock"] as const) expect(production[key]).toBe(deps[key]);
+    expect(parseCloseArguments(["--close", "--loop-directory", "loop"])).toBe("loop");
+    for (const args of [["--close"], ["--close", "--loop-directory"], ["--close", "--loop-directory", "loop", "--x"], ["--loop-directory", "loop", "--close"], ["--close", "--loop-directory", ""]]) {
+      expect(() => parseCloseArguments(args)).toThrow("loop_cli_invalid");
+    }
+  });
+});
+
+describe("part 3b after the review of its fixes: --close's stage and critique, and the critique tool's records", () => {
+  it("closes at the last begun stage the loop had not accepted when a hard kill recorded none, a torn or unexamined result included", async () => {
+    for (const torn of [true, false]) {
+      const dir = loopDir(), summaries = stages(null, { a: ended("model_unavailable") });
+      await expect(run(dir, harness({ summaries }).deps)).rejects.toThrow("loop_stage_infra");
+      // A process killed while it wrote a's result, or before it examined it: the catch that records the stage never ran.
+      const killed = read(dir); killed.failure = null; killed.failedStage = null; killed.held = null; writeFileSync(join(dir, "loop.json"), JSON.stringify(killed));
+      const deps = harness({ summaries, endFails: () => torn }).deps;
+      expect(await closeLoop(dir, closing(deps)), `torn ${torn}`).toMatchObject({ stopped: { stage: "a", failure: "loop_closed", closed: true }, failedStage: "a", totals: { modelCalls: 10 } });
+    }
+  });
+  it("closes a loop whose critique answered before the loop recorded it at the repair, keeping the answer, and one whose critique failed with the critique's own code", async () => {
+    const dir = loopDir(), abort = new AbortController();
+    const answering = harness({ summaries: stages() });
+    const answer = answering.deps.critique;
+    answering.deps.critique = async (request, control) => { const reply = await answer(request, control); abort.abort(); return reply; };
+    await expect(run(dir, answering.deps, {}, abort.signal)).rejects.toThrow("loop_interrupted");
+    expect(read(dir)).toMatchObject({ failedStage: "critique", critique: null, held: { stage: "critique" }, totals: { modelCalls: 21 } });
+    const closed = await closeLoop(dir, closing(harness({ summaries: stages() }).deps));
+    expect(closed).toMatchObject({ selected: { final: { candidate: "a", step: "repair_failed", cause: "operator_stop" } }, critique: { critiqueSha256: h("e"), modelCalls: 1 }, totals: { modelCalls: 21 } });
+    expect(closed.critique).not.toHaveProperty("failure");
+    const dir2 = loopDir();
+    await expect(run(dir2, harness({ summaries: stages(), critique: critiqueFailing("request_failed") }).deps)).rejects.toThrow("loop_stage_infra");
+    expect(await closeLoop(dir2, closing(harness({ summaries: stages() }).deps))).toMatchObject({ selected: { final: { step: "critique_failed", cause: "request_failed" } },
+      critique: { failure: "request_failed", modelCalls: 1 }, failure: "loop_stage_infra", totals: { modelCalls: 21 } });
+  });
+  it("reads the critique tool's records strictly: a code, never a message; null, a byte-order mark or a link is no record", () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "soar-critique-records-"))); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
+    const deps = ledgerDependencies();
+    const failureIn = (name: string, text: string) => { const dir = join(root, name); mkdirSync(dir); writeFileSync(join(dir, "critique-failure.json"), text); return dir; };
+    expect(deps.readCritiqueFailure(failureIn("message", JSON.stringify({ code: "ECONNRESET: socket hang up reading /Users/someone/state.sqlite", usage: { inputTokens: 3 }, feeMicrousd: 2 }))))
+      .toEqual({ code: "repair_critique_failed", usage: { inputTokens: 3 }, feeMicrousd: 2, finishReason: null });
+    expect(deps.readCritiqueFailure(failureIn("code", JSON.stringify({ code: "request_failed", usage: null, feeMicrousd: -5 })))).toEqual({ code: "request_failed", usage: null, feeMicrousd: 0, finishReason: null });
+    for (const [name, text] of [["null", "null"], ["bom", `\ufeff${JSON.stringify({ code: "request_failed" })}`], ["torn", "{\"code\": \"req"]]) {
+      expect(deps.readCritiqueFailure(failureIn(name, text)), name).toEqual({ code: null, usage: null, feeMicrousd: 0, finishReason: null });
+    }
+    const linked = join(root, "linked"); mkdirSync(linked); symlinkSync(join(root, "code", "critique-failure.json"), join(linked, "critique-failure.json"));
+    expect(deps.readCritiqueFailure(linked)).toEqual({ code: null, usage: null, feeMicrousd: 0, finishReason: null });
+    expect(deps.readCritiqueFailure(join(root, "message", ".."))).toBeNull();
+    const answered = join(root, "answered"); mkdirSync(answered); writeFileSync(join(answered, "critique.json"), `\ufeff${JSON.stringify({ packetSha256: h("d"), critiqueSha256: h("e") })}`);
+    expect(() => deps.readCritique(answered)).toThrow("loop_critique_unreadable");
+    // A result led by a byte-order mark is no result, in the loop's reader as in the registry's.
+    const run_ = join(root, "run"); mkdirSync(run_); writeFileSync(join(run_, "result.json"), `\ufeff${JSON.stringify({ status: "submitted", reason: "x", finishedAt: "t" })}`);
+    expect(() => readRunEndEvidence(run_)).toThrow("run_result_unreadable");
+  });
+  it("resumes a torn critique record as a critique that did not finish, and a record saved before `held` existed", async () => {
+    const dir = loopDir(), abort = new AbortController();
+    const tearing = (async (request: { outputDirectory: string }) => {
+      mkdirSync(request.outputDirectory, { recursive: true }); writeFileSync(join(request.outputDirectory, "critique.json"), "{\"packetSha256\": \"dd"); abort.abort();
+      throw new Error("request_cancelled");
+    }) as unknown as LoopDependencies["critique"];
+    await expect(run(dir, harness({ summaries: stages(), critique: tearing }).deps, {}, abort.signal)).rejects.toThrow("loop_interrupted");
+    const older = read(dir) as unknown as Record<string, unknown>; delete older.held; writeFileSync(join(dir, "loop.json"), JSON.stringify(older));
+    const resumed = harness({ summaries: stages() });
+    resumed.deps.readCritique = ledgerDependencies().readCritique;
+    const record = await run(dir, resumed.deps);
+    expect(record.resumes).toEqual([expect.objectContaining({ stage: "critique", cause: "operator_stop" })]); expect(record.selected.final).toMatchObject({ candidate: "a" });
+  });
+});
+

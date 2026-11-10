@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -24,22 +24,23 @@ const time = (minute: number) => `2026-11-10T10:${String(minute).padStart(2, "0"
 const zeroFee = { status: "failed", destinationId: "owned_local_model", purpose: "agent reasoning and tool selection", reservedFeeMicrousd: 0, failure: { phase: "transport", code: "request_timeout" } };
 const cloudSettled = { status: "settled", destinationId: "cloud_coordinator", purpose: "research plan", reservedFeeMicrousd: 160_000, feeMicrousd: 120_000 };
 interface Run { status?: string; reason?: string; result?: boolean; freeze?: boolean | string; calls?: number; dispatches?: Record<string, unknown>[]; events?: Record<string, unknown>[];
-  start?: number; end?: number; arm?: Record<string, unknown>; jobId?: string; task?: string; git?: boolean; claim?: boolean }
+  start?: number; end?: number; arm?: Record<string, unknown>; jobId?: string; task?: string; git?: boolean; claim?: boolean; runtime?: string; committed?: number; ledger?: boolean }
 /** A run directory as the driver leaves one: its freeze, its result unless it died first, and its ledger's events and rows. */
 function runDirectory(root: string, name: string, input: Run = {}) {
   const dir = join(root, name); mkdirSync(dir, { recursive: true });
   const jobId = input.jobId ?? `job-${name.replace(/[^A-Za-z0-9_-]/gu, "-")}`, dispatches = input.dispatches ?? [];
   if (input.freeze !== false) writeFileSync(join(dir, "freeze.json"), typeof input.freeze === "string" ? input.freeze : `${canonical({ version: 1, jobId, startedAt: time(input.start ?? 0),
-    sourceFreezeSha256: h("4"), taskBinding: { jobSha256: input.task ?? h("1"), briefSha256: h("2") }, profile: "heavy", modelConfig: { maxOutputTokens: 16384, thinking: "medium" },
+    sourceFreezeSha256: input.runtime ?? h("4"), taskBinding: { jobSha256: input.task ?? h("1"), briefSha256: h("2") }, profile: "heavy", modelConfig: { maxOutputTokens: 16384, thinking: "medium" },
     limits: { feeMicrousd: input.arm ? 600_000 : 0 }, arm: input.arm ?? { arm: "local" }, ...(input.git ? { git: { commit: COMMIT, dirty: false } } : {}) })}\n`);
   if (input.result !== false) writeFileSync(join(dir, "result.json"), `${canonical({ status: input.status ?? "submitted", reason: input.reason ?? "independent_acceptance_pending",
     finishedAt: time(input.end ?? 5), snapshotSha256: h("7"), candidateFiles: [], dispatches: dispatches.map(row => ({ ...row, jobId })) })}\n`);
+  if (input.ledger === false) return dir;
   const db = new Database(join(dir, "state.sqlite")), store = new PrivateAgentStore(db);
   store.createJob({ version: 1, id: jobId, mode: "private", revision: 0, cancelled: false, destinations: ["owned_local_model"], maxRequests: 50, maxFeeMicrousd: 0 });
   store.append(jobId, { type: "session_started", identity: h("3"), startedAt: 1, privateContextId: "p", publicContextId: "q" });
   for (let i = 0; i < (input.calls ?? 1); i++) store.append(jobId, { type: "model_finished", contextId: "p", operationId: `o${i}`, usage: { inputTokens: 100, outputTokens: 10 }, finishReason: "stop" });
   for (const event of input.events ?? []) store.append(jobId, event as never);
-  dispatches.forEach((row, i) => db.prepare("INSERT INTO private_agent_dispatches VALUES (?, ?, ?)").run(`d${i}`, jobId, canonical({ ...row, jobId, committedAt: 1_000 + i })));
+  dispatches.forEach((row, i) => db.prepare("INSERT INTO private_agent_dispatches VALUES (?, ?, ?)").run(`d${i}`, jobId, canonical({ ...row, jobId, committedAt: (input.committed ?? 1_000) + i })));
   if (input.claim) {
     store.createContext({ id: "context", jobId, sources: [{ id: "source", version: digest("synthetic"), classification: "private", synthetic: true }] });
     store.acquireRun("context", "owner", "unix:///var/run/docker.sock", 999_999);
@@ -90,7 +91,7 @@ describe("loop rows of version 2 (backlog item 11, part 3b)", { timeout: 60_000 
     const loopRow = row(["--loop-dir", loop], "accepted");
     expect(loopRow).toMatchObject({ modelCalls: 3 + 2 + 2 + 4 + 1 + 1, inputTokens: 100 * 11 + 700 + 300, usd: 0.12, failedDispatches: 1, zeroFeeFailedDispatches: 1, wallSeconds: 40 * 60,
       activeSeconds: (4 + 4 + 2 + 6 + 6 + 1) * 60, cloudModel: "claude-sonnet-5-5", cloudApi: "anthropic_messages", runStatus: "submitted", runClass: task("submitted"),
-      loop: { version: 2, selected: "a", step: "tie", critiqued: true, resumes: [{ stage: "a", cause: "model_unavailable", as: "seeded_writer" }, { stage: "critique", cause: "request_failed", as: "rerun" }],
+      loop: { version: 2, closed: false, selected: "a", step: "tie", critiqued: true, resumes: [{ stage: "a", cause: "model_unavailable", as: "seeded_writer" }, { stage: "critique", cause: "request_failed", as: "rerun" }],
         seeded: { a: true, b: true, repair: true, snapshotSha256: h("f") }, candidates: { a: { status: "submitted", runClass: task("submitted") }, repair: { runClass: task("submitted") } } } });
     expect(loopRow).not.toHaveProperty("loop.stopped");
   });
@@ -102,7 +103,7 @@ describe("loop rows of version 2 (backlog item 11, part 3b)", { timeout: 60_000 
     loopRecord(loop, { ...record, stopped: { stage: "a", failure: "loop_stage_infra" } });
     expect(refused(["--loop-dir", loop], "infra_invalid")).toContain("stray, which its record does not name");
     loopRecord(loop, { ...record, stopped: { stage: "a", failure: "loop_stage_infra", closed: true } });
-    expect(row(["--loop-dir", loop], "infra_invalid")).toMatchObject({ modelCalls: 1 + 7, runClass: infra("model_unavailable"), loop: { selected: null, stopped: { stage: "a", failure: "loop_stage_infra", closed: true } } });
+    expect(row(["--loop-dir", loop], "infra_invalid")).toMatchObject({ modelCalls: 1 + 7, runClass: infra("model_unavailable"), loop: { selected: null, closed: true, stopped: { stage: "a", failure: "loop_stage_infra", closed: true } } });
     rmSync(join(loop, "stray"), { recursive: true });
     loopRecord(loop, { ...record, stopped: { stage: "a", failure: "loop_stage_infra" }, resumes: [{ stage: "b", cause: "operator_stop", as: "rerun", identity: { inode: "1", sha256: null, jobId: null }, counts, span: { startedAt: time(0), endedAt: time(1) }, cleanup: "not_needed", at: time(1) }] });
     expect(refused(["--loop-dir", loop], "infra_invalid")).toContain("moved aside is missing: b.infra-1");
@@ -151,6 +152,10 @@ describe("loop rows of version 2 (backlog item 11, part 3b)", { timeout: 60_000 
     expect(row(["--loop-dir", ending(unsubmitted, { step: "repair_failed", cause: "operator_stop" })], "infra_invalid")).toMatchObject({ runClass: infra("repair_operator_stop") });
     expect(row(["--loop-dir", ending(unsubmitted, { step: "critique_failed", cause: "task" })], "rejected")).toMatchObject({ runClass: task() });
     expect(row(["--loop-dir", ending({}, { step: "repair_failed", cause: "stage_unresolved_dispatch" })], "accepted")).toMatchObject({ runClass: task("submitted"), loop: { step: "repair_failed" } });
+    // A recorded cause that is not an identifier, or that names no infrastructure (`task`, `submitted`), never becomes a class.
+    for (const cause of ["Request Failed", "submitted", "../x"]) {
+      expect(row(["--loop-dir", ending(unsubmitted, { step: "repair_failed", cause })], "rejected"), cause).toMatchObject({ runClass: task() });
+    }
   });
   it("classifies a loop whose repair ended on infrastructure and lost as repair_<cause> (BL-20261110-0723 (c)), in either version", () => {
     for (const version of [1, 2]) {
@@ -260,3 +265,223 @@ describe("a run's ledger, read the same way by the loop and the registry (backlo
 });
 
 function mkdirAndReturn(path: string) { mkdirSync(path, { recursive: true }); return path; }
+
+/** A version-1 loop record, as part 1's loop saved one. */
+function loopRecordV1(root: string, over: Record<string, unknown>) {
+  writeFileSync(join(root, "loop.json"), `${canonical({ version: 1, selectionRule: 2, startedAt: time(0), finishedAt: time(30), task: { jobSha256: h("1"), briefSha256: h("2") }, runtimeSha256: h("4"),
+    candidates: { a: candidate("submitted"), b: candidate("submitted") }, seeded: { b: false, repair: false, snapshotSha256: null }, writeIdentityEqual: null, critique: null,
+    selected: { stage1: { candidate: "a", step: "tie" }, final: { candidate: "a", step: "no_draft" } }, ...over })}\n`);
+}
+const ledgerProbe = ["import importlib.util, json, sys", "spec = importlib.util.spec_from_file_location('registry_row', sys.argv[1]); module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)",
+  "print(json.dumps([module.run_ledger(path) for path in sys.argv[2:]]))"].join("\n");
+
+describe("loop rows after part 3b's code review", { timeout: 60_000 }, () => {
+  it("classes each sample by its own mark: an unmarked final beside a marked sample (finding M8)", () => {
+    const loop = scratch();
+    runDirectory(loop, "a", { status: "incomplete", reason: "cancelled_or_deadline" }); runDirectory(loop, "b", { status: "incomplete", reason: "cancelled_or_deadline" });
+    loopRecord(loop, { begun: ["a", "b"].map(stage => ({ stage, at: time(0) })), stages: [{ stage: "b", ...span(5, 9), reused: false, interrupted: true }],
+      candidates: { a: candidate("incomplete", "cancelled_or_deadline"), b: candidate("incomplete", "cancelled_or_deadline"), repair: null },
+      selected: { stage1: { candidate: "a", step: "artifacts" }, final: { candidate: "a", step: "no_draft" } } });
+    expect(row(["--loop-dir", loop], "rejected")).toMatchObject({ runClass: task(), loop: { candidates: { a: { runClass: task() }, b: { runClass: infra("operator_stop") } } } });
+  });
+  it("refuses a version-2 record whose begun entries, stop, task, pipeline or closed mark are malformed, and a version-1 record without a selection names no --close", () => {
+    const loop = scratch();
+    runDirectory(loop, "a", { result: false });
+    const stop = { begun: [{ stage: "a", at: time(0) }], stopped: { stage: "a", failure: "loop_stage_incomplete" } };
+    for (const [over, message] of [[{ begun: [{ stage: "x", at: time(0) }] }, "malformed begun entry"], [{ begun: [{ stage: "a" }] }, "malformed begun entry"],
+      [{ stopped: { stage: "a", failure: "loop_stage_incomplete", closed: false } }, "malformed stop"], [{ stopped: { stage: "a", failure: "Loop Stage" } }, "malformed stop"],
+      [{ task: { jobSha256: "j" } }, "task is malformed"], [{ task: null }, "task is malformed"], [{ pipeline: "other" }, "pipeline is neither"], [{ closed: "yes" }, "closed mark is malformed"]] as const) {
+      loopRecord(loop, { ...stop, ...over });
+      expect(refused(["--loop-dir", loop], "infra_invalid"), JSON.stringify(over)).toContain(message);
+    }
+    const old = scratch();
+    runDirectory(old, "a");
+    loopRecordV1(old, { selected: { stage1: null, final: null } });
+    const message = refused(["--loop-dir", old], "accepted");
+    expect(message).toContain("the loop has no final selection: resume it"); expect(message).not.toContain("--close");
+  });
+  it("sums a version-1 loop's unfinished hand-moved run and hand-moved critique, refuses a run of another runtime, and counts a repair's end in its log", () => {
+    const loop = scratch();
+    runDirectory(loop, "a", { calls: 2 }); runDirectory(loop, "b", { calls: 1 }); runDirectory(loop, "a.moved", { result: false, calls: 3 });
+    mkdirSync(join(loop, "critique.old")); writeFileSync(join(loop, "critique.old", "critique-failure.json"), `${canonical({ code: "request_failed", usage: { inputTokens: 300 }, feeMicrousd: 0 })}\n`);
+    loopRecordV1(loop, {});
+    expect(row(["--loop-dir", loop], "accepted")).toMatchObject({ modelCalls: 2 + 1 + 3 + 1, inputTokens: 600 + 300, loop: { critiqued: false } });
+    runDirectory(loop, "foreign", { runtime: h("9") });
+    expect(refused(["--loop-dir", loop], "accepted")).toContain("another runtime (foreign)");
+    rmSync(join(loop, "foreign"), { recursive: true });
+    writeFileSync(join(loop, "log.txt"), ["a end", "b end", "repair end"].map(line => `${time(1)} ${line}`).join("\n") + "\n");
+    expect(refused(["--loop-dir", loop], "accepted")).toContain("log.txt records 3 finished runs but the loop directory holds 2");
+  });
+  it("sums every directory of a loop closed after stage 1, a stray included, once per job with the stage's own directory first, and refuses a stray of another task", () => {
+    const loop = scratch();
+    runDirectory(loop, "a", { calls: 2 }); runDirectory(loop, "b", { calls: 1, status: "incomplete", reason: "bounded_allowance_exhausted" });
+    runDirectory(loop, "repair", { result: false, calls: 4 }); runDirectory(loop, "stray", { calls: 7 });
+    // A partial copy of b (its freeze alone) is the same job: it is skipped, never read.
+    mkdirSync(join(loop, "b.copy")); copyFileSync(join(loop, "b", "freeze.json"), join(loop, "b.copy", "freeze.json"));
+    mkdirSync(join(loop, "critique")); writeFileSync(join(loop, "critique", "critique.json"), `${canonical({ usage: { inputTokens: 1 }, feeMicrousd: 0 })}\n`);
+    const closed = { closed: true, begun: ["a", "b", "critique", "repair"].map(stage => ({ stage, at: time(0) })), candidates: { a: candidate("submitted"), b: candidate("incomplete", "bounded_allowance_exhausted"), repair: null },
+      critique: { critiqueSha256: h("e"), modelCalls: 1 }, failure: "loop_stage_infra", failedStage: "repair",
+      selected: { stage1: { candidate: "a", step: "submitted" }, final: { candidate: "a", step: "repair_failed", cause: "run_unfinished" } } };
+    loopRecord(loop, closed);
+    expect(row(["--loop-dir", loop], "accepted")).toMatchObject({ modelCalls: 2 + 1 + 4 + 7 + 1, runClass: task("submitted"), loop: { step: "repair_failed", closed: true } });
+    // The same directory without the closed mark is refused: the record names neither the stray nor the copy.
+    const { closed: _mark, ...open } = closed;
+    loopRecord(loop, open);
+    expect(refused(["--loop-dir", loop], "accepted")).toContain("which its record does not name");
+    loopRecord(loop, closed);
+    runDirectory(loop, "foreign", { task: h("9") });
+    expect(refused(["--loop-dir", loop], "accepted")).toContain("another task (foreign)");
+  });
+  it("refuses a stage whose freeze or result is readable but whose ledger is missing, and reads a stopped stage's torn result as a run that did not finish", () => {
+    const loop = scratch();
+    runDirectory(loop, "a", { result: false, ledger: false });
+    loopRecord(loop, { begun: [{ stage: "a", at: time(0) }], stopped: { stage: "a", failure: "loop_stage_ledger_unreadable" }, failure: "loop_stage_ledger_unreadable", failedStage: "a" });
+    expect(refused(["--loop-dir", loop], "infra_invalid")).toContain("a holds a run without its ledger");
+    const tables = scratch();
+    runDirectory(tables, "a", { result: false, ledger: false });
+    const bare = new Database(join(tables, "a", "state.sqlite")); bare.exec("CREATE TABLE private_agent_events (job_id TEXT, sequence INTEGER, value TEXT)"); bare.close();
+    loopRecord(tables, { begun: [{ stage: "a", at: time(0) }], stopped: { stage: "a", failure: "loop_stage_incomplete" }, failedStage: "a" });
+    expect(refused(["--loop-dir", tables], "infra_invalid")).toContain("a holds a run without its ledger");
+    // A torn result is no result: the stage's ledger is its spend, its fields come from its freeze, and its class is an unfinished run's.
+    const torn = scratch();
+    runDirectory(torn, "a", { calls: 2, start: 3 }); writeFileSync(join(torn, "a", "result.json"), "{\"status\": \"incomp");
+    loopRecord(torn, { begun: [{ stage: "a", at: time(0) }], stopped: { stage: "a", failure: "loop_stage_incomplete" }, failure: "loop_stage_incomplete", failedStage: "a" });
+    expect(row(["--loop-dir", torn], "infra_invalid")).toMatchObject({ modelCalls: 2, runClass: infra("run_unfinished"), runStatus: null, profile: "heavy", maxOutputTokens: 16384, thinking: "medium",
+      taskJobSha256: h("1"), date: "2026-11-10" });
+    // A stage that froze nothing left nothing: the stop is the task's unless the loop's interrupt stopped it.
+    const unfrozen = scratch();
+    runDirectory(unfrozen, "a", { freeze: false, result: false, calls: 0 });
+    loopRecord(unfrozen, { begun: [{ stage: "a", at: time(0) }], stopped: { stage: "a", failure: "local_screen_cloud_key_missing", closed: true }, failure: "local_screen_cloud_key_missing", failedStage: "a" });
+    expect(row(["--loop-dir", unfrozen], "rejected")).toMatchObject({ runClass: task(), modelCalls: 0 });
+  });
+  it("rows a loop the operator closed after stage 1 at its critique, by the critique's failure under the loop's mark", () => {
+    const loop = scratch();
+    runDirectory(loop, "a", { status: "incomplete", reason: "bounded_allowance_exhausted" }); runDirectory(loop, "b", { status: "incomplete", reason: "bounded_allowance_exhausted" });
+    mkdirSync(join(loop, "critique")); writeFileSync(join(loop, "critique", "critique-failure.json"), `${canonical({ code: "request_cancelled", usage: null, feeMicrousd: null })}\n`);
+    loopRecord(loop, { closed: true, begun: ["a", "b", "critique"].map(stage => ({ stage, at: time(0) })), stages: [{ stage: "critique", ...span(10, 11), reused: false, interrupted: true }],
+      candidates: { a: candidate("incomplete", "bounded_allowance_exhausted"), b: candidate("incomplete", "bounded_allowance_exhausted"), repair: null },
+      critique: { failure: "loop_interrupted", feeMicrousd: 0, finishReason: null, usage: null, modelCalls: 0 }, failure: "loop_interrupted", failedStage: "critique",
+      selected: { stage1: { candidate: "a", step: "tie" }, final: { candidate: "a", step: "critique_failed", cause: "operator_stop" } } });
+    expect(row(["--loop-dir", loop], "infra_invalid")).toMatchObject({ runClass: infra("critique_operator_stop"), modelCalls: 2, loop: { step: "critique_failed", critiqueFailure: "loop_interrupted", critiqued: false } });
+  });
+  it("takes the lock through a file URI, whatever the loop directory's name holds, and refuses a symbolic link in its place", () => {
+    const loop = join(scratch(), "loop #1 ?x%20 y");
+    mkdirSync(loop);
+    runDirectory(loop, "a", { result: false });
+    loopRecord(loop, { begun: [{ stage: "a", at: time(0) }], stopped: { stage: "a", failure: "loop_stage_incomplete" } });
+    acquireLoopLock(loop).release();
+    expect(row(["--loop-dir", loop], "infra_invalid")).toMatchObject({ runClass: infra("run_unfinished") });
+    const held = acquireLoopLock(loop);
+    expect(refused(["--loop-dir", loop], "infra_invalid")).toContain("the loop is running");
+    held.release();
+    const elsewhere = join(scratch(), "lock"); writeFileSync(elsewhere, ""); rmSync(join(loop, "loop.lock")); symlinkSync(elsewhere, join(loop, "loop.lock"));
+    expect(refused(["--loop-dir", loop], "infra_invalid")).toContain("the loop is running, or its lock cannot be read");
+  });
+  it("rolls an uncommitted rewrite of a stage's rows back from its journal, in the private copy only", () => {
+    const loop = scratch();
+    runDirectory(loop, "a", { result: false, calls: 0, dispatches: [{ status: "settled", destinationId: "owned_local_model", reservedFeeMicrousd: 0, feeMicrousd: 0 }] });
+    const path = join(loop, "a", "state.sqlite"), live = scratch();
+    copyFileSync(path, join(live, "state.sqlite"));
+    // A process killed while it rewrote the committed row as a priced one: the rewritten pages spilled into the database file.
+    const writer = new Database(join(live, "state.sqlite")); writer.pragma("cache_size = 1"); writer.exec("BEGIN IMMEDIATE");
+    writer.prepare("UPDATE private_agent_dispatches SET value = ?").run(canonical({ status: "settled", destinationId: "cloud_coordinator", reservedFeeMicrousd: 900_000, feeMicrousd: 900_000, pad: "x".repeat(2000) }));
+    const insert = writer.prepare("INSERT INTO private_agent_events VALUES (?, ?, ?)");
+    for (let i = 0; i < 300; i++) insert.run("job-a", 100 + i, JSON.stringify({ type: "model_finished", usage: { inputTokens: 1 }, pad: "x".repeat(400) }));
+    for (const name of readdirSync(live)) copyFileSync(join(live, name), join(loop, "a", name));
+    writer.exec("ROLLBACK"); writer.close();
+    expect(existsSync(`${path}-journal`)).toBe(true);
+    // The database file alone holds the uncommitted rewrite; the journal restores the committed row.
+    const naive = scratch(); copyFileSync(path, join(naive, "state.sqlite"));
+    const alone = new Database(join(naive, "state.sqlite"), { readonly: true });
+    expect(String((alone.prepare("SELECT value FROM private_agent_dispatches").get() as { value: string }).value)).toContain("cloud_coordinator"); alone.close();
+    loopRecord(loop, { begun: [{ stage: "a", at: time(0) }], stopped: { stage: "a", failure: "loop_stage_incomplete" }, failure: "loop_stage_incomplete", failedStage: "a" });
+    expect(row(["--loop-dir", loop], "infra_invalid")).toMatchObject({ usd: 0, modelCalls: 0, runClass: infra("run_unfinished") });
+    expect(existsSync(`${path}-journal`)).toBe(true);
+  });
+  it("carries a run's own commit on a row classed as infrastructure, for a run row and a stopped loop's row (delta review of #78, item 5)", () => {
+    const root = scratch();
+    const run = runDirectory(root, "run", { status: "incomplete", reason: "model_unavailable", dispatches: [zeroFee], git: true });
+    expect(row(["--run-dir", run], "infra_invalid")).toMatchObject({ runClass: infra("model_unavailable"), git: COMMIT.slice(0, 12), gitSource: "run", gitDirty: false });
+    const loop = scratch();
+    runDirectory(loop, "a", { result: false, git: true, dispatches: [zeroFee] });
+    loopRecord(loop, { begun: [{ stage: "a", at: time(0) }], stopped: { stage: "a", failure: "loop_stage_incomplete" }, failure: "loop_stage_incomplete", failedStage: "a" });
+    expect(row(["--loop-dir", loop], "infra_invalid")).toMatchObject({ runClass: infra("run_unfinished"), git: COMMIT.slice(0, 12), gitSource: "run", gitDirty: false });
+  });
+  it("rows a stopped stage whose result or freeze is damaged without a traceback, its fields from what it can read, and never prints a critique's message", () => {
+    const loop = scratch();
+    runDirectory(loop, "a", { calls: 2 });
+    // A result led by a byte-order mark is no result; a freeze without its model settings or start leaves those fields null.
+    writeFileSync(join(loop, "a", "result.json"), Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), readFileSync(join(loop, "a", "result.json"))]));
+    const freeze = JSON.parse(readFileSync(join(loop, "a", "freeze.json"), "utf8")) as Record<string, unknown>; delete freeze.modelConfig; delete freeze.startedAt;
+    writeFileSync(join(loop, "a", "freeze.json"), `${canonical(freeze)}\n`);
+    loopRecord(loop, { begun: [{ stage: "a", at: time(0) }], stopped: { stage: "a", failure: "loop_closed", closed: true }, failure: "loop_closed", failedStage: "a", closed: true });
+    expect(row(["--loop-dir", loop], "infra_invalid")).toMatchObject({ runClass: infra("run_unfinished"), runStatus: null, maxOutputTokens: null, thinking: null, date: "2026-11-10", taskJobSha256: h("1"), modelCalls: 2 });
+    // A readable result with an end time that is not ISO 8601 still rows, with the result's status and cause.
+    const odd = scratch();
+    runDirectory(odd, "a", { status: "incomplete", reason: "model_unavailable", dispatches: [zeroFee] });
+    const result = JSON.parse(readFileSync(join(odd, "a", "result.json"), "utf8")) as Record<string, unknown>; result.finishedAt = "yesterday";
+    writeFileSync(join(odd, "a", "result.json"), `${canonical(result)}\n`);
+    loopRecord(odd, { begun: [{ stage: "a", at: time(0) }], stopped: { stage: "a", failure: "loop_closed", closed: true }, failure: "loop_closed", failedStage: "a", closed: true });
+    expect(row(["--loop-dir", odd], "infra_invalid")).toMatchObject({ runClass: infra("model_unavailable"), runStatus: "incomplete", terminalCause: "model_unavailable", maxOutputTokens: 16384 });
+    // A critique failure recorded as a message never reaches the row.
+    const message = scratch();
+    runDirectory(message, "a"); runDirectory(message, "b");
+    loopRecord(message, { begun: ["a", "b"].map(stage => ({ stage, at: time(0) })), candidates: { a: candidate("submitted"), b: candidate("submitted"), repair: null },
+      critique: { failure: "ECONNRESET reading /Users/someone/state.sqlite", feeMicrousd: 0, finishReason: null, usage: null, modelCalls: 0 },
+      selected: { stage1: { candidate: "a", step: "tie" }, final: { candidate: "a", step: "critique_failed", cause: "task" } } });
+    expect(row(["--loop-dir", message], "accepted")).toMatchObject({ loop: { critiqueFailure: null } });
+  });
+  it("times a begun stage whose process died from its begun time to its last commit, in milliseconds since the epoch", () => {
+    const loop = scratch();
+    runDirectory(loop, "a", { result: false, dispatches: [zeroFee, zeroFee], committed: Date.parse(time(3)) - 1 });
+    loopRecord(loop, { begun: [{ stage: "a", at: time(0) }], stopped: { stage: "a", failure: "loop_stage_incomplete" }, failure: "loop_stage_incomplete", failedStage: "a" });
+    expect(row(["--loop-dir", loop], "infra_invalid")).toMatchObject({ activeSeconds: 180 });
+  });
+});
+
+describe("a run's ledger on odd input, read the same way in both languages (part 3b's code review)", { timeout: 60_000 }, () => {
+  it("reads freeze fields, rows and commit times identically, and refuses identically", () => {
+    const root = scratch();
+    const cloudArm = runDirectory(root, "cloud", { arm: { arm: "cloud", modelConfig: { model: "m" } }, calls: 1 });
+    const badJob = runDirectory(root, "badjob", { calls: 1 });
+    writeFileSync(join(badJob, "freeze.json"), readFileSync(join(badJob, "freeze.json"), "utf8").replace("\"jobId\":\"job-badjob\"", "\"jobId\":\"bad id!\""));
+    const bom = runDirectory(root, "bom", { calls: 1 });
+    writeFileSync(join(bom, "freeze.json"), Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), readFileSync(join(bom, "freeze.json"))]));
+    const nan = runDirectory(root, "nan", { calls: 1, result: false });
+    writeFileSync(join(nan, "freeze.json"), readFileSync(join(nan, "freeze.json"), "utf8").replace("\"version\":1", "\"version\":NaN"));
+    const linked = runDirectory(root, "linked", { calls: 1, result: false, freeze: false });
+    symlinkSync(join(cloudArm, "freeze.json"), join(linked, "freeze.json"));
+    const odd = runDirectory(root, "odd", { calls: 0, result: false });
+    const db = new Database(join(odd, "state.sqlite"));
+    db.prepare("INSERT INTO private_agent_dispatches VALUES (?, ?, ?)").run("x1", "job-odd", "{\"status\":\"settled\",\"feeMicrousd\":5,\"committedAt\":1000.0}");
+    db.prepare("INSERT INTO private_agent_dispatches VALUES (?, ?, ?)").run("x2", "job-odd", "{\"status\":\"settled\",\"feeMicrousd\":\"7\",\"committedAt\":1000.5}");
+    db.prepare("INSERT INTO private_agent_dispatches VALUES (?, ?, ?)").run("x3", "job-odd", "[1, 2]");
+    db.prepare("INSERT INTO private_agent_events VALUES (?, ?, ?)").run("job-odd", 50, "{\"type\":\"model_finished\",\"usage\":{\"inputTokens\":\"5\",\"outputTokens\":2}}");
+    db.prepare("INSERT INTO private_agent_events VALUES (?, ?, ?)").run("job-odd", 51, "{\"type\":\"research_stage\",\"calls\":true,\"usage\":\"none\",\"truncatedReplies\":1}");
+    db.close();
+    const dirs = [cloudArm, badJob, bom, nan, linked, odd];
+    const python = JSON.parse(execFileSync("python3", ["-I", "-c", ledgerProbe, SCRIPT, ...dirs], { encoding: "utf8" })) as Record<string, unknown>[];
+    dirs.forEach((dir, i) => {
+      const ledger = readRunLedger(dir), mirrored = python[i] as { freeze: unknown; dispatches: unknown; claims: unknown; counts: Record<string, number>; lastCommittedAt: unknown; finishedAt: unknown };
+      expect(mirrored.freeze, dir).toEqual(ledger.freeze); expect(mirrored.dispatches, dir).toEqual(ledger.dispatches); expect(mirrored.lastCommittedAt, dir).toEqual(ledger.lastCommittedAt);
+      expect(mirrored.finishedAt, dir).toEqual(ledger.finishedAt);
+      const { usd, ...rest } = mirrored.counts;
+      expect({ ...rest, feeMicrousd: Math.round(usd! * 1_000_000) }, dir).toEqual(ledger.counts);
+    });
+    expect(readRunLedger(cloudArm)).toMatchObject({ freeze: { localArm: false, feeCapMicrousd: 600_000 }, finishedAt: time(5) });
+    // A byte-order mark makes a run file unreadable in both languages, as JSON.parse refuses one.
+    expect(readRunLedger(badJob).freeze).toBeNull(); expect(readRunLedger(bom).freeze).toBeNull();
+    expect(readRunLedger(nan).freeze).toBeNull(); expect(readRunLedger(linked).freeze).toBeNull();
+    expect(readRunLedger(odd)).toMatchObject({ lastCommittedAt: 1000, counts: { modelCalls: 1, inputTokens: 0, outputTokens: 2, lengthStops: 1, feeMicrousd: 5 } });
+    expect(readRunLedger(odd).dispatches).toHaveLength(2);
+    // A row that is not JSON refuses in both; so does a run with a result whose ledger is gone.
+    const broken = runDirectory(root, "broken", { calls: 0, result: false });
+    const write = new Database(join(broken, "state.sqlite")); write.prepare("INSERT INTO private_agent_dispatches VALUES (?, ?, ?)").run("y", "job-broken", "{not json"); write.close();
+    const gone = runDirectory(root, "gone", { freeze: false, ledger: false });
+    for (const dir of [broken, gone]) {
+      expect(() => readRunLedger(dir), dir).toThrow();
+      expect(() => execFileSync("python3", ["-I", "-c", ledgerProbe, SCRIPT, dir], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }), dir).toThrow();
+    }
+  });
+});
+

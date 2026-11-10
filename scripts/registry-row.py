@@ -49,6 +49,7 @@ import hashlib
 import json
 import math
 import os
+import pathlib
 import re
 import shutil
 import sqlite3
@@ -278,9 +279,9 @@ def last_call(dispatches: list, status: str):
 def run_end_evidence(run_dir: str, stop_signalled: bool) -> dict:
     """What a run's own records say about how it ended: result.json and its ledger's events, codes and rows only
     (selection.ts readRunEndEvidence reads the same)."""
-    result = json.load(open(os.path.join(run_dir, "result.json"), encoding="utf-8"))
+    result = read_object(run_dir, "result.json") or {}
     events = ledger_rows(run_dir)[0]
-    dispatches = [item for item in (result.get("dispatches") or []) if isinstance(item, dict)]
+    dispatches = [item for item in (result.get("dispatches") if isinstance(result.get("dispatches"), list) else []) if isinstance(item, dict)]
     stage = next((event for event in reversed(events) if event.get("type") == "research_stage" and isinstance(event.get("denied"), str)), None)
     validation = next((event for event in reversed(events) if event.get("type") == "host_validation_finished"), None) or {}
     runtime = next((event for event in reversed(events) if event.get("type") == "runtime_failure"), None) or {}
@@ -308,6 +309,7 @@ LEDGER_STOP_FAILURES = ("loop_stage_unresolved_dispatch", "loop_stage_failed_dis
 LEDGER_STOP_CAUSES = ("stage_unresolved_dispatch", "stage_failed_dispatch")
 LOOP_INTEGRITY_STOPS = ("loop_stage_missing", "loop_resume_spent", "loop_stage_mismatch", "loop_resume_mismatch", "loop_stage_ledger_unreadable")
 LOOP_INTERRUPT_FAILURE = "loop_interrupted"
+CRITIQUE_CANCEL_CODES = (STOP_TOKEN_ADMISSION_CODE, "request_cancelled", "retry_wait_cancelled", "transport_cancelled")
 
 
 def run_class(infra: bool, cause: str) -> dict:
@@ -326,10 +328,14 @@ def ledger_stop(dispatches: list):
 
 
 def classify_critique_end(code, stop_signalled: bool) -> dict:
-    """A critique's end: its failure code, None without a record; the loop's interrupt counts only on an infrastructure failure or no record."""
+    """A critique's end: its failure code, None without a record; the loop's interrupt counts only on an infrastructure failure, a
+    cancellation it caused, or no record."""
+    marked = stop_signalled is True
+    if marked and listed(CRITIQUE_CANCEL_CODES, code):
+        return run_class(True, "operator_stop")
     if code is not None and not listed(INFRA_CRITIQUE_CODES, code):
         return run_class(False, "task")
-    return run_class(True, "operator_stop" if stop_signalled is True else (code if code is not None else RUN_UNFINISHED_CAUSE))
+    return run_class(True, "operator_stop" if marked else (code if code is not None else RUN_UNFINISHED_CAUSE))
 
 
 def classify_loop_stop(failure, run: dict) -> dict:
@@ -353,23 +359,59 @@ def classify_loop_stop(failure, run: dict) -> dict:
     return run_class(True, RUN_UNFINISHED_CAUSE)
 
 
-def read_freeze(run_dir: str):
-    """A run's freeze.json as an object, or None when it is absent, unreadable, truncated or not an object: part 3b reads every
-    freeze defensively, so one damaged directory never stops a row with a traceback."""
+def reject_constant(name: str):
+    """JSON as JavaScript's JSON.parse reads it: NaN and the infinities are not JSON."""
+    raise ValueError(f"{name} is not JSON")
+
+
+def read_object(run_dir: str, name: str):
+    """One of a run's own files (or the critique tool's) as a JSON object, or None when it is absent, not a regular file (a symbolic
+    link is not followed), not strict UTF-8, led by a byte-order mark, not JSON or not an object. selection.ts readRunObject reads the
+    same: part 3b reads a run's files defensively, so one damaged directory never stops a row with a traceback."""
+    path = os.path.join(run_dir, name)
+    if os.path.islink(path) or not os.path.isfile(path):
+        return None
     try:
-        with open(os.path.join(run_dir, "freeze.json"), encoding="utf-8") as handle:
-            value = json.load(handle)
+        with open(path, encoding="utf-8") as handle:
+            value = json.load(handle, parse_constant=reject_constant)
     except (OSError, ValueError):
         return None
     return value if isinstance(value, dict) else None
 
 
+def read_result(run_dir: str):
+    """A run's result as part 3b reads one (selection.ts readRunResult): a readable object with a status, a reason and an end time,
+    else None, a run that did not finish."""
+    result = read_object(run_dir, "result.json")
+    return result if result is not None and all(isinstance(result.get(key), str) for key in ("status", "reason", "finishedAt")) else None
+
+
+def read_freeze(run_dir: str):
+    """A run's freeze.json as an object, or None (read_object)."""
+    return read_object(run_dir, "freeze.json")
+
+
+JOB_ID = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
+LEDGER_TABLES = ("private_agent_events", "private_agent_dispatches", "private_agent_run_claims")
+
+
+def frozen(raw) -> bool:
+    """Whether a run's freeze is readable with a job, as selection.ts readRunLedger takes one."""
+    return isinstance(raw, dict) and isinstance(raw.get("jobId"), str) and JOB_ID.fullmatch(raw["jobId"]) is not None
+
+
 def ledger_rows(run_dir: str):
     """A run directory's ledger as (events, dispatches, claims), read from a private copy taken with its journal. A process killed
     during a commit leaves a hot journal that a read-only open refuses; the copy rolls it back, and the run directory is never written.
-    A missing ledger or table gives no rows."""
+    A run with a readable freeze or a result has a ledger with the store's tables (the driver creates both before its session), so a
+    missing one refuses the row, as selection.ts readRunLedger refuses with `run_ledger_missing`; otherwise a missing ledger or table
+    gives no rows. A row that is not a JSON object is skipped; a row that is not JSON refuses."""
     path = os.path.join(run_dir, "state.sqlite")
+    required = frozen(read_freeze(run_dir)) or os.path.exists(os.path.join(run_dir, "result.json"))
+    missing = f"{os.path.basename(os.path.normpath(run_dir))} holds a run without its ledger (state.sqlite and its tables): the row is refused"
     if not os.path.isfile(path):
+        if required:
+            sys.exit(missing)
         return [], [], []
     with tempfile.TemporaryDirectory(prefix="soar-ledger-") as scratch:
         copied = os.path.join(scratch, "state.sqlite")
@@ -380,31 +422,59 @@ def ledger_rows(run_dir: str):
         db = sqlite3.connect(copied)
         try:
             tables = {row[0] for row in db.execute("select name from sqlite_master where type = 'table'")}
+            if required and not all(table in tables for table in LEDGER_TABLES):
+                sys.exit(missing)
 
             def values(table: str, order: str) -> list:
-                return [json.loads(row[0]) for row in db.execute(f"select value from {table} order by {order}")] if table in tables else []
+                if table not in tables:
+                    return []
+                rows = []
+                for (text,) in db.execute(f"select value from {table} order by {order}"):
+                    try:
+                        value = json.loads(text, parse_constant=reject_constant)
+                    except (TypeError, ValueError):
+                        sys.exit(f"{os.path.basename(os.path.normpath(run_dir))} holds a ledger row that is not JSON: the row is refused")
+                    if isinstance(value, dict):
+                        rows.append(value)
+                return rows
             return (values("private_agent_events", "job_id, sequence"), values("private_agent_dispatches", "rowid"), values("private_agent_run_claims", "rowid"))
         finally:
             db.close()
 
 
+def number(value):
+    """A finite JSON number, else 0, as selection.ts reads a count (`usageNumber`): a boolean or a string is not a number."""
+    return value if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) else 0
+
+
+def count(value):
+    """A finite, non-negative JSON number, else 0, as phase4-loop.ts `countOf` reads a critique's counts."""
+    value = number(value)
+    return value if value >= 0 else 0
+
+
 def counts_of(events: list, dispatches: list) -> dict:
-    """One run's counts from its events and dispatch rows (selection.ts runCounts), with `usd` in place of fee micro-USD."""
+    """One run's counts from its events and dispatch rows (selection.ts runCounts), with `usd` in place of fee micro-USD. A row that
+    is not an object is skipped, and a field that is not a finite number counts 0, as there."""
+    events = [event for event in events if isinstance(event, dict)]
+    dispatches = [item for item in dispatches if isinstance(item, dict)]
     finished = [event for event in events if event.get("type") == "model_finished"]
-    usage = [event.get("usage") or {} for event in finished]
     research = [event for event in events if event.get("type") == "research_stage"]
-    return {
+
+    def summed(key: str):
         # H2b: the research stage's calls and tokens come from its content-free stage events, beside the write loop's model events.
-        "modelCalls": len(finished) + sum(int(event.get("calls") or 0) for event in research),
+        return sum(number(event["usage"].get(key)) for event in finished + research if isinstance(event.get("usage"), dict))
+    return {
+        "modelCalls": len(finished) + sum(number(event.get("calls")) for event in research),
         "toolCalls": sum(1 for event in events if event.get("type") == "tool_finished"),
-        "inputTokens": sum(item.get("inputTokens", 0) for item in usage) + sum(int((event.get("usage") or {}).get("inputTokens") or 0) for event in research),
-        "outputTokens": sum(item.get("outputTokens", 0) for item in usage) + sum(int((event.get("usage") or {}).get("outputTokens") or 0) for event in research),
+        "inputTokens": summed("inputTokens"),
+        "outputTokens": summed("outputTokens"),
         # H1 (BL-20261022-0834): prompt tokens the provider reported as served from its cache; 0 when unreported.
-        "cachedTokens": sum(item.get("cacheReadTokens") or 0 for item in usage) + sum(int((event.get("usage") or {}).get("cacheReadTokens") or 0) for event in research),
+        "cachedTokens": summed("cacheReadTokens"),
         # H1 completion: prompt tokens the provider reported as newly written to its cache (billed at the write rate); 0 when unreported.
-        "cacheWriteTokens": sum(item.get("cacheWriteTokens") or 0 for item in usage) + sum(int((event.get("usage") or {}).get("cacheWriteTokens") or 0) for event in research),
-        "lengthStops": sum(1 for event in finished if event.get("finishReason") == "length") + sum(int(event.get("truncatedReplies") or 0) for event in research),
-        "usd": sum(item.get("feeMicrousd") or 0 for item in dispatches) / 1_000_000,
+        "cacheWriteTokens": summed("cacheWriteTokens"),
+        "lengthStops": sum(1 for event in finished if event.get("finishReason") == "length") + sum(number(event.get("truncatedReplies")) for event in research),
+        "usd": sum(number(item.get("feeMicrousd")) for item in dispatches) / 1_000_000,
         "unknownDispatches": sum(1 for item in dispatches if item.get("status") == "committed" or (item.get("status") == "unknown" and not is_assist(item))),
         # PR-C: attempts superseded by a retry and confirmed failures are resolved rows, never uncertain ones.
         "retriedDispatches": sum(1 for item in dispatches if item.get("status") == "superseded"),
@@ -416,13 +486,21 @@ def counts_of(events: list, dispatches: list) -> dict:
     }
 
 
+def safe_integer(value):
+    """A JSON number that is an integer JavaScript holds exactly (Number.isSafeInteger), as an int, else None."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or (isinstance(value, float) and not (math.isfinite(value) and value.is_integer())):
+        return None
+    value = int(value)
+    return value if abs(value) <= 2 ** 53 - 1 else None
+
+
 def run_ledger(run_dir: str) -> dict:
     """A run directory with or without a result, as selection.ts readRunLedger reads it: its freeze (job, sha256, runtime, start, fee
-    cap, local arm) or None, its dispatch rows and claims, its counts, and the latest commit time of its rows."""
+    cap, local arm) or None, its dispatch rows and claims, its counts, the latest commit time of its rows, and its result's end."""
     events, dispatches, claims = ledger_rows(run_dir)
     freeze = None
     raw = read_freeze(run_dir)
-    if raw is not None and isinstance(raw.get("jobId"), str) and re.fullmatch(r"[A-Za-z0-9_-]{1,100}", raw["jobId"]):
+    if frozen(raw):
         with open(os.path.join(run_dir, "freeze.json"), "rb") as handle:
             digest = hashlib.sha256(handle.read()).hexdigest()
         limits = raw.get("limits") if isinstance(raw.get("limits"), dict) else {}
@@ -431,8 +509,10 @@ def run_ledger(run_dir: str) -> dict:
                   "startedAt": raw.get("startedAt") if isinstance(raw.get("startedAt"), str) else None,
                   "feeCapMicrousd": fee_cap if isinstance(fee_cap, (int, float)) and not isinstance(fee_cap, bool) and math.isfinite(fee_cap) else None,
                   "localArm": isinstance(raw.get("arm"), dict) and raw["arm"].get("arm") == "local"}
-    commits = [item.get("committedAt") for item in dispatches if isinstance(item.get("committedAt"), int) and not isinstance(item.get("committedAt"), bool)]
-    return {"freeze": freeze, "dispatches": dispatches, "claims": claims, "counts": counts_of(events, dispatches), "lastCommittedAt": max(commits) if commits else None}
+    commits = [value for value in (safe_integer(item.get("committedAt")) for item in dispatches) if value is not None]
+    result = read_object(run_dir, "result.json")
+    return {"freeze": freeze, "dispatches": dispatches, "claims": claims, "counts": counts_of(events, dispatches), "lastCommittedAt": max(commits) if commits else None,
+            "finishedAt": result["finishedAt"] if result is not None and isinstance(result.get("finishedAt"), str) else None}
 
 
 def check_outcome(outcome, run_status, run_class) -> None:
@@ -595,7 +675,8 @@ def receipt_row(args) -> dict:
 def cloud_fields(freeze: dict) -> dict:
     """The cloud model and request shape a run's cloud arm was frozen with (BL-20261030-0620); null on local runs or when absent."""
     arm = freeze.get("arm")
-    config = (arm.get("modelConfig") or {}) if isinstance(arm, dict) and arm.get("arm") == "cloud" else {}
+    config = arm.get("modelConfig") if isinstance(arm, dict) and arm.get("arm") == "cloud" else None
+    config = config if isinstance(config, dict) else {}
     return {"cloudModel": config.get("model"), "cloudApi": config.get("api")}
 
 
@@ -664,7 +745,7 @@ def row_provenance(args, row: dict) -> dict:
         loop = json.load(open(os.path.join(args.loop_dir, "loop.json"), encoding="utf-8"))
         # Every run of the loop that holds a freeze (part 3b's shared scan): a, b and the repair, and every run moved aside; a critique
         # or a void start holds none. The row's own run is the selected one, or the stage a loop stopped at.
-        stages = [entry["path"] for entry in loop_scan(args.loop_dir) if entry["freeze"] and not entry["critique"]]
+        stages = [entry["path"] for entry in loop_scan(args.loop_dir) if entry["freeze"] and not entry["critique"] and entry["kind"] != "void"]
         own = loop_row_run(args.loop_dir, loop)
         return run_provenance(own, stages) if own is not None else written_provenance()
     if args.supersedes is not None and isinstance(row.get("git"), str) and re.fullmatch(r"[0-9a-f]{12}", row["git"]) and (
@@ -679,6 +760,7 @@ def row_provenance(args, row: dict) -> dict:
 LOOP_STAGES = ("a", "b", "critique", "repair")
 LOOP_RUN_STAGES = ("a", "b", "repair")
 LOOP_FAILURE = re.compile(r"^[a-z0-9_]{1,80}$")
+SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 _LOOP_LOCK = []
 
 
@@ -691,7 +773,8 @@ def hold_loop_lock(loop_dir: str) -> None:
     try:
         if os.path.islink(path):
             raise sqlite3.OperationalError("symbolic link")
-        connection = sqlite3.connect(f"file:{path}?mode=rw", uri=True, timeout=0, isolation_level=None)
+        # A file URI of the absolute path, percent-encoded, so a space, `?`, `#` or `%` in the loop directory's path is read as part of it.
+        connection = sqlite3.connect(pathlib.Path(path).absolute().as_uri() + "?mode=rw", uri=True, timeout=0, isolation_level=None)
         connection.execute("BEGIN EXCLUSIVE")
     except sqlite3.Error:
         sys.exit("the loop is running, or its lock cannot be read: write its row once the loop has stopped")
@@ -737,12 +820,40 @@ def loop_moves(loop: dict):
     return resumes, voids
 
 
+def loop_closed(loop: dict) -> bool:
+    """Whether the operator closed a version-2 loop (`--close`): at a stop, or after stage 1 with a final selection."""
+    return loop.get("closed") is True or (isinstance(loop.get("stopped"), dict) and loop["stopped"].get("closed") is True)
+
+
+def own_runs(loop: dict, entries: list) -> list:
+    """The loop's runs once per job, each of the loop's own task and runtime (a run of another refuses the row). A stage's own
+    directory is kept before a copy of the same job elsewhere in the loop directory, then a moved run, then any other directory."""
+    task = loop.get("task") if isinstance(loop.get("task"), dict) else None
+    runtime = loop.get("runtimeSha256") if isinstance(loop.get("runtimeSha256"), str) else None
+    order = {"stage": 0, "moved": 1, "void": 2, "other": 3}
+    runs, jobs = [], set()
+    for entry in sorted(entries, key=lambda item: (order[item["kind"]], item["name"])):
+        freeze = read_freeze(entry["path"])
+        job = freeze["jobId"] if frozen(freeze) else None
+        if job is not None and job in jobs:
+            continue
+        binding = freeze.get("taskBinding") if freeze is not None and isinstance(freeze.get("taskBinding"), dict) else {}
+        if task is not None and freeze is not None and binding.get("jobSha256") != task.get("jobSha256"):
+            sys.exit(f"the loop directory holds a run of another task ({entry['name']})")
+        if runtime is not None and freeze is not None and freeze.get("sourceFreezeSha256") != runtime:
+            sys.exit(f"the loop directory holds a run of another runtime ({entry['name']})")
+        if job is not None:
+            jobs.add(job)
+        runs.append(entry)
+    return sorted(runs, key=lambda item: item["name"])
+
+
 def loop_runs(loop_dir: str, loop: dict, entries: list, resumes: list, voids: list) -> list:
-    """The loop's run directories to sum. A version-2 loop's subdirectories must be its begun stages and the directories its entries
-    moved aside (a closed loop's are all summed, matched or not); a version-1 loop's are every run directory, including stages an
-    operator moved aside by hand under part 1, of the loop's own task and runtime, once per job."""
+    """The loop's run directories to sum, once per job and each of the loop's own task and runtime (own_runs). A version-2 loop's
+    subdirectories must be its begun stages and the directories its entries moved aside (a closed loop's are all summed, matched or
+    not); a version-1 loop's are every run directory, including stages an operator moved aside by hand under part 1."""
     if loop.get("version") == 2:
-        if not (isinstance(loop.get("stopped"), dict) and loop["stopped"].get("closed") is True):
+        if not loop_closed(loop):
             begun = {entry.get("stage") for entry in loop.get("begun") or [] if isinstance(entry, dict)}
             named = {f"{entry['stage']}.infra-1" for entry in resumes} | {f"{entry['stage']}.void-{entry['n']}" for entry in voids}
             for entry in entries:
@@ -751,25 +862,9 @@ def loop_runs(loop_dir: str, loop: dict, entries: list, resumes: list, voids: li
             missing = named - {entry["name"] for entry in entries}
             if missing:
                 sys.exit("a directory the loop moved aside is missing: " + ", ".join(sorted(missing)))
-        return [entry for entry in entries if not entry["critique"] and entry["kind"] != "void" and (entry["freeze"] or entry["result"] or os.path.isfile(os.path.join(entry["path"], "state.sqlite")))]
-    task = loop.get("task") if isinstance(loop.get("task"), dict) else None
-    runtime = loop.get("runtimeSha256") if isinstance(loop.get("runtimeSha256"), str) else None
-    runs, jobs = [], set()
-    for entry in entries:
-        if entry["critique"] or not (entry["freeze"] or entry["result"]):
-            continue
-        freeze = read_freeze(entry["path"])
-        job = freeze.get("jobId") if isinstance(freeze, dict) and isinstance(freeze.get("jobId"), str) else None
-        if job is not None and job in jobs:
-            continue
-        binding = (freeze or {}).get("taskBinding") if isinstance((freeze or {}).get("taskBinding"), dict) else {}
-        if task is not None and freeze is not None and binding.get("jobSha256") != task.get("jobSha256"):
-            sys.exit(f"the loop directory holds a run of another task ({entry['name']})")
-        if runtime is not None and freeze is not None and freeze.get("sourceFreezeSha256") != runtime:
-            sys.exit(f"the loop directory holds a run of another runtime ({entry['name']})")
-        if job is not None:
-            jobs.add(job)
-        runs.append(entry)
+        return own_runs(loop, [entry for entry in entries if not entry["critique"] and entry["kind"] != "void"
+                               and (entry["freeze"] or entry["result"] or os.path.isfile(os.path.join(entry["path"], "state.sqlite")))])
+    runs = own_runs(loop, [entry for entry in entries if not entry["critique"] and (entry["freeze"] or entry["result"])])
     # Part 1 had the operator move a stage aside by hand. A finished run the log records but the directory lacks was moved out of it,
     # and its spend would be hidden: the row is refused until it is moved back (finding F1 of the review of pull request #67).
     log = os.path.join(loop_dir, "log.txt")
@@ -797,12 +892,10 @@ def run_totals(run_dir: str) -> dict:
     """One run's counts with or without a result (its result's rows, else its ledger's), and its start and end where it recorded them."""
     events, ledger_dispatches, _ = ledger_rows(run_dir)
     freeze = read_freeze(run_dir)
-    result = None
-    if os.path.isfile(os.path.join(run_dir, "result.json")):
-        with open(os.path.join(run_dir, "result.json"), encoding="utf-8") as handle:
-            result = json.load(handle)
-    dispatches = [item for item in (result.get("dispatches") or []) if isinstance(item, dict)] if isinstance(result, dict) else ledger_dispatches
-    return {"counts": counts_of(events, dispatches), "started": parse_time((freeze or {}).get("startedAt")), "ended": parse_time(result.get("finishedAt")) if isinstance(result, dict) else None}
+    # A result that cannot be read is a run that did not finish: its ledger's rows are its spend (part 3b).
+    result = read_object(run_dir, "result.json")
+    dispatches = [item for item in (result.get("dispatches") if isinstance(result.get("dispatches"), list) else []) if isinstance(item, dict)] if result is not None else ledger_dispatches
+    return {"counts": counts_of(events, dispatches), "started": parse_time((freeze or {}).get("startedAt")), "ended": parse_time(result.get("finishedAt")) if result is not None else None}
 
 
 def critique_totals(critique_dir: str):
@@ -810,18 +903,19 @@ def critique_totals(critique_dir: str):
     critique-failure.json for one that reached the model and was refused; a refusal before the model counts nothing."""
     counts = {key: 0 for key in SUMMED}
     for name in ("critique.json", "critique-failure.json"):
-        path = os.path.join(critique_dir, name)
-        if not os.path.exists(path):
+        if not os.path.lexists(os.path.join(critique_dir, name)):
             continue
-        with open(path, encoding="utf-8") as handle:
-            record = json.load(handle)
-        usage = record.get("usage") or {}
+        # A record that cannot be read counts nothing (phase4-loop.ts critiqueCounts); a field that is not a count counts 0.
+        record = read_object(critique_dir, name)
+        if record is None:
+            return counts, False
+        usage = record.get("usage") if isinstance(record.get("usage"), dict) else {}
         if name == "critique-failure.json" and not usage:
             return counts, False
         counts["modelCalls"] = 1
-        counts["usd"] = (record.get("feeMicrousd") or 0) / 1_000_000
+        counts["usd"] = count(record.get("feeMicrousd")) / 1_000_000
         for key, field in (("inputTokens", "inputTokens"), ("outputTokens", "outputTokens"), ("cachedTokens", "cacheReadTokens"), ("cacheWriteTokens", "cacheWriteTokens")):
-            counts[key] = int(usage.get(field) or 0)
+            counts[key] = count(usage.get(field))
         counts["lengthStops"] = 1 if record.get("finishReason") == "length" else 0
         return counts, name == "critique.json"
     return counts, False
@@ -873,6 +967,27 @@ def active_seconds(loop_dir: str, loop: dict):
     return round(total, 1)
 
 
+def freeze_fields(freeze: dict, result=None, events=()) -> dict:
+    """A stopped stage's row fields, read defensively (part 3b): from its freeze, the date it started, its task, profile, model
+    settings, cloud model and pipeline; from its readable result (read_result), its status and cause; from its events, its entailment,
+    as run_counts reads them. A field none of them holds is None, so a damaged directory never stops the row with a traceback."""
+    def text(value):
+        return value if isinstance(value, str) else None
+    binding = freeze.get("taskBinding") if isinstance(freeze.get("taskBinding"), dict) else {}
+    config = freeze.get("modelConfig") if isinstance(freeze.get("modelConfig"), dict) else {}
+    pipeline = freeze.get("pipeline") if isinstance(freeze.get("pipeline"), dict) else {}
+    started = parse_time(freeze.get("startedAt"))
+    tokens = config.get("maxOutputTokens")
+    entailment = next(({"counts": event.get("counts"), "entailmentCalls": event.get("entailmentCalls"), "truncated": event.get("truncated"),
+                        "supportRate": support_rate(event.get("counts"))} for event in reversed(list(events)) if isinstance(event, dict) and event.get("type") == "claims_entailment"), None)
+    return {"date": started.date().isoformat() if started else None, "taskJobSha256": text(binding.get("jobSha256")), "profile": text(freeze.get("profile")) or "standard",
+            "maxOutputTokens": tokens if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens >= 0 else None,
+            "thinking": config.get("thinking") if isinstance(config.get("thinking"), (bool, str)) else None, **cloud_fields(freeze),
+            "pipeline": text(pipeline.get("name")), "pipelinePlanner": text(pipeline.get("planner")),
+            "runStatus": text(result.get("status")) if result is not None else None, "terminalCause": text(result.get("reason")) if result is not None else None,
+            "entailment": entailment if result is not None else None}
+
+
 def refuse_unselected_accept(outcome, loop) -> None:
     """A loop that ended without a selection selected nothing to accept (part 3b, decision (10)); part 3a's `accepted` rule concerns a
     loop's selected run."""
@@ -890,12 +1005,25 @@ def loop_row(args) -> dict:
     version = loop.get("version")
     if isinstance(version, bool) or version not in (1, 2):
         sys.exit("the loop record's version is neither 1 nor 2")
+    # A stopped version-2 row takes its task from the record; a version-1 record's task, when it holds one, binds its runs (own_runs).
+    task = loop.get("task")
+    if (version == 2 or task is not None) and not (isinstance(task, dict) and isinstance(task.get("jobSha256"), str) and SHA256_HEX.fullmatch(task["jobSha256"])):
+        sys.exit("the loop record's task is malformed")
+    if loop.get("pipeline") not in ("research", None):
+        sys.exit("the loop record's pipeline is neither research nor null")
+    if version == 2:
+        begun = loop.get("begun")
+        if not isinstance(begun, list) or not all(isinstance(entry, dict) and entry.get("stage") in LOOP_STAGES and isinstance(entry.get("at"), str) for entry in begun):
+            sys.exit("the loop record holds a malformed begun entry")
+        if loop.get("closed", True) is not True:
+            sys.exit("the loop record's closed mark is malformed")
     final = (loop.get("selected") or {}).get("final")
     stopped = loop.get("stopped") if version == 2 else None
     if final and stopped:
         sys.exit("the loop record holds both a final selection and a stop")
     if not final and not stopped:
-        sys.exit("the loop has no final selection: resume it, or close it with scripts/phase4-loop.ts --close")
+        # Version 1 has no --close: a version-1 loop without a selection is resumed (part 1's protocol).
+        sys.exit("the loop has no final selection: resume it, or close it with scripts/phase4-loop.ts --close" if version == 2 else "the loop has no final selection: resume it")
     entries = loop_scan(loop_dir)
     resumes, voids = loop_moves(loop) if version == 2 else ([], [])
     runs = loop_runs(loop_dir, loop, entries, resumes, voids)
@@ -925,16 +1053,19 @@ def loop_row(args) -> dict:
     for name in named:
         summary = loop["candidates"][name]
         candidates[name] = {"status": summary.get("status"), "terminalCause": summary.get("reason")}
-        if os.path.isfile(os.path.join(loop_dir, name, "result.json")):
+        if read_result(os.path.join(loop_dir, name)) is not None:
             candidates[name]["runClass"] = classify_run_end(run_end_evidence(os.path.join(loop_dir, name), marked(name)))
     extra = {"wallSeconds": round((ended - started).total_seconds(), 1) if started and ended else None,
              "loop": {"version": version, "rule": loop["selectionRule"], "samples": len([name for name in named if name != "repair"]), "repaired": "repair" in named,
                       "seeded": loop.get("seeded"), "selected": final["candidate"] if final else None, "step": final["step"] if final else None,
                       "stage1": (loop["selected"].get("stage1") or {}).get("candidate") if loop.get("selected") else None,
-                      "critiqued": critiqued, "critiqueFailure": critique.get("failure") if isinstance(critique, dict) else None, "candidates": candidates,
+                      "critiqued": critiqued, "candidates": candidates,
+                      # A recorded failure is a code, never a message (a message may carry a host path).
+                      "critiqueFailure": critique["failure"] if isinstance(critique, dict) and isinstance(critique.get("failure"), str) and LOOP_FAILURE.fullmatch(critique["failure"]) else None,
                       "writeIdentityEqual": loop.get("writeIdentityEqual")}}
     if version == 2:
         extra["loop"]["resumes"] = [{"stage": entry["stage"], "cause": entry["cause"], "as": entry["as"]} for entry in resumes]
+        extra["loop"]["closed"] = loop_closed(loop)
     extra["activeSeconds"] = active_seconds(loop_dir, loop)
     cloud = read_freeze(stage_run(loop_dir, loop)) or {} if loop.get("arm") == "cloud" else None
     if final:
@@ -960,26 +1091,26 @@ def loop_row(args) -> dict:
         check_outcome(args.outcome, row.get("runStatus"), row["runClass"])
     else:
         stage, failure = stopped.get("stage"), stopped.get("failure")
-        if stage not in LOOP_STAGES + (None,) or not isinstance(failure, str) or not LOOP_FAILURE.fullmatch(failure):
+        if stage not in LOOP_STAGES + (None,) or not isinstance(failure, str) or not LOOP_FAILURE.fullmatch(failure) or stopped.get("closed", True) is not True:
             sys.exit("the loop record holds a malformed stop")
         path = os.path.join(loop_dir, stage) if stage else None
-        fields = {"date": started.date().isoformat() if started else None, "taskJobSha256": (loop.get("task") or {}).get("jobSha256"), "profile": None, "maxOutputTokens": None,
+        fields = {"date": started.date().isoformat() if started else None, "taskJobSha256": task["jobSha256"], "profile": None, "maxOutputTokens": None,
                   "thinking": None, "cloudModel": None, "cloudApi": None, "pipeline": loop.get("pipeline"), "pipelinePlanner": None, "runStatus": None, "terminalCause": None, "entailment": None}
-        if path is not None and stage in LOOP_RUN_STAGES and os.path.isfile(os.path.join(path, "result.json")) and os.path.isfile(os.path.join(path, "freeze.json")):
-            fields = run_counts(path)["row"]
-            evidence = {"kind": "result", "end": run_end_evidence(path, marked(stage))}
-        elif path is not None and stage in LOOP_RUN_STAGES and os.path.isdir(path):
-            evidence = {"kind": "ledger", "dispatches": run_ledger(path)["dispatches"]}
+        evidence = {"kind": "none"}
+        if path is not None and stage in LOOP_RUN_STAGES and os.path.isdir(path):
+            # What the stopped stage left, as phase4-loop.ts closeLoop reads it: a readable result; else its ledger, when its freeze is
+            # readable (a start that froze nothing left nothing, `none`); its row fields from the run, else from its freeze alone.
+            ledger = run_ledger(path)
+            result = read_result(path)
+            if ledger["freeze"] is not None:
+                # The loop's own date, task and pipeline stand where the freeze records none.
+                found = freeze_fields(read_freeze(path), result, ledger_rows(path)[0])
+                fields = {**fields, **{key: value for key, value in found.items() if value is not None or key not in ("date", "taskJobSha256", "pipeline")}}
+                evidence = {"kind": "result", "end": run_end_evidence(path, marked(stage))} if result is not None else {"kind": "ledger", "dispatches": ledger["dispatches"]}
         elif path is not None and stage == "critique" and os.path.isdir(path):
-            failure_record = os.path.join(path, "critique-failure.json")
-            code = None
-            if os.path.isfile(failure_record):
-                with open(failure_record, encoding="utf-8") as handle:
-                    saved = json.load(handle)
-                code = saved.get("code") if isinstance(saved, dict) and isinstance(saved.get("code"), str) else None
+            saved = read_object(path, "critique-failure.json")
+            code = saved["code"] if saved is not None and isinstance(saved.get("code"), str) else None
             evidence = {"kind": "critique", "code": code, "stopSignalled": marked("critique")}
-        else:
-            evidence = {"kind": "none"}
         extra["loop"]["stopped"] = {"stage": stage, "failure": failure, "closed": stopped.get("closed") is True}
         row = {**fields, **summed, **extra, "runClass": classify_loop_stop(failure, evidence)}
         check_outcome(args.outcome, row.get("runStatus"), row["runClass"])

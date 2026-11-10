@@ -110,11 +110,14 @@ export function classifyRunEnd(end: RunEndEvidence): RunClass {
 /**
  * Classifies a critique's end (part 3b resumes on it): its failure code, null when its directory holds no record. Part 3b
  * (BL-20261110-0637, decision (1)) amends part 3a's helper: the loop's interrupt counts as the operator's stop only when the
- * failure is infrastructure or there is no record, so a failure in the model's output stays the task's.
+ * failure is infrastructure, a cancellation the interrupt caused (CRITIQUE_CANCEL_CODES), or there is no record, so a failure in
+ * the model's output stays the task's. The mark must be exactly true.
  */
 export function classifyCritiqueEnd(code: string | null, stopSignalled: boolean): RunClass {
+  const marked = stopSignalled === true;
+  if (marked && has(CRITIQUE_CANCEL_CODES, code)) return { version: RUN_CLASSIFICATION_VERSION, infra: true, cause: "operator_stop" };
   if (code !== null && !has(INFRA_CRITIQUE_CODES, code)) return { version: RUN_CLASSIFICATION_VERSION, infra: false, cause: "task" };
-  return { version: RUN_CLASSIFICATION_VERSION, infra: true, cause: stopSignalled ? "operator_stop" : code ?? RUN_UNFINISHED_CAUSE };
+  return { version: RUN_CLASSIFICATION_VERSION, infra: true, cause: marked ? "operator_stop" : code ?? RUN_UNFINISHED_CAUSE };
 }
 
 /** The last dispatch row of a run that is not an assist and has this status (rows are in commit order): the failing or the uncertain call. */
@@ -139,6 +142,8 @@ export const LEDGER_STOP_CAUSES = Object.freeze(["stage_unresolved_dispatch", "s
 export const LOOP_INTEGRITY_STOPS = Object.freeze(["loop_stage_missing", "loop_resume_spent", "loop_stage_mismatch", "loop_resume_mismatch", "loop_stage_ledger_unreadable"] as const);
 /** The loop's interrupt between stages, or before a stage's run created its directory. */
 export const LOOP_INTERRUPT_FAILURE = "loop_interrupted";
+/** The broker's refusals when the loop's interrupt lands before or around a critique's call (broker.ts): the operator's stop when marked. */
+export const CRITIQUE_CANCEL_CODES = Object.freeze([STOP_TOKEN_ADMISSION_CODE, "request_cancelled", "retry_wait_cancelled", "transport_cancelled"] as const);
 
 /**
  * Decision (4): the row of a stage's ledger that stops the loop before the stage could be moved aside, or null. A `committed` row

@@ -203,41 +203,67 @@ export interface RunLedger {
   counts: RunCounts;
   /** The latest commit time of its dispatch rows, in milliseconds since the epoch, or null without one. */
   lastCommittedAt: number | null;
+  /** Its result's end time when `result.json` holds a readable object with one, or null. */
+  finishedAt: string | null;
+}
+/**
+ * A file of a run's own (or the critique tool's) as a JSON object, or null when it is absent, not a regular file (a symbolic link is
+ * not followed), not strict UTF-8, led by a byte-order mark (which JSON.parse refuses, as every other reader of these files does), not
+ * JSON or not an object. scripts/registry-row.py's `read_object` reads the same way.
+ */
+export function readRunObject(directory: string, name: string): { bytes: Buffer; value: Record<string, unknown> } | null {
+  const root = realpathSync(directory), path = join(root, name);
+  if (!existsSync(path) || !lstatSync(path).isFile()) return null;
+  const bytes = insideFile(path, root);
+  try {
+    const value: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes));
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? { bytes, value: value as Record<string, unknown> } : null;
+  } catch { return null; }
+}
+/** A run's result as part 3b reads one: a readable object (readRunObject) with a status, a reason and an end time; null otherwise. */
+export function readRunResult(directory: string): Record<string, unknown> | null {
+  const result = readRunObject(directory, "result.json")?.value ?? null;
+  return result && typeof result.status === "string" && typeof result.reason === "string" && typeof result.finishedAt === "string" ? result : null;
 }
 /**
  * Reads a run directory read-only, as part 3b's loop and registry read a run without `result.json` (scripts/registry-row.py's
- * `run_ledger` mirrors it). A missing ledger or table gives no rows. The caller recovers a hot journal first: a read-only
- * open refuses one.
+ * `run_ledger` mirrors it). A run whose freeze is readable, or that holds a result, has a ledger with the store's tables (the driver
+ * creates both before its session), so a missing one refuses with `run_ledger_missing`; otherwise a missing ledger gives no rows. A
+ * row that is not a JSON object is skipped. The caller recovers a hot journal first: a read-only open refuses one.
  */
 export function readRunLedger(runDirectory: string): RunLedger {
   const root = realpathSync(runDirectory);
   let freeze: RunLedger["freeze"] = null;
-  if (existsSync(join(root, "freeze.json"))) {
-    const bytes = insideFile(join(root, "freeze.json"), root);
-    let value: unknown = null;
-    try { value = JSON.parse(bytes.toString("utf8")); } catch { value = null; }
-    const object = value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  const frozen = readRunObject(root, "freeze.json");
+  if (frozen) {
+    const bytes = frozen.bytes, object = frozen.value;
     const limits = object && typeof object.limits === "object" && object.limits !== null ? object.limits as Record<string, unknown> : null;
     const arm = object && typeof object.arm === "object" && object.arm !== null ? object.arm as Record<string, unknown> : null;
-    if (object && typeof object.jobId === "string" && /^[A-Za-z0-9_-]{1,100}$/u.test(object.jobId)) {
+    if (typeof object.jobId === "string" && /^[A-Za-z0-9_-]{1,100}$/u.test(object.jobId)) {
       freeze = { jobId: object.jobId, sha256: digest(bytes), runtimeSha256: typeof object.sourceFreezeSha256 === "string" ? object.sourceFreezeSha256 : null,
         startedAt: typeof object.startedAt === "string" ? object.startedAt : null,
         feeCapMicrousd: typeof limits?.feeMicrousd === "number" && Number.isFinite(limits.feeMicrousd) ? limits.feeMicrousd : null, localArm: arm?.arm === "local" };
     }
   }
   let events: Record<string, unknown>[] = [], dispatches: Record<string, unknown>[] = [], claims: Record<string, unknown>[] = [];
+  const tablesNeeded = ["private_agent_events", "private_agent_dispatches", "private_agent_run_claims"];
+  const required = freeze !== null || existsSync(join(root, "result.json"));
   if (existsSync(join(root, "state.sqlite"))) {
     const database = new Database(insidePath(join(root, "state.sqlite"), root), { readonly: true, fileMustExist: true });
     try {
       const tables = new Set((database.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as { name: string }[]).map(table => table.name));
-      const values = (sql: string) => (database.prepare(sql).all() as { value: string }[]).map(item => JSON.parse(item.value) as Record<string, unknown>);
+      if (required && !tablesNeeded.every(table => tables.has(table))) throw new Error("run_ledger_missing");
+      const values = (sql: string) => (database.prepare(sql).all() as { value: string }[]).map(item => JSON.parse(item.value) as unknown)
+        .filter((item): item is Record<string, unknown> => item !== null && typeof item === "object" && !Array.isArray(item));
       if (tables.has("private_agent_events")) events = values("SELECT value FROM private_agent_events ORDER BY job_id, sequence");
       if (tables.has("private_agent_dispatches")) dispatches = values("SELECT value FROM private_agent_dispatches ORDER BY rowid");
       if (tables.has("private_agent_run_claims")) claims = values("SELECT value FROM private_agent_run_claims ORDER BY rowid");
     } finally { database.close(); }
-  }
+  } else if (required) throw new Error("run_ledger_missing");
   const commits = dispatches.map(item => item.committedAt).filter((value): value is number => typeof value === "number" && Number.isSafeInteger(value));
-  return { freeze, dispatches, claims, counts: runCounts(events, dispatches), lastCommittedAt: commits.length ? Math.max(...commits) : null };
+  const result = readRunObject(root, "result.json");
+  return { freeze, dispatches, claims, counts: runCounts(events, dispatches), lastCommittedAt: commits.length ? Math.max(...commits) : null,
+    finishedAt: typeof result?.value.finishedAt === "string" ? result.value.finishedAt : null };
 }
 
 /**
@@ -248,7 +274,9 @@ export function readRunLedger(runDirectory: string): RunLedger {
  */
 export function readRunEndEvidence(runDirectory: string): Omit<RunEndEvidence, "stopSignalled"> {
   const root = realpathSync(runDirectory);
-  const result = JSON.parse(insideFile(join(root, "result.json"), root).toString("utf8")) as Record<string, unknown>;
+  // Part 3b: a result that cannot be read as one (readRunResult) is a run that did not finish, in the loop and the registry alike.
+  const result = readRunResult(root);
+  if (!result) throw new Error("run_result_unreadable");
   const database = new Database(insidePath(join(root, "state.sqlite"), root), { readonly: true, fileMustExist: true });
   let events: Record<string, unknown>[];
   try { events = (database.prepare("SELECT value FROM private_agent_events ORDER BY job_id, sequence").all() as { value: string }[]).map(row => JSON.parse(row.value)); }

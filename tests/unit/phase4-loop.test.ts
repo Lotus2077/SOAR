@@ -68,7 +68,7 @@ function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?:
         dispatches: input.rows?.[nameOf(directory)] ?? [], claims: [], counts: { modelCalls: summary?.modelCalls ?? 0, toolCalls: summary?.toolCalls ?? 0, inputTokens: summary?.inputTokens ?? 0, outputTokens: summary?.outputTokens ?? 0,
           cachedTokens: summary?.cachedTokens ?? 0, cacheWriteTokens: summary?.cacheWriteTokens ?? 0, lengthStops: summary?.lengthStops ?? 0, feeMicrousd: summary?.feeMicrousd ?? 0,
           unknownDispatches: summary?.unknownDispatches ?? 0, retriedDispatches: 0, failedDispatches: summary?.failedDispatches ?? 0, zeroFeeFailedDispatches: summary?.zeroFeeFailedDispatches ?? 0,
-          assistSkippedDispatches: summary?.assistSkippedDispatches ?? 0, assistFailedDispatches: summary?.assistFailedDispatches ?? 0 }, lastCommittedAt: null };
+          assistSkippedDispatches: summary?.assistSkippedDispatches ?? 0, assistFailedDispatches: summary?.assistFailedDispatches ?? 0 }, lastCommittedAt: null, finishedAt: null };
     },
     readCritiqueFailure(directory) {
       const path = join(directory, "critique-failure.json");
@@ -309,11 +309,13 @@ describe("H4 select-and-repair loop", () => {
     const third = fakes({ summaries: candidates(false) });
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, third.deps)).rejects.toThrow("loop_resume_mismatch");
     expect(third.calls.runs).toHaveLength(0); expect(existsSync(join(dir2, "loop.json"))).toBe(false);
-    // A stage whose run died after creating its directory is unfinished: the next invocation moves it to a.infra-1 and runs it again, once.
+    // A stage whose driver threw after freezing its run is unfinished: the invocation that ran it defers it (part 3b, after its code
+    // review), and the next invocation moves it to a.infra-1 and runs it again, once. The driver's own message stays in errors.txt.
     const dir3 = loopDir();
     const dying = fakes({ summaries: candidates(false), onRun: run => { if (run.outputDirectory.endsWith("/a")) { mkdirSync(run.outputDirectory, { recursive: true }); writeFileSync(join(run.outputDirectory, "freeze.json"), "{}"); throw new Error("driver_died"); } } });
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, dying.deps)).rejects.toThrow("driver_died");
-    expect(read(dir3)).toMatchObject({ failure: "driver_died", failedStage: "a", begun: [{ stage: "a" }], stopped: null });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, dying.deps)).rejects.toThrow("loop_stage_infra");
+    expect(read(dir3)).toMatchObject({ failure: "loop_stage_infra", failedStage: "a", begun: [{ stage: "a" }], stopped: null });
+    expect(readFileSync(join(dir3, "errors.txt"), "utf8")).toContain("Error: driver_died");
     const fourth = fakes({ summaries: candidates(false) });
     expect((await runSelectionLoop({ base: base(), loopDirectory: dir3 }, fourth.deps)).selected.final).toMatchObject({ candidate: "a", step: "tie" });
     expect(fourth.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b", "repair"]);
@@ -436,12 +438,14 @@ describe("H4 select-and-repair loop", () => {
     const record = await runSelectionLoop({ base: base(), loopDirectory: dir2 }, resumed.deps);
     expect(resumed.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["repair"]); expect(record.selected.final).toMatchObject({ candidate: "a", step: "tie" });
     expect(record.resumes).toEqual([expect.objectContaining({ stage: "repair", cause: "operator_stop" })]);
-    // The driver writes result.json and then throws (a cleanup failure) while the interrupt has fired: the stage is still marked, and resumed.
+    // The driver writes result.json and then throws (a cleanup failure) while the interrupt has fired: the stage is still marked, the
+    // invocation stops on the interrupt (the driver's code goes to errors.txt), and the stage is resumed.
     const quiet = candidates(false, { b: { status: "incomplete", reason: "cancelled_or_deadline" } });
     const dir3 = loopDir(), abort4 = new AbortController();
     const throwing = fakes({ summaries: quiet, onWritten: run => { if (run.outputDirectory.endsWith("/b")) { abort4.abort(); throw new Error("public_snapshot_cleanup_failed"); } } });
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, throwing.deps, { signal: abort4.signal })).rejects.toThrow("public_snapshot_cleanup_failed");
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, throwing.deps, { signal: abort4.signal })).rejects.toThrow("loop_interrupted");
     expect(read(dir3).stages.find(entry => entry.stage === "b")).toMatchObject({ reused: false, interrupted: true });
+    expect(readFileSync(join(dir3, "errors.txt"), "utf8")).toContain("loop_interrupted Error: public_snapshot_cleanup_failed");
     const after = fakes({ summaries: quiet, reruns: { b: summary({ jobId: "jb2", freezeSha256: h("d"), resultSha256: h("e") }) } });
     expect((await runSelectionLoop({ base: base(), loopDirectory: dir3 }, after.deps)).resumes).toEqual([expect.objectContaining({ stage: "b", cause: "operator_stop" })]);
   });

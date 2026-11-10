@@ -2,7 +2,7 @@ import { execFileSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { FAILED_CALL_STAGE_CODE, INFRA_BROKER_CODES, INFRA_CRITIQUE_CODES, INFRA_HOST_REASONS, INFRA_TOKEN_ADMISSION_CODES, LEDGER_STOP_CAUSES, LEDGER_STOP_FAILURES, LOOP_INTEGRITY_STOPS,
+import { CRITIQUE_CANCEL_CODES, FAILED_CALL_STAGE_CODE, INFRA_BROKER_CODES, INFRA_CRITIQUE_CODES, INFRA_HOST_REASONS, INFRA_TOKEN_ADMISSION_CODES, LEDGER_STOP_CAUSES, LEDGER_STOP_FAILURES, LOOP_INTEGRITY_STOPS,
   LOOP_INTERRUPT_FAILURE, PUBLIC_PHASE_PREFIX, RUN_CLASSIFICATION_VERSION, RUN_UNFINISHED_CAUSE, STOP_REASONS, STOP_TOKEN_ADMISSION_CODE, TRANSIENT_TRANSPORT_CODES, UNCERTAIN_CALL_BROKER_CODE,
   classifyCritiqueEnd, classifyLoopStop, classifyRunEnd, isTransientCloudFailure, lastCall, ledgerStop, type LoopStopRun, type RunClass, type RunEndEvidence } from "../../src/main/private-agent/run-classification";
 import { isRetryableAbort } from "../../src/main/private-agent/store";
@@ -178,6 +178,7 @@ const LOOP_CASES: [string, string, LoopStopRun, RunClass][] = [
   ["an unfinished run whose priced call failed transiently", "loop_stage_failed_dispatch", ledger(cloud(transport("connection_failed"))), infra("stage_failed_dispatch")],
   ["an unfinished run whose priced call answered 402", "loop_stage_failed_dispatch", ledger(cloud(transport("http_rejected", { status: 402 }))), TASK],
   ["an unfinished run whose uncertain row outranks a failed one", "loop_stage_failed_dispatch", ledger(unknownCloud(transport("request_timeout")), cloud(transport("http_rejected", { status: 402 }))), infra("stage_unresolved_dispatch")],
+  ["an unfinished run whose last uncertain row was a refused reply, after a call in flight", "loop_stage_unresolved_dispatch", ledger(committedCloud, unknownCloud({ phase: "settlement", code: "response_or_usage_invalid" })), TASK],
   ["an unfinished run with a zero-fee committed row", "loop_stage_incomplete", ledger(zeroFee, committedLocal), infra(RUN_UNFINISHED_CAUSE)],
   ["an unfinished run with skipped and failed assists", "loop_stage_incomplete", ledger(assist("unknown"), assist("failed")), infra(RUN_UNFINISHED_CAUSE)],
   ["an unfinished run with no rows", "loop_stage_incomplete", ledger(), infra(RUN_UNFINISHED_CAUSE)],
@@ -185,15 +186,19 @@ const LOOP_CASES: [string, string, LoopStopRun, RunClass][] = [
   ["a cut critique with no record", "loop_stage_interrupted", { kind: "critique", code: null, stopSignalled: true }, infra("operator_stop")],
   ["a critique whose local call failed", "loop_stage_incomplete", { kind: "critique", code: "request_failed", stopSignalled: false }, infra("request_failed")],
   ["a cut critique whose reply was empty", "loop_stage_interrupted", { kind: "critique", code: "repair_critique_empty", stopSignalled: true }, TASK],
+  ["a cut critique cancelled at its token admission", "loop_stage_interrupted", { kind: "critique", code: "local_token_admission_cancelled", stopSignalled: true }, infra("operator_stop")],
+  ["a cut critique whose request was cancelled", "loop_stage_interrupted", { kind: "critique", code: "request_cancelled", stopSignalled: true }, infra("operator_stop")],
+  ["a critique cancelled without the loop's mark", "loop_stage_incomplete", { kind: "critique", code: "request_cancelled", stopSignalled: false }, TASK],
   ["an interrupt between stages", LOOP_INTERRUPT_FAILURE, { kind: "none" }, infra("operator_stop")],
   ["a refusal before a session", "local_screen_cloud_key_missing", { kind: "none" }, TASK],
 ];
 
 describe("why a loop stopped (backlog item 11, part 3b)", () => {
   it("pins the loop-stop lists literally, apart from version 1's run-end lists", () => {
-    expect({ RUN_UNFINISHED_CAUSE, LEDGER_STOP_FAILURES, LEDGER_STOP_CAUSES, LOOP_INTEGRITY_STOPS, LOOP_INTERRUPT_FAILURE }).toEqual({ RUN_UNFINISHED_CAUSE: "run_unfinished",
+    expect({ RUN_UNFINISHED_CAUSE, LEDGER_STOP_FAILURES, LEDGER_STOP_CAUSES, LOOP_INTEGRITY_STOPS, LOOP_INTERRUPT_FAILURE, CRITIQUE_CANCEL_CODES }).toEqual({ RUN_UNFINISHED_CAUSE: "run_unfinished",
       LEDGER_STOP_FAILURES: ["loop_stage_unresolved_dispatch", "loop_stage_failed_dispatch"], LEDGER_STOP_CAUSES: ["stage_unresolved_dispatch", "stage_failed_dispatch"],
-      LOOP_INTEGRITY_STOPS: ["loop_stage_missing", "loop_resume_spent", "loop_stage_mismatch", "loop_resume_mismatch", "loop_stage_ledger_unreadable"], LOOP_INTERRUPT_FAILURE: "loop_interrupted" });
+      LOOP_INTEGRITY_STOPS: ["loop_stage_missing", "loop_resume_spent", "loop_stage_mismatch", "loop_resume_mismatch", "loop_stage_ledger_unreadable"], LOOP_INTERRUPT_FAILURE: "loop_interrupted",
+      CRITIQUE_CANCEL_CODES: ["local_token_admission_cancelled", "request_cancelled", "retry_wait_cancelled", "transport_cancelled"] });
     const loop = readFileSync(join(ROOT, "scripts", "phase4-loop.ts"), "utf8");
     for (const code of [...LEDGER_STOP_FAILURES, ...LOOP_INTEGRITY_STOPS, LOOP_INTERRUPT_FAILURE, "loop_stage_interrupted", "loop_stage_incomplete"]) expect(loop + readFileSync(join(ROOT, "src", "main", "private-agent", "loop-ledger.ts"), "utf8"), code).toContain(`"${code}"`);
   });
@@ -213,14 +218,17 @@ describe("why a loop stopped (backlog item 11, part 3b)", () => {
       "import importlib.util, json, sys",
       "spec = importlib.util.spec_from_file_location('registry_row', sys.argv[1]); module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)",
       "cases = json.load(sys.stdin)",
-      "names = ['RUN_UNFINISHED_CAUSE', 'LEDGER_STOP_FAILURES', 'LEDGER_STOP_CAUSES', 'LOOP_INTEGRITY_STOPS', 'LOOP_INTERRUPT_FAILURE']",
+      "names = ['RUN_UNFINISHED_CAUSE', 'LEDGER_STOP_FAILURES', 'LEDGER_STOP_CAUSES', 'LOOP_INTEGRITY_STOPS', 'LOOP_INTERRUPT_FAILURE', 'CRITIQUE_CANCEL_CODES']",
       "stops = [module.ledger_stop(case[1]['dispatches']) if case[1].get('kind') == 'ledger' else None for case in cases]",
-      "print(json.dumps({'lists': {name: getattr(module, name) for name in names}, 'classes': [module.classify_loop_stop(case[0], case[1]) for case in cases], 'stops': [stop[0] if stop else None for stop in stops]}))",
+      "print(json.dumps({'lists': {name: getattr(module, name) for name in names}, 'classes': [module.classify_loop_stop(case[0], case[1]) for case in cases], 'stops': [stop[0] if stop else None for stop in stops], 'rows': [stop[1] if stop else None for stop in stops]}))",
     ].join("\n");
     const output = JSON.parse(execFileSync("python3", ["-I", "-c", probe, SCRIPT], { input: JSON.stringify(LOOP_CASES.map(([, failure, run]) => [failure, run])), encoding: "utf8" })) as
-      { lists: Record<string, unknown>; classes: unknown[]; stops: (string | null)[] };
-    expect(output.lists).toEqual({ RUN_UNFINISHED_CAUSE, LEDGER_STOP_FAILURES: [...LEDGER_STOP_FAILURES], LEDGER_STOP_CAUSES: [...LEDGER_STOP_CAUSES], LOOP_INTEGRITY_STOPS: [...LOOP_INTEGRITY_STOPS], LOOP_INTERRUPT_FAILURE });
+      { lists: Record<string, unknown>; classes: unknown[]; stops: (string | null)[]; rows: unknown[] };
+    expect(output.lists).toEqual({ RUN_UNFINISHED_CAUSE, LEDGER_STOP_FAILURES: [...LEDGER_STOP_FAILURES], LEDGER_STOP_CAUSES: [...LEDGER_STOP_CAUSES], LOOP_INTEGRITY_STOPS: [...LOOP_INTEGRITY_STOPS], LOOP_INTERRUPT_FAILURE,
+      CRITIQUE_CANCEL_CODES: [...CRITIQUE_CANCEL_CODES] });
     output.classes.forEach((value, i) => expect(value, LOOP_CASES[i]![0]).toEqual(LOOP_CASES[i]![3]));
     output.stops.forEach((value, i) => { const run = LOOP_CASES[i]![2]; if (run.kind === "ledger") expect(value, LOOP_CASES[i]![0]).toBe(ledgerStop(run.dispatches)?.failure ?? null); });
+    // The same row stops in both: the last uncertain row, else the last priced failed one.
+    output.rows.forEach((value, i) => { const run = LOOP_CASES[i]![2]; if (run.kind === "ledger") expect(value, LOOP_CASES[i]![0]).toEqual(ledgerStop(run.dispatches)?.row ?? null); });
   });
 });

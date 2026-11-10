@@ -30931,3 +30931,111 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: Review and CI on the pull request, merged after #72 (controller.ts: 6.1, then 6.2, then 7d.C; session.ts: 6.2, then 7d.B). E1-T3 (lane S-e1) asserts these results and merges after this; a hand-over note with the per-stage results is in the shared notes folder. If another entry merges first, this entry's ID and the design entry's are re-stamped after main's tail with a correction entry.
 
 References: BL-20261109-0501-research-stage-pause-design; BL-20261109-0459-desktop-resume-reasons-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 4 row A7 and section 5.7 item 6; pull request #72.
+
+
+### BL-20261110-0715-runner-storage-integrity-design -- 2026-11-10 -- Backlog item 6 follow-up decided: after a runtime failure the desktop verifies the blobs its records reference, and a missing or mismatched one ends `task_integrity_failed`; a damaged public-source blob no longer breaks the task snapshot; corrections to the 6.1 and 6.2 entries
+
+Status: `Proposed`
+
+Scope or hypothesis: This is the decision entry for a follow-up to backlog item 6 (plan ID 6.3, lane S-desk). It is stacked on 6.2 (pull request #77, branch `fix/6.2-research-stage-pause`), which is stacked on 6.1 (#72).
+
+The orchestrator's merge-train review of #72 found finding F1: a missing or corrupt blob that only the runner loads from the task's storage is recorded as `runtime_failure_progress_preserved`. 6.1 made that reason resumable, and its text says that progress is retained.
+
+The change is zero-fee code with deterministic tests and no endpoint, so it needs no approval under PLAN.md section 4(c). The implementation follows in the same pull request.
+
+The finding, re-read at 224429b with three design reviews:
+- **What the runner loads.** The runner reads the task's checkpoint store from inside its try. At its start and on every turn it loads:
+  - the last checkpoint's files (before it creates the sandbox, and again where it re-creates one);
+  - the retained public sources;
+  - the retained execution observations, on every turn;
+  - the checkpoint taken after each retained execute (the execution-progress view, on every turn);
+  - on a version 3 task, the consultation proposal's checkpoint and its response.
+- **What its catch records.** Every failure is recorded only by its class name (a `runtime_failure` event with code `Error`), and the run finishes `incomplete` with `runtime_failure_progress_preserved`.
+- **Why decision (a) missed these failures.** The integrity rule of BL-20261109-0336 decision (4) and BL-20261109-0459 decision (a) covers a checkpoint store refusal or an ENOENT under the task storage root. It held only for errors that reach the controller's catch.
+- **What the review's probe showed.** A task paused after writing output/report.md had that blob deleted. Three resumes each stored `runtime_failure_progress_preserved`, with Resume offered, the "progress … is retained" text and zero model requests.
+- **Why re-running the runner's checks would fail.** The observation check and the progress view wrap every failure in one code each (`execution_observation_integrity_failed`, `execution_progress_integrity_failed`). That includes a permission error, EIO and a busy store, so their codes cannot tell damage from an environmental error.
+- **A defect that predates 6.1.** get() reads the public sources without a try, and list() maps get() over every task. So one task's lost source blob made get(), resume() and list() throw, and the whole task history failed to load.
+
+Hypothesis: the controller can verify the blobs the private context's records reference, with its own loads and without the runner's wrappers. If it does, damage is told apart from an environmental failure, a damaged task ends terminal with the integrity text, and no futile Resume is offered. The runner and its source freeze stay unchanged.
+
+Decisions:
+
+(1) The blob scan. execute() derives the record it will save. When that record is `incomplete` with `runtime_failure_progress_preserved` (after the configuration-change and cancel mapping, before the single save), it verifies every blob the private context's records reference. Those records are:
+- each checkpoint's snapshot;
+- each retained execution observation's snapshot (a `tool_finished` with `executionCapture` "retained");
+- each retained public source's snapshot;
+- a consultation proposal's checkpoint and a consultation response's snapshot.
+
+It also checks that a response names its recorded content digest, as the runner's own check does.
+
+The scan works as follows:
+- **How it reads.** It goes one snapshot at a time through execute()'s own checkpoint store, with each distinct blob read once.
+- **What counts as damage.** A load error that `caughtRunReason` classifies as `task_integrity_failed` (a checkpoint store refusal, or an ENOENT under the task storage root), or a response digest mismatch, makes the record store `task_integrity_failed`.
+- **What it ignores.** Any other error (a permission error, EIO), and a record it cannot read, leaves the runner's reason. Each snapshot is checked independently, and any integrity verdict wins.
+- **What it never does.** It never writes, dispatches or deletes.
+
+This covers every load the runner makes, including the per-turn progress and observation loads, because each of them reads a blob that one of these records names.
+
+(2) get() fails closed on its public-source read. A failure there no longer throws out of get(), resume() or list(); the snapshot's sources are empty instead. If the error is an integrity failure, a paused or incomplete record that is not running reads `task_integrity_failed`, with no Resume. It is checked with the other permanent stops, before the unfinished research stage and the time limit. Any other read error only empties the sources.
+
+(3) The integrity codes gain `public_source_identity_invalid`, `public_source_duplicate` and `public_source_context_invalid`. Each is deterministic, because a settled receipt is final. As a consequence, these codes thrown into the controller's catch (session.completed() reads the sources on a finalising task) now end `task_integrity_failed` instead of `runtime_unavailable`. The observation and progress wrapper codes are not added, because they also wrap environmental errors.
+
+(4) runner.ts, session.ts and every other file under src/main/private-agent/ are unchanged. The headless source freeze stays as 6.2 leaves it.
+
+(5) Corrections. They hold as recorded here, whatever this entry's status; the earlier entries stay as written.
+- BL-20261109-0459 decision (a) (and BL-20261109-0336 decision (4) for the checkpoint store refusals) held only for errors that reached the controller's catch: the input blobs, the completed snapshot and the storage directories. The runner's loads listed above were recorded `runtime_failure_progress_preserved`. Decision (1) here extends the rule to them. The same correction applies to #72's description.
+- In BL-20261109-0607's Changes, two counts are wrong:
+  - Seven tests were appended to tests/unit/private-agent-research-session.test.ts, not eight; two more were rewritten.
+  - "One dispatch read per get()" overstates it. 6.2 adds no read: the stage check reuses get()'s own read. get() still reads the dispatches in uncertain(), in readConsultation() and consultationModelCalls() once a consultation is proposed, for the unknown-request text, and for the public-fetch count.
+
+(6) Recorded as accepted for 6.2. A version 3 record may have a resumable stored reason (`interrupted`, `runtime_unavailable`) while the unfinished-stage guard withholds its Resume. Its elapsed clock stays live, because 6.1's decision 7 keys the clock on the stored reason's class, as it already does under the uncertain and stop-marker guards. The projection names the stage before the time limit, so the text does not change when the clock passes the budget.
+
+(7) 6.2's defensive-arm test gains the assertion that the pause landed after the stage's abort controller existed. That shows the arm is reached, rather than inferred from the code order.
+
+Changes: Planned in this pull request:
+- src/main/general-tasks/storage-integrity.ts (new): the blob scan.
+- src/main/general-tasks/controller.ts: the scan after `runtime_failure_progress_preserved`, and get()'s fail-closed source read.
+- src/main/general-tasks/run-reasons.ts: the three public-source codes.
+- tests/unit/general-task-storage-integrity.test.ts (new): every record kind, missing, corrupted and resized blobs, a response digest mismatch, a permission error left alone, an unreadable record skipped, deduplication and other contexts ignored.
+- tests/unit/general-task-controller.test.ts:
+  - on the real runner with a mocked sandbox, a deleted checkpoint blob ends `task_integrity_failed`, with no Resume and the integrity text, also after reopening;
+  - intact storage with a sandbox that fails once stays `runtime_failure_progress_preserved` and resumable;
+  - a damaged public-source blob leaves get() and list() working, with the integrity text.
+- tests/unit/general-task-run-reasons.test.ts: the codes and where each is raised.
+- tests/unit/private-agent-research-session.test.ts: the defensive-arm assertion.
+
+Consequences:
+- A task whose storage lost or corrupted a blob its records reference ends terminal at the first runtime failure, with the integrity text. Before, it offered futile zero-fee resumes until its wall budget ended.
+- An environmental failure with intact storage stays resumable.
+- One task's damaged source blob no longer breaks the task list.
+- The scan reads each distinct blob of the private context once, and only after such a stop: about 0.2 s per 128 MiB on this Mac, synchronously on the main process.
+- Unchanged: the source freeze, the session identity, every protocol hash, every event schema and dispatch semantics.
+- The controller.ts merge order becomes 6.1, 6.2, 6.3, then 7d.C.
+
+Evidence: None yet for the code; this entry decides. Three adversarial design reviews (ledger and replay safety, consumers and tests, fidelity) reviewed the first draft, which re-ran the runner's start-time checks. They found:
+- it missed the per-turn progress and consultation loads (a probe showed the futile resumes surviving);
+- the observation wrapper would turn a permission error or a busy store into a terminal stop;
+- the public-source part could never show, because get() threw first.
+
+This decision replaces that draft; the confirmed findings are applied above.
+
+Failures or blockers: None in recording. There is no owner question: the change makes an existing terminal rule (BL-20261109-0459 decision (a)) reach the blobs the runner loads, and makes get() fail closed.
+
+Limitations and non-claims:
+- This entry decides; nothing is implemented or verified by it.
+- The scan treats a missing older checkpoint blob as damage even though the runner would not load it. Nothing in the app deletes task storage, so a missing blob means the storage was damaged outside the app.
+- A record the scan cannot read stays resumable, as does an environmental error during the scan.
+- A checkpoint save that fails leaves its partial blob in place. A later save of the same content then fails with `checkpoint_file_invalid` inside the runner, which no record references, so it stays a resumable runtime failure. This predates 6.1.
+- 6.1's limitation for persistent consultation refusals inside the runner (a drifted preview, say) stands.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation in this pull request and its `Implemented` entry, with these checks green:
+- `pnpm --silent validate:build-log -- --base-ref origin/fix/6.2-research-stage-pause`, `pnpm typecheck` and `pnpm validate:readiness`;
+- the changed tests;
+- the identity and tool-error golden tests, untouched;
+- the full `pnpm exec vitest run`.
+
+Then review, CI and a merge after #77. If another entry merges first, this entry's ID is re-stamped after main's tail with a correction entry.
+
+References: BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0501-research-stage-pause-design; BL-20261109-0607-research-stage-pause-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 6; pull requests #72 and #77.

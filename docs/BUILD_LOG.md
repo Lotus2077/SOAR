@@ -31039,3 +31039,86 @@ Next gate: The implementation in this pull request and its `Implemented` entry, 
 Then review, CI and a merge after #77. If another entry merges first, this entry's ID is re-stamped after main's tail with a correction entry.
 
 References: BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0501-research-stage-pause-design; BL-20261109-0607-research-stage-pause-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 6; pull requests #72 and #77.
+
+
+### BL-20261110-0809-runner-storage-integrity-implemented -- 2026-11-10 -- Backlog item 6 follow-up implemented: after a runtime failure the desktop verifies the blobs its records reference and a damaged one ends `task_integrity_failed`; get() fails closed on a damaged public-source blob
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261110-0715-runner-storage-integrity-design, with deterministic tests, in branch `fix/6.3-runner-storage-integrity`. The branch is stacked on `fix/6.2-research-stage-pause` at 224429b (pull request #77). Plan ID 6.3, lane S-desk:
+- the design commit 0b36653;
+- the implementation commit cabce26;
+- the code-review corrections f345852.
+
+Decisions: One adversarial code review checked the change for correctness, safety and test strength. It found no blocking issue: no false terminal, no way for the scan to throw out of execute(), and no runner load in the desktop path the scan misses. Its confirmed findings change four things, recorded here; the design entry stays as written.
+- (a) A consultation decision no longer re-opens a record that a terminal stop ended. decideConsultation reset any record that was not running to `paused` / `consultation_ready`. So a Revoke after the scan's verdict re-offered a futile Resume, and the next run stored the verdict again. The reset now applies only to a paused record or one whose stored reason is resumable. The decision itself is recorded either way. Before, this also re-opened every other terminal stop.
+- (b) The scan loads row by row, with one set of attempted blobs. Loading a whole snapshot at once stopped at its first failing row: an unreadable row hid a missing one behind it, and on the error path a shared blob was read again for every snapshot. Now any integrity verdict wins whatever the row order, and each blob is read once.
+- (c) The scan skips a consultation response it cannot read (no file, or no digest), as the design's limitation says. It counted as damage before. The runner never loads such a response, which reads as uncertain.
+- (d) Tests now pin decision (2):
+  - an unreadable source blob only empties the sources and keeps Resume;
+  - damage is named before the time limit;
+  - a submitted task keeps its status and reason.
+
+  The three mutants that survived without them are killed.
+
+Accepted, as the review noted:
+- A paused record, or one with a resumable stored reason, can read `task_integrity_failed` through a damaged source. For a version 3 record, its elapsed clock then stays live, as under 6.2's decision (6) and the other guards.
+- The scan's cost grows with the private context's distinct bytes. The review measured 0.13 s per 128 MiB. A heavy task with about 120 distinct checkpoints of 128 MiB would take about 15 s on the main process, only after a runtime failure. The runner's per-turn progress view already reads more than that.
+
+The scan lives in src/main/general-tasks/storage-integrity.ts, `storageIntegrityFailed(events, contextId, checkpoints, storageRoot)`. execute() calls it with its own checkpoint store, only when the record it is about to save is `incomplete` with `runtime_failure_progress_preserved`.
+
+Changes:
+- src/main/general-tasks/storage-integrity.ts (new): the blob scan.
+- src/main/general-tasks/controller.ts:
+  - the scan before execute()'s single save;
+  - get()'s fail-closed public-source read, with its guard in canResume and its projection beside the other permanent stops;
+  - a consultation decision re-opens only a paused or resumable record.
+- src/main/general-tasks/run-reasons.ts: `public_source_identity_invalid`, `public_source_duplicate` and `public_source_context_invalid` join the integrity codes.
+- tests/unit/general-task-storage-integrity.test.ts (new, 11 tests): every record kind missing, a same-size corruption and a resized blob, a response digest mismatch, and a permission error left alone. It also covers unreadable records, including a response with no file or no digest, and another context's records ignored; an integrity verdict winning in either row order; and each distinct blob read once with nothing written, even on the error path.
+- tests/unit/general-task-controller.test.ts (9 tests; the runner-backed ones use the real runner on a stateful sandbox double):
+  - four damage cases end `task_integrity_failed` at the first runtime failure, with no Resume and the integrity text, also after reopening: a deleted checkpoint blob, a same-size corruption, a deleted observation blob, and a blob only an earlier checkpoint holds;
+  - three environmental cases stay resumable: a sandbox that fails once, an unreadable observation blob and an unreadable checkpoint blob;
+  - a damaged public-source blob, after a runtime failure and after a pause, leaves get(), list() and resume() answering for it and for another task;
+  - get()'s fail-closed read: an unreadable source blob only empties the sources, damage is named past the time limit, and a submitted task keeps its outcome.
+- tests/unit/general-task-consultation-controller.test.ts: a Revoke never re-opens a task its damaged storage ended.
+- tests/unit/general-task-run-reasons.test.ts: the codes and where each is raised. The observation and progress wrapper codes stay `runtime_unavailable`.
+- tests/unit/private-agent-research-session.test.ts: the defensive-arm test asserts that the pause landed after the stage's abort controller existed.
+
+Evidence: At commit f345852:
+- `pnpm --silent validate:build-log -- --base-ref origin/fix/6.2-research-stage-pause`, `pnpm typecheck` (exit 0) and `pnpm validate:readiness` pass.
+- The changed tests:
+  - general-task-storage-integrity 11 of 11;
+  - general-task-controller 157 of 157;
+  - general-task-run-reasons 5 of 5;
+  - private-agent-research-session 17 of 17;
+  - general-task-consultation-controller 23 of 23.
+
+  The identity and tool-error golden tests, untouched, pass 4 of 4.
+- The full `pnpm exec vitest run`: 180 files, 167 passed and 13 skipped (the environment-gated suites, as before); 2,840 tests, 2,756 passed and 84 skipped, none failed. At 6.2's commit dacfb00 it was 2,819 tests; the 21 new tests account for the difference.
+- Mutation checks: 21 single mutations of the new code, each applied alone in a scratch copy and run against the changed tests. Each is killed by a 6.3 test. 15 ran at cabce26, and 6 more at the final commit for the review's corrections:
+  - no scan, or any error counted as damage;
+  - observations, earlier checkpoints, public sources, the proposal checkpoint or the response digest ignored;
+  - other contexts read, or no deduplication;
+  - the first verdict winning;
+  - get() reading the sources unguarded, or damaged sources keeping Resume or the stored text;
+  - the codes not counted as integrity;
+  - paused records scanned too;
+  - a Revoke re-opening a terminal record;
+  - any source read error counted as damage, damaged sources named after the deadline, or damaged sources overriding every record;
+  - one load per snapshot;
+  - an empty response counted as damage.
+
+Failures or blockers: None. CI has not run yet; it runs on the pull request.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified` or `Released`: deterministic tests on fixtures only. No endpoint, model, Docker container or paid call ran.
+- A version 3 consultation's damaged proposal checkpoint or response is proved by the scan's unit tests, not by a version 3 task run end to end.
+- A cancel during a failing run is not tested. The scan is keyed on the record execute() derives, whose cancelled status skips it.
+- No version 3 test drives the approve-path reset: the Revoke test covers the decision guard, which both paths share.
+- The design entry's limitations stand.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Review and CI on the pull request, merged after #77; the controller.ts merge order is 6.1, 6.2, 6.3, then 7d.C. If another entry merges first, this entry's ID and the design entry's are re-stamped after main's tail with a correction entry.
+
+References: BL-20261110-0715-runner-storage-integrity-design; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0607-research-stage-pause-implemented; pull requests #72 and #77.

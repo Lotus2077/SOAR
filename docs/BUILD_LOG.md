@@ -30756,3 +30756,264 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: 10.a's code with deterministic tests and its `Implemented` entry, after an adversarial code review; then CI green and a merge; then 10.b, after items 7(c) and 7(b)-2 merge.
 
 References: docs/PROJECT_REVIEW_2026-11-05.md section 5.1 (rules 2, 5, 6, 8 and 9), section 5.2 (principles, the stage graph, the cloud touchpoints, the cap check, Escalation, Forced split, Caching, Privacy), section 5.6 (E3) and section 5.7 items 7, 8, 10, 11 and 13; docs/HANDOFF.md "Start here"; BL-20261107-0839-assist-purpose-exception-design; BL-20261107-0842-assist-purpose-exception-implemented; BL-20261107-0809-zero-fee-failures-resolve-design (the deadline guard); BL-20261107-0859-label-keyed-diagnostics-design (hash-only stage rows); BL-20261107-0650-owner-decisions-review-items-2-5 and BL-20261107-0718-correction-owner-decisions-record (correction 6); issue #49 and `docs/ASSIST_PROVIDER_RESEARCH.md` on branch `research/assist-provider`; owner decision 6 (#59).
+
+### BL-20261110-0639-assist-core-implemented -- 2026-11-10 -- Backlog item 10, part 10.a, implemented: the assist hook contract, the slim T1 and T2 packets with the scrubber and the audit, the no-write cache mode on both cloud shapes, the codes, slots, records and protocol block, with no production caller yet
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements 10.a of BL-20261109-0417-assist-wrapper-design on `feat/10a-assist-core`, from `main` at 2982ca7. The commits are:
+- the design entry, 7c56625;
+- the code, aa2e1c9;
+- the fixes from the first three adversarial code reviews, d2ab888;
+- the scrubber rewritten after the second privacy review, with the fixes from the third round's privacy and performance reviews, f11ead2;
+- this entry.
+
+No pipeline, session, driver, store, broker, producer or registry code changes, and nothing calls the wrapper until 10.b. The hypothesis has three parts:
+- The wrapper builds T1 and T2 packets that hold none of the names, paths, URLs, hashes or literal openings of their requests, nor the file names of the host's appended text.
+- The new cache mode writes nothing under both providers' documented caching rules.
+- Every existing request body, reservation and identity is unchanged.
+
+Decisions: None beyond the design entry, except where the code reviews refined it. These refinements supersede the matching parts of the design's decisions 5, 6, 9 and 12.
+- The scrubber is its own module, research-assist-scrub.ts. Each pass replaces, in this order:
+  - source forms;
+  - URLs;
+  - paths, and in model-written text also bare file names;
+  - digests.
+
+  Passes repeat until one changes nothing, at most three, so a scrubbed string survives a second scrub unchanged.
+- Text and views.
+  - Every text field is sent as NFC, with default-ignorable code points (zero-width characters, soft hyphens) removed and U+2010 and U+2011 mapped to "-". A run of more than 30 combining marks keeps its first 30.
+  - Every pattern reads a view that keeps each UTF-16 index: full-width ASCII forms read as ASCII, and source forms are compared case-folded. The fold joins the Turkish i letters and maps a final sigma to sigma.
+  - The audit reads source forms in NFKC and the rest in that same view.
+- Source forms are found by a scanner, not by one regex of every form. At each position it looks up only the lengths of the forms that share the text's next four characters, one rolling hash each. Its cost per position therefore does not grow with the number of sources or with how long a prefix they share.
+- Boundaries.
+  - A letter or decimal digit of a name's own script bounds it, and a digit glues to any letter. A superscript or circled number is no boundary, and nothing glues to a spaceless-script letter: Han, Hiragana, Katakana, Hangul, Thai, Lao, Khmer, Myanmar, and the CJK punctuation and full-width blocks.
+  - An escape (`\n`) or a percent-encoded byte (`%20`) before a name is a boundary.
+  - A name with an extension takes the decimal digits glued to it on either side. Verified quotes arrive in NFKC, where footnote marks and circled numbers are plain digits. Every match takes the digits glued after it, so an alias is never followed by a digit (`S1` then `1` would read `S11`).
+- The forms.
+  - Everywhere:
+    - each source's id and path, with their `%2F` and percent-decoded forms;
+    - a URL's forms with and without the scheme and the trailing slash, percent-decoded and with a Unicode host, but never its query or fragment;
+    - a dotted host, with and without `www.`;
+    - the last two and three path segments;
+    - the file name;
+    - a file named in a URL's query or fragment.
+  - In model-written text only (T1 gists, T2 plan text), also:
+    - a distinctive stem (at least six code points, holding a digit, `_` or `-`);
+    - a single-label host;
+    - an opaque segment of at least 16 mixed letters and digits;
+    - a distinctive query or fragment name of eight or more with a letter.
+  - The design's "every path suffix" and its query variants are dropped. Instead:
+    - A matched name takes up to four extensions after it, the longest that nothing glues to, and a folder prefix glued before it.
+    - A matched host, URL or path takes the path, query or fragment after it, through an apostrophe inside it.
+  - A form that two sources share becomes `[source]`. File names and paths in the text appended after the authored brief become `[file]`.
+- The generic rules apply in every field, verified quotes included. The design kept them outside quotes, but T2's never-sees list names file names without qualification.
+  - Spaceless-script letters belong to a URL, path or file name only where a connector (`/ \ ? # & = ; , : . + @ ~ % _ -`) touches them. Prose glued after a path stays (`/Acme里有` keeps `里有`), and a CJK list stays (`中国/日本/韩国`).
+  - URLs become `[url]`:
+    - any scheme with `//`;
+    - `mailto`, `tel`, `sms`, `callto`, `data`, `file`, `urn`, `doi`, `magnet`, `geo` and `skype` without slashes, each only in its own shape (`data:clean` stays);
+    - a protocol-relative `//host` after a space, quote, bracket, `=`, `:`, `,` or `;`;
+    - a `www.` host, its labels ASCII or spaceless-script letters;
+    - a scheme-less `host.tld/path` over a list of top-level domains, without the two-letter labels that are usually file extensions (`js`, `py` and others);
+    - `localhost`, a bracketed IPv6 address, or an IPv4 address, each with a port or a path; a bare network prefix (`10.0.0.0/8`) stays.
+  - Paths become `[file]`:
+    - a quoted path with spaces, but only one that starts like a path (`/`, `~`, a drive, `%VAR%`, `./`, `$VAR/`);
+    - a drive path with either slash;
+    - a UNC path, a `%VAR%` path and a home path;
+    - a rooted path of three or more segments, or one with an extension under either slash. Empty segments are allowed. Spaceless-script letters glued before it go with it when its first segment starts with an ASCII letter or digit (`资料/2024/report.pdf`).
+    - a relative path with a folder and an extension. Its run is taken from its start and cut after the longest extension, or taken whole when a separator follows that extension (`src/com.example.app/ui/main`).
+  - An extension is two to sixteen letters and digits with a letter, neither a capitalized word (`h.It`, `md.Then`) nor a decimal (`2.5kg`).
+  - In model-written text, a bare file name with an allowlisted extension, lowercase or in capitals, becomes `[file]`, whatever the script or brackets of its name (`Отчёт.docx`, `plan(1).docx`).
+  - Each replacement keeps the sentence punctuation and the unbalanced brackets around it.
+- Digests. A hexadecimal run becomes `[digest]` in these cases:
+  - It holds an 8-character piece of a digest the request holds or implies, in a run or in groups. Groups have two or more characters, start at a word's start, and are split by `-`, `:`, `.`, `_`, an en dash or white space.
+  - It is a contiguous run of 64 or more with a letter.
+  - It is groups of eight or more that total 64 with a letter.
+
+  So π, a list of years or a table of codes is never a digest.
+- Time. Every scan is linear in its text:
+  - Each generic pattern starts only where a run of its characters starts.
+  - A relative path's run is atomic and cut in one pass.
+  - The scanner's tails are bounded, and trailing brackets are counted once.
+  - Headings are indexed by their first 32 code points.
+
+  T1 checks its size with every gist empty before it scrubs or audits a gist. Its final audit does not repeat the gists' copy checks.
+- The audit.
+  - It reads every string of the finished packet except the fixed authoritative schema, and the model-written fields again with the model-text forms. A json-schema.org source no longer fails T1.
+  - Its copy check compares raw model-written text with the references in NFKC, case-folded, with only hexadecimal runs of 16 or more masked. The references are the literal openings for T1 and the whole source texts for T2. So a name, URL or masked run beside a copied passage cannot hide it.
+  - The design's 32-code-point window of the appended host text is dropped, and `auditFinding` loses `host_text`. The appended text is SOAR's own instructions. Once its file names and paths are replaced it holds nothing of the owner's, and the window refused plans that only restated the deliverable.
+- Requests.
+  - A real id or path that reads as an opaque id or holds a placeholder refuses the touchpoint (`assist_source_alias_collision`).
+  - A source text may be `undefined` for a source with no readable text, which is what researchSourceText answers for a PDF, a .docx or a binary file.
+  - T2 rebuilds the plan from its schema's own fields.
+  - Locators and E, Q and U ids are pattern-checked, and the request's counts must be safe integers. A request that fails is invalid and stops.
+  - A brief whose double cannot fit the T2 body is refused before any scan.
+- T1 gists are cut back to whitespace or to a spaceless-script character, so a cut never turns `S12` into `S1` or splits a placeholder.
+- Slots and the model.
+  - A cancel wins over a used slot.
+  - The wrapper refuses a model whose thinking is not medium.
+  - The assist one-shot refuses empty or null text and a thinking override (`private_model_assist_request_invalid`).
+- `cacheWriteReported` accepts given TTL parts only as a plain object of the provider's known keys, each an integer or null, summing to the count. The helper lives in anthropic.ts, so model.ts and anthropic.ts form no runtime import cycle.
+- `assessResearchPlanReply`'s `sourceAliases` keys must be opaque `S{n}` ids, and its values distinct known sources.
+- The stage record's schema enforces its own rules:
+  - only attempts of its own touchpoint, in order;
+  - at most one T1 attempt;
+  - a fired record has its trigger and last outcome;
+  - only a settled reply is accepted;
+  - `usage` is the settled attempts' sum, and null when none settled.
+- The protocol block also binds the scrub policy (version 3) with every pattern, the evidence template and the coverage keys.
+
+Changes:
+- src/main/private-agent/research-assist-contract.ts (new, types only);
+- src/main/private-agent/research-assist.ts (new);
+- src/main/private-agent/research-assist-scrub.ts (new): the scanner, the generic rules, digests, the audit's finder, the copy and heading checks, and the gist cut;
+- src/main/private-agent/model.ts: the mode, `requestBody`, `reservationMicrousd`, the narrowing body bound, the assist refusals, `cacheWriteReported`;
+- src/main/private-agent/anthropic.ts: `cacheWritePartsAgree` and the decoder's `cacheWriteReported`;
+- src/main/private-agent/research-plan.ts: `sourceAliases`;
+- tests/helpers/research-assist-fixture.ts (new): caching fakes, the capturing broker, planted requests from a real pipeline run, `frozen`, `fakeResearchAssists`;
+- tests/unit/private-agent-research-assist.test.ts and tests/unit/private-agent-research-assist-scrub.test.ts (new);
+- tests/unit/private-agent-model-responses.test.ts and tests/unit/private-agent-model-anthropic.test.ts.
+
+Evidence: All runs are local, on Node 22.22.2 and pnpm 10.12.4, with the code of f11ead2.
+- `pnpm typecheck` passes.
+- The changed tests pass: 204 of 204 in five files. The command is `pnpm exec vitest run tests/unit/private-agent-research-assist-scrub.test.ts tests/unit/private-agent-research-assist.test.ts tests/unit/private-agent-model-responses.test.ts tests/unit/private-agent-model-anthropic.test.ts tests/unit/private-agent-research-plan-contract.test.ts`.
+  - The responses tests still pin 15 configurations' request-body digests and fees as computed at 2982ca7.
+  - A test pins the default research protocol hash, 3453710315d7226ea4d6195ec7401d000f86c5b0d9afa9839a801d5c6d391262, unchanged.
+- `pnpm exec vitest run`, the whole suite:
+  - Files: 166 passed, 1 failed, 13 skipped (180).
+  - Tests: 2,783 passed, 1 failed, 84 skipped (2,868).
+  - The failure is a 5 s timeout under the suite's load in tests/unit/patch-routing-comparison.test.ts, which imports none of this code. Run alone, that file and the two others that timed out in an earlier loaded run pass: 147 tests in three files.
+- `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass with this entry.
+- Local probe scripts, which are not committed:
+  - The second privacy review's probes rerun: every confirmed case is replaced or refused. What survives is listed below as a limitation.
+  - The third round's ten privacy probes: 118 cases go out clean. Four do not:
+    - two survivals by design: a source's stem in the owner's brief, and its URL's fragment name inside a verified quote;
+    - two expected literal-text refusals;
+    - one refusal of a probe request whose units no longer matched its brief.
+  - The third round's performance probes:
+    - The reviewer's two fuzzers find 0 failures: every scrubbed string passes the audit, and a second scrub changes nothing.
+    - 1,000 sources under one folder scrub a 12 KB brief in 2 ms and a 48 KB brief in 5 ms. A quote holding a run of zeros, against 1,000 zero-padded source names, scrubs in 0.1 to 0.8 ms.
+    - 8,000 trailing brackets trim in 3 ms.
+    - `copiesText` takes 2 ms on 64,000 reordered combining marks, which one raw normalization takes 4.3 s to process.
+    - T1 at 1,000 sources is refused as too large in 204 ms, and at 250 sources builds in 405 ms.
+    - T2 builds in 1.9 s with 1,000 URL sources, 4 MB of source text, 480 quotes and 4,000 chunks.
+  - A benchmark of 32 crafted inputs, best of three: from 32,000 to 128,000 characters the time grows by a factor of 2.2 to 4.7, which is linear, and the slowest takes 260 ms at 128,000.
+
+Failures or blockers: The first round of code review confirmed these leaks and bugs at aa2e1c9, all fixed at d2ab888:
+- An absolute, home or Windows path survived outside quotes.
+- A URL lost its tail after a digest, a bracket or a quote had cut it short.
+- A scheme-less host path and an IPv4 address survived.
+- A name glued to other text, or given another extension, survived. So did a name with a dotted capital İ, because simple case folding cannot match it.
+- Copies that were uppercased, or that named a file, passed the literal audit.
+- Zero-width characters, soft hyphens and Unicode hyphens hid a name.
+- A known digest survived as a 0x form or as a later part.
+- File paths and URLs inside quotes survived.
+- An extra plan field rode along unaudited.
+- A root URL's host lost its word boundary.
+- A gist cut could turn `S12` into `S1`.
+- A json-schema.org source made every T1 fail.
+- A crafted brief made the URL scan quadratic: 28 s at 128 KiB.
+- The stage-record schema accepted records its own docs rule out.
+- A cancel on a used slot reported `assist_slot_exhausted`.
+- Thinking-off assist models were accepted.
+- `cacheWriteReported` accepted unknown or array TTL parts.
+- The assist one-shot accepted empty text and a thinking override.
+- An alias map could key a real id or name one source twice.
+
+A second privacy review of d2ab888 confirmed the following. Patching that matcher further would not converge, so it was rewritten as research-assist-scrub.ts:
+- High: names, hosts, URLs and paths glued to Chinese, Japanese or Korean text survived in every field, because the word boundary read those letters as word characters.
+- High: the copy audit masked URLs, so a copied passage glued to a replaced source URL passed.
+- Availability: one case-insensitive regex of every form ran synchronously on the main process. It took 30 s on 40 web sources with 8-segment URLs, and over 6 minutes with 60 segments and 1.5 KB queries.
+- Leftovers after a source was replaced: its path, `;` parameters and `,` tails (`S1/private/hr-plan-2025`, `S1;jsessionid=…`), and a folder prefix glued before a name.
+- These survived:
+  - `C:/` drive paths, `file:/`, `//` and `%VAR%\` paths;
+  - `mailto:`, `tel:` and `data:` URIs;
+  - quoted paths with spaces;
+  - `%2F`-encoded source paths;
+  - bare file names in model text;
+  - stems of host-appended files;
+  - digest pieces and digests split into groups;
+  - capital and dotless Turkish i variants;
+  - a name after a literal `\n` escape or a `%20` byte.
+- Some packet strings built from the request were not audited.
+- False positives:
+  - `Node.js/Deno`, `U.S./U.K.`, `e.g./i.e.`, IPA transcriptions and version numbers were replaced as paths or URLs;
+  - a scheme-less URL in CJK text swallowed the paragraph;
+  - short source path suffixes matched inside words (`Then/usually`);
+  - a single-label source host was replaced in the owner's brief;
+  - CJK gists were emptied whenever gists had to be cut;
+  - the host-text window refused ordinary restatements of the deliverable.
+
+In the third round, the second review's probes were rerun on the rewrite, a crafted-input benchmark was added, and the rewrite had two more adversarial reviews: one privacy review and one performance and correctness review. All of the following are fixed in f11ead2.
+- From the probes and the benchmark:
+  - An apostrophe inside a URL or fragment cut it short (`/hr/'layoff-plan-2025'`).
+  - These survived: `doi:`, `localhost:8080/path`, `[fd00::1]:8080/path`, a one-segment rooted path with an extension, and a digit-led extension (`.7z`).
+  - A name followed by "." and CJK text read that text as an extension.
+  - The relative-path, hex-group and bare-file-name patterns, and the name tail, were quadratic on crafted text: 2 to 9 s at 32,000 characters.
+- Privacy, high:
+  - Paths, URL paths, query values and internationalized hosts written in spaceless scripts were not matched at all (`C:\用户\张三\…\合并计划.docx`, `https://内网.acme.example/…`, `?employee=张三&…`).
+  - Bare file names with a non-ASCII letter, a bracket or a comma before the extension survived (`Отчёт.docx`, `merger-plan(1).docx`), as did relative paths whose last segment had no ASCII letter.
+- Privacy, medium:
+  - A source name glued to an NFKC footnote digit or circled number, or to a Hebrew or Arabic prefix letter, survived in quotes and the brief.
+  - These survived: root-relative Windows paths, paths with empty segments, and protocol-relative URLs after `=` or `:`.
+  - A long numeric tail after a name made the scanner skip it.
+  - Hosts without `www.`, and files named in a URL's query or fragment, were never forms.
+  - A known digest written as byte pairs or as dotted groups survived.
+- Privacy, low:
+  - An apostrophe-led fragment after a source URL survived.
+  - A Greek final sigma did not fold.
+  - A literal escape before a bare file name hid it.
+  - A source with no readable text made T2 stop as an invalid request.
+- Performance:
+  - The scanner cost bucket size times shared prefix length per position: 18 s per scrub for 1,000 sources under a 120-dash folder, 589 ms for 1,000 deep URLs on one host.
+  - `trimToken` was quadratic in trailing brackets: 15 s at 48,000.
+  - Normalizing reordered combining marks was quadratic: 10 s at 256 KB of source text.
+  - The curly-quote path rule overlapped its own attempts.
+  - T1 scrubbed and audited every gist before finding it could never fit: 6 s at 4,096 sources.
+  - `fold`, `holdsHeading` and `cutWhole` cost far more per character than they needed to.
+- Correctness:
+  - A replacement left a path remainder after itself (`[file]/c/d`) that the audit then refused: a self-inflicted refusal, and a scrub that a second scrub changed.
+  - A `/` after a non-ASCII letter started a rooted path (`Москва[file]`).
+  - The quoted-path rule replaced whole quotations.
+  - Decimals and capitalized words passed as extensions.
+  - Decimal tables, years and π were replaced as 64-character digests.
+  - Full-width separators got a Japanese brief refused instead of scrubbed.
+
+The CI result is not yet known at this entry.
+
+Limitations and non-claims: Deterministic tests and local probes on fixtures only. No SOAR model request, endpoint, Docker container or paid call ran.
+- The zero-write tests prove only the caching rules the fakes encode. E3's live receipts are the proof, and `cacheWriteReported` is what lets E3 tell a reported zero from a missing field.
+- The three new files under src/main/private-agent change the headless harness's source-freeze digest, because `localScreenSourceFreeze()` hashes every `.ts` file there. No owner loop or E-run may span this merge, and an operator recomputes `--runtime-sha256` after it.
+- Out of the audit's reach, and the subject of the design's fourth owner question:
+  - paraphrase, and near-copies, placeholders interleaved every few words included;
+  - verbatim copies shorter than the windows;
+  - a T1 gist's copy from beyond the 512-byte opening;
+  - homoglyphs and whitespace-split names;
+  - names under four code points;
+  - a bare extension-less name that is not distinctive (`README`), and a directory name;
+  - an extension-less relative path, or a single-label host with a path, that no source names (`intranet/hr/plan-2025`);
+  - a path or URL with spaces outside quotes, and a quoted one that does not start like a path;
+  - a scheme-less internationalized host without `www.`, and ideographic full stops used as host dots;
+  - length-changing case folds (`ß` and `SS`), and a decomposed dotted i;
+  - base64 or separated non-hexadecimal hashes, and a changed hash whose every 8-character piece is altered.
+- A hexadecimal hash the request does not hold or imply is content, not a host digest, and stays (a commit id quoted from a source).
+- A source's stem, or the fragment name of its URL, is a word in the owner's brief and in verified quotes, and stays there by design.
+- Over-matching:
+  - `Socket.io/WebSocket` becomes `[url]`, and `/r/AskReddit/` and `Q:/A:` become `[file]`.
+  - Spaceless-script words glued before a rooted path go with it (`文件在/Users/…`). So do those starting a relative path, or a bare file name in model text.
+  - A source named after a topic word (`covid-19.md`, `follow-up.md`), or with a single-label host (`intranet`), turns that word into its alias in model-written text.
+  - A URL glued after a word takes the word's ASCII tail with it (`véasehttps://…` becomes `vé[url]`).
+  - A footnote digit glued to a file name goes with it.
+- Fail-closed refusals, not leaks:
+  - A source name written with ligatures or other compatibility characters that only NFKC unfolds is found by the audit, not scrubbed, so the touchpoint falls back.
+  - So does a quote that ends in a bare drive root (`C:\ `), whose backslash the evidence text doubles.
+- `dispatched` is inferred from codes. After an Anthropic 429 or 529 retry whose second commit a policy change refuses, the record says `dispatched: false` although the first attempt was sent. The ledger is the authority on rows.
+- The Anthropic retry starts after its wait inside the broker without a deadline check. A cut there leaves the row `unknown` (a skip).
+- The pipeline's own `call()` still maps any non-broker error to `request_failed`; 10.b's wiring uses the wrapper's typed codes instead.
+- Nothing calls the wrapper until 10.b, so none of this runs in a session yet.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green and a merge, before item 7(c), which imports the contract. Then 10.b, after 7(c) and 7(b)-2 merge.
+
+References: BL-20261109-0417-assist-wrapper-design; BL-20261107-0839-assist-purpose-exception-design; BL-20261107-0842-assist-purpose-exception-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.2 and section 5.7 item 10; issue #49.

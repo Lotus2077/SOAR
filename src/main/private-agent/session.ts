@@ -438,8 +438,8 @@ export class GeneralAgentSession {
       if (privateResult.status !== "completed") return result(privateResult.status, privateResult.reason);
       if (store.dispatches(jobId).some(row => isBlockingDispatch(row, privateContextId) && !isEntailmentDispatch(row)) || signal.aborted) return result("incomplete", "session_unresolved_or_deadline");
       if (!this.events().some(event => event.type === "session_submitted")) store.append(jobId, { type: "session_submitted", snapshotSha256: checkpoints.fingerprint(finalSnapshot), independentAcceptanceRequired: true });
-      // Backlog item 7(d), part B: host flags for the owner's attention, once per context and outside the `if` above, so a crash between the
-      // two appends is recovered; the pass never throws and never decides anything.
+      // Backlog item 7(d), part B: host flags for the owner's attention, once per context and outside the `if` above, so the run after a crash
+      // between the two appends records them; the pass never throws and never decides anything.
       recordHostFlags({ store, jobId, contextId: privateContextId, phase: privatePhase, checkpoints, finalSnapshot });
       // Evidence after the fact: submission is durable, so the pass can only add verdicts; a pause leaves it for the next resume.
       if (await this.entailment(privateContextId, judgeModel ?? privateModel, signal) === "paused") return result("paused", "session_stopped");

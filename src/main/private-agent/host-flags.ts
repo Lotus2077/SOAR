@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { PrivateCheckpointStore, WorkspaceSnapshot } from "./checkpoints";
 import { CLAIMS_LEDGER_CHECK_ID } from "./claims";
 import { digest, sha256Schema } from "./contracts";
-import { DOCUMENT_REVIEW_FLAGS_PATH, DocumentReviewFlagsSchema } from "./document-review-flags";
+import { DOCUMENT_REVIEW_FLAG_CODES, DOCUMENT_REVIEW_FLAGS_PATH, DocumentReviewFlagsSchema } from "./document-review-flags";
 import { RESEARCH_FILES } from "./research-contract";
 import { ResearchCoverageSchema, ResearchEvidenceSchema } from "./research-coverage";
 import type { PrivateAgentStore } from "./store";
@@ -43,8 +43,17 @@ const CITED = Object.freeze({ report: /\[C[0-9]{1,3}\]/, argument: /\bE[0-9]{1,4
 const BLOCK_START = /^\s*(#|-|\*|\+|\d+[.)]|\||>)/;
 /** A heading is one line and a table row one row, so neither joins the line after it either. */
 const ONE_LINE_BLOCK = /^\s*(#|\|)/;
-const SENTENCE_BREAK = /(?<=[.!?])\s+(?=[A-Z0-9"'([])/g;
+/** A sentence ends at [.!?] before a capital, digit, quote or bracket, and at a block-level HTML tag (PARAGRAPH). */
+const SENTENCE_BREAK = /(?<=[.!?])\s+(?=[A-Z0-9"'([])|\u2029/g;
 const FENCE = /^\s{0,3}(```|~~~)/;
+/** A run of more than 30 combining marks (UAX #15's stream-safe bound) is cut to 30 before NFKC, whose canonical reordering is quadratic in the
+ * length of a run of non-starters. Every non-starter is a mark, and only U+FF9E and U+FF9F decompose to one from outside the marks (Unicode 14.0.0). */
+const MARK_RUN = /([\p{M}\uFF9E\uFF9F]{30})[\p{M}\uFF9E\uFF9F]+/gu;
+/** An HTML tag (a name, a closing name, a declaration or a processing instruction), possibly across lines, within 4,096 characters. */
+const TAG = /<(?:\/?[A-Za-z][A-Za-z0-9-]*(?=[\s/>])|[!?])[^<>]{0,4096}>/g;
+/** A block-level tag ends its sentence, as a blank line or a structural line does in Markdown; any other tag, `<br>` included, is a space. */
+const BLOCK_TAG = /^<\/?(?:address|article|aside|blockquote|caption|dd|div|dl|dt|figcaption|figure|footer|h[1-6]|header|hr|li|main|nav|ol|p|pre|section|table|tbody|td|tfoot|th|thead|tr|ul)(?=[\s/>])/i;
+const PARAGRAPH = "\u2029";
 
 const FORMATS = ["markdown", "html", "text", "docx", "pdf"] as const;
 const SECTION_ERRORS = ["report_failed", "argument_failed", "misses_failed", "review_failed"] as const;
@@ -52,13 +61,20 @@ const count = z.number().int().min(0);
 const scanSchema = z.object({ format: z.enum(FORMATS), scanned: z.boolean(), reason: z.enum(["missing", "format_not_scanned"]).optional(), textCut: z.boolean(),
   hits: z.array(z.object({ line: z.number().int().positive(), rule: z.enum(ABSENCE_RULES.map(([id]) => id) as [string, ...string[]]), class: z.enum(["absence", "bounded"]),
     cited: z.boolean() }).strict()).max(HOST_FLAGS_HITS_MAX), truncated: z.boolean() }).strict();
+const errorName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,63}$/u);
+const REVIEW_RULES = ["numeric", "edits", "clauses"] as const;
+/** The counts each review rule computes (REVIEW_FLAGS_PY's review_flags): a failed rule's are left out of `counts`, and a failed step's all are. */
+const REVIEW_RULE_COUNTS = Object.freeze({ numeric: ["numericIntroduced", "numericResolved", "numericSource", "numericUnaddressed"], edits: ["inversionEdits"],
+  clauses: ["inversionIntroduced", "inversionSource", "inversionUnaddressed"] } as const);
 const reviewSchema = z.union([
-  z.object({ valid: z.literal(true), errors: z.array(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]{0,63}$/u)).max(4),
+  // `errors` names the step or each rule that failed; a failed part has no list here (and a failed step no `read`), so absent never reads as zero.
+  z.object({ valid: z.literal(true),
+    errors: z.object({ step: errorName.optional(), numeric: errorName.optional(), edits: errorName.optional(), clauses: errorName.optional() }).strict().optional(),
     read: z.object({ comparisonsCapped: z.boolean(), figuresCapped: z.boolean(), labelsCapped: z.boolean(), paragraphsClipped: count, rowsCapped: z.boolean(),
-      sentencesCapped: z.boolean(), termsCapped: z.boolean() }).strict(),
-    numeric: z.array(z.object({ table: count, row: count, paragraph: count, inSource: z.boolean(), inClean: z.boolean(), addressed: z.boolean() }).strict()).max(40),
-    edits: z.array(z.object({ id: z.string().regex(/^E[0-9]{1,3}$/u), codes: z.array(z.string()).min(1).max(4) }).strict()).max(40),
-    clauses: z.array(z.object({ paragraphs: z.tuple([count, count]), inSource: z.boolean(), inClean: z.boolean(), addressed: z.boolean() }).strict()).max(40) }).strict(),
+      sentencesCapped: z.boolean(), termsCapped: z.boolean() }).strict().optional(),
+    numeric: z.array(z.object({ table: count, row: count, paragraph: count, inSource: z.boolean(), inClean: z.boolean(), addressed: z.boolean() }).strict()).max(40).optional(),
+    edits: z.array(z.object({ id: z.string().regex(/^E[0-9]{1,3}$/u), codes: z.array(z.enum(DOCUMENT_REVIEW_FLAG_CODES)).min(1).max(4) }).strict()).max(40).optional(),
+    clauses: z.array(z.object({ paragraphs: z.tuple([count, count]), inSource: z.boolean(), inClean: z.boolean(), addressed: z.boolean() }).strict()).max(40).optional() }).strict(),
   z.object({ valid: z.literal(false), reason: z.enum(["missing", "too_large", "invalid"]) }).strict(),
 ]);
 const optionalCounts = (names: readonly string[]) => Object.fromEntries(names.map(name => [name, count.optional()]));
@@ -93,24 +109,31 @@ function formatOf(path: string, bytes: Buffer): Format {
   return lower.endsWith(".md") || lower.endsWith(".markdown") ? "markdown" : lower.endsWith(".html") || lower.endsWith(".htm") ? "html" : "text";
 }
 
-/** At most HOST_FLAGS_SCAN_BYTES, cut at a UTF-8 boundary before decoding; fences and comments blanked line for line; tags stripped; each line
- * normalized. Every step is linear in its input. */
+/** At most HOST_FLAGS_SCAN_BYTES, cut at a UTF-8 boundary before decoding; long mark runs cut; fences and comments blanked line for line; tags
+ * stripped across lines, keeping each line; each line normalized and trimmed; at most HOST_FLAGS_SCAN_CHARS after normalizing. Every step is linear
+ * in its input. */
 function preparedLines(bytes: Buffer): { lines: string[]; cut: boolean } {
   let end = Math.min(bytes.length, HOST_FLAGS_SCAN_BYTES);
   while (end > 0 && end < bytes.length && (bytes[end]! & 0xc0) === 0x80) end--;
   let cut = end < bytes.length, fence = false, comment = false, total = 0;
-  const lines: string[] = [];
-  for (const raw of bytes.subarray(0, end).toString("utf8").split(/\r\n|\r|\n/)) {
-    if (FENCE.test(raw)) { fence = !fence; lines.push(""); continue; }
-    if (fence) { lines.push(""); continue; }
-    let kept = "", at = 0;
+  const kept: string[] = [];
+  for (const raw of bytes.subarray(0, end).toString("utf8").replace(MARK_RUN, "$1").split(/\r\n|\r|\n/)) {
+    // A fence opens or closes only outside a comment.
+    if (!comment && FENCE.test(raw)) { fence = !fence; kept.push(""); continue; }
+    if (fence) { kept.push(""); continue; }
+    let line = "", at = 0;
     while (at < raw.length) {
       if (comment) { const close = raw.indexOf("-->", at); if (close < 0) break; comment = false; at = close + 3; continue; }
       const open = raw.indexOf("<!--", at);
-      if (open < 0) { kept += raw.slice(at); break; }
-      kept += raw.slice(at, open); comment = true; at = open + 4;
+      if (open < 0) { line += raw.slice(at); break; }
+      line += raw.slice(at, open); comment = true; at = open + 4;
     }
-    let line = kept.replace(/<[^<>]*>/g, "").normalize("NFKC").replace(/[‘’]/g, "'").replace(/[“”]/g, "\"").replace(/[ \t]+/g, " ");
+    kept.push(line);
+  }
+  const lines: string[] = [];
+  for (const stripped of kept.join("\n").replace(TAG, tag => (BLOCK_TAG.test(tag) ? PARAGRAPH : " ") + tag.replace(/[^\n]/g, "")).split("\n")) {
+    // Trimmed, so a wrapped line's indent or a hard break's trailing spaces leave one space at the fold.
+    let line = stripped.normalize("NFKC").replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, "\"").replace(/[ \t]+/g, " ").replace(/^ | $/g, "");
     if (total + line.length > HOST_FLAGS_SCAN_CHARS) { line = line.slice(0, Math.max(0, HOST_FLAGS_SCAN_CHARS - total)); cut = true; lines.push(line); break; }
     total += line.length + 1; lines.push(line);
   }
@@ -191,6 +214,7 @@ export function hostFlagsEvent(input: Input): HostFlagsEvent | undefined {
     });
     section("misses_failed", () => {
       const misses: NonNullable<HostFlagsEvent["misses"]> = {}, coverageFile = input.phase.files.find(file => file.path === RESEARCH_FILES.coverage);
+      let packet: { coverageSha256: string; singleUnit: number } | undefined;
       if (coverageFile) {
         const coverage = ResearchCoverageSchema.parse(JSON.parse(coverageFile.bytes.toString("utf8")));
         const retained = new Set(coverage.chunks.flatMap(chunk => chunk.questions.filter(question => question.status === "evidence_retained").map(question => question.questionId)));
@@ -201,12 +225,13 @@ export function hostFlagsEvent(input: Input): HostFlagsEvent | undefined {
         misses.extractionRetries = coverage.chunks.reduce((sum, chunk) => sum + Math.max(0, chunk.attempts.length - 1), 0);
         const evidenceFile = input.phase.files.find(file => file.path === RESEARCH_FILES.evidence);
         if (evidenceFile) misses.droppedQuotes = ResearchEvidenceSchema.parse(JSON.parse(evidenceFile.bytes.toString("utf8"))).counts.droppedUnverifiedOrDuplicate;
-        event.packet = { coverageSha256: digest(coverageFile.bytes) };
-        counts.briefSingleUnit = coverage.units.length === 1 ? 1 : 0;
+        packet = { coverageSha256: digest(coverageFile.bytes), singleUnit: coverage.units.length === 1 ? 1 : 0 };
       }
       misses.fetchFailures = input.store.dispatches(input.jobId).filter(row => row.purpose === FETCH_PURPOSE && row.status === "failed").length;
       misses.fetchLimitRefusals = input.store.events(input.jobId).filter(item => item.type === "tool_finished" && fetchLimitRefused(item.output)).length;
+      // All or nothing: a section that fails part way records none of its parts.
       event.misses = misses;
+      if (packet) { event.packet = { coverageSha256: packet.coverageSha256 }; counts.briefSingleUnit = packet.singleUnit; }
     });
   }
   if (review) section("review_failed", () => {
@@ -214,23 +239,32 @@ export function hostFlagsEvent(input: Input): HostFlagsEvent | undefined {
     const entry = input.finalSnapshot.find(item => item.path === DOCUMENT_REVIEW_FLAGS_PATH);
     if (!entry) { event.review = { valid: false, reason: "missing" }; return; }
     if (entry.bytes > HOST_FLAGS_REVIEW_BYTES) { event.review = { valid: false, reason: "too_large" }; return; }
+    // A storage failure fails the section (`review_failed`); only a file that does not parse or validate is `invalid`.
+    const bytes = input.checkpoints.load([entry])[0]!.bytes;
     let parsed: ReturnType<typeof DocumentReviewFlagsSchema.safeParse>;
-    try { parsed = DocumentReviewFlagsSchema.safeParse(JSON.parse(input.checkpoints.load([entry])[0]!.bytes.toString("utf8"))); }
+    try { parsed = DocumentReviewFlagsSchema.safeParse(JSON.parse(bytes.toString("utf8"))); }
     catch { event.review = { valid: false, reason: "invalid" }; return; }
     if (!parsed.success) { event.review = { valid: false, reason: "invalid" }; return; }
-    const flags = parsed.data;
-    event.review = { valid: true, errors: [flags.error, flags.numeric.error, flags.edits.error, flags.clauses.error].filter((name): name is string => typeof name === "string"),
-      read: flags.read, numeric: flags.numeric.flags.map(flag => ({ table: flag.table, row: flag.row, paragraph: flag.paragraph, inSource: flag.inSource, inClean: flag.inClean,
-        addressed: flag.addressedBy.length > 0 })), edits: flags.edits.flags.map(flag => ({ id: flag.id, codes: [...flag.codes] })),
-      clauses: flags.clauses.flags.map(flag => ({ paragraphs: [flag.paragraphs[0], flag.paragraphs[1]] as [number, number], inSource: flag.inSource, inClean: flag.inClean,
-        addressed: flag.addressedBy.length > 0 })) };
-    Object.assign(counts, flags.counts);
+    const flags = parsed.data, failed: { step?: string; numeric?: string; edits?: string; clauses?: string } = {};
+    if (flags.error !== undefined) failed.step = flags.error;
+    for (const rule of REVIEW_RULES) if (flags[rule].error !== undefined) failed[rule] = flags[rule].error;
+    // The applier leaves a failed rule's list empty and its counts at zero, and a failed step's all of them: here they are absent instead.
+    const ran = (rule: typeof REVIEW_RULES[number]) => failed.step === undefined && failed[rule] === undefined;
+    event.review = { valid: true, ...(Object.keys(failed).length ? { errors: failed } : {}), ...(failed.step === undefined ? { read: flags.read } : {}),
+      ...(ran("numeric") ? { numeric: flags.numeric.flags.map(flag => ({ table: flag.table, row: flag.row, paragraph: flag.paragraph, inSource: flag.inSource,
+        inClean: flag.inClean, addressed: flag.addressedBy.length > 0 })) } : {}),
+      ...(ran("edits") ? { edits: flags.edits.flags.map(flag => ({ id: flag.id, codes: [...flag.codes] })) } : {}),
+      ...(ran("clauses") ? { clauses: flags.clauses.flags.map(flag => ({ paragraphs: [flag.paragraphs[0], flag.paragraphs[1]] as [number, number], inSource: flag.inSource,
+        inClean: flag.inClean, addressed: flag.addressedBy.length > 0 })) } : {}) };
+    for (const rule of REVIEW_RULES) if (ran(rule)) for (const name of REVIEW_RULE_COUNTS[rule]) counts[name] = flags.counts[name];
   });
   if (errors.length) event.errors = errors;
   return HostFlagsEventSchema.parse(event);
 }
 
-/** Records the event once per context, after `session_submitted`. Never throws; a failed append records nothing, so a later run retries. */
+/** Records the event once per context, after `session_submitted`. Never throws. A failed append records nothing: a later run of the same session
+ * records it (after a crash, a pause in the entailment pass or a resumable failure), but a session that still ends submitted is never rerun, so
+ * its event is lost. A reader takes a missing event as "not recorded", never as "no flags". */
 export function recordHostFlags(input: Input): void {
   try {
     const recorded = () => input.store.events(input.jobId).some(item => item.type === "host_flags" && item.contextId === input.contextId);

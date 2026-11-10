@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -27,7 +27,7 @@ function harness(options: { checks?: string[]; artifacts?: string[]; files?: { p
     requiredArtifacts: (options.artifacts ?? ["output/report.md", CLAIMS_LEDGER_PATH]).map(path => ({ path })) }, files: options.files ?? [] };
   const run = (outputs: Record<string, Buffer | string>) => ({ store, jobId: "job-1", contextId: "private", checkpoints, phase,
     finalSnapshot: checkpoints.save(Object.entries(outputs).map(([path, bytes]) => ({ path, bytes: Buffer.from(bytes) }))) });
-  return { store, events, checkpoints, run };
+  return { root, store, events, checkpoints, run };
 }
 /** A research run's event, with `text` as its claims report at `path`. */
 const report = (text: string, path = "output/report.md") =>
@@ -69,6 +69,11 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", ()
       expect(hits(text)).toEqual([absence(3, "A1"), absence(4, "A5"), absence(7, "A1"), absence(9, "A6"), absence(10, "A1"), absence(12, "A1"), absence(15, "A1")]);
       // A bullet's wrapped line is still the bullet's, so its citation counts.
       expect(hits("- None of the sources mention\n  2025 prices [C2].")).toEqual([absence(1, "A1", true)]);
+      // An indented or tab-indented continuation, and a hard break's trailing spaces, still fold to one space.
+      expect(hits("- The sources do not\n  mention the warranty.")).toEqual([absence(1, "A2")]);
+      expect(hits("The analysis notes that none of the\n   sources quantify the cost.")).toEqual([absence(1, "A1")]);
+      expect(hits("The analysis notes that none of the  \nsources quantify the cost.")).toEqual([absence(1, "A1")]);
+      expect(hits("- No source\n\tprovides efficiency figures.")).toEqual([absence(1, "A5")]);
     });
     it("blanks fenced code and HTML comments line for line, strips tags, and keeps the line numbers", () => {
       const text = ["```", "None of the sources quantify the cost.", "```", "<!-- None of the sources", "quantify the cost. -->", "<p>No source provides <b>efficiency</b> figures.</p>",
@@ -76,10 +81,23 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", ()
       expect(hits(text)).toEqual([absence(6, "A5"), absence(10, "A6")]);
       expect(report("<p>None of the sources quantify the cost.</p>", "output/report.HTML").report).toEqual({ format: "html", scanned: true, textCut: false,
         hits: [absence(1, "A1")], truncated: false });
+      // A fence line inside an open comment neither opens nor closes a fence.
+      expect(hits(["<!-- draft", "```", "old", "-->", "None of the sources quantify the cost.", "```", "code", "```", "No source provides efficiency figures."].join("\n")))
+        .toEqual([absence(5, "A1"), absence(9, "A5")]);
+    });
+    it("strips tags across lines, ends a sentence at a block-level tag, and reads any other tag as a space", () => {
+      const html = (text: string) => report(text, "output/report.html").report!.hits;
+      expect(html("<h2>Unanswered questions</h2>\n<ul>\n<li>Prices rose in 2024 [C1]</li>\n<li>None of the sources quantify the cost</li>\n</ul>")).toEqual([absence(4, "A1")]);
+      expect(html("<p>Prices rose [C1].</p><p>None of the sources quantify the cost.</p>")).toEqual([absence(1, "A1")]);
+      expect(html("<tr><td>Cost</td><td>No source provides efficiency figures</td></tr>")).toEqual([absence(1, "A5")]);
+      expect(html("<img\n alt=\"None of the sources quantify the cost.\">\n<p>There is no evidence of a recall.</p>")).toEqual([absence(3, "A6")]);
+      expect(html("None of the<br>sources quantify the cost [C2].")).toEqual([absence(1, "A1", true)]);
+      // Not a tag: a less-than sign before a space or a digit.
+      expect(html("Growth was < 5% and <5% elsewhere; none of the sources quantify the cost.")).toEqual([absence(1, "A1")]);
     });
     it("normalizes curly quotes and compatibility characters before matching", () => {
-      expect(hits("These reports don’t specify a date.")).toEqual([absence(1, "A2")]);
-      expect(hits("Ｎｏｎｅ of the sources quantify the cost.")).toEqual([absence(1, "A1")]);
+      expect(hits("These reports don\u2019t specify a date.")).toEqual([absence(1, "A2")]);
+      expect(hits("\uff2e\uff4f\uff4e\uff45 of the sources quantify the cost.")).toEqual([absence(1, "A1")]);
     });
     it("keeps 40 hits in line order, counts all of them, and says the list was cut", () => {
       const event = report(Array.from({ length: 41 }, (_, i) => `None of the sources mention item ${i}.`).join("\n\n"));
@@ -106,14 +124,19 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", ()
       expect(argued.rules).toEqual({ absence: 1 }); expect(argued.counts).toEqual({ argumentAbsence: 1, argumentAbsenceUncited: 1, argumentBounded: 0 });
     });
     it("scans the first MiB only, cut at a character boundary", () => {
-      const cut = report(`None of the sources quantify the cost.\n${"é".repeat(600_000)}\nNone of the sources mention 2025.`).report!;
+      const cut = report(`None of the sources quantify the cost.\n${"\u00e9".repeat(600_000)}\nNone of the sources mention 2025.`).report!;
       expect(cut).toEqual({ format: "markdown", scanned: true, textCut: true, hits: [absence(1, "A1")], truncated: false });
       expect(report(`${"a".repeat(1024 * 1024 - 40)}\nNone of the sources quantify it.`).report).toMatchObject({ textCut: false, hits: [absence(2, "A1")] });
+      // The cap also counts characters after NFKC: 60,000 of U+FDFA (180,000 bytes) normalize to 1,080,000 characters.
+      expect(report(`${"\ufdfa".repeat(60_000)}\nNone of the sources quantify the cost.`).report).toMatchObject({ scanned: true, textCut: true, hits: [] });
     });
     it("stays well inside a generous bound on adversarial shapes at 1 MiB", () => {
-      const shapes = { tags: "<".repeat(1 << 20), unclosed: `<${"a".repeat((1 << 20) - 1)}`, comments: "<!--".repeat(1 << 18), expansion: "ﷺ".repeat(350_000),
+      const shapes = { tags: "<".repeat(1 << 20), unclosed: `<${"a".repeat((1 << 20) - 1)}`, comments: "<!--".repeat(1 << 18), expansion: "\ufdfa".repeat(350_000),
         words: `${"word ".repeat(200_000)}none of the sources`, lines: "a\n".repeat(1 << 19), sentences: "A. ".repeat(349_525), blocks: "a\n\n".repeat(349_525),
-        rules: "No source the the no evidence there is no ".repeat(24_966) };
+        rules: "No source the the no evidence there is no ".repeat(24_966),
+        // NFKC's canonical reordering is quadratic in a run of non-starters: 1 MiB of alternating classes took minutes before runs were cut at 30.
+        marks: `a${"\u0316\u0301".repeat(262_143)}`, halfwidth: "\uff9e\u0334".repeat(209_715), tibetan: "\u0f73".repeat(349_525),
+        tagStarts: "<a ".repeat(349_525), tagSpan: `<a${" x".repeat(524_287)}` };
       for (const [name, text] of Object.entries(shapes)) {
         const started = performance.now(), scan = report(text).report!;
         expect(scan.scanned, name).toBe(true); expect(performance.now() - started, name).toBeLessThan(10_000);
@@ -165,6 +188,13 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", ()
       const numbered = hostFlagsEvent(harness({ files: await packet("1. Describe the alpha observations.\n2. Describe the beta observations.\n") }).run({ "output/report.md": "x" }))!;
       expect(numbered.misses!.briefUnits).toBe(2); expect(numbered.counts.briefSingleUnit).toBe(0);
     }, 30_000);
+    it("records none of the section's parts when its ledger read fails after the packet was read", async () => {
+      const h = harness({ files: await packet() });
+      vi.spyOn(h.store, "dispatches").mockImplementation(() => { throw new Error("database locked"); });
+      const event = hostFlagsEvent(h.run({ "output/report.md": "x" }))!;
+      expect(event.errors).toEqual(["misses_failed"]); expect(event).not.toHaveProperty("misses"); expect(event).not.toHaveProperty("packet");
+      expect(event.counts).not.toHaveProperty("briefSingleUnit"); expect(event.argument).toMatchObject({ scanned: true });
+    }, 30_000);
     it("records only the ledger's misses without a packet, and a failed section by its code alone", () => {
       const plain = hostFlagsEvent(harness().run({ "output/report.md": "x" }))!;
       expect(plain.misses).toEqual({ fetchFailures: 0, fetchLimitRefusals: 0 }); expect(plain).not.toHaveProperty("packet"); expect(plain.counts).not.toHaveProperty("briefSingleUnit");
@@ -191,11 +221,33 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", ()
     it("records positions, ids, caps and counts from a valid file, never its values", () => {
       const event = review({ [DOCUMENT_REVIEW_FLAGS_PATH]: `${JSON.stringify(flags, null, 1)}\n` });
       expect(event).toEqual({ type: "host_flags", contextId: "private", version: 1, rules: { review: 1 }, counts: flags.counts,
-        review: { valid: true, errors: [], read: flags.read, numeric: [{ table: 1, row: 2, paragraph: 5, inSource: true, inClean: true, addressed: false }],
+        review: { valid: true, read: flags.read, numeric: [{ table: 1, row: 2, paragraph: 5, inSource: true, inClean: true, addressed: false }],
           edits: [{ id: "E2", codes: ["negation_flipped"] }], clauses: [{ paragraphs: [7, 8], inSource: true, inClean: false, addressed: true }] } });
       expect(JSON.stringify(event)).not.toContain("USD");
-      const failed = { ...flags, numeric: { flags: [], truncated: false, error: "IndexError" } };
-      expect(review({ [DOCUMENT_REVIEW_FLAGS_PATH]: JSON.stringify(failed) }).review).toMatchObject({ valid: true, errors: ["IndexError"], numeric: [] });
+      // The event's own schema admits only the closed set of edit codes.
+      expect(HostFlagsEventSchema.safeParse({ ...event, review: { ...event.review, edits: [{ id: "E2", codes: ["Acme pays Beta"] }] } }).success).toBe(false);
+    });
+    it("names the step or the rule that failed, and leaves a failed part's list and counts out, so absent never reads as zero", () => {
+      // As the applier writes them: a failed rule's list empty and its counts zero; a failed step's all of them, and nothing read.
+      const numericFailed = review({ [DOCUMENT_REVIEW_FLAGS_PATH]: JSON.stringify({ ...flags, numeric: { flags: [], truncated: false, error: "IndexError" },
+        counts: { ...flags.counts, numericIntroduced: 0, numericResolved: 0, numericSource: 0, numericUnaddressed: 0 } }) });
+      expect(numericFailed.review).toEqual({ valid: true, errors: { numeric: "IndexError" }, read: flags.read, edits: [{ id: "E2", codes: ["negation_flipped"] }],
+        clauses: [{ paragraphs: [7, 8], inSource: true, inClean: false, addressed: true }] });
+      expect(numericFailed.counts).toEqual({ inversionEdits: 1, inversionIntroduced: 0, inversionSource: 1, inversionUnaddressed: 1 });
+      const clausesFailed = review({ [DOCUMENT_REVIEW_FLAGS_PATH]: JSON.stringify({ ...flags, clauses: { flags: [], truncated: false, error: "IndexError" },
+        counts: { ...flags.counts, inversionIntroduced: 0, inversionSource: 0, inversionUnaddressed: 0 } }) });
+      expect(clausesFailed.review).toEqual({ valid: true, errors: { clauses: "IndexError" }, read: flags.read,
+        numeric: [{ table: 1, row: 2, paragraph: 5, inSource: true, inClean: true, addressed: false }], edits: [{ id: "E2", codes: ["negation_flipped"] }] });
+      expect(clausesFailed.counts).toEqual({ inversionEdits: 1, numericIntroduced: 0, numericResolved: 0, numericSource: 1, numericUnaddressed: 1 });
+      const editsFailed = review({ [DOCUMENT_REVIEW_FLAGS_PATH]: JSON.stringify({ ...flags, edits: { flags: [], truncated: false, error: "KeyError" },
+        counts: { ...flags.counts, inversionEdits: 0 } }) });
+      expect(editsFailed.review).toMatchObject({ errors: { edits: "KeyError" } }); expect(editsFailed.review).not.toHaveProperty("edits");
+      expect(editsFailed.counts).not.toHaveProperty("inversionEdits"); expect(editsFailed.counts).toHaveProperty("inversionSource", 1);
+      const zero = Object.fromEntries(Object.keys(flags.counts).map(name => [name, 0]));
+      const read = { comparisonsCapped: false, figuresCapped: false, labelsCapped: false, paragraphsClipped: 0, rowsCapped: false, sentencesCapped: false, termsCapped: false };
+      const stepFailed = review({ [DOCUMENT_REVIEW_FLAGS_PATH]: JSON.stringify({ version: 1, rules: flags.rules, counts: zero, read, numeric: { flags: [], truncated: false },
+        edits: { flags: [], truncated: false }, clauses: { flags: [], truncated: false }, error: "ValueError" }) });
+      expect(stepFailed).toEqual({ type: "host_flags", contextId: "private", version: 1, rules: { review: 1 }, counts: {}, review: { valid: true, errors: { step: "ValueError" } } });
     });
     it("records a missing, an invalid and an oversized file, and never loads the oversized one", () => {
       expect(review({}).review).toEqual({ valid: false, reason: "missing" });
@@ -207,6 +259,11 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", ()
       // Exactly 512 KiB is read.
       expect(review({ [DOCUMENT_REVIEW_FLAGS_PATH]: JSON.stringify(flags).padEnd(512 * 1024) }).review).toMatchObject({ valid: true });
     });
+    it("records a damaged flags blob as a failed section, never as an invalid file", () => {
+      const h = harness({ checks: [HOST_FLAGS_REVIEW_CHECK_ID] }), input = h.run({ [DOCUMENT_REVIEW_FLAGS_PATH]: JSON.stringify(flags) }), entry = input.finalSnapshot[0]!;
+      writeFileSync(join(h.root, "job-1", entry.sha256), Buffer.alloc(entry.bytes, 0x20));
+      expect(hostFlagsEvent(input)).toEqual({ type: "host_flags", contextId: "private", version: 1, rules: { review: 1 }, counts: {}, errors: ["review_failed"] });
+    });
     it("runs both parts for a phase that requires both checks", () => {
       const event = hostFlagsEvent(harness({ checks: [CLAIMS_LEDGER_CHECK_ID, HOST_FLAGS_REVIEW_CHECK_ID] }).run({ "output/report.md": "None of the sources quantify the cost.",
         [DOCUMENT_REVIEW_FLAGS_PATH]: JSON.stringify(flags) }))!;
@@ -215,6 +272,21 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", ()
   });
 
   describe("the report path, the event and its recording", () => {
+    it("records a failed section by its code alone and keeps the other sections", () => {
+      const argument = [{ path: RESEARCH_FILES.argument, bytes: Buffer.from("None of the sources mention 2025.") }];
+      const h = harness({ files: argument }), input = h.run({ "output/report.md": "None of the sources quantify the cost.", [CLAIMS_LEDGER_PATH]: "[]" });
+      const entry = input.finalSnapshot.find(item => item.path === "output/report.md")!;
+      writeFileSync(join(h.root, "job-1", entry.sha256), Buffer.alloc(entry.bytes, 0x20));
+      const damaged = hostFlagsEvent(input)!;
+      expect(damaged).toMatchObject({ rules: { absence: 1 }, errors: ["report_failed"], argument: { scanned: true }, counts: { argumentAbsence: 1 } });
+      expect(damaged).not.toHaveProperty("report"); expect(damaged.counts).not.toHaveProperty("reportAbsence");
+      // With the report missing, the first normalization is the argument's, so its scan is the one that fails.
+      const missing = harness({ files: argument }).run({});
+      vi.spyOn(String.prototype, "normalize").mockImplementationOnce(() => { throw new Error("normalize failed"); });
+      const event = hostFlagsEvent(missing)!;
+      expect(event.errors).toEqual(["argument_failed"]); expect(event).not.toHaveProperty("argument"); expect(event.report).toMatchObject({ reason: "missing" });
+      expect(event.rules).toEqual({}); expect(event.misses).toEqual({ fetchFailures: 0, fetchLimitRefusals: 0 });
+    });
     it("names the claims report as withClaimsLedger always has: the first .md artifact, else the first artifact", () => {
       const path = (...paths: string[]) => claimsReportPath({ requiredArtifacts: paths.map(item => ({ path: item })) });
       expect(path("output/memo.md", "output/table.csv")).toBe("output/memo.md"); expect(path("output/table.csv", "output/memo.md")).toBe("output/memo.md");

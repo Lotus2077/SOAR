@@ -294,8 +294,10 @@ export function buildSynthesisAssistPacket(request: ResearchAssistSynthesisReque
     const prepared = prepare(request, options.authoredBrief, "T2"), aliasOf = prepared.aliasOf;
     const invalid = (): never => { throw new AssistRefusal(ASSIST_CODES.requestInvalid, prepared.record()); };
     if (!request.evidence.quotes.length || !request.plan.questions.length) invalid();
-    // A source the coverage read must come with its text, or plan text that copies it would pass the copy check unread.
-    if (request.coverage.sources.length !== request.sources.length || request.coverage.sources.some((source, i) => source.readable && request.sourceTexts[i] === undefined)) invalid();
+    // The coverage lists the request's own sources in its order, and a source the coverage read comes with its text, or plan text
+    // that copies it would pass the copy check unread.
+    if (request.coverage.sources.length !== request.sources.length ||
+        request.coverage.sources.some((source, i) => source.id !== request.sources[i]!.id || (source.readable && request.sourceTexts[i] === undefined))) invalid();
     const alias = (id: string) => aliasOf.get(id) ?? invalid();
     // The plan is rebuilt field by field from the plan schema's own keys, so nothing outside that schema can ride along.
     const rawPlan = request.plan, rawPlanText = [...rawPlan.questions.flatMap(q => [q.text, ...(q.lookFor ?? [])]), ...(rawPlan.conflictsToCheck ?? []), ...(rawPlan.deliverableNotes === undefined ? [] : [rawPlan.deliverableNotes])];

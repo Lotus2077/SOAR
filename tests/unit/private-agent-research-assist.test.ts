@@ -476,7 +476,8 @@ describe("the code review's cases: names, paths, URLs and digests in any form", 
     const evidence = { ...run.synthesis.evidence, conflicts: run.synthesis.evidence.conflicts.map(c => ({ ...c, sourceId: remap(c.sourceId) })),
       quotes: run.synthesis.evidence.quotes.map((q, i) => ({ ...q, sourceId: remap(q.sourceId), ...(i === 0 && edit.quote !== undefined ? { quote: edit.quote } : {}), ...(i === 0 && edit.locator !== undefined ? { locator: edit.locator } : {}) })) };
     const t1 = buildPlanAssistPacket(frozen({ ...run.plan, sources, sourceIndex }), { firing: "forced_split", authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() });
-    const t2 = buildSynthesisAssistPacket(frozen({ ...run.synthesis, sources, sourceIndex, plan, evidence }), { authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() });
+    const coverage = { ...run.synthesis.coverage, sources: run.synthesis.coverage.sources.map((source, i) => i === 0 ? { ...source, id, path: edit.id ?? source.path } : source) };
+    const t2 = buildSynthesisAssistPacket(frozen({ ...run.synthesis, sources, sourceIndex, plan, evidence, coverage }), { authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() });
     return { run, t1, t2, alias: `S1` };
   }
   const gistOf = (built: ReturnType<typeof buildPlanAssistPacket>) => { if (!built.ok) throw new Error(built.code); return JSON.parse(built.user).sources[0].gist as string; };
@@ -627,12 +628,24 @@ describe("the fourth review's cases: glued hosts and names, the final audit, req
     }
   });
 
+  it("sends a URL on another host that ends in a source's file name as [url], end to end, never its query", async () => {
+    const authored = ASSIST_AUTHORED_BRIEF.replace("where it applies.", "where it applies; see https://hr.acme-merger.test/alpha-field-notes.md?token=sk_live_abcdef.");
+    const run = await assistRequests({ authored }), f = cachingAssistModel("openai_responses", answer), assists = wrap(f.model, { authoredBrief: authored });
+    expect((await assists.plan!(run.plan, signal())).kind).toBe("reply");
+    expect((await assists.synthesis!(run.synthesis, signal())).kind).toBe("reply");
+    for (const request of f.requests) {
+      expect(assistPacketOf(request.body).brief).toContain("see [url].");
+      for (const leaked of ["sk_live_abcdef", "token=", "acme-merger"]) expect(request.body).not.toContain(leaked);
+    }
+  });
+
   it("checks every field of a prior attempt under local-first: a string, a negative count or a non-boolean stops as an invalid request", async () => {
     const run = await assistRequests(), base = { version: 1 as const, ordinal: 1, replyContentSha256: PLANTED.secretHash, replyBytes: 10, truncated: false, accepted: false,
       bindingInspection: "completed" as const, errors: [], omittedErrorCount: 0, acceptedPlanSha256: null, repairContext: "included" as const };
     const build = (attempt: Record<string, unknown>) => buildPlanAssistPacket(frozen({ ...run.plan, priorAttempts: [{ ...base, ...attempt } as unknown as ResearchPlanAttempt] }),
       { firing: "local_first", authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() });
-    for (const bad of [{ ordinal: "PRIVATE alice" }, { omittedErrorCount: -1 }, { omittedErrorCount: "PRIVATE" }, { truncated: "yes" }]) expect(build(bad)).toMatchObject({ ok: false, code: ASSIST_CODES.requestInvalid });
+    for (const bad of [{ ordinal: "PRIVATE alice" }, { ordinal: 1.5 }, { ordinal: -1 }, { omittedErrorCount: -1 }, { omittedErrorCount: 0.5 }, { omittedErrorCount: Number.POSITIVE_INFINITY },
+      { omittedErrorCount: "PRIVATE" }, { truncated: "yes" }]) expect(build(bad), JSON.stringify(bad)).toMatchObject({ ok: false, code: ASSIST_CODES.requestInvalid });
     // The ordinal is not pinned to the wrapper's two slots: 7(c)'s attempts may number more.
     expect(build({ ordinal: 3, truncated: true, omittedErrorCount: 2 }).ok).toBe(true);
   });
@@ -642,6 +655,10 @@ describe("the fourth review's cases: glued hosts and names, the final audit, req
     expect(build({ ...run.synthesis, evidence: { ...run.synthesis.evidence, quotes: [] } })).toMatchObject({ ok: false, code: ASSIST_CODES.requestInvalid });
     expect(build({ ...run.synthesis, plan: { ...run.synthesis.plan, questions: [] } })).toMatchObject({ ok: false, code: ASSIST_CODES.requestInvalid });
     expect(build({ ...run.synthesis, coverage: { ...run.synthesis.coverage, sources: run.synthesis.coverage.sources.slice(1) } })).toMatchObject({ ok: false, code: ASSIST_CODES.requestInvalid });
+    // Same length, other sources: one id replaced, or the order reversed.
+    const renamed = run.synthesis.coverage.sources.map((source, i) => i === 0 ? { ...source, id: "input/other.md" } : source);
+    expect(build({ ...run.synthesis, coverage: { ...run.synthesis.coverage, sources: renamed } })).toMatchObject({ ok: false, code: ASSIST_CODES.requestInvalid });
+    expect(build({ ...run.synthesis, coverage: { ...run.synthesis.coverage, sources: [...run.synthesis.coverage.sources].reverse() } })).toMatchObject({ ok: false, code: ASSIST_CODES.requestInvalid });
   });
 
   it("refuses T2 plan text holding a whole literal heading of 32 to 63 code points, which no 64-code-point copy window can see", async () => {

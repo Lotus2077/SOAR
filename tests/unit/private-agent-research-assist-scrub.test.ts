@@ -169,8 +169,37 @@ describe("the assist scrubber (research-assist-scrub.ts)", () => {
     }
     for (const value of ["alpha-field-notes.md", "corpus/alpha-field-notes.md", "Clients/Acme/alpha-field-notes.md", "/tmp/alpha-field-notes.md"]) expect(text(`see ${value} now`), value).toBe("see S1 now");
     expect(text("- alpha-field-notes.md and see alpha-field-notes.md.")).toBe("- S1 and see S1.");
+    // A run glued after the name gives back a full stop; a dash before the name with no word before it glues nothing.
+    expect(text("see alpha-field-notes.md-secret. Next")).toBe("see [file]. Next");
+    expect(text("see -alpha-field-notes.md now")).toBe("see -S1 now");
+    // A host lead never walks back into an earlier match: here the earlier path match ends right before a lone `www.`.
+    expect(text("input/corpus/alpha-field-notes.mdwww.example.org/news")).toBe("S1S2");
     // An extension-less stem glued to other text keeps it (a recorded limit): the rule is for file names.
     expect(model("pre-alpha-field-notes and alpha-field-notes-v2")).toBe("pre-S1 and S1-v2");
+  });
+
+  it("leaves a URL on another host that ends in a source's path or file name to the URL rule, query, fragment and tail included", () => {
+    for (const url of ["https://other.test/reports/annual-2025.html", "//cdn.other.test/reports/annual-2025.html", "https://other.test/x/old-alpha-field-notes.md",
+      "https://hr.acme-merger.test/alpha-field-notes.md?token=sk_live_abcdef", "https://hr.acme-merger.test/alpha-field-notes.md#Layoff-List-Q3",
+      "https://hr.acme-merger.test/alpha-field-notes.md/private/acme-merger", "s3://bucket/corpus/alpha-field-notes.md", "//cdn.other.test/x/old-alpha-field-notes.md?token=abc",
+      "//cdn.other.test/alpha-field-notes.md-v2#Layoff-List-Q3", "http://example.org/reports/annual-2025.html?x=1"]) {
+      expect(text(`see ${url} now`), url).toBe("see [url] now");
+      expect(model(`see ${url} now`), url).toBe("see [url] now");
+      settled(`see ${url} now`);
+    }
+    expect(scrubber.scrub("see https://other.test/reports/annual-2025.html now", "text").counts).toMatchObject({ urls: 1 });
+    // A rooted local path's root slash goes into the alias; a UNC path keeps one backslash before it, a residue the entry states.
+    expect(text("see /tmp/alpha-field-notes.md now")).toBe("see S1 now");
+    expect(text("see \\\\fileserver\\share\\old-alpha-field-notes.md now")).toBe("see \\[file] now");
+  });
+
+  it("keeps the host lead of a form that a URL source and a local copy share, so no credential is left before it", () => {
+    const both = createScrubber({ sources: [identity("https://example.org/report.html", "sources/3333333333333333.bin"), identity("mirror/example.org/report.html")], suffix: "", knownDigests: [HASH] });
+    for (const scope of ["text", "model"] as const) {
+      const sent = both.scrub("see alice:hunter2@example.org/report.html now", scope).text;
+      expect(sent).not.toContain("alice");
+      expect(sent).not.toContain("hunter2");
+    }
   });
 
   it("names a form two sources share [source], and each whole path its own alias", () => {
@@ -223,7 +252,8 @@ describe("the assist scrubber (research-assist-scrub.ts)", () => {
   it("scans crafted text in linear time", () => {
     const crafted = [`a/${"1.".repeat(32_000)}x`, "+a\\".repeat(21_000), `${"a'".repeat(32_000)}/x`, "0123456789abcdef".repeat(4_000), `${"abcd".repeat(16_000)}g`, "+a".repeat(32_000),
       `${"xx.yy.".repeat(10_000)}${"z".repeat(30)}`, "a:".repeat(32_000), "%a%".repeat(21_000), `${"a".repeat(64_000)}.docx`, "[::".repeat(21_000), `https://x.com/a${")".repeat(64_000)}`,
-      "\"“/\"".repeat(16_000), `/${"汉/a汉".repeat(16_000)}`, `${"资料".repeat(32_000)}/`, `${"aa ".repeat(21_000)}q`, `a${"\u0301".repeat(32_000)}${"\u0316".repeat(32_000)}`];
+      "\"“/\"".repeat(16_000), `/${"汉/a汉".repeat(16_000)}`, `${"资料".repeat(32_000)}/`, `${"aa ".repeat(21_000)}q`, `a${"\u0301".repeat(32_000)}${"\u0316".repeat(32_000)}`,
+      "文件在这里，".repeat(10_000), "文件在这里,".repeat(10_000), "文件在这里：".repeat(10_000)];
     const started = performance.now();
     for (const value of crafted) { scrubber.scrub(value, "model"); scrubber.finding(value, "model"); }
     // Tens of milliseconds each here; the quadratic patterns these replace took from seconds to minutes at this size.

@@ -149,6 +149,21 @@ const PATH_PATTERNS: readonly RegExp[] = Object.freeze([
  */
 const RUN_START = `(?:(?<=^|[\\s"<>]|${SL_PUNCT}|(?<!${SEGMENT})'|(?:^|[\\s"'<>])\\\\[ntr])|(?<=${SL})(?=${SEGMENT}))`;
 const RELATIVE_RUN = new RegExp(`${RUN_START}(?=((?:${SEG}+[/\\\\]+)+${SEG}+))\\1`, "gu");
+const RUN_STARTS = new RegExp(RUN_START, "gu"), RUN_AT = new RegExp(RELATIVE_RUN.source, "yu"), SEGS_AT = new RegExp(`${SEG}+`, "yu");
+/**
+ * The matches of RELATIVE_RUN, as matchAll gives them, in linear time. When no run matches at a start, the next start is looked
+ * for after the path characters read from there: a start inside them reads a suffix of the same run, so it cannot match either.
+ * matchAll would try each of those starts, and on CJK text joined by commas that rescans the run from each one.
+ */
+function* relativeRuns(view: string): Generator<RegExpExecArray> {
+  for (let at = 0; at <= view.length;) {
+    RUN_STARTS.lastIndex = at; const start = RUN_STARTS.exec(view); if (!start) return;
+    RUN_AT.lastIndex = start.index; const match = RUN_AT.exec(view);
+    if (match) { yield match; at = match.index + match[0].length; continue; }
+    SEGS_AT.lastIndex = start.index; const read = SEGS_AT.exec(view);
+    at = Math.max(start.index + (codePointAt(view, start.index)?.length ?? 1), read ? start.index + read[0].length : 0);
+  }
+}
 const EXTENSION_AT = new RegExp(`^[a-zA-Z0-9]{2,16}(?!(?![${SPACELESS}])[\\p{L}\\p{N}_-])`, "u"), NAMED = /^[\p{L}\p{N}\p{M}_-]$/u;
 /** Whether an extension reads as one: a letter in it, not a capitalized word (`It`, `Then`), not a decimal's digits after a digit (`2.5`). */
 const extensionLike = (extension: string, before: string | undefined) =>
@@ -210,11 +225,14 @@ function openingLead(token: string): string {
   for (const character of token) { const left = surplus.get(character); if (left === undefined || left <= 0) break; surplus.set(character, left - 1); lead += character; }
   return lead;
 }
-/** Replaces each match of `pattern` in the view by what `swap` returns for the original span and the viewed one (undefined keeps it), in both. */
-function replaceBoth(state: { text: string; view: string }, pattern: RegExp, swap: (original: string, viewed: string) => string | undefined): void {
+/** The matches of a pattern in a view: matchAll for a global pattern, or a walk such as relativeRuns. */
+type Finder = RegExp | ((view: string) => Iterable<RegExpMatchArray>);
+const findAll = (view: string, finder: Finder): Iterable<RegExpMatchArray> => finder instanceof RegExp ? view.matchAll(finder) : finder(view);
+/** Replaces each match in the view by what `swap` returns for the original span and the viewed one (undefined keeps it), in both. */
+function replaceBoth(state: { text: string; view: string }, finder: Finder, swap: (original: string, viewed: string) => string | undefined): void {
   let text = "", view = "", last = 0;
-  for (const match of state.view.matchAll(pattern)) {
-    const start = match.index, end = start + match[0].length, replacement = swap(state.text.slice(start, end), match[0]);
+  for (const match of findAll(state.view, finder)) {
+    const start = match.index!, end = start + match[0].length, replacement = swap(state.text.slice(start, end), match[0]);
     if (replacement === undefined) continue;
     text += state.text.slice(last, start) + replacement; view += state.view.slice(last, start) + wide(replacement); last = end;
   }
@@ -283,7 +301,7 @@ function sourceForms(source: ResearchSourceIdentity, alias: string): Form[] {
 }
 /** File names and paths in the text the driver or session appended to the brief (claims ledger, evidence contract, transfer note). */
 function hostFileForms(suffix: string): Form[] {
-  const relative = [...suffix.matchAll(RELATIVE_RUN)].flatMap(match => { const end = relativeEnd(match[0]); return end < 0 ? [] : [match[0].slice(0, end)]; });
+  const relative = [...relativeRuns(suffix)].flatMap(match => { const end = relativeEnd(match[0]); return end < 0 ? [] : [match[0].slice(0, end)]; });
   const tokens = new Set([...[...PATH_PATTERNS, HOST_FILE_TOKEN].flatMap(pattern => [...suffix.matchAll(pattern)].map(match => trimToken(match[0].replace(/^["“]|["”]$/gu, "")).core)), ...relative]);
   return [...tokens].flatMap(token => {
     const name = token.split(/[/\\]/u).at(-1)!;
@@ -321,7 +339,7 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
     const file = (value: string) => value === ASSIST_PLACEHOLDERS.file;
     const replacement = prior.replacement === form.replacement ? prior.replacement : file(prior.replacement) ? form.replacement : file(form.replacement) ? prior.replacement : ASSIST_PLACEHOLDERS.source;
     const kind = KIND_RANK[form.kind] > KIND_RANK[prior.kind] ? form.kind : prior.kind;
-    table.set(folded, { folded, replacement, kind, dotted: prior.dotted, hostLed: hostLed(kind, folded) });
+    table.set(folded, { folded, replacement, kind, dotted: prior.dotted, hostLed: prior.hostLed || hostLed(form.kind, folded) });
   }
   const index = new Map<string, { lengths: number[]; byLength: Map<number, Map<number, Entry[]>> }>();
   for (const entry of table.values()) {
@@ -381,14 +399,15 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
   const SEGMENT_CHAR = new RegExp(`^(?:${SEGMENT}|${SL})$`, "u");
   /**
    * Where a name match really starts: a folder prefix glued to it ("Clients/Acme/alpha.md") goes with it, back to `floor`, and
-   * so does the root slash of a rooted one ("/tmp/alpha.md").
+   * so does the root slash of a rooted one ("/tmp/alpha.md"), but never the second slash of `//`, which leaves a URL for the
+   * generic rules (`https://other.test/alpha.md?q` is `[url]`, not `https:/S1?q`). A UNC path's backslashes keep 4aeac37's rule.
    */
   const absorbPrefix = (text: string, start: number, floor: number) => {
     let at = start;
     while (at > floor && (text[at - 1] === "/" || text[at - 1] === "\\")) {
       let back = at - 1;
       while (back > floor && SEGMENT_CHAR.test(codePointBefore(text, back) ?? "")) back -= (codePointBefore(text, back) ?? "").length;
-      if (back === at - 1) { if (at < start && !SEGMENT_CHAR.test(codePointBefore(text, back) ?? "")) at = back; break; }
+      if (back === at - 1) { if (at < start && !SEGMENT_CHAR.test(codePointBefore(text, back) ?? "") && text[back - 1] !== "/") at = back; break; }
       at = back;
     }
     return at;
@@ -401,11 +420,12 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
     while (at > floor && NAME_RUN_CHAR.test(codePointBefore(text, at) ?? "")) at -= (codePointBefore(text, at) ?? "").length;
     return at;
   };
-  /** Where a file name's run ends when `-` or `_` glues more name after it (`report.md-secret`). */
+  /** Where a file name's run ends when `-` or `_` glues more name after it (`report.md-secret`), short of a trailing `-`, `_` or `.` (a full stop). */
   const nameRunEnd = (text: string, end: number) => {
     if (!/[-_]/u.test(text[end] ?? "") || !NAME_WORD.test(codePointAt(text, end + 1) ?? "")) return end;
     let at = end;
     while (NAME_RUN_CHAR.test(codePointAt(text, at) ?? "")) at += (codePointAt(text, at) ?? "").length;
+    while (at > end && /[-_.]/u.test(text[at - 1] ?? "")) at--;
     return at;
   };
   /** A host-label or userinfo character: a letter, digit or mark of a spaced script, or one of `. _ ~ % ! $ & * + , ; = : @ -`. */
@@ -458,6 +478,9 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
         if (lead.start < start) { start = lead.start; if (!lead.www) replacement = ASSIST_PLACEHOLDERS.url; }
       }
       if (hit.entry.kind !== "host") start = absorbPrefix(shown, start, floor);
+      // A glued file name right after `//` lies inside a URL (`//cdn.other.test/x/q3-report.html?token=…`): it keeps its whole span
+      // but takes the source's alias, so the URL rules, one of which needs a letter or digit after `//`, take the URL whole.
+      if (replacement === ASSIST_PLACEHOLDERS.file && hit.entry.replacement !== ASSIST_PLACEHOLDERS.file && shown.slice(start - 2, start) === "//") replacement = hit.entry.replacement;
       found.push({ start, end, replacement });
       at = floor = end;
     }
@@ -521,7 +544,7 @@ export function createScrubber(input: { sources: readonly ResearchSourceIdentity
       if (!QUOTED.test(viewed)) return token(ASSIST_PLACEHOLDERS.file, "files")(original, viewed);
       counts.files++; return `${original[0]}${ASSIST_PLACEHOLDERS.file}${original.at(-1)}`;
     });
-    replaceBoth(state, RELATIVE_RUN, (original, viewed) => {
+    replaceBoth(state, relativeRuns, (original, viewed) => {
       const end = relativeEnd(viewed);
       if (end < 0) return undefined;
       // A dotted folder is no extension: when the path goes on after it (`src/com.example.app/ui`), the whole run is the path.
@@ -533,10 +556,10 @@ export function createScrubber(input: { sources: readonly ResearchSourceIdentity
     replaceBoth(state, HEX_RUN, (_, viewed) => { if (!isDigest(viewed, false)) return undefined; counts.digests++; return ASSIST_PLACEHOLDERS.digest; });
     return { text: state.text, ...counts };
   };
-  const holds = (view: string, pattern: RegExp, accept: (token: string) => boolean) => { for (const match of view.matchAll(pattern)) if (accept(match[0])) return true; return false; };
+  const holds = (view: string, finder: Finder, accept: (token: string) => boolean) => { for (const match of findAll(view, finder)) if (accept(match[0])) return true; return false; };
   const holdsGeneric = (view: string, scope: "text" | "model") =>
     [...URL_PATTERNS, ...PATH_PATTERNS].some(pattern => holds(view, pattern, matched => trimToken(matched).core.length > 0)) ||
-    holds(view, RELATIVE_RUN, run => relativeEnd(run) >= 0) || (scope === "model" && holds(view, FILE_NAME_PATTERN, () => true));
+    holds(view, relativeRuns, run => relativeEnd(run) >= 0) || (scope === "model" && holds(view, FILE_NAME_PATTERN, () => true));
   const holdsDigest = (view: string) => holds(view, HEX_GROUPS, run => isDigest(run, true)) || holds(view, HEX_RUN, run => isDigest(run, false));
   return {
     scrub(raw, scope) {

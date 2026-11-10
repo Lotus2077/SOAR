@@ -84,19 +84,20 @@ const LIMIT_PATTERNS = Object.freeze([
  *   ("each", "per", "every") is never cancelled. So against 7b.1 the correction only drops limits: on every brief it reads
  *   7b.1's limit or none.
  * - Question, reference and footnote are no part nouns: "Answer the research question in at most 1,000 words" and "under 900
- *   words excluding references" limit the report; "each", "every" and "per" mark a per-question limit within the clause, its
- *   comma chain and the sentence before (below).
+ *   words excluding references" limit the report; "each", "every" and "per" mark a per-question limit within the clause, in
+ *   its comma chain before it and in the sentence before (below).
  *
  * Correction BL-20261110-0848 (the delta review of PR #69, rules A and B; each only adds a reason to drop a limit):
  * - A, `commaChain`: a clause opened by a comma belongs to its comma chain. Under a heading opener on the same line
  *   ("Abstract (required, max 150 words)", "Executive summary: one page, no more than 200 words") the heading is read as if the
- *   clause opened there; and a distributive anywhere in the chain on the same line ("For each source, write up to 150 words")
- *   marks a part's limit. Part nouns in the chain are not read: "An abstract of up to 150 words, then a report of 1,200-1,800
- *   words" keeps 1,800.
+ *   clause opened there; and a distributive in the chain before the limit's clause, on the same line ("For each source, write
+ *   up to 150 words"), marks a part's limit. A distributive in a later clause of the chain is not read ("At most 150 words,
+ *   each." reads 150; BL-20261110-1100). Part nouns in the chain are not read: "An abstract of up to 150 words, then a report
+ *   of 1,200-1,800 words" keeps 1,800.
  * - B, `previousSentence`: when a limit opens its sentence, or a `referring` word stands before it in the sentence, the sentence
  *   before it is read (sentences end at ".", ";", "!", "?" or a line break), and a part noun or a distributive there marks a
  *   part's limit ("Include an abstract. Max 150 words.", "Start with an executive summary. Keep it under 200 words."). The
- *   "word limit N" phrasing is exempt: it names the document's limit.
+ *   "word limit N" phrasing is exempt: it is taken to name the document's limit.
  */
 const CLAUSE_GUARDS = Object.freeze({ delimiters: ",;.!?:()", headingOpeners: ":(", headingEnds: ".;!?", headingEndsAtLineBreaks: true, windowWords: 4,
   negators: Object.freeze(["no", "not", "never", "nothing", "nor", "cannot"]), negatorSuffix: "n't",
@@ -145,7 +146,8 @@ const parseLimit = (text: string | undefined): number | undefined => {
 };
 /**
  * The brief as the patterns read it: NFKC, lower case, each whitespace run one space, the right single quote an apostrophe.
- * `lineBreaks` are the positions of the spaces that replaced a run holding a line break; only the heading rule reads them.
+ * `lineBreaks` are the positions of the spaces that replaced a run holding a line break; the heading rule and rules A and B
+ * read them.
  */
 function normalizeBrief(brief: string): { text: string; lineBreaks: number[] } {
   const source = brief.normalize("NFKC").toLowerCase(), lineBreaks: number[] = [];
@@ -246,7 +248,8 @@ function guarded(index: ClauseIndex, start: number, end: number, wordLimitPhrase
   for (let i = afterStart; after.length < window && i < tokens.length && tokens[i]!.start < close; i++) after.push(tokens[i]!.word);
   const afterText = after.join(" ");
   // Rule A: a clause a comma opens belongs to its comma chain; its heading opener (on the same line) stands in for the comma,
-  // and a distributive in the chain (on the same line) marks a part's limit. The anchors were found once, so this stays linear.
+  // and a distributive in the chain before the limit's clause (on the same line) marks a part's limit. The anchors were found
+  // once, so this stays linear.
   const comma = open >= 0 && text[open] === ",", anchor = comma ? index.anchors[opened - 1]! : -1, chainOpen = comma ? (anchor >= 0 ? delimiters[anchor]! : -1) : open;
   const broken = rank(index.lineBreaks, start, false), lineStart = broken ? index.lineBreaks[broken - 1]! : -1;
   const headOpen = comma ? (chainOpen > lineStart ? chainOpen : -1) : open;
@@ -289,7 +292,7 @@ export function briefWordLimit(brief: string): number | undefined {
     if (!ends.length || ends.some(end => end === undefined) || ends.some((end, i) => i > 0 && end! < ends[i - 1]!)) continue;
     const limit = ends.at(-1)!;
     if (limit < policy.minimumWords) continue;
-    // LIMIT_PATTERNS[2] is the "word limit N" phrasing, which names the document's own limit: rule B does not read before it.
+    // LIMIT_PATTERNS[2] is the "word limit N" phrasing, taken to name the document's own limit: rule B does not read before it.
     const unguarded = !guarded(index, match.index, match.index + match[0].length, patternIndex === 2);
     if (largest === undefined || limit > largest) { largest = limit; kept = unguarded; } else if (limit === largest && unguarded) kept = true;
   }

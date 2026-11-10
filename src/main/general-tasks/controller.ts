@@ -21,7 +21,7 @@ import { readPublicSources } from "../private-agent/public-sources";
 import { MODEL_FEE_CAP_STOP, modelRequestFailed, modelRequestFeeStop, PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop, modelIdentity,
   modelRequestTokenAdmissionStop, hasInvalidModelRequestTokenAdmissionStop, BROKER_DENIED_STOP, modelRequestBrokerDenied } from "../private-agent/model";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "../private-agent/checkpoints";
-import { GeneralAgentSession, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../private-agent/session";
+import { GeneralAgentSession, researchStageUnfinished, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../private-agent/session";
 import { DockerSandbox } from "../private-agent/sandbox";
 import { RulePacketScanner } from "../private-agent/scanner";
 import { secretPatterns } from "../../../scripts/secret-patterns.mjs";
@@ -75,6 +75,9 @@ const fixedReasons: Record<string, string> = {
   cancelled_or_deadline: "The run stopped at a cancellation or time check before its next step, and no request or action is uncertain. A resume continues while time remains.",
   model_output_incomplete: "The model's last replies were cut at the output limit, so they ran nothing, and no request or action is uncertain. A resume spends at least one more model call.",
   one_complete_tool_action_required: "The model's last replies did not contain exactly one tool action, so they ran nothing, and no request or action is uncertain. A resume spends at least one more model call.",
+  // Backlog item 6 (finding A7, BL-20261109-0501): a research stage that started and never transferred cannot continue. No certainty is claimed:
+  // uncertain() skips another context's unknown assist rows, and an uncertain request shows its own text first.
+  research_stage_not_replayed: "The research stage stopped before its evidence was handed to the writer. A partly run research stage cannot continue, so this task cannot resume.",
   task_integrity_failed: "The task's saved inputs, storage or records are missing or no longer match what it recorded, so it stopped. This task cannot resume.",
   consultation_failed: "The approved consultation request was attempted and did not succeed, and a consultation is never sent twice, so no Resume is offered. Saved progress is retained.",
   cleanup_in_progress: "The task remains cancelled while its interrupted execution workspace is cleaned up. No request will be replayed.",
@@ -509,17 +512,22 @@ export class GeneralTaskController {
     const progressStopped = this.progressStop(events, id);
     // Backlog item 6: a consultation whose one request failed with a confirmed outcome is never sent again, so every resume would end at once.
     const consultationFailed = consultation?.status === "failed" && !consultation.uncertain;
+    // Backlog item 6 (finding A7): a research stage that started and never transferred cannot continue, whatever stopped it (a pause, a quit,
+    // a crash or a thrown error). The session would refuse it before any dispatch; this keeps Resume from being offered.
+    const dispatches = this.runtime.dispatches(id), stageUnfinished = researchStageUnfinished(events, dispatches);
     // A durable private completion only needs finalisation (submission and the evidence pass), which no allowance or deadline gates.
     const finalising = contextId !== undefined && events.some(event => event.type === "completed" && event.contextId === contextId);
     // Backlog item 6 (finding A6): the run-reasons table decides for an incomplete record; every guard after it still applies.
     const canResume = !this.closing && !active && (record.status === "paused" || record.status === "incomplete" && isResumableRunReason(record.reason)) && !consultationFailed &&
-      (finalising || models < this.budget(record).modelCalls && tools < this.budget(record).toolCalls && !expired) && !uncertain && !sizeStopped && !feeStopped && !tokenStopped && !progressStopped && consultation?.status !== "pending" &&
+      (finalising || models < this.budget(record).modelCalls && tools < this.budget(record).toolCalls && !expired) && !uncertain && !sizeStopped && !feeStopped && !tokenStopped && !progressStopped && !stageUnfinished && consultation?.status !== "pending" &&
       !(consultation?.status === "approved" && models > this.budget(record).modelCalls - 2);
     const reason = record.status === "cancelled" && cleanupConfirmed ? "cancelled" : !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : consultationFailed ? "consultation_failed" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : feeStopped ? MODEL_FEE_CAP_STOP : tokenStopped ? LOCAL_TOKEN_ADMISSION_STOP : progressStopped ? EXECUTION_PROGRESS_STOP :
+      // Backlog item 6 (finding A7): an unfinished research stage is a permanent stop, named before the time limit, both for a record that
+      // would otherwise read as resumable and for the session's own stored refusal; any other terminal stored reason keeps its own text.
+      stageUnfinished && (record.status === "paused" || isResumableRunReason(record.reason)) || record.reason === "research_stage_not_replayed" ? "research_stage_not_replayed" :
       // A finalising task resumes past its deadline (only submission and the evidence pass remain), so the time limit is not its stop.
       expired && !finalising ? "deadline" :
       consultation?.status === "pending" ? "consultation_pending" : record.reason : record.reason;
-    const dispatches = this.runtime.dispatches(id);
     const artifacts = snapshot.filter(file => GeneralTaskArtifactRefSchema.safeParse({ id, path: file.path, sha256: file.sha256 }).success)
       .map(file => ({ ...file })).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
     let bundle: GeneralTaskSnapshot["bundle"], bundleUnavailableReason: string | undefined;

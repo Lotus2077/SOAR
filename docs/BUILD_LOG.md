@@ -31653,6 +31653,136 @@ Next gate: Review and CI on the pull request, then the merge train (controller.t
 References: BL-20261109-0336-desktop-resume-reasons-design; docs/PROJECT_REVIEW_2026-11-05.md section 4 row A6 and section 5.7 item 6; docs/HANDOFF.md "Start here".
 
 
+### BL-20261109-0501-research-stage-pause-design -- 2026-11-09 -- Backlog item 6, part 2 (finding A7) decided: a pause that stops a started research stage ends the task incomplete, never paused; the desktop offers no Resume for an unfinished stage; resuming from persisted stage counters waits for items 7 and 8
+
+Status: `Proposed`
+
+Scope or hypothesis: This is the decision entry for the second pull request of backlog item 6 of docs/PROJECT_REVIEW_2026-11-05.md section 5.7 (finding A7). It is plan ID 6.2 of lane S-desk. It is stacked on 6.1 (BL-20261109-0336-desktop-resume-reasons-design and BL-20261109-0459-desktop-resume-reasons-implemented; branch `fix/6.1-desktop-resume-reasons`, pull request #72), whose fixed texts it extends. It adds no reason to the run-reasons table: `research_stage_not_replayed` and `unresolved_dispatch_no_replay` are terminal there by their prefixes. It is recorded before its code because it changes the result a session returns when a pause stops the research stage. The headless driver, the registry row and E1's session tests read that result. It is zero-fee code with deterministic tests and no endpoint, so it needs no approval under PLAN.md section 4(c), and the implementation follows in the same pull request.
+
+Finding A7, re-read on 6.1's branch:
+- session.pause() aborts the research stage's in-flight call (session.ts, `pause()`), so the pipeline ends `research_cancelled`. The runner's own pause only sets a flag and waits for the reply.
+- The session then returns `paused` with that reason (`result(this.pauseRequested ? "paused" : "incomplete", outcome.reason)`).
+- The next run refuses at once with `research_stage_not_replayed`, because the stage's rows or `research_stage` events exist and there is no continuation protocol. BL-20261105-0440 states that rule: "A partial research stage cannot restart with reset counters after pause".
+- Every call the stage stops records a `research_stage` event (research-pipeline.ts `denied()`), with `calls` 0 and `denied` "cancelled" when nothing was spent. So once the stage has made its first call, even one stopped before its row was committed (during a cloud call's scan or local token admission), the refusal applies.
+
+So a pause reports a state that no resume can honour. Section 5.7 item 6 says "a research-stage pause either resumes from persisted stage counters or cancels the stage, as the UI says".
+
+Hypothesis: if a pause ends as what a resume would actually do, no run reports a pause that a resume cannot honour. Dispatch, events, the producer and every hash stay unchanged.
+
+Decisions:
+
+(1) The first step cancels the stage. Resuming from persisted stage counters is deferred until after items 7 and 8, because:
+- `research_stage` events hold counts only, and the stage's outputs live in memory until the transfer;
+- dispatch rows keep only hashes;
+- a pause-aborted zero-fee call resolves `failed`, and item 7 owns reconciling failed rows with the ready-packet check (research-coverage.ts) and the producer's count (research-producer.ts) (BL-20261107-0809, decision 6);
+- stage ceilings are per run, while the session's request pool counts every row (store.ts);
+- item 7 (7b.1, 7a.1, 7c and 7b.2) moves `researchProtocolSha256`, which the session identity binds, so a continuation written now would end `session_contract_drift` across those merges;
+- item 8 runs index and extraction K calls at a time, so a pause can leave up to K failed rows mid-batch and changes the quote order a continuation would have to reproduce.
+
+For a started stage, this supersedes the pause half of BL-20261025-1242's "Pause and cancel abort the stage's in-flight call; the result is `paused` or `research_cancelled`". Its cancel half is the pipeline's own outcome. At the session level a cancel has ended `session_cancelled` since H2b, because cancelJob changes the job's policy, which the session checks first. That entry stays as written.
+
+Correction to BL-20261107-0809's Changes, which say "a paused or cancelled research stage resumes to research_stage_not_replayed":
+- after this change the paused run itself ends that way;
+- after a session cancel, every later run ends `session_cancelled`;
+- a stage stopped by the session deadline resumes to `session_deadline`;
+- only an externally aborted stage resumes to `research_stage_not_replayed`.
+
+That entry stays as written.
+
+(2) The predicate. session.ts exports `researchStageUnfinished(events, dispatches)`. It is true when three things hold: a `research_input` exists; no `research_transfer` exists; and a dispatch row of the input's reader context, or a `research_stage` event of it, exists. That is, the stage has started and never transferred. The session's existing refusal before the stage uses it, with the same reason, `research_stage_not_replayed`, and the same behaviour: at that point `research_input` always exists with the reader context and no transfer exists.
+
+(3) The session's result when the stage ends without a packet:
+- If a pause stopped it (a pause was requested and the stage ended `research_cancelled`):
+  - `incomplete` with `unresolved_dispatch_no_replay`, while a blocking row remains;
+  - else `incomplete` with `research_stage_not_replayed`. The predicate holds after every pause inside the stage, because the stopped call records a stage event;
+  - else `paused` with `session_stopped`. This arm is defensive and unreachable through session.run() today: the only `research_cancelled` without a stage event is the pipeline's entry check, which the session's own pause check before the stage pre-empts. It would be truthful if reached, since the stage would not have started.
+- The only resumable pause of the stage is the session's check before it starts: `paused` with `session_stopped`, `research_input` recorded, the predicate false. The next run executes the stage whole.
+- Any other failure: `incomplete` with its own reason, even when a pause was pending. Today it is `paused` with that reason.
+- When a pause and the deadline or an external abort both stop the stage, the pause branch applies. The run ends `research_stage_not_replayed` (or `unresolved_dispatch_no_replay`); every case ends incomplete either way.
+- Unchanged, with the results the tests pin:
+  - a cancel ends `incomplete` with `session_cancelled`, because cancelJob changes the job's policy, which the session checks before the stage's outcome; every later run ends `session_cancelled`. The 6.2 brief's "research_cancelled" for a cancel is the pipeline's outcome, not the session's;
+  - an external abort of `run(signal)` ends `incomplete` with `research_cancelled`, and the next run `research_stage_not_replayed` (`unresolved_dispatch_no_replay` with a blocking row);
+  - the session deadline during a zero-fee call ends `incomplete` with `research_cancelled`, and the next run `session_deadline`. A priced or cloud call within one request timeout of the deadline is refused before dispatch by A8's guard: `incomplete` with `research_request_denied`.
+
+(4) The desktop. get() offers no Resume whenever the predicate holds. This is defence in depth, since the session would refuse before any dispatch. The projection substitutes `research_stage_not_replayed` only for a record that would otherwise read as resumable: status `paused`, or `incomplete` with a resumable stored reason (`interrupted` after a crash or an app quit, which close() turns into pauses, and `runtime_unavailable` thrown after the stage spent). A terminal stored reason keeps its own text.
+- It is checked after the uncertain, failed-consultation, size, fee-cap, token-admission and execution-progress checks and before the deadline check, like the other permanent stops.
+- Its text claims no certainty and holds for a pause, a quit, a crash and a thrown error: "The research stage stopped before its evidence was handed to the writer. A partly run research stage cannot continue, so this task cannot resume." `uncertain()` skips another context's unknown assist rows (BL-20261107-0839, decision 5), and item 10.b's assist rows will sit in the reader context.
+- When a request is uncertain, the uncertain-request text shows instead, and only Cancel is offered. A crash during a stage call leaves a `committed` row; a pause during a priced call leaves an `unknown` row (decision 5).
+- This narrows 6.1's decision 5 ("a paused record keeps today's rule") for an unfinished stage.
+- The desktop runs no research stage before backlog item 13 (finding D7) and passes no `research` option, so no desktop task changes today. The renderer's in-stage pause hint is left to item 13.
+
+(5) E1's bug (b) is pinned here, not fixed. session.pause() aborts the stage's in-flight call whatever it costs, unlike the runner's pause, which waits for the reply.
+- A pause while a priced or cloud planner or synthesiser request is on the wire, between the ledger commit and the settle, therefore leaves an `unknown` row. With (3), the session then returns `incomplete` with `unresolved_dispatch_no_replay`. Every later run refuses the same way until the session deadline (then `session_deadline`) or a cancel (then `session_cancelled`).
+- A pause before the commit (during the scan or token admission) leaves no row and ends `research_stage_not_replayed`. A pause during the Anthropic 429/529 retry wait resolves the row `failed`, because an `http_rejected` attempt is a confirmed abort, and also ends `research_stage_not_replayed`.
+- The `unknown` row's reservation stays counted against the job's fee cap for the job's life. The ledger refuses every later dispatch in the job. Nothing in src/ resolves an `unknown` private-agent row; the session comment that the operator resolves it first has no implementation. The job's policy is unchanged.
+- After 10.b retires the plain-purpose split arm, the same pause leaves an `unknown` assist row, which does not block. The result then becomes `research_stage_not_replayed` and the desktop shows the research text. The reservation stays pinned, and `cloud_after_assist_unknown` still bars cloud calls. 10.b updates the pinned test, which is named after it.
+- A later change may make a pause wait for a priced stage call.
+
+Changes: Planned in this pull request:
+- src/main/private-agent/session.ts: the exported predicate, its use in the existing refusal, the result mapping in (3), and the comments.
+- src/main/general-tasks/controller.ts: the predicate's guard, its projection and its text.
+- tests/unit/private-agent-research-session.test.ts:
+  - the fixture gains a priced `cloud_model` planner destination on loopback, `priced-planner`, grant-free synthetic;
+  - the two pause tests are rewritten: a pause after a settled call and a pause mid-call each end incomplete at once with the stage events pinned; the aborted zero-fee row is `failed`, never `unknown`; the next run refuses with nothing more sent;
+  - new cases:
+    - a pause before the stage starts stays paused, and the next run executes the stage whole;
+    - a pause inside the stage before its first row is committed ends incomplete with nothing sent;
+    - a cancel, an external abort, and a failure while a pause was pending, with their next runs;
+    - the predicate's cases;
+    - the pinned priced pause.
+- tests/unit/general-task-controller.test.ts:
+  - 6.1's row for `research_stage_not_replayed`, which expected the generic text, now expects its own text;
+  - an unfinished stage offers no Resume after a pause, after a crash and after a thrown error;
+  - a transferred stage stays resumable;
+  - a terminal stored research reason keeps its own text;
+  - a committed reader row shows the uncertain-request text.
+
+Consequences:
+- The headless driver pauses only on `--pause-after-tools`, which counts `tool_finished` events. Without a public phase, its once-a-second poll cannot fire before the writer's first tool. With `--public-retrieval`, a poll that lags the public phase's last tools can land in the stage. That run then ends incomplete, without `pause.json` or the futile second run. Its final `result.json`, the registry's `runStatus`, `terminalCause` and `modelCalls`, and its request count are the values that second run produces today.
+- The private-agent source freeze changes, since session.ts is under src/main/private-agent/. No loop or E3 card prepared before the merge may span it.
+- Unchanged: the session identity, `promptProtocolSha256`, `researchProtocolSha256`, `RESEARCH_PIPELINE_VERSION`, every event schema, the producer, the ready-packet validator and dispatch semantics.
+- E1-T3 (lane S-e1) asserts these pause results and merges after this pull request. Its brief still expects `paused` with `research_cancelled` for a pause; a hand-over note gives it the per-stage results.
+
+Evidence: None yet for the code; this entry decides. Three adversarial design reviews, run before this commit, are folded in: ledger and replay safety, downstream consumers and tests, and fidelity to the brief and the review. Two of them applied the design in scratch copies and ran scenario tests on loopback fixtures, against today's code and against the design. With the design, every pause inside the stage ended with the same reason as the next run, across these cases:
+- a settled call;
+- a zero-fee call in flight;
+- a D4 retry wait;
+- a priced call before its commit;
+- a priced call on the wire;
+- a retried attempt.
+
+A pause after the stage's last reply ended `paused` with the transfer recorded, and the resume submitted with nothing replayed. Their confirmed findings are applied above:
+- the unreachable paused arm and "started" in place of "spent";
+- the text's scope, wording and position;
+- the cancel and deadline results;
+- deferral reason 5;
+- the driver race;
+- the corrections to earlier entries;
+- bug (b)'s exact window and its lasting state;
+- the test plan.
+
+Failures or blockers: None in recording. Open for the owner, with a proposed default that does not block the code: until a continuation protocol exists (after items 7 and 8), should a pause, an app quit or a crash once the research stage has started end the task as incomplete and not resumable? Proposed default: yes. The research text shows when no request is uncertain; otherwise the uncertain-request text shows, and only Cancel is offered. This is a deliberate interim departure from section 5.2's principle 5 ("No single failure ends a task"). The desktop runs no research stage before item 13; item 13 must warn before Pause or quit during the stage. A stage-counter continuation is revisited after items 7 and 8.
+
+Limitations and non-claims:
+- This entry decides; nothing is implemented or verified by it.
+- Cancelling the stage discards it once it has started, even when nothing was sent (a pause during the first call's scan or token admission): up to its whole budget, 68 local calls under the default, at zero fee. Once item 13 brings research into the desktop, pausing or quitting the app mid-stage ends the task, so item 13 must warn before that happens.
+- Bug (b) stays: a pause while a priced stage request is on the wire leaves an `unknown` row, pinned by a test.
+- Unchanged and pre-existing (BL-20261107-0809 accepted it): without a pause, a stage stopped while an `unknown` row exists returns its own reason (`research_cancelled` or `research_request_denied`), and only the next run returns `unresolved_dispatch_no_replay`. The row is never hidden from the ledger or from `uncertain()`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation in this pull request and its `Implemented` entry, with green `pnpm --silent validate:build-log -- --base-ref <this pull request's base>`, `pnpm typecheck` and `pnpm validate:readiness`, the changed tests, the identity and tool-error golden tests untouched, and the full `pnpm exec vitest run`. Then review, CI and a merge after 6.1, per the merge train (session.ts: 6.2, then 7d.B; controller.ts: 6.1, then 6.2, then 7d.C). If another entry merges first, this entry's ID is re-stamped after main's tail with a correction entry.
+
+References:
+- docs/PROJECT_REVIEW_2026-11-05.md section 4 rows A7 and D7, section 5.2 principle 5 and section 5.7 item 6.
+- BL-20261025-1242-h2b-h2c-research-pipeline-design and BL-20261025-1321-h2b-h2c-research-pipeline-implemented. The pause test the latter's evidence names is the one this pull request rewrites.
+- BL-20261105-0440-research-coverage-v4-offline-implemented.
+- BL-20261107-0809-zero-fee-failures-resolve-design (decision 6).
+- BL-20261107-0839-assist-purpose-exception-design (decision 5).
+- BL-20261109-0336-desktop-resume-reasons-design and BL-20261109-0459-desktop-resume-reasons-implemented.
+- GitHub issue #46 and pull request #72.
+
+
 ### BL-20261109-0509-correction-registry-run-commit-dirty -- 2026-11-09 -- Correction: two checks did not make `dirty: false` mean that a checkout of the commit reproduces the source freeze
 
 Status: `Implemented`
@@ -31862,6 +31992,88 @@ Next gate:
 - The design entry's five owner questions stay open with their defaults.
 
 References: BL-20261109-0447-research-tolerance-design; BL-20261109-0334-research-request-shapes-design; BL-20261109-0442-research-request-shapes-implemented; BL-20261107-0859-label-keyed-diagnostics-design; docs/PROJECT_REVIEW_2026-11-05.md section 4 rows D2 and D5, section 5.2 and section 5.7 item 7.
+
+
+### BL-20261109-0607-research-stage-pause-implemented -- 2026-11-09 -- Backlog item 6, part 2 (finding A7) implemented: a pause that stops a started research stage ends the task incomplete, the desktop offers no Resume for an unfinished stage and names it, and E1's bug (b) is pinned
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261109-0501-research-stage-pause-design, with deterministic tests, in branch `fix/6.2-research-stage-pause`. The branch is stacked on `fix/6.1-desktop-resume-reasons` at dc2cfad (pull request #72, plan ID 6.1); this is plan ID 6.2, lane S-desk:
+- the design commit 7e66702;
+- the implementation commit d41e9e1;
+- the code-review corrections dacfb00.
+
+Decisions: One adversarial code review covered correctness and replay safety, fidelity to the design, and the tests. It found no blocking issue: no production path returns `paused` for a started stage, and the guard spares a transferred stage, a public phase alone, a job without research, a seeded run and other contexts. Its confirmed findings change four things the design entry says, recorded here; the design entry stays as written.
+- (a) Decision (4) said a terminal stored reason keeps its own text. The session's own stored `research_stage_not_replayed` is now named before the time limit too, like a guarded record that would otherwise read as resumable. Otherwise the stored form read "The task reached its time limit." once the wall budget passed, while the guarded form kept the research text. Every other terminal stored reason keeps its own text, and the time-limit text past the budget, as before.
+- (b) Decision (3) said the paused arm is unreachable through session.run(). Precisely, no production caller can reach it: pause() always runs in its own event-loop task (IPC, the driver's timer, close()), and nothing awaits between the session's check and the pipeline's entry check. A synchronous pause inside the stage's set-up reaches it, and a test now pins its result: `paused` / `session_stopped`, nothing spent, the next run executing the stage whole.
+- (c) The tests now pin the predicate's row half. The pipeline records a stage's event once, at its end or on a denial. So a crash during an index stage of several calls leaves settled reader rows and no stage event. Before, the session's refusal and the desktop guard were each tested only through stage events, and either survived ignoring the rows. The tests also pin that a paused record with only the stage's input keeps Resume.
+- (d) Corrections to the design entry's text:
+  - "Unchanged, with the results the tests pin" holds for a cancel and an external abort, which the tests pin. The session deadline during a zero-fee call is unchanged code that this pull request does not pin. The design reviews ran it in scratch: `research_cancelled`, then `session_deadline`.
+  - The projection's place after the size, fee-cap, token-admission and execution-progress checks is not pinned; each of those texts also says the task cannot resume.
+  - The session's comment that "the operator resolves it first" now says that nothing resolves an unknown row today.
+
+The desktop text is fixed: "The research stage stopped before its evidence was handed to the writer. A partly run research stage cannot continue, so this task cannot resume."
+
+Changes:
+- src/main/private-agent/session.ts:
+  - `researchStageUnfinished(events, dispatches)`, exported and used by the refusal before the stage;
+  - the result mapping when a pause stopped the stage;
+  - the comments.
+- src/main/general-tasks/controller.ts:
+  - the predicate's guard in canResume;
+  - the projection to `research_stage_not_replayed` before the deadline check;
+  - that reason's fixed text;
+  - one dispatch read per get().
+- tests/unit/private-agent-research-session.test.ts:
+  - the fixture's `priced-planner` destination (kind `cloud_model`, loopback, grant-free synthetic, not `recoverable`) and a `stageEvents` helper;
+  - the two pause tests rewritten, with stage events and the failed row's code pinned;
+  - eight tests appended:
+    - a pause before the stage starts;
+    - a pause inside the stage before its first row is committed;
+    - a cancel, an external abort, a pause beside an abort, and a failure while a pause was pending, with each next run;
+    - a settled reader row with no stage event;
+    - the defensive paused arm;
+    - the predicate's cases;
+    - the pinned priced pause, with its `cancelled` failure and pinned reservation.
+- tests/unit/general-task-controller.test.ts:
+  - the 6.1 row for `research_stage_not_replayed` now expects its own text;
+  - an it.each over a pause and a thrown error, each also after a crash, with the full text and the time-limit order;
+  - a transferred stage that resumes, a terminal research reason keeping its text, and a committed reader row showing the uncertain-request text;
+  - a settled reader row alone, an input alone that resumes, and the stored refusal past the time limit.
+
+Evidence: At commit dacfb00:
+- `pnpm --silent validate:build-log -- --base-ref origin/fix/6.1-desktop-resume-reasons`, `pnpm typecheck` (exit 0) and `pnpm validate:readiness` pass.
+- The changed tests: private-agent-research-session 17 of 17; general-task-controller 148 of 148; general-task-run-reasons 5 of 5, its reason inventory still reading every new `result(...)` call; general-task-consultation-controller 22 of 22. The identity and tool-error golden tests, untouched, pass 4 of 4.
+- The full `pnpm exec vitest run`: 179 files, 166 passed and 13 skipped (the environment-gated suites, as before); 2,819 tests, 2,735 passed and 84 skipped, none failed. At 6.1's commit a49e4b1 it was 2,808 tests; the 11 new tests account for the difference.
+- Mutation checks:
+  - 19 single mutations, each applied alone to the final code in a scratch copy and run against the two changed test files. Every one is killed by a 6.2 test:
+    - the old pause mapping;
+    - the predicate ignoring the transfer, the stage events or the reader context;
+    - the pause branch skipping `unresolved()`, or always paused;
+    - a pending pause keeping paused for other failures;
+    - the refusal ignoring rows;
+    - the defensive arm made incomplete;
+    - an abort beside the pause taking the other branch;
+    - the desktop guard dropped, ignoring rows, or blocking an input alone;
+    - the projection dropped, unconditional, losing the stored reason, or moved after the deadline;
+    - the text removed, or its second sentence changed.
+  - The scratch copy has no git checkout, so the registry-row test that needs one fails there in every run, mutated or not.
+- The design reviews' scenario runs (recorded in the design entry): every pause inside the stage ended with the next run's reason, and a pause after the stage's last reply resumed to a submission with nothing replayed.
+
+Failures or blockers: None. CI has not run yet; it runs on the pull request.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified` or `Released`: deterministic tests on loopback fixtures only. No endpoint, model, Docker container or paid call ran.
+- The desktop guard is proved with a scripted runner that records what a session records for a reading stage. The desktop runs no research stage before backlog item 13.
+- E1's bug (b) stays, pinned by a test named after backlog item 10.b.
+- Outside this diff, a controller comment says an unresolved context "keeps every unknown row blocking", but `isBlockingDispatch(row, undefined)` treats an unknown assist row as non-blocking. It is left for item 10 or 13.
+- The design entry's limitations stand.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Review and CI on the pull request, merged after #72 (controller.ts: 6.1, then 6.2, then 7d.C; session.ts: 6.2, then 7d.B). E1-T3 (lane S-e1) asserts these results and merges after this; a hand-over note with the per-stage results is in the shared notes folder. If another entry merges first, this entry's ID and the design entry's are re-stamped after main's tail with a correction entry.
+
+References: BL-20261109-0501-research-stage-pause-design; BL-20261109-0459-desktop-resume-reasons-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 4 row A7 and section 5.7 item 6; pull request #72.
 
 ### BL-20261110-0619-correction-ordered-pool-entry -- 2026-11-10 -- Correction: the ordered-pool entry's listener rationale and genuine-denial rule, and the harness source-freeze digest it left out
 

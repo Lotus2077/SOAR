@@ -112,6 +112,20 @@ export function sessionPhaseIdentity(phase: SessionPhase): string {
   return digest(canonical({ contract: phase.contract, files: sessionFileManifest(phase.files), checks: phase.checks,
     ...(phase.initialEvidence ? { initialEvidenceIdentity: researchPresentationIdentity(phase.initialEvidence) } : {}) }));
 }
+/**
+ * Backlog item 6, finding A7 (BL-20261109-0501-research-stage-pause-design): true when a research stage started and never transferred:
+ * its `research_input` names the reader context, no `research_transfer` exists, and a dispatch row of that context or a `research_stage`
+ * event of it does. A stage starts at its first call, since every call it stops records a stage event, even one stopped before its row
+ * was committed. Such a stage cannot continue (there is no per-chunk continuation protocol before items 7 and 8, and a restart would
+ * reset its role ceilings while keeping the spent calls), so the session refuses it and the desktop offers no Resume. A stage that only
+ * recorded its input still runs whole on the next run.
+ */
+export function researchStageUnfinished(events: readonly Record<string, unknown>[], dispatches: readonly { contextId: string }[]): boolean {
+  const input = events.find(event => event.type === "research_input");
+  if (!input || typeof input.contextId !== "string" || events.some(event => event.type === "research_transfer")) return false;
+  const reader = input.contextId;
+  return dispatches.some(row => row.contextId === reader) || events.some(event => event.type === "research_stage" && event.contextId === reader);
+}
 function safePath(path: string): boolean {
   return typeof path === "string" && Buffer.byteLength(path) <= 240 && Buffer.from(path).toString("utf8") === path && !/[\\\x00-\x1f\x7f]/u.test(path) &&
     path.split("/").every(part => part && part !== "." && part !== "..");
@@ -174,7 +188,12 @@ export class GeneralAgentSession {
 
   pause(): void { this.pauseRequested = true; this.active?.pause(); this.passAbort?.abort(); this.stageAbort?.abort(); }
   cancel(): void { this.options.broker.cancelJob(this.options.jobId); this.active?.cancel(); this.passAbort?.abort(); this.stageAbort?.abort(); }
-  /** Aborts the research stage's in-flight call on pause or cancel (H2b); the stage reports research_cancelled, mapped to paused when a pause was asked. */
+  /**
+   * Aborts the research stage's in-flight call on pause or cancel (H2b); the stage reports research_cancelled. A pause that stopped a
+   * started stage ends the run incomplete (backlog item 6, finding A7): the stage cannot continue, so the session never reports a pause a
+   * resume could not honour. The abort does not wait for the reply, so a priced or cloud request already on the wire leaves its row
+   * unknown (E1 bug (b), pinned until 10.b retires the plain-purpose split arm).
+   */
   private stageAbort?: AbortController;
   /** Aborts the entailment pass's in-flight judge call on pause or cancel; the pass itself is otherwise bounded by its own clock. */
   private passAbort?: AbortController;
@@ -372,15 +391,14 @@ export class GeneralAgentSession {
           validateResearchProducer(binding.producer, { jobId, files: produced, receipts: store.dispatches(jobId), input: researchInput });
         } else {
           if (this.pauseRequested || boundedSignal.aborted) return result(this.pauseRequested ? "paused" : "incomplete", "session_stopped");
-          // An unresolved dispatch from an interrupted stage is never replayed past; the operator resolves it first, as the runner requires.
+          // An unresolved dispatch from an interrupted stage is never replayed past, as in the runner; nothing resolves an unknown row today,
+          // so every later run refuses until the deadline or a cancel.
           // A skipped assist (an unknown cloud one-shot of the reading stage, backlog item 10) is not one: local work goes on past it.
           const unresolved = () => store.dispatches(jobId).some(row => isBlockingDispatch(row, privateContextId) && !isEntailmentDispatch(row));
           if (unresolved()) return result("incomplete", "unresolved_dispatch_no_replay");
           // There is no persisted per-chunk continuation protocol. Restarting a partial
           // stage would reset its role ceilings while keeping the earlier spent calls.
-          if (store.dispatches(jobId).some(row => row.contextId === readerContextId) ||
-              this.events().some(event => event.type === "research_stage" && event.contextId === readerContextId))
-            return result("incomplete", "research_stage_not_replayed");
+          if (researchStageUnfinished(this.events(), store.dispatches(jobId))) return result("incomplete", "research_stage_not_replayed");
           // Sources: the job's input files and, after a public phase, the host-retained fetches (cited by URL, as the claims check expects).
           this.stageAbort = new AbortController();
           let outcome: Awaited<ReturnType<typeof runResearchPipeline>>;
@@ -391,7 +409,15 @@ export class GeneralAgentSession {
               deadlineMs: sessionDeadlineMs, record: counts => store.append(jobId, { type: "research_stage", contextId: readerContextId, ...counts }), ...(diagnostics ? { diagnostics } : {}) });
           } finally { this.stageAbort = undefined; }
           if (policyChanged()) return result("incomplete", policyReason());
-          if (outcome.status !== "completed") return result(this.pauseRequested ? "paused" : "incomplete", outcome.reason);
+          if (outcome.status !== "completed") {
+            // Backlog item 6 (finding A7): a pause that stopped the stage ends incomplete with the refusal the next run gives (an unresolved
+            // row, or a stage that started). Every call the stage stops records a stage event, so the paused arm is defensive: no production
+            // caller can pause between the session's check and the pipeline's entry, and the arm is truthful there (the stage never started).
+            // Any other failure keeps its own reason, even with a pause pending.
+            if (!this.pauseRequested || outcome.reason !== "research_cancelled") return result("incomplete", outcome.reason);
+            if (unresolved()) return result("incomplete", "unresolved_dispatch_no_replay");
+            return researchStageUnfinished(this.events(), store.dispatches(jobId)) ? result("incomplete", "research_stage_not_replayed") : result("paused", "session_stopped");
+          }
           if (unresolved()) return result("incomplete", "unresolved_dispatch_no_replay");
           if (outcome.files.some(file => privatePhase.files.some(existing => existing.path === file.path))) return result("incomplete", "research_transfer_collision");
           const snapshot = checkpoints.save(outcome.files);

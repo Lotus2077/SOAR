@@ -34109,3 +34109,265 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: Review of the pull request (one reviewer), CI, and a merge on the owner's go-ahead, re-stamping again at the merge if `main`'s tail has moved.
 
 References: BL-20261110-1509-host-flags-event-design; BL-20261110-1516-host-flags-event-implemented; BL-20261110-1506-merge-train-1-integration; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261110-0726-correction-research-tolerance-total-loss; BL-20261110-0900-correction-research-tolerance-held-repair; BL-20261113-0758 (pull request #87).
+
+### BL-20261113-0817-research-v5-design -- 2026-11-13 -- Backlog item 7(c) decided: research v5, plan and synthesis slot schedules with the assist hook, the host fallback plan and skeleton synthesis, coverage v2, and two encoding defects already on main
+
+Status: `Proposed`
+
+Scope or hypothesis: The decision entry for 7c, the third research tolerance PR. It covers:
+- backlog item 7(c) of docs/PROJECT_REVIEW_2026-11-05.md section 5.7;
+- finding D1 of section 4;
+- stages S3, S3c, S6 and S6c, principle 5 and the "Escalation" and "Forced split" paragraphs of section 5.2.
+
+It is recorded before its code because it changes several contracts: the research pipeline's version, the plan and synthesis schedules, coverage.json's schema, the ready gate, the producer's receipt binding and the research protocol. Three adversarial design reviews (ledger and replay, downstream consumers and tests, specification fidelity) ran on its first draft. This text folds in every finding they confirmed, and the decisions below name the ones they changed.
+
+**Stacking.** The change is stacked on 7a.1 (`feat/7a.1-research-tolerance`, PR #76). Since 2026-11-10 #76 is based on main and contains 7b.1 (PR #69) through a merge of #69's corrected head. The merge order puts 7c after both. At most two pull requests may be open on research-pipeline.ts, and only on different functions. 7c and #76 both edit runResearchPipeline, so 7c's pull request opens only after #69 merges. Once it opens, it is the second of two, and it contains #76's commits rather than racing them.
+
+**Approval.** It is zero-fee code with deterministic tests and needs no approval under PLAN.md section 4(c). The owner may record otherwise, in particular on the four questions below.
+
+It takes from backlog item 10's branch `feat/10a-assist-core` at d2ab888 (BL-20261109-0417-assist-wrapper-design, decisions 6 and 11):
+- the types-only hook contract, src/main/private-agent/research-assist-contract.ts, byte for byte;
+- `assessResearchPlanReply`'s optional `sourceAliases`.
+
+10.a's working copy has announced one change not yet on its branch: `auditFinding` drops `"host_text"`. 7c mirrors it when 10.a pushes it and says so in its pull request. A test pins the copy's digest, so a drift between the two lanes fails a test (the brief's "test that the copies match"). 7c also edits `assessResearchPlanReply` in the lines 10.a's hunk touches (decisions 6 and 10). 10.a's rebase therefore conflicts in research-plan.ts, and the conflict resolves in 7c's favour.
+
+Hypothesis: with these changes no rejected plan and no rejected synthesis ends a research run. The pipeline falls back to a host plan or a host skeleton that it builds from host data alone and discloses. The ready gate admits such a fallback only when it equals the host's own recomputation byte for byte, and only after every stage attempt was spent. With no assist hook configured, every index, plan and extraction request that 7a.1 also sends is byte-identical.
+
+Decisions:
+(1) **Slots are frozen, hashed constants.** `RESEARCH_SLOT_POLICY` gives:
+- the plan stage `budget.plannerCalls` stage attempts and 1 assist;
+- the synthesis stage `budget.synthesisCalls` stage attempts, 1 assist, and 1 assist retry that follows only a truncated assist reply.
+
+ResearchBudget and its schemas are unchanged: the pipeline's budget parser, research-coverage.ts, the producer and PipelineFreezeSchema. So is researchBudgetTotal (session.ts's pool check); item 10.b adds the assist slots to the pool when it wires the hook. The ready gate's per-slot ceilings are in (9). A settled assist reply is one of its stage's calls, as the producer already counts it (BL-20261107-0839, decision 6).
+(2) **The plan schedule.**
+- **As today.** With no hook, with a hook that has no `plan`, or under `local_first`, the plan stage runs as today: up to plannerCalls stage attempts, each repair carrying the previous stage reply (RESEARCH_PLAN_DIAGNOSTIC_POLICY).
+- **Local first.** Once every stage attempt has been rejected, one assist runs. That is two attempts under the default budget, the review's "two rejected local plans" (S3c). A non-default budget, which only tests use and which the seed and the producer refuse, fires after its own plannerCalls.
+- **Forced split.** With a plan hook, the assist runs first. If it yields no accepted plan, the stage attempts follow, and the first carries no repair context. An assist reply never feeds a repair (review §5.1, rule 6).
+- **Fallback.** If no attempt is accepted, the host fallback plan is used (decision 7).
+(3) **The synthesis schedule** has the same shape:
+- **Local first:** the stage attempts, then the assist, then its one retry when the assist reply settled truncated.
+- **Forced split:** the assist and its retry first, then the stage attempts, the first with repairReason null.
+- **Fallback:** if no attempt is accepted, the host skeleton (decision 8).
+
+Only a rejected stage attempt sets coverage.synthesis.status to "invalid" in later requests. A rejected assist leaves it unchanged, so a stage attempt after an assist sends the bytes a first attempt without a hook sends.
+(4) **Denial scope stays narrow, and departs from the review's Escalation list for local calls.**
+- **What moves the schedule on.** Only settled replies the stage rejects, and the hook's `no_reply` outcomes.
+- **What ends the stage.** Through `denied()`:
+  - a stage model's BrokerError;
+  - the hook's `stop`, with its code;
+  - a hook that throws (`assist_hook_failed`);
+  - an outcome of the wrong shape (`assist_outcome_invalid`);
+  - a stop whose code is no fixed code (`assist_stop_code_invalid`);
+  - an alias binding refused by `assessResearchPlanReply` (`research_plan_alias_binding`).
+- **The departure.** Review §5.2's Escalation paragraph lists "a confirmed `request_failed`" among the codes that apply the host fallback and continue. Here that list applies only to assist outcomes, through 10.a's `no_reply`. A zero-fee local planner or synthesiser failure still ends the stage, and item 1's failed-row rule (BL-20261107-0809, decision 6) stays unreachable for packets.
+- **Who owns the rest.** The lane brief handed the reconciliation to item 10's code lists. 10.a's design (BL-20261109-0417) declines it ("a local denial is no signal") and classifies assist calls only. It therefore has no owner, and owner question 4 below names one.
+(5) **The hook.**
+- **Input.** `ResearchPipelineInput` gains an optional `assists?: ResearchAssists` (research-assist-contract.ts). No production caller passes one until 10.b.
+- **Requests** are built as the contract shapes them, and each request is a structured clone, so nothing the hook does reaches the pipeline's own records.
+  - The base: the brief, the units, the source inventory and texts, the index document, and `deadlineMs`.
+  - `deadlineMs` is `input.deadlineMs`. Without a session deadline it is NaN, which the wrapper refuses as `assist_deadline_missing`, because the contract requires a deadline. A test without a session passes Infinity.
+  - T1 adds mandatorySourceChunks, extractionCallBudget and the earlier plan attempt records: codes and hashes, never a reply.
+  - T2 adds the plan, the evidence, the coverage and `retryAfterTruncation`.
+  - A request never carries a raw local reply.
+- **A cancel** refuses the hook call before it is made, as call() refuses a stage request.
+- **Outcomes** are parsed at runtime, because the contract is types only:
+  - `content` must be a string and `truncated` a boolean;
+  - `usage` must be four non-negative safe integers;
+  - `sourceAliases`, when present, maps `S{n}` keys to the stage's own source ids (assessResearchPlanReply checks this);
+  - `evidenceIds`, when present, is an array of strings;
+  - `record` and any other key are 10.b's and are ignored for every outcome kind.
+- **Replies are judged exactly like stage replies**, with two additions:
+  - a plan reply is assessed with its `sourceAliases`;
+  - a synthesis reply may cite only its `evidenceIds`, both in the argument (`unknown_citation`) and in `questions[].evidenceIds` (`unknown_evidence_id`).
+- **Accounting.**
+  - A settled assist reply is one of the stage's calls. Its usage and its truncation are summed into the stage row as a stage reply's are.
+  - A rejected assist reply reaches the diagnostics sink under its assist purpose.
+  - A `no_reply` outcome is recorded nowhere here. 10.b adds the stage's assist record.
+  - The stage row's usage is the authoritative total. 10.b's assist record must not be added to it again, or registry-row.py and selection.ts double-count.
+- **The ledger invariant for 10.b.**
+  - An assist commits its rows in the reader context.
+  - A `reply` means exactly one settled assist row. Unknown, failed and superseded assist rows bind uncounted.
+  - 10.a's code table guarantees the second point. 10.b must keep the first, and it should map a producer refusal at session.ts's transfer to an incomplete result rather than an uncaught throw. session.ts is not changed here.
+(6) **Attempt records.**
+- **Plan.** A plan attempt gains an optional `slot: "assist"`; absent means the stage model. Ordinals run 1 to 3 over all attempts. `repairContext` gains `omitted_unencodable` (decision 10).
+- **Synthesis.** The synthesis stage row gains `synthesisAttempts`, hashed and strict. Each attempt holds:
+  - `ordinal`, 1 to 4;
+  - an optional `slot`, `assist` or `assist_retry`;
+  - `replyContentSha256` and `replyBytes`;
+  - `truncated` and `accepted`.
+
+  It never holds model text.
+- **Slots are bound to the ledger.** The producer's receipt binding takes each stage's settled rows in commit order. In the plan and synthesis stages, a settled row has an assist purpose exactly where its attempt carries an assist slot.
+  - A local third plan call labelled `assist` is refused (`research_producer_slot_mismatch`), and so is an assist reply recorded as a stage attempt.
+  - Unknown, failed and superseded assist rows stay uncounted, as before.
+(7) **The host fallback plan.** It has min(n, 12) questions over the n brief units, each covering a contiguous group. Group sizes differ by at most one, the larger groups first.
+- **Ids and text.** Ids are Q1 onwards. Each text is a fixed template that names its unit ids. A brief has at most 128 units (deriveBriefUnits), so a text stays within about 145 of the schema's 300 UTF-16 units.
+- **Fields.** `requirementIds` holds the group and `sourceIds` is []. There is no `lookFor`, `conflictsToCheck` or `deliverableNotes`.
+- **How model text stays out.**
+  - Unit ids are minted by the host.
+  - Question ids follow the plan schema's pattern.
+  - The templates are fixed strings bound into the protocol.
+  - No brief, source or model text enters the plan.
+  - A one-unit brief gets a one-question plan, acceptable until owner decision 12 (#55).
+- **Marking.** The plan stage row is marked `fallback: "host_plan"`, and extraction runs on that plan as on any other.
+(8) **The host skeleton synthesis.** A fixed Markdown argument. It:
+- says first that the host built it because no model synthesis was accepted, and that it states no finding;
+- lists every question by id with its packet evidence ids, or with "no verified evidence was extracted";
+- has the exact `## Conflicting evidence` section, which counts the extractor's packet conflicts per question id;
+- has the exact `## Unanswered questions` section, which lists by id each question without evidence.
+
+It carries only fixed strings, question ids and evidence ids. Evidence ids are host-minted E ids. No quote, source, path, brief or model text appears, so research-coverage.ts's citation pattern meets only evidence ids.
+
+Each question's disposition is `findings`, with every packet evidence id of the question, when it has one; otherwise it is `unresolved`. coverage.synthesis's status is `skeleton`, and the synthesis stage row is marked `fallback: "skeleton"`. The row's `argumentBytes` is the skeleton's size, and `argumentWords` and `headingsNormalised` are 0, because no model wrote it.
+(9) **The ready gate** (research-coverage.ts and research-plan.ts) adds the following rules.
+- **Per-slot ceilings.** At most plannerCalls stage attempts and 1 assist in the plan stage, and at most synthesisCalls stage attempts, 1 assist and 1 retry in the synthesis stage. A plan stage therefore makes at most plannerCalls + 1 calls, and a synthesis stage at most synthesisCalls + 2.
+- **Order.**
+  - A plan assist sits first, or after exactly plannerCalls stage attempts.
+  - A synthesis assist, with its retry right after it, sits first, or after exactly synthesisCalls stage attempts.
+  - A retry follows only a truncated assist.
+- **Repairs.** A plan `repairContext` other than `not_used` appears only on a stage attempt that another stage attempt follows. `omitted_oversize` is required above the size limit. At or below it, `included` and `omitted_unencodable` are both admitted, because the reply is not retained (a non-claim).
+- **Counts.**
+  - Attempts equal the row's calls, and ordinals are contiguous.
+  - Rejected attempts equal invalidReplies, and truncated attempts equal truncatedReplies.
+  - The last attempt is accepted, and only it, unless a fallback is marked.
+- **Markers.**
+  - A fallback marker appears only on the plan row (`host_plan`) or the synthesis row (`skeleton`), and only when no attempt was accepted.
+  - It requires every stage attempt spent: plannerCalls, or synthesisCalls, stage attempts. A packet whose fallback came too early is refused.
+  - coverage.fallbacks equals the rows' markers, and coverage.synthesis.status is `skeleton` exactly when the synthesis marker is set.
+  - No other row may carry `fallback`, `planAttempts` or `synthesisAttempts`.
+- **Recomputation.** plan.json must equal the host fallback plan, and argument.md and coverage.synthesis.questions must equal the host skeleton, byte for byte. Both are recomputed from the packet's units, plan and evidence.
+- **The stage_success_contradiction rule** exempts only a marked fallback, whose invalid replies then equal its calls. calls ≥ 1 is kept.
+
+The builders live in a new research-fallback.ts, which the pipeline and the gate both import.
+(10) **Two encoding defects already on main are fixed here.** canonical() refuses text that holds a NUL or a lone surrogate (exactText). These are the two remaining places where model text reached it outside call()'s `try` and lost a stage's rows or files.
+- **Index fields.** 7a.1 recorded this defect (BL-20261109-0447, BL-20261109-0552), proposing a follow-up from this lane. The orchestrator assigned it to 7c on 2026-11-09. A model-written index title, date, gist or figure that cannot be encoded now makes its row schema-invalid. The source is repaired, or falls back to its literal card, instead of `put(index)` throwing.
+- **The plan.** 7b.1's code review recorded this defect (BL-20261109-0442), and the orchestrator assigned it to 7c. A schema-valid plan whose text cannot be encoded is rejected with `validation_failed` at the field's path and is never accepted. The repair or the host fallback follows.
+
+A third case is folded in with them, and it supersedes a decision of 0442. That entry pinned that a plan reply holding a NUL, carried into the repair payload, ends the stage with `research_request_denied`; 7b.1's test failed if the content moved out of call()'s `try`. Now such a reply is left out of the next repair's context whole, as `repairContext: "omitted_unencodable"`, and the repair still runs.
+
+Since 7c, no request field can be unencodable:
+- the brief is exact text, because the session's identity canonicalises the goal before the stage starts;
+- sources holding a NUL are unreadable;
+- model text is checked before any request reuses it.
+
+The refusal path inside call()'s `try` is therefore no longer reachable through the pipeline's input. It is kept by the code's structure (the content builder) and by 7b.1's mutation evidence, not by a test (a non-claim).
+(11) **Disclosure.**
+- coverage.json goes to version 2, with `fallbacks: {plan: "none" | "host_plan", synthesis: "none" | "skeleton"}` and the synthesis status `skeleton`. It reaches the writer through the presentation.
+- The stage rows carry the same `fallback` marker, for item 11's registry column.
+- researchWriteInstructions gains one clause: when coverage.json's `fallbacks` names a host plan or a host skeleton, that file is host text, not model text.
+- E3's card should report fallback rates per arm.
+- **Rule 9 is not met.** Review §5.1, rule 9 says every fallback is disclosed in `reportedIssues`, and `reportedIssues` exists only in the desktop controller. Until item 13 (D7) carries it, the disclosure is coverage.json, summary.json's stage rows and the skeleton's first sentence.
+(12) **A cancel never completes as a fallback.** 10.a's entry (BL-20261109-0417) expects this. Before either fallback, a cancelled signal ends the stage through `denied(counts, "cancelled")`.
+- **The trade-off.** A pause that arrives during the last synthesis attempt ends the stage. Under 6.2 that is incomplete `research_stage_not_replayed`, not resumable. Completing a skeleton instead would leave a durable transfer.
+- **Item 6's pinned test.** The test on #77 (6.2) pins `research_plan_invalid` with a pause pending after the planner's last reply. It changes meaning here: whichever of the two merges second rewrites it.
+(13) **The presentation is checked before the transfer.**
+- **The risk.** The skeleton always takes its fullest form, every evidence id of every question listed twice. A ready packet could then exceed the presentation's 196,608-byte cap, which session.ts enforces only after the transfer is durable. Every resume would then refuse it.
+- **The check.** The pipeline's final validation builds the writer's presentation the way session.ts does. If it is refused, the run ends incomplete with that code (`research_presentation_too_large`), or with `research_presentation_invalid` for any other refusal.
+- **Scope.** This also covers a model synthesis that lists every id. 7b.2 still owns the length policy that makes such packets rarer.
+(14) **Version and protocol.** RESEARCH_PIPELINE_VERSION goes from 4 to 5, and schemaVersions.coverage from 1 to 2. `researchProtocolSha256()` binds:
+- the version;
+- the changed plan-attempt schema and the new synthesis-attempt schema;
+- coverage v2;
+- RESEARCH_SLOT_POLICY and RESEARCH_FALLBACK_POLICY (the grouping rule and every template string);
+- the diagnostic policy's omission;
+- the tolerance policy's index rule;
+- the writer-instruction clause.
+
+It moves from #76's value at 873d1c7, 679e623f02795ec66f06349af4bde5ff8db83fd1d5054465c1da492d6847d3f5 (7a.1 with #69's word-limit corrections merged, BL-20261110-0712). The consequences are those of BL-20261109-0334, decision (6):
+- v4 run directories stop seeding, refused by version and by protocol (`research_seed_protocol_mismatch`);
+- a paused research session resumes as `session_contract_drift`;
+- the harness source-freeze digest changes, so no loop may span the merge (none is in flight);
+- every earlier card's P10 structured-output evidence is invalidated (`serving_card_p10_protocol_drift`), and a P10 export that spans the merge records `schemasProtocolMatch` false; none exists, because E0 has not run;
+- planner-fixture summaries record the new hash.
+
+**Request bytes.** With no hook, the index, plan and extraction requests that 7a.1 also sends are byte-identical, and digest pins capture them. A synthesis request differs only by coverage: its version, `fallbacks` and protocolSha256.
+
+v5 also sends requests 7a.1 never sends:
+- a repair after an unencodable plan reply;
+- an index repair after a row that is now invalid;
+- extraction and synthesis on a host plan;
+- the stage attempts after an assist.
+
+Producer and seed versions are unchanged. The seed's packet message and comments name v5.
+(15) **No per-attempt policy and no card values here.** Per-role, per-attempt caps and thinking are 7a.2's, and they apply to the stage attempts only, never to an assist slot. The two owner questions from 7b.1's lane report stay recorded for 7a.2's entry, which touches them:
+- P10's synthesis/off cell does not measure a thinking-off request;
+- the length clamp's three constants have no card route.
+(16) **Stage rows.** The plan row gains `fallback`. The synthesise row gains `fallback` and `synthesisAttempts`. `fallback` is a fixed code, checked per stage, and the hash-only guard's documented key set grows by both keys.
+(17) **Out of scope:**
+- the assist wrapper's wiring and stage record, and the T1-unknown and retry-trimming rules (10.a's wrapper and 10.b). The wrapper suppresses T2 after an unknown T1 and halves the evidence for its retry. 7c's `no_reply` path then runs the stage attempts and, failing them, the skeleton;
+- registry columns (item 11);
+- D11's brief units;
+- the priority trim (7b.2), which extends coverage v2 in place only if no v5 artifact is kept between the two merges.
+
+Changes: Planned in this pull request:
+- src/main/private-agent/research-assist-contract.ts: new, byte-identical to 10.a's d2ab888;
+- research-plan.ts: 10.a's `sourceAliases`, byte-identical; the attempt schema's ordinal, slot and repairContext; the unencodable plan and reply rules; the attempts validation;
+- research-fallback.ts (new): the host plan and skeleton builders and their policy;
+- research-contract.ts: the version, RESEARCH_SLOT_POLICY and the tolerance policy's index rule;
+- research-coverage.ts: coverage v2, the synthesis-attempt schema and the gate rules;
+- research-index.ts: unencodable row fields;
+- research-pipeline.ts: the schedules, the hook calls, the outcome parsing, the records, the fallbacks, the presentation check, the writer clause and the hash;
+- research-producer.ts: the slot binding;
+- research-seed.ts: the message and comments;
+- scripts/export-role-schemas.ts: coverage v2 in P10's synthesis payload;
+- docs/experiments/README.md: a note that v5 runs no longer end on the plan or synthesis reasons and that a fallback run can submit;
+- tests: the pipeline, plan-contract, diagnostics, session, seed and coverage tests, and a new tests/unit/private-agent-research-presentation-guard.test.ts.
+
+Tests:
+- **Request bytes.** The no-hook pins. The synthesis request with coverage reverted to v4's shape equals 7a.1's bytes. A local-first hook never asked when the stages accept sends identical requests. After an assist, the stage request equals a first request with no hook.
+- **End to end.** The fallbacks through the packet, the gate, the producer and the session to the writer.
+- **Forged packets**, through the gate, the producer and the seed:
+  - an altered host plan or skeleton;
+  - a marker beside an accepted attempt, a marker on the wrong row, coverage and markers disagreeing, the status without the marker and the marker without the status;
+  - a fallback taken too early;
+  - an assist out of order;
+  - three stage attempts, and [stage, assist] under the default budget;
+  - a retry without truncation, and a lone retry;
+  - the synthesis-attempt set the plan already has: missing, an ordinal gap, a count mismatch, accepted while truncated, accepted but not last, an unknown slot, an extra key;
+  - stray attempt keys on other rows;
+  - slot labels that disagree with the ledger.
+- **A fake hook** under both firings, crossed with each outcome (an accepted reply, a rejected reply, skipped, failed, refused, stop, a throw, a malformed outcome): calls, attempts, fallback and requests.
+- **The seed** loading a `[stage, stage, assist]` plan stage and a truncated synthesis assist with its retry, with assist rows committed in the ledger.
+- **No third plan request** without a hook. **A v4 freeze** refused. **A cancel** before either fallback. The T1-skipped, T2-no-reply path.
+- **The rest:** the encoding defects; the presentation check, through a stubbed builder in its own test file, since a real oversized packet needs about 40 sources; the key guard; the contract digest; the pin.
+- **Rewritten:** the session test that failed the plan now fails extraction; the diagnostics test completes with the fallback; the plan-contract and pipeline tests that ended on a rejected plan or synthesis.
+
+Evidence: None yet; this entry decides. The reading is from the code at 18655e5 and 873d1c7 (#76's head after it took #69's corrections) and at 10.a's d2ab888:
+- research-pipeline.ts: the plan loop, the synthesis loop and `call()`;
+- research-plan.ts: assessResearchPlanReply, buildResearchPlanRepair and validateResearchPlanAttempts;
+- research-coverage.ts: validateReadyResearchPacket's stage, plan and synthesis checks;
+- research-producer.ts: receiptBindings;
+- research-index.ts: RowSchema;
+- research-seed.ts: PipelineFreezeSchema;
+- research-presentation.ts, session.ts (the transfer and the presentation), dispatch-purposes.ts and the contract file.
+
+The three design reviews read the first draft and the work-in-progress code. Their repros are in the session's scratch space and are not committed.
+
+Failures or blockers: None in recording. There are four open questions for the owner, each with the default this PR implements:
+1. Should a research run whose plan is the host fallback, or whose synthesis is the host skeleton, go on to the writer and be graded like any other run in E3 and E4, with the fallback disclosed? Today such a run ends incomplete. Proposed default: proceed and disclose (review section 5.2, principle 5). E3's card reports the fallback rate per arm.
+2. With an unnumbered brief, the host fallback plan is a single question. Is that acceptable until decision 12 (#55) settles numbered briefs? Proposed default: yes.
+3. Should a rejected plan reply that cannot be encoded be left out of the repair context, so that the repair still runs, rather than end the stage? Proposed default: yes.
+4. Who reconciles a confirmed zero-fee local failure (`request_failed`) with the fallback schedule? That change would need an attempt record without a reply, and the producer's failed-row count with the gate's calls ≥ 1. The review's Escalation list implies a fallback. Proposed default: it ends the stage in 7c. It becomes a follow-up item 7 ticket after 10.b, owned by this lane, because 10.a declines it.
+
+Limitations and non-claims: This entry decides; nothing is implemented or verified by it, and nothing ran live.
+- **Fallbacks may be over-credited.** A run with a host plan and a skeleton argument can now reach the writer and submit. Until item 11 adds the disclosure columns, registry analyses could over-credit such runs. Until item 13, the disclosure is coverage.json, the stage rows and the skeleton's first sentence (decision 11).
+- **The skeleton argues nothing.** The writer still reads the evidence.
+- **The hook is exercised only by fakes.** The real wrapper is 10.a's and 10.b's. Nothing binds a slot attempt to an assist configuration: 10.b must require its stage record whenever a slot attempt appears.
+- **Failed calls still end the stage.** A zero-fee local planner timeout (`request_failed`) still ends it, so principle 5 is met only for rejected replies (decision 4).
+- **The repair context cannot be fully checked.** For replies of 64 KiB or less, the gate cannot tell `included` from `omitted_unencodable`.
+- **Packets from different protocols differ.** E2 must generate all of its packets under one protocol.
+- **The split arm may now pay for synthesis after a failed plan.** scripts/private-agent-local-screen.ts runs the cloud model as planner and synthesiser. In v4, two rejected plans ended the run before any synthesis call. In v5, the host plan goes on to up to synthesisCalls paid synthesis calls, still capped by RESEARCH_SPLIT_MAX_FEE_USD.
+
+Paid exposure: None for this PR. It makes zero SOAR model requests and spends nothing from the envelope. Assist slots fire only through 10.b's wrapper. The split arm's possible extra synthesis calls are paid exposure only when an owner runs that arm, and they stay under its existing cap.
+
+Next gate: The implementation with deterministic tests, two adversarial code reviews and the `Implemented` entry. The pull request opens after #69 merges. Then CI must be green, and the PR merges after #76 and before 7b.2 and 10.b.
+
+References:
+- docs/PROJECT_REVIEW_2026-11-05.md: section 4 row D1; section 5.1, rules 6 and 9; section 5.2 (principle 5, S3, S3c, S6, S6c, "Escalation", "Forced split"); section 5.7 item 7;
+- BL-20261107-0809-zero-fee-failures-resolve-design (decision 6);
+- BL-20261107-0839-assist-purpose-exception-design (decisions 6 and 7);
+- BL-20261109-0417-assist-wrapper-design (decisions 6, 9, 11 and 14);
+- BL-20261109-0334-research-request-shapes-design, BL-20261109-0442-research-request-shapes-implemented and BL-20261110-0625-correction-research-length-parser;
+- BL-20261109-0447-research-tolerance-design, BL-20261109-0552-research-tolerance-implemented and BL-20261110-0712-correction-research-tolerance-repin;
+- BL-20261110-0625-correction-research-length-parser and BL-20261110-0709-correction-research-length-parser-exclusions;
+- BL-20261109-0501-research-stage-pause-design (6.2).

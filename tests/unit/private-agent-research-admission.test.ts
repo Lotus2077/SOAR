@@ -182,7 +182,7 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
     const cases: [string, number][] = [["Abstract, at most 150 words", 150], ["For the abstract, use at most 150 words.", 150], ["- Abstract, 150 words max", 150],
       ["Max 120 words. That is for the summary.", 120], ["Include an executive summary, and keep it under 200 words.", 200],
       // Heading-only nouns outside ":" or "(", nouns glued by "/" or an apostrophe, off-list nouns, and a part more than four words after the limit.
-      ["## Results\nUp to 600 words.", 600], ["Keep the discussion under 400 words.", 400], ["Abstract/summary: at most 150 words", 150], ["The abstract's length: at most 150 words", 150],
+      ["## Results\nUp to 600 words.", 600], ["Keep the discussion under 400 words.", 400], ["Abstract/summary: at most 150 words", 150], ["The abstract's length: at most 150 words", 150], ["'Abstract' (max 150 words)", 150],
       ["Keep the intro under 300 words.", 300], ["TL;DR: at most 120 words.", 120], ["Methodology: at most 400 words", 400], ["Key takeaways: at most 200 words", 200],
       ["Keep the literature review under 800 words.", 800], ["At most 300 words in the very last conclusion.", 300],
       // A one-line comma list of parts, an exclusion that cancels every part noun in its heading, and the part in a parenthesis after the limit.
@@ -203,7 +203,9 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
     const cases: [string, number | undefined][] = [["Length (excluding limitations): at most 2,000 words", 2000], ["Write the abstract first. (Overall at most 2,000 words.)", 2000],
       ["Abstract/max 150 words", undefined], ["Each of the following (max 200 words)", undefined], ["Abstract-max 150 words", undefined], ["each\u2014at most 150 words", undefined],
       ["not-at most 500 words", undefined], ["At most 500 words/section", undefined], ["Each source: at most 150 words", undefined], ["Background and prior work: up to 600 words", undefined],
-      ["Limit (excluding findings): at most 900 words", 900], ["The abstract should be written in at most 150 words", undefined]];
+      ["Limit (excluding findings): at most 900 words", 900], ["The abstract should be written in at most 150 words", undefined],
+      // Two rules only the protocol pin caught: the four-word bound on heading-only nouns, and "incl" cancelling only when it opens a parenthesis.
+      ["Give the evidence an overview (at most 1,500 words)", 1500], ["Write a report incl an abstract: at most 150 words", undefined]];
     for (const [brief, limit] of cases) expect([brief, briefWordLimit(brief)]).toEqual([brief, limit]);
   });
   it("misses, rather than misreads, a report limit that sits beside a part noun", () => {

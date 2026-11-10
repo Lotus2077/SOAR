@@ -68,21 +68,44 @@ const LIMIT_PATTERNS = Object.freeze([
  * among the four words before the phrase or the four after it ("must not be under", "fewer than N words is not acceptable"),
  * or a rejection after it, marks a minimum or a negated limit. A part of the report anywhere earlier in the clause or among
  * the four words after it ("an abstract of at most 150 words", "500 words per section") marks a part's limit.
+ *
+ * Corrections BL-20261110-0625 and BL-20261110-0709 (the merge-train review of PR #69, finding F1, and two code reviews):
+ * - A clause that opens at a heading opener (":" or "(") belongs to the heading before it ("Abstract: at most 150 words",
+ *   "Executive summary (max. 200 words)"). The parts check also reads that heading: every word back to the end of the previous
+ *   sentence (".", ";", "!" or "?") or the previous line break, commas included ("Abstract, keywords and highlights: ...").
+ *   A line break between the heading's last word and its opener does not end it ("with an abstract\n(max. 150 words)").
+ * - `headingParts` name a part only in a short heading, of at most `headingPartsMaxWords` words ("Background: up to 600 words",
+ *   "Results (max 800 words)"); elsewhere they often name the report itself ("an overview of the evidence (at most 1,500 words)").
+ * - An exclusion word cancels part nouns only where this correction added the reason to drop a limit: in the heading, up to
+ *   the next delimiter or line break ("Word limit (excluding the abstract): at most 2,000 words"), with "including" and "incl"
+ *   cancelling there only when they open a parenthesis; and among the four words after the limit, for `addedParts` only
+ *   ("3,000 words excluding appendices"). In the clause before the limit nothing is cancelled ("a report including an abstract
+ *   of under 200 words" is the abstract's limit), and 7b.1's own part nouns after the limit count as before. A distributive
+ *   ("each", "per", "every") is never cancelled. So against 7b.1 the correction only drops limits: on every brief it reads
+ *   7b.1's limit or none.
+ * - Question, reference and footnote are no part nouns: "Answer the research question in at most 1,000 words" and "under 900
+ *   words excluding references" limit the report, and "each" and "every" already mark a per-question limit.
  */
-const CLAUSE_GUARDS = Object.freeze({ delimiters: ",;.!?:()", windowWords: 4,
+const CLAUSE_GUARDS = Object.freeze({ delimiters: ",;.!?:()", headingOpeners: ":(", headingEnds: ".;!?", headingEndsAtLineBreaks: true, windowWords: 4,
   negators: Object.freeze(["no", "not", "never", "nothing", "nor", "cannot"]), negatorSuffix: "n't",
   rejections: Object.freeze(["unacceptable", "rejected", "insufficient", "too short", "too brief"]),
+  distributives: Object.freeze(["each", "per", "every"]),
   parts: Object.freeze(["abstract", "abstracts", "summary", "summaries", "synopsis", "title", "titles", "heading", "headings", "headline", "headlines",
-    "label", "labels", "caption", "captions", "tag", "tags", "sentence", "sentences", "paragraph", "paragraphs", "bullet", "bullets", "each", "per"]) });
+    "label", "labels", "caption", "captions", "tag", "tags", "sentence", "sentences", "paragraph", "paragraphs", "bullet", "bullets"]),
+  addedParts: Object.freeze(["section", "sections", "introduction", "introductions", "conclusion", "conclusions", "appendix", "appendices", "method", "methods",
+    "quote", "quotes", "quotation", "quotations"]),
+  headingParts: Object.freeze(["overview", "overviews", "background", "results", "discussion", "findings", "recommendations", "limitations"]), headingPartsMaxWords: 4,
+  exclusions: Object.freeze(["excluding", "including", "except", "without", "excl", "incl"]), exclusionsOnlyOpeningParenthesis: Object.freeze(["including", "incl"]) });
 
 /**
  * The synthesis length cap (D13): an explicit word limit stated in the brief wins over the default; the largest stated limit
- * wins over smaller ones; either is clamped to the ceiling the synthesis reply allows. Recorded in the stage row and sent to the
+ * wins over smaller ones, and when the clause guards drop the largest no limit is read (correction BL-20261110-0625); either
+ * is clamped to the ceiling the synthesis reply allows. Recorded in the stage row and sent to the
  * model, never enforced: no reply is rejected on its length. The parse prefers missing a limit, which leaves today's default,
  * to misreading one, which would shrink the argument.
  */
-export const RESEARCH_SYNTHESIS_LENGTH_POLICY = Object.freeze({ version: 1, source: "raw_brief", normalization: "nfkc_lowercase_single_spaces",
-  limitPatterns: LIMIT_PATTERNS, rangeEnd: "upper", clauseGuards: CLAUSE_GUARDS, selection: "largest_stated_limit", limitRange: Object.freeze([1, 100_000]),
+export const RESEARCH_SYNTHESIS_LENGTH_POLICY = Object.freeze({ version: 1, source: "raw_brief", normalization: "nfkc_lowercase_single_spaces_line_breaks_kept_for_headings",
+  limitPatterns: LIMIT_PATTERNS, rangeEnd: "upper", clauseGuards: CLAUSE_GUARDS, selection: "largest_stated_limit_only_if_unguarded", limitRange: Object.freeze([1, 100_000]),
   /** The cap when the brief states none and the reply has room: criterion 6's upper band (review section 2.2), which binds the report. */
   defaultMaxWords: 6000,
   /** scripts/serving-probe.py TOKENS_PER_WORD, measured on 2026-09-28 (serving card P3); a test pins the two copies equal. */
@@ -105,36 +128,131 @@ const parseLimit = (text: string | undefined): number | undefined => {
   const value = Number(text.replaceAll(",", "")), [low, high] = RESEARCH_SYNTHESIS_LENGTH_POLICY.limitRange;
   return Number.isSafeInteger(value) && value >= low! && value <= high! ? value : undefined;
 };
-const words = (text: string) => text.split(" ").map(word => word.replace(/^[^\p{L}\p{N}']+|[^\p{L}\p{N}']+$/gu, "")).filter(Boolean);
-const clauseBreak = (text: string, from: number, step: 1 | -1): number => {
-  for (let i = from; step > 0 ? i < text.length : i >= 0; i += step) if (CLAUSE_GUARDS.delimiters.includes(text[i]!)) return i;
-  return step > 0 ? text.length : -1;
+/**
+ * The brief as the patterns read it: NFKC, lower case, each whitespace run one space, the right single quote an apostrophe.
+ * `lineBreaks` are the positions of the spaces that replaced a run holding a line break; only the heading rule reads them.
+ */
+function normalizeBrief(brief: string): { text: string; lineBreaks: number[] } {
+  const source = brief.normalize("NFKC").toLowerCase(), lineBreaks: number[] = [];
+  let text = "", last = 0;
+  for (const run of source.matchAll(/\s+/gu)) {
+    text += source.slice(last, run.index);
+    if (/[\n\r\v\f\p{Zl}\p{Zp}]/u.test(run[0])) lineBreaks.push(text.length);
+    text += " "; last = run.index + run[0].length;
+  }
+  return { text: (text + source.slice(last)).replaceAll("\u2019", "'"), lineBreaks };
+}
+/**
+ * A word stripped of the characters at its ends that are not letters, digits or apostrophes: the span from its first such
+ * character to its last. One forward match, linear in the word (7b.1's two-sided replace backtracked quadratically on a long
+ * run of punctuation, and every word of the brief is now stripped once).
+ */
+const strip = (token: string) => token.match(/[\p{L}\p{N}'](?:[^]*[\p{L}\p{N}'])?/u)?.[0] ?? "";
+/** A part noun: one of 7b.1's or one this correction added. */
+const isPart = (word: string) => CLAUSE_GUARDS.parts.includes(word) || CLAUSE_GUARDS.addedParts.includes(word);
+interface ClauseToken { start: number; end: number; word: string }
+/**
+ * The brief's words and delimiters, found once (correction BL-20261110-0625, finding F2: guarded() rescanned the whole clause for
+ * every candidate, so a clause of many candidates parsed in quadratic time). A word is a run of characters that are neither a
+ * space nor a delimiter, stripped (strip above); empty words are dropped. These are exactly the words the clause slices of
+ * 7b.1's guard held. Each `...Before[k]` counts words among the first k, so a span's count is one subtraction:
+ * `distributivesBefore` and `partsBefore` count every distributive and part noun; `liveParts` and `liveHeadingParts` count
+ * only those no exclusion cancels (CLAUSE_GUARDS). `sentenceEnds` are the sentence-ending delimiters; `headingEnds` add the
+ * line breaks.
+ */
+interface ClauseIndex { text: string; delimiters: number[]; sentenceEnds: number[]; headingEnds: number[]; tokens: ClauseToken[]; tokenStarts: number[];
+  distributivesBefore: number[]; partsBefore: number[]; liveParts: number[]; liveHeadingParts: number[] }
+function indexClauses(text: string, lineBreaks: readonly number[]): ClauseIndex {
+  const delimiters: number[] = [], sentenceEnds: number[] = [], tokens: ClauseToken[] = [];
+  for (let i = 0, start = -1; i <= text.length; i++) {
+    const delimiter = i < text.length && CLAUSE_GUARDS.delimiters.includes(text[i]!);
+    if (i === text.length || delimiter || text[i] === " ") {
+      if (start >= 0) { const word = strip(text.slice(start, i)); if (word) tokens.push({ start, end: i, word }); start = -1; }
+      if (delimiter) { delimiters.push(i); if (CLAUSE_GUARDS.headingEnds.includes(text[i]!)) sentenceEnds.push(i); }
+    } else if (start < 0) start = i;
+  }
+  const merge = (a: readonly number[], b: readonly number[]) => [...a, ...b].sort((x, y) => x - y);
+  // An exclusion's scope ends at the next delimiter or line break.
+  const boundaries = merge(delimiters, lineBreaks), distributivesBefore = [0], partsBefore = [0], liveParts = [0], liveHeadingParts = [0];
+  let scopeEnd = -1;
+  for (const token of tokens) {
+    const live = token.start >= scopeEnd, part = isPart(token.word);
+    distributivesBefore.push(distributivesBefore.at(-1)! + (CLAUSE_GUARDS.distributives.includes(token.word) ? 1 : 0));
+    partsBefore.push(partsBefore.at(-1)! + (part ? 1 : 0));
+    liveParts.push(liveParts.at(-1)! + (part && live ? 1 : 0));
+    liveHeadingParts.push(liveHeadingParts.at(-1)! + (live && CLAUSE_GUARDS.headingParts.includes(token.word) ? 1 : 0));
+    if (CLAUSE_GUARDS.exclusions.includes(token.word)) {
+      let before = token.start - 1; while (before >= 0 && text[before] === " ") before--;
+      if (!CLAUSE_GUARDS.exclusionsOnlyOpeningParenthesis.includes(token.word) || text[before] === "(") {
+        const next = rank(boundaries, token.end, false); scopeEnd = next < boundaries.length ? boundaries[next]! : text.length;
+      }
+    }
+  }
+  return { text, delimiters, sentenceEnds, headingEnds: merge(sentenceEnds, lineBreaks), tokens, tokenStarts: tokens.map(token => token.start),
+    distributivesBefore, partsBefore, liveParts, liveHeadingParts };
+}
+/** The number of sorted values below `value` (strict) or at most `value` (inclusive). */
+function rank(sorted: readonly number[], value: number, inclusive: boolean): number {
+  let low = 0, high = sorted.length;
+  while (low < high) { const mid = (low + high) >> 1; if (sorted[mid]! < value || (inclusive && sorted[mid] === value)) low = mid + 1; else high = mid; }
+  return low;
+}
+/** The count of words lo..hi-1 that `prefix` counts. */
+const span = (prefix: readonly number[], lo: number, hi: number) => hi > lo ? prefix[hi]! - prefix[lo]! : 0;
+/** Whether the words after a limit mark a part: a distributive or one of 7b.1's part nouns anywhere, or an added part noun before the first exclusion word. */
+const afterMarksPart = (words: readonly string[]): boolean => {
+  const exclusion = words.findIndex(word => CLAUSE_GUARDS.exclusions.includes(word));
+  return words.some(word => CLAUSE_GUARDS.distributives.includes(word) || CLAUSE_GUARDS.parts.includes(word))
+    || (exclusion < 0 ? words : words.slice(0, exclusion)).some(word => CLAUSE_GUARDS.addedParts.includes(word));
 };
 /** True when the clause around a candidate says it is no upper limit on the report (CLAUSE_GUARDS). */
-function guarded(text: string, start: number, end: number): boolean {
-  const clauseBefore = words(text.slice(clauseBreak(text, start - 1, -1) + 1, start)), after = words(text.slice(end, clauseBreak(text, end, 1)));
-  const near = [...clauseBefore.slice(-CLAUSE_GUARDS.windowWords), ...after.slice(0, CLAUSE_GUARDS.windowWords)];
-  const afterText = after.slice(0, CLAUSE_GUARDS.windowWords).join(" ");
-  return near.some(word => CLAUSE_GUARDS.negators.includes(word) || word.endsWith(CLAUSE_GUARDS.negatorSuffix))
+function guarded(index: ClauseIndex, start: number, end: number): boolean {
+  const { text, delimiters, tokens, tokenStarts } = index, window = CLAUSE_GUARDS.windowWords;
+  const opened = rank(delimiters, start - 1, true), open = opened ? delimiters[opened - 1]! : -1;
+  const closed = rank(delimiters, end, false), close = closed < delimiters.length ? delimiters[closed]! : text.length;
+  // Before: the clause's whole words, then the word the candidate's start cuts (as the clause slice ended there).
+  const first = rank(tokenStarts, open, true), next = rank(tokenStarts, start, false), cutBefore = next > first && tokens[next - 1]!.end > start;
+  const wholeBefore = cutBefore ? next - 1 : next, cutWord = cutBefore ? strip(text.slice(tokens[next - 1]!.start, start)) : "";
+  const clauseBefore = [...tokens.slice(Math.max(first, wholeBefore - window), wholeBefore).map(token => token.word), ...(cutWord ? [cutWord] : [])].slice(-window);
+  // The clause before marks a part with any distributive or part noun: no exclusion cancels one there.
+  const before = span(index.distributivesBefore, first, wholeBefore) + span(index.partsBefore, first, wholeBefore) > 0
+    || CLAUSE_GUARDS.distributives.includes(cutWord) || isPart(cutWord);
+  // After: the word the candidate's end cuts, then the clause's whole words, at most the window.
+  const afterStart = rank(tokenStarts, end, false), cutAfter = afterStart > 0 && tokens[afterStart - 1]!.end > end && tokens[afterStart - 1]!.start < end;
+  const after: string[] = cutAfter ? [strip(text.slice(end, tokens[afterStart - 1]!.end))].filter(Boolean) : [];
+  for (let i = afterStart; after.length < window && i < tokens.length && tokens[i]!.start < close; i++) after.push(tokens[i]!.word);
+  const afterText = after.join(" ");
+  // A heading: the clause opens at ":" or "(", and the heading is every word from the opener's last word back to a sentence end
+  // or line break. A line break between that word and the opener is skipped; a sentence end there leaves no heading.
+  let heading = false;
+  const hi = open >= 0 && CLAUSE_GUARDS.headingOpeners.includes(text[open]!) ? rank(tokenStarts, open, false) : 0;
+  if (hi > 0 && rank(index.sentenceEnds, open, false) === rank(index.sentenceEnds, tokens[hi - 1]!.end, false)) {
+    const ended = rank(index.headingEnds, tokens[hi - 1]!.start, false), lo = rank(tokenStarts, ended ? index.headingEnds[ended - 1]! : -1, true);
+    heading = span(index.distributivesBefore, lo, hi) + span(index.liveParts, lo, hi) + (hi - lo <= CLAUSE_GUARDS.headingPartsMaxWords ? span(index.liveHeadingParts, lo, hi) : 0) > 0;
+  }
+  return [...clauseBefore, ...after].some(word => CLAUSE_GUARDS.negators.includes(word) || word.endsWith(CLAUSE_GUARDS.negatorSuffix))
     || CLAUSE_GUARDS.rejections.some(marker => ` ${afterText} `.includes(` ${marker} `))
-    || [...clauseBefore, ...after.slice(0, CLAUSE_GUARDS.windowWords)].some(word => CLAUSE_GUARDS.parts.includes(word));
+    || before || heading || afterMarksPart(after);
 }
 
 /**
  * The largest explicit upper word limit the brief states for the report, or undefined. Heuristic: English phrasings with
- * digits only; a range gives its upper end; a candidate its clause guards, or one below `minimumWords`, is dropped.
+ * digits only; a range gives its upper end; a limit below `minimumWords` is no candidate. When the clause guards drop the
+ * largest candidate, no limit is read (correction BL-20261110-0625): the brief's own limit was dropped, and a smaller one that
+ * remains may be a part's limit that no guard recognises ("Discussion: at most 800 words").
  */
 export function briefWordLimit(brief: string): number | undefined {
-  const policy = RESEARCH_SYNTHESIS_LENGTH_POLICY, text = brief.normalize("NFKC").toLowerCase().replace(/\s+/gu, " ").replaceAll("\u2019", "'");
-  const limits: number[] = [];
+  const policy = RESEARCH_SYNTHESIS_LENGTH_POLICY, { text, lineBreaks } = normalizeBrief(brief), index = indexClauses(text, lineBreaks);
+  let largest: number | undefined, kept = false;
   for (const pattern of policy.limitPatterns) for (const match of text.matchAll(new RegExp(pattern, "gu"))) {
     const ends = match.slice(1).filter((group): group is string => group !== undefined).map(parseLimit);
     if (!ends.length || ends.some(end => end === undefined) || ends.some((end, i) => i > 0 && end! < ends[i - 1]!)) continue;
     const limit = ends.at(-1)!;
-    if (limit < policy.minimumWords || guarded(text, match.index, match.index + match[0].length)) continue;
-    limits.push(limit);
+    if (limit < policy.minimumWords) continue;
+    const unguarded = !guarded(index, match.index, match.index + match[0].length);
+    if (largest === undefined || limit > largest) { largest = limit; kept = unguarded; } else if (limit === largest && unguarded) kept = true;
   }
-  return limits.length ? Math.max(...limits) : undefined;
+  return kept ? largest : undefined;
 }
 
 export interface ResearchSynthesisLengthCap { words: number; ceilingWords: number; briefWordLimit?: number }

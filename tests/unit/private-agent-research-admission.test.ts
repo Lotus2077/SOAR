@@ -85,14 +85,95 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       "Include a 500-word abstract.", "a 3,000-word report", "The corpus holds 40,000 words.", "Write about 1,000 words.", "around 800 words", "Write 2,500 words.",
       "at most 12 words", "between 10 and 90 words", "at most 99 words"]) expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
   });
+  it("reads no limit from a part named by a heading or a parenthesis, or by a part noun 7b.1 missed (correction BL-20261110-0625, finding F1)", () => {
+    // At 5401d0f most of these gave the component's limit as the report's cap; on main every one was asked for 1,200 words.
+    for (const brief of ["Abstract: at most 150 words.", "Executive summary: no more than 200 words.", "1. Introduction (at most 200 words)",
+      "Answer every question in no more than 200 words.", "Keep quotations to at most 300 words.", "Write a report; limitations section under 300 words.",
+      "Abstract (max. 150 words)", "Describe the observations.\n3. Executive summary: no more than 200 words.", "Each section: no more than 300 words.",
+      "Each section: at most 400 words.", "Abstract (optional): at most 150 words.", "Conclusion: under 400 words.", "Methods (no more than 500 words)",
+      "Background: up to 600 words.", "Appendix (at most 1,000 words)", "Overview: at most 300 words.", "Quotes of at most 200 words each.",
+      // The heading runs back to the previous sentence end, across commas and past four words.
+      "Abstract, keywords and highlights: at most 150 words.", "Executive summary for the board of directors: no more than 200 words.",
+      // An overall length the parser deliberately ignores beside a component's limit: the component's limit must not become the cap.
+      "Write 2,500 words. Abstract: at most 150 words.", "Write a 3,000-word report. Executive summary: no more than 200 words.",
+      "Write at least 2,500 words. Executive summary: at most 200 words.", "Write about 2,500 words on the topic. Abstract (max 150 words).",
+      "Write a 10-page report with an executive summary (max. 250 words).", "Write roughly 4,000 words. Structure: - Summary (up to 300 words)",
+      // Section names under a heading, and headings that run past four words or across a number's comma (the code review of c7b6093).
+      "Results (max 800 words)", "Discussion: at most 500 words", "Executive summary of the key findings (max. 250 words)", "Summary of 1,000 interviews: at most 200 words"])
+      expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
+  });
+  it("never lets a guard lower the cap: when the guards drop the largest stated limit, no limit is read (the code review of c7b6093)", () => {
+    // Each smaller limit names a part no guard recognises; reading it would shrink the argument below the default.
+    for (const brief of ["Abstract and summary: at most 3,000 words in total. The literature review should be under 800 words.",
+      "You do not need to stay under 5,000 words. The literature review should be under 800 words.",
+      "Write at most 3,000 words across all sections. The literature review should be under 800 words.",
+      // An exclusion never cancels a distributive: these stay parts' limits.
+      "A word limit of 300 including references per chapter.", "At most 400 words without tables for each section", "at most 300 words excluding quotes for every question"])
+      expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
+    // At c7b6093 these gave 800: the heading reached across lines, or an excluded part noun dropped the report's limit. At 5401d0f, 3,000.
+    for (const brief of ["Sections:\n- Abstract\n- Results\nLength: at most 3,000 words\nDiscussion: at most 800 words",
+      "The report must not exceed 3,000 words excluding appendices. The literature review should be under 800 words.",
+      "Report (excluding the abstract): at most 3,000 words. Discussion: at most 800 words."]) expect([brief, briefWordLimit(brief)]).toEqual([brief, 3000]);
+  });
+  it("cancels a part noun only after the limit or inside a heading's own exclusion, never in the clause before (the code review of de3adea)", () => {
+    // At de3adea an exclusion earlier in the clause cancelled the part the limit belongs to, and these read the part's limit.
+    for (const brief of ["Write about 2,500 words on the topic, including a short abstract of under 200 words.",
+      "Write a policy brief including an executive summary of no more than 200 words.", "Prepare a report of about 3,000 words, including an abstract of at most 250 words.",
+      "Provide a report without appendices and a summary of no more than 300 words.", "Requirements\n- Use peer-reviewed sources, excluding preprints\n- Abstract under 250 words",
+      "Executive summary\n(no more than 300 words excluding headings)",
+      // An exclusion earlier in a heading ends at its delimiter, and "including" outside a parenthesis cancels nothing.
+      "Write a 10-page report including an executive summary (max. 250 words).", "Use all studies except pilot trials, executive summary: no more than 200 words",
+      // A line break between a heading and its opener does not empty the heading.
+      "Please write a report on the attached observations, with an abstract\n(max. 150 words) and a discussion of the limitations.", "Executive summary\n(no more than 200 words)",
+      // Quotes, and the heading-only section names in a short heading.
+      "Keep the quotes under 300 words.", "Findings: at most 600 words", "Recommendations (no more than 400 words)", "Limitations: under 300 words"])
+      expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
+    // Each exclusion word, after the limit or opening a heading's parenthesis, leaves the report's limit; so does a long heading.
+    const cases: [string, number][] = [["At most 3,000 words except the appendix.", 3000], ["At most 2,000 words without the methods section.", 2000],
+      ["At most 2,500 words including quotations.", 2500], ["Length (including the abstract): at most 3,000 words", 3000], ["Length (incl the abstract): at most 3,000 words", 3000],
+      ["Word count (excl references and appendices): 3,000 words max.", 3000], ["Excluding the abstract: at most 3,000 words", 3000],
+      ["Provide an overview of the evidence (at most 1,500 words).", 1500],
+      // When two candidates share the largest value, one kept candidate is enough.
+      ["Abstract: at most 2,000 words. Report: at most 2,000 words.", 2000]];
+    for (const [brief, limit] of cases) expect([brief, briefWordLimit(brief)]).toEqual([brief, limit]);
+    // Every line break ends a heading: CR, CRLF, LF, the line and paragraph separators, vertical tab and form feed.
+    for (const lineBreak of ["\r", "\r\n", "\n", String.fromCharCode(0x2028), String.fromCharCode(0x2029), "\v", "\f"])
+      expect([lineBreak, briefWordLimit(`Sections: Abstract, Results${lineBreak}Length: at most 2,000 words`)]).toEqual([lineBreak, 2000]);
+  });
+  it("misses, rather than misreads, a report limit that sits beside a part noun", () => {
+    // Known misses: the default applies (and while the role thinks, 1,200 words binds below these limits anyway).
+    for (const brief of ["The report should be at most 3,000 words across all sections.", "Write at most 2,000 words and cite every source.",
+      // An abbreviation's dot ends the heading, and a line break inside the heading's parenthesis ends it there.
+      "Word count (excl. references and appendices): 3,000 words max.", "Report (excluding the\nabstract): at most 3,000 words",
+      // After the limit, 7b.1's own part nouns still drop it whatever precedes them, as at 5401d0f.
+      "At most 2,500 words including the abstract.", "At most 2,000 words without the summary."])
+      expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
+  });
+  it("still reads a heading or a parenthesis that names the report itself, and a report limit beside a part's", () => {
+    const cases: [string, number][] = [["Report: at most 2,000 words.", 2000], ["Length: at most 2,000 words.", 2000], ["Requirements: no more than 1,000 words.", 1000],
+      ["Report (2,000 words max)", 2000], ["Report (at most 800 words)", 800], ["2. Limit: at most 1,500 words.", 1500], ["At most 2,000 words (excluding the abstract).", 2000],
+      ["An executive summary (max 200 words) and a full report of up to 3,000 words.", 3000], ["Summary (max 200 words); report: at most 3,000 words.", 3000],
+      // Question, reference and footnote are no part nouns: these limits are the report's.
+      ["Answer the research question in at most 1,000 words.", 1000], ["Keep it under 900 words excluding references.", 900], ["At most 1,500 words, footnotes included.", 1500],
+      // Exclusions, line breaks and nouns that name a part only in a heading (the code review of c7b6093).
+      ["Word count (excluding references and appendices): 3,000 words max.", 3000], ["Word limit (excluding the abstract): at most 2,000 words.", 2000],
+      ["Format: a report with sections\nLength: at most 2,000 words", 2000], ["1) Background\n2) Report: at most 2,000 words", 2000], ["Keep it under 3,000 words excluding appendices.", 3000],
+      ["Provide an overview of the evidence in at most 1,500 words.", 1500], ["Give a background briefing on the policy in no more than 1,000 words.", 1000]];
+    for (const [brief, limit] of cases) expect([brief, briefWordLimit(brief)]).toEqual([brief, limit]);
+  });
   it("reads no limit from other units, out-of-range, malformed, decimal or grouped numbers, or a reversed range", () => {
     for (const brief of ["at most 12 sources", "up to 10 pages", "at most 0 words", "at most 100,001 words", "", "Describe the supplied synthetic observations and their limitations.",
       "6,000-2,500 words", "between 900 and 400 words", "1,00 words at most", "Word limit: 1.500.", "word limit 2.000 words", "1.200 words max", "1,50 words at most",
       "word count limit is 3.5k", "up to 12.5 words", "Word limit: 2.500", "Word limit: 2.5k", "Word limit: 2 500", "Word limit: 2\u00a0500", "2 500 words max",
       "Section 3.200 words or fewer", "word limit: 2,500-2,000"]) expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
   });
-  it("parses a 32 KiB adversarial brief in linear time", () => {
-    for (const brief of ["111,".repeat(8192), `between ${"111,".repeat(8190)}`, "\uff11\uff11\uff11\uff0c".repeat(8192), "at most ".repeat(4096), "words ".repeat(5461)]) {
+  it("parses a 32 KiB adversarial brief in linear time, including one clause of thousands of candidates (correction BL-20261110-0625, finding F2)", () => {
+    // The last three took 3.1 to 3.6 s at 5401d0f, which rescanned the clause for every candidate.
+    const oneClause = ["150 words max ", "at most 150 words ", "no more than 150 words "].map(unit => unit.repeat(Math.floor(32760 / unit.length)));
+    // One long word of punctuation or emoji: 7b.1's two-sided strip backtracked quadratically on it (1.8 to 6.5 s at c7b6093;
+    // the one-clause inputs above took 1 to 4 s at 5401d0f).
+    oneClause.push(`a${"-".repeat(32766)}b`, `a${String.fromCodePoint(0x1f600).repeat(16382)}b`);
+    for (const brief of ["111,".repeat(8192), `between ${"111,".repeat(8190)}`, "\uff11\uff11\uff11\uff0c".repeat(8192), "at most ".repeat(4096), "words ".repeat(5461), ...oneClause]) {
       const started = performance.now(); briefWordLimit(brief); expect(performance.now() - started).toBeLessThan(1000);
     }
   });

@@ -11,5 +11,12 @@
  *   BL-20261109-0442): the extraction layout, index batches by preview size and the synthesis length cap.
  * - f03119bfd0c7d37adf12155453f9530d1281ae9ead60019b97e9b95e2ca0f413: backlog item 7(a), part 1 (BL-20261109-0447, implemented in BL-20261109-0552): per-quote drop, host-derived
  *   outcomes, complete attempts only, unencodable text refused and heading normalisation.
+ * - d4ec0c3a1bafedbe154ddf2e4d612508fdb68ee80c3c41ad97729e6bc112cf34: the correction to 7(b), part 1 (BL-20261110-0625), as first committed;
+ *   superseded by the next pin before any run.
+ * - 925433f9ba8e9c531b51150b769b6bec382331b6d0824d37d151d1f9fdfbea88: its follow-up (BL-20261110-0709): the word-limit
+ *   parser reads a part named by a heading or a parenthesis, and more part nouns, as a part's limit, reads no limit when its guards
+ *   drop the largest one, and against 7b.1 only ever drops a limit.
+ * - 679e623f02795ec66f06349af4bde5ff8db83fd1d5054465c1da492d6847d3f5: backlog item 7(a), part 1, merged onto the 7(b) corrections
+ *   (re-pinned in BL-20261110-0712): the same 7a.1 code on the corrected word-limit parser.
  */
-export const RESEARCH_PROTOCOL_SHA256 = "f03119bfd0c7d37adf12155453f9530d1281ae9ead60019b97e9b95e2ca0f413";
+export const RESEARCH_PROTOCOL_SHA256 = "679e623f02795ec66f06349af4bde5ff8db83fd1d5054465c1da492d6847d3f5";

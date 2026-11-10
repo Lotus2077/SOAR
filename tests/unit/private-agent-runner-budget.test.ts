@@ -9,7 +9,7 @@ import { BROKER_MAX_BODY_BYTES, PrivateAgentBroker, BrokerError, RETRY_WAIT_CANC
 import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel, type GeneralMessage, type PrivateModelConfig } from "../../src/main/private-agent/model";
-import { GeneralAgentRunner, type GeneralJobContract, type GeneralJobOptions } from "../../src/main/private-agent/runner";
+import { GeneralAgentRunner, capturePinnedPaths, type GeneralJobContract, type GeneralJobOptions } from "../../src/main/private-agent/runner";
 import { DockerSandbox, PRIVATE_SANDBOX_LIMITS, SandboxError, WORKSPACE_LISTING_MAX_ENTRIES, WORKSPACE_LISTING_MAX_OMITTED_PATHS, type SandboxErrorCode, type WorkspaceListing } from "../../src/main/private-agent/sandbox";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { LocalTokenAdmissionError, LOCAL_TOKEN_ADMISSION_STOP } from "../../src/main/private-agent/flash-next-admission";
@@ -62,7 +62,8 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
   let beforeListFiles: () => void = () => {};
   let beforeClose: () => void = () => {};
   let listingExtra: Partial<WorkspaceListing> = {};
-  let lister: ((contents: Map<string, Buffer>) => WorkspaceListing) | undefined;
+  let lister: ((contents: Map<string, Buffer>, pinned: readonly string[]) => WorkspaceListing) | undefined;
+  const listedWith: (readonly string[])[] = [];
   const create = vi.spyOn(DockerSandbox, "create").mockImplementation(async input => {
     clock += 25;
     const contents = new Map(input.files.map(file => [file.path, Buffer.from(file.bytes)]));
@@ -84,7 +85,7 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
       }
       afterExecute(command);
       return { exitCode: command.startsWith("fail ") ? 1 : command.includes("python3 -I -c") ? limits.checkExitCode ?? 0 : 0, stdout: limits.toolStdout ?? "synthetic evidence", stderr: limits.toolStderr ?? "" };
-    }, async listFiles() { guard(); beforeListFiles(); return lister ? lister(contents) : workspaceListing(contents, listingExtra); },
+    }, async listFiles(pinned: readonly string[] = []) { guard(); beforeListFiles(); listedWith.push([...pinned]); return lister ? lister(contents, pinned) : workspaceListing(contents, listingExtra); },
     async readFile(path: string) { guard(); return Buffer.from(contents.get(path)!); },
     async editFile(mode: "write" | "append" | "replace", path: string, payload: Buffer, replacement?: Buffer) {
       guard(); clock += 10; commands.push(`${mode}:${path}`);
@@ -125,7 +126,9 @@ function fixture(actions: Action[], limits: Partial<Pick<GeneralJobContract, "ma
     /** What the fixture lister reports besides the live contents (omitted entries, counts, an incomplete walk). */
     setListing: (extra: Partial<WorkspaceListing>) => { listingExtra = extra; },
     /** Replaces the fixture lister, e.g. with the container's own script run under python3 (`listedByLister`, E1 scenario S6). */
-    setLister: (next: (contents: Map<string, Buffer>) => WorkspaceListing) => { lister = next; },
+    setLister: (next: (contents: Map<string, Buffer>, pinned: readonly string[]) => WorkspaceListing) => { lister = next; },
+    /** The pinned paths the runner passed to each listing, in call order (E1-L). */
+    listedWith,
     afterExecute: (callback: (command: string) => void) => { afterExecute = callback; },
     afterResponse: (callback: (count: number) => void) => { afterResponse = callback; } };
 }
@@ -1534,9 +1537,81 @@ describe("E1 recoverability: the writer's output and workspace bounds (S5, S6)",
     const notice = f.requests[1]!.find(message => message.role === "user" && message.content!.includes("workspace_capture_incomplete"))!;
     expect(JSON.parse(notice.content!)).toMatchObject({ warning: "workspace_capture_incomplete", omitted: { total: capped, complete: false } });
     // The checkpoint recorded with that result holds exactly what the capture kept: the depth-first, name-ordered first 1,024 files.
-    // E1-L's capture priority is expected to change which files these are; these numbers pin today's lister.
+    // The pinned input and deliverable sort before zz/, so pinning them first keeps these same files (E1-L).
     expect(recorded[at - 1]!.type).toBe("checkpoint");
     const files = f.options.checkpoints.load(recorded[at - 1]!.snapshot as Parameters<PrivateCheckpointStore["load"]>[0]).map(file => file.path).sort();
     expect(files).toEqual(["input.txt", "output.txt", ...Array.from({ length: kept }, (_, i) => `zz/f${String(i).padStart(4, "0")}.txt`)]);
+  }, 30_000);
+});
+
+describe("E1 recoverability: the capture keeps the inputs, the research packet and the deliverables under the file cap (S6, E1-L)", () => {
+  /** A bulky directory that sorts before every other path (".") and alone holds more regular files than the 1,024-file cap. */
+  const bulky = (f: ReturnType<typeof fixture>) => f.afterExecute(command => {
+    if (command === "write result") for (let i = 0; i < PRIVATE_SANDBOX_LIMITS.files + 76; i++) f.mutateWorkspace(`.venv/lib/f${String(i).padStart(4, "0")}.py`, Buffer.from("x"));
+  });
+  const checkpointAfterAction = (f: ReturnType<typeof fixture>) => {
+    const recorded = f.options.store.events(f.options.jobId), at = recorded.findIndex(event => event.type === "tool_finished");
+    expect(recorded[at - 1]!.type).toBe("checkpoint");
+    return { finished: recorded[at]!, files: f.options.checkpoints.load(recorded[at - 1]!.snapshot as Parameters<PrivateCheckpointStore["load"]>[0]).map(file => file.path) };
+  };
+  const venv = (count: number) => Array.from({ length: count }, (_, i) => `.venv/lib/f${String(i).padStart(4, "0")}.py`);
+  it("keeps the task's input and its required artifact when a bulky directory that sorts first fills the cap, and the run completes", async () => {
+    const f = fixture([write, finish]);
+    f.setLister(listedByLister); bulky(f);
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed" });
+    const { finished, files } = checkpointAfterAction(f);
+    // Exactly the two pinned files and the first 1,022 of the directory, in the lister's order.
+    expect(files).toEqual([...venv(PRIVATE_SANDBOX_LIMITS.files - 2), "input.txt", "output.txt"]);
+    expect(finished.captureOmitted).toEqual({ total: 78, reasons: { cap: 78 }, complete: true,
+      paths: Array.from({ length: WORKSPACE_LISTING_MAX_OMITTED_PATHS }, (_, i) => `.venv/lib/f${String(PRIVATE_SANDBOX_LIMITS.files - 2 + i).padStart(4, "0")}.py`) });
+    // The runner pinned the deliverable first, then the file it placed.
+    expect(f.listedWith.every(pinned => JSON.stringify(pinned) === JSON.stringify(["output.txt", "input.txt"]))).toBe(true);
+  }, 30_000);
+  it("keeps the research packet and its sources beside the deliverable when a bulky directory that sorts first fills the cap", async () => {
+    const phase = await researchWriterPhase(), f = fixture([write, finish], { phase });
+    f.setLister(listedByLister); bulky(f);
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed" });
+    const { files } = checkpointAfterAction(f);
+    expect(files).toEqual(expect.arrayContaining([...phase.files.map(file => file.path), "output.txt"])); expect(files).toHaveLength(PRIVATE_SANDBOX_LIMITS.files);
+    expect(f.listedWith[0]).toEqual(["output.txt", ...phase.files.map(file => file.path)]);
+  }, 30_000);
+  it("reads the pinned files first, so the 128 MiB total reaches them last and names the files it omitted", async () => {
+    // Two 64 MiB files sorting first fill the total on their own; read in the lister's order they would push out the input and the deliverable.
+    const f = fixture([write, finish]), big = Buffer.alloc(PRIVATE_SANDBOX_LIMITS.fileBytes);
+    f.afterExecute(command => { if (command === "write result") { f.mutateWorkspace("a1.bin", big); f.mutateWorkspace("a2.bin", big); } });
+    expect(await new GeneralAgentRunner(f.options).run()).toMatchObject({ status: "completed", reason: "critical_checks_passed" });
+    const { finished, files } = checkpointAfterAction(f);
+    expect(files).toEqual(["a1.bin", "input.txt", "output.txt"]);
+    expect(finished.captureOmitted).toEqual({ total: 1, reasons: { total_cap: 1 }, paths: ["a2.bin"], complete: true });
+  }, 30_000);
+  it("orders the pinned paths deliverables, claims ledger, retained sources, host files, each once, and leaves the sources out when reading them fails", () => {
+    const contract = { requiredArtifacts: [{ path: "output/report.md", description: "report" }, { path: "output/claims.json", description: "ledger" }] };
+    const checks = [{ id: "structure" }, { id: CLAIMS_LEDGER_CHECK_ID }], files = [{ path: "input/a.md" }, { path: "context/research/evidence.json" }, { path: "input/a.md" }];
+    expect(capturePinnedPaths({ contract, checks, files, retainedSources: () => ["sources/0123456789abcdef.bin"] }))
+      .toEqual(["output/report.md", "output/claims.json", "sources/0123456789abcdef.bin", "input/a.md", "context/research/evidence.json"]);
+    expect(capturePinnedPaths({ contract, checks: [{ id: "structure" }], files, retainedSources: () => { throw new Error("public_source_identity_invalid"); } }))
+      .toEqual(["output/report.md", "output/claims.json", "input/a.md", "context/research/evidence.json"]);
+  });
+  it("pins the claims ledger after the deliverables when the claims check is configured", async () => {
+    const f = fixture([write, finish], { claimsLedger: true });
+    await new GeneralAgentRunner(f.options).run();
+    expect(f.listedWith.length).toBeGreaterThan(0);
+    expect(f.listedWith.every(pinned => JSON.stringify(pinned) === JSON.stringify(["output.txt", "output/claims.json", "input.txt"]))).toBe(true);
+  });
+  it("checkpoints a workspace under both caps exactly as before, in the lister's order, though a pinned path sorts last", async () => {
+    // The required artifact `zz-output.txt` sorts after every other file; the capture reads it first but lists it where the lister does.
+    const contract: GeneralJobContract = { version: 1, goal: "Compute a synthetic result from the input and save it.", requiredArtifacts: [{ path: "zz-output.txt", description: "Computed output" }],
+      requiredChecks: ["fixture_check"], maxModelCalls: 4, maxToolCalls: 5, maxElapsedMs: 10_000 };
+    const files = [{ path: "input.txt", bytes: Buffer.from("synthetic input") }];
+    const f = fixture([write, finish], { phase: { contract, files, checks: [{ id: "fixture_check", python: "# fixed synthetic host check" }] } });
+    f.setLister(listedByLister);
+    f.afterExecute(command => { if (command === "write result") { f.mutateWorkspace("zz-output.txt", Buffer.from("result")); f.mutateWorkspace("b-notes.md", Buffer.from("notes")); } });
+    await new GeneralAgentRunner(f.options).run();
+    const { finished, files: kept } = checkpointAfterAction(f);
+    expect(f.listedWith[0]).toEqual(["zz-output.txt", "input.txt"]);
+    expect(kept).toEqual(["b-notes.md", "input.txt", "output.txt", "zz-output.txt"]); expect(finished.captureOmitted).toBeUndefined();
+    // The same contents listed with nothing pinned give the same listing, so the same snapshot and fingerprint.
+    const contents = new Map(kept.map(path => [path, Buffer.from("x")]));
+    expect(listedByLister(contents, ["zz-output.txt", "input.txt"])).toEqual(listedByLister(contents));
   }, 30_000);
 });

@@ -31239,3 +31239,46 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI on #69 and the orchestrator's review of the delta (de3adea, a502c87, 96de34f and this entry). Then #76 takes #69's head and re-pins in its own entry.
 
 References: BL-20261110-0625-correction-research-length-parser (corrected); BL-20261109-0442-research-request-shapes-implemented; this lane's second code review of de3adea, review data that is not committed.
+
+### BL-20261110-0712-correction-research-tolerance-repin -- 2026-11-10 -- Correction to BL-20261109-0552: 7a.1's protocol hash after #69's word-limit corrections are merged into it
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261109-0552-research-tolerance-implemented, backlog item 7(a), part 1, on its unmerged pull request #76. #76 builds on #69 (7(b), part 1). #69's merge-train review led to the word-limit corrections BL-20261110-0625 and BL-20261110-0709. The orchestrator asked for #76 to take them and re-pin. #76 takes them through a merge of #69's head 5e16e20 (commit 4a7b147), not a rebase, so its published history is not rewritten. The merge changes no 7a.1 code, test or decision. It changes the default research protocol hash that 0552 records, because the hash binds 7(b)'s clause guards as well as 7a.1's policies.
+
+Decisions:
+(1) **The hash.** 0552 recorded f03119bfd0c7d37adf12155453f9530d1281ae9ead60019b97e9b95e2ca0f413, computed on 7b.1's head 5401d0f. On #69's corrected head (protocol 925433f9ba8e9c531b51150b769b6bec382331b6d0824d37d151d1f9fdfbea88) the same 7a.1 code gives 679e623f02795ec66f06349af4bde5ff8db83fd1d5054465c1da492d6847d3f5. The merge commit re-pins it in tests/helpers/research-protocol-pin.ts. 7a.1's own commits keep their pins, which hold on their own base. The consequences are 0552's, now for the new value:
+- every earlier serving card's P10 structured-output evidence is invalidated (`serving_card_p10_protocol_drift`), as SC's contract requires; none exists, because E0 has not run;
+- run directories and paused sessions from any earlier protocol are refused or drift; none exists;
+- no loop may span the change, and none is in flight.
+(2) **The ledger order.** The ledger validator requires IDs that never move backward. In #76's file, 7a.1's entries BL-20261109-0447 and BL-20261109-0552 come before #69's BL-20261110-0625 and BL-20261110-0709, in ID order, and this entry follows them. The log is append-only relative to main and relative to #76's previous head 18655e5. It is not append-only relative to #69's head, because 0447 and 0552 sit before #69's last entries. On the orchestrator's decision of 2026-11-10, #76's pull request base is therefore main. The committed entries 0334, 0442, 0447, 0552, 0625 and 0709 keep their bytes and IDs; only their order in this file and this entry are new.
+(3) **A merge, not a rebase.** A rebase of #76 onto #69 was prepared first. Publishing it needed a force-push, which this session's permission policy refused. The merge gives the same tree without rewriting #76's history:
+- the 7a.1 commits are those reachable from #76's head but not from #69's head, `git log 5e16e20..HEAD`;
+- 4a7b147 is the merge;
+- this entry's commit follows it.
+(4) Nothing else in 0447 or 0552 changes. Their decisions, tests and limitations stand, and their entries are not edited.
+
+Changes: Merge commit 4a7b147 and this entry's commit on `feat/7a.1-research-tolerance`:
+- docs/BUILD_LOG.md: 7a.1's two entries kept before #69's two corrections, and this entry;
+- tests/helpers/research-protocol-pin.ts: the pin and its history comment.
+
+The merge also brings #69's own changes: research-admission.ts, its test, the pipeline test and the two correction entries.
+
+Evidence: At 4a7b147, run locally:
+- **Checks.** `pnpm typecheck` passes, and so does `pnpm validate:readiness`.
+- **Full suite.** `pnpm exec vitest run`: 167 files passed and 13 skipped; 2,725 tests passed, 0 failed and 84 skipped.
+- **Research suites.** The research, role-schema-export, serving-probe-helpers, planner-fixture, assess-probe-replies and local-screen suites pass: 15 files, 216 tests.
+- **Ledger.** `pnpm --silent validate:build-log -- --base-ref origin/main` passes with this entry appended.
+  - Byte for byte, by sha256 of each entry's text: 0334, 0442, 0447 and 0552 match their committed text at 18655e5, and 0625 and 0709 match #69's at 5e16e20.
+  - The tail runs 1649, 0334, 0442, 0447, 0552, 0625, 0709, 0712.
+  - The file starts with both main's log and 18655e5's.
+
+Failures or blockers: None. The force-push the rebase needed was refused, and the merge replaced it. The second-round review of #76 at 18655e5 is still running and may require another round on this branch.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint. Every limitation of 0447 and 0552 stands. #76's pull request now contains #69's commits, and the 7a.1 commits are those `git log 5e16e20..HEAD` lists.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of the delta (4a7b147 and this entry), CI on #76 against main, then the merge train after #69.
+
+References: BL-20261109-0552-research-tolerance-implemented (corrected); BL-20261109-0447-research-tolerance-design; BL-20261110-0625-correction-research-length-parser; BL-20261110-0709-correction-research-length-parser-exclusions; BL-20261109-0442-research-request-shapes-implemented.

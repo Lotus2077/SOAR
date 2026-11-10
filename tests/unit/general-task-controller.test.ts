@@ -1,11 +1,11 @@
 import Database from "better-sqlite3";
 import { randomUUID } from "node:crypto";
-import { mkdtempSync, writeFileSync, symlinkSync, linkSync, rmSync, renameSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync, symlinkSync, linkSync, rmSync, renameSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GeneralTaskController, VERDICT_RECEIPT_KEYS, type GeneralTaskControllerOptions } from "../../src/main/general-tasks/controller";
+import { GENERAL_TASK_LIMITS, GeneralTaskController, VERDICT_RECEIPT_KEYS, type GeneralTaskControllerOptions } from "../../src/main/general-tasks/controller";
 import type { SoarConfig } from "../../src/main/config";
 import { canonical, digest, contextFingerprint } from "../../src/main/private-agent/contracts";
 import { GeneralAgentRunner, type GeneralJobOptions } from "../../src/main/private-agent/runner";
@@ -1035,5 +1035,198 @@ describe("desktop general-task host controller", () => {
       modelCalls: 1, inputTokens: 620, lengthStops: 1, usd: 0, cloudModel: null, cloudApi: null, criticalChecks: null, lesson: "unit", profile: "standard", thinking: "disabled" });
     expect(row).not.toHaveProperty("taskId"); expect(row).not.toHaveProperty("verdict"); expect(row.git).toMatch(/^[a-f0-9]{12}$/u);
     for (const secret of ["Make a small report", "source.csv", f.root, "127.0.0.1"]) expect(JSON.stringify(row)).not.toContain(secret);
+  });
+
+  // Backlog item 6, finding A6 (BL-20261109-0336-desktop-resume-reasons-design): each run's own reason is kept and classified. Appended,
+  // so the line numbers other briefs cite above stay valid.
+  const GENERIC_INCOMPLETE = "The task stopped without a verified structural submission. Saved progress is retained.";
+  /** The first execution stops with `reason` after one closed model call and a saved checkpoint; every later one is the fixture's own. */
+  function stopOnce(f: ReturnType<typeof fixture>, reason: string, thrown?: Error) {
+    const original = f.options.testing!.runnerFactory!; let stopped = false;
+    f.options.testing!.runnerFactory = args => stopped ? original(args) : { pause() {}, cancel() {}, async run() {
+      stopped = true; f.executions.push(args);
+      const { store, jobId, contextId, checkpoints } = args, operationId = `stop_${f.executions.length}`;
+      store.append(jobId, { type: "model_started", contextId, operationId, promptProtocolSha256: digest("fixture-protocol") });
+      store.append(jobId, { type: "model_finished", contextId, operationId, finishReason: "stop", usage: null });
+      const snapshot = checkpoints.save([...args.files, { path: args.contract.requiredArtifacts[0]!.path, bytes: Buffer.from("saved partial artifact") }]);
+      store.append(jobId, { type: "checkpoint", contextId, snapshot, sha256: checkpoints.fingerprint(snapshot) });
+      store.append(jobId, { type: "run_ended", contextId, cleanupConfirmed: true, elapsedMs: 12 });
+      if (thrown) throw thrown;
+      return { status: "incomplete", reason, snapshot, checks: [], modelCalls: 1 };
+    } };
+  }
+  const storedRecord = (f: ReturnType<typeof fixture>, id: string) => JSON.parse((f.db.prepare("SELECT value FROM general_tasks WHERE id=?").get(id) as { value: string }).value) as Record<string, unknown>;
+  const rewriteRecord = (f: ReturnType<typeof fixture>, id: string, change: Record<string, unknown>) =>
+    f.db.prepare("UPDATE general_tasks SET value=? WHERE id=?").run(canonical({ ...storedRecord(f, id), ...change }), id);
+  it.each([
+    ["runtime_failure_progress_preserved", "execution runtime failed", true], ["execution_context_unavailable", "could not be prepared", true],
+    ["cleanup_required", "could not be confirmed", false], ["orphan_cleanup_required", "could not be cleaned up", false],
+    ["job_context_busy", "Another process still holds", false], ["cancelled_or_deadline", "cancellation or time check", true],
+    ["model_output_incomplete", "cut at the output limit", true], ["one_complete_tool_action_required", "exactly one tool action", true],
+    ["job_already_completed", GENERIC_INCOMPLETE, false],
+  ] as const)("backlog item 6: keeps %s, offers Resume with a true text after reopening, and resumes to a submission", async (reason, text, settled) => {
+    const f = fixture(); stopOnce(f, reason);
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    expect(storedRecord(f, task.id).reason).toBe(reason);
+    const stopped = f.controller.get(task.id);
+    expect(stopped).toMatchObject({ status: "incomplete", canResume: true, modelCalls: 1 });
+    expect(stopped.reason).toContain(text); expect(stopped.reason).not.toContain("_");
+    // Only a stop whose execution context is confirmed says that nothing is uncertain; a cleanup or claim stop makes no such claim.
+    if (settled) expect(stopped.reason).toContain("no request or action is uncertain"); else expect(stopped.reason).not.toContain("uncertain");
+    await f.controller.close();
+    const reopened = new GeneralTaskController(f.options); cleanup.push(() => reopened.close());
+    expect(reopened.get(task.id)).toMatchObject({ reason: stopped.reason, canResume: true });
+    reopened.resume(task.id); await reopened.wait(task.id);
+    expect(reopened.get(task.id)).toMatchObject({ status: "submitted", canResume: false });
+    expect(f.executions).toHaveLength(2);
+  });
+  it.each([
+    ["runtime_contract_drift", GENERIC_INCOMPLETE], ["checkpoint_identity_mismatch", GENERIC_INCOMPLETE], ["host_validation_not_replayed", GENERIC_INCOMPLETE],
+    ["repeated_incomplete_tool_arguments_at_output_limit", GENERIC_INCOMPLETE], ["duplicate_tool_call_id", GENERIC_INCOMPLETE],
+    ["bounded_allowance_exhausted", GENERIC_INCOMPLETE], ["consultation_budget_unavailable", GENERIC_INCOMPLETE],
+    ["public_source_retention_or_text_failed", GENERIC_INCOMPLETE], ["research_stage_not_replayed", GENERIC_INCOMPLETE],
+    ["research_request_denied", GENERIC_INCOMPLETE], ["session_contract_drift", GENERIC_INCOMPLETE], ["unresolved_dispatch_no_replay", GENERIC_INCOMPLETE],
+    ["cancelled_before_completion", GENERIC_INCOMPLETE], ["deadline_before_completion", GENERIC_INCOMPLETE], ["public_session_stopped", GENERIC_INCOMPLETE],
+    ["a_reason_no_pull_request_classified", GENERIC_INCOMPLETE], ["constructor", GENERIC_INCOMPLETE],
+    ["deadline_before_request", "The time left was shorter"], ["model_request_denied", "The broker refused"],
+  ] as const)("backlog item 6: keeps the terminal %s and refuses to resume it after reopening", async (reason, text) => {
+    const f = fixture(); stopOnce(f, reason);
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    expect(storedRecord(f, task.id).reason).toBe(reason);
+    const stopped = f.controller.get(task.id);
+    expect(stopped).toMatchObject({ status: "incomplete", canResume: false }); expect(stopped.reason).toContain(text);
+    await f.controller.close();
+    const reopened = new GeneralTaskController(f.options); cleanup.push(() => reopened.close());
+    expect(reopened.get(task.id)).toMatchObject({ reason: stopped.reason, canResume: false });
+    expect(() => reopened.resume(task.id)).toThrow("general_task_resume_denied");
+    expect(f.executions).toHaveLength(1);
+  });
+  it("backlog item 6: stores a non-code reason, and a submission the controller could not confirm, as the legacy incomplete; a legacy record stays terminal", async () => {
+    const f = fixture(); stopOnce(f, "Free Text, not a code");
+    const odd = f.create(); f.controller.start(odd.id); await f.controller.wait(odd.id);
+    expect(storedRecord(f, odd.id).reason).toBe("incomplete");
+    expect(f.controller.get(odd.id)).toMatchObject({ status: "incomplete", canResume: false, reason: GENERIC_INCOMPLETE });
+    // The session submitted, but the run's cleanup was never confirmed, so the controller records the task incomplete, as before.
+    const unconfirmed = fixture(false), held = unconfirmed.create(); unconfirmed.controller.start(held.id); await unconfirmed.controller.wait(held.id);
+    expect(storedRecord(unconfirmed, held.id)).toMatchObject({ status: "incomplete", reason: "incomplete" });
+    expect(unconfirmed.controller.get(held.id).canResume).toBe(false);
+    // A record written before item 6 kept the bare status: it stays terminal even where its run's reason was transient.
+    stopOnce(f, "model_unavailable");
+    const legacy = f.create(); f.controller.start(legacy.id); await f.controller.wait(legacy.id);
+    expect(f.controller.get(legacy.id).canResume).toBe(true);
+    rewriteRecord(f, legacy.id, { reason: "incomplete" });
+    expect(f.controller.get(legacy.id)).toMatchObject({ canResume: false, reason: GENERIC_INCOMPLETE });
+    expect(() => f.controller.resume(legacy.id)).toThrow("general_task_resume_denied");
+  });
+  it("backlog item 6: keeps a newly resumable stop behind an unknown row of the writer's context and behind a spent allowance", async () => {
+    const f = fixture(); stopOnce(f, "runtime_failure_progress_preserved");
+    const task = f.create(); f.controller.start(task.id); await f.controller.wait(task.id);
+    expect(f.controller.get(task.id).canResume).toBe(true);
+    const args = f.executions[0]!;
+    const { text: _packet, ...preview } = args.broker.preview({ jobId: task.id, contextId: args.contextId, destinationId: "desktop_local", purpose: "agent reasoning and tool selection", method: "POST", body: "{}", maxFeeMicrousd: 0 });
+    args.store.unknown(args.store.commit({ ...preview, reservedFeeMicrousd: 0, scan: { status: "not_required_for_synthetic_local_test" } }, () => {}).id);
+    const blocked = f.controller.get(task.id);
+    expect(blocked.canResume).toBe(false); expect(blocked.reason).toContain("uncertain outcome");
+    expect(() => f.controller.resume(task.id)).toThrow("general_task_resume_denied");
+    // The model allowance spent: the text still holds, and no Resume is offered.
+    stopOnce(f, "model_output_incomplete");
+    const spent = f.create(); f.controller.start(spent.id); await f.controller.wait(spent.id);
+    const context = f.executions[1]!.contextId;
+    for (let i = 1; i < GENERAL_TASK_LIMITS.modelCalls; i++) {
+      f.executions[1]!.store.append(spent.id, { type: "model_started", contextId: context, operationId: `spent_${i}` });
+      f.executions[1]!.store.append(spent.id, { type: "model_finished", contextId: context, operationId: `spent_${i}` });
+    }
+    expect(f.controller.get(spent.id)).toMatchObject({ canResume: false, modelCalls: GENERAL_TASK_LIMITS.modelCalls });
+    expect(f.controller.get(spent.id).reason).toContain("cut at the output limit");
+    expect(f.executions).toHaveLength(2);
+  });
+  it("backlog item 6: records runtime_unavailable as resumable when the runtime is down on resume, and resumes once it is back", async () => {
+    const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1)); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
+    expect(f.controller.get(task.id).status).toBe("paused");
+    f.options.testing!.readiness = async () => { throw new Error("synthetic docker unavailable"); }; f.resetPaused();
+    f.controller.resume(task.id); await f.controller.wait(task.id);
+    expect(storedRecord(f, task.id).reason).toBe("runtime_unavailable");
+    expect(f.controller.get(task.id)).toMatchObject({ status: "incomplete", canResume: true,
+      reason: "The local execution runtime is unavailable. Check the configured model and pinned Docker image." });
+    expect(f.executions).toHaveLength(1);
+    f.options.testing!.readiness = async () => {};
+    await f.controller.close();
+    const reopened = new GeneralTaskController(f.options); cleanup.push(() => reopened.close());
+    reopened.resume(task.id); await reopened.wait(task.id);
+    expect(reopened.get(task.id)).toMatchObject({ status: "submitted" }); expect(f.executions).toHaveLength(2);
+  });
+  it.each(["input", "storage", "checkpoint", "resized blob", "linked directory", "missing blob", "missing storage"] as const)("backlog item 6: ends a task whose stored %s fails its integrity check as the terminal task_integrity_failed", async kind => {
+    const f = fixture(), task = f.create();
+    if (kind === "input") rewriteRecord(f, task.id, { attestationIdentity: digest("another attestation") });
+    else if (kind === "storage") {
+      const checkpoints = join(f.root, "tasks", "checkpoints");
+      // A replaced directory: storageUnchanged() refuses its new inode before any read.
+      renameSync(checkpoints, `${checkpoints}-moved`); mkdirSync(checkpoints);
+    } else if (kind === "checkpoint") writeFileSync(join(f.root, "tasks", "checkpoints", task.id, task.inputs[0]!.sha256), "value\n22\n");
+    // checkpoint_file_invalid: the blob's size no longer matches its record.
+    else if (kind === "resized blob") writeFileSync(join(f.root, "tasks", "checkpoints", task.id, task.inputs[0]!.sha256), "value\n2\n");
+    // checkpoint_directory_invalid: the task's own checkpoint directory is a symlink.
+    else if (kind === "linked directory") {
+      const own = join(f.root, "tasks", "checkpoints", task.id); renameSync(own, `${own}-real`); symlinkSync(`${own}-real`, own);
+    }
+    // A missing file or directory under the task storage root is lost storage, never a transient runtime failure.
+    else if (kind === "missing blob") rmSync(join(f.root, "tasks", "checkpoints", task.id, task.inputs[0]!.sha256));
+    else rmSync(join(f.root, "tasks", "checkpoints"), { recursive: true, force: true });
+    f.controller.start(task.id); await f.controller.wait(task.id);
+    expect(storedRecord(f, task.id).reason).toBe("task_integrity_failed");
+    const ended = f.controller.get(task.id);
+    expect(ended).toMatchObject({ status: "incomplete", canResume: false });
+    expect(ended.reason).toContain("cannot resume"); expect(ended.reason).not.toContain("uncertain"); expect(ended.reason).not.toContain("retained");
+    expect(() => f.controller.resume(task.id)).toThrow("general_task_resume_denied");
+    expect(f.executions).toHaveLength(0);
+  });
+  it("backlog item 6: keeps a cancelled task cancelled when its start then fails with a resumable reason", async () => {
+    const f = fixture(); let fail!: () => void;
+    f.options.testing!.readiness = () => new Promise<void>((_, no) => { fail = () => no(new Error("synthetic docker unavailable")); });
+    const task = f.create(); f.controller.start(task.id); f.controller.cancel(task.id); fail(); await f.controller.wait(task.id);
+    expect(storedRecord(f, task.id)).toMatchObject({ status: "cancelled", reason: "runtime_unavailable" });
+    expect(f.controller.get(task.id)).toMatchObject({ status: "cancelled", canResume: false });
+    expect(() => f.controller.resume(task.id)).toThrow("general_task_resume_denied"); expect(f.executions).toEqual([]);
+  });
+  it("backlog item 6: records a code the session threw as itself, terminal, and anything else as runtime_unavailable", async () => {
+    const f = fixture(); stopOnce(f, "unused", new Error("session_completed_snapshot_drift"));
+    const drifted = f.create(); f.controller.start(drifted.id); await f.controller.wait(drifted.id);
+    expect(storedRecord(f, drifted.id).reason).toBe("session_completed_snapshot_drift");
+    expect(f.controller.get(drifted.id)).toMatchObject({ status: "incomplete", canResume: false, reason: GENERIC_INCOMPLETE });
+    // The runner's refusal of its own contract when it is built is kept as itself and is terminal.
+    stopOnce(f, "unused", new Error("general_job_contract_invalid"));
+    const refused = f.create(); f.controller.start(refused.id); await f.controller.wait(refused.id);
+    expect(storedRecord(f, refused.id).reason).toBe("general_job_contract_invalid");
+    expect(f.controller.get(refused.id)).toMatchObject({ status: "incomplete", canResume: false, reason: GENERIC_INCOMPLETE });
+    stopOnce(f, "unused", new Error("Synthetic transport failure"));
+    const transient = f.create(); f.controller.start(transient.id); await f.controller.wait(transient.id);
+    expect(storedRecord(f, transient.id).reason).toBe("runtime_unavailable");
+    expect(f.controller.get(transient.id).canResume).toBe(true);
+  });
+  it("backlog item 6: keeps a paused task whose run ended while the configuration changed for launch() to decide, as before", async () => {
+    const f = fixture(), task = f.create(); f.hold(); f.controller.start(task.id);
+    await vi.waitFor(() => expect(f.executions).toHaveLength(1));
+    f.changeRuntime(); f.controller.pause(task.id); f.release(); await f.controller.wait(task.id);
+    expect(storedRecord(f, task.id)).toMatchObject({ status: "paused", reason: "configuration_changed" });
+    expect(f.controller.get(task.id)).toMatchObject({ status: "paused", canResume: true, reason: "The runtime or model configuration changed. Create a new task." });
+    expect(() => f.controller.resume(task.id)).toThrow("general_task_configuration_changed"); expect(f.executions).toHaveLength(1);
+  });
+  it("backlog item 6: shows a finalising task past its deadline as paused, not stopped by the time limit, since it still resumes", async () => {
+    const f = fixture();
+    const paused = f.controller.create({ goal: "Summarize the source.", inputSelectionId: f.controller.selectInputs([f.input]).id, outputName: "memo.md", publicOrSynthetic: true,
+      publicSources: { urls: ["https://public.example.test/facts"], allowPublicRetrieval: true, dnsResolver: "system" } });
+    let calls = 0;
+    vi.spyOn(PrivateAgentModel.prototype, "complete").mockImplementation(async () => {
+      calls++; if (calls === 1) f.controller.pause(paused.id);
+      return { content: '{"verdict":"supported"}', toolCalls: [], finishReason: "stop", costUsd: 0, durationMs: 1 };
+    });
+    f.controller.start(paused.id); await f.controller.wait(paused.id);
+    expect(f.controller.get(paused.id)).toMatchObject({ status: "paused", canResume: true });
+    // Past the wall budget only submission and the evidence pass remain, which no deadline gates.
+    vi.spyOn(Date, "now").mockReturnValue(Date.now() + GENERAL_TASK_LIMITS.elapsedMs + 1);
+    expect(f.controller.get(paused.id)).toMatchObject({ status: "paused", canResume: true, reason: "Paused with progress saved." });
+    f.controller.resume(paused.id); await f.controller.wait(paused.id);
+    expect(f.controller.get(paused.id)).toMatchObject({ status: "submitted", entailment: { truncated: false, counts: { supported: 2 } } });
   });
 });

@@ -30743,6 +30743,128 @@ References:
 - BL-20261101-0428-h4-completion-v2-interrupted, BL-20261101-1106-h4-runner-fixes-stopped and BL-20261101-2044-writer-completion-stopped (the synthesis cap hits).
 
 
+### BL-20261109-0336-desktop-resume-reasons-design -- 2026-11-09 -- Backlog item 6, part 1 (finding A6) decided: desktop tasks keep each run's stop reason, one table classifies every reason, transient stops resume, and integrity failures end a new terminal `task_integrity_failed`
+
+Status: `Proposed`
+
+Scope or hypothesis: This is the decision entry for the first of two pull requests for backlog item 6 of docs/PROJECT_REVIEW_2026-11-05.md section 5.7 (finding A6); finding A7 is the second pull request, stacked on this one. It is plan ID 6.1 of lane S-desk. It is recorded before its code because it changes a persisted contract, the desktop task record's `reason`. It is based on `main` at 2982ca7. It is zero-fee code with deterministic tests and no endpoint, so it needs no approval under PLAN.md section 4(c), and the implementation follows in the same pull request.
+
+Finding A6, re-read at 2982ca7:
+- execute() in src/main/general-tasks/controller.ts (lines 651-655) keeps `consultation_pending` and the size, fee-cap and token-admission stops for every status, and five named reasons for an incomplete record. Every other run reason is stored as the bare status `incomplete`.
+- canResume (lines 499-501) resumes a paused task, or an incomplete one only when its reason is `interrupted`, `model_unavailable`, `public_model_unavailable` or `packet_scan_unavailable`.
+- The catch (lines 656-658) records `general_task_configuration_changed` as `configuration_changed` and every other exception on start or resume (Docker down, for example) as `runtime_unavailable`, which is not resumable.
+
+Hypothesis: with each run's own reason kept and classified, a desktop task stopped by a transient cause offers Resume and resumes, and a task stopped by a cause that every run repeats does not, except where the limitations below say so. Nothing a resume could replay becomes resumable, because every guard in front of the classification is unchanged.
+
+Decisions:
+
+(1) Reading of the review's rule. Section 5.7 item 6 says "every reason without an unresolved dispatch is resumable; `runtime_unavailable` stays resumable". The first half is read as "every such reason that a later run could change". The guards that block a resume today stay in front of the classification, unchanged: the app is not closing and the task is not active; no blocking unknown row, open operation or uncertain consultation (`uncertain()`); no size, fee-cap, token-admission or execution-progress marker; the model and tool allowance and the wall deadline, both waived together once the private phase has completed (`finalising`); no pending consultation, and no approved one without two model calls left. One guard is added: a version 3 task whose approved consultation request failed with a confirmed outcome offers no Resume, with its own text. A consultation is attempted at most once (consultation.ts), so every resume of such a task would stop at once.
+
+(2) The table. A new module, src/main/general-tasks/run-reasons.ts, classifies every reason as `resumable`, `terminal` or `not_a_stop`. It reads an exact entry first, then the terminal rules (every `research_*`, `session_*` and `unresolved_*` reason, and every `*_before_completion` reason), then a `public_` form, which takes the class of the reason it prefixes (a two-phase session's public phase; the desktop runs none). Anything it does not classify, the legacy `incomplete`, and any value without the code shape are terminal.
+- Resumable, as today: `interrupted`, `paused`, `consultation_pending`, `consultation_ready`, `model_unavailable` (and so `public_model_unavailable`) and `packet_scan_unavailable`.
+- Resumable, new: `runtime_unavailable`, `runtime_failure_progress_preserved`, `execution_context_unavailable`, `cleanup_required`, `orphan_cleanup_required`, `job_context_busy`, `job_already_completed` (unreachable through the session, which returns an earlier completion first), `cancelled_or_deadline`, `model_output_incomplete` and `one_complete_tool_action_required`, and the runner's paused reason `checkpoint_saved` (never stored, since a paused record keeps `paused`).
+- For desktop resumability this supersedes BL-20261006-1008's description of `one_complete_tool_action_required` as terminal, and its `model_output_incomplete` stop. The runner still ends the run there. A resume rebuilds both streaks from the recorded nudges (runner.ts; tested since BL-20261006-1055), so each resume allows exactly one more model call. The original entry stays.
+- Terminal, decided by earlier entries: `request_body_size_exceeded`, `fee_cap_reached`, `local_token_admission_denied`, `deadline_before_request`, `model_request_denied`, `repeated_identical_execution_failure` and `configuration_changed`.
+- Terminal, because the wall time is spent: the controller's own `deadline`.
+- Terminal, because a later run repeats them: `runtime_contract_drift`, `checkpoint_identity_mismatch`, `host_validation_not_replayed`, `repeated_incomplete_tool_arguments_at_output_limit`, `duplicate_tool_call_id`, `bounded_allowance_exhausted`, `consultation_budget_unavailable`, `consultation_response_missing_no_replay`, the new `task_integrity_failed`, and the families the terminal rules name.
+- Terminal for other reasons: `public_source_retention_or_text_failed`, which leaves an open operation, so the task is uncertain anyway; `public_retrieval_receipt_missing`, which needs a public phase; and `cancelled`, `cleanup_in_progress` and `cleanup_blocked`, because the task has already ended.
+- Not a stop: `queued`, `running`, `submitted`, `critical_checks_passed`, `critical_checks_passed_at_allowance`, `research_packet_ready` and `independent_acceptance_pending`.
+- The projection's own keys (`interrupted_unknown`, `consultation_uncertain` and the new `consultation_failed`) are never stored.
+
+A pull request that adds a reason classifies it in run-reasons.ts, in that pull request. The contract test is tests/unit/general-task-run-reasons.test.ts, over an inventory in tests/helpers/run-reason-scan.ts. The inventory parses runner.ts, research-pipeline.ts, session.ts and controller.ts with the pinned `@babel/parser` devDependency and lists every reason they can produce:
+- string literals and both branches of a conditional, never its condition;
+- constants, resolved from their declarations in src/main/private-agent, so runner.ts and the source freeze stay unchanged;
+- the session's local reason helper and its phase-result object literals;
+- the explicit pass-throughs: `outcome.reason`, `privateResult.reason`, the `public_` template over `publicResult.reason`, and the controller's `next.status` and its two helper calls.
+
+Any other computed form fails the scan. The test fails on any reason that no exact entry or rule classifies, on a completion reason not classed `not_a_stop`, on a stop classed `not_a_stop`, and on an exact resumable entry that a terminal rule would also cover. Another item that keeps its own copy of these codes can assert against the same inventory.
+
+(3) The record. An incomplete record keeps the run's own reason when it matches `^[a-z][a-z0-9_]{0,95}$` and is a stop. Otherwise it keeps `incomplete`, as before: for a value without the code shape, for a projection key, and for a submitted session result that the controller recorded incomplete (cleanup unconfirmed, something uncertain or no `session_submitted`), whose `independent_acceptance_pending` is no stop of its own. Everything else maps as today: the configuration change, `consultation_pending` and the size, fee-cap and token-admission stops for every status, and the status itself as the reason of a paused, submitted or cancelled record. The record's version (1, 2 or 3), its shape and `record()` validation are unchanged.
+
+(4) The catch. A start or resume that throws records:
+- `configuration_changed` for `general_task_configuration_changed`, as today;
+- the new terminal `task_integrity_failed` for the controller's integrity checks (`general_task_input_changed`, `general_task_storage_changed` and `general_task_context_changed`) and for the checkpoint store's refusals of a stored file (`checkpoint_digest_mismatch`, `checkpoint_file_invalid`, `checkpoint_path_invalid`, `checkpoint_size_exceeded` and `checkpoint_directory_invalid`);
+- a code-shaped `session_*` or `research_*` message that the session threw, other than `session_already_running`, recorded as itself and terminal by its prefix. Every run repeats these codes (a drifted completion snapshot, an invalid phase, a producer mismatch), and a completed record would otherwise offer Resume past its deadline, since `finalising` waives the deadline;
+- `runtime_unavailable` for anything else (Docker down, the model or image missing, a failed checkpoint write, a database error), now resumable.
+
+This corrects the lane brief, which also listed `general_task_record_invalid`: it and `general_task_missing` can never be recorded, because the catch re-reads the record before saving it and that read throws the same error. A `general_task_context_changed` task is never displayed, because get() throws on it first. `general_task_storage_changed` is terminal as a deliberate, conservative choice, even though an app restart re-captures the directories, because the stored data's integrity cannot be confirmed. A version 3 consultation runs `validateCurrent()` inside the runner, so its integrity errors are recorded `runtime_failure_progress_preserved`. The next resume then ends `task_integrity_failed` at the controller's own check, with zero dispatches.
+
+(5) canResume applies the table to an incomplete record in place of today's list. A paused record keeps today's rule. In particular, a paused record whose run ended while the configuration identity changed still offers Resume: launch() refuses it while the change persists and accepts it once the owner reverts the setting (controller.ts; BL-20261025-0939-h2a-vllm-cache-salt-implemented).
+
+(6) Texts. There are new fixed texts for `runtime_failure_progress_preserved`, `execution_context_unavailable`, `cleanup_required`, `orphan_cleanup_required`, `job_context_busy`, `cancelled_or_deadline`, `model_output_incomplete`, `one_complete_tool_action_required`, `task_integrity_failed` and `consultation_failed`. None is added for `checkpoint_saved` or `job_already_completed`, which are never shown. Every new text obeys three rules:
+- It stays true without a Resume, which the allowance, the deadline or a closing app can still withhold.
+- It claims certainty only where it holds. A reason's text is shown only when no request or action is uncertain. The texts for the cleanup and claim stops say that cleanup or the claim is unconfirmed and that a resume sends nothing until it is confirmed. `task_integrity_failed`'s text claims no certainty, because the catch can write it onto a cancelled record.
+- It contains no underscore, because the renderer turns underscores into spaces.
+
+Every existing text stays byte-identical, `runtime_unavailable`'s included, because a cancelled record can show it. The text lookup reads own keys only (`Object.hasOwn`), so a reason such as `constructor` never resolves through `Object.prototype`. A finalising task past its deadline no longer shows "The task reached its time limit." while it still offers Resume: the deadline projection now requires that the private phase has not completed.
+
+(7) Version 3 tasks (with a consultant) project the wall time since the start as their elapsed time. The clock now stays live for every incomplete record with a resumable reason, as it already did for `interrupted`; paused records were already live. It keys on the class, not on canResume. So a record whose resume is withheld (by uncertainty or the allowance, say) counts up to the budget cap, as an interrupted one does today, and existing version 3 `model_unavailable` and `packet_scan_unavailable` records change from a stopped clock to a live one. A terminal incomplete record's clock stops at its last update, as before.
+
+Changes: Planned in this pull request:
+- src/main/general-tasks/run-reasons.ts (new): the table, the rules, the shape check, `classifiedRunReason`, `runReasonClass`, `isResumableRunReason`, `storedRunReason` and `caughtRunReason`.
+- src/main/general-tasks/controller.ts: execute()'s reason mapping and catch, canResume, the failed-consultation guard, the projection, the fixed texts and the version 3 clock.
+- tests/helpers/run-reason-scan.ts (new) and tests/unit/general-task-run-reasons.test.ts (new): the inventory and the contract test.
+- tests/unit/general-task-controller.test.ts, with the cases appended so that line numbers other briefs cite stay valid:
+  - each newly resumable reason offers Resume with its text after reopening and resumes to a submission;
+  - each terminal reason, a `public_` form and an unclassified reason refuse Resume after reopening, with no second execution;
+  - a non-code reason, and a submission whose cleanup was unconfirmed, are stored as `incomplete`, and a legacy `incomplete` record stays terminal;
+  - a newly resumable reason with an unknown row of the writer's context reads as uncertain, and one with the allowance spent offers no Resume;
+  - readiness failing on resume gives a resumable `runtime_unavailable`, which submits once readiness is back;
+  - an input, storage or checkpoint mismatch gives `task_integrity_failed`, and a thrown session code is kept as itself;
+  - a paused `configuration_changed` record keeps today's behaviour;
+  - a finalising task past its deadline reads as paused.
+- tests/unit/general-task-consultation-controller.test.ts: the version 3 clock stays live for `runtime_unavailable`, and a failed consultation offers no Resume.
+- tests/e2e/general-task-progress.spec.ts: the stored reason of the blocked-command case is now `repeated_identical_execution_failure` rather than `incomplete`. The projection still checks the verified marker first, and a missing or forged marker still reads as uncertain. The spec is Docker-gated and skipped in CI. docs/MVP_EXECUTION_PROGRESS_REPORT.md stays the historical account of the September run, when the record kept the generic status.
+
+Unchanged:
+- the GeneralTaskSnapshot shape, the IPC channels and the renderer;
+- dispatch semantics, the broker and the store;
+- every event schema (no new event);
+- the session, the runner and the pipeline, with their identities and hashes (promptProtocolSha256, researchProtocolSha256, and the identity and tool-error golden pins);
+- the private-agent source freeze (scripts/private-agent-local-screen.ts), which covers no file under src/main/general-tasks/;
+- the verdict receipt, whose `terminalCause` reads `record.reason` only for submitted tasks, whose reason stays `submitted`.
+
+Owner questions, each with the proposed default this pull request implements. None of the open owner decisions in review section 5.10 blocks item 6.
+- Q1. Is "every reason without an unresolved dispatch is resumable" to be read as "every such reason a later run could change"? Proposed default: yes, as classified in (2). This keeps the stops earlier entries decided terminal, except BL-20261006-1008's model-behaviour stops for desktop resumability, as (2) records. A resume of `model_output_incomplete` or `one_complete_tool_action_required` spends one more model call within the task's allowance, at zero fee.
+- Q2. Section 5.7 already says `runtime_unavailable` stays resumable. This question only confirms the rule's known cost: should Resume stay offered for every cause outside the integrity checks and the session's own codes, even one that recurs (a missing input blob, a full disk)? Proposed default: yes. Such resumes are futile but zero-fee, and each recurs before it reaches the model, except a recurring capture failure.
+- The brief's other item 6 question (whether a pause, an app quit or a crash during the research stage ends the task as incomplete and not resumable) is recorded in 6.2's entry.
+
+Evidence: The design was reviewed before this commit through three adversarial lenses: ledger and replay safety; downstream consumers and tests; specification fidelity. They found no path where a resume replays an open operation, re-sends an unknown dispatch or re-sends a paid consultation. Their confirmed findings are applied above:
+- the certainty wording of the cleanup and claim stops;
+- the failed-consultation guard;
+- the checkpoint integrity codes;
+- the session's thrown codes;
+- dropping a paused-record change that would have removed the revert path;
+- the supersession of BL-20261006-1008;
+- the `public_` rule;
+- storing `incomplete` for a demoted submission;
+- the own-key text lookup;
+- the finalising-past-deadline projection;
+- the syntax-tree inventory;
+- the Docker-gated e2e assertion.
+
+A scratch copy of the planned code passed the planned unit cases. That run is not this entry's evidence; the `Implemented` entry records the evidence.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- This entry decides; nothing is implemented or verified by it.
+- Futile resumes are always zero-fee, because the desktop requires `local_zero_cost`. They are zero-request only when the cause recurs before any dispatch. `model_output_incomplete` and `one_complete_tool_action_required` spend one model call per resume. A recurring capture failure recorded as `runtime_failure_progress_preserved` spends at least a model call and a tool action. A missing input blob (ENOENT) stays `runtime_unavailable`.
+- `cleanup_required` hides the run's real stop, because the runner returns it from its `finally` block. A resume first confirms the cleanup, then the runner's start checks re-derive the hidden stop from the history, at zero requests in every case but one: a hidden `duplicate_tool_call_id`, whose replayed conversation costs one model request that the server may reject (unverified for vLLM). A verified finish whose cleanup failed records no `completed` event, so a resume asks the model again, as an interrupted run does today.
+- decideConsultation overwrites any stored reason with `consultation_ready`, as it did before this change. A decision after a terminal stop therefore re-offers a Resume, which the runner ends at zero requests.
+- Records an earlier build wrote as `runtime_unavailable` become resumable by class. launch() refuses them with `general_task_configuration_changed` (the build changed the runtime identity), which leaves the record unchanged, so Resume stays offered until the task's wall budget passes (15 minutes under standard, 90 under heavy). Records the earlier build flattened to `incomplete` stay terminal.
+- Finding A7 is not addressed here. A pause during the research stage still reports `paused`, and its resume ends `research_stage_not_replayed`. The desktop runs no research stage before backlog item 13 (finding D7). The stacked pull request 6.2 decides A7.
+- Every app build changes the runtime identity, so a task paused under an earlier build still shows Resume until launch() refuses it. This is unchanged: checking the identity inside get() would hash the build on every 250 ms poll.
+- E5 runs on the owner's desktop build. If this ships during E5, E5's log should record the build, because it changes which stops offer Resume.
+- The e2e assertion is proved only by the owner's Docker-gated run: `SOAR_RUN_GENERAL_TASK_E2E=true SOAR_GENERAL_TASK_IMAGE_ID=<the installed image id> pnpm test:e2e tests/e2e/general-task-progress.spec.ts`.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation in this pull request and its `Implemented` entry, with green `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` and `pnpm validate:readiness`, the changed tests and the full `pnpm exec vitest run`. The identity and tool-error golden tests must pass untouched. Then review, CI and a merge per the merge train (controller.ts: 6.1, then 6.2, then 7d.C). If another entry merges first, this entry's ID is re-stamped after main's tail with a correction entry.
+
+References: docs/PROJECT_REVIEW_2026-11-05.md section 4 rows A6, A7 and D7, section 5.2 principle 5 and section 5.7 item 6; docs/HANDOFF.md "Start here"; BL-20261006-1008-box-checklist-and-phase1-start; BL-20261006-1055-phase1-pr-a-d-implemented; BL-20261025-0939-h2a-vllm-cache-salt-implemented; BL-20261107-0809-zero-fee-failures-resolve-design (decisions 4-6); BL-20261107-0839-assist-purpose-exception-design (decision 5); BL-20261107-0924-stop-bricking-tasks-design (decisions D and F, and its limitations); BL-20261107-1006-stop-bricking-tasks-review-corrections (decision 4); BL-20261108-0904-owner-verdict-capture-design; GitHub issue #46.
+
+
 ### BL-20261109-0416-correction-loop-protocol-2-rule-1-rows -- 2026-11-09 -- Correction: rule-1 loop rows carry `failedDispatches` 0 only for loops run after BL-20261101-0436, not for every rule-1 loop
 
 Status: `Implemented`
@@ -30898,6 +31020,76 @@ Next gate:
 - The design entry's three owner questions stay open with their defaults.
 
 References: BL-20261109-0334-research-request-shapes-design; BL-20261108-1649-serving-card-reader-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 4 rows D8, D9 and D13, section 5.2 and section 5.7 item 7.
+
+
+### BL-20261109-0459-desktop-resume-reasons-implemented -- 2026-11-09 -- Backlog item 6, part 1 (finding A6) implemented: the run-reasons table and its contract test, each run's own reason kept, transient stops resumable, `task_integrity_failed` (also for missing storage), the failed-consultation guard and the live version 3 clock
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry implements BL-20261109-0336-desktop-resume-reasons-design, with deterministic tests, in branch `fix/6.1-desktop-resume-reasons` (plan ID 6.1, lane S-desk), based on `main` at 2982ca7. The design commit is 2231b3f, the implementation commit d34a4b2 and the code-review corrections a49e4b1.
+
+Decisions: Two adversarial code reviews ran on d34a4b2: one on correctness and safety, one on the tests and the inventory, with mutation testing. They found no path where a resume replays an open operation, re-sends an unknown dispatch or re-sends a consultation, and no production bug. Their confirmed findings change three things the design entry stated. They are recorded here as superseding decisions; the design entry stays as written.
+
+(a) Missing storage. An ENOENT whose path lies under the task storage root is recorded as `task_integrity_failed`, terminal. This supersedes the design entry's limitation that "a missing input blob (ENOENT) stays `runtime_unavailable`". Under the design, a deleted checkpoint blob or a deleted checkpoints directory stayed resumable. On a finalising task, whose deadline `finalising` waives, Resume then stayed offered after the deadline, and every attempt failed at once. A missing path outside the root (the docker CLI, say) stays `runtime_unavailable`.
+
+(b) The runner's contract refusals when it is built are recorded as themselves and classified terminal in the table, beside the session's own codes, because every run repeats them. They are `general_job_contract_invalid`, `general_initial_evidence_missing`, `general_initial_evidence_context_invalid`, `general_session_deadline_invalid` and `general_public_fetch_limit_invalid`.
+
+(c) Texts.
+- `consultation_failed` no longer calls the outcome confirmed, because the consultation panel labels a failed request "uncertain". It says the request was attempted and did not succeed and that no Resume is offered. A revoke can still re-enable one, and nothing is re-sent.
+- `task_integrity_failed` no longer says saved progress is retained, since the saved progress may be what failed.
+- `runtime_failure_progress_preserved` says a resume starts again from the checkpoint, not that it continues from it.
+
+Changes:
+- src/main/general-tasks/run-reasons.ts (new):
+  - `RUN_REASONS`, the terminal prefixes and suffix, and the `public_` rule;
+  - `RUN_REASON_SHAPE`, `PROJECTION_ONLY_REASONS`, `TASK_INTEGRITY_ERRORS` and `RUNNER_CONTRACT_ERRORS`;
+  - `classifiedRunReason`, `runReasonClass`, `isResumableRunReason`, `storedRunReason` and `caughtRunReason(error, storageRoot)`.
+- src/main/general-tasks/controller.ts:
+  - execute() stores `storedRunReason(result.reason)` for an incomplete record, and the catch stores `caughtRunReason(error, this.root)`;
+  - canResume reads the table for incomplete records, plus the `consultationFailed` guard;
+  - the projection gains `consultation_failed` and reads `expired && !finalising`;
+  - the text lookup reads own keys only, and there are ten new texts;
+  - the version 3 clock is live for resumable incomplete records;
+  - four imports that are no longer used were dropped.
+- tests/helpers/run-reason-scan.ts (new): the inventory.
+  - It fails closed on a reason it cannot evaluate, on a stop object outside the result helpers, on a computed status or a shorthand reason, on an ambiguous or non-`const` constant, and on a computed reason assignment or a record spread.
+  - It reads `caughtRunReason`'s returns from its source.
+- tests/unit/general-task-run-reasons.test.ts (new), tests/unit/general-task-controller.test.ts (cases appended at the end), tests/unit/general-task-consultation-controller.test.ts (four cases), and tests/e2e/general-task-progress.spec.ts (one assertion).
+
+Evidence: At commit a49e4b1:
+- `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` (exit 0) and `pnpm validate:readiness` all pass.
+- The changed tests pass:
+  - tests/unit/general-task-run-reasons.test.ts: 5 of 5;
+  - tests/unit/general-task-controller.test.ts: 144 of 144;
+  - tests/unit/general-task-consultation-controller.test.ts: 22 of 22.
+
+  tests/unit/private-agent-identity-golden.test.ts and tests/unit/private-agent-tool-errors-golden.test.ts are untouched and pass, 4 of 4.
+- The full `pnpm exec vitest run`:
+  - 179 files: 165 passed, 13 skipped (the environment-gated suites, as before) and 1 failed;
+  - 2,808 tests: 2,723 passed, 84 skipped and 1 failed.
+
+  The failure is tests/unit/with-claude-key.test.ts, timing out at 5 s while other lanes' suites ran on this Mac; alone it passes 3 of 3. The baseline at 2982ca7 was 178 files and 2,757 tests (2,672 passed, 84 skipped, and the same file timing out under load). The 51 new tests account for the difference.
+- Mutation checks:
+  - The code review's tests reviewer ran 77 production mutations. 57 were killed; it reported 20 survivors, four of them real test gaps.
+  - In a scratch copy at a49e4b1, the five mutations behind those gaps now each fail a test: canResume without the incomplete-status check, the failed-consultation guard and its projection limited to paused records, and the clock live for every incomplete record or keyed on canResume.
+  - So do six inventory forms that previously passed unnoticed: a direct stop object in the runner, a shorthand reason in the session, a record spread, a computed reason assignment, a `let` constant and an ambiguous constant.
+  - The finalising-past-deadline test fails with the old projection.
+
+Failures or blockers: None. CI has not run yet; it runs on the pull request.
+
+Limitations and non-claims:
+- This is `Implemented`, not `Verified` or `Released`: deterministic tests on fixtures only. No endpoint, model, Docker container or paid call ran.
+- The Docker-gated e2e assertion change is proved only by the owner's run: `SOAR_RUN_GENERAL_TASK_E2E=true SOAR_GENERAL_TASK_IMAGE_ID=<the installed image id> pnpm test:e2e tests/e2e/general-task-progress.spec.ts`.
+- Other deterministic errors that reach the controller's catch stay a resumable `runtime_unavailable`, futile at zero fee and zero dispatch, as accepted under Q2: a store refusal while the session creates a context, or a schema error while it copies a phase. Persistent consultation refusals inside the runner (a moved checkpoint, a drifted preview) are recorded as `runtime_failure_progress_preserved`.
+- The five texts that say "no request or action is uncertain" rest on `uncertain()`. It deliberately skips another context's unknown assist rows and the entailment pass's rows. Neither can coexist with these stops on today's desktop, which runs no research stage. Backlog item 13 must re-check these texts when it adds one.
+- The contract test's inventory is syntactic. A reason assembled in a way it does not model fails the test rather than passing it, but a reason introduced outside the four scanned files is not seen.
+- The design entry's other limitations stand.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Review and CI on the pull request, then the merge train (controller.ts: 6.1, then 6.2, then 7d.C). 6.2 stacks on this branch. If another entry merges first, this entry's ID and the design entry's are re-stamped after main's tail with a correction entry.
+
+References: BL-20261109-0336-desktop-resume-reasons-design; docs/PROJECT_REVIEW_2026-11-05.md section 4 row A6 and section 5.7 item 6; docs/HANDOFF.md "Start here".
 
 ### BL-20261110-0625-correction-research-length-parser -- 2026-11-10 -- Correction to BL-20261109-0442: the word-limit parser read a part's limit under a heading or in a parenthesis as the report's cap, and its clause guard was quadratic
 

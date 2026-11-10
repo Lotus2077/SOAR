@@ -1,6 +1,7 @@
 import { deflateSync } from "node:zlib";
 
 import { canonical, digest } from "./contracts";
+import { DOCUMENT_REVIEW_FLAGS_PATH } from "./document-review-flags";
 import { GeneralJobContractSchema, type ArtifactCheck } from "./runner";
 import type { SessionFile, SessionPhase } from "./session";
 
@@ -19,12 +20,481 @@ export const DOCUMENT_REVIEW_ARTIFACTS: readonly { path: string; description: st
   { path: "output/clean.docx", description: "The source with every edit accepted and no revisions." },
   { path: "output/issues.xlsx", description: "Issues list: one row per edit." },
   { path: "output/hygiene.json", description: "Author metadata, comment authors, revisions and hidden text that would leave with the files." },
+  // Backlog item 7(d) (BL-20261109-0354-document-review-flags-design).
+  { path: DOCUMENT_REVIEW_FLAGS_PATH, description: "Host flags for the owner's attention, written only by the applier in step 3; never write or edit it. A flag never fails the check; the file is compared byte for byte like the other outputs." },
 ]);
 /** The one .docx under input/ (top level only; any .docx deeper makes the source ambiguous). */
 const SOURCE_PATH = /^input\/[^\u0000-\u001f/\\]{1,200}\.docx$/iu;
 const ANY_DOCX = /^input\/.*\.docx$/iu;
 
-const APPLIER = String.raw`"""SOAR redline applier (host-owned and pinned; do not edit).
+/**
+ * Backlog item 7(d) (BL-20261109-0354-document-review-flags-design): the host flags' rules v1 (N1, a table against the prose; C1, an edit
+ * that turns its clause around; C2, clauses that contradict each other). Stdlib-only Python 3.9, so CI runs it under python3 -I without
+ * lxml; the applier carries it verbatim just before its main guard. Its top-level names start with FLAG_, flag_ or review_flags, none of
+ * the applier's own. Free of backticks and dollar-brace sequences, and ASCII.
+ */
+export const REVIEW_FLAGS_PY = String.raw`# ---------- host flags for the owner's attention: rules v1 (stdlib only; a flag never fails the check) ----------
+import decimal
+import json
+import re
+import unicodedata
+
+FLAG_VERSION = 1
+FLAG_RULES = {"inversion": 1, "numeric": 1}
+FLAG_LIST_MAX = 40
+FLAG_VALUES_MAX = 4
+FLAG_SENTENCES_MAX = 5000
+FLAG_ROWS_MAX = 200
+FLAG_LABEL_CHARS = 200
+FLAG_LABEL_TOKENS = 16
+FLAG_NAMED_MAX = 10
+FLAG_FIGURES_MAX = 50
+FLAG_LABEL_CHECKS = 200000
+FLAG_COMPARISONS_MAX = 50
+FLAG_TERMS_MAX = 64
+FLAG_TERM_CHARS = 200
+FLAG_WINDOW_CHARS = 2000
+FLAG_PARAGRAPH_CHARS = 20000
+FLAG_TOTAL_CHARS = 2000000
+FLAG_COUNTS = ("inversionEdits", "inversionIntroduced", "inversionSource", "inversionUnaddressed",
+               "numericIntroduced", "numericResolved", "numericSource", "numericUnaddressed")
+FLAG_STRAIGHT = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"', "\x00": " "})
+FLAG_CURRENCY = {"$": "USD", "us$": "USD", "\u00a3": "GBP", "\u20ac": "EUR", "usd": "USD", "eur": "EUR", "gbp": "GBP", "cny": "CNY", "jpy": "JPY"}
+FLAG_UNITS = {"%": "%", "percent": "%", "per cent": "%", "business day": "business day", "business days": "business day",
+              "working day": "business day", "working days": "business day", "day": "day", "days": "day", "week": "week", "weeks": "week",
+              "month": "month", "months": "month", "year": "year", "years": "year", "hour": "hour", "hours": "hour", "minute": "minute",
+              "minutes": "minute", "mg": "mg", "mcg": "mcg", "g": "g", "kg": "kg", "ml": "ml", "l": "l", "iu": "IU", "unit": "unit", "units": "unit"}
+FLAG_AMOUNT_UNITS = ("CNY", "EUR", "GBP", "JPY", "USD", "%")
+FLAG_UNIT_WORDS = "|".join(re.escape(word) for word in sorted(FLAG_UNITS, key=lambda word: (-len(word), word)))
+FLAG_NUMBER_WORDS = dict(zip("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen "
+                             "eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety".split(), list(range(21)) + list(range(30, 100, 10))))
+FLAG_NUM = r"[0-9]{1,3}(?:,[0-9]{3}){1,4}(?:\.[0-9]{1,6})?|[0-9]{1,15}(?:\.[0-9]{1,6})?"
+FLAG_END = r"(?![0-9]|[.,/\u2044][0-9])"
+FLAG_WORD_NUMBER = (r"(?:(?:twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)[\s-](?:one|two|three|four|five|six|seven|eight|nine)|"
+                    + "|".join(sorted(FLAG_NUMBER_WORDS, key=lambda word: (-len(word), word))) + r")")
+FLAG_RESTATED = r"(?:\s?\((?:[0-9]{1,15}|[A-Za-z]+(?:[\s-][A-Za-z]+)?)\))?"
+FLAG_QUANTITY = re.compile(r"(?<![\w.,$/\u2044])(?:(?P<sign>US\$|[$\u00a3\u20ac])\s?|(?P<code>USD|EUR|GBP|CNY|JPY)\s?)?(?P<num>" + FLAG_NUM + r")" + FLAG_END
+                           + FLAG_RESTATED + r"(?:[\s-]?(?P<unit>" + FLAG_UNIT_WORDS + r")(?!\w))?", re.IGNORECASE)
+FLAG_RANGE = re.compile(r"(?<![\w.,$/\u2044])(?P<low>" + FLAG_NUM + r")" + FLAG_END + r"\s?(?:-|\u2013|\u2014|to)\s?(?P<high>" + FLAG_NUM + r")" + FLAG_END
+                        + r"[\s-]?(?P<unit>" + FLAG_UNIT_WORDS + r")(?!\w)", re.IGNORECASE)
+FLAG_PAREN_QUANTITY = re.compile(r"\((?P<num>[0-9]{1,15}(?:\.[0-9]{1,6})?)\)[\s-]?(?P<unit>" + FLAG_UNIT_WORDS + r")(?!\w)", re.IGNORECASE)
+FLAG_WORD_QUANTITY = re.compile(r"\b(?P<word>" + FLAG_WORD_NUMBER + r")" + FLAG_RESTATED + r"[\s-](?P<unit>" + FLAG_UNIT_WORDS + r")(?!\w)", re.IGNORECASE)
+FLAG_SCALE_BEFORE = re.compile(r"(?:hundred|thousand|million|billion|and)[\s-]+$", re.IGNORECASE)
+FLAG_SCALE_AFTER = re.compile(r"\s?(?:(?:-|\u2013|\u2014|to)\s?(?:" + FLAG_NUM + r")" + FLAG_END + r"\s?)?(?:million|billion|thousand|bn|mm|m|k)(?!\w)", re.IGNORECASE)
+FLAG_HEADER_UNIT = re.compile(r"(?<!\w)(?:" + FLAG_UNIT_WORDS + r"|usd|eur|gbp|cny|jpy)(?!\w)|US\$|[$\u00a3\u20ac]", re.IGNORECASE)
+FLAG_HEADER_SCALE = re.compile(r"(?<!\w)(?:thousands?|millions?|billions?|bn|mm|m|k|'000|000s)(?!\w)", re.IGNORECASE)
+FLAG_REFERENCE = re.compile(r"(?<![A-Za-z])(?:section|clause|article|schedule|annex|appendix|exhibit|table|figure|page|paragraph|item)s?\.?\s*(?=[0-9])"
+                            r"|\u00a7\s*(?=[0-9])", re.IGNORECASE)
+FLAG_LIST_MARKER = re.compile(r"\s*\(?[0-9]{1,3}[.)](?=\s)")
+FLAG_YEAR = re.compile(r"(?:19|20)[0-9]{2}")
+FLAG_SENTENCE_BREAK = re.compile(r"(?<=[.!?])\s+(?=[A-Z0-9\"'(\[\u201c\u2018])")
+FLAG_TOKEN = re.compile(r"[a-z]+")
+FLAG_WORD = re.compile(r"\w+|[^\w\s]")
+FLAG_NEGATORS = frozenset(("not", "no", "never", "neither", "nor", "none", "nothing", "nobody", "without", "non"))
+FLAG_PAIRS = tuple(tuple(pair.split("/")) for pair in ("including/excluding include/exclude includes/excludes included/excluded before/after prior/subsequent "
+    "earlier/later minimum/maximum least/most increase/decrease increases/decreases increased/decreased higher/lower more/less above/below "
+    "permitted/prohibited permit/prohibit allow/prohibit allowed/prohibited mandatory/optional required/optional accept/reject accepted/rejected "
+    "approve/reject approved/rejected grant/deny granted/denied unlimited/limited upper/lower buyer/seller lessor/lessee licensor/licensee "
+    "employer/employee landlord/tenant creditor/debtor discloser/recipient disclosing/receiving").split())
+FLAG_POLAR_CLASSES = tuple(tuple(tuple(side.split()) for side in polar.split("/")) for polar in (
+    "including include includes included/excluding exclude excludes excluded;before prior earlier/after subsequent later;minimum least/maximum most;"
+    "increase increases increased/decrease decreases decreased;higher upper more above/lower less below;permitted permit allow allowed/prohibited prohibit;"
+    "mandatory required/optional;accept accepted approve approved/reject rejected;grant granted/deny denied;unlimited/limited").split(";"))
+FLAG_POLAR = dict((word, (index, side)) for index, sides in enumerate(FLAG_POLAR_CLASSES) for side, members in enumerate(sides) for word in members)
+FLAG_ROLES = tuple("Buyer Creditor Debtor Discloser Disclosing Employee Employer Landlord Lessee Lessor Licensee Licensor Receiving Recipient Seller "
+                   "Tenant".split())
+FLAG_DEFINED = re.compile(r"\((?:the |each a )?[\"'](?P<term>[A-Z][A-Za-z]+(?: [A-Z][A-Za-z]+)?)[\"']\)")
+FLAG_STOPWORDS = frozenset("a all an and any are as at be been being by each for from has have if in into is it its of on or s so such than that "
+                           "the then there these this those to under upon was were which who will with".split())
+def flag_text(value):
+    return " ".join(unicodedata.normalize("NFKC", value or "").translate(FLAG_STRAIGHT).split())
+
+
+def flag_number(raw):
+    text = format(decimal.Decimal(raw.replace(",", "")), "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def flag_header_unit(text):
+    if FLAG_HEADER_SCALE.search(text):
+        return None
+    found = sorted(set(unit for unit in (FLAG_CURRENCY.get(token.casefold()) or FLAG_UNITS.get(token.casefold()) for token in FLAG_HEADER_UNIT.findall(text)) if unit))
+    return found[0] if len(found) == 1 else None
+
+
+def flag_quantities(text, column_unit=None):
+    found, taken = [], set()
+    references = set(match.end() for match in FLAG_REFERENCE.finditer(text))
+    marker = FLAG_LIST_MARKER.match(text)
+    def add(start, raw, unit):
+        if unit and start not in references:
+            found.append((start, flag_number(raw) + " " + unit))
+    for match in FLAG_RANGE.finditer(text):
+        unit = FLAG_UNITS.get(match.group("unit").casefold())
+        add(match.start("low"), match.group("low"), unit)
+        add(match.start("high"), match.group("high"), unit)
+        taken.update((match.start("low"), match.start("high")))
+    for match in FLAG_QUANTITY.finditer(text):
+        start, raw = match.start("num"), match.group("num")
+        if start in taken or marker and match.start() < marker.end():
+            continue
+        sign, code, word = match.group("sign"), match.group("code"), match.group("unit")
+        if word is None and FLAG_SCALE_AFTER.match(text, match.end("num")):
+            continue
+        unit = FLAG_CURRENCY.get((sign or code).casefold()) if sign or code else FLAG_UNITS.get(word.casefold()) if word else None
+        if unit is None and not (sign or code or word):
+            if column_unit is None or FLAG_YEAR.fullmatch(raw) and column_unit not in FLAG_AMOUNT_UNITS:
+                continue
+            unit = column_unit
+        add(start, raw, unit)
+    for match in FLAG_PAREN_QUANTITY.finditer(text):
+        add(match.start("num"), match.group("num"), FLAG_UNITS.get(match.group("unit").casefold()))
+    for match in FLAG_WORD_QUANTITY.finditer(text):
+        if FLAG_SCALE_BEFORE.search(text, max(0, match.start() - 12), match.start()):
+            continue
+        parts = re.split(r"[\s-]", match.group("word").casefold())
+        if all(part in FLAG_NUMBER_WORDS for part in parts):
+            add(match.start(), str(sum(FLAG_NUMBER_WORDS[part] for part in parts)), FLAG_UNITS.get(match.group("unit").casefold()))
+    out, seen = [], set()
+    for _, value in sorted(found):
+        if value not in seen:
+            seen.add(value)
+            out.append(value)
+    return out
+
+
+def flag_sentences(text):
+    spans, start = [], 0
+    for match in FLAG_SENTENCE_BREAK.finditer(text):
+        spans.append((start, match.start()))
+        start = match.end()
+    spans.append((start, len(text)))
+    return [span for span in spans if span[1] > span[0]]
+
+
+def flag_tokens(text):
+    text = unicodedata.normalize("NFKC", text).casefold().translate(FLAG_STRAIGHT).replace("n't", " not").replace("cannot", "can not")
+    return FLAG_TOKEN.findall(text)
+
+
+def flag_value_key(value):
+    number, unit = value.split(" ", 1)
+    return (unit, decimal.Decimal(number))
+
+
+def flag_values(values):
+    return sorted(values, key=flag_value_key)[:FLAG_VALUES_MAX]
+
+
+def flag_ids(ids):
+    return sorted(set(ids), key=lambda i: (int(i[1:]), i))
+
+
+def flag_bounded(texts, clipped):
+    out, total = [], 0
+    for number, text in enumerate(texts):
+        room = max(0, min(FLAG_PARAGRAPH_CHARS, FLAG_TOTAL_CHARS - total))
+        normal = unicodedata.normalize("NFKC", text[:room])
+        if len(text) > room or len(normal) > room:
+            clipped.add(number)
+        out.append(normal[:room])
+        total += len(out[-1])
+    return out
+
+
+def flag_table_rows(units, texts, read):
+    cells = {}
+    for number, unit in enumerate(units):
+        if unit["kind"] == "cell":
+            cells.setdefault((unit["table"], unit["row"]), {}).setdefault(unit["col"], []).append(number)
+    headers = {}
+    for (table, row), columns in cells.items():
+        if row == 1:
+            for col, members in columns.items():
+                headers[(table, col)] = flag_header_unit(flag_text(" ".join(texts[n] for n in members)[:FLAG_PARAGRAPH_CHARS]))
+    rows = []
+    for (table, row) in sorted(cells):
+        columns = cells[(table, row)]
+        if 1 not in columns:
+            continue
+        label = flag_text(" ".join(texts[n] for n in columns[1])[:FLAG_PARAGRAPH_CHARS]).casefold().strip(" :.-*")
+        words = tuple(FLAG_WORD.findall(label))
+        if len(label) > FLAG_LABEL_CHARS or len(words) > FLAG_LABEL_TOKENS or sum(ch.isalpha() for ch in label) < 4 or re.search(r"[0-9]", label):
+            continue
+        values = []
+        for col in sorted(columns):
+            if col > 1:
+                values.extend(flag_quantities(flag_text(" ".join(texts[n] for n in columns[col])[:FLAG_PARAGRAPH_CHARS]), headers.get((table, col))))
+        values = list(dict.fromkeys(values))
+        if not values:
+            continue
+        if len(values) > FLAG_FIGURES_MAX:
+            read["figuresCapped"] = True
+            values = values[:FLAG_FIGURES_MAX]
+        if len(rows) == FLAG_ROWS_MAX:
+            read["rowsCapped"] = True
+            break
+        members = sorted(n + 1 for col in columns for n in columns[col])
+        rows.append((table, row, label, words, frozenset(values), frozenset(value.split(" ", 1)[1] for value in values), members))
+    return rows
+
+
+def flag_named(words, starts, labels, budget):
+    found = set()
+    for i, word in enumerate(words):
+        for size in starts.get(word, ()):
+            if budget is not None:
+                if budget[0] <= 0:
+                    return found, False
+                budget[0] -= 1
+            if tuple(words[i:i + size]) in labels:
+                found.add(tuple(words[i:i + size]))
+    return found, True
+
+
+def flag_table_vs_prose(units, texts, rows, read):
+    labels, starts = {}, {}
+    for entry in rows:
+        labels.setdefault(entry[3], []).append(entry)
+        starts.setdefault(entry[3][0], set()).add(len(entry[3]))
+    starts = dict((word, sorted(sizes)) for word, sizes in starts.items())
+    containers = dict((key, set()) for key in labels)
+    for key in labels:
+        for inner in flag_named(key, starts, labels, None)[0]:
+            if inner != key:
+                containers[inner].add(key)
+    found, scanned, budget = {}, 0, [FLAG_LABEL_CHECKS]
+    for number, unit in enumerate(units):
+        if unit["kind"] != "prose":
+            continue
+        for start, end in flag_sentences(texts[number]):
+            scanned += 1
+            if scanned > FLAG_SENTENCES_MAX:
+                read["sentencesCapped"] = True
+                return found
+            sentence = flag_text(texts[number][start:end])
+            named, whole = flag_named(FLAG_WORD.findall(sentence.casefold()), starts, labels, budget)
+            if not whole:
+                read["labelsCapped"] = True
+            entries = sorted((entry for key in named if not containers[key] & named for entry in labels[key]), key=lambda entry: entry[:2])
+            if not entries:
+                continue
+            if len(entries) > FLAG_NAMED_MAX:
+                read["labelsCapped"] = True
+                entries = entries[:FLAG_NAMED_MAX]
+            given = flag_quantities(sentence)
+            if len(given) > FLAG_FIGURES_MAX:
+                read["figuresCapped"] = True
+                given = given[:FLAG_FIGURES_MAX]
+            by_unit = {}
+            for value in sorted(given, key=flag_value_key):
+                by_unit.setdefault(value.split(" ", 1)[1], []).append(value)
+            given = frozenset(given)
+            for table, row, label, words, values, kinds, members in entries:
+                mentioned = [value for kind in sorted(kinds) for value in by_unit.get(kind, [])][:FLAG_VALUES_MAX]
+                if mentioned and values.isdisjoint(given):
+                    key = (table, row, number + 1)
+                    found[key] = tuple(flag_values(set(found.get(key, ())) | set(mentioned)))
+    return found
+
+
+def flag_party_pattern(texts, read):
+    roles, kept, room, worst = set(FLAG_ROLES), set(), FLAG_TERMS_MAX - len(FLAG_ROLES), None
+    for text in texts:
+        for match in FLAG_DEFINED.finditer(text.translate(FLAG_STRAIGHT)):
+            if match.end("term") - match.start("term") > FLAG_TERM_CHARS:
+                read["termsCapped"] = True
+                continue
+            term = match.group("term")
+            if term in roles or term in kept:
+                continue
+            if len(kept) == room:
+                read["termsCapped"] = True
+                if term > worst:
+                    continue
+                kept.discard(worst)
+            kept.add(term)
+            if len(kept) == room:
+                worst = max(kept)
+    ordered = sorted(roles | kept, key=lambda term: (-len(term), term))
+    return ordered, re.compile(r"(?<!\w)(?:" + "|".join(re.escape(term) for term in ordered) + r")(?!\w)")
+
+
+def flag_parties_in(text, pattern):
+    order = []
+    for match in pattern.finditer(text):
+        if match.group(0) not in order:
+            order.append(match.group(0))
+    return order
+
+
+def flag_inversion_codes(before, after, pattern):
+    b, a = flag_tokens(before), flag_tokens(after)
+    codes = []
+    if sum(t in FLAG_NEGATORS for t in b) % 2 != sum(t in FLAG_NEGATORS for t in a) % 2:
+        codes.append("negation_flipped")
+    only_before, only_after = set(b) - set(a), set(a) - set(b)
+    if any(x in only_before and y in only_after or y in only_before and x in only_after for x, y in FLAG_PAIRS):
+        codes.append("polarity_swapped")
+    parties_before, parties_after = flag_parties_in(before, pattern), flag_parties_in(after, pattern)
+    if len(parties_before) >= 2 and sorted(parties_before) == sorted(parties_after) and parties_before != parties_after:
+        codes.append("parties_swapped")
+    strong_before, strong_after = bool(set(b) & {"shall", "must"}), bool(set(a) & {"shall", "must"})
+    if strong_before and not strong_after and "may" in a or strong_after and not strong_before and "may" in b:
+        codes.append("modality_changed")
+    return codes
+
+
+def flag_edit_inversions(edits, texts, pattern):
+    flagged = []
+    for edit in edits:
+        if edit["action"] not in ("replace", "delete", "insert_after"):
+            continue
+        text, start, end, new = texts[edit["paragraph"] - 1], edit["start"], edit["end"], edit.get("newText", "")
+        lo = max(0, start - FLAG_WINDOW_CHARS)
+        overlapping = [(lo + s, lo + e) for s, e in flag_sentences(text[lo:end + FLAG_WINDOW_CHARS]) if lo + s < max(end, start + 1) and lo + e > start]
+        if not overlapping:
+            continue
+        s0, e0 = overlapping[0][0], overlapping[-1][1]
+        if edit["action"] == "replace":
+            after = text[s0:start] + new + text[end:e0]
+        elif edit["action"] == "delete":
+            after = text[s0:start] + text[end:e0]
+        else:
+            after = text[s0:end] + new + text[end:e0]
+        codes = flag_inversion_codes(text[s0:e0], after, pattern)
+        if codes:
+            flagged.append({"codes": codes, "id": edit["id"]})
+    return flagged
+
+
+def flag_clause_contradictions(texts, terms, read):
+    party = set(word for term in terms for word in flag_tokens(term))
+    groups, order, scanned = {}, [], 0
+    for number, text in enumerate(texts):
+        for start, end in flag_sentences(text):
+            scanned += 1
+            if scanned > FLAG_SENTENCES_MAX:
+                read["sentencesCapped"] = True
+                break
+            tokens = flag_tokens(text[start:end])
+            content, sides = [], []
+            for token in tokens:
+                if token in party:
+                    content.append(token)
+                elif token in FLAG_NEGATORS or token in FLAG_STOPWORDS:
+                    continue
+                elif token in FLAG_POLAR:
+                    content.append("~%d" % FLAG_POLAR[token][0])
+                    sides.append(FLAG_POLAR[token])
+                else:
+                    content.append(token)
+            if len(content) >= 5:
+                key = tuple(sorted(content))
+                if key not in groups:
+                    groups[key] = []
+                    order.append(key)
+                groups[key].append((number + 1, sum(t in FLAG_NEGATORS for t in tokens) % 2, tuple(sorted(sides))))
+        if scanned > FLAG_SENTENCES_MAX:
+            break
+    found = set()
+    for key in order:
+        members, compared = groups[key], 0
+        for i in range(len(members)):
+            for j in range(i + 1, len(members)):
+                if compared == FLAG_COMPARISONS_MAX:
+                    read["comparisonsCapped"] = True
+                    break
+                compared += 1
+                (p, parity_p, sides_p), (q, parity_q, sides_q) = members[i], members[j]
+                if parity_p != parity_q or sides_p != sides_q:
+                    found.add((min(p, q), max(p, q)))
+    return found
+
+
+def flag_rule(record, name, run):
+    try:
+        record[name], counts = run()
+        record["counts"].update(counts)
+    except Exception as error:
+        if isinstance(error, MemoryError) or type(error).__name__ == "PlanError":
+            raise
+        record[name] = {"error": type(error).__name__, "flags": [], "truncated": False}
+
+
+def flag_read():
+    return {"comparisonsCapped": False, "figuresCapped": False, "labelsCapped": False, "paragraphsClipped": 0, "rowsCapped": False,
+            "sentencesCapped": False, "termsCapped": False}
+
+
+def review_flags(units, source, clean, edits):
+    if not len(units) == len(source) == len(clean):
+        raise ValueError("flag_input_mismatch")
+    read = flag_read()
+    record = {"version": FLAG_VERSION, "rules": dict(FLAG_RULES), "read": read, "counts": dict((name, 0) for name in FLAG_COUNTS)}
+    touched = {}
+    for edit in edits:
+        touched.setdefault(edit["paragraph"], []).append(edit["id"])
+    def addressed(paragraphs):
+        return flag_ids(i for p in paragraphs for i in touched.get(p, []))
+    def listed(flags):
+        return {"flags": flags[:FLAG_LIST_MAX], "truncated": len(flags) > FLAG_LIST_MAX}
+    clipped = set()
+    bounded_source, bounded_clean = flag_bounded(source, clipped), flag_bounded(clean, clipped)
+    read["paragraphsClipped"] = len(clipped)
+    def numeric():
+        source_rows, clean_rows = flag_table_rows(units, bounded_source, read), flag_table_rows(units, bounded_clean, read)
+        before, after = flag_table_vs_prose(units, bounded_source, source_rows, read), flag_table_vs_prose(units, bounded_clean, clean_rows, read)
+        rows = {"source": dict((entry[:2], entry) for entry in source_rows), "clean": dict((entry[:2], entry) for entry in clean_rows)}
+        def members(key):
+            return (rows["source"].get(key[:2]) or rows["clean"][key[:2]])[6]
+        def side(name, found, key):
+            return {"row": flag_values(rows[name][key[:2]][4]), "prose": list(found[key])} if key in found else None
+        keys = sorted(set(before) | set(after))
+        flags = [{"table": key[0], "row": key[1], "paragraph": key[2], "inSource": key in before, "inClean": key in after,
+                  "addressedBy": addressed([key[2]] + members(key)), "source": side("source", before, key), "clean": side("clean", after, key)}
+                 for key in keys[:FLAG_LIST_MAX + 1]]
+        open_rows = {}
+        for key in before:
+            if key[:2] not in open_rows:
+                open_rows[key[:2]] = not any(p in touched for p in members(key))
+        return listed(flags), {"numericSource": len(before), "numericIntroduced": sum(key not in before for key in after),
+                               "numericResolved": sum(key not in after for key in before),
+                               "numericUnaddressed": sum(key in after and key[2] not in touched and open_rows[key[:2]] for key in before)}
+    def edits_rule():
+        flags = sorted(flag_edit_inversions(edits, source, flag_party_pattern(source, read)[1]), key=lambda f: (int(f["id"][1:]), f["id"]))
+        return listed(flags), {"inversionEdits": len(flags)}
+    def clauses():
+        terms = flag_party_pattern(source, read)[0]
+        before, after = flag_clause_contradictions(bounded_source, terms, read), flag_clause_contradictions(bounded_clean, terms, read)
+        keys = sorted(before | after)
+        flags = [{"paragraphs": list(key), "inSource": key in before, "inClean": key in after, "addressedBy": addressed(list(key))} for key in keys[:FLAG_LIST_MAX + 1]]
+        return listed(flags), {"inversionSource": len(before), "inversionIntroduced": len(after - before),
+                               "inversionUnaddressed": sum(key in after and key[0] not in touched and key[1] not in touched for key in before)}
+    flag_rule(record, "numeric", numeric)
+    flag_rule(record, "edits", edits_rule)
+    flag_rule(record, "clauses", clauses)
+    return record
+
+
+def review_flags_or_error(inputs):
+    try:
+        record = review_flags(*inputs())
+        review_flags_json(record)
+        return record
+    except Exception as error:
+        if isinstance(error, MemoryError) or type(error).__name__ == "PlanError":
+            raise
+        return {"version": FLAG_VERSION, "rules": dict(FLAG_RULES), "counts": dict((name, 0) for name in FLAG_COUNTS), "read": flag_read(),
+                "numeric": {"flags": [], "truncated": False}, "edits": {"flags": [], "truncated": False},
+                "clauses": {"flags": [], "truncated": False}, "error": type(error).__name__}
+
+
+def review_flags_json(flags):
+    return (json.dumps(flags, indent=1, sort_keys=True) + "\n").encode("utf-8")
+`;
+
+const APPLIER_BODY = String.raw`"""SOAR redline applier (host-owned and pinned; do not edit).
 
 usage: python3 -I review/soar_redline.py SOURCE.docx EDITS.json OUTDIR
        python3 -I review/soar_redline.py --list SOURCE.docx [FIRST]
@@ -34,6 +504,7 @@ Applies a JSON edit plan to a DOCX without the model writing any markup. Writes:
   OUTDIR/clean.docx    every edit accepted, no revisions
   OUTDIR/issues.xlsx   one row per edit
   OUTDIR/hygiene.json  metadata that would leave with the files
+  OUTDIR/review-flags.json  host flags for the owner's attention; a flag never fails the check
 Only word/document.xml changes (plus the comments part and its registration in the
 redline); every other part is copied byte for byte, with fixed zip timestamps, so the
 same inputs always give the same bytes. In the text it shows, U+FFFC marks an object
@@ -161,7 +632,7 @@ def load_plan(raw):
         if set(edit) != allowed:
             errors.append({"id": label, "code": "fields_invalid", "expected": sorted(allowed)})
             continue
-        if not isinstance(edit["id"], str) or not ID_RE.match(edit["id"]) or edit["id"] in seen:
+        if not isinstance(edit["id"], str) or not ID_RE.fullmatch(edit["id"]) or edit["id"] in seen:
             errors.append({"id": label, "code": "id_invalid_or_duplicate", "note": "ids are E1, E2, ... and unique"})
         else:
             seen.add(edit["id"])
@@ -698,6 +1169,50 @@ def write_issues(located):
     return package(names, parts, {"docProps/core.xml": CORE_XML})
 
 
+# ---------- the host flags' input (lxml) ----------
+
+def units_for_flags(document, paragraphs):
+    def nearest(element, name):
+        return next((a for a in element.iterancestors() if local(a) == name), None)
+    tables = [t for t in document.find(w("body")).iter(w("tbl")) if not any(local(a) == "txbxContent" for a in t.iterancestors())]
+    numbers = {}
+    for n, table in enumerate(tables):
+        numbers[table] = n + 1
+        for m, row in enumerate(r for r in table.iter(w("tr")) if nearest(r, "tbl") is table):
+            numbers[row] = m + 1
+            for k, cell in enumerate(c for c in row.iter(w("tc")) if nearest(c, "tr") is row):
+                numbers[cell] = k + 1
+    units = []
+    for paragraph in paragraphs:
+        cell = nearest(paragraph, "tc")
+        row = nearest(cell, "tr") if cell is not None else None
+        table = nearest(row, "tbl") if row is not None else None
+        if table is not None and table in numbers and row in numbers and cell in numbers:
+            units.append({"kind": "cell", "table": numbers[table], "row": numbers[row], "col": numbers[cell]})
+        else:
+            units.append({"kind": "prose"})
+    return units
+
+
+def masked_texts(paragraphs):
+    return [search_text(p, d) for p, d in zip(paragraphs, field_depths(paragraphs))]
+
+
+def edits_for_flags(located):
+    return [{"id": item["edit"]["id"], "action": item["edit"]["action"], "paragraph": item["paragraph"] + 1, "start": item["start"],
+             "end": item["end"], "newText": item["edit"].get("newText", "")} for item in sorted(located, key=lambda item: item["index"])]
+
+
+def flags_summary(flags):
+    summary = dict(flags["counts"])
+    if "error" in flags:
+        summary["error"] = flags["error"]
+    for name in ("numeric", "edits", "clauses"):
+        if "error" in flags[name]:
+            summary[name + "Error"] = flags[name]["error"]
+    return summary
+
+
 def run(source_path, plan_path, outdir):
     names, parts = read_source(source_path)
     with open(source_path, "rb") as handle:
@@ -755,15 +1270,19 @@ def run(source_path, plan_path, outdir):
                   "hiddenRuns": hidden_runs([clean_doc] + other_stories, styles)},
         "note": "Metadata, comment authors and hidden text are reported, not removed. Remove them before the files leave the machine if they must not be shared.",
     }
+    # The host flags never block a review: their inputs, rules and record sit inside review_flags_or_error (rules v1, below).
+    flags = review_flags_or_error(lambda: (units_for_flags(document, paragraphs), masked_texts(paragraphs), masked_texts(body_paragraphs(clean_doc)),
+                                           edits_for_flags(located)))
     outputs = {"redline.docx": package(redline_names, parts, redline_parts), "clean.docx": package(names, parts, {DOCUMENT: serialize(clean_doc)}),
                "issues.xlsx": write_issues(located),
-               "hygiene.json": (json.dumps(hygiene, indent=1, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8")}
+               "hygiene.json": (json.dumps(hygiene, indent=1, sort_keys=True, ensure_ascii=False) + "\n").encode("utf-8"),
+               "review-flags.json": review_flags_json(flags)}
     on_time()
     os.makedirs(outdir, exist_ok=True)
     for name, data in outputs.items():
         with open(os.path.join(outdir, name), "wb") as handle:
             handle.write(data)
-    return {"ok": True, "edits": len(located), "revisions": redline_revisions, "comments": len(located),
+    return {"ok": True, "edits": len(located), "revisions": redline_revisions, "comments": len(located), "flags": flags_summary(flags),
             "outputs": [os.path.join(outdir, name) for name in outputs]}
 
 
@@ -816,6 +1335,9 @@ def main(argv):
         return 1
 
 
+`;
+const APPLIER = APPLIER_BODY + REVIEW_FLAGS_PY + String.raw`
+
 if __name__ == "__main__":
     sys.exit(main(sys.argv))
 `;
@@ -828,7 +1350,7 @@ SOURCE, SOURCE_SHA256, APPLIER_SHA256 = PARAMS["source"], PARAMS["sourceSha256"]
 APPLIER = zlib.decompress(base64.b64decode("__APPLIER_Z__"))
 APPLIER_PATH = "review/soar_redline.py"
 EDITS = "review/edits.json"
-OUTPUTS = ("output/redline.docx", "output/clean.docx", "output/issues.xlsx", "output/hygiene.json")
+OUTPUTS = ("output/redline.docx", "output/clean.docx", "output/issues.xlsx", "output/hygiene.json", "output/review-flags.json")
 W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 AUTHOR = "SOAR draft"
 DOCUMENT, COMMENTS, CONTENT_TYPES, DOCUMENT_RELS = "word/document.xml", "word/comments.xml", "[Content_Types].xml", "word/_rels/document.xml.rels"
@@ -946,7 +1468,7 @@ if result.returncode != 0:
     fail("applier_refused_plan", detail=result.stdout.decode("utf-8", "replace")[:2000])
     finish()
 # Every output, the issues list and the hygiene report included, is byte for byte what the applier makes.
-for name in ("redline.docx", "clean.docx", "issues.xlsx", "hygiene.json"):
+for name in ("redline.docx", "clean.docx", "issues.xlsx", "hygiene.json", "review-flags.json"):
     if read("output/" + name) != read(os.path.join(derived, name)):
         fail("output_differs", path="output/" + name)
 if failures:
@@ -1112,7 +1634,7 @@ export function documentReviewInstructions(sourcePath: string): string {
     `Document review (host-checked). Review ${sourcePath} as the task asks. Never edit the document, never write OOXML, and never change ${DOCUMENT_REVIEW_APPLIER_PATH}.`,
     `1. List the paragraphs as the host numbers them (table cells included): python3 -I ${DOCUMENT_REVIEW_APPLIER_PATH} --list ${source}. It prints about 48 KB at a time and ends with {"next": N} when more remain; continue with --list ${source} N. In that text U+FFFC marks a footnote mark, image or symbol, which no anchor may include; "hiddenText": true marks a paragraph with hidden text.`,
     `2. Write ${DOCUMENT_REVIEW_EDITS_PATH} as {"version":1,"edits":[...]} with at most 200 edits, ids E1, E2, ... in order. Each edit is {"id":"E1","anchor":"<text copied exactly from one paragraph>","action":"replace"|"delete"|"insert_after"|"comment","newText":"<replace and insert_after only>","rationale":"<why, one line>","severity":"high"|"medium"|"low"}. An anchor must occur exactly once in the document and must not overlap another anchor; lengthen it until it is unique. Text to replace or delete must be plain text: not a hyperlink, field, content control, tab, line break or someone's comment (a comment edit may cover those). Edits stay within a paragraph: a whole paragraph cannot be removed, so to drop a clause delete its text and say so in the rationale. newText and rationale are one line each.`,
-    `3. Apply it: python3 -I ${DOCUMENT_REVIEW_APPLIER_PATH} ${source} ${DOCUMENT_REVIEW_EDITS_PATH} output. It writes output/redline.docx (tracked changes by "SOAR draft", your rationale as a comment on each edit), output/clean.docx (all edits accepted), output/issues.xlsx and output/hygiene.json, or prints errors to fix (anchor_not_found, which may give the exact documentText to copy; anchor_not_unique; anchor_not_editable, which names the blocker; anchor_inside_field; edits_overlap; and others). Re-run it after every change to the plan.`,
+    `3. Apply it: python3 -I ${DOCUMENT_REVIEW_APPLIER_PATH} ${source} ${DOCUMENT_REVIEW_EDITS_PATH} output. It writes output/redline.docx (tracked changes by "SOAR draft", your rationale as a comment on each edit), output/clean.docx (all edits accepted), output/issues.xlsx, output/hygiene.json and output/review-flags.json (host flags for the owner's attention; a flag never fails the review), or prints errors to fix (anchor_not_found, which may give the exact documentText to copy; anchor_not_unique; anchor_not_editable, which names the blocker; anchor_inside_field; edits_overlap; and others). Re-run it after every change to the plan, and once more before you finish if any of these outputs is missing.`,
     `4. Do not modify those outputs by hand. At finish the host re-runs the applier on your plan and checks that rejecting every change restores the original text, accepting every change gives exactly your plan, nothing else in the file changed, every change maps to one edit, and both documents render.`,
   ].join("\n");
 }

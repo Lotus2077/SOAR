@@ -113,11 +113,98 @@ def long():
     b = io.BytesIO(); d.save(b); return b.getvalue()
 
 
+def text_box(p, table):
+    """Moves a table into a VML text box anchored in paragraph p: its paragraphs are not body paragraphs and its table is not numbered."""
+    vml = "urn:schemas-microsoft-com:vml"
+    shape = etree.SubElement(etree.SubElement(etree.SubElement(p._p, qn("w:r")), qn("w:pict")), "{%s}shape" % vml, {"style": "width:240pt;height:60pt"}, nsmap={"v": vml})
+    content = etree.SubElement(etree.SubElement(shape, "{%s}textbox" % vml), qn("w:txbxContent"))
+    content.append(table._tbl)
+    etree.SubElement(content, qn("w:p"))
+
+
+def flags():
+    """Backlog item 7(d): a fee table its prose contradicts, and two clauses that differ by a negation; then a table in a text box, a table
+    nested in another table's cell, a figure in hidden text and a REF field whose result contradicts the fee table."""
+    d = docx.Document()
+    d.add_paragraph("1. Fees are payable as set out in the table below.")
+    t = d.add_table(rows=2, cols=2)
+    t.cell(0, 0).text = "Item"; t.cell(0, 1).text = "Fee (USD)"
+    t.cell(1, 0).text = "Late payment fee"; t.cell(1, 1).text = "50"
+    d.add_paragraph("2. The late payment fee is USD 75 per invoice.")
+    d.add_paragraph("3. The Supplier shall be liable for loss of data caused by its negligence.")
+    d.add_paragraph("4. The Supplier shall not be liable for loss of data caused by its negligence.")
+    p = d.add_paragraph("5. A draft fee table is kept in this box: ")
+    boxed = d.add_table(rows=2, cols=2)
+    boxed.cell(0, 0).text = "Item"; boxed.cell(0, 1).text = "Fee (USD)"
+    boxed.cell(1, 0).text = "Late payment fee"; boxed.cell(1, 1).text = "99"
+    text_box(p, boxed)
+    outer = d.add_table(rows=3, cols=2)
+    outer.cell(0, 0).text = "Item"; outer.cell(0, 1).text = "Notice (days)"
+    nested = outer.cell(1, 0).add_table(rows=2, cols=2)
+    nested.cell(0, 0).text = "Item"; nested.cell(0, 1).text = "Fee (USD)"
+    nested.cell(1, 0).text = "Deposit amount"; nested.cell(1, 1).text = "10"
+    outer.cell(2, 0).text = "Notice period"; outer.cell(2, 1).text = "30"
+    p = d.add_paragraph("6. The deposit amount is ")
+    p.add_run("USD 20").font.hidden = True
+    p.add_run(".")
+    d.add_paragraph("7. The notice period is 45 days.")
+    p = d.add_paragraph("8. The late payment fee is set in ")
+    for kind, value in (("begin", None), ("instr", " REF fee_clause \\h "), ("separate", None), ("text", "USD 90"), ("end", None)):
+        field_run(p, kind, value)
+    p.add_run(".")
+    b = io.BytesIO(); d.save(b); return b.getvalue()
+
+
 kind, path = sys.argv[1], sys.argv[2]
 with open(path, "wb") as handle:
     handle.write({"nda": nda, "tracked": tracked, "commented": commented, "objects": objects, "header_tracked": header_tracked, "hidden": hidden,
-                  "word_like": word_like, "long": long}[kind]())
+                  "word_like": word_like, "long": long, "flags": flags}[kind]())
 `;
+
+/** Backlog item 7(d): the plan over the flags fixture, and what the host flags must record for it. */
+export const FLAGS_EDITS = Object.freeze([
+  { id: "E1", anchor: "USD 75", action: "comment", rationale: "Check the fee against the table.", severity: "medium" },
+  { id: "E2", anchor: "shall not be liable", action: "replace", newText: "shall be liable", rationale: "Match clause 3.", severity: "high" },
+]);
+/**
+ * Paragraphs as --list numbers them: the first table's four cells are 2-5, the fee sentence 6 and the two clauses 7 and 8. Paragraph 9 anchors
+ * a text box whose table is neither numbered nor read. Table 2's cells are 10-12 and 17-20, around table 3, nested in its second row (13-16).
+ * The deposit's figure is hidden text, which is read (21); the notice sentence is 22; the REF field's result in 23 is masked.
+ */
+export const FLAGS_EXPECTED = Object.freeze({
+  counts: { numericSource: 3, numericUnaddressed: 2, numericIntroduced: 0, numericResolved: 0, inversionEdits: 1, inversionSource: 1, inversionUnaddressed: 0, inversionIntroduced: 0 },
+  numeric: [
+    { table: 1, row: 2, paragraph: 6, inSource: true, inClean: true, addressedBy: ["E1"], source: { row: ["50 USD"], prose: ["75 USD"] }, clean: { row: ["50 USD"], prose: ["75 USD"] } },
+    { table: 2, row: 3, paragraph: 22, inSource: true, inClean: true, addressedBy: [], source: { row: ["30 day"], prose: ["45 day"] }, clean: { row: ["30 day"], prose: ["45 day"] } },
+    { table: 3, row: 2, paragraph: 21, inSource: true, inClean: true, addressedBy: [], source: { row: ["10 USD"], prose: ["20 USD"] }, clean: { row: ["10 USD"], prose: ["20 USD"] } }],
+  edits: [{ id: "E2", codes: ["negation_flipped"] }],
+  clauses: [{ paragraphs: [7, 8], inSource: true, inClean: false, addressedBy: ["E2"] }],
+  read: { comparisonsCapped: false, figuresCapped: false, labelsCapped: false, paragraphsClipped: 0, rowsCapped: false, sentencesCapped: false, termsCapped: false },
+});
+
+/** The flags fixture's word/document.xml by hand, with the structure python-docx writes for it (paragraphs, runs, tables, the text box and the field). */
+export function flagsDocumentXml(): string {
+  const run = (text: string, hidden = false) => `<w:r>${hidden ? "<w:rPr><w:vanish/></w:rPr>" : ""}<w:t xml:space="preserve">${text}</w:t></w:r>`;
+  const paragraph = (...runs: string[]) => `<w:p>${runs.join("")}</w:p>`;
+  const table = (...rows: string[][]) => `<w:tbl>${rows.map(row => `<w:tr>${row.map(cell => `<w:tc>${cell}</w:tc>`).join("")}</w:tr>`).join("")}</w:tbl>`;
+  const text = (value: string) => paragraph(run(value));
+  const field = (kind: string) => `<w:r><w:fldChar w:fldCharType="${kind}"/></w:r>`;
+  const box = table([text("Item"), text("Fee (USD)")], [text("Late payment fee"), text("99")]);
+  const nested = table([text("Item"), text("Fee (USD)")], [text("Deposit amount"), text("10")]);
+  return `<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:v="urn:schemas-microsoft-com:vml"><w:body>${[
+    text("1. Fees are payable as set out in the table below."),
+    table([text("Item"), text("Fee (USD)")], [text("Late payment fee"), text("50")]),
+    text("2. The late payment fee is USD 75 per invoice."),
+    text("3. The Supplier shall be liable for loss of data caused by its negligence."),
+    text("4. The Supplier shall not be liable for loss of data caused by its negligence."),
+    paragraph(run("5. A draft fee table is kept in this box: "), `<w:r><w:pict><v:shape><v:textbox><w:txbxContent>${box}<w:p/></w:txbxContent></v:textbox></v:shape></w:pict></w:r>`),
+    table([text("Item"), text("Notice (days)")], [`<w:p/>${nested}<w:p/>`, "<w:p/>"], [text("Notice period"), text("30")]),
+    paragraph(run("6. The deposit amount is "), run("USD 20", true), run(".")),
+    text("7. The notice period is 45 days."),
+    paragraph(run("8. The late payment fee is set in "), field("begin"), '<w:r><w:instrText xml:space="preserve"> REF fee_clause \\h </w:instrText></w:r>', field("separate"),
+      run("USD 90"), field("end"), run(".")),
+  ].join("")}<w:sectPr/></w:body></w:document>`;
+}
 
 /** A plan over the synthetic agreement: a bold run inside an anchor, a table cell, Chinese text, a bookmark inside a deletion, text after a field. */
 export const AGREEMENT_EDITS = Object.freeze([

@@ -13,7 +13,9 @@ import { GeneralAgentSession, sessionPhaseIdentity, type GeneralSessionOptions, 
 import { buildPublicRetrievalPhase, commonStructuralCheck, inspectPreparedTask, loadPreparedOperatorTask, runPreparedOperatorSession, selectPreparedPublicInputs, startControlledSnapshotReceiver } from "../../scripts/private-agent-run";
 import { EVIDENCE_HELPER_PATH } from "../../src/main/private-agent/evidence";
 import { retainPublicSource } from "../../src/main/private-agent/public-sources";
-import { publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
+import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
+import { DOCUMENT_REVIEW_FLAGS_PATH, type DocumentReviewFlags } from "../../src/main/private-agent/document-review-flags";
+import { HOST_FLAGS_REVIEW_CHECK_ID } from "../../src/main/private-agent/host-flags";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => { for (const done of cleanups.splice(0).reverse()) await done(); });
@@ -412,5 +414,85 @@ describe("E1 recoverability: a judge call the session stops mid-request (E1-J)",
       expect((await new GeneralAgentSession(config).run()).status).toBe("submitted");
       expect(f.store.events("judged-pause-call").find(e => e.type === "claims_entailment")).toMatchObject({ entailmentCalls: 2, truncated: false, counts: { supported: 2 } });
     } finally { resumed.mockRestore(); }
+  });
+});
+
+/** Backlog item 7(d), part B: a private-only phase that requires the claims ledger (or the document review), run by a fixture runner that writes `outputs`;
+ * `claims` records a verified ledger for the entailment pass, and `incomplete` ends the run without completing it. */
+function flagsOptions(f: Awaited<ReturnType<typeof fixture>>, jobId: string, outputs: Record<string, string>, config: { checkId?: string; claims?: boolean; incomplete?: boolean } = {}): GeneralSessionOptions {
+  const files = [{ path: "input/private.txt", bytes: Buffer.from("PRIVATE-FLAGS") }], artifacts = Object.keys(outputs);
+  const checks = [commonStructuralCheck(files, artifacts), { id: config.checkId ?? CLAIMS_LEDGER_CHECK_ID, python: "# fixture" }];
+  const phase: SessionPhase = { files, checks, contract: { version: 1, goal: "Use the private file to write a local report.", requiredArtifacts: artifacts.map(path => ({ path, description: "artifact" })),
+    requiredChecks: checks.map(check => check.id), maxModelCalls: 40, maxToolCalls: 80, maxElapsedMs: 1_800_000 } };
+  const checkpoints = new PrivateCheckpointStore(f.root, jobId);
+  return { jobId, imageId, store: f.store, broker: f.broker, checkpoints, privatePhase: phase,
+    syntheticInputApproval: { privatePhaseSha256: sessionPhaseIdentity(phase), authoritySha256: digest("host-authored-fixture") },
+    trustedHostModelFactory: contextId => new PrivateAgentModel(f.broker, { destinationId: "model", model: "fixture", maxOutputTokens: 128, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "disabled" }, jobId, contextId),
+    trustedHostRunnerFactory: input => ({ pause() {}, cancel() {}, async run() {
+      const snapshot = checkpoints.save([...input.files, ...Object.entries(outputs).map(([path, text]) => ({ path, bytes: Buffer.from(text) }))]);
+      const checks = input.checks.map(check => ({ id: check.id, passed: !config.incomplete }));
+      if (config.incomplete) return { status: "incomplete" as const, reason: "critical_checks_failed", snapshot, checks, modelCalls: 1 };
+      if (config.claims) f.store.append(jobId, { type: "claims_verified", contextId: input.contextId, version: 1,
+        claims: [{ id: "C1", sentence: "s1", quote: "q1 long enough", context: "c1" }, { id: "C2", sentence: "s2", quote: "q2 long enough", context: "c2" }] });
+      f.store.append(jobId, { type: "completed", contextId: input.contextId, snapshot, checks, verifiedSnapshotSha256: checkpoints.fingerprint(snapshot) });
+      return { status: "completed" as const, reason: "fixture", snapshot, checks, modelCalls: 1 };
+    } }) };
+}
+
+describe("backlog item 7(d), part B: the host flags event in the session (BL-20261110-1153)", () => {
+  const verdict = (content = '{"verdict":"supported"}') => vi.spyOn(PrivateAgentModel.prototype, "complete").mockResolvedValue({ content, toolCalls: [], finishReason: "stop", costUsd: 0, durationMs: 1 });
+  const flagged = (f: Awaited<ReturnType<typeof fixture>>, jobId: string) => f.store.events(jobId).filter(event => event.type === "host_flags");
+  const report = { "output/report.md": "# Findings\nNone of the sources quantify the cost.", [CLAIMS_LEDGER_PATH]: "[]" };
+  afterEach(() => { vi.restoreAllMocks(); });
+
+  it("records one event for the private context, after the submission and before the entailment pass, and nothing more on resume", async () => {
+    const f = await fixture(); verdict();
+    const config = flagsOptions(f, "flags-order", report, { claims: true });
+    expect((await new GeneralAgentSession(config).run()).status).toBe("submitted");
+    const events = f.store.events("flags-order"), types = events.map(event => event.type), start = events.find(event => event.type === "session_started")!;
+    expect(types.indexOf("session_submitted")).toBeGreaterThan(types.indexOf("completed"));
+    expect(types.indexOf("host_flags")).toBe(types.indexOf("session_submitted") + 1); expect(types.indexOf("claims_entailment")).toBeGreaterThan(types.indexOf("host_flags"));
+    expect(start.privateContextId).not.toBe(start.publicContextId);
+    expect(flagged(f, "flags-order")).toEqual([{ type: "host_flags", contextId: start.privateContextId, version: 1, rules: { absence: 1 },
+      report: { format: "markdown", scanned: true, textCut: false, hits: [{ line: 2, rule: "A1", class: "absence", cited: false }], truncated: false },
+      misses: { fetchFailures: 0, fetchLimitRefusals: 0 }, counts: { reportAbsence: 1, reportAbsenceUncited: 1, reportBounded: 0 } }]);
+    expect((await new GeneralAgentSession(config).run()).status).toBe("submitted"); expect(flagged(f, "flags-order")).toHaveLength(1);
+  });
+  it("records the event before a paused entailment pass, and only that one when the pass resumes", async () => {
+    const f = await fixture(), config = flagsOptions(f, "flags-pause", report, { claims: true }), session = new GeneralAgentSession(config);
+    let calls = 0;
+    vi.spyOn(PrivateAgentModel.prototype, "complete").mockImplementation(async () => { calls++; if (calls === 1) session.pause(); return { content: '{"verdict":"partial"}', toolCalls: [], finishReason: "stop", costUsd: 0, durationMs: 1 }; });
+    expect(await session.run()).toMatchObject({ status: "paused", reason: "session_stopped" });
+    expect(flagged(f, "flags-pause")).toHaveLength(1); expect(f.store.events("flags-pause").some(event => event.type === "claims_entailment")).toBe(false);
+    expect((await new GeneralAgentSession(config).run()).status).toBe("submitted");
+    expect(flagged(f, "flags-pause")).toHaveLength(1); expect(f.store.events("flags-pause").filter(event => event.type === "claims_entailment")).toHaveLength(1);
+  });
+  it("still submits when the append fails, and the next run records the event once", async () => {
+    const f = await fixture(), config = flagsOptions(f, "flags-retry", report), append = f.store.append.bind(f.store);
+    let refused = 0;
+    vi.spyOn(f.store, "append").mockImplementation((jobId, event) => { if (event.type === "host_flags" && refused++ === 0) throw new Error("disk full"); return append(jobId, event); });
+    expect((await new GeneralAgentSession(config).run()).status).toBe("submitted"); expect(refused).toBe(1); expect(flagged(f, "flags-retry")).toEqual([]);
+    expect((await new GeneralAgentSession(config).run()).status).toBe("submitted"); expect(flagged(f, "flags-retry")).toHaveLength(1);
+    expect((await new GeneralAgentSession(config).run()).status).toBe("submitted"); expect(flagged(f, "flags-retry")).toHaveLength(1); expect(refused).toBe(2);
+  });
+  it("records none for a run that did not complete, or for a phase that requires neither check", async () => {
+    const f = await fixture();
+    expect(await new GeneralAgentSession(flagsOptions(f, "flags-incomplete", report, { incomplete: true })).run()).toMatchObject({ status: "incomplete", reason: "critical_checks_failed" });
+    expect(flagged(f, "flags-incomplete")).toEqual([]);
+    expect((await new GeneralAgentSession(flagsOptions(f, "flags-neither", report, { checkId: "structure_extra" })).run()).status).toBe("submitted");
+    expect(flagged(f, "flags-neither")).toEqual([]);
+    expect((await new GeneralAgentSession(options(f, "flags-two-phase", "PRIVATE-NEITHER")).run()).status).toBe("submitted"); expect(flagged(f, "flags-two-phase")).toEqual([]);
+  });
+  it("summarizes a document review's flags file, with no claims pass", async () => {
+    const f = await fixture(), complete = vi.spyOn(PrivateAgentModel.prototype, "complete");
+    const flags: DocumentReviewFlags = { version: 1, rules: { inversion: 1, numeric: 1 },
+      counts: { inversionEdits: 0, inversionIntroduced: 0, inversionSource: 0, inversionUnaddressed: 0, numericIntroduced: 0, numericResolved: 0, numericSource: 0, numericUnaddressed: 0 },
+      read: { comparisonsCapped: false, figuresCapped: false, labelsCapped: false, paragraphsClipped: 0, rowsCapped: false, sentencesCapped: false, termsCapped: false },
+      numeric: { flags: [], truncated: false }, edits: { flags: [{ id: "E1", codes: ["modality_changed"] }], truncated: false }, clauses: { flags: [], truncated: false } };
+    const config = flagsOptions(f, "flags-review", { "output/redline.docx": "PK\x03\x04 fixture", [DOCUMENT_REVIEW_FLAGS_PATH]: JSON.stringify(flags) }, { checkId: HOST_FLAGS_REVIEW_CHECK_ID });
+    expect((await new GeneralAgentSession(config).run()).status).toBe("submitted");
+    expect(flagged(f, "flags-review")).toMatchObject([{ rules: { review: 1 }, review: { valid: true, edits: [{ id: "E1", codes: ["modality_changed"] }] }, counts: flags.counts }]);
+    expect(flagged(f, "flags-review")[0]).not.toHaveProperty("report");
+    expect(f.store.events("flags-review").some(event => event.type === "claims_entailment")).toBe(false); expect(complete).not.toHaveBeenCalled();
   });
 });

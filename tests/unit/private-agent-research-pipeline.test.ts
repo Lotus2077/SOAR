@@ -847,7 +847,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     expect(parsed(result, RESEARCH_FILES.evidence).quotes.length).toBeGreaterThan(0);
   });
 
-  it("builds T1 and T2 in the inventory's order, not the caller's: sources, texts, index and coverage agree by position, as the wrapper's checks require (BL-20261110-1330)", async () => {
+  it("builds T1 and T2 in the inventory's order, not the caller's: sources, texts, index and coverage agree by position, as the wrapper's checks require (BL-20261110-1330-correction-research-v5-assist-order-deadline)", async () => {
     // No other order may reach a request. The caller's differs from the inventory's (ids by UTF-16 code unit, sourceOrder
     // "id_utf16_ascending"), which differs from code-point order (U+1F600's high surrogate 0xD83D sorts before U+FF21 by code unit
     // only) and, where Node has ICU, from localeCompare ("Zeta" before "alpha"). A public source's id is its URL and its path a stored
@@ -886,7 +886,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     expect(unreadable.seen).toEqual({ plan: [], synthesis: [] }); expect(quiet.request).not.toHaveBeenCalled();
   });
 
-  it("stops at the first assist that fires when the run has no deadline, and passes a session deadline to both touchpoints unchanged (BL-20261110-1330)", async () => {
+  it("stops at the first assist that fires when the run has no deadline, and passes a session deadline to both touchpoints unchanged (BL-20261110-1330-correction-research-v5-assist-order-deadline)", async () => {
     // A fake that applies the wrapper's deadline rule (10.a): a deadline that is not a number, or is NaN, is a stop with
     // assist_deadline_missing before anything is built or sent. Infinity passes that rule.
     const rule = <T extends { deadlineMs: number }>(answer: (request: T) => ResearchAssistOutcome) => (request: T): ResearchAssistOutcome =>

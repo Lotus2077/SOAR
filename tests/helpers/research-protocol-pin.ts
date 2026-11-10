@@ -17,7 +17,7 @@
  *   parser reads a part named by a heading or a parenthesis, and more part nouns, as a part's limit, reads no limit when its guards
  *   drop the largest one, and against 7b.1 only ever drops a limit.
  * - 679e623f02795ec66f06349af4bde5ff8db83fd1d5054465c1da492d6847d3f5: backlog item 7(a), part 1, merged onto the 7(b) corrections
- *   (re-pinned in BL-20261110-0712): the same 7a.1 code on the corrected word-limit parser.
+ *   (re-pinned in BL-20261110-0712-correction-research-tolerance-repin): the same 7a.1 code on the corrected word-limit parser.
  * - 396a15f3aca0c7b758fe4b052ee744911f0a5943dd805d518a70d9b6799ac2aa: 7(a), part 1, with owner question 3's corner settled (BL-20261110-0726): a first attempt that
  *   dropped every quote of a found question is held and its chunk repaired while the budget lasts.
  * - 9066d7de5d1c52e1cb0616a4b68ea157638749810ac5fabbd8863db6a288c6d3: the delta review's rules A (comma chains) and B (the sentence before)

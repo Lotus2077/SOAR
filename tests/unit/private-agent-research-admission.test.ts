@@ -300,7 +300,7 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
     expect(researchSynthesisLengthCap("Write at most 8,000 words.", { maxOutputTokens: 16384, thinking: "disabled" })).toEqual({ words: 8000, ceilingWords: 12337, briefWordLimit: 8000 });
     // A value below the 100-word floor is a part's length, never the argument's: the default applies.
     expect(researchSynthesisLengthCap("Write at most 12 words.", { maxOutputTokens: 8192, thinking: "model" })).toEqual({ words: 1200, ceilingWords: 1200 });
-    // A role cap too small for the floor still names the floor; 7a.2 refuses such a role policy before any request.
+    // A role cap too small for the floor still names the floor; 7a.2 (not merged) is to refuse such a role policy before any request.
     expect(researchSynthesisLengthCap("No limit.", { maxOutputTokens: 1024, thinking: "disabled" })).toEqual({ words: 100, ceilingWords: 0 });
     expect(researchSynthesisLengthCap("No limit.", { maxOutputTokens: 1100, thinking: "model" })).toEqual({ words: 100, ceilingWords: 61 });
   });

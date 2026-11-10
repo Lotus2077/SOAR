@@ -134,8 +134,9 @@ export const RESEARCH_SYNTHESIS_LENGTH_POLICY = Object.freeze({ version: 1, sour
    */
   thinkingCeilingWords: 1200,
   /**
-   * The smallest cap ever sent. 7a.2 refuses, before any request, a role policy whose ceiling falls below it; a stated limit
-   * below it is a part's length (a heading, a label), never the argument's, and is ignored.
+   * The smallest cap ever sent. 7a.2 (not merged) is to refuse, before any request, a role policy whose ceiling falls below
+   * it; until it merges, a serving card with a non-default cap is refused (docs/experiments/README.md). A stated limit below
+   * it is a part's length (a heading, a label), never the argument's, and is ignored.
    */
   minimumWords: 100, enforcement: "recorded_not_enforced" });
 

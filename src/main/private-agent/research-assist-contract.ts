@@ -26,8 +26,11 @@ interface ResearchAssistRequestBase {
   readonly units: readonly BriefUnit[];
   /** The source inventory in its own order (coverage.sources), which is the order of the opaque ids S1, S2, ... */
   readonly sources: readonly ResearchSourceIdentity[];
-  /** Each source's whole text, in the same order (research-coverage.ts researchSourceText): the audit's reference for copied source text. */
-  readonly sourceTexts: readonly string[];
+  /**
+   * Each source's whole text, in the same order (research-coverage.ts researchSourceText): the audit's reference for copied
+   * source text. `undefined` for a source with no readable text (a PDF, a .docx or a binary file), as researchSourceText answers.
+   */
+  readonly sourceTexts: readonly (string | undefined)[];
   readonly sourceIndex: ResearchAssistIndexDocument;
   /**
    * The session's wall deadline in `performance.now()` milliseconds (finding A8): a priced call the deadline could cut is not
@@ -64,10 +67,10 @@ export interface ResearchAssistPacketRecord {
   fieldBytes?: Partial<Record<"authoritativeSchema" | "brief" | "units" | "sources" | "budget" | "priorAttempts" | "plan" | "evidenceText" | "coverage" | "repairReason", number>>;
   /**
    * Replacements made before serialization: source identities by field (brief, units, gists, plan, quotes); then, in any
-   * field, digests (hexadecimal runs), and URLs and file paths outside quotes.
+   * field, host file names and file paths (`files`), URLs (`urls`) and digests (`digests`).
    */
   substitutions: { brief: number; units: number; gists: number; plan: number; quotes: number; digests: number; urls: number; files: number };
-  auditFinding?: "source_identity" | "digest" | "url_or_path" | "literal_text" | "host_text";
+  auditFinding?: "source_identity" | "digest" | "url_or_path" | "literal_text";
 }
 /** One assist call as the wrapper saw it; 10.b sums these into the stage summary's assist record. */
 export interface ResearchAssistAttemptRecord {

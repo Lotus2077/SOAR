@@ -263,11 +263,11 @@ describe("what the cloud never sees", () => {
       "ALPHA-FIELD-NOTES.MD", "the alpha-field-notes draft", `source ${(await assistRequests()).plan.sources[0]!.sha256.slice(0, 12)}`, "https://elsewhere.test/page", "see archive/2024/memo.txt"].join("; ") });
     if (!t1.ok) throw new Error(t1.code);
     const gist = JSON.parse(t1.user).sources[0].gist as string;
-    expect(gist).toBe(`See ${aliasOf(run, 1)}; ${aliasOf(run, 2)}; ${aliasOf(run, 2)}; www.${aliasOf(run, 2)}/news; ${aliasOf(run, 0)}; the ${aliasOf(run, 0)} draft; source [digest]; [url]; see [file]`);
+    expect(gist).toBe(`See ${aliasOf(run, 1)}; ${aliasOf(run, 2)}; ${aliasOf(run, 2)}; www.${aliasOf(run, 2)}; ${aliasOf(run, 0)}; the ${aliasOf(run, 0)} draft; source [digest]; [url]; see [file]`);
     expect(t1.packet.substitutions).toMatchObject({ urls: 1, files: 1 });
   });
 
-  it("refuses model text that copies a literal opening (T1), source text or a long heading (T2), or the appended host text", async () => {
+  it("refuses model text that copies a literal opening (T1), or source text or a long heading (T2)", async () => {
     const run = await assistRequests(), opening = run.plan.sourceIndex.sources[1]!.literal.opening.text;
     const copied = await packetsWith({ gist: `Summary: ${opening.slice(0, 90)}` });
     expect(copied.t1).toMatchObject({ ok: false, code: ASSIST_CODES.auditFailed, packet: { auditFinding: "literal_text" } });
@@ -276,10 +276,13 @@ describe("what the cloud never sees", () => {
     expect(deep.t2).toMatchObject({ ok: false, code: ASSIST_CODES.auditFailed, packet: { auditFinding: "literal_text" } });
     const heading = await packetsWith({ question: "Alpha field notes from the orchard survey in early autumn of the synthetic year?" });
     expect(heading.t2).toMatchObject({ ok: false, packet: { auditFinding: "literal_text" } });
-    // A sentence of the claims-ledger instructions the driver appended, copied into the plan's notes.
+    // A sentence of the claims-ledger instructions the driver appended is SOAR's own text, not the owner's: once its file
+    // names are replaced it holds nothing private, so a plan that restates it is sent (the design's 32-character host-text
+    // window is dropped).
     const host = await packetsWith({ deliverableNotes: "Every material factual sentence in the report must carry its claim id in brackets." });
-    expect(host.t2).toMatchObject({ ok: false, code: ASSIST_CODES.auditFailed, packet: { auditFinding: "host_text" } });
-    // And a host file name the plan carried is replaced: claims.json is named only by the appended instructions.
+    if (!host.t2.ok) throw new Error(host.t2.code);
+    expect(JSON.parse(host.t2.user).plan.deliverableNotes).toBe("Every material factual sentence in the report must carry its claim id in brackets.");
+    // But a host file name the plan carried is replaced: claims.json is named only by the appended instructions.
     const named = await packetsWith({ deliverableNotes: "Write claims.json beside the report." });
     if (!named.t2.ok) throw new Error(named.t2.code);
     expect(JSON.parse(named.t2.user).plan.deliverableNotes).toBe("Write [file] beside the report.");
@@ -430,8 +433,8 @@ describe("the assist protocol block and the records", () => {
     expect(block).toMatchObject({ version: 1, firing: "forced_split", prompts: { plan: PLAN_ASSIST_SYSTEM, synthesis: SYNTHESIS_ASSIST_SYSTEM }, bounds: ASSIST_BOUNDS,
       outputTokens: ASSIST_OUTPUT_TOKENS, thinking: "model_medium_only", cacheMode: "assist_no_cache_write_v1", triggers: { rejectedLocalPlans: 2, refusedLocalSyntheses: 2 } });
     // The patterns that apply the rules are bound too, so changing a matcher changes the block.
-    expect(block.packet.patterns.url.length).toBeGreaterThan(3);
-    expect(block.packet.patterns.path.length).toBeGreaterThan(5);
+    expect(block.packet.scrub.patterns.url.length).toBeGreaterThan(3);
+    expect(block.packet.scrub.patterns.path.length).toBeGreaterThan(5);
     expect(block.packet.evidenceTemplate).toContain("notes withheld");
     expect(researchAssistProtocolSha256("forced_split")).toBe(researchAssistProtocolSha256("forced_split"));
     expect(researchAssistProtocolSha256("forced_split")).not.toBe(researchAssistProtocolSha256("local_first"));
@@ -539,6 +542,27 @@ describe("the code review's cases: names, paths, URLs and digests in any form", 
     const huge = `${"Brief sentence. ".repeat(3200)}\n`, big = await assistRequests({ authored: huge });
     expect(buildSynthesisAssistPacket(big.synthesis, { authoredBrief: huge, model: model() })).toMatchObject({ ok: false, code: ASSIST_CODES.packetSize });
   });
+
+  it("takes a source with no readable text, refuses a real id holding a placeholder, and refuses a T1 too large for its body before reading a gist", async () => {
+    const run = await assistRequests();
+    // A PDF, .docx or binary source has no text (researchSourceText answers undefined): nothing to copy from, not a malformed request.
+    const unreadable = buildSynthesisAssistPacket(frozen({ ...run.synthesis, sourceTexts: run.synthesis.sourceTexts.map((text, i) => i === 0 ? undefined : text) }),
+      { authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() });
+    expect(unreadable.ok).toBe(true);
+    // A real id that holds a placeholder could be mistaken for one by the scrub's later passes.
+    expect((await variant({ id: "input/[file].md" })).t1).toMatchObject({ ok: false, code: ASSIST_CODES.aliasCollision });
+    // 3,000 sources cannot fit T1's 32 KiB even with every gist empty: the packet is refused as too large before any gist is
+    // scrubbed or audited, so the first gist's copied opening is never read.
+    const base = run.plan, first = base.sourceIndex.sources[0]!;
+    const sources = Array.from({ length: 3000 }, (_, i) => ({ ...base.sources[0]!, id: `input/bulk/source-${i}.md`, path: `input/bulk/source-${i}.md` }));
+    const sourceIndex = { version: 2 as const, sources: sources.map((source, i) => ({ ...first, sourceId: source.id, literal: { ...first.literal, sourceId: source.id },
+      gist: i === 0 ? `Copied: ${first.literal.opening.text}` : "A gist." })) };
+    const started = performance.now();
+    const bulk = buildPlanAssistPacket(frozen({ ...base, sources, sourceIndex, sourceTexts: sources.map(() => base.sourceTexts[0]) }), { firing: "forced_split", authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() });
+    expect(bulk).toMatchObject({ ok: false, code: ASSIST_CODES.packetSize });
+    expect(bulk.ok ? undefined : bulk.packet?.auditFinding).toBeUndefined();
+    expect(performance.now() - started).toBeLessThan(10_000);
+  }, 30_000);
 
   it("lets a cancel win over a used slot, refuses a thinking-off assist model, and checks the stage record's own rules", async () => {
     const run = await frozenRun(), f = cachingAssistModel("openai_responses", answer), assists = wrap(f.model);

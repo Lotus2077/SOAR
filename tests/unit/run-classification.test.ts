@@ -47,7 +47,8 @@ const CASES: [string, RunEndEvidence, RunClass][] = [
   ...["connection_failed", "upstream_closed", "response_interrupted"].map(code => [`a cloud call that failed with ${code}`, end({ failingCall: cloud(transport(code)) }), infra("model_unavailable")] as [string, RunEndEvidence, RunClass]),
   ["a cloud call answered 503", end({ failingCall: cloud(transport("http_rejected", { status: 503 })) }), infra("model_unavailable")],
   ["a cloud call answered 529", end({ failingCall: cloud(transport("http_rejected", { status: 529 })) }), infra("model_unavailable")],
-  ["a cloud call answered 429", end({ failingCall: cloud(transport("http_rejected", { status: 429 })) }), infra("model_unavailable")],
+  // Version 1's reading (BL-20261110-0723, owner question (d)): only the Anthropic arm records the spend flags, so a 429 with no recorded kind, as every other arm records one, is transient.
+  ["a cloud call answered 429 with no recorded kind", end({ failingCall: cloud(transport("http_rejected", { status: 429 })) }), infra("model_unavailable")],
   ["a cloud stream that errored 500", end({ failingCall: cloud(transport("stream_error", { status: 500 })) }), infra("model_unavailable")],
   ["a cloud call answered 429 with the spend cap", end({ failingCall: cloud(transport("http_rejected", { status: 429, spendCap: true })) }), TASK],
   ["a cloud call answered 429 with the spend limit", end({ failingCall: cloud(transport("http_rejected", { status: 429, spendLimit: true })) }), TASK],
@@ -69,11 +70,15 @@ const CASES: [string, RunEndEvidence, RunClass][] = [
   ["a token admission cancelled without the loop's mark", end({ reason: "local_token_admission_denied", tokenAdmissionCode: STOP_TOKEN_ADMISSION_CODE }), TASK],
   // Odd types never count as the mark or as a code.
   ["a mark that is not true", end({ reason: "cancelled_or_deadline", stopSignalled: [] as never }), TASK],
+  ["a mark that is truthy but not true", end({ reason: "cancelled_or_deadline", stopSignalled: 1 as never }), TASK],
+  ["a mark that is the string true", end({ reason: "cancelled_or_deadline", stopSignalled: "true" as never }), TASK],
   ["a capture failure that is not a code", end({ reason: "bounded_allowance_exhausted", captureFailure: undefined as never }), TASK],
   ["a verification failure that is not a code", end({ reason: "bounded_allowance_exhausted", verificationFailure: 7 as never }), TASK],
   ["a failing call that is not a row", end({ failingCall: "row" as never }), infra("model_unavailable")],
   ["a broker refusal for a missing destination", end({ reason: "model_request_denied", brokerDenialCode: "destination_missing" }), infra("destination_missing")],
   ["another broker refusal", end({ reason: "model_request_denied", brokerDenialCode: "packet_approval_mismatch" }), TASK],
+  // A writer whose destination is missing ends model_request_denied with no marker (model.ts throws before one), so rule (d) reaches it only through a reading stage.
+  ["a broker refusal with no marker", end({ reason: "model_request_denied" }), TASK],
   ["an allowance end after a capture failure", end({ reason: "bounded_allowance_exhausted", captureFailure: "capture_timeout" }), infra("verification_unavailable")],
   ["an allowance end after a sandbox verification failure", end({ reason: "bounded_allowance_exhausted", verificationFailure: "sandbox_unavailable" }), infra("verification_unavailable")],
   ["an allowance end after another verification failure", end({ reason: "bounded_allowance_exhausted", verificationFailure: "verification_failed" }), TASK],

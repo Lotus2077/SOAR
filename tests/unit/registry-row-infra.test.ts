@@ -87,6 +87,12 @@ describe("registry rows classified by how the run ended (backlog item 11, part 3
       ["uncertain-transport", { reason: "runtime_failure_progress_preserved", events: [{ type: "runtime_failure", contextId: "p", code: "BrokerError", brokerCode: "transport_or_settlement_unknown" }],
         dispatches: [{ ...cloud402, status: "unknown", failure: { phase: "transport", code: "request_timeout" } }] }, infra("runtime_failure_progress_preserved")],
       ["public-phase", { reason: "public_model_unavailable", dispatches: [{ ...zeroFee, destinationId: "approved_public_snapshots", purpose: "public source retrieval" }] }, infra("public_model_unavailable")],
+      // Merge-train review of #78 (F6): with two of a kind, both readers take the last stage denial and the last runtime failure.
+      ["stage-last", { reason: "research_request_denied", events: [{ type: "research_stage", contextId: "r", stage: "plan", calls: 1, denied: "request_failed" },
+        { type: "research_stage", contextId: "r", stage: "synthesis", calls: 0, denied: "deadline_before_request" }], dispatches: [zeroFee] }, task()],
+      ["runtime-last", { reason: "runtime_failure_progress_preserved", events: [{ type: "runtime_failure", contextId: "p", code: "BrokerError", brokerCode: "transport_or_settlement_unknown" },
+        { type: "runtime_failure", contextId: "p", code: "BrokerError", brokerCode: "unresolved_dispatch" }],
+        dispatches: [{ ...cloud402, status: "unknown", failure: { phase: "settlement", code: "response_or_usage_invalid" } }] }, infra("runtime_failure_progress_preserved")],
     ];
     for (const [name, input, expected] of cases) {
       const outcome = expected.infra ? "infra_invalid" : input.status === "submitted" ? "accepted" : "rejected";
@@ -97,7 +103,8 @@ describe("registry rows classified by how the run ended (backlog item 11, part 3
       expect(pythonEvidence(dir), name).toEqual({ ...evidence, stopSignalled: false });
       expect(classifyRunEnd({ ...evidence, stopSignalled: false }), name).toEqual(expected);
     }
-  });
+    // 48 python3 spawns: the system interpreter takes about 150 ms each, so the default 5 s is too short (merge-train review of #78).
+  }, 30_000);
   it("refuses an outcome that contradicts the class, and keeps accepted open", () => {
     const root = scratch();
     const infraRun = runDirectory(root, "infra", { reason: "model_unavailable", dispatches: [zeroFee] });

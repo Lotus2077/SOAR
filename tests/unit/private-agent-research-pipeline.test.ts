@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { BrokerError, type PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
-import { EXTRACT_SYSTEM, RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, SYNTHESIS_SYSTEM, normalizeQuoteText, locateQuote, parseJsonReply, researchExtractionUserContent, researchProtocolSha256, researchSourceText, runResearchPipeline, stripUnknownCitations, type ResearchDiagnostic, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
+import { EXTRACT_SYSTEM, RESEARCH_FILES, RESEARCH_INDEX_BATCH_BYTES, RESEARCH_PIPELINE_BUDGET, SYNTHESIS_SYSTEM, normalizeQuoteText, locateQuote, parseJsonReply, researchExtractionUserContent, researchProtocolSha256, researchSourceText, runResearchPipeline, stripUnknownCitations, type ResearchDiagnostic, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
 import { planResearchIndexBatches, researchWordCount } from "../../src/main/private-agent/research-admission";
 import { RESEARCH_FALLBACK_POLICY, hostFallbackPlan, hostSkeletonSynthesis } from "../../src/main/private-agent/research-fallback";
 import type { ResearchAssistFiring, ResearchAssistOutcome, ResearchAssistPlanRequest, ResearchAssistSynthesisRequest, ResearchAssists } from "../../src/main/private-agent/research-assist-contract";
@@ -701,7 +701,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     expect(Object.keys(request).sort()).toEqual(["brief", "deadlineMs", "extractionCallBudget", "mandatorySourceChunks", "priorAttempts", "sourceIndex", "sourceTexts", "sources", "units"]);
     expect(request.priorAttempts).toEqual(firing === "forced_split" ? [] : attempts.slice(0, 2)); expect(JSON.stringify(request)).not.toContain("not a stage");
     expect(request).toMatchObject({ brief: RESEARCH_V4_TEST_BRIEF, extractionCallBudget: RESEARCH_PIPELINE_BUDGET.extractionCalls, sourceIndex: parsed(result, RESEARCH_FILES.index) });
-    // No session deadline: the request carries NaN, which the real wrapper refuses as assist_deadline_missing (the contract requires one).
+    // No session deadline: the request carries NaN, on which the real wrapper stops with assist_deadline_missing (the contract requires one).
     expect(request.deadlineMs).toBeNaN();
     expect(request.sourceTexts).toEqual(researchV4Sources().map(source => source.bytes.toString()));
     // A rejected assist reply reaches the sink under its own purpose; the stage's replies under theirs.
@@ -845,6 +845,74 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     const result = await run(m, { assists: h.assists, deadlineMs: Infinity });
     expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" }); expect(h.seen.plan[0]!.deadlineMs).toBe(Infinity);
     expect(parsed(result, RESEARCH_FILES.evidence).quotes.length).toBeGreaterThan(0);
+  });
+
+  it("builds T1 and T2 in the inventory's order, not the caller's: sources, texts, index and coverage agree by position, as the wrapper's checks require (BL-20261110-1330)", async () => {
+    // No other order may reach a request. The caller's differs from the inventory's (ids by UTF-16 code unit, sourceOrder
+    // "id_utf16_ascending"), which differs from code-point order (U+1F600's high surrogate 0xD83D sorts before U+FF21 by code unit
+    // only) and, where Node has ICU, from localeCompare ("Zeta" before "alpha"). A public source's id is its URL and its path a stored
+    // file (session.ts), so path order differs from id order. That source's text is non-ASCII, starts with a BOM and is longer than
+    // the index preview, so a text decoded another way, or cut to the preview, differs from researchSourceText's.
+    const names = ["beta", `${String.fromCodePoint(0xff21)}lpha`, "Zeta", `${String.fromCodePoint(0x1f600)}moji`, "alpha"];
+    const local = names.map((name, i) => ({ id: `input/corpus/${name}.md`, path: `input/corpus/${name}.md`, bytes: Buffer.from(`# Synthetic ${i}\nThe survey of plot ${i + 1} recorded ${i + 2} healthy trees.\n`) }));
+    const lines = Array.from({ length: 400 }, (_, i) => `Line ${String(i).padStart(3, "0")} notes a café survey of the naïve orchard, plot ${i}.`);
+    const web = { id: "https://example.test/notes/field-report", path: `sources/${"0f".repeat(32)}.bin`, bytes: Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(lines.join("\n"))]) };
+    const sources = [local[0]!, web, ...local.slice(1)];
+    const byUnits = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0, points = (s: string) => Array.from(s, c => c.codePointAt(0)!);
+    const byPoints = (a: string, b: string) => { const x = points(a), y = points(b); for (let i = 0; i < Math.min(x.length, y.length); i++) if (x[i] !== y[i]) return x[i]! - y[i]!; return x.length - y.length; };
+    const ids = sources.map(s => s.id), sorted = [...ids].sort(byUnits), byPath = [...sources].sort((a, b) => byUnits(a.path, b.path)).map(s => s.id);
+    for (const other of [ids, [...ids].sort(byPoints), byPath]) expect(sorted).not.toEqual(other);
+    expect(web.bytes.length).toBeGreaterThan(RESEARCH_INDEX_BATCH_BYTES);
+    const h = hook("forced_split", planBy("skipped"), synthesisBy("skipped")), m = models(), result = await run(m, { sources, assists: h.assists });
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    const coverage = parsed(result, RESEARCH_FILES.coverage), t1 = h.seen.plan[0]!, t2 = h.seen.synthesis[0]!;
+    expect(coverage.sources.map((s: { id: string }) => s.id)).toEqual(sorted);
+    for (const request of [t1, t2]) {
+      expect(request.sources).toEqual(coverage.sources.map((s: any) => { const { readable: _readable, ...identity } = s; return identity; }));
+      expect(request.sourceTexts).toEqual(sorted.map(id => researchSourceText(sources.find(s => s.id === id)!)));
+      expect(request.sourceIndex.sources.map(entry => entry.sourceId)).toEqual(sorted);
+      // This run has no session deadline, so both touchpoints carry NaN.
+      expect(request.deadlineMs).toBeNaN();
+    }
+    expect(t1).toMatchObject({ mandatorySourceChunks: coverage.chunks.length, extractionCallBudget: RESEARCH_PIPELINE_BUDGET.extractionCalls });
+    // T2's coverage is the pipeline's own as it stands at the call: the stage's synthesis request, which follows it, carries the same.
+    expect(t2.coverage).toEqual(m.calls.find(c => c.stage === "synthesise")!.input.coverage);
+    // The wrapper's T2 check: the same length, the same id at each position, and a text for every readable source.
+    expect(t2.coverage.sources.length === t2.sources.length && t2.coverage.sources.every((source, i) => source.id === t2.sources[i]!.id && (!source.readable || t2.sourceTexts[i] !== undefined))).toBe(true);
+    // An unreadable source ends the run before any request, so no request ever carries an undefined text.
+    const unreadable = hook("forced_split", planBy("skipped"), synthesisBy("skipped")), quiet = models();
+    expect(await run(quiet, { sources: [...sources, { id: "input/corpus/scan.pdf", path: "input/corpus/scan.pdf", bytes: Buffer.from("%PDF-1.7 synthetic") }], assists: unreadable.assists }))
+      .toMatchObject({ status: "incomplete", reason: "research_source_unreadable" });
+    expect(unreadable.seen).toEqual({ plan: [], synthesis: [] }); expect(quiet.request).not.toHaveBeenCalled();
+  });
+
+  it("stops at the first assist that fires when the run has no deadline, and passes a session deadline to both touchpoints unchanged (BL-20261110-1330)", async () => {
+    // A fake that applies the wrapper's deadline rule (10.a): a deadline that is not a number, or is NaN, is a stop with
+    // assist_deadline_missing before anything is built or sent. Infinity passes that rule.
+    const rule = <T extends { deadlineMs: number }>(answer: (request: T) => ResearchAssistOutcome) => (request: T): ResearchAssistOutcome =>
+      typeof request.deadlineMs !== "number" || Number.isNaN(request.deadlineMs) ? { kind: "stop", code: "assist_deadline_missing" } : answer(request);
+    const wrapped = (firing: ResearchAssistFiring) => hook(firing, rule(planBy("skipped")), rule(synthesisBy("skipped")));
+    // forced_split without a deadline: T1 fires first and ends the plan stage; only the index stage has run.
+    const forced = wrapped("forced_split"), m = models(), events: ResearchStageCounts[] = [];
+    expect(await run(m, { assists: forced.assists }, events)).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(events.at(-1)).toMatchObject({ stage: "plan", calls: 0, denied: "assist_deadline_missing" }); expect(m.calls.map(c => c.stage)).toEqual(["index"]);
+    expect(forced.seen.plan).toHaveLength(1); expect(forced.seen.synthesis).toHaveLength(0);
+    // local_first without a deadline, the local synthesis rejected twice: T2 fires after the stage's own calls and ends the stage.
+    // Its coverage is the pipeline's as it stands, the synthesis marked invalid by those two replies.
+    const late = wrapped("local_first"), lateEvents: ResearchStageCounts[] = [];
+    expect(await run(rejecting("synthesise"), { assists: late.assists }, lateEvents)).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(lateEvents.at(-1)).toMatchObject({ stage: "synthesise", calls: 2, invalidReplies: 2, denied: "assist_deadline_missing" });
+    expect(late.seen.plan).toHaveLength(0); expect(late.seen.synthesis).toHaveLength(1);
+    expect(late.seen.synthesis[0]!.deadlineMs).toBeNaN(); expect(late.seen.synthesis[0]!.coverage.synthesis.status).toBe("invalid");
+    // local_first without a deadline, every local reply accepted: no assist fires, so the missing deadline does not show.
+    const local = wrapped("local_first");
+    expect(await run(models(), { assists: local.assists })).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(local.seen).toEqual({ plan: [], synthesis: [] });
+    // A finite session deadline reaches both touchpoints unchanged (the fixture broker has no clock, so the stage guards are stubbed).
+    const timed = wrapped("forced_split"), clocked = models(), deadlineMs = performance.now() + 60_000;
+    for (const model of Object.values(clocked.models)) vi.spyOn(model, "deadlineRefuses").mockReturnValue(false);
+    expect(await run(clocked, { assists: timed.assists, deadlineMs })).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect([timed.seen.plan[0]!.deadlineMs, timed.seen.synthesis[0]!.deadlineMs]).toEqual([deadlineMs, deadlineMs]);
   });
 
   it("follows a skipped T1 and a T2 that gives no reply with the stage's own calls, then the skeleton (the forced split's no-reply path)", async () => {

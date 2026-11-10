@@ -291,8 +291,12 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   Object.assign(indexCounts, summarizeIndexEntries(index, batchAssessments), { sourcesIndexed: index.filter(s => s.modelStatus === "model_complete").length }); record(indexCounts);
   const indexDocument = { version: 2 as const, sources: index }; put(RESEARCH_FILES.index, indexDocument);
   const planCounts: ResearchStageCounts = { stage: "plan", calls: 0, invalidReplies: 0, usage: zeroUsage(), questions: 0, planAttempts: [] };
-  // 7(c): the assist hook's shared request fields (research-assist-contract.ts); a request never carries a raw local reply. The
-  // deadline is required: without a session deadline the request carries NaN, which the wrapper refuses (assist_deadline_missing).
+  // 7(c): the assist hook's shared request fields (research-assist-contract.ts); a request never carries a raw local reply.
+  // `sources`, `sourceTexts` and the index document follow the inventory's order (ids by UTF-16 code unit), coverage.sources' order.
+  // The wrapper checks that order position by position (the index for T1 and T2, the coverage for T2) and stops a request that breaks
+  // it (assist_request_invalid). The deadline is required: without a session deadline the request carries NaN, and the wrapper stops
+  // (assist_deadline_missing) before sending anything. Either stop ends the stage denied at the first assist that fires
+  // (BL-20261110-1330).
   const assistBase = () => ({ brief: input.brief, units: coverage!.units, sources: inventory.sourceManifest,
     sourceTexts: ordered.map(source => researchSourceText(source)), sourceIndex: indexDocument, deadlineMs: input.deadlineMs ?? Number.NaN });
   /**

@@ -34447,3 +34447,144 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: Push the branch with no pull request yet. The pull request opens after #69 merges, based on main like #76, and notes that it contains #76. Then CI green, the orchestrator's review, and a merge after #76 and before 7b.2 and 10.b.
 
 References: BL-20261113-0817-research-v5-design; BL-20261110-0726-correction-research-tolerance-total-loss; BL-20261110-0712-correction-research-tolerance-repin; BL-20261109-0417-assist-wrapper-design and BL-20261110-0639-assist-core-implemented (10.a's, on its branch); docs/PROJECT_REVIEW_2026-11-05.md section 5.2 and section 5.7 item 7.
+
+### BL-20261113-0819-correction-research-v5-assist-order-deadline -- 2026-11-13 -- Correction to BL-20261113-0817 and BL-20261113-0818: the assist requests already follow the sorted inventory the wrapper checks, and a run without a deadline is stopped at its first assist, not refused; both now pinned by tests
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261113-0817-research-v5-design and BL-20261113-0818-research-v5-implemented, on the local branch `feat/7c-research-v5` (backlog item 7(c); not pushed, no pull request yet). It adds two tests and corrects two comments. It changes no runtime behaviour and no hashed value.
+
+The orchestrator relayed two cross-lane notes for 7c from its delta review of #79 (10.a, the assist wrapper) at d364b46:
+- **The order check.** The wrapper's new check ends any T2 request whose `coverage.sources` and `request.sources` differ in length or in the id at any position, or that lacks a text for a readable source.
+- **The deadline.** Without a session deadline, 7c passes NaN as `deadlineMs`; the wrapper answers `assist_deadline_missing` and sends nothing. So an assist can run only when the pipeline is given a deadline.
+
+Both outcomes are stops, not refusals. `assist_request_invalid` and `assist_deadline_missing` are both on the wrapper's stop list, so either one ends the stage.
+
+Decisions:
+(1) **The request order: 7c conforms, and the code does not change.**
+- **The sources.** `inventoryResearchSources` sorts the sources once, comparing ids with `<`. That is the coverage policy's `sourceOrder: "id_utf16_ascending"`.
+  - `coverage.sources` is that inventory.
+  - Both requests' `sources` is its `sourceManifest`: the same identities, in the same order.
+  - So the two lists agree in length and in the id at every position, for any input the inventory accepts. The caller's order reaches neither.
+- **The texts and the index.** Both follow the same order.
+  - `sourceTexts[i]` is `researchSourceText` of the i-th source in that order. The inventory sets `readable` with the same function, so a text is undefined exactly where coverage marks the source unreadable.
+  - The index document lists the sources in that order too.
+  - This matters for both touchpoints, because the wrapper's shared checks stop T1 and T2 alike (`assist_request_invalid`) when the index's ids differ from the sources' at any position, or when there is not one text per source.
+- **Unreadable sources.** That case cannot reach the hook in 7c. A run with any unreadable source ends before its first model request and before any hook call: as `research_source_unreadable`, unless an earlier entry check ends it first. So no 7c assist request carries an undefined text.
+- **The coverage.** T2 receives a structured clone of the pipeline's own coverage object, as it stands at the call.
+- **The new test.** It runs six sources.
+  - Five are local, with id equal to path.
+  - One is shaped like a public source (session.ts): its id is a URL and its path a stored `.bin` file. Its text is non-ASCII, starts with a BOM, and is longer than the 20 KiB index preview.
+  - The caller's order, code-point order and path order each differ from the inventory's. Where Node has ICU, localeCompare differs too, but the test does not assert that, so a build without ICU does not fail it.
+  - The run is `forced_split`, with both touchpoints answering `skipped`. Both requests carry:
+    - the inventory's identities, paths included;
+    - `researchSourceText`'s texts in that order;
+    - the index in that order;
+    - NaN for the deadline.
+  - T1 carries the coverage's chunk count and the extraction budget.
+  - T2's coverage equals the coverage that the stage's own synthesis request carries next, and the wrapper's T2 condition holds.
+  - Adding a seventh, unreadable source ends the run with no hook call and no model request.
+- **Before this test.** 0818's tests checked the texts only for the fixture's two sources, which are already sorted, with ids equal to paths.
+
+(2) **The missing deadline is a stop, not a refusal. This corrects 0817's wording.**
+- **What 0817 says.** Decision (5) of 0817 says: "Without a session deadline it is NaN, which the wrapper refuses as `assist_deadline_missing`". The pipeline's comment and a test comment said the same.
+- **Why that is wrong.** In the contract's vocabulary, "refused" is a `no_reply` outcome, and the stage continues past it. The contract's own comment on `deadlineMs` says "stops". The wrapper (#79 at d364b46) answers a `deadlineMs` that is not a number, or is NaN, with a `stop`.
+  - The stop comes before the wrapper builds a packet, so nothing is sent, and its attempt record says `dispatched: false`.
+  - In 7c a `stop` ends the stage through `denied()`. The stage row's `denied` is `assist_deadline_missing`, and the run ends `research_request_denied`.
+- **When it happens.** At the first assist that fires.
+  - Under `forced_split`, T1 fires before the plan stage's own calls, so the run ends at the plan stage after only the index stage.
+  - Under `local_first`, an assist fires only after the stage's own attempts fail.
+    - A run whose local synthesis is rejected twice ends at the synthesis stage, with calls 2, invalidReplies 2 and `denied: "assist_deadline_missing"`.
+    - A run whose local replies are accepted never consults the hook, so the missing deadline does not show.
+  - Infinity passes the wrapper's check. 0817 says "A test without a session passes Infinity". In 7c's tests only the copy test does; the slot-matrix tests pass no deadline, and their fake hooks do not apply the wrapper's rule.
+- **Production.** The one production caller is session.ts. It passes `deadlineMs: sessionDeadlineMs`, which is `performance.now()` plus the time remaining, so always finite. No production caller passes `assists` until 10.b, and 10.b must pass the session's deadline together with the hook.
+- **The new test.** A fake applies the wrapper's deadline rule. It checks four cases:
+  - the `forced_split` stop at T1;
+  - the `local_first` stop at T2, whose request carries NaN and the coverage as it stands, with the synthesis marked invalid;
+  - the `local_first` run that never consults the hook;
+  - a finite deadline reaching both touchpoints unchanged.
+
+  Before it, only Infinity was passed, and only T1's value was checked.
+- **Not changed.** The pipeline could refuse `assists` without a deadline at entry, before any request, as it already refuses a hook object of the wrong shape (0818 decision (5)). That would expose the wiring fault before the index stage's calls, under either firing. It is not done here, for three reasons:
+  - it would change behaviour;
+  - 10.a's design makes the deadline the wrapper's check;
+  - no production path reaches the case.
+
+  It is offered to the orchestrator as an option.
+
+(3) **The comments.**
+- The pipeline's comment above `assistBase` now states:
+  - the order;
+  - that the wrapper checks it position by position (the index for T1 and T2, the coverage for T2);
+  - that both the order check and the missing deadline are stops.
+- The test comment at the T1 request check now says "stops with" instead of "refuses as".
+
+(4) **The review.** An adversarial review of the first version found two majors and five minors, all in the tests or the comment, and three nits. Fourteen of its mutants passed every test of that version. Each finding is fixed in (1) to (3):
+- **Major:** T2's no-deadline path was not pinned (two mutants passed).
+- **Major:** every test source had its id equal to its path, so path order went unseen (four mutants passed).
+- **Minor:** the texts were short ASCII, so another decoding or the preview cut went unseen (three passed).
+- **Minor:** only T2's `coverage.sources` was compared (four passed).
+- **Minor:** the comment still said "refuses" for the T2 order check, which is also a stop.
+- **Minor:** the entry was cited before it existed. It lands in the commit after the tests.
+- **Minor:** T1's chunk count was not pinned (one passed).
+
+One more mutant, `||` for `??` on the deadline, differs only for a deadline of exactly 0 and is not pinned.
+
+Changes: Commit ced2b05 on the local branch `feat/7c-research-v5`:
+- **src/main/private-agent/research-pipeline.ts:** the comment above `assistBase`. No code changes.
+- **tests/unit/private-agent-research-pipeline.test.ts:**
+  - the tests in (1) and (2);
+  - the comment in (3);
+  - `RESEARCH_INDEX_BATCH_BYTES` imported.
+
+Evidence: The checks ran locally at ced2b05.
+- **The pipeline test.** `pnpm exec vitest run tests/unit/private-agent-research-pipeline.test.ts` passes 88 tests: the 86 at dd1e8a2 and the 2 new ones.
+- **Mutations.** 25 single-edit mutants of research-pipeline.ts were run against the pipeline test. Eleven were written for this change and fourteen are the review's. Each fails a test, and each fails the two new tests run alone:
+  - **Order (ten):**
+    - `request.sources` in the caller's order, by localeCompare, by code point or by path, or with paths replaced by ids;
+    - `sourceTexts` in the caller's order or by path;
+    - the pipeline's ordered list by path;
+    - the index document in the caller's order;
+    - T2's coverage with its sources reversed.
+  - **Texts (three):** decoded as latin1, decoded without the BOM rule, or cut to the index preview.
+  - **Coverage (five):**
+    - T2's coverage without chunks, with its chunk questions rewritten, with its status "ready", or with its synthesis reset;
+    - T1's chunk count taken from the batches.
+  - **Deadline (six):**
+    - no deadline given as Infinity, or as 0;
+    - the deadline always NaN;
+    - T2 never carrying it;
+    - T2 given Infinity when there is no deadline, directly or once a plan exists.
+  - **The rest (one):** the unreadable-source stop removed.
+
+  Without the new tests, 21 of the 25 pass. Only four fail an earlier test: the two no-deadline values, the always-NaN deadline, and the removed unreadable-source stop.
+- **Other checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **The research suites.** `pnpm exec vitest run tests/unit/private-agent-research tests/unit/role-schema-export.test.ts tests/unit/serving-probe-helpers.test.ts tests/unit/planner-fixture.test.ts tests/unit/assess-probe-replies.test.ts` passes 16 files and 271 tests.
+- **Full suite.** `pnpm exec vitest run` reports 166 files passed, 2 failed and 13 skipped, and 2,777 tests passed, 3 failed and 84 skipped.
+  - The failures: one test in patch-routing-comparison.test.ts and two in private-agent-observations.test.ts. Neither file imports the research code.
+  - Rerun alone, both files pass, 85 tests.
+- **The build log.** `pnpm --silent validate:build-log -- --base-ref origin/main` passes with this entry appended, and the log at dd1e8a2 is a byte prefix of this one.
+- **The hash.** `researchProtocolSha256()` returns 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92, the same as at dd1e8a2.
+  - The value is provisional: 7c sits on #76's 2fe1ec8, and its rebase for a pull request will move it.
+  - 0818 records 35a622eecf830b80c7c57d3dcd9f0a9b3ad10cc78f180bd59b5955d24c9a1e71 at bd876d9. It changed when 7c was rebased onto 2fe1ec8.
+  - research-assist-contract.ts is unchanged: sha256 bced24dfefe448eb9dd57abd9d84bc9e7b8fac7d8d3fb5637630dd76f5d967a0, byte-identical to #79's copy at d364b46.
+  - The comment edit moves the harness source-freeze digest, which hashes file bytes. 7c moves it anyway.
+
+Failures or blockers: Two negative results, both found by review before any run:
+- 0817's "refuses", corrected in (2);
+- the first version of these tests, which missed what (4) lists.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint, and no run used the real wrapper.
+- **The wrapper's rules are copied.** The tests copy the wrapper's two rules as read at d364b46. #79 has not cleared review, and its head will move once more, so a later change to those rules would not show here.
+- **The texts are read at each hook call.** They come from the caller's buffers each time, and the pipeline assumes those buffers do not change during a run. If a caller changed them, a request could carry a text the inventory did not read. The ready gate would then refuse the packet (`source_bytes`, ending `research_packet_binding_invalid`), but only after the request had gone.
+- **0817 and 0818 otherwise stand,** as corrected here.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: 7c stays local until the orchestrator opens its turn. That comes after #69 and #76 merge; #79 leads train 2. When 7c's pull request opens:
+- the rebase;
+- the protocol hash and the synthesis digest, re-derived;
+- the ID order of 0817 and 0818, which the orchestrator decides;
+- the entry check in (2) (refusing `assists` without a deadline), if the orchestrator takes it.
+
+References: BL-20261113-0817-research-v5-design and BL-20261113-0818-research-v5-implemented (corrected); #79 (10.a), its delta review at d364b46, and the shared hook-contract note; backlog item 7(c).

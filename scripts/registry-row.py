@@ -42,13 +42,16 @@ from __future__ import annotations
 import argparse
 import copy
 import datetime
+import hashlib
 import json
 import math
 import os
 import re
+import shutil
 import sqlite3
 import subprocess
 import sys
+import tempfile
 
 OUTCOMES = ("accepted", "rejected", "incomplete", "infra_invalid")
 EXPOSURES = ("fresh", "exposed")
@@ -220,7 +223,12 @@ def is_zero_fee_failed(item: dict) -> bool:
     """A resolved zero-fee failure (selection.ts isZeroFeeFailedDispatch; backlog item 11): a failed row, not an assist, to a
     destination in ZERO_FEE_DESTINATIONS, reserved at exactly 0, with no fee key or a fee of 0 and no approval key. The H4 loop
     admits these rows; a missing or malformed field fails closed."""
-    return (item.get("status") == "failed" and not is_assist(item) and isinstance(item.get("destinationId"), str) and item["destinationId"] in ZERO_FEE_DESTINATIONS
+    return item.get("status") == "failed" and is_zero_fee(item)
+
+
+def is_zero_fee(item: dict) -> bool:
+    """Part 1's zero-fee predicate apart from the status (selection.ts isZeroFeeDispatch; backlog item 11, part 3b)."""
+    return (not is_assist(item) and isinstance(item.get("destinationId"), str) and item["destinationId"] in ZERO_FEE_DESTINATIONS
             and is_zero(item.get("reservedFeeMicrousd")) and ("feeMicrousd" not in item or is_zero(item["feeMicrousd"])) and "approval" not in item)
 
 
@@ -321,9 +329,7 @@ def run_end_evidence(run_dir: str, stop_signalled: bool) -> dict:
     """What a run's own records say about how it ended: result.json and its ledger's events, codes and rows only
     (selection.ts readRunEndEvidence reads the same)."""
     result = json.load(open(os.path.join(run_dir, "result.json"), encoding="utf-8"))
-    db = sqlite3.connect(f"file:{os.path.join(run_dir, 'state.sqlite')}?mode=ro", uri=True)
-    events = [json.loads(row[0]) for row in db.execute("select value from private_agent_events order by job_id, sequence")]
-    db.close()
+    events = ledger_rows(run_dir)[0]
     dispatches = [item for item in (result.get("dispatches") or []) if isinstance(item, dict)]
     stage = next((event for event in reversed(events) if event.get("type") == "research_stage" and isinstance(event.get("denied"), str)), None)
     validation = next((event for event in reversed(events) if event.get("type") == "host_validation_finished"), None) or {}
@@ -342,6 +348,141 @@ def run_end_evidence(run_dir: str, stop_signalled: bool) -> dict:
             "captureFailure": code_of(validation.get("captureFailure")), "verificationFailure": code_of(validation.get("verificationFailure")),
             "tokenAdmissionCode": not_dispatched("local_token_admission_denied"), "brokerDenialCode": not_dispatched("broker_denied"),
             "stopSignalled": stop_signalled}
+
+
+# Backlog item 11, part 3b (BL-20261110-0637-infra-resume-design, decisions (4) and (10)): why a loop stage stopped, for the row of a
+# loop that ends without a selection. run-classification.ts holds the same lists and functions (ledgerStop, classifyLoopStop and the
+# amended classifyCritiqueEnd), and tests/unit/run-classification.test.ts keeps them equal. Version 1's run-end lists do not change.
+RUN_UNFINISHED_CAUSE = "run_unfinished"
+LEDGER_STOP_FAILURES = ("loop_stage_unresolved_dispatch", "loop_stage_failed_dispatch")
+LEDGER_STOP_CAUSES = ("stage_unresolved_dispatch", "stage_failed_dispatch")
+LOOP_INTEGRITY_STOPS = ("loop_stage_missing", "loop_resume_spent", "loop_stage_mismatch", "loop_resume_mismatch", "loop_stage_ledger_unreadable")
+LOOP_INTERRUPT_FAILURE = "loop_interrupted"
+
+
+def run_class(infra: bool, cause: str) -> dict:
+    return {"version": RUN_CLASSIFICATION_VERSION, "infra": infra, "cause": cause}
+
+
+def ledger_stop(dispatches: list):
+    """The row of a stage's ledger that stops the loop before the stage could be moved aside, as (failure, row), or None: an uncertain
+    row (a committed row that is not zero-fee, or an unknown row that is not an assist), then a priced failed row."""
+    uncertain = next((item for item in reversed(dispatches) if isinstance(item, dict) and ((item.get("status") == "committed" and not is_zero_fee(item))
+                                                                                          or (item.get("status") == "unknown" and not is_assist(item)))), None)
+    if uncertain is not None:
+        return ("loop_stage_unresolved_dispatch", uncertain)
+    failed = next((item for item in reversed(dispatches) if isinstance(item, dict) and item.get("status") == "failed" and not is_assist(item) and not is_zero_fee(item)), None)
+    return ("loop_stage_failed_dispatch", failed) if failed is not None else None
+
+
+def classify_critique_end(code, stop_signalled: bool) -> dict:
+    """A critique's end: its failure code, None without a record; the loop's interrupt counts only on an infrastructure failure or no record."""
+    if code is not None and not listed(INFRA_CRITIQUE_CODES, code):
+        return run_class(False, "task")
+    return run_class(True, "operator_stop" if stop_signalled is True else (code if code is not None else RUN_UNFINISHED_CAUSE))
+
+
+def classify_loop_stop(failure, run: dict) -> dict:
+    """The class of a loop's stop, from its code and what the stopped stage left (decision (10))."""
+    if listed(LOOP_INTEGRITY_STOPS, failure):
+        return run_class(True, failure)
+    kind = run.get("kind")
+    if kind == "result":
+        return classify_run_end(run["end"])
+    if kind == "critique":
+        return classify_critique_end(run.get("code"), run.get("stopSignalled") is True)
+    if kind == "none":
+        return run_class(True, "operator_stop") if failure == LOOP_INTERRUPT_FAILURE else run_class(False, "task")
+    stop = ledger_stop(run.get("dispatches") or [])
+    if stop is not None and stop[0] == "loop_stage_unresolved_dispatch":
+        recorded = stop[1].get("failure")
+        uncertain = stop[1].get("status") == "committed" or (isinstance(recorded, dict) and recorded.get("phase") == "transport")
+        return run_class(True, "stage_unresolved_dispatch") if uncertain else run_class(False, "task")
+    if stop is not None and stop[0] == "loop_stage_failed_dispatch":
+        return run_class(True, "stage_failed_dispatch") if failed_call_is_infra(stop[1]) else run_class(False, "task")
+    return run_class(True, RUN_UNFINISHED_CAUSE)
+
+
+def read_freeze(run_dir: str):
+    """A run's freeze.json as an object, or None when it is absent, unreadable, truncated or not an object: part 3b reads every
+    freeze defensively, so one damaged directory never stops a row with a traceback."""
+    try:
+        with open(os.path.join(run_dir, "freeze.json"), encoding="utf-8") as handle:
+            value = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def ledger_rows(run_dir: str):
+    """A run directory's ledger as (events, dispatches, claims), read from a private copy taken with its journal. A process killed
+    during a commit leaves a hot journal that a read-only open refuses; the copy rolls it back, and the run directory is never written.
+    A missing ledger or table gives no rows."""
+    path = os.path.join(run_dir, "state.sqlite")
+    if not os.path.isfile(path):
+        return [], [], []
+    with tempfile.TemporaryDirectory(prefix="soar-ledger-") as scratch:
+        copied = os.path.join(scratch, "state.sqlite")
+        shutil.copyfile(path, copied)
+        for suffix in ("-journal", "-wal", "-shm"):
+            if os.path.isfile(path + suffix):
+                shutil.copyfile(path + suffix, copied + suffix)
+        db = sqlite3.connect(copied)
+        try:
+            tables = {row[0] for row in db.execute("select name from sqlite_master where type = 'table'")}
+
+            def values(table: str, order: str) -> list:
+                return [json.loads(row[0]) for row in db.execute(f"select value from {table} order by {order}")] if table in tables else []
+            return (values("private_agent_events", "job_id, sequence"), values("private_agent_dispatches", "rowid"), values("private_agent_run_claims", "rowid"))
+        finally:
+            db.close()
+
+
+def counts_of(events: list, dispatches: list) -> dict:
+    """One run's counts from its events and dispatch rows (selection.ts runCounts), with `usd` in place of fee micro-USD."""
+    finished = [event for event in events if event.get("type") == "model_finished"]
+    usage = [event.get("usage") or {} for event in finished]
+    research = [event for event in events if event.get("type") == "research_stage"]
+    return {
+        # H2b: the research stage's calls and tokens come from its content-free stage events, beside the write loop's model events.
+        "modelCalls": len(finished) + sum(int(event.get("calls") or 0) for event in research),
+        "toolCalls": sum(1 for event in events if event.get("type") == "tool_finished"),
+        "inputTokens": sum(item.get("inputTokens", 0) for item in usage) + sum(int((event.get("usage") or {}).get("inputTokens") or 0) for event in research),
+        "outputTokens": sum(item.get("outputTokens", 0) for item in usage) + sum(int((event.get("usage") or {}).get("outputTokens") or 0) for event in research),
+        # H1 (BL-20261022-0834): prompt tokens the provider reported as served from its cache; 0 when unreported.
+        "cachedTokens": sum(item.get("cacheReadTokens") or 0 for item in usage) + sum(int((event.get("usage") or {}).get("cacheReadTokens") or 0) for event in research),
+        # H1 completion: prompt tokens the provider reported as newly written to its cache (billed at the write rate); 0 when unreported.
+        "cacheWriteTokens": sum(item.get("cacheWriteTokens") or 0 for item in usage) + sum(int((event.get("usage") or {}).get("cacheWriteTokens") or 0) for event in research),
+        "lengthStops": sum(1 for event in finished if event.get("finishReason") == "length") + sum(int(event.get("truncatedReplies") or 0) for event in research),
+        "usd": sum(item.get("feeMicrousd") or 0 for item in dispatches) / 1_000_000,
+        "unknownDispatches": sum(1 for item in dispatches if item.get("status") == "committed" or (item.get("status") == "unknown" and not is_assist(item))),
+        # PR-C: attempts superseded by a retry and confirmed failures are resolved rows, never uncertain ones.
+        "retriedDispatches": sum(1 for item in dispatches if item.get("status") == "superseded"),
+        "failedDispatches": sum(1 for item in dispatches if item.get("status") == "failed" and not is_assist(item)),
+        "assistSkippedDispatches": sum(1 for item in dispatches if item.get("status") == "unknown" and is_assist(item)),
+        "assistFailedDispatches": sum(1 for item in dispatches if item.get("status") == "failed" and is_assist(item)),
+        # Backlog item 11: the part of failedDispatches that reserved and settled nothing, the rows the H4 loop admits.
+        "zeroFeeFailedDispatches": sum(1 for item in dispatches if is_zero_fee_failed(item)),
+    }
+
+
+def run_ledger(run_dir: str) -> dict:
+    """A run directory with or without a result, as selection.ts readRunLedger reads it: its freeze (job, sha256, runtime, start, fee
+    cap, local arm) or None, its dispatch rows and claims, its counts, and the latest commit time of its rows."""
+    events, dispatches, claims = ledger_rows(run_dir)
+    freeze = None
+    raw = read_freeze(run_dir)
+    if raw is not None and isinstance(raw.get("jobId"), str) and re.fullmatch(r"[A-Za-z0-9_-]{1,100}", raw["jobId"]):
+        with open(os.path.join(run_dir, "freeze.json"), "rb") as handle:
+            digest = hashlib.sha256(handle.read()).hexdigest()
+        limits = raw.get("limits") if isinstance(raw.get("limits"), dict) else {}
+        fee_cap = limits.get("feeMicrousd")
+        freeze = {"jobId": raw["jobId"], "sha256": digest, "runtimeSha256": raw.get("sourceFreezeSha256") if isinstance(raw.get("sourceFreezeSha256"), str) else None,
+                  "startedAt": raw.get("startedAt") if isinstance(raw.get("startedAt"), str) else None,
+                  "feeCapMicrousd": fee_cap if isinstance(fee_cap, (int, float)) and not isinstance(fee_cap, bool) and math.isfinite(fee_cap) else None,
+                  "localArm": isinstance(raw.get("arm"), dict) and raw["arm"].get("arm") == "local"}
+    commits = [item.get("committedAt") for item in dispatches if isinstance(item.get("committedAt"), int) and not isinstance(item.get("committedAt"), bool)]
+    return {"freeze": freeze, "dispatches": dispatches, "claims": claims, "counts": counts_of(events, dispatches), "lastCommittedAt": max(commits) if commits else None}
 
 
 def check_outcome(outcome, run_status, run_class) -> None:
@@ -531,11 +672,12 @@ def writing_commit() -> str:
 
 def freeze_git(run_dir: str):
     """A run's own {commit, dirty} from its freeze.json (scripts/private-agent-local-screen.ts localScreenGitState), or None
-    when the freeze is absent or records no valid one: a malformed value is never guessed at."""
-    path = os.path.join(run_dir, "freeze.json")
-    if not os.path.exists(path):
+    when the freeze is absent or records no valid one: a malformed value is never guessed at, and a truncated or non-object freeze
+    counts as no record (part 3b, BL-20261110-0723 (f)) instead of stopping the row."""
+    freeze = read_freeze(run_dir)
+    if freeze is None:
         return None
-    git = json.load(open(path, encoding="utf-8")).get("git")
+    git = freeze.get("git")
     if isinstance(git, dict) and set(git) == {"commit", "dirty"} and isinstance(git["commit"], str) and GIT_OBJECT_NAME.fullmatch(git["commit"]) \
             and isinstance(git["dirty"], bool):
         return git
@@ -592,12 +734,7 @@ def run_counts(run_dir: str) -> dict:
     """One run's counts from its own state.sqlite and result.json, plus the row fields its freeze and result give."""
     result = json.load(open(os.path.join(run_dir, "result.json"), encoding="utf-8"))
     freeze = json.load(open(os.path.join(run_dir, "freeze.json"), encoding="utf-8"))
-    db = sqlite3.connect(f"file:{os.path.join(run_dir, 'state.sqlite')}?mode=ro", uri=True)
-    events = [json.loads(row[0]) for row in db.execute("select value from private_agent_events order by job_id, sequence")]
-    db.close()
-    finished = [event for event in events if event.get("type") == "model_finished"]
-    usage = [event.get("usage") or {} for event in finished]
-    research = [event for event in events if event.get("type") == "research_stage"]
+    events = ledger_rows(run_dir)[0]
     started = datetime.datetime.fromisoformat(freeze["startedAt"].replace("Z", "+00:00"))
     ended = datetime.datetime.fromisoformat(result["finishedAt"].replace("Z", "+00:00"))
     dispatches = result.get("dispatches", [])
@@ -614,26 +751,8 @@ def run_counts(run_dir: str) -> dict:
                 "supportRate": support_rate(event.get("counts"))}
                 for event in reversed(events) if event.get("type") == "claims_entailment"), None),
         },
-        # H2b: the research stage's calls and tokens come from its content-free stage events, beside the write loop's model events.
-        "modelCalls": len(finished) + sum(int(event.get("calls") or 0) for event in research),
-        "toolCalls": sum(1 for event in events if event.get("type") == "tool_finished"),
         "wallSeconds": round((ended - started).total_seconds(), 1),
-        "inputTokens": sum(item.get("inputTokens", 0) for item in usage) + sum(int((event.get("usage") or {}).get("inputTokens") or 0) for event in research),
-        "outputTokens": sum(item.get("outputTokens", 0) for item in usage) + sum(int((event.get("usage") or {}).get("outputTokens") or 0) for event in research),
-        # H1 (BL-20261022-0834): prompt tokens the provider reported as served from its cache; 0 when unreported.
-        "cachedTokens": sum(item.get("cacheReadTokens") or 0 for item in usage) + sum(int((event.get("usage") or {}).get("cacheReadTokens") or 0) for event in research),
-        # H1 completion: prompt tokens the provider reported as newly written to its cache (billed at the write rate); 0 when unreported.
-        "cacheWriteTokens": sum(item.get("cacheWriteTokens") or 0 for item in usage) + sum(int((event.get("usage") or {}).get("cacheWriteTokens") or 0) for event in research),
-        "lengthStops": sum(1 for event in finished if event.get("finishReason") == "length") + sum(int(event.get("truncatedReplies") or 0) for event in research),
-        "usd": sum(item.get("feeMicrousd") or 0 for item in dispatches) / 1_000_000,
-        "unknownDispatches": sum(1 for item in dispatches if item.get("status") == "committed" or (item.get("status") == "unknown" and not is_assist(item))),
-        # PR-C: attempts superseded by a retry and confirmed failures are resolved rows, never uncertain ones.
-        "retriedDispatches": sum(1 for item in dispatches if item.get("status") == "superseded"),
-        "failedDispatches": sum(1 for item in dispatches if item.get("status") == "failed" and not is_assist(item)),
-        "assistSkippedDispatches": sum(1 for item in dispatches if item.get("status") == "unknown" and is_assist(item)),
-        "assistFailedDispatches": sum(1 for item in dispatches if item.get("status") == "failed" and is_assist(item)),
-        # Backlog item 11: the part of failedDispatches that reserved and settled nothing, the rows the H4 loop admits.
-        "zeroFeeFailedDispatches": sum(1 for item in dispatches if is_zero_fee_failed(item)),
+        **counts_of(events, dispatches),
     }
 
 

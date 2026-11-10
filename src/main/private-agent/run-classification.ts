@@ -1,5 +1,5 @@
 import { isAssistDispatch } from "./dispatch-purposes";
-import { isZeroFeeFailedDispatch } from "./selection";
+import { isZeroFeeDispatch, isZeroFeeFailedDispatch } from "./selection";
 
 /**
  * Backlog item 11, part 3a (BL-20261109-0515-infra-classification-design): whether a run that did not submit ended on
@@ -107,14 +107,78 @@ export function classifyRunEnd(end: RunEndEvidence): RunClass {
   return cause === null ? { version: RUN_CLASSIFICATION_VERSION, infra: false, cause: "task" } : { version: RUN_CLASSIFICATION_VERSION, infra: true, cause };
 }
 
-/** Classifies a critique's end (part 3b resumes on it): its failure code, or the loop's interrupt. */
-export function classifyCritiqueEnd(code: string, stopSignalled: boolean): RunClass {
-  if (stopSignalled) return { version: RUN_CLASSIFICATION_VERSION, infra: true, cause: "operator_stop" };
-  return has(INFRA_CRITIQUE_CODES, code) ? { version: RUN_CLASSIFICATION_VERSION, infra: true, cause: code } : { version: RUN_CLASSIFICATION_VERSION, infra: false, cause: "task" };
+/**
+ * Classifies a critique's end (part 3b resumes on it): its failure code, null when its directory holds no record. Part 3b
+ * (BL-20261110-0637, decision (1)) amends part 3a's helper: the loop's interrupt counts as the operator's stop only when the
+ * failure is infrastructure or there is no record, so a failure in the model's output stays the task's.
+ */
+export function classifyCritiqueEnd(code: string | null, stopSignalled: boolean): RunClass {
+  if (code !== null && !has(INFRA_CRITIQUE_CODES, code)) return { version: RUN_CLASSIFICATION_VERSION, infra: false, cause: "task" };
+  return { version: RUN_CLASSIFICATION_VERSION, infra: true, cause: stopSignalled ? "operator_stop" : code ?? RUN_UNFINISHED_CAUSE };
 }
 
 /** The last dispatch row of a run that is not an assist and has this status (rows are in commit order): the failing or the uncertain call. */
 export function lastCall(dispatches: readonly Record<string, unknown>[], status: "failed" | "unknown"): Record<string, unknown> | null {
   for (let i = dispatches.length - 1; i >= 0; i--) if (dispatches[i]!.status === status && !isAssistDispatch(dispatches[i]!)) return dispatches[i]!;
   return null;
+}
+
+/**
+ * Backlog item 11, part 3b (BL-20261110-0637-infra-resume-design, decisions (4) and (10)): why a loop stage stopped, for the
+ * loop's own stop rules and for the registry's row of a loop that ends without a selection. These lists are separate from
+ * version 1's run-end lists, which do not change; scripts/registry-row.py mirrors them and tests/unit/run-classification.test.ts
+ * keeps the two equal.
+ */
+/** A stage run that left no `result.json`: the driver failed after its session started, or its process died. */
+export const RUN_UNFINISHED_CAUSE = "run_unfinished";
+/** The stop rules for a stage's ledger, checked in this order: an uncertain row, then a priced failed row. */
+export const LEDGER_STOP_FAILURES = Object.freeze(["loop_stage_unresolved_dispatch", "loop_stage_failed_dispatch"] as const);
+/** The causes a stopped stage's ledger gives, by the row that stopped it. */
+export const LEDGER_STOP_CAUSES = Object.freeze(["stage_unresolved_dispatch", "stage_failed_dispatch"] as const);
+/** Host-side integrity refusals: infrastructure, with the code itself as the cause. */
+export const LOOP_INTEGRITY_STOPS = Object.freeze(["loop_stage_missing", "loop_resume_spent", "loop_stage_mismatch", "loop_resume_mismatch", "loop_stage_ledger_unreadable"] as const);
+/** The loop's interrupt between stages, or before a stage's run created its directory. */
+export const LOOP_INTERRUPT_FAILURE = "loop_interrupted";
+
+/**
+ * Decision (4): the row of a stage's ledger that stops the loop before the stage could be moved aside, or null. A `committed` row
+ * that is not zero-fee (part 1's predicate apart from the status) and any `unknown` row that is not an assist are uncertain; a
+ * `failed` row that is neither an assist nor zero-fee is a priced failure. A zero-fee `committed` row, the local call in flight when
+ * a process died, is admitted: sending equivalent work again costs nothing.
+ */
+export function ledgerStop(dispatches: readonly Record<string, unknown>[]): { failure: (typeof LEDGER_STOP_FAILURES)[number]; row: Record<string, unknown> } | null {
+  const last = (accept: (row: Record<string, unknown>) => boolean) => { for (let i = dispatches.length - 1; i >= 0; i--) if (accept(dispatches[i]!)) return dispatches[i]!; return null; };
+  const uncertain = last(item => (item.status === "committed" && !isZeroFeeDispatch(item)) || (item.status === "unknown" && !isAssistDispatch(item)));
+  if (uncertain) return { failure: "loop_stage_unresolved_dispatch", row: uncertain };
+  const failed = last(item => item.status === "failed" && !isAssistDispatch(item) && !isZeroFeeDispatch(item));
+  return failed ? { failure: "loop_stage_failed_dispatch", row: failed } : null;
+}
+
+/** What a stopped stage left: a run with a result, a run's ledger without one, a critique's record, or nothing. */
+export type LoopStopRun =
+  | { kind: "result"; end: RunEndEvidence }
+  | { kind: "ledger"; dispatches: readonly Record<string, unknown>[] }
+  | { kind: "critique"; code: string | null; stopSignalled: boolean }
+  | { kind: "none" };
+/**
+ * Decision (10): the class of a loop's stop, from the stop's code and what the stopped stage left. An integrity stop is
+ * infrastructure. A run with a result takes part 3a's class, with its mark, so an interrupt never turns a task end into
+ * infrastructure. A run without a result takes the class of the row that stopped it (an uncertain row counts as infrastructure
+ * when it is `committed`, or its failure lies in the transport; a priced failed row under part 3a's failed-call rule), else
+ * `run_unfinished`. A stop with no run is the operator's after the loop's interrupt, and otherwise the task's: a refusal
+ * before the session is configuration (part 3a's question (d)).
+ */
+export function classifyLoopStop(failure: string, run: LoopStopRun): RunClass {
+  const infra = (cause: string): RunClass => ({ version: RUN_CLASSIFICATION_VERSION, infra: true, cause }), task: RunClass = { version: RUN_CLASSIFICATION_VERSION, infra: false, cause: "task" };
+  if (has(LOOP_INTEGRITY_STOPS, failure)) return infra(failure);
+  if (run.kind === "result") return classifyRunEnd(run.end);
+  if (run.kind === "critique") return classifyCritiqueEnd(run.code, run.stopSignalled === true);
+  if (run.kind === "none") return failure === LOOP_INTERRUPT_FAILURE ? infra("operator_stop") : task;
+  const stop = ledgerStop(run.dispatches);
+  if (stop?.failure === "loop_stage_unresolved_dispatch") {
+    const failureRecord = row(stop.row.failure);
+    return stop.row.status === "committed" || failureRecord?.phase === "transport" ? infra("stage_unresolved_dispatch") : task;
+  }
+  if (stop?.failure === "loop_stage_failed_dispatch") return failedCallIsInfra(stop.row) ? infra("stage_failed_dispatch") : task;
+  return infra(RUN_UNFINISHED_CAUSE);
 }

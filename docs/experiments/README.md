@@ -33,15 +33,16 @@ This folder holds the committed, sanitized record of live trials (see
     `--date` and checks `probe.sha256`: only `decision`, `roles`, `concurrency` and
     `admission` may differ.
   - **Only adopted cards are read.** A value that differs from today's default is
-    refused until the backlog item that uses it merges: 7(a) for caps and thinking,
-    9 for structured output, 8 for K and 7(b) for admission. Until then, adopt an
-    all-default card or leave the pair unset.
+    refused until the backlog item that uses it merges: 7(a) part 2 for caps and
+    thinking, 9 for structured output, 8 for K and 7(b) for admission. Until then,
+    adopt an all-default card or leave the pair unset.
   - **What the gates do not show.** The reader binds P10 evidence to the current
-    research protocol hash: after any change to it (backlog items 7(b) and 7(c) in
-    the plan), re-run P1, P10, P11 and the adapter together and adopt a new card.
-    P10's thinking-off cells use the probe's own sampling, non-streaming, so a
-    passing cell does not show that the pipeline's own requests pass. The K bursts
-    use a one-sentence prompt and show decode concurrency only.
+    research protocol hash: after any change to it (backlog items 7(a) part 1,
+    7(b) and 7(c) in the plan), re-run P1, P10, P11 and the adapter together and
+    adopt a new card. P10's thinking-off cells use the probe's own sampling,
+    non-streaming, so a passing cell does not show that the pipeline's own
+    requests pass. The K bursts use a one-sentence prompt and show decode
+    concurrency only.
   - **The run record.** `freeze.json` records `servingCard {sha256, version, date,
     entry}`, and the run directory keeps `serving-card.json`. A refused card leaves
     no run directory. The driver's and the loop's failure lines, and the loop's

@@ -31379,6 +31379,142 @@ Next gate: CI green on the pull request and the owner's merge go-ahead; the orch
 
 References: BL-20261109-0411-judge-cancel-label-design; BL-20261007-0120-pr-j2-entailment-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E1.
 
+### BL-20261109-0447-research-tolerance-design -- 2026-11-09 -- Backlog item 7(a), part 1, decided: per-quote drop in extraction, host-derived question outcomes, only complete attempts contribute, unencodable text refused, synthesis heading normalisation by claims.ts's rule, and the tolerance policy bound into the protocol
+
+Status: `Proposed`
+
+Scope or hypothesis: The decision entry for 7a.1, the second research tolerance PR: backlog item 7(a) of docs/PROJECT_REVIEW_2026-11-05.md section 5.7, findings D2 and D5 of section 4, stages S4 and S6 of section 5.2.
+- It is recorded before its code because it changes which extraction and synthesis replies the pipeline keeps, what a kept reply contributes, the bytes of an accepted argument and the research protocol.
+- It is stacked on 7b.1 (`feat/7b.1-request-shapes`, PR #69; BL-20261109-0334-research-request-shapes-design and BL-20261109-0442-research-request-shapes-implemented), which it follows on research-pipeline.ts.
+- Zero-fee code with deterministic tests; it needs no approval under PLAN.md section 4(c), and the owner may record otherwise, in particular on the five questions below.
+- It needs no serving card and changes no prompt, role schema, output cap, thinking value, budget or request layout.
+- Three adversarial reviews of a first draft were folded in before this entry was committed: ledger and replay safety, downstream consumers and tests, and specification fidelity. Decisions (2) and (5) to (10) carry their corrections.
+
+Hypothesis:
+- a quote, a conflict, a contradicted status or a note that cannot be verified or encoded no longer costs a whole chunk, nor, for a note, the whole stage;
+- a correctly sectioned argument whose headings are written differently no longer costs a synthesis attempt;
+- every drop, correction and rewrite is counted;
+- every ready packet still passes the unchanged ready validator.
+
+A reply that fails ExtractReplySchema on a single item still costs the chunk (Limitations).
+
+Decisions:
+(1) **When a reply is still incomplete.** A settled extraction reply is incomplete, and is repaired within the leftover calls, only when it:
+- is truncated;
+- is not JSON;
+- fails ExtractReplySchema;
+- does not name each plan question exactly once;
+- marks a question needs_followup.
+
+All five are today's rules; the last is kept as today, although the mapping brief's list omitted it.
+(2) **Per-quote drop (D2).** In a reply that names each question once, each quote is judged alone. It is dropped when:
+- its normalised text is outside 12 to 300 code points;
+- it is not well-formed text (`quote_unencodable`);
+- it is not located in the chunk;
+- it repeats a question id;
+- it names an unknown question id.
+
+The unencodable case is real despite the first draft's claim that quote text was safe. locateQuote matches UTF-16 units (research-coverage.ts:50), so a quote that ends or starts inside an astral character of the chunk is "located" while holding a lone surrogate. canonical() then throws at `put(evidence)` outside `call()`'s `try` (research-pipeline.ts:275); the reviews reproduced it.
+
+`quotesDropped` keeps its meaning: the quotes that fail these tests in any parsed reply, plus the quotes merged into an identical earlier quote. A new `quotesMerged` counts the merges alone. Today any one failing quote makes the whole reply invalid (:237).
+(3) **Conflicts.** A conflict that repeats or names an unknown question id, or whose note canonical() refuses, is dropped and counted in a new `conflictsDropped`. Today a conflict with bad ids makes the reply invalid (:242-243).
+(4) **Question outcomes are the host's.** A question's outcome follows its verified quotes: evidence_retained when a verified quote names it, else no_verified_evidence. The reply's status matters only for needs_followup. A contradicted status is corrected and counted, without a repair:
+- evidence_found with no verified quote naming it becomes no_verified_evidence (`questionsDowngraded`);
+- no_verified_evidence while a verified quote names it keeps that quote and follows it (`questionsUpgraded`), the rule packet assembly already applies at :272.
+
+Both counters count corrections to a reply's own statuses, not final outcomes. A quote merged across overlapping chunks, and the assembly that links it, may give another chunk's question evidence without a count. Today both corrections make the reply invalid (:247-248).
+(5) **Only a chunk's complete attempt contributes.** Only a complete attempt adds quotes, conflicts and outcomes, and only its drops and corrections are counted. A needs_followup attempt contributes nothing. Today a valid needs_followup reply added its quotes and conflicts before its repair added them again (:250-255), so a repaired chunk's conflicts were counted twice against the 16-conflict, 8 KiB packet cap.
+(6) **Unencodable text is refused before it reaches canonical()** (exactText: a NUL or a lone surrogate):
+- a quote note is cleared (`notesDropped`, reason `note_unencodable`) and the verified quote kept;
+- a conflict note drops the conflict, decision (3);
+- a quote, decision (2);
+- an argument makes the synthesis reply rejected (`argument_unencodable`) and repaired like any rejected reply. Today such an argument is accepted, and the writer's presentation then throws at canonical() after the `research_transfer` event is durable (session.ts:400-404), again on every resume.
+
+The same defect in model-written index fields (research-index.ts) and in an accepted plan (research-plan.ts) is outside D2 and D5. It is recorded below with proposed owners, not fixed here.
+(7) **The diagnostics sink.** An accepted extraction reply with any reason code, a drop or a correction, reaches item 4's sink with a new optional `disposition: "accepted_with_drops"`, under the same label gate. A merge carries no reason. Rejected and truncated replies carry no disposition, as before. An accepted synthesis reply with rewritten headings is not retained. This supersedes, for kept extraction replies:
+- item 4's decision (2) (rejected and truncated replies only, BL-20261107-0859-label-keyed-diagnostics-design);
+- its decision (5)'s manifest field list, to which a row may add `disposition`;
+- BL-20261107-0923-label-keyed-diagnostics-implemented's non-claim that nothing retains accepted replies.
+
+DIAGNOSTICS_MANIFEST_VERSION goes from 1 to 2, and the comments that state the old contract are updated (research-pipeline.ts, research-diagnostics.ts, session.ts, scripts/private-agent-local-screen.ts). The sink stays outside the protocol hash.
+(8) **Heading normalisation (D5), by claims.ts's own rule.** Before the synthesis checks, the argument's section headings are normalised.
+- **Lines** are split at a newline only.
+- **Fenced code** is found first, as claims.ts removes it first (claims.ts:231). An opening line matching `^[ \t]*` and three backticks pairs with the next line that is only three backticks between spaces or tabs; an opener with no such line opens nothing.
+- **HTML comments** (`<!--` to the next `-->`) are then found in what remains, where each fenced block counts as one empty line.
+- **The title test.** On every line outside both, claims.ts's `section_present` (claims.ts:199-200) decides whether the line is a title. It strips leading `#`, `*`, `_` and whitespace, and trailing `*`, `_`, colon and whitespace, then compares the lower-cased line with "conflicting evidence" or "unanswered questions". Whitespace is Python's (`str.isspace`), not JavaScript's `\s`.
+- **The rewrite.** A title line becomes the exact `## Conflicting evidence` or `## Unanswered questions`, keeping a trailing carriage return, unless research-coverage.ts's own heading check already accepts it. A Setext underline (`^ {0,3}(?:=+|-+)[ \t]*\r?$`) directly under a title line without a leading `#` is removed with it. Under an exact ATX heading, such a line is a thematic break and stays.
+- **The stated deviation:** a line that a comment starts or ends inside is left as it is, whereas claims.ts tests what remains of it.
+- **Counting and cost.** Each rewritten heading of the accepted argument is counted in `headingsNormalised`. The scan is linear in the argument's length. A bullet line "* Conflicting evidence" is rewritten, as claims.ts counts it.
+- **Unchanged.** The presence check and research-coverage.ts are unchanged: a missing section still rejects the reply, and an exact heading inside a fence still passes as today. argumentSha256 covers the normalised text.
+(9) **Protocol.** `RESEARCH_TOLERANCE_POLICY` (research-contract.ts) states decisions (1) to (6) and (8), including every pattern, the whitespace class and the order of the spans. The pipeline builds its scanner from those values. The sink, decision (7), is not in it. It is bound into `researchProtocolSha256()`, which moves from 7b.1's 01ca01a41c13410012bc386fa85bb32bdfbfaa3ec402482f8d29b8edfcaa6107.
+
+Consequences, as in BL-20261109-0334 decision (6):
+- v4 run directories stop seeding;
+- a paused research session resumes as `session_contract_drift`;
+- the harness source-freeze digest changes;
+- every earlier card's P10 structured-output evidence is invalidated (`serving_card_p10_protocol_drift`). None exists: E0 has not run;
+- a P10 export made before the merge and assessed after it records `schemasProtocolMatch` false;
+- planner-fixture summaries record the new hash for an unchanged plan request.
+
+No prompt, schema, output cap, thinking value or request layout changes, and no index, plan or extraction request byte changes. Every synthesis request, and P10's exported synthesis payload, differs by `coverage.protocolSha256`, as with any protocol change.
+
+The split arm's cloud synthesiser gets the same normalisation, so a variant heading no longer costs it a second paid call; its bounds are unchanged.
+
+Unchanged: RESEARCH_PIPELINE_VERSION 4, every packet schema (ResearchEvidenceSchema.counts stays strict), the seven files, the budget, the producer and research-coverage.ts.
+(10) **Stage rows and disclosure.** extract gains `conflictsDropped`, `notesDropped`, `questionsDowngraded`, `questionsUpgraded` and `quotesMerged`; synthesise gains `headingsNormalised`. All are counts, added to the hash-only guard's documented key set; summary stage rows are passthrough in the ready validator. The counts appear in summary.json and in the `research_stage` events only. The writer's packet carries none, and disclosure to the writer and to the desktop's reported issues waits for item 13.
+(11) **Tests change.** The faulty diagnostics script's invented quote, and the out-of-source quote test's, are now dropped without a repair; their counts change, and the latter test is renamed.
+
+Changes: Planned in this pull request:
+- src/main/private-agent/research-contract.ts: `RESEARCH_TOLERANCE_POLICY`;
+- src/main/private-agent/research-pipeline.ts:
+  - the extraction acceptance and the complete-attempt rule;
+  - the outcome derivation, the encodability checks and `normalizeResearchHeadings` with its use in synthesis;
+  - the counters, `disposition`, the hash binding and the sink comments;
+- src/main/private-agent/research-diagnostics.ts: manifest version 2 and its comment;
+- session.ts and scripts/private-agent-local-screen.ts: comments;
+- docs/experiments/README.md: names 7(a) among the protocol changes.
+
+Tests:
+- tests/unit/private-agent-research-pipeline.test.ts: the 7(a) block, the changed counts and the documented keys;
+- tests/unit/private-agent-research-headings.test.ts (new): the rule's cases, a python3 parity test against claims.ts's rule, Python's whitespace class over every code point, a guard that claims.ts's source still holds the rule, and linear time;
+- tests/unit/private-agent-research-diagnostics.test.ts: manifest version 2 and a disposition row;
+- tests/helpers/research-protocol-pin.ts: the new pin.
+
+Evidence: None yet beyond reading and tests written first; this entry decides. The reading is from the code at 5401d0f:
+- research-pipeline.ts:237, :242-243, :247-248, :250-255, :267, :272, :275 and :302-303;
+- research-coverage.ts:50 and its heading check;
+- claims.ts:199-200 and :231;
+- session.ts:400-404 and research-presentation.ts.
+
+Seven extraction and heading tests were written before the code. With them added to 5401d0f (uncommitted), `pnpm exec vitest run tests/unit/private-agent-research-pipeline.test.ts -t "7\(a\)"` gave 5 failed and 2 passed; the two that pass guard behaviour that must not change. The `Implemented` entry records the rest.
+
+Failures or blockers: None in recording.
+
+Five open questions for the owner, each with the default this PR implements:
+1. Should accepted replies with drops reach the diagnostics sink? Proposed default: yes, marked accepted_with_drops.
+2. When a reply marks a question no_verified_evidence but tags it on a verified quote, should the host keep the quote for that question? Proposed default: yes, it follows the evidence. Unlinking instead cannot be represented for a quote merged across chunks, because the ready validator requires every chunk and question pair of a quote to be linked; it would need per-chunk question binding or no merge.
+3. Should a downgraded question cost a repair? Proposed default: no. Repairs stay for replies that cannot be read.
+4. Should an unencodable quote note keep its quote? Proposed default: yes, with an empty note.
+5. Should a reply that fails the schema on one item (a note over 200 characters, a thirteenth quote) be salvaged item by item? Proposed default: not in this PR. Such a reply stays incomplete and is repaired.
+
+Two defects of the same family exist at 5401d0f and are not fixed here. Model-written index fields (title, date, gist, figures) and an accepted plan may hold a NUL or a lone surrogate, which canonical() refuses outside `call()`'s `try`, at `put(index)` (research-pipeline.ts:196) and research-plan.ts:125. Proposed owners: a small follow-up PR from this lane for research-index.ts, and 7(c) for the planner.
+
+Limitations and non-claims: This entry decides; nothing is implemented or verified by it, and nothing ran live.
+- **Drops trade repairs for missing evidence.** A quote a repair would have recovered becomes no_verified_evidence. Host-derived outcomes rest on quote occurrence, which says nothing about relevance.
+- **One bad item can still cost a chunk.** A reply that fails ExtractReplySchema on one item still costs its chunk, and at 40 chunks no repair capacity remains (D3). One over-long note can still end the stage, against principle 5 of section 5.2.
+- **Normalisation rewrites model text.** A prose or bullet line that is exactly a section title becomes a heading, as claims.ts would count it. A heading that shares its line with a comment is not normalised; this is the stated deviation.
+- **Counts are thin.** They are per reply, they appear only in summary.json and the stage events, and in a hash-only context (no sink) a drop cannot be tied to a chunk or a reply. An accepted synthesis reply's original headings are not retained.
+- **Out of scope:** per-role caps and thinking (7a.2); the index and planner defects above; D3's repair capacity; D4's trim (7b.2).
+
+Paid exposure: None for this pull request: zero SOAR model requests and zero envelope spend. Once merged, the split arm's cloud synthesiser can accept a variant heading on its first reply, so its expected calls can only fall; its bounds are unchanged.
+
+Next gate: The implementation with deterministic tests in this pull request and its `Implemented` entry; then CI green and a merge after PR #69, before E0's probe run.
+
+References:
+- docs/PROJECT_REVIEW_2026-11-05.md: section 4 rows D2, D3 and D5; section 5.2 (S4, S6, principle 5); section 5.7 item 7;
+- BL-20261109-0334-research-request-shapes-design and BL-20261109-0442-research-request-shapes-implemented;
+- BL-20261107-0859-label-keyed-diagnostics-design and BL-20261107-0923-label-keyed-diagnostics-implemented.
+
 
 ### BL-20261109-0459-desktop-resume-reasons-implemented -- 2026-11-09 -- Backlog item 6, part 1 (finding A6) implemented: the run-reasons table and its contract test, each run's own reason kept, transient stops resumable, `task_integrity_failed` (also for missing storage), the failed-consultation guard and the live version 3 clock
 
@@ -31561,6 +31697,105 @@ Next gate: CI green on the pull request; the owner's Docker-gated run (`SOAR_RUN
 
 References: BL-20261109-0423-capture-keeps-pinned-paths-design; BL-20261109-0351-e1-recoverability-card; BL-20261107-0924-stop-bricking-tasks-design; BL-20261107-1111-stop-bricking-tasks-docker-suite-verified.
 
+### BL-20261109-0552-research-tolerance-implemented -- 2026-11-09 -- Backlog item 7(a), part 1, implemented: per-quote drop, host-derived outcomes, complete attempts only, unencodable text refused, heading normalisation by claims.ts's rule as claims.ts reads the report, with the code-review corrections
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261109-0447-research-tolerance-design with deterministic tests, on branch `feat/7a.1-research-tolerance`, stacked on `feat/7b.1-request-shapes` (PR #69) at 5401d0f.
+- 317e1ee implements the design.
+- The next commit applies the findings of two adversarial code reviews of 317e1ee: correctness, and contract fidelity.
+
+The hypothesis is the design entry's.
+
+Decisions: Both reviews found that the heading scan did not hold to decision (8). Corrections (1) to (4) bring it back to the rule as claims.ts applies it; (5) records consequences the design did not state. Nothing else departs from the design entry.
+(1) **Universal newlines.** claims.ts reads a Markdown report with `Path.read_text(encoding='utf-8', errors='replace')` (claims.ts:230). That call uses universal newlines, so CRLF and a lone CR become line breaks before its fence and comment patterns and its split run.
+
+The scan now ends lines at CRLF, CR or LF and keeps every separator. This supersedes decision (8)'s "split at a newline only" and "keeping a trailing carriage return". At 317e1ee a CRLF fence was not closed, so a variant heading inside it was rewritten and a missing section accepted; a lone CR did not end a line. The Python parity test now writes each case to a file and reads it with that call, and the source guard pins the call.
+(2) **Linear strip scans.** section_present's two substitutions are now linear scans over the policy's character sets. The trailing pattern, anchored only at the end, was quadratic: the reviews measured about 27 s for one 128 KiB line of spaces followed by another character, synchronous and beyond the abort signal's reach. The linear-time test now includes runs of `_`, space, `:` and `#`, and 128 Ki carriage returns.
+(3) **The exact check is the coverage check's own.** A line is already exact when the coverage check's pattern accepts it with its `mu` flags. A heading after U+2028 is no longer rewritten.
+(4) **Every scanner value comes from the policy.**
+- The pattern that blocks a Setext underline is now `setextBlockedBy`: an ATX heading or a list item. A bullet title keeps the thematic break under it.
+- The exact-heading pattern and its flags, and the target template, are policy values.
+- The unencodable rule is named: `exact_text_refuses_nul_or_lone_surrogate`.
+
+All of these move the protocol hash.
+(5) **Consequences the design did not state.**
+- A reply that marks a question needs_followup and also carries a droppable quote or conflict, or a contradicted status, is now attempt `needs_followup`; at 5401d0f it was `invalid`. Its repair request says `previous_needs_followup` instead of `previous_invalid`. This is the one extraction request-byte change, and a test pins it.
+- A run with a needs_followup attempt no longer carries that attempt's quotes, so its evidence ids and `droppedUnverifiedOrDuplicate` change.
+- `quotesDropped` still counts the failing quotes of incomplete attempts, its historical meaning. Decision (5)'s "only a complete attempt's drops are counted" applies to the new counters.
+- `argument_unencodable` also refuses a lone surrogate, which `Buffer.from` would otherwise turn into U+FFFD silently; only a NUL would wedge the presentation.
+
+Changes:
+- src/main/private-agent/research-contract.ts: `RESEARCH_TOLERANCE_POLICY`;
+- src/main/private-agent/research-pipeline.ts:
+  - the extraction acceptance, with five quote drops, the complete-attempt rule, host-derived outcomes, cleared notes and `quotesMerged`;
+  - `argument_unencodable`;
+  - `normalizeResearchHeadings` and its use;
+  - `disposition`, the stage-row counters, the hash binding and the sink comments;
+- src/main/private-agent/research-diagnostics.ts: manifest version 2;
+- session.ts and scripts/private-agent-local-screen.ts: comments;
+- docs/experiments/README.md: 7(a) part 1 among the protocol changes, and 7(a) part 2 for caps and thinking.
+
+Tests:
+- tests/helpers/research-protocol-pin.ts;
+- tests/unit/private-agent-research-pipeline.test.ts: the 7(a) block of eleven tests, the changed counts of the faulty script and the out-of-source test, and the documented keys;
+- tests/unit/private-agent-research-headings.test.ts (new, 11 tests);
+- tests/unit/private-agent-research-diagnostics.test.ts: version 2 and a disposition row.
+
+Evidence:
+- **Protocol hash.** `researchProtocolSha256()` is 01ca01a41c13410012bc386fa85bb32bdfbfaa3ec402482f8d29b8edfcaa6107 at 5401d0f (7b.1) and f03119bfd0c7d37adf12155453f9530d1281ae9ead60019b97e9b95e2ca0f413 at this entry's commit, pinned once in tests/helpers/research-protocol-pin.ts. At 317e1ee it was 9279665d9bfd9ca193399da5ff41e7a05daffd1c97ba730621643cbf3fc19d29.
+- **Request bytes.** The default fixture's index, plan and two extraction messages keep the digests 7b.1's test pins (d10e662b…, db70bd30…, cf7b50ba…, 9ff9b72f…). The contracts review ran ten fixture scenarios in a 5401d0f tree and in 317e1ee:
+  - index and plan requests are byte-identical in all of them;
+  - extraction requests are byte-identical except the repair after a needs_followup reply with drops, correction (5);
+  - synthesis requests differ only by `coverage.protocolSha256`, except in runs with a needs_followup attempt.
+- **Tests:**
+  - the pipeline and heading files: 54 passed;
+  - the research, serving-card, probe, export, planner-fixture, assessor, claims, role-config, loop, identity-golden and runner-budget suites: 24 files, 489 passed and 1 skipped (the pypdf-dependent claims case);
+  - the full suite, `pnpm exec vitest run --maxWorkers=3`: 180 files, 167 passed and 13 skipped (the environment-gated suites); 2,803 tests, 2,719 passed and 84 skipped; no failure;
+  - `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref feat/7b.1-request-shapes` pass.
+- **Before the code.** With the first seven 7(a) tests added to 5401d0f, they gave 5 failed and 2 passed; the passing two are guards.
+- **What the tests prove,** on fixture models with no endpoint:
+  - **Drops.** Unverifiable, short, unencodable (a quote that splits an astral character) and badly tagged quotes are dropped, counted and reported, and the chunk stays complete without a repair. Conflicts with bad ids or an unencodable note are dropped. A quote's unencodable note is cleared.
+  - **Outcomes.** Each question's outcome follows the verified quotes, with downgrades and upgrades counted.
+  - **Complete attempts only.** A needs_followup reply contributes no quote, conflict, outcome or correction count. Its repair says `previous_needs_followup`.
+  - **Merges.** A quote merged across overlapping chunks is counted in `quotesMerged`.
+  - **The argument.** An argument holding a NUL is rejected and repaired.
+  - **The sink.** Kept replies with drops reach the sink as `accepted_with_drops`; rejected ones carry no disposition; the manifest is version 2 and keeps the disposition.
+  - **Headings: what is rewritten.** Every variant heading normalises to the fixture's exact argument byte for byte.
+  - **Headings: what is not.**
+    - Exact headings are kept byte for byte: with trailing whitespace, with CRLF, after U+2028, and with a thematic break under them.
+    - Carriage returns are kept.
+    - Fenced code (LF, CRLF and CR fences), comments, prose, a byte-order mark and a line a comment touches are never rewritten.
+  - **Parity with claims.ts.** Normalisation agrees with claims.ts's rule, run in Python on files read as claims.ts reads them, except for the stated comment deviation. The whitespace class equals Python's `str.isspace` over every code point. claims.ts's source still holds the rule. Adversarial 128 KiB inputs normalise in well under a second.
+- **Reviews.** Three design reviews preceded the `Proposed` entry, and two code reviews of 317e1ee followed. The correctness review also fuzzed 1,600 pipeline runs (no throw, no `research_packet_binding_invalid`, consistent counts) and 110,000 heading inputs. Every confirmed finding is fixed here or recorded below.
+
+Failures or blockers:
+- **Defects found and not fixed here.** Three, each also present at 5401d0f, which they predate:
+  - model-written index fields that canonical() cannot encode (research-index.ts; `put(index)` outside `call()`'s `try`);
+  - the same for an accepted plan (research-plan.ts:125);
+  - claims.ts's own Python trailing-strip pattern `[*_:\s]+$`, which is quadratic on the writer's report.
+
+  Proposed owners: a small follow-up PR from this lane for the index, 7(c) for the planner, and the orchestrator's choice for claims.ts (E1-J and 8.2b edit that file).
+- **The full suite's known timeout.** tests/unit/with-claude-key.test.ts times out at 5 s when other sessions load this Mac, and passes alone (3 tests).
+- **CI** has not run yet.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint. Every limitation of the design entry stands; in particular:
+- one item that fails ExtractReplySchema still costs its chunk;
+- relevance stays unverified;
+- the comment-line deviation remains;
+- the counters are per reply and are disclosed only in summary.json and the stage events.
+
+Parity with claims.ts is tested on the cases listed and on the review's fuzz, not proved. In particular, the two languages' lower-casing agrees for these ASCII titles, which a brute-force check confirmed.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- Review of the pull request, and CI green.
+- The orchestrator merges it after PR #69, before E0's probe run, retargeting it to `main` once #69 merges.
+- The design entry's five owner questions stay open with their defaults.
+
+References: BL-20261109-0447-research-tolerance-design; BL-20261109-0334-research-request-shapes-design; BL-20261109-0442-research-request-shapes-implemented; BL-20261107-0859-label-keyed-diagnostics-design; docs/PROJECT_REVIEW_2026-11-05.md section 4 rows D2 and D5, section 5.2 and section 5.7 item 7.
+
 ### BL-20261110-0625-correction-research-length-parser -- 2026-11-10 -- Correction to BL-20261109-0442: the word-limit parser read a part's limit under a heading or in a parenthesis as the report's cap, and its clause guard was quadratic
 
 Status: `Implemented`
@@ -31738,6 +31973,122 @@ Next gate: CI on #69 and the orchestrator's review of the delta (de3adea, a502c8
 
 References: BL-20261110-0625-correction-research-length-parser (corrected); BL-20261109-0442-research-request-shapes-implemented; this lane's second code review of de3adea, review data that is not committed.
 
+### BL-20261110-0712-correction-research-tolerance-repin -- 2026-11-10 -- Correction to BL-20261109-0552: 7a.1's protocol hash after #69's word-limit corrections are merged into it
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261109-0552-research-tolerance-implemented, backlog item 7(a), part 1, on its unmerged pull request #76. #76 builds on #69 (7(b), part 1). #69's merge-train review led to the word-limit corrections BL-20261110-0625 and BL-20261110-0709. The orchestrator asked for #76 to take them and re-pin. #76 takes them through a merge of #69's head 5e16e20 (commit 4a7b147), not a rebase, so its published history is not rewritten. The merge changes no 7a.1 code, test or decision. It changes the default research protocol hash that 0552 records, because the hash binds 7(b)'s clause guards as well as 7a.1's policies.
+
+Decisions:
+(1) **The hash.** 0552 recorded f03119bfd0c7d37adf12155453f9530d1281ae9ead60019b97e9b95e2ca0f413, computed on 7b.1's head 5401d0f. On #69's corrected head (protocol 925433f9ba8e9c531b51150b769b6bec382331b6d0824d37d151d1f9fdfbea88) the same 7a.1 code gives 679e623f02795ec66f06349af4bde5ff8db83fd1d5054465c1da492d6847d3f5. The merge commit re-pins it in tests/helpers/research-protocol-pin.ts. 7a.1's own commits keep their pins, which hold on their own base. The consequences are 0552's, now for the new value:
+- every earlier serving card's P10 structured-output evidence is invalidated (`serving_card_p10_protocol_drift`), as SC's contract requires; none exists, because E0 has not run;
+- run directories and paused sessions from any earlier protocol are refused or drift; none exists;
+- no loop may span the change, and none is in flight.
+(2) **The ledger order.** The ledger validator requires IDs that never move backward. In #76's file, 7a.1's entries BL-20261109-0447 and BL-20261109-0552 come before #69's BL-20261110-0625 and BL-20261110-0709, in ID order, and this entry follows them. The log is append-only relative to main and relative to #76's previous head 18655e5. It is not append-only relative to #69's head, because 0447 and 0552 sit before #69's last entries. On the orchestrator's decision of 2026-11-10, #76's pull request base is therefore main. The committed entries 0334, 0442, 0447, 0552, 0625 and 0709 keep their bytes and IDs; only their order in this file and this entry are new.
+(3) **A merge, not a rebase.** A rebase of #76 onto #69 was prepared first. Publishing it needed a force-push, which this session's permission policy refused. The merge gives the same tree without rewriting #76's history:
+- the 7a.1 commits are those reachable from #76's head but not from #69's head, `git log 5e16e20..HEAD`;
+- 4a7b147 is the merge;
+- this entry's commit follows it.
+(4) Nothing else in 0447 or 0552 changes. Their decisions, tests and limitations stand, and their entries are not edited.
+
+Changes: Merge commit 4a7b147 and this entry's commit on `feat/7a.1-research-tolerance`:
+- docs/BUILD_LOG.md: 7a.1's two entries kept before #69's two corrections, and this entry;
+- tests/helpers/research-protocol-pin.ts: the pin and its history comment.
+
+The merge also brings #69's own changes: research-admission.ts, its test, the pipeline test and the two correction entries.
+
+Evidence: At 4a7b147, run locally:
+- **Checks.** `pnpm typecheck` passes, and so does `pnpm validate:readiness`.
+- **Full suite.** `pnpm exec vitest run`: 167 files passed and 13 skipped; 2,725 tests passed, 0 failed and 84 skipped.
+- **Research suites.** The research, role-schema-export, serving-probe-helpers, planner-fixture, assess-probe-replies and local-screen suites pass: 15 files, 216 tests.
+- **Ledger.** `pnpm --silent validate:build-log -- --base-ref origin/main` passes with this entry appended.
+  - Byte for byte, by sha256 of each entry's text: 0334, 0442, 0447 and 0552 match their committed text at 18655e5, and 0625 and 0709 match #69's at 5e16e20.
+  - The tail runs 1649, 0334, 0442, 0447, 0552, 0625, 0709, 0712.
+  - The file starts with both main's log and 18655e5's.
+
+Failures or blockers: None. The force-push the rebase needed was refused, and the merge replaced it. The second-round review of #76 at 18655e5 is still running and may require another round on this branch.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint. Every limitation of 0447 and 0552 stands. #76's pull request now contains #69's commits, and the 7a.1 commits are those `git log 5e16e20..HEAD` lists.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of the delta (4a7b147 and this entry), CI on #76 against main, then the merge train after #69.
+
+References: BL-20261109-0552-research-tolerance-implemented (corrected); BL-20261109-0447-research-tolerance-design; BL-20261110-0625-correction-research-length-parser; BL-20261110-0709-correction-research-length-parser-exclusions; BL-20261109-0442-research-request-shapes-implemented.
+
+### BL-20261110-0726-correction-research-tolerance-total-loss -- 2026-11-10 -- Correction to BL-20261109-0447 and BL-20261109-0552: owner question 3's total-loss corner, the references that moved with #69's corrections, and four review nits
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261109-0447-research-tolerance-design and BL-20261109-0552-research-tolerance-implemented, backlog item 7(a), part 1, on pull request #76. The orchestrator's second-round merge-train review of #76 at 18655e5 had two independent reviewers. Both found "merge after fixes". Their mandatory work was the re-pin onto #69's corrections, done in BL-20261110-0712, and one decision on owner question 3's default, taken here. This entry records:
+- that decision and its code (commit 834de94);
+- the 0447 and 0552 references the corrections moved;
+- the review nits.
+
+It edits no committed entry.
+
+Decisions:
+(1) **The corner.** Owner question 3's default says a question downgraded because its quotes were dropped costs no repair. The default has a total-loss corner. A reply whose every quote for a question it marked evidence_found was dropped was accepted complete and never repaired: the repair loop visits only chunks that are not complete. The reviewers ran identical scripted models against both versions:
+- **Every chunk's first reply carries one unlocatable quote.** 18655e5 ended `research_no_evidence` after 2 of 40 extraction calls. 5401d0f, before 7a.1, completed with 4 calls, 2 repairs and 2 verified quotes.
+- **Only the first chunk's reply does.** 18655e5 shipped a ready packet with only the second source's evidence; 5401d0f kept both.
+
+A reader that paraphrases on its first pass therefore lost evidence that 7b.1 recovered.
+(2) **The rule, the reviewers' option (a), with a budget refinement.**
+- **The hold.** A first attempt that dropped every quote it gave for a question it marked evidence_found is held, not kept: its chunk is recorded `invalid` for now.
+- **The repair.** Held chunks are repaired after every other chunk's repair, while the extraction budget lasts. A held chunk that is repaired drops its held attempt, which then counts as an invalid reply.
+- **No budget left.** A held chunk the budget leaves unrepaired keeps its attempt, as 18655e5 kept it: complete, with its downgrade counted.
+- **The repair attempt.** It is kept with its drops even when it loses every quote again, so there is never a third call.
+- **The policy.** RESEARCH_TOLERANCE_POLICY gains `extraction.allQuotesOfAFoundQuestionDropped` (hashed). Its version stays 1, and the protocol hash records the change.
+- **Unchanged.** A question claimed found with no quote at all is still downgraded without a repair, and partial drops never cost a repair.
+- **The comparison.** No run is worse than at 5401d0f, which repaired every reply with an unverifiable quote. No run is worse than at 18655e5 either, except when a held chunk's repair reply is itself schema-invalid, truncated or needing follow-up. That leaves the chunk incomplete, as 5401d0f would have.
+(3) **Owner question 3, restated.** Should a first attempt that drops every quote of a question it marked evidence_found be repaired when the budget allows, rather than kept with the question downgraded? Proposed default: yes, as implemented here. In every other case owner question 3's default (no repair for a downgrade) stands. The orchestrator tells S-e1 the outcome, because #75 and E1-T2 expect it.
+(4) **What the counts count (review nit F2).** `quotesDropped` counts the quotes dropped from every parsed reply, held and repaired attempts included. The conflict, note and outcome counts (`conflictsDropped`, `notesDropped`, `questionsDowngraded`, `questionsUpgraded`) count only the attempt a chunk keeps. 0552 already records this meaning of `quotesDropped`. The pipeline's comment and the pull request body said only a complete attempt's drops are counted; both are corrected.
+(5) **References #69's corrections moved.**
+- **0447 decision (9) and 0552.** They speak of "the code at 5401d0f", and 0552's scope line says #76 is stacked on `feat/7b.1-request-shapes` at 5401d0f. #76 is based on main and contains #69's head 5e16e20 (BL-20261110-0712).
+- **0552's evidence hashes.** 01ca01a41c13… (7b.1 at 5401d0f), 9279665d9bfd… (317e1ee) and f03119bfd0c7… (18655e5) are superseded:
+  - #69's protocol is 925433f9ba8e9c531b51150b769b6bec382331b6d0824d37d151d1f9fdfbea88 (BL-20261110-0709);
+  - 0712 pinned 679e623f02795ec66f06349af4bde5ff8db83fd1d5054465c1da492d6847d3f5;
+  - this entry pins 396a15f3aca0c7b758fe4b052ee744911f0a5943dd805d518a70d9b6799ac2aa.
+
+  The consequences are 0552's, now for the new value. Every earlier serving card's P10 structured-output evidence is invalidated (`serving_card_p10_protocol_drift`), as SC's contract requires; none exists. Earlier seeds and paused sessions are refused or drift; none exists. No loop may span the change.
+- **0552's test counts.** They are superseded by the evidence below.
+- **Unchanged.** The four request digests the pipeline test inherits from #69 (index, plan and two extraction requests) do not carry the protocol hash and are unchanged; their test passes. RESEARCH_TOLERANCE_POLICY's version (1) and DIAGNOSTICS_MANIFEST_VERSION (2) are unchanged: this fix adds no diagnostics field and no disposition.
+(6) **Nits.**
+- **F3.** A test now pins which separator follows a removed Setext underline: the underline's own. It catches the reviewers' mutant M39.
+- **F4.** The unreachable `!skipped[i + 1]` in the Setext branch is removed. Behaviour is unchanged, and the hash binds policy values, not code.
+- **F5.** RESEARCH_TOLERANCE_POLICY's doc comment now says lines end at CRLF, CR or LF, as 0552's correction (1) decided.
+- **The headings test's claims.ts pins.** The text pins (lines 99 to 104) and the hand copy of the rule (`claimsPresent`) are left alone. S-e1's E1-J2 owns that fix, as the orchestrator directed.
+
+Changes: Commit 834de94 on `feat/7a.1-research-tolerance`:
+- research-pipeline.ts: the held attempts, the repair order, `retain`'s ordinal, the comment, and the removed condition;
+- research-contract.ts: the policy field and its doc comment;
+- tests/unit/private-agent-research-pipeline.test.ts:
+  - one new test for the corner: R1, R2, no budget, priority to invalid chunks, and a repair that loses its quotes again;
+  - three tests rewritten for the new rule;
+- tests/unit/private-agent-research-headings.test.ts: two separator cases (F3);
+- tests/helpers/research-protocol-pin.ts: the pin.
+
+Evidence: At 834de94, run locally:
+- **The corner test.** It reproduces both of the reviewers' scripts. With every first reply unlocatable, the run completes with 4 calls, 2 repairs and 2 verified quotes. With only the first chunk's reply unlocatable, it completes with 3 calls and evidence from both sources. With no budget left, the held attempt is kept, and both chunks' attempts are complete. With one repair left, the invalid chunk takes it. A repair that again loses every quote is kept, with no third call.
+- **Mutation.** Changing which separator follows a removed Setext underline (the reviewers' M39) fails the new headings case.
+- **Pipeline and headings tests.** The pipeline test file passes 45 tests and the headings test 11.
+- **Research suites.** The research, role-schema-export, serving-probe-helpers, planner-fixture, assess-probe-replies and local-screen suites pass: 15 files, 217 tests.
+- **Full suite.** `pnpm exec vitest run`: 166 files passed and 13 skipped; 2,725 tests passed, 1 failed and 84 skipped. The failure is with-claude-key's shell-script test, which is outside this change and passes alone (3 tests).
+- **Other checks.** `pnpm typecheck` passes, and so does `pnpm --silent validate:build-log -- --base-ref origin/main` with this entry appended.
+
+Failures or blockers: None. The corner in (1) was a behaviour regression against 5401d0f in 7a.1 as committed at 18655e5. It is recorded there, never ran live, and is fixed here.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint.
+- **A failed repair.** A held chunk whose repair reply is itself schema-invalid, truncated or needing follow-up ends the run incomplete, where 18655e5 would have kept the held attempt. The gate's rule that a chunk's last attempt is its complete one forbids falling back after a failed repair.
+- **The held attempt's other quotes.** A held attempt's verified quotes for its other questions are discarded when its chunk is repaired, so the repair must give them again, as at 5401d0f.
+- **Quote ids.** A held attempt kept for lack of budget takes its quote ids after the repairs, so its ids differ from 18655e5's.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #76; the orchestrator's review of the delta (834de94 and this entry); then the merge train.
+
+References: BL-20261109-0447-research-tolerance-design and BL-20261109-0552-research-tolerance-implemented (corrected); BL-20261110-0712-correction-research-tolerance-repin; BL-20261110-0709-correction-research-length-parser-exclusions; the orchestrator's second-round review of #76, which is review data and not committed.
+
 ### BL-20261110-0848-correction-research-length-parser-chains -- 2026-11-10 -- Correction to BL-20261110-0625 and BL-20261110-0709: a part's limit after a comma in its heading or clause, or in the sentence after the part, was read as the report's cap; rules A and B
 
 Status: `Implemented`
@@ -31895,3 +32246,99 @@ Next gate: The orchestrator checks this push:
 Then CI green on #69 and the merge train. #76 merges this head and re-pins in its own Correction entry, whose ID is later than this one.
 
 References: BL-20261110-0625-correction-research-length-parser and BL-20261110-0709-correction-research-length-parser-exclusions (corrected); BL-20261109-0334-research-request-shapes-design (decision (5) and owner question 3, narrowed); BL-20261109-0442-research-request-shapes-implemented; the orchestrator's delta review of PR #69 at 5e16e20, which is review data and not committed.
+
+### BL-20261110-0900-correction-research-tolerance-held-repair -- 2026-11-10 -- Correction to BL-20261110-0726: a held chunk's failed repair was uncounted, the comparison with 5401d0f is withdrawn, and 7a.1 is merged onto rules A and B
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261110-0726-correction-research-tolerance-total-loss, on pull request #76 (backlog item 7(a), part 1). It also corrects one wording in BL-20261110-0712-correction-research-tolerance-repin. It edits no committed entry.
+
+The orchestrator's delta review of #76 at bd876d9 ran three lenses, and six skeptics checked the findings. All three lenses found "merge after fixes". This entry records:
+- the regression it found and its fix (commit 53d3a5c);
+- the comparison of 0726 that it withdraws;
+- the wordings it corrects;
+- the merge of #69's head 848524e (merge commit 961aea5), which brings rules A and B (BL-20261110-0848) and moves the protocol hash.
+
+Decisions:
+(1) **The regression: a held chunk's failed repair was neither counted nor retained.**
+- **The cause.** `held.set` runs only on a first attempt, and `held.delete` only when the held attempts are settled. So during the held chunk's own repair call, the guard `!held.has(chunk.id)` also suppressed `invalidReplies++` and the diagnostics sink. It was meant to defer only the held first attempt.
+- **What the review measured at bd876d9.** A held chunk whose repair is invalid JSON, schema-invalid, a wrong question set, truncated or needs follow-up ends `research_extraction_incomplete` with calls 3 and repairCalls 1. But invalidReplies was 1, and only ordinal 1 reached the sink.
+- **When it began.** It came in with 834de94. In the review's invariant grid, no cell broke at 873d1c7, 652 of 7,056 broke at bd876d9, and none breaks with the fix. No test saw it: all 45 pipeline tests passed with and without the fix.
+- **The fix.** The guard now reads `state !== "complete" && (repair || !held.has(chunk.id))`.
+- **The test.** The same script runs with an invalid and with a truncated repair. It now gives invalidReplies 2 (truncatedReplies 1 in the truncated case), chunk attempts ["invalid", "invalid"] or ["invalid", "truncated"], and extract sink rows at ordinals 3 then 1.
+(2) **"No run is worse than at 5401d0f" is withdrawn.** That sentence of 0726 decision (2), "The comparison", is false. 834de94 restores 5401d0f's result in one case only: a first attempt that drops every quote it gave for a question it marked evidence_found, when the budget allows the repair. Three classes still end with less evidence than at 5401d0f. The review ran each script at 5401d0f and at bd876d9; the fix in (1) changes none of them.
+- **(i) A question marked evidence_found that no quote names.** In the script, two chunks' first replies both mark the question found with `quotes: []`, and an honest reply is available for a repair.
+  - 5401d0f ends `research_packet_ready` with 4 calls, 2 repairs and 2 verified quotes.
+  - bd876d9 ends `research_no_evidence` after 2 calls, with questionsDowngraded 2.
+- **(ii) A question marked no_verified_evidence whose only quotes were dropped.** The hold requires the status evidence_found.
+  - 5401d0f ends ready with 4 calls and 2 quotes.
+  - bd876d9 ends `research_no_evidence` after 2 calls, and no downgrade is counted.
+- **(iii) Partial drops keep fewer quotes.** In two scripts, 5401d0f kept 4 and 3 quotes where bd876d9 keeps 2. This is 0447's standing limitation.
+
+  The exception is not "the no-quote class". That would be false for (ii) and (iii).
+(3) **The exception against 18655e5, restated.** 0726 decision (2) named three ways a held chunk's repair reply can fail. The policy lists five `incompleteWhen` codes: truncated, invalid_json, schema_invalid, question_set_mismatch and needs_followup. A repair reply that fails in any of the five leaves the chunk incomplete, where 18655e5 kept the held attempt and completed. A held chunk's repair call may also be denied, cancelled or fail. Then the run ends `research_request_denied` or `research_cancelled`, while 18655e5 made no such call and completed with the question downgraded. This also restates 0726's limitation "A failed repair".
+(4) **What else 834de94 changed.** 0726 does not state these:
+- **A denial or cancellation while a chunk is held.** When an extraction call is denied or cancelled, in either pass, every held attempt is rejected. Each is counted in invalidReplies, its chunk is recorded invalid, and its reply is retained with no disposition.
+- **The cost.** Each held chunk costs at most one more reader call, within budget.extractionCalls. A complete repair that gains nothing still costs that call.
+- **The sink order.** A held attempt's sink row is emitted when it is settled, so extract rows no longer arrive in ordinal order; for example, ordinal 3 arrives before ordinal 1. Each row keeps its own ordinal. DIAGNOSTICS_MANIFEST_VERSION rightly stays 2: no field or disposition changes.
+(5) **Owner question 3, restated (0726 decision (3)).** Should a first attempt that drops every quote of a question it marked evidence_found be repaired when the budget allows, rather than kept with the question downgraded? The proposed default is still yes, as implemented. In every other case owner question 3's default stands: a downgrade costs no repair.
+
+That default leaves (i) and (ii) in (2) as known regressions against 5401d0f. The owner chooses between accepting them and widening the hold. This PR does not widen `lost`, for two reasons: it would change the hashed policy value `allQuotesOfAFoundQuestionDropped` and the pin, and it is the owner's decision. The orchestrator tells S-e1 the outcome, because #75 and E1-T2 expect it.
+(6) **The merge and the protocol.**
+- **The merge.** 961aea5 merges #69's head 848524e, which brings rules A and B and the entry BL-20261110-0848. The build log keeps 7a.1's committed entries byte for byte and appends 0848 after 0726, in ID order.
+- **The hash.** `researchProtocolSha256()` moves from 396a15f3aca0c7b758fe4b052ee744911f0a5943dd805d518a70d9b6799ac2aa (bd876d9) to 05f342b25f3483574cca4f1bad53468219e63e94578927c069a8c831289e93a8, re-pinned in tests/helpers/research-protocol-pin.ts with a history line. #69's own protocol is now 9066d7de5d1c52e1cb0616a4b68ea157638749810ac5fabbd8863db6a288c6d3.
+- **What does not move the hash.** The fix in (1) changes no hashed value. RESEARCH_TOLERANCE_POLICY's version (1) and DIAGNOSTICS_MANIFEST_VERSION (2) are unchanged.
+- **The consequences.** They are 0552's, now for the new value. Every earlier serving card's P10 structured-output evidence is invalidated (`serving_card_p10_protocol_drift`), and none exists. Earlier seeds are refused and paused sessions drift; none exists. No loop may span the change.
+- **Request digests.** The four request digests the pipeline test inherits from #69 do not carry the hash, and they are unchanged.
+(7) **Wordings corrected in 0712 and 0726, and in the pull request body.**
+- **The research-suite line.** It names a "local-screen" suite, but no test file matches that name. A bare "research" filter also selects private-agent-public-research.test.ts, so the names as written select 16 files and 238 tests at bd876d9, by the review's count. The counts in 0712 (15 files, 216 tests) and 0726 (15 files, 217 tests) came from the path filter given under Evidence.
+- **0726 decision (6).** It cites the headings test's claims.ts pins at lines 99 to 104. They are at lines 102 to 106.
+(8) **The review's optional cases ride this push.** 53d3a5c adds the review's four mutant-killing cases at the corner test:
+- a first-pass denial while chunk 0 is held, and the same with the signal aborted during call 0;
+- a denial on the held chunk's repair call;
+- the no-budget case with a sink, which has exactly one extract row, ordinal 1, accepted with drops;
+- a quote dropped from a question marked no_verified_evidence, which is never held.
+
+It also corrects two stale comments in the diagnostics test, at its lines 186 and 218. Both said 7a.1 keeps the second chunk; that chunk is now held and repaired.
+
+Changes: The merge commit 961aea5 and the commit 53d3a5c on `feat/7a.1-research-tolerance`:
+- **961aea5:** the merge of 848524e, the build-log resolution and the pin.
+- **src/main/private-agent/research-pipeline.ts:** the guard in (1) and its comment.
+- **tests/unit/private-agent-research-pipeline.test.ts:**
+  - one test for (1), with its two variants;
+  - one test for the four cases in (8);
+  - the two comments.
+
+Evidence: The checks ran locally at 53d3a5c.
+- **The pipeline test.** `pnpm exec vitest run tests/unit/private-agent-research-pipeline.test.ts` passes 47 tests: the 45 at bd876d9 and 2 new. With the guard reverted, the new test for (1) fails and the other 46 pass.
+- **Mutations.** Nine single-edit mutants of the held-attempt code were run against the pipeline test:
+  - each of the two denial exits keeping the held attempt, or leaving it unsettled (four mutants);
+  - `lost` ignoring the status;
+  - a kept held attempt retained without its disposition, or twice;
+  - a rejected held attempt not counted;
+  - the unfixed guard.
+
+  Six survived the 45 tests at bd876d9: the four denial mutants, the status check and the unfixed guard. All nine fail a test now.
+- **Research suites.** `pnpm exec vitest run tests/unit/private-agent-research tests/unit/role-schema-export.test.ts tests/unit/serving-probe-helpers.test.ts tests/unit/planner-fixture.test.ts tests/unit/assess-probe-replies.test.ts` passes 15 files and 225 tests: 0726's 217, the merge's 6 admission tests and the 2 above. The names as 0712 and 0726 wrote them (`pnpm exec vitest run research role-schema-export serving-probe-helpers planner-fixture assess-probe-replies local-screen`) select 16 files and 247 tests here.
+- **Full suite.** `pnpm exec vitest run` reports 166 files passed, 1 failed and 13 skipped, and 2,733 tests passed, 1 failed and 84 skipped. The failure is with-claude-key.test.ts's shell-script test, which is outside this change, ran at a load average near 13 and passes alone (3 tests).
+- **Other checks.** `pnpm typecheck` and `pnpm validate:readiness` pass. So does `pnpm --silent validate:build-log -- --base-ref origin/main` with this entry appended.
+- **The hash.** `researchProtocolSha256()` at 53d3a5c returns 05f342b25f3483574cca4f1bad53468219e63e94578927c069a8c831289e93a8, the pinned value.
+
+Failures or blockers: These are negative results against 0726, found by review before any run:
+- the regression in (1);
+- the false comparison in (2);
+- the incomplete exception in (3).
+
+None ran live.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint. Every limitation of 0447, 0552 and 0726 stands, as corrected here.
+- **Less evidence than at 5401d0f.** Classes (i) to (iii) in (2) still end with less evidence than at 5401d0f, and (i) and (ii) wait on the owner.
+- **The rest of 0726 stands.** Its limitations "The held attempt's other quotes" and "Quote ids" still hold.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's checks of this push (the fix and its test, the appended entries, and that the hash reproduces), CI green on #76, then merge train 1.
+
+#69 and #76 must reach main in one push, or #76 alone, which contains #69. #76's log is not append-only against #69's head: 7a.1's entries 0447 and 0552 sit before #69's 0625 in ID order.
+
+References: BL-20261110-0726-correction-research-tolerance-total-loss and BL-20261110-0712-correction-research-tolerance-repin (corrected); BL-20261109-0447-research-tolerance-design and BL-20261109-0552-research-tolerance-implemented; BL-20261110-0848-correction-research-length-parser-chains (merged); the orchestrator's delta review of PR #76 at bd876d9, which is review data and not committed.

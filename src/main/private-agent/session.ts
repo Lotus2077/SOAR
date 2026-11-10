@@ -60,7 +60,7 @@ export interface GeneralSessionOptions {
    */
   research?: { models: (contextId: string) => ResearchModels; budget?: ResearchBudget;
     /**
-     * Backlog item 4: a sink for the stage's rejected or truncated replies. Forwarded to the pipeline only while the reader
+     * Backlog item 4: a sink for the stage's rejected or truncated replies, and since 7a.1 its kept extraction replies with drops. Forwarded to the pipeline only while the reader
      * context's retention is `raw` (contracts.ts, `diagnosticRetention`: every source public or synthetic-attested); no part
      * of the session identity; the desktop passes none.
      */

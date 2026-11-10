@@ -303,6 +303,7 @@ describe("an assist's proof of zero writes on the Anthropic shape (backlog item 
     ["parts that agree", { cache_creation_input_tokens: 0, cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 0 } }, true],
     ["parts that disagree", { cache_creation_input_tokens: 0, cache_creation: { ephemeral_5m_input_tokens: 7 } }, false],
     ["an unknown part", { cache_creation_input_tokens: 0, cache_creation: { ephemeral_30m_input_tokens: 7 } }, false],
+    ["an unknown part that sums to the count", { cache_creation_input_tokens: 0, cache_creation: { ephemeral_30m_input_tokens: 0 } }, false],
   ])("reports %s as %s", async (_name, fields, reported) => {
     const result = await fixture(answer(fields), assist).model.complete(oneShot, [], new AbortController().signal, { purpose: PLAN_ASSIST_PURPOSE });
     expect(result.cacheWriteReported).toBe(reported);

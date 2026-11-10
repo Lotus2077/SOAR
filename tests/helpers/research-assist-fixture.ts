@@ -146,7 +146,8 @@ export function assistComposedGoal(authored = ASSIST_AUTHORED_BRIEF): string {
 }
 /** The local replies of the fixture run: model text that names files, a URL and the planted hash, as a careless local model might. */
 function localReply(system: string, user: string): string {
-  const input = JSON.parse(user) as Record<string, any>;
+  // One canonical JSON line per part: 7b.1 splits a local request into two, so the parts are merged whatever their number.
+  const input = Object.assign({}, ...user.split("\n").map(line => JSON.parse(line))) as Record<string, any>;
   if (system.startsWith("You index")) return JSON.stringify({ sources: input.sources.map((s: any) => ({ sourceId: s.id, title: `Notes in ${s.id}`, date: "",
     gist: `A survey record kept as ${s.id}; see also beta-ledger.md and ${PLANTED.webUrl}; checksum ${PLANTED.secretHash}.`, figures: ["12 trees"] })) });
   if (system.startsWith("You plan")) return JSON.stringify({ version: 2, questions: [

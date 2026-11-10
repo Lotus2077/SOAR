@@ -94,7 +94,7 @@ describe("the assist scrubber (research-assist-scrub.ts)", () => {
   });
 
   it("lets a source URL or host take the path, query or fragment after it, through an apostrophe inside it", () => {
-    expect(text("www.example.org/news")).toBe("www.S2");
+    expect(text("www.example.org/news")).toBe("S2");
     expect(text("https://example.org/reports/annual-2025.html?x=1#top, then")).toBe("S2, then");
     expect(text("Mirror https://example.org/reports/annual-2025.html#section-'Payroll' now.")).toBe("Mirror S2' now.");
     expect(text("Mirror https://example.org/reports/annual-2025.html#'Payroll-2025' now")).toBe("Mirror S2' now");
@@ -141,8 +141,51 @@ describe("the assist scrubber (research-assist-scrub.ts)", () => {
     for (const value of ["src/com.example.app/ui/main/view", "node_modules/lodash.merge/dist/es/index", "/var/log//app/current/today", "config/app.v2b/prod/eu/west", "see a/b.md/c/d/e now",
       "example.org.report.md", "资料／2024／report.pdf を要約", "C:\\用户\\张三\\文档\\合并计划.docx", "https://hr.acme.example/search?employee=张三&action=terminate", "see (plan.docx) now",
       "Mirror https://example.org/reports/annual-2025.html#'Payroll-2025' now", `SHA256 Fingerprint=${pairs(HASH, ":")}`, "目录/Users/alice/Clients/Acme里有三个文件"]) settled(value);
-    // A host left glued to a later replacement is taken by the next pass.
-    expect(text("example.org.report.md")).toBe("S2.[file]");
+    // A host-file name glued after a host through "." is another file: the whole run is one placeholder.
+    expect(text("example.org.report.md")).toBe("[file]");
+  });
+
+  it("sends a source's host with labels, userinfo or a word glued before it, and its // and scheme, as [url]; a lone www. keeps the alias", () => {
+    for (const value of ["payroll-2025.intranet.example.org/hr/salaries.xlsx", "acme-merger.example.org/secret/path", "a.b.c.d.example.org/x", "alice:hunter2@example.org/reports/annual-2025.html",
+      "evil-example.org/reports/annual-2025.html", "xexample.org/reports/annual-2025.html", "payroll.intranet.example.org/reports/annual-2025.html", "//sub.example.org/x",
+      "https://sub.example.org/x", "sub.example.org", "alice@example.org", "mailto:hr@example.org"]) {
+      expect(text(`see ${value} now`), value).toBe("see [url] now");
+      expect(model(`see ${value} now`), value).toBe("see [url] now");
+      settled(`see ${value} now`);
+    }
+    expect(scrubber.scrub("see payroll.intranet.example.org/x", "text").counts).toMatchObject({ sources: 0, urls: 1 });
+    for (const value of ["www.example.org/news", "https://www.example.org/x", "example.org/reports/annual-2025.html", "mirror/example.org/reports/annual-2025.html"]) expect(text(value), value).toBe("S2");
+    expect(text("the example.org team")).toBe("the S2 team");
+    // A scheme-less URL with a password is a credential with no source involved too, with or without a path.
+    expect(text("log in as alice:hunter2@acme.example or alice:hunter2@acme.example/x")).toBe("log in as [url] or [url]");
+  });
+
+  it("sends a file name glued to a source's file name through -, _ or . on either side, folder and all, as [file], and keeps the alias for the name itself", () => {
+    for (const value of ["secret-merger-alpha-field-notes.md", "q3_board_alpha-field-notes.md", "2025.alpha-field-notes.md", "Final-ALPHA-FIELD-NOTES.MD", "merger/private-alpha-field-notes.md",
+      "Clients/Acme/old-alpha-field-notes.md", "/tmp/old-alpha-field-notes.md", "alpha-field-notes.md-secret", "alpha-field-notes.md_secret", "alpha-field-notes.md.secret-merger"]) {
+      expect(text(`see ${value} now`), value).toBe("see [file] now");
+      expect(model(`see ${value} now`), value).toBe("see [file] now");
+      settled(`see ${value} now`);
+    }
+    for (const value of ["alpha-field-notes.md", "corpus/alpha-field-notes.md", "Clients/Acme/alpha-field-notes.md", "/tmp/alpha-field-notes.md"]) expect(text(`see ${value} now`), value).toBe("see S1 now");
+    expect(text("- alpha-field-notes.md and see alpha-field-notes.md.")).toBe("- S1 and see S1.");
+    // An extension-less stem glued to other text keeps it (a recorded limit): the rule is for file names.
+    expect(model("pre-alpha-field-notes and alpha-field-notes-v2")).toBe("pre-S1 and S1-v2");
+  });
+
+  it("names a form two sources share [source], and each whole path its own alias", () => {
+    const shared = createScrubber({ sources: [identity("a/notes-2024.md"), identity("b/notes-2024.md")], suffix: "", knownDigests: [HASH] });
+    expect(shared.scrub("see notes-2024.md, a/notes-2024.md and b/notes-2024.md", "text").text).toBe("see [source], S1 and S2");
+  });
+
+  it("finds a source named with a compatibility ligature only in the audit's NFKC view, whichever side holds the ligature", () => {
+    // The ligature in the text: the scrub (NFC) keeps it, and the audit finds the source.
+    expect(text("see alpha-\ufb01eld-notes.md")).toBe("see alpha-\ufb01eld-notes.md");
+    for (const scope of ["text", "model"] as const) expect(scrubber.finding("see alpha-\ufb01eld-notes.md", scope)).toBe("source_identity");
+    // The ligature in the source's own name, the text plain: only the audit's forms, read in NFKC, find it.
+    const ligature = createScrubber({ sources: [identity("input/corpus/alpha-\ufb01eld-notes.md")], suffix: "", knownDigests: [HASH] });
+    expect(ligature.scrub("see alpha-field-notes.md", "text").text).toBe("see alpha-field-notes.md");
+    for (const scope of ["text", "model"] as const) expect(ligature.finding("see alpha-field-notes.md", scope)).toBe("source_identity");
   });
 
   it("finds in a finished string what the scrub replaces: source forms in the stricter NFKC view, the rest as the scrub reads them", () => {
@@ -200,8 +243,8 @@ describe("the assist scrubber (research-assist-scrub.ts)", () => {
   }, 60_000);
 
   it("binds its rules into the policy the protocol block hashes", () => {
-    expect(SCRUB_POLICY).toMatchObject({ version: 3, placeholders: { url: "[url]", file: "[file]", digest: "[digest]", source: "[source]" } });
-    expect(SCRUB_POLICY.patterns.url.length).toBe(8);
+    expect(SCRUB_POLICY).toMatchObject({ version: 4, placeholders: { url: "[url]", file: "[file]", digest: "[digest]", source: "[source]" } });
+    expect(SCRUB_POLICY.patterns.url.length).toBe(9);
     expect(SCRUB_POLICY.patterns.relative.run).toContain("\\1");
   });
 });

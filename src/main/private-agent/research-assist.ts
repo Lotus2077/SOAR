@@ -248,8 +248,11 @@ function refusal(error: unknown): NotBuilt {
 export function buildPlanAssistPacket(request: ResearchAssistPlanRequest, options: { firing: ResearchAssistFiring; authoredBrief: string; model: PrivateAgentModel }): Built | NotBuilt {
   try {
     const prepared = prepare(request, options.authoredBrief, "T1");
-    const priorAttempts = options.firing === "local_first" ? request.priorAttempts.map(attempt => ({ ordinal: attempt.ordinal, truncated: attempt.truncated,
-      errors: attempt.errors.map(error => SafePlanErrorSchema.parse(error)), omittedErrorCount: attempt.omittedErrorCount })) : undefined;
+    // Every field of a prior attempt is checked before it is copied: counts are safe integers, `truncated` a boolean, errors safe codes.
+    const priorAttempts = options.firing === "local_first" ? request.priorAttempts.map(attempt => {
+      if (!safeCount(attempt.ordinal) || !safeCount(attempt.omittedErrorCount) || typeof attempt.truncated !== "boolean") throw new AssistRefusal(ASSIST_CODES.requestInvalid, prepared.record());
+      return { ordinal: attempt.ordinal, truncated: attempt.truncated, errors: attempt.errors.map(error => SafePlanErrorSchema.parse(error)), omittedErrorCount: attempt.omittedErrorCount };
+    }) : undefined;
     const stats = priorAttempts ? { priorAttempts: priorAttempts.length } : {};
     const packetAt = (gists: readonly string[], max: number) => ({ authoritativeSchema: RESEARCH_PLAN_JSON_SCHEMA, brief: prepared.brief, units: prepared.units,
       sources: gists.map((gist, i) => ({ id: `S${i + 1}`, gist: cutWhole(gist, max) })),
@@ -291,6 +294,8 @@ export function buildSynthesisAssistPacket(request: ResearchAssistSynthesisReque
     const prepared = prepare(request, options.authoredBrief, "T2"), aliasOf = prepared.aliasOf;
     const invalid = (): never => { throw new AssistRefusal(ASSIST_CODES.requestInvalid, prepared.record()); };
     if (!request.evidence.quotes.length || !request.plan.questions.length) invalid();
+    // A source the coverage read must come with its text, or plan text that copies it would pass the copy check unread.
+    if (request.coverage.sources.length !== request.sources.length || request.coverage.sources.some((source, i) => source.readable && request.sourceTexts[i] === undefined)) invalid();
     const alias = (id: string) => aliasOf.get(id) ?? invalid();
     // The plan is rebuilt field by field from the plan schema's own keys, so nothing outside that schema can ride along.
     const rawPlan = request.plan, rawPlanText = [...rawPlan.questions.flatMap(q => [q.text, ...(q.lookFor ?? [])]), ...(rawPlan.conflictsToCheck ?? []), ...(rawPlan.deliverableNotes === undefined ? [] : [rawPlan.deliverableNotes])];

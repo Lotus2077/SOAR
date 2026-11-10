@@ -106,6 +106,8 @@ const URL_PATTERNS: readonly RegExp[] = Object.freeze([
   // A `www.` host, its labels ASCII or spaceless-script letters each (`www.例子.测试/秘密`; `www.example.org上的年报` ends at `org`).
   new RegExp(`(?<![a-z0-9_./@-])www\\.(?:[a-z0-9-]+|${SL}+)(?:\\.(?:[a-z0-9-]+|${SL}+))+(?::\\d{1,5})?(?:\\/${BODY}*)?`, "giu"),
   new RegExp(`(?<![a-z0-9_./@:-])(?:[a-z0-9-]+\\.)+${TLD}(?::\\d{1,5})?\\/${BODY}*`, "giu"),
+  // A scheme-less URL with `user:password@` before a dotted host is a credential: replaced with or without a path (`alice:pw@acme.example`).
+  new RegExp(`(?<![a-z0-9_./@:-])[a-z0-9._~%!$&*+,;=-]{1,64}:[^\\s/@"'<>]{1,64}@(?:[a-z0-9-]+\\.)+[a-z0-9-]+(?::\\d{1,5})?(?:\\/${BODY}*)?`, "giu"),
   // An IPv4 address with a port or a path, but not a bare network prefix (`10.0.0.0/8`).
   new RegExp(`(?<![\\d.])(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d{1,5}(?:\\/${BODY}*)?|\\/(?!\\d{1,2}(?![\\w./-]))${BODY}*)`, "gu"),
   // A single-label `localhost` with a port or a path, and a bracketed IPv6 address with a port or a path (`[::2]` alone is a slice).
@@ -289,8 +291,12 @@ function hostFileForms(suffix: string): Form[] {
   }).filter(form => points(form.text) >= ASSIST_NAME_MIN_CHARS);
 }
 const KIND_RANK: Readonly<Record<FormKind, number>> = { host: 3, name: 2, url: 1, path: 0 };
-/** `dotted`: the form holds a dot, so a name with an extension; such a name takes the decimal digits glued to it. */
-interface Entry { folded: string; replacement: string; kind: FormKind; dotted: boolean }
+/**
+ * `dotted`: the form holds a dot, so a name with an extension; such a name takes the decimal digits glued to it.
+ * `hostLed`: the form starts with the source's host (a host, or a URL form written without its scheme).
+ */
+interface Entry { folded: string; replacement: string; kind: FormKind; dotted: boolean; hostLed: boolean }
+const hostLed = (kind: FormKind, folded: string) => kind === "host" || (kind === "url" && !SCHEME.test(folded));
 const HASH_BASE = 0x01000193;
 const stringHash = (text: string) => { let hash = 0; for (let i = 0; i < text.length; i++) hash = (Math.imul(hash, HASH_BASE) + text.charCodeAt(i)) | 0; return hash; };
 /** The hash of any span of `text` in two lookups, from its prefix hashes (the same hash as `stringHash` of the span). */
@@ -311,10 +317,11 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
   for (const form of forms) {
     const folded = fold(wide(normalize(form.text))), prior = table.get(folded);
     if (folded.length < ASSIST_NAME_MIN_CHARS) continue;
-    if (!prior) { table.set(folded, { folded, replacement: form.replacement, kind: form.kind, dotted: folded.includes(".") }); continue; }
+    if (!prior) { table.set(folded, { folded, replacement: form.replacement, kind: form.kind, dotted: folded.includes("."), hostLed: hostLed(form.kind, folded) }); continue; }
     const file = (value: string) => value === ASSIST_PLACEHOLDERS.file;
     const replacement = prior.replacement === form.replacement ? prior.replacement : file(prior.replacement) ? form.replacement : file(form.replacement) ? prior.replacement : ASSIST_PLACEHOLDERS.source;
-    table.set(folded, { folded, replacement, kind: KIND_RANK[form.kind] > KIND_RANK[prior.kind] ? form.kind : prior.kind, dotted: prior.dotted });
+    const kind = KIND_RANK[form.kind] > KIND_RANK[prior.kind] ? form.kind : prior.kind;
+    table.set(folded, { folded, replacement, kind, dotted: prior.dotted, hostLed: hostLed(kind, folded) });
   }
   const index = new Map<string, { lengths: number[]; byLength: Map<number, Map<number, Entry[]>> }>();
   for (const entry of table.values()) {
@@ -366,21 +373,59 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
       }
       end = gluedBefore(text, start) ? undefined : nameEnd(text, raw, entry.dotted);
     } else if (entry.kind === "host") {
-      end = gluedBefore(text, at) || text[at - 1] === "-" || gluedAfter(text, raw) || text[raw] === "-" || (text[raw] === "." && isWord(codePointAt(text, raw + 1))) ? undefined : pathEnd(text, raw);
+      // A host that goes on to the right is another host (`example.org.evil.test`); what is glued on its left goes with it (matches()).
+      end = gluedAfter(text, raw) || text[raw] === "-" || (text[raw] === "." && isWord(codePointAt(text, raw + 1))) ? undefined : pathEnd(text, raw);
     } else end = pathEnd(text, raw);
     return end === undefined ? undefined : { start, end: digitsAfter(text, end) };
   };
   const SEGMENT_CHAR = new RegExp(`^(?:${SEGMENT}|${SL})$`, "u");
-  /** Where a name match really starts: a folder prefix glued to it ("Clients/Acme/alpha.md") goes with it, back to `floor`. */
+  /**
+   * Where a name match really starts: a folder prefix glued to it ("Clients/Acme/alpha.md") goes with it, back to `floor`, and
+   * so does the root slash of a rooted one ("/tmp/alpha.md").
+   */
   const absorbPrefix = (text: string, start: number, floor: number) => {
     let at = start;
     while (at > floor && (text[at - 1] === "/" || text[at - 1] === "\\")) {
       let back = at - 1;
       while (back > floor && SEGMENT_CHAR.test(codePointBefore(text, back) ?? "")) back -= (codePointBefore(text, back) ?? "").length;
-      if (back === at - 1) break;
+      if (back === at - 1) { if (at < start && !SEGMENT_CHAR.test(codePointBefore(text, back) ?? "")) at = back; break; }
       at = back;
     }
     return at;
+  };
+  const NAME_RUN_CHAR = new RegExp(`^(?![${SPACELESS}])[\\p{L}\\p{N}\\p{M}_.-]$`, "u"), NAME_WORD = new RegExp(`^(?![${SPACELESS}])[\\p{L}\\p{N}\\p{M}]$`, "u");
+  /** Where a file name's run starts when `-`, `_` or `.` glues more name before it (`secret-merger-report.md`), back to `floor`. */
+  const nameRunStart = (text: string, start: number, floor: number) => {
+    if (start - 1 <= floor || !/[-_.]/u.test(text[start - 1] ?? "") || !NAME_WORD.test(codePointBefore(text, start - 1) ?? "")) return start;
+    let at = start;
+    while (at > floor && NAME_RUN_CHAR.test(codePointBefore(text, at) ?? "")) at -= (codePointBefore(text, at) ?? "").length;
+    return at;
+  };
+  /** Where a file name's run ends when `-` or `_` glues more name after it (`report.md-secret`). */
+  const nameRunEnd = (text: string, end: number) => {
+    if (!/[-_]/u.test(text[end] ?? "") || !NAME_WORD.test(codePointAt(text, end + 1) ?? "")) return end;
+    let at = end;
+    while (NAME_RUN_CHAR.test(codePointAt(text, at) ?? "")) at += (codePointAt(text, at) ?? "").length;
+    return at;
+  };
+  /** A host-label or userinfo character: a letter, digit or mark of a spaced script, or one of `. _ ~ % ! $ & * + , ; = : @ -`. */
+  const LEAD_CHAR = new RegExp(`^(?![${SPACELESS}])[\\p{L}\\p{N}\\p{M}._~%!$&*+,;=:@-]$`, "u");
+  /**
+   * Where what is glued before a host-led match starts, back to `floor`: host labels and userinfo (`payroll.intranet.`,
+   * `alice:pw@`, `evil-`), then a `//` and the scheme before it. `www` is set when that is a lone `www.`, which keeps the alias.
+   */
+  const hostLead = (text: string, start: number, floor: number): { start: number; www: boolean } => {
+    let at = start;
+    while (at > floor && LEAD_CHAR.test(codePointBefore(text, at) ?? "")) at -= (codePointBefore(text, at) ?? "").length;
+    if (at === start) return { start, www: false };
+    const www = /^www\.$/iu.test(text.slice(at, start));
+    if (at - 2 >= floor && text.slice(at - 2, at) === "//") {
+      at -= 2;
+      let back = at;
+      if (text[back - 1] === ":") { back--; while (back > floor && /[a-z0-9+.-]/iu.test(text[back - 1] ?? "")) back--; }
+      if (back < at && /^[a-z][a-z0-9+.-]*:$/iu.test(text.slice(back, at))) at = back;
+    }
+    return { start: at, www };
   };
   /** Every match, leftmost and longest first. Matched in the folded wide view; bounded and extended in the wide view. */
   const matches = (text: string) => {
@@ -401,20 +446,31 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
         }
       }
       if (!hit) { at++; continue; }
-      const start = hit.entry.kind === "host" ? hit.start : absorbPrefix(shown, hit.start, floor);
-      found.push({ start, end: hit.end, replacement: hit.entry.replacement });
-      at = floor = hit.end;
+      let { start, end } = hit, replacement = hit.entry.replacement;
+      // A file name glued to more name through `-`, `_` or `.` is another file, not the source: the whole run is `[file]`.
+      if (hit.entry.kind === "name" && hit.entry.dotted) {
+        const before = nameRunStart(shown, start, floor), after = nameRunEnd(shown, end);
+        if (before < start || after > end) { start = before; end = after; replacement = ASSIST_PLACEHOLDERS.file; }
+      }
+      // Labels, userinfo or another word glued before the source's host make another host or a credential: the whole of it is `[url]`.
+      if (hit.entry.hostLed) {
+        const lead = hostLead(shown, start, floor);
+        if (lead.start < start) { start = lead.start; if (!lead.www) replacement = ASSIST_PLACEHOLDERS.url; }
+      }
+      if (hit.entry.kind !== "host") start = absorbPrefix(shown, start, floor);
+      found.push({ start, end, replacement });
+      at = floor = end;
     }
     return found;
   };
   return {
-    replace(text: string): { text: string; sources: number; files: number } {
-      let out = "", last = 0, sources = 0, files = 0;
+    replace(text: string): { text: string; sources: number; files: number; urls: number } {
+      let out = "", last = 0, sources = 0, files = 0, urls = 0;
       for (const match of matches(text)) {
         out += text.slice(last, match.start) + match.replacement; last = match.end;
-        if (match.replacement === ASSIST_PLACEHOLDERS.file) files++; else sources++;
+        if (match.replacement === ASSIST_PLACEHOLDERS.file) files++; else if (match.replacement === ASSIST_PLACEHOLDERS.url) urls++; else sources++;
       }
-      return { text: out + text.slice(last), sources, files };
+      return { text: out + text.slice(last), sources, files, urls };
     },
     found: (text: string) => matches(text).length > 0,
   };
@@ -489,7 +545,7 @@ export function createScrubber(input: { sources: readonly ResearchSourceIdentity
       // A replacement can change what its neighbours read as (`example.org.report.md`): passes repeat until one changes nothing, at most three.
       for (let pass = 0; pass < 3; pass++) {
         const named = sending[scope].replace(text), linked = generic(named.text, scope);
-        counts.sources += named.sources; counts.files += named.files + linked.files; counts.urls += linked.urls; counts.digests += linked.digests;
+        counts.sources += named.sources; counts.files += named.files + linked.files; counts.urls += named.urls + linked.urls; counts.digests += linked.digests;
         if (linked.text === text) break;
         text = linked.text;
       }
@@ -563,11 +619,12 @@ export function cutWhole(text: string, max: number): string {
 
 /** The rules and patterns, bound into the assist protocol block. */
 export const SCRUB_POLICY = Object.freeze({
-  version: 3, text: "mark_runs_cut_at_30; NFC_without_default_ignorables_with_unicode_hyphens_as_ascii", view: "full_width_ascii_as_ascii_index_preserving",
+  version: 4, text: "mark_runs_cut_at_30; NFC_without_default_ignorables_with_unicode_hyphens_as_ascii", view: "full_width_ascii_as_ascii_index_preserving",
   audit: "source_forms_in_NFKC; digests_urls_and_paths_in_the_wide_view", fold: "lowercase_with_turkish_i_letters_folded_and_final_sigma_as_sigma",
   boundary: "a_letter_or_decimal_digit_of_the_edge_script_glues_and_a_digit_glues_to_a_letter; nothing_glues_to_a_spaceless_letter; an_escape_or_percent_byte_before_is_a_boundary",
   forms: "ids_paths_%2F_paths_url_variants(scheme,slash,decoded,unicode_host)_without_query_dotted_hosts_with_and_without_www_last_2_and_3_segments_file_names_query_and_fragment_file_names; model_text_also_distinctive_stems_single_label_hosts_opaque_segments_distinctive_query_and_fragment_names; host_appended_paths_and_file_names_[file]",
   matching: "rolling_hashes_by_first_4_and_length_leftmost_longest; names_absorb_up_to_4_extensions_the_longest_unglued_and_a_folder_prefix_before; hosts_urls_paths_absorb_a_path_after; shared_form_[source]",
+  glued: "a_file_name_glued_to_more_name_by_-_or__or_._on_either_side_is_[file]; a_host_led_form_glued_after_labels_userinfo_or_a_word_with_its_//_and_scheme_is_[url]; a_lone_www._keeps_the_alias",
   spacelessInPaths: "spaceless_letters_inside_urls_paths_and_file_names_only_where_a_connector_touches_them",
   extensions: "2_to_16_letters_and_digits_with_a_letter_not_a_capitalized_word_not_a_decimal",
   relative: "whole_run_from_a_run_start_cut_after_the_longest_extension_whole_when_a_separator_follows_it",

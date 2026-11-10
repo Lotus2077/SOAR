@@ -13,7 +13,7 @@ import {
 } from "../../src/main/private-agent/research-assist";
 import type { ResearchAssistOutcome, ResearchAssistPlanRequest, ResearchAssistSynthesisRequest, ResearchAssistUsage } from "../../src/main/private-agent/research-assist-contract";
 import { deriveBriefUnits, validatePlanCoverage } from "../../src/main/private-agent/research-coverage";
-import { researchProtocolSha256, researchWriteInstructions, type ResearchUsage } from "../../src/main/private-agent/research-pipeline";
+import { researchWriteInstructions, type ResearchUsage } from "../../src/main/private-agent/research-pipeline";
 import { assessResearchPlanReply, validateResearchPlanAttempts, type ResearchPlanAttempt } from "../../src/main/private-agent/research-plan";
 import {
   ASSIST_AUTHORED_BRIEF, ASSIST_FEE_CAP_MICROUSD, anthropicCacheWrites, assistComposedGoal, assistModelConfig, assistPacketOf, assistRequests, cachingAssistModel, capturingBroker,
@@ -194,7 +194,7 @@ describe("T2, the synthesis assist packet", () => {
     const quotes = Array.from({ length: 360 }, (_, i) => ({ id: `E${i + 1}`, questionIds: [i >= 350 ? (i % 2 ? "Q3" : "Q2") : "Q1"], sourceId: "input/a.md", sourceSha256: digest(text),
       chunkIds: ["S1C1"], locator: `line ${i + 1}`, quote: `Quote number ${i + 1} ${"x".repeat(220)}`, note: "" }));
     const plan = { version: 2 as const, questions: ["Q1", "Q2", "Q3"].map(id => ({ id, text: `Question ${id}`, requirementIds: ["U1"], sourceIds: ["input/a.md"] })) };
-    const coverage = { briefSha256: digest(authored), sourceManifestSha256: digest("m"), protocolSha256: digest("p"), synthesis: {}, omissions: [], conflictOmissions: [],
+    const coverage = { briefSha256: digest(authored), sourceManifestSha256: digest("m"), protocolSha256: digest("p"), synthesis: {}, omissions: [], conflictOmissions: [], sources: [{ ...sources[0]!, readable: true }],
       chunks: [{ sha256: digest("c"), sourceSha256: digest(text), attempts: [], questions: plan.questions.map(q => ({ questionId: q.id, status: "evidence_retained", evidenceIds: [] })) }] } as unknown as ResearchAssistSynthesisRequest["coverage"];
     const request: ResearchAssistSynthesisRequest = frozen({ brief: authored, units, sources, sourceTexts: [text], deadlineMs: Number.POSITIVE_INFINITY, sourceIndex: { version: 2 as const, sources: [entry] }, plan, coverage,
       retryAfterTruncation: false, evidence: { version: 2 as const, quotes, conflicts: [], counts: { verified: 360, inPacket: 360, leftByCap: 0, droppedUnverifiedOrDuplicate: 0, conflictsNoted: 0 } } });
@@ -263,7 +263,7 @@ describe("what the cloud never sees", () => {
       "ALPHA-FIELD-NOTES.MD", "the alpha-field-notes draft", `source ${(await assistRequests()).plan.sources[0]!.sha256.slice(0, 12)}`, "https://elsewhere.test/page", "see archive/2024/memo.txt"].join("; ") });
     if (!t1.ok) throw new Error(t1.code);
     const gist = JSON.parse(t1.user).sources[0].gist as string;
-    expect(gist).toBe(`See ${aliasOf(run, 1)}; ${aliasOf(run, 2)}; ${aliasOf(run, 2)}; www.${aliasOf(run, 2)}; ${aliasOf(run, 0)}; the ${aliasOf(run, 0)} draft; source [digest]; [url]; see [file]`);
+    expect(gist).toBe(`See ${aliasOf(run, 1)}; ${aliasOf(run, 2)}; ${aliasOf(run, 2)}; ${aliasOf(run, 2)}; ${aliasOf(run, 0)}; the ${aliasOf(run, 0)} draft; source [digest]; [url]; see [file]`);
     expect(t1.packet.substitutions).toMatchObject({ urls: 1, files: 1 });
   });
 
@@ -335,6 +335,7 @@ describe("the fallback, stop and skip codes", () => {
     ["a ledger refusal stops", new BrokerError("unresolved_dispatch"), "stop", "stopped", false, false],
     ["a retry-wait cancel stops after a dispatch", new BrokerError("retry_wait_cancelled"), "stop", "stopped", true, false],
     ["a plain error named like a broker code stops", new Error("request_failed"), "stop", "stopped", false, false],
+    ["a reply the model cannot read stops after its dispatch", new Error("private_model_response_invalid"), "stop", "stopped", true, false],
   ])("maps the model's failure: %s", async (_name, error, kind, outcome, dispatched, bars) => {
     const run = await frozenRun(), f = cachingAssistModel("openai_responses", (body, purpose, index) => index === 0 ? error as Error : answer(body, purpose));
     const assists = wrap(f.model);
@@ -428,7 +429,7 @@ describe("zero cache writes on both shapes", () => {
 });
 
 describe("the assist protocol block and the records", () => {
-  it("binds the prompts, bounds, caps, cache mode, policy and codes, and leaves the default research protocol unchanged", () => {
+  it("binds the prompts, bounds, caps, cache mode, policy and codes, and pins the block's hashes", () => {
     const block = researchAssistProtocol("forced_split");
     expect(block).toMatchObject({ version: 1, firing: "forced_split", prompts: { plan: PLAN_ASSIST_SYSTEM, synthesis: SYNTHESIS_ASSIST_SYSTEM }, bounds: ASSIST_BOUNDS,
       outputTokens: ASSIST_OUTPUT_TOKENS, thinking: "model_medium_only", cacheMode: "assist_no_cache_write_v1", triggers: { rejectedLocalPlans: 2, refusedLocalSyntheses: 2 } });
@@ -436,9 +437,9 @@ describe("the assist protocol block and the records", () => {
     expect(block.packet.scrub.patterns.url.length).toBeGreaterThan(3);
     expect(block.packet.scrub.patterns.path.length).toBeGreaterThan(5);
     expect(block.packet.evidenceTemplate).toContain("notes withheld");
-    expect(researchAssistProtocolSha256("forced_split")).toBe(researchAssistProtocolSha256("forced_split"));
-    expect(researchAssistProtocolSha256("forced_split")).not.toBe(researchAssistProtocolSha256("local_first"));
-    expect(researchProtocolSha256()).toBe("3453710315d7226ea4d6195ec7401d000f86c5b0d9afa9839a801d5c6d391262");
+    // Pinned: any change to a prompt, bound, code list or scrub rule must change these on purpose (scrub policy version 4).
+    expect(researchAssistProtocolSha256("forced_split")).toBe("127a56d3f9a29ec2f4b13c208b7d60217075a61dce60e61bd113807164028411");
+    expect(researchAssistProtocolSha256("local_first")).toBe("fd294f1e6d97eb9d130f307dbc4ebee99d7484c90c81b7c3290d6059d4504b75");
   });
 
   it("validates the stage record 10.b assembles, which keeps every attempt and never reads a skipped one as zero writes", async () => {
@@ -491,7 +492,8 @@ describe("the code review's cases: names, paths, URLs and digests in any form", 
   it("replaces a source's name glued to other text, with another extension, without its extension, or in dotted capitals", async () => {
     const { run, t1 } = await variant({ gist: "copy_of_alpha-field-notes.md, old-alpha-field-notes.md, alpha-field-notes.md.bak, alpha-field-notes.mdx, beta-ledger.xlsx, alpha-field-notes-v2, annual-2025.pdf" });
     const a = aliasOf(run, 0), b = aliasOf(run, 1), w = aliasOf(run, 2);
-    expect(gistOf(t1)).toBe(`copy_of_${a}, old-${a}, ${a}, ${a}, ${b}, ${a}-v2, ${w}`);
+    // A file name glued to more name through `-` or `_` is another file: `[file]`, never the source's alias with a leftover prefix.
+    expect(gistOf(t1)).toBe(`[file], [file], ${a}, ${a}, ${b}, ${a}-v2, ${w}`);
     const turkish = await variant({ id: "input/corpus/İzmir-rapor-2024.md", gist: "Bkz. İzmir-rapor-2024.md tablosu ve izmir-rapor-2024.md." });
     expect(gistOf(turkish.t1)).toBe("Bkz. S1 tablosu ve S1.");
   });
@@ -523,7 +525,8 @@ describe("the code review's cases: names, paths, URLs and digests in any form", 
 
   it("keeps a root URL's host bounded, and never audits the fixed schema against a json-schema.org source", async () => {
     const root = await variant({ id: "https://example.org/", gist: "notexample.org, example.organization, example.org.au, www.example.org, https://example.org" });
-    expect(gistOf(root.t1)).toBe("notexample.org, example.organization, example.org.au, www.S1, S1");
+    // A word glued before the host makes another host (`[url]`); a host that goes on to the right is left to the generic rules.
+    expect(gistOf(root.t1)).toBe("[url], example.organization, example.org.au, S1, S1");
     expect((await variant({ id: "https://json-schema.org/draft/2020-12/schema" })).t1.ok).toBe(true);
   });
 
@@ -545,10 +548,12 @@ describe("the code review's cases: names, paths, URLs and digests in any form", 
 
   it("takes a source with no readable text, refuses a real id holding a placeholder, and refuses a T1 too large for its body before reading a gist", async () => {
     const run = await assistRequests();
-    // A PDF, .docx or binary source has no text (researchSourceText answers undefined): nothing to copy from, not a malformed request.
-    const unreadable = buildSynthesisAssistPacket(frozen({ ...run.synthesis, sourceTexts: run.synthesis.sourceTexts.map((text, i) => i === 0 ? undefined : text) }),
-      { authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() });
-    expect(unreadable.ok).toBe(true);
+    // A PDF, .docx or binary source has no text (researchSourceText answers undefined, and coverage marks it unreadable): nothing
+    // to copy from, not a malformed request. A source the coverage read must come with its text.
+    const sourceTexts = run.synthesis.sourceTexts.map((text, i) => i === 0 ? undefined : text);
+    const coverage = { ...run.synthesis.coverage, sources: run.synthesis.coverage.sources.map((source, i) => i === 0 ? { ...source, readable: false } : source) };
+    expect(buildSynthesisAssistPacket(frozen({ ...run.synthesis, sourceTexts, coverage }), { authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() }).ok).toBe(true);
+    expect(buildSynthesisAssistPacket(frozen({ ...run.synthesis, sourceTexts }), { authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() })).toMatchObject({ ok: false, code: ASSIST_CODES.requestInvalid });
     // A real id that holds a placeholder could be mistaken for one by the scrub's later passes.
     expect((await variant({ id: "input/[file].md" })).t1).toMatchObject({ ok: false, code: ASSIST_CODES.aliasCollision });
     // 3,000 sources cannot fit T1's 32 KiB even with every gist empty: the packet is refused as too large before any gist is
@@ -582,5 +587,84 @@ describe("the code review's cases: names, paths, URLs and digests in any form", 
     expect(ResearchAssistStageRecordSchema.safeParse({ ...stage, attempts: [settled], outcome: "settled", accepted: true, usage: zero }).success).toBe(false);
     expect(ResearchAssistStageRecordSchema.safeParse({ ...stage, attempts: [settled], outcome: "settled", accepted: true, usage: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 } }).success).toBe(true);
     expect(ResearchAssistStageRecordSchema.safeParse({ ...stage, fired: false, trigger: null, attempts: [], usage: null }).success).toBe(true);
+  });
+});
+
+describe("the fourth review's cases: glued hosts and names, the final audit, request checks and records", () => {
+  const model = () => new PrivateAgentModel(capturingBroker(() => ({})).broker, assistModelConfig("openai_responses"), "job", "reader");
+  const refused = (auditFinding: string) => ({ ok: false, code: ASSIST_CODES.auditFailed, packet: { auditFinding } });
+  const LIGATURE = "alpha-\ufb01eld-notes";
+
+  it("refuses, through the final audit's NFKC view, an authored brief that names a source with a compatibility ligature, on T1 and T2", async () => {
+    // NFC keeps the ligature, so the scrub leaves it; only the audit's NFKC view of the finished packet finds the source.
+    const authored = ASSIST_AUTHORED_BRIEF.replace("alpha-field-notes.md", `${LIGATURE}.md`), run = await assistRequests({ authored });
+    expect(buildPlanAssistPacket(frozen(run.plan), { firing: "forced_split", authoredBrief: authored, model: model() })).toMatchObject(refused("source_identity"));
+    expect(buildSynthesisAssistPacket(frozen(run.synthesis), { authoredBrief: authored, model: model() })).toMatchObject(refused("source_identity"));
+  });
+
+  it("refuses model text that holds a source's stem written with a ligature, in a T1 gist and in a T2 plan question", async () => {
+    const run = await assistRequests();
+    const sourceIndex = { version: 2 as const, sources: run.plan.sourceIndex.sources.map((entry, i) => i === 0 ? { ...entry, gist: `A record; see the ${LIGATURE} draft.` } : entry) };
+    expect(buildPlanAssistPacket(frozen({ ...run.plan, sourceIndex }), { firing: "forced_split", authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() })).toMatchObject(refused("source_identity"));
+    const plan = { ...run.synthesis.plan, questions: run.synthesis.plan.questions.map((q, i) => i === 0 ? { ...q, text: `What does the ${LIGATURE} draft count?` } : q) };
+    expect(buildSynthesisAssistPacket(frozen({ ...run.synthesis, plan }), { authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() })).toMatchObject(refused("source_identity"));
+  });
+
+  it("refuses a verified quote that ends in a bare drive root, whose backslash the evidence text doubles (a recorded fail-closed case)", async () => {
+    const run = await assistRequests();
+    const evidence = { ...run.synthesis.evidence, quotes: run.synthesis.evidence.quotes.map((q, i) => i === 0 ? { ...q, quote: "The export was saved under C:\\" } : q) };
+    expect(buildSynthesisAssistPacket(frozen({ ...run.synthesis, evidence }), { authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() })).toMatchObject(refused("url_or_path"));
+  });
+
+  it("sends a source's host with labels or userinfo glued before it as [url], end to end, never the labels or the credential", async () => {
+    const authored = ASSIST_AUTHORED_BRIEF.replace("where it applies.", "where it applies; compare payroll-2025.intranet.example.org/hr/salaries.xlsx with alice:hunter2@example.org/reports/annual-2025.html.");
+    const run = await assistRequests({ authored }), f = cachingAssistModel("openai_responses", answer), assists = wrap(f.model, { authoredBrief: authored });
+    expect((await assists.plan!(run.plan, signal())).kind).toBe("reply");
+    expect((await assists.synthesis!(run.synthesis, signal())).kind).toBe("reply");
+    for (const request of f.requests) {
+      expect(assistPacketOf(request.body).brief).toContain("compare [url] with [url].");
+      for (const leaked of ["payroll-2025", "intranet", "hunter2", "alice"]) expect(request.body).not.toContain(leaked);
+    }
+  });
+
+  it("checks every field of a prior attempt under local-first: a string, a negative count or a non-boolean stops as an invalid request", async () => {
+    const run = await assistRequests(), base = { version: 1 as const, ordinal: 1, replyContentSha256: PLANTED.secretHash, replyBytes: 10, truncated: false, accepted: false,
+      bindingInspection: "completed" as const, errors: [], omittedErrorCount: 0, acceptedPlanSha256: null, repairContext: "included" as const };
+    const build = (attempt: Record<string, unknown>) => buildPlanAssistPacket(frozen({ ...run.plan, priorAttempts: [{ ...base, ...attempt } as unknown as ResearchPlanAttempt] }),
+      { firing: "local_first", authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() });
+    for (const bad of [{ ordinal: "PRIVATE alice" }, { omittedErrorCount: -1 }, { omittedErrorCount: "PRIVATE" }, { truncated: "yes" }]) expect(build(bad)).toMatchObject({ ok: false, code: ASSIST_CODES.requestInvalid });
+    // The ordinal is not pinned to the wrapper's two slots: 7(c)'s attempts may number more.
+    expect(build({ ordinal: 3, truncated: true, omittedErrorCount: 2 }).ok).toBe(true);
+  });
+
+  it("refuses a T2 request with no quote or no question, and one whose coverage disagrees with its sources", async () => {
+    const run = await assistRequests(), build = (request: ResearchAssistSynthesisRequest) => buildSynthesisAssistPacket(frozen(request), { authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() });
+    expect(build({ ...run.synthesis, evidence: { ...run.synthesis.evidence, quotes: [] } })).toMatchObject({ ok: false, code: ASSIST_CODES.requestInvalid });
+    expect(build({ ...run.synthesis, plan: { ...run.synthesis.plan, questions: [] } })).toMatchObject({ ok: false, code: ASSIST_CODES.requestInvalid });
+    expect(build({ ...run.synthesis, coverage: { ...run.synthesis.coverage, sources: run.synthesis.coverage.sources.slice(1) } })).toMatchObject({ ok: false, code: ASSIST_CODES.requestInvalid });
+  });
+
+  it("refuses T2 plan text holding a whole literal heading of 32 to 63 code points, which no 64-code-point copy window can see", async () => {
+    const run = await assistRequests(), heading = "## Orchard ledger of the synthetic autumn";
+    const sourceIndex = { version: 2 as const, sources: run.synthesis.sourceIndex.sources.map((entry, i) => i === 0 ? { ...entry, literal: { ...entry.literal, heading: { text: heading, startByte: 0, endByte: Buffer.byteLength(heading), startLine: 1, endLine: 1, sha256: digest(heading) } } } : entry) };
+    const plan = { ...run.synthesis.plan, questions: run.synthesis.plan.questions.map((q, i) => i === 0 ? { ...q, text: "How does the orchard ledger of the synthetic autumn count trees?" } : q) };
+    expect(buildSynthesisAssistPacket(frozen({ ...run.synthesis, plan, sourceIndex }), { authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() })).toMatchObject(refused("literal_text"));
+    expect(buildSynthesisAssistPacket(frozen({ ...run.synthesis, plan }), { authoredBrief: ASSIST_AUTHORED_BRIEF, model: model() }).ok).toBe(true);
+  });
+
+  it("refuses the T2 retry without a request when the first packet's evidence cannot be halved (owner question 1's default)", async () => {
+    const run = await assistRequests(), one = { ...run.synthesis, evidence: { ...run.synthesis.evidence, quotes: run.synthesis.evidence.quotes.slice(0, 1), conflicts: [] } };
+    const f = cachingAssistModel("openai_responses", (body, purpose, index) => index === 0 ? { content: "{\"version\":1,\"argument\":\"cut", truncated: true } : answer(body, purpose));
+    const assists = wrap(f.model);
+    expect(await assists.synthesis!(frozen(one), signal())).toMatchObject({ kind: "reply", truncated: true });
+    expect(await assists.synthesis!(frozen({ ...one, retryAfterTruncation: true }), signal())).toMatchObject({ kind: "no_reply", outcome: "refused", code: ASSIST_CODES.packetSize });
+    expect(f.requests).toHaveLength(1);
+  });
+
+  it("checks the attempt record's dispatch and ordinal rules", () => {
+    const refusedRetry = { version: 1, touchpoint: "T2", ordinal: 2, retryAfterTruncation: true, outcome: "refused", code: ASSIST_CODES.packetSize, dispatched: false };
+    expect(ResearchAssistAttemptRecordSchema.safeParse(refusedRetry).success).toBe(true);
+    for (const bad of [{ outcome: "skipped", code: "transport_or_settlement_unknown" }, { outcome: "failed", code: "request_failed" }, { dispatched: true },
+      { touchpoint: "T1" }, { retryAfterTruncation: false }, { ordinal: 1 }]) expect(ResearchAssistAttemptRecordSchema.safeParse({ ...refusedRetry, ...bad }).success, JSON.stringify(bad)).toBe(false);
   });
 });

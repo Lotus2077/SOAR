@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { CLAIMS_CONTEXT_BYTES, CLAIMS_CONTEXT_CHARS, CLAIMS_CONTEXT_ENV, CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, CLAIMS_OUTPUT_BUDGET_BYTES, CLAIMS_RETAINED_ENV, CheckClaimsOutputSchema, ClaimsLedgerSchema, ClaimsVerifiedClaimSchema, ENTAILMENT_PURPOSE, ENTAILMENT_SYSTEM_PROMPT, EntailmentReplySchema, claimsInstructions, claimsLedgerCheck, encodeRetainedClaimsSources, entailmentMessages, judgeClaims, publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
+import { CLAIMS_SECTION_RULE_PY, CLAIMS_CONTEXT_BYTES, CLAIMS_CONTEXT_CHARS, CLAIMS_CONTEXT_ENV, CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, CLAIMS_OUTPUT_BUDGET_BYTES, CLAIMS_RETAINED_ENV, CheckClaimsOutputSchema, ClaimsLedgerSchema, ClaimsVerifiedClaimSchema, ENTAILMENT_PURPOSE, ENTAILMENT_SYSTEM_PROMPT, EntailmentReplySchema, claimsInstructions, claimsLedgerCheck, encodeRetainedClaimsSources, entailmentMessages, judgeClaims, publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
 import { BrokerError } from "../../src/main/private-agent/broker";
 import { digest } from "../../src/main/private-agent/contracts";
 import { buildBinarySource, hasIsolatedPypdf } from "../helpers/claims-fixtures";
@@ -16,14 +16,19 @@ const page = "<html><head><style>p{color:red}</style></head><body><h1>Bravo &amp
 const sources = [{ id: "input/notes.txt", path: "input/notes.txt" }, { id: "https://example.test/page", path: "sources/page.bin" }];
 
 /** Runs the host-owned check with the local python against a temporary workspace, exactly as the verifier container would. */
-function run(files: Record<string, string | Buffer>, extra: { sources?: typeof sources; publicSources?: boolean; retained?: Parameters<typeof encodeRetainedClaimsSources>[0]; reportPath?: string; context?: boolean } = {}) {
+function run(files: Record<string, string | Buffer>, extra: { sources?: typeof sources; publicSources?: boolean; retained?: Parameters<typeof encodeRetainedClaimsSources>[0]; reportPath?: string; context?: boolean; timeoutMs?: number } = {}) {
   const root = mkdtempSync(join(tmpdir(), "soar-claims-")); cleanup.push(() => rmSync(root, { recursive: true, force: true }));
   for (const [path, content] of Object.entries(files)) { mkdirSync(join(root, path, ".."), { recursive: true }); writeFileSync(join(root, path), content); }
   const check = claimsLedgerCheck({ reportPath: extra.reportPath ?? "output/report.md", sources: extra.sources ?? sources, publicSources: extra.publicSources, root });
   expect(check.id).toBe(CLAIMS_LEDGER_CHECK_ID);
   const env = { ...process.env, ...(extra.retained ? { [CLAIMS_RETAINED_ENV]: encodeRetainedClaimsSources(extra.retained) } : {}), ...(extra.context ? { [CLAIMS_CONTEXT_ENV]: "1" } : {}) };
-  try { return { exitCode: 0, result: JSON.parse(execFileSync("python3", ["-I", "-c", check.python], { encoding: "utf8", env })) }; }
-  catch (error) { const failure = error as { status: number; stdout: string }; return { exitCode: failure.status, result: JSON.parse(failure.stdout) }; }
+  try { return { exitCode: 0, result: JSON.parse(execFileSync("python3", ["-I", "-c", check.python], { encoding: "utf8", env, ...(extra.timeoutMs ? { timeout: extra.timeoutMs } : {}) })) }; }
+  catch (error) {
+    const failure = error as { status: number | null; stdout: string; signal?: string | null };
+    // A check stopped by `timeoutMs` has no JSON to parse: say so instead.
+    if (failure.signal) throw new Error(`claims check stopped by ${failure.signal} at the ${extra.timeoutMs} ms bound`);
+    return { exitCode: failure.status, result: JSON.parse(failure.stdout) };
+  }
 }
 const ledger = (claims: object[]) => JSON.stringify({ version: 1, claims });
 const report = "# Findings\n\nThe reactor produced 42 units in May 2026 [C1]. Output fell by 12 percent after the outage [C2].\n\n## Conflicting evidence\n\nnone found\n\n## Unanswered questions\n\nnone\n";
@@ -311,5 +316,52 @@ describe("E1 recoverability: a judge call stopped mid-request is labelled by why
     const outcome = await judgeClaims({ claims, signal: new AbortController().signal, remainingMs: () => remaining, stop: () => paused,
       complete: async () => { paused = true; remaining = 0; throw new BrokerError("request_failed"); } });
     expect(outcome).toMatchObject({ entailmentCalls: 1, truncated: true, stopReason: "request_failed", verdicts: [{ id: "C1", verdict: "not_judged", reason: "judge_request_failed" }, ...rest] });
+  });
+});
+
+describe("E1 recoverability: the claims check's heading strip, same result without quadratic time (E1-J2)", () => {
+  const claims = ledger([
+    { id: "C1", sentence: "The reactor produced 42 units in May 2026.", sourceId: "input/notes.txt", quote: "produced 42 units in May 2026" },
+    { id: "C2", sentence: "Output fell by 12 percent after the outage.", sourceId: "https://example.test/page", quote: "Output fell by 12 percent after the outage." }]);
+  it("checks a report holding a 1,000,000-character run of the strip's characters inside a line before both headings within a 20 s bound", () => {
+    // The former strip, re.sub(r'[*_:\s]+$', '', line), retried a run that does not reach the line's end from each of its positions: both
+    // titles' scans reach this line, and each would take tens of minutes. The linear strip takes well under a second.
+    const line = `Context ${" _*:".repeat(250_000)}end`;
+    const { exitCode, result } = run({ "input/notes.txt": notes, "sources/page.bin": page, "output/report.md": report.replace("## Conflicting evidence", `${line}\n\n## Conflicting evidence`),
+      [CLAIMS_LEDGER_PATH]: claims }, { timeoutMs: 20_000 });
+    expect(exitCode).toBe(0);
+    expect(result).toMatchObject({ passed: true, report: { citations: { missing: [], unknown: [] }, sections: { "Conflicting evidence": true, "Unanswered questions": true } } });
+  }, 30_000);
+  it("returns what the former pattern and a regex-free strip return, on every string of up to five characters from twelve and on 2,000 longer ones", () => {
+    // Compared inside Python, which prints a summary only. The alphabet: s, #, a backslash, * _ : and space, tab, newline, vertical tab,
+    // U+00A0 (all whitespace), and U+200B (not whitespace).
+    const script = String.raw`import itertools, json, random, re
+${CLAIMS_SECTION_RULE_PY}
+def former(text):
+ return re.sub(r'[*_:\s]+$','',text)
+def plain(text):
+ end=len(text)
+ while end and (text[end-1] in '*_:' or text[end-1].isspace()): end-=1
+ return text[:end]
+alphabet='s#\\*_: \t\n\x0b\xa0​'
+strings=[''.join(chars) for n in range(6) for chars in itertools.product(alphabet,repeat=n)]
+rng=random.Random(20261110)
+strings+=[''.join(rng.choice(alphabet) for _ in range(rng.randrange(6,301))) for _ in range(2000)]
+bad=[text for text in strings if not strip_trailing(text)==former(text)==plain(text)]
+print(json.dumps({'alphabet':len(alphabet),'checked':len(strings),'mismatches':len(bad),'first':bad[:3]}))`;
+    expect(JSON.parse(execFileSync("python3", ["-I", "-c", script], { encoding: "utf8" }))).toEqual({ alphabet: 12, checked: 273_453, mismatches: 0, first: [] });
+  });
+  it("gives fixed results read from TypeScript, so an escaping slip that broke both regex sides alike would still show", () => {
+    expect(CLAIMS_SECTION_RULE_PY).toContain(String.raw`re.match(r'[*_:\s]*',text[::-1])`);
+    const cases = ["Unanswered questions:  ", "**Conflicting evidence**", "Questions", "a s", "a\\", "x \n\t*", "x​", "", " _*:"];
+    const script = `import json, re, sys\n${CLAIMS_SECTION_RULE_PY}\ncases=json.load(sys.stdin)\nprint(json.dumps({'stripped':[strip_trailing(text) for text in cases],` +
+      `'present':[section_present(['## Unanswered questions:**'],'unanswered QUESTIONS'),section_present(['Unanswered questionss'],'Unanswered questions')]}))`;
+    expect(JSON.parse(execFileSync("python3", ["-I", "-c", script], { input: JSON.stringify(cases), encoding: "utf8" }))).toEqual({
+      stripped: ["Unanswered questions", "**Conflicting evidence", "Questions", "a s", "a\\", "x", "x​", "", ""], present: [true, false] });
+  });
+  it("runs that rule in the check, and the former pattern nowhere in it", () => {
+    const python = claimsLedgerCheck({ reportPath: "output/report.md", sources }).python;
+    expect(python).toContain(CLAIMS_SECTION_RULE_PY);
+    expect(python).not.toContain(String.raw`[*_:\s]+$`);
   });
 });

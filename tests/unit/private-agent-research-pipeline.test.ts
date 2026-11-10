@@ -493,6 +493,23 @@ describe("backlog item 7(a), part 1: per-quote tolerance and heading normalisati
     const unheld = await run(qualifier);
     expect(unheld.status).toBe("completed"); expect(qualifier.calls.filter(c => c.stage === "extract")).toHaveLength(2);
     expect(unheld.summary.stages[2]).toMatchObject({ calls: 2, invalidReplies: 0, repairCalls: 0, quotesDropped: 1, questionsDowngraded: 0 });
+    // BL-20261110-1100: a dropped quote counts against every question it names. An invented quote naming both questions, and a verified quote for one of them
+    // only, leave the other with no quote, so the first attempt is held and repaired (the "Q2" survivor catches a rule that records only the last id).
+    for (const survivor of ["Q1", "Q2"]) {
+      const shared = models((stage, input, n, system) => stage !== "extract" ? twoQuestions(stage, input, n, system) : n !== 0 ? happy(stage, input, n, system)
+        : extractReply(input, reply => { reply.quotes = [{ quote: invented, questionIds: ["Q1", "Q2"] }, { quote: good(input), questionIds: [survivor] }]; }));
+      const both = await run(shared);
+      expect(both.status).toBe("completed"); expect(attempts(both)).toEqual(["invalid", "complete"]);
+      expect(both.summary.stages[2]).toMatchObject({ calls: 3, repairCalls: 1, invalidReplies: 1, quotesDropped: 1, questionsDowngraded: 0 });
+    }
+  });
+  it("holds a first attempt when one of two found questions lost every quote, though the other kept one (BL-20261110-1100)", async () => {
+    const m = models((stage, input, n, system) => stage === "extract" && n === 0
+      ? extractReply(input, reply => { reply.quotes = [{ quote: "Invented evidence that never occurred in the supplied source.", questionIds: ["Q1"] }, { quote: good(input), questionIds: ["Q2"] }]; })
+      : twoQuestions(stage, input, n, system));
+    const result = await run(m);
+    expect(result.summary.stages[2]).toMatchObject({ calls: 3, repairCalls: 1, invalidReplies: 1, questionsDowngraded: 0 });
+    expect(parsed(result, RESEARCH_FILES.coverage).chunks[0].attempts.map((a: any) => a.status)).toEqual(["invalid", "complete"]);
   });
   it("still repairs a reply that is schema-invalid, names the wrong questions or needs follow-up", async () => {
     const faults: ((reply: any) => void)[] = [reply => { reply.quotes[0].quote = 42; }, reply => { reply.questions = [{ questionId: "Q7", status: "no_verified_evidence" }]; reply.quotes = []; },

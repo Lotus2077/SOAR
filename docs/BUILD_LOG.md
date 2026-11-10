@@ -33441,3 +33441,163 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The orchestrator's mechanical check of this push: diff scope, the build log as a byte prefix plus appended entries, both pins, the four test files, and a sample of the mutants. Then #81 rides merge train 1 or leads train 2. After that come the owner's Docker-gated run and its `Verified` entry.
 
 References: BL-20261109-0354-document-review-flags-design; BL-20261110-0712-document-review-flags-implemented; BL-20261110-0933-document-review-flags-party-terms-bounded; pull request #81.
+
+### BL-20261110-1100-correction-research-train-1-review-pins -- 2026-11-10 -- Correction to BL-20261110-0848, BL-20261110-0900 and BL-20261110-0726: the round-5 review's stated limits, test pins and wordings
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of three entries:
+- BL-20261110-0848-correction-research-length-parser-chains (#69, backlog item 7(b), part 1);
+- BL-20261110-0900-correction-research-tolerance-held-repair (#76, backlog item 7(a), part 1);
+- BL-20261110-0726-correction-research-tolerance-total-loss (#76).
+
+It edits no committed entry. This entry rides a follow-up pull request based on `feat/7a.1-research-tolerance` at 2fe1ec8, which contains #69's head 848524e. #69 and #76 stay frozen at their reviewed heads.
+
+The orchestrator's round-5 review had five lenses, three on #69 and two on #76, and a skeptic checked every finding. It cleared both pull requests to merge, with no blocker and no major. What it found are limits the entries did not state, test gaps and wordings. Under the stopping rule they become stated limits, test pins and owner questions here, not another fix round.
+
+This PR changes tests, comments and this entry only. No CLAUSE_GUARDS value and no parser or pipeline behaviour changes, so both protocol hashes and the four request digests stay the same.
+
+Decisions:
+Part A, #69's word-limit parser.
+(1) **Rule A's distributive range.** This supersedes the words "anywhere in the chain" in 0848 decision (2). Rule A reads a distributive only in one stretch: from the chain's opener, or the start of the limit's line, to the comma that opens the limit's own clause. A distributive in a later clause of the chain is not read. So "At most 150 words, each." and "Notes: brief, at most 150 words, for each source." read 150, as at 5401d0f and 5e16e20. Both briefs are pinned. The comments in research-admission.ts (lines 87, 93 and 248 at 2fe1ec8) now say the same.
+(2) **The forms rules A and B leave.** Each is now pinned as a known misread with its value. Each reads the same at 5e16e20 and at 5401d0f, so none is a regression. 0848's Failures or blockers says the two classes "are fixed here"; that holds only for the forms 0848's decisions (2) and (3) describe.
+- **The "word limit N" exemption after a part.** Rule B exempts LIMIT_PATTERNS[2] so that "Write a report. Include an abstract. Word limit: 2,000." keeps 2,000. The cost is that a part's limit in that phrasing, after the part, is read:
+  - "Include an abstract. Word limit: 150." reads 150;
+  - "Start with an executive summary. Its word limit is 200." reads 200;
+  - "Abstract (optional; word limit 150)" reads 150.
+
+  0848 decision (3)'s phrase "names the document's own limit" now reads "is taken to name it".
+- **A wrapped line.** Rule A reads its heading opener and its distributives only on the limit's line, and rule B ends a sentence at a line break.
+  - "For each source,\nwrite up to 150 words." reads 150.
+  - "Abstract:\nconcise, at most 150 words" reads 150.
+  - "Start with an abstract. Keep it\nunder 150 words." reads 150.
+- **A limit that neither opens its sentence nor follows a referring word.** A lead-in word, a quotation mark glued to the limit, or a list marker that is a sentence of its own keeps rule B from reading the sentence before. Each of these reads 150:
+  - "Include an abstract. Please stay under 150 words."
+  - "Include an abstract. Aim for under 150 words."
+  - "Include an abstract. Length: max 150 words."
+  - "Include an abstract. ’Max 150 words’"
+  - "1. Include an abstract.\n2. Max 150 words."
+
+  The last has the same structure as a report's limit of 2,000, which it reads correctly.
+- **A part two or more sentences back.** The same applies when a sentence that names no part stands between the part and the limit. Rule B reads only the one sentence before, and only under its two triggers.
+  - "Include an abstract. Make it punchy. Max 150 words." reads 150.
+  - "Include an abstract. Please. Max 150 words." reads 150.
+  - "I'd like an executive summary as well. Nothing long; a maximum of 250 words." reads 250.
+
+  Reading further back would miss "Include an abstract. Write a report. Max 2,000 words.", which is now a positive control.
+- **A delimiter other than a comma between the part or distributive and the limit.** An abbreviation's period (approx., e.g., max., incl.), a decimal point or a parenthesis opens a new chain, and a period also opens a new sentence.
+  - "Each source (approx. 1 page, 400 words max)" reads 400.
+  - "Include an abstract (approx. half a page). Max 150 words." reads 150.
+  - "For each source (a paper), write up to 150 words." reads 150.
+- **A chain anchored at ")".** ")" is not a heading opener, so "Abstract (required), max 150 words" reads 150.
+
+0848's owner question covers these classes as well.
+(3) **A new miss that 0848 does not list.** In the sentence before, rule B counts every part noun, and an exclusion word cancels nothing there. So "Write a report without an abstract. Max 2,000 words." reads none at 848524e, where 5e16e20 read 2,000. It is pinned with the known misses.
+(4) **What rules A and B cost.** They read list words and distributives in any sense.
+- **Topic words and unrelated distributives.** A topic word ("summary statistics", "section 106", "Title IX", a "Title:" line) or an unrelated distributive ("every Tuesday", "per capita") in the sentence or line before a limit drops the report's limit.
+- **Short headings.** So does a short heading-only noun ("Background:", "Overview:", "Findings so far:") that opens a one-line comma chain ending in the limit.
+- **The measured rate.** A reviewer hand-wrote 245 briefs, 179 of them with a report limit. They were written with knowledge of the lists, so this is not a natural rate. Of the limits 5e16e20 read, 48 are now missed, and 7 of those are below the 1,200-word clamp.
+- **The pins.** Two briefs are pinned and read none: "Research report\nTitle: The economics of vertical farming.\nUnder 2,500 words." and "Background: the board meets on Friday, so I need a report on supplier risk, max 1,500 words.".
+- **Examples, not the full set.** The ten misses pinned in 0848 and the four pinned here are examples of rules A and B.
+(5) **The default after a miss.** 0848's hypothesis, its Limitations and #69's pull request body say a miss leaves the 1,200-word default. In fact the default cap is 6,000 words, bounded by what the reply holds and by 1,200 while the synthesis role thinks. The role thinks today, so a miss asks for 1,200 words. #69's body is corrected.
+(6) **Tests for rules that no test isolated at 848524e.**
+- **The mutants.** The review found single-edit mutants of rule A's and rule B's lines that pass all 57 admission and pipeline tests. They affect:
+  - the bounds of rule A's distributives (the line, the chain's opener);
+  - rule A's ")" opener and its heading end;
+  - both cut-word halves of rule B's trigger;
+  - rule B's guard against a sentence with no word before it, which would otherwise throw;
+  - where rule B looks for a referring word;
+  - rule B's sentence ends at line breaks;
+  - how far back rule B looks;
+  - whether rule B counts a part noun after an exclusion.
+- **The referring words.** Six of the nine referring words were held only by the hash pin.
+- **The new rows.** 60 briefs go into the six existing tests: 3 under rule A, 17 under rule B, 11 positive controls, 4 new known misses, 20 known misreads and 5 rule pins. Each value was measured at 2fe1ec8 before it was added. With them, each mutant fails a behaviour test (Evidence).
+(7) **A stale comment.** normalizeBrief's comment said only the heading rule reads line breaks. Rules A and B read them too, and the comment now says so.
+
+Part B, #76's extraction tolerance.
+(8) **Two tests.**
+- **The mutants.** At 2fe1ec8 three single-edit mutants pass all 47 pipeline tests:
+  - `lost` tested with `every` instead of `some`;
+  - a dropped quote recording only its first question id;
+  - a dropped quote recording only its last question id.
+
+  The lines date from 834de94.
+- **The first test.** It holds a first attempt when one of two found questions lost its only quote while the other kept one.
+- **The second.** It covers a dropped quote naming both questions, in two variants. Each mutant now fails a test.
+(9) **A fourth class with less evidence than at 5401d0f.** This corrects 0900 decision (2) and its Limitations bullet. Class (iv) is a valid needs_followup first attempt: its verified quotes counted at 5401d0f, and the head discards them under 0447 decision (5) (commit 317e1ee).
+- **The review's script.** One question, two chunks. Chunk 0's first reply is needs_followup with one verified quote. Chunk 1 replies no_verified_evidence with no quote. Chunk 0's repair is complete, no_verified_evidence, with no quote.
+  - 5401d0f ends `research_packet_ready` with 3 extract calls, 1 repair and 1 quote.
+  - 18655e5, bd876d9 and 2fe1ec8 end `research_no_evidence` with 3 calls, 1 repair, 0 quotes and no synthesis call.
+  - A milder variant ends with 4 quotes at 5401d0f and 3 at the head.
+- **Where it comes from.** Class (iv) follows from 0447 decision (5), not from owner question 3, so widening the hold does not address it.
+- **Understated consequences.** 0447 decision (5)'s "before its repair added them again" and 0552 decision (5)'s "so its evidence ids and droppedUnverifiedOrDuplicate change" understate the consequence: the quote count and the terminal reason can change too.
+- **Class (iii), widened.** It grows from "partial drops" to any reply the head keeps where 5401d0f repaired:
+  - a dropped quote;
+  - a dropped conflict: 5401d0f repairs and ends with conflictsNoted 1, while the head keeps the reply with conflictsNoted 0 and conflictsDropped 1;
+  - an upgraded status: 5401d0f repairs to 6 quotes, while the head keeps 4 with questionsUpgraded 1.
+
+  The four classes are what the reviews measured, not a proof that no other class exists.
+(10) **A third member of the exception against 18655e5.** This corrects 0900 decisions (3) and (4) and 0726's limitation "The held attempt's other quotes".
+- **The member.** A held chunk's complete repair replaces the held attempt, so the held attempt's verified quotes for its other questions are discarded. When the repair gives fewer of them again, the run ends with less evidence than at 18655e5, which kept the held attempt. It needs a plan of two or more questions, and it matches 5401d0f.
+- **The review's first script.** Two questions, two chunks. Chunk 0's first reply marks both found, with an invented quote for Q1 and two verified quotes for Q2. Chunk 1 has no evidence. Chunk 0's repair is complete, with no quote.
+  - 18655e5 ends `research_packet_ready` with 2 calls, 2 quotes and questionsDowngraded 1.
+  - bd876d9 and 2fe1ec8 end `research_no_evidence` with 3 calls, 1 repair, 0 quotes and no synthesis call.
+  - With an honest chunk 1, it is 4 quotes against 2.
+- **The review's second script.** Chunk 0's first reply has a verbatim quote for Q1 and an unlocatable quote for Q2, both marked found. Every later reply is complete with no quotes.
+  - 18655e5 ends `research_packet_ready` with 2 calls and 1 quote.
+  - 2fe1ec8 ends `research_no_evidence` with 3 calls, 0 quotes and invalidReplies 1.
+  - With chunk 1 honest, it is 2 calls and 2 quotes against 3 calls and 1 quote.
+- **0900 decision (4), corrected.** It says "A complete repair that gains nothing still costs that call". A complete repair can also lose the held attempt's other quotes.
+- **Why 0900 left it out.** The previous review's fix text named this member, but the instruction that 0900 implemented dropped it.
+- **The owner's choice.** One remedy would merge the held attempt's verified quotes into the repair. That changes what a kept attempt is (the gate's rule that only a chunk's last complete attempt contributes), so it is the owner's choice under owner question 3 and is not in this PR.
+(11) **Wordings.**
+- **The bare-name filter.** It selects 238 tests at 873d1c7 and 239 at bd876d9; 0900 decision (7) gave 238 for bd876d9.
+- **The comments 0900 corrected.** 0900 decision (8) placed them in the diagnostics test. They are at lines 186 and 218 of tests/unit/private-agent-research-pipeline.test.ts, in its diagnostics-sink block.
+- **The 7a.1 commits.** After the merge 961aea5, they are those `git log 848524e..2fe1ec8` lists. 0712's `5e16e20..HEAD` now also lists #69's 88b6775, 96129a0 and 848524e.
+- **The guard's line.** The guard the review cited at line 363 is at research-pipeline.ts:364 at 2fe1ec8. #76's body is corrected.
+(12) **The source-freeze digest.** The comment edits change research-admission.ts's bytes, so the harness source-freeze digest moves; the train moves it anyway. No hashed value changes.
+
+The orchestrator carries the owner questions:
+- 0848's question, widened to the classes in (2) and the cost in (4);
+- under owner question 3, class (iv) in (9) and the member in (10).
+
+Changes: Commit af43a4e on `fix/train-1-review-followups`, based on 2fe1ec8:
+- src/main/private-agent/research-admission.ts: comments only.
+- tests/unit/private-agent-research-admission.test.ts: the 60 rows in (6), added to six existing tests, with two test titles updated.
+- tests/unit/private-agent-research-pipeline.test.ts: one new test and one two-variant case in an existing test (8).
+- docs/BUILD_LOG.md: this entry.
+
+Evidence: The checks ran locally at af43a4e.
+- **Hashes.** `researchProtocolSha256()` on this branch returns 05f342b25f3483574cca4f1bad53468219e63e94578927c069a8c831289e93a8, the pinned value. On #69's tree at 848524e it returns 9066d7de5d1c52e1cb0616a4b68ea157638749810ac5fabbd8863db6a288c6d3, both as committed and with this branch's research-admission.ts in place.
+- **Request digests.** The pipeline test's four pinned request digests pass.
+- **The changed tests.** Both pass:
+  - `pnpm exec vitest run tests/unit/private-agent-research-admission.test.ts`: 24 tests (the rows sit inside existing tests);
+  - the pipeline test: 48 tests (47 and the new one).
+- **The rows.** Before the rows were added, a scratch script read all 60 briefs at 2fe1ec8. Every value matched the review's.
+- **Mutants.** 25 single-edit mutants were run, and each fails at least one test:
+  - the review's 16 on rule A's and rule B's lines, against the 72 admission and pipeline tests: the line bound, the text start and the line start in place of the chain's opener for distributives; both cut-word halves; sentenceEnds in place of headingEnds (at the look-back, and at all three sites); a two-sentence and an every-sentence look-back; ")" as a chain heading opener; the line start taken from the clause's opener; no guard on a sentence with no word before it; the referring word looked for only in the limit's clause; the heading ended at the comma; live parts in place of all parts; the sentence found from `start - 1`;
+  - each of the six referring words removed, against the admission test alone: a behaviour test fails, not just the hash pin;
+  - #76's three, against the pipeline test.
+
+  The review found each mutant passing the tests at 848524e or 2fe1ec8; this lane did not rerun them there.
+- **Research suites.** `pnpm exec vitest run tests/unit/private-agent-research tests/unit/role-schema-export.test.ts tests/unit/serving-probe-helpers.test.ts tests/unit/planner-fixture.test.ts tests/unit/assess-probe-replies.test.ts` passes 15 files and 226 tests: 0900's 225 and the new pipeline test.
+- **Full suite.** `pnpm exec vitest run` reports 167 files passed and 13 skipped, and 2,735 tests passed, 84 skipped and 0 failed.
+- **Other checks.** `pnpm typecheck` and `pnpm validate:readiness` pass. With this entry appended, `pnpm --silent validate:build-log` passes both with `--base-ref origin/main` and with `--base-ref 2fe1ec8`, the pull request's base; 2fe1ec8's build log is a byte prefix of this one.
+
+Failures or blockers: None new. The round-5 findings above are recorded as stated limits, test pins and corrected wordings.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint. Every limitation of 0848, 0900 and 0726 stands, as corrected here.
+- **Whose measurements.** The review measured the 5401d0f and 18655e5 figures in (9) and (10) and the 245-brief cost in (4); they were not rerun here. This lane reproduced the head's side with scratch tests that are not committed:
+  - (9)'s script ends `research_no_evidence` with 3 calls, 1 repair, 0 quotes and no synthesis call.
+  - (10)'s second script ends `research_no_evidence` with 3 calls, 0 quotes and invalidReplies 1. With chunk 1 honest it is ready with 3 calls and 1 quote.
+  - (10)'s first script ends `research_no_evidence` with 3 calls, 1 repair and 0 quotes. With chunk 1 honest it is ready with 2 quotes.
+- **What a pin means.** The pinned misreads hold today's readings. They are not targets: a later rule that reads one correctly must update the pin in its own entry.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- CI green on this pull request.
+- The orchestrator's mechanical check: the diff's scope, 2fe1ec8's build log as a byte prefix of this one, both hashes, the changed test files and a sample of the mutants.
+- If both pass before the integration branch is rebuilt, it joins train 1; otherwise it leads train 2. It merges after #76.
+
+References: BL-20261110-0848-correction-research-length-parser-chains, BL-20261110-0900-correction-research-tolerance-held-repair and BL-20261110-0726-correction-research-tolerance-total-loss (corrected); BL-20261109-0447-research-tolerance-design and BL-20261109-0552-research-tolerance-implemented; BL-20261110-0712-correction-research-tolerance-repin; the orchestrator's round-5 review of #69 at 848524e and #76 at 2fe1ec8, which is review data and not committed.

@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { CLAIMS_SECTION_RULE_PY, CLAIMS_CONTEXT_BYTES, CLAIMS_CONTEXT_CHARS, CLAIMS_CONTEXT_ENV, CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, CLAIMS_OUTPUT_BUDGET_BYTES, CLAIMS_RETAINED_ENV, CheckClaimsOutputSchema, ClaimsLedgerSchema, ClaimsVerifiedClaimSchema, ENTAILMENT_PURPOSE, ENTAILMENT_SYSTEM_PROMPT, EntailmentReplySchema, claimsInstructions, claimsLedgerCheck, encodeRetainedClaimsSources, entailmentMessages, judgeClaims, publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
+import { CLAIMS_CONTEXT_BYTES, CLAIMS_CONTEXT_CHARS, CLAIMS_CONTEXT_ENV, CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, CLAIMS_OUTPUT_BUDGET_BYTES, CLAIMS_RETAINED_ENV, CLAIMS_SECTION_RULE_PY, CheckClaimsOutputSchema, ClaimsLedgerSchema, ClaimsVerifiedClaimSchema, ENTAILMENT_PURPOSE, ENTAILMENT_SYSTEM_PROMPT, EntailmentReplySchema, claimsInstructions, claimsLedgerCheck, encodeRetainedClaimsSources, entailmentMessages, judgeClaims, publicSourceWorkspacePath } from "../../src/main/private-agent/claims";
 import { BrokerError } from "../../src/main/private-agent/broker";
 import { digest } from "../../src/main/private-agent/contracts";
 import { buildBinarySource, hasIsolatedPypdf } from "../helpers/claims-fixtures";
@@ -24,9 +24,10 @@ function run(files: Record<string, string | Buffer>, extra: { sources?: typeof s
   const env = { ...process.env, ...(extra.retained ? { [CLAIMS_RETAINED_ENV]: encodeRetainedClaimsSources(extra.retained) } : {}), ...(extra.context ? { [CLAIMS_CONTEXT_ENV]: "1" } : {}) };
   try { return { exitCode: 0, result: JSON.parse(execFileSync("python3", ["-I", "-c", check.python], { encoding: "utf8", env, ...(extra.timeoutMs ? { timeout: extra.timeoutMs } : {}) })) }; }
   catch (error) {
-    const failure = error as { status: number | null; stdout: string; signal?: string | null };
-    // A check stopped by `timeoutMs` has no JSON to parse: say so instead.
-    if (failure.signal) throw new Error(`claims check stopped by ${failure.signal} at the ${extra.timeoutMs} ms bound`);
+    const failure = error as { status: number | null; stdout: string; signal?: string | null; code?: string };
+    // A check stopped by `timeoutMs` has no JSON to parse: say so instead. Any other signal (a full output buffer, a kill) is rethrown as it is.
+    if (failure.code === "ETIMEDOUT") throw new Error(`claims check stopped at the ${extra.timeoutMs} ms bound`);
+    if (failure.signal) throw error;
     return { exitCode: failure.status, result: JSON.parse(failure.stdout) };
   }
 }
@@ -343,25 +344,27 @@ def plain(text):
  end=len(text)
  while end and (text[end-1] in '*_:' or text[end-1].isspace()): end-=1
  return text[:end]
-alphabet='s#\\*_: \t\n\x0b\xa0​'
+alphabet='s#\\*_: \t\n\x0b\xa0\u200b'
 strings=[''.join(chars) for n in range(6) for chars in itertools.product(alphabet,repeat=n)]
 rng=random.Random(20261110)
 strings+=[''.join(rng.choice(alphabet) for _ in range(rng.randrange(6,301))) for _ in range(2000)]
 bad=[text for text in strings if not strip_trailing(text)==former(text)==plain(text)]
 print(json.dumps({'alphabet':len(alphabet),'checked':len(strings),'mismatches':len(bad),'first':bad[:3]}))`;
     expect(JSON.parse(execFileSync("python3", ["-I", "-c", script], { encoding: "utf8" }))).toEqual({ alphabet: 12, checked: 273_453, mismatches: 0, first: [] });
-  });
+  }, 30_000);
   it("gives fixed results read from TypeScript, so an escaping slip that broke both regex sides alike would still show", () => {
     expect(CLAIMS_SECTION_RULE_PY).toContain(String.raw`re.match(r'[*_:\s]*',text[::-1])`);
-    const cases = ["Unanswered questions:  ", "**Conflicting evidence**", "Questions", "a s", "a\\", "x \n\t*", "x​", "", " _*:"];
+    const cases = ["Unanswered questions:  ", "**Conflicting evidence**", "Questions", "a s", "a\\", "x\u00a0\n\t*", "x\u200b", "", " _*:"];
     const script = `import json, re, sys\n${CLAIMS_SECTION_RULE_PY}\ncases=json.load(sys.stdin)\nprint(json.dumps({'stripped':[strip_trailing(text) for text in cases],` +
       `'present':[section_present(['## Unanswered questions:**'],'unanswered QUESTIONS'),section_present(['Unanswered questionss'],'Unanswered questions')]}))`;
     expect(JSON.parse(execFileSync("python3", ["-I", "-c", script], { input: JSON.stringify(cases), encoding: "utf8" }))).toEqual({
-      stripped: ["Unanswered questions", "**Conflicting evidence", "Questions", "a s", "a\\", "x", "x​", "", ""], present: [true, false] });
+      stripped: ["Unanswered questions", "**Conflicting evidence", "Questions", "a s", "a\\", "x", "x\u200b", "", ""], present: [true, false] });
   });
   it("runs that rule in the check, and the former pattern nowhere in it", () => {
     const python = claimsLedgerCheck({ reportPath: "output/report.md", sources }).python;
     expect(python).toContain(CLAIMS_SECTION_RULE_PY);
+    // Defined once each, so no later definition shadows the rule.
+    expect(["def strip_trailing(", "def section_present("].map(name => python.split(name).length - 1)).toEqual([1, 1]);
     expect(python).not.toContain(String.raw`[*_:\s]+$`);
   });
 });

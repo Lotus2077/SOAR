@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import { BrokerError, type PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
-import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, normalizeQuoteText, locateQuote, parseJsonReply, researchProtocolSha256, researchSourceText, runResearchPipeline, stripUnknownCitations, type ResearchDiagnostic, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
+import { EXTRACT_SYSTEM, RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, SYNTHESIS_SYSTEM, normalizeQuoteText, locateQuote, parseJsonReply, researchExtractionUserContent, researchProtocolSha256, researchSourceText, runResearchPipeline, stripUnknownCitations, type ResearchDiagnostic, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
+import { planResearchIndexBatches, researchWordCount } from "../../src/main/private-agent/research-admission";
 import { validateReadyResearchPacket } from "../../src/main/private-agent/research-coverage";
 import { ResearchPlanAttemptSchema } from "../../src/main/private-agent/research-plan";
-import { researchV4Reply, researchV4Sources, RESEARCH_V4_TEST_BRIEF } from "../helpers/research-v4-fixture";
+import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
+import { assertResearchUserLayout, parseResearchUserContent, researchV4Reply, researchV4Sources, RESEARCH_V4_TEST_BRIEF } from "../helpers/research-v4-fixture";
 
 type Stage = "index" | "plan" | "extract" | "synthesise";
 type Script = (stage: Stage, input: any, sequence: number, system: string) => string | { content: string; truncated: boolean } | Error;
@@ -14,7 +16,8 @@ function models(script?: Script) {
   const request = vi.fn(async (input: { body: string; purpose: string }, settle: (bytes: Buffer) => number) => {
     const body = JSON.parse(input.body), system = body.messages[0].content as string, user = body.messages[1].content as string;
     const stage: Stage = system.startsWith("You index") ? "index" : system.startsWith("You plan") ? "plan" : system.startsWith("You extract") ? "extract" : "synthesise";
-    const parsed = JSON.parse(user), output = script ? script(stage, parsed, calls.filter(c => c.stage === stage).length, system) : researchV4Reply(system, user);
+    assertResearchUserLayout(system, user);
+    const parsed = parseResearchUserContent(user), output = script ? script(stage, parsed, calls.filter(c => c.stage === stage).length, system) : researchV4Reply(system, user);
     if (output instanceof Error) throw output;
     calls.push({ stage, input: parsed, body, purpose: input.purpose });
     const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content: typeof output === "string" ? output : output.content }, finish_reason: typeof output === "string" || !output.truncated ? "stop" : "length" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
@@ -27,6 +30,27 @@ function models(script?: Script) {
 const happy = (_stage: Stage, input: any, _n: number, system: string) => researchV4Reply(system, JSON.stringify(input));
 const run = (m: ReturnType<typeof models>, extra: Partial<Parameters<typeof runResearchPipeline>[0]> = {}, events: ResearchStageCounts[] = []) => runResearchPipeline({ brief: RESEARCH_V4_TEST_BRIEF, sources: researchV4Sources(), models: m.models, signal: new AbortController().signal, record: e => events.push(e), ...extra });
 const parsed = (outcome: Awaited<ReturnType<typeof runResearchPipeline>>, path: string) => JSON.parse(outcome.files.find(f => f.path === path)!.bytes.toString());
+/**
+ * The keys a stage row may carry: those ResearchStageCounts declares, plus the eight index counts summarizeIndexEntries has
+ * always assigned onto the index row. A row with any other key would ship into summary.json (whose stage rows are passthrough
+ * in the ready validator), the seed and the registry, so a new key is a conscious change here; and every value is a count, a
+ * fixed code (stage, denied), the usage counts or the schema-validated plan attempts, never text.
+ */
+const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "denied", "usage", "truncatedReplies", "sourcesIndexed", "sourcesSkipped", "batchesSkipped", "questions", "planAttempts",
+  "pairsPlanned", "pairsExtracted", "quotesVerified", "quotesInPacket", "quotesLeftByCap", "quotesDropped", "conflictsNoted", "conflictsInPacket", "packetBytes", "citationsStripped", "argumentBytes",
+  "initialCalls", "repairCalls", "sourcesListed", "sourcesModelComplete", "sourcesLiteralFallback", "unresolvedModelSummaries", "chunksPlanned", "chunksComplete",
+  "sourcesModelRepaired", "sourcesModelUnattempted", "invalidJsonReplies", "invalidSchemaReplies", "unexpectedRows", "duplicateExpectedIds", "missingSources", "emptyGists",
+  // 7b.1 (BL-20261109-0334): the synthesis length cap, recorded and never enforced; all counts.
+  "lengthCapWords", "briefWordLimit", "argumentWords"]);
+const hashOnlyStageRow = (stage: ResearchStageCounts) => {
+  for (const [key, value] of Object.entries(stage)) {
+    expect(DOCUMENTED_STAGE_KEYS.has(key)).toBe(true);
+    if (key === "stage" || key === "denied") expect(value).toMatch(/^[a-z_]+$/u);
+    else if (key === "usage") expect(Object.values(value as object).every(n => typeof n === "number")).toBe(true);
+    else if (key === "planAttempts") for (const attempt of value as unknown[]) expect(() => ResearchPlanAttemptSchema.parse(attempt)).not.toThrow();
+    else expect(typeof value).toBe("number");
+  }
+};
 
 describe("research v4 existing source/quote utilities", () => {
   it("retains NFKC whitespace matching and global line locators", () => {
@@ -163,25 +187,6 @@ describe("backlog item 4: the label-keyed diagnostics sink", () => {
     if (stage === "synthesise" && n === 0) { const reply = JSON.parse(happy(stage, input, n, system)); reply.argument = `Narrative ${MARK.synthesise} [E999].\n\n## Unanswered questions\nNone.`; return JSON.stringify(reply); }
     return happy(stage, input, n, system);
   };
-  /**
-   * The keys a stage row may carry: those ResearchStageCounts declares, plus the eight index counts summarizeIndexEntries has
-   * always assigned onto the index row. A row with any other key would ship into summary.json (whose stage rows are passthrough
-   * in the ready validator), the seed and the registry, so a new key is a conscious change here; and every value is a count, a
-   * fixed code (stage, denied), the usage counts or the schema-validated plan attempts, never text.
-   */
-  const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "denied", "usage", "truncatedReplies", "sourcesIndexed", "sourcesSkipped", "batchesSkipped", "questions", "planAttempts",
-    "pairsPlanned", "pairsExtracted", "quotesVerified", "quotesInPacket", "quotesLeftByCap", "quotesDropped", "conflictsNoted", "conflictsInPacket", "packetBytes", "citationsStripped", "argumentBytes",
-    "initialCalls", "repairCalls", "sourcesListed", "sourcesModelComplete", "sourcesLiteralFallback", "unresolvedModelSummaries", "chunksPlanned", "chunksComplete",
-    "sourcesModelRepaired", "sourcesModelUnattempted", "invalidJsonReplies", "invalidSchemaReplies", "unexpectedRows", "duplicateExpectedIds", "missingSources", "emptyGists"]);
-  const hashOnlyStageRow = (stage: ResearchStageCounts) => {
-    for (const [key, value] of Object.entries(stage)) {
-      expect(DOCUMENTED_STAGE_KEYS.has(key)).toBe(true);
-      if (key === "stage" || key === "denied") expect(value).toMatch(/^[a-z_]+$/u);
-      else if (key === "usage") expect(Object.values(value as object).every(n => typeof n === "number")).toBe(true);
-      else if (key === "planAttempts") for (const attempt of value as unknown[]) expect(() => ResearchPlanAttemptSchema.parse(attempt)).not.toThrow();
-      else expect(typeof value).toBe("number");
-    }
-  };
   it("hands every rejected or truncated reply of the four stages to the sink with its content, hash and fixed reasons, while every event and file stays hash-only", async () => {
     const retained: ResearchDiagnostic[] = [], events: ResearchStageCounts[] = [];
     const m = models(faulty), result = await run(m, { diagnostics: { retain: entry => retained.push(entry) } }, events);
@@ -231,7 +236,115 @@ describe("backlog item 4: the label-keyed diagnostics sink", () => {
     expect(retained[2]!.reasons).toEqual([{ code: "question_set_mismatch", path: ["questions"] }, { code: "duplicate_evidence_id", path: ["questions", 0, "evidenceIds"] }, { code: "unknown_evidence_id", path: ["questions", 0, "evidenceIds"] },
       { code: "disposition_without_evidence", path: ["questions", 1, "evidenceIds"] }, { code: "conflicting_evidence_heading_missing", path: ["argument"] }, { code: "unanswered_questions_heading_missing", path: ["argument"] }]);
   });
-  it("keeps the frozen research protocol unchanged: the sink is no part of it (the value at backlog item 4's base commit)", () => {
-    expect(researchProtocolSha256()).toBe("3453710315d7226ea4d6195ec7401d000f86c5b0d9afa9839a801d5c6d391262");
+  it("pins the frozen research protocol through the shared pin; the sink is no part of it", () => {
+    expect(researchProtocolSha256()).toBe(RESEARCH_PROTOCOL_SHA256);
+  });
+});
+
+describe("backlog item 7(b), part 1: request shapes (BL-20261109-0334)", () => {
+  const sized = (count: number, bytes: number, label: string) => Array.from({ length: count }, (_, i) => {
+    const id = `input/${label}-${String(i).padStart(2, "0")}.md`, line = (j: number) => `Source ${i} line ${j} records a synthetic observation for the survey.`;
+    const lines: string[] = []; let size = 0;
+    for (let j = 0; size < bytes; j++) { lines.push(line(j)); size += Buffer.byteLength(line(j)) + 1; }
+    return { id, path: id, bytes: Buffer.from(lines.join("\n")) };
+  });
+  it("sends every extraction request, initial and repair, as one byte-identical stable-packet line, a newline and the chunk line (D9)", async () => {
+    // Newlines, and a U+2028 and a U+2029 that JSON.stringify leaves raw, in the brief and in a source: canonical() escapes the newlines only.
+    const brief = "Context line.\n1. Explain the orchard.\u2028\n2. Explain the meadow\u2029 and its limits.\n";
+    const sources = researchV4Sources(); sources[1] = { ...sources[1]!, bytes: Buffer.from("# Synthetic beta\nThe meadow recorded seven healthy trees\u2028 during the spring survey.\n") };
+    // The first chunk's reply is invalid, so the run ends with that chunk's repair: initial, initial, repair across two sources.
+    const m = models((stage, input, n, system) => stage === "extract" && n === 0 ? "bad JSON" : happy(stage, input, n, system));
+    const result = await run(m, { brief, sources }); expect(result.status).toBe("completed");
+    const extracts = m.calls.filter(c => c.stage === "extract");
+    expect(extracts.map(c => [c.input.source.id, c.input.repairReason === null])).toEqual([[sources[0]!.id, true], [sources[1]!.id, true], [sources[0]!.id, false]]);
+    const plan = parsed(result, RESEARCH_FILES.plan), units = parsed(result, RESEARCH_FILES.coverage).units;
+    const stableLine = canonical({ brief, plan, units });
+    for (const call of extracts) {
+      const content = call.body.messages[1].content as string, lines = content.split("\n");
+      expect(call.body.messages[0].content).toBe(EXTRACT_SYSTEM);
+      expect(lines).toHaveLength(2); expect(String(call.input.chunk.text)).toContain("\n");
+      expect(lines[0]).toBe(stableLine); expect(Object.keys(JSON.parse(lines[0]!))).toEqual(["brief", "plan", "units"]);
+      const perChunk = JSON.parse(lines[1]!);
+      expect(Object.keys(perChunk)).toEqual(["chunk", "repairReason", "source"]);
+      expect(lines[0]).not.toContain(call.input.chunk.id); expect(lines[0]).not.toContain(JSON.stringify(call.input.chunk.text).slice(1, 40));
+      expect(content).toBe(researchExtractionUserContent({ brief, units, plan, ...perChunk }));
+    }
+    for (const separator of ["\u2028", "\u2029"]) expect(extracts.every(c => (c.body.messages[1].content as string).split("\n")[0]!.includes(separator))).toBe(true);
+    expect(extracts.some(c => (c.body.messages[1].content as string).split("\n")[1]!.includes("\u2028"))).toBe(true);
+    // Every other stage still sends one canonical object, byte-identical to canonical() of what it parsed.
+    for (const call of m.calls.filter(c => c.stage !== "extract")) expect(call.body.messages[1].content).toBe(canonical(call.input));
+  });
+  it("leaves the index and plan request bytes as they were before 7b.1, and pins the extraction bytes it sends", async () => {
+    const m = models(); expect((await run(m)).status).toBe("completed");
+    const digests = m.calls.map(c => [c.stage, digest(c.body.messages[1].content as string)]);
+    // Index and plan: captured at main 2982ca7, before 7b.1, with this fixture and these sources; 7b.1 leaves them unchanged.
+    expect(digests.slice(0, 2)).toEqual([["index", "d10e662b830fa5c23d1318424c62726a17b63536995c01ca0d45970386fcc15e"], ["plan", "db70bd30a913d4433bb9e89cff8e3fc24e8a030d89eae13d4d478ee072e1b927"]]);
+    // Extraction: 7b.1's layout (at 2982ca7 these were 176f81fb… and a8419157…).
+    expect(digests.slice(2, 4)).toEqual([["extract", "cf7b50ba8c99f4383dbb40dacce86f4a50fb8ddf43bf142c2a5ed8ba39ecf4c6"], ["extract", "9ff9b72f9d3d634203af95455834ea44db057af9c74f789268bbfbbfed847f77"]]);
+    expect(Object.keys(m.calls[0]!.input)).toEqual(["repair", "sources"]); expect(Object.keys(m.calls[0]!.input.sources[0])).toEqual(["bytes", "id", "previewTruncated", "text"]);
+    expect(Object.keys(m.calls[1]!.input)).toEqual(["authoritativeSchema", "brief", "extractionCallBudget", "mandatorySourceChunks", "repair", "sourceIndex", "units"]);
+  });
+  it("still ends a stage as a denied call when a repair payload cannot be encoded: a NUL a reply carried into the plan repair", async () => {
+    const events: ResearchStageCounts[] = [];
+    const m = models((stage, input, n, system) => stage === "plan" && n === 0 ? "{\u0000 not a plan" : happy(stage, input, n, system));
+    const result = await run(m, {}, events);
+    expect(result).toMatchObject({ status: "incomplete", reason: "research_request_denied" });
+    expect(events.map(e => [e.stage, e.calls, e.denied])).toEqual([["index", 1, undefined], ["plan", 1, "private_agent_invalid_text"]]);
+    expect(m.calls.map(c => c.stage)).toEqual(["index", "plan"]);
+    expect(result.files.map(f => f.path).sort()).toEqual([RESEARCH_FILES.coverage, RESEARCH_FILES.index, RESEARCH_FILES.summary].sort());
+  });
+  it("batches index requests by preview size: thirty 30 KiB sources are admitted with ten requests of three (D8)", async () => {
+    const corpus = sized(30, 30 * 1024, "mid");
+    // Each source exceeds 20 KiB, so the earlier rule (full bytes against 20 KiB) gave every one its own batch: 30 > 24, refused.
+    expect(corpus.every(s => s.bytes.length > 20 * 1024)).toBe(true);
+    const m = models(), result = await run(m, { sources: corpus }); expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    const index = m.calls.filter(c => c.stage === "index");
+    expect(index.map(c => c.input.sources.length)).toEqual(Array(10).fill(3));
+    expect(index.flatMap(c => c.input.sources.map((s: { id: string }) => s.id))).toEqual(corpus.map(s => s.id));
+    for (const call of index) for (const source of call.input.sources) { expect(source.previewTruncated).toBe(true); expect(Buffer.byteLength(source.text)).toBeLessThanOrEqual(20 * 1024); }
+    expect(result.summary.stages[0]).toMatchObject({ calls: 10, initialCalls: 10, repairCalls: 0 }); expect(m.calls.filter(c => c.stage === "extract")).toHaveLength(30);
+  });
+  it("refuses more than 40 chunks before any request, now the only refusal under the default budget: 41 sources of 21 KiB, and sixty of 100 KiB", async () => {
+    const small = sized(41, 21 * 1024, "over");
+    expect(planResearchIndexBatches(small)).toHaveLength(14);
+    const first = models(); expect(await run(first, { sources: small })).toMatchObject({ status: "incomplete", reason: "research_mandatory_budget_exceeded" }); expect(first.request).not.toHaveBeenCalled();
+    const large = sized(60, 100 * 1024, "large");
+    expect(planResearchIndexBatches(large)).toHaveLength(20);
+    const second = models(); expect(await run(second, { sources: large })).toMatchObject({ status: "incomplete", reason: "research_mandatory_budget_exceeded" }); expect(second.request).not.toHaveBeenCalled();
+  });
+  it("keeps today's 1,200-word request while the synthesis role thinks and no limit is stated, on both attempts, and records it (D13)", async () => {
+    const m = models((stage, input, n, system) => stage === "synthesise" && n === 0 ? "bad JSON" : happy(stage, input, n, system));
+    const result = await run(m); expect(result.status).toBe("completed");
+    expect(SYNTHESIS_SYSTEM).toContain('"argument":"complete Markdown, at most lengthCap.words words"'); expect(SYNTHESIS_SYSTEM).not.toContain("1200");
+    const syntheses = m.calls.filter(c => c.stage === "synthesise"); expect(syntheses).toHaveLength(2);
+    for (const call of syntheses) { expect(call.body.messages[0].content).toBe(SYNTHESIS_SYSTEM); expect(call.input.lengthCap).toEqual({ words: 1200 }); }
+    const argument = result.files.find(f => f.path === RESEARCH_FILES.argument)!.bytes.toString("utf8"), row = result.summary.stages[3]!;
+    expect(row).toMatchObject({ lengthCapWords: 1200, argumentWords: researchWordCount(argument) }); expect(row.argumentWords).toBeGreaterThan(0); expect("briefWordLimit" in row).toBe(false);
+  });
+  it("lets a word limit stated in the brief win below the ceiling, records it hash-only, and never rejects an argument longer than the cap", async () => {
+    const brief = "Describe the supplied synthetic observations and their limitations in at most 150 words.", events: ResearchStageCounts[] = [];
+    // The scripted argument runs to about 300 words, twice the stated cap, and is still accepted: the cap is a request, never a check.
+    const long = (stage: Stage, input: any, n: number, system: string) => {
+      const reply = JSON.parse(happy(stage, input, n, system)); if (stage === "synthesise") reply.argument = `${"The supplied source states a bounded synthetic finding [E1]. ".repeat(33)}${reply.argument}`; return JSON.stringify(reply);
+    };
+    const m = models(long), result = await run(m, { brief }, events); expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(m.calls.find(c => c.stage === "synthesise")!.input.lengthCap).toEqual({ words: 150 });
+    const row = result.summary.stages[3]!; expect(row).toMatchObject({ lengthCapWords: 150, briefWordLimit: 150 }); expect(row.argumentWords).toBeGreaterThan(300);
+    for (const stage of [...events, ...result.summary.stages]) hashOnlyStageRow(stage);
+    // A stated limit above the ceiling is clamped to it, and one below the 100-word floor is a part's length: the default applies.
+    for (const [stated, words] of [["in no more than 3,000 words", 1200], ["with a title of at most 12 words", 1200]] as const) {
+      const other = models(); await run(other, { brief: `Describe the supplied synthetic observations ${stated}.` });
+      expect([stated, other.calls.find(c => c.stage === "synthesise")!.input.lengthCap]).toEqual([stated, { words }]);
+    }
+  });
+  it("keeps today's 1,200 words on both attempts when the brief limits only a part under a heading or in a parenthesis (correction BL-20261110-0625)", async () => {
+    // At 5401d0f this brief sent lengthCap {words: 200} on both attempts and recorded briefWordLimit 200 as if it capped the report.
+    const brief = "1. Describe the supplied synthetic observations.\n2. Name their limitations.\n3. Executive summary: no more than 200 words.\n", events: ResearchStageCounts[] = [];
+    const m = models((stage, input, n, system) => stage === "synthesise" && n === 0 ? "not a synthesis" : happy(stage, input, n, system)), result = await run(m, { brief }, events);
+    expect(result).toMatchObject({ status: "completed", reason: "research_packet_ready" });
+    expect(m.calls.filter(c => c.stage === "synthesise").map(c => c.input.lengthCap)).toEqual([{ words: 1200 }, { words: 1200 }]);
+    expect(result.summary.stages[3]).toMatchObject({ lengthCapWords: 1200 }); expect("briefWordLimit" in result.summary.stages[3]!).toBe(false);
+    const other = models(); await run(other, { brief: "Describe the supplied synthetic observations. Abstract (max. 150 words)." });
+    expect(other.calls.find(c => c.stage === "synthesise")!.input.lengthCap).toEqual({ words: 1200 });
   });
 });

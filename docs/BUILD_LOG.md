@@ -30553,6 +30553,195 @@ Next gate: The implementation with deterministic tests in this pull request, an 
 
 References: docs/PROJECT_REVIEW_2026-11-05.md section 2.2 (criterion 8), section 4 table E (findings E1, E9, E10), finding F8, section 5.2 (S8, S10, S11), section 5.6 (E3, E6) and section 5.7 items 1 and 11; docs/HANDOFF.md "Start here (2026-11-07)"; issue #46 (lane C) and issue #63; BL-20261026-1831-h4-select-and-repair-design (step (4) and the repair half of step (5), superseded here for new loops); BL-20261101-0436-h4-runner-controls-fixed and docs/plans/PHASE4_LOOP_DISPATCH_STOP_V1.md (the loop stop, superseded for zero-fee failed rows); BL-20261013-1640-phase2-automated-scores-and-repair-selection and BL-20261019-0838-phase2-repair-pair-and-close (the Phase 2 repair pairs); BL-20261107-0809-zero-fee-failures-resolve-design and BL-20261107-0812-zero-fee-failures-resolve-implemented (zero-risk failures resolve `failed`); BL-20261107-0839-assist-purpose-exception-design (the assist columns and LOOP_VERSION kept); BL-20261108-1649-serving-card-reader-implemented (the base this part builds on).
 
+### BL-20261109-0334-research-request-shapes-design -- 2026-11-09 -- Backlog item 7(b), part 1, decided: the [system][stable packet][chunk] extraction layout, index batches by preview size, the synthesis length cap from the brief, and one shared protocol pin
+
+Status: `Proposed`
+
+Scope or hypothesis: The decision entry for 7b.1, the first of the research pipeline's tolerance PRs: backlog item 7(b) of docs/PROJECT_REVIEW_2026-11-05.md section 5.7; findings D8 (batching only), D9 and D13 of section 4; stages S1, S4 and S6 and the "Caching" paragraph of section 5.2. It is recorded before its code because it changes the research protocol, the extraction request bytes and the number and composition of index requests. It is based on `main` at 2982ca7, which carries SC (BL-20261108-1649-serving-card-reader-implemented). It is zero-fee code with deterministic tests on fixture models and needs no approval under PLAN.md section 4(c); the owner may record otherwise, in particular on the three questions below. Three adversarial reviews of a first draft (ledger and replay safety, downstream consumers and tests, specification fidelity) were folded in before this entry was committed; decisions (1), (2), (3), (5) and (6) carry their corrections. Hypothesis:
+- every extraction request of a job shares one byte-identical prefix: the system message and the stable packet;
+- the index ceiling no longer refuses a corpus the chunk ceiling admits;
+- the synthesis argument is asked for the brief's own word limit when that is lower than today's request, and for what its reply holds once the role stops thinking;
+- ceilings, budgets, packet schemas, stage order and the index and plan request bytes stay as they are.
+
+Decisions:
+(1) **Extraction layout (D9).** Every extraction request, initial and repair, keeps the system message EXTRACT_SYSTEM unchanged and sends a user message of two canonical JSON lines joined by one `\n`:
+- first `canonical({brief, plan, units})`, the job's stable packet, byte-identical for every chunk and every repair of the job;
+- then `canonical({chunk, repairReason, source})`, the per-chunk part.
+
+`canonical()` (contracts.ts) never emits a raw newline: strings are JSON-escaped and there is no whitespace. It leaves U+2028 and U+2029 raw, which is harmless because the split is on `\n` only; a test covers both. The fields and their values are today's; only their grouping and order change. Today's single sorted-key object put the chunk between the brief and the plan (D9).
+
+The builder `researchExtractionUserContent` and its descriptor `RESEARCH_EXTRACTION_LAYOUT` are exported from research-pipeline.ts. `call()` now receives a function that builds the user string and calls it inside its `try`. The draft built the string before `call()`, and the ledger review reproduced the cost: a NUL that a rejected plan reply carried into the repair payload made `canonical()` throw outside the `try`, losing the stage row and both packet files. Built inside the `try`, that refusal stays a denied call (`private_agent_invalid_text`), exactly as before. The index, plan and synthesis stages pass `canonical()` of their payloads, so the index and plan bytes are unchanged; synthesis changes only as decision (5) states.
+
+scripts/export-role-schemas.ts builds P10's extract payload with the same builder. So P10 sends the pipeline's extraction messages; P10 still adds its own `response_format` and sampling, and aligning those bodies is P10-align, which waits on #47.
+(2) **P11 alignment.** scripts/serving-probe.py's `stable_prefix` layout becomes exactly the pipeline's: `{brief, plan, units}`, then `\n`, then `{chunk, repairReason, source}`. Today it puts `source` and `repairReason` in the stable part.
+- `sorted_keys` keeps the layout before this change as P11's comparison.
+- P11's output gains `cache_layouts.stable_prefix_layout`, a copy of RESEARCH_EXTRACTION_LAYOUT that a test pins equal to the TypeScript one, so a probe JSON states which `stable_prefix` it measured.
+- `packet_sha256` and `packet_bytes` now cover the stable packet only, the shared first line without the source. That is a change of meaning under PROBE_VERSION 2. SC's writer copies `packet_bytes` into the card's `cacheLayouts.packetBytes`.
+- The layout names, the card writer, the card schema and PROBE_VERSION 2 are unchanged. The card itself records no layout identity; the probe JSON, which the card binds by `probe.sha256`, does. A probe run from a pre-merge checkout would therefore measure the earlier `stable_prefix` under the same name. None exists: E0 has not run.
+- A test proves that the probe's `stable_prefix` user message equals the TypeScript builder's bytes for the same packet and chunk.
+(3) **Index batches by preview size (D8, batching only).** A source's preview stays its first min(bytes, 20 KiB), cut back to a UTF-8 boundary, exactly as today's `preview()`. A batch takes the next source in inventory order while it holds fewer than `INDEX_LIMITS.batchSources` (3) sources and its previews total at most `batchPreviewBytes`, 60 KiB (3 × 20 KiB). Today's rule summed full source bytes against 20 KiB, so every source over 20 KiB took a batch alone.
+- **The byte cap never binds before the three-source cap,** so batches are consecutive triples. The cap is the explicit bound on one index request's source text, bound in the hash with the rest of `RESEARCH_INDEX_BATCH_POLICY`.
+- **Unchanged:** OUTPUT_TOKENS.index (1,536), INDEX_LIMITS, the preview text and `previewTruncated`.
+- **When batches differ from today's:** whenever three consecutive sources total more than 20 KiB of full bytes, and every later batch shifts with them. Example: sizes 5, 25, 5, 5 and 5 KiB give [a][b][c,d,e] today and [a,b,c][d,e] now. A corpus whose triples all fit 20 KiB batches as today.
+- **The index ceiling no longer binds under the default budget.** Every readable source yields at least one chunk, so the 40-chunk ceiling admits at most 40 sources, which is 14 batches. At least 10 index calls are always left for repairs.
+- **The only refusal is more than 40 chunks** (`research_mandatory_budget_exceeded`, before any request). Examples: 41 sources of 21 KiB, or 60 sources of 100 KiB (which plan into 20 batches but hold 120 chunks). That corrects the mapping brief's claim that the 60-source corpus is admitted. The pipeline test uses 30 sources of 30 KiB (30 chunks): refused today with 30 batches, admitted with 10.
+- **For E1-T2:** E1's brief planned to pin "25 or more sources over 20 KiB" as refused. That corpus is now admitted, so the pin must use more than 40 chunks; the orchestrator is told.
+(4) **Admission ceilings unchanged.** Before any request, batches ≤ `budget.indexCalls` and chunks ≤ `budget.extractionCalls`, else `research_mandatory_budget_exceeded`; repairs still run only within leftover calls (D3 is not addressed here). The batch planner and this check move into a new research-admission.ts, which 7b.3 extends with the card-derived ceilings, the reserved repair budget and the feasibility estimate. research-admission.ts never imports research-pipeline.ts (which imports it), and may import serving-card.ts for types only. The budget object, its maxima (24/40/2/2) and the planner payload's `extractionCallBudget` are unchanged.
+(5) **Synthesis length cap from the brief (D13).** `RESEARCH_SYNTHESIS_LENGTH_POLICY` in research-admission.ts.
+- **The parse.** The host reads the raw brief, never its units, after NFKC, lower-casing and collapsing whitespace, for an explicit English upper word limit:
+  - "at most", "no more than", "not more than", "up to", "under", "fewer than", "less than", "maximum (of)", "max (of)", "not to exceed", "not exceeding", "limited to" or "capped at", then N words;
+  - N words, then "maximum", "max", "at most", "or fewer" or "or less";
+  - "word limit" or "word count limit", then optionally "of", "is" or ":", then N;
+  - the ranges "N-M words", "N to M words" and "between N and M words", which give M.
+
+  N is written in digits, with optional comma thousands separators, from 1 to 100,000. The pattern sources are bound in the hash, so editing one moves the protocol.
+- **Several limits.** When several are stated, the largest wins, so a component's limit (an abstract's) never shrinks the argument below the report's.
+- **Not limits:**
+  - minimums: "at least", "no fewer than", "not fewer than", "no less than", "not less than", "not under";
+  - a hyphenated adjective such as "a 500-word abstract";
+  - a bare or approximate count: "N words", "about N words".
+
+  The draft read "no fewer than 800 words" as a cap of 800; the downstream review caught it, and these are now negative test cases.
+- **The ceiling.** It is what the reply holds besides its structure: floor((the synthesis output cap − 1,024 reply-overhead tokens) ÷ 1.245 tokens per word). 1.245 is scripts/serving-probe.py's TOKENS_PER_WORD, measured on 2026-09-28, and a test pins the two copies equal. While the role thinks ("model"), the ceiling is at most 1,200 words, today's request.
+
+  The draft instead held back a 4,096-token reasoning reserve, which gave 2,467 words. The specification review showed the record contradicts that reserve:
+  - three loops on 2026-11-01 had a thinking synthesis reply reach the 8,192-token cap at today's 1,200-word request (BL-20261101-0428-h4-completion-v2-interrupted, BL-20261101-1106-h4-runner-fixes-stopped, BL-20261101-2044-writer-completion-stopped);
+  - at the 4,173 argument bytes that 0428 retained, about 1,100 tokens were argument and about 7,000 went to reasoning;
+  - version 4 refuses a truncated synthesis, and there is no skeleton fallback until 7(c), so a longer request can turn runs that complete today into `research_synthesis_invalid`.
+
+  Nothing shows that a longer argument fits beside reasoning.
+- **The cap sent** is min(the stated limit, or 6,000 words when none is stated, and the ceiling). The ceiling never drops below 100 words; that floor backs up a role-derived ceiling only, and a limit the brief states always holds below it.
+
+  Under today's OUTPUT_TOKENS.synthesis (8,192) and THINKING.synthesis ("model"):
+  - a brief without a stated limit gets 1,200 words, today's request;
+  - a lower stated limit wins (r3's 1,000 words, D13);
+  - a higher one is clamped to 1,200.
+
+  With thinking disabled the ceiling would be 5,757 words at 8,192 tokens and 12,337 at 16,384, where the 6,000 default binds.
+- **The request.** The synthesis payload gains `lengthCap {words}` on both attempts, and SYNTHESIS_SYSTEM's "at most 1200 words" becomes "at most lengthCap.words words".
+- **Recorded, never enforced.** The synthesis stage row records:
+  - `lengthCapWords`;
+  - `briefWordLimit`, only when the brief states one;
+  - `argumentWords`: the accepted argument's whitespace-separated tokens that hold a letter or a digit, 0 without an accepted argument.
+
+  No reply is rejected on length.
+- **Inputs and 7a.2's part.** The clamp takes the role's cap and thinking as arguments. research-pipeline.ts's `synthesisLengthCap(brief)` passes OUTPUT_TOKENS.synthesis and THINKING.synthesis and is the one wrapper both the pipeline and the P10 export call. 7a.2 makes it read the role policy per attempt, and owns:
+  - the per-attempt record (here both attempts get the same cap, recorded once) and its stage-key change;
+  - refusing, before any request, a role policy whose ceiling on either attempt is below the 100-word floor.
+
+  No serving-card flag flips in this PR.
+- **Deviations from the lane brief, stated:**
+  - its default text says a stated limit "always wins"; here it wins up to the ceiling, so "at most N" is still honoured;
+  - a range's lower end is not used, because the cap is an upper bound;
+  - criterion 6 (2,500 to 6,000 words) binds the writer's report (S8), not the synthesis argument.
+(6) **Protocol.** `researchProtocolSha256()` binds the new SYNTHESIS_SYSTEM and a new `requestShapes` block: `{extractionLayout, indexBatching, synthesisLength}`. It moves from 3453710315d7226ea4d6195ec7401d000f86c5b0d9afa9839a801d5c6d391262 to a new value, which the `Implemented` entry records.
+
+Unchanged: RESEARCH_PIPELINE_VERSION (4; 7(c) bumps it), every packet schema, the seven files, the budget, the other three prompts, OUTPUT_TOKENS, THINKING, the role schemas and the producer.
+
+Consequences:
+- every retained v4 run directory stops seeding (`research_seed_protocol_mismatch`);
+- a paused research session resumes as `session_contract_drift`;
+- the harness source-freeze digest changes, so no loop may span the merge;
+- a serving card whose P10 export or assessment predates the merge is refused for structured output (`serving_card_p10_protocol_drift`), so this PR invalidates every earlier card's structured-output evidence. None exists: E0 has not run;
+- a P10 export made before the merge and assessed after it records `schemasProtocolMatch` false;
+- planner-fixture summaries record the protocol hash, so runs before and after the merge show different hashes for an unchanged plan request.
+
+**E0 timing:** E0's probe run (the P10 export and P11) and its assessment should follow this merge and 7a.1's. The alternative is to hold this merge until E0's assessment is written.
+
+**P10's synthesis cells** send the exported synthesis payload, whose `lengthCap` is the thinking ceiling (1,200 words) in both cells. So the off cell never measures a thinking-off request, which would ask up to 5,757 words. 7a.2 must regenerate that evidence, or the export gains one payload per thinking mode (P10-align, #47).
+
+**The split arm.** With the cloud arm the synthesiser is the cloud model, through the same prompt and payload. Its request text changes (the `lengthCap` field and the prompt's wording), and a brief's lower limit shortens it. But the requested length never exceeds today's 1,200 words (THINKING.synthesis is "model"), and its 8,192-token reservation and the USD 0.60 cap check are unchanged.
+
+The no-card path is not byte-identical, by design: for every run the extraction request bytes and the synthesis prompt and payload change, and for corpora with mid-size sources so does the index batch composition. Ceilings, budgets, stage order and the index and plan request bytes for a given batch are unchanged.
+(7) **One shared protocol pin.** The new tests/helpers/research-protocol-pin.ts exports the one pinned `researchProtocolSha256()` value. Both hard-coded pins import it:
+- tests/unit/private-agent-research-pipeline.test.ts;
+- tests/unit/role-schema-export.test.ts, in its pin test and its command-line check. That file's constant, comment and test title, which named the pre-export value, are replaced.
+
+So each later protocol-changing PR re-pins one line and records old → new in its entry.
+(8) **Failed calls unchanged.** A denied call still ends the stage (research-pipeline.ts, `denied()`), so item 1's failed-counted producer rule stays unreachable for packets. Its reconciliation stays with 7(c) (BL-20261107-0809-zero-fee-failures-resolve-design, decision 6). Decision (1)'s `try` keeps an unencodable payload a denied call.
+(9) **Stage rows.** The hash-only guard's documented key set gains `lengthCapWords`, `briefWordLimit` and `argumentWords`, all integer counts. The guard now also runs on a run whose brief states a limit. Summary stage rows are passthrough in the ready validator; `research_stage` events carry the keys additively; registry-row.py, selection.ts, the producer and the seed loader read only `stage`, `calls`, `usage` and `truncatedReplies`.
+(10) **Tests read the raw layout.** tests/helpers/research-v4-fixture.ts gains:
+- `parseResearchUserContent`, which parses each line and merges them, refusing a key that appears in two lines; researchV4Reply uses it, and E1-T2 reuses it;
+- `assertResearchUserLayout`, which the pipeline and plan-contract fixture brokers call on every request. It requires exactly two canonical lines with the literal key lists for extraction, and one canonical object for every other stage, so a merge in the parser cannot hide a layout regression.
+
+role-schema-export.test.ts parses the two lines, gains `lengthCap` in its synthesis key list, and checks that the real pipeline's first extraction message equals the export's byte for byte.
+(11) **Out of scope:**
+- D11's brief units;
+- D3's reserved repairs;
+- the card ceilings and feasibility (7b.3);
+- the priority trim and the presentation guard (7b.2);
+- per-role, per-attempt caps and thinking (7a.2);
+- repairing a truncated index triple one source at a time (see Limitations).
+
+Changes: Planned in this pull request:
+- src/main/private-agent/research-admission.ts (new): the batch policy, the preview boundary, the batch planner, the mandatory-work check, the length policy, the word-limit parser, the clamp and the word count;
+- research-pipeline.ts: the builder and layout descriptor, `synthesisLengthCap`, `call()`'s user-content function, the batching and admission calls, the synthesis payload and prompt, the stage-row counts and the hash block;
+- scripts/export-role-schemas.ts: the builder for P10's extract payload, `lengthCap` in its synthesis payload;
+- scripts/serving-probe.py: the aligned `stable_prefix`, `stable_prefix_layout`, `packet_*` over the stable packet.
+
+Tests:
+- tests/helpers/research-protocol-pin.ts (new);
+- tests/helpers/research-v4-fixture.ts: the parser and the layout assertion;
+- tests/unit/private-agent-research-admission.test.ts (new): batching and alignment, the preview boundary, the ceilings, the parser's positive and negative cases, the ceiling, the floor and the word count;
+- private-agent-research-pipeline.test.ts:
+  - the shared prefix over initial and repair calls across two sources, with newlines and U+2028;
+  - index and plan request digests equal to those captured at 2982ca7, and the extraction digests;
+  - the NUL repair that stays a denied call;
+  - the 30-source admission and the 41- and 60-source refusals with zero requests;
+  - the 1,200-word default on both attempts, a stated limit below and above the ceiling, a long argument still accepted;
+  - the key guard on a stated-limit run;
+- private-agent-research-plan-contract.test.ts: the parser and the layout assertion;
+- role-schema-export.test.ts: as in decision (10);
+- serving-probe-helpers.test.ts: probe-to-builder parity, and the layout and tokens-per-word copies.
+
+Evidence: None yet; this entry decides. The reading is from the code at 2982ca7:
+- the extraction user message is one `canonical()` object at research-pipeline.ts:187-188, built inside `call()`'s `try` at :126;
+- batching sums full source bytes at :146;
+- the ceilings are at :149;
+- SYNTHESIS_SYSTEM's "at most 1200 words" is at :35;
+- the two pins are at tests/unit/private-agent-research-pipeline.test.ts:235 and tests/unit/role-schema-export.test.ts:15, the latter used at :53 and :60;
+- P11's `extraction_layouts` puts `source` and `repairReason` in its stable part, and `packet_*` hash the whole packet (scripts/serving-probe.py:246-251 and :797);
+- the assessor never parses the extract payload (scripts/assess-probe-replies.ts);
+- SC's writer copies only the P11 fields it knows (scripts/serving-card.py:702-722);
+- every readable source yields at least one chunk (research-coverage.ts:93-107);
+- the 2026-11-01 synthesis cap hits are in the three entries cited in decision (5).
+
+Failures or blockers: None in recording. Three open questions for the owner, each with the default this PR implements:
+1. When a brief states no word limit, what cap should the local synthesis argument use? Proposed default: the largest the reply holds besides its structure, at most 6,000 words, and at most today's 1,200 words while the synthesis role thinks. That is 1,200 under today's policy. A limit stated in the brief wins, up to that ceiling. Recorded, not enforced.
+2. What ceiling should hold while the synthesis role thinks? Proposed default: today's 1,200 words, until E0's P10 synthesis/on completion and reasoning tokens, or a card value, calibrate it.
+3. When a brief states several word limits, should the largest win? Proposed default: yes.
+
+Limitations and non-claims: This entry decides; nothing is implemented or verified by it, and nothing ran live.
+- **The layout proves the prefix property only.** Reuse depends on the per-job `cache_salt` and on the server's prefix caching, which E0's P11 measures. Pipeline stages measured 0 cached tokens on 2026-10-25 and 2026-11-05, though the 2026-11-01 runs did cache (D9).
+- **The parser is heuristic.** It reads English phrasings with digits only, so a limit in words ("one thousand"), in pages, in characters or in another language is not seen and the default applies. A brief whose only stated limit belongs to a component sets the cap to that limit.
+- **The clamp's constants are protocol constants, not measurements of this endpoint.**
+  - 1.245 was measured on the prompt tokens of a synthetic word list on the 2026-09-28 model, and is applied here to JSON-escaped Markdown with [E#] citations.
+  - The 1,024-token overhead and the 1,200-word thinking ceiling are proposals.
+  - Principle 6 of section 5.2 asks for every bound to be re-derived from the serving card. 7a.2 does that for the caps and thinking. No PR in the current plan re-derives tokens per word, the overhead or the thinking ceiling; the card already carries P11's observed tokens per word as evidence. This is a recorded deviation for the orchestrator.
+- **D13 is only started.** Under thinking, today's length already truncates, so longer arguments arrive only with 7a.2's per-attempt thinking or larger caps. Those also need 7b.2's presentation-size guard: the 192 KiB writer handoff is refused only after the transfer is durable (research-presentation.ts; session.ts:400-404), and a 5,757-word argument adds about 30 KB to it.
+- **D8 is not fully fixed.** The 40-chunk ceiling still refuses web-scale corpora. 7b.3's card ceilings stay at or below today's maxima; raising them needs item 12's separate web request pool.
+- **Index triples.** Three large sources now share one 1,536-token index reply. A truncated reply leaves all three unresolved, and the repair resends the same three under the same cap, so the literal-card fallback may rise for large or non-English sources. This is honest and never ends the run; repairing a truncated triple one source at a time is a candidate for 7b.3's repair budget.
+- **Wall time (section 5.4).** Index prompts carry up to 60 KiB of previews per call instead of at most 20 KiB: fewer calls for a similar total prefill. The default synthesis output does not grow.
+
+Paid exposure: None. This PR runs nothing; the split arm's cloud synthesis request text changes as decision (6) states, with its bounds unchanged.
+
+Next gate: The implementation with deterministic tests in this pull request and its `Implemented` entry; then CI green and a merge before E0's probe run, coordinated by the orchestrator.
+
+References:
+- docs/PROJECT_REVIEW_2026-11-05.md:
+  - section 2.2 criterion 6;
+  - section 4 rows D3, D8, D9 and D13;
+  - section 5.2 (principles 5 and 6, stages S1, S4, S6 and S8, "Caching");
+  - section 5.4 ("Wall time");
+  - section 5.7 item 7;
+- docs/HANDOFF.md "Start here (2026-11-07)";
+- BL-20261105-0944-planner-contract-offline-verified (the v4 protocol value);
+- BL-20261107-0809-zero-fee-failures-resolve-design (decision 6);
+- BL-20261107-0859-label-keyed-diagnostics-design and BL-20261107-0923-label-keyed-diagnostics-implemented (the pin and the stage-key guard);
+- BL-20261108-0911-probe-extensions-implemented (P10, P11, the role export);
+- BL-20261108-1459-serving-card-reader-design and BL-20261108-1649-serving-card-reader-implemented (SC);
+- BL-20261101-0428-h4-completion-v2-interrupted, BL-20261101-1106-h4-runner-fixes-stopped and BL-20261101-2044-writer-completion-stopped (the synthesis cap hits).
+
 
 ### BL-20261109-0416-correction-loop-protocol-2-rule-1-rows -- 2026-11-09 -- Correction: rule-1 loop rows carry `failedDispatches` 0 only for loops run after BL-20261101-0436, not for every rule-1 loop
 
@@ -30598,3 +30787,449 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI green on the pull request and a merge in the orchestrator's train (scripts/phase4-loop.ts: 11.1, 11.3, 10.b, 7a.2; scripts/registry-row.py: 11.1, 11.2, 11.3, 11.4, 7d.C, RA), with E1's part-1 tests flipped by whichever of the two merges second; then part 3 (11.3) before any graded loop run.
 
 References: BL-20261109-0331-loop-selection-protocol-2-design; BL-20261109-0416-correction-loop-protocol-2-rule-1-rows; BL-20261101-0436-h4-runner-controls-fixed; BL-20261107-0812-zero-fee-failures-resolve-implemented; BL-20261108-1649-serving-card-reader-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 11; docs/HANDOFF.md "Start here (2026-11-07)".
+
+### BL-20261109-0442-research-request-shapes-implemented -- 2026-11-09 -- Backlog item 7(b), part 1, implemented: the [system][stable packet][chunk] extraction layout, index batches by preview size, the synthesis length cap from the brief, the aligned P11 layout and one shared protocol pin, with the code-review corrections
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261109-0334-research-request-shapes-design with deterministic tests, on branch `feat/7b.1-request-shapes` from `main` at 2982ca7.
+- a0fd58b implements the design.
+- The next commit applies the findings of two adversarial code reviews of a0fd58b: correctness and regressions, and contracts and test adequacy.
+
+The hypothesis is the design entry's.
+
+Decisions: The code reviews found that the word-limit parse misread common phrasings as caps, and every such misreading shrinks the argument below today's request. The corrections below narrow decision (5)'s parse, and (6) completes decision (2); nothing else departs from the design entry. The parse now prefers missing a limit, which leaves today's default, to misreading one.
+(1) **Plural "words" only.** Every phrasing needs the plural "words" after its number, so a compound adjective in the singular is no limit. At a0fd58b, "Give each question a 2-3 word label." gave 3.
+(2) **Whole numbers only.** A number is never part of a longer or grouped number: no digit, "." or "," touches it, and no space-separated digit group sits beside it.
+- At a0fd58b, "Word limit: 1.500." gave 1, "1.200 words max" gave 200 and "Word limit: 2 500" gave 2.
+- The guard also removes a quadratic backtracking case. The correctness review measured about 280 to 355 ms on a 32 KiB brief; it now takes under 2 ms, and a test bounds it.
+(3) **Clause guards** replace the draft's two adjacent-negation lookbehinds. A clause ends at `,`, `;`, `.`, `!`, `?`, `:`, `(` or `)`. A candidate is dropped when:
+- a negator is among the four words before its phrase or the four after it: no, not, never, nothing, nor, cannot, or a word ending in n't;
+- a rejection marker is among the four words after it: unacceptable, rejected, insufficient, too short, too brief;
+- a part of the report is earlier in its clause or among the four words after it: abstract, summary, synopsis, title, heading, headline, label, caption, tag, sentence, paragraph, bullet (each with its plural), each, per.
+
+At a0fd58b, "It must not be under 1,500 words.", "Fewer than 500 words is not acceptable." and "Write 2,500 words; abstract at most 150 words." gave caps of 1,500, 500 and 150.
+(4) **Values below the floor are ignored.** A stated value below the 100-word floor is a part's length (a heading, a label), never the argument's, so the default applies. This supersedes decision (5)'s "a limit the brief states always holds below it" for values under 100 words. From 100 words up, a stated limit still holds below the ceiling.
+(5) **Added phrasings:**
+- "do", "does", "must", "should", "shall", "may", "can" or "will" with "not exceed" or "n't exceed", "never exceed" and "cannot exceed", then N words;
+- a word limit stated as a range ("word limit: 2,000-2,500"), which gives its upper end.
+(6) **P11's record.** P11's `cache_layouts` block is built by a pure helper, `cache_layouts_record`, so a test pins what the probe emits: the layout descriptor, and `packet_*` over the shared first line.
+
+Changes:
+- src/main/private-agent/research-admission.ts (new):
+  - `RESEARCH_INDEX_BATCH_POLICY`, `researchIndexPreviewEnd`, `planResearchIndexBatches`, `researchMandatoryWorkFits`;
+  - `RESEARCH_SYNTHESIS_LENGTH_POLICY`, with the limit patterns, the clause guards and the constants;
+  - `briefWordLimit`, `researchSynthesisLengthCap` and `researchWordCount`.
+- src/main/private-agent/research-pipeline.ts:
+  - `RESEARCH_EXTRACTION_LAYOUT`, `researchExtractionUserContent` and `synthesisLengthCap`;
+  - `call()` takes a user-content function and invokes it inside its `try`;
+  - the batch planner and the ceiling check; the stable packet;
+  - the synthesis payload's `lengthCap` and SYNTHESIS_SYSTEM's wording;
+  - the stage-row counts `lengthCapWords`, `briefWordLimit` and `argumentWords`;
+  - the `requestShapes` block in `researchProtocolSha256()`.
+- scripts/export-role-schemas.ts: P10's extract payload comes from the builder, and its synthesis payload carries `lengthCap`.
+- scripts/serving-probe.py: `EXTRACTION_LAYOUT`, `stable_packet`, the aligned `stable_prefix`, and `cache_layouts_record` with `stable_prefix_layout` and `packet_*` over the stable packet.
+- scripts/serving-card.py: one comment, on the index prompt size since 7b.1. No value or output changes, so the writer's pinned output digests are untouched.
+- Tests:
+  - tests/helpers/research-protocol-pin.ts (new);
+  - tests/helpers/research-v4-fixture.ts: `parseResearchUserContent` and `assertResearchUserLayout`;
+  - tests/unit/private-agent-research-admission.test.ts (new, 13 tests);
+  - private-agent-research-pipeline.test.ts: the stage-key guard moved to module scope, and seven 7b.1 tests;
+  - private-agent-research-plan-contract.test.ts, role-schema-export.test.ts and serving-probe-helpers.test.ts.
+
+Evidence:
+- **Protocol hash.** `researchProtocolSha256()` is 3453710315d7226ea4d6195ec7401d000f86c5b0d9afa9839a801d5c6d391262 at 2982ca7 and 01ca01a41c13410012bc386fa85bb32bdfbfaa3ec402482f8d29b8edfcaa6107 at this entry's commit, pinned once in tests/helpers/research-protocol-pin.ts. At a0fd58b it was f68147d9f9d3f7c829ead9bba026c4f1aa16789f5ac16a3c87435aabdec91262; the corrections moved the pattern sources it binds.
+- **Request bytes against 2982ca7.** One fixture run in each tree, comparing digests of the user message:
+  - index d10e662b830fa5c23d1318424c62726a17b63536995c01ca0d45970386fcc15e and plan db70bd30a913d4433bb9e89cff8e3fc24e8a030d89eae13d4d478ee072e1b927 are identical, and a test pins both;
+  - the two extraction messages move from 176f81fb… and a8419157… to cf7b50ba8c99f4383dbb40dacce86f4a50fb8ddf43bf142c2a5ed8ba39ecf4c6 and 9ff9b72f9d3d634203af95455834ea44db057af9c74f789268bbfbbfed847f77, also pinned. Merged back into one object they equal the old messages;
+  - the synthesis payload differs by `lengthCap` and by `coverage.protocolSha256`, which moves with every protocol change. The contracts review reproduced the 2982ca7 digest (d3c1089e…) after removing the first and resetting the second.
+- **Tests:**
+  - the five changed or new test files: 99 passed;
+  - the research, serving-card, probe, export, planner-fixture, assessor, role-config, loop, identity-golden and runner-budget suites: 22 files, 444 tests passed;
+  - the full suite, `pnpm exec vitest run --maxWorkers=3`: 179 files, 166 passed and 13 skipped (the environment-gated suites); 2,780 tests, 2,696 passed and 84 skipped; no failure;
+  - `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass.
+- **What the tests prove,** on fixture models with no endpoint:
+  - **The layout.** Every extraction request, initial and repair across two sources, sends exactly two canonical lines. The first is byte-identical across the job and equals `canonical({brief, plan, units})`, with the literal key lists, when the brief and a source contain newlines, U+2028 and U+2029. Every other stage sends one canonical object. The pipeline's and the plan contract's fixture brokers check this layout on every request.
+  - **Unchanged bytes.** The index and plan request bytes are those of 2982ca7.
+  - **The denied call.** A NUL that a rejected plan reply carried into its repair payload ends `research_request_denied`. The plan row is denied (`private_agent_invalid_text`), two requests went out, and coverage.json, index.json and summary.json are written. The ledger design review reproduced the throw on the uncommitted draft that built the content before `call()`; a0fd58b builds it inside the `try`, and the test fails if it moves out.
+  - **Batching.** Thirty 30 KiB sources are admitted with ten index requests of three; the earlier rule refused them. Forty-one 21 KiB sources and sixty 100 KiB sources are refused with zero requests.
+  - **The length cap.**
+    - Without a stated limit the synthesis is asked for 1,200 words on both attempts.
+    - "At most 150 words" gives 150.
+    - A limit above the ceiling, or one below the floor, gives 1,200.
+    - An argument twice the cap is accepted.
+    - The stage rows record the cap, the brief's limit and the argument's words, and pass the hash-only key guard.
+  - **The parser.** It reads 39 positive phrasings and refuses 64 negative ones (minimums, negations, parts of the report, adjectives, counts, other units, malformed and grouped numbers), and parses a 32 KiB adversarial brief in well under a second. The clamp is checked at 8,192 and 16,384 tokens with and without thinking, together with the floor.
+  - **P10.** The export equals the pipeline's first extraction message byte for byte and carries the same `lengthCap`.
+  - **P11.**
+    - Its `stable_prefix` equals the builder's bytes.
+    - The probe's layout descriptor and tokens per word equal the TypeScript copies.
+    - `cache_layouts_record` emits the descriptor, with `packet_*` over the shared first line.
+    - The card writer accepts the new key and drops it.
+- **Reviews.** Three design reviews preceded the `Proposed` entry, and two code reviews of a0fd58b followed. Every confirmed finding is fixed here or recorded below.
+
+Failures or blockers:
+- **Two defects that exist at 2982ca7, not introduced here and not fixed here.** The correctness review reproduced both, and both happen outside `call()`'s `try`. session.ts's try/finally then reports a session failure.
+  - A planner reply whose accepted plan holds a NUL or a lone surrogate makes `assessResearchPlanReply` throw at `digest(canonical(plan))` (research-plan.ts), so the plan row is lost.
+  - An extraction quote note holding a NUL throws at `put(RESEARCH_FILES.evidence, …)` (research-pipeline.ts), so every file is lost.
+
+  Proposed owners: 7a.1, whose per-quote drop can drop and count an unencodable quote or note, and 7c for the planner (research-plan.ts).
+- **One unrelated timeout.** Two earlier full runs with the default worker count, while other sessions loaded this Mac, each had tests/unit/with-claude-key.test.ts time out at 5 s. The file passes alone (3 tests) and in the three-worker run above.
+- **CI** has not run yet; it runs on the pull request.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint. Every limitation of the design entry stands; in particular:
+- the layout proves the prefix property only;
+- the thinking synthesis keeps today's 1,200-word request, so D13's longer arguments wait for 7a.2 and 7b.2;
+- D8's 40-chunk ceiling remains;
+- the clamp's constants have no route to the card (principle 6).
+
+The parser is heuristic and now deliberately conservative. When it misses a limit, today's default applies. It misses a limit stated:
+- in words, pages, characters or another language;
+- inside a negated or part-of-the-report clause;
+- below 100 words.
+
+P11's change is tested offline only: the helpers, the parity with the TypeScript builder and descriptor, and the card writer's acceptance. Its behaviour against a server is for E0. The derived-bounds table in scripts/serving-card.py keeps a 20,000-token index prompt size. That fits English previews (about 16k tokens at 3.8 bytes per token) but may understate denser scripts.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- Review of the pull request, and CI green.
+- The orchestrator merges it before E0's probe run and before 7a.1, which is stacked on this branch.
+- The design entry's three owner questions stay open with their defaults.
+
+References: BL-20261109-0334-research-request-shapes-design; BL-20261108-1649-serving-card-reader-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 4 rows D8, D9 and D13, section 5.2 and section 5.7 item 7.
+
+### BL-20261110-0625-correction-research-length-parser -- 2026-11-10 -- Correction to BL-20261109-0442: the word-limit parser read a part's limit under a heading or in a parenthesis as the report's cap, and its clause guard was quadratic
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261109-0442-research-request-shapes-implemented, backlog item 7(b), part 1, on its unmerged pull request #69. It edits no committed entry.
+
+The orchestrator's merge-train review of #69 found three defects:
+- **F1, major.** The synthesis length cap's parser (`briefWordLimit`, src/main/private-agent/research-admission.ts) read a component's word limit as the whole report's cap when a heading or a parenthesis named the component, or when the guard lacked its part noun. Two independent reviewers confirmed it.
+- **F2, minor.** The clause guard rescanned the whole clause for every candidate, so the parse was quadratic.
+- **F3, nit.** 0442 undercounts the negative parser cases.
+
+This entry records the defects, the fix (commit de3adea), the new protocol hash and the corrected claims. It also records what an adversarial code review found in the fix's first version, c7b6093, which was never pushed. The hypothesis is 0442's: an explicit limit stated for the report wins, and the parse prefers missing a limit, which leaves today's default, to misreading one, which shrinks the argument.
+
+Decisions:
+(1) **The defect (F1).** 0442's decision (3) ends a clause at `:`, `(` and `)` as well as at `,`, `;`, `.`, `!` and `?`. So in "Abstract: at most 150 words" or "1. Introduction (at most 200 words)" the part noun sat in the clause before the candidate's, and the parts check never saw it. The parts list also lacked common part nouns. At 5401d0f each brief below gave the component's limit as the cap; main (2982ca7) asked every brief for 1,200 words.
+- "Abstract: at most 150 words." gave 150.
+- "Executive summary: no more than 200 words." gave 200.
+- "1. Introduction (at most 200 words)" gave 200.
+- "Answer every question in no more than 200 words." gave 200.
+- "Keep quotations to at most 300 words." gave 300.
+- "Write a report; limitations section under 300 words." gave 300.
+
+While the synthesis role thinks, the cap is min(stated, 1,200). Such a brief therefore asked for an argument 4 to 8 times shorter than main's, against D13 and against 0442's own rule.
+(2) **The heading rule.**
+- **What a heading is.** When a candidate's clause opens at a heading opener (`:` or `(`), the parts check, and only it, also reads the heading. The heading is every word before the opener back to the end of the previous sentence (`.`, `;`, `!` or `?`) or the previous line break. Commas do not end it, as in "Abstract, keywords and highlights: at most 150 words".
+- **Line breaks.** The brief's whitespace still collapses to single spaces, so the patterns and clauses read the same text. Only the heading rule reads where a line break was.
+- **Unchanged checks.** The negator and rejection checks do not change.
+(3) **The part nouns.**
+- **Added everywhere:** section(s), introduction(s), conclusion(s), appendix, appendices, method(s), quote(s) and quotation(s).
+- **Distributives** (each, per and the added every) always count.
+- **Heading-only:** overview(s), background, results, discussion, findings, recommendations and limitations count only in a heading. In a clause they often name the report itself, as in "Provide an overview of the evidence in at most 1,500 words".
+- **Exclusions.** In each span (the clause before, the heading and the four words after), a part noun after excluding, including, except, without, excl or incl counts for nothing. Examples are "3,000 words excluding appendices" and "Word limit (excluding the abstract): at most 2,000 words". A distributive after an exclusion still counts.
+- **Left out.** Question(s), reference(s) and footnote(s) stay out, because "Answer the research question in at most 1,000 words" and "under 900 words excluding references" limit the report.
+(4) **The selection rule.** 0442 took the largest limit the guards kept. Now, when the guards drop the largest stated limit, no limit is read.
+- **Why.** The code review of c7b6093 showed the old rule could lower the cap. Once a guard dropped the report's own limit, a smaller limit that no guard recognised became the cap.
+- **Example.** "Sections: - Abstract - Results / Length: at most 3,000 words / Discussion: at most 800 words" (on separate lines) gave 800 at c7b6093, against 3,000 at 5401d0f.
+- **Effect.** No guard can now lower the cap. A dropped largest limit leaves today's default.
+(5) **The complexity (F2).**
+- **What was quadratic.** guarded() rescanned the clause before each candidate: 32,760 characters of "150 words max " took about 3.6 s at 5401d0f.
+- **The index.** The brief's words and delimiters are now indexed once. Each candidate finds its clause, the words cut at its ends and its windows by binary search, and a span's part count is one subtraction.
+- **The strip.** The code review of c7b6093 found a second quadratic path. 7b.1's word strip (a two-sided replace) backtracked on one long run of punctuation, and the index now strips every word of every brief. "a" plus 32,766 hyphens plus "b" took 1.8 to 2.5 s at c7b6093, and 16,382 emoji between two letters took 6.5 s.
+- **The fix.** The strip is now one forward match from the first letter, digit or apostrophe to the last.
+(6) **Corrected claims in 0442.**
+- **The count.** The parser refuses 67 negative phrasings, not 64. The admission test at 5401d0f holds 23 minimums or negations, 22 parts, adjectives or counts, and 22 other units or malformed numbers.
+- **"Linear time".** The claim held only for the inputs its test tried: a clause of many candidates parsed in quadratic time. 0442's "under 2 ms", in its decision (2), measures the number guard's regex on another input and stands.
+- **The limitation text.** 0442 says a limit inside a part-of-the-report clause is "missed". That did not hold for the heading and parenthesis forms. With this correction it holds within the limitations below.
+- **Selection.** 0442's "the largest stated limit wins" now reads: the largest stated limit wins when the guards keep it.
+(7) **Protocol.** CLAUSE_GUARDS and the selection rule are bound into researchProtocolSha256 through RESEARCH_SYNTHESIS_LENGTH_POLICY. The default hash moves from 01ca01a41c13410012bc386fa85bb32bdfbfaa3ec402482f8d29b8edfcaa6107 to d4ec0c3a1bafedbe154ddf2e4d612508fdb68ee80c3c41ad97729e6bc112cf34, re-pinned in tests/helpers/research-protocol-pin.ts. The consequences are 0442's, now for the new value:
+- **Serving cards.** Every earlier card's P10 structured-output evidence is invalidated (`serving_card_p10_protocol_drift`), as SC's contract requires. None exists, because E0 has not run. A P10 export that spans this change records `schemasProtocolMatch` false, although the role schemas are unchanged.
+- **Seeds and sessions.** A research run directory made at 5401d0f stops seeding (`research_seed_protocol_mismatch`), and a paused research session resumes as `session_contract_drift`. No such run exists.
+- **Loops.** The harness source-freeze digest changes, so no loop may span this change. None is in flight.
+- **Request bytes.** Index, plan and extraction requests are unchanged. A synthesis request changes through coverage.protocolSha256, and through lengthCap for a brief whose limit the corrected guards read differently.
+
+Changes: Commit de3adea on `feat/7b.1-request-shapes`:
+- **src/main/private-agent/research-admission.ts:**
+  - CLAUSE_GUARDS: `headingOpeners`, `headingEnds`, `headingEndsAtLineBreaks`, `distributives`, the part nouns, `headingParts` and `exclusions`;
+  - the policy's `normalization` and `selection`;
+  - normalizeBrief, strip, indexClauses, rank, spanParts, wordsMarkPart, guarded and briefWordLimit.
+- **tests/unit/private-agent-research-admission.test.ts**, four new tests and a wider timing test:
+  - 29 negative phrasings: a part under a heading or in a parenthesis, or named by a newly listed noun, including an overall length the parser ignores beside a part's limit;
+  - 19 positive phrasings: headings that name the report, exclusions, line breaks, and the nouns that name a part only in a heading or not at all;
+  - the selection rule: 6 briefs whose largest limit is guarded, and 3 that keep 3,000;
+  - 2 known misses;
+  - five 32 KiB inputs added to the timing test: three of one clause of thousands of candidates, a hyphen run and an emoji run.
+- **tests/unit/private-agent-research-pipeline.test.ts:** a numbered brief whose third requirement limits the executive summary keeps lengthCap {words: 1200} on both synthesis attempts, with no briefWordLimit.
+- **tests/helpers/research-protocol-pin.ts:** the pin.
+
+Evidence: At de3adea, run locally under a load average between 15 and 70 from other sessions:
+- **The admission test.** `pnpm exec vitest run tests/unit/private-agent-research-admission.test.ts`: 17 passed (13 at 5401d0f plus 4 new).
+- **The new tests at 5401d0f.** Copied onto 5401d0f's code, five fail: the heading test, the selection test, the known misses, the timing test (3.9 s on one input) and the pipeline heading test (lengthCap {words: 200} on both attempts). The positive heading test passes there, as it should.
+- **Research suites.** The research, role-schema-export, serving-probe-helpers, planner-fixture and assess-probe-replies suites: 14 files, 192 tests passed.
+- **Full suite.** `pnpm exec vitest run`: 166 files passed and 13 skipped; 2,701 tests passed, 84 skipped, 0 failed.
+- **Other checks.** `pnpm typecheck` and `pnpm validate:readiness` pass. `pnpm --silent validate:build-log -- --base-ref origin/main` passes with this entry appended.
+- **Differential checks against 5401d0f.** These ran from scratch scripts, not committed:
+  - the new strip equals 7b.1's on 300,000 random tokens, including astral characters, combining marks and dotted capital I;
+  - on 200,000 random briefs without headings, line breaks, exclusions or the new nouns, 199,997 results are identical and 3 read no limit because their largest limit was guarded;
+  - on 300,000 random briefs with all of them, 547 differ: 535 read no limit, and 12 newly read one, each because an exclusion word cancelled a part noun ("3,000-4,000 words excluding title" reads 4,000). None reads a smaller number, and none a larger one.
+- **Timing.** 32,760 characters of one clause of "150 words max " take 25 ms, and of "at most 150 words " 15 ms. They took about 3.6 and 3.1 s at 5401d0f, by the merge-train review's measure. "a" plus 32,766 hyphens plus "b" takes 0.5 ms, and 16,382 emoji between two letters 3.3 ms. Both took 1.8 to 6.5 s at c7b6093, by its code review's measure.
+
+Failures or blockers:
+- **The first fix lowered the cap.** Its first version, c7b6093, was never pushed. An adversarial code review found that its heading rule and new nouns could lower the cap, as in decision (4), and that its strip was quadratic. Decisions (2) to (5) are the response.
+- **Stacking.** #76 (7a.1) is stacked on this branch, and its entries BL-20261109-0447 and BL-20261109-0552 have earlier IDs than this one. The ledger validator requires both append-only history relative to a pull request's base and IDs that never move backward. #76 can therefore validate against main, with its entries before this one in ID order, but not against this branch. The orchestrator decides its base.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint. Every limitation of 0442 stands, except its text that a part-of-the-report clause is missed, which this correction makes true for the heading and parenthesis forms.
+- **The parser stays heuristic.** It reads English phrasings with digits only.
+- **Known misses.** A heading or clause that names a part anywhere drops a limit meant for the report. "The report should be at most 3,000 words across all sections" and "Write at most 2,000 words and cite every source" read no limit, and so does any brief whose largest limit is guarded. The parse prefers this direction. While the role thinks, such a limit of 1,200 words or more is clamped to 1,200 anyway.
+- **Known misreads.**
+  - A part named only by a word on no list is still read as the cap when its limit is the brief's largest, as in "The literature review should be under 800 words".
+  - So is a bare appositive, "Abstract, at most 150 words", whose clause opens at a comma, which is no heading opener.
+- **An exclusion can over-reach.** An exclusion word cancels every non-distributive part noun after it in its span, even one the limit belongs to.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of the delta (de3adea and this entry), CI green on #69, then the merge train. #76 rebases onto this head and re-pins in its own entry.
+
+References: BL-20261109-0442-research-request-shapes-implemented (corrected); BL-20261109-0334-research-request-shapes-design; BL-20261108-1649-serving-card-reader-implemented (the P10 drift rule); docs/PROJECT_REVIEW_2026-11-05.md section 4 row D13; the orchestrator's merge-train review of PR #69 (findings F1 to F3) and this lane's code reviews of c7b6093 and de3adea, review data that is not committed.
+
+### BL-20261110-0709-correction-research-length-parser-exclusions -- 2026-11-10 -- Correction to BL-20261110-0625: the exclusion rule read part limits as the report's; against 7b.1 the parser now only drops limits
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261110-0625-correction-research-length-parser, on #69. 0625 and its code, de3adea, were committed but not yet pushed when a second adversarial code review of de3adea found five problems. This entry records them, the fix (commit 96de34f), the new protocol hash and the claims of 0625 it corrects. 0625 is not edited; where the two disagree, this entry supersedes it. The hypothesis is 0625's: an explicit limit stated for the report wins, and the parse prefers missing a limit to misreading one.
+
+Decisions:
+(1) **The regression (high).** 0625's exclusion rule cancelled the part nouns after an exclusion word in every span, the clause before the limit included, up to the span's end. An exclusion earlier in the clause therefore cancelled the noun the limit belongs to, and de3adea read a part's limit where 5401d0f read none:
+- "Write about 2,500 words on the topic, including a short abstract of under 200 words." gave 200.
+- "Write a policy brief including an executive summary of no more than 200 words." gave 200.
+- "Requirements / - Use peer-reviewed sources, excluding preprints / - Abstract under 250 words", on separate lines, gave 250.
+
+The reviewer's generator produced 11,870 such reads in 200,000 briefs.
+(2) **The fix: exclusions cancel only where the correction added a reason to drop.**
+- **The clause before the limit.** Nothing is cancelled there, as in 7b.1.
+- **The heading.** An exclusion cancels part nouns only up to the next delimiter or line break. "including" and "incl" cancel there only when they open a parenthesis. "Write a 10-page report including an executive summary (max. 250 words)" now reads no limit, while "Length (including the abstract): at most 3,000 words" still reads 3,000.
+- **The four words after the limit.** An exclusion cancels only the part nouns this correction added (`addedParts`: section(s), introduction(s), conclusion(s), appendix, appendices, method(s), quote(s) and quotation(s)). 7b.1's own part nouns still drop a limit there, so "At most 2,500 words including the abstract." reads no limit, as at 5401d0f.
+- **The invariant.** Every rule of the correction now only adds reasons to drop a limit, and the selection rule reads the largest limit only when it is kept. On every brief the corrected parser therefore reads 7b.1's limit or none. The fuzzing below checks it.
+(3) **The heading's start (medium-low).** A line break between a heading's last word and its opener left the heading empty, so "Executive summary / (no more than 200 words)", on two lines, read 200. The heading now starts from the opener's last word, skipping line breaks between them, and stops at a sentence end.
+(4) **Heading-only nouns in a long heading.** "Provide an overview of the evidence (at most 1,500 words)." read no limit at de3adea. Heading-only nouns now count only in a heading of at most four words (`headingPartsMaxWords`), so it reads 1,500 again, as at 5401d0f.
+(5) **NEL (low).** U+0085 was in the line-break class, but JavaScript's whitespace class does not match it, so that entry never applied. It is removed. NEL stays a character inside a word, as in 7b.1.
+(6) **A test for every rule.** The second review removed each new rule in turn and found these untested:
+- the cancellation in the clause before (now removed);
+- every exclusion word but "excluding";
+- quote(s);
+- findings, recommendations and limitations;
+- the cut-word rule;
+- the tie rule;
+- every line break but LF.
+
+Each now has a test. Removing any of six rules in turn fails a test: the parenthesis restriction on "including", the line-break skip, the short-heading limit, the heading cancellation, the tie rule, and the distributives after the limit.
+(7) **Claims of 0625 this entry corrects.**
+- **The hash.** The protocol moves from 7b.1's 01ca01a41c13410012bc386fa85bb32bdfbfaa3ec402482f8d29b8edfcaa6107 to 925433f9ba8e9c531b51150b769b6bec382331b6d0824d37d151d1f9fdfbea88, not to 0625's d4ec0c3a1bafedbe154ddf2e4d612508fdb68ee80c3c41ad97729e6bc112cf34, which no run used. The consequences are 0625's:
+  - every earlier card's P10 structured-output evidence is invalidated (`serving_card_p10_protocol_drift`), and none exists;
+  - seeds from earlier protocols are refused;
+  - paused sessions drift;
+  - no loop may span the change.
+- **Exclusions and new reads.** 0625's decision (3) on exclusions, and its evidence that 12 briefs were newly read, are superseded: no brief is newly read.
+- **Timings.** 0625 gives about 3.6 and 3.1 s at 5401d0f for the one-clause inputs. The second review measured 4.0, 3.1 and 1.0 s for the three of them.
+- **A test comment.** It said every brief in the F1 list gave a limit at 5401d0f. "Quotes of at most 200 words each." gave none there, so the comment is corrected.
+
+Changes: Commit 96de34f on `feat/7b.1-request-shapes`:
+- src/main/private-agent/research-admission.ts:
+  - CLAUSE_GUARDS: `parts` and `addedParts`, `headingPartsMaxWords`, `exclusionsOnlyOpeningParenthesis`, and the line-break class without NEL;
+  - indexClauses's exclusion scopes;
+  - the heading's start;
+  - the clause before, without cancellation;
+  - afterMarksPart.
+- tests/unit/private-agent-research-admission.test.ts:
+  - one new test: 14 negative phrasings, 9 positive and 7 line-break cases;
+  - four more known misses;
+  - the corrected comments.
+- tests/helpers/research-protocol-pin.ts: the pin.
+
+Evidence: At 96de34f, run locally under load averages between 13 and 70 from other sessions:
+- **The admission test.** `pnpm exec vitest run tests/unit/private-agent-research-admission.test.ts` passes: 18 tests.
+- **Mutations.** Six rules were removed one at a time: the parenthesis restriction on "including", the line-break skip, the short-heading limit, the heading cancellation, the tie rule, and distributives always counting after the limit. Each removal fails at least one test.
+- **Research suites.** The research, role-schema-export, serving-probe-helpers, planner-fixture and assess-probe-replies suites pass: 14 files, 193 tests.
+- **Full suite.** `pnpm exec vitest run`: 165 files passed and 13 skipped; 2,701 tests passed, 1 failed and 84 skipped. The failure is with-claude-key's shell-script test, which is outside this change and passes alone (3 tests).
+- **Other checks.** `pnpm typecheck` passes, and so does `pnpm --silent validate:build-log -- --base-ref origin/main` with this entry appended.
+- **Differential checks against 5401d0f**, run from scratch scripts that are not committed:
+  - The strip equals 7b.1's on 300,000 random tokens.
+  - 200,000 briefs without headings or the new words: 199,997 identical, 3 read no limit.
+  - 300,000 random briefs with headings, line breaks, exclusions and the new nouns: 535 read no limit, the rest are identical.
+  - 200,000 briefs built from exclusion phrasings such as those in (1): 40,179 read no limit, the rest are identical.
+  - In every set, no brief is newly read, and none reads a lower or a higher limit.
+
+Failures or blockers: The negative result in (1), found by review before any push. Nothing else.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint. Every limitation of 0625 stands, except that an exclusion no longer over-reaches: within its scope it cancels only nouns the correction added. Known misses, each reading no limit where the report's limit was meant, all pinned:
+- "excl." and "incl." with a dot (the dot ends the heading);
+- a line break inside a heading's parenthesis;
+- one of 7b.1's part nouns after the limit, even after an exclusion ("At most 2,500 words including the abstract.").
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI on #69 and the orchestrator's review of the delta (de3adea, a502c87, 96de34f and this entry). Then #76 takes #69's head and re-pins in its own entry.
+
+References: BL-20261110-0625-correction-research-length-parser (corrected); BL-20261109-0442-research-request-shapes-implemented; this lane's second code review of de3adea, review data that is not committed.
+
+### BL-20261110-0848-correction-research-length-parser-chains -- 2026-11-10 -- Correction to BL-20261110-0625 and BL-20261110-0709: a part's limit after a comma in its heading or clause, or in the sentence after the part, was read as the report's cap; rules A and B
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261110-0625-correction-research-length-parser and BL-20261110-0709-correction-research-length-parser-exclusions, on #69. It also narrows BL-20261109-0334-research-request-shapes-design decision (5) and that entry's owner question 3. It edits no committed entry.
+
+The orchestrator's delta review of #69 at 5e16e20 had three lenses, and two skeptics checked each finding. It found that against 5401d0f the parser only drops limits, that its timing is linear and that the ledger is append-only. It confirmed two classes of major misreads, A and B in (1). Both read the same at 5401d0f and 5e16e20, so the delta did not cause them. #69 introduces them against main, which always asks for 1,200 words. They are the first round's harm: a part's limit becomes the report's cap and asks for an argument 4 to 12 times shorter.
+
+This entry records:
+- the two classes and the two rules that answer them (commits 88b6775 and 96129a0);
+- the new protocol hash and the measured differential;
+- the new misses;
+- the claims of 0625 and 0709 it corrects;
+- the misreads that remain, stated as limits;
+- one owner question.
+
+The hypothesis is 0334's: an explicit limit stated for the report wins, and the parse prefers missing a limit to misreading one. A miss leaves the 1,200-word default.
+
+Decisions:
+(1) **The two classes.** At 5401d0f and at 5e16e20 each brief below read the part's limit as the cap.
+- **A: a limit after a comma inside its heading or clause.** A comma opens a clause, and the guards read only the limit's own clause. So the heading or the distributive before the comma was never read. There are 13 such briefs. Among them:
+  - "Abstract (required, max 150 words)" read 150;
+  - "Executive summary: one page, no more than 200 words" read 200;
+  - "For each source, write up to 150 words." read 150;
+  - "Cover five papers; for each, at most 200 words." read 200;
+  - "Each section (required, 300-400 words)" read 400.
+- **B: a limit in the sentence after the part.** There are 16 such briefs. Among them:
+  - "Include an abstract. Max 150 words." read 150;
+  - "Add an abstract.\nMax 150 words." read 150;
+  - "Include an executive summary. It should be no more than 200 words." read 200;
+  - "Write a 3,000-word report. Include an executive summary. Keep it under 200 words." read 200;
+  - "Each source gets a note. Max 120 words." read 120.
+
+  The admission test already required "Write a 3,000-word report. Executive summary: no more than 200 words." to read none, but its prose form read 200.
+(2) **Rule A, `commaChain` ("heading_opener_and_distributives_same_line").**
+- **The chain.** A comma continues the chain of the delimiter before it, and any other delimiter opens a chain. indexClauses finds each delimiter's chain opener once, in one pass, so no candidate walks back.
+- **The heading.** A clause may open at a comma. When its chain opens at ":" or "(" on the limit's own line, the heading rule reads the heading before that opener, as if the clause opened there.
+- **Distributives.** A distributive (each, every or per) anywhere in the chain on the limit's own line marks a part's limit.
+- **Part nouns.** Part nouns in the chain are not read, so "An abstract of up to 150 words, then a report of 1,200-1,800 words." keeps 1,800.
+(3) **Rule B, `referring` and `previousSentence`.**
+- **When it applies.** A limit may open its sentence, or a referring word (it, its, this, that, these, those, they, them or there) may stand before it in its sentence. Then the sentence before is read. Sentences end at ".", ";", "!", "?" and line breaks.
+- **The sentence before.** It is the one holding the last word before this sentence. An empty sentence between them, such as "." followed by a line break, is skipped.
+- **What marks a part.** A part noun or a distributive in that sentence marks a part's limit.
+- **Linear time.** A prefix array counts the referring words, so the look-back is one subtraction.
+- **The exemption.** The "word limit N" pattern (LIMIT_PATTERNS[2]) names the document's own limit and is exempt. "Write a report. Include an abstract. Word limit: 2,000." reads 2,000.
+- **The choice: part nouns and distributives.** The review left this choice to the lane.
+  - Its cost: "Answer every question. Keep it under 900 words." and "Cite every source. Keep it under 1,000 words." lose the report's limit (a new miss).
+  - With part nouns only, "Each source gets a note. Max 120 words." and "Add a short note for each source. Max 150 words." would still read the part's limit.
+  - A miss is the direction 0334 prefers.
+(4) **The invariant holds.** Each rule only adds a reason to drop a limit. The selection rule reads the largest limit only when no guard drops it. So on every brief the parser reads 5e16e20's limit or none, and by 0709 5e16e20 reads 5401d0f's limit or none. The differential checks below test both steps.
+(5) **The protocol.** The three new fields are bound into CLAUSE_GUARDS, and so into researchProtocolSha256 through RESEARCH_SYNTHESIS_LENGTH_POLICY. The default hash moves from 925433f9ba8e9c531b51150b769b6bec382331b6d0824d37d151d1f9fdfbea88 (0709) to 9066d7de5d1c52e1cb0616a4b68ea157638749810ac5fabbd8863db6a288c6d3, re-pinned in tests/helpers/research-protocol-pin.ts. The consequences are 0625's, now for the new value:
+- **Serving cards.** Every earlier card's P10 structured-output evidence is invalidated (`serving_card_p10_protocol_drift`). None exists.
+- **Seeds and sessions.** Seeds from an earlier protocol are refused, and paused sessions drift. None exists.
+- **Loops.** No loop may span the change. None is in flight.
+- **Request bytes.** Index, plan and extraction requests are unchanged. A synthesis request changes through coverage.protocolSha256, and through lengthCap for a brief whose limit the rules now drop.
+(6) **The selection rule narrows 0334.** 0625 decision (4) changed the selection rule but attributed the old rule to 0442 alone. BL-20261109-0334 decision (5) ("Several limits ... the largest wins") and the default of its owner question 3 ("yes") now read: the largest stated limit when no guard drops it, otherwise none. For example, "Abstract: at most 300 words. Keep the report under 250 words." reads none. No Proposed entry is owed. The change stays within 0334's decisions that the cap is the brief's explicit upper limit and that a miss is preferred to a misread.
+(7) **Claims of 0625 this entry corrects.**
+- **Its decision (6), "The limitation text".** It says the heading and parenthesis forms now hold. They held only when the limit's clause opened at the heading's opener. A comma inside the heading or parenthesis still read the part's limit until rule A, as in "Abstract (required, max 150 words)".
+- **Its known misreads.** They named only a part on no list and the bare appositive. The list under Limitations widens them.
+- **The comment at lines 86-87 of research-admission.ts (at 5e16e20).** It said "each" and "every" already mark a per-question limit. They did so only in the limit's own clause. The comment now names the clause, its comma chain and the sentence before.
+(8) **Claims of 0709 this entry corrects.**
+- **"An exclusion no longer over-reaches".** That holds only after the limit, where an exclusion cancels only the nouns the correction added. In a heading an exclusion still cancels every part noun up to the next delimiter or line break, 7b.1's included. This applies to excluding, except and without, and to including or incl when they open a parenthesis. "Write a report without jargon and an abstract (max. 150 words)." reads 150, as at 5401d0f. It is now pinned as a known misread.
+- **"The cut-word rule now has a test".** No test brief had a limit cut inside a word, and removing the rule in five ways failed no test. 88b6775 adds four such briefs, each reading none: "Abstract-max 150 words", "each—at most 150 words", "not-at most 500 words" and "At most 500 words/section".
+- **A misread its decision (4) re-opened without saying so.** The four-word bound on heading-only nouns let a one-line comma list of parts read a part's limit again, as at 5401d0f. "Overview (max 200 words), findings (max 800 words), recommendations (max 400 words)." read none at de3adea and has read 800 since 96de34f. It is listed under Limitations.
+(9) **A test for each rule.** The review ran single-edit mutants of the parser and found eleven that no test killed. 88b6775 adds a brief that kills ten of them. 96129a0 kills the eleventh, a strip that drops a word's edge apostrophes, by pinning "'Abstract' (max 150 words)" as a known misread. Two more mutants were killed only by the protocol pin, not by a behaviour test. 96129a0 adds a brief for each:
+- the four-word bound on heading-only nouns: "Give the evidence an overview (at most 1,500 words)" reads 1,500;
+- "incl" cancelling only when it opens a parenthesis: "Write a report incl an abstract: at most 150 words" reads none.
+
+Changes: Commits 88b6775 and 96129a0 on `feat/7b.1-request-shapes`:
+- **src/main/private-agent/research-admission.ts:**
+  - CLAUSE_GUARDS: `commaChain`, `referring` and `previousSentence`;
+  - indexClauses: the chain openers, the line breaks and the referring-word prefix;
+  - guarded(): rules A and B, with the "word limit N" exemption passed from briefWordLimit;
+  - the doc comment, which includes the fix to lines 86-87.
+- **tests/unit/private-agent-research-admission.test.ts**, six new tests and a wider timing test:
+  - rule A's 13 briefs read none;
+  - rule B's 21 briefs read none: the review's 16, one of them in a second form as well; two briefs the review expected to stay misread, "Abstract; at most 150 words" and "Abstract (structured; max 150 words)"; and two more;
+  - 12 positive controls, the review's 9 among them;
+  - 10 new known misses;
+  - 24 known misreads with their values, and 4 report limits still missed;
+  - 14 briefs for the rules no test isolated;
+  - four 32 KiB inputs in the timing test: a comma chain of 3,276 part nouns, 910 sentences of "Include an abstract. Max 150 words.", 10,922 referring words before one limit, and 910 sentences of "For each source, at most 150 words.".
+- **tests/helpers/research-protocol-pin.ts:** the pin.
+
+Evidence: The checks ran locally at 96129a0, unless a line says otherwise.
+- **The admission test.** `pnpm exec vitest run tests/unit/private-agent-research-admission.test.ts` passes 24 tests: 0709's 18 and 6 new.
+- **The review's briefs.**
+  - The 13 briefs under A and the 16 under B read none.
+  - The review's 9 positive controls read their limits: 2,000, 500, 900, 3,000, 1,800, 1,000, 2,000, 2,000 and 2,000.
+- **Mutations.** Each mutant below fails at least one test of the admission and pipeline files (57 tests):
+  - the review's eleven survivors;
+  - three of rule A: no chain heading, no chained distributives, and a chain heading not bound to its line;
+  - five of rule B: no look-back, part nouns only, no "word limit" exemption, no referring words, and a look-back on every limit.
+
+  So do the two the pin alone caught, against the admission test.
+- **Research suites.** `pnpm exec vitest run tests/unit/private-agent-research tests/unit/role-schema-export.test.ts tests/unit/serving-probe-helpers.test.ts tests/unit/planner-fixture.test.ts tests/unit/assess-probe-replies.test.ts` passes 14 files and 199 tests. 0625 and 0709 named these suites without the filter. Their counts, 192 and 193 tests, came from the same filter and the same 14 files.
+- **Full suite.** `pnpm exec vitest run` reports 166 files passed and 13 skipped, and 2,708 tests passed, 84 skipped and 0 failed.
+- **Other checks.** `pnpm typecheck` and `pnpm validate:readiness` pass. So does `pnpm --silent validate:build-log -- --base-ref origin/main` with this entry appended.
+- **Differential against 5e16e20.** It ran from a scratch script that is not committed, with 450,000 generated briefs: random word mixes, a part sentence followed by a limit sentence, and comma-chain heads.
+  - 272,586 read the same.
+  - 177,414 read no limit where 5e16e20 read one.
+  - None is newly read, and none reads a different number.
+- **Differential against 5401d0f.** 0709's scratch scripts were rerun on the new code:
+  - the strip equals 7b.1's on 300,000 random tokens;
+  - of 200,000 briefs without headings, line breaks, exclusions or the new nouns, 199,962 are identical and 38 read no limit;
+  - of 300,000 random briefs with all of them, 578 read no limit and the rest are identical;
+  - of 200,000 exclusion briefs, 40,179 read no limit and the rest are identical.
+
+  In every set no brief is newly read, and none reads a lower or a higher limit.
+- **Timing.** The scratch script's seven inputs of 32,760 to 32,779 characters parse in 1.5 to 11.4 ms. They are the one-clause "150 words max " input, the four new inputs above, and runs of "a, " and "x. " before one limit. The one-clause input is the slowest, and it took about 4.0 s at 5401d0f. The timing test bounds each input at 1 s.
+
+Failures or blockers:
+- **The two classes in (1).** They are negative results against main, found by review before any run, and they are fixed here.
+- **Rule B's first build.** It missed "Add an abstract.\nMax 150 words.": it took the empty sentence between "." and the line break as the sentence before. It now reads the sentence holding the last word before.
+- **Rule A's first tests.** A mutant that dropped the same-line bound survived them until a control was added: "Sections:\nbe concise, at most 2,000 words" reads 2,000.
+
+Neither of those two first versions was committed.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`: nothing ran against an endpoint. Every limitation of 0625 and 0709 stands, except as corrected in (7) and (8).
+- **The parser stays heuristic.** It reads English phrasings with digits only.
+- **New known misses.** Each brief below reads no limit where the report's limit was meant, and each is pinned. The parse prefers this direction. While the role thinks, a stated limit of 1,200 words or more is clamped to 1,200 anyway.
+  - Rule A: "Cite every source, and keep the report under 2,000 words."; "Give each question a 2-3 word label, and keep the report under 2,000 words."; and "Write the following sections: introduction, body, and a conclusion, at most 3,000 words in total.".
+  - Rule B: "Write a report with an abstract. Max 2,000 words."; "Write a summary of the paper. Max 300 words."; "Answer every question. Keep it under 900 words."; "Write the report. Do not include an abstract. Keep it under 800 words."; "I need a summary of the audit findings for the board. Max 500 words."; "Include an abstract. This report must not exceed 2,000 words."; and "Write the abstract first. (At most 2,000 words.)". The review had listed the last one as a positive case for 0625's same-sentence rule. That rule is now tested with "Write the abstract first. (Overall at most 2,000 words.)", which reads 2,000.
+- **Known misreads that remain, stated as limits.** Each class has at least one pinned test with its value. The first six classes read a part's limit as the report's cap.
+  - **A part before a comma with no heading opener.** "Abstract, at most 150 words" reads 150. So do "For the abstract, use at most 150 words." (150), "- Abstract, 150 words max" (150) and "Include an executive summary, and keep it under 200 words." (200). Rule A reads only distributives in a chain.
+  - **A part named in the sentence after the limit.** "Max 120 words. That is for the summary." reads 120.
+  - **Heading-only nouns outside ":" or "(".** "## Results\nUp to 600 words." reads 600, and "Keep the discussion under 400 words." reads 400.
+  - **Part nouns glued to "/", "-" or an apostrophe, and nouns on no list.**
+    - Glued: "Abstract/summary: at most 150 words" (150), "The abstract's length: at most 150 words" (150) and "'Abstract' (max 150 words)" (150).
+    - On no list: intro, TL;DR, methodology, key takeaways and literature review, as in "Keep the literature review under 800 words." (800).
+  - **A part more than four words after the limit, or in a parenthesis after it.** "At most 300 words in the very last conclusion." reads 300, and "At most 150 words (abstract)." reads 150.
+  - **A one-line comma list of parts, or a heading of more than four words.** "Overview (max 200 words), findings (max 800 words), recommendations (max 400 words)." reads 800, as in (8). The review's long headings read the same at 5401d0f and here. An example is "Limitations of this study and future work (max 200 words)", which reads 200.
+  - **An exclusion in a heading.** It cancels every part noun up to the next delimiter or line break, as in (8).
+  - **A floor stated by its consequence or as a range.** "Reports under 1,000 words will be penalised." reads 1,000, and "Write at least 800 to 1,000 words." reads 1,000.
+  - **A limit that describes another document.** "For context, the previous consultant's report was capped at 500 words and missed half the issues. Yours should be thorough." reads 500.
+  - **A companion deliverable.** "Full report please, plus a press release of no more than 400 words." reads 400.
+  - **Report limits missed.** Each brief below reads none, as a miss:
+    - line-structured briefs: "Sections: three\nAt most 900 words";
+    - exclusions on no list: "Word limit (not including the abstract): at most 900 words";
+    - plain caps that match no pattern: "Maximum length: 1,500 words." and "No longer than 1,000 words.".
+- **Before #69's delta.** A digit on the next line makes a range read as its lower end, through the NUMBER pattern's lookahead. "Word limit: 600-900\n3 sources minimum" reads 600. It is pinned and left for a later PR.
+
+The owner question: Should the remaining misreads above be accepted as stated limits, or should the rule later change to a positive test for "the report"? Under a positive test, a limit counts only when its sentence names the report or the whole document, or nothing in the brief names a part. Proposed default: accept them as stated limits in #69, and decide on the positive test after E0's briefs show which phrasings occur. A positive test would remove most of these misreads, but not those that name a report, such as the floor or the other document's limit. It would also miss limits whose sentence names neither the report nor a part while another sentence names a part, as in "Include an abstract. Max 2,000 words." Rule B already misses some of those.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator checks this push:
+- only drops against 5e16e20;
+- the briefs under A and B read none;
+- the positive controls;
+- linear timing;
+- the appended entries;
+- the hash.
+
+Then CI green on #69 and the merge train. #76 merges this head and re-pins in its own Correction entry, whose ID is later than this one.
+
+References: BL-20261110-0625-correction-research-length-parser and BL-20261110-0709-correction-research-length-parser-exclusions (corrected); BL-20261109-0334-research-request-shapes-design (decision (5) and owner question 3, narrowed); BL-20261109-0442-research-request-shapes-implemented; the orchestrator's delta review of PR #69 at 5e16e20, which is review data and not committed.

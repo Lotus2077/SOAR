@@ -224,7 +224,8 @@ def synthetic_text_bytes(target_bytes: int, seed: int) -> str:
 
 
 def synthetic_packet(seed: int, target_bytes: int = P11_PACKET_BYTES) -> Dict[str, Any]:
-    """The stable part of an extraction request: brief, units and plan, about target_bytes in all."""
+    """An extraction request's job-level parts: the stable packet (brief, units and plan, about target_bytes in all) and the source
+    the chunks belong to, which the pipeline sends in the per-chunk part."""
     brief = ("1. Describe the synthetic observations in the supplied corpus.\n2. Name every conflict between sources.\n"
              "3. State the limitations of the evidence.\n")
     units = [{"id": f"U{i + 1}", "text": line} for i, line in enumerate(brief.splitlines())]
@@ -243,12 +244,34 @@ def canonical_json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+# The pipeline's extraction layout (RESEARCH_EXTRACTION_LAYOUT in research-pipeline.ts, backlog item 7(b) part 1), recorded in
+# P11's output so a probe JSON states which stable_prefix it measured; a test pins this copy equal to the TypeScript one.
+EXTRACTION_LAYOUT = {"version": 1, "separator": "\n", "stable": ["brief", "plan", "units"], "perChunk": ["chunk", "repairReason", "source"]}
+
+
+def stable_packet(packet: Dict[str, Any]) -> Dict[str, Any]:
+    """The part every extraction request of a job shares: brief, plan and units."""
+    return {key: packet[key] for key in EXTRACTION_LAYOUT["stable"]}
+
+
 def extraction_layouts(system: str, packet: Dict[str, Any], chunk: Dict[str, Any]) -> Dict[str, List[Dict[str, str]]]:
-    """Today's sorted-key layout puts the chunk between brief and plan; the proposed layout puts the stable packet first."""
+    """sorted_keys is the pipeline's extraction message before backlog item 7(b) part 1: one sorted-key object, which puts the
+    chunk between the brief and the plan. stable_prefix is the pipeline's message since then (researchExtractionUserContent in
+    research-pipeline.ts): canonical {brief, plan, units}, a newline, then canonical {chunk, repairReason, source}."""
     sorted_user = canonical_json({**packet, "chunk": chunk, "repairReason": None})
-    stable_user = canonical_json({**packet, "repairReason": None}) + "\n" + canonical_json({"chunk": chunk})
+    per_chunk = {"chunk": chunk, "repairReason": None, "source": packet["source"]}
+    stable_user = canonical_json(stable_packet(packet)) + EXTRACTION_LAYOUT["separator"] + canonical_json({key: per_chunk[key] for key in EXTRACTION_LAYOUT["perChunk"]})
     return {"sorted_keys": [{"role": "system", "content": system}, {"role": "user", "content": sorted_user}],
             "stable_prefix": [{"role": "system", "content": system}, {"role": "user", "content": stable_user}]}
+
+
+def cache_layouts_record(packet: Dict[str, Any], chunks: List[Dict[str, Any]], layouts: Dict[str, Any]) -> Dict[str, Any]:
+    """P11's cache_layouts block: the pipeline's layout descriptor, then packet_* over the stable packet (the first line every
+    extraction request of a job shares; since 7b.1 it holds no source), the chunks' digests and sizes, and the layouts' rows."""
+    stable = canonical_json(stable_packet(packet))
+    return {"stable_prefix_layout": EXTRACTION_LAYOUT, "packet_sha256": sha256_text(stable), "packet_bytes": len(stable.encode("utf-8")),
+            "chunk_sha256": [sha256_text(chunk["text"]) for chunk in chunks], "chunk_bytes": [chunk["endByte"] for chunk in chunks],
+            "layouts": layouts}
 
 
 def stable_prefix_of(messages: List[Dict[str, str]]) -> str:
@@ -794,9 +817,7 @@ def probe_p11(ep: Endpoint, card: dict, ctx: dict) -> dict:
                          "cached_tokens": result.get("cached_tokens"), "ttft_s": result.get("ttft_s"), "total_s": result.get("total_s")})
         layouts[layout_name] = {"requests": rows, "cache_salt_accepted": all(row["status"] == 200 for row in rows),
                                 "second_request_cached_tokens": rows[-1]["cached_tokens"] if rows else None}
-    out["cache_layouts"] = {"packet_sha256": sha256_text(canonical_json(packet)), "packet_bytes": len(canonical_json(packet).encode("utf-8")),
-                            "chunk_sha256": [sha256_text(chunk["text"]) for chunk in chunks], "chunk_bytes": [chunk["endByte"] for chunk in chunks],
-                            "layouts": layouts}
+    out["cache_layouts"] = cache_layouts_record(packet, chunks, layouts)
     k_streams: Dict[str, Any] = {}
     for k in args.p11_ks:
         results, samples = run_streams(ep, ctx["prose"], 900, k)

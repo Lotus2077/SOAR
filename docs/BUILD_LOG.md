@@ -31017,3 +31017,109 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI green and a merge, before item 7(c), which imports the contract. Then 10.b, after 7(c) and 7(b)-2 merge.
 
 References: BL-20261109-0417-assist-wrapper-design; BL-20261107-0839-assist-purpose-exception-design; BL-20261107-0842-assist-purpose-exception-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.2 and section 5.7 item 10; issue #49.
+
+### BL-20261110-0820-correction-assist-core-review -- 2026-11-10 -- Correction: the assist core after the merge-train review of #79, with glued hosts and file names fixed, scrub policy version 4, the assist protocol hashes pinned, and the limits the Implemented entry left out
+
+Status: `Implemented`
+
+Scope or hypothesis: This records the fixes for the independent merge-train review of pull request #79 at 67e3374, and it corrects BL-20261110-0639-assist-core-implemented without editing that entry. The fixes are in commit 8090f65 on `feat/10a-assist-core`. research-assist-contract.ts and research-plan.ts are unchanged.
+
+Decisions:
+- F3:
+  - Text glued before a source host, or before a scheme-less URL form of the source, now makes another host or a credential. That text is host labels, userinfo or a word.
+  - The whole token, with any `//` and scheme before it, becomes `[url]` and is counted as a URL. A lone `www.` keeps the alias.
+  - A host match is no longer refused for what is glued on its left, which supersedes the left half of 0639's "a host is bounded".
+  - A scheme-less URL with `user:password@` before a dotted host is a credential, and becomes `[url]` with or without a path even when no source is involved.
+- F4: A file name glued to a source's file name through `-`, `_` or `.`, on either side, is another file. The whole run, with its folder prefix and any root slash, becomes `[file]`, never the source's alias with the rest left around it. Extension-less stems keep the old rule (see the limits).
+- F5:
+  - T1 stops as `assist_request_invalid` unless a prior attempt's `ordinal` and `omittedErrorCount` are safe integers and `truncated` is a boolean.
+  - The ordinal is not pinned to the wrapper's two slots, because 7(c) may number more attempts.
+- T2 refuses a request as `assist_request_invalid` in two cases: its coverage marks a source readable but the source's text is missing, or its coverage lists other sources than the request.
+- The scrub policy is at version 4, with the new glue rules. The assist protocol block's hashes are now pinned by a test:
+  - `forced_split`: 127a56d3f9a29ec2f4b13c208b7d60217075a61dce60e61bd113807164028411;
+  - `local_first`: fd294f1e6d97eb9d130f307dbc4ebee99d7484c90c81b7c3290d6059d4504b75.
+- On the orchestrator's owner question 1, the default holds and a test now pins it: when the first packet's evidence cannot be halved, the T2 retry is refused locally as `assist_packet_size_exceeded` with no request.
+- F1, for cross-lane merges: the fixture now reads a local request of one or more canonical JSON lines. The assist test no longer pins the default research protocol hash, which other tests already pin.
+
+Changes:
+- src/main/private-agent/research-assist-scrub.ts;
+- src/main/private-agent/research-assist.ts;
+- tests/helpers/research-assist-fixture.ts;
+- tests/unit/private-agent-research-assist.test.ts, tests/unit/private-agent-research-assist-scrub.test.ts and tests/unit/private-agent-model-anthropic.test.ts;
+- docs/BUILD_LOG.md (this entry).
+
+Evidence: The runs are local, on Node 22.22.2 and pnpm 10.12.4, at 8090f65.
+- `pnpm typecheck` passes.
+- The tests:
+  - The four test files this PR changes pass 181 of 181: 23 scrubber, 60 assist, 47 Anthropic and 51 Responses.
+  - The unchanged plan-contract file passes 38 of 38.
+  - 0639's "204 of 204 in five files" counted that unchanged file. The right count then was 166 in four changed files, plus 38.
+- What the new tests show:
+  - Scrubber:
+    - The review's host and file-name inputs become `[url]` or `[file]` in both scopes, survive a second scrub, and pass the audit.
+    - The source's own forms keep their alias.
+    - A form two sources share is `[source]`.
+    - A ligature on either side is found only by the audit's NFKC view.
+  - Wrapper:
+    - A ligature in the authored brief refuses T1 and T2 as `source_identity`, and so does a ligature stem in a gist or in a plan question.
+    - A quote ending in `C:\` refuses T2 as `url_or_path`.
+    - An authored brief with a glued host and a credential goes out as `[url]` twice, and neither request body holds the labels or the credential.
+    - F5's malformed attempts, an empty T2, and a T2 coverage mismatch stop as invalid requests.
+    - A heading of 32 to 63 code points copied into plan text refuses T2 as `literal_text`.
+    - A one-quote T2's truncation retry is refused with no request.
+    - The attempt record's dispatch and ordinal rules hold.
+    - `private_model_response_invalid` stops with `dispatched` true.
+    - An unknown Anthropic cache-write key whose value sums to the count is not reported.
+  - A local mutation check (not committed) catches each of these 16 single-line mutants:
+    - the final audit's text loop or model loop removed;
+    - the audit reading NFC, or building its forms in NFC;
+    - no host lead, no name run, no credential rule;
+    - no prior-attempt checks, no readable-text check, no heading check, no empty-T2 rule;
+    - each of the three attempt-record rules removed;
+    - `private_model_response_invalid` not counted as dispatched;
+    - the unknown cache-write key rule removed.
+  - What they do not show: any live provider's behaviour, or that the generic rules cover every shape (see the limits).
+- Cross-lane: 8090f65 was merged, in a throwaway worktree, with #69 (7b.1) and separately with #76 (7a.1, which holds #69). Both times the two assist test files pass 83 of 83 and typecheck passes. The only conflict is docs/BUILD_LOG.md.
+- The whole suite (`pnpm exec vitest run`): 167 files passed and 13 skipped (180); 2,799 tests passed, 84 skipped and 0 failed (2,883).
+- Local probes:
+  - The third round's privacy probes send 118 cases clean, as before.
+  - Two fuzzers find 0 failures.
+  - 32 crafted inputs, best of three: from 32,000 to 128,000 characters the time grows by 2.5 to 9.2 times. The three highest ratios came from runs of 4 to 20 ms. Those three, and three others, double exactly from 128,000 to 512,000 characters; the slowest, CJK text, takes 519 ms at 512,000.
+  - The new credential rule first cost CJK text a 64-character backtrack at every position. Its user part is now ASCII only, and CJK text at 128,000 characters takes 129 ms.
+- `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass.
+
+Failures or blockers: The review used three lenses and 15 agents, with two skeptics on each major finding. It confirmed six findings at 67e3374:
+- F1, major, test-only: with #69 or #76 merged, 41 of the 50 assist tests failed, because the fixture parsed one JSON line and the test pinned the default protocol hash. Fixed.
+- F3, major: labels, userinfo or a word glued before a source's host were sent as written (`payroll-2025.intranet.S1`, `alice:hunter2@S1`, `evil-S1`), and the audit passed them. Fixed.
+- F4, major per the reviewer and minor per both skeptics: a file name ending in a source's file name kept its prefix and the source's label (`secret-merger-S2`, `merger/private-S2`). Fixed.
+- F2, major or minor: no test failed when the final audit's loops or its NFKC view were removed. Tests added.
+- F5, minor: three fields of a prior attempt reached the packet unchecked. Fixed.
+- F6, minor: 0639's limits omitted forms that are sent as written. They are listed below.
+- Minors that had no skeptic:
+  - These had no tests: the heading check, the `[source]` merge, three attempt-record rules, the empty-T2 rule and the unknown cache-write key rule. All are tested now.
+  - The T2 retry's local refusal was unstated. It is now stated, as the default of owner question 1.
+- Nits:
+  - The protocol hash was compared only with itself. It is pinned now.
+  - `private_model_response_invalid`'s dispatch was untested. It is tested now.
+  - 0639's test count is corrected above.
+  - A missing source text dropped the copy check for that source. T2 now refuses when coverage says the source was readable; otherwise this is a limit.
+
+Limitations and non-claims: These add to 0639's limits. Each form below is sent as written in every field unless the owner's answer to owner question 2 asks for rules; the default is to state them as limits now, for the public and synthetic arms only.
+- A scheme-less dotted host with no path, with or without a port (`wiki.acme-merger.internal`), unless a source names it.
+- A bare IPv4 address. 0639 listed IPv4 addresses as fixed at d2ab888, but f11ead2 narrowed the rule to an address with a port or a path, and 0639 did not say so.
+- An scp-style target, and any rooted path directly after a colon. With a password, `user:pw@10.2.3.4:/srv/data` sends `[url]:/srv/data`. Without one, `user@10.2.3.4:/srv/data` goes out whole.
+- A bare e-mail address with no password (`alice@acme-merger.example`), unless its domain is a source's host.
+- A rooted path of one or two segments with no extension (`/Users/alice`, `/home/bob`, `/etc/passwd`).
+- An extension-less stem glued to other text through `-`, `_` or `.` keeps that text in model-written text (`pre-S1`, `S1-v2`).
+- For a source with no readable text, plan text cannot be checked for copies of it, since there is no text.
+- `Socket.io/WebSocket` and `Q:/A:` still over-match, as 0639 says.
+- No SOAR model request, endpoint, Docker container or paid call ran.
+- The two changed source files are under src/main/private-agent, so the harness source-freeze digest changes again. No owner loop or E-run may span #79's merge.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The orchestrator's delta review of #79 at its new head, then train 1 or train 2.
+- 10.b may wire the assist's dispatch only once no review finding is open. With these fixes, it waits only for 7(c) and 7(b)-2.
+
+References: BL-20261110-0639-assist-core-implemented; BL-20261109-0417-assist-wrapper-design (its fourth owner question); pull requests #79, #69 and #76.

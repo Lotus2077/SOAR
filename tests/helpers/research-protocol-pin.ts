@@ -20,5 +20,9 @@
  *   (re-pinned in BL-20261110-0712): the same 7a.1 code on the corrected word-limit parser.
  * - 396a15f3aca0c7b758fe4b052ee744911f0a5943dd805d518a70d9b6799ac2aa: 7(a), part 1, with owner question 3's corner settled (BL-20261110-0726): a first attempt that
  *   dropped every quote of a found question is held and its chunk repaired while the budget lasts.
+ * - 9066d7de5d1c52e1cb0616a4b68ea157638749810ac5fabbd8863db6a288c6d3: the delta review's rules A (comma chains) and B (the sentence before)
+ *   (BL-20261110-0848): a part named there marks a part's limit too.
+ * - 05f342b25f3483574cca4f1bad53468219e63e94578927c069a8c831289e93a8: 7(a), part 1, merged onto rules A and B (re-pinned in BL-20261110-0900): the same 7a.1 code on the
+ *   parser of BL-20261110-0848.
  */
-export const RESEARCH_PROTOCOL_SHA256 = "396a15f3aca0c7b758fe4b052ee744911f0a5943dd805d518a70d9b6799ac2aa";
+export const RESEARCH_PROTOCOL_SHA256 = "05f342b25f3483574cca4f1bad53468219e63e94578927c069a8c831289e93a8";

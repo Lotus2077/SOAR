@@ -30594,3 +30594,49 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI green on the pull request and a merge; then 8.1's `Proposed` entry and ledger change after E1-R merges; then 8.2b on SC, 8.1 and this pool.
 
 References: docs/PROJECT_REVIEW_2026-11-05.md section 4 row D12, section 5.2 ("Local fan-out"; rows S2, S4, S10) and section 5.7 item 8; docs/HANDOFF.md "Start here"; BL-20261107-0809-zero-fee-failures-resolve-design (why a zero-fee local row never stays unknown); BL-20261107-0859-label-keyed-diagnostics-design (the per-stage ordinals that in-order apply keeps).
+
+### BL-20261110-0619-correction-ordered-pool-entry -- 2026-11-10 -- Correction: the ordered-pool entry's listener rationale and genuine-denial rule, and the harness source-freeze digest it left out
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct three statements of BL-20261109-0456-ordered-pool-implemented (pull request #71) that the independent merge-train review of #71 found, without editing that entry. No code or test changes.
+
+Decisions:
+- The listener rationale is withdrawn.
+  - On Node 22.22.2 the maximum listener count of an AbortSignal, and of a signal from `AbortSignal.any`, is 0, so no number of listeners on a signal emits MaxListenersExceededWarning.
+  - So the entry's "K = 8 therefore never trips Node's MaxListenersExceededWarning" holds only vacuously. So does its test line "no MaxListenersExceededWarning at K = 8 with three listeners per call": that test cannot fail on this runtime and counts no listeners.
+  - The per-launch child signal exists for the sibling abort and the reason-based `afterAbort` label.
+  - The review reports that the design adds no listener to the stage's signal and leaves only the call's own listener on each launch signal. 8.2b replaces the vacuous test with direct listener counts and rewords the comment in ordered-pool.ts.
+- One rule for the stage's genuine denial replaces the entry's two.
+  - A sibling stop is an outcome applied with `afterAbort` whose call reports `cancelled`.
+  - The stage's denial is the lowest-index denial that is not a sibling stop.
+  - The entry's other wording, "the first denial applied without `afterAbort`", is superseded. A call that failed for its own reason just as the abort arrived is marked `afterAbort` too, and it is still a genuine denial.
+  - 8.1's Proposed entry adopts this rule for 8.2b.
+- The new file changes the headless harness's source-freeze digest.
+  - `localScreenSourceFreeze()` in scripts/private-agent-local-screen.ts hashes every `.ts` file under src/main/private-agent, so ordered-pool.ts enters the runtime digest although nothing imports it.
+  - No owner loop or E-run may span this merge, and an operator recomputes `--runtime-sha256` after it.
+  - The entry's "No existing file changes" stays true, but the entry should have named this effect.
+
+Changes: docs/BUILD_LOG.md (this entry). No code or test changes.
+
+Evidence:
+- On Node v22.22.2, `events.getMaxListeners` returns 0 both for `new AbortController().signal` and for `AbortSignal.any([signal])` (run on 2026-11-10).
+- scripts/private-agent-local-screen.ts builds the freeze from `readdirSync("src/main/private-agent")` filtered to `.ts` files (read on 2026-11-10).
+- The genuine-denial conflict is the review's own probe at K = 3, not rerun here. It applies [0, `request_failed`, afterAbort], [1, `cancelled`, afterAbort], [2, `budget_denied`, not afterAbort]. Under the superseded wording the stage would report item 2's `budget_denied` instead of item 0's `request_failed`.
+- `pnpm --silent validate:build-log -- --base-ref origin/main` passes with this entry.
+
+Failures or blockers: None. The review also found two test gaps, recorded here as next gate: no test pins that nothing more is applied after a callback throws, and the pool's limit of 8 has no parity test with SC's `MAX_LOCAL_STREAMS`.
+
+Limitations and non-claims: A record correction only. The vacuous listener test and the code comment stay as they are on this branch until 8.2b. Nothing is implemented, verified or released by this entry.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- 8.1's Proposed entry fixes the genuine-denial rule above.
+- 8.2b wires the pool and adds:
+  - the listener-count test;
+  - the assertions that nothing is applied after a callback throws;
+  - a parity test that `ORDERED_POOL_MAX_LIMIT` equals `MAX_LOCAL_STREAMS`;
+  - the reworded comment.
+
+References: BL-20261109-0456-ordered-pool-implemented; pull request #71; scripts/private-agent-local-screen.ts (`localScreenSourceFreeze`); src/main/private-agent/serving-card.ts (`MAX_LOCAL_STREAMS`).

@@ -33967,3 +33967,191 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The implementation with deterministic tests, an adversarial code review and its `Implemented` entry. It starts once pull request #73 is in this branch's base, because it shares part 2's scan. Then CI and a merge after #67 and #78, in the shared files' orders (scripts/phase4-loop.ts: 11.1, 11.3, 10.b, 7a.2; scripts/registry-row.py: 11.1, 11.2, 11.3, 11.4, 7d.C, RA). Graded and cloud-armed loops wait for it.
 
 References: docs/PROJECT_REVIEW_2026-11-05.md section 2.2 (criteria 7 and 8), section 5.1 rule 5, section 5.6 (E1, E3, E4) and section 5.7 item 11; docs/PLAN.md R0; BL-20261101-0436-h4-runner-controls-fixed; BL-20261107-0809-zero-fee-failures-resolve-design (item 1); BL-20261107-0859-label-keyed-diagnostics-design (item 4); BL-20261108-1459-serving-card-reader-design and BL-20261108-1649-serving-card-reader-implemented; BL-20261109-0331-loop-selection-protocol-2-design and BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0515-infra-classification-design, BL-20261109-0606-correction-infra-classification-rules and BL-20261109-0607-infra-classification-implemented; pull requests #66, #67, #73 and #78; issue #46.
+
+
+### BL-20261110-1008-infra-resume-implemented -- 2026-11-10 -- Backlog item 11, part 3b implemented: the loop resumes a stage that ended on infrastructure once at zero fee (LOOP_VERSION 2), under a lock and write-ahead moves, keeps every run's spend in its totals, closes with `--close`, and every loop that ends gets a registry row
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261110-0637-infra-resume-design with deterministic tests. The branch is `feat/11.3b-infra-resume`. It merges part 3a's branch at 687c5b2 (pull request #78, which merges part 2's branch, pull request #73, at a27652a), on part 1's 9eed3d7 and `main` 2982ca7. Hypotheses:
+- A loop stage that ended on infrastructure is resumed once, at zero fee, and no resume sends a priced call again.
+- Every run's spend stays in `loop.json`'s totals at every save of every invocation, and in the registry row.
+- Every loop that ends gets a row, classed by why it ended.
+
+Decisions: The design entry is unchanged. Where the code departs from it, or where the adversarial code reviews changed it, this entry records the departure:
+- (1) **Separate lists in place of `LOOP_STOP_CAUSES`.** run-classification.ts holds these lists:
+  - `RUN_UNFINISHED_CAUSE`, `LEDGER_STOP_FAILURES` and `LEDGER_STOP_CAUSES`;
+  - `LOOP_INTEGRITY_STOPS`, the five codes of decision (10), with `loop_resume_mismatch` and `loop_stage_ledger_unreadable`;
+  - `LOOP_INTERRUPT_FAILURE` and `CRITIQUE_CANCEL_CODES`.
+
+  Beside them are `ledgerStop` (decision (4): the last uncertain row, else the last priced failed row) and `classifyLoopStop`. registry-row.py mirrors each of them, and a test keeps the two equal, row for row.
+- (2) **A critique the interrupt cancels.** `classifyCritiqueEnd` is amended beyond decision (1). Under the loop's mark, the four codes of a cancellation the interrupt causes are the operator's stop, so such a critique is resumed. They are `local_token_admission_cancelled`, `request_cancelled`, `retry_wait_cancelled` and `transport_cancelled`. Without the mark they stay the task's. The code review found that, without this, a marked critique cancelled at its token admission ended the loop at `critique_failed`.
+- (3) **What counts as a run.**
+  - **Unreadable files.** Both languages read a run's files the same way: selection.ts `readRunObject` and registry-row.py `read_object`. A file is unreadable when it is a symbolic link, not strict UTF-8, led by a byte-order mark, not JSON, or not an object.
+  - **Void starts.** A directory without a readable freeze, or whose freeze names a job the reader refuses, is a void start.
+  - **Results.** A result is readable only when it holds a status, a reason and an end time (`readRunResult`, `read_result`); `readRunEndEvidence` refuses any other with `run_result_unreadable`. A run without a readable result did not finish (`run_unfinished`).
+  - **Critique records.** A critique record that cannot be read is no answer. The critique is then read by its failure record, or as a critique that did not finish.
+  - **Ledgers.** A run whose freeze is readable, or that holds a result, must have a ledger with the store's three tables (`run_ledger_missing`). The loop then refuses resumably with `loop_stage_ledger_unreadable`, and the registry refuses the row, a `--run-dir` row included.
+- (4) **What the invocation that ran a stage does.**
+  - The ledger stop of decision (4) runs before the deferral. A priced unresolved or failed row therefore stops the loop in the invocation that ran the stage, not in the next one.
+  - A driver that throws after its run froze is examined at once as a run that may not have finished. The invocation stops with `loop_stage_infra` when the stage can be resumed, else with a ledger stop or `loop_stage_incomplete`. The driver's message goes to errors.txt only.
+  - Under the loop's interrupt, the invocation stops with `loop_interrupted`. A start that froze nothing keeps its own refusal.
+  - Part 1's tests now expect these codes where they expected the driver's.
+- (5) **Resumable refusals.** `loop_stage_ledger_unreadable` and `loop_stage_cleanup_required` leave the loop resumable, and `--close` can end it. A claim recovery that finds claims without a freeze stops the loop for good with `loop_stage_mismatch`.
+- (6) **The record, beyond decision (7).**
+  - A resume entry's identity also records the moved run's job (`identity.jobId`), which the lineage checks read.
+  - `held` keeps a stopped stage's counts on disk while that stage is neither a candidate, the critique's record, nor moved aside. It applies with or without a result, where decision (7) named only a stage without one, and it is carried across invocations.
+  - A resumed invocation carries the candidates, the critique record, the stage-1 choice, `seeded` and `writeIdentityEqual` that it finds. Each is validated, and a malformed one refuses with `loop_record_mismatch`. No save of a later invocation can then lower the totals before a stage is reused, moved aside or held. The code review found that a resumed invocation's first save dropped the earlier invocations' counts.
+  - A resume entry's `span` is the moved run's own: its recorded times, else from its freeze's start (or its begun time) to its result's end, else to its last commit after that start. The review found that the span ran to the moment of the move, so it included the wait between invocations.
+  - `failure` and `failedStage` are also set when a stop after stage 1 ends the loop with its draft.
+  - `closed: true` records that the operator closed the loop, after stage 1 as well as at a stop.
+  - A version-2 record saved before `held` existed is read as `held: null`.
+- (7) **`--close`.**
+  - **Its stage.** When the record names no stage, as after a hard kill, the stopped stage is the last begun stage on disk that the loop had not accepted, that is, one with no candidate and no answered critique in the record. That stage may hold a torn result, or a result the loop never examined.
+  - It reads a stopped stage's evidence with the stage's interrupt mark. A missing directory, or one without a readable freeze, gives `none`. An unreadable result falls back to the ledger.
+  - **An answered critique.** When the critique answered but the loop stopped before recording the answer, the loop stopped before its repair. The close then ends it at `repair_failed` and records the answer. A stop at the critique records the critique's own code, as a critique that failed inside the loop does.
+  - It recovers the critique's ledger and counts the critique's record.
+  - An integrity stop that the close itself finds (`loop_resume_mismatch`, `loop_stage_ledger_unreadable`) never becomes a final selection after stage 1.
+  - It refuses a missing record with `loop_record_missing`, and records `loop_closed` when the loop recorded no failure.
+  - It prints the CLI's line with `state` `stopped` or `ended`, and exits 2.
+- (8) **The critique stage.**
+  - A critique defers with `loop_stage_infra` only when its directory exists. One that failed before creating it ends the loop at `critique_failed`.
+  - A resumed critique's spend check also runs when the critique failed.
+  - Its usage and fee are read as counts, so a malformed field counts 0, and its call counts only when it recorded a non-empty usage object, as the registry reads it.
+  - **Codes, not messages.** The critique tool records its error's message as its code, and a message may carry a host path. The loop reads that field as a code: any other string becomes `repair_critique_failed`. The registry's `critiqueFailure` is null unless it holds a code.
+- (9) **The registry.**
+  - A closed loop (`loop.closed`, or `stopped.closed`) has every run directory summed, whether its record names it or not.
+  - In both versions, each run is summed once per job, the stage's own directory first. A run of another task or runtime refuses the row.
+  - A version-2 record's task, pipeline, begun entries, stop and closed mark are validated.
+  - A stopped row reads its stage's fields defensively. They come from the freeze, the readable result and the events, and the loop's own date, task and pipeline stand where the freeze records none. No damaged directory stops the row with a traceback.
+  - Every run file is read as selection.ts reads it: never through a symbolic link, as strict UTF-8 without a byte-order mark, as JSON without NaN, and as an object only. A commit time stored as an integral float counts.
+  - In every row, `--run-dir` rows included, a ledger row that is not an object is skipped, one that is not JSON refuses the row, and a count that is not a finite number counts 0, as selection.ts `runCounts` reads them. Before, such a value stopped the writer with a traceback or was truncated with `int()`.
+  - Version-2 rows carry `loop.closed`. Provenance skips void starts. A version-1 loop without a selection is told to resume, not to close. `activeSeconds` is null for version 1.
+  - Each sample's own `runClass`, and BL-20261110-0723 (c)'s `repair_<cause>`, apply to both versions. Version-1 sums now include the runs an operator moved aside by hand (decision (8)).
+- (10) **The ledger helpers.** src/main/private-agent/loop-ledger.ts (new) holds the lock, the atomic write, ledger recovery and claim recovery. The loop takes six new dependencies: `readRunEnd`, `readLedger`, `readCritiqueFailure`, `recoverLedger`, `recoverClaims` and `lock`. `readCritique` moves into `ledgerDependencies`, which `--close` uses.
+- (11) **Decided not to change.**
+  - An unfinished cloud-armed `a` without a packet still stops for good with `loop_stage_incomplete` when its ledger holds no priced row, as decision (1) decided. Finishing such a loop is a paid re-run.
+  - A stopped sample with a result keeps part 3a's class. This joins question (a).
+  - BL-20261110-0723's question (c)(i), a reading stage denied `transport_or_settlement_unknown`, stays open for the owner.
+- (12) **A statement of BL-20261110-0723 that does not hold.** BL-20261110-0723 is not edited; this entry records the correction. Its point (b) says rule (d) reaches `destination_missing` through a reading stage's denied code, but in version 1 no real record carries that code from a reading stage. The reading stage checks its deadline before it calls the model, and that check asks the broker for the destination's timeout (research-pipeline.ts:125, model.ts:330, broker.ts:393-397). A missing destination therefore throws before the stage's `try`, out of `runResearchPipeline` (session.ts:389-392 has no `catch`), and the driver ends the run `session_failure` (private-agent-local-screen.ts:507). That reason is infrastructure, with cause `session_failure`. Merge train 1's delta review of #78 found this, and the orchestrator is adding it to owner question (d).
+- (13) **Citations that moved.** After part 2's merge, the design entry's driver citations moved: the provider check is now at private-agent-local-screen.ts:390, the directory at :396, the ledger at :405, the freeze at :487 and the result at :528. The loop's signal handlers are now at phase4-loop.ts:775, and the driver's at private-agent-local-screen.ts:412. The critique tool's lines are unchanged (:114, :137-138, :160, :172).
+
+Changes:
+- scripts/phase4-loop.ts:
+  - LOOP_VERSION 2, the lock and the atomic saves;
+  - `begun`, `resumes`, `voids`, `held`, `stopped`, `closed`, `failedStage`, `seeded.a` and `selected.final.cause`;
+  - reconciliation, ledger and claim recovery, the write-ahead move and void starts;
+  - the resume plan: the spend-free table `DRIVER_INPUT_SPEND` and `rerunCannotSpend`, the seeded writer, and the spend check;
+  - the ledger stop, the deferral, the driver-throw path, the terminal stops and `repair_failed`;
+  - carried and held counts, and totals recomputed at each save;
+  - `closeLoop` and `--close`, the new dependencies and `ledgerDependencies`, and the header comment.
+- src/main/private-agent/loop-ledger.ts (new): `acquireLoopLock`, `writeFileAtomically`, `syncDirectory`, `directoryInode`, `recoverRunLedger` and `recoverRunClaims`.
+- src/main/private-agent/selection.ts: `researchFrom.sourceFreezeSha256`, `isZeroFeeDispatch` apart from the status, `runCounts`, `RunLedger`, `readRunLedger`, `readRunObject` and `readRunResult`, and `readRunEndEvidence`'s refusal of an unreadable result.
+- src/main/private-agent/run-classification.ts: the lists and functions of decision (1) here, and the amended `classifyCritiqueEnd`.
+- scripts/registry-row.py:
+  - the mirrored lists and functions;
+  - `read_object`, `read_result`, `ledger_rows` with its ledger requirement, `counts_of` and `run_ledger`;
+  - `hold_loop_lock`, `loop_scan`, `own_runs`, `loop_runs`, `stage_run`, `active_seconds`, `freeze_fields`;
+  - `loop_row` for versions 1 and 2, with rows for loops stopped without a selection;
+  - provenance through the scan.
+- docs/experiments/README.md: `activeSeconds`, the version-2 `loop` fields, stopped rows, the new `runClass` causes, the cloud fields through `stage_run`, and what the writer refuses.
+- Tests:
+  - tests/unit/phase4-loop-resume.test.ts (new, 27 tests), covering:
+    - the deferral and the resume, once;
+    - the seeded-writer resume of `a`, and a rerun of a local `a` without a packet;
+    - a cloud `a` without a packet;
+    - void starts;
+    - the ledger stop, admitting a zero-fee committed row;
+    - claim recovery, through the store's own path;
+    - the lock, reconciliation, a real hot journal and the spend check;
+    - the spend-free table, which fails closed;
+    - stops after stage 1 and `--close`;
+    - spans, and carried and held counts;
+    - a driver that throws after its freeze, and a torn result;
+    - a critique cancelled at its token admission, and one stopped while it rendered;
+    - a resumed critique that spent;
+    - the production wiring, pinned by identity, and `--close`'s arguments;
+    - `--close` after a hard kill, after an answered critique and after a failed one;
+    - the critique tool's records read strictly;
+    - a torn critique record, and a record saved before `held` existed.
+  - tests/unit/registry-row-resume.test.ts (new, 23 tests), covering:
+    - version-2 sums, `stage_run`, `resumes` and `activeSeconds`;
+    - the directory check, closed loops and their strays, and duplicates;
+    - stopped rows: their classes, fields and outcomes;
+    - `critique_failed`, `repair_failed` and `repair_<cause>` in both versions;
+    - version-1 hand-moved runs and the cross-check;
+    - per-sample marks;
+    - the shape refusals and the missing-ledger refusal;
+    - torn results;
+    - the lock, under a path with `#`, `?` and `%` in it, and through a symbolic link;
+    - a journal that rolls back an uncommitted rewrite;
+    - `--supersedes` and provenance;
+    - TypeScript and Python parity for the reader of a run, on odd input;
+    - stopped rows on damaged files, and a critique's message kept out of the row;
+    - a row classed as infrastructure that carries its run's commit.
+  - tests/unit/phase4-loop.test.ts: the version-2 record, and part 1's fixtures that now resume or now stop with the loop's own codes.
+  - tests/unit/run-classification.test.ts: the loop-stop lists, pinned; 29 loop-stop cases, mirrored in Python with the stopping row; the amended critique helper.
+  - tests/unit/private-agent-selection.test.ts, tests/unit/registry-row-loop.test.ts and tests/unit/registry-row-git.test.ts: the new fields, the version-1 sums, and part 2's deferred checks.
+  - Items from merge train 1's delta review of #78, which belong to this branch, not #78's:
+    - registry-row-git.test.ts's two describes take a 30 s timeout;
+    - tests/unit/registry-row-infra.test.ts checks that a refused `--loop-dir` row and a refused `--supersedes` row print nothing;
+    - tests/unit/phase2-repair.test.ts pins the critique's pre-render abort check as a whole line, so a commented-out check or one behind a dead guard fails it (both mutants checked);
+    - registry-row-resume.test.ts adds a row classed as infrastructure that carries its run's commit.
+
+Evidence: At this entry's commit:
+- `pnpm exec vitest run`, with nothing else running: 184 files (170 passed, 13 skipped as the environment-gated suites, 1 failed); 3,015 tests (2,930 passed, 84 skipped, 1 failed).
+  - The failure is a test in tests/unit/private-agent-sandbox-capture.test.ts that timed out at its 5 s limit. This branch does not touch that file.
+  - It passes alone, together with tests/unit/inspect-git-changes.test.ts and tests/unit/private-agent-runner-budget.test.ts: 141 passed, 1 skipped. Those two timed out in an earlier run at the same code.
+  - Two earlier full runs at this code failed only by timeouts at the 5 s or 15 s limits: 5 tests, then 3, the second while other test runs shared the machine. All were in files this branch does not touch, and each passes alone.
+  - A full run before the last review's fixes passed all of its 3,009 tests (2,925 passed, 84 skipped, 0 failed).
+- The nine touched test files pass all 265 tests under Python 3.9.5 and under the system Python 3.9.6:
+  - phase4-loop-resume: 27;
+  - phase4-loop: 28;
+  - registry-row-resume: 23;
+  - registry-row-loop: 3;
+  - registry-row-git: 13;
+  - run-classification: 153;
+  - private-agent-selection: 3;
+  - registry-row-infra: 5;
+  - phase2-repair: 10.
+- `pnpm typecheck` and `pnpm validate:readiness` pass. scripts/registry-row.py parses and its tests pass under Python 3.9.5 and the system Python 3.9.6.
+- `pnpm --silent validate:build-log -- --base-ref origin/main` passes. Against part 3a's head (687c5b2) it fails: the design entry BL-20261110-0637 sorts before part 3a's BL-20261110-0723, so the log is not append-only against that base. The design entry is neither edited nor re-stamped. How such an entry lands is an owner question that the orchestrator carries, and until it is answered the entry's bytes stay as they are.
+
+Three adversarial code reviews read the first implementation: the loop and its ledger, the registry, and the specification. Each probed scratch directories. None found a way to resume a stage twice, resume a priced run, rerun a stage with the cloud arm, or lose spend in the loop's normal flow. This entry fixes their confirmed findings (decisions (2), (4), (6), (7), (8) and (9)), among them:
+- totals that fell at a resumed invocation's first save;
+- resume spans that included the wait between invocations;
+- a driver throw that left its stage's spend out of the saved totals;
+- a marked critique, cancelled at its token admission, that ended the loop;
+- `--close` reading a stage's evidence without its mark;
+- registry reads that stopped with a traceback on a damaged run.
+
+A fourth review read those fixes. It found no high-severity defect and confirmed six low ones, all fixed here with tests:
+- `--close` chose its stage by whether a result existed, not whether it could be read;
+- a stopped row could still stop with a traceback;
+- `--close` recorded an answered critique as failed;
+- the TypeScript readers read a byte-order mark or a symbolic link differently from the registry, and `critique-failure.json` holding `null` failed every invocation;
+- a record saved before `held` existed could not be closed;
+- a critique's message could reach the record and the row.
+
+Its probes ran four invocations of one loop: across 53 saves the totals never fell, and the final totals count every run once. They also closed loops at five stop points, each closing with the last saved totals.
+
+Failures or blockers: None. The branch has not been pushed, and CI has not run on it.
+
+Limitations and non-claims:
+- Deterministic tests on fixtures and fakes only. No loop, model request, endpoint, Docker container or paid call ran, and nothing is `Verified`.
+- Ledger recovery and claim recovery are reached in production only after a hard kill or with Docker. Their logic is tested on fixtures, a real hot journal and the store's own recovery path with a fake cleanup. Their production wiring is pinned by identity in a test, not run.
+- The design entry's limitations stand:
+  - a directory removed by hand takes its counts with it;
+  - a cloud loop killed between `begun`'s save and the creation of `a`'s directory stops with `loop_stage_missing`;
+  - the lock relies on advisory locks;
+  - `activeSeconds` ends a run whose process died at its last commit;
+  - a persisting configuration fault adds a void directory at each invocation;
+  - an infrastructure fault that persists can use up a stage's one resume.
+- The totals in `loop.json` hold every run on disk at every save only for directories the loop made and moved. `--close` recounts from disk.
+- Open owner questions (a) to (f) of the design entry stand, with their proposed defaults. None is answered here.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The owner's answer on how BL-20261110-0637 lands, which the orchestrator carries (the options: a recorded out-of-order exception in the validator, a fresh `Proposed` entry with a later ID that cites 0637, or the entry riding merge train 1's sorted union through a docs-only pull request). Until then, this branch stays local. Then a pull request, CI, and a merge after #67, #73 and #78 in the shared files' orders (scripts/phase4-loop.ts: 11.1, 11.3, 10.b, 7a.2; scripts/registry-row.py: 11.1, 11.2, 11.3, 11.4, 7d.C, RA). Part 5's launcher (plan 11.5) is next in this lane. It must re-invoke on `loop_stage_infra`, `loop_interrupted` and `loop_stage_cleanup_required`, never on a terminal stop or `loop_locked`, and must read `loop.json`'s totals. As the orchestrator carries it as an owner default, it also refuses unless HEAD is an ancestor of `origin/main`.
+
+References: BL-20261110-0637-infra-resume-design; BL-20261110-0723-correction-infra-classification-train-review; BL-20261109-0515-infra-classification-design, BL-20261109-0606-correction-infra-classification-rules and BL-20261109-0607-infra-classification-implemented; BL-20261109-0331-loop-selection-protocol-2-design and BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0510-registry-run-commit-implemented; pull requests #67, #73 and #78; docs/PROJECT_REVIEW_2026-11-05.md section 5.1 rule 5 and section 5.7 item 11.

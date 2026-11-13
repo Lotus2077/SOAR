@@ -33710,7 +33710,7 @@ Next gate: The owner's go-ahead to push the integration branch, retarget #74, #7
 
 References: BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0331-loop-selection-protocol-2-design; BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0354-document-review-flags-design; BL-20261109-0422-registry-run-commit-design; BL-20261109-0447-research-tolerance-design; BL-20261109-0456-ordered-pool-implemented; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0501-research-stage-pause-design; BL-20261109-0515-infra-classification-design; BL-20261109-0552-research-tolerance-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261110-0712-correction-research-tolerance-repin; BL-20261110-0712-document-review-flags-implemented; BL-20261110-0723-correction-infra-classification-train-review; BL-20261110-0900-correction-research-tolerance-held-repair; BL-20261110-0933-document-review-flags-party-terms-bounded; BL-20261110-1100-document-review-flags-party-terms-pinned; BL-20261110-1100-correction-research-train-1-review-pins; pull requests #66, #67, #68, #69, #70, #71, #72, #73, #74, #76, #77, #78, #81 and #83; docs/HANDOFF.md section 5; docs/experiments/README.md; scripts/validate-build-log.ts; scripts/private-agent-local-screen.ts (`localScreenSourceFreeze`); tests/helpers/research-protocol-pin.ts; tests/unit/phase4-loop.test.ts.
 
-### BL-20261110-0623-claims-trailing-strip-linear-design -- 2026-11-10 -- E1-J2 decided: the claims check's heading strip becomes linear with the same output; the new check text adds no refusal but changes the hash of claims-checked tasks
+### BL-20261113-0821-claims-trailing-strip-linear-design -- 2026-11-13 -- E1-J2 decided: the claims check's heading strip becomes linear with the same output; the new check text adds no refusal but changes the hash of claims-checked tasks
 
 Status: `Proposed`
 
@@ -33855,11 +33855,11 @@ The orchestrator re-stamps this entry's ID if another entry merges first.
 
 References: BL-20261006-1058-pr-j-claims-ledger-design; BL-20261006-1150-pr-j1-claims-ledger-implemented; E1-J's entries (the judge-cancel label, #70); 7a.1's research-tolerance entries (#76); lane S-pipe's 7a.1 notes.
 
-### BL-20261110-0642-claims-trailing-strip-linear-implemented -- 2026-11-10 -- E1-J2 implemented: the claims check's heading rule strips in linear time with the same result, exported as one constant; the update of #76's test waits for the rebase
+### BL-20261113-0822-claims-trailing-strip-linear-implemented -- 2026-11-13 -- E1-J2 implemented: the claims check's heading rule strips in linear time with the same result, exported as one constant; the update of #76's test waits for the rebase
 
 Status: `Implemented`
 
-Scope or hypothesis: This implements decisions (1), (2) and (4) of BL-20261110-0623-claims-trailing-strip-linear-design as decided. The branch is `fix/e1-j2-linear-trailing-strip`, a draft stacked on E1-J (`fix/e1-j-judge-cancel-label`, Lotus2077/SOAR#70, at f7251dd).
+Scope or hypothesis: This implements decisions (1), (2) and (4) of BL-20261113-0821-claims-trailing-strip-linear-design as decided. The branch is `fix/e1-j2-linear-trailing-strip`, a draft stacked on E1-J (`fix/e1-j-judge-cancel-label`, Lotus2077/SOAR#70, at f7251dd).
 
 Decision (5), the update of 7a.1's heading test (#76), is checked but is not on this branch, because #76 is not in its base. It lands with the rebase onto `main` after merge train 1.
 
@@ -33925,4 +33925,66 @@ Next gate:
 
 The orchestrator re-stamps the entry IDs at merge.
 
-References: BL-20261110-0623-claims-trailing-strip-linear-design; E1-J's entries (#70); 7a.1's research-tolerance entries (#76).
+References: BL-20261113-0821-claims-trailing-strip-linear-design; E1-J's entries (#70); 7a.1's research-tolerance entries (#76).
+
+### BL-20261113-0823-correction-claims-trailing-strip-linear-restamp -- 2026-11-13 -- Correction: E1-J2's entries carry IDs BL-20261113-0821-claims-trailing-strip-linear-design and BL-20261113-0822-claims-trailing-strip-linear-implemented; they were authored at 06:23 and 06:42 UTC on 2026-11-10 as BL-20261110-0623 and BL-20261110-0642, and the rebase onto `main` applies the design's decision (5)
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the re-stamp of E1-J2's two entries, under the owner's rule of 2026-11-13 recorded on PR #87: an entry on an unmerged branch is re-stamped after `main`'s tail when it merges, and a correction records its original ID and time. It also records the rebase of their pull request, #80, onto `main` after merge train 1, which carries out the design's decision (5).
+- The design entry was committed at a3f652c and authored at 06:23 UTC on 2026-11-10 as BL-20261110-0623. The Implemented entry was committed at 5d6a5a1 and authored at 06:42 UTC the same day as BL-20261110-0642. Both kept their slugs.
+- At that time #80 was a draft stacked on E1-J (#70) at f7251dd.
+- Merge train 1 (BL-20261110-1506-merge-train-1-integration) then merged #70 and put `main`'s tail after both entries.
+
+Decisions:
+1. **The re-stamp.** The two headings' IDs moved to BL-20261113-0821 and BL-20261113-0822, and their date fields to 2026-11-13: the validator requires an ID's date to match the heading's date.
+   - The Implemented entry's two citations of the design's ID, in its Scope and in its References, follow it.
+   - No other text in either entry changed, and nothing else in the repository cited either ID.
+   - The pull request description and the commit messages keep the old IDs.
+2. **The rebase.** #80 is rebased from f7251dd onto `main` at 9d10b9a, and its base is `main`.
+   - The fix, the review fixes and the Implemented entry's commit replayed unchanged (`git range-diff`). The design entry's commit only moved to `main`'s tail.
+   - claims.ts's merge order (E1-J, then E1-J2, then 8.2b) holds: E1-J is on `main`, and 8.2b is not.
+3. **Decision (5) carried out.** The design's decision (5) planned two changes to 7a.1's headings test, tests/unit/private-agent-research-headings.test.ts, at this rebase. Commit a5090f7 makes them:
+   - `claimsPresent` runs `CLAIMS_SECTION_RULE_PY` instead of a typed copy of `section_present`;
+   - the guard "still mirrors claims.ts's rule as written there" asserts that the claims check interpolates that constant, in place of the old `section_present` line.
+
+   The guard's other two mirror lines, the fence and comment strips and `read_text`, are unchanged. The patch is the one checked against #76's heads 18655e5, bd876d9 and 2fe1ec8 before the train.
+4. **What the rebase makes stale in the entries' bodies**, which are not edited:
+   - Both entries' Next gates name "the rebase onto `main` with decision (5)"; that step is now done.
+   - The Implemented entry's "The orchestrator re-stamps the entry IDs at merge" is superseded by decision 1: under the owner's rule, each lane re-stamps its own entries.
+   - The design's owner question still stands: should the check's fence, comment and HTML-tag strips be fixed in one follow-up PR? The proposed default is yes.
+
+Changes:
+- tests/unit/private-agent-research-headings.test.ts, decision (5): one import, `claimsPresent`'s script, and the guard's first assertion.
+- docs/BUILD_LOG.md: the two headings (ID and date), the Implemented entry's two citations of the design, and this entry.
+- No `src/` file changes beyond the rebased fix.
+
+Evidence: On the owner's Mac, at the rebased head with decision (5) and the re-stamp:
+- tests/unit/private-agent-research-headings.test.ts and tests/unit/private-agent-claims.test.ts: 41 passed and 1 skipped. The skip is in `main`'s claims tests. Under `-t "E1-J2"`, the claims file gives 4 passed.
+- Without decision (5)'s change, at the rebased head before a5090f7, run from a scratch copy: the headings file gives 1 failed and 10 passed. The failure is the guard, which still pinned the old `section_present` line.
+- `pnpm exec vitest run -t "E1 recoverability"`: 8 files, 59 tests passed: `main`'s 55 and E1-J2's 4.
+- `pnpm exec vitest run` (the full suite), at a load average of about 18: 3,284 tests, with 3,197 passed, 86 skipped and 1 failed.
+  - The failure is tests/unit/private-agent-sandbox-capture.test.ts, "keeps the first 1,024 regular files in sorted order, counts the rest as cap, and stops at the entry cap with an incomplete report". It reached vitest's 5 s timeout while it ran the lister under python3 over 4,106 files.
+  - This branch changes neither that test nor sandbox.ts. Run alone twice, the file gave 13 passed and 1 skipped each time.
+  - A second full run right after it gave 3,284 tests, with 3,198 passed, 86 skipped and 0 failed (187 files: 174 passed, 13 skipped), in 55.5 s.
+- `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+
+Failures or blockers: None caused by this branch. The load-dependent lister timeout is recorded under Evidence.
+
+Limitations and non-claims:
+- A record correction plus the test update that the design's decision (5) planned; nothing is verified or released by it.
+- The design's limitations stand. In particular, the check's fence, comment and HTML-tag strips still scale badly on a hostile report.
+- If an entry with a later ID reaches `main` before #80 merges, these three entries are re-stamped again.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of the rebased head, CI green, the owner's answer to the design's question, and the merge go-ahead.
+
+References:
+- BL-20261113-0821-claims-trailing-strip-linear-design
+- BL-20261113-0822-claims-trailing-strip-linear-implemented
+- BL-20261110-1506-merge-train-1-integration
+- BL-20261109-0411-judge-cancel-label-design
+- BL-20261109-0444-judge-cancel-label-implemented
+- BL-20261109-0447-research-tolerance-design
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)

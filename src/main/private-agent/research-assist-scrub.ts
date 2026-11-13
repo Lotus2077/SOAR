@@ -234,16 +234,34 @@ function openingLead(token: string): string {
 /** The matches of a pattern in a view: matchAll for a global pattern, or a walk such as relativeRuns. */
 type Finder = RegExp | ((view: string) => Iterable<RegExpMatchArray>);
 const findAll = (view: string, finder: Finder): Iterable<RegExpMatchArray> => finder instanceof RegExp ? view.matchAll(finder) : finder(view);
-/** Replaces each match in the view by what `swap` returns for the original span and the viewed one (undefined keeps it), in both. */
-function replaceBoth(state: { text: string; view: string }, finder: Finder, swap: (original: string, viewed: string) => string | undefined): void {
-  let text = "", view = "", last = 0;
+/**
+ * A provisional replacement in a text (see formScanner), and what it becomes when no URL or path rule takes it. An `alias` mark
+ * holds a source's alias and takes `placeholder` back. A `url` mark holds `placeholder` and takes the URL's rest after it, and
+ * with `slashes` the `//` before it too, as `[url]`.
+ */
+interface Mark { start: number; end: number; kind: "alias" | "url"; placeholder: string; slashes: boolean }
+/** The rest of a URL or path after a position: its body characters, as the URL rules read them. */
+const URL_REST = new RegExp(`${BODY}*`, "uy");
+/** What a rule replaces inside its match: the characters from `from` to `to` become `placeholder`, and the rest of the match stays. */
+interface Cut { from: number; to: number; placeholder: string }
+/**
+ * Replaces, in the text and the view, what `cut` returns for each match (undefined keeps it). A mark the replaced characters
+ * touch goes with them; every other mark moves with the text.
+ */
+function replaceBoth(state: { text: string; view: string; marks: readonly Mark[] }, finder: Finder, cut: (original: string, viewed: string) => Cut | undefined): void {
+  let text = "", view = "", last = 0, shift = 0, next = 0, changed = false;
+  const marks: Mark[] = [], moved = (mark: Mark) => marks.push({ ...mark, start: mark.start + shift, end: mark.end + shift });
   for (const match of findAll(state.view, finder)) {
-    const start = match.index!, end = start + match[0].length, replacement = swap(state.text.slice(start, end), match[0]);
-    if (replacement === undefined) continue;
-    text += state.text.slice(last, start) + replacement; view += state.view.slice(last, start) + wide(replacement); last = end;
+    const start = match.index!, swap = cut(state.text.slice(start, start + match[0].length), match[0]);
+    if (swap === undefined) continue;
+    const from = start + swap.from, to = start + swap.to;
+    for (; next < state.marks.length && state.marks[next]!.start < to; next++) if (state.marks[next]!.end <= from) moved(state.marks[next]!);
+    text += state.text.slice(last, from) + swap.placeholder; view += state.view.slice(last, from) + wide(swap.placeholder);
+    shift += swap.placeholder.length - (to - from); last = to; changed = true;
   }
-  if (last === 0) return;
-  state.text = text + state.text.slice(last); state.view = view + state.view.slice(last);
+  if (!changed) return;
+  for (; next < state.marks.length; next++) moved(state.marks[next]!);
+  state.text = text + state.text.slice(last); state.view = view + state.view.slice(last); state.marks = marks;
 }
 
 // ---- Source forms ----
@@ -454,9 +472,12 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
     }
     return { start: at, www };
   };
+  /** Whether the protocol-relative URL rule may start at `at`, its lookbehind read in this view, and not inside an earlier match. */
+  const URL_OPENER = new RegExp(`^[\\s"'(\\[<=:,;${SPACELESS}]$`, "u");
+  const urlMayStart = (text: string, at: number, floor: number) => at === 0 || (at > floor && URL_OPENER.test(codePointBefore(text, at) ?? ""));
   /** Every match, leftmost and longest first. Matched in the folded wide view; bounded and extended in the wide view. */
   const matches = (text: string) => {
-    const shown = wide(text), view = fold(shown), hashOf = spanHasher(view), found: { start: number; end: number; replacement: string }[] = [];
+    const shown = wide(text), view = fold(shown), hashOf = spanHasher(view), found: { start: number; end: number; replacement: string; mark?: Omit<Mark, "start" | "end"> }[] = [];
     let at = 0, floor = 0;
     while (at + ASSIST_NAME_MIN_CHARS <= view.length) {
       const bucket = index.get(view.slice(at, at + ASSIST_NAME_MIN_CHARS));
@@ -473,7 +494,7 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
         }
       }
       if (!hit) { at++; continue; }
-      let { start, end } = hit, replacement = hit.entry.replacement;
+      let { start, end } = hit, replacement = hit.entry.replacement, mark: Omit<Mark, "start" | "end"> | undefined, led = false;
       // A file name glued to more name through `-`, `_` or `.` is another file, not the source: the whole run is `[file]`.
       if (hit.entry.kind === "name" && hit.entry.dotted) {
         const before = nameRunStart(shown, start, floor), after = nameRunEnd(shown, end);
@@ -482,26 +503,50 @@ function formScanner(forms: readonly Form[], normalize: (text: string) => string
       // Labels, userinfo or another word glued before the source's host make another host or a credential: the whole of it is `[url]`.
       if (hit.entry.hostLed) {
         const lead = hostLead(shown, start, floor);
-        if (lead.start < start) { start = lead.start; if (!lead.www) replacement = ASSIST_PLACEHOLDERS.url; }
+        if (lead.start < start) { start = lead.start; if (!lead.www) { replacement = ASSIST_PLACEHOLDERS.url; led = true; } }
       }
       if (hit.entry.kind !== "host") start = absorbPrefix(shown, start, floor);
-      // A glued file name right after `//` keeps its whole span but takes its entry's replacement, the source's alias or
-      // `[source]`. Where a URL rule can start before the `//`, it takes an alias and the URL whole
-      // (`//cdn.other.test/x/q3-report.html?token=…` is `[url]`); elsewhere the alias stays (`a//old-alpha.md` is `a//S1`).
-      if (replacement === ASSIST_PLACEHOLDERS.file && hit.entry.replacement !== ASSIST_PLACEHOLDERS.file && shown.slice(start - 2, start) === "//") replacement = hit.entry.replacement;
-      found.push({ start, end, replacement });
+      if (start - 2 >= floor && shown.slice(start - 2, start) === "//" && replacement.startsWith("[")) {
+        // A placeholder right after `//` is provisional. A glued file name of one source stands as its alias: a rule that takes
+        // the alias takes the whole token as before (`//cdn.other.test/x/q3-report.html?token=…`, `x=1;//…`, `S1:///…`, a relative
+        // path), and where none does, scrub() puts `[file]` back, so no other file is shown as the source (`a//old-alpha.md` is
+        // `a//[file]`). Any other placeholder keeps its place for the rules where the URL rule could start, so a relative path
+        // still takes the word before the `//` with it, and where no rule takes it, scrub() makes the `//`, the placeholder and
+        // the URL's rest `[url]` (`see //cdn.other.test/x/old-report.html?token=…` is `see [url]`).
+        if (replacement === ASSIST_PLACEHOLDERS.file && !hit.entry.replacement.startsWith("[")) { mark = { kind: "alias", placeholder: replacement, slashes: false }; replacement = hit.entry.replacement; led = false; }
+        else if (urlMayStart(shown, start - 2, floor)) { mark = { kind: "url", placeholder: replacement, slashes: true }; led = false; }
+      }
+      // A URL source's form that a local copy shares is a name, so the match ends at the name: led like a URL, it keeps its place for
+      // the rules, and where none takes it, scrub() gives it the URL's path, query and fragment, as the URL rule did before.
+      if (led && hit.entry.kind === "name") mark = { kind: "url", placeholder: replacement, slashes: false };
+      found.push(mark === undefined ? { start, end, replacement } : { start, end, replacement, mark });
       at = floor = end;
     }
     return found;
   };
   return {
-    replace(text: string): { text: string; sources: number; files: number; urls: number } {
-      let out = "", last = 0, sources = 0, files = 0, urls = 0;
+    /**
+     * The text with every match replaced, their counts (a provisional alias counts as its source), and the marks: each of
+     * `carried` that no match touches, moved with the text, and one for each provisional replacement.
+     */
+    replace(text: string, carried: readonly Mark[]): { text: string; sources: number; files: number; urls: number; marks: Mark[] } {
+      let out = "", last = 0, sources = 0, files = 0, urls = 0, next = 0;
+      const marks: Mark[] = [];
+      const keep = (to: number, from: number) => {
+        for (; next < carried.length && carried[next]!.start < to; next++) {
+          const mark = carried[next]!;
+          if (mark.end <= from) marks.push({ ...mark, start: mark.start - last + out.length, end: mark.end - last + out.length });
+        }
+      };
       for (const match of matches(text)) {
-        out += text.slice(last, match.start) + match.replacement; last = match.end;
+        keep(match.end, match.start);
+        out += text.slice(last, match.start);
+        if (match.mark) marks.push({ start: out.length, end: out.length + match.replacement.length, ...match.mark });
         if (match.replacement === ASSIST_PLACEHOLDERS.file) files++; else if (match.replacement === ASSIST_PLACEHOLDERS.url) urls++; else sources++;
+        out += match.replacement; last = match.end;
       }
-      return { text: out + text.slice(last), sources, files, urls };
+      keep(Infinity, Infinity);
+      return { text: out + text.slice(last), sources, files, urls, marks };
     },
     found: (text: string) => matches(text).length > 0,
   };
@@ -539,30 +584,33 @@ export function createScrubber(input: { sources: readonly ResearchSourceIdentity
   const general = forms.filter(form => form.scope === "all");
   const sending = { text: formScanner(general, textForm), model: formScanner(forms, textForm) }, auditing = { text: formScanner(general, auditForm), model: formScanner(forms, auditForm) };
   const isDigest = digestRule(input.knownDigests);
-  /** One pass of the URL, path, file-name and digest rules: matched in the wide view, replaced in the text at the same indices. */
-  const generic = (text: string, scope: "text" | "model") => {
-    const state = { text, view: wide(text) }, counts = { urls: 0, files: 0, digests: 0 };
+  /**
+   * One pass of the URL, path, file-name and digest rules: matched in the wide view, replaced in the text at the same indices.
+   * It returns the provisional marks that no rule took, moved to where they now stand.
+   */
+  const generic = (text: string, scope: "text" | "model", marks: readonly Mark[]) => {
+    const state = { text, view: wide(text), marks }, counts = { urls: 0, files: 0, digests: 0 };
     /** A token's placeholder, keeping the sentence punctuation and unbalanced brackets that followed it. */
-    const token = (placeholder: string, kind: "urls" | "files") => (original: string, viewed: string) => {
+    const token = (placeholder: string, kind: "urls" | "files") => (_original: string, viewed: string): Cut | undefined => {
       const { core } = trimToken(viewed); if (!core) return undefined;
-      counts[kind]++; return `${placeholder}${original.slice(core.length)}`;
+      counts[kind]++; return { from: 0, to: core.length, placeholder };
     };
     for (const pattern of URL_PATTERNS) replaceBoth(state, pattern, token(ASSIST_PLACEHOLDERS.url, "urls"));
     for (const pattern of PATH_PATTERNS) replaceBoth(state, pattern, (original, viewed) => {
       if (!QUOTED.test(viewed)) return token(ASSIST_PLACEHOLDERS.file, "files")(original, viewed);
-      counts.files++; return `${original[0]}${ASSIST_PLACEHOLDERS.file}${original.at(-1)}`;
+      counts.files++; return { from: 1, to: original.length - 1, placeholder: ASSIST_PLACEHOLDERS.file };
     });
-    replaceBoth(state, relativeRuns, (original, viewed) => {
+    replaceBoth(state, relativeRuns, (_original, viewed) => {
       const end = relativeEnd(viewed);
       if (end < 0) return undefined;
       // A dotted folder is no extension: when the path goes on after it (`src/com.example.app/ui`), the whole run is the path.
       const cut = /^[/\\]/u.test(viewed.slice(end)) ? trimToken(viewed).core.length : end, lead = openingLead(viewed.slice(0, cut));
-      counts.files++; return `${original.slice(0, lead.length)}${ASSIST_PLACEHOLDERS.file}${original.slice(cut)}`;
+      counts.files++; return { from: lead.length, to: cut, placeholder: ASSIST_PLACEHOLDERS.file };
     });
-    if (scope === "model") replaceBoth(state, FILE_NAME_PATTERN, (original, viewed) => { counts.files++; return `${original.slice(0, openingLead(viewed).length)}${ASSIST_PLACEHOLDERS.file}`; });
-    replaceBoth(state, HEX_GROUPS, (_, viewed) => { if (!isDigest(viewed, true)) return undefined; counts.digests++; return ASSIST_PLACEHOLDERS.digest; });
-    replaceBoth(state, HEX_RUN, (_, viewed) => { if (!isDigest(viewed, false)) return undefined; counts.digests++; return ASSIST_PLACEHOLDERS.digest; });
-    return { text: state.text, ...counts };
+    if (scope === "model") replaceBoth(state, FILE_NAME_PATTERN, (original, viewed) => { counts.files++; return { from: openingLead(viewed).length, to: original.length, placeholder: ASSIST_PLACEHOLDERS.file }; });
+    replaceBoth(state, HEX_GROUPS, (_, viewed) => { if (!isDigest(viewed, true)) return undefined; counts.digests++; return { from: 0, to: viewed.length, placeholder: ASSIST_PLACEHOLDERS.digest }; });
+    replaceBoth(state, HEX_RUN, (_, viewed) => { if (!isDigest(viewed, false)) return undefined; counts.digests++; return { from: 0, to: viewed.length, placeholder: ASSIST_PLACEHOLDERS.digest }; });
+    return { text: state.text, ...counts, marks: state.marks };
   };
   const holds = (view: string, finder: Finder, accept: (token: string) => boolean) => { for (const match of findAll(view, finder)) if (accept(match[0])) return true; return false; };
   const holdsGeneric = (view: string, scope: "text" | "model") =>
@@ -573,12 +621,34 @@ export function createScrubber(input: { sources: readonly ResearchSourceIdentity
     scrub(raw, scope) {
       let text = textForm(raw);
       const counts: ScrubCounts = { sources: 0, files: 0, urls: 0, digests: 0 };
-      // A replacement can change what its neighbours read as (`example.org.report.md`): passes repeat until one changes nothing, at most three.
-      for (let pass = 0; pass < 3; pass++) {
-        const named = sending[scope].replace(text), linked = generic(named.text, scope);
-        counts.sources += named.sources; counts.files += named.files + linked.files; counts.urls += named.urls + linked.urls; counts.digests += linked.digests;
-        if (linked.text === text) break;
-        text = linked.text;
+      // A replacement can change what its neighbours read as (`example.org.report.md`): passes repeat until one changes nothing, at most
+      // three. The provisional marks go through every pass, so each pass reads the text as if they were final, and a rule in a later
+      // pass can still take one (`localhost:8080s3://[source]`: the first pass takes the host and port, the second the `s3:` URL).
+      // Then the marks that no rule took are settled, and if that changed the text, the passes run once more on what it left.
+      for (let round = 0; round < 2; round++) {
+        let marks: readonly Mark[] = [];
+        for (let pass = 0; pass < 3; pass++) {
+          const named = sending[scope].replace(text, marks), linked = generic(named.text, scope, named.marks);
+          counts.sources += named.sources; counts.files += named.files + linked.files; counts.urls += named.urls + linked.urls; counts.digests += linked.digests;
+          marks = linked.marks;
+          if (linked.text === text) break;
+          text = linked.text;
+        }
+        // A provisional alias that no rule took gets its placeholder back. A placeholder that no rule took takes the URL's rest after
+        // it, and the `//` before it when it had one, as `[url]`; a mark inside that rest goes with it.
+        const shown = wide(text);
+        let settled = "", last = 0;
+        for (const mark of marks) {
+          if (mark.start < last) continue;
+          if (mark.kind === "alias") { settled += text.slice(last, mark.start) + mark.placeholder; last = mark.end; counts.sources--; counts.files++; continue; }
+          const from = mark.slashes && mark.start - 2 >= last && text.slice(mark.start - 2, mark.start) === "//" ? mark.start - 2 : mark.start;
+          URL_REST.lastIndex = mark.end;
+          settled += text.slice(last, from) + ASSIST_PLACEHOLDERS.url; last = mark.end + trimToken(URL_REST.exec(shown)?.[0] ?? "").core.length;
+          if (mark.placeholder !== ASSIST_PLACEHOLDERS.url) { counts.urls++; if (mark.placeholder === ASSIST_PLACEHOLDERS.file) counts.files--; else counts.sources--; }
+        }
+        settled += text.slice(last);
+        if (settled === text) break;
+        text = settled;
       }
       return { text, counts };
     },

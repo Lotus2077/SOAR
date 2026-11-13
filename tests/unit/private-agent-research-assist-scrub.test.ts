@@ -117,6 +117,8 @@ describe("the assist scrubber (research-assist-scrub.ts)", () => {
     expect(text("a/b.docx#frag, a/b.docx,see and c/d.pdf,e/f.pdf")).toBe("[file]#frag, [file],see and [file]");
     for (const path of ["src/com.example.app/ui/main/view", "node_modules/lodash.merge/dist/es/index", "config/app.v2b/prod/eu/west"]) expect(text(path)).toBe("[file]");
     expect(text("see a/b.md/c/d/e now")).toBe("see [file] now");
+    // An opening bracket a relative path's run took from before it stays outside the placeholder, as a closing one does.
+    expect(text("see (a/b.md) and [c/d.pdf] now")).toBe("see ([file]) and [[file]] now");
   });
 
   it("replaces any 8-character piece of a known digest, however its groups are split, and a long run only with a hexadecimal letter", () => {
@@ -196,12 +198,122 @@ describe("the assist scrubber (research-assist-scrub.ts)", () => {
     expect(text("see /old-alpha-field-notes.md now")).toBe("see /[file] now");
   });
 
-  it("keeps the host lead of a form that a URL source and a local copy share, in either source order, so no credential is left before it", () => {
+  it("takes a protocol-relative URL whole as [url] after a `//` that starts its token, whatever placeholder the source's form became", () => {
+    // A host-led form with a glued lead after another host's `//`: the URL, tail and all. A scheme's URL rule already took it whole.
+    for (const url of ["//proxy.other.test/fetch/sub.example.org/reports/annual-2025.html-secret/plan.md", "//proxy.other.test/fetch/sub.example.org/reports/annual-2025.html_/private/acme-merger.txt",
+      "//proxy.other.test/fetch/sub.example.org/reports/annual-2025.html.bak", "//proxy.other.test/fetch/alice:hunter2@example.org/reports/annual-2025.html-secret/plan.md",
+      "//proxy.other.test/fetch/evil-www.acme-hr.example/portal/homepage/secret-plan.md", "//proxy.other.test/fetch/sub.example.org/reports/annual-2025.html&token=abc",
+      "//proxy.other.test/fetch/sub.example.org/reports/annual-2025.html-secret", "https://proxy.other.test/fetch/sub.example.org/reports/annual-2025.html-secret/plan.md",
+      "//cdn.other.test/x/old-claims.json/private/acme-merger", "//cdn.other.test/x/claims.json?token=abc"]) {
+      expect(text(`see ${url} now`), url).toBe("see [url] now");
+      expect(model(`see ${url} now`), url).toBe("see [url] now");
+      settled(`see ${url} now`);
+    }
+    expect(scrubber.scrub("see //proxy.other.test/fetch/sub.example.org/reports/annual-2025.html-secret/plan.md now", "text").counts).toMatchObject({ sources: 0, urls: 1, files: 0 });
+    // One slash is no URL's start, and a host-led form right after the `//` keeps its own span: L1's stated residue, which policy 5 owns.
+    for (const scope of ["text", "model"] as const) {
+      expect(scrubber.scrub("see \"/old-alpha-field-notes.md\" now", scope).text).toBe("see \"/[file]\" now");
+      expect(scrubber.scrub("see \"/claims.json?token=abc\" now", scope).text).toBe("see \"/[file]?token=abc\" now");
+      expect(scrubber.scrub("see //sub.example.org/reports/annual-2025.html-secret now", scope).text).toBe("see [url]-secret now");
+    }
+    // The edge may be the text's start, a quote, `<`, an apostrophe before the slash, or an opening bracket after one of those. The
+    // host's appended file names count too. Where the URL rule may start but no edge stands (a bracket glued to a word), the URL is
+    // `[url]` once no other rule has taken it; where it may not start (after a word), the placeholder stays as before.
+    for (const [value, sent] of [["src=\"//cdn.other.test/x/final-report.md/private/acme-merger\"", "src=\"[url]\""], ["//cdn.other.test/x/claims.json?token=abc", "[url]"],
+      ["see '//cdn.other.test/x/claims.json?token=abc' now", "see '[url]' now"], ["see x'//cdn.other.test/x/claims.json?token=abc now", "see x'[url] now"],
+      ["see <//cdn.other.test/x/claims.json?token=abc> now", "see <[url]> now"], ["see (//cdn.other.test/x/claims.json?token=abc) now", "see ([url]) now"],
+      ["see \"[//cdn.other.test/x/claims.json?token=abc]\" now", "see \"[[url]]\" now"], ["see x(//cdn.other.test/x/claims.json?token=abc) now", "see x([url]) now"],
+      ["see x//cdn.other.test/x/claims.json?token=abc now", "see x//[file]?token=abc now"]] as const) {
+      for (const scope of ["text", "model"] as const) expect(scrubber.scrub(value, scope).text, `${value} ${scope}`).toBe(sent);
+    }
+    // A placeholder that no rule took and that became [url] counts as one URL, not as the file it was.
+    expect(scrubber.scrub("see x(//cdn.other.test/x/claims.json?token=abc) now", "text").counts).toMatchObject({ files: 0, urls: 1 });
+    // After `=`, `,`, `;` or a CJK letter the URL becomes [url] too, unless a relative path took the word before it, as before.
+    expect(text("src=//proxy.other.test/fetch/sub.example.org/reports/annual-2025.html-secret now")).toBe("src=[url] now");
+    // A form two sources share, plain or glued, with a query or a path.
+    const pair = createScrubber({ sources: [identity("https://example.org/report.html", "sources/3333333333333333.bin"), identity("mirror/example.org/report.html")], suffix: "", knownDigests: [HASH] });
+    const notes = createScrubber({ sources: [identity("a/notes-2024.md"), identity("b/notes-2024.md")], suffix: "", knownDigests: [HASH] });
+    // The last row holds two provisional matches in one URL; the first one's URL takes the second whole.
+    for (const [shared, value] of [[pair, "//cdn.other.test/x/report.html?token=abc"], [pair, "//cdn.other.test/x/old-report.html?token=sk_live_abcdef"],
+      [pair, "//cdn.other.test/x/old-report.html/private/acme-merger"], [notes, "//cdn.other.test/x/old-notes-2024.md/private/acme-merger"],
+      [pair, "//cdn.other.test/x/old-report.html//alice@example.org/report.html?token=abc"]] as const) {
+      for (const scope of ["text", "model"] as const) expect(shared.scrub(`see ${value} now`, scope).text, `${value} ${scope}`).toBe("see [url] now");
+    }
+  });
+
+  it("keeps [file], never the alias, after a `//` that starts no token, and keeps hidden what a rule took whole there before", () => {
+    // No URL rule starts after a word, a path, a third slash, a backtick, `>` or `|`: the glued name is [file], beside what the match left.
+    for (const [value, sent] of [["a//old-alpha-field-notes.md", "a//[file]"], ["/tmp//old-alpha-field-notes.md", "/tmp//[file]"], ["input/corpus//old-alpha-field-notes.md", "input/corpus//[file]"],
+      ["///old-alpha-field-notes.md", "///[file]"], ["bucket//example.org.annual-2025.html", "bucket//[file]"], ["`//cdn.other.test/x/old-alpha-field-notes.md?token=abc`", "`//[file]?token=abc`"],
+      [">//cdn.other.test/x/old-alpha-field-notes.md?token=abc", ">//[file]?token=abc"], ["|//cdn.other.test/x/old-alpha-field-notes.md?token=abc|", "|//[file]?token=abc|"],
+      ["a//old-alpha-field-notes.md/private/acme-merger/x", "a//[file][file]"]] as const) {
+      expect(text(`see ${value} now`), value).toBe(`see ${sent} now`);
+      expect(model(`see ${value} now`), value).toBe(`see ${sent} now`);
+      settled(`see ${value} now`);
+    }
+    expect(scrubber.scrub("see a//old-alpha-field-notes.md now", "text").counts).toMatchObject({ sources: 0, files: 1 });
+    // The alias still stands where a rule takes the token whole: a URL after `:`, `=`, `,`, `;` or a CJK letter, the alias read as a
+    // scheme, or a relative path. Each output is d364b46's, and the query, tail or word before stays hidden.
+    const single = createScrubber({ sources: [identity("input/corpus/alpha-field-notes.md")], suffix: "", knownDigests: [HASH] });
+    for (const [value, sent] of [["地址://cdn.other.test/x/old-alpha-field-notes.md?token=sk_live_abcdef 见", "地址:[url] 见"], ["-https://cdn.other.test/x/old-alpha-field-notes.md?token=abc now", "-https:[url] now"],
+      ["see ///old-alpha-field-notes.md:///etc/acme-merger/layoffs-2025 now", "see ///[url] now"], ["see corpus//old-alpha-field-notes.md:///srv/hr/layoffs-2025 now", "see corpus//[url] now"],
+      ["see secret-folder//old-alpha-field-notes.md/x.bak now", "see [file] now"]] as const) {
+      for (const scope of ["text", "model"] as const) expect(single.scrub(value, scope).text, `${value} ${scope}`).toBe(sent);
+    }
+    // A provisional alias that a rule took counts as a source's, as d364b46 counted the alias.
+    expect(single.scrub("地址://cdn.other.test/x/old-alpha-field-notes.md?token=sk_live_abcdef 见", "text").counts).toMatchObject({ sources: 1, files: 0, urls: 1 });
+    expect(text("see x//proxy.other.test/fetch/u/annual-2025.html-secret/plan.md now")).toBe("see [file] now");
+    // A placeholder after a `//` that starts no token stays as d364b46 had it; there a relative path rule may take the whole token.
+    expect(text("token=abc,//mirror/x_example.org/reports/annual-2025.html_/private/acme-merger.txt) now")).toBe("[file]) now");
+    // A mark moves with the replacements before it.
+    expect(text("see https://other.test/a/b and a//old-alpha-field-notes.md now")).toBe("see [url] and a//[file] now");
+    // A form two sources share keeps its own placeholder: [file] when a name is glued to it, [source] when not.
+    const shared = createScrubber({ sources: [identity("a/report.html"), identity("b/report.html")], suffix: "", knownDigests: [HASH] });
+    for (const [value, sent] of [["a//old-report.html", "a//[file]"], ["a//report.html", "a//[source]"]] as const) {
+      for (const scope of ["text", "model"] as const) expect(shared.scrub(`see ${value} now`, scope).text, `${value} ${scope}`).toBe(`see ${sent} now`);
+    }
+  });
+
+  it("keeps the host lead of a form that a URL source and a local copy share, in either source order, and its URL's tail, so no credential or query is left", () => {
     const url = identity("https://example.org/report.html", "sources/3333333333333333.bin"), copy = identity("mirror/example.org/report.html");
     for (const sources of [[url, copy], [copy, url]]) {
       const both = createScrubber({ sources, suffix: "", knownDigests: [HASH] });
-      for (const scope of ["text", "model"] as const) expect(both.scrub("see alice:hunter2@example.org/report.html now", scope).text, `${sources[0]!.id} ${scope}`).toBe("see [url] now");
+      // Led from the start of its token, the shared form is a URL and takes its own path, query and fragment.
+      for (const value of ["alice:hunter2@example.org/report.html", "https://alice:hunter2@example.org/report.html?token=sk_live_abcdef", "//alice:hunter2@example.org/report.html#Layoff-List-Q3",
+        "https://alice:hunter2@example.org/report.html/private/acme-merger", "https://alice:hunter2@example.org/report.html;jsessionid=abc123", "mailto:alice@example.org/report.html?subject=layoffs",
+        "ftp://.example.org/report.html&k=v", "alice:hunter2@example.org/report.html?token=abc"]) {
+        for (const scope of ["text", "model"] as const) {
+          const once = both.scrub(`see ${value} now`, scope).text;
+          expect(once, `${sources[0]!.id} ${scope} ${value}`).toBe("see [url] now");
+          expect(both.scrub(once, scope).text).toBe(once);
+          expect(both.finding(once, scope)).toBeUndefined();
+        }
+      }
+      expect(both.scrub("(https://alice:hunter2@example.org/report.html?x=1)", "text").text).toBe("([url])");
+      // Led from inside a token, the match stays as before: a relative path may take the whole token, or the rest goes out (L3).
+      expect(both.scrub("x alice:pa(ss)@example.org/report.html///acme.example report.html'bucket", "text").text).toBe("x [file] [source]'bucket");
+      expect(both.scrub("see mailto:alice:pa(ss)@example.org/report.html now", "text").text).toBe("see mailto:alice:pa(ss)[url] now");
     }
+  });
+
+  it("carries each provisional match through every pass, so a rule in a later pass still takes its token whole", () => {
+    // The first pass takes the host and port, and that lets the second take the scheme's URL whole, in either source order. Where no
+    // pass takes it, the match takes its URL's rest after the last pass.
+    const url = identity("https://example.org/report.html", "sources/3333333333333333.bin"), copy = identity("mirror/example.org/report.html");
+    for (const sources of [[url, copy], [copy, url]]) {
+      const both = createScrubber({ sources, suffix: "", knownDigests: [HASH] });
+      for (const [value, sent] of [["localhost:8080s3://example.org/report.html", "[url][url]"], ["&localhost:8080http://example.org/report.html#Layoff-List-Q3", "&[url][url]"],
+        ["localhost:8080report.htmlhttp://old-report.html", "[url][url]"], ["see 8080http://example.org/report.html#x now", "see 8080http:[url] now"]] as const) {
+        for (const scope of ["text", "model"] as const) expect(both.scrub(value, scope).text, `${value} ${scope}`).toBe(sent);
+      }
+      expect(both.scrub("localhost:8080s3://example.org/report.html", "text").counts).toMatchObject({ sources: 1, files: 0, urls: 2 });
+    }
+    // The host's appended file names too.
+    for (const scope of ["text", "model"] as const) expect(scrubber.scrub("see localhost:8080ftp://claims.json now", scope).text).toBe("see [url][url] now");
+    // A name that a later pass finds moves the provisional match after it. In the owner's text the first pass takes the host's
+    // appended path, which ends the source's name glued before it, and the second pass takes that name.
+    expect(text("see alpha-field-notes.mdoutput/report.md (//old-claims.json?token=abc) now")).toBe("see S1[file] ([url]) now");
+    expect(model("see alpha-field-notes.mdoutput/report.md (//old-claims.json?token=abc) now")).toBe("see S1/[file] ([url]) now");
   });
 
   it("names a form two sources share [source], and each whole path its own alias", () => {
@@ -256,8 +368,14 @@ describe("the assist scrubber (research-assist-scrub.ts)", () => {
       `${"xx.yy.".repeat(10_000)}${"z".repeat(30)}`, "a:".repeat(32_000), "%a%".repeat(21_000), `${"a".repeat(64_000)}.docx`, "[::".repeat(21_000), `https://x.com/a${")".repeat(64_000)}`,
       "\"“/\"".repeat(16_000), `/${"汉/a汉".repeat(16_000)}`, `${"资料".repeat(32_000)}/`, `${"aa ".repeat(21_000)}q`, `a${"\u0301".repeat(32_000)}${"\u0316".repeat(32_000)}`,
       "文件在这里，".repeat(10_000), "文件在这里,".repeat(10_000), "文件在这里：".repeat(10_000), "文件在这里;".repeat(10_000)];
-    // A run start at an astral character, alone or before an escape: the walk steps over the whole code point and returns.
-    for (const value of ["\u{20BB7}", "\u{20000}\\n"]) expect(text(value)).toBe(value);
+    // The walk resumes at a match's end: an advance by one would give "[file][file]" here, before any astral case below could hang.
+    for (const scope of ["text", "model"] as const) expect(scrubber.scrub("see a/'b/c.md now", scope).text).toBe("see [file] now");
+    // A run start at an astral character, alone, before a slash or before an escape: the walk steps over the whole code point and
+    // returns. A walk that broke this would hang the run rather than fail it, since the scan is synchronous.
+    for (const value of ["\u{20BB7}", "\u{20000}\\n", "see \u{1F600}/b now", "\u{1F600}/\u{1F600}", "see \u{20000} now", "see \u{20000}/b now"]) {
+      for (const scope of ["text", "model"] as const) expect(scrubber.scrub(value, scope).text, `${value} ${scope}`).toBe(value);
+      expect(scrubber.finding(value, "model"), value).toBeUndefined();
+    }
     const started = performance.now();
     // Building a scrubber reads the host's appended text raw with the same walk. The separator is ASCII: read raw, a full-width
     // one is CJK punctuation, which ends every run, so it would be linear whatever the scan.

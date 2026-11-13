@@ -298,7 +298,7 @@ describe("backlog item 7(d): the applier's host flags, rules v1 (BL-20261109-035
       const at200 = traded(`L${"a".repeat(199)}`, [defined(`L${"a".repeat(199)}`)]), at201 = traded(`L${"a".repeat(200)}`, [defined(`L${"a".repeat(200)}`)]);
       expect(at200.edits.flags).toEqual([{ id: "E1", codes: ["parties_swapped"] }]); expect(at200.read.termsCapped).toBe(false);
       expect(at201.edits.flags).toEqual([]); expect(at201.read.termsCapped).toBe(true);
-      // Carried to 7d.B from the mechanical check of #81 (BL-20261110-1153): a term after an over-long one in the same paragraph is still read.
+      // Carried to 7d.B from the mechanical check of #81 (BL-20261110-1509): a term after an over-long one in the same paragraph is still read.
       expect(traded("Agent", [defined(`L${"a".repeat(200)}`), defined("Agent")]).edits.flags).toEqual([{ id: "E1", codes: ["parties_swapped"] }]);
     });
     it("keeps the 48 smallest defined terms in string order, whatever comes later", () => {
@@ -313,7 +313,7 @@ describe("backlog item 7(d): the applier's host flags, rules v1 (BL-20261109-035
       expect(traded(largest, crowded).read.termsCapped).toBe(true);
       // Zebra sorts last, so it is the one left out.
       expect(traded("Zebra", [...party, "Zebra"].map(defined)).edits.flags).toEqual([]);
-      // Carried to 7d.B from the mechanical check of #81 (BL-20261110-1153): a term after one that does not fit is still read.
+      // Carried to 7d.B from the mechanical check of #81 (BL-20261110-1509): a term after one that does not fit is still read.
       expect(traded("Agent", [...party, "Zebra", "Agent"].map(defined)).edits.flags).toEqual(swapped);
     });
     it("keeps the same 48 whether the definitions arrive in ascending or descending order", () => {

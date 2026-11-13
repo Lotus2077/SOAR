@@ -38,7 +38,7 @@ const absence = (line: number, rule: string, cited = false) => ({ line, rule, cl
 const bounded = (line: number, rule: string, cited = false) => ({ line, rule, class: "bounded", cited });
 const argumentHits = (text: string) => hostFlagsEvent(harness({ files: [{ path: RESEARCH_FILES.argument, bytes: Buffer.from(text) }] }).run({}))!.argument!.hits;
 
-describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", () => {
+describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1509)", () => {
   describe("absence rules v1", () => {
     it.each([
       ["A1", ["None of the sources quantify the cost.", "Neither of the documents covers 2025."], ["None of the authors agreed.", "Not one of the samples failed."]],

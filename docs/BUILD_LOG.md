@@ -33710,7 +33710,7 @@ Next gate: The owner's go-ahead to push the integration branch, retarget #74, #7
 
 References: BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0331-loop-selection-protocol-2-design; BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0354-document-review-flags-design; BL-20261109-0422-registry-run-commit-design; BL-20261109-0447-research-tolerance-design; BL-20261109-0456-ordered-pool-implemented; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0501-research-stage-pause-design; BL-20261109-0515-infra-classification-design; BL-20261109-0552-research-tolerance-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261110-0712-correction-research-tolerance-repin; BL-20261110-0712-document-review-flags-implemented; BL-20261110-0723-correction-infra-classification-train-review; BL-20261110-0900-correction-research-tolerance-held-repair; BL-20261110-0933-document-review-flags-party-terms-bounded; BL-20261110-1100-document-review-flags-party-terms-pinned; BL-20261110-1100-correction-research-train-1-review-pins; pull requests #66, #67, #68, #69, #70, #71, #72, #73, #74, #76, #77, #78, #81 and #83; docs/HANDOFF.md section 5; docs/experiments/README.md; scripts/validate-build-log.ts; scripts/private-agent-local-screen.ts (`localScreenSourceFreeze`); tests/helpers/research-protocol-pin.ts; tests/unit/phase4-loop.test.ts.
 
-### BL-20261110-1153-host-flags-event-design -- 2026-11-10 -- Backlog item 7(d), part B decided: the `host_flags` event v1 after submission, with the absence-claim flag (rules v1), the run's recorded misses, the single-unit brief disclosure and the document-review summary; with a correction to BL-20261110-1100
+### BL-20261110-1509-host-flags-event-design -- 2026-11-10 -- Backlog item 7(d), part B decided: the `host_flags` event v1 after submission, with the absence-claim flag (rules v1), the run's recorded misses, the single-unit brief disclosure and the document-review summary; with a correction to BL-20261110-1100
 
 Status: `Proposed`
 
@@ -33930,7 +33930,7 @@ References: docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 7(d) and section 
 
 Status: `Implemented`
 
-Scope or hypothesis: Implement BL-20261110-1153-host-flags-event-design, with deterministic tests, on the local branch `feat/7d.B-host-flags-event` (plan ID 7d.B, lane S-desk).
+Scope or hypothesis: Implement BL-20261110-1509-host-flags-event-design, with deterministic tests, on the local branch `feat/7d.B-host-flags-event` (plan ID 7d.B, lane S-desk).
 
 The branch is built on a local merge of three heads that ride merge train 1, so none of them moves: 6.2 (#77) at 224429b, 7d.A (#81) at fc905ff and 11.2 (#73) at a27652a, merged in c04d8a1 and b953dfd. Its commits:
 - 5d76a85, the design entry;
@@ -33941,7 +33941,7 @@ The branch is built on a local merge of three heads that ride merge train 1, so 
 
 Nothing is pushed. The branch is replayed onto `main` after #77, #81 and #73 merge.
 
-Decisions: Implemented as BL-20261110-1153 decides, with the corrections and precisions below. Three adversarial code reviews checked a0c005b: correctness and fidelity, ledger and consumer safety, and test strength by mutation. The design entry stays as written.
+Decisions: Implemented as BL-20261110-1509 decides, with the corrections and precisions below. Three adversarial code reviews checked a0c005b: correctness and fidelity, ledger and consumer safety, and test strength by mutation. The design entry stays as written.
 
 (a) Correction: two of decision (1)'s recovery claims are wider than what production does.
 - "So is a task that was paused in its entailment pass before this change. It records the event when it resumes." No such task resumes:
@@ -34055,7 +34055,7 @@ Limitations and non-claims:
 - This change does not touch `researchProtocolSha256`, which is 3453710315… at the local base. After train 1, main holds 05f342b2… (BL-20261110-0900, pull request #76). The replay must show this change leaves that value unchanged too.
 - The design entry's limitations stand, and so does its correction of BL-20261110-1100: the 175 MB figure likely includes harness overhead.
 
-Owner questions: The two of BL-20261110-1153 stand, with the defaults this branch implements:
+Owner questions: The two of BL-20261110-1509 stand, with the defaults this branch implements:
 - D11 (#55): keep the segmentation and flag single-unit briefs;
 - "misses" means the run's own misses.
 
@@ -34069,4 +34069,43 @@ Next gate: Push, and a pull request against `main` after #77, #81 and #73 merge,
 
 Then review and CI. 7d.C reads the event and follows; it must read a missing event as "not recorded", per (a). If another entry merges first, this entry's ID and the design entry's are re-stamped after main's tail with a correction entry.
 
-References: BL-20261110-1153-host-flags-event-design; BL-20261109-0354-document-review-flags-design; BL-20261110-1100-document-review-flags-party-terms-pinned; BL-20261110-0900 (pull request #76); UAX #15; CommonMark 0.31; pull requests #73, #77 and #81.
+References: BL-20261110-1509-host-flags-event-design; BL-20261109-0354-document-review-flags-design; BL-20261110-1100-document-review-flags-party-terms-pinned; BL-20261110-0900 (pull request #76); UAX #15; CommonMark 0.31; pull requests #73, #77 and #81.
+
+### BL-20261113-0816-correction-host-flags-event-ids-and-replay -- 2026-11-13 -- Correction: 7d.B's design entry carries ID BL-20261110-1509 in the ledger; it was authored at 11:53 UTC on 2026-11-10 as BL-20261110-1153. The branch is replayed onto `main` after merge train 1, so the commits and checks that BL-20261110-1516 names are the local branch's before the replay
+
+Status: `Implemented`
+
+Scope or hypothesis: Record the re-stamp and the replay of plan 7d.B (lane S-desk) for its pull request against `main`.
+- **The re-stamp.** The design entry was committed at 11:53 UTC on 2026-11-10 as BL-20261110-1153. `main`'s last ID after train 1 is BL-20261110-1506-merge-train-1-integration, so under the owner's rule recorded in BL-20261113-0758 (pull request #87) the entry's ID minute moves after the tail, to BL-20261110-1509-host-flags-event-design. 1509 is the first minute after the tail that #82's re-stamped entries (1507 and 1508) do not use. BL-20261110-1516-host-flags-event-implemented already follows the tail and keeps its ID.
+- **The replay.** 7d.B was built on a local merge of #77, #81 and #73 (c04d8a1 and b953dfd) and was never pushed. After train 1 (#85, 9d10b9a) its commits are cherry-picked onto `main`:
+  - 5d76a85 is 5cf6f39, a0c005b is 8b14287, c983ec7 is 138eed8, 2d9cae2 is 6f01407, ffaaf64 is 8f242f6, 0089533 is f6b3cfa, and 30ff65d is 19c38fb;
+  - fc4d264 is new, below;
+  - then the commit of this entry.
+
+Decisions:
+- Only the design entry's ID minute and the references to it change: four in BL-20261110-1516's body, the header comment of src/main/private-agent/host-flags.ts, two comments in tests/unit/document-review-flags.test.ts, and test titles in the host-flags, session, research-session and public-snapshot tests. Both entries' bodies are otherwise byte-identical to the local branch's.
+- BL-20261110-1516's scope, commit list and evidence describe the local branch before the replay. This entry gives the replayed branch's.
+- **One test adaptation to `main` (fc4d264).**
+  - On `main`, 7a.1 (BL-20261110-0726-correction-research-tolerance-total-loss) keeps an extraction reply that drops one quote but keeps another. So the packet-misses fixture's extra unlocatable quote no longer forced a retry: the test saw `extractionRetries` 0, not 1.
+  - Its first extraction reply now carries only that quote, for the question it marks `evidence_found`. 7a.1 holds that attempt and repairs it, which gives the same one retry and one dropped quote through the merged pipeline.
+  - The pass's code is unchanged; its counters read the merged packet as BL-20261110-1509 defines them.
+
+Changes: docs/BUILD_LOG.md (one heading, four references and this entry); the comment and test titles named above; the fixture of fc4d264.
+
+Evidence: At the replayed head:
+- `researchProtocolSha256(RESEARCH_PIPELINE_BUDGET)` is 05f342b25f3483574cca4f1bad53468219e63e94578927c069a8c831289e93a8 with `RESEARCH_PIPELINE_VERSION` 4, equal to `main`'s pin in tests/helpers/research-protocol-pin.ts (BL-20261110-0900-correction-research-tolerance-held-repair). No research pipeline, contract, coverage or plan file differs from `main`. So this change leaves the protocol identity unchanged, as BL-20261110-1509 and BL-20261110-1516 stated for the local base's 3453710315….
+- `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` and `pnpm validate:readiness` pass.
+- The changed tests: private-agent-host-flags 39 of 39; private-agent-session 34 of 34; private-agent-research-session 18 of 18; private-agent-public-snapshot 26 of 27 with 1 skipped, as before; document-review-flags 154 of 154; phase2-blind 4 of 4; document-review 9 of 9.
+- The full `pnpm exec vitest run`: 188 files, 174 passed, 13 skipped (the environment-gated suites, as before) and 1 failed; 3,326 tests, 3,239 passed, 86 skipped and 1 failed. The failure was a 5 s load timeout in private-agent-sandbox-capture, a file this change does not touch, which passed alone (13 passed, 1 skipped).
+
+Failures or blockers: None open. The first resolution of the session test's conflict dropped the closing braces of `main`'s last describe block, which `main` had also appended. The file did not parse. The replay was rebuilt with the braces restored in the implementation commit before anything was pushed.
+
+Limitations and non-claims:
+- The limitations of BL-20261110-1509 and BL-20261110-1516 stand.
+- A minute change cannot place this branch's 2026-11-10 entries (1509 and 1516) after an entry of a later day. If #82 (whose correction and new entry are dated 2026-11-13), #87 or another such pull request merges first, this branch can follow only by also changing its headings' dates, which the owner's rule does not cover.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Review of the pull request (one reviewer), CI, and a merge on the owner's go-ahead, re-stamping again at the merge if `main`'s tail has moved.
+
+References: BL-20261110-1509-host-flags-event-design; BL-20261110-1516-host-flags-event-implemented; BL-20261110-1506-merge-train-1-integration; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261110-0726-correction-research-tolerance-total-loss; BL-20261110-0900-correction-research-tolerance-held-repair; BL-20261113-0758 (pull request #87).

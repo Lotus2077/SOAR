@@ -257,7 +257,7 @@ describe("public snapshot CLI", () => {
     expect(phase.checks).toHaveLength(1);
   });
 
-  it("names the report its claims check reads with claimsReportPath, before and after the ledger is added (BL-20261110-1153)", () => {
+  it("names the report its claims check reads with claimsReportPath, before and after the ledger is added (BL-20261110-1509)", () => {
     const phase = (paths: readonly string[]) => ({ files: [{ path: "input/notes.txt", bytes: Buffer.from("notes") }], checks: [{ id: "structure", python: "# fixture" }],
       contract: { version: 1 as const, goal: "Write the memo.", requiredArtifacts: paths.map(path => ({ path, description: "artifact" })), requiredChecks: ["structure"],
         maxModelCalls: 40, maxToolCalls: 80, maxElapsedMs: 1_800_000 } });

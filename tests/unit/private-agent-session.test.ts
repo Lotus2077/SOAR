@@ -439,7 +439,7 @@ function flagsOptions(f: Awaited<ReturnType<typeof fixture>>, jobId: string, out
     } }) };
 }
 
-describe("backlog item 7(d), part B: the host flags event in the session (BL-20261110-1153)", () => {
+describe("backlog item 7(d), part B: the host flags event in the session (BL-20261110-1509)", () => {
   const verdict = (content = '{"verdict":"supported"}') => vi.spyOn(PrivateAgentModel.prototype, "complete").mockResolvedValue({ content, toolCalls: [], finishReason: "stop", costUsd: 0, durationMs: 1 });
   const flagged = (f: Awaited<ReturnType<typeof fixture>>, jobId: string) => f.store.events(jobId).filter(event => event.type === "host_flags");
   const report = { "output/report.md": "# Findings\nNone of the sources quantify the cost.", [CLAIMS_LEDGER_PATH]: "[]" };

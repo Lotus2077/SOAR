@@ -8,7 +8,7 @@ import { ResearchCoverageSchema, ResearchEvidenceSchema } from "./research-cover
 import type { PrivateAgentStore } from "./store";
 
 /**
- * Backlog item 7(d), part B (BL-20261110-1153-host-flags-event-design): host flags for the owner's attention, recorded once per private
+ * Backlog item 7(d), part B (BL-20261110-1509-host-flags-event-design): host flags for the owner's attention, recorded once per private
  * context after submission. The pass scans the claims report and the research packet's argument for corpus-absence claims (absence rules
  * v1), sets beside them the misses the run itself recorded and the single-unit brief disclosure (D11), and summarizes a document review's
  * `output/review-flags.json`. It never decides anything: no check's `passed`, no status, selection or acceptance. It makes no model call,

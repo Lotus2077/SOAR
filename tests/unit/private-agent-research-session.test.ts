@@ -109,7 +109,7 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(f.store.events("job-research").filter(event => event.type === "research_transfer")).toHaveLength(1);
   });
 
-  it("records the write phase's host flags with the transferred packet's coverage and misses, once across a resume (BL-20261110-1153)", async () => {
+  it("records the write phase's host flags with the transferred packet's coverage and misses, once across a resume (BL-20261110-1509)", async () => {
     const f = await fixture(), runs: Run[] = [], written = phase();
     const claimsPhase: SessionPhase = { ...written, checks: [...written.checks, { id: CLAIMS_LEDGER_CHECK_ID, python: "# fixed fixture" }],
       contract: { ...written.contract, requiredChecks: [...written.contract.requiredChecks, CLAIMS_LEDGER_CHECK_ID] } };

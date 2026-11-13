@@ -35061,3 +35061,93 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI green, the orchestrator's review (one reviewer, with a skeptic only for a blocker or major finding), then the owner's go-ahead outside E0's window. If `main` moves past this branch's last ID first, the entries are re-stamped again.
 
 References: BL-20261113-0911-research-v5-implemented (corrected); BL-20261113-0910-research-v5-design; BL-20261113-0912-correction-research-v5-assist-order-deadline; BL-20261113-0913-correction-research-v5-restamp-ids; BL-20261110-1506-merge-train-1-integration; BL-20261109-0501-research-stage-pause-design (6.2); E0's card on #87.
+
+### BL-20261113-0916-correction-research-v5-third-stamp -- 2026-11-13 -- Correction to BL-20261113-0913 and BL-20261113-0915: 7c's six entries carry BL-20261113-0910 to BL-20261113-0915 after #82's tail, and three statements of BL-20261113-0915 are corrected: the E0 consequence, a stale "0816" and a file count
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261113-0913-correction-research-v5-restamp-ids and BL-20261113-0915-correction-research-v5-on-main. It follows the orchestrator's review of #93 at a269e48, which found no code defect: CI passed, and the pin equals the computed hash.
+
+After #93 opened, #82 (6.3) merged into `main` at 23dfadc. It appended:
+- BL-20261113-0817-runner-storage-integrity-design;
+- BL-20261113-0818-runner-storage-integrity-implemented;
+- BL-20261113-0819-correction-runner-storage-integrity-ids;
+- BL-20261113-0820-research-stage-pause-held-attempt-pins;
+- BL-20261113-0834-correction-runner-storage-integrity-second-restamp.
+
+7c's entries then shared the minutes 08:17 to 08:20 with those entries and came before the tail, so the log was no longer append-only against `main`. The orchestrator gave this lane the minutes 09:10 to 09:19. #89 holds 08:36 to 08:47 and S-e1 holds 08:48 to 09:09; #93 lands in one integration merge after them.
+
+Decisions:
+(1) **The third stamp.** `main` at 23dfadc is merged into the branch (merge commit d280f17), which keeps every earlier commit SHA. All six entries move into the lane's minutes, in their order, one minute each:
+
+| Entry | Second-stamp minute | Third stamp |
+| --- | --- | --- |
+| research v5 design | 08:17 | BL-20261113-0910-research-v5-design |
+| research v5 implemented | 08:18 | BL-20261113-0911-research-v5-implemented |
+| assist order and deadline | 08:19 | BL-20261113-0912-correction-research-v5-assist-order-deadline |
+| re-stamp record | 08:20 | BL-20261113-0913-correction-research-v5-restamp-ids |
+| train-1 check pins | 08:35 | BL-20261113-0914-correction-research-train-1-check-pins |
+| 7c on main | 08:40 | BL-20261113-0915-correction-research-v5-on-main |
+
+- **Authoring times.** BL-20261113-0913-correction-research-v5-restamp-ids keeps the original IDs and authoring times of the first three. The other three were written on 2026-11-13 between 08:15 and 08:40 UTC.
+- **Why all six move.** 08:35 and 08:40 already sort after `main`'s 08:34. But moving only the first four would put them after those two, or make several share one minute.
+- **The record keeps its own narrative.** BL-20261113-0913-correction-research-v5-restamp-ids still describes the second stamp: 08:17 to 08:19, made after #92's tail. That narrative is history, and this entry records the move from it.
+
+(2) **What changed in the six bodies.** Only the references to the six changed: headings, full IDs, short IDs and bare minutes.
+- A reference whose second-stamp minute (08:17 to 08:20) now belongs to one of 6.3's entries on `main` became a full ID.
+- The references in code comments, the pin file and test titles follow, in commit d65aef6.
+- The one other change is in (3).
+
+(3) **The stale "0816" in BL-20261113-0915-correction-research-v5-on-main.** Its Limitations read "The limitations of 0817, 0818 and 0816 stand, with their four owner questions and the entry-time deadline check that 0816 offers."
+- **What 0816 meant.** Both "0816" strings meant the assist-order entry, whose first stamp was 08:16. The second stamp should have made them 0819. It did not, because its mapping replaced only the full and short forms of that minute.
+- **What 0816 is on `main`.** BL-20261113-0816-correction-host-flags-event-ids-and-replay (7d.B), which offers no deadline check.
+- **The fix.** The third stamp writes both strings as BL-20261113-0912-correction-research-v5-assist-order-deadline. It writes the entry's two other bare references, in decisions (2) and (3), as BL-20261113-0911-research-v5-implemented and BL-20261113-0910-research-v5-design. The four owner questions are the design entry's.
+
+(4) **The E0 consequence.** This corrects BL-20261113-0915-correction-research-v5-on-main decision (4), which said, as #93's body did, that P10's synthesis cells are run again if 7c merges after E0.
+- **Only the synthesis request bytes change under 7c.** The plan and extract exports are byte-identical. `pnpm probe:export-schemas` at 23dfadc and at d65aef6 gives the same plan and extract schemas, system prompts, synthetic payloads, output caps and thinking policy. Only the synthesis payload, the protocol hash and the export time differ.
+- **The P10 block has one protocol hash.** The serving card's P10 block carries one hash for the whole export. When that hash differs from today's `researchProtocolSha256()`, the reader refuses every flagged role's structured output (`serving_card_p10_protocol_drift`).
+- **Merging after the export.** P10 would be exported and run again for all three roles, because serving-probe.py has no per-role P10 option.
+- **Merging before the export.** E0's P10 is measured under 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92, and nothing is re-run.
+- **E0 has not started, so 7c lands before E0's export.** E0's card then binds 505c385a…, and P10 measures v5's synthesis payload: coverage v2 with `fallbacks`.
+- **P11 is unaffected either way.** 7c changes neither RESEARCH_EXTRACTION_LAYOUT nor the extraction requests.
+
+(5) **The file count.** BL-20261113-0915-correction-research-v5-on-main decision (1) counts session.ts among 7c's files, but 7c does not change session.ts. Train 1 changed six of 7c's files, and also session.ts:
+- research-admission.ts and the admission test;
+- the pipeline test;
+- the session test;
+- docs/experiments/README.md;
+- the build log.
+
+(6) **#82's held-attempt tests.** #82 added a control run and three held-attempt tests to the session test, written for its own fixture shape, `fixture(undefined, { extractReply: held })`. The merge keeps 7c's options-object fixture. Those four calls become `fixture({ reply: heldBy() })`, where `heldBy` gives `held` the nth extraction reply.
+
+Changes:
+- Merge commit d280f17: the log and the session test.
+- Commit d65aef6: the references in code, the pin file and test titles.
+- This entry.
+
+Evidence:
+- **The log.** `pnpm --silent validate:build-log -- --base-ref 23dfadc` passes with this entry: append-only against the merged `main`, with monotonic IDs.
+- **The bodies.** Once every reference to the six is normalised, each moved body equals its text at a269e48, except (3)'s two strings.
+- **The export.** The comparison in (4).
+- **The tests.** At d65aef6, whose code this entry's commit leaves unchanged:
+  - `pnpm typecheck` and `pnpm validate:readiness` pass.
+  - The research suites, with the run-reasons and host-flags tests, pass 18 files and 328 tests. The session test passes 22 tests and the pipeline test 90.
+  - `pnpm exec vitest run` reports 175 files passed, 2 failed and 13 skipped, and 3,309 tests passed, 2 failed and 86 skipped. The two failures are local-repository-investigator.test.ts and patch-routing-comparison.test.ts. Neither imports research code, and both pass when rerun alone (79 tests passed, 1 skipped).
+- **The hash.** The pin test passes, so `researchProtocolSha256()` is still 505c385a….
+
+Failures or blockers:
+- **The second stamp's miss.** It left the two bare "0816" strings unchanged; (3) corrects them.
+- **CI passed against an old base.** #93's CI passed because the pull_request event's base SHA was still bb6ef32. Against `main` at 23dfadc the log was not append-only, and GitHub reported the pull request as conflicting.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`. It records the third stamp and carries one test port. Nothing ran live.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's integration merge, which lands #93 after #89 (08:36 to 08:47) and S-e1's (08:48 to 09:09). Then E0's export binds 505c385a….
+
+References:
+- BL-20261113-0913-correction-research-v5-restamp-ids and BL-20261113-0915-correction-research-v5-on-main (corrected);
+- BL-20261113-0910-research-v5-design, BL-20261113-0911-research-v5-implemented, BL-20261113-0912-correction-research-v5-assist-order-deadline and BL-20261113-0914-correction-research-train-1-check-pins;
+- BL-20261113-0834-correction-runner-storage-integrity-second-restamp (`main`'s tail at the merge);
+- BL-20261113-0816-correction-host-flags-event-ids-and-replay;
+- BL-20261113-0758 on #87 (the owner's re-stamp rule).

@@ -34706,3 +34706,73 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The review of 7c's pull request, which carries this entry.
 
 References: BL-20261110-1100-correction-research-train-1-review-pins (corrected); BL-20261110-0848-correction-research-length-parser-chains; BL-20261109-0447-research-tolerance-design (decision (5)); the orchestrator's check of #83 at d894a62.
+
+### BL-20261113-0840-correction-research-v5-on-main -- 2026-11-13 -- Correction to BL-20261113-0818: 7c rebased onto main after merge train 1 and #92; the protocol hash is 505c385a, as on #76, 6.2's paused-failure case is rewritten for the host fallback, and the merge waits outside E0's window
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261113-0818-research-v5-implemented. That entry recorded 7c at #76's bd876d9 with the protocol hash 35a622ee…. The hash was 505c385a… once 7c moved onto 2fe1ec8, as BL-20261113-0819-correction-research-v5-assist-order-deadline records. This entry records 7c rebased onto `main` for its pull request, at bb6ef32: merge train 1 (#85) and then 7d.B (#92). It covers:
+- what the rebase met;
+- the hash `main` takes when 7c merges;
+- the one test and the one code line the rebase had to change;
+- when the merge may happen.
+
+Decisions:
+(1) **The rebase.** The commits of 7c's local branch were replayed onto 9d10b9a, and again onto bb6ef32 once #92 had merged.
+- Its code commits applied without a conflict.
+- Its three entries were appended after the log's tail and re-stamped, as BL-20261113-0820-correction-research-v5-restamp-ids records.
+- Train 1 changed seven of 7c's files:
+  - research-admission.ts and the admission test (#83, comments and rows);
+  - the pipeline test (#83);
+  - session.ts and the session test (6.2, the research-stage pause);
+  - docs/experiments/README.md;
+  - the build log.
+- #92 then added a host-flags test to the session test. It reads the transferred packet's coverage, and it passes on 7c's coverage v2.
+(2) **The protocol hash.** `researchProtocolSha256()` on the rebased tree is 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92, the value on #76's 2fe1ec8, because neither train 1 nor #92 changed a hashed value.
+- `main` pins 05f342b25f3483574cca4f1bad53468219e63e94578927c069a8c831289e93a8. 7c's merge moves `main` to 505c385a….
+- The pinned synthesis digest 03bdfb5e0fc7a0b178c5b743a5b9035fb0fdd8838f53dc701989eb35a38fce6e and the four request digests hold.
+- The consequences are the ones 0818 decision (7) names:
+  - v4 seeds are refused;
+  - paused sessions drift;
+  - the harness source-freeze digest changes;
+  - earlier P10 evidence is invalidated.
+(3) **6.2's paused-failure case, rewritten (commit 7620fb9).** Train 1's 6.2 pinned that an invalid plan with a pause asked after the planner's last reply ends as that failure, `research_plan_invalid`. Since 7c, a broken plan falls back to the host plan.
+- The case now breaks the stage at extraction. The pause comes after the reader's last extraction reply, and the run ends `research_extraction_incomplete`, the failure, not a pause. The next run is refused (`research_stage_not_replayed`).
+- The plan case is pinned as it now behaves. Two broken plans, then a pause after the planner's last reply: a cancel never completes as the fallback (0817 decision (12)), so the stage ends denied `cancelled`. The stage rows are [index 1], [plan 2 cancelled]. The session reports `research_stage_not_replayed` because the stage started; where 6.2 ended `research_plan_invalid`, the run is still incomplete, with another reason.
+- The test also moves to 7c's options-object fixture, so the old call shape no longer compiles. That is the break the typecheck found.
+(4) **The merge waits outside E0's window.** 7c changes `researchProtocolSha256()`. E0's card (#87) allows no protocol-hash change to merge between the owner's E0 export and `probe:assess`. So 7c merges outside that window, and if it merges after E0, P10's synthesis cells are run again. The merge also waits for the orchestrator's review and the owner's go-ahead.
+(5) **The run-reasons scan (commit 26a5f3b).** Train 1's run-reasons contract test (backlog item 6, finding A6) reads every reason the pipeline can record from its syntax tree, and it fails closed on a computed reason.
+- 7c's presentation catch returned `error.message` when it equalled `research_presentation_too_large`, which the scan cannot evaluate. It now returns that literal, with identical behaviour.
+- src/main/general-tasks/run-reasons.ts classifies every `research_` reason as terminal by its prefix. So 7c's new reasons, such as `research_assists_invalid` and `research_presentation_invalid`, need no rows: they are terminal, and the desktop offers no Resume for them.
+(6) **The assist contract.** src/main/private-agent/research-assist-contract.ts is added byte-identical to #79's copy at d364b46 (sha256 bced24dfefe448eb9dd57abd9d84bc9e7b8fac7d8d3fb5637630dd76f5d967a0). #79 is still open. Whichever of the two merges second rebases onto an identical file.
+
+Changes: The pull request's commits on `feat/7c-research-v5`, from bb6ef32:
+- the seven replayed commits: c450684, 33b5ac7, cd90073, 9bab77c, b2a783f, 78cdd2f and bba75b6;
+- 7620fb9: the session test;
+- 26a5f3b: the run-reasons literal;
+- ee74807: the references in full;
+- 81740d1: the check's follow-up pins;
+- the entries BL-20261113-0820-correction-research-v5-restamp-ids (commit 71af529), BL-20261113-0835-correction-research-train-1-check-pins and this one.
+
+Evidence: The checks ran locally at 26a5f3b, on bb6ef32. The entry commits after it change docs/BUILD_LOG.md only.
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **The research suites, with the run-reasons and host-flags tests.** `pnpm exec vitest run tests/unit/private-agent-research tests/unit/role-schema-export.test.ts tests/unit/serving-probe-helpers.test.ts tests/unit/planner-fixture.test.ts tests/unit/assess-probe-replies.test.ts tests/unit/general-task-run-reasons.test.ts tests/unit/private-agent-host-flags.test.ts` passes 18 files and 325 tests.
+- **Full suite.** `pnpm exec vitest run` reports 176 files passed and 13 skipped, and 3,287 tests passed and 86 skipped. None failed.
+- **Earlier runs, on 9d10b9a.** Before (5), the full suite failed only the run-reasons contract test. Once, it failed with-claude-key.test.ts's shell-script test under load, which passes alone.
+- **The pins.** The pin test passes, so `researchProtocolSha256()` returns 505c385a…. The synthesis digest 03bdfb5e… and the four request digests pass.
+- **The contract file.** research-assist-contract.ts hashes to bced24df…, the same as #79's copy at d364b46.
+- **The build log.** `pnpm --silent validate:build-log -- --base-ref origin/main` passes with this pull request's six entries.
+
+Failures or blockers: The rebase met two breaks, both found by the checks and both fixed:
+- 6.2's session test, whose old fixture shape no longer compiled and whose plan case had a new outcome under 7c, fixed in (3);
+- the run-reasons scan, which could not read the presentation catch, fixed in (5).
+
+Nothing else is new.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`. Nothing ran against an endpoint. The limitations of 0817, 0818 and 0816 stand, with their four owner questions and the entry-time deadline check that 0816 offers.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green, the orchestrator's review (one reviewer, with a skeptic only for a blocker or major finding), then the owner's go-ahead outside E0's window. If `main` moves past this branch's last ID first, the entries are re-stamped again.
+
+References: BL-20261113-0818-research-v5-implemented (corrected); BL-20261113-0817-research-v5-design; BL-20261113-0819-correction-research-v5-assist-order-deadline; BL-20261113-0820-correction-research-v5-restamp-ids; BL-20261110-1506-merge-train-1-integration; BL-20261109-0501-research-stage-pause-design (6.2); E0's card on #87.

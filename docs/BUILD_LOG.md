@@ -33750,3 +33750,29 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The owner answers the judge level and labeller, the r3 pin, and reasoning retention and P10-align, recorded in an entry or in this card's pull request, and the card merges. Decision 1's entry may stay owed (issue #47). Then the owner runs E0 from the Mac per issue #57 and opens a pull request with the serving card, the filled manifest, the registry rows and a `Verified` entry.
 
 References: docs/experiments/e0-card-2026-11-13.md; docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E0, section 5.8 and section 5.10 decision 1; docs/HANDOFF.md "Start here" section 5, step 2; issues #47 and #57; BL-20261108-0911-probe-extensions-implemented; BL-20261108-1459-serving-card-reader-design; BL-20261108-1649-serving-card-reader-implemented; BL-20261109-0351-e1-recoverability-card; BL-20261110-1506-merge-train-1-integration.
+
+### BL-20261113-0758-owner-decision-restamp-unmerged-entries -- 2026-11-13 -- The owner decides that entries committed on unmerged branches are re-stamped after main's tail at merge, with a correction recording the original time
+
+Status: `Approved`
+
+Scope or hypothesis: Record the owner's answer, given in the orchestrating session's chat on 2026-11-13, to the entry-ordering question that BL-20261110-1506-merge-train-1-integration left open. After merge train 1, `main`'s last ID is later than entries already committed on unmerged work. In open pull requests these are #75's, #79's, #80's, #82's and #84's entries; on the lanes' unpushed branches, 11.3b's, 7c's and 7d.B's. The validator refuses an entry whose ID minute is earlier than the one before it. `Approved` covers this rule only.
+
+Decisions:
+- **The rule.** A branch whose entries carry IDs earlier than `main`'s tail when it merges re-stamps them after the tail, as docs/HANDOFF.md "Start here" section 5 says. It also adds a `Correction` entry that records each original ID and authoring time, as BL-20261108-0856-correction-stop-bricking-tasks-design-id did.
+- **What a re-stamp may change.** It changes only the heading's ID minute and the references to that ID. The entry's body is otherwise byte-identical to what was reviewed. Re-stamping an entry on an unmerged branch is not a rewrite of a committed entry in the sense of AGENTS.md: entries on `main` are never re-stamped or edited.
+- **Train 1 stands as merged.** The sorted union of BL-20261110-1506-merge-train-1-integration is not reopened; its fourteen pull requests' entries keep their IDs.
+- **Who does it.** Each lane re-stamps its own entries when it rebases onto `main` for merge, and the review of that pull request checks the re-stamp and its correction.
+
+Changes: None in code. This entry only records the decision.
+
+Evidence: The owner's chat answer "Yes, re-stamp" of 2026-11-13, to the question "May lanes re-stamp their unmerged entries after main's tail, as the handoff's rule says?"
+
+Failures or blockers: None.
+
+Limitations and non-claims: This decides the ordering rule only. It does not approve any pull request's merge, and it does not change the validator.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The lanes rebase their next pull requests onto `main` and re-stamp at merge. docs/HANDOFF.md "Start here" is updated in a later handoff note.
+
+References: BL-20261110-1506-merge-train-1-integration; BL-20261108-0856-correction-stop-bricking-tasks-design-id; docs/HANDOFF.md "Start here" section 5; AGENTS.md.

@@ -137,6 +137,42 @@ Follow the order in review §5.6. Each step is done when its condition holds.
    card, with the RACE threshold set from GPT-5.5-judged product scores (review
    §2.2, criterion 4), is committed. Then backlog item 13, the desktop wiring.
 
+**Adjustments from the Rayline evaluation** (2026-11-13,
+BL-20261113-0730-rayline-evaluation-plan-adjustments; the owner delegated "adjust the
+current building plan if you see fit"). No Rayline component is adopted, and the steps
+above keep their order, rules, caps and gates. Each addition below is zero fee. Card
+contents and owner decisions stay the owner's.
+
+- **Step 2, before E0.**
+  - (a) The doctor (`scripts/setup-general.ts`) reports the endpoint's served alias,
+    model root basename, engine version and context window, never the address. It
+    flags a window smaller than the profile assumes, and is not ready when an adopted
+    card's identity differs. With it the owner can answer decision 1 from observed
+    values.
+  - (b) A judge-fixture script and its labelling protocol. E0's judge cell has none
+    today; only `fixture:planner` exists.
+  - (c) Proposals for the E0 card (#47):
+    - a planner "sequence" condition: attempt 1 with thinking off, then the repair
+      attempt with thinking on;
+    - a low-effort or budgeted-thinking condition, only if probe P2 shows the levels
+      differ;
+    - a logprobs check in the adapter probe;
+    - judge cells J1 (today's JSON judge) and J2 (probability-scored, descriptive
+      only).
+- **Step 5.**
+  - (d) Items 10.b and 11 record the served model on assist attempts, on cloud
+    `model_finished` events and in a registry column. Item 11 also records whether T1
+    and T2 would have fired on arms A and B. Both land before E3's first source
+    freeze.
+  - (e) New backlog item 17: an approved-egress manifest that pairs each key with its
+    host. It is checked wherever a cloud destination is built. It lands before E3's
+    first freeze if decision 6 names gpt-6-sol.
+- **Steps 6 and 7, proposals for the owner.**
+  - (f) A descriptive section and an optional pre-registered tie-break for the E3 card
+    (#63).
+  - (g) A data-retention comparison for decision 6 (#59).
+  - (h) A loopback metering gateway as the answer to question 3 of #61.
+
 **Progress on step 1** (2026-11-07, a later session on the owner's Mac). Backlog items 1-5
 and item 10's assist-purpose exception are implemented as small pull requests with
 deterministic tests, each with a `Proposed` decision entry before its code and an

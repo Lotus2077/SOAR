@@ -17,8 +17,9 @@ import { loadServingCard, looksLikePath, servingCardRefusal, type LoadedServingC
  * qualified image id and the profile in the app's user-data `.env.local` without touching present keys.
  * The report never prints the endpoint or a key; the endpoint appears only as a digest. It reports the endpoint's
  * identity (served alias, model root basename, engine version, context window) as probe P1 derives it, checks the
- * window against the profile's assumption and, when the serving-card pair is set, compares the identity with the
- * adopted card through the pinned reader; never the card's path.
+ * window against what the profile's request guard can send and, under flash_next_v1, the configured context, and, when
+ * the serving-card pair is set, compares the identity with the adopted card through the pinned reader; never the card's
+ * path.
  */
 export const GENERAL_SETUP_KEYS = ["SOAR_VLLM_BASE_URL", "SOAR_VLLM_MODEL", "SOAR_VLLM_API_KEY", "SOAR_VLLM_COST_POLICY", "SOAR_ALLOW_INSECURE_VLLM_HTTP", "SOAR_GENERAL_TASK_IMAGE_ID", "SOAR_GENERAL_TASK_PROFILE",
   "SOAR_VLLM_REPLY_CONTRACT", "SOAR_VLLM_CONTEXT_TOKENS", "SOAR_SERVING_CARD_FILE", "SOAR_SERVING_CARD_SHA256"] as const;
@@ -40,7 +41,7 @@ export interface GeneralSetupReport {
   model: { configured: boolean; endpointSha256?: string; modelsOk: boolean; modelListed: boolean; completionOk: boolean; completionMs?: number; reason?: string;
     /** Printable values only: an unsafe value (path, URL, address, host:port, the configured host) is withheld as null. */
     identity?: EndpointIdentity;
-    /** The window against the profile's assumption; ok is null when the endpoint reports no max_model_len. */
+    /** The window against the larger of the profile's request guard and, under flash_next_v1, the configured context; ok is null when the endpoint reports no max_model_len, false when the contract and context settings are ones the app refuses. */
     window?: { requiredTokens: number; ok: boolean | null; reason?: string } };
   card: { configured: boolean; sha256?: string; date?: string; entry?: string; status?: "matches" | "differs" | "refused" | "unchecked" | "incomplete";
     code?: string; fields?: IdentityComparison[]; reason?: string };
@@ -53,18 +54,27 @@ export interface EndpointIdentity { servedModel: string | null; modelRootBasenam
 export interface IdentityComparison { field: IdentityField; state: "match" | "differs" | "card_unknown" | "endpoint_unknown"; card: string | number | null; endpoint: string | number | null }
 type RawIdentity = { [K in IdentityField]?: K extends "contextTokens" ? number : string };
 
-/** The profile's own context assumption (profiles.ts): its request body cap at 3 bytes per token, plus its output limit. */
+/**
+ * What the profile's own request guard can send (profiles.ts): its body cap at the guard's 3 bytes per token plus its output
+ * limit. Heavy is designed for a 262,144-token window; a smaller window still fits every request the guard admits down to this.
+ */
 export function profileContextTokens(profile: { maxRequestBytes: number; maxOutputTokens: number }): number {
   return Math.ceil(profile.maxRequestBytes / 3) + profile.maxOutputTokens;
 }
-const CONTROL = /[\x00-\x1f\x7f]/u, IPV4 = /\b\d{1,3}(?:\.\d{1,3}){3}\b/u, IPV6 = /[0-9a-f]{0,4}:[0-9a-f]{0,4}:[0-9a-f]{0,4}/iu, HOST_PORT = /[A-Za-z0-9.-]+:\d{2,5}\b/u;
+// The serving-card writer's patterns (scripts/serving-card.py URL_RE, IPV4_RE, IPV6_*_RE, HOST_PORT_RE), so a glued address such as
+// "v10.0.0.7" is caught as the writer catches it.
+const CONTROL = /[\x00-\x1f\x7f]/u, URL_LIKE = /[a-z][a-z0-9+.-]*:\/\//iu, IPV4 = /(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])/u;
+const IPV6_FULL = /(?<![0-9a-z:])(?:[0-9a-f]{1,4}:){5,7}[0-9a-f]{1,4}(?![0-9a-z:])/iu;
+const IPV6_COMPRESSED = /(?<![0-9a-z])(?:[0-9a-f]{1,4}:)*[0-9a-f]{0,4}::(?:[0-9a-f]{1,4}(?::[0-9a-f]{1,4})*)?(?![0-9a-z])/iu;
+const HOST_PORT = /(?<![\w.:-])(?=[a-z0-9.-]*[a-z])[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?:\d{2,5}(?!\w)/iu;
 /**
  * An identity value safe to print, else null: plain text within `max`, with no URL, IPv4 or IPv6 literal, host:port, backslash
- * or the configured host; a basename has no slash, other text is not path-like (the serving-card writer's rule).
+ * or the configured host; a basename has no slash, other text is not path-like (the serving-card writer's rule). Card values
+ * are screened too: the writer screens only the hosts it can see, which need not include the owner's endpoint.
  */
 export function printableIdentity(value: unknown, max: number, host: string, kind: "text" | "basename" = "text"): string | null {
   if (typeof value !== "string" || value.length === 0 || value.length > max || CONTROL.test(value)) return null;
-  if (value.includes("://") || IPV4.test(value) || IPV6.test(value) || HOST_PORT.test(value) || value.includes("\\")) return null;
+  if (URL_LIKE.test(value) || IPV4.test(value) || IPV6_FULL.test(value) || IPV6_COMPRESSED.test(value) || HOST_PORT.test(value) || value.includes("\\")) return null;
   if (host && value.toLowerCase().includes(host.toLowerCase())) return null;
   return (kind === "basename" ? value.includes("/") : looksLikePath(value)) ? null : value;
 }
@@ -73,18 +83,32 @@ function rootBasename(root: unknown): string | undefined {
   if (typeof root !== "string") return undefined;
   return root.replace(/\/+$/u, "").split("/").pop() || undefined;
 }
-/** What the reader expects (servingCardExpectation): the configured alias and, under flash_next_v1, the configured context. */
-function cardExpectation(settings: Partial<Record<GeneralSetupKey, string>>): ServingCardExpectation {
-  const context = Number(settings.SOAR_VLLM_CONTEXT_TOKENS);
-  return { model: settings.SOAR_VLLM_MODEL ?? "",
-    ...(settings.SOAR_VLLM_REPLY_CONTRACT === "flash_next_v1" && Number.isSafeInteger(context) && context > 0 ? { contextTokens: context } : {}) };
+/**
+ * The app's rule for the pair (config.ts): SOAR_VLLM_CONTEXT_TOKENS only with SOAR_VLLM_REPLY_CONTRACT=flash_next_v1, which
+ * requires it as an integer above 16,384. A pair the app refuses is an issue, never a silently dropped value.
+ */
+export function configuredContext(settings: Partial<Record<GeneralSetupKey, string>>): { tokens?: number; issue?: string } {
+  const contract = settings.SOAR_VLLM_REPLY_CONTRACT, raw = settings.SOAR_VLLM_CONTEXT_TOKENS;
+  if (contract !== undefined && contract !== "flash_next_v1") return { issue: "SOAR_VLLM_REPLY_CONTRACT accepts only flash_next_v1." };
+  if (contract === undefined) return raw === undefined ? {} : { issue: "SOAR_VLLM_CONTEXT_TOKENS requires SOAR_VLLM_REPLY_CONTRACT=flash_next_v1." };
+  const tokens = raw === undefined || raw.trim() === "" ? Number.NaN : Number(raw);
+  return Number.isSafeInteger(tokens) && tokens > 16_384 ? { tokens }
+    : { issue: "SOAR_VLLM_REPLY_CONTRACT=flash_next_v1 requires SOAR_VLLM_CONTEXT_TOKENS, an integer above 16,384." };
 }
-/** Compares raw endpoint values with the adopted card's identity; prints only the card's values and the printable endpoint values. */
-export function compareIdentity(card: LoadedServingCard["identity"], raw: RawIdentity, printable: EndpointIdentity): IdentityComparison[] {
+/** What the reader expects (servingCardExpectation): the configured alias and, under a valid flash_next_v1 pair, the configured context. */
+function cardExpectation(settings: Partial<Record<GeneralSetupKey, string>>): ServingCardExpectation {
+  const context = configuredContext(settings).tokens;
+  return { model: settings.SOAR_VLLM_MODEL ?? "", ...(context !== undefined ? { contextTokens: context } : {}) };
+}
+const PRINT_RULE: Record<IdentityField, { max: number; kind: "text" | "basename" }> = { servedModel: { max: 256, kind: "text" }, modelRootBasename: { max: 256, kind: "basename" },
+  engineVersion: { max: 128, kind: "text" }, contextTokens: { max: 0, kind: "text" } };
+/** Compares raw endpoint values with the adopted card's identity; prints both sides only through printableIdentity. */
+export function compareIdentity(card: LoadedServingCard["identity"], raw: RawIdentity, printable: EndpointIdentity, host: string): IdentityComparison[] {
   return IDENTITY_FIELDS.map(field => {
     const recorded = card[field], live = raw[field];
     const state = recorded === null ? "card_unknown" : live === undefined ? "endpoint_unknown" : live === recorded ? "match" : "differs";
-    return { field, state, card: recorded, endpoint: printable[field] };
+    const shown = typeof recorded === "string" ? printableIdentity(recorded, PRINT_RULE[field].max, host, PRINT_RULE[field].kind) : recorded;
+    return { field, state, card: shown, endpoint: printable[field] };
   });
 }
 
@@ -123,8 +147,8 @@ export async function runGeneralSetup(input: { env: NodeJS.ProcessEnv; cwd: stri
   const image = { qualifiedId: QUALIFIED_IMAGE, installed, configuredMatchesQualified: settings.SOAR_GENERAL_TASK_IMAGE_ID === QUALIFIED_IMAGE };
   const model: GeneralSetupReport["model"] = { configured: Boolean(settings.SOAR_VLLM_BASE_URL && settings.SOAR_VLLM_MODEL), modelsOk: false, modelListed: false, completionOk: false };
   const profileName = isCoordinatorProfileName(settings.SOAR_GENERAL_TASK_PROFILE) ? settings.SOAR_GENERAL_TASK_PROFILE : DEFAULT_COORDINATOR_PROFILE;
-  const coordinator = COORDINATOR_PROFILES[profileName];
-  let raw: RawIdentity | undefined;
+  const coordinator = COORDINATOR_PROFILES[profileName], context = configuredContext(settings);
+  let raw: RawIdentity | undefined, host = "";
   // The app's endpoint acknowledgments apply before any request or key leaves this machine.
   const policyIssue = model.configured ? vllmEndpointPolicyIssue(settings) : undefined;
   if (policyIssue) model.reason = policyIssue;
@@ -133,7 +157,8 @@ export async function runGeneralSetup(input: { env: NodeJS.ProcessEnv; cwd: stri
     if (settings.SOAR_VLLM_API_KEY) headers.authorization = `Bearer ${settings.SOAR_VLLM_API_KEY}`;
     model.endpointSha256 = createHash("sha256").update(base).digest("hex");
     // The policy check above has parsed the URL; the host only screens printed values, the origin serves /version.
-    const endpointUrl = new URL(base), host = endpointUrl.hostname.replace(/^\[|\]$/gu, "");
+    const endpointUrl = new URL(base);
+    host = endpointUrl.hostname.replace(/^\[|\]$/gu, "");
     try {
       const models = await input.probes.fetchJson(`${base}/models`, { method: "GET", headers });
       const data = (models.json as { data?: unknown })?.data;
@@ -155,11 +180,14 @@ export async function runGeneralSetup(input: { env: NodeJS.ProcessEnv; cwd: stri
       } catch { /* the engine version stays unknown */ }
       model.identity = { servedModel: printableIdentity(raw.servedModel, 256, host), modelRootBasename: printableIdentity(raw.modelRootBasename, 256, host, "basename"),
         engineVersion: printableIdentity(raw.engineVersion, 128, host), contextTokens: raw.contextTokens ?? null };
-      const requiredTokens = profileContextTokens(coordinator);
-      model.window = raw.contextTokens === undefined
-        ? { requiredTokens, ok: null, reason: "The endpoint reports no max_model_len, so the profile's context assumption is unchecked." }
+      // Under flash_next_v1 the app's token admission is pinned to the configured context, so the window must hold that too.
+      const guardTokens = profileContextTokens(coordinator), requiredTokens = Math.max(guardTokens, context.tokens ?? 0);
+      const floor = requiredTokens > guardTokens ? `SOAR_VLLM_CONTEXT_TOKENS (${requiredTokens} tokens), which the app's token admission uses`
+        : `what the ${profileName} profile's request guard can send (${requiredTokens} tokens)`;
+      model.window = context.issue ? { requiredTokens, ok: false, reason: context.issue }
+        : raw.contextTokens === undefined ? { requiredTokens, ok: null, reason: "The endpoint reports no max_model_len, so the context floor is unchecked." }
         : raw.contextTokens >= requiredTokens ? { requiredTokens, ok: true }
-        : { requiredTokens, ok: false, reason: `The endpoint's context window (${raw.contextTokens} tokens) is smaller than the ${profileName} profile assumes (${requiredTokens} tokens).` };
+        : { requiredTokens, ok: false, reason: `The endpoint's context window (${raw.contextTokens} tokens) is smaller than ${floor}.` };
     }
     if (model.modelsOk) {
       const started = Date.now();
@@ -176,7 +204,7 @@ export async function runGeneralSetup(input: { env: NodeJS.ProcessEnv; cwd: stri
       } catch { model.reason = "The one-token completion probe failed."; }
     }
   } else model.reason = "Set SOAR_VLLM_BASE_URL and SOAR_VLLM_MODEL in the user-data .env.local (never in the repository).";
-  const card = checkServingCard(settings, model.configured, raw, model.identity);
+  const card = checkServingCard(settings, model.configured, raw, model.identity, host);
   const wrote: GeneralSetupKey[] = [];
   if (input.write) {
     const additions: [GeneralSetupKey, string][] = [];
@@ -200,7 +228,7 @@ export async function runGeneralSetup(input: { env: NodeJS.ProcessEnv; cwd: stri
  * comparison with the endpoint. Reports the card's sha256, date and adopting entry, a fixed refusal code or field names; never
  * the path.
  */
-function checkServingCard(settings: Partial<Record<GeneralSetupKey, string>>, configured: boolean, raw: RawIdentity | undefined, printable: EndpointIdentity | undefined): GeneralSetupReport["card"] {
+function checkServingCard(settings: Partial<Record<GeneralSetupKey, string>>, configured: boolean, raw: RawIdentity | undefined, printable: EndpointIdentity | undefined, host: string): GeneralSetupReport["card"] {
   const file = settings.SOAR_SERVING_CARD_FILE, sha256 = settings.SOAR_SERVING_CARD_SHA256;
   if (file === undefined && sha256 === undefined) return { configured: false };
   if (!file || !sha256 || !/^[a-f0-9]{64}$/u.test(sha256)) {
@@ -215,7 +243,7 @@ function checkServingCard(settings: Partial<Record<GeneralSetupKey, string>>, co
   }
   const head = { configured: true, sha256, date: loaded.date, entry: loaded.entry };
   if (!raw || !printable) return { ...head, status: "unchecked", reason: "The endpoint's identity is unknown, so the card was not compared." };
-  const fields = compareIdentity(loaded.identity, raw, printable);
+  const fields = compareIdentity(loaded.identity, raw, printable, host);
   const differing = fields.filter(item => item.state === "differs" || item.state === "endpoint_unknown").map(item => item.field);
   return differing.length ? { ...head, status: "differs", fields, reason: `The endpoint differs from the adopted serving card in: ${differing.join(", ")}.` }
     : { ...head, status: "matches", fields };

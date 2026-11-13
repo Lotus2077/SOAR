@@ -33728,18 +33728,20 @@ Decisions: (1) **Identity, as probe P1 derives it.** The doctor reads:
 
 A failed `/version` leaves the engine version unknown.
 
-(2) **A value is printed only when it is safe.** These are withheld as null:
+(2) **A value is printed only when it is safe.** These are withheld as null, with the card writer's own URL, IPv4, IPv6 and host:port patterns (scripts/serving-card.py), so a glued address such as `v10.0.0.7` is caught:
 - a value with a control character, a URL, an IPv4 or IPv6 literal, a host:port, a backslash or the configured host;
 - a value with a path-like shape, except the basename;
 - a basename that contains a slash.
 
-Comparisons use the raw values, so a withheld value still compares exactly.
+The card's values are screened the same way before they are printed: the writer screens only the hosts it can see, which need not include the owner's endpoint. Comparisons use the raw values, so a withheld value still compares exactly.
 
-(3) **The window check uses the profile's own assumption:** ceil(maxRequestBytes / 3) + maxOutputTokens. That is 234,838 tokens for heavy and 69,632 for standard; profiles.ts states the 3-bytes-per-token rule.
+(3) **The window floor is what the profile's own request guard can send:** ceil(maxRequestBytes / 3) + maxOutputTokens. That is 234,838 tokens for heavy and 69,632 for standard; profiles.ts states the 3-bytes-per-token guard. Heavy is designed for a 262,144-token window, but a window between the two still fits every request the guard admits. Plan adjustment (a) in BL-20261113-0730 names the same floor.
+- Under `flash_next_v1` the floor is the larger of that and SOAR_VLLM_CONTEXT_TOKENS, because the app's token admission is pinned to the configured context.
+- A contract and context pair that the app refuses (config.ts) makes the doctor not ready. That covers a context without the contract, the contract without a context, and a context that is not an integer above 16,384.
 - A smaller `max_model_len` makes the doctor not ready, with a reason that names both numbers.
 - An endpoint that reports no window is reported as unchecked and does not block.
 
-(4) **The serving card.** The doctor now resolves SOAR_SERVING_CARD_FILE, SOAR_SERVING_CARD_SHA256, SOAR_VLLM_REPLY_CONTRACT and SOAR_VLLM_CONTEXT_TOKENS as the app does. With both card variables set, it reads the card through `loadServingCard`, the pinned fail-closed reader the headless driver uses, with `servingCardExpectation`'s rule.
+(4) **The serving card.** The doctor now resolves SOAR_SERVING_CARD_FILE, SOAR_SERVING_CARD_SHA256, SOAR_VLLM_REPLY_CONTRACT and SOAR_VLLM_CONTEXT_TOKENS as the app does. With both card variables set, it reads the card through `loadServingCard`, the pinned fail-closed reader the headless driver uses, with `servingCardExpectation`'s rule for a contract and context pair the app accepts.
 - **A refusal** reports its fixed code: `serving_card_not_adopted`, `serving_card_pin_drift` or `serving_card_model_mismatch`, for example.
 - **A loaded card** is compared field by field on the served alias, model root basename, engine version and context window. Each field reports one of:
   - `match`;
@@ -33754,18 +33756,20 @@ Comparisons use the raw values, so a withheld value still compares exactly.
 
 Changes:
 - scripts/setup-general.ts.
-- tests/unit/setup-general.test.ts: the four existing tests are adapted to the extra `/version` request, and six are new.
+- tests/unit/setup-general.test.ts: the four existing tests are adapted to the extra `/version` request, and nine are new.
 - README.md: the doctor's row in the command table.
 
 Evidence:
-- `pnpm exec vitest run tests/unit/setup-general.test.ts tests/unit/serving-card-reader.test.ts` passes 85 tests in 2 files: the doctor's 10 and the reader's 75, guard R10 included.
+- `pnpm exec vitest run tests/unit/setup-general.test.ts tests/unit/serving-card-reader.test.ts` passes 88 tests in 2 files: the doctor's 13 and the reader's 75, guard R10 included.
+- One independent review on 2026-11-13 found no blocker or major. Its four minor findings are fixed here: the `flash_next_v1` floor and refused pairs, the screening of card values and glued addresses, test pins, and the limitation sentence below. Four mutations it found surviving the first suite now fail it: comparing printable rather than raw values, `card_unknown` blocking, dropping the `flash_next_v1` context from the expectation, and printing the alias unscreened.
 - The new tests prove six things:
   - P1's derivation on the configured alias's row, with the version read at the origin rather than under `/v1`;
   - no endpoint address, root path or card path in any report;
   - each withheld class: URL, IPv4, IPv6, host:port, path, home path, backslash, control character and configured host;
   - a window refusal on heavy and a pass on standard for the same endpoint, with an unknown window not blocking;
   - a card that matches, and cards that differ on the engine version or the context;
-  - the `endpoint_unknown` case, a card not adopted, pin drift, an alias mismatch and an incomplete pair.
+  - the `endpoint_unknown` case, a card not adopted, pin drift, an alias mismatch, a `flash_next_v1` context mismatch and an incomplete pair;
+  - a withheld value that compares equal on both sides with neither printed, a card field left unknown that does not block, the `flash_next_v1` floor with the four refused pairs, and a path-like alias withheld.
 - `pnpm typecheck` passes.
 - `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` pass with this entry appended.
 - Nothing ran against an endpoint.
@@ -33776,7 +33780,7 @@ Limitations and non-claims:
 - **Implemented, not Verified.** Nothing has run against the owner's endpoint.
 - **The identity check does not prove identical weights.** The four fields catch a changed alias, and a redeploy with another root, engine or window. Probe P1 cannot prove identical weights either, so decision 1 stays the owner's.
 - **The screen is best effort**, as the card writer's is. The owner still reviews a report before sharing it.
-- **The screen can hide a legitimate value** that looks like an address, such as an engine version of four dotted numbers. A card cannot record such a value either, so the field then compares as `endpoint_unknown` and blocks.
+- **A withheld value still compares on its raw value**; it only prints as null. A legitimate value that looks like an address, such as an engine version of four dotted numbers, is withheld from the report. The card writer refuses a probe that carries such a value, so no card holds one: against a card's value the field compares as `differs`, and against a card that recorded none, as `card_unknown`.
 - **Streaming, `cache_salt` and structured output are still unchecked** by the doctor.
 
 Paid exposure: None. The doctor's one-token completion is unchanged. The new `GET /version` is a zero-fee request to the owner's own endpoint at doctor time, outside any run. Every cap is unchanged.

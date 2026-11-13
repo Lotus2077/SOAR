@@ -36,8 +36,8 @@ function setup(files: { userData?: string; cwd?: string } = {}) {
   if (files.cwd !== undefined) writeFileSync(join(cwd, ".env.local"), files.cwd);
   return { root, userDataFile, cwd };
 }
-const endpointSettings = (model = "served-model", extra = "") =>
-  `SOAR_VLLM_BASE_URL=${secretUrl}\nSOAR_VLLM_MODEL=${model}\nSOAR_VLLM_COST_POLICY=local_zero_cost\nSOAR_ALLOW_INSECURE_VLLM_HTTP=true\n${extra}`;
+const endpointSettings = (model = "served-model", extra = "", base = secretUrl) =>
+  `SOAR_VLLM_BASE_URL=${base}\nSOAR_VLLM_MODEL=${model}\nSOAR_VLLM_COST_POLICY=local_zero_cost\nSOAR_ALLOW_INSECURE_VLLM_HTTP=true\n${extra}`;
 const HEAVY_TOKENS = profileContextTokens(COORDINATOR_PROFILES.heavy), STANDARD_TOKENS = profileContextTokens(COORDINATOR_PROFILES.standard);
 
 describe("pnpm setup:general doctor", () => {
@@ -107,7 +107,8 @@ describe("pnpm setup:general doctor", () => {
   });
   it("withholds an identity value that would print a URL, an address, a host:port, a path or the configured host", async () => {
     expect(HEAVY_TOKENS).toBe(234_838); expect(STANDARD_TOKENS).toBe(69_632);
-    for (const unsafe of ["http://box/v", "vllm at 10.0.0.7", "box:8000", "/opt/vllm", "~/x", "a\\b", "fe80::1", "line\nbreak", "PRIVATE-BOX.example.test build"]) {
+    // The card writer's patterns: a glued address ("v10.0.0.7", "node_10.0.0.7") is caught as the writer catches it.
+    for (const unsafe of ["http://box/v", "vllm at 10.0.0.7", "v10.0.0.7", "node_10.0.0.7", "box:8000", "/opt/vllm", "~/x", "a\\b", "fe80::1", "2001:db8:0:0:0:0:2:1", "line\nbreak", "PRIVATE-BOX.example.test build"]) {
       expect(printableIdentity(unsafe, 256, "private-box.example.test"), unsafe).toBeNull();
     }
     expect(printableIdentity("0.33.0rc1.dev617+g821038729", 128, "private-box.example.test")).toBe("0.33.0rc1.dev617+g821038729");
@@ -124,7 +125,7 @@ describe("pnpm setup:general doctor", () => {
     const small = await runGeneralSetup({ env: {}, cwd: f.cwd, userDataFile: f.userDataFile, write: true, nodeVersion: "v22.22.2",
       probes: probes({ fetchJson: endpoint({ maxModelLen: 131_072 }) }) });
     expect(small.model.window).toMatchObject({ requiredTokens: HEAVY_TOKENS, ok: false, reason: expect.stringContaining("131072") });
-    expect(small.model.window!.reason).toContain(`heavy profile assumes (${HEAVY_TOKENS} tokens)`); expect(small.ready).toBe(false);
+    expect(small.model.window!.reason).toContain(`heavy profile's request guard can send (${HEAVY_TOKENS} tokens)`); expect(small.ready).toBe(false);
     // The standard profile assumes a smaller window, which the same endpoint satisfies.
     const standard = setup({ cwd: endpointSettings("served-model", "SOAR_GENERAL_TASK_PROFILE=standard\n") });
     const fits = await runGeneralSetup({ env: {}, cwd: standard.cwd, userDataFile: standard.userDataFile, write: true, nodeVersion: "v22.22.2",
@@ -135,12 +136,36 @@ describe("pnpm setup:general doctor", () => {
       probes: probes({ fetchJson: endpoint({}) }) });
     expect(unknown.model.window).toMatchObject({ ok: null, reason: expect.stringContaining("unchecked") }); expect(unknown.ready).toBe(true);
   });
+  it("under flash_next_v1, holds the window to the configured context and refuses a context setting the app refuses", async () => {
+    const run = async (extra: string, maxModelLen = 240_000) => {
+      const f = setup({ cwd: endpointSettings("served-model", extra) });
+      return runGeneralSetup({ env: {}, cwd: f.cwd, userDataFile: f.userDataFile, write: true, nodeVersion: "v22.22.2", probes: probes({ fetchJson: endpoint({ maxModelLen }) }) });
+    };
+    // 240,000 fits the heavy guard (234,838) but not the 262,144 the app's token admission is pinned to.
+    const pinned = await run("SOAR_VLLM_REPLY_CONTRACT=flash_next_v1\nSOAR_VLLM_CONTEXT_TOKENS=262144\n");
+    expect(pinned.model.window).toMatchObject({ requiredTokens: 262_144, ok: false, reason: expect.stringContaining("SOAR_VLLM_CONTEXT_TOKENS (262144 tokens)") });
+    expect(pinned.ready).toBe(false);
+    expect((await run("SOAR_VLLM_REPLY_CONTRACT=flash_next_v1\nSOAR_VLLM_CONTEXT_TOKENS=262144\n", 262_144)).ready).toBe(true);
+    for (const [extra, reason] of [["SOAR_VLLM_REPLY_CONTRACT=flash_next_v1\nSOAR_VLLM_CONTEXT_TOKENS=262,144\n", "integer above 16,384"],
+      ["SOAR_VLLM_REPLY_CONTRACT=flash_next_v1\n", "integer above 16,384"], ["SOAR_VLLM_CONTEXT_TOKENS=262144\n", "requires SOAR_VLLM_REPLY_CONTRACT=flash_next_v1"],
+      ["SOAR_VLLM_REPLY_CONTRACT=other\n", "accepts only flash_next_v1"]] as const) {
+      const refused = await run(extra, 262_144);
+      expect(refused.model.window, extra).toMatchObject({ ok: false, reason: expect.stringContaining(reason) }); expect(refused.ready, extra).toBe(false);
+    }
+  });
+  it("withholds a configured alias that would print as a path, and still lists it", async () => {
+    const f = setup({ cwd: endpointSettings("/models/served") });
+    const report = await runGeneralSetup({ env: {}, cwd: f.cwd, userDataFile: f.userDataFile, write: true, nodeVersion: "v22.22.2",
+      probes: probes({ fetchJson: endpoint({ id: "/models/served", maxModelLen: 262_144 }) }) });
+    expect(report.model).toMatchObject({ modelListed: true, identity: { servedModel: null, contextTokens: 262_144 } }); expect(report.ready).toBe(true);
+    expect(JSON.stringify(report)).not.toContain("/models/served");
+  });
 
   describe("with the serving-card pair set", () => {
     const ALIAS = "RM-01 VLM", CARD_IDENTITY = { root: "/models/Qwen3.8-Flash-Next-NVFP4", maxModelLen: 262_144, version: "0.33.0rc1.dev617+g821038729" };
     function cardDir() { const dir = mkdtempSync(join(tmpdir(), "soar-setup-card-")); cleanup.push(() => rmSync(dir, { recursive: true, force: true })); return dir; }
-    async function doctor(pair: Record<string, string>, served: Parameters<typeof endpoint>[0] = { id: ALIAS, ...CARD_IDENTITY }, alias = ALIAS) {
-      const f = setup({ cwd: endpointSettings(alias) });
+    async function doctor(pair: Record<string, string>, served: Parameters<typeof endpoint>[0] = { id: ALIAS, ...CARD_IDENTITY }, alias = ALIAS, extra = "", base = secretUrl) {
+      const f = setup({ cwd: endpointSettings(alias, extra, base) });
       return runGeneralSetup({ env: pair, cwd: f.cwd, userDataFile: f.userDataFile, write: true, nodeVersion: "v22.22.2", probes: probes({ fetchJson: endpoint(served) }) });
     }
     const adoptedCard = () => adopt(proposedServingCard(), ADOPTING_ENTRY, { defaults: true });
@@ -179,6 +204,24 @@ describe("pnpm setup:general doctor", () => {
       const half = await doctor({ SOAR_SERVING_CARD_FILE: adopted.path });
       expect(half.card).toEqual({ configured: true, status: "incomplete", reason: expect.stringContaining("together") }); expect(half.ready).toBe(false);
       for (const report of [notAdopted, drift, half]) expect(JSON.stringify(report)).not.toContain(dir);
+      // Under flash_next_v1 the reader also checks the configured context against the card's.
+      const context = await doctor({ SOAR_SERVING_CARD_FILE: adopted.path, SOAR_SERVING_CARD_SHA256: adopted.sha256 }, { id: ALIAS, ...CARD_IDENTITY }, ALIAS,
+        "SOAR_VLLM_REPLY_CONTRACT=flash_next_v1\nSOAR_VLLM_CONTEXT_TOKENS=131072\n");
+      expect(context.card).toMatchObject({ status: "refused", code: "serving_card_context_mismatch" }); expect(context.ready).toBe(false);
+    });
+    it("compares a withheld value on its raw bytes and prints neither side, and does not block on a field the card left unknown", async () => {
+      // The configured host appears inside the basename on both sides: equal raw values match, and neither is printed.
+      const written = writeCard(cardDir(), adoptedCard());
+      const hidden = await doctor({ SOAR_SERVING_CARD_FILE: written.path, SOAR_SERVING_CARD_SHA256: written.sha256 }, { id: ALIAS, ...CARD_IDENTITY }, ALIAS, "",
+        "http://flash-next:58000/v1");
+      expect(hidden.card.status).toBe("matches"); expect(hidden.ready).toBe(true);
+      expect(hidden.card.fields!.find(item => item.field === "modelRootBasename")).toEqual({ field: "modelRootBasename", state: "match", card: null, endpoint: null });
+      expect(JSON.stringify(hidden).toLowerCase()).not.toContain("flash-next");
+      // A card that recorded no engine version cannot fail on it.
+      const versionless = writeCard(cardDir(), adopt(proposedServingCard(probe => { probe.P1.version = null; }), ADOPTING_ENTRY, { defaults: true }));
+      const unknown = await doctor({ SOAR_SERVING_CARD_FILE: versionless.path, SOAR_SERVING_CARD_SHA256: versionless.sha256 });
+      expect(unknown.card.fields!.find(item => item.field === "engineVersion")).toMatchObject({ state: "card_unknown", card: null, endpoint: CARD_IDENTITY.version });
+      expect(unknown.card.status).toBe("matches"); expect(unknown.ready).toBe(true);
     });
   });
 });

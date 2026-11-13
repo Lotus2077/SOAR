@@ -90,3 +90,17 @@ The partial-handoff repair changes when evidence may be forwarded; its excerpt h
 The loss is task-relevant: the base cache, omitted-default sentinel pattern, `__missing__`, LFU/LRU access and touch methods, TTL's private recency mutation, and most TLRU expiration/access logic were gathered but disappear. TTL's item-access method survives, while its membership excerpt begins at an orphaned `except KeyError`, omitting the no-reordering lookup. The reconstructed summary is a counterfactual: v1 never supplied it, and the original exact exit status was not persisted. Eight requests and seven successful actions within 25.690 seconds strongly support step-limit exhaustion, but v2 eligibility additionally requires a settled provider outcome, no cancellation, and a valid deadline.
 
 This establishes two separate integration failures: v1 discarded all gathered source, and the repaired selection rule still discards relevant definitions. It does not establish a downstream quality improvement from a different handoff. A later matched comparison must vary evidence selection while holding the solver configuration fixed. This offline audit made no provider calls or changes to original outcomes or runtime.
+
+## Addendum 2026-11-13: Rayline's ARC router and the routing evidence since September
+
+Rayline (rayline.ai) sells ARC-1.0, a 0.6B-parameter routing model under Apache-2.0, released on 2026-11-10/11. For each candidate model, ARC predicts the probability of success, the token use and the value of each reasoning level. A caller's policy then picks the model that maximizes V × p − expected cost, where V is the dollar value of a success. Raydock, Rayline's local gateway, connects local runtimes to coding tools. Its hybrid mode sends each turn's request to Rayline's hosted decision service, including turns that then run locally.
+
+The evidence does not transfer to SOAR:
+- Every figure is Rayline's own and unreplicated. The headline quality is an average of per-benchmark ratios, while cost is pooled across tasks, so about 25.8% of Opus's cost per benchmark becomes 14.3% overall.
+- Only choosing one model per task was evaluated.
+- About 90% of the training weight comes from Workshop's app-building traffic.
+- The open runtime serves only ARC's first stage.
+
+Two 2026 preprints add to the evidence above. A router that sees only the task description has a limited ceiling, and letting the cheap model explore first helps. Handing a task to the stronger model mid-way recovers less than half the quality gap. Both point the same way as this document's recommendation: escalate once on a verified failure signal, and hand off downward rather than up.
+
+Conclusion: the recommendation above stands. Learned routing still waits on the evaluator-backed trajectories ROUTING_POLICY.md requires. SOAR borrows Rayline's patterns, not its components: selected-versus-served model receipts, endpoint identity and context checks, and egress allowlists with keys paired to hosts. The evaluation, the decisions and the plan adjustments are in BL-20261113-0730-rayline-evaluation-plan-adjustments. The sources are on the unmerged branch `research/rayline` (docs/RAYLINE_RESEARCH.md).

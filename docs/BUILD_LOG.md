@@ -38067,3 +38067,99 @@ References:
 - BL-20261109-0334-research-request-shapes-design;
 - BL-20261108-1459-serving-card-reader-design;
 - docs/experiments/e0-card-2026-11-13.md on #87.
+
+### BL-20261113-1023-p10-align-implemented -- 2026-11-13 -- P10-align implemented: P10's cells send the pipeline's own request bodies for each role and thinking mode, including a thinking-off synthesis request; offline tests only
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry implements BL-20261113-1011-p10-align-design, the owner's "align" in BL-20261113-1003-e0-card-owner-answers on #87. P10 now measures the requests the pipeline sends, with `response_format` added.
+
+Decisions: The design of 1011 stands. These are the specifics.
+
+(1) **What changes in P10's bodies.** The comparison is with the probe's old bodies, under the heavy profile and the desktop's defaults (streaming on, no Flash reply contract).
+- **Every cell streams.** It sends `stream: true` with `stream_options.include_usage` when the desktop streams, which is the default under `SOAR_STREAMING`. It also carries the job's `cache_salt`, the driver's default.
+- **Thinking on** sends `reasoning_effort: "medium"` with the profile's sampling (temperature 1, top_p 0.95, top_k 20), as before.
+- **Thinking off** sends `chat_template_kwargs: { enable_thinking: false }` and no sampling. The probe's temperature 0.7, top_p 0.8, top_k 20 and presence_penalty 1.5 are gone.
+- **Under the Flash reply contract** (`SOAR_VLLM_REPLY_CONTRACT=flash_next_v1`), both modes send `chat_template_kwargs: { enable_thinking: <mode>, preserve_thinking: false }`, as the pipeline does.
+- **The synthesis length cap.** The synthesis off cell's `lengthCap` is now 5,757 words for the synthetic brief, the cap that fits the 8,192-token reply. It was the 1,200-word thinking ceiling. The on cell keeps 1,200.
+- **Unchanged:** `max_tokens` (the role caps 8,192, 2,048 and 8,192), the system prompts, and the plan and extract payloads.
+
+(2) **The probe** (scripts/serving-probe.py).
+- **New helpers:**
+  - `p10_bodies` reads and checks the export's bodies.
+  - `p10_request_body` adds only `response_format`.
+  - `reassemble_stream` and `Endpoint.post_stream` read a streamed reply and retain it as a plain chat completion.
+- **Refusals.** `main()` refuses an older export, and one built for another model than the configured one, before any request. P10 checks again after the served model is known.
+- **What is recorded.** A cell records `streamed` and the export's body digest, `request_body_sha256`. A streamed call records `stream_chunks`. The run records `export_version` and `request_settings`.
+- **Unchanged:**
+  - the acceptance check;
+  - 20 calls per cell;
+  - the strict default;
+  - the classification;
+  - `--strip-reasoning`;
+  - the assessor.
+
+  A streamed call's retained reply is the reassembled chat completion, not the raw event stream.
+
+(3) **The export** (scripts/export-role-schemas.ts, version 2).
+- **New fields:** `requests` (one body and its digest per role and mode) and `requestSettings` (model, streaming, reply contract and context, the heavy profile, the cache salt).
+- **Settings.** `buildRoleSchemaExport` takes the settings as its second argument and defaults to synthetic ones. The command line reads the desktop's through `loadConfig()`.
+- **No address or key** reaches the file.
+
+(4) **What P10 still does not show.**
+- **No `response_format` today.** The pipeline does not send one; item 9 adds it.
+- **Synthetic, small payloads.** There are two short sources and one chunk, and there are no repairs.
+- **Extract's on cell** measures thinking that the pipeline turns off today.
+- **The Flash reply-contract checks** are not applied to P10's replies.
+- **One cache salt** is shared by every call.
+- **The acceptance check** keeps the probe's own 16-token request.
+- **The probe's own reassembly.** A server whose streamed reply differs from its plain one goes undetected.
+
+(5) **The planner fixture's r3 index.** It is not part of the code. The pull request's body gives the owner's command, which:
+- runs the headless driver with `--pipeline research --profile heavy --claims-ledger true --arm local` on the prepared r3 task;
+- writes index.json and coverage.json to `<output-directory>/candidate/context/research/`;
+- computes the fixture's fields with the repository's own `canonical` and `digest`.
+
+One point stays open for the fixture's owner. The stage's brief is the task goal with the claims-ledger instructions appended (`withClaimsLedger`), so coverage.json's `briefSha256` is not brief.md's.
+
+Changes: Commit c2bd768: scripts/export-role-schemas.ts, scripts/serving-probe.py, tests/unit/role-schema-export.test.ts, tests/unit/serving-probe-helpers.test.ts and docs/experiments/README.md. Nothing under src/ changes.
+
+Evidence: The checks ran locally at c2bd768.
+- **The export test passes 7 tests.**
+  - Each body equals what `PrivateAgentModel.requestBody` builds with streaming on, with streaming off and under the Flash reply contract.
+  - In a real pipeline run, the first extraction call is the export's extract off body, byte for byte.
+  - The plan and synthesis calls equal the export's on bodies in every field but the user message, and the synthesis length cap matches too.
+- **The probe test passes 14 tests.**
+  - The pure helpers are covered, and so are the start-up refusals.
+  - P10 ran against a loopback fake server inside the test, streamed and not. Of the 18 requests, each cell call was the exported body with only the strict `response_format` added.
+  - `assessProbeFile` assessed every retained reply, with none left unassessed.
+- **Mutations.** Six single edits each fail a test:
+  - the synthesis off cell keeping the 1,200 cap;
+  - the standard profile;
+  - no cache salt;
+  - a streamed body read as plain JSON;
+  - the probe's own off body;
+  - no model check.
+- **Static checks.** `pnpm typecheck` and `pnpm validate:readiness` pass.
+- **Related tests.** The export, probe, card-reader, assessor and planner-fixture tests pass: 5 files, 102 tests.
+- **The full suite.** `pnpm exec vitest run` reports 181 files passed, 1 failed and 13 skipped, and 3,581 tests passed, 1 failed and 86 skipped. The one failure is a load timeout in private-agent-sandbox-capture.test.ts, which imports no probe or research code and passes alone (13 tests passed, 1 skipped).
+- **The protocol hash** is unchanged, at 505c385a….
+
+Failures or blockers: None.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`. Nothing ran against an endpoint, and P10's first live run is E0's. (4) lists what P10 does not show.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- one light review;
+- CI green;
+- the merge before E0's export.
+
+The owner then runs `pnpm probe:export-schemas` under the desktop's settings, then the probes.
+
+References:
+- BL-20261113-1011-p10-align-design;
+- BL-20261113-1003-e0-card-owner-answers on #87;
+- BL-20261109-0334-research-request-shapes-design;
+- BL-20261108-1459-serving-card-reader-design.

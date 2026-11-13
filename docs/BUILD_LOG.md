@@ -33709,3 +33709,83 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The owner's go-ahead to push the integration branch, retarget #74, #77, #78 and #83 to `main`, open the integration pull request and, after CI passes, merge it with a merge commit. Then an operator recomputes `--runtime-sha256` before any loop or E-run; S-e1's docs-only Correction pull request for #66, #70 and #74 follows the merge; and a handoff note replaces the stale "Start here" text and says whether docs/HANDOFF.md section 5's re-stamp rule still holds. Train 2 starts with #79 once the owner decides how entries whose IDs precede `main`'s tail are ordered.
 
 References: BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0331-loop-selection-protocol-2-design; BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0354-document-review-flags-design; BL-20261109-0422-registry-run-commit-design; BL-20261109-0447-research-tolerance-design; BL-20261109-0456-ordered-pool-implemented; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0501-research-stage-pause-design; BL-20261109-0515-infra-classification-design; BL-20261109-0552-research-tolerance-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261110-0712-correction-research-tolerance-repin; BL-20261110-0712-document-review-flags-implemented; BL-20261110-0723-correction-infra-classification-train-review; BL-20261110-0900-correction-research-tolerance-held-repair; BL-20261110-0933-document-review-flags-party-terms-bounded; BL-20261110-1100-document-review-flags-party-terms-pinned; BL-20261110-1100-correction-research-train-1-review-pins; pull requests #66, #67, #68, #69, #70, #71, #72, #73, #74, #76, #77, #78, #81 and #83; docs/HANDOFF.md section 5; docs/experiments/README.md; scripts/validate-build-log.ts; scripts/private-agent-local-screen.ts (`localScreenSourceFreeze`); tests/helpers/research-protocol-pin.ts; tests/unit/phase4-loop.test.ts.
+
+
+### BL-20261113-0815-doctor-endpoint-identity-implemented -- 2026-11-13 -- The setup doctor reports the endpoint's identity and context window and compares an adopted serving card field by field (plan adjustment (a), before E0)
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements plan adjustment (a) of BL-20261113-0730-rayline-evaluation-plan-adjustments, which the owner told the session to build on 2026-11-13 ("Yes, build them").
+- **What changes.** Before E0, `pnpm setup:general` reports what the endpoint serves.
+- **Why.** The owner can then answer decision 1 (is the endpoint's model the one qualified on 2026-11-04?) from observed values. A swapped model or a window too small for the profile then fails at setup rather than mid-run, which addresses finding F2 (model churn).
+- **No decision entry first.** The report is printed, not stored, and no persisted contract, event, receipt or dispatch rule changes.
+
+Decisions: (1) **Identity, as probe P1 derives it.** The doctor reads:
+- the configured alias's row of `/models`, not the first row;
+- the basename of that row's `root`, after trailing slashes;
+- its `max_model_len`;
+- `version` from `GET /version` at the endpoint's origin, with the same headers.
+
+A failed `/version` leaves the engine version unknown.
+
+(2) **A value is printed only when it is safe.** These are withheld as null:
+- a value with a control character, a URL, an IPv4 or IPv6 literal, a host:port, a backslash or the configured host;
+- a value with a path-like shape, except the basename;
+- a basename that contains a slash.
+
+Comparisons use the raw values, so a withheld value still compares exactly.
+
+(3) **The window check uses the profile's own assumption:** ceil(maxRequestBytes / 3) + maxOutputTokens. That is 234,838 tokens for heavy and 69,632 for standard; profiles.ts states the 3-bytes-per-token rule.
+- A smaller `max_model_len` makes the doctor not ready, with a reason that names both numbers.
+- An endpoint that reports no window is reported as unchecked and does not block.
+
+(4) **The serving card.** The doctor now resolves SOAR_SERVING_CARD_FILE, SOAR_SERVING_CARD_SHA256, SOAR_VLLM_REPLY_CONTRACT and SOAR_VLLM_CONTEXT_TOKENS as the app does. With both card variables set, it reads the card through `loadServingCard`, the pinned fail-closed reader the headless driver uses, with `servingCardExpectation`'s rule.
+- **A refusal** reports its fixed code: `serving_card_not_adopted`, `serving_card_pin_drift` or `serving_card_model_mismatch`, for example.
+- **A loaded card** is compared field by field on the served alias, model root basename, engine version and context window. Each field reports one of:
+  - `match`;
+  - `differs`;
+  - `card_unknown`: the card recorded null, which does not block;
+  - `endpoint_unknown`: the card recorded a value the endpoint no longer reports, which blocks.
+- **Readiness** requires the status `matches`. A half-set pair is `incomplete`.
+- **The report** names the card's sha256, date and adopting entry and the names of the differing fields, never the path.
+- **Guard test R10 still passes.** No production module outside the reader parses a card or reads `vllm.servingCard`: the doctor builds the descriptor from its own resolved settings and calls only `loadServingCard`.
+
+(5) All other readiness conditions are unchanged, and the desktop still ignores the card.
+
+Changes:
+- scripts/setup-general.ts.
+- tests/unit/setup-general.test.ts: the four existing tests are adapted to the extra `/version` request, and six are new.
+- README.md: the doctor's row in the command table.
+
+Evidence:
+- `pnpm exec vitest run tests/unit/setup-general.test.ts tests/unit/serving-card-reader.test.ts` passes 85 tests in 2 files: the doctor's 10 and the reader's 75, guard R10 included.
+- The new tests prove six things:
+  - P1's derivation on the configured alias's row, with the version read at the origin rather than under `/v1`;
+  - no endpoint address, root path or card path in any report;
+  - each withheld class: URL, IPv4, IPv6, host:port, path, home path, backslash, control character and configured host;
+  - a window refusal on heavy and a pass on standard for the same endpoint, with an unknown window not blocking;
+  - a card that matches, and cards that differ on the engine version or the context;
+  - the `endpoint_unknown` case, a card not adopted, pin drift, an alias mismatch and an incomplete pair.
+- `pnpm typecheck` passes.
+- `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` pass with this entry appended.
+- Nothing ran against an endpoint.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- **Implemented, not Verified.** Nothing has run against the owner's endpoint.
+- **The identity check does not prove identical weights.** The four fields catch a changed alias, and a redeploy with another root, engine or window. Probe P1 cannot prove identical weights either, so decision 1 stays the owner's.
+- **The screen is best effort**, as the card writer's is. The owner still reviews a report before sharing it.
+- **The screen can hide a legitimate value** that looks like an address, such as an engine version of four dotted numbers. A card cannot record such a value either, so the field then compares as `endpoint_unknown` and blocks.
+- **Streaming, `cache_salt` and structured output are still unchecked** by the doctor.
+
+Paid exposure: None. The doctor's one-token completion is unchanged. The new `GET /version` is a zero-fee request to the owner's own endpoint at doctor time, outside any run. Every cap is unchanged.
+
+Next gate:
+- Review, then merge after the pull request carrying BL-20261113-0730 (#86). That pull request merges after the train-2 heads.
+- The owner then runs `pnpm setup:general` before E0's probes (docs/HANDOFF.md §5, step 2).
+
+References:
+- BL-20261113-0730-rayline-evaluation-plan-adjustments, item (a).
+- BL-20261108-1459-serving-card-reader-design; BL-20261108-1649-serving-card-reader-implemented; BL-20261108-0911-probe-extensions-implemented.
+- docs/PROJECT_REVIEW_2026-11-05.md §3 (F2) and §5.10 (decision 1).

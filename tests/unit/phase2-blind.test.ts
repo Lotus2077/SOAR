@@ -4,6 +4,8 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, wr
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { DOCUMENT_REVIEW_ARTIFACTS } from "../../src/main/private-agent/document-review";
+import { DOCUMENT_REVIEW_FLAGS_PATH } from "../../src/main/private-agent/document-review-flags";
 
 const sha = (bytes: Buffer | string) => createHash("sha256").update(bytes).digest("hex");
 const roots: string[] = [];
@@ -75,5 +77,9 @@ describe("Phase 2 blind verdict bundles", () => {
     expect(blind(["--task-directory", f.task, "--out", f.out, "--keys", f.keys, "--run", `L=${good}`, "--run", `P=${repaired}`]).stderr).toContain("bundle repair pairs on their own");
     expect(blind(["--task-directory", f.task, "--out", f.out, "--keys", f.keys, "--run", `L=${good}`]).status).toBe(0);
     expect(blind(["--task-directory", f.task, "--out", f.out, "--keys", f.keys, "--run", `L=${good}`]).stderr).toContain("refusing to overwrite");
+  });
+  it("keeps the host flags out of blind bundles: the script's tuple is the document-review outputs without the flags file (backlog item 7(d))", () => {
+    const tuple = /^DOCUMENT_REVIEW_ARTIFACTS = \(([^)]*)\)$/mu.exec(readFileSync("scripts/phase2-blind.py", "utf8"))![1]!;
+    expect([...tuple.matchAll(/"([^"]+)"/gu)].map(match => match[1])).toEqual(DOCUMENT_REVIEW_ARTIFACTS.map(artifact => artifact.path).filter(path => path !== DOCUMENT_REVIEW_FLAGS_PATH));
   });
 });

@@ -104,13 +104,13 @@ function runnerFixture(actions: string[], options: { unknown?: boolean; body?: B
   }
   vi.spyOn(DockerSandbox, "currentEndpoint").mockResolvedValue("unix:///tmp/public-research-unit.sock");
   vi.spyOn(DockerSandbox, "cleanupOwnedContext").mockResolvedValue();
-  const workspaceFiles: string[][] = [], writes: string[] = [], commands: string[] = [], snapshots: Map<string, Buffer>[] = [];
+  const workspaceFiles: string[][] = [], writes: string[] = [], commands: string[] = [], snapshots: Map<string, Buffer>[] = [], listedWith: (readonly string[])[] = [];
   vi.spyOn(DockerSandbox, "create").mockImplementation(async input => {
     workspaceFiles.push(input.files.map(file => file.path)); const files = new Map(input.files.map(file => [file.path, file.bytes]));
     snapshots.push(new Map(input.files.map(file => [file.path, Buffer.from(file.bytes)])));
     return { async execute(command: string) { commands.push(command); if (command === "write report") files.set("output/report.md", Buffer.from("Public report with citation.")); return { exitCode: 0, stdout: "", stderr: "" }; },
       async editFile(mode: string, path: string, payload: Buffer) { if (mode !== "write") throw new Error("unexpected edit mode"); files.set(path, Buffer.from(payload)); writes.push(path); return { ok: true, bytes: payload.length }; },
-      async listFiles() { return workspaceListing(files); }, async readFile(name: string) { return files.get(name)!; }, async close() {} } as unknown as DockerSandbox;
+      async listFiles(pinned: readonly string[] = []) { listedWith.push([...pinned]); return workspaceListing(files); }, async readFile(name: string) { return files.get(name)!; }, async close() {} } as unknown as DockerSandbox;
   });
   const messages: GeneralMessage[][] = [];
   let afterResponse = () => {};
@@ -130,7 +130,7 @@ function runnerFixture(actions: string[], options: { unknown?: boolean; body?: B
   });
   const args: GeneralJobOptions = { ...f.phase, jobId: f.jobId, contextId: f.contextId, imageId: `sha256:${"a".repeat(64)}`,
     store: f.store, broker: f.broker, model: f.model, checkpoints: f.checkpoints, webDestinations: ["web"], maxPublicFetches: options.maxPublicFetches ?? 2 };
-  return { ...f, args, requests, messages, writes, workspaceFiles, commands, snapshots, afterResponse: (fn: () => void) => { afterResponse = fn; } };
+  return { ...f, args, requests, messages, writes, workspaceFiles, commands, snapshots, listedWith, afterResponse: (fn: () => void) => { afterResponse = fn; } };
 }
 
 describe("public retrieval through the single bounded runner", () => {
@@ -174,6 +174,14 @@ describe("public retrieval through the single bounded runner", () => {
     // The verifier container receives the retained bytes, never the workspace copy.
     expect(f.snapshots.at(-1)!.get(path)!.equals(hostBytes)).toBe(true);
     expect(f.commands.filter(entry => entry.includes("SOAR_CLAIMS_RETAINED="))).toHaveLength(2);
+  });
+  it("pins the retained source's workspace copy for every capture after the fetch, between the claims ledger and the host's files (E1-L)", async () => {
+    const f = runnerFixture(["fetch_public", "write_file", "check_claims", "execute", "finish"], { claimsLedger: true });
+    expect((await new GeneralAgentRunner(f.args).run()).status).toBe("completed");
+    const deliverables = f.args.contract.requiredArtifacts.map(artifact => artifact.path), placed = f.args.files.map(file => file.path);
+    // The fetch's own capture runs after the source is retained, so every capture pins it.
+    expect(f.listedWith.length).toBeGreaterThan(0);
+    for (const pinned of f.listedWith) expect(pinned).toEqual([...new Set([...deliverables, "output/claims.json", publicSourceWorkspacePath(url), ...placed])]);
   });
   it("refuses a destination outside the context's admitted set with its own fixed object, sending nothing (backlog item 3)", async () => {
     const f = runnerFixture(["fetch_denied", "execute", "finish"]);

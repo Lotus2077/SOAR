@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from "vitest";
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
 const SCRIPT = resolve(__dirname, "..", "..", "scripts", "registry-row.py");
+/** The commit a row is written at, in the registry's 12-hex form. */
+const WRITTEN = execFileSync("git", ["rev-parse", "HEAD"], { cwd: resolve(__dirname, "..", ".."), encoding: "utf8" }).trim().slice(0, 12);
 const h = (n: string) => n.repeat(64);
 const UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/u;
 /** Runs the registry writer; a refusal surfaces as a thrown error carrying the script's one-line reason. */
@@ -39,15 +41,31 @@ function receiptFile(value: Record<string, unknown>): string {
 }
 const operator = ["--id", "oaj-20261107-document-review-1", "--batch", "owner-real-jobs", "--task", "owner-00000000", "--family", "document_review", "--exposure", "fresh", "--verdict-by", "owner", "--lesson", "owner accepted with one edit pass"];
 
-describe("registry verdict rows", () => {
+// Each test spawns python3 up to about 24 times; under the system interpreter (about 150 ms a spawn) and full-suite load the default 5 s is too short.
+describe("registry verdict rows", { timeout: 30_000 }, () => {
   it("supersedes a row by copying its measurements verbatim and changing only the verdict fields", () => {
     const { path } = registry([original, superseded, correction]);
     const row = run(["--supersedes", original.id, "--registry", path, "--id", "p9-r1-local-heavy-owner", ...owner]);
-    const changed = new Set(["id", "supersedes", "outcome", "verdictBy", "ownerMinutes", "interventions", "lesson", "verdictAt", "git"]);
+    const changed = new Set(["id", "supersedes", "outcome", "verdictBy", "ownerMinutes", "interventions", "lesson", "verdictAt", "git", "gitSource", "gitDirty"]);
     for (const [key, value] of Object.entries(original)) if (!changed.has(key)) expect(row[key], key).toEqual(value);
     expect(row).toMatchObject({ id: "p9-r1-local-heavy-owner", supersedes: original.id, outcome: "accepted", verdictBy: "owner", ownerMinutes: 8, interventions: 1, lesson: "accepted after one edit pass" });
     expect(row.verdictAt).toMatch(UTC); expect(row.git).toMatch(/^[a-f0-9]{12}$/u); expect(row.git).not.toBe(original.git);
-    expect(Object.keys(row).sort()).toEqual([...Object.keys(original), "supersedes", "verdictAt"].sort());
+    // Backlog item 11, part 2: the original records no run-sourced commit, so the copy takes the writing commit, labelled.
+    expect(row).toMatchObject({ gitSource: "row_written", gitDirty: null });
+    expect(Object.keys(row).sort()).toEqual([...Object.keys(original), "supersedes", "verdictAt", "gitSource", "gitDirty"].sort());
+    // A row whose commit came from its run keeps that commit, its source and its tree state: the copy repeats the run's measurements.
+    const ran = { ...original, id: "p9-r3-ran", task: "r3", git: "0123456789ab", gitSource: "run", gitDirty: false };
+    const differed = { ...original, id: "p9-r4-loop", task: "r4", git: "ba9876543210", gitSource: "runs_differ", gitDirty: null };
+    const written = { ...original, id: "p9-r5-written", task: "r5", git: "abcdefabcdef", gitSource: "row_written", gitDirty: null };
+    const { path: withProvenance } = registry([ran, differed, written]);
+    expect(run(["--supersedes", ran.id, "--registry", withProvenance, "--id", "r3-owner", ...owner])).toMatchObject({ git: "0123456789ab", gitSource: "run", gitDirty: false, supersedes: ran.id });
+    expect(run(["--supersedes", differed.id, "--registry", withProvenance, "--id", "r4-owner", ...owner])).toMatchObject({ git: "ba9876543210", gitSource: "runs_differ", gitDirty: null });
+    expect(run(["--supersedes", written.id, "--registry", withProvenance, "--id", "r5-owner", ...owner])).toMatchObject({ git: WRITTEN, gitSource: "row_written", gitDirty: null });
+    // A copied provenance that is not well formed is never kept: a non-hex commit, or `run` without a boolean tree state.
+    for (const bad of [{ ...ran, git: "not-a-commit" }, { ...ran, gitDirty: null }, { ...ran, gitDirty: "false" }, { ...ran, gitSource: "copied" }]) {
+      const { path: forged } = registry([bad]);
+      expect(run(["--supersedes", ran.id, "--registry", forged, "--id", "r3-forged", ...owner]), JSON.stringify(bad)).toMatchObject({ git: WRITTEN, gitSource: "row_written", gitDirty: null });
+    }
     // The verdict time may be declared; it is normalised to the Z form and must be UTC.
     expect(run(["--supersedes", original.id, "--registry", path, "--id", "x", ...owner, "--verdict-at", "2026-11-07T10:00:00+00:00"]).verdictAt).toBe("2026-11-07T10:00:00Z");
     expect(() => run(["--supersedes", original.id, "--registry", path, "--id", "x", ...owner, "--verdict-at", "2026-11-07T10:00:00"])).toThrow(/UTC offset/u);
@@ -90,7 +108,7 @@ describe("registry verdict rows", () => {
       date: "2026-11-07", git: row.git, taskJobSha256: h("a"), profile: "heavy", thinking: "medium", maxOutputTokens: 16384, runStatus: "submitted", terminalCause: "submitted",
       modelCalls: 19, toolCalls: 19, wallSeconds: 493.3, inputTokens: 1200, outputTokens: 300, cachedTokens: 400, cacheWriteTokens: 0, lengthStops: 1, usd: 0, unknownDispatches: 0, retriedDispatches: 0, failedDispatches: 0,
       entailment: null, cloudModel: null, cloudApi: null, outcome: "accepted", criticalChecks: "1/1", verdictBy: "owner", ownerMinutes: 8, interventions: 1, exportedThroughApp: true, verdictAt: "2026-11-07T09:00:00Z",
-      lesson: "owner accepted with one edit pass" });
+      lesson: "owner accepted with one edit pass", gitSource: "row_written", gitDirty: null });
     expect(row.git).toMatch(/^[a-f0-9]{12}$/u);
     const text = JSON.stringify(row);
     expect(text).not.toContain("taskId"); expect(text).not.toContain("00000000-0000-4000"); expect(text).not.toContain("http"); expect(text).not.toContain(tmpdir());

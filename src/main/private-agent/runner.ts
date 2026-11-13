@@ -15,7 +15,7 @@ import { GeneralConsultation } from "./consultation";
 import { READ_OBSERVATION_TOOL, readObservationArguments, ObservationIntegrityError, retainExecutionObservation, readExecutionObservation,
   projectExecutionObservations, verifyExecutionObservations, executionObservationPolicyIdentity, type ExecutionObservationPolicyVersion } from "./observations";
 import { capabilitiesForImage } from "./capabilities";
-import { CLAIMS_CONTEXT_CHARS, CLAIMS_CONTEXT_ENV, CLAIMS_LEDGER_CHECK_ID, CLAIMS_RETAINED_ENV, CheckClaimsOutputSchema, ClaimsVerifiedClaimSchema,
+import { CLAIMS_CONTEXT_CHARS, CLAIMS_CONTEXT_ENV, CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, CLAIMS_RETAINED_ENV, CheckClaimsOutputSchema, ClaimsVerifiedClaimSchema,
   encodeRetainedClaimsSources, isEntailmentDispatch, publicSourceWorkspacePath, type RetainedClaimsSource } from "./claims";
 import { EXECUTION_PROGRESS_POLICY, EXECUTION_PROGRESS_STOP, deriveExecutionProgress, executionProgressBlocks,
   executionProgressStop, readExecutionProgressStop, hasUnresolvedExecutionProgressAction } from "./progress";
@@ -170,6 +170,20 @@ function toolFailureFeedback(error: unknown, tool: string, contextReady: boolean
   }
   if (error instanceof BrokerError && error.code === "request_failed") return PUBLIC_FETCH_FAILED;
   return GENERIC_TOOL_FAILURE;
+}
+
+/**
+ * The host-owned paths a capture keeps first (E1-L), in order and each once: the contract's required artifacts, the claims ledger when the
+ * claims check is configured, the workspace copies of the public sources the job retained, then every file the host placed (the inputs and
+ * the research packet). Never model-supplied. A failure reading the retained sources leaves them out and never fails the capture.
+ * Exported for the unit test.
+ */
+export function capturePinnedPaths(input: { contract: Pick<GeneralJobContract, "requiredArtifacts">; checks: readonly { id: string }[];
+  files: readonly { path: string }[]; retainedSources: () => readonly string[] }): string[] {
+  let sources: readonly string[] = [];
+  try { sources = input.retainedSources(); } catch { sources = []; }
+  return [...new Set([...input.contract.requiredArtifacts.map(artifact => artifact.path),
+    ...(input.checks.some(check => check.id === CLAIMS_LEDGER_CHECK_ID) ? [CLAIMS_LEDGER_PATH] : []), ...sources, ...input.files.map(file => file.path)])];
 }
 
 /** Why a workspace capture failed (BL-20261107-0924, A): a fixed code only; the original error is kept for the outer catch. */
@@ -910,21 +924,34 @@ export class GeneralAgentRunner {
     catch (error) { return { ok: false, code: "checkpoint_write_failed", error }; }
   }
 
-  /** The regular files the lister kept, read within the per-file cap; a file beyond the 128 MiB total is omitted with `total_cap`, never a throw. */
+  /** The host-owned paths every capture keeps first (E1-L); see `capturePinnedPaths`. */
+  private pinnedPaths(): string[] {
+    const { contract, checks, files, store, checkpoints, jobId } = this.options;
+    return capturePinnedPaths({ contract, checks, files, retainedSources: () => readPublicSources(store, checkpoints, jobId).map(source => publicSourceWorkspacePath(source.url)) });
+  }
+
+  /**
+   * The regular files the lister kept, read within the per-file cap; a file beyond the 128 MiB total is omitted with `total_cap`, never a
+   * throw. The lister keeps the pinned paths first, and they are read first too, so the total reaches them last; the checkpoint lists the
+   * kept files in the lister's order, so a workspace whose walk completes under both caps checkpoints exactly as before (E1-L).
+   */
   private async capture(sandbox: DockerSandbox): Promise<{ files: { path: string; bytes: Buffer }[]; omitted?: CaptureOmissions }> {
-    const listing = await sandbox.listFiles();
-    const files: { path: string; bytes: Buffer }[] = [], paths = listing.omitted.map(item => item.path);
+    const pinned = this.pinnedPaths(), listing = await sandbox.listFiles(pinned);
+    const rank = new Map(pinned.map((path, index) => [path, index])), last = pinned.length;
+    const reading = [...listing.files].sort((a, b) => (rank.get(a.path) ?? last) - (rank.get(b.path) ?? last));
+    const read = new Map<string, Buffer>(), paths = listing.omitted.map(item => item.path);
     const reasons: Partial<Record<WorkspaceOmissionReason, number>> = {};
     for (const [reason, count] of Object.entries(listing.counts) as [WorkspaceOmissionReason, number][]) if (count > 0) reasons[reason] = count;
     let total = 0, omittedCount = Object.values(listing.counts).reduce((sum, count) => sum + count, 0);
     const omit = (path: string) => { omittedCount++; reasons.total_cap = (reasons.total_cap ?? 0) + 1; if (paths.length < WORKSPACE_LISTING_MAX_OMITTED_PATHS) paths.push(path); };
-    for (const file of listing.files) {
+    for (const file of reading) {
       if (total + file.size > PRIVATE_SANDBOX_LIMITS.importBytes) { omit(file.path); continue; }
       const bytes = await sandbox.readFile(file.path, PRIVATE_SANDBOX_LIMITS.fileBytes);
       // The file grew between the listing and the read.
       if (total + bytes.length > PRIVATE_SANDBOX_LIMITS.importBytes) { omit(file.path); continue; }
-      total += bytes.length; files.push({ path: file.path, bytes });
+      total += bytes.length; read.set(file.path, bytes);
     }
+    const files = listing.files.filter(file => read.has(file.path)).map(file => ({ path: file.path, bytes: read.get(file.path)! }));
     return { files, ...(omittedCount || !listing.complete ? { omitted: { total: omittedCount, reasons, paths, complete: listing.complete } } : {}) };
   }
 

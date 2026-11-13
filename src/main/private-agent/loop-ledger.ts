@@ -7,7 +7,7 @@ import type { RunLedger } from "./selection";
 import { PrivateAgentStore } from "./store";
 
 /**
- * Backlog item 11, part 3b (BL-20261113-0805-infra-resume-design, decisions (3) and (4)): the H4 loop's lock, its atomic
+ * Backlog item 11, part 3b (BL-20261113-0836-infra-resume-design, decisions (3) and (4)): the H4 loop's lock, its atomic
  * record, and the in-place recovery of a stage's ledger and run claims before the stage is moved aside. Harness only: the
  * desktop never calls these.
  */

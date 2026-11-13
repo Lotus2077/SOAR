@@ -19,7 +19,7 @@ without a run-sourced commit take the commit the row is written at (`row_written
 H4: `--loop-dir LOOP` instead of `--run-dir` rows a select-and-repair loop (scripts/phase4-loop.ts): the per-run
 counts of the loop's runs are summed with the same logic, status, cause and binding come from the selected run,
 wall seconds from the loop's own clock, and a `loop` field records the choice. From backlog item 11's part 3b
-(BL-20261113-0805), loop versions 1 and 2: the counts sum every run the loop made, moved-aside runs included, the
+(BL-20261113-0836), loop versions 1 and 2: the counts sum every run the loop made, moved-aside runs included, the
 writer waits for no loop (a held loop.lock refuses), and a loop that ended without a selection is rowed by its
 stop's class, never as accepted.
 
@@ -301,7 +301,7 @@ def run_end_evidence(run_dir: str, stop_signalled: bool) -> dict:
             "stopSignalled": stop_signalled}
 
 
-# Backlog item 11, part 3b (BL-20261113-0805-infra-resume-design, decisions (4) and (10)): why a loop stage stopped, for the row of a
+# Backlog item 11, part 3b (BL-20261113-0836-infra-resume-design, decisions (4) and (10)): why a loop stage stopped, for the row of a
 # loop that ends without a selection. run-classification.ts holds the same lists and functions (ledgerStop, classifyLoopStop and the
 # amended classifyCritiqueEnd), and tests/unit/run-classification.test.ts keeps them equal. Version 1's run-end lists do not change.
 RUN_UNFINISHED_CAUSE = "run_unfinished"
@@ -756,7 +756,7 @@ def row_provenance(args, row: dict) -> dict:
 
 
 
-# Backlog item 11, part 3b (BL-20261113-0805-infra-resume-design, decisions (9) and (10)): a loop row of version 1 or 2.
+# Backlog item 11, part 3b (BL-20261113-0836-infra-resume-design, decisions (9) and (10)): a loop row of version 1 or 2.
 LOOP_STAGES = ("a", "b", "critique", "repair")
 LOOP_RUN_STAGES = ("a", "b", "repair")
 LOOP_FAILURE = re.compile(r"^[a-z0-9_]{1,80}$")

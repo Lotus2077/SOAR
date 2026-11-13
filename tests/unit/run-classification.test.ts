@@ -133,7 +133,7 @@ describe("the infra_invalid classification (backlog item 11, part 3a)", () => {
     expect(classifyCritiqueEnd("request_failed", false)).toEqual(infra("request_failed"));
     expect(classifyCritiqueEnd("repair_source_changed_during_critique", false)).toEqual(infra("repair_source_changed_during_critique"));
     expect(classifyCritiqueEnd("repair_critique_empty", false)).toEqual(TASK);
-    // Part 3b amends the helper (BL-20261113-0805, decision (1)): the interrupt counts as the operator's only on an infrastructure failure or no record.
+    // Part 3b amends the helper (BL-20261113-0836, decision (1)): the interrupt counts as the operator's only on an infrastructure failure or no record.
     expect(classifyCritiqueEnd("repair_critique_empty", true)).toEqual(TASK); expect(classifyCritiqueEnd("request_failed", true)).toEqual(infra("operator_stop"));
     expect(classifyCritiqueEnd(null, false)).toEqual(infra("run_unfinished")); expect(classifyCritiqueEnd(null, true)).toEqual(infra("operator_stop"));
     const assistFailed = { status: "failed", purpose: "research plan assist" }, later = { ...zeroFee, purpose: "research source index" }, unknownCloud = { ...cloud(transport("request_timeout")), status: "unknown" };
@@ -159,7 +159,7 @@ describe("the infra_invalid classification (backlog item 11, part 3a)", () => {
   });
 });
 
-/** Backlog item 11, part 3b (BL-20261113-0805-infra-resume-design, decisions (4) and (10)): the ledger's stop rule and a loop stop's class. */
+/** Backlog item 11, part 3b (BL-20261113-0836-infra-resume-design, decisions (4) and (10)): the ledger's stop rule and a loop stop's class. */
 const committedCloud = { status: "committed", destinationId: "cloud_coordinator", purpose: "research plan", reservedFeeMicrousd: 160_000 };
 const committedLocal = { status: "committed", destinationId: "owned_local_model", purpose: "agent reasoning and tool selection", reservedFeeMicrousd: 0 };
 const unknownCloud = (failure: Record<string, unknown>) => ({ ...cloud(failure), status: "unknown" });

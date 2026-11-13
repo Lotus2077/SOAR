@@ -34396,7 +34396,7 @@ Next gate: CI green on #82, then its merge under the owner's standing go-ahead f
 References: BL-20261113-0816-correction-host-flags-event-ids-and-replay; BL-20261113-0817-runner-storage-integrity-design; BL-20261113-0818-runner-storage-integrity-implemented; BL-20261113-0819-correction-runner-storage-integrity-ids; BL-20261113-0820-research-stage-pause-held-attempt-pins; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261113-0758 and BL-20261113-0832 (pull request #87).
 
 
-### BL-20261113-0805-infra-resume-design -- 2026-11-13 -- Backlog item 11, part 3b decided: the loop resumes a stage that ended on infrastructure once, at zero fee, from its last complete stage (LOOP_VERSION 2), keeps every run's spend in its totals and registry rows, and gives a row to every loop that ends without a selection
+### BL-20261113-0836-infra-resume-design -- 2026-11-13 -- Backlog item 11, part 3b decided: the loop resumes a stage that ended on infrastructure once, at zero fee, from its last complete stage (LOOP_VERSION 2), keeps every run's spend in its totals and registry rows, and gives a row to every loop that ends without a selection
 
 Status: `Proposed`
 
@@ -34654,11 +34654,11 @@ Next gate: The implementation with deterministic tests, an adversarial code revi
 References: docs/PROJECT_REVIEW_2026-11-05.md section 2.2 (criteria 7 and 8), section 5.1 rule 5, section 5.6 (E1, E3, E4) and section 5.7 item 11; docs/PLAN.md R0; BL-20261101-0436-h4-runner-controls-fixed; BL-20261107-0809-zero-fee-failures-resolve-design (item 1); BL-20261107-0859-label-keyed-diagnostics-design (item 4); BL-20261108-1459-serving-card-reader-design and BL-20261108-1649-serving-card-reader-implemented; BL-20261109-0331-loop-selection-protocol-2-design and BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0515-infra-classification-design, BL-20261109-0606-correction-infra-classification-rules and BL-20261109-0607-infra-classification-implemented; pull requests #66, #67, #73 and #78; issue #46.
 
 
-### BL-20261113-0806-infra-resume-implemented -- 2026-11-13 -- Backlog item 11, part 3b implemented: the loop resumes a stage that ended on infrastructure once at zero fee (LOOP_VERSION 2), under a lock and write-ahead moves, keeps every run's spend in its totals, closes with `--close`, and every loop that ends gets a registry row
+### BL-20261113-0837-infra-resume-implemented -- 2026-11-13 -- Backlog item 11, part 3b implemented: the loop resumes a stage that ended on infrastructure once at zero fee (LOOP_VERSION 2), under a lock and write-ahead moves, keeps every run's spend in its totals, closes with `--close`, and every loop that ends gets a registry row
 
 Status: `Implemented`
 
-Scope or hypothesis: Implement BL-20261113-0805-infra-resume-design with deterministic tests. The branch is `feat/11.3b-infra-resume`. It merges part 3a's branch at 687c5b2 (pull request #78, which merges part 2's branch, pull request #73, at a27652a), on part 1's 9eed3d7 and `main` 2982ca7. Hypotheses:
+Scope or hypothesis: Implement BL-20261113-0836-infra-resume-design with deterministic tests. The branch is `feat/11.3b-infra-resume`. It merges part 3a's branch at 687c5b2 (pull request #78, which merges part 2's branch, pull request #73, at a27652a), on part 1's 9eed3d7 and `main` 2982ca7. Hypotheses:
 - A loop stage that ended on infrastructure is resumed once, at zero fee, and no resume sends a priced call again.
 - Every run's spend stays in `loop.json`'s totals at every save of every invocation, and in the registry row.
 - Every loop that ends gets a row, classed by why it ended.
@@ -34839,16 +34839,16 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: The owner's answer on how BL-20261110-0637 lands, which the orchestrator carries (the options: a recorded out-of-order exception in the validator, a fresh `Proposed` entry with a later ID that cites 0637, or the entry riding merge train 1's sorted union through a docs-only pull request). Until then, this branch stays local. Then a pull request, CI, and a merge after #67, #73 and #78 in the shared files' orders (scripts/phase4-loop.ts: 11.1, 11.3, 10.b, 7a.2; scripts/registry-row.py: 11.1, 11.2, 11.3, 11.4, 7d.C, RA). Part 5's launcher (plan 11.5) is next in this lane. It must re-invoke on `loop_stage_infra`, `loop_interrupted` and `loop_stage_cleanup_required`, never on a terminal stop or `loop_locked`, and must read `loop.json`'s totals. As the orchestrator carries it as an owner default, it also refuses unless HEAD is an ancestor of `origin/main`.
 
-References: BL-20261113-0805-infra-resume-design; BL-20261110-0723-correction-infra-classification-train-review; BL-20261109-0515-infra-classification-design, BL-20261109-0606-correction-infra-classification-rules and BL-20261109-0607-infra-classification-implemented; BL-20261109-0331-loop-selection-protocol-2-design and BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0510-registry-run-commit-implemented; pull requests #67, #73 and #78; docs/PROJECT_REVIEW_2026-11-05.md section 5.1 rule 5 and section 5.7 item 11.
+References: BL-20261113-0836-infra-resume-design; BL-20261110-0723-correction-infra-classification-train-review; BL-20261109-0515-infra-classification-design, BL-20261109-0606-correction-infra-classification-rules and BL-20261109-0607-infra-classification-implemented; BL-20261109-0331-loop-selection-protocol-2-design and BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0510-registry-run-commit-implemented; pull requests #67, #73 and #78; docs/PROJECT_REVIEW_2026-11-05.md section 5.1 rule 5 and section 5.7 item 11.
 
-### BL-20261113-0808-correction-infra-resume-ids -- 2026-11-13 -- Correction: part 3b's two entries carry IDs BL-20261113-0805 and BL-20261113-0806 in the merged ledger; they were authored on 2026-11-10 at 06:37 and 10:08 UTC as BL-20261110-0637 and BL-20261110-1008
+### BL-20261113-0838-correction-infra-resume-ids -- 2026-11-13 -- Correction: part 3b's two entries carry IDs BL-20261113-0836 and BL-20261113-0837 in the merged ledger; they were authored on 2026-11-10 at 06:37 and 10:08 UTC as BL-20261110-0637 and BL-20261110-1008
 
 Status: `Implemented`
 
-Scope or hypothesis: Record why backlog item 11's part 3b entries, the design BL-20261113-0805-infra-resume-design and the implementation BL-20261113-0806-infra-resume-implemented, do not carry their authoring dates and minutes. Both were authored on part 3b's branch before merge train 1 reached `main`, whose ledger now ends with BL-20261110-1506-merge-train-1-integration, and the validator refuses an ID earlier than the entry before it. On 2026-11-13 the owner decided that an unmerged branch re-stamps such entries after `main`'s tail when it merges, and adds a correction that records each original ID and authoring time (BL-20261113-0758, recorded on pull request #87). At the rebase of part 3b's branch onto `main` at 9d10b9a, the two entries received the next free minutes of that day, their heading dates moved with their IDs, and the 16 references that point to them were updated. Nothing else about the entries changed.
+Scope or hypothesis: Record why backlog item 11's part 3b entries, the design BL-20261113-0836-infra-resume-design and the implementation BL-20261113-0837-infra-resume-implemented, do not carry their authoring dates and minutes. Both were authored on part 3b's branch before merge train 1 reached `main`, whose ledger now ends with BL-20261110-1506-merge-train-1-integration, and the validator refuses an ID earlier than the entry before it. On 2026-11-13 the owner decided that an unmerged branch re-stamps such entries after `main`'s tail when it merges, and adds a correction that records each original ID and authoring time (BL-20261113-0758, recorded on pull request #87). At the rebase of part 3b's branch onto `main` at 9d10b9a, the two entries received the next free minutes of that day, their heading dates moved with their IDs, and the 16 references that point to them were updated. Nothing else about the entries changed.
 
 Decisions:
-- The entries' bodies are byte-identical to what was reviewed under the original IDs, except the two references in the implementation entry that point to the design entry: its Scope ("Implement BL-20261113-0805-infra-resume-design") and its References.
+- The entries' bodies are byte-identical to what was reviewed under the original IDs, except the two references in the implementation entry that point to the design entry: its Scope ("Implement BL-20261113-0836-infra-resume-design") and its References.
 - Two sentences of the implementation entry keep the design entry's original ID, BL-20261110-0637, because they describe where that ID sorted before this re-stamp: its Evidence bullet on `validate:build-log` against part 3a's head, and its Next gate, which waited on the owner's answer. Replacing the ID there would make both statements false, so this correction gives the mapping instead.
 - The new minutes, 08:05 and 08:06 UTC on 2026-11-13, follow `main`'s tail and also pull request #87's two entries (07:28 and 07:58 UTC), so the order holds whichever of the two branches merges first.
 - The order in the merged ledger is merge chronology, as rule 1 requires: train 1's entries, part 3b's design and implementation, this correction, then the entry that records what the rebase itself changed.
@@ -34865,16 +34865,16 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: The review of this pull request, which checks the re-stamp and this correction as the owner's decision requires; then its merge into `main`.
 
-References: BL-20261113-0805-infra-resume-design; BL-20261113-0806-infra-resume-implemented; BL-20261110-1506-merge-train-1-integration; BL-20261108-0906-correction-owner-verdict-capture-ids; BL-20261108-0856-correction-stop-bricking-tasks-design-id; the log rules at the top of this file.
+References: BL-20261113-0836-infra-resume-design; BL-20261113-0837-infra-resume-implemented; BL-20261110-1506-merge-train-1-integration; BL-20261108-0906-correction-owner-verdict-capture-ids; BL-20261108-0856-correction-stop-bricking-tasks-design-id; the log rules at the top of this file.
 
-### BL-20261113-0810-infra-resume-on-main -- 2026-11-13 -- Part 3b on `main` after merge train 1: E1-T1's interrupt pin and test A move with the resume, and the loop's interrupt tests assert their stage entries whole
+### BL-20261113-0839-infra-resume-on-main -- 2026-11-13 -- Part 3b on `main` after merge train 1: E1-T1's interrupt pin and test A move with the resume, and the loop's interrupt tests assert their stage entries whole
 
 Status: `Implemented`
 
-Scope or hypothesis: Bring backlog item 11's part 3b (BL-20261113-0806-infra-resume-implemented) onto `main` after merge train 1 (BL-20261110-1506-merge-train-1-integration), as the orchestrator asked on 2026-11-13, and record what changed beyond the rebase. Two of E1-T1's tests (BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented) fail with part 3b and move here. Part 3b's own interrupt tests were tightened after the train's integration review. Implemented is not Verified: no sample, critique, model request, endpoint, Docker container or paid call ran.
+Scope or hypothesis: Bring backlog item 11's part 3b (BL-20261113-0837-infra-resume-implemented) onto `main` after merge train 1 (BL-20261110-1506-merge-train-1-integration), as the orchestrator asked on 2026-11-13, and record what changed beyond the rebase. Two of E1-T1's tests (BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented) fail with part 3b and move here. Part 3b's own interrupt tests were tightened after the train's integration review. Implemented is not Verified: no sample, critique, model request, endpoint, Docker container or paid call ran.
 
 Decisions:
-- **The rebase.** The branch is rebased onto `main` at 9d10b9a. Its merge of part 3a's branch fell away, since #78 is on `main`. Six commits replayed with identical patches (`git range-diff`). The two build-log commits conflicted only at the ledger's tail, and re-applied their added lines byte for byte after the train's entry. Their re-stamp is BL-20261113-0808-correction-infra-resume-ids.
+- **The rebase.** The branch is rebased onto `main` at 9d10b9a. Its merge of part 3a's branch fell away, since #78 is on `main`. Six commits replayed with identical patches (`git range-diff`). The two build-log commits conflicted only at the ledger's tail, and re-applied their added lines byte for byte after the train's entry. Their re-stamp is BL-20261113-0838-correction-infra-resume-ids.
 - **E1-T1's pin moves again.** Train 1 flipped the pin to 11.1's refusal: a rerun refused, with `loop_stage_interrupted`, a sample the loop's interrupt cut before it submitted. Part 3b resumes such a sample once, so the pin now asserts the resume. The rerun moves the cut b to `b.infra-1` and runs b, the critique and the repair. It records one `operator_stop` resume, keeps a with its first times, and leaves no stage marked. This supersedes, without editing it, the train entry's description of the flipped pin, which expected part 3b to move it.
 - **E1-T1's test A.** Its `ledgerSummary` fixture ended the sample on `runtime_failure_progress_preserved`. Part 3a classes that reason as infrastructure, so part 3b deferred the fresh a with `loop_stage_infra` before admitting it, and the test failed. The fixture now ends on a task reason (`bounded_allowance_exhausted`), as part 3b did for 11.1's `rowSummary` and `transportStoppedSummary`, so the loop's admission rules decide again. The test's claims are unchanged: a is admitted, b, one critique and the repair run, and two rows count as retried. The integration review expected only the pin to move; a dry merge found this second break.
 - **Stage entries asserted whole (finding F2-1 of the train's integration review).** The review found that the flipped pin and 11.1's interrupt tests compared stage entries with subset matches, so a mark leaked onto another stage passed. Every interrupt scenario in tests/unit/phase4-loop.test.ts and tests/unit/phase4-loop-resume.test.ts now asserts the whole `stages` array: each entry's keys, its `reused` flag, and the mark on the stage it names alone. The moved pin does the same. A reused stage is compared with its first recorded entry where the record keeps it. This answers the train entry's limitation on the flipped pin, whose subset match let that leak pass the whole file.
@@ -34901,13 +34901,13 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: The orchestrator's review of this pull request (one reviewer, and a skeptic only for a blocker or major finding) and the owner's go-ahead; then its merge into `main`. Part 5's launcher (plan 11.5) is next in this lane.
 
-References: BL-20261113-0806-infra-resume-implemented; BL-20261113-0805-infra-resume-design; BL-20261113-0808-correction-infra-resume-ids; BL-20261110-1506-merge-train-1-integration; BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261113-0758 (on pull request #87); pull request #85.
+References: BL-20261113-0837-infra-resume-implemented; BL-20261113-0836-infra-resume-design; BL-20261113-0838-correction-infra-resume-ids; BL-20261110-1506-merge-train-1-integration; BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261113-0758 (on pull request #87); pull request #85.
 
-### BL-20261113-0835-correction-infra-resume-on-main-stage-entries -- 2026-11-13 -- Correction: BL-20261113-0810-infra-resume-on-main overstates which interrupt tests assert their stage entries whole, and a sentence kept in BL-20261113-0806-infra-resume-implemented is now only historically true
+### BL-20261113-0840-correction-infra-resume-on-main-stage-entries -- 2026-11-13 -- Correction: BL-20261113-0839-infra-resume-on-main overstates which interrupt tests assert their stage entries whole, and a sentence kept in BL-20261113-0837-infra-resume-implemented is now only historically true
 
 Status: `Implemented`
 
-Scope or hypothesis: Correct two statements on this branch without editing the entries that make them. The light review of pull request #89 found the first. (1) The Decisions bullet "Stage entries asserted whole" of BL-20261113-0810-infra-resume-on-main says that every interrupt scenario in tests/unit/phase4-loop.test.ts and tests/unit/phase4-loop-resume.test.ts asserts the whole `stages` array. Of the twelve tests in those files that fire the loop's interrupt, five did not at that entry's commit. (2) The Evidence of BL-20261113-0806-infra-resume-implemented says the design entry "is neither edited nor re-stamped". That stopped being true at BL-20261113-0808-correction-infra-resume-ids.
+Scope or hypothesis: Correct two statements on this branch without editing the entries that make them. The light review of pull request #89 found the first. (1) The Decisions bullet "Stage entries asserted whole" of BL-20261113-0839-infra-resume-on-main says that every interrupt scenario in tests/unit/phase4-loop.test.ts and tests/unit/phase4-loop-resume.test.ts asserts the whole `stages` array. Of the twelve tests in those files that fire the loop's interrupt, five did not at that entry's commit. (2) The Evidence of BL-20261113-0837-infra-resume-implemented says the design entry "is neither edited nor re-stamped". That stopped being true at BL-20261113-0838-correction-infra-resume-ids.
 
 Decisions:
 - **Where the whole `stages` array is asserted.**
@@ -34916,7 +34916,7 @@ Decisions:
 - **Where it is not.**
   - Three critique scenarios of tests/unit/phase4-loop-resume.test.ts assert no stage entries: 'resumes a critique the loop's interrupt cancelled at its token admission...', 'closes a loop whose critique answered before the loop recorded it at the repair...' and 'resumes a torn critique record...'.
   - E1-T1's it.each ('stops after %s on an interrupt during it...') compares only the names of the reused stages. It is lane S-e1's test and stays as written.
-- **The kept sentence.** The Evidence of BL-20261113-0806-infra-resume-implemented says "The design entry is neither edited nor re-stamped." That was true when the entry was written, under the orchestrator's ruling of 2026-11-10. Since BL-20261113-0808-correction-infra-resume-ids, the design entry carries a re-stamped heading, as the owner's decision of 2026-11-13 allows; its body is unchanged. The sentence stays as written, for the reason that correction gives for the sentences that keep the original ID.
+- **The kept sentence.** The Evidence of BL-20261113-0837-infra-resume-implemented says "The design entry is neither edited nor re-stamped." That was true when the entry was written, under the orchestrator's ruling of 2026-11-10. Since BL-20261113-0838-correction-infra-resume-ids, the design entry carries a re-stamped heading, as the owner's decision of 2026-11-13 allows; its body is unchanged. The sentence stays as written, for the reason that correction gives for the sentences that keep the original ID.
 - **The pull request's description.** Its sentence "Every interrupt test asserts the whole `stages` array" now names the tests that do and points here for the ones that do not.
 
 Changes: tests/unit/phase4-loop-resume.test.ts (one matcher, in 'closes a loop cut during its critique after stage 1...'); docs/BUILD_LOG.md (this entry); one sentence of pull request #89's description.
@@ -34924,7 +34924,7 @@ Changes: tests/unit/phase4-loop-resume.test.ts (one matcher, in 'closes a loop c
 Evidence:
 - tests/unit/phase4-loop.test.ts and tests/unit/phase4-loop-resume.test.ts pass 59 of 59.
 - The twelve interrupt scenarios come from a scan of both files for tests that fire the loop's abort. Each was then read for its stage assertions.
-- A single-edit mutant of scripts/phase4-loop.ts leaks the mark of a stage cut while its run threw onto every stage recorded before it. Out of the 59 tests it fails 2 with the old matcher ('keeps an interrupt mark across invocations...' and 'passes its interrupt to the critique...') and 3 with the new one, the close scenario added. The record-only leak mutant that BL-20261113-0810-infra-resume-on-main reports still fails 5.
+- A single-edit mutant of scripts/phase4-loop.ts leaks the mark of a stage cut while its run threw onto every stage recorded before it. Out of the 59 tests it fails 2 with the old matcher ('keeps an interrupt mark across invocations...' and 'passes its interrupt to the critique...') and 3 with the new one, the close scenario added. The record-only leak mutant that BL-20261113-0839-infra-resume-on-main reports still fails 5.
 - `pnpm --silent validate:build-log -- --base-ref 9d10b9a`, this branch's base, passes: 556 entries. Against `main` at bb6ef32 it fails as expected ("not append-only relative to the base"), because `main` gained #92's entries after this branch was rebased.
 
 Failures or blockers: None in this commit. The branch is behind `main` at bb6ef32: its entries from 0805 to 0810 sort before `main`'s tail, BL-20261113-0816. They are re-stamped when `main` is merged in, after #82, in the order the orchestrator set.
@@ -34935,4 +34935,39 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: After #82 merges, `main` is merged into this branch, every entry that sorts before `main`'s tail is re-stamped with its correction, the validator runs against `main`, and the branch is pushed. The orchestrator then merges once CI is green.
 
-References: BL-20261113-0810-infra-resume-on-main; BL-20261113-0806-infra-resume-implemented; BL-20261113-0808-correction-infra-resume-ids; the light review of pull request #89.
+References: BL-20261113-0839-infra-resume-on-main; BL-20261113-0837-infra-resume-implemented; BL-20261113-0838-correction-infra-resume-ids; the light review of pull request #89.
+
+### BL-20261113-0847-correction-infra-resume-second-restamp -- 2026-11-13 -- Correction: part 3b's five entries are re-stamped a second time, after `main`'s new tail BL-20261113-0834; their original IDs, dates and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: #92 and #82 merged into `main` before this branch. `main`'s last ID is now BL-20261113-0834-correction-runner-storage-integrity-second-restamp. After their first re-stamp (BL-20261113-0838-correction-infra-resume-ids), four of this branch's entries still carried earlier IDs. At this merge of `main` (merge commit 20d6c60) they move again, after the new tail, under the owner's rule (BL-20261113-0758; for dates, BL-20261113-0832, both on pull request #87). The fifth entry, the stage-entries correction, did not precede the tail, but it moves too. Kept at 08:35 UTC, it would leave the four entries before it only 08:34 and 08:35, minutes that `main`'s tail and that correction already use, so short IDs such as BL-20261113-0834 would name two entries. Moving all five keeps each of this branch's entries on a minute of its own, after `main`'s, and in order. All five stay dated 2026-11-13.
+
+Each entry, with its original ID, date and authoring time:
+- **The design entry.** Authored at 06:37 UTC on 2026-11-10 as BL-20261110-0637, and re-stamped on 2026-11-13 as BL-20261113-0805. It is now BL-20261113-0836-infra-resume-design.
+- **The implemented entry.** Authored at 10:08 UTC on 2026-11-10 as BL-20261110-1008, and re-stamped on 2026-11-13 as BL-20261113-0806. It is now BL-20261113-0837-infra-resume-implemented.
+- **The first correction.** Authored at 08:08 UTC on 2026-11-13 as BL-20261113-0808. It is now BL-20261113-0838-correction-infra-resume-ids.
+- **The on-main entry.** Authored at 08:10 UTC on 2026-11-13 as BL-20261113-0810. It is now BL-20261113-0839-infra-resume-on-main.
+- **The stage-entries correction.** Authored at 08:35 UTC on 2026-11-13 as BL-20261113-0835. It is now BL-20261113-0840-correction-infra-resume-on-main-stage-entries.
+
+Decisions:
+- **What changed.** Only the five headings' IDs change, in their minutes, together with the 39 references to those IDs: 25 in the five entries' titles and bodies, and 14 in the code comments, README rows and test comments that cite the design entry. Each body is otherwise byte-identical to this branch's at 01c958c.
+- **Kept as written, now only historically true.**
+  - The first correction's account of its minutes ("The new minutes, 08:05 and 08:06 UTC on 2026-11-13, follow `main`'s tail …, so the order holds whichever of the two branches merges first") held against #87, but #92 and #82 merged first.
+  - Its statement that `git grep` finds the original IDs only in it, and in two kept sentences, held at its own commit. They now also appear here.
+  - The stage-entries correction's statement that "its entries from 0805 to 0810 sort before `main`'s tail" was true at its commit.
+- **`main`'s log.** It is kept whole, as a byte prefix of this branch's.
+
+Changes: docs/BUILD_LOG.md (five headings, their references and this entry); the comments that cite the design entry in scripts/phase4-loop.ts, scripts/registry-row.py (three), src/main/private-agent/loop-ledger.ts and src/main/private-agent/run-classification.ts (two); three rows of docs/experiments/README.md; test comments in tests/unit/phase4-loop-resume.test.ts, tests/unit/registry-row-resume.test.ts and tests/unit/run-classification.test.ts (two). No behaviour changes.
+
+Evidence: `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0: 565 entries, append-only against `main` at 23dfadc, with IDs and dates in order. `pnpm typecheck` and `pnpm validate:readiness` pass. `pnpm exec vitest run`, run alone on this tree, ran 191 files and 3,437 tests: 3,351 passed, 86 were skipped and none failed. The ten registry, classification, loop and repair test files pass 295 of 295 under the machine's Python 3.9.5, and again under 3.9.6. `git grep` finds BL-20261113-0805, -0806, -0808, -0810 and -0835 only in this entry. With the five new IDs mapped back to their previous ones, the log before this entry is byte-identical to the merge commit's.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only; nothing is implemented, verified or released by it. Commit messages and #89's earlier descriptions keep the IDs they had. If another branch's entries reach `main` first again, this branch's entries are re-stamped again under the same rule.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green on #89, then the orchestrator's merge.
+
+References: BL-20261113-0834-correction-runner-storage-integrity-second-restamp; BL-20261113-0836-infra-resume-design; BL-20261113-0837-infra-resume-implemented; BL-20261113-0838-correction-infra-resume-ids; BL-20261113-0839-infra-resume-on-main; BL-20261113-0840-correction-infra-resume-on-main-stage-entries; BL-20261113-0758 and BL-20261113-0832 (pull request #87).

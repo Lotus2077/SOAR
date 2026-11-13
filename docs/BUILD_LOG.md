@@ -34109,3 +34109,288 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: Review of the pull request (one reviewer), CI, and a merge on the owner's go-ahead, re-stamping again at the merge if `main`'s tail has moved.
 
 References: BL-20261110-1509-host-flags-event-design; BL-20261110-1516-host-flags-event-implemented; BL-20261110-1506-merge-train-1-integration; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261110-0726-correction-research-tolerance-total-loss; BL-20261110-0900-correction-research-tolerance-held-repair; BL-20261113-0758 (pull request #87).
+
+### BL-20261113-0817-runner-storage-integrity-design -- 2026-11-13 -- Backlog item 6 follow-up decided: after a runtime failure the desktop verifies the blobs its records reference, and a missing or mismatched one ends `task_integrity_failed`; a damaged public-source blob no longer breaks the task snapshot; corrections to the 6.1 and 6.2 entries
+
+Status: `Proposed`
+
+Scope or hypothesis: This is the decision entry for a follow-up to backlog item 6 (plan ID 6.3, lane S-desk). It is stacked on 6.2 (pull request #77, branch `fix/6.2-research-stage-pause`), which is stacked on 6.1 (#72).
+
+The orchestrator's merge-train review of #72 found finding F1: a missing or corrupt blob that only the runner loads from the task's storage is recorded as `runtime_failure_progress_preserved`. 6.1 made that reason resumable, and its text says that progress is retained.
+
+The change is zero-fee code with deterministic tests and no endpoint, so it needs no approval under PLAN.md section 4(c). The implementation follows in the same pull request.
+
+The finding, re-read at 224429b with three design reviews:
+- **What the runner loads.** The runner reads the task's checkpoint store from inside its try. At its start and on every turn it loads:
+  - the last checkpoint's files (before it creates the sandbox, and again where it re-creates one);
+  - the retained public sources;
+  - the retained execution observations, on every turn;
+  - the checkpoint taken after each retained execute (the execution-progress view, on every turn);
+  - on a version 3 task, the consultation proposal's checkpoint and its response.
+- **What its catch records.** Every failure is recorded only by its class name (a `runtime_failure` event with code `Error`), and the run finishes `incomplete` with `runtime_failure_progress_preserved`.
+- **Why decision (a) missed these failures.** The integrity rule of BL-20261109-0336 decision (4) and BL-20261109-0459 decision (a) covers a checkpoint store refusal or an ENOENT under the task storage root. It held only for errors that reach the controller's catch.
+- **What the review's probe showed.** A task paused after writing output/report.md had that blob deleted. Three resumes each stored `runtime_failure_progress_preserved`, with Resume offered, the "progress … is retained" text and zero model requests.
+- **Why re-running the runner's checks would fail.** The observation check and the progress view wrap every failure in one code each (`execution_observation_integrity_failed`, `execution_progress_integrity_failed`). That includes a permission error, EIO and a busy store, so their codes cannot tell damage from an environmental error.
+- **A defect that predates 6.1.** get() reads the public sources without a try, and list() maps get() over every task. So one task's lost source blob made get(), resume() and list() throw, and the whole task history failed to load.
+
+Hypothesis: the controller can verify the blobs the private context's records reference, with its own loads and without the runner's wrappers. If it does, damage is told apart from an environmental failure, a damaged task ends terminal with the integrity text, and no futile Resume is offered. The runner and its source freeze stay unchanged.
+
+Decisions:
+
+(1) The blob scan. execute() derives the record it will save. When that record is `incomplete` with `runtime_failure_progress_preserved` (after the configuration-change and cancel mapping, before the single save), it verifies every blob the private context's records reference. Those records are:
+- each checkpoint's snapshot;
+- each retained execution observation's snapshot (a `tool_finished` with `executionCapture` "retained");
+- each retained public source's snapshot;
+- a consultation proposal's checkpoint and a consultation response's snapshot.
+
+It also checks that a response names its recorded content digest, as the runner's own check does.
+
+The scan works as follows:
+- **How it reads.** It goes one snapshot at a time through execute()'s own checkpoint store, with each distinct blob read once.
+- **What counts as damage.** A load error that `caughtRunReason` classifies as `task_integrity_failed` (a checkpoint store refusal, or an ENOENT under the task storage root), or a response digest mismatch, makes the record store `task_integrity_failed`.
+- **What it ignores.** Any other error (a permission error, EIO), and a record it cannot read, leaves the runner's reason. Each snapshot is checked independently, and any integrity verdict wins.
+- **What it never does.** It never writes, dispatches or deletes.
+
+This covers every load the runner makes, including the per-turn progress and observation loads, because each of them reads a blob that one of these records names.
+
+(2) get() fails closed on its public-source read. A failure there no longer throws out of get(), resume() or list(); the snapshot's sources are empty instead. If the error is an integrity failure, a paused or incomplete record that is not running reads `task_integrity_failed`, with no Resume. It is checked with the other permanent stops, before the unfinished research stage and the time limit. Any other read error only empties the sources.
+
+(3) The integrity codes gain `public_source_identity_invalid`, `public_source_duplicate` and `public_source_context_invalid`. Each is deterministic, because a settled receipt is final. As a consequence, these codes thrown into the controller's catch (session.completed() reads the sources on a finalising task) now end `task_integrity_failed` instead of `runtime_unavailable`. The observation and progress wrapper codes are not added, because they also wrap environmental errors.
+
+(4) runner.ts, session.ts and every other file under src/main/private-agent/ are unchanged. The headless source freeze stays as 6.2 leaves it.
+
+(5) Corrections. They hold as recorded here, whatever this entry's status; the earlier entries stay as written.
+- BL-20261109-0459 decision (a) (and BL-20261109-0336 decision (4) for the checkpoint store refusals) held only for errors that reached the controller's catch: the input blobs, the completed snapshot and the storage directories. The runner's loads listed above were recorded `runtime_failure_progress_preserved`. Decision (1) here extends the rule to them. The same correction applies to #72's description.
+- In BL-20261109-0607's Changes, two counts are wrong:
+  - Seven tests were appended to tests/unit/private-agent-research-session.test.ts, not eight; two more were rewritten.
+  - "One dispatch read per get()" overstates it. 6.2 adds no read: the stage check reuses get()'s own read. get() still reads the dispatches in uncertain(), in readConsultation() and consultationModelCalls() once a consultation is proposed, for the unknown-request text, and for the public-fetch count.
+
+(6) Recorded as accepted for 6.2. A version 3 record may have a resumable stored reason (`interrupted`, `runtime_unavailable`) while the unfinished-stage guard withholds its Resume. Its elapsed clock stays live, because 6.1's decision 7 keys the clock on the stored reason's class, as it already does under the uncertain and stop-marker guards. The projection names the stage before the time limit, so the text does not change when the clock passes the budget.
+
+(7) 6.2's defensive-arm test gains the assertion that the pause landed after the stage's abort controller existed. That shows the arm is reached, rather than inferred from the code order.
+
+Changes: Planned in this pull request:
+- src/main/general-tasks/storage-integrity.ts (new): the blob scan.
+- src/main/general-tasks/controller.ts: the scan after `runtime_failure_progress_preserved`, and get()'s fail-closed source read.
+- src/main/general-tasks/run-reasons.ts: the three public-source codes.
+- tests/unit/general-task-storage-integrity.test.ts (new): every record kind, missing, corrupted and resized blobs, a response digest mismatch, a permission error left alone, an unreadable record skipped, deduplication and other contexts ignored.
+- tests/unit/general-task-controller.test.ts:
+  - on the real runner with a mocked sandbox, a deleted checkpoint blob ends `task_integrity_failed`, with no Resume and the integrity text, also after reopening;
+  - intact storage with a sandbox that fails once stays `runtime_failure_progress_preserved` and resumable;
+  - a damaged public-source blob leaves get() and list() working, with the integrity text.
+- tests/unit/general-task-run-reasons.test.ts: the codes and where each is raised.
+- tests/unit/private-agent-research-session.test.ts: the defensive-arm assertion.
+
+Consequences:
+- A task whose storage lost or corrupted a blob its records reference ends terminal at the first runtime failure, with the integrity text. Before, it offered futile zero-fee resumes until its wall budget ended.
+- An environmental failure with intact storage stays resumable.
+- One task's damaged source blob no longer breaks the task list.
+- The scan reads each distinct blob of the private context once, and only after such a stop: about 0.2 s per 128 MiB on this Mac, synchronously on the main process.
+- Unchanged: the source freeze, the session identity, every protocol hash, every event schema and dispatch semantics.
+- The controller.ts merge order becomes 6.1, 6.2, 6.3, then 7d.C.
+
+Evidence: None yet for the code; this entry decides. Three adversarial design reviews (ledger and replay safety, consumers and tests, fidelity) reviewed the first draft, which re-ran the runner's start-time checks. They found:
+- it missed the per-turn progress and consultation loads (a probe showed the futile resumes surviving);
+- the observation wrapper would turn a permission error or a busy store into a terminal stop;
+- the public-source part could never show, because get() threw first.
+
+This decision replaces that draft; the confirmed findings are applied above.
+
+Failures or blockers: None in recording. There is no owner question: the change makes an existing terminal rule (BL-20261109-0459 decision (a)) reach the blobs the runner loads, and makes get() fail closed.
+
+Limitations and non-claims:
+- This entry decides; nothing is implemented or verified by it.
+- The scan treats a missing older checkpoint blob as damage even though the runner would not load it. Nothing in the app deletes task storage, so a missing blob means the storage was damaged outside the app.
+- A record the scan cannot read stays resumable, as does an environmental error during the scan.
+- A checkpoint save that fails leaves its partial blob in place. A later save of the same content then fails with `checkpoint_file_invalid` inside the runner, which no record references, so it stays a resumable runtime failure. This predates 6.1.
+- 6.1's limitation for persistent consultation refusals inside the runner (a drifted preview, say) stands.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation in this pull request and its `Implemented` entry, with these checks green:
+- `pnpm --silent validate:build-log -- --base-ref origin/fix/6.2-research-stage-pause`, `pnpm typecheck` and `pnpm validate:readiness`;
+- the changed tests;
+- the identity and tool-error golden tests, untouched;
+- the full `pnpm exec vitest run`.
+
+Then review, CI and a merge after #77. If another entry merges first, this entry's ID is re-stamped after main's tail with a correction entry.
+
+References: BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0501-research-stage-pause-design; BL-20261109-0607-research-stage-pause-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 6; pull requests #72 and #77.
+
+
+### BL-20261113-0818-runner-storage-integrity-implemented -- 2026-11-13 -- Backlog item 6 follow-up implemented: after a runtime failure the desktop verifies the blobs its records reference and a damaged one ends `task_integrity_failed`; get() fails closed on a damaged public-source blob
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261113-0817-runner-storage-integrity-design, with deterministic tests, in branch `fix/6.3-runner-storage-integrity`. The branch is stacked on `fix/6.2-research-stage-pause` at 224429b (pull request #77). Plan ID 6.3, lane S-desk:
+- the design commit 0b36653;
+- the implementation commit cabce26;
+- the code-review corrections f345852.
+
+Decisions: One adversarial code review checked the change for correctness, safety and test strength. It found no blocking issue: no false terminal, no way for the scan to throw out of execute(), and no runner load in the desktop path the scan misses. Its confirmed findings change four things, recorded here; the design entry stays as written.
+- (a) A consultation decision no longer re-opens a record that a terminal stop ended. decideConsultation reset any record that was not running to `paused` / `consultation_ready`. So a Revoke after the scan's verdict re-offered a futile Resume, and the next run stored the verdict again. The reset now applies only to a paused record or one whose stored reason is resumable. The decision itself is recorded either way. Before, this also re-opened every other terminal stop.
+- (b) The scan loads row by row, with one set of attempted blobs. Loading a whole snapshot at once stopped at its first failing row: an unreadable row hid a missing one behind it, and on the error path a shared blob was read again for every snapshot. Now any integrity verdict wins whatever the row order, and each blob is read once.
+- (c) The scan skips a consultation response it cannot read (no file, or no digest), as the design's limitation says. It counted as damage before. The runner never loads such a response, which reads as uncertain.
+- (d) Tests now pin decision (2):
+  - an unreadable source blob only empties the sources and keeps Resume;
+  - damage is named before the time limit;
+  - a submitted task keeps its status and reason.
+
+  The three mutants that survived without them are killed.
+
+Accepted, as the review noted:
+- A paused record, or one with a resumable stored reason, can read `task_integrity_failed` through a damaged source. For a version 3 record, its elapsed clock then stays live, as under 6.2's decision (6) and the other guards.
+- The scan's cost grows with the private context's distinct bytes. The review measured 0.13 s per 128 MiB. A heavy task with about 120 distinct checkpoints of 128 MiB would take about 15 s on the main process, only after a runtime failure. The runner's per-turn progress view already reads more than that.
+
+The scan lives in src/main/general-tasks/storage-integrity.ts, `storageIntegrityFailed(events, contextId, checkpoints, storageRoot)`. execute() calls it with its own checkpoint store, only when the record it is about to save is `incomplete` with `runtime_failure_progress_preserved`.
+
+Changes:
+- src/main/general-tasks/storage-integrity.ts (new): the blob scan.
+- src/main/general-tasks/controller.ts:
+  - the scan before execute()'s single save;
+  - get()'s fail-closed public-source read, with its guard in canResume and its projection beside the other permanent stops;
+  - a consultation decision re-opens only a paused or resumable record.
+- src/main/general-tasks/run-reasons.ts: `public_source_identity_invalid`, `public_source_duplicate` and `public_source_context_invalid` join the integrity codes.
+- tests/unit/general-task-storage-integrity.test.ts (new, 11 tests): every record kind missing, a same-size corruption and a resized blob, a response digest mismatch, and a permission error left alone. It also covers unreadable records, including a response with no file or no digest, and another context's records ignored; an integrity verdict winning in either row order; and each distinct blob read once with nothing written, even on the error path.
+- tests/unit/general-task-controller.test.ts (9 tests; the runner-backed ones use the real runner on a stateful sandbox double):
+  - four damage cases end `task_integrity_failed` at the first runtime failure, with no Resume and the integrity text, also after reopening: a deleted checkpoint blob, a same-size corruption, a deleted observation blob, and a blob only an earlier checkpoint holds;
+  - three environmental cases stay resumable: a sandbox that fails once, an unreadable observation blob and an unreadable checkpoint blob;
+  - a damaged public-source blob, after a runtime failure and after a pause, leaves get(), list() and resume() answering for it and for another task;
+  - get()'s fail-closed read: an unreadable source blob only empties the sources, damage is named past the time limit, and a submitted task keeps its outcome.
+- tests/unit/general-task-consultation-controller.test.ts: a Revoke never re-opens a task its damaged storage ended.
+- tests/unit/general-task-run-reasons.test.ts: the codes and where each is raised. The observation and progress wrapper codes stay `runtime_unavailable`.
+- tests/unit/private-agent-research-session.test.ts: the defensive-arm test asserts that the pause landed after the stage's abort controller existed.
+
+Evidence: At commit f345852:
+- `pnpm --silent validate:build-log -- --base-ref origin/fix/6.2-research-stage-pause`, `pnpm typecheck` (exit 0) and `pnpm validate:readiness` pass.
+- The changed tests:
+  - general-task-storage-integrity 11 of 11;
+  - general-task-controller 157 of 157;
+  - general-task-run-reasons 5 of 5;
+  - private-agent-research-session 17 of 17;
+  - general-task-consultation-controller 23 of 23.
+
+  The identity and tool-error golden tests, untouched, pass 4 of 4.
+- The full `pnpm exec vitest run`: 180 files, 167 passed and 13 skipped (the environment-gated suites, as before); 2,840 tests, 2,756 passed and 84 skipped, none failed. At 6.2's commit dacfb00 it was 2,819 tests; the 21 new tests account for the difference.
+- Mutation checks: 21 single mutations of the new code, each applied alone in a scratch copy and run against the changed tests. Each is killed by a 6.3 test. 15 ran at cabce26, and 6 more at the final commit for the review's corrections:
+  - no scan, or any error counted as damage;
+  - observations, earlier checkpoints, public sources, the proposal checkpoint or the response digest ignored;
+  - other contexts read, or no deduplication;
+  - the first verdict winning;
+  - get() reading the sources unguarded, or damaged sources keeping Resume or the stored text;
+  - the codes not counted as integrity;
+  - paused records scanned too;
+  - a Revoke re-opening a terminal record;
+  - any source read error counted as damage, damaged sources named after the deadline, or damaged sources overriding every record;
+  - one load per snapshot;
+  - an empty response counted as damage.
+
+Failures or blockers: None. CI has not run yet; it runs on the pull request.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified` or `Released`: deterministic tests on fixtures only. No endpoint, model, Docker container or paid call ran.
+- A version 3 consultation's damaged proposal checkpoint or response is proved by the scan's unit tests, not by a version 3 task run end to end.
+- A cancel during a failing run is not tested. The scan is keyed on the record execute() derives, whose cancelled status skips it.
+- No version 3 test drives the approve-path reset: the Revoke test covers the decision guard, which both paths share.
+- The design entry's limitations stand.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Review and CI on the pull request, merged after #77; the controller.ts merge order is 6.1, 6.2, 6.3, then 7d.C. If another entry merges first, this entry's ID and the design entry's are re-stamped after main's tail with a correction entry.
+
+References: BL-20261113-0817-runner-storage-integrity-design; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0607-research-stage-pause-implemented; pull requests #72 and #77.
+
+### BL-20261113-0819-correction-runner-storage-integrity-ids -- 2026-11-13 -- Correction: plan 6.3's two entries carry IDs BL-20261113-0817 and BL-20261113-0818 in the ledger; they were authored at 07:15 and 08:09 UTC on 2026-11-10 as BL-20261110-0715 and BL-20261110-0809
+
+Status: `Implemented`
+
+Scope or hypothesis: Record why the two entries of plan 6.3 (pull request #82, lane S-desk) do not carry their authoring minutes. They were committed on 2026-11-10, stacked on #77, before merge train 1. Train 1 merged into `main` on 2026-11-13 (#85, 9d10b9a), and `main`'s last ID, BL-20261110-1506-merge-train-1-integration, is later than both. The validator refuses an ID earlier than the one before it. So at this merge of `main`, under the owner's rule recorded in BL-20261113-0758 (pull request #87), their ID minutes move to the first free minutes after the tail:
+- the design entry, authored at 07:15 UTC on 2026-11-10 as BL-20261110-0715, is now BL-20261113-0817-runner-storage-integrity-design;
+- the implemented entry, authored at 08:09 UTC on 2026-11-10 as BL-20261110-0809, is now BL-20261113-0818-runner-storage-integrity-implemented.
+
+Decisions:
+- Only the two headings' ID minutes and the references to those IDs change. The references are: two in the implemented entry's body, a comment in src/main/general-tasks/storage-integrity.ts, a comment in tests/unit/general-task-controller.test.ts and a describe title in tests/unit/general-task-storage-integrity.test.ts. Each entry's body is otherwise byte-identical to what #82 had at ab08382.
+- Both entries still describe the branch as stacked on #77 at 224429b, as written. #77 is now on `main` through train 1. The branch merges `main` at 9d10b9a (merge commit 0ea88e4). The merge conflicted only at the ledger's tail, where `main`'s log was kept whole and the two entries were appended after it unchanged, before this re-stamp.
+
+Changes: docs/BUILD_LOG.md (two headings, two references and this entry); the two comments and the describe title named above. No behaviour changes.
+
+Evidence: After the change, `git grep BL-20261110-0715` and `git grep BL-20261110-0809` find only this entry. `pnpm --silent validate:build-log -- --base-ref origin/main` passes (append-only against `main`, monotonic IDs) and `pnpm typecheck` passes. The authoring times are preserved here and in #82's description, which names the original IDs.
+
+Failures or blockers: None for this pull request.
+- A first attempt that moved the IDs to 2026-11-13 minutes was refused by the validator, which requires an ID's date to equal its heading's date. A re-stamp that changes only the minute keeps an entry on its own day.
+- A rebase onto `main` was prepared first, but publishing it needed a force-push, which this session's permissions refused. So the branch merges `main` instead, and its final tree is byte-identical to the rebased one.
+
+Limitations and non-claims: A record correction only; nothing is implemented, verified or released by it. Commit messages keep their wording. A minute change cannot place a 2026-11-10 entry after an entry of a later day. If one reaches `main` before #82 merges, these entries cannot follow it without changing their headings' dates, which the owner's rule does not cover. Examples are BL-20261113-0758 on #87, or another branch's correction written today.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The review of #82 checks this re-stamp and its correction, as the owner's rule requires. If another entry with a later ID merges into `main` first, these entries are re-stamped again at #82's merge, with a further correction.
+
+References: BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261110-1506-merge-train-1-integration; BL-20261113-0817-runner-storage-integrity-design; BL-20261113-0818-runner-storage-integrity-implemented; BL-20261113-0758 (pull request #87).
+
+### BL-20261113-0820-research-stage-pause-held-attempt-pins -- 2026-11-13 -- Backlog item 6 follow-up: the train-1 integration check's items carried by plan 6.3; three session-level pins of a pause or a cancel around 7a.1's held extraction attempt, and wording that no longer reads as if items 7 and 8 lifted the stage limitation
+
+Status: `Implemented`
+
+Scope or hypothesis: The integration check of merge train 1 (part f3 and finding X3-2) left two items to lane S-desk, for 6.3 or a later pull request. Pull request #82 carries them after it merges `main`.
+- **Part f3.** No committed session-level test pinned a pause or a cancel around 7a.1's held extraction attempt. 7a.1 (BL-20261110-0726-correction-research-tolerance-total-loss, pull request #76) holds a first extraction attempt that lost every quote of a question it marked `evidence_found`, and repairs it after every other chunk. The check showed with a throwaway test that the merged behaviour is what BL-20261109-0501-research-stage-pause-design decided.
+- **Finding X3-2.** #77's test title and the comment on `researchStageUnfinished` said the stage limitation lasts "until backlog items 7 and 8". After train 1, 7a.1, 7b.1, 7d.A and 8.2a are merged and none adds a per-chunk continuation protocol, so the wording read as if they might have lifted it.
+
+Decisions: No new decision. The tests pin BL-20261109-0501's decisions on the merged pipeline. The wording is the check's own suggested text.
+
+Changes:
+- src/main/private-agent/session.ts: the comment on `researchStageUnfinished` now says there is no per-chunk continuation protocol yet, and that the parts of items 7 and 8 merged so far (7a.1, 7b.1, 7d.A, 8.2a) add none. Comment only; it changes the private-agent source freeze, so no loop or E3 card may span this merge.
+- tests/unit/private-agent-research-session.test.ts:
+  - #77's limitation test is retitled to name the merged parts that do not lift it;
+  - the fixture takes an optional `extractReply` that may replace the nth extraction reply;
+  - three tests, each with a first extraction reply whose only quote is in no source, for the plan's one question marked `evidence_found`. A control run without a pause is submitted, with the extract stage at 2 calls, 1 invalid reply and 1 repair call.
+    - A pause after the held attempt settles and before its repair: the task ends incomplete with `research_stage_not_replayed`. The repair is refused before dispatch: the extract stage records 1 call, `cancelled` and 1 invalid reply, and the three rows are settled. The next run refuses the same way, with nothing sent and no writer run.
+    - A pause during the repair call: the task ends the same way, and the repair's row is `failed` with code `cancelled` and a zero fee, never `unknown`. The next run refuses with nothing sent.
+    - A cancel during the repair call: the task ends `session_cancelled`, and so does the next run, with nothing sent.
+
+Evidence: private-agent-research-session 20 of 20 (17 before), and `pnpm typecheck` passes. The full suite and the other checks are stated in pull request #82's description at its head.
+
+Failures or blockers: None. The first run of the second test expected the row's purpose to be "research extraction"; it is "research evidence extraction", and the assertion now says so.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`: fixtures on loopback only; no endpoint, model or paid call ran.
+- The tests pin one source with one chunk, and a cancel only during the repair call. A cancel between the held attempt and its repair was measured by the integration check, not pinned here.
+- The per-chunk continuation protocol that would let a started stage resume remains unbuilt.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Review of pull request #82, with its re-stamp.
+
+References: BL-20261109-0501-research-stage-pause-design; BL-20261109-0607-research-stage-pause-implemented; BL-20261113-0817-runner-storage-integrity-design; BL-20261110-0726-correction-research-tolerance-total-loss; BL-20261110-1506-merge-train-1-integration; the train-1 integration check, part f3 and finding X3-2.
+
+### BL-20261113-0834-correction-runner-storage-integrity-second-restamp -- 2026-11-13 -- Correction: plan 6.3's four entries are re-stamped a second time, after `main`'s new tail BL-20261113-0816; their original IDs, dates and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: #92 (7d.B) merged into `main` first (bb6ef32), and `main`'s last ID is now BL-20261113-0816-correction-host-flags-event-ids-and-replay, dated 2026-11-13. #82's entries followed `main`'s earlier tail, BL-20261110-1506, after their first re-stamp (BL-20261113-0819-correction-runner-storage-integrity-ids). So at this merge of `main` (merge commit ab339aa) they move again, after the new tail. Two of them are dated 2026-11-10, and the validator requires an ID's date to equal its heading's date, so those headings' dates move with the minute. This is the owner's rule as clarified in BL-20261113-0832 (pull request #87): when the tail is on a later day, the date moves with the minute.
+
+Each entry, with its original ID, date and authoring time:
+- **The design entry.** Authored at 07:15 UTC on 2026-11-10 as BL-20261110-0715, and re-stamped on 2026-11-13 as BL-20261110-1507. It is now BL-20261113-0817-runner-storage-integrity-design, with its heading dated 2026-11-13.
+- **The implemented entry.** Authored at 08:09 UTC on 2026-11-10 as BL-20261110-0809, and re-stamped on 2026-11-13 as BL-20261110-1508. It is now BL-20261113-0818-runner-storage-integrity-implemented, with its heading dated 2026-11-13.
+- **The first correction.** Authored at 08:04 UTC on 2026-11-13 as BL-20261113-0804. It is now BL-20261113-0819-correction-runner-storage-integrity-ids.
+- **The carried items' entry.** Authored at 08:07 UTC on 2026-11-13 as BL-20261113-0807. It is now BL-20261113-0820-research-stage-pause-held-attempt-pins.
+
+Decisions:
+- Only the four headings' IDs change (the minute, and for the first two also the date), together with the references to those IDs. Each body is otherwise byte-identical to #82's at 6ffd7aa.
+- The references are in the four entries' bodies, a comment in src/main/general-tasks/storage-integrity.ts, a comment in tests/unit/general-task-controller.test.ts and a describe title in tests/unit/general-task-storage-integrity.test.ts.
+- The first correction keeps its body, so its account of the first re-stamp now names the current IDs. Its statement that `git grep` finds the original IDs only in it held at its own commit; they now also appear here. This entry records the whole history.
+- `main`'s log is kept whole, as a byte prefix of this branch's.
+
+Changes: docs/BUILD_LOG.md (four headings, their references and this entry); the comment and the describe title named above. No behaviour changes.
+
+Evidence: `pnpm --silent validate:build-log -- --base-ref origin/main` passes: append-only against `main` at bb6ef32, with monotonic IDs and dates. `pnpm typecheck` passes. `git grep` finds BL-20261110-1507, BL-20261110-1508, BL-20261113-0804 and BL-20261113-0807 only in this entry.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only; nothing is implemented, verified or released by it. Commit messages and #82's earlier descriptions keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green on #82, then its merge under the owner's standing go-ahead for a log-only re-stamp. #89 re-stamps after it.
+
+References: BL-20261113-0816-correction-host-flags-event-ids-and-replay; BL-20261113-0817-runner-storage-integrity-design; BL-20261113-0818-runner-storage-integrity-implemented; BL-20261113-0819-correction-runner-storage-integrity-ids; BL-20261113-0820-research-stage-pause-held-attempt-pins; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261113-0758 and BL-20261113-0832 (pull request #87).

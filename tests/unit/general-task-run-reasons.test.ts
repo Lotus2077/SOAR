@@ -56,9 +56,13 @@ describe("backlog item 6 (finding A6): the run-reasons table", () => {
     expect(caughtRunReason(new Error("general_task_configuration_changed"))).toBe("configuration_changed");
     for (const code of TASK_INTEGRITY_ERRORS) expect(caughtRunReason(new Error(code))).toBe("task_integrity_failed");
     expect([...TASK_INTEGRITY_ERRORS].sort()).toEqual(["checkpoint_digest_mismatch", "checkpoint_directory_invalid", "checkpoint_file_invalid",
-      "checkpoint_path_invalid", "checkpoint_size_exceeded", "general_task_context_changed", "general_task_input_changed", "general_task_storage_changed"]);
+      "checkpoint_path_invalid", "checkpoint_size_exceeded", "general_task_context_changed", "general_task_input_changed", "general_task_storage_changed",
+      "public_source_context_invalid", "public_source_duplicate", "public_source_identity_invalid"]);
+    // 6.3: the observation and progress checks wrap environmental errors too (a permission error, a busy store), so their codes stay resumable.
+    for (const code of ["execution_observation_integrity_failed", "execution_progress_integrity_failed"]) expect(caughtRunReason(new Error(code))).toBe("runtime_unavailable");
     // Each code is still thrown where the table says, so renaming it there cannot quietly make the failure resumable.
-    const thrown = ["src/main/private-agent/checkpoints.ts", "src/main/general-tasks/controller.ts"].map(file => readFileSync(file, "utf8")).join("\n");
+    const thrown = ["src/main/private-agent/checkpoints.ts", "src/main/general-tasks/controller.ts", "src/main/private-agent/public-sources.ts"]
+      .map(file => readFileSync(file, "utf8")).join("\n");
     for (const code of TASK_INTEGRITY_ERRORS) expect(thrown, code).toContain(`new Error("${code}")`);
     const runner = readFileSync("src/main/private-agent/runner.ts", "utf8");
     for (const code of RUNNER_CONTRACT_ERRORS) expect(runner, code).toContain(`new Error("${code}")`);

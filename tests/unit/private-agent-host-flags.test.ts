@@ -249,8 +249,8 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", ()
   });
 
   describe("misses and the single-unit brief", () => {
-    /** The pipeline's own packet. `gaps` adds a question no chunk evidences, a fabricated quote the pipeline drops (so one extraction is retried) and two
-     * absence sentences in the argument. */
+    /** The pipeline's own packet. `gaps` adds a question no chunk evidences, a first extraction reply whose only quote is in no source (7a.1 holds that
+     * attempt and repairs it: one retry and one dropped quote) and two absence sentences in the argument. */
     const packet = async (brief?: string, gaps = false) => {
       let fabricated = false;
       const reply = (system: string, user: string) => {
@@ -260,7 +260,7 @@ describe("backlog item 7(d), part B: the host flags pass (BL-20261110-1153)", ()
         if (system.startsWith("You extract")) {
           value.questions = value.questions.map((question: { questionId: string }) => question.questionId === "Q2" ? { questionId: "Q2", status: "no_verified_evidence" } : question);
           value.quotes = value.quotes.map((quote: Record<string, unknown>) => ({ ...quote, questionIds: ["Q1"] }));
-          if (!fabricated) { fabricated = true; value.quotes.push({ quote: "A sentence that no source contains anywhere.", questionIds: ["Q1"], note: "" }); }
+          if (!fabricated) { fabricated = true; value.quotes = [{ quote: "A sentence that no source contains anywhere.", questionIds: ["Q1"], note: "" }]; }
         }
         if (system.startsWith("You write")) value.argument += "\n\nNone of the sources mention 2025 prices. None of the sources quantify the cost [E1].";
         return JSON.stringify(value);

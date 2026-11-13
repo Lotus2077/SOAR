@@ -36634,3 +36634,81 @@ References:
 - BL-20261113-0834-correction-runner-storage-integrity-second-restamp (`main`'s tail at the merge);
 - BL-20261113-0816-correction-host-flags-event-ids-and-replay;
 - BL-20261113-0758 on #87 (the owner's re-stamp rule).
+
+### BL-20261113-0917-correction-research-v5-train-2b-expectations -- 2026-11-13 -- Correction to BL-20261113-0916: #93 merges train 2b and adapts E1-T2's and E1-T3's tests to 7c; one pinned limitation flips, as 7c intends
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261113-0916-correction-research-v5-third-stamp, for #93's merge of train 2b.
+- **Train 2b** carries #88, #84, #75 and #80. It is PR #94, from `integration/train-2b` at a6a1466, and it becomes `main` when #94 merges with a merge commit.
+- **The conflict.** #93 conflicted with it in two test files, and the conflict was semantic.
+- **What the orchestrator asked.** Merge train 2b, adapt E1-T2's and E1-T3's tests to 7c's fixture and to 7c's behaviour where 7c legitimately changes an outcome, and record each changed expectation here.
+- **No re-stamp.** 7c's IDs, 0910 to 0916, already sort after train 2b's last entry, BL-20261113-0859-correction-claims-trailing-strip-linear-second-restamp.
+
+Decisions:
+(1) **The merge (commit 95a7ed2).** origin/integration/train-2b at a6a1466 is merged into #93.
+- **docs/BUILD_LOG.md:** train 2b's log, unchanged, followed by 7c's seven entries.
+- **The session test's fixture:** 7c's options object (`reply`, `recoverable`) keeps E1-T3's additions:
+  - `onRequest` may answer "hold", which never answers;
+  - the `onCloud` hook;
+  - the grant-free cloud destination, which merged without a conflict.
+- **The pipeline test:** 7c's describe groups and E1-T2's are both kept, in that order.
+
+(2) **E1-T3's tests (BL-20261113-0853-e1-recoverability-session-implemented): a new call shape, the same expectations.** Three call sites used `fixture(undefined, { recoverable: true })` and now use `fixture({ recoverable: true })`:
+- the retried-stage cases ("one cut call is retried (D4)…", for index, plan and synthesise);
+- the D4 backoff cancel;
+- the item-7 gap pin ("a call whose retries are exhausted…").
+
+No E1-T3 expectation changes. Under 7c, each of these ends as before:
+- the S1 stops at each stage, in each mode;
+- the retried calls;
+- the exhausted plan call, denied `request_failed`;
+- the split arm's unknown cloud planner;
+- the emulated plan assist left unknown, whose receipt is still bound with role "assist".
+
+7c's host fallbacks never replace a denial or a cancel (BL-20261113-0910-research-v5-design, decisions (4) and (12)).
+
+(3) **E1-T2's tests (BL-20261113-0850-e1-recoverability-pipeline-seed-implemented): one changed expectation.**
+- **The test.** "pins a limitation item 7c flips: invalid JSON twice at the %s ends the stage as %s, with no host fallback", for the plan and the synthesise stage.
+- **The old outcome.**
+  - The run ended `incomplete`, `research_plan_invalid` or `research_synthesis_invalid`, after two calls at that stage.
+  - No plan file, or no argument file, was written.
+- **The new outcome.**
+  - The run ends `completed`, `research_packet_ready`.
+  - The stage row keeps calls 2 and invalidReplies 2, and gains `fallback` (`host_plan` or `skeleton`), which coverage discloses.
+  - The plan file is the host fallback plan, or the argument file is the host skeleton, and the ready gate accepts the packet.
+  - The calls are index, plan, plan, extract, extract, synthesise for the plan case, and index, plan, extract, extract, synthesise, synthesise for the synthesis case.
+- **Why.** This is 7c's intended behaviour, and the pin's own title names 7c as the item that flips it. BL-20261113-0910-research-v5-design decisions (7) and (8) replace "no accepted attempt ends the stage" with a disclosed host fallback that states no finding. The test keeps both cases under a title that states the flip.
+- **What did not change.** E1-T2's other cases keep their expectations under 7c:
+  - the index fallback after invalid JSON twice;
+  - the extraction chunk that stays invalid;
+  - the S7 corpora;
+  - the 40-chunk ceiling;
+  - the 64 KiB packet cap.
+
+Changes: The merge commit 95a7ed2, which holds the log, the session test's fixture and the pipeline test with (3)'s rewritten case; and this entry.
+
+Evidence:
+- **The log.** `pnpm --silent validate:build-log -- --base-ref origin/integration/train-2b` passes with this entry: append-only against train 2b at a6a1466.
+- **The conflict's only failures.** Before (3), the merged tests failed exactly the two cases in (3), and only those: 145 of 147 passed across the session and pipeline tests. After (3), the four "invalid JSON twice" cases pass.
+- **The checks.** At 95a7ed2, whose code this entry's commit leaves unchanged:
+  - `pnpm typecheck` and `pnpm validate:readiness` pass.
+  - The research suites, with the run-reasons and host-flags tests, pass 19 files and 371 tests.
+  - `pnpm exec vitest run` reports 179 files passed, 1 failed and 13 skipped, and 3,444 tests passed, 1 failed and 86 skipped.
+  - The one failure is private-agent-sandbox-capture.test.ts, which imports no research code and passes alone (13 tests passed, 1 skipped).
+- **The hash.** The pin test passes, so `researchProtocolSha256()` is still 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92. Train 2b changes no hashed value.
+
+Failures or blockers: None. The conflict was in test files only, no code conflicted, and no E1 test showed a regression.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`. The rewritten case in (3) belongs to S-e1's E1-T2. Its new title and expectations follow the pin's own statement that 7c flips it, and S-e1 may want to reword it.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: #94 merges into `main`. Then #93's CI must be green on that base, and the orchestrator merges #93.
+
+References:
+- BL-20261113-0916-correction-research-v5-third-stamp (corrected);
+- BL-20261113-0910-research-v5-design;
+- BL-20261113-0850-e1-recoverability-pipeline-seed-implemented;
+- BL-20261113-0853-e1-recoverability-session-implemented;
+- BL-20261113-0859-correction-claims-trailing-strip-linear-second-restamp (train 2b's tail).

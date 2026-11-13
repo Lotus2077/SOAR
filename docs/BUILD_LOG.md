@@ -35178,3 +35178,358 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The orchestrator's review of #79 at its new head, which checks this re-stamp, then the owner's go-ahead for #79's merge.
 
 References: BL-20261113-0834-correction-runner-storage-integrity-second-restamp; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261113-0841-assist-wrapper-design; BL-20261113-0843-assist-core-implemented; BL-20261113-0844-correction-assist-core-review; BL-20261113-0845-correction-assist-core-delta; BL-20261113-0758 and BL-20261113-0832 (pull request #87); docs/HANDOFF.md "Start here" section 5.
+
+### BL-20261113-0851-correction-assist-core-rereview -- 2026-11-13 -- Correction: the assist core after the full re-review of #79 at d364b46, with the G3 tail and the placeholders after `//` fixed under scrub policy 4 so that nothing d364b46 hid is sent, and the delta correction's contradicted statements and missing bounds corrected
+
+Status: `Implemented`
+
+Scope or hypothesis: This records the fixes for the orchestrator's full re-review of pull request #79 at d364b46, which reviewed the delta 4aeac37..d364b46.
+- The review used four lenses (full, differential, walk and entry-and-evidence), with skeptics on each blocker and major finding. This entry names findings by lens and number.
+- It corrects three entries without editing them: BL-20261113-0845-correction-assist-core-delta, BL-20261113-0844-correction-assist-core-review and BL-20261113-0843-assist-core-implemented. They were authored as 1027, 0820 and 0639, and BL-20261113-0848-correction-assist-entries-restamp records their re-stamp at the merge of `main`. This entry calls them 0845, 0844 and 0843.
+
+The work is in two commits on `feat/10a-assist-core`, before its merge of `main` (d1dae95):
+- b1fab07 holds test pins and comment rewording only, and changes no output.
+- 42d7669 holds both code fixes.
+
+Neither commit changes the following:
+- the scrub policy object. It is still version 4, and its JSON is byte-identical to d364b46's (sha256 56b715600b0d877a0aa14105ad025861c26cba72d911c27a642d1e76803cbc7c);
+- either pinned assist protocol hash: `forced_split` 127a56d3f9a29ec2f4b13c208b7d60217075a61dce60e61bd113807164028411 and `local_first` fd294f1e6d97eb9d130f307dbc4ebee99d7484c90c81b7c3290d6059d4504b75;
+- research-assist-contract.ts or research-plan.ts. Only the re-stamp's comments touch them, in the merge.
+
+Decisions:
+- **One rule fixes both regressions.** Two kinds of placeholder match are provisional:
+  - a placeholder right after a `//`;
+  - a merged, name-kind, host-led `[url]` (G3).
+
+  How the rule works:
+  - Each such match keeps d364b46's text, and goes through all of d364b46's passes (at most three) as a mark. So every pass reads the text d364b46 read, and where a rule takes the match, the output is d364b46's.
+  - After the last pass, each match that no rule took is settled:
+    - A glued file name of one source gets `[file]` back in place of its alias.
+    - Any other placeholder after a `//` takes the `//`, itself and the URL's path, query and fragment as `[url]`. This happens only where the protocol-relative URL rule could start at that `//`.
+    - A G3 `[url]` takes its URL's path, query and fragment.
+  - If settling changed the text, the passes run once more on what it left. A pass only replaces, so this can only hide more.
+  - So each output is d364b46's with more spans replaced, and nothing d364b46 hid is sent. Both differentials below confirm it, by the substring measure.
+  - One placeholder differs in its name only. A glued name that two sources share, right after a `//`, reads `[file]` in the passes where d364b46 read `[source]`. No URL, path, file-name or digest rule reads the two differently.
+  - To move the marks, each URL, path, file-name and digest rule now returns which characters of its match it replaces. These are the same characters as before.
+- **Differential F1, the G3 tail leak (blocker), is fixed.** Both skeptics confirmed it.
+  - A URL source's form that a local copy shares merges as a name. Since 6d14ac4's G3 change, its host-led match ended at the file name. A lead made the match `[url]`, and the URL's tail went out where 67e3374 and 4aeac37 sent `[url]`.
+  - Now that match is provisional. With the pair `https://example.org/report.html` and `mirror/example.org/report.html`, in either order:
+    - `see https://alice:hunter2@example.org/report.html?token=sk_live_abcdef now` gives `see [url] now`, as at 67e3374 and 4aeac37. d364b46 sent `see [url]?token=sk_live_abcdef now`.
+    - So do the `#Layoff-List-Q3`, `/private/acme-merger`, `;jsessionid=abc123`, `mailto:alice@…?subject=layoffs` and `ftp://.example.org/report.html&k=v` forms, and `alice:hunter2@example.org/report.html?token=abc`.
+    - `(https://alice:hunter2@example.org/report.html?x=1)` gives `([url])`.
+  - The lenses' version took the tail at once. It sent `alice:pa(ss)` in `x alice:pa(ss)@example.org/report.html///acme.example report.html'bucket`, which d364b46 hid because a relative-path rule took the token whole. Here that input gives `x [file] [source]'bucket`, as at all three earlier heads.
+  - The G3 merge stays, as both skeptics advised.
+- **The rule after `//` replaces 0845's alias rule.** This covers lens full F1 (blocker) and F2, differential F2 and F3, and entry-and-evidence F2.
+  - It acts on a match right after a `//` that would be a placeholder:
+    - `[file]` for a glued file name or a host-appended file name;
+    - `[url]` for a host-led form with a glued lead;
+    - `[source]` for a form that two sources share.
+  - Where the protocol-relative rule could start at the `//`, the placeholder is provisional. That is at the text's start, or after white space, `"`, `'`, `(`, `[`, `<`, `=`, `:`, `,`, `;` or a spaceless-script character, and not inside an earlier match.
+  - Every protocol-relative row the lenses list now gives `[url]`. The outputs below are at 67e3374 | 4aeac37 | d364b46 | 42d7669:
+    - `see //proxy.other.test/fetch/sub.example.org/reports/annual-2025.html-secret/plan.md now` gives `see [url] now` | `see [file] now` | `see //[url]-secret/plan.md now` | `see [url] now`. Full F1's other six rows and its `https:` form give `see [url] now` too.
+    - `src=//proxy.other.test/fetch/sub.example.org/reports/annual-2025.html-secret now` gives `src=[url] now` | `src=/[url]-secret now` | `src=//[url]-secret now` | `src=[url] now`.
+    - With `report.html` shared by `a/report.html` and `b/report.html`:
+      - `//cdn.other.test/x/old-report.html/private/acme-merger` gives `[url]` | `[file]` | `//[source]/private/acme-merger` | `[url]`;
+      - `//cdn.other.test/x/old-report.html?token=abc` gives `[url]` | `/[file]?token=abc` | `//[source]?token=abc` | `[url]`;
+      - the plain `//cdn.other.test/x/report.html?token=abc` gives `//[source]?token=abc` | `/[source]?token=abc` | `//[source]?token=abc` | `[url]`.
+    - With the host-appended `claims.json`:
+      - `//cdn.other.test/x/old-claims.json/private/acme-merger` gives `[url]` | `[file]` | `//[file]/private/acme-merger` | `[url]`;
+      - `//cdn.other.test/x/claims.json?token=abc` gives `//[file]?token=abc` | `/[file]?token=abc` | `//[file]?token=abc` | `[url]`.
+    - `src="//cdn.other.test/x/final-report.md/private/acme-merger"` gives `src="[url]"` at 67e3374 and 42d7669, and `src="//[file]/private/acme-merger"` at d364b46.
+  - A glued file name of one source right after a `//` still stands as its alias in the passes, as at d364b46. So a rule that takes the alias takes the token whole, as before. Where none does, the match gets `[file]` back, so no other file is shown as the source.
+    - The skeptics' counterexamples stay hidden, as at d364b46. With the source `input/corpus/alpha-field-notes.md` alone:
+      - `地址://cdn.other.test/x/old-alpha-field-notes.md?token=sk_live_abcdef 见` gives `地址:[url] 见`;
+      - `-https://cdn.other.test/x/old-alpha-field-notes.md?token=abc now` gives `-https:[url] now`;
+      - `see ///old-alpha-field-notes.md:///etc/acme-merger/layoffs-2025 now` gives `see ///[url] now`;
+      - `see corpus//old-alpha-field-notes.md:///srv/hr/layoffs-2025 now` gives `see corpus//[url] now`;
+      - `see secret-folder//old-alpha-field-notes.md/x.bak now` gives `see [file] now`.
+    - With the test's seven sources:
+      - `see x//proxy.other.test/fetch/u/annual-2025.html-secret/plan.md now` gives `see [file] now`;
+      - `token=abc,//mirror/x_example.org/reports/annual-2025.html_/private/acme-merger.txt) now` gives `[file]) now`.
+    - These give `[file]` and never the alias. For example, `see a//old-alpha-field-notes.md now` gives `see a//[file] now`, where d364b46 gave `see a//S1 now` and 67e3374 `see a//old-S1 now`. The same holds after `/tmp//`, `input/corpus//` and `///`, for `bucket//example.org.annual-2025.html`, and for a backticked, `>`-led or `|`-led `//cdn.other.test/x/old-alpha-field-notes.md?token=abc`. The backticked form gives `` `//[file]?token=abc` ``.
+    - `see a//old-alpha-field-notes.md/private/acme-merger/x now` gives `see a//[file][file] now`, as at 4aeac37. Once the alias is settled, the second round's path rule takes the path after it; d364b46 sent `see a//S1/private/acme-merger/x now`.
+  - A glued name that two sources share keeps `[file]` after any `//`, not d364b46's `[source]`: `see a//old-report.html now` gives `see a//[file] now`. The plain shared name gives `see a//[source] now`.
+  - After a `//` where no URL rule starts, any other placeholder stays as at d364b46. This is L7 below.
+- **Why none of the lenses' candidate edits was taken as it stands.**
+  - Lens full F1's edit narrows d364b46's `[file]` swap with a test of the left context. Where only a relative path took the alias whole, that edit sends the word before the `//`: `see x//proxy.other.test/fetch/u/annual-2025.html-secret/plan.md now` gives `see x//[file][file] now`, where d364b46 and 67e3374 give `see [file] now`.
+  - Its second skeptic's `else if` leaves the F2 class open.
+  - Differential F2's fix2 takes the URL at once after `=`, `,`, `;`, `:` and a CJK letter, with or without F3's PROTOCOL_LEFT and SCHEME_AFTER. That sends the text before the `//` wherever d364b46's relative-path rule hid it.
+  - Variants that test only the left context fail the skeptics' counterexamples.
+- **Two earlier local designs, never pushed, were replaced.**
+  - The first made every placeholder after any `//` a provisional alias, and took the URL at once.
+    - Its differential of 1,200,000 outputs found 495 that send text d364b46 hid. That text was joined to the `//` by `=`, `,`, `;`, `:` or a CJK letter.
+    - For example, `token=abc,//mirror/…` gave `token=abc,[url])`.
+  - The second was this rule, with each pass settling its own marks.
+    - It sent a scheme name glued after a `host:port` URL, and in some outputs a file name too. d364b46's second pass took those whole, once its first pass had replaced the host and port.
+    - For example, `localhost:8080s3://example.org/report.html` gave `[url]s3:[url]` where d364b46 gave `[url][url]`. With the host-appended names of reviewer B's set A, `localhost:8080report.mdhttp://claims.json/file://notes/summary-v2.txtbucket` gave `[url]report.mdhttp:[url]`.
+    - It did so in 6 of 1,200,000 outputs of the local differential below, and in 41 of 1,637,808 outputs of reviewer B's corpus.
+    - Carrying the marks through every pass closes the class: those inputs now give d364b46's output.
+- **Tests only, in b1fab07:**
+  - G3 in both source orders, with the exact output (lens full F5; entry-and-evidence F3);
+  - O2 giving back `-` and `_` (entry-and-evidence F4);
+  - the two slashes the alias rule needed (entry-and-evidence F5);
+  - two requests asserted in both end-to-end brief tests (lens full F6);
+  - in the linear-time test, a scrubber built from a Han-comma suffix and the `;` shape (walk F2).
+- **Tests in 42d7669:**
+  - every row above, in both scopes, with its counts;
+  - the counterexamples that must stay hidden;
+  - the G3 tails in both source orders, with a second scrub and the audit;
+  - the carry:
+    - the `host:port` rows in both source orders;
+    - a name that a later pass finds before a provisional match: `see alpha-field-notes.mdoutput/report.md (//old-claims.json?token=abc) now` gives `see S1[file] ([url]) now` in sent text;
+    - the second round's `a//[file][file]`;
+  - `see a/'b/c.md now`, which fails at once if the walk resumes one unit after a match, and six astral inputs (entry-and-evidence F6);
+  - a bracket glued to a word: `see x(//cdn.other.test/x/claims.json?token=abc) now` gives `see x([url]) now` and counts one URL;
+  - two stated residues:
+    - `//sub.example.org/reports/annual-2025.html-secret` gives `[url]-secret` (L1);
+    - `mailto:alice:pa(ss)@example.org/report.html` with the pair (L3).
+- **Comments:**
+  - b1fab07 states the quadratic file-name scan in the header and at NAME_START (walk F1). It also drops the commit name from the UNC comment (lens full F7).
+  - 42d7669 replaces the alias rule's comment with the rule above. The comment's "lies inside a URL", false after `a//` (full F7), is gone.
+
+Changes:
+- src/main/private-agent/research-assist-scrub.ts;
+- tests/unit/private-agent-research-assist-scrub.test.ts and tests/unit/private-agent-research-assist.test.ts;
+- docs/BUILD_LOG.md (this entry).
+
+Evidence: The runs are local, on Node 22.22.2 and pnpm 10.12.4.
+- The differentials, the mutation check and the timings ran 42d7669's scrubber.
+- The tests ran on the tree after the merge of `main` (d1dae95). There, only that file's first comment differs, from the re-stamp.
+- `pnpm typecheck` passes.
+- The four test files this PR changes pass 187 of 187: 28 scrubber, 61 assist, 47 Anthropic and 51 Responses. The unchanged plan-contract file passes 38 of 38, and the build-log validator's file 52 of 52.
+- The whole suite (`pnpm exec vitest run`) ran on d1dae95, at load averages up to 19 from other sessions.
+  - Files: 175 passed, 3 failed and 13 skipped (191). Tests: 3,393 passed, 86 skipped and 3 failed (3,482).
+  - All three failures are timeouts, in files this PR does not change. In tests/unit/document-review-flags.test.ts, a spawned python3 timed out. In tests/unit/private-agent-sandbox-capture.test.ts and tests/unit/registry-row-git.test.ts, tests hit the 5 s timeout.
+  - Run alone, each of the three passes: 154 of 154, 13 with 1 skipped, and 9 of 9.
+- **A local mutation check** (not committed) ran 27 distinct single-change mutants of the scrubber in the scrubber and assist test files. The tests catch 25.
+  - Caught:
+    - G3: the flag dropped, the mark never set, or the mark set for any host lead;
+    - the rule after `//`: never used, used after any `//`, keeping the `//`, testing one slash, or letting the URL start anywhere;
+    - the provisional alias: never used, used for shared forms too, or kept when no rule took it;
+    - a settled match not taking its URL's rest;
+    - a mark not moved, kept after a rule took it, or kept inside a settled URL;
+    - three counting changes;
+    - a relative path cut from its match's start;
+    - the walk resuming one unit after a match;
+    - the carry: marks settled after every pass, one round only, marks dropped between passes, marks not moved by a later pass's name match, and marks after the last name match dropped.
+  - Two mutants survive:
+    - Keeping a mark that a later pass's name match covers. No later-pass name match covered a mark in the 2,837,808 outputs of the two differentials below, and rows built to reach one found none, because an earlier pass's path rule takes such a token first.
+    - Running the second round when settling changed nothing. It differs only where the first round reaches the three-pass cap with work left. A second scrub would then change the output, and none of the 2,837,808 outputs changes.
+  - b1fab07's pins catch each of their six mutants. Two walk mutants hang the run, killed at the timeout, instead of failing.
+- **Three-commit differential on reviewer B's corpus** (local, not committed). Seed 79061110: 818,904 texts, 518,904 systematic and 300,000 soups, over nine source sets. Each was scrubbed in both scopes, for 1,637,808 outputs.
+  - Reviewer B's outputs at d364b46, 4aeac37 and 67e3374 were compared, output by output, with 42d7669's.
+  - Two measures:
+    - Word measure: a word is a run of letters or digits, with aliases and placeholders removed. One output sends a word another hid when it holds that word more often.
+    - Substring measure: it counts only such words that occur nowhere in the other output's text. A word that is only split or joined differently, such as `文件见` against `token文件见`, does not count.
+  - No output throws, every output survives a second scrub unchanged, and the audit finds nothing in any output.
+  - Against d364b46:
+    - 42d7669 differs in 35,226 outputs. It sends a word d364b46 hid in 1,015 by the word measure and in 0 by the substring measure; each of the 1,015 holds only words that d364b46's text holds, split differently. It hides text d364b46 sent in 4,872 by the substring measure.
+    - 4aeac37 differs in 447,872 outputs. It sends text d364b46 hid in 316,573, and hides text d364b46 sent in 6,014.
+    - 67e3374 differs in 299,025 outputs. It sends text d364b46 hid in 160,880, and hides text d364b46 sent in 23,058.
+  - Against the earlier heads, by the substring measure, 42d7669 sends text 4aeac37 hid in 5,554 outputs and text 67e3374 hid in 21,855.
+  - Each newly sent word is credited to the commit that started sending it: 8090f65 when 4aeac37 sends it too, and 6d14ac4 when d364b46 does. By the word measure:
+    - against 67e3374: 32,328 outputs since 8090f65 and 37 since 6d14ac4;
+    - against 4aeac37: 78,137 since 6d14ac4;
+    - 754 and 1,014 outputs hold a word that neither commit sends more often. Each such word occurs in d364b46's text, so each is a split.
+- **The local differential** (seed 31): 600,000 generated inputs, 150,000 over each of four source sets, each scrubbed in both scopes, for 1,200,000 outputs.
+  - The four sets:
+    - the scrub test's seven sources, with the claims-ledger suffix;
+    - five sources with that suffix, among them a URL source and a local copy that share `example.org/report.html`;
+    - six sources with two shared names and no suffix;
+    - a local copy listed before its URL source.
+  - A third of the inputs are token soups. A third are shapes aimed at `//`: a left context, `//`, an outer host or folder, a lead, glue, a source form and a tail. A third are a source form inside a longer token, with no `//`.
+  - Every output survives a second scrub, and the audit finds nothing in any output.
+  - Outputs that differ: 52,804 from d364b46, 104,952 from 4aeac37 and 244,629 from 67e3374.
+  - Outputs with a newly sent word, by the word measure:
+    - 14 against d364b46, all splits, and 0 by the substring measure;
+    - 2,324 against 4aeac37: 2,310 since 6d14ac4, and the 14 splits;
+    - 50,322 against 67e3374: 49,824 since 8090f65, 484 since 6d14ac4, and the 14 splits.
+- **Time.** On inputs dense with provisional matches, 42d7669 and d364b46 both grow linearly with the input. The shapes:
+  - glued names after `a//`;
+  - full F1's URL;
+  - a URL before each mark;
+  - one token of marks;
+  - shared forms after `//`;
+  - placeholders after a joiner;
+  - G3 tails;
+  - the `host:port` carry rows;
+  - a later pass's name before a mark.
+
+  At 208,000 to 720,000 characters, 42d7669 takes 23 to 141 ms of CPU and d364b46 16 to 103 ms.
+- `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass with this entry.
+
+Failures or blockers: The full re-review ran four lenses, 29 agents in all with the skeptics. It found the following.
+- Lens full:
+  - F1, blocker: a host-led `[url]` after a protocol-relative `//` sent the URL's tail, newly at d364b46. Fixed above.
+  - F2, major: the alias rule fired where no URL rule could start, showed another file as the source, and swapped `[file]` for `[source]`. Fixed above.
+  - F3 and F4, minor: two false comparisons with 67e3374 in 0845. Corrected in C1 and C5.
+  - F5, minor: G3 was pinned in one order, by absence checks only. Pinned.
+  - F6, nit: the end-to-end test did not assert how many requests it checked. Pinned.
+  - F7, nit: corrected in C9, the PR body and the comments.
+- Lens differential:
+  - F1, blocker: the G3 tail. Fixed.
+  - F2 and F3, major: the placeholders after `//`, and the alias given to a glued file wherever `//` preceded it. Fixed.
+  - F4, minor: the `///` residue. Stated under L6 below.
+  - F5, major: four statements of 0845 that execution contradicts. Corrected in C1 to C4.
+- Lens walk:
+  - F1, minor: two scans outside the walk are quadratic. Corrected in C8.
+  - F2, nit: test gaps. Pinned in b1fab07.
+- Lens entry-and-evidence:
+  - F1, major: L2's "Schemed forms all become `[url]`". Corrected in C6.
+  - F2, major: as lens full F2. Fixed.
+  - F3 to F6, minor: four test gaps. Pinned.
+  - F7, nit: two sentences overstated what goes out. Corrected in C7.
+
+Limitations and non-claims:
+- Corrections of 0845, which is not edited:
+  - C1 (differential F5 item 1; lens full F3). 0845's residue "R1, shared forms … as at 67e3374" held for the exact shared or host-appended name, and was false for a glued one.
+    - With `a/report.html` and `b/report.html`, `//cdn.other.test/x/old-report.html?token=abc` gave `[url]` at 67e3374, `/[file]?token=abc` at 4aeac37 and `//[source]?token=abc` at d364b46.
+    - With the host-appended `claims.json`, `//cdn.other.test/x/old-claims.json?token=abc` gave `[url]`, `/[file]?token=abc` and `//[file]?token=abc`.
+    - The glued case was a regression from 8090f65's F4, not a gap from 67e3374.
+    - Both cases, and the exact names, are closed above where the protocol-relative rule could start at the `//`. After any other `//`, they fall under L7.
+  - C2 (differential F5 item 2). 0845's "G3 is fixed" held for its own example. The same change newly sent URL tails (differential F1), which neither L1 nor 0845's G3 residue covered. That regression is fixed above.
+  - C3 (differential F5 item 3). 0845's "Such a run now keeps its whole span but takes the source's alias, so the URL rule takes the URL whole, as `[url]`" held only where one source owns the glued name and the protocol-relative rule can start at the `//`.
+    - Its example `//cdn.other.test/x/q3-report.html?token=abc` needs a source whose own file name is `report.html`, and 0845 did not say so.
+    - With the URL source `https://example.org/report.html` alone, the example gave `[url]` at 67e3374, `/[file]?token=abc` at 4aeac37 and `[url]` at d364b46.
+    - With that source and its local copy, d364b46 gave `//[source]?token=abc`. 42d7669 gives `[url]` in both cases.
+  - C4 (differential F5 item 4). 0845's "109 of them send a word that 4aeac37 hid. Each of those 109 sends the same word at 67e3374." held only for 0845's own run. 0845 did not give that run's seed or measure. As a property it was false:
+    - Reviewer B's 300,000 soups gave 81 outputs that send, against 4aeac37, a run of four or more characters that 4aeac37 hid. In 12 of them, 67e3374 hid it too.
+    - For example, with sources `input/notes/meeting-notes-2024` and `https://github.com/acme/public-repo`, `//hr.acme-merger.testnotes/meeting-notes-2024github.com/acme/public-repogithub.comdraft/` gives `//[url]github.comdraft/` at d364b46, where 67e3374 gave `[url]` and 4aeac37 `[file]/`. 42d7669 gives `[url]`.
+    - The classes that send such text are D2 and D3 below. Each differential here gives its seed and both measures.
+  - C5 (lens full F4). L1's "The same happened at 67e3374" holds for a form written bare, as in L1's three examples, and for `see example.org/reports/annual-2025.html-secret now`, which gives `see S2-secret now` at all four heads.
+    - It is false where a lead, a scheme with `www.`, userinfo or an outer host precedes the form. There 67e3374's generic URL or path rule took the whole token, and since 8090f65 the match ends at the form and the tail goes out.
+    - 67e3374 gave `[url]` or `[file]` for each of these. 4aeac37, d364b46 and 42d7669 give:
+      - `see proxy.other.test/fetch/sub.example.org/reports/annual-2025.html-secret now`: `see [url]-secret now`;
+      - `https://alice:pw@example.org/reports/annual-2025.html-secret`: `[url]-secret`;
+      - `http://www.example.org/reports/annual-2025.html-secret`: `S2-secret`;
+      - `www.example.org/reports/annual-2025.html.secret`: `S2.secret`;
+      - `/srv/input/corpus/alpha-field-notes.md.secret`: `S1.secret`;
+      - with a source `https://intranet.acme.example/doc`, `https://www.intranet.acme.example/docs/hr/layoff-plan-2025?employee=alice`: `S1s/hr/layoff-plan-2025?employee=alice`;
+      - with the same source, `https://hr.intranet.acme.example/docs/hr/layoff-plan-2025?employee=alice`: `[url]s/hr/layoff-plan-2025?employee=alice`.
+    - `see sub.example.org/reports/annual-2025.html-secret now` gave `see sub.S2-secret now` at 67e3374, and gives `see [url]-secret now` since.
+    - This also bounds 0844's F3 sentence "The whole token … becomes `[url]`": the token ends where the source's form ends.
+  - C6 (entry-and-evidence F1). L2's "Schemed forms all become `[url]`" is false where the password holds a `"`, `<`, `>`, or a spaceless-script run glued between letters.
+    - A schemed URL is `[url]` only up to the first white space, `"`, `<`, `>` or such a run.
+    - After that cut, the rest of the password, the `@`, the host, the port and the path go out, and the audit passes them. No scheme-less rule starts after `@` (L6), and the rest has no `user:password@` shape.
+    - With no sources, in both scopes and at all four heads:
+      - `see https://alice:p"ss@acme.example/hr/layoffs now` gives `see [url]"ss@acme.example/hr/layoffs now`;
+      - the `<` form gives `see [url]<ss@acme.example/hr/layoffs now`, and the `>` form gives `see [url]>ss@acme.example now`;
+      - `see https://alice:p秘密ss@acme.example/hr/layoffs now` gives `see [url]秘密ss@acme.example/hr/layoffs now`;
+      - `see ftp://alice:p"ss@fileserver/share now` gives `see [url]"ss@fileserver/share now`.
+    - A cut inside the user part is caught since 8090f65, because the credential rule takes the rest: `https://al"ice:pss@acme.example` gives `[url]"[url]`.
+    - This bound is filed under L2 for 10.b's gate. A rule that would close it under policy 5 lets a schemed URL's userinfo run through those characters up to the last `@` before a host, bounded to 64 and 64 characters as the scheme-less rule is.
+  - C7 (entry-and-evidence F7). Two of 0845's sentences said more goes out than does.
+    - L6's "The scheme-less host rules do not start after `@`, `:`, `_`, `.`, `-` or `/`" holds for the dotted host with a path and for the credential rule.
+      - The `www.`, IPv4 and localhost rules do start after those characters. With no sources: `see site:www.acme.example/reports now` gives `see site:[url] now`, `see alice@10.2.3.4:8080/x now` gives `see alice@[url] now`, `host_10.2.3.4:8080/x` gives `host_[url]`, `x-10.2.3.4/path` gives `x-[url]`, and `site:localhost:3000/x` gives `site:[url]`.
+      - `-` is a label character, so `see -acme.example/reports now` gives `see [url] now`.
+    - L2's "a credential directly after `:` or `@`" holds after `@`, and after a `:` with no ASCII userinfo run before it. So `:alice:hunter2@acme.example` and `账号：alice:hunter2@acme.example` go out whole.
+      - After an ASCII word, the word is read as the user. Since 8090f65, `Login:alice:hunter2@acme.example` gives `[url]`, and `see x:alice:hunter2@acme.example now` gives `see [url] now`; 67e3374 sent both whole.
+  - C8 (walk F1). 0843's "Every scan is linear in its text" and 0845's "They are true after P1" hold for the three relative-run scans only. Two more patterns are quadratic, at 0843's head as now:
+    - FILE_NAME_PATTERN, in model scope only. The shape is a Han letter, an apostrophe and an ASCII letter, repeated. At 16,000 characters the walk lens measured about 2.3 s of process CPU for the scrub, and 2.3 s again for the audit; at 32,000, about 9.4 s each. The cost is four times as much per doubling. Sent-text scope is linear.
+    - PATH_PATTERNS[6], the rooted path with an extension under either slash, in both scopes. The shape is a comma, a backslash and a letter, repeated. It took about 0.3 s at 16,000 characters, 1.2 s at 32,000 and 4.7 s at 64,000, for the scrub, the audit and hostFileForms alike. Its comment's "so the rule stays linear" covers only the glued-prefix run.
+    - Only the callers' caps bound model-written text today: a gist at 600 characters, and plan fields at 300, 120, 200 and 1,000. The scrubber and prepare() do not check them again.
+    - Neither pattern gets a walk here. A 10.b obligation below caps the lengths instead.
+  - C9 (lens full F7). 0844's next-gate sentence that 10.b "waits only for 7(c) and 7(b)-2" was superseded by 0845's gate without being named. Both are superseded by the gate below. The PR body's two stale sentences change with this push.
+  - C10 (lens walk). 0845 says the linear-time test ran 90 s against the matchAll mutant. The reviewers measured 215 s and 223 s, 178.5 s of CPU. The test fails either way.
+- **Residues after this push, each with its bound:**
+  - L7, the protocol-relative rule's left bound, which no entry stated.
+    - The rule starts only at the text's start, or after white space, `"`, `'`, `(`, `[`, `<`, `=`, `:`, `,`, `;` or a spaceless-script character.
+    - After anything else, the URL is not read as a URL, and its query or tail goes out at all four heads. That includes a backtick, curly quotes, `{`, `>`, `->`, `|`, `**`, `)`, `.`, `_`, `#`, `-` and a word.
+      - With the seven sources, `` see `//cdn.other.test/x/q3.html?token=abc` now `` gives `` see [file]?token=abc` now ``;
+      - `see >//cdn.other.test/x/q3.html?token=abc now` goes out unchanged.
+    - A placeholder after such a `//` stays as at d364b46, beside the tail:
+      - `` `//cdn.other.test/x/old-alpha-field-notes.md?token=abc` `` gives `` `//[file]?token=abc` ``, where 67e3374 sent `[file]`;
+      - `see x//cdn.other.test/x/claims.json?token=abc now` gives `see x//[file]?token=abc now`, as at 67e3374 and d364b46.
+  - The `///` residue (differential F4), added to L6.
+    - A run led by three or more slashes matches no generic rule, in either scope, at all four heads. The rooted-path rules need a segment after the first slash and refuse a slash before one, and the protocol-relative rule needs a letter or digit after `//`.
+    - So `see ///etc/acme/merger-plan.docx now` goes out whole, and the audit passes it.
+    - When a model-scope source name stands in such a run, the name and its folder prefix become the alias, and the slashes and the tail go out, as at 67e3374. With sources `input/notes/meeting-notes-2024` and `https://github.com/acme/public-repo`, model text `///x/y/public-repo?token=secret` gives `///S2?token=secret`. 4aeac37's `[url]` there came only from R1.
+    - 0845's note on what returned to 67e3374 also covers these URL and path tails.
+    - The `//`-led half of the finding is closed here: `//x/y/report.md/private/acme-merger`, with the host's `output/report.md`, gave `//[file]/private/acme-merger` at d364b46 and gives `[url]`.
+    - A policy-5 rule would close the rest by letting both rooted-path patterns take leading empty segments. That changes the pinned protocol hashes, so it waits for policy 5.
+  - L3 with the pair (differential F1, second skeptic). `see mailto:alice:pa(ss)@example.org/report.html now` gives `see mailto:alice:pa(ss)[url] now` at d364b46 and 42d7669, where 67e3374 and 4aeac37 gave `see [url] now`.
+    - This is L3's class: a password holding a character outside the host-lead characters.
+    - The pair's shared form has reached it since 6d14ac4's G3 change, so it is part of D2.
+    - The rule above settles only the URL's rest after the match, and here what goes out stands before it: the lead walk stops at the `)` before the `@`.
+  - L1's form right after the `//`. A host-led form whose lead reaches the `//` keeps its own span, so `see //sub.example.org/reports/annual-2025.html-secret now` gives `see [url]-secret now` at 4aeac37, d364b46 and 42d7669. 67e3374 gave `see [url] now`. The rule above does not reach it, because its match includes the `//`.
+  - Gaps the re-review listed that no entry stated. Each output is at 67e3374 | 4aeac37 | d364b46 | 42d7669, with the seven sources unless named:
+    - G2, the F4 query gap since 8090f65.
+      - `see other.test/x/old-alpha-field-notes.md?token=sk_live_abcdef now` gives `see [url] now` | `see [file]?token=sk_live_abcdef now` | the same | the same.
+      - `see /srv/x/old-alpha-field-notes.md?token=abc now` gives `see [file] now` | `see [file]?token=abc now` | the same | the same.
+    - G3, text before a doubled slash before a glued name: `see a//cdn.other.test/x/old-alpha-field-notes.md?token=abc now` gives `see [file] now` | `see a/[file]?token=abc now` | `see a//S1?token=abc now` | `see a//[file]?token=abc now`.
+    - G4, a query or path after a source's file-name match, at all four heads:
+      - `see docs/x/alpha-field-notes.md?token=abc now` gives `see S1?token=abc now`;
+      - `see other.test/x/alpha-field-notes.md?token=sk_live_abcdef now` gives `see S1?token=sk_live_abcdef now`;
+      - `see x/alpha-field-notes.md/private/acme-merger now` gives `see S1/private/acme-merger now`.
+
+      This is L1 in kind; L1 names only whole path and URL forms.
+    - G5: sent text `see \\reports/annual-2025.htmlhr.acme-merger.test now` goes out unchanged at all four heads. In model text it is `see [file] now` since 8090f65; 67e3374 sent `see \\S2-merger.test now`.
+    - G6, more of G3's residue:
+      - With only the local copy `mirror/example.org/report.html`, `alice:hunter2@example.org/report.html?token=abc` gives `alice:hunter2@S1?token=abc` at all four heads.
+      - With the pair, `old-report.htmlmirror/example.org/report.html` gives `old-report.htmlS2`. Sent text `see old-report.htmlreport.html now` goes out unchanged at all four heads.
+    - G7, backslash-written URLs and UNC paths.
+      - `https:\\other.test\reports\annual-2025.html` gives `https:\S2` since 8090f65, where 67e3374 sent `https:\\S2`.
+      - `\\fileserver\share\alpha-field-notes.md?token=abc` gives `\S1?token=abc`. Its query goes out at all four heads.
+    - G8: `https:∕∕other.test∕reports∕annual-2025.html`, written with division slashes, gives `https:∕∕other.test∕reports∕S2` at all four heads.
+    - G9, mixed slashes: `/\cdn.other.test/x/old-alpha-field-notes.md?token=abc` gives `/\[url]` | `/[file]?token=abc` | `/\[file]?token=abc` | `/\[file]?token=abc`.
+    - G10, a label and a count only: `see //sub.example.org/reports/annual-2025.html-secret/plan.md now` gives `see [file] now` since 8090f65, where 67e3374 sent `see [url] now`.
+- **Remaining classes.** Both are present at d364b46. This push hides more of them and adds none.
+  - The counts below are from the local differential at 42d7669. Each is by the word measure, with the substring measure in brackets.
+  - The generators aim at these shapes, so the counts measure the generators, not real text.
+  - D2, 6d14ac4: 2,310 outputs (2,153) send text that 4aeac37 hid, and 484 (376) send text that both 4aeac37 and 67e3374 hid.
+    - For each output, one change of 6d14ac4 was reverted at a time in a copy of d364b46, to find the change whose revert hides the text again.
+    - Of the 2,310, by the word measure:
+      - R1's guard hides it in 1,922;
+      - R1's guard together with the alias rule in 88;
+      - G3 in 230;
+      - the alias rule in 70.
+
+      24 of them send the example password.
+    - Of the 376 by the substring measure, R1's guard hides it in 262 and G3 in 114.
+    - R1's guard keeps both slashes of `//`. After a `//` that no URL rule starts after (L7), the tail goes out, where 4aeac37's single slash let the rooted-path rule take it.
+      - `` `//hr.acme-merger.test/evil-www.q3_xx.yy-s/hr/x?employee=alice `` gives `` `//[file]/hr/x?employee=alice ``.
+      - d364b46 sent `` `//S4/hr/x?employee=alice ``, 4aeac37 `` `[file] `` and 67e3374 `[file]`.
+    - G3 puts a credential before the pair's shared form into `[url]`, so a relative-path rule no longer takes the whole token. The word glued before a `//` goes out:
+      - `x//other.test/alice:hunter2@old-example.org/report.html 文件` gives `x//[url] 文件`, where 4aeac37 and 67e3374 gave `[file] 文件`.
+      - The G3 tails that d364b46 sent, such as `https://alice@example.org/report.html-&token=abc`, are `[url]` again at 42d7669.
+  - D3, 8090f65: 49,824 outputs (38,794) send text that 67e3374 hid.
+    - Since 8090f65, a host lead, a glued name or a folder prefix puts a placeholder where 67e3374 had an alias. The URL or path rule that took the whole token at 67e3374 now takes part of it, or none, and what stood in the same token goes out.
+    - By the word measure, the text goes out before the placeholder in 33,205 outputs, after it in 18,847, and as a token of its own in 13. Some outputs hold text on both sides.
+    - C5's bounds, G2 and G3 fall in this class.
+    - 1,563 outputs (1,554) send the example password. For example, `:///alice:hunter2@reports/annual-2025.html-secret/plan.md”` gives `:///alice:hunter2@[file][file]”`, where 67e3374 sent `[file]”`.
+- The policy text does not name the provisional rule, as it named neither R1's guard nor the alias rule. Policy 5 should name them.
+- No SOAR model request, endpoint, Docker container or paid call ran.
+- The changed source file is under src/main/private-agent, so the harness source-freeze digest changes again with this push. No owner loop or E-run may span #79's merge, and the digest must be taken after this push.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The orchestrator's delta review of #79 at its new head, under the lighter review rule: one reviewer, plus a skeptic for a blocker, a major or a privacy finding. Then the owner's go-ahead for its merge. #79 leads merge train 2.
+- 10.b does not wire the assist's dispatch until each of the following is closed by a reviewed rule under scrub policy 5, or accepted by the owner in a recorded decision:
+  - L1, with C5's bounds and the form right after `//`;
+  - L2, with C6's and C7's bounds;
+  - L3, with the pair's form;
+  - L4;
+  - L6, with C7's correction and the `///` residue;
+  - L7;
+  - G2 to G9;
+  - D2 and D3.
+
+  This supersedes 0844's and 0845's gate sentences. One candidate for policy 5 would close most of D2, D3, C5 and G2:
+  - offer 67e3374's alias in place to the generic rules first;
+  - fall back to 8090f65's span where none takes it;
+  - give a host file name a stand-in alias.
+
+  It is not built or tested here.
+- The orchestrator carries these owner questions. An agent does not answer them; these are defaults only.
+  - Should a scrubber leak in an unwired core gate the merge as a blocker, or count as major, as R1 did? Default: major while nothing calls the core, as for R1. A leak a push introduces is still fixed or stated before that push merges, and every stated class gates 10.b.
+  - Does the review's class (b) include a word glued directly after a whole source form, L1's shape (`-secret` after `///S2`)? Default: yes for a word with no URL or path shape of its own. A query, fragment or path tail is never in class (b).
+  - Are the `///`-led runs acceptable as a stated residue under policy 4? Default: yes, under L6 until policy 5, which closes them before 10.b.
+  - 0845's three questions keep their defaults: L1 to L4 closed by rule, L5 a stated limit, and L6 stated now, with rules before any labelled arm. L7 joins L1 to L4.
+- 10.b's obligations, restated with one added:
+  - Pass request.sources in coverage.sources order, the sorted inventory. V1 refuses any other order. sourceTexts[i] belongs to request.sources[i], and is undefined only where coverage marks that source unreadable.
+  - Under `local_first`, give each prior attempt a non-negative safe-integer `ordinal` and `omittedErrorCount`, and a boolean `truncated`.
+  - Pass a real `deadlineMs`. A missing or NaN value stops as `assist_deadline_missing` with no request. Infinity is accepted, for a test without a session.
+  - New, from C8: cap the length of each string the scrubber reads, within the callers' caps. That covers the model-written gists and plan fields, and the brief. The exception is if FILE_NAME_PATTERN and PATH_PATTERNS[6] first get a walk like the relative run's, shown to match identically by the same differential.
+
+References: BL-20261113-0845-correction-assist-core-delta; BL-20261113-0844-correction-assist-core-review; BL-20261113-0843-assist-core-implemented; BL-20261113-0841-assist-wrapper-design; BL-20261113-0848-correction-assist-entries-restamp; pull request #79.

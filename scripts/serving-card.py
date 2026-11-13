@@ -64,8 +64,10 @@ CARD_MAX_BYTES = 64 * 1024
 MAX_SAFE_INTEGER = 2 ** 53 - 1
 # The app's two request clocks (profiles.ts: standard 300 s, heavy 900 s); the research stages run under the heavy profile.
 STAGE_CLOCKS_S = (300, 900)
-# Prompt size assumed per role for the derived bounds, matched to the P11 sizes: an index batch is at most 20 KiB, a plan
-# reads the whole index, an extraction reads one 64 KiB chunk with its packet, a synthesis reads the packet and coverage.
+# Prompt size assumed per role for the derived bounds, in tokens, matched to the P11 sizes: an index batch carries at most
+# 60 KiB of previews since backlog item 7(b) part 1 (about 16k tokens of English at 3.8 bytes per token; denser scripts may
+# need the 60k row), a plan reads the whole index, an extraction reads one 64 KiB chunk with its packet, a synthesis reads
+# the packet and coverage.
 ROLE_PROMPT_SIZES = {"index": 20_000, "plan": 60_000, "extract": 20_000, "synthesis": 60_000}
 QUALIFICATION_DATE = "2026-11-04"
 

@@ -99,7 +99,15 @@ export interface CritiqueArguments {
   critic: "local" | "cloud"; cloudArm?: CloudArmInput;
 }
 
-export async function critique(input: CritiqueArguments) {
+/**
+ * The critique request's signal: its own timeout, joined with the caller's (backlog item 11, part 3a; E1's bug d), so the H4 loop's
+ * interrupt stops a critique mid-call instead of waiting out the timeout. The caller's signal is not part of the critique's binding.
+ */
+export function critiqueSignal(timeoutMs: number, signal?: AbortSignal): AbortSignal {
+  return signal ? AbortSignal.any([AbortSignal.timeout(timeoutMs), signal]) : AbortSignal.timeout(timeoutMs);
+}
+
+export async function critique(input: CritiqueArguments, control: { signal?: AbortSignal } = {}) {
   const task = loadPreparedOperatorTask(input.taskDirectory, { jobSha256: input.expectedJobSha256, briefSha256: input.expectedBriefSha256 });
   const run = loadFailedRun(resolve(input.runDirectory), task.binding, task.phase.contract.requiredArtifacts.map(artifact => artifact.path));
   const brief = task.phase.files.find(file => file.path === "brief.md")!.bytes.toString("utf8");
@@ -125,6 +133,8 @@ export async function critique(input: CritiqueArguments) {
   const proxyRecord = { requestShape: modelConfig.api ?? "vllm", ...(cloud?.destination.proxyFakeIp ? { proxyFakeIp: true as const } : {}),
     ...(run.researchSnapshotSha256 ? { researchSnapshotSha256: run.researchSnapshotSha256 } : {}) };
   const directory = resolve(input.outputDirectory);
+  // An interrupt during the draft's rendering stops the critique before its directory exists, so nothing is left to move aside.
+  if (control.signal?.aborted) throw new Error("request_cancelled");
   mkdirSync(directory, { mode: 0o700 });
   const database = new Database(join(directory, "state.sqlite"));
   try {
@@ -137,7 +147,7 @@ export async function critique(input: CritiqueArguments) {
     let finalRuntimeSha256: string | null | undefined;
     const closedRuntime = () => { try { return localScreenSourceFreeze().sha256; } catch { return null; } };
     try {
-      answer = await runCritique({ store, broker, destination, modelConfig, packet, maxFeeMicrousd: cloud?.maxFeeMicrousd ?? 0, signal: AbortSignal.timeout(heavy.requestTimeoutMs + 60_000) });
+      answer = await runCritique({ store, broker, destination, modelConfig, packet, maxFeeMicrousd: cloud?.maxFeeMicrousd ?? 0, signal: critiqueSignal(heavy.requestTimeoutMs + 60_000, control.signal) });
       if (localCriticIdentity) {
         finalRuntimeSha256 = closedRuntime();
         if (finalRuntimeSha256 !== localCriticIdentity.initialRuntimeSha256) throw Object.assign(new Error("repair_source_changed_during_critique"), {

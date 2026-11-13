@@ -17,6 +17,9 @@ __pycache__/
 !.env.example
 *.pem
 *.key
+# Claude Code's machine-local settings and agent worktrees; an untracked file here would mark every run's tree dirty.
+.claude/settings.local.json
+.claude/worktrees/
 
 # Runtime state and downloaded benchmark fixtures
 .soar/

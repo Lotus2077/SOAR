@@ -2,17 +2,19 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import type { PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { canonical } from "../../src/main/private-agent/contracts";
+import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { ResearchSynthesisSchema, deriveBriefUnits } from "../../src/main/private-agent/research-coverage";
 import { RESEARCH_PLAN_JSON_SCHEMA } from "../../src/main/private-agent/research-plan";
-import { EXTRACT_SYSTEM, ExtractReplySchema, OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_EXTRACT_JSON_SCHEMA, SYNTHESIS_SYSTEM, THINKING, researchProtocolSha256 } from "../../src/main/private-agent/research-pipeline";
+import { EXTRACT_SYSTEM, ExtractReplySchema, OUTPUT_TOKENS, PLAN_SYSTEM, RESEARCH_EXTRACT_JSON_SCHEMA, SYNTHESIS_SYSTEM, THINKING, researchExtractionUserContent, researchProtocolSha256, runResearchPipeline, synthesisLengthCap } from "../../src/main/private-agent/research-pipeline";
 import { P10_ROLES, buildRoleSchemaExport, syntheticRoleCorpus } from "../../scripts/export-role-schemas";
+import { RESEARCH_PROTOCOL_SHA256 } from "../helpers/research-protocol-pin";
+import { parseResearchUserContent, researchV4Reply } from "../helpers/research-v4-fixture";
 
 const ROOT = resolve(__dirname, "..", "..");
-/** researchProtocolSha256() at 456344e, before PLAN_SYSTEM, OUTPUT_TOKENS, THINKING and the extraction schema were exported. */
-const PROTOCOL_SHA256_BEFORE_EXPORTS = "3453710315d7226ea4d6195ec7401d000f86c5b0d9afa9839a801d5c6d391262";
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const step of cleanups.splice(0).reverse()) step(); });
 
@@ -39,25 +41,49 @@ describe("role schema export for probe P10", () => {
     expect(data.payloads.plan.sourceIds).toEqual(sources.map(s => s.id)); expect(plan.sourceIndex.sources.map((s: { sourceId: string }) => s.sourceId)).toEqual(sources.map(s => s.id));
     expect(plan.mandatorySourceChunks).toBe(2); expect(plan.extractionCallBudget).toBe(40);
     expect(data.payloads.plan.userContent).toBe(canonical(plan));
-    const extract = JSON.parse(data.payloads.extract.userContent);
-    expect(Object.keys(extract).sort()).toEqual(["brief", "chunk", "plan", "repairReason", "source", "units"]); expect(extract.chunk.text).toContain("orchard");
+    // 7b.1: the extract payload is the pipeline's two-line message, the stable packet line, a newline, then the chunk line.
+    const lines = data.payloads.extract.userContent.split("\n"); expect(lines).toHaveLength(2);
+    const stable = JSON.parse(lines[0]!), perChunk = JSON.parse(lines[1]!);
+    expect(Object.keys(stable)).toEqual(["brief", "plan", "units"]); expect(Object.keys(perChunk)).toEqual(["chunk", "repairReason", "source"]);
+    expect(perChunk.chunk.text).toContain("orchard"); expect(perChunk.repairReason).toBeNull(); expect(stable.brief).toBe(brief);
+    expect(data.payloads.extract.userContent).toBe(researchExtractionUserContent({ ...stable, ...perChunk }));
     const synthesis = JSON.parse(data.payloads.synthesis.userContent);
-    expect(Object.keys(synthesis).sort()).toEqual(["brief", "coverage", "evidence", "plan", "repairReason", "units"]); expect(synthesis.coverage.chunks).toHaveLength(2);
+    expect(Object.keys(synthesis).sort()).toEqual(["brief", "coverage", "evidence", "lengthCap", "plan", "repairReason", "units"]); expect(synthesis.coverage.chunks).toHaveLength(2);
+    expect(synthesis.lengthCap).toEqual({ words: synthesisLengthCap(brief).words }); expect(synthesis.lengthCap).toEqual({ words: 1200 });
     // Invented text only: no owner data, no address; the only URL is the JSON-schema dialect zod names in `$schema`.
     const serialized = JSON.stringify(data);
     expect(new Set(serialized.match(/https?:\/\/[^"\\\s]+/gu))).toEqual(new Set(["https://json-schema.org/draft/2020-12/schema"]));
     expect(serialized).not.toMatch(/(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])/u);
   });
 
-  it("keeps the research protocol hash at its pre-export value", () => {
-    expect(researchProtocolSha256()).toBe(PROTOCOL_SHA256_BEFORE_EXPORTS);
+  it("exports the request the pipeline sends: its first extraction message and its synthesis length cap, byte for byte", async () => {
+    const data = buildRoleSchemaExport(), { brief, sources } = syntheticRoleCorpus(), exportedPlan = JSON.parse(data.payloads.extract.userContent.split("\n")[0]!).plan;
+    const sent: { system: string; user: string }[] = [];
+    // A fixture planner that returns the export's own plan, so the real pipeline's first extraction call carries the same packet and chunk.
+    const request = vi.fn(async (input: { body: string }, settle: (bytes: Buffer) => number) => {
+      const body = JSON.parse(input.body), system = body.messages[0].content as string, user = body.messages[1].content as string; sent.push({ system, user });
+      const content = system.startsWith("You plan") ? JSON.stringify(exportedPlan) : researchV4Reply(system, user);
+      const bytes = Buffer.from(JSON.stringify({ choices: [{ message: { content }, finish_reason: "stop" }], usage: { prompt_tokens: 100, completion_tokens: 20 } }));
+      return { bytes, receipt: { feeMicrousd: settle(bytes) } };
+    });
+    const config = { destinationId: "owned", model: "Synthetic", maxOutputTokens: 16384, inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium" as const };
+    const make = () => new PrivateAgentModel({ request } as unknown as PrivateAgentBroker, config, "job", "reader");
+    const outcome = await runResearchPipeline({ brief, sources, models: { reader: make(), planner: make(), synthesiser: make() }, signal: new AbortController().signal, record: () => {} });
+    expect(outcome.status).toBe("completed");
+    const extract = sent.find(call => call.system === EXTRACT_SYSTEM)!, synthesis = sent.find(call => call.system === SYNTHESIS_SYSTEM)!;
+    expect(extract.user).toBe(data.payloads.extract.userContent);
+    expect(parseResearchUserContent(synthesis.user).lengthCap).toEqual(JSON.parse(data.payloads.synthesis.userContent).lengthCap);
+  });
+
+  it("pins the research protocol hash through the shared pin", () => {
+    expect(researchProtocolSha256()).toBe(RESEARCH_PROTOCOL_SHA256);
   });
 
   it("writes the file from the command line with owner-only permissions", () => {
     const root = mkdtempSync(join(tmpdir(), "soar-role-schemas-")); cleanups.push(() => rmSync(root, { recursive: true, force: true }));
     const out = join(root, "nested", "role-schemas.json");
     const stdout = execFileSync(process.execPath, ["--import", "tsx", "scripts/export-role-schemas.ts", "--out", out], { cwd: ROOT, encoding: "utf8", env: { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" } });
-    expect(JSON.parse(stdout)).toMatchObject({ written: true, roles: ["plan", "extract", "synthesis"], protocolSha256: PROTOCOL_SHA256_BEFORE_EXPORTS });
+    expect(JSON.parse(stdout)).toMatchObject({ written: true, roles: ["plan", "extract", "synthesis"], protocolSha256: RESEARCH_PROTOCOL_SHA256 });
     expect(statSync(out).mode & 0o777).toBe(0o600);
     const written = JSON.parse(readFileSync(out, "utf8")), expected = buildRoleSchemaExport(written.generatedUtc);
     expect(written).toEqual(JSON.parse(JSON.stringify(expected)));

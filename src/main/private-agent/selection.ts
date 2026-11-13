@@ -5,19 +5,23 @@ import { join } from "node:path";
 import { z } from "zod";
 import { canonical, digest } from "./contracts";
 import { isAssistDispatch } from "./dispatch-purposes";
+import type { RunEndEvidence } from "./run-classification";
 
 /**
  * H4 select-and-repair loop (design BL-20261026 H4 entry): the host-checked, deterministic selection between two
  * candidate runs. A candidate is a complete headless run summarised into counts from its own `result.json`,
  * `freeze.json` and event ledger; nothing here reads a prompt, an output or any model text.
+ *
+ * Selection protocol 2 (backlog item 11, BL-20261109-0331-loop-selection-protocol-2-design) supersedes step (4) and the
+ * repair half of step (5) of the H4 design for new loops: the entailment balance rate decides nothing (finding E10) and the
+ * caller passes the original first, so a tie keeps it (finding E9). Protocol 1 records keep their meaning.
  */
-export const SELECTION_PROTOCOL_VERSION = 1;
+export const SELECTION_PROTOCOL_VERSION = 2;
 const EMPTY_SHA256 = digest(Buffer.alloc(0));
 export const ENTAILMENT_KEYS = Object.freeze(["supported", "partial", "unsupported", "contradicted", "not_judged"] as const);
 export type EntailmentCounts = Record<(typeof ENTAILMENT_KEYS)[number], number>;
-/** Step (4) decides only on two untruncated passes that each judged at least this many claims and whose balance rates differ by at least this margin. */
+/** The balance rate, recorded as evidence only, is null for a pass that judged fewer claims than this (as under protocol 1, so recorded rates stay comparable). */
 export const ENTAILMENT_MIN_JUDGED = 10;
-export const ENTAILMENT_MIN_MARGIN = 0.1;
 export interface CandidateSummary {
   jobId: string;
   /** The task the run was bound to and the reviewed-source hash it ran under; the loop refuses a candidate that is not its own. */
@@ -40,24 +44,30 @@ export interface CandidateSummary {
   checksCurrent: boolean;
   modelCalls: number; toolCalls: number; inputTokens: number; outputTokens: number; cachedTokens: number; cacheWriteTokens: number; lengthStops: number;
   feeMicrousd: number; unknownDispatches: number; retriedDispatches: number; failedDispatches: number;
+  /** Of `failedDispatches`, the rows that reserved and settled nothing (`isZeroFeeFailedDispatch`); the loop admits these and stops on the rest (backlog item 11). */
+  zeroFeeFailedDispatches: number;
   /** Assist rows (backlog item 10) are counted apart: an `unknown` assist was skipped with its reservation pinned, a `failed` one fell to the host fallback; neither stops a stage. */
   assistSkippedDispatches: number; assistFailedDispatches: number;
+  /** The reading stage's denied code (its last `research_stage` event's `denied`), or null; one input of the run's classification (backlog item 11, part 3a). */
+  stageDenied: string | null;
   candidateSha256: string; freezeSha256: string; resultSha256: string;
   startedAt: string; finishedAt: string;
 }
-export type SelectionStep = "submitted" | "checks" | "artifacts" | "entailment" | "tie";
+/** Protocol 2's steps; a protocol-1 record may also say `entailment`, the step this protocol removed. */
+export type SelectionStep = "submitted" | "checks" | "artifacts" | "tie";
+/** `entailmentRates` are [first, second] in the comparison's order: evidence only, they decide nothing. */
 export interface Selection { winner: "first" | "second"; step: SelectionStep; entailmentRates: [number | null, number | null] }
 
-/** The entailment balance rate over judged claims: (supported minus unsupported and contradicted) / judged; null when the pass is missing, truncated or too small to compare. */
+/** The entailment balance rate over judged claims: (supported minus unsupported and contradicted) / judged; null when the pass is missing, truncated or too small to rate. */
 export function entailmentRate(entailment: CandidateSummary["entailment"]): number | null {
   if (!entailment || entailment.truncated) return null;
   const judged = entailment.supported + entailment.partial + entailment.unsupported + entailment.contradicted;
   return judged >= ENTAILMENT_MIN_JUDGED ? (entailment.supported - entailment.unsupported - entailment.contradicted) / judged : null;
 }
 /**
- * The order the rule applies, most important first; the caller's `first` wins every tie, which is how the loop prefers
- * sample a and the repair. Step (4) is a local judge's verdict used as host-recorded evidence: it decides only between two
- * untruncated passes of at least ENTAILMENT_MIN_JUDGED claims whose rates differ by at least ENTAILMENT_MIN_MARGIN.
+ * The order the rule applies, most important first; the caller's `first` wins every tie, which is how the loop keeps sample
+ * a over b and the selected draft over its repair. The two passes' entailment balance rates are returned as recorded
+ * evidence and decide nothing (protocol 2, finding E10): no flag turns a judge step on; that needs a later protocol bump.
  */
 export function compareCandidates(first: CandidateSummary, second: CandidateSummary): Selection {
   const rates: [number | null, number | null] = [entailmentRate(first.entailment), entailmentRate(second.entailment)];
@@ -67,8 +77,26 @@ export function compareCandidates(first: CandidateSummary, second: CandidateSumm
     if (a > b) return { winner: "first", step, entailmentRates: rates };
     if (a < b) return { winner: "second", step, entailmentRates: rates };
   }
-  if (rates[0] !== null && rates[1] !== null && Math.abs(rates[0] - rates[1]) >= ENTAILMENT_MIN_MARGIN) return { winner: rates[0] > rates[1] ? "first" : "second", step: "entailment", entailmentRates: rates };
   return { winner: "first", step: "tie", entailmentRates: rates };
+}
+
+/**
+ * The harness destinations that never carry a fee (scripts/private-agent-local-screen.ts): the owned local model and the
+ * loopback public-snapshot fixture. An allowlist, so a destination added later stops the loop until it is named here; the
+ * cloud destination (`cloud_coordinator`) is never one. scripts/registry-row.py mirrors it as ZERO_FEE_DESTINATIONS.
+ */
+export const ZERO_FEE_DESTINATIONS = Object.freeze(["owned_local_model", "approved_public_snapshots"] as const);
+const isZero = (value: unknown) => typeof value === "number" && value === 0;
+/**
+ * A resolved zero-fee failure (backlog item 11): a `failed` row, not an assist, to a destination in ZERO_FEE_DESTINATIONS,
+ * reserved at exactly 0 (a JSON number, never a boolean or a string), with no `feeMicrousd` key or one equal to 0, and no
+ * `approval` key at all (a null fee or approval fails closed). These are the zero-risk rows (a zero-fee local request or a
+ * public GET) that the broker resolves `failed`: nothing was reserved or settled and nothing is pending. A missing or
+ * malformed field fails closed. scripts/registry-row.py mirrors this as `is_zero_fee_failed`.
+ */
+export function isZeroFeeFailedDispatch(row: Record<string, unknown>): boolean {
+  return row.status === "failed" && !isAssistDispatch(row) && (ZERO_FEE_DESTINATIONS as readonly unknown[]).includes(row.destinationId) && isZero(row.reservedFeeMicrousd) &&
+    (!Object.hasOwn(row, "feeMicrousd") || isZero(row.feeMicrousd)) && !Object.hasOwn(row, "approval");
 }
 
 const resultSchema = z.object({ status: z.enum(["submitted", "paused", "incomplete"]), reason: z.string(), finishedAt: z.string(), snapshotSha256: z.string(),
@@ -140,8 +168,41 @@ export function summarizeRun(runDirectory: string, deliverables: string[]): Cand
     unknownDispatches: result.dispatches.filter(row => row.status === "committed" || (row.status === "unknown" && !isAssistDispatch(row))).length,
     retriedDispatches: result.dispatches.filter(row => row.status === "superseded").length,
     failedDispatches: result.dispatches.filter(row => row.status === "failed" && !isAssistDispatch(row)).length,
+    zeroFeeFailedDispatches: result.dispatches.filter(row => isZeroFeeFailedDispatch(row)).length,
     assistSkippedDispatches: result.dispatches.filter(row => row.status === "unknown" && isAssistDispatch(row)).length,
     assistFailedDispatches: result.dispatches.filter(row => row.status === "failed" && isAssistDispatch(row)).length,
+    stageDenied: (() => { const denied = [...stages].reverse().find(event => typeof event.denied === "string"); return denied ? String(denied.denied) : null; })(),
     candidateSha256: digest(canonical(result.candidateFiles.map(file => ({ path: file.path, sha256: file.sha256 })))), freezeSha256: digest(freezeBytes), resultSha256: digest(resultBytes),
     startedAt: freeze.startedAt, finishedAt: result.finishedAt };
+}
+
+/**
+ * What a run's own records say about how it ended (backlog item 11, part 3a), for `classifyRunEnd`; the loop's interrupt mark is the
+ * caller's to add. scripts/registry-row.py's `run_end_evidence` reads the same records, and tests/unit/registry-row-infra.test.ts keeps
+ * the two in step: the last `failed` and the last `unknown` row that is not an assist, the last stage denial, host validation,
+ * runtime failure and refusal markers.
+ */
+export function readRunEndEvidence(runDirectory: string): Omit<RunEndEvidence, "stopSignalled"> {
+  const root = realpathSync(runDirectory);
+  const result = JSON.parse(insideFile(join(root, "result.json"), root).toString("utf8")) as Record<string, unknown>;
+  const database = new Database(insidePath(join(root, "state.sqlite"), root), { readonly: true, fileMustExist: true });
+  let events: Record<string, unknown>[];
+  try { events = (database.prepare("SELECT value FROM private_agent_events ORDER BY job_id, sequence").all() as { value: string }[]).map(row => JSON.parse(row.value)); }
+  finally { database.close(); }
+  const object = (value: unknown): value is Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value);
+  const dispatches = (Array.isArray(result.dispatches) ? result.dispatches : []).filter(object);
+  const lastRow = (status: string) => [...dispatches].reverse().find(item => item.status === status && !isAssistDispatch(item)) ?? null;
+  const lastEvent = (accept: (event: Record<string, unknown>) => boolean) => [...events].reverse().find(accept);
+  const code = (value: unknown) => object(value) && typeof value.code === "string" ? value.code : null;
+  const notDispatched = (reason: string) => {
+    const event = lastEvent(item => item.type === "model_request_not_dispatched" && item.reason === reason && typeof item.code === "string");
+    return event ? event.code as string : null;
+  };
+  const stage = lastEvent(event => event.type === "research_stage" && typeof event.denied === "string");
+  const validation = lastEvent(event => event.type === "host_validation_finished"), runtime = lastEvent(event => event.type === "runtime_failure");
+  return { status: typeof result.status === "string" ? result.status : "", reason: typeof result.reason === "string" ? result.reason : "",
+    stageDenied: stage ? stage.denied as string : null, failingCall: lastRow("failed"), uncertainCall: lastRow("unknown"),
+    runtimeBrokerCode: typeof runtime?.brokerCode === "string" ? runtime.brokerCode : null,
+    captureFailure: code(validation?.captureFailure), verificationFailure: code(validation?.verificationFailure),
+    tokenAdmissionCode: notDispatched("local_token_admission_denied"), brokerDenialCode: notDispatched("broker_denied") };
 }

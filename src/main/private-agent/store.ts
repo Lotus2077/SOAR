@@ -94,6 +94,29 @@ export function isBlockingDispatch(receipt: { status: DispatchStatus; purpose?: 
   return !(receipt.status === "unknown" && isAssistDispatch(receipt) && (ownContextId === undefined || receipt.contextId !== ownContextId));
 }
 
+/**
+ * The attempt a retry replaces (E1-R, the retry-wait design entry in docs/BUILD_LOG.md): `commit` closes it `superseded`, with its confirmed-abort diagnostic, in the
+ * transaction that inserts the attempt that follows it: after the input's own parses and the admission check, before `validate` and every
+ * other check. Those checks therefore see the ledger exactly as they saw it when the earlier attempt was superseded first, and any refusal
+ * rolls both writes back: the earlier row stays `committed` for the broker to resolve `failed`, and a `superseded` row never lacks its
+ * successor. `zeroRisk` is the broker's own predicate for the packet, as for `resolveFailure`.
+ */
+export interface SupersededAttempt { id: string; failure: UnknownRequestDiagnostic; zeroRisk: boolean }
+/** Optional `commit` inputs; backlog item 8's concurrent admission adds its own field beside `supersedes`. */
+export interface CommitOptions { supersedes?: SupersededAttempt }
+/** What a successor shares with the attempt it supersedes: the same admitted packet, destination, purpose, reservation and proofs. */
+const SUPERSESSION_KEYS = ["jobId", "contextId", "contextSha256", "packetSha256", "destinationId", "destinationSha256", "purpose", "policyRevision",
+  "reservedFeeMicrousd"] as const;
+/**
+ * A diagnostic as it is stored. A key whose value is undefined would pass the schema and then make canonical() throw, leaving the row
+ * committed for good; such keys are dropped, which leaves every diagnostic the broker writes byte-identical.
+ */
+function storedDiagnostic(failure: UnknownRequestDiagnostic): UnknownRequestDiagnostic {
+  const parsed = UnknownRequestDiagnosticSchema.safeParse(Object.fromEntries(Object.entries(failure).filter(([, value]) => value !== undefined)));
+  if (!parsed.success) throw new Error("private_agent_unknown_diagnostic_invalid");
+  return parsed.data;
+}
+
 export interface DispatchReceipt {
   id: string; jobId: string; contextId: string; contextSha256: string;
   packetSha256: string; destinationId: string; destinationSha256: string;
@@ -219,10 +242,14 @@ export class PrivateAgentStore {
     }).immediate();
   }
 
-  /** Permission use and maximum fee are committed together before any transport. */
+  /**
+   * Permission use and maximum fee are committed together before any transport. With `supersedes`, the retried attempt it names is
+   * closed `superseded` first, inside this transaction (E1-R): every check below then reads the ledger as it read it when the broker
+   * superseded that attempt before committing its successor, and any refusal rolls both writes back.
+   */
   commit(input: Omit<DispatchReceipt, "id" | "status" | "committedAt" | "failure">,
     validate: (policy: PrivateJobPolicy, context: PrivateAgentContext) => void,
-    grantId?: string, now = Date.now()): DispatchReceipt {
+    grantId?: string, now = Date.now(), options: CommitOptions = {}): DispatchReceipt {
     return this.db.transaction(() => {
       const admission = input.localTokenAdmission === undefined ? undefined : LocalTokenAdmissionEvidenceAnySchema.parse(input.localTokenAdmission);
       const parsedApproval = input.approval === undefined ? undefined : ExactApprovalSchema.safeParse(input.approval);
@@ -235,6 +262,7 @@ export class PrivateAgentStore {
           input.contextSha256 !== contextFingerprint(context) || !policy.destinations.includes(input.destinationId)) {
         throw new Error("private_agent_admission_changed");
       }
+      if (options.supersedes !== undefined) this.supersede(input, options.supersedes, approval, admission);
       validate(policy, context);
       const history = this.dispatches(policy.id);
       // Backlog item 10: an `unknown` assist row (a sealed cloud one-shot whose outcome stayed uncertain) keeps its reservation
@@ -282,24 +310,41 @@ export class PrivateAgentStore {
 
   unknown(id: string, failure?: UnknownRequestDiagnostic): void { this.close(id, "unknown", failure); }
 
-  /** A confirmed abort resolves the row without a response: `superseded` when another attempt follows, `failed` when none does. */
-  resolveFailure(id: string, status: "superseded" | "failed", failure: UnknownRequestDiagnostic, zeroRisk = false): void {
+  /**
+   * A confirmed abort with no attempt to follow resolves the row `failed`, without a response. Only `commit`'s `supersedes` writes
+   * `superseded`, in the successor's own transaction, so no `superseded` row can lack its successor (E1-R).
+   */
+  resolveFailure(id: string, status: "failed", failure: UnknownRequestDiagnostic, zeroRisk = false): void {
+    if (status !== "failed") throw new Error("private_agent_resolution_invalid");
     if (!isConfirmedAbort(failure, zeroRisk)) throw new Error("private_agent_failure_not_confirmed");
     this.close(id, status, failure);
   }
 
-  private close(id: string, status: "unknown" | "superseded" | "failed", failure?: UnknownRequestDiagnostic): void {
-    // A key whose value is undefined would pass the schema and then make canonical() throw, leaving the row committed for
-    // good; such keys are dropped, which leaves every diagnostic the broker writes byte-identical.
-    const defined = failure === undefined ? undefined : Object.fromEntries(Object.entries(failure).filter(([, value]) => value !== undefined));
-    const parsed = defined === undefined ? undefined : UnknownRequestDiagnosticSchema.safeParse(defined);
-    if (parsed && !parsed.success) throw new Error("private_agent_unknown_diagnostic_invalid");
+  private close(id: string, status: "unknown" | "failed", failure?: UnknownRequestDiagnostic): void {
+    const stored = failure === undefined ? undefined : storedDiagnostic(failure);
     this.db.transaction(() => {
       const receipt = this.dispatch(id);
       if (receipt.status !== "committed") return;
       this.db.prepare("UPDATE private_agent_dispatches SET value = ? WHERE id = ?")
-        .run(canonical({ ...receipt, status, ...(parsed?.success ? { failure: parsed.data } : {}) }), id);
+        .run(canonical({ ...receipt, status, ...(stored ? { failure: stored } : {}) }), id);
     }).immediate();
+  }
+
+  /**
+   * Closes the attempt `supersedes` names, inside `commit`'s transaction: it must be this job's `committed` row of the same context, context
+   * hash, packet, destination, destination hash, purpose, policy revision, reservation, approval and admission proof as the successor
+   * (`approval` and `admission` as `commit` parsed them, which is how the earlier row stored its own), and its diagnostic a confirmed abort
+   * for that packet (the rule `resolveFailure` applies). It is written exactly as `resolveFailure` writes a row, with `superseded`.
+   */
+  private supersede(input: Omit<DispatchReceipt, "id" | "status" | "committedAt" | "failure">, supersedes: SupersededAttempt,
+    approval: ExactApproval | undefined, admission: LocalTokenAdmissionEvidence | undefined): void {
+    const row = this.db.prepare("SELECT value FROM private_agent_dispatches WHERE id = ? AND job_id = ?").get(supersedes.id, input.jobId) as { value: string } | undefined;
+    const earlier = row ? JSON.parse(row.value) as DispatchReceipt : undefined, failure = storedDiagnostic(supersedes.failure);
+    if (!earlier || earlier.status !== "committed" || !isConfirmedAbort(failure, supersedes.zeroRisk) ||
+        SUPERSESSION_KEYS.some(key => earlier[key] !== input[key]) ||
+        canonical(earlier.approval ?? null) !== canonical(approval ?? null) ||
+        canonical(earlier.localTokenAdmission ?? null) !== canonical(admission ?? null)) throw new Error("private_agent_supersede_invalid");
+    this.db.prepare("UPDATE private_agent_dispatches SET value = ? WHERE id = ?").run(canonical({ ...earlier, status: "superseded", failure }), earlier.id);
   }
 
   dispatch(id: string): DispatchReceipt {

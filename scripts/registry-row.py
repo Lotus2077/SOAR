@@ -11,6 +11,11 @@ or an existing registry row.
 Counts come from the run's own state.sqlite and result.json. The row holds hashes,
 counts and enums only: no paths, endpoints, prompts or outputs.
 
+`git`, `gitSource` and `gitDirty` (backlog item 11, BL-20261109-0422): a run row takes the commit from the run's own
+freeze.json (`gitSource` run), a loop row from the selected run's (`run`, or `runs_differ` when the loop's stage freezes do
+not all record that commit), and a row whose run recorded none, a --verdict-file row and a --supersedes row of a row
+without a run-sourced commit take the commit the row is written at (`row_written`, `gitDirty` null).
+
 H4: `--loop-dir LOOP` instead of `--run-dir` rows a select-and-repair loop (scripts/phase4-loop.ts): the per-run
 counts of the loop's runs are summed with the same logic, status, cause and binding come from the selected run,
 wall seconds from the loop's own clock, and a `loop` field records the choice.
@@ -24,7 +29,8 @@ Owner verdicts (BL-20261108-0904-owner-verdict-capture-design):
 
     `--supersedes ROW_ID [--registry PATH]` copies the registry row with that id verbatim (every measurement,
     taskJobSha256, date, usd, entailment, loop) and changes only id, supersedes, outcome, verdictBy, ownerMinutes,
-    interventions, lesson, verdictAt and git (the commit the row is written at). It refuses an unknown id, an id
+    interventions, lesson, verdictAt and, unless the copied row's commit came from its run (gitSource run or
+    runs_differ), git, gitSource and gitDirty (the commit the row is written at). It refuses an unknown id, an id
     another row already supersedes, and a new id that already exists.
 
 Exactly one of --run-dir, --loop-dir, --verdict-file and --supersedes is accepted. `--verdict-by` is `owner`,
@@ -149,6 +155,15 @@ def main() -> int:
                           "critiqued": critiqued, "critiqueFailure": critique.get("failure"), "candidates": candidates,
                           "writeIdentityEqual": loop.get("writeIdentityEqual")}}
         row = {**selected["row"], **summed, **extra}
+        # Backlog item 11, part 3a: the selected run's class, with the loop's own interrupt mark for that stage. A loop whose critique failed
+        # on infrastructure, leaving an unsubmitted draft it would have repaired, ended on infrastructure too.
+        stages = loop.get("stages") if isinstance(loop.get("stages"), list) else []
+        marked = any(isinstance(entry, dict) and entry.get("stage") == final["candidate"] and entry.get("interrupted") is True for entry in stages)
+        row["runClass"] = classify_run_end(run_end_evidence(os.path.join(args.loop_dir, final["candidate"]), marked))
+        critique_failure = critique.get("failure") if isinstance(critique, dict) else None
+        if not row["runClass"]["infra"] and final.get("step") == "critique_failed" and row.get("runStatus") != "submitted" and listed(INFRA_CRITIQUE_CODES, critique_failure):
+            row["runClass"] = {"version": RUN_CLASSIFICATION_VERSION, "infra": True, "cause": "critique_" + critique_failure}
+        check_outcome(args.outcome, row.get("runStatus"), row["runClass"])
         # A cloud loop's cloud calls are sample a's stage; the selected run may be a local writer, and a may have no summary.
         if loop.get("arm") == "cloud":
             a_freeze = os.path.join(args.loop_dir, "a", "freeze.json")
@@ -156,12 +171,15 @@ def main() -> int:
     elif args.run_dir is not None:
         single = run_counts(args.run_dir)
         row = {**single["row"], **{key: single[key] for key in SUMMED}, "wallSeconds": single["wallSeconds"]}
+        row["runClass"] = classify_run_end(run_end_evidence(args.run_dir, False))
+        check_outcome(args.outcome, row.get("runStatus"), row["runClass"])
     elif args.verdict_file is not None:
         row = receipt_row(args)
     else:
         row = superseding_row(args)
-    row.update({"id": args.id, "git": subprocess.run(["git", "rev-parse", "--short=12", "HEAD"], capture_output=True, text=True).stdout.strip(),
-                "verdictBy": args.verdict_by, "lesson": args.lesson})
+        # A correction repeats the class checks against the copied run's class, when the copy carries one.
+        check_outcome(args.outcome, row.get("runStatus"), row.get("runClass"))
+    row.update({"id": args.id, **row_provenance(args, row), "verdictBy": args.verdict_by, "lesson": args.lesson})
     for key, value in (("batch", args.batch), ("task", args.task), ("family", args.family), ("exposure", args.exposure), ("arm", args.arm), ("outcome", args.outcome)):
         if value is not None:
             row[key] = value
@@ -177,7 +195,8 @@ def main() -> int:
 
 
 SUMMED = ("modelCalls", "toolCalls", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "usd", "unknownDispatches", "retriedDispatches", "failedDispatches",
-          "assistSkippedDispatches", "assistFailedDispatches")
+          "assistSkippedDispatches", "assistFailedDispatches",
+          "zeroFeeFailedDispatches")
 # The sealed cloud one-shots' purposes (src/main/private-agent/dispatch-purposes.ts; backlog item 10): an unknown or failed assist row is
 # counted in its own column and never as an unresolved or failed dispatch of the run.
 ASSIST_PURPOSES = ("research plan assist", "research synthesis assist")
@@ -185,6 +204,156 @@ ASSIST_PURPOSES = ("research plan assist", "research synthesis assist")
 
 def is_assist(item: dict) -> bool:
     return item.get("purpose") in ASSIST_PURPOSES
+
+
+# The harness destinations that never carry a fee (selection.ts ZERO_FEE_DESTINATIONS; backlog item 11): the owned local model and the
+# loopback public-snapshot fixture. An allowlist, so a destination added later is never counted as zero-fee until it is named here.
+ZERO_FEE_DESTINATIONS = ("owned_local_model", "approved_public_snapshots")
+
+
+def is_zero(value) -> bool:
+    """A JSON number equal to 0; a boolean, a string or null is not."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and value == 0
+
+
+def is_zero_fee_failed(item: dict) -> bool:
+    """A resolved zero-fee failure (selection.ts isZeroFeeFailedDispatch; backlog item 11): a failed row, not an assist, to a
+    destination in ZERO_FEE_DESTINATIONS, reserved at exactly 0, with no fee key or a fee of 0 and no approval key. The H4 loop
+    admits these rows; a missing or malformed field fails closed."""
+    return (item.get("status") == "failed" and not is_assist(item) and isinstance(item.get("destinationId"), str) and item["destinationId"] in ZERO_FEE_DESTINATIONS
+            and is_zero(item.get("reservedFeeMicrousd")) and ("feeMicrousd" not in item or is_zero(item["feeMicrousd"])) and "approval" not in item)
+
+
+# Backlog item 11, part 3a (BL-20261109-0515-infra-classification-design): whether a run that did not submit ended on infrastructure,
+# labelled `infra_invalid`, from recorded codes only. src/main/private-agent/run-classification.ts holds the same lists and function,
+# and tests/unit/run-classification.test.ts keeps them equal.
+RUN_CLASSIFICATION_VERSION = 1
+INFRA_HOST_REASONS = ("runtime_failure_progress_preserved", "execution_context_unavailable", "cleanup_required", "orphan_cleanup_required",
+                      "job_context_busy", "session_failure", "source_changed_during_run", "public_snapshot_changed_during_run", "packet_scan_unavailable",
+                      "unresolved_dispatch_no_replay", "public_source_retention_or_text_failed")
+FAILED_CALL_STAGE_CODE = "request_failed"
+INFRA_TOKEN_ADMISSION_CODES = ("local_token_admission_helper_failed", "local_token_admission_timeout", "local_token_admission_proof_invalid",
+                               "local_token_admission_pin_drift", "local_token_admission_invalid", "local_token_admission_missing")
+INFRA_BROKER_CODES = ("destination_missing", "packet_scan_failed", "unresolved_dispatch")
+STOP_REASONS = ("cancelled_or_deadline", "research_cancelled", "session_cancelled", "session_stopped", "session_unresolved_or_deadline",
+                "cancelled_before_completion")
+STOP_TOKEN_ADMISSION_CODE = "local_token_admission_cancelled"
+UNCERTAIN_CALL_BROKER_CODE = "transport_or_settlement_unknown"
+PUBLIC_PHASE_PREFIX = "public_"
+INFRA_CRITIQUE_CODES = ("request_failed", "repair_source_changed_during_critique")
+TRANSIENT_TRANSPORT_CODES = ("connection_failed", "upstream_closed", "response_interrupted")
+
+
+def listed(values: tuple, value) -> bool:
+    return isinstance(value, str) and value in values
+
+
+def is_transient_cloud_failure(failure) -> bool:
+    """A cloud transport failure that is not the arm's or its configuration's: a transient answer, never a spend cap or limit."""
+    if not isinstance(failure, dict) or failure.get("phase") != "transport" or failure.get("spendCap") is True or failure.get("spendLimit") is True:
+        return False
+    if listed(TRANSIENT_TRANSPORT_CODES, failure.get("code")):
+        return True
+    status = failure.get("status")
+    return failure.get("code") in ("http_rejected", "stream_error") and isinstance(status, (int, float)) and not isinstance(status, bool) and (status >= 500 or status == 429)
+
+
+def failed_call_is_infra(row) -> bool:
+    if not isinstance(row, dict):
+        return True
+    return is_zero_fee_failed(row) or is_transient_cloud_failure(row.get("failure"))
+
+
+def uncertain_call_is_infra(row) -> bool:
+    if not isinstance(row, dict):
+        return True
+    failure = row.get("failure")
+    return isinstance(failure, dict) and failure.get("phase") == "transport"
+
+
+def classify_core(end: dict, reason: str):
+    """The rules of decision (1) on a reason with any public-phase prefix already stripped; None when no rule holds."""
+    denied, token, broker = end.get("stageDenied"), end.get("tokenAdmissionCode"), end.get("brokerDenialCode")
+    if listed(INFRA_HOST_REASONS, reason):
+        if reason == "runtime_failure_progress_preserved" and end.get("runtimeBrokerCode") == UNCERTAIN_CALL_BROKER_CODE and not uncertain_call_is_infra(end.get("uncertainCall")):
+            return None
+        return reason
+    if reason == "model_unavailable" and failed_call_is_infra(end.get("failingCall")):
+        return "model_unavailable"
+    if reason == "research_request_denied":
+        if denied == FAILED_CALL_STAGE_CODE and failed_call_is_infra(end.get("failingCall")):
+            return "research_request_failed"
+        if listed(INFRA_TOKEN_ADMISSION_CODES, denied) or listed(INFRA_BROKER_CODES, denied):
+            return denied
+    if reason == "local_token_admission_denied" and listed(INFRA_TOKEN_ADMISSION_CODES, token):
+        return token
+    if reason == "model_request_denied" and listed(INFRA_BROKER_CODES, broker):
+        return broker
+    verification = end.get("verificationFailure")
+    if reason == "bounded_allowance_exhausted" and (isinstance(end.get("captureFailure"), str) or (isinstance(verification, str) and verification.startswith("sandbox_"))):
+        return "verification_unavailable"
+    if end.get("stopSignalled") is True and (listed(STOP_REASONS, reason) or (reason == "local_token_admission_denied" and token == STOP_TOKEN_ADMISSION_CODE)):
+        return "operator_stop"
+    return None
+
+
+def classify_run_end(end: dict) -> dict:
+    """The run's class (run-classification.ts classifyRunEnd); a submitted run is never infrastructure."""
+    if end.get("status") == "submitted":
+        return {"version": RUN_CLASSIFICATION_VERSION, "infra": False, "cause": "submitted"}
+    reason = end.get("reason") if isinstance(end.get("reason"), str) else ""
+    cause = classify_core(end, reason)
+    # A public phase's end carries the session's prefix: the same rules apply to the phase's own reason, and the cause keeps the prefix.
+    if cause is None and reason.startswith(PUBLIC_PHASE_PREFIX):
+        inner = classify_core(end, reason[len(PUBLIC_PHASE_PREFIX):])
+        if inner is not None:
+            cause = PUBLIC_PHASE_PREFIX + inner
+    if cause is None:
+        return {"version": RUN_CLASSIFICATION_VERSION, "infra": False, "cause": "task"}
+    return {"version": RUN_CLASSIFICATION_VERSION, "infra": True, "cause": cause}
+
+
+def last_call(dispatches: list, status: str):
+    return next((item for item in reversed(dispatches) if item.get("status") == status and not is_assist(item)), None)
+
+
+def run_end_evidence(run_dir: str, stop_signalled: bool) -> dict:
+    """What a run's own records say about how it ended: result.json and its ledger's events, codes and rows only
+    (selection.ts readRunEndEvidence reads the same)."""
+    result = json.load(open(os.path.join(run_dir, "result.json"), encoding="utf-8"))
+    db = sqlite3.connect(f"file:{os.path.join(run_dir, 'state.sqlite')}?mode=ro", uri=True)
+    events = [json.loads(row[0]) for row in db.execute("select value from private_agent_events order by job_id, sequence")]
+    db.close()
+    dispatches = [item for item in (result.get("dispatches") or []) if isinstance(item, dict)]
+    stage = next((event for event in reversed(events) if event.get("type") == "research_stage" and isinstance(event.get("denied"), str)), None)
+    validation = next((event for event in reversed(events) if event.get("type") == "host_validation_finished"), None) or {}
+    runtime = next((event for event in reversed(events) if event.get("type") == "runtime_failure"), None) or {}
+
+    def code_of(value):
+        return value["code"] if isinstance(value, dict) and isinstance(value.get("code"), str) else None
+
+    def not_dispatched(reason):
+        return next((event["code"] for event in reversed(events) if event.get("type") == "model_request_not_dispatched" and event.get("reason") == reason
+                     and isinstance(event.get("code"), str)), None)
+    text = lambda value: value if isinstance(value, str) else ""
+    return {"status": text(result.get("status")), "reason": text(result.get("reason")), "stageDenied": stage["denied"] if stage else None,
+            "failingCall": last_call(dispatches, "failed"), "uncertainCall": last_call(dispatches, "unknown"),
+            "runtimeBrokerCode": runtime.get("brokerCode") if isinstance(runtime.get("brokerCode"), str) else None,
+            "captureFailure": code_of(validation.get("captureFailure")), "verificationFailure": code_of(validation.get("verificationFailure")),
+            "tokenAdmissionCode": not_dispatched("local_token_admission_denied"), "brokerDenialCode": not_dispatched("broker_denied"),
+            "stopSignalled": stop_signalled}
+
+
+def check_outcome(outcome, run_status, run_class) -> None:
+    """An unsubmitted run that ended on infrastructure is `infra_invalid`, never `rejected` or `incomplete` (`accepted` stays allowed: a
+    grader may accept a complete deliverable); a run that did not end on infrastructure is never `infra_invalid`."""
+    if not isinstance(run_class, dict) or outcome is None:
+        return
+    cause = run_class.get("cause") if isinstance(run_class.get("cause"), str) and IDENTIFIER.fullmatch(run_class["cause"]) else "unknown"
+    if run_class.get("infra") is True and run_status != "submitted" and outcome in ("rejected", "incomplete"):
+        sys.exit(f"the run ended on infrastructure ({cause}): record --outcome infra_invalid, not {outcome}")
+    if run_class.get("infra") is not True and outcome == "infra_invalid":
+        sys.exit(f"the run did not end on infrastructure ({cause}): --outcome infra_invalid is refused")
 
 
 def utc_iso(value, flag: str) -> str:
@@ -219,7 +388,7 @@ def load_registry(path: str) -> list:
 
 
 def superseding_row(args) -> dict:
-    """A copy of the row with the superseded id; the caller then sets only the verdict fields (and git, the writing commit)."""
+    """A copy of the row with the superseded id; the caller then sets only the verdict fields (and git, gitSource and gitDirty, see row_provenance)."""
     rows = load_registry(args.registry)
     matches = [row for row in rows if row.get("id") == args.supersedes]
     if not matches:
@@ -339,6 +508,78 @@ def cloud_fields(freeze: dict) -> dict:
     return {"cloudModel": config.get("model"), "cloudApi": config.get("api")}
 
 
+# Read-only git as scripts/verify-release-head.ts runs it (backlog item 11, part 2): no user or system configuration, pager,
+# prompts or optional locks, no hook or file-system monitor, and no repository found above this one.
+GIT_ENVIRONMENT = {"PATH": "/usr/bin:/bin", "LANG": "C", "LC_ALL": "C", "TZ": "UTC", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_SYSTEM": os.devnull,
+                   "GIT_CONFIG_NOSYSTEM": "1", "GIT_NO_LAZY_FETCH": "1", "GIT_NO_REPLACE_OBJECTS": "1", "GIT_OPTIONAL_LOCKS": "0", "GIT_PAGER": "cat",
+                   "GIT_PROTOCOL_FROM_USER": "0", "GIT_TERMINAL_PROMPT": "0", "GIT_CEILING_DIRECTORIES": os.path.dirname(REPOSITORY_ROOT)}
+GIT_OBJECT_NAME = re.compile(r"^[0-9a-f]{40}(?:[0-9a-f]{24})?$")
+
+
+def writing_commit() -> str:
+    """The commit this row is written at, in the registry's 12-hex form; the writer refuses to emit a row without one."""
+    try:
+        result = subprocess.run(["/usr/bin/git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "rev-parse", "--verify", "HEAD^{commit}"],
+                                cwd=REPOSITORY_ROOT, env=GIT_ENVIRONMENT, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        result = None
+    commit = result.stdout.strip() if result is not None and result.returncode == 0 else ""
+    if not GIT_OBJECT_NAME.fullmatch(commit):
+        sys.exit("cannot read the commit this row is written at: /usr/bin/git could not read HEAD of the repository this script is in")
+    return commit[:12]
+
+
+def freeze_git(run_dir: str):
+    """A run's own {commit, dirty} from its freeze.json (scripts/private-agent-local-screen.ts localScreenGitState), or None
+    when the freeze is absent or records no valid one: a malformed value is never guessed at."""
+    path = os.path.join(run_dir, "freeze.json")
+    if not os.path.exists(path):
+        return None
+    git = json.load(open(path, encoding="utf-8")).get("git")
+    if isinstance(git, dict) and set(git) == {"commit", "dirty"} and isinstance(git["commit"], str) and GIT_OBJECT_NAME.fullmatch(git["commit"]) \
+            and isinstance(git["dirty"], bool):
+        return git
+    return None
+
+
+def written_provenance() -> dict:
+    return {"git": writing_commit(), "gitSource": "row_written", "gitDirty": None}
+
+
+def run_provenance(selected_dir: str, stage_dirs: list) -> dict:
+    """A run or loop row's git from the selected run's freeze. gitSource is `run` only when every stage freeze records that same
+    commit (a stage without a valid record counts as differing); gitDirty is true if any stage was dirty, null if any stage's
+    state is unknown, else false. Without the selected run's record, the writing commit, labelled."""
+    selected = freeze_git(selected_dir)
+    if selected is None:
+        return written_provenance()
+    stages = [freeze_git(directory) for directory in stage_dirs]
+    same = all(stage is not None and stage["commit"] == selected["commit"] for stage in stages)
+    if any(stage is not None and stage["dirty"] for stage in stages + [selected]):
+        dirty = True
+    else:
+        dirty = None if any(stage is None for stage in stages) else False
+    return {"git": selected["commit"][:12], "gitSource": "run" if same else "runs_differ", "gitDirty": dirty}
+
+
+def row_provenance(args, row: dict) -> dict:
+    """git, gitSource and gitDirty for the row being written. A superseding row repeats a run's measurements, so it keeps that
+    run's provenance when the copied row recorded it (proposed default for item 2's open question); otherwise every mode
+    without a run's freeze records the writing commit."""
+    if args.run_dir is not None:
+        return run_provenance(args.run_dir, [args.run_dir])
+    if args.loop_dir is not None:
+        final = json.load(open(os.path.join(args.loop_dir, "loop.json"), encoding="utf-8"))["selected"]["final"]["candidate"]
+        # Every run directory of the loop: a, b and the repair, and any stage a later loop version moves aside (part 3).
+        stages = [os.path.join(args.loop_dir, name) for name in sorted(os.listdir(args.loop_dir)) if os.path.isfile(os.path.join(args.loop_dir, name, "freeze.json"))]
+        return run_provenance(os.path.join(args.loop_dir, final), stages)
+    if args.supersedes is not None and isinstance(row.get("git"), str) and re.fullmatch(r"[0-9a-f]{12}", row["git"]) and (
+            (row.get("gitSource") == "run" and isinstance(row.get("gitDirty"), bool))
+            or (row.get("gitSource") == "runs_differ" and (row.get("gitDirty") is None or isinstance(row.get("gitDirty"), bool)))):
+        return {"git": row["git"], "gitSource": row["gitSource"], "gitDirty": row.get("gitDirty")}
+    return written_provenance()
+
+
 def support_rate(counts: dict | None) -> float | None:
     """Supported / judged claims; an unjudged claim is neither supported nor a negative judgement."""
     if not isinstance(counts, dict):
@@ -391,6 +632,8 @@ def run_counts(run_dir: str) -> dict:
         "failedDispatches": sum(1 for item in dispatches if item.get("status") == "failed" and not is_assist(item)),
         "assistSkippedDispatches": sum(1 for item in dispatches if item.get("status") == "unknown" and is_assist(item)),
         "assistFailedDispatches": sum(1 for item in dispatches if item.get("status") == "failed" and is_assist(item)),
+        # Backlog item 11: the part of failedDispatches that reserved and settled nothing, the rows the H4 loop admits.
+        "zeroFeeFailedDispatches": sum(1 for item in dispatches if is_zero_fee_failed(item)),
     }
 
 

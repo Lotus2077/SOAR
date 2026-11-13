@@ -2,7 +2,9 @@
  * H4 select-and-repair loop (design entry BL-20261026 H4): two local samples of the same task, a host-checked selection,
  * one local critique of the selected draft and one local repair from the identical draft, then a final host-checked
  * selection. Every stage is a complete headless run (or the Phase 2 critique tool) in its own directory under the loop
- * directory, so every existing tool (registry rows, the gold scorer, blind bundles) works on a stage unchanged.
+ * directory, so every existing tool (registry rows, the gold scorer, blind bundles) works on a stage unchanged. Under
+ * selection protocol 2 (backlog item 11, BL-20261109-0331) a tie keeps sample a over b and the selected draft over its
+ * repair, and the entailment rates are recorded evidence only.
  *
  *   node --import tsx scripts/phase4-loop.ts --select-and-repair --loop-directory LOOP <the driver's flags, without --output-directory, --repair-from or --research-from>
  *
@@ -12,6 +14,8 @@
  * a stage whose directory holds its result is reused after its freeze is checked against the loop's task, runtime and
  * lineage; a stage directory without one is refused and the operator moves it aside; a loop whose record already holds a
  * final choice is terminal and refused (a retry is a new loop directory); an interrupt ends the loop after the running stage.
+ * A stage that the loop's own interrupt cut is marked and never reused as a candidate unless it submitted, and a loop is
+ * never resumed under another loop version, selection protocol, runtime, task, arm or pipeline (backlog item 11, BL-20261109-0331).
  */
 import { existsSync, mkdirSync, appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -23,7 +27,7 @@ import { SELECTION_PROTOCOL_VERSION, compareCandidates, summarizeRun, type Candi
 import { servingCardRefusal } from "../src/main/private-agent/serving-card";
 import { critique, type CritiqueArguments } from "./phase2-repair";
 import { loadPreparedOperatorTask } from "./private-agent-run";
-import { parseLocalArtifactScreenArguments, runLocalArtifactScreen } from "./private-agent-local-screen";
+import { localScreenSourceFreeze, parseLocalArtifactScreenArguments, runLocalArtifactScreen } from "./private-agent-local-screen";
 
 export const LOOP_VERSION = 1;
 export type DriverInput = Parameters<typeof runLocalArtifactScreen>[0];
@@ -38,7 +42,8 @@ export interface CritiqueRecord { packetSha256: string; critiqueSha256: string; 
   source?: { resultSha256: string; freezeSha256: string }; researchSnapshotSha256?: string }
 export interface LoopDependencies {
   runSample(input: DriverInput): Promise<unknown>;
-  critique(input: CritiqueArguments): Promise<{ binding: { packetSha256: string; critiqueSha256: string; source: { resultSha256: string; freezeSha256: string } }; feeMicrousd: number; finishReason: string | null; usage: CritiqueUsage | null }>;
+  /** The critique tool; `control.signal` is the loop's interrupt (backlog item 11, part 3a; E1's bug d), never part of the critique's arguments. */
+  critique(input: CritiqueArguments, control?: { signal?: AbortSignal }): Promise<{ binding: { packetSha256: string; critiqueSha256: string; source: { resultSha256: string; freezeSha256: string } }; feeMicrousd: number; finishReason: string | null; usage: CritiqueUsage | null }>;
   /** The critique tool's own record of a finished critique (critique.json), read back when the stage is reused. */
   readCritique(directory: string): CritiqueRecord;
   summarize(runDirectory: string, deliverables: string[]): CandidateSummary;
@@ -46,8 +51,12 @@ export interface LoopDependencies {
   transferStatus(runDirectory: string): { snapshotSha256: string | null; code: string | null };
   deliverables(): string[];
   now(): string;
+  /** The live source freeze's hash (`localScreenSourceFreeze`), checked against `--runtime-sha256` before the loop touches its directory. */
+  runtimeSha256(): string;
 }
-export interface LoopStageRecord { stage: LoopCandidate | "critique"; startedAt: string; finishedAt: string; reused: boolean }
+export interface LoopStageRecord { stage: LoopCandidate | "critique"; startedAt: string; finishedAt: string; reused: boolean;
+  /** Backlog item 11: the loop's own interrupt fired while this stage ran; carried onto every later reuse of the stage, dropped once it runs afresh. */
+  interrupted?: true }
 export interface LoopRecord {
   version: typeof LOOP_VERSION; selectionRule: typeof SELECTION_PROTOCOL_VERSION; startedAt: string; finishedAt: string | null;
   task: { jobSha256: string; briefSha256: string }; runtimeSha256: string; arm: "local" | "cloud"; pipeline: "research" | null;
@@ -61,10 +70,11 @@ export interface LoopRecord {
   selected: { stage1: { candidate: "a" | "b"; step: SelectionStep; entailmentRates: [number | null, number | null] } | null;
     /** `seedRefusal`: the seed loader's code when a research loop ends at `stage_failed` because a left no packet to seed from (backlog item 4; additive, LOOP_VERSION unchanged). */
     final: { candidate: LoopCandidate; step: SelectionStep | "stage_failed" | "no_draft" | "critique_failed"; entailmentRates?: [number | null, number | null]; seedRefusal?: string } | null };
-  totals: Record<"modelCalls" | "toolCalls" | "inputTokens" | "outputTokens" | "cachedTokens" | "cacheWriteTokens" | "lengthStops" | "feeMicrousd" | "unknownDispatches" | "retriedDispatches" | "failedDispatches" | "assistSkippedDispatches" | "assistFailedDispatches", number>;
+  totals: Record<(typeof TOTAL_KEYS)[number], number>;
   failure: string | null;
 }
-const TOTAL_KEYS = ["modelCalls", "toolCalls", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "feeMicrousd", "unknownDispatches", "retriedDispatches", "failedDispatches", "assistSkippedDispatches", "assistFailedDispatches"] as const;
+const TOTAL_KEYS = ["modelCalls", "toolCalls", "inputTokens", "outputTokens", "cachedTokens", "cacheWriteTokens", "lengthStops", "feeMicrousd", "unknownDispatches", "retriedDispatches", "failedDispatches", "assistSkippedDispatches", "assistFailedDispatches",
+  "zeroFeeFailedDispatches"] as const;
 const USAGE_KEYS = [["inputTokens", "inputTokens"], ["outputTokens", "outputTokens"], ["cachedTokens", "cacheReadTokens"], ["cacheWriteTokens", "cacheWriteTokens"]] as const;
 /** A recorded failure is a code, never a message: a thrown message may carry a host path or a file excerpt. */
 const CODE = /^[a-z0-9_]{1,80}$/u;
@@ -84,7 +94,7 @@ export function loopFailureLine(error: unknown): string {
 
 /** The production dependencies: the headless driver, the Phase 2 critique tool and the run summariser. */
 export function productionDependencies(input: LoopInput): LoopDependencies {
-  return { runSample: runLocalArtifactScreen, critique, summarize: summarizeRun, transferStatus: researchTransferStatus, now: () => new Date().toISOString(),
+  return { runSample: runLocalArtifactScreen, critique, summarize: summarizeRun, transferStatus: researchTransferStatus, now: () => new Date().toISOString(), runtimeSha256: () => localScreenSourceFreeze().sha256,
     readCritique: directory => {
       const saved = JSON.parse(readFileSync(join(directory, "critique.json"), "utf8")) as CritiqueRecord;
       return { packetSha256: saved.packetSha256, critiqueSha256: saved.critiqueSha256, feeMicrousd: saved.feeMicrousd ?? 0, finishReason: saved.finishReason ?? null, usage: saved.usage ?? null,
@@ -103,17 +113,25 @@ export function checkLoopInput(base: LoopInput["base"]): void {
 
 export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies, control: { signal?: AbortSignal } = {}): Promise<LoopRecord> {
   checkLoopInput(input.base);
+  // The loop's own rule and every module a stage runs are in the source freeze, and a reused stage never calls the driver that
+  // checks it: a stale --runtime-sha256 is refused before the loop directory is touched (backlog item 11).
+  if (deps.runtimeSha256() !== input.base.expectedRuntimeSha256) throw new Error("loop_reviewed_source_changed");
   const loop = resolve(input.loopDirectory);
   mkdirSync(loop, { recursive: true, mode: 0o700 });
-  // A loop that already chose is terminal; a loop that stopped earlier keeps its start and the times of the stages it reuses.
+  // A loop that already chose is terminal; a loop that stopped earlier keeps its start and the times of the stages it reuses,
+  // and only under the version, selection rule, runtime, task, arm and pipeline it started with (its record is left as it was).
   let prior: LoopRecord | undefined;
   if (existsSync(join(loop, "loop.json"))) {
     prior = JSON.parse(readFileSync(join(loop, "loop.json"), "utf8")) as LoopRecord;
     if (prior.selected?.final) throw new Error("loop_terminal");
+    if (!Array.isArray(prior.stages) || prior.version !== LOOP_VERSION || prior.selectionRule !== SELECTION_PROTOCOL_VERSION || prior.runtimeSha256 !== input.base.expectedRuntimeSha256 ||
+        prior.task?.jobSha256 !== input.base.expectedJobSha256 || prior.task?.briefSha256 !== input.base.expectedBriefSha256 ||
+        prior.arm !== (input.base.cloudArm ? "cloud" : "local") || prior.pipeline !== (input.base.pipeline ?? null)) throw new Error("loop_record_mismatch");
   }
   const record: LoopRecord = { version: LOOP_VERSION, selectionRule: SELECTION_PROTOCOL_VERSION, startedAt: prior?.startedAt ?? deps.now(), finishedAt: null,
     task: { jobSha256: input.base.expectedJobSha256, briefSha256: input.base.expectedBriefSha256 }, runtimeSha256: input.base.expectedRuntimeSha256, arm: input.base.cloudArm ? "cloud" : "local", pipeline: input.base.pipeline ?? null,
-    stages: [], candidates: { a: null, b: null, repair: null }, seeded: { b: false, repair: false, snapshotSha256: null }, writeIdentityEqual: null, critique: null, selected: { stage1: null, final: null },
+    // A stage's interrupt mark (backlog item 11) outlives every invocation that stops before reaching that stage.
+    stages: (prior?.stages ?? []).filter(entry => entry.interrupted === true).map(entry => ({ ...entry })), candidates: { a: null, b: null, repair: null }, seeded: { b: false, repair: false, snapshotSha256: null }, writeIdentityEqual: null, critique: null, selected: { stage1: null, final: null },
     totals: Object.fromEntries(TOTAL_KEYS.map(key => [key, 0])) as LoopRecord["totals"], failure: null };
   const save = () => writeFileSync(join(loop, "loop.json"), `${canonical(record)}\n`, { mode: 0o600 });
   const log = (line: string) => appendFileSync(join(loop, "log.txt"), `${deps.now()} ${line}\n`, { mode: 0o600 });
@@ -122,38 +140,61 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
   const deliverables = deps.deliverables();
   const research = input.base.pipeline === "research";
   const interrupted = () => control.signal?.aborted === true;
-  /** A stage runs once: a finished stage is reused (with the times it was first recorded with), an unfinished one is refused, and nothing starts after an interrupt. */
-  const stage = async <T>(name: LoopCandidate | "critique", marker: string, run: () => Promise<T>): Promise<{ reused: boolean }> => {
+  /**
+   * A stage runs once: a finished stage is reused (with the times it was first recorded with), an unfinished one is refused, and
+   * nothing starts after an interrupt. A stage running when the loop's interrupt fired is marked (the driver cancels it on the same
+   * signal), also when the run then threw; the record carries the mark until the stage is reused (the mark goes with it) or runs afresh.
+   */
+  const stage = async <T>(name: LoopCandidate | "critique", marker: string, run: () => Promise<T>): Promise<{ reused: boolean; interrupted: boolean }> => {
     const directory = join(loop, name);
+    // Only marked entries are carried from the prior record, at most one per stage.
+    const carried = record.stages.findIndex(entry => entry.stage === name);
     if (existsSync(join(directory, marker))) {
+      const marked = carried >= 0;
+      if (marked) record.stages.splice(carried, 1);
       const earlier = prior?.stages.find(entry => entry.stage === name && !entry.reused) ?? prior?.stages.find(entry => entry.stage === name);
-      record.stages.push({ stage: name, startedAt: earlier?.startedAt ?? deps.now(), finishedAt: earlier?.finishedAt ?? deps.now(), reused: true }); log(`${name} reused`); return { reused: true };
+      record.stages.push({ stage: name, startedAt: earlier?.startedAt ?? deps.now(), finishedAt: earlier?.finishedAt ?? deps.now(), reused: true, ...(marked ? { interrupted: true as const } : {}) });
+      log(`${name} reused`); return { reused: true, interrupted: marked };
     }
     if (existsSync(directory)) throw new Error("loop_stage_incomplete");
     if (interrupted()) throw new Error("loop_interrupted");
+    // The stage runs afresh: an earlier run's mark no longer describes it.
+    if (carried >= 0) record.stages.splice(carried, 1);
     const startedAt = deps.now(); log(`${name} start`);
-    await run();
-    record.stages.push({ stage: name, startedAt, finishedAt: deps.now(), reused: false }); log(`${name} end`);
-    if (interrupted()) throw new Error("loop_interrupted");
-    return { reused: false };
+    try { await run(); }
+    catch (error) {
+      if (interrupted()) record.stages.push({ stage: name, startedAt, finishedAt: deps.now(), reused: false, interrupted: true });
+      throw error;
+    }
+    const cut = interrupted();
+    record.stages.push({ stage: name, startedAt, finishedAt: deps.now(), reused: false, ...(cut ? { interrupted: true as const } : {}) }); log(`${name} end`);
+    if (cut) throw new Error("loop_interrupted");
+    return { reused: false, interrupted: false };
   };
   /** Every candidate, fresh or reused, must be this loop's: the task, the runtime the samples ran under, and the lineage the stage order implies. */
-  const summarise = (name: LoopCandidate, expect: { seededFrom?: string | null; packet?: string | null; repairOf?: CandidateSummary }) => {
+  const summarise = (name: LoopCandidate, expect: { seededFrom?: string | null; packet?: string | null; repairOf?: CandidateSummary }, ran: { interrupted: boolean }) => {
     const summary = deps.summarize(join(loop, name), deliverables);
     const lineageOk = expect.seededFrom === undefined ? true
       : expect.seededFrom === null ? summary.researchFrom === null
       : summary.researchFrom?.sourceJobId === expect.seededFrom && summary.researchFrom.snapshotSha256 === expect.packet;
     const repairOk = expect.repairOf === undefined ? summary.repairSource === null
       : summary.repairSource?.resultSha256 === expect.repairOf.resultSha256 && summary.repairSource.freezeSha256 === expect.repairOf.freezeSha256;
-    if (summary.taskJobSha256 !== record.task.jobSha256 || summary.taskBriefSha256 !== record.task.briefSha256 || summary.runtimeSha256 !== record.runtimeSha256 || !lineageOk || !repairOk) throw new Error("loop_stage_mismatch");
+    // A summary must carry every count the totals add (backlog item 11): a missing one would turn a total into NaN and lose the record.
+    if (summary.taskJobSha256 !== record.task.jobSha256 || summary.taskBriefSha256 !== record.task.briefSha256 || summary.runtimeSha256 !== record.runtimeSha256 || !lineageOk || !repairOk ||
+        TOTAL_KEYS.some(key => !Number.isFinite(summary[key]) || summary[key] < 0)) throw new Error("loop_stage_mismatch");
     record.candidates[name] = summary; for (const key of TOTAL_KEYS) record.totals[key] += summary[key];
     // A completed research packet does not resolve a later writer request. Keep
     // this stage's evidence/counts, but never admit another stage past uncertain
-    // dispatches (including committed receipts) or a failed transport. An assist
-    // skipped (unknown) or failed into the host fallback is counted apart and
+    // dispatches (including committed receipts) or any failed row but a zero-fee one. An
+    // assist skipped (unknown) or failed into the host fallback is counted apart and
     // admitted (backlog item 10): the cloud row stays at-most-once, local work went on.
+    // A resolved zero-fee failure reserved, settled and left pending nothing, and its
+    // stage already handled it, so it is admitted too (backlog item 11).
     if (summary.unknownDispatches !== 0) throw new Error("loop_stage_unresolved_dispatch");
-    if (summary.failedDispatches !== 0) throw new Error("loop_stage_failed_dispatch");
+    if (summary.failedDispatches !== summary.zeroFeeFailedDispatches) throw new Error("loop_stage_failed_dispatch");
+    // Backlog item 11: a stage the loop's own interrupt cut ended on the operator's stop, not on the task; it is no candidate. The
+    // operator moves it aside and the loop reruns it, as for an unfinished stage. A marked stage that still submitted is complete.
+    if (ran.interrupted && summary.status !== "submitted") throw new Error("loop_stage_interrupted");
     return summary;
   };
   const addCritique = (usage: CritiqueUsage | null, feeMicrousd: number, finishReason: string | null) => {
@@ -166,8 +207,8 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
   try {
     save();
     const aDir = join(loop, "a"), bDir = join(loop, "b");
-    await stage("a", "result.json", () => deps.runSample({ ...input.base, outputDirectory: aDir }));
-    const a = summarise("a", { seededFrom: null });
+    const aRan = await stage("a", "result.json", () => deps.runSample({ ...input.base, outputDirectory: aDir }));
+    const a = summarise("a", { seededFrom: null }, aRan);
     // One reading stage per loop: without a's packet there is nothing b or the repair may write from, and no second stage is paid for.
     const transfer = research ? deps.transferStatus(aDir) : null, packet = transfer?.snapshotSha256 ?? null;
     if (research && packet === null) {
@@ -176,8 +217,8 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
       record.selected.final = { candidate: "a", step: "stage_failed", ...(seedRefusal ? { seedRefusal } : {}) }; log(`stage failed in a (${seedRefusal ?? "no_packet"}): loop ends`); return record;
     }
     record.seeded.b = research; record.seeded.snapshotSha256 = packet;
-    await stage("b", "result.json", () => deps.runSample({ ...input.base, outputDirectory: bDir, ...(research ? seeded(aDir) : {}) }));
-    const b = summarise("b", research ? { seededFrom: a.jobId, packet } : { seededFrom: null });
+    const bRan = await stage("b", "result.json", () => deps.runSample({ ...input.base, outputDirectory: bDir, ...(research ? seeded(aDir) : {}) }));
+    const b = summarise("b", research ? { seededFrom: a.jobId, packet } : { seededFrom: null }, bRan);
     record.writeIdentityEqual = a.writeIdentity !== null && b.writeIdentity !== null ? a.writeIdentity === b.writeIdentity : null;
     const first = compareCandidates(a, b);
     const chosen: "a" | "b" = first.winner === "first" ? "a" : "b";
@@ -189,12 +230,14 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
     let critiqued: CritiqueRecord;
     try {
       await stage("critique", "critique.json", () => deps.critique({ runDirectory: join(loop, chosen), taskDirectory: input.base.taskDirectory, expectedJobSha256: input.base.expectedJobSha256,
-        expectedBriefSha256: input.base.expectedBriefSha256, imageId: input.base.imageId, outputDirectory: critiqueDir, critic: "local" }));
+        expectedBriefSha256: input.base.expectedBriefSha256, imageId: input.base.imageId, outputDirectory: critiqueDir, critic: "local" }, { signal: control.signal }));
       // The critique tool's own record is the critique, fresh or reused, so a resumed loop counts the call it already made; it must be a critique of the draft chosen now, on this loop's packet.
       critiqued = deps.readCritique(critiqueDir);
       if (critiqued.source && (critiqued.source.resultSha256 !== selected.resultSha256 || critiqued.source.freezeSha256 !== selected.freezeSha256)) throw new Error("loop_stage_mismatch");
       if ((critiqued.researchSnapshotSha256 ?? null) !== (research ? packet : null)) throw new Error("loop_stage_mismatch");
     } catch (error) {
+      // The loop's interrupt stopped the critique (E1's bug d): the loop can be resumed, never ended on a critique failure.
+      if (interrupted()) { if (failureCode(error, "") !== "loop_interrupted") sideError("loop_interrupted", error); throw new Error("loop_interrupted"); }
       const code = failureCode(error, "repair_critique_failed");
       if (code === "loop_stage_incomplete" || code === "loop_stage_mismatch" || code === "loop_interrupted") throw error;
       sideError(code, error);
@@ -209,10 +252,11 @@ export async function runSelectionLoop(input: LoopInput, deps: LoopDependencies,
     addCritique(critiqued.usage, critiqued.feeMicrousd, critiqued.finishReason);
     save();
     record.seeded.repair = research;
-    await stage("repair", "result.json", () => deps.runSample({ ...input.base, outputDirectory: join(loop, "repair"), repairFrom: critiqueDir, ...(research ? seeded(aDir) : {}) }));
-    const repair = summarise("repair", { ...(research ? { seededFrom: a.jobId, packet } : { seededFrom: null }), repairOf: selected });
-    const second = compareCandidates(repair, selected);
-    record.selected.final = { candidate: second.winner === "first" ? "repair" : chosen, step: second.step, entailmentRates: second.entailmentRates };
+    const repairRan = await stage("repair", "result.json", () => deps.runSample({ ...input.base, outputDirectory: join(loop, "repair"), repairFrom: critiqueDir, ...(research ? seeded(aDir) : {}) }));
+    const repair = summarise("repair", { ...(research ? { seededFrom: a.jobId, packet } : { seededFrom: null }), repairOf: selected }, repairRan);
+    // Protocol 2 (finding E9): the selected draft is the comparison's first, so a tie keeps it; the rates are [draft, repair].
+    const second = compareCandidates(selected, repair);
+    record.selected.final = { candidate: second.winner === "first" ? chosen : "repair", step: second.step, entailmentRates: second.entailmentRates };
     log(`final ${record.selected.final.candidate} (${second.step})`);
     return record;
   } catch (error) {

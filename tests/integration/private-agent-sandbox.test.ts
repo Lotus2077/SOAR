@@ -168,6 +168,22 @@ describe.skipIf(!enabled)("real credential-free isolated private-agent tools", (
     } finally { await sandbox.close(); }
   }, 60_000);
 
+  it("lists the host's pinned paths first inside the container, past a bulky directory that sorts first, never following a pinned link (E1-L)", async () => {
+    const jobId = randomUUID(), sandbox = await make(jobId, [{ path: "input.txt", bytes: Buffer.from("synthetic input") }]);
+    try {
+      const make1100 = `python3 -I -c 'import os; os.makedirs(".venv/lib"); [open(".venv/lib/f%04d.py" % i, "w").write("x") for i in range(${PRIVATE_SANDBOX_LIMITS.files + 76})]'`;
+      expect((await sandbox.execute(`${make1100} && printf report > output.txt && ln -s /etc/hosts link.txt`, { timeoutMs: 30_000 })).exitCode).toBe(0);
+      // Without pins the depth-first walk fills the cap inside .venv, so the input and the deliverable are capped.
+      const unpinned = await sandbox.listFiles();
+      expect(unpinned.files.map(file => file.path)).not.toContain("output.txt"); expect(unpinned.counts.cap).toBe(78);
+      const pinned = await sandbox.listFiles(["output.txt", "input.txt", "link.txt", "../escape"]);
+      expect(pinned.files).toHaveLength(PRIVATE_SANDBOX_LIMITS.files);
+      expect(pinned.files.filter(file => !file.path.startsWith(".venv/"))).toEqual([{ path: "input.txt", size: 15 }, { path: "output.txt", size: 6 }]);
+      expect(pinned.counts).toMatchObject({ cap: 78, symlink: 1 }); expect(pinned.complete).toBe(true);
+      expect(await sandbox.execute("echo alive", { timeoutMs: 5000 })).toMatchObject({ exitCode: 0, stdout: "alive\n" });
+    } finally { await sandbox.close(); }
+  }, 120_000);
+
   it("kills observed command descendants on cancel and confirms cleanup", async () => {
     const jobId = randomUUID(), sandbox = await make(jobId), controller = new AbortController();
     try {

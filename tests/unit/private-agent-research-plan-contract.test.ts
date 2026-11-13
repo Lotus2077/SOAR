@@ -5,7 +5,7 @@ import { PrivateAgentModel } from "../../src/main/private-agent/model";
 import { deriveBriefUnits, ResearchPlanSchema, validateReadyResearchPacket } from "../../src/main/private-agent/research-coverage";
 import { assessResearchPlanReply, buildResearchPlanRepair, RESEARCH_PLAN_JSON_SCHEMA, ResearchPlanAttemptSchema } from "../../src/main/private-agent/research-plan";
 import { RESEARCH_FILES, runResearchPipeline, type ResearchStageCounts } from "../../src/main/private-agent/research-pipeline";
-import { researchV4Reply, researchV4Sources, RESEARCH_V4_TEST_BRIEF } from "../helpers/research-v4-fixture";
+import { assertResearchUserLayout, parseResearchUserContent, researchV4Reply, researchV4Sources, RESEARCH_V4_TEST_BRIEF } from "../helpers/research-v4-fixture";
 
 type Stage = "index" | "plan" | "extract" | "synthesise";
 type Sent = { stage: Stage; input: any; body: any; system: string };
@@ -15,7 +15,8 @@ function setup(script?: Script, maxRequestBytes = 655360) {
   const config = { destinationId: "owned", model: "Synthetic", maxOutputTokens: 16384, maxRequestBytes,
     inputUsdPerMillion: 0, outputUsdPerMillion: 0, thinking: "medium" as const };
   const request = vi.fn(async (request: { body: string }, settle: (bytes: Buffer) => number) => {
-    const body = JSON.parse(request.body), system = body.messages[0].content as string, input = JSON.parse(body.messages[1].content);
+    const body = JSON.parse(request.body), system = body.messages[0].content as string;
+    assertResearchUserLayout(system, body.messages[1].content); const input = parseResearchUserContent(body.messages[1].content);
     const stage: Stage = system.startsWith("You index") ? "index" : system.startsWith("You plan") ? "plan" : system.startsWith("You extract") ? "extract" : "synthesise";
     const call = { stage, input, body, system }, ordinal = calls.filter(c => c.stage === stage).length;
     calls.push(call);

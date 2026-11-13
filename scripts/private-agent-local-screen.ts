@@ -1,9 +1,10 @@
 import Database from "better-sqlite3";
-import { randomUUID } from "node:crypto";
-import { constants, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
+import { constants, closeSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import http from "node:http";
-import { join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { z } from "zod";
 import { loadConfig, type LoadConfigOptions, type SoarConfig } from "../src/main/config";
 import { PrivateAgentBroker, type BrokerDestination } from "../src/main/private-agent/broker";
@@ -138,6 +139,73 @@ export function localScreenSourceFreeze() {
     "runtime/private-agent/Dockerfile", "runtime/private-agent/requirements.txt"];
   const files = paths.sort().map(path => ({ path, sha256: digest(readFileSync(path)) }));
   return { files, sha256: digest(canonical(files)) };
+}
+
+/** The repository the driver's own file lives in: the source freeze must be read from its root for a run's commit to describe it. */
+const LOCAL_SCREEN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+/** Read-only git as scripts/verify-release-head.ts runs it: no user or system configuration, pager, prompts or optional locks. */
+const RUN_GIT_ENVIRONMENT: Readonly<NodeJS.ProcessEnv> = Object.freeze({ PATH: "/usr/bin:/bin", LANG: "C", LC_ALL: "C", TZ: "UTC",
+  GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null", GIT_CONFIG_NOSYSTEM: "1", GIT_NO_LAZY_FETCH: "1", GIT_NO_REPLACE_OBJECTS: "1",
+  GIT_OPTIONAL_LOCKS: "0", GIT_PAGER: "cat", GIT_PROTOCOL_FROM_USER: "0", GIT_TERMINAL_PROMPT: "0" });
+/** The verifier's overrides, so no hook, file-system monitor or external diff runs. */
+const RUN_GIT_CONFIG = Object.freeze(["-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "diff.external=", "-c", "diff.trustExitCode=false", "-c", "protocol.allow=never"]);
+/** One read-only git query; the arguments never carry a path but the source freeze's own relative ones. */
+export type LocalScreenGit = (args: readonly string[]) => string;
+/** Git in `root` as its working directory, with no repository found above it, stdin closed, stderr discarded and bounded time and output. */
+export function localScreenGitRunner(root: string): LocalScreenGit {
+  return args => execFileSync("/usr/bin/git", [...RUN_GIT_CONFIG, ...args], { cwd: root, env: { ...RUN_GIT_ENVIRONMENT, GIT_CEILING_DIRECTORIES: dirname(root) },
+    encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], timeout: 10_000, maxBuffer: 16 * 1024 * 1024 });
+}
+/** The commit a run starts at, and whether a checkout of it would not reproduce the frozen sources (backlog item 11, finding E4). */
+export interface LocalScreenGitState { commit: string; dirty: boolean }
+const GIT_OBJECT_NAME = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/u;
+/** Git's blob id of these bytes in the repository's object format: SHA-1 beside a 40-hex commit, SHA-256 beside a 64-hex one. */
+function gitBlobId(bytes: Buffer, format: "sha1" | "sha256"): string {
+  return createHash(format).update(`blob ${bytes.length}\0`).update(bytes).digest("hex");
+}
+/** Whether a `git config --get-regexp` query names anything; git exits 1 when nothing matches. */
+function gitConfigured(git: LocalScreenGit, args: readonly string[]): boolean {
+  try { return git(args).trim().length > 0; } catch (error) { if ((error as { status?: unknown }).status === 1) return false; throw error; }
+}
+/**
+ * Backlog item 11, part 2 (BL-20261109-0422): the run's commit for its freeze, so a registry row names the commit the run executed
+ * rather than the one the row is written at. `dirty` is true when the repository's own clean test fails (anything staged, unstaged,
+ * or untracked and not ignored by the repository's own rules), when an index entry is one `git status` does not compare
+ * (skip-worktree, assume-unchanged, sparse checkout), or when a frozen file's bytes are not the ones the source freeze hashed or not
+ * its blob in `commit`. So `dirty: false` means a checkout of `commit` reproduces the source freeze, as long as a checkout writes
+ * blobs unchanged (no filter, `ident` or CRLF conversion; true of this repository's `.gitattributes`). Null when git cannot say, a
+ * filter command is configured (the status would run it), HEAD moves while the tree is read, or the working directory the source
+ * freeze reads is not the driver's repository. Status lines and tree entries name paths: they stay in memory and are never stored,
+ * printed or rethrown.
+ */
+export function localScreenGitState(frozen: readonly { path: string; sha256: string }[], options: { root?: string; cwd?: string; git?: LocalScreenGit } = {}): LocalScreenGitState | null {
+  try {
+    const real = realpathSync.native;
+    const root = real(options.root ?? LOCAL_SCREEN_ROOT);
+    if (real(options.cwd ?? process.cwd()) !== root) return null;
+    const git = options.git ?? localScreenGitRunner(root);
+    if (real(git(["rev-parse", "--show-toplevel"]).trim()) !== root) return null;
+    if (gitConfigured(git, ["config", "--name-only", "--get-regexp", "^filter\\."])) return null;
+    const commit = git(["rev-parse", "--verify", "HEAD^{commit}"]).trim();
+    if (!GIT_OBJECT_NAME.test(commit)) return null;
+    let dirty: boolean;
+    try { dirty = git(["status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none"]).length > 0; }
+    catch (error) { if ((error as { code?: unknown }).code !== "ENOBUFS") return null; dirty = true; }
+    // A tracked file deleted behind skip-worktree or assume-unchanged is missing from both the status and the source freeze's listing.
+    if (!dirty) dirty = git(["ls-files", "-z", "-v"]).split("\0").some(entry => entry.length > 0 && !entry.startsWith("H "));
+    if (!dirty && frozen.length) {
+      const blobs = new Map<string, string>();
+      for (const entry of git(["--literal-pathspecs", "ls-tree", "-r", "-z", commit, "--", ...frozen.map(file => file.path)]).split("\0")) {
+        const match = /^[0-7]{6} blob ([0-9a-f]{40}(?:[0-9a-f]{24})?)\t(.+)$/su.exec(entry);
+        if (match) blobs.set(match[2]!, match[1]!);
+      }
+      const format = commit.length === 64 ? "sha256" : "sha1";
+      dirty = frozen.some(file => { const bytes = readFileSync(join(root, file.path)); return digest(bytes) !== file.sha256 || blobs.get(file.path) !== gitBlobId(bytes, format); });
+    }
+    // Every answer above must describe `commit`: a commit made while the tree was read leaves nothing to record.
+    if (git(["rev-parse", "--verify", "HEAD^{commit}"]).trim() !== commit) return null;
+    return { commit, dirty };
+  } catch { return null; }
 }
 
 export type LocalScreenProfile = CoordinatorProfileName;
@@ -279,7 +347,7 @@ export async function runLocalArtifactScreen(input: {
   /** H4: write from the evidence packet another run's reading stage produced (that run's directory) instead of running the stage; local writer, claims ledger, heavy profile. */
   researchFrom?: string;
   /**
-   * Backlog item 4: retain every rejected or truncated reading-stage reply, with its validation reasons, as files under
+   * Backlog item 4: retain every rejected or truncated reading-stage reply (and since 7a.1 every kept extraction reply with drops), with its validation reasons, as files under
    * `<output-directory>/diagnostics/`; refused unless git ignores the output directory. The driver's lineage is
    * synthetic-attested, so the session's label gate admits the sink; a seeded run has no stage and builds none.
    */
@@ -296,6 +364,8 @@ configOptions?: LoadConfigOptions) {
         input.publicRetrieval || input.documentReview))) throw new Error("local_screen_arguments_invalid");
   const sourceFreeze = localScreenSourceFreeze();
   if (sourceFreeze.sha256 !== input.expectedRuntimeSha256) throw new Error("local_screen_reviewed_source_changed");
+  // Backlog item 11, part 2 (finding E4): the commit this run executes, read once beside the source freeze, for its registry row.
+  const git = localScreenGitState(sourceFreeze.files);
   const task = loadPreparedOperatorTask(input.taskDirectory, { jobSha256: input.expectedJobSha256, briefSha256: input.expectedBriefSha256 });
   const profileName: LocalScreenProfile = input.profile ?? "standard", coordinator = COORDINATOR_PROFILES[profileName], budget = LOCAL_SCREEN_BUDGETS[profileName];
   // The prepared task binds the September contract caps; the profile's budget replaces them for this run only.
@@ -409,6 +479,8 @@ configOptions?: LoadConfigOptions) {
       ...(deckArtifacts(modePhase).length ? { deckCheck: { version: DECK_CHECK_VERSION, paths: deckArtifacts(modePhase) } } : {}),
       // SC: {sha256, version, date, entry} only when the pair selects a card; never the path, never inside `pipeline`.
       ...servingCardFreeze(servingCard),
+      // Backlog item 11, part 2: {commit, dirty} or null; never a path.
+      git,
       limits: { requests: budget.maxRequests, modelCalls: budget.maxModelCalls, toolCalls: budget.maxToolCalls, outputTokens: modelConfig.maxOutputTokens,
         inputBytes: coordinator.maxRequestBytes, requestTimeoutMs: cloud && !pipeline ? cloud.destination.timeoutMs : coordinator.requestTimeoutMs, elapsedMs: budget.maxElapsedMs, feeMicrousd: cloud?.maxFeeMicrousd ?? 0 },
       startedAt: new Date().toISOString(), artifactAccepted: null };

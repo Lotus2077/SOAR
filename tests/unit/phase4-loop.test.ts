@@ -569,11 +569,14 @@ describe("H4 select-and-repair loop", () => {
 });
 
 describe("E1 recoverability: the harness loop admits retried rows and stops on an interrupt in any later sample (S1, S2)", () => {
-  /** A sample whose result lists these dispatch rows, read through the real result-to-summary mapping (selection.ts). */
+  /**
+   * A sample whose result lists these dispatch rows, read through the real result-to-summary mapping (selection.ts). A task end, so the loop's
+   * admission rules are what decide: part 3b resumes an infrastructure end (runtime_failure_progress_preserved is one since part 3a) instead.
+   */
   function ledgerSummary(rows: { status: string; purpose?: string }[]): CandidateSummary {
     const directory = loopDir(); mkdirSync(directory, { recursive: true });
     writeFileSync(join(directory, "freeze.json"), JSON.stringify({ jobId: "ja", startedAt: "t0", sourceFreezeSha256: h("4"), taskBinding: { jobSha256: h("1"), briefSha256: h("2") } }));
-    writeFileSync(join(directory, "result.json"), JSON.stringify({ status: "incomplete", reason: "runtime_failure_progress_preserved", finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [],
+    writeFileSync(join(directory, "result.json"), JSON.stringify({ status: "incomplete", reason: "bounded_allowance_exhausted", finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [],
       dispatches: rows.map(row => ({ feeMicrousd: 0, ...row })) }));
     const db = new Database(join(directory, "state.sqlite"));
     db.exec("CREATE TABLE private_agent_events (job_id TEXT, sequence INTEGER, value TEXT)"); db.close();
@@ -608,17 +611,21 @@ describe("E1 recoverability: the harness loop admits retried rows and stops on a
       expect(record.stages.filter(stage => stage.reused).map(stage => stage.stage)).toEqual(name === "b" ? ["a", "b"] : ["a", "b", "critique", "repair"]);
     });
 
-  it("pins the limitation item 11's PR 11.1 flipped: a rerun refuses, with loop_stage_interrupted, a sample the loop's interrupt cut before it submitted", async () => {
-    // In production the driver's own interrupt handler cancels the sample's session, so the cut sample ends cancelled. Before 11.1 the rerun reused it
-    // and never ran it again; since 11.1 the rerun refuses such a stage with loop_stage_interrupted, runs nothing and keeps the stage's mark.
+  it("pins item 11's part 3b, which moved 11.1's refusal: a rerun resumes, once, a sample the loop's interrupt cut before it submitted, and the mark leaves with the moved run", async () => {
+    // In production the driver's own interrupt handler cancels the sample's session, so the cut sample ends cancelled. Before 11.1 the rerun reused it and
+    // never ran it again; 11.1 refused it with loop_stage_interrupted; since part 3b the rerun moves it to b.infra-1 and runs it again, once.
     const summaries = candidates(false, { b: { status: "incomplete", reason: "cancelled_or_deadline" } });
     const dir = loopDir(), abort = new AbortController();
     const { deps } = fakes({ summaries, onRun: run => { if (run.outputDirectory.endsWith("/b")) abort.abort(); } });
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, deps, { signal: abort.signal })).rejects.toThrow("loop_interrupted");
-    const again = fakes({ summaries });
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, again.deps)).rejects.toThrow("loop_stage_interrupted");
-    expect(again.calls.runs).toHaveLength(0);
-    expect(read(dir)).toMatchObject({ failure: "loop_stage_interrupted", selected: { stage1: null, final: null },
-      stages: [{ stage: "a", reused: true }, { stage: "b", reused: true, interrupted: true }] });
+    const cut = read(dir).stages;
+    expect(cut).toEqual([stageEntry("a", false), stageEntry("b", false, true)]);
+    const again = fakes({ summaries, reruns: { b: summary({ jobId: "jb2", freezeSha256: h("d"), resultSha256: h("e") }) } });
+    const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, again.deps);
+    expect(again.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["b", "repair"]); expect(again.calls.critiques).toHaveLength(1);
+    expect(record).toMatchObject({ failure: null, stopped: null, resumes: [{ stage: "b", cause: "operator_stop", as: "rerun" }] }); expect(record.selected.final).not.toBeNull();
+    expect(existsSync(join(dir, "b.infra-1"))).toBe(true);
+    // Exact entries: a reused with its first times; b run afresh, its cut run and the mark moved aside; nothing marked.
+    expect(record.stages).toEqual([{ ...cut[0], reused: true }, stageEntry("b", false), stageEntry("critique", false), stageEntry("repair", false)]);
   });
 });

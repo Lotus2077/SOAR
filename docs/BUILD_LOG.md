@@ -33710,7 +33710,7 @@ Next gate: The owner's go-ahead to push the integration branch, retarget #74, #7
 
 References: BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0331-loop-selection-protocol-2-design; BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0354-document-review-flags-design; BL-20261109-0422-registry-run-commit-design; BL-20261109-0447-research-tolerance-design; BL-20261109-0456-ordered-pool-implemented; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0501-research-stage-pause-design; BL-20261109-0515-infra-classification-design; BL-20261109-0552-research-tolerance-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261110-0712-correction-research-tolerance-repin; BL-20261110-0712-document-review-flags-implemented; BL-20261110-0723-correction-infra-classification-train-review; BL-20261110-0900-correction-research-tolerance-held-repair; BL-20261110-0933-document-review-flags-party-terms-bounded; BL-20261110-1100-document-review-flags-party-terms-pinned; BL-20261110-1100-correction-research-train-1-review-pins; pull requests #66, #67, #68, #69, #70, #71, #72, #73, #74, #76, #77, #78, #81 and #83; docs/HANDOFF.md section 5; docs/experiments/README.md; scripts/validate-build-log.ts; scripts/private-agent-local-screen.ts (`localScreenSourceFreeze`); tests/helpers/research-protocol-pin.ts; tests/unit/phase4-loop.test.ts.
 
-### BL-20261109-0530-e1-recoverability-session-implemented -- 2026-11-09 -- E1-T3 implemented: the research session's stop matrix, retried stage calls, two pinned limitations and the emulated cloud assist, on the real broker; the pause column waits for 6.2
+### BL-20261113-0816-e1-recoverability-session-implemented -- 2026-11-13 -- E1-T3 implemented: the research session's stop matrix, retried stage calls, two pinned limitations and the emulated cloud assist, on the real broker; the pause column waits for 6.2
 
 Status: `Implemented`
 
@@ -33771,3 +33771,68 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: S-desk's PR 6.2 merges first, since it rewrites this file's pause tests (merge order in the lane plan). This branch then rebases onto `main`, adds the pause column asserting 6.2's result, and leaves draft. For that rebase: lane S-desk's 6.2 brief says "session.cancel() mid-stage still gives research_cancelled", but on today's `main` a cancel mid-stage ends the session `session_cancelled`, which this PR pins; the rebase reconciles the two. After that: CI green and the owner's merge go-ahead. The orchestrator re-stamps this entry's ID after main's tail at merge.
 
 References: E1's card (the `Proposed` entry in Lotus2077/SOAR#66); docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E1; BL-20261107-0809-zero-fee-failures-resolve-design (decision 6 and finding D14); BL-20261107-0839-assist-purpose-exception-design; BL-20261025-1242-h2b-h2c-research-pipeline-design (the stage's pause and cancel results).
+
+### BL-20261113-0817-correction-e1-recoverability-session-restamp -- 2026-11-13 -- Correction: E1-T3's Implemented entry carries ID BL-20261113-0816-e1-recoverability-session-implemented; it was authored at 05:30 UTC on 2026-11-09 as BL-20261109-0530, and its branch, rebased onto `main` after 6.2, adds the pause column that entry left to 6.2
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the re-stamp of E1-T3's Implemented entry and the rebase of its pull request, #75, onto `main` after merge train 1.
+- The re-stamp follows the owner's rule of 2026-11-13: an entry on an unmerged branch is re-stamped after `main`'s tail when it merges, and a correction records its original ID and time. That decision is recorded on PR #87.
+- The rebase adds the pause column that the entry left to backlog item 6's PR 6.2 (#77), now on `main` (BL-20261109-0607-research-stage-pause-implemented).
+- History of the entry: it was committed at 0dddf60 on 2026-11-09, on #75 based on `main` at 2982ca7, and authored at 05:30 UTC as BL-20261109-0530, with the same slug. Merge train 1 (BL-20261110-1506-merge-train-1-integration) then put `main`'s tail after it.
+
+Decisions:
+1. **The re-stamp.** The heading's ID moved to BL-20261113-0816 and its date field to 2026-11-13, since the validator requires an ID's date to match the heading's date. No other text in the entry changed, and nothing else in the repository cited the old ID. The pull request description and the commit messages keep the old ID.
+2. **The rebase.** #75 is rebased onto `main` at 9d10b9a.
+   - The review-fix commit replayed unchanged (`git range-diff`).
+   - The first test commit conflicted only in the research-session fixture's destinations: 6.2 added `priced-planner` and E1-T3 added `cloud`, and both are kept.
+   - The entry commit only moved to `main`'s tail.
+3. **The pause column.** The S1 matrix ("E1 recoverability: a research stage stopped mid-call on the real broker (S1)") gains a pause mid-call. It runs at each of the four stages and on the second of two extraction calls, five cases. Each asserts 6.2's result:
+   - the zero-fee row resolves `failed` with code `cancelled`, and no row is left `unknown` or `committed`;
+   - the stage records `denied: "cancelled"`, and in the two-chunk case one call;
+   - the writer is not reached;
+   - the run ends incomplete `research_stage_not_replayed`, as does its resume, and nothing is sent again.
+
+   A pause inside a started stage ends the task: the stage has no per-chunk continuation.
+4. **What the rebase settles or makes stale in the entry's body**, which is not edited:
+   - Its Next gate's coordination point with 6.2 is settled.
+     - 6.2's brief said "session.cancel() mid-stage still gives research_cancelled". Its implementation keeps the cancel at `session_cancelled`, which E1-T3 pins.
+     - 6.2 rewrote the pause tests, including the resume assertion the entry calls ":197". E1-T3 still does not touch them.
+   - Its Limitations' "The S1 matrix has no pause column" no longer holds.
+   - "The orchestrator re-stamps this entry's ID" is superseded by decision 1: under the owner's rule, each lane re-stamps its own entries.
+   - Its Scope's "not yet on `main`" no longer holds. The card, BL-20261109-0351-e1-recoverability-card, has been on `main` since train 1.
+5. **The card's pinned limitation A7** ("a paused research stage cannot resume: item 6 (PR 6.2)", BL-20261109-0351-e1-recoverability-card decision (4)). 6.2 settled it by ending the task, not by resuming the stage, and these five cases pin that. A resume of a paused stage still needs a per-chunk continuation, which no merged part of items 7 and 8 adds.
+
+Changes:
+- tests/unit/private-agent-research-session.test.ts:
+  - the pause mode in the S1 matrix's `stoppedAt`, its outcomes and its two `it.each` lists;
+  - the fixture's merged destinations.
+- docs/BUILD_LOG.md: the entry's heading (ID and date) and this entry.
+- No `src/` file changes.
+
+Evidence: On the owner's Mac, at the rebased head with the pause column and the re-stamp (load average about 4 to 7):
+- `pnpm exec vitest run tests/unit/private-agent-research-session.test.ts`: 44 passed. Under `-t "E1 recoverability"`, 27 passed: the 22 reviewed and the five pause cases.
+- With the pause trigger removed in a scratch copy, the five pause cases fail and the other 22 pass.
+- `pnpm exec vitest run -t "E1 recoverability"`: 9 files and 82 tests passed: `main`'s 55 and this pull request's 27.
+- `pnpm exec vitest run`: 187 files (174 passed, 13 skipped) and 3,307 tests (3,221 passed, 86 skipped, 0 failed), in 79.3 s.
+- `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- The pause cases cover zero-fee local roles only.
+- The priced-planner pause (E1's bug (b), an `unknown` row) is 6.2's own test, pinned until 10.b.
+- The entry's other limitations stand. In particular, the stop cases assume one in-flight dispatch per job, and must be rerun with K > 1 once item 8 lands.
+- If an entry with a later ID reaches `main` before #75 merges, these two entries are re-stamped again.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of the rebased head, CI green, and the owner's go-ahead.
+
+References:
+- BL-20261113-0816-e1-recoverability-session-implemented
+- BL-20261109-0607-research-stage-pause-implemented
+- BL-20261109-0501-research-stage-pause-design
+- BL-20261110-1506-merge-train-1-integration
+- BL-20261109-0351-e1-recoverability-card
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)

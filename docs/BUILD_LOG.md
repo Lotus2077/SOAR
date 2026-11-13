@@ -33710,7 +33710,7 @@ Next gate: The owner's go-ahead to push the integration branch, retarget #74, #7
 
 References: BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0331-loop-selection-protocol-2-design; BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0354-document-review-flags-design; BL-20261109-0422-registry-run-commit-design; BL-20261109-0447-research-tolerance-design; BL-20261109-0456-ordered-pool-implemented; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0501-research-stage-pause-design; BL-20261109-0515-infra-classification-design; BL-20261109-0552-research-tolerance-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261110-0712-correction-research-tolerance-repin; BL-20261110-0712-document-review-flags-implemented; BL-20261110-0723-correction-infra-classification-train-review; BL-20261110-0900-correction-research-tolerance-held-repair; BL-20261110-0933-document-review-flags-party-terms-bounded; BL-20261110-1100-document-review-flags-party-terms-pinned; BL-20261110-1100-correction-research-train-1-review-pins; pull requests #66, #67, #68, #69, #70, #71, #72, #73, #74, #76, #77, #78, #81 and #83; docs/HANDOFF.md section 5; docs/experiments/README.md; scripts/validate-build-log.ts; scripts/private-agent-local-screen.ts (`localScreenSourceFreeze`); tests/helpers/research-protocol-pin.ts; tests/unit/phase4-loop.test.ts.
 
-### BL-20261110-1130-e1-recoverability-pipeline-seed-implemented -- 2026-11-10 -- E1-T2 implemented: invalid JSON twice at each stage, a malformed body in each stage on the real broker, the split arm's Anthropic planner after a 529, 512 KiB corpora, retried and skipped rows through the producer and the seed, and the D4 and D8 pins
+### BL-20261113-0810-e1-recoverability-pipeline-seed-implemented -- 2026-11-13 -- E1-T2 implemented: invalid JSON twice at each stage, a malformed body in each stage on the real broker, the split arm's Anthropic planner after a 529, 512 KiB corpora, retried and skipped rows through the producer and the seed, and the D4 and D8 pins
 
 Status: `Implemented`
 
@@ -33855,3 +33855,46 @@ References:
 - 7a.1: BL-20261109-0447-research-tolerance-design and BL-20261110-0900-correction-research-tolerance-held-repair.
 - BL-20261027-0145-phase4-tasks-design (the tasks' authoring separation).
 - docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E1, and section 5.7 items 7, 10 and 12.
+
+### BL-20261113-0811-correction-e1-recoverability-pipeline-seed-restamp -- 2026-11-13 -- Correction: E1-T2's Implemented entry carries ID BL-20261113-0810-e1-recoverability-pipeline-seed-implemented; it was authored at 11:30 UTC on 2026-11-10 as BL-20261110-1130, and its branch is now rebased onto `main`
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records two things about E1-T2's Implemented entry:
+- its re-stamp, under the owner's rule of 2026-11-13: an entry on an unmerged branch is re-stamped after `main`'s tail when it merges, with a correction recording its original ID and time. The decision is recorded on PR #87;
+- what rebasing its pull request, #84, onto `main` after merge train 1 changes in that entry's statements.
+
+The entry was committed at 3ba5452 on 2026-11-10, on #84 stacked on #76's head 2fe1ec8. It was authored at 11:30 UTC as BL-20261110-1130, with the same slug. Merge train 1 (BL-20261110-1506-merge-train-1-integration) then put `main`'s tail after it, so the validator would refuse it there.
+
+Decisions:
+1. **The re-stamp.** The heading's ID moved to BL-20261113-0810, and its date field to 2026-11-13, because the validator requires an ID's date to match the heading's date. No other text in the entry changed, and nothing else in the repository cited the old ID. The pull request description and the commit messages keep the old ID, as history should.
+2. **The rebase.** #84 is rebased onto `main` at 9d10b9a, and its base is `main`. The tests commit replayed unchanged (`git range-diff` shows it identical); the entry commit only moved to `main`'s tail.
+3. **What the rebase makes stale in the entry's body**, which is not edited:
+   - its Scope's "not yet on `main`": the card, BL-20261109-0351-e1-recoverability-card, has been on `main` since train 1;
+   - its Limitations' "Proven at 2fe1ec8, not on `main`": the tests now pass on `main`'s code, which includes E1-R's broker (BL-20261109-0436-retry-wait-atomic-supersede-implemented). The 529 case's final ledger (superseded, then settled) is unchanged there;
+   - its Next gate's draft-until-the-train sentences: that step is done, and the pull request leaves draft.
+
+Changes:
+- docs/BUILD_LOG.md: the entry's heading (ID and date) and this entry.
+- Nothing else beyond the rebase itself.
+
+Evidence: On the owner's Mac, at the rebased head with the re-stamp (load average about 9):
+- `pnpm exec vitest run` on tests/unit/private-agent-research-pipeline.test.ts, tests/unit/private-agent-research-seed.test.ts and tests/unit/private-agent-research-recoverability.test.ts: 83 passed. Under `-t "E1 recoverability"`, 16 passed.
+- `pnpm exec vitest run -t "E1 recoverability"`: 11 files and 71 tests passed: `main`'s 55 and this pull request's 16.
+- `pnpm exec vitest run`: 188 files (175 passed, 13 skipped) and 3,296 tests (3,210 passed, 86 skipped, 0 failed), in 44.7 s.
+- `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction; nothing new is implemented or verified by it. If an entry with a later ID reaches `main` before #84 merges, these two entries are re-stamped again.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of the rebased head, CI green, and the owner's go-ahead.
+
+References:
+- BL-20261113-0810-e1-recoverability-pipeline-seed-implemented
+- BL-20261110-1506-merge-train-1-integration
+- BL-20261109-0351-e1-recoverability-card
+- BL-20261109-0436-retry-wait-atomic-supersede-implemented
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)

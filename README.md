@@ -129,6 +129,13 @@ the ignored `.soar/`, and no address is printed or stored):
 - `pnpm fixture:planner -- --index <index.json> --brief <brief> [--dry-run]`: the
   E0 planner fixture, checked against the hashes-only manifest
   `docs/experiments/e0-planner-fixture-v1.json`; raw replies stay under `.soar/`.
+- `pnpm fixture:judge -- --claims <claims.json> --labels <labels.json> [--dry-run]`:
+  the E0 judge fixture. It runs today's entailment judgement on a claim set that a
+  separate session labelled, checked against the hashes-only manifest
+  `docs/experiments/e0-judge-fixture-v1.json`, and scores agreement. `pnpm fixture:judge --
+  harvest --runs <runDir> --task <name> --out <claims.json>` collects the claims to label;
+  [the labelling protocol](docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md) says how.
+  Claims, labels and raw replies stay under `.soar/`.
 
 ## Commands
 
@@ -140,7 +147,7 @@ the ignored `.soar/`, and no address is printed or stored):
 | `pnpm setup:general` | Doctor for the general task runtime: Node, Docker, the qualified image, the model endpoint; `--write` records the image id and profile in the app's user-data settings |
 | `pnpm check:general-consultant` | Check the optional consultant environment without printing values |
 | `pnpm probe:export-schemas` / `pnpm probe:assess` | Write the role schemas probe P10 sends; validate its retained replies with the real schemas |
-| `pnpm card:serving` / `pnpm fixture:planner` | Print the serving card from a probe result (with `--policy-out`, also write its machine-readable JSON); run the E0 planner fixture against its manifest |
+| `pnpm card:serving` / `pnpm fixture:planner` / `pnpm fixture:judge` | Print the serving card from a probe result (with `--policy-out`, also write its machine-readable JSON); run the E0 planner and judge fixtures against their manifests (`fixture:judge -- harvest` collects verified claims for labelling) |
 | `pnpm setup:patch-pilot` / `pnpm dev:patch` | Coding pilot setup and cloud-only launch |
 | `pnpm check:release-head` | Release-only gate on a clean committed head |
 

@@ -33709,3 +33709,117 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The owner's go-ahead to push the integration branch, retarget #74, #77, #78 and #83 to `main`, open the integration pull request and, after CI passes, merge it with a merge commit. Then an operator recomputes `--runtime-sha256` before any loop or E-run; S-e1's docs-only Correction pull request for #66, #70 and #74 follows the merge; and a handoff note replaces the stale "Start here" text and says whether docs/HANDOFF.md section 5's re-stamp rule still holds. Train 2 starts with #79 once the owner decides how entries whose IDs precede `main`'s tail are ordered.
 
 References: BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0331-loop-selection-protocol-2-design; BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0354-document-review-flags-design; BL-20261109-0422-registry-run-commit-design; BL-20261109-0447-research-tolerance-design; BL-20261109-0456-ordered-pool-implemented; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0501-research-stage-pause-design; BL-20261109-0515-infra-classification-design; BL-20261109-0552-research-tolerance-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261110-0712-correction-research-tolerance-repin; BL-20261110-0712-document-review-flags-implemented; BL-20261110-0723-correction-infra-classification-train-review; BL-20261110-0900-correction-research-tolerance-held-repair; BL-20261110-0933-document-review-flags-party-terms-bounded; BL-20261110-1100-document-review-flags-party-terms-pinned; BL-20261110-1100-correction-research-train-1-review-pins; pull requests #66, #67, #68, #69, #70, #71, #72, #73, #74, #76, #77, #78, #81 and #83; docs/HANDOFF.md section 5; docs/experiments/README.md; scripts/validate-build-log.ts; scripts/private-agent-local-screen.ts (`localScreenSourceFreeze`); tests/helpers/research-protocol-pin.ts; tests/unit/phase4-loop.test.ts.
+
+
+### BL-20261113-0815-judge-fixture-implemented -- 2026-11-13 -- The E0 judge fixture and its labelling protocol: today's entailment judgement on a separately labelled, planted claim set, scored against the card's agreement level (plan adjustment (b), before E0's judge cell)
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements plan adjustment (b) of BL-20261113-0730-rayline-evaluation-plan-adjustments, which the owner told the session to build on 2026-11-13 ("Yes, build them").
+- **The requirement.** Review §5.6's E0 row runs the local judge on a fixed claim set labelled by a separate session, against an agreement level the E0 card sets. Criteria 3 and 8 (§2.2) become thresholds only if the judge reaches that level.
+- **The gap.** No script existed; package.json had only `fixture:planner`.
+- **What this adds.** The script, a template manifest holding only hashes and counts, and the labelling protocol.
+- **What does not change.** No persisted contract, prompt, schema or dispatch rule. claims.ts is only imported, so the entailment prompt version, the research protocol hash and the harness source-freeze digest stay as they are.
+
+Decisions: (1) **The same judge, sending the same bytes.**
+- The messages come from `entailmentMessages`.
+- The body is model.ts's vLLM body for the local model config with the pass's overrides: thinking disabled, ENTAILMENT_OUTPUT_TOKENS (256) and no tools. A test captures PrivateAgentModel's request through a fake broker and requires byte equality, for both the legacy and the `flash_next_v1` shapes.
+- Replies are parsed by judgeClaims's own rule: the outermost braces, then the strict EntailmentReplySchema. A test checks this against the real pass on seven reply shapes.
+
+(2) **A direct POST outside the broker**, as the planner fixture does (BL-20261108-0911, decision 6): public or synthetic claims, zero fee, no dispatch rows.
+- The endpoint comes from loadConfig, so the app's endpoint policy applies.
+- Every raw reply is retained, with mode 0600, under `.soar/experiments/e0-judge-fixture-<time>/replies/`.
+- `summary.json` holds per-call codes, hashes, verdicts and labels, and the metrics; never claim text.
+- Standard output prints aggregates only.
+
+(3) **Pre-registration is enforced in code.** The manifest (`docs/experiments/e0-judge-fixture-v1.json`, committed as a template) pins:
+- the claim set's and the labels' sha256;
+- the claim count, the count per label and the planted count;
+- the entailment prompt version;
+- the per-class minimum;
+- the agreement measure (`exact` four-way, or `established`, criterion 8's supported-plus-partial split) and its level;
+- the conditions and the repeats, which come only from the manifest.
+
+Before any request the fixture refuses:
+- a template;
+- a mismatched prompt version, hash or count;
+- a claim without a label;
+- a class below the minimum;
+- an invalid file.
+
+(4) **Four conditions.**
+- **`j1-legacy` and `j1-flash`** run today's judge in each reply shape. The activation cell is the one matching the endpoint's contract.
+- **`j1-legacy-reversed` and `j1-flash-reversed`** list the four verdicts in reverse order, both in the JSON alternatives and in the definitions, with every other byte unchanged. They are refused under any prompt version other than 1.
+
+The reversed conditions only measure how often a verdict flips with option order; they are never the judge SOAR runs.
+
+(5) **Metrics**, per condition and repeat:
+- exact agreement over all claims, where a claim not judged counts as a disagreement;
+- agreement on the established split, and exact agreement over judged claims only;
+- Cohen's kappa;
+- recall on each side of the established split and on contradicted claims;
+- how often planted claims are judged not established;
+- AUROC for "not established" on the verdict order, with ties counted half;
+- the confusion matrix;
+- `meetsLevel`, from the manifest's measure and level.
+
+Two measures compare across runs: the flip rate between a condition and its reversed twin, and consistency across repeats.
+
+(6) **Harvest** (`pnpm fixture:judge -- harvest`).
+- It reads each run's `state.sqlite` read-only and takes the last `claims_verified` event per job and context.
+- It skips claims without a source window and keeps a repeated claim once.
+- It renumbers the claims C1, C2, ... and records each run's basename and the claim's original id.
+- It writes with mode 0600 and never overwrites a file.
+- A missing database is reported as a fixed code, never as a path.
+
+(7) **The labelling protocol** is docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md.
+- A separate labeller sees no verdict and no grade.
+- It labels with the judge's own four definitions and two tie rules.
+- It plants unsupported, contradicted and partial claims on real quotes and windows, each wrong for one stated reason.
+- The proposed minimum is 10 per class; the card decides.
+- The files live under the ignored `.soar/`. The manifest is pinned before any run, and a run freezes its set.
+
+(8) **J2**, a single-token, probability-scored judge, is not built. It first needs the adapter probe's logprobs check and the owner's choice on the card (item (c) of BL-20261113-0730).
+
+Changes:
+- New: scripts/judge-fixture.ts; tests/unit/judge-fixture.test.ts (10 tests); docs/experiments/e0-judge-fixture-v1.json (a template); docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md.
+- Edited: docs/experiments/README.md; README.md; package.json (`fixture:judge`).
+
+Evidence:
+- `pnpm exec vitest run tests/unit/judge-fixture.test.ts tests/unit/planner-fixture.test.ts tests/unit/serving-card-reader.test.ts` passes 89 tests in 3 files.
+- The judge fixture's tests prove:
+  - the bodies are byte-equal to PrivateAgentModel's request in both shapes;
+  - the reversed prompt changes only the verdict order;
+  - the reply parse matches judgeClaims's;
+  - every input refusal happens before any request and writes no file;
+  - the metrics on a known eight-claim case: exact agreement 0.625, established agreement 0.75, kappa 0.6111, AUROC 0.9583, and the flip and consistency rates;
+  - a full run against a loopback fake. It uses 32 calls, retains replies with mode 0600, and sends no label, planted flag or labeller note in any request. Its summary contains no address, port, key, reasoning text or claim text.
+  - a rejected or unreachable endpoint leaves claims not judged without stopping the run;
+  - the harvest, and its refusal to overwrite;
+  - a command-line dry run that prints no address.
+- `pnpm typecheck` passes.
+- `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` pass with this entry appended.
+- Nothing ran against an endpoint, and no labelled set exists yet.
+
+Failures or blockers: None in the offline work. The fixture cannot run until a separate session harvests and labels a set and the owner pins the manifest with the E0 card.
+
+Limitations and non-claims:
+- **Implemented, not Verified.** Nothing has run against a server.
+- **Agreement is with one labeller**, on claims like r3's. Planted negatives may be easier to catch than natural errors.
+- **Reaching the level is not enough on its own.** It does not show that the judge separates accepted from rejected drafts, the second condition in review §5.2's S10 row.
+- **AUROC is coarse** over four ordered verdicts.
+- **The flash shape reads `message.content` directly**, as the planner fixture does, not through flash-next-reply.ts.
+- **The reversed conditions test one alternative ordering only.**
+
+Paid exposure: None. Zero model requests and zero envelope spend. Later runs are zero-fee requests to the owner's endpoint on public or synthetic claims, outside the broker by design. Every cap is unchanged.
+
+Next gate:
+- Review, then merge after #86. Its entry, BL-20261113-0730, must precede this one.
+- This entry shares its minute with BL-20261113-0815-doctor-endpoint-identity-implemented, so either of the two pull requests may merge first.
+- Then a separate session harvests and labels a set following the protocol, the owner pins the manifest with the E0 card, and the fixture runs from the owner's Mac.
+
+References:
+- BL-20261113-0730-rayline-evaluation-plan-adjustments, items (b) and (c).
+- BL-20261108-0911-probe-extensions-implemented: the planner fixture, decision 6.
+- docs/PROJECT_REVIEW_2026-11-05.md §2.2 (criteria 3 and 8), §5.2 (S10) and §5.6 (E0).
+- Issue #47, item 2.

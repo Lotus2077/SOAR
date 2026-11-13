@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
 import { sessionPhaseIdentity } from "../../src/main/private-agent/session";
+import { CLAIMS_LEDGER_CHECK_ID } from "../../src/main/private-agent/claims";
+import { claimsReportPath } from "../../src/main/private-agent/host-flags";
 import { loadPreparedOperatorTask } from "../../scripts/private-agent-run";
 import { withClaimsLedger, buildCloudArm, buildExplicitPublicSnapshotPhase, parseCloudPrices, parseLocalArtifactScreenArguments, preparePublicSnapshot, startExplicitPublicSnapshotReceiver, parseCloudLongContext } from "../../scripts/private-agent-local-screen";
 
@@ -253,5 +255,20 @@ describe("public snapshot CLI", () => {
     expect(twoPhase.contract.goal).toContain("exact url that fetch_public reported");
     expect(single.contract.goal).not.toContain("exact url that fetch_public reported");
     expect(phase.checks).toHaveLength(1);
+  });
+
+  it("names the report its claims check reads with claimsReportPath, before and after the ledger is added (BL-20261110-1509)", () => {
+    const phase = (paths: readonly string[]) => ({ files: [{ path: "input/notes.txt", bytes: Buffer.from("notes") }], checks: [{ id: "structure", python: "# fixture" }],
+      contract: { version: 1 as const, goal: "Write the memo.", requiredArtifacts: paths.map(path => ({ path, description: "artifact" })), requiredChecks: ["structure"],
+        maxModelCalls: 40, maxToolCalls: 80, maxElapsedMs: 1_800_000 } });
+    const read = (built: ReturnType<typeof withClaimsLedger>) => (JSON.parse(Buffer.from(built.checks.find(check => check.id === CLAIMS_LEDGER_CHECK_ID)!.python
+      .match(/b64decode\('([^']+)'\)/u)![1]!, "base64").toString("utf8")) as { reportPath: string }).reportPath;
+    for (const [paths, report] of [[["output/memo.md", "output/table.csv"], "output/memo.md"], [["output/table.csv", "output/memo.md"], "output/memo.md"],
+      [["output/brief.docx"], "output/brief.docx"], [["output/table.csv", "output/calculate.py"], "output/table.csv"]] as const) {
+      for (const publicRetrieval of [false, true]) {
+        const built = withClaimsLedger(phase(paths), publicRetrieval);
+        expect(read(built)).toBe(report); expect(claimsReportPath(phase(paths).contract)).toBe(report); expect(claimsReportPath(built.contract)).toBe(report);
+      }
+    }
   });
 });

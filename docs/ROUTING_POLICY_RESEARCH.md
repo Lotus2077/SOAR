@@ -93,11 +93,11 @@ This establishes two separate integration failures: v1 discarded all gathered so
 
 ## Addendum 2026-11-13: Rayline's ARC router and the routing evidence since September
 
-Rayline (rayline.ai) sells ARC-1.0, a 0.6B-parameter routing model under Apache-2.0, released on 2026-11-10/11. For each candidate model, ARC predicts the probability of success, the token use and the value of each reasoning level. A caller's policy then picks the model that maximizes V × p − expected cost, where V is the dollar value of a success. Raydock, Rayline's local gateway, connects local runtimes to coding tools. Its hybrid mode sends each turn's request to Rayline's hosted decision service, including turns that then run locally.
+Rayline (rayline.ai) sells ARC-1.0, a 0.8B decision model (615M parameters by its Hugging Face metadata) under Apache-2.0, released on 2026-11-10/11. For each candidate model, ARC predicts the probability of success, the token use and the value of each reasoning level. A caller's policy then picks the model that maximizes V × p − expected cost, where V is the dollar value of a success. Raydock, Rayline's local gateway, connects local runtimes to coding tools. Its hybrid mode sends each turn's request to Rayline's hosted decision service, including turns that then run locally.
 
 The evidence does not transfer to SOAR:
 - Every figure is Rayline's own and unreplicated. The headline quality is an average of per-benchmark ratios, while cost is pooled across tasks, so about 25.8% of Opus's cost per benchmark becomes 14.3% overall.
-- Only choosing one model per task was evaluated.
+- The evaluation chose the model at task start and held it for the episode, changing only the reasoning level per call; switching models mid-task was not tested.
 - About 90% of the training weight comes from Workshop's app-building traffic.
 - The open runtime serves only ARC's first stage.
 

@@ -34641,3 +34641,68 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The review of 7c's pull request checks this re-stamp, as BL-20261113-0758 asks. If `main` moves past 08:19 UTC on 2026-11-13 before the merge, the three entries are re-stamped again.
 
 References: BL-20261113-0817-research-v5-design, BL-20261113-0818-research-v5-implemented and BL-20261113-0819-correction-research-v5-assist-order-deadline (re-stamped); BL-20261113-0816-correction-host-flags-event-ids-and-replay (the tail); BL-20261110-1506-merge-train-1-integration (train 1's tail); BL-20261108-0856-correction-stop-bricking-tasks-design-id and BL-20261108-0912-correction-probe-extensions-id (precedents); BL-20261113-0758 on pull request #87 (the owner's decision).
+
+### BL-20261113-0835-correction-research-train-1-check-pins -- 2026-11-13 -- Correction to BL-20261110-1100: class (iv) is its own owner question, three statements of 1100 corrected, and the follow-up pins the check of #83 asked for
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261110-1100-correction-research-train-1-review-pins (#83, merged in train 1). The orchestrator's check of #83 at d894a62 found no blocker and no major. It asked for two things:
+- five statements, in the lane's next appended entry, which is this one;
+- comment fixes and test rows, in the lane's next pull request that touches the two research test files, which is 7c's.
+
+The rows pin today's behaviour. Nothing changes in `CLAUSE_GUARDS`, the parser or the pipeline; 1100 is not edited.
+
+Decisions:
+(1) **Class (iv) is its own question (E1).** This supersedes 1100's closing bullet "under owner question 3, class (iv) in (9) and the member in (10)".
+- Class (iv) follows from 0447 decision (5), not from owner question 3, as 1100 decision (9) says. Widening the hold does not address it.
+- The owner either accepts class (iv) as a stated limit of 0447 decision (5) or revisits that decision.
+- Only the member in 1100 decision (10) is under owner question 3.
+(2) **The 1,200-word default (E2).** 1100 decision (5) says 0848's Limitations stated that a miss leaves the 1,200-word default. Only 0848's hypothesis and #69's earlier body said so. 0848's Limitations says that a stated limit of 1,200 words or more is clamped while the role thinks, and that is right.
+(3) **The skeptics (E3).** 1100's scope says "a skeptic checked every finding". A skeptic checked every minor or higher finding; the nits went to none.
+(4) **The list marker (B-F1).** 1100 decision (2) files "1. Include an abstract.\n2. Max 150 words." under "a limit that neither opens its sentence nor follows a referring word". It belongs with "a part two or more sentences back".
+- "2." ends a sentence, so the limit opens its own sentence.
+- Rule B's look-back runs and reads the marker's one-word sentence "2", not the item before.
+- Only a marker with no sentence end, such as "b)", is a word before the limit.
+(5) **The fourth pinned miss (B-F2).** 1100 does not describe it: "Read every source. Then write a report that is under 2,000 words." reads none.
+- Rule B's referring-word trigger is lexical, so the relative "that" opens the look-back, as the determiner "this" does in 0848's pinned "This report must not exceed".
+- The limit is dropped only because the sentence before holds a distributive ("every").
+- 1100 decision (4), "They read list words and distributives in any sense", holds under rule B's two triggers: a limit that opens its sentence, or a referring word before it.
+(6) **The follow-up pins (commit 81740d1).** The admission test:
+- **B-F1:** the list-marker row's comment says the marker is a sentence of its own, so rule B reads the marker, not the item before. The row's value is unchanged.
+- **B-F2:** the known-miss comment counts referring words among the words read in any sense (a relative "that").
+- **B-F3:** two rule B rows, "Include an abstract. Keep this under 150 words." and "Include an abstract. Keep that under 150 words.", read none. The rule B rows now hold all nine referring words, as the comment says.
+- **C-2:** a rule-pin row, "?\nIt/max 2,000 words", reads 2000. It is the guard's third branch, a cut referring word after a line break.
+- **Known misreads, wrapped lines (O2):** "Notes,\nfor each vendor,\nbe brief, at most 2,000 words" and "Intro\nAbstract: x\nconcise, short, at most 2,000 words" read 2000. Each has two line breaks before a rule A limit.
+- **A new known-misread class (O14, O28):** a part or a distributive in the limit's own sentence before a referring word. Rule B reads only the sentence before. "Write a report. For the abstract, keep it under 150 words." and "Write a report. Notes (per source) keep it under 150 words." read 150.
+- **Positive controls (O19, O20):** a line break inside a run of white space still ends the line. "Sections: Abstract, Results \nLength: at most 2,000 words" (a trailing space) and "Sections: Abstract, Results\n Length: at most 2,000 words" (an indent) read 2000.
+
+The pipeline test:
+- **Part D:** the held-attempt test of 1100 now also checks quotesVerified 2. That pins 1100 decision (10)'s discard: a rejected held attempt's verified quotes go with it.
+- **A new test for the drop rule's gaps.**
+  - **O9:** a located quote dropped for a repeated question id (["Q1", "Q1"]) was the found question's only quote. The first attempt is held and repaired: calls 3, repairCalls 1, invalidReplies 1, attempts ["invalid", "complete"].
+  - **O11:** a verified quote naming Q1 and Q2 keeps a quote for Q2, although Q2's invented quote was dropped. The reply is kept: calls 2, quotesDropped 1, questionsDowngraded 0.
+  - **O12:** a quote dropped for Q1 does not count against Q2, which no quote names. The reply is kept with Q2 downgraded: calls 2, questionsDowngraded 1.
+
+Changes: Commit 81740d1 (tests/unit/private-agent-research-admission.test.ts and tests/unit/private-agent-research-pipeline.test.ts; tests and comments only). The ten short BL-20261110-1100 citations of #83 now give 1100's full ID, in commit ee74807.
+
+Evidence: The checks ran locally on the branch.
+- **The tests.** The admission test passes 24 tests and the pipeline test 90.
+- **Mutations.** Each single-edit mutant was run twice: against the follow-up tests, and against the tests at the commit before them. Both runs were on this branch over 9d10b9a, before its rebase onto bb6ef32 (#92), which changed none of the code or tests involved.
+  - Nine fail a new row or the new test now, and pass every test at ee74807:
+    - O2: the line start taken as the text's first line break;
+    - O14 and O28: parts or distributives read up to the limit;
+    - O19 and O20: a white-space run counted as a line break only when it starts, or only when it ends, with one;
+    - C-2's O11: the cut-word guard dropped;
+    - O9, O11 and O12: the drop rule's three gaps.
+  - The check's O21, which also keeps a rejected held attempt's verified quotes, fails only the quotesVerified 2 pin now and passes every test at ee74807.
+  - Removing "this" or "that" from the referring words fails a test both now and at ee74807. B-F3's rows add a second pin for each.
+
+Failures or blockers: The first run of the mutant script restored each mutated file only at the end. So the last admission mutant was still in place while the pipeline mutants ran, and every pipeline run showed two extra failures. The script was fixed to restore after each mutant and the pipeline mutants were run again; the results above are from that run.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`. The misread rows pin wrong values on purpose. A pinned misread is a stated limit, not an endorsement. Changing one is a parser decision for the owner (0848's widened question).
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The review of 7c's pull request, which carries this entry.
+
+References: BL-20261110-1100-correction-research-train-1-review-pins (corrected); BL-20261110-0848-correction-research-length-parser-chains; BL-20261109-0447-research-tolerance-design (decision (5)); the orchestrator's check of #83 at d894a62.

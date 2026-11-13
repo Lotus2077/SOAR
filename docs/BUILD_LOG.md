@@ -37984,6 +37984,175 @@ References:
 - BL-20261113-0921-assist-core-implemented;
 - BL-20261113-0926-correction-assist-entries-second-restamp (#79's tail).
 
+### BL-20261113-0936-e0-card -- 2026-11-13 -- E0 card drafted: new-endpoint qualification at zero fee, with four owner answers owed
+
+Status: `Proposed`
+
+Scope or hypothesis: The card of experiment E0 in docs/PROJECT_REVIEW_2026-11-05.md section 5.6 (new-endpoint qualification and role calibration, run from the owner's Mac; fee cap USD 0; two days) and docs/HANDOFF.md "Start here" section 5, step 2, as issue #47 asks. The card text is docs/experiments/e0-card-2026-11-13.md. Hypothesis: one probe run of P1 to P11 and the adapter probe, plus the role fixtures, re-derives every stage bound and clock and settles a thinking policy per role, structured output per role, the adapter path, K, and whether the 2026-11-04 figures apply. E0 makes no claim about product quality.
+
+Decisions:
+- **Arms and order.** P1 to P9; P10 at 20 calls per role and thinking mode; P11 at 20k, 60k and 120k tokens with K in {1, 2, 4, 8}; and the adapter probe. P1, P10, P11 and the adapter probe run in one invocation, after `pnpm probe:export-schemas` and before `pnpm probe:assess`. A first `--only P1` run is checked by hand before that invocation. Then come the role fixtures:
+  - the planner, 3 conditions × 10 repeats on the pinned exposed r3 index, with raw replies retained;
+  - the extractor, on 3 synthetic chunks;
+  - the judge, only once its labelled claim set exists.
+
+  No script runs the extractor or judge fixture yet. The card names each command in an amendment before that fixture runs.
+- **Preconditions.** `main` contains 7b.1 (#69) and 7a.1 (#76), which holds from 9d10b9a. No pull request that changes `researchProtocolSha256()` merges between the export and the assessment.
+- **Defaults taken from their sources.**
+  - #47 item 3: P10's 95% rule binds the strict variant (BL-20261108-1459-serving-card-reader-design decision (9)).
+  - #47 item 5: P11 uses K in {1, 2, 4, 8} and 20k, 60k and 120k tokens, as the script runs them.
+  - E1 does not gate E0: the proposed default of an open owner question in BL-20261109-0351-e1-recoverability-card, decision (7).
+  - Measurements become card values by the writer's built-in proposals (BL-20261108-1459-serving-card-reader-design decision (2)), and structured output is proposed by the 95% rule, which is the proposed default of an open owner question there. The reader refuses an adopted card with non-default caps, thinking, structured output, K or admission until 7a.2, 9, 8.2b and 7b.3 merge.
+  - P10 is not aligned with the pipeline's requests, and the card states that limit, including the synthesis off cell that sends the thinking ceiling's `lengthCap`.
+- **Proposed by this card.** P10 runs without `--strip-reasoning` and the planner fixture keeps its raw replies (it has no strip option), so both retain reasoning text for synthetic and public inputs, following the review's row E0 and its stop list (section 5.8). The card also proposes a stop rule: stop before any request on the zero-fee guard or a template manifest, stop after a hand-checked `--only P1` run on an unserved alias (the probe itself neither compares the alias nor stops after a failed probe), and re-run the whole probe set if the protocol hash changes between export and assessment.
+- **Owed by the owner** before E0's role fixtures, or for the delta check:
+  - decision 1, whether the served model is the one qualified on 2026-11-04 (without it, E0 re-derives every bound);
+  - the judge fixture's agreement level, and who labels its claim set;
+  - the exposed r3 index pinned into docs/experiments/e0-planner-fixture-v1.json;
+  - confirmation of reasoning retention, and whether to write P10-align first.
+
+Changes: docs/experiments/e0-card-2026-11-13.md is added. No code changes. The card names the writer's command with `--compare-root`, `--compare-version` and `--compare-context` set to the 2026-11-04 qualification. It uses `pnpm --silent` and redirects the printed Markdown, so pnpm's banner, which names the local checkout path, stays out of the card.
+
+Evidence: None. This entry decides the card, and nothing ran against the endpoint.
+
+Failures or blockers: The first draft had nine errors, found by a single agent check against the scripts and entries and fixed before this entry was committed. It said the probes cannot read the engine version, gave a stop rule the probe does not enforce, gave a card command that writes only the JSON, and offered a strip option the planner fixture lacks. The planner fixture cannot run until the owner pins the r3 index, and the judge fixture cannot run until its claim set is labelled and its level set.
+
+Limitations and non-claims: The card proves nothing about the endpoint. A P10 pass does not show that the pipeline's own requests are at least 95% valid, because P10 is not aligned with them. P1 can show a difference from the 2026-11-04 qualification but cannot establish identical weights. P11's K bursts use a one-sentence prompt, so they show decode concurrency only, not K at extraction-size prompts. Defaults marked as owed stay `Proposed` until the owner's answer is recorded in an entry.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The owner answers the judge level and labeller, the r3 pin, and reasoning retention and P10-align, recorded in an entry or in this card's pull request, and the card merges. Decision 1's entry may stay owed (issue #47). Then the owner runs E0 from the Mac per issue #57 and opens a pull request with the serving card, the filled manifest, the registry rows and a `Verified` entry.
+
+References: docs/experiments/e0-card-2026-11-13.md; docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E0, section 5.8 and section 5.10 decision 1; docs/HANDOFF.md "Start here" section 5, step 2; issues #47 and #57; BL-20261108-0911-probe-extensions-implemented; BL-20261108-1459-serving-card-reader-design; BL-20261108-1649-serving-card-reader-implemented; BL-20261109-0351-e1-recoverability-card; BL-20261110-1506-merge-train-1-integration.
+
+### BL-20261113-0937-owner-decision-restamp-unmerged-entries -- 2026-11-13 -- The owner decides that entries committed on unmerged branches are re-stamped after main's tail at merge, with a correction recording the original time
+
+Status: `Approved`
+
+Scope or hypothesis: Record the owner's answer, given in the orchestrating session's chat on 2026-11-13, to the entry-ordering question that BL-20261110-1506-merge-train-1-integration left open. After merge train 1, `main`'s last ID is later than entries already committed on unmerged work. In open pull requests these are #75's, #79's, #80's, #82's and #84's entries; on the lanes' unpushed branches, 11.3b's, 7c's and 7d.B's. The validator refuses an entry whose ID minute is earlier than the one before it. `Approved` covers this rule only.
+
+Decisions:
+- **The rule.** A branch whose entries carry IDs earlier than `main`'s tail when it merges re-stamps them after the tail, as docs/HANDOFF.md "Start here" section 5 says. It also adds a `Correction` entry that records each original ID and authoring time, as BL-20261108-0856-correction-stop-bricking-tasks-design-id did.
+- **What a re-stamp may change.** It changes only the heading's ID minute and the references to that ID. The entry's body is otherwise byte-identical to what was reviewed. Re-stamping an entry on an unmerged branch is not a rewrite of a committed entry in the sense of AGENTS.md: entries on `main` are never re-stamped or edited.
+- **Train 1 stands as merged.** The sorted union of BL-20261110-1506-merge-train-1-integration is not reopened; its fourteen pull requests' entries keep their IDs.
+- **Who does it.** Each lane re-stamps its own entries when it rebases onto `main` for merge, and the review of that pull request checks the re-stamp and its correction.
+
+Changes: None in code. This entry only records the decision.
+
+Evidence: The owner's chat answer "Yes, re-stamp" of 2026-11-13, to the question "May lanes re-stamp their unmerged entries after main's tail, as the handoff's rule says?"
+
+Failures or blockers: None.
+
+Limitations and non-claims: This decides the ordering rule only. It does not approve any pull request's merge, and it does not change the validator.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The lanes rebase their next pull requests onto `main` and re-stamp at merge. docs/HANDOFF.md "Start here" is updated in a later handoff note.
+
+References: BL-20261110-1506-merge-train-1-integration; BL-20261108-0856-correction-stop-bricking-tasks-design-id; docs/HANDOFF.md "Start here" section 5; AGENTS.md.
+
+### BL-20261113-0938-correction-restamp-rule-dates -- 2026-11-13 -- Correction to BL-20261113-0937-owner-decision-restamp-unmerged-entries: a re-stamp may move an entry's date as well as its minute
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct one sentence of BL-20261113-0937-owner-decision-restamp-unmerged-entries, which stays as written. Its Decisions bullet "What a re-stamp may change" says a re-stamp changes "only the heading's ID minute and the references to that ID". The owner's rule, as docs/HANDOFF.md section 5 states it, is to re-stamp after `main`'s tail. When the tail is on a later day than the entry, that means moving the entry's date as well. The validator requires an ID's date to match its heading's date, so the heading date moves with it.
+
+Decisions:
+- A re-stamp may change the ID's date and minute, the heading's date, and the references to that ID. Nothing else in the entry changes; its body stays byte-identical to what was reviewed.
+- The Correction entry that accompanies a re-stamp records each original ID, so its original date and authoring time stay traceable.
+- PR #89 already moved 11.3b's entries from 2026-11-10 to 2026-11-13 IDs. That is within the rule as corrected here.
+- An entry on `main` may cite an ID that is re-stamped before it reaches `main`. It keeps the original ID as written, and the re-stamping branch's Correction entry maps the original ID to its new one. For example, the correction entry that PR #92 put on `main` cites this branch's decision entry, which this branch re-stamps at its own merge.
+
+Changes: None in code. This entry corrects one sentence of the decision record.
+
+Evidence: In scripts/validate-build-log.ts, an ID's date must equal its heading's date ("ID date does not match entry date").
+
+Failures or blockers: A first version of this correction cited PR #92's correction entry by its full ID. That entry is not on this branch, so the validator refused the citation as "not an earlier entry". The first version was committed and pushed because a shell pipeline hid the validator's exit status. It was reverted before any review, and this version names the entry by pull request instead.
+
+Limitations and non-claims: This clarifies the decision's scope only. It approves no merge.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: This branch re-stamps its own entries after `main`'s tail when it merges.
+
+References: BL-20261113-0937-owner-decision-restamp-unmerged-entries; pull request #92; docs/HANDOFF.md "Start here" section 5; scripts/validate-build-log.ts.
+
+### BL-20261113-0939-correction-e0-card-restamp -- 2026-11-13 -- Correction: this branch's three entries are re-stamped after main's tail at its merge of main
+
+Status: `Implemented`
+
+Scope or hypothesis: Record why three entries of pull request #87 do not carry their authoring minutes. They are BL-20261113-0936-e0-card, BL-20261113-0937-owner-decision-restamp-unmerged-entries and BL-20261113-0938-correction-restamp-rule-dates. Before this branch merged `main` at 613ec11, `main`'s ledger ended with BL-20261113-0935-correction-research-v5-fourth-stamp-assist-merge, which is later than all three. So, under the rule the second of these entries records, their ID minutes moved to the first free minutes after the tail.
+
+Decisions:
+- BL-20261113-0728, authored at 07:28 UTC on 2026-11-13, is now BL-20261113-0936-e0-card.
+- BL-20261113-0758, authored at 07:58 UTC, is now BL-20261113-0937-owner-decision-restamp-unmerged-entries.
+- BL-20261113-0832, authored at 08:32 UTC, is now BL-20261113-0938-correction-restamp-rule-dates.
+- Each body is unchanged apart from references to these three IDs.
+- Entries already on `main` that cite the original IDs keep them as written: BL-20261113-0758 and BL-20261113-0832 are cited by the re-stamp corrections of #82, #89 and #92. This entry maps those IDs to their new ones.
+
+Changes: docs/BUILD_LOG.md (three headings and their mutual references); docs/experiments/e0-card-2026-11-13.md (the card's own entry ID).
+
+Evidence: `pnpm --silent validate:build-log -- --base-ref origin/main` passes on this branch after the merge of `main`.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only. Commit messages and the pull request description keep the original IDs.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: This branch's merge into `main`.
+
+References: BL-20261113-0936-e0-card; BL-20261113-0937-owner-decision-restamp-unmerged-entries; BL-20261113-0938-correction-restamp-rule-dates; BL-20261113-0935-correction-research-v5-fourth-stamp-assist-merge; BL-20261108-0856-correction-stop-bricking-tasks-design-id.
+
+### BL-20261113-1003-e0-card-owner-answers -- 2026-11-13 -- The owner answers E0's card: same model, judge at 95% with a cloud labeller, keep reasoning text, align P10
+
+Status: `Approved`
+
+Scope or hypothesis: Record the owner's answers of 2026-11-13, given in the orchestrating session's chat, to the four open items of E0's card, docs/experiments/e0-card-2026-11-13.md (BL-20261113-0936-e0-card). This entry is the build-log record of decision 1 that issue #47 asks for. `Approved` covers the answers below only.
+
+Decisions:
+- **Decision 1, "Is the endpoint's model the one qualified on 2026-11-04?": yes.**
+  - E0 is a delta check.
+  - The 2026-11-04 figures stay admissible if probe P1 and the card writer's `--compare-root`, `--compare-version` and `--compare-context` rows match that qualification.
+  - If any row differs, none of those figures apply and E0 re-derives every bound.
+  - The probes can show a difference but cannot prove identical weights.
+- **The judge fixture's agreement level: 95%.**
+  - The judge reaches it when it agrees exactly with the labels on at least 95% of the labelled claims.
+  - Below it, or without a labelled set, the judge stays evidence-only.
+- **The labeller: "use cloud API to label the set before the test".**
+  - A cloud model labels the claim set through its API, separate from the judge and without seeing any judge verdict, before the judge fixture runs.
+  - It follows the labelling protocol that pull request #91 adds with `pnpm fixture:judge`.
+  - The claim set holds public and synthetic material only, because its text goes to a cloud model.
+  - **Paid exposure:** the owner approves this paid labelling step. The orchestrator recorded a cap of USD 1.00 in total, which the owner may change. E0's own run stays at zero fee.
+- **Reasoning text: keep.** P10 runs without `--strip-reasoning`, and the planner fixture keeps its raw replies.
+- **P10's alignment: align.** A P10-align pull request makes P10 send the pipeline's own request bodies, including a thinking-off synthesis request, and merges before E0's export.
+- **The r3 pin (item 4 of #47): not yet possible.**
+  - The owner asked the orchestrator to find the r3 run on the machine. The search found seven r3 runs under the owner's other SOAR checkouts, and all of them predate research index version 2 and its `coverage.json`, which the planner fixture reads.
+  - The index must first be produced by one zero-fee research run of the exposed r3 task on `main` (613ec11 or later), and then pinned.
+
+Changes: docs/experiments/e0-card-2026-11-13.md records these answers and adds item 6 (P10-align).
+
+Evidence: The owner's chat answer of 2026-11-13: "1.yes 2.95%; use cloud API to label the set before the test 3.use computer use to find that for me 4.keep; align them". For the r3 search, a read-only file search of the owner's Developer and Desktop folders found seven r3 research indexes, none of them version 2.
+
+Failures or blockers:
+- The r3 index cannot be pinned until a current-format r3 run exists.
+- The judge fixture waits for #91 and a labelled set.
+- E0's export waits for P10-align.
+
+Limitations and non-claims:
+- Nothing ran against the endpoint, and nothing ran against a cloud model.
+- The USD 1.00 cap is the orchestrator's proposal, made under the owner's approval of cloud labelling; the owner has not stated a figure.
+
+Paid exposure: None yet. The approved cloud labelling, capped at USD 1.00, has not run.
+
+Next gate:
+- P10-align merges.
+- The r3 index is produced and pinned.
+- #91 merges, and the claim set is labelled and pinned.
+- Then the owner runs E0 per issue #57.
+
+References: BL-20261113-0936-e0-card; docs/experiments/e0-card-2026-11-13.md; issues #47 and #57; pull request #91; docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E0 and section 5.10 decision 1; BL-20261108-1459-serving-card-reader-design.
+
 ### BL-20261113-1011-p10-align-design -- 2026-11-13 -- P10-align decided: P10's cells send the pipeline's own request bodies, built by the role export with the model layer's own builder for each role and thinking mode, including a thinking-off synthesis request
 
 Status: `Proposed`

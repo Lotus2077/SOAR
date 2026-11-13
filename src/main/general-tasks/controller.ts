@@ -17,11 +17,11 @@ import { PrivateAgentStore, UnknownRequestDiagnosticSchema } from "../private-ag
 import { PrivateAgentBroker, isPublicAddress, type BrokerDestination } from "../private-agent/broker";
 import { loadFlashNextTokenAdmission, LOCAL_TOKEN_ADMISSION_STOP } from "../private-agent/flash-next-admission";
 import { isIP } from "node:net";
-import { readPublicSources } from "../private-agent/public-sources";
-import { MODEL_FEE_CAP_STOP, DEADLINE_BEFORE_REQUEST_STOP, MODEL_UNAVAILABLE_STOP, modelRequestFailed, modelRequestFeeStop, PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop, modelIdentity,
-  modelRequestTokenAdmissionStop, hasInvalidModelRequestTokenAdmissionStop, BROKER_DENIED_STOP, MODEL_REQUEST_DENIED_STOP, PACKET_SCAN_UNAVAILABLE_STOP, modelRequestBrokerDenied } from "../private-agent/model";
+import { readPublicSources, type PublicSource } from "../private-agent/public-sources";
+import { MODEL_FEE_CAP_STOP, modelRequestFailed, modelRequestFeeStop, PrivateAgentModel, MODEL_REQUEST_SIZE_STOP, modelRequestSizeStop, hasInvalidModelRequestSizeStop, modelIdentity,
+  modelRequestTokenAdmissionStop, hasInvalidModelRequestTokenAdmissionStop, BROKER_DENIED_STOP, modelRequestBrokerDenied } from "../private-agent/model";
 import { PrivateCheckpointStore, type WorkspaceSnapshot } from "../private-agent/checkpoints";
-import { GeneralAgentSession, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../private-agent/session";
+import { GeneralAgentSession, researchStageUnfinished, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../private-agent/session";
 import { DockerSandbox } from "../private-agent/sandbox";
 import { RulePacketScanner } from "../private-agent/scanner";
 import { secretPatterns } from "../../../scripts/secret-patterns.mjs";
@@ -34,6 +34,8 @@ import { CLAIMS_LEDGER_CHECK_ID, CLAIMS_LEDGER_PATH, claimsInstructions, claimsL
 import { isBlockingDispatch, isResolvedDispatch } from "../private-agent/store";
 import { isAssistDispatch } from "../private-agent/dispatch-purposes";
 import { HEARTBEAT_INTERVAL_MS, heartbeatLateness, localStreamSettings } from "../liveness";
+import { caughtRunReason, isResumableRunReason, storedRunReason } from "./run-reasons";
+import { storageIntegrityFailed } from "./storage-integrity";
 
 /** Cap on one assembled local model reply. */
 const LOCAL_MAX_RESPONSE_BYTES = 256 * 1024;
@@ -64,6 +66,21 @@ const fixedReasons: Record<string, string> = {
   public_model_unavailable: "The local model could not be reached during public retrieval after the permitted attempts. Nothing is uncertain; resume when the model is back.",
   packet_scan_unavailable: "The scanner that checks an outbound request was unavailable, so the next model request was not sent. Nothing is uncertain; resume when the scanner is available.",
   model_request_denied: "The broker refused the next model request before it was sent (a destination, packet or ledger rule), so nothing is uncertain. Saved progress is retained; this task cannot resume.",
+  // Backlog item 6 (finding A6, BL-20261109-0336): an incomplete record keeps its run's own reason. A reason's text is shown only when no
+  // request or action is uncertain; none promises a resume, which the allowance, the deadline or a closing app can still withhold.
+  runtime_failure_progress_preserved: "The execution runtime failed during the run; progress up to the last saved checkpoint is retained and no request or action is uncertain. A resume starts again from that checkpoint.",
+  execution_context_unavailable: "The isolated execution workspace could not be prepared, so nothing more ran and no request or action is uncertain. A resume needs the Docker runtime.",
+  cleanup_required: "The run ended, but cleanup of its execution workspace could not be confirmed. A resume first confirms that cleanup and sends nothing until it is confirmed.",
+  orphan_cleanup_required: "An earlier execution workspace could not be cleaned up, so this run did not start. A resume first confirms that cleanup and sends nothing until it is confirmed.",
+  job_context_busy: "Another process still holds this task's execution claim, so this run did not start. A resume sends nothing until that process has ended.",
+  cancelled_or_deadline: "The run stopped at a cancellation or time check before its next step, and no request or action is uncertain. A resume continues while time remains.",
+  model_output_incomplete: "The model's last replies were cut at the output limit, so they ran nothing, and no request or action is uncertain. A resume spends at least one more model call.",
+  one_complete_tool_action_required: "The model's last replies did not contain exactly one tool action, so they ran nothing, and no request or action is uncertain. A resume spends at least one more model call.",
+  // Backlog item 6 (finding A7, BL-20261109-0501): a research stage that started and never transferred cannot continue. No certainty is claimed:
+  // uncertain() skips another context's unknown assist rows, and an uncertain request shows its own text first.
+  research_stage_not_replayed: "The research stage stopped before its evidence was handed to the writer. A partly run research stage cannot continue, so this task cannot resume.",
+  task_integrity_failed: "The task's saved inputs, storage or records are missing or no longer match what it recorded, so it stopped. This task cannot resume.",
+  consultation_failed: "The approved consultation request was attempted and did not succeed, and a consultation is never sent twice, so no Resume is offered. Saved progress is retained.",
   cleanup_in_progress: "The task remains cancelled while its interrupted execution workspace is cleaned up. No request will be replayed.",
   cleanup_blocked: "Cancellation is recorded, but interrupted execution cleanup could not be confirmed. No request will be replayed.",
   consultation_pending: "Progress saved. Review the exact consultation packet before deciding whether to send it.",
@@ -494,14 +511,31 @@ export class GeneralTaskController {
     const sizeStopped = events.some(event => modelRequestSizeStop(events, event)), feeStopped = events.some(event => modelRequestFeeStop(events, event));
     const tokenStopped = events.some(event => modelRequestTokenAdmissionStop(events, event));
     const progressStopped = this.progressStop(events, id);
+    // Backlog item 6 (6.3): a damaged source blob never breaks the snapshot, and with it every task's list. The sources are left out, and an
+    // integrity failure is the record's permanent stop; any other read error only leaves them out.
+    let sources: PublicSource[] = [], sourcesDamaged = false;
+    if (record.publicSources) {
+      try { sources = readPublicSources(this.runtime, this.checkpoints(id), id, contextId); }
+      catch (error) { sourcesDamaged = caughtRunReason(error, this.root) === "task_integrity_failed"; }
+    }
+    // Backlog item 6: a consultation whose one request failed with a confirmed outcome is never sent again, so every resume would end at once.
+    const consultationFailed = consultation?.status === "failed" && !consultation.uncertain;
+    // Backlog item 6 (finding A7): a research stage that started and never transferred cannot continue, whatever stopped it (a pause, a quit,
+    // a crash or a thrown error). The session would refuse it before any dispatch; this keeps Resume from being offered.
+    const dispatches = this.runtime.dispatches(id), stageUnfinished = researchStageUnfinished(events, dispatches);
     // A durable private completion only needs finalisation (submission and the evidence pass), which no allowance or deadline gates.
     const finalising = contextId !== undefined && events.some(event => event.type === "completed" && event.contextId === contextId);
-    const canResume = !this.closing && !active && (record.status === "paused" || record.status === "incomplete" && (record.reason === "interrupted" || record.reason === MODEL_UNAVAILABLE_STOP || record.reason === `public_${MODEL_UNAVAILABLE_STOP}` || record.reason === PACKET_SCAN_UNAVAILABLE_STOP)) &&
-      (finalising || models < this.budget(record).modelCalls && tools < this.budget(record).toolCalls && !expired) && !uncertain && !sizeStopped && !feeStopped && !tokenStopped && !progressStopped && consultation?.status !== "pending" &&
+    // Backlog item 6 (finding A6): the run-reasons table decides for an incomplete record; every guard after it still applies.
+    const canResume = !this.closing && !active && (record.status === "paused" || record.status === "incomplete" && isResumableRunReason(record.reason)) && !consultationFailed &&
+      (finalising || models < this.budget(record).modelCalls && tools < this.budget(record).toolCalls && !expired) && !uncertain && !sizeStopped && !feeStopped && !tokenStopped && !progressStopped && !sourcesDamaged && !stageUnfinished && consultation?.status !== "pending" &&
       !(consultation?.status === "approved" && models > this.budget(record).modelCalls - 2);
-    const reason = record.status === "cancelled" && cleanupConfirmed ? "cancelled" : !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : feeStopped ? MODEL_FEE_CAP_STOP : tokenStopped ? LOCAL_TOKEN_ADMISSION_STOP : progressStopped ? EXECUTION_PROGRESS_STOP : expired ? "deadline" :
+    const reason = record.status === "cancelled" && cleanupConfirmed ? "cancelled" : !active && ["paused", "incomplete"].includes(record.status) ? uncertain ? consultation?.uncertain ? "consultation_uncertain" : "interrupted_unknown" : consultationFailed ? "consultation_failed" : sizeStopped ? MODEL_REQUEST_SIZE_STOP : feeStopped ? MODEL_FEE_CAP_STOP : tokenStopped ? LOCAL_TOKEN_ADMISSION_STOP : progressStopped ? EXECUTION_PROGRESS_STOP : sourcesDamaged ? "task_integrity_failed" :
+      // Backlog item 6 (finding A7): an unfinished research stage is a permanent stop, named before the time limit, both for a record that
+      // would otherwise read as resumable and for the session's own stored refusal; any other terminal stored reason keeps its own text.
+      stageUnfinished && (record.status === "paused" || isResumableRunReason(record.reason)) || record.reason === "research_stage_not_replayed" ? "research_stage_not_replayed" :
+      // A finalising task resumes past its deadline (only submission and the evidence pass remain), so the time limit is not its stop.
+      expired && !finalising ? "deadline" :
       consultation?.status === "pending" ? "consultation_pending" : record.reason : record.reason;
-    const dispatches = this.runtime.dispatches(id);
     const artifacts = snapshot.filter(file => GeneralTaskArtifactRefSchema.safeParse({ id, path: file.path, sha256: file.sha256 }).success)
       .map(file => ({ ...file })).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
     let bundle: GeneralTaskSnapshot["bundle"], bundleUnavailableReason: string | undefined;
@@ -513,7 +547,7 @@ export class GeneralTaskController {
       catch { bundleUnavailableReason = "These filenames cannot be combined into a portable ZIP. Export files individually."; }
     }
     return { id, goal: record.goal, outputName: record.outputName, status: record.status,
-      reason: reason === "interrupted_unknown" ? this.unknownReason(id) : fixedReasons[reason] ?? fixedReasons.incomplete!,
+      reason: reason === "interrupted_unknown" ? this.unknownReason(id) : (Object.hasOwn(fixedReasons, reason) ? fixedReasons[reason] : undefined) ?? fixedReasons.incomplete!,
       createdAt: record.createdAt, updatedAt: record.updatedAt,
       revision: record.revision + events.length + (record.version === 3 ? dispatches.reduce((sum, row) => sum + (row.status === "committed" ? 1 : 2), 0) : 0),
       inputs: structuredClone(record.inputs),
@@ -524,11 +558,11 @@ export class GeneralTaskController {
       ...(record.version === 3 ? { fees: { reservedMicrousd: dispatches.filter(row => !isResolvedDispatch(row)).reduce((sum, row) => sum + row.reservedFeeMicrousd, 0),
         settledMicrousd: dispatches.filter(row => row.status === "settled").reduce((sum, row) => sum + (row.feeMicrousd ?? 0), 0) } } : {}),
       ...(record.publicSources ? { network: { urls: [...record.publicSources.urls], dnsResolver: record.publicSources.dnsResolver, ...GENERAL_TASK_WEB_LIMITS },
-        sources: readPublicSources(this.runtime, this.checkpoints(id), id, contextId),
+        sources,
         publicFetches: this.runtime.dispatches(id).filter(receipt => receipt.purpose === "public source retrieval").length } : {}),
       artifacts, ...(bundle ? { bundle } : {}), ...(bundleUnavailableReason ? { bundleUnavailableReason } : {}), modelCalls: models, toolCalls: tools,
       elapsedMs: Math.min(this.budget(record).elapsedMs, record.startedAt === null ? 0 : record.version === 3 ?
-        (["queued", "running", "paused"].includes(record.status) || record.reason === "interrupted" ? Date.now() : record.updatedAt) - record.startedAt :
+        (["queued", "running", "paused"].includes(record.status) || record.status === "incomplete" && isResumableRunReason(record.reason) ? Date.now() : record.updatedAt) - record.startedAt :
         active ? Date.now() - record.startedAt : ended.reduce((sum, event) => sum + Number(event.elapsedMs ?? 0), 0)),
       checks: structuredClone(record.checks), ...(record.entailment ? { entailment: structuredClone(record.entailment) } : {}), cleanupConfirmed,
       canRetryCleanup: !this.closing && record.status === "cancelled" && !active && claim !== undefined && claim.state !== "released",
@@ -595,7 +629,8 @@ export class GeneralTaskController {
         this.consultationManager(record, contextId).decide(decision);
       } else if (active?.consultation) active.consultation.decide(decision);
       else decideWithoutDispatch(this.runtime, input.id, { ...decision, decision: input.decision });
-      if (!active) { record.status = "paused"; record.reason = "consultation_ready"; this.save(record); }
+      // Backlog item 6 (6.3): a decision is recorded either way, but it never re-opens a record a terminal stop ended (a damaged storage, say).
+      if (!active && (record.status === "paused" || isResumableRunReason(record.reason))) { record.status = "paused"; record.reason = "consultation_ready"; this.save(record); }
     });
     this.consultationPreviews.delete(input.id);
     this.publish(input.id); return this.get(input.id);
@@ -651,11 +686,20 @@ export class GeneralTaskController {
       next.status = submitted ? "submitted" : active.cancelRequested ? "cancelled" : result.status === "paused" ? "paused" : "incomplete";
       next.reason = !preserved ? "configuration_changed" : result.reason === "consultation_pending" ? "consultation_pending" :
         result.reason === MODEL_REQUEST_SIZE_STOP ? MODEL_REQUEST_SIZE_STOP : result.reason === MODEL_FEE_CAP_STOP ? MODEL_FEE_CAP_STOP : result.reason === LOCAL_TOKEN_ADMISSION_STOP ? LOCAL_TOKEN_ADMISSION_STOP :
-        // Backlog item 3 (finding A5): an unavailable scanner stays resumable, a recurring broker refusal does not; both keep their fixed text.
-        (result.reason === MODEL_UNAVAILABLE_STOP || result.reason === `public_${MODEL_UNAVAILABLE_STOP}` || result.reason === DEADLINE_BEFORE_REQUEST_STOP || result.reason === PACKET_SCAN_UNAVAILABLE_STOP || result.reason === MODEL_REQUEST_DENIED_STOP) && next.status === "incomplete" ? result.reason : next.status; this.save(next);
+        // Backlog item 6 (finding A6): an incomplete run keeps its own fixed code; a value without the code shape, or no stop, the legacy `incomplete`.
+        next.status === "incomplete" ? storedRunReason(result.reason) : next.status;
+      // Backlog item 6 (6.3): the runner's catch keeps only an error's class, so a damaged blob of the task's storage would read as a resumable
+      // runtime failure; the blobs the private context's records reference are verified, and a missing or mismatched one ends the task.
+      if (next.status === "incomplete" && next.reason === "runtime_failure_progress_preserved") {
+        const privateContextId = events.find(event => event.type === "session_started")?.privateContextId;
+        if (typeof privateContextId === "string" && storageIntegrityFailed(events, privateContextId, checkpoints, this.root)) next.reason = "task_integrity_failed";
+      }
+      this.save(next);
     } catch (error) {
       const record = this.record(id); record.status = active.cancelRequested ? "cancelled" : "incomplete";
-      record.reason = error instanceof Error && error.message === "general_task_configuration_changed" ? "configuration_changed" : "runtime_unavailable"; this.save(record);
+      // Backlog item 6: a configuration change, an integrity failure or missing storage, the session's own codes and the runner's contract refusals
+      // are terminal; anything else (Docker down, for example) stays resumable.
+      record.reason = caughtRunReason(error, this.root); this.save(record);
     } finally {
       clearInterval(poll); clearTimeout(deadline); this.active.delete(id); this.trackActivity(); this.publish(id);
     }

@@ -22,10 +22,18 @@ const manifest = (directory: string) => JSON.parse(readFileSync(join(directory, 
 const mode = (path: string) => statSync(path).mode & 0o777;
 
 describe("backlog item 4: the headless driver's diagnostics file sink", () => {
+  it("keeps a kept reply's disposition in its manifest row (7a.1, manifest version 2)", () => {
+    const run = temp("soar-diag-run-"), sink = createDiagnosticsFileSink(run);
+    const kept = entry({ stage: "extract", purpose: "research evidence extraction", content: "a kept reply with SECRET_REPLY_TEXT", reasons: [{ code: "quote_not_located", path: ["quotes", 1, "quote"] }], disposition: "accepted_with_drops" });
+    sink.retain(kept); sink.retain(entry());
+    const { content: _content, ...row } = kept;
+    expect(manifest(sink.directory)).toEqual({ version: 2, writeFailures: 0, entries: [row, (({ content: _c, ...rest }) => rest)(entry())] });
+    expect(JSON.stringify(manifest(sink.directory))).not.toContain("SECRET_REPLY_TEXT");
+  });
   it("writes each retained reply once, named by the sha256 of its bytes with mode 0600, beside a hashes-only manifest, and nothing outside diagnostics/", () => {
     const run = temp("soar-diag-run-"), sink = createDiagnosticsFileSink(run);
     expect(sink.directory).toBe(join(run, "diagnostics")); expect(mode(sink.directory)).toBe(0o700);
-    expect(manifest(sink.directory)).toEqual({ version: 1, entries: [], writeFailures: 0 });
+    expect(manifest(sink.directory)).toEqual({ version: 2, entries: [], writeFailures: 0 });
     const first = entry(), truncated = entry({ stage: "extract", ordinal: 2, purpose: "research evidence extraction", truncated: true, content: "{\"questions\": [ cut off SECRET_REPLY_TEXT", reasons: [{ code: "truncated", path: [] }] });
     sink.retain(first); sink.retain(truncated); sink.retain({ ...first, ordinal: 2 });  // the same content rejected twice: one file, two rows
     expect(readdirSync(sink.directory).sort()).toEqual([first.replyContentSha256, truncated.replyContentSha256, DIAGNOSTICS_MANIFEST].sort());

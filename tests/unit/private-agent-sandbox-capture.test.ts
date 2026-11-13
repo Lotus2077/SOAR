@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LIST_FILES, PRIVATE_SANDBOX_LIMITS, SandboxError, WORKSPACE_LISTING_MAX_ENTRIES, WORKSPACE_LISTING_MAX_OMITTED_PATHS,
-  boundedOutputCollector, parseWorkspaceListing } from "../../src/main/private-agent/sandbox";
+  boundedOutputCollector, parseWorkspaceListing, pinnedListingHeader } from "../../src/main/private-agent/sandbox";
 
 /**
  * Backlog item 3 (BL-20261107-0924, B and C), without Docker: the container's lister script runs under the machine's python3 with a
@@ -14,12 +14,14 @@ import { LIST_FILES, PRIVATE_SANDBOX_LIMITS, SandboxError, WORKSPACE_LISTING_MAX
 const cleanup: (() => void)[] = [];
 afterEach(() => { for (const done of cleanup.splice(0).reverse()) done(); });
 function workspace(): string { const root = mkdtempSync(join(tmpdir(), "soar-lister-")); cleanup.push(() => rmSync(root, { recursive: true, force: true })); return root; }
-function list(root: string): { status: number; stdout: string } {
+/** The lister's first stdin line is the host's pinned paths (E1-L); `list` always sends one, as `DockerSandbox.listFiles` does. */
+function listRaw(root: string, header: string | Buffer): { status: number; stdout: string } {
   const script = LIST_FILES.replace("os.open('/workspace',", `os.open(${JSON.stringify(root)},`);
   expect(script).not.toBe(LIST_FILES);
-  try { return { status: 0, stdout: execFileSync("python3", ["-I", "-c", script], { encoding: "utf8", stdio: "pipe" }) }; }
+  try { return { status: 0, stdout: execFileSync("python3", ["-I", "-c", script], { encoding: "utf8", stdio: "pipe", input: header }) }; }
   catch (error) { const failed = error as { status: number; stdout: string }; return { status: failed.status, stdout: failed.stdout }; }
 }
+function list(root: string, pinned: readonly string[] = []): { status: number; stdout: string } { return listRaw(root, pinnedListingHeader(pinned)); }
 /** APFS refuses a name that is not valid UTF-8; Linux, where CI runs this suite, admits one. The case runs only where it can be created. */
 const admitsNonUtf8Names = (() => {
   const root = mkdtempSync(join(tmpdir(), "soar-lister-probe-"));
@@ -113,5 +115,71 @@ describe("the bounded output collector (backlog item 3, finding A4)", () => {
     expect(bound.push(stdout, Buffer.from("ijklmnop"))).toBe(true); expect(bound.truncated()).toBe(true);
     expect(bound.push(stderr, Buffer.from("QRST"))).toBe(true); expect(bound.push(stdout, Buffer.from("later"))).toBe(true);
     expect(Buffer.concat(stdout).toString()).toBe("abcdij"); expect(Buffer.concat(stderr).toString()).toBe("EFGH");
+  });
+});
+
+describe("E1 recoverability: the lister keeps the host's pinned paths first (S6, E1-L)", () => {
+  const bulk = (root: string, directory: string, count: number) => {
+    mkdirSync(join(root, directory), { recursive: true });
+    for (let i = 0; i < count; i++) writeFileSync(join(root, directory, `f${String(i).padStart(4, "0")}.py`), "x");
+  };
+  it("keeps pinned files that sort after a bulky directory, within the cap and never twice, and counts the rest of the directory as cap", () => {
+    const root = workspace();
+    bulk(root, ".venv", PRIVATE_SANDBOX_LIMITS.files + 76);
+    mkdirSync(join(root, "input")); writeFileSync(join(root, "input", "a.md"), "source"); writeFileSync(join(root, "output.txt"), "report");
+    const listing = parseWorkspaceListing(list(root, ["output.txt", "input/a.md"]).stdout);
+    expect(listing.files.map(file => file.path)).toEqual([...Array.from({ length: PRIVATE_SANDBOX_LIMITS.files - 2 }, (_, i) => `.venv/f${String(i).padStart(4, "0")}.py`), "input/a.md", "output.txt"]);
+    expect(listing.counts.cap).toBe(78); expect(listing.complete).toBe(true);
+    // Without the pins the same tree drops both files, as before.
+    expect(parseWorkspaceListing(list(root).stdout).files.map(file => file.path)).not.toContain("output.txt");
+  });
+  it("keeps pinned files even when a bulky directory stops the walk at its entry limit", () => {
+    const root = workspace();
+    bulk(root, ".cache", WORKSPACE_LISTING_MAX_ENTRIES + 10);
+    writeFileSync(join(root, "output.txt"), "report");
+    const listing = parseWorkspaceListing(list(root, ["output.txt"]).stdout);
+    expect(listing.complete).toBe(false); expect(listing.files.map(file => file.path)).toContain("output.txt");
+    expect(listing.files).toHaveLength(PRIVATE_SANDBOX_LIMITS.files);
+  });
+  it("skips a pinned path that is missing, a link, inside a linked directory, special, oversize or refused, never follows a link, and lets the walk report each", () => {
+    const root = workspace(), outside = workspace();
+    // The linked directory really holds the pinned leaf, so only the no-follow open of `linked` keeps it out.
+    writeFileSync(join(outside, "hosts"), "outside the workspace");
+    writeFileSync(join(root, "kept.txt"), "x"); symlinkSync("/etc/hosts", join(root, "link.txt")); symlinkSync(outside, join(root, "linked"));
+    execFileSync("mkfifo", [join(root, "pipe")]); writeFileSync(join(root, "big.bin"), ""); truncateSync(join(root, "big.bin"), PRIVATE_SANDBOX_LIMITS.fileBytes + 1);
+    // Sent raw, so the script's own rule meets the refused name the host would have filtered.
+    const result = listRaw(root, `${JSON.stringify(["missing.txt", "link.txt", "linked/hosts", "pipe", "big.bin", "../escape", "kept.txt", "kept.txt"])}\n`);
+    expect(result.status).toBe(0);
+    const listing = parseWorkspaceListing(result.stdout);
+    expect(listing.files).toEqual([{ path: "kept.txt", size: 1 }]);
+    expect(listing.counts).toEqual({ symlink: 2, hard_link: 0, special: 1, oversize: 1, name_invalid: 0, cap: 0 });
+    expect(result.stdout).not.toContain(tmpdir()); expect(result.stdout).not.toContain("outside the workspace");
+  });
+  it("lists exactly as before for a workspace under the cap, pinned or not", () => {
+    const root = workspace();
+    mkdirSync(join(root, "src")); writeFileSync(join(root, "src", "main.py"), "print(1)\n"); writeFileSync(join(root, "README.md"), "# notes"); writeFileSync(join(root, "zz.txt"), "last");
+    expect(list(root, ["zz.txt", "README.md", "src/main.py"]).stdout).toBe(list(root).stdout);
+  });
+  it("dies (exit 53) without the pinned header or with a malformed one, which the host never sends", () => {
+    const root = workspace(); writeFileSync(join(root, "a.txt"), "x");
+    for (const header of ["", "[]", "not json\n", "{}\n", "[1]\n", `${JSON.stringify(Array.from({ length: PRIVATE_SANDBOX_LIMITS.files + 1 }, (_, i) => `f${i}`))}\n`]) {
+      expect(listRaw(root, header).status, JSON.stringify(header.slice(0, 20))).toBe(53);
+    }
+  });
+  it("builds the header the host sends: each admitted path once, in order, at most 1,024", () => {
+    const parse = (pinned: readonly string[]) => JSON.parse(pinnedListingHeader(pinned).toString("utf8")) as string[];
+    expect(pinnedListingHeader([]).toString("utf8")).toBe("[]\n");
+    expect(parse(["output.txt", "input/a.md", "output.txt", "../escape", "/abs", "a//b", "bad\nname", "input/a.md"])).toEqual(["output.txt", "input/a.md"]);
+    const many = Array.from({ length: PRIVATE_SANDBOX_LIMITS.files + 40 }, (_, i) => `f${i}`);
+    expect(parse(many)).toEqual(many.slice(0, PRIVATE_SANDBOX_LIMITS.files));
+  });
+  it("refuses a listing that names a file beside a file under it, which only a path changing kind between the two passes could produce", () => {
+    const counts = { symlink: 0, hard_link: 0, special: 0, oversize: 0, name_invalid: 0, cap: 0 };
+    for (const files of [[["input", 1], ["input/x", 1]], [["output.txt/notes", 1], ["output.txt", 1]]]) {
+      let thrown: unknown;
+      try { parseWorkspaceListing(JSON.stringify({ files, omitted: [], counts, complete: true })); } catch (error) { thrown = error; }
+      expect(thrown).toBeInstanceOf(SandboxError); expect((thrown as SandboxError).code).toBe("unsafe_file");
+    }
+    expect(parseWorkspaceListing(JSON.stringify({ files: [["input.txt", 1], ["input/x", 1]], omitted: [], counts, complete: true })).files).toHaveLength(2);
   });
 });

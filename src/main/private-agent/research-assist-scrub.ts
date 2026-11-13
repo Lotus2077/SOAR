@@ -1,5 +1,5 @@
 /**
- * Backlog item 10 (BL-20261109-0417-assist-wrapper-design, decision 5, as the code reviews refined it): what an assist
+ * Backlog item 10 (BL-20261113-0841-assist-wrapper-design, decision 5, as the code reviews refined it): what an assist
  * packet's text may hold. Source identities become their opaque ids (`S{n}`), file names from the host's appended text
  * `[file]`, then every URL `[url]`, file path `[file]` and digest `[digest]`, pass after pass until one changes nothing. The
  * audit reads the finished strings again the same way, and model-written text for copied source text.

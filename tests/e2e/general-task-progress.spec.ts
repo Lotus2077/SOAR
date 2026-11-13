@@ -270,9 +270,9 @@ async function auditProgress(root: string, scenario: ProgressScenario, task: Gen
     expect(value.events.indexOf(markers[0]!)).toBeGreaterThan(value.events.indexOf(finished[2]!));
     expect(toolStarts.some(row => row.toolCallId === call(2).id)).toBe(false); expect(toolFinishes.some(row => row.toolCallId === call(2).id)).toBe(false);
     expect(rows("completed")).toEqual([]); expect(rows("host_validation_started")).toEqual([]); expect(rows("host_validation_finished")).toEqual([]);
-    // The stored task keeps its generic status. get() derives the specific
-    // user-facing reason from the verified marker checked above.
-    expect(value.record.reason).toBe("incomplete");
+    // Backlog item 6 (BL-20261109-0336): the stored task keeps the run's own stop reason. get() still derives the
+    // user-facing reason from the verified marker checked above, and a missing or forged marker still reads as uncertain.
+    expect(value.record.reason).toBe(progressStop);
   }
   const snapshot = rows("checkpoint").at(-1)!.snapshot as FileRef[];
   if (scenario === "ignore") expect(snapshot).toEqual(rootCheckpoint.snapshot);

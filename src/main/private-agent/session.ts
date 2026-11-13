@@ -116,9 +116,9 @@ export function sessionPhaseIdentity(phase: SessionPhase): string {
  * Backlog item 6, finding A7 (BL-20261109-0501-research-stage-pause-design): true when a research stage started and never transferred:
  * its `research_input` names the reader context, no `research_transfer` exists, and a dispatch row of that context or a `research_stage`
  * event of it does. A stage starts at its first call, since every call it stops records a stage event, even one stopped before its row
- * was committed. Such a stage cannot continue (there is no per-chunk continuation protocol before items 7 and 8, and a restart would
- * reset its role ceilings while keeping the spent calls), so the session refuses it and the desktop offers no Resume. A stage that only
- * recorded its input still runs whole on the next run.
+ * was committed. Such a stage cannot continue (there is no per-chunk continuation protocol yet; the parts of items 7 and 8 merged so far
+ * (7a.1, 7b.1, 7d.A, 8.2a) add none, and a restart would reset its role ceilings while keeping the spent calls), so the session refuses
+ * it and the desktop offers no Resume. A stage that only recorded its input still runs whole on the next run.
  */
 export function researchStageUnfinished(events: readonly Record<string, unknown>[], dispatches: readonly { contextId: string }[]): boolean {
   const input = events.find(event => event.type === "research_input");

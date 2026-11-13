@@ -549,7 +549,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   // 7(c): the session builds the writer's presentation only after the transfer is durable, and a refused presentation would then
   // wedge every resume. A packet the presentation refuses (above all its byte cap) ends the stage here instead.
   try { buildResearchPresentation(outcome.files, input.brief, { sources: input.sources }); }
-  catch (error) { return finish("incomplete", error instanceof Error && error.message === "research_presentation_too_large" ? error.message : "research_presentation_invalid"); }
+  catch (error) { return finish("incomplete", error instanceof Error && error.message === "research_presentation_too_large" ? "research_presentation_too_large" : "research_presentation_invalid"); }
   return outcome;
 }
 export function researchWriteInstructions(): string {

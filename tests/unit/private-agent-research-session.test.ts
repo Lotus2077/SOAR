@@ -322,7 +322,7 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(stageEvents(f.store, "job-early-pause").map(([stage]) => stage)).toEqual(["index", "plan", "extract", "synthesise"]);
   });
 
-  it("limitation until backlog items 7 and 8: a pause inside the stage before its first request is committed still ends the task, with nothing sent", async () => {
+  it("limitation the merged parts of backlog items 7 and 8 (7a.1, 7b.1, 7d.A, 8.2a) do not lift: a pause inside the stage before its first request is committed still ends the task, with nothing sent", async () => {
     const f = await fixture(), runs: Run[] = [], config = options(f, "job-uncommitted-pause", runs);
     const make = config.research!.models;
     let session: GeneralAgentSession;
@@ -388,6 +388,68 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(stageEvents(h.store, "job-fallback-paused")).toEqual([["index", 1, undefined], ["plan", 2, "cancelled"]]);
   });
 
+  // The train-1 integration check (part f3): 7a.1 holds a first extraction attempt that lost every quote of a question it marked evidence_found,
+  // and repairs it after every other chunk. A pause or a cancel around that repair ends the task as BL-20261109-0501 decided.
+  const held = (nth: number) => nth === 1 ? JSON.stringify({ questions: [{ questionId: "Q1", status: "evidence_found" }],
+    quotes: [{ quote: "This sentence appears in no source at all.", questionIds: ["Q1"], note: "" }], conflicts: [] }) : undefined;
+  // 7c's fixture takes one reply function: the nth extraction reply (from 1) is `held`'s, and undefined keeps the fixture's own.
+  const heldBy = () => { let n = 0; return (system: string) => system.startsWith("You extract") ? held(++n) : undefined; };
+  const extractStage = (store: PrivateAgentStore, jobId: string) => store.events(jobId).find(event => event.type === "research_stage" && event.stage === "extract");
+  it("backlog item 6 (A7): a pause between a held extraction attempt and its repair ends the task incomplete, and the next run refuses with nothing sent", async () => {
+    // Control: unpaused, the held attempt is repaired and the stage completes.
+    const c = await fixture({ reply: heldBy() }), control = options(c, "job-held-control", []);
+    expect((await new GeneralAgentSession(control).run()).status).toBe("submitted");
+    expect(stageEvents(c.store, control.jobId)).toEqual([["index", 1, undefined], ["plan", 1, undefined], ["extract", 2, undefined], ["synthesise", 1, undefined]]);
+    expect(extractStage(c.store, control.jobId)).toMatchObject({ invalidReplies: 1, repairCalls: 1 });
+    const f = await fixture({ reply: heldBy() }), runs: Run[] = [], config = options(f, "job-held-pause", runs), make = config.research!.models;
+    let session: GeneralAgentSession, extractions = 0;
+    config.research = { ...config.research!, models: contextId => {
+      const models = make(contextId), complete = models.reader.complete.bind(models.reader);
+      models.reader.complete = async (...args) => {
+        const reply = await complete(...args);
+        if (String(args[0][0]?.content).startsWith("You extract") && ++extractions === 1) session.pause();
+        return reply;
+      };
+      return models;
+    } };
+    session = new GeneralAgentSession(config);
+    expect(await session.run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    // The repair is refused before dispatch; the held attempt counts as invalid.
+    expect(stageEvents(f.store, config.jobId)).toEqual([["index", 1, undefined], ["plan", 1, undefined], ["extract", 1, "cancelled"]]);
+    expect(extractStage(f.store, config.jobId)).toMatchObject({ invalidReplies: 1 });
+    expect(f.store.dispatches(config.jobId).map(row => row.status)).toEqual(["settled", "settled", "settled"]);
+    expect(researchStageUnfinished(f.store.events(config.jobId), f.store.dispatches(config.jobId))).toBe(true);
+    const sent = f.bodies.length;
+    expect(await new GeneralAgentSession(options(f, config.jobId, runs)).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    expect(f.bodies).toHaveLength(sent); expect(f.store.dispatches(config.jobId)).toHaveLength(3); expect(runs).toHaveLength(0);
+  });
+  it("backlog item 6 (A7): a pause during a held attempt's repair call fails its zero-fee row as cancelled, never unknown, and ends the task incomplete", async () => {
+    const f = await fixture({ reply: heldBy() }), runs: Run[] = [], config = options(f, "job-held-repair-pause", runs);
+    const session = new GeneralAgentSession(config);
+    let extractions = 0;
+    f.hooks.onRequest = system => { if (system.startsWith("You extract") && ++extractions === 2) session.pause(); };
+    expect(await session.run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    expect(stageEvents(f.store, config.jobId)).toEqual([["index", 1, undefined], ["plan", 1, undefined], ["extract", 1, "cancelled"]]);
+    const rows = f.store.dispatches(config.jobId);
+    expect(rows.map(row => row.status)).toEqual(["settled", "settled", "settled", "failed"]);
+    expect(rows[3]).toMatchObject({ purpose: "research evidence extraction", failure: { code: "cancelled" } }); expect(rows[3]!.feeMicrousd ?? 0).toBe(0);
+    f.hooks.onRequest = undefined;
+    const sent = f.bodies.length;
+    expect(await new GeneralAgentSession(options(f, config.jobId, runs)).run()).toMatchObject({ status: "incomplete", reason: "research_stage_not_replayed" });
+    expect(f.bodies).toHaveLength(sent); expect(f.store.dispatches(config.jobId)).toHaveLength(4); expect(runs).toHaveLength(0);
+  });
+  it("backlog item 6 (A7): a cancel during a held attempt's repair call ends the task cancelled, and so does every later run", async () => {
+    const f = await fixture({ reply: heldBy() }), runs: Run[] = [], config = options(f, "job-held-repair-cancel", runs);
+    const session = new GeneralAgentSession(config);
+    let extractions = 0;
+    f.hooks.onRequest = system => { if (system.startsWith("You extract") && ++extractions === 2) session.cancel(); };
+    expect(await session.run()).toMatchObject({ status: "incomplete", reason: "session_cancelled" });
+    f.hooks.onRequest = undefined;
+    const sent = f.bodies.length;
+    expect(await new GeneralAgentSession(options(f, config.jobId, runs)).run()).toMatchObject({ status: "incomplete", reason: "session_cancelled" });
+    expect(f.bodies).toHaveLength(sent); expect(runs).toHaveLength(0);
+  });
+
   it("backlog item 6 (A7): a settled reader row with no stage event (a crash during the index stage) is refused by the next run with nothing sent", async () => {
     const f = await fixture(), runs: Run[] = [], config = options(f, "job-rows-only", runs);
     const session = new GeneralAgentSession(config), append = f.store.append.bind(f.store);
@@ -409,10 +471,13 @@ describe("H2b/H2c: the research stage inside a session", () => {
     const f = await fixture(), runs: Run[] = [], config = options(f, "job-defensive", runs);
     config.research = { ...config.research!, diagnostics: { retain() {} } };
     const session = new GeneralAgentSession(config), append = f.store.append.bind(f.store), context = f.store.context.bind(f.store);
-    let armed = false;
+    let armed = false, stageBegun = false;
     vi.spyOn(f.store, "append").mockImplementation((jobId, event) => { const out = append(jobId, event); if (event.type === "research_input") armed = true; return out; });
-    vi.spyOn(f.store, "context").mockImplementation(id => { const out = context(id); if (armed) { armed = false; session.pause(); } return out; });
+    // 6.3: the pause lands after the stage's abort controller exists, so the session's own check before the stage has passed.
+    vi.spyOn(f.store, "context").mockImplementation(id => { const out = context(id);
+      if (armed) { armed = false; stageBegun = (session as unknown as { stageAbort?: AbortController }).stageAbort !== undefined; session.pause(); } return out; });
     expect(await session.run()).toMatchObject({ status: "paused", reason: "session_stopped" });
+    expect(stageBegun).toBe(true);
     vi.restoreAllMocks();
     expect(stageEvents(f.store, "job-defensive")).toEqual([]); expect(f.store.dispatches("job-defensive")).toEqual([]);
     const again = options(f, "job-defensive", runs); again.research = { ...again.research!, diagnostics: { retain() {} } };

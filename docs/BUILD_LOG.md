@@ -33709,3 +33709,44 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The owner's go-ahead to push the integration branch, retarget #74, #77, #78 and #83 to `main`, open the integration pull request and, after CI passes, merge it with a merge commit. Then an operator recomputes `--runtime-sha256` before any loop or E-run; S-e1's docs-only Correction pull request for #66, #70 and #74 follows the merge; and a handoff note replaces the stale "Start here" text and says whether docs/HANDOFF.md section 5's re-stamp rule still holds. Train 2 starts with #79 once the owner decides how entries whose IDs precede `main`'s tail are ordered.
 
 References: BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0331-loop-selection-protocol-2-design; BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0354-document-review-flags-design; BL-20261109-0422-registry-run-commit-design; BL-20261109-0447-research-tolerance-design; BL-20261109-0456-ordered-pool-implemented; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0501-research-stage-pause-design; BL-20261109-0515-infra-classification-design; BL-20261109-0552-research-tolerance-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261110-0712-correction-research-tolerance-repin; BL-20261110-0712-document-review-flags-implemented; BL-20261110-0723-correction-infra-classification-train-review; BL-20261110-0900-correction-research-tolerance-held-repair; BL-20261110-0933-document-review-flags-party-terms-bounded; BL-20261110-1100-document-review-flags-party-terms-pinned; BL-20261110-1100-correction-research-train-1-review-pins; pull requests #66, #67, #68, #69, #70, #71, #72, #73, #74, #76, #77, #78, #81 and #83; docs/HANDOFF.md section 5; docs/experiments/README.md; scripts/validate-build-log.ts; scripts/private-agent-local-screen.ts (`localScreenSourceFreeze`); tests/helpers/research-protocol-pin.ts; tests/unit/phase4-loop.test.ts.
+
+### BL-20261113-0728-e0-card -- 2026-11-13 -- E0 card drafted: new-endpoint qualification at zero fee, with four owner answers owed
+
+Status: `Proposed`
+
+Scope or hypothesis: The card of experiment E0 in docs/PROJECT_REVIEW_2026-11-05.md section 5.6 (new-endpoint qualification and role calibration, run from the owner's Mac; fee cap USD 0; two days) and docs/HANDOFF.md "Start here" section 5, step 2, as issue #47 asks. The card text is docs/experiments/e0-card-2026-11-13.md. Hypothesis: one probe run of P1 to P11 and the adapter probe, plus the role fixtures, re-derives every stage bound and clock and settles a thinking policy per role, structured output per role, the adapter path, K, and whether the 2026-11-04 figures apply. E0 makes no claim about product quality.
+
+Decisions:
+- **Arms and order.** P1 to P9; P10 at 20 calls per role and thinking mode; P11 at 20k, 60k and 120k tokens with K in {1, 2, 4, 8}; and the adapter probe. P1, P10, P11 and the adapter probe run in one invocation, after `pnpm probe:export-schemas` and before `pnpm probe:assess`. A first `--only P1` run is checked by hand before that invocation. Then come the role fixtures:
+  - the planner, 3 conditions × 10 repeats on the pinned exposed r3 index, with raw replies retained;
+  - the extractor, on 3 synthetic chunks;
+  - the judge, only once its labelled claim set exists.
+
+  No script runs the extractor or judge fixture yet. The card names each command in an amendment before that fixture runs.
+- **Preconditions.** `main` contains 7b.1 (#69) and 7a.1 (#76), which holds from 9d10b9a. No pull request that changes `researchProtocolSha256()` merges between the export and the assessment.
+- **Defaults taken from their sources.**
+  - #47 item 3: P10's 95% rule binds the strict variant (BL-20261108-1459-serving-card-reader-design decision (9)).
+  - #47 item 5: P11 uses K in {1, 2, 4, 8} and 20k, 60k and 120k tokens, as the script runs them.
+  - E1 does not gate E0: the proposed default of an open owner question in BL-20261109-0351-e1-recoverability-card, decision (7).
+  - Measurements become card values by the writer's built-in proposals (BL-20261108-1459-serving-card-reader-design decision (2)), and structured output is proposed by the 95% rule, which is the proposed default of an open owner question there. The reader refuses an adopted card with non-default caps, thinking, structured output, K or admission until 7a.2, 9, 8.2b and 7b.3 merge.
+  - P10 is not aligned with the pipeline's requests, and the card states that limit, including the synthesis off cell that sends the thinking ceiling's `lengthCap`.
+- **Proposed by this card.** P10 runs without `--strip-reasoning` and the planner fixture keeps its raw replies (it has no strip option), so both retain reasoning text for synthetic and public inputs, following the review's row E0 and its stop list (section 5.8). The card also proposes a stop rule: stop before any request on the zero-fee guard or a template manifest, stop after a hand-checked `--only P1` run on an unserved alias (the probe itself neither compares the alias nor stops after a failed probe), and re-run the whole probe set if the protocol hash changes between export and assessment.
+- **Owed by the owner** before E0's role fixtures, or for the delta check:
+  - decision 1, whether the served model is the one qualified on 2026-11-04 (without it, E0 re-derives every bound);
+  - the judge fixture's agreement level, and who labels its claim set;
+  - the exposed r3 index pinned into docs/experiments/e0-planner-fixture-v1.json;
+  - confirmation of reasoning retention, and whether to write P10-align first.
+
+Changes: docs/experiments/e0-card-2026-11-13.md is added. No code changes. The card names the writer's command with `--compare-root`, `--compare-version` and `--compare-context` set to the 2026-11-04 qualification. It uses `pnpm --silent` and redirects the printed Markdown, so pnpm's banner, which names the local checkout path, stays out of the card.
+
+Evidence: None. This entry decides the card, and nothing ran against the endpoint.
+
+Failures or blockers: The first draft had nine errors, found by a single agent check against the scripts and entries and fixed before this entry was committed. It said the probes cannot read the engine version, gave a stop rule the probe does not enforce, gave a card command that writes only the JSON, and offered a strip option the planner fixture lacks. The planner fixture cannot run until the owner pins the r3 index, and the judge fixture cannot run until its claim set is labelled and its level set.
+
+Limitations and non-claims: The card proves nothing about the endpoint. A P10 pass does not show that the pipeline's own requests are at least 95% valid, because P10 is not aligned with them. P1 can show a difference from the 2026-11-04 qualification but cannot establish identical weights. P11's K bursts use a one-sentence prompt, so they show decode concurrency only, not K at extraction-size prompts. Defaults marked as owed stay `Proposed` until the owner's answer is recorded in an entry.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The owner answers the judge level and labeller, the r3 pin, and reasoning retention and P10-align, recorded in an entry or in this card's pull request, and the card merges. Decision 1's entry may stay owed (issue #47). Then the owner runs E0 from the Mac per issue #57 and opens a pull request with the serving card, the filled manifest, the registry rows and a `Verified` entry.
+
+References: docs/experiments/e0-card-2026-11-13.md; docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E0, section 5.8 and section 5.10 decision 1; docs/HANDOFF.md "Start here" section 5, step 2; issues #47 and #57; BL-20261108-0911-probe-extensions-implemented; BL-20261108-1459-serving-card-reader-design; BL-20261108-1649-serving-card-reader-implemented; BL-20261109-0351-e1-recoverability-card; BL-20261110-1506-merge-train-1-integration.

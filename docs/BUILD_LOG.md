@@ -34394,3 +34394,580 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI green on #82, then its merge under the owner's standing go-ahead for a log-only re-stamp. #89 re-stamps after it.
 
 References: BL-20261113-0816-correction-host-flags-event-ids-and-replay; BL-20261113-0817-runner-storage-integrity-design; BL-20261113-0818-runner-storage-integrity-implemented; BL-20261113-0819-correction-runner-storage-integrity-ids; BL-20261113-0820-research-stage-pause-held-attempt-pins; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261113-0758 and BL-20261113-0832 (pull request #87).
+
+
+### BL-20261113-0836-infra-resume-design -- 2026-11-13 -- Backlog item 11, part 3b decided: the loop resumes a stage that ended on infrastructure once, at zero fee, from its last complete stage (LOOP_VERSION 2), keeps every run's spend in its totals and registry rows, and gives a row to every loop that ends without a selection
+
+Status: `Proposed`
+
+Scope or hypothesis: The decision entry for the second half of the third part of backlog item 11 of docs/PROJECT_REVIEW_2026-11-05.md section 5.7 (plan ID 11.3b, issue #46's lane C): the zero-fee resume that section 5.1's rule 5 asks for ("an `infra_invalid` run resumes once from its last complete stage at zero fee and never re-pays a settled assist"). Part 3a (BL-20261109-0515-infra-classification-design, as BL-20261109-0606-correction-infra-classification-rules corrects it; pull request #78) decided the classification and left the resume to this part, together with every finding its first design's reviews raised about the resume (its decision (5)).
+
+This entry also answers finding F1 of the merge-train review of pull request #67 (part 1), review data kept outside the repository whose substance is this. Under part 1, a stage refused as `loop_stage_interrupted` or `loop_stage_incomplete` has to be moved aside by hand before the loop can go on. Its spend then leaves the loop's totals and its registry row, which sum only `a`, `b`, the repair and `critique/`, and for a cloud-armed sample `a` the rerun pays the reading stage again. Decision (8) says how this part answers all three, and what it cannot recover.
+
+The entry is recorded before its code because it changes the loop's directory layout, its record (LOOP_VERSION 2), its resume and stop rules, and what the registry writer sums and accepts. It builds on parts 1 and 3a and on part 2's directory scan (pull request #73). It reads no serving card, runs nothing live, and needs no approval under PLAN.md section 4(c); the owner may record otherwise. If other lanes' entries merge first, this entry's ID is re-stamped after `main`'s tail and a correction records the original.
+
+Decisions: (1) **Which ends are resumed, how often, and when.** A stage ended on infrastructure when:
+- a candidate run (`a`, `b` or the repair) that wrote `result.json` is classified `infra` by part 3a's `classifyRunEnd`, with the stage's interrupt mark;
+- a candidate run's directory holds `freeze.json` but no `result.json`, because the driver failed after its session started or the process died: cause `run_unfinished`. A directory without `freeze.json` holds no run (decision (3), void starts);
+- the critique's failure record is classified `infra` by `classifyCritiqueEnd`, or its directory holds neither `critique.json` nor `critique-failure.json`: cause `run_unfinished`. This part amends that helper, which no consumer uses yet: a marked critique counts as the operator's stop only when its failure is infrastructure or it left no record, so a failure in the model's output stays the task's.
+
+The interrupt mark now only feeds part 3a's rule (f). A marked stage whose end part 3a gives to the task (a fee cap the interrupt crossed, for example) is an ordinary candidate, neither refused nor resumed. This supersedes, for version-2 loops, part 1's decision (5), which refused every marked stage that did not submit and left it to the operator.
+
+Each stage is resumed at most once. This reads rule 5's "once" per stage, which departs from the registry's unit, in which a loop is one row (question (a)). The loop's own interrupt uses up the resume too, so an operator who stops a stage twice ends it (question (e)). A stage that ended on infrastructure and can be resumed under decision (2) is handled in one of two ways:
+- In the invocation that ran it, it stops that invocation with `loop_stage_infra`, which is not terminal, and the next invocation resumes it (question (c)). An interrupt already ends the invocation, so a stage it cut is resumed by the next invocation in the same way.
+- Found in that state when an invocation reaches it, it is resumed there: moved aside to `<stage>.infra-1` and run again (decision (3)).
+
+A candidate that cannot be resumed, because it is a cloud-armed `a` without a packet or because its resume is used:
+- with a result and an end that is not the operator's stop, is an ordinary candidate, as part 1 decided;
+- with the operator's stop, stops the loop with `loop_stage_interrupted`;
+- without a result, stops the loop with `loop_stage_incomplete`, or with a dispatch stop when its ledger decides one (decision (4)).
+
+Decision (6) says how these stops end the loop.
+
+(2) **A resumed stage cannot spend.** A stage is resumed only when its rerun's driver input cannot spend: it has no cloud arm, and every other key is marked spend-free in an exhaustive typed table over the driver input's keys. A key added later, such as item 10.b's assist policy if it lands outside `cloudArm`, fails the typecheck until it is classified, and a key outside the table refuses at run time. The local destinations cost nothing by construction, since the driver admits only a `local_zero_cost` provider (private-agent-local-screen.ts:320). `b`, the repair (`seeded()` strips the arm) and the critique (a local critic under a cap of 0) always qualify. Sample `a`:
+- **With a packet.** An `a` whose reading stage completed resumes as a writer seeded from the moved-aside run (`as: seeded_writer`), with or without its result and whatever the arm. Its reading stage, its cloud calls and any settled assist are therefore never sent again. "Completed" means that `transferStatus` returns its packet once its ledger is recovered (decision (3)). For this decision, `research_seed_load_failed` refuses with `loop_stage_ledger_unreadable`, and any other refusal means `a` has no usable packet.
+- **Without a packet.** An `a` without a packet is rerun afresh (`as: rerun`) on a local loop, or on a loop without the research pipeline.
+- **Cloud-armed, without a packet.** Such an `a` is never resumed: a rerun would send its reading stage's cloud calls, and rule 5 allows a resume no fee. A finished one meets part 1's dispatch checks first, so a priced failed or uncertain row stops the loop. Otherwise it ends at `stage_failed` with its seed refusal, as item 4 decided. An unfinished one stops the loop under decision (1).
+
+A resumed stage's run must show that it sent nothing priced: every dispatch row goes to a zero-fee destination with a reservation of 0, and its freeze has a local arm and a `limits.feeMicrousd` of 0. A job without a cloud arm gets a fee cap of 0 (session.ts:271-272), and the store refuses any reservation over the cap (store.ts:248-250). Otherwise the loop counts the run and stops with `loop_resume_spent`, a check that should never fire.
+
+(3) **Locking, recovery and the move.**
+- **Lock.** Each invocation holds an exclusive SQLite transaction on `loop.lock` for its whole run. It takes it without waiting, before it reads or writes anything else. The operating system releases the lock when the process dies, so a stale lock needs no takeover and a reused process ID cannot pin it. A lock that is held refuses with `loop_locked`, and the invocation writes nothing, not even to log.txt. The loop releases its lock only after its stage's driver has returned.
+- **Atomic saves.** Every save of `loop.json` writes a temporary file, syncs it, renames it over `loop.json` and syncs the directory.
+- **Ledger recovery.** The store keeps SQLite's rollback journal (store.ts:127-128), so a process killed during a commit can leave a hot journal, and read-only readers then refuse the ledger. Before the loop reads any stage directory it did not just run, it opens that directory's `state.sqlite` read-write once, in place and under the lock, so SQLite rolls the journal back to the last commit. The broker commits a row before it sends (broker.ts:486 and :530), so a row the rollback removes was never sent. Nothing else is written. A ledger that still cannot be read refuses with `loop_stage_ledger_unreadable`, and is never read as "no rows".
+- **Write-ahead.** The loop saves a move's entry (decision (7)) before it renames the directory, then syncs the loop directory, then runs the stage. A stage with a resume entry is always run as its entry says, and log.txt records each move by stage and cause. An entry records the moved directory's identity: its inode, which a rename keeps, and the sha256 of its `freeze.json` or of the critique's failure record, or the absence of either.
+- **Begun stages.** The record's `begun` lists, with their start times, the stages whose current directory a run the loop started has created or is about to create. A stage joins it in a save before its fresh run starts. It leaves it in the save that records its move, and at any stop of an invocation that finds its directory absent. Two examples of the second: a serving-card refusal before the directory exists, which keeps a loop resumable as SC decided; and a critique stopped while it rendered the draft before creating its directory (phase2-repair.ts:114 and :138). A begun stage whose directory is missing is started again at zero fee and logged. The exception is a cloud-armed `a` without a resume entry, which stops the loop with `loop_stage_missing`: the loop cannot tell a start killed before its directory existed from a directory removed by hand, and only the second would mean paying for `a` twice.
+- **Void starts.** A stage directory without `freeze.json`, whose ledger holds no dispatch row, is a start that sent nothing. The driver writes its freeze (private-agent-local-screen.ts:415) before its session, the only sender, starts (:434). Every configuration refusal after the directory exists also comes before that point, such as the public inputs (:371) and the cloud arm (:379). The loop moves such a directory aside to `<stage>.void-<n>` under a write-ahead entry and starts the stage afresh, a cloud-armed `a` included. A void start is not the stage's resume and has no class, so a configuration fault is never counted as infrastructure.
+- **Reconciliation.** At every start, after the lock and the record checks, each entry must find its moved directory with the identity it recorded. If the moved directory is missing and the stage's directory carries that identity, the loop completes the rename. Every other mismatch refuses with `loop_resume_mismatch`. The same refusal applies to any subdirectory that is none of these: a begun stage, a stage awaiting its entry's rename, or a moved directory an entry names.
+
+(4) **Dispatch rows and claims before a move.** Before it moves a stage aside, with or without a result, the loop reads the stage's recovered ledger:
+- a `committed` row that is not zero-fee by part 1's predicate (applied apart from the status), or any `unknown` row that is not an assist, stops the loop with `loop_stage_unresolved_dispatch`. This is the brief's "a priced unresolved row is infra but never resumed";
+- a `failed` row that is neither an assist nor zero-fee stops it with `loop_stage_failed_dispatch`;
+- a zero-fee `committed` row (the local call in flight when the process died) is admitted. Equivalent work sent again costs nothing (item 1's zero-risk rule). The row itself is never sent again, because the rerun is a new job, so it stays an unsettled row in `unknownDispatches`, as BL-20261107-0809 counts a crash's committed row.
+
+A stage kept as a candidate meets part 1's checks in `summarise` unchanged, and there a committed row still stops the loop.
+
+The loop then recovers each of the stage's run claims that is not `released` (store.ts:350-383) through the store's own recovery path, as the runner's recovery does (runner.ts:390-397). The path is `acquireRecovery`, then the sandbox's `cleanupOwnedContext` for that job and context, then `releaseRun`. The sandbox requires this recovery authority (sandbox.ts:421). Under the loop's lock, the driver that held the claim ran in an earlier invocation that has finished, so no liveness check is needed. The claims table is the only part of a stage's ledger the loop writes. A cleanup that fails leaves the claim `cleanup_required`, and the invocation stops with `loop_stage_cleanup_required`, which is not terminal.
+
+(5) **The seeded-writer resume of `a`, and the loop's lineage.** After such a resume:
+- `b` and the repair are seeded from `a.infra-1`, the run whose stage produced the packet, because the seed loader refuses a seeded source (research-seed.ts:60);
+- `a`, `b` and the repair must each name `a.infra-1`'s job and packet, and the packet is read with `transferStatus(a.infra-1)`;
+- `CandidateSummary.researchFrom` gains the source's `sourceFreezeSha256`, which seeded freezes already carry. It must equal the freeze hash the resume entry recorded, and `a.infra-1` must have run under the loop's runtime;
+- `seeded` gains `a`;
+- the critique's packet check is unchanged.
+
+(6) **How a loop ends without completing.**
+- **After stage 1.** Once stage 1 has chosen a draft, a stop at the critique or the repair ends the loop with that draft as its final selection. The step is `critique_failed` or the new `repair_failed`, and `selected.final.cause` records the stop's class cause (decision (10)). This includes a critique whose second end is again infrastructure. Under protocol 2 a repair replaces a draft only when it beats it, so the draft is what the loop delivers. `repair_failed` exits 2, as `critique_failed` does.
+- **Terminal stops.** These set `stopped: {stage, failure}`:
+  - `loop_stage_interrupted`, `loop_stage_incomplete`, `loop_stage_unresolved_dispatch` and `loop_stage_failed_dispatch` before stage 1;
+  - the integrity stops `loop_stage_missing`, `loop_resume_spent` and `loop_stage_mismatch` at any stage.
+
+  The record check refuses every later invocation of a stopped loop with `loop_terminal`, so a loop that has been rowed keeps a fixed record.
+- **Closing.** `phase4-loop.ts --close --loop-directory LOOP` lets the operator end a loop at any other stop, such as a resumable stop given up on, `loop_resume_mismatch` or `loop_stage_ledger_unreadable`. Under the lock it reconciles, recovers each stage's ledger, records `stopped: {stage, failure, closed: true}` with the totals of every run on disk, and saves. It runs nothing and needs no runtime match, so a loop that a later merge strands can still be closed. After stage 1, closing ends the loop with its draft, as a stop there does.
+
+(7) **The record (LOOP_VERSION 2).** `loop.json` gains:
+- `resumes`: one write-ahead entry per resume, `{stage, cause, as, identity, counts, span, cleanup, at}`, carried across invocations and never dropped. The moved directory is always `<stage>.infra-1`, and `cause` is the stage's fixed cause: part 3a's, `run_unfinished`, or the critique's;
+- `voids`: one write-ahead entry per void start, `{stage, n, identity, at}`;
+- `begun`, `stopped` and `seeded.a`;
+- `failedStage`: the stage being run or checked when an invocation stopped, or null;
+- `selected.final.cause`, for `critique_failed` and `repair_failed`.
+
+A moved stage's interrupt mark leaves `stages` with it. `totals` is recomputed at every save from:
+- the kept candidates;
+- the critique;
+- every resume entry's counts;
+- at a stop, a stopped stage without a result, from its recovered ledger.
+
+A moved run is never also a candidate, so nothing is counted twice, and `loop.json`'s totals cover every run on disk at every save. The CLI prints totals only when the loop selects. Its failure line keeps its bytes, as SC decided, so a launcher reads `loop.json`. LOOP_VERSION becomes 2 because the layout gains moved directories and `totals` changes meaning. Part 1's record check refuses to resume a version-1 record, and no loop may span this part's merge in any case.
+
+(8) **Part 1's moved-aside stages (finding F1).**
+- The operator no longer moves a stage by hand. A stage that part 1 refuses as `loop_stage_interrupted` or `loop_stage_incomplete` on its first infrastructure end is resumed by the loop itself, under the lock and the write-ahead record. A stage stops the loop only when:
+  - it cannot be resumed (a cloud-armed `a` without a packet, or a priced unresolved or failed row);
+  - its end is infrastructure again after its resume;
+  - an integrity check fails.
+
+  A marked stage that ended on the task is now an ordinary candidate (decision (1)).
+- Every run's spend stays in `loop.json`'s totals and in the registry row (decision (9)), including a loop that ends without a selection (decision (10)). For a version-1 loop, the registry also sums every run directory that an operator moved aside inside the loop directory under part 1. It refuses the row when log.txt records more finished runs than the scan finds, which catches a finished run moved out of the directory. A run moved out before it finished cannot be detected.
+- The loop never pays for a cloud-armed `a` twice. With a packet, `a` resumes as a seeded local writer. Without one, it is not resumed, and `loop_stage_missing` refuses to start it again. Finishing such a loop in a new directory is a paid re-run under the card's rule (question (d)).
+
+Cloud-armed loops should wait for this part.
+
+(9) **The registry.** scripts/registry-row.py's `--loop-dir`:
+- reads loop versions 1 and 2 and refuses any other;
+- probes `loop.lock` without waiting, refuses while a loop holds it, and holds it while it reads;
+- reads every ledger from a private copy taken with its journal, so a hot journal never blocks a row and no run directory is written;
+- finds the loop's directories with one scan, shared with pull request #73's provenance. The scan returns typed entries (a run, a critique or a void, with or without a freeze and a result), and provenance reads only runs that hold a freeze;
+- for a version-2 loop, requires every subdirectory to be a begun stage or a moved directory an entry names, and every entry's moved directory to exist, so a loop still awaiting reconciliation is refused until an invocation or `--close` completes it;
+- for a version-1 loop, requires every run to carry the loop's task and runtime where the record has them, drops duplicates by job, and applies decision (8)'s cross-check;
+- sums every run the scan finds. A run without a result contributes counts only, a void contributes nothing, and the critique's sum covers `critique.infra-1`;
+- adds `stage_run(loop_dir, loop)`, which names the run whose freeze holds the loop's cloud stage: `a.infra-1` after a seeded-writer resume, else `a`. `cloud_fields` uses it;
+- adds `loop.resumes` as `[{stage, cause, as}]`. `stage` and `as` come from fixed lists, there is at most one entry per stage, and `cause` is checked against `IDENTIFIER`;
+- adds `activeSeconds`, the sum of the spans the loop recorded for every stage run: `stages`, plus each resume entry's `span`. A run whose process died, whose span the loop never closed, counts from its `begun` time to its last dispatch commit. The wait between invocations is therefore excluded, and `wallSeconds` keeps its meaning (question (b));
+- classifies a version-2 `critique_failed` or `repair_failed` loop by its draft. When the draft did not submit and the recorded cause is infrastructure, the class is infra with cause `critique_<cause>` or `repair_<cause>`. This extends part 3a's critique rule.
+
+(10) **Rows for loops that end without a selection.** A version-2 loop whose record holds `stopped` gets a row. A loop that has neither a selection nor `stopped` is refused, as now, with a message to resume or close it.
+- **Run fields.** These come from the stopped stage's run, or are null without one. `date` and `taskJobSha256` then come from the loop record.
+- **Loop fields.** `loop.selected` and `loop.step` are null, `loop.stage1` is as recorded, `loop.candidates` lists every run on disk, and `loop.stopped` is `{stage, failure, closed}`. Provenance uses the run the row's fields come from.
+- **Class.** The class follows these rules. The same rules give `selected.final.cause` under decision (6). They form a separate list and function (`LOOP_STOP_CAUSES`, `classifyLoopStop`), mirrored in both languages.
+  - An integrity stop is infrastructure, with that code as its cause. The integrity stops are `loop_stage_missing`, `loop_resume_spent`, `loop_stage_mismatch`, and a closed `loop_resume_mismatch` or `loop_stage_ledger_unreadable`.
+  - A run with a result takes part 3a's class, with its mark.
+  - A run without a result takes the class of the row that stopped it. An uncertain row is judged by part 3a's uncertain-call rule, with a `committed` row counting as a transport failure (cause `stage_unresolved_dispatch`). A failed row is judged by its failed-call rule (cause `stage_failed_dispatch`). With no such row, the class is `run_unfinished`.
+  - A stop with no run (a void start or a missing directory) is `operator_stop` after the loop's interrupt. Otherwise it belongs to the task, because a refusal before the session is configuration (part 3a's question (d)).
+- **Outcome.** Part 3a's checks apply to the class, and the writer refuses `accepted`. Part 3a's rule that `accepted` stays allowed on any run concerns a loop's selected run, and such a loop has none (question (f)). A `--supersedes` copy of such a row keeps that refusal.
+
+This widens part 3a's decision (5), which allowed a stopped loop only as `infra_invalid`. A stop that the class gives to the task is rowed `rejected` or `incomplete`, so a configuration fault never leads to a paid re-run. These rows carry `runClass.version` 1, whose run-end lists do not change.
+
+(11) **Out of scope, and what other parts must do.**
+- A resume inside a reading stage waits for items 6 and 10.b.
+- Arm D's single all-cloud run has no stage to resume.
+- PLAN.md's R0, and any paid re-run, belong to a card (part 3a's question (b)).
+- A single run's record of forwarded signals belongs to part 5.
+- Part 5's launcher must re-invoke on `loop_stage_infra`, `loop_interrupted` and `loop_stage_cleanup_required`, never on a terminal stop or on `loop_locked`, and must read `loop.json`'s totals for its batch cap.
+- Item 10.b must classify its assist policy in the spend-free table and strip it in `seeded()`.
+- Part 11.4, item 7d.C and the assist receipt fields (RA) must read a loop's runs through the scan and `stage_run`, and give each new column a value for a run without a result.
+
+(12) **Runtime identity.** scripts/phase4-loop.ts, selection.ts and run-classification.ts are inside `localScreenSourceFreeze`, so this change rotates the runtime hash; no loop may span its merge. The driver (scripts/private-agent-local-screen.ts), `researchProtocolSha256()`, request bodies and the identity golden test are unchanged.
+
+Open owner questions, with the proposed defaults this entry records (this entry does not answer them for the owner, and none gates this part):
+- (a) Is rule 5's "once" counted per stage, which allows up to four resumes in a loop that the registry rows as one, or once per loop? Proposed default: once per stage. The loop's new causes join part 3a's question (a), to be frozen with its lists: `run_unfinished`, `stage_unresolved_dispatch`, `stage_failed_dispatch`, the integrity codes, and the `critique_` and `repair_` forms.
+- (b) Criterion 7 for a resumed loop. Its `wallSeconds` spans from its first start, so it includes the wait between invocations. E3's and E4's approved rules read wall time. Until the owner answers, that wait counts against criterion 7, which log rule 5's "never convert a missing prerequisite" argues against. Proposed default: criterion 7 reads `activeSeconds` for a loop with resumes or void starts, and `wallSeconds` otherwise. This amends approved rules and needs the owner's answer.
+- (c) Should a stage that ends on infrastructure wait for a fresh invocation, at the cost of one more invocation, rather than rerun at once while its cause may persist? Proposed default: yes (decision (1)). Every rerun then follows the launcher's idle check, and an endpoint that is still down does not use up the one resume.
+- (d) Some ends have no zero-fee resume: a cloud-armed sample `a` without a packet, arm D's single run, and a loop stopped by `loop_stage_missing`. Proposed default: each is rowed under decision (10) or part 3a. Any paid re-run goes in a new loop directory under the card's rule and is flagged as a re-run (part 3a's question (b)).
+- (e) Does the operator's own stop use up a stage's one resume? Proposed default: yes, so repeated interrupts cannot re-sample a stage.
+- (f) Should a loop without a selection get a row classed by decision (10), never `accepted`? Proposed default: yes.
+
+Changes: Planned in one pull request on `feat/11.3b-infra-resume`, stacked on pull request #78 once pull request #73's branch is in its base:
+- scripts/phase4-loop.ts:
+  - LOOP_VERSION 2, the lock, atomic saves and ledger recovery;
+  - `begun`, `resumes`, `voids`, `stopped`, `failedStage`, `seeded.a` and `selected.final.cause`;
+  - reconciliation;
+  - the resume: classification, the spend-free table, the ledger rule, claim recovery, the write-ahead move, the rerun and the spend check;
+  - void starts, `loop_stage_infra`, the terminal stops and `repair_failed`;
+  - totals recomputed at each save, and `--close`;
+  - the new dependencies and their production wiring;
+  - the header comment.
+- src/main/private-agent/selection.ts: `researchFrom.sourceFreezeSha256`, and a reader for a run without `result.json` (its counts, dispatch rows and claims).
+- src/main/private-agent/run-classification.ts: `classifyLoopStop` and `LOOP_STOP_CAUSES`, mirrored, and the amended `classifyCritiqueEnd`.
+- scripts/registry-row.py: decisions (9) and (10), in new functions placed apart from the lines parts 11.4, 7d.C and RA will touch.
+- docs/experiments/README.md:
+  - version 2, and the moved and void directories;
+  - `loop.resumes`, `loop.stopped` and `activeSeconds`;
+  - `unknownDispatches` on loop rows, and the cloud fields through `stage_run`;
+  - `seeded.a`, `repair_failed` and `final.cause`;
+  - the new `runClass` causes, and rows without a selection.
+
+Tests:
+- tests/unit/phase4-loop-resume.test.ts (new) covers each resume path and refusal:
+  - the crash windows: killed before the move, after it, and before the rerun's directory exists;
+  - a real hot journal;
+  - the lock, held and released at exit;
+  - `begun`: a refusal before the directory, a critique stopped while rendering, and a cloud `a`;
+  - void starts, including a cloud `a` after a configuration refusal;
+  - the spend-free table, with a test that fails closed, and the spend check;
+  - a cloud `a` with and without a packet, finished or not;
+  - the ledger rule and claim recovery;
+  - the deferral, and marked task ends;
+  - terminal stops, `repair_failed` and `--close`;
+  - totals at every save.
+- tests/unit/registry-row-resume.test.ts (new):
+  - version-1 and version-2 sums, the version-1 cross-check and duplicates;
+  - `stage_run`, runs without a result, and voids;
+  - a hot journal read from a copy;
+  - `loop.resumes`, `activeSeconds` and the lock probe;
+  - rows without a selection, with their classes and outcomes;
+  - version-2 `critique_failed` and `repair_failed` rows;
+  - `--supersedes` of a stopped row, and provenance with a critique directory;
+  - TypeScript and Python parity for the reader of a run without a result and for the stop classes.
+- tests/unit/phase4-loop.test.ts:
+  - the version-2 record, whose `seeded` gains `a` (:91, :224);
+  - the infrastructure fixtures that now resume (:142, :172);
+  - hand-made directories that now give `loop_resume_mismatch` (:275-288);
+  - hand-removed stages (:300-304, :387, :391);
+  - part 3a's critique-interrupt test (:409-437);
+  - part 1's zero-fee `stage_failed` case on a local loop;
+  - pull request #66's pin and its test that admits superseded rows, which move again.
+- tests/unit/registry-row-loop.test.ts (:60-67), whose `repair/` directory the version-1 scan now sums; tests/unit/private-agent-selection.test.ts and tests/unit/run-classification.test.ts for the new fields, the stop classes and the amended critique helper; part 2's tests/unit/registry-row-git.test.ts for provenance with a critique directory and a stopped row.
+
+Evidence: The decision reads the code at part 3a's head (59d84fa, on part 1's 9eed3d7 and `main` 2982ca7) and part 2's head (a27652a):
+- **The driver.** It creates its directory (private-agent-local-screen.ts:326) and ledger (:335), writes `freeze.json` (:415) before its session starts (:434), and writes `result.json` (:456) only at the end. Its configuration refusals after the directory exists come before the freeze (:371, :379), and it admits only a `local_zero_cost` provider (:320).
+- **Signal handlers.** Both the loop (phase4-loop.ts:289) and the driver (private-agent-local-screen.ts:342) install `process.once` handlers, so a second interrupt kills the process without running `finally`.
+- **The loop's saves.** `save()` is a plain write (phase4-loop.ts:136), and the record carries only marked stage entries across invocations (:134).
+- **The store and broker.** The store keeps SQLite's rollback journal (store.ts:127-128). The broker commits before it sends (broker.ts:486, :530). A job without a cloud arm has a cap of 0 (session.ts:271-272), which the store enforces (store.ts:248-250). Only a cloud destination may carry an assist (broker.ts:345).
+- **Run claims.** A claim is released only by its owner or through recovery (store.ts:350-383; runner.ts:390-397 and :874-894). The sandbox's cleanup requires that recovery authority (sandbox.ts:421-426).
+- **The seed loader.** It refuses a seeded source (research-seed.ts:60), needs no `result.json`, and resolves the moved directory's real path. `researchTransferStatus` maps any exception without a code to `research_seed_load_failed` (:136-138).
+- **The critique tool.** It renders the draft (phase2-repair.ts:114) before it creates its directory (:138), then writes its failure record (:160) or, last, `critique.json` (:172).
+- **The registry.** registry-row.py's loop branch sums only the runs `loop.candidates` names, and reads only `critique/` and `a/freeze.json`. Part 2's provenance scan lists every subdirectory holding `freeze.json`.
+
+It takes up the resume findings of the three reviews of part 3a's first design, which BL-20261109-0515 recorded as decided here: the ledger review's two blockers and its should-fix items, the consumers review's blocker (`stage_run`) and its items, and the specification review's items on "once", the arms, criterion 7 and stopped loops. It also takes up finding F1.
+
+Three adversarial reviews read this entry's first draft and found four blockers, two of them the same hot-journal finding, and twenty-three should-fix items. Each review's findings, and what this entry does with them:
+- **Ledger and replay safety.** Findings applied:
+  - the hot journal (blocker), now ledger recovery and private copies;
+  - `loop_stage_missing` ending stages that cannot spend, now limited to a cloud `a`;
+  - a process-ID lock that two processes could both take over, now an operating-system lock;
+  - dispatch stops classed as infrastructure whatever row decided them, now classed by that row;
+  - integrity stops and abandoned loops that could never be rowed, now terminal stops and `--close`;
+  - a spend check on fees only, now rows, reservations and the cap;
+  - double counting in the moving invocation, now totals recomputed at each save;
+  - the critique's mark, identity by inode, and the version-1 checks.
+
+  Declined: a separate column for an admitted zero-fee committed row. That row is never sent again, so it stays an unsettled row as `unknownDispatches` is defined, and part 11.4's planned committed-row column can separate it.
+- **Consumers and tests.** Findings applied:
+  - the hot journal (blocker);
+  - the version-2 directory check against `stages` rather than `begun` (blocker), which would have refused every `critique_failed` loop;
+  - the scan shared with part 2's provenance;
+  - the fields, outcome and superseding checks of rows without a selection;
+  - spend hidden at stops;
+  - the totals claim and the order of checks;
+  - the changed tests, the README items, and what other lanes must do.
+
+  Declined: rowing every loop without a selection as `infra_invalid`. A configuration fault would then lead to a paid re-run (part 3a's question (d)), so decision (10) classes each stop instead.
+- **Specification and governance.** Findings applied:
+  - F1's coverage (blocker), now the qualification and the version-1 cross-check, `--close`, and `loop_stage_missing` limited to a cloud `a`, with its restart named a paid re-run;
+  - departures from part 3a that were not stated (the `accepted` refusal, rows that are not `infra_invalid`, and the critique class, now limited to an unsubmitted draft);
+  - part 1's behaviour for an unfinished cloud `a`;
+  - configuration faults, now void starts;
+  - criterion 7, now `activeSeconds` and question (b);
+  - "once" and the operator's own stop (questions (a) and (e));
+  - the marked task end (decision (1));
+  - the cleanup's recovery authority;
+  - the new causes;
+  - the nits.
+
+Failures or blockers: None in recording.
+
+Limitations and non-claims: This entry decides; nothing is implemented or verified by it.
+- A run directory removed by hand from the loop directory takes its counts with it. The loop and the registry refuse to go on, or to row, without it, but cannot recover it. A version-1 run moved out of the directory before it finished cannot be detected.
+- A cloud loop killed between `begun`'s save and the driver creating `a`'s directory stops with `loop_stage_missing`, although nothing was sent. It can only be finished in a new directory, as a paid re-run.
+- The lock relies on the file system's advisory locks. A loop directory on a shared network file system is not supported.
+- Ledger recovery and claim recovery are reached in production only after a hard kill or with Docker. Their logic is tested on fixtures, a real hot journal and fakes, and their production wiring is pinned by its source text.
+- `activeSeconds` ends a run that the process died in at its last dispatch commit.
+- A configuration fault that persists adds a void directory at each invocation.
+- Classification still masks the paths part 3a names, and an infrastructure fault that persists can use up a stage's one resume.
+
+No model, endpoint, Docker container or paid call is involved.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation with deterministic tests, an adversarial code review and its `Implemented` entry. It starts once pull request #73 is in this branch's base, because it shares part 2's scan. Then CI and a merge after #67 and #78, in the shared files' orders (scripts/phase4-loop.ts: 11.1, 11.3, 10.b, 7a.2; scripts/registry-row.py: 11.1, 11.2, 11.3, 11.4, 7d.C, RA). Graded and cloud-armed loops wait for it.
+
+References: docs/PROJECT_REVIEW_2026-11-05.md section 2.2 (criteria 7 and 8), section 5.1 rule 5, section 5.6 (E1, E3, E4) and section 5.7 item 11; docs/PLAN.md R0; BL-20261101-0436-h4-runner-controls-fixed; BL-20261107-0809-zero-fee-failures-resolve-design (item 1); BL-20261107-0859-label-keyed-diagnostics-design (item 4); BL-20261108-1459-serving-card-reader-design and BL-20261108-1649-serving-card-reader-implemented; BL-20261109-0331-loop-selection-protocol-2-design and BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0515-infra-classification-design, BL-20261109-0606-correction-infra-classification-rules and BL-20261109-0607-infra-classification-implemented; pull requests #66, #67, #73 and #78; issue #46.
+
+
+### BL-20261113-0837-infra-resume-implemented -- 2026-11-13 -- Backlog item 11, part 3b implemented: the loop resumes a stage that ended on infrastructure once at zero fee (LOOP_VERSION 2), under a lock and write-ahead moves, keeps every run's spend in its totals, closes with `--close`, and every loop that ends gets a registry row
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261113-0836-infra-resume-design with deterministic tests. The branch is `feat/11.3b-infra-resume`. It merges part 3a's branch at 687c5b2 (pull request #78, which merges part 2's branch, pull request #73, at a27652a), on part 1's 9eed3d7 and `main` 2982ca7. Hypotheses:
+- A loop stage that ended on infrastructure is resumed once, at zero fee, and no resume sends a priced call again.
+- Every run's spend stays in `loop.json`'s totals at every save of every invocation, and in the registry row.
+- Every loop that ends gets a row, classed by why it ended.
+
+Decisions: The design entry is unchanged. Where the code departs from it, or where the adversarial code reviews changed it, this entry records the departure:
+- (1) **Separate lists in place of `LOOP_STOP_CAUSES`.** run-classification.ts holds these lists:
+  - `RUN_UNFINISHED_CAUSE`, `LEDGER_STOP_FAILURES` and `LEDGER_STOP_CAUSES`;
+  - `LOOP_INTEGRITY_STOPS`, the five codes of decision (10), with `loop_resume_mismatch` and `loop_stage_ledger_unreadable`;
+  - `LOOP_INTERRUPT_FAILURE` and `CRITIQUE_CANCEL_CODES`.
+
+  Beside them are `ledgerStop` (decision (4): the last uncertain row, else the last priced failed row) and `classifyLoopStop`. registry-row.py mirrors each of them, and a test keeps the two equal, row for row.
+- (2) **A critique the interrupt cancels.** `classifyCritiqueEnd` is amended beyond decision (1). Under the loop's mark, the four codes of a cancellation the interrupt causes are the operator's stop, so such a critique is resumed. They are `local_token_admission_cancelled`, `request_cancelled`, `retry_wait_cancelled` and `transport_cancelled`. Without the mark they stay the task's. The code review found that, without this, a marked critique cancelled at its token admission ended the loop at `critique_failed`.
+- (3) **What counts as a run.**
+  - **Unreadable files.** Both languages read a run's files the same way: selection.ts `readRunObject` and registry-row.py `read_object`. A file is unreadable when it is a symbolic link, not strict UTF-8, led by a byte-order mark, not JSON, or not an object.
+  - **Void starts.** A directory without a readable freeze, or whose freeze names a job the reader refuses, is a void start.
+  - **Results.** A result is readable only when it holds a status, a reason and an end time (`readRunResult`, `read_result`); `readRunEndEvidence` refuses any other with `run_result_unreadable`. A run without a readable result did not finish (`run_unfinished`).
+  - **Critique records.** A critique record that cannot be read is no answer. The critique is then read by its failure record, or as a critique that did not finish.
+  - **Ledgers.** A run whose freeze is readable, or that holds a result, must have a ledger with the store's three tables (`run_ledger_missing`). The loop then refuses resumably with `loop_stage_ledger_unreadable`, and the registry refuses the row, a `--run-dir` row included.
+- (4) **What the invocation that ran a stage does.**
+  - The ledger stop of decision (4) runs before the deferral. A priced unresolved or failed row therefore stops the loop in the invocation that ran the stage, not in the next one.
+  - A driver that throws after its run froze is examined at once as a run that may not have finished. The invocation stops with `loop_stage_infra` when the stage can be resumed, else with a ledger stop or `loop_stage_incomplete`. The driver's message goes to errors.txt only.
+  - Under the loop's interrupt, the invocation stops with `loop_interrupted`. A start that froze nothing keeps its own refusal.
+  - Part 1's tests now expect these codes where they expected the driver's.
+- (5) **Resumable refusals.** `loop_stage_ledger_unreadable` and `loop_stage_cleanup_required` leave the loop resumable, and `--close` can end it. A claim recovery that finds claims without a freeze stops the loop for good with `loop_stage_mismatch`.
+- (6) **The record, beyond decision (7).**
+  - A resume entry's identity also records the moved run's job (`identity.jobId`), which the lineage checks read.
+  - `held` keeps a stopped stage's counts on disk while that stage is neither a candidate, the critique's record, nor moved aside. It applies with or without a result, where decision (7) named only a stage without one, and it is carried across invocations.
+  - A resumed invocation carries the candidates, the critique record, the stage-1 choice, `seeded` and `writeIdentityEqual` that it finds. Each is validated, and a malformed one refuses with `loop_record_mismatch`. No save of a later invocation can then lower the totals before a stage is reused, moved aside or held. The code review found that a resumed invocation's first save dropped the earlier invocations' counts.
+  - A resume entry's `span` is the moved run's own: its recorded times, else from its freeze's start (or its begun time) to its result's end, else to its last commit after that start. The review found that the span ran to the moment of the move, so it included the wait between invocations.
+  - `failure` and `failedStage` are also set when a stop after stage 1 ends the loop with its draft.
+  - `closed: true` records that the operator closed the loop, after stage 1 as well as at a stop.
+  - A version-2 record saved before `held` existed is read as `held: null`.
+- (7) **`--close`.**
+  - **Its stage.** When the record names no stage, as after a hard kill, the stopped stage is the last begun stage on disk that the loop had not accepted, that is, one with no candidate and no answered critique in the record. That stage may hold a torn result, or a result the loop never examined.
+  - It reads a stopped stage's evidence with the stage's interrupt mark. A missing directory, or one without a readable freeze, gives `none`. An unreadable result falls back to the ledger.
+  - **An answered critique.** When the critique answered but the loop stopped before recording the answer, the loop stopped before its repair. The close then ends it at `repair_failed` and records the answer. A stop at the critique records the critique's own code, as a critique that failed inside the loop does.
+  - It recovers the critique's ledger and counts the critique's record.
+  - An integrity stop that the close itself finds (`loop_resume_mismatch`, `loop_stage_ledger_unreadable`) never becomes a final selection after stage 1.
+  - It refuses a missing record with `loop_record_missing`, and records `loop_closed` when the loop recorded no failure.
+  - It prints the CLI's line with `state` `stopped` or `ended`, and exits 2.
+- (8) **The critique stage.**
+  - A critique defers with `loop_stage_infra` only when its directory exists. One that failed before creating it ends the loop at `critique_failed`.
+  - A resumed critique's spend check also runs when the critique failed.
+  - Its usage and fee are read as counts, so a malformed field counts 0, and its call counts only when it recorded a non-empty usage object, as the registry reads it.
+  - **Codes, not messages.** The critique tool records its error's message as its code, and a message may carry a host path. The loop reads that field as a code: any other string becomes `repair_critique_failed`. The registry's `critiqueFailure` is null unless it holds a code.
+- (9) **The registry.**
+  - A closed loop (`loop.closed`, or `stopped.closed`) has every run directory summed, whether its record names it or not.
+  - In both versions, each run is summed once per job, the stage's own directory first. A run of another task or runtime refuses the row.
+  - A version-2 record's task, pipeline, begun entries, stop and closed mark are validated.
+  - A stopped row reads its stage's fields defensively. They come from the freeze, the readable result and the events, and the loop's own date, task and pipeline stand where the freeze records none. No damaged directory stops the row with a traceback.
+  - Every run file is read as selection.ts reads it: never through a symbolic link, as strict UTF-8 without a byte-order mark, as JSON without NaN, and as an object only. A commit time stored as an integral float counts.
+  - In every row, `--run-dir` rows included, a ledger row that is not an object is skipped, one that is not JSON refuses the row, and a count that is not a finite number counts 0, as selection.ts `runCounts` reads them. Before, such a value stopped the writer with a traceback or was truncated with `int()`.
+  - Version-2 rows carry `loop.closed`. Provenance skips void starts. A version-1 loop without a selection is told to resume, not to close. `activeSeconds` is null for version 1.
+  - Each sample's own `runClass`, and BL-20261110-0723 (c)'s `repair_<cause>`, apply to both versions. Version-1 sums now include the runs an operator moved aside by hand (decision (8)).
+- (10) **The ledger helpers.** src/main/private-agent/loop-ledger.ts (new) holds the lock, the atomic write, ledger recovery and claim recovery. The loop takes six new dependencies: `readRunEnd`, `readLedger`, `readCritiqueFailure`, `recoverLedger`, `recoverClaims` and `lock`. `readCritique` moves into `ledgerDependencies`, which `--close` uses.
+- (11) **Decided not to change.**
+  - An unfinished cloud-armed `a` without a packet still stops for good with `loop_stage_incomplete` when its ledger holds no priced row, as decision (1) decided. Finishing such a loop is a paid re-run.
+  - A stopped sample with a result keeps part 3a's class. This joins question (a).
+  - BL-20261110-0723's question (c)(i), a reading stage denied `transport_or_settlement_unknown`, stays open for the owner.
+- (12) **A statement of BL-20261110-0723 that does not hold.** BL-20261110-0723 is not edited; this entry records the correction. Its point (b) says rule (d) reaches `destination_missing` through a reading stage's denied code, but in version 1 no real record carries that code from a reading stage. The reading stage checks its deadline before it calls the model, and that check asks the broker for the destination's timeout (research-pipeline.ts:125, model.ts:330, broker.ts:393-397). A missing destination therefore throws before the stage's `try`, out of `runResearchPipeline` (session.ts:389-392 has no `catch`), and the driver ends the run `session_failure` (private-agent-local-screen.ts:507). That reason is infrastructure, with cause `session_failure`. Merge train 1's delta review of #78 found this, and the orchestrator is adding it to owner question (d).
+- (13) **Citations that moved.** After part 2's merge, the design entry's driver citations moved: the provider check is now at private-agent-local-screen.ts:390, the directory at :396, the ledger at :405, the freeze at :487 and the result at :528. The loop's signal handlers are now at phase4-loop.ts:775, and the driver's at private-agent-local-screen.ts:412. The critique tool's lines are unchanged (:114, :137-138, :160, :172).
+
+Changes:
+- scripts/phase4-loop.ts:
+  - LOOP_VERSION 2, the lock and the atomic saves;
+  - `begun`, `resumes`, `voids`, `held`, `stopped`, `closed`, `failedStage`, `seeded.a` and `selected.final.cause`;
+  - reconciliation, ledger and claim recovery, the write-ahead move and void starts;
+  - the resume plan: the spend-free table `DRIVER_INPUT_SPEND` and `rerunCannotSpend`, the seeded writer, and the spend check;
+  - the ledger stop, the deferral, the driver-throw path, the terminal stops and `repair_failed`;
+  - carried and held counts, and totals recomputed at each save;
+  - `closeLoop` and `--close`, the new dependencies and `ledgerDependencies`, and the header comment.
+- src/main/private-agent/loop-ledger.ts (new): `acquireLoopLock`, `writeFileAtomically`, `syncDirectory`, `directoryInode`, `recoverRunLedger` and `recoverRunClaims`.
+- src/main/private-agent/selection.ts: `researchFrom.sourceFreezeSha256`, `isZeroFeeDispatch` apart from the status, `runCounts`, `RunLedger`, `readRunLedger`, `readRunObject` and `readRunResult`, and `readRunEndEvidence`'s refusal of an unreadable result.
+- src/main/private-agent/run-classification.ts: the lists and functions of decision (1) here, and the amended `classifyCritiqueEnd`.
+- scripts/registry-row.py:
+  - the mirrored lists and functions;
+  - `read_object`, `read_result`, `ledger_rows` with its ledger requirement, `counts_of` and `run_ledger`;
+  - `hold_loop_lock`, `loop_scan`, `own_runs`, `loop_runs`, `stage_run`, `active_seconds`, `freeze_fields`;
+  - `loop_row` for versions 1 and 2, with rows for loops stopped without a selection;
+  - provenance through the scan.
+- docs/experiments/README.md: `activeSeconds`, the version-2 `loop` fields, stopped rows, the new `runClass` causes, the cloud fields through `stage_run`, and what the writer refuses.
+- Tests:
+  - tests/unit/phase4-loop-resume.test.ts (new, 27 tests), covering:
+    - the deferral and the resume, once;
+    - the seeded-writer resume of `a`, and a rerun of a local `a` without a packet;
+    - a cloud `a` without a packet;
+    - void starts;
+    - the ledger stop, admitting a zero-fee committed row;
+    - claim recovery, through the store's own path;
+    - the lock, reconciliation, a real hot journal and the spend check;
+    - the spend-free table, which fails closed;
+    - stops after stage 1 and `--close`;
+    - spans, and carried and held counts;
+    - a driver that throws after its freeze, and a torn result;
+    - a critique cancelled at its token admission, and one stopped while it rendered;
+    - a resumed critique that spent;
+    - the production wiring, pinned by identity, and `--close`'s arguments;
+    - `--close` after a hard kill, after an answered critique and after a failed one;
+    - the critique tool's records read strictly;
+    - a torn critique record, and a record saved before `held` existed.
+  - tests/unit/registry-row-resume.test.ts (new, 23 tests), covering:
+    - version-2 sums, `stage_run`, `resumes` and `activeSeconds`;
+    - the directory check, closed loops and their strays, and duplicates;
+    - stopped rows: their classes, fields and outcomes;
+    - `critique_failed`, `repair_failed` and `repair_<cause>` in both versions;
+    - version-1 hand-moved runs and the cross-check;
+    - per-sample marks;
+    - the shape refusals and the missing-ledger refusal;
+    - torn results;
+    - the lock, under a path with `#`, `?` and `%` in it, and through a symbolic link;
+    - a journal that rolls back an uncommitted rewrite;
+    - `--supersedes` and provenance;
+    - TypeScript and Python parity for the reader of a run, on odd input;
+    - stopped rows on damaged files, and a critique's message kept out of the row;
+    - a row classed as infrastructure that carries its run's commit.
+  - tests/unit/phase4-loop.test.ts: the version-2 record, and part 1's fixtures that now resume or now stop with the loop's own codes.
+  - tests/unit/run-classification.test.ts: the loop-stop lists, pinned; 29 loop-stop cases, mirrored in Python with the stopping row; the amended critique helper.
+  - tests/unit/private-agent-selection.test.ts, tests/unit/registry-row-loop.test.ts and tests/unit/registry-row-git.test.ts: the new fields, the version-1 sums, and part 2's deferred checks.
+  - Items from merge train 1's delta review of #78, which belong to this branch, not #78's:
+    - registry-row-git.test.ts's two describes take a 30 s timeout;
+    - tests/unit/registry-row-infra.test.ts checks that a refused `--loop-dir` row and a refused `--supersedes` row print nothing;
+    - tests/unit/phase2-repair.test.ts pins the critique's pre-render abort check as a whole line, so a commented-out check or one behind a dead guard fails it (both mutants checked);
+    - registry-row-resume.test.ts adds a row classed as infrastructure that carries its run's commit.
+
+Evidence: At this entry's commit:
+- `pnpm exec vitest run`, with nothing else running: 184 files (170 passed, 13 skipped as the environment-gated suites, 1 failed); 3,015 tests (2,930 passed, 84 skipped, 1 failed).
+  - The failure is a test in tests/unit/private-agent-sandbox-capture.test.ts that timed out at its 5 s limit. This branch does not touch that file.
+  - It passes alone, together with tests/unit/inspect-git-changes.test.ts and tests/unit/private-agent-runner-budget.test.ts: 141 passed, 1 skipped. Those two timed out in an earlier run at the same code.
+  - Two earlier full runs at this code failed only by timeouts at the 5 s or 15 s limits: 5 tests, then 3, the second while other test runs shared the machine. All were in files this branch does not touch, and each passes alone.
+  - A full run before the last review's fixes passed all of its 3,009 tests (2,925 passed, 84 skipped, 0 failed).
+- The nine touched test files pass all 265 tests under Python 3.9.5 and under the system Python 3.9.6:
+  - phase4-loop-resume: 27;
+  - phase4-loop: 28;
+  - registry-row-resume: 23;
+  - registry-row-loop: 3;
+  - registry-row-git: 13;
+  - run-classification: 153;
+  - private-agent-selection: 3;
+  - registry-row-infra: 5;
+  - phase2-repair: 10.
+- `pnpm typecheck` and `pnpm validate:readiness` pass. scripts/registry-row.py parses and its tests pass under Python 3.9.5 and the system Python 3.9.6.
+- `pnpm --silent validate:build-log -- --base-ref origin/main` passes. Against part 3a's head (687c5b2) it fails: the design entry BL-20261110-0637 sorts before part 3a's BL-20261110-0723, so the log is not append-only against that base. The design entry is neither edited nor re-stamped. How such an entry lands is an owner question that the orchestrator carries, and until it is answered the entry's bytes stay as they are.
+
+Three adversarial code reviews read the first implementation: the loop and its ledger, the registry, and the specification. Each probed scratch directories. None found a way to resume a stage twice, resume a priced run, rerun a stage with the cloud arm, or lose spend in the loop's normal flow. This entry fixes their confirmed findings (decisions (2), (4), (6), (7), (8) and (9)), among them:
+- totals that fell at a resumed invocation's first save;
+- resume spans that included the wait between invocations;
+- a driver throw that left its stage's spend out of the saved totals;
+- a marked critique, cancelled at its token admission, that ended the loop;
+- `--close` reading a stage's evidence without its mark;
+- registry reads that stopped with a traceback on a damaged run.
+
+A fourth review read those fixes. It found no high-severity defect and confirmed six low ones, all fixed here with tests:
+- `--close` chose its stage by whether a result existed, not whether it could be read;
+- a stopped row could still stop with a traceback;
+- `--close` recorded an answered critique as failed;
+- the TypeScript readers read a byte-order mark or a symbolic link differently from the registry, and `critique-failure.json` holding `null` failed every invocation;
+- a record saved before `held` existed could not be closed;
+- a critique's message could reach the record and the row.
+
+Its probes ran four invocations of one loop: across 53 saves the totals never fell, and the final totals count every run once. They also closed loops at five stop points, each closing with the last saved totals.
+
+Failures or blockers: None. The branch has not been pushed, and CI has not run on it.
+
+Limitations and non-claims:
+- Deterministic tests on fixtures and fakes only. No loop, model request, endpoint, Docker container or paid call ran, and nothing is `Verified`.
+- Ledger recovery and claim recovery are reached in production only after a hard kill or with Docker. Their logic is tested on fixtures, a real hot journal and the store's own recovery path with a fake cleanup. Their production wiring is pinned by identity in a test, not run.
+- The design entry's limitations stand:
+  - a directory removed by hand takes its counts with it;
+  - a cloud loop killed between `begun`'s save and the creation of `a`'s directory stops with `loop_stage_missing`;
+  - the lock relies on advisory locks;
+  - `activeSeconds` ends a run whose process died at its last commit;
+  - a persisting configuration fault adds a void directory at each invocation;
+  - an infrastructure fault that persists can use up a stage's one resume.
+- The totals in `loop.json` hold every run on disk at every save only for directories the loop made and moved. `--close` recounts from disk.
+- Open owner questions (a) to (f) of the design entry stand, with their proposed defaults. None is answered here.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The owner's answer on how BL-20261110-0637 lands, which the orchestrator carries (the options: a recorded out-of-order exception in the validator, a fresh `Proposed` entry with a later ID that cites 0637, or the entry riding merge train 1's sorted union through a docs-only pull request). Until then, this branch stays local. Then a pull request, CI, and a merge after #67, #73 and #78 in the shared files' orders (scripts/phase4-loop.ts: 11.1, 11.3, 10.b, 7a.2; scripts/registry-row.py: 11.1, 11.2, 11.3, 11.4, 7d.C, RA). Part 5's launcher (plan 11.5) is next in this lane. It must re-invoke on `loop_stage_infra`, `loop_interrupted` and `loop_stage_cleanup_required`, never on a terminal stop or `loop_locked`, and must read `loop.json`'s totals. As the orchestrator carries it as an owner default, it also refuses unless HEAD is an ancestor of `origin/main`.
+
+References: BL-20261113-0836-infra-resume-design; BL-20261110-0723-correction-infra-classification-train-review; BL-20261109-0515-infra-classification-design, BL-20261109-0606-correction-infra-classification-rules and BL-20261109-0607-infra-classification-implemented; BL-20261109-0331-loop-selection-protocol-2-design and BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0510-registry-run-commit-implemented; pull requests #67, #73 and #78; docs/PROJECT_REVIEW_2026-11-05.md section 5.1 rule 5 and section 5.7 item 11.
+
+### BL-20261113-0838-correction-infra-resume-ids -- 2026-11-13 -- Correction: part 3b's two entries carry IDs BL-20261113-0836 and BL-20261113-0837 in the merged ledger; they were authored on 2026-11-10 at 06:37 and 10:08 UTC as BL-20261110-0637 and BL-20261110-1008
+
+Status: `Implemented`
+
+Scope or hypothesis: Record why backlog item 11's part 3b entries, the design BL-20261113-0836-infra-resume-design and the implementation BL-20261113-0837-infra-resume-implemented, do not carry their authoring dates and minutes. Both were authored on part 3b's branch before merge train 1 reached `main`, whose ledger now ends with BL-20261110-1506-merge-train-1-integration, and the validator refuses an ID earlier than the entry before it. On 2026-11-13 the owner decided that an unmerged branch re-stamps such entries after `main`'s tail when it merges, and adds a correction that records each original ID and authoring time (BL-20261113-0758, recorded on pull request #87). At the rebase of part 3b's branch onto `main` at 9d10b9a, the two entries received the next free minutes of that day, their heading dates moved with their IDs, and the 16 references that point to them were updated. Nothing else about the entries changed.
+
+Decisions:
+- The entries' bodies are byte-identical to what was reviewed under the original IDs, except the two references in the implementation entry that point to the design entry: its Scope ("Implement BL-20261113-0836-infra-resume-design") and its References.
+- Two sentences of the implementation entry keep the design entry's original ID, BL-20261110-0637, because they describe where that ID sorted before this re-stamp: its Evidence bullet on `validate:build-log` against part 3a's head, and its Next gate, which waited on the owner's answer. Replacing the ID there would make both statements false, so this correction gives the mapping instead.
+- The new minutes, 08:05 and 08:06 UTC on 2026-11-13, follow `main`'s tail and also pull request #87's two entries (07:28 and 07:58 UTC), so the order holds whichever of the two branches merges first.
+- The order in the merged ledger is merge chronology, as rule 1 requires: train 1's entries, part 3b's design and implementation, this correction, then the entry that records what the rebase itself changed.
+
+Changes: docs/BUILD_LOG.md (two headings; the implementation entry's Scope and References); the comments that cite the design entry in scripts/phase4-loop.ts, scripts/registry-row.py (three), src/main/private-agent/loop-ledger.ts and src/main/private-agent/run-classification.ts (two); three rows of docs/experiments/README.md; test comments in tests/unit/phase4-loop-resume.test.ts, tests/unit/registry-row-resume.test.ts and tests/unit/run-classification.test.ts (two). No behaviour changes. The comments sit in files of the harness source freeze, whose digest part 3b already changes.
+
+Evidence: `git grep BL-20261110-1008` finds only this correction, and `git grep BL-20261110-0637` finds only this correction and the two sentences kept above. `pnpm --silent validate:build-log -- --base-ref origin/main` passes on this commit (append-only against `main` at 9d10b9a, IDs in order), and `pnpm typecheck` passes. The authoring times are kept here and in the messages of the two commits that added the entries ("docs(build-log): decide backlog item 11 part 3b, the zero-fee resume (Proposed)" and "docs(build-log): part 3b implemented (BL-20261110-1008)"), which name the original IDs.
+
+Failures or blockers: None. Until the owner's decision, the lane kept both entries' bytes unchanged, as the orchestrator ruled on 2026-11-10.
+
+Limitations and non-claims: A record correction only; nothing is implemented, verified or released by it. The owner's decision is cited by its short ID because its entry is on pull request #87 and not yet on `main`; a correction may cite an entry in full only once that entry is earlier in the ledger. Commit messages keep the original IDs, as history should. If another branch's entries reach `main` first with a later tail, this branch's entries are re-stamped again under the same rule.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The review of this pull request, which checks the re-stamp and this correction as the owner's decision requires; then its merge into `main`.
+
+References: BL-20261113-0836-infra-resume-design; BL-20261113-0837-infra-resume-implemented; BL-20261110-1506-merge-train-1-integration; BL-20261108-0906-correction-owner-verdict-capture-ids; BL-20261108-0856-correction-stop-bricking-tasks-design-id; the log rules at the top of this file.
+
+### BL-20261113-0839-infra-resume-on-main -- 2026-11-13 -- Part 3b on `main` after merge train 1: E1-T1's interrupt pin and test A move with the resume, and the loop's interrupt tests assert their stage entries whole
+
+Status: `Implemented`
+
+Scope or hypothesis: Bring backlog item 11's part 3b (BL-20261113-0837-infra-resume-implemented) onto `main` after merge train 1 (BL-20261110-1506-merge-train-1-integration), as the orchestrator asked on 2026-11-13, and record what changed beyond the rebase. Two of E1-T1's tests (BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented) fail with part 3b and move here. Part 3b's own interrupt tests were tightened after the train's integration review. Implemented is not Verified: no sample, critique, model request, endpoint, Docker container or paid call ran.
+
+Decisions:
+- **The rebase.** The branch is rebased onto `main` at 9d10b9a. Its merge of part 3a's branch fell away, since #78 is on `main`. Six commits replayed with identical patches (`git range-diff`). The two build-log commits conflicted only at the ledger's tail, and re-applied their added lines byte for byte after the train's entry. Their re-stamp is BL-20261113-0838-correction-infra-resume-ids.
+- **E1-T1's pin moves again.** Train 1 flipped the pin to 11.1's refusal: a rerun refused, with `loop_stage_interrupted`, a sample the loop's interrupt cut before it submitted. Part 3b resumes such a sample once, so the pin now asserts the resume. The rerun moves the cut b to `b.infra-1` and runs b, the critique and the repair. It records one `operator_stop` resume, keeps a with its first times, and leaves no stage marked. This supersedes, without editing it, the train entry's description of the flipped pin, which expected part 3b to move it.
+- **E1-T1's test A.** Its `ledgerSummary` fixture ended the sample on `runtime_failure_progress_preserved`. Part 3a classes that reason as infrastructure, so part 3b deferred the fresh a with `loop_stage_infra` before admitting it, and the test failed. The fixture now ends on a task reason (`bounded_allowance_exhausted`), as part 3b did for 11.1's `rowSummary` and `transportStoppedSummary`, so the loop's admission rules decide again. The test's claims are unchanged: a is admitted, b, one critique and the repair run, and two rows count as retried. The integration review expected only the pin to move; a dry merge found this second break.
+- **Stage entries asserted whole (finding F2-1 of the train's integration review).** The review found that the flipped pin and 11.1's interrupt tests compared stage entries with subset matches, so a mark leaked onto another stage passed. Every interrupt scenario in tests/unit/phase4-loop.test.ts and tests/unit/phase4-loop-resume.test.ts now asserts the whole `stages` array: each entry's keys, its `reused` flag, and the mark on the stage it names alone. The moved pin does the same. A reused stage is compared with its first recorded entry where the record keeps it. This answers the train entry's limitation on the flipped pin, whose subset match let that leak pass the whole file.
+- **Whose tests.** Both E1-T1 changes alter what lane S-e1's tests assert. The orchestrator asked for them, and this entry records them.
+
+Changes: tests/unit/phase4-loop.test.ts (E1-T1's pin and `ledgerSummary`; part 3b's interrupt tests; a `stageEntry` helper; `rowSummary` loses an unused parameter); tests/unit/phase4-loop-resume.test.ts (two interrupt scenarios and `stageEntry`). No source file changes beyond the rebase and the re-stamp's comments.
+
+Evidence:
+- **Mark mutants.** Each is a single edit of scripts/phase4-loop.ts, restored after its run. Before the rebase, failing tests over the two loop files (55 tests), before and after the tightening:
+  - a reused entry takes a mark another entry carries (the review's record-only leak): 1, then 4;
+  - the carry keeps every prior entry, not only marked ones: 0, then 1;
+  - a fresh entry takes a mark another entry carries: 1, then 2;
+  - a reused stage drops its own mark: 1, then 4;
+  - a moved stage keeps its entry: 0, then 0.
+- **On the rebased tree.** There are 59 tests, E1-T1's four included, and the record-only leak mutant fails five of them, the moved pin among them.
+- **Dry merge.** Before the rebase, a dry merge (`git merge-tree`, nothing written) of the branch with the integration branch at 7fd99df had a textual conflict only in docs/BUILD_LOG.md. Its tests/unit/phase4-loop.test.ts, run as a throwaway copy, failed 2 of 32 (the flipped pin, and test A with `loop_stage_infra`) and passed 32 of 32 with the two changes.
+- **At this branch's head,** on Node 22.22.2 with pnpm 10.12.4: at 5882a7e, the commit before this entry's, `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass. `pnpm exec vitest run`, run alone, ran 189 files and 3,367 tests: 3,280 passed, 86 were skipped and 1 failed. The failure was tests/unit/with-claude-key.test.ts, which timed out at its 5 s limit under the suite's load, as it has before on `main`, and passes alone (3 of 3). The ten registry, classification, loop and repair test files (tests/unit/registry-row-*.test.ts, run-classification, phase4-loop, phase4-loop-resume and phase2-repair) pass 295 of 295 under the machine's Python 3.9.5 and again under 3.9.6.
+
+Failures or blockers: Test A's break was found by the dry merge, not by the integration review, which expected only the pin to move.
+
+Limitations and non-claims: The tests run the loop on fakes only. The pin shows that a rerun resumes a marked stage whose summary ended `cancelled_or_deadline`, and that no stage is marked afterwards; it does not show what the driver's real interrupt handler leaves. One mark mutant still survives: a moved stage that keeps its entry. The rerun drops that entry before it records its own, so it shows on disk only if an interrupt lands between the move and the rerun. The it.each comment in E1-T1's describe still gives a stale reason for asserting no tie winner (the review's nit F2-3); it is S-e1's wording and is unchanged. CI had not run on this branch when this entry was written.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of this pull request (one reviewer, and a skeptic only for a blocker or major finding) and the owner's go-ahead; then its merge into `main`. Part 5's launcher (plan 11.5) is next in this lane.
+
+References: BL-20261113-0837-infra-resume-implemented; BL-20261113-0836-infra-resume-design; BL-20261113-0838-correction-infra-resume-ids; BL-20261110-1506-merge-train-1-integration; BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261113-0758 (on pull request #87); pull request #85.
+
+### BL-20261113-0840-correction-infra-resume-on-main-stage-entries -- 2026-11-13 -- Correction: BL-20261113-0839-infra-resume-on-main overstates which interrupt tests assert their stage entries whole, and a sentence kept in BL-20261113-0837-infra-resume-implemented is now only historically true
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct two statements on this branch without editing the entries that make them. The light review of pull request #89 found the first. (1) The Decisions bullet "Stage entries asserted whole" of BL-20261113-0839-infra-resume-on-main says that every interrupt scenario in tests/unit/phase4-loop.test.ts and tests/unit/phase4-loop-resume.test.ts asserts the whole `stages` array. Of the twelve tests in those files that fire the loop's interrupt, five did not at that entry's commit. (2) The Evidence of BL-20261113-0837-infra-resume-implemented says the design entry "is neither edited nor re-stamped". That stopped being true at BL-20261113-0838-correction-infra-resume-ids.
+
+Decisions:
+- **Where the whole `stages` array is asserted.**
+  - In tests/unit/phase4-loop.test.ts: 'stops after the running stage on an interrupt...', 'resumes a stage its own interrupt cut, once...', 'keeps an interrupt mark across invocations...', 'passes its interrupt to the critique...' and the moved E1-T1 pin.
+  - In tests/unit/phase4-loop-resume.test.ts: 'never resumes a cloud-armed a without a packet...' and 'ends the loop with its draft when the critique or the repair stops for good after stage 1'. From this entry's commit it is also asserted in 'closes a loop cut during its critique after stage 1...', whose subset match on the cut critique's entry is now whole-array equality.
+- **Where it is not.**
+  - Three critique scenarios of tests/unit/phase4-loop-resume.test.ts assert no stage entries: 'resumes a critique the loop's interrupt cancelled at its token admission...', 'closes a loop whose critique answered before the loop recorded it at the repair...' and 'resumes a torn critique record...'.
+  - E1-T1's it.each ('stops after %s on an interrupt during it...') compares only the names of the reused stages. It is lane S-e1's test and stays as written.
+- **The kept sentence.** The Evidence of BL-20261113-0837-infra-resume-implemented says "The design entry is neither edited nor re-stamped." That was true when the entry was written, under the orchestrator's ruling of 2026-11-10. Since BL-20261113-0838-correction-infra-resume-ids, the design entry carries a re-stamped heading, as the owner's decision of 2026-11-13 allows; its body is unchanged. The sentence stays as written, for the reason that correction gives for the sentences that keep the original ID.
+- **The pull request's description.** Its sentence "Every interrupt test asserts the whole `stages` array" now names the tests that do and points here for the ones that do not.
+
+Changes: tests/unit/phase4-loop-resume.test.ts (one matcher, in 'closes a loop cut during its critique after stage 1...'); docs/BUILD_LOG.md (this entry); one sentence of pull request #89's description.
+
+Evidence:
+- tests/unit/phase4-loop.test.ts and tests/unit/phase4-loop-resume.test.ts pass 59 of 59.
+- The twelve interrupt scenarios come from a scan of both files for tests that fire the loop's abort. Each was then read for its stage assertions.
+- A single-edit mutant of scripts/phase4-loop.ts leaks the mark of a stage cut while its run threw onto every stage recorded before it. Out of the 59 tests it fails 2 with the old matcher ('keeps an interrupt mark across invocations...' and 'passes its interrupt to the critique...') and 3 with the new one, the close scenario added. The record-only leak mutant that BL-20261113-0839-infra-resume-on-main reports still fails 5.
+- `pnpm --silent validate:build-log -- --base-ref 9d10b9a`, this branch's base, passes: 556 entries. Against `main` at bb6ef32 it fails as expected ("not append-only relative to the base"), because `main` gained #92's entries after this branch was rebased.
+
+Failures or blockers: None in this commit. The branch is behind `main` at bb6ef32: its entries from 0805 to 0810 sort before `main`'s tail, BL-20261113-0816. They are re-stamped when `main` is merged in, after #82, in the order the orchestrator set.
+
+Limitations and non-claims: The tests run the loop on fakes only. The three critique scenarios and E1-T1's it.each still do not pin which stage carries a mark.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: After #82 merges, `main` is merged into this branch, every entry that sorts before `main`'s tail is re-stamped with its correction, the validator runs against `main`, and the branch is pushed. The orchestrator then merges once CI is green.
+
+References: BL-20261113-0839-infra-resume-on-main; BL-20261113-0837-infra-resume-implemented; BL-20261113-0838-correction-infra-resume-ids; the light review of pull request #89.
+
+### BL-20261113-0847-correction-infra-resume-second-restamp -- 2026-11-13 -- Correction: part 3b's five entries are re-stamped a second time, after `main`'s new tail BL-20261113-0834; their original IDs, dates and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: #92 and #82 merged into `main` before this branch. `main`'s last ID is now BL-20261113-0834-correction-runner-storage-integrity-second-restamp. After their first re-stamp (BL-20261113-0838-correction-infra-resume-ids), four of this branch's entries still carried earlier IDs. At this merge of `main` (merge commit 20d6c60) they move again, after the new tail, under the owner's rule (BL-20261113-0758; for dates, BL-20261113-0832, both on pull request #87). The fifth entry, the stage-entries correction, did not precede the tail, but it moves too. Kept at 08:35 UTC, it would leave the four entries before it only 08:34 and 08:35, minutes that `main`'s tail and that correction already use, so short IDs such as BL-20261113-0834 would name two entries. Moving all five keeps each of this branch's entries on a minute of its own, after `main`'s, and in order. All five stay dated 2026-11-13.
+
+Each entry, with its original ID, date and authoring time:
+- **The design entry.** Authored at 06:37 UTC on 2026-11-10 as BL-20261110-0637, and re-stamped on 2026-11-13 as BL-20261113-0805. It is now BL-20261113-0836-infra-resume-design.
+- **The implemented entry.** Authored at 10:08 UTC on 2026-11-10 as BL-20261110-1008, and re-stamped on 2026-11-13 as BL-20261113-0806. It is now BL-20261113-0837-infra-resume-implemented.
+- **The first correction.** Authored at 08:08 UTC on 2026-11-13 as BL-20261113-0808. It is now BL-20261113-0838-correction-infra-resume-ids.
+- **The on-main entry.** Authored at 08:10 UTC on 2026-11-13 as BL-20261113-0810. It is now BL-20261113-0839-infra-resume-on-main.
+- **The stage-entries correction.** Authored at 08:35 UTC on 2026-11-13 as BL-20261113-0835. It is now BL-20261113-0840-correction-infra-resume-on-main-stage-entries.
+
+Decisions:
+- **What changed.** Only the five headings' IDs change, in their minutes, together with the 39 references to those IDs: 25 in the five entries' titles and bodies, and 14 in the code comments, README rows and test comments that cite the design entry. Each body is otherwise byte-identical to this branch's at 01c958c.
+- **Kept as written, now only historically true.**
+  - The first correction's account of its minutes ("The new minutes, 08:05 and 08:06 UTC on 2026-11-13, follow `main`'s tail …, so the order holds whichever of the two branches merges first") held against #87, but #92 and #82 merged first.
+  - Its statement that `git grep` finds the original IDs only in it, and in two kept sentences, held at its own commit. They now also appear here.
+  - The stage-entries correction's statement that "its entries from 0805 to 0810 sort before `main`'s tail" was true at its commit.
+- **`main`'s log.** It is kept whole, as a byte prefix of this branch's.
+
+Changes: docs/BUILD_LOG.md (five headings, their references and this entry); the comments that cite the design entry in scripts/phase4-loop.ts, scripts/registry-row.py (three), src/main/private-agent/loop-ledger.ts and src/main/private-agent/run-classification.ts (two); three rows of docs/experiments/README.md; test comments in tests/unit/phase4-loop-resume.test.ts, tests/unit/registry-row-resume.test.ts and tests/unit/run-classification.test.ts (two). No behaviour changes.
+
+Evidence: `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0: 565 entries, append-only against `main` at 23dfadc, with IDs and dates in order. `pnpm typecheck` and `pnpm validate:readiness` pass. `pnpm exec vitest run`, run alone on this tree, ran 191 files and 3,437 tests: 3,351 passed, 86 were skipped and none failed. The ten registry, classification, loop and repair test files pass 295 of 295 under the machine's Python 3.9.5, and again under 3.9.6. `git grep` finds BL-20261113-0805, -0806, -0808, -0810 and -0835 only in this entry. With the five new IDs mapped back to their previous ones, the log before this entry is byte-identical to the merge commit's.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only; nothing is implemented, verified or released by it. Commit messages and #89's earlier descriptions keep the IDs they had. If another branch's entries reach `main` first again, this branch's entries are re-stamped again under the same rule.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green on #89, then the orchestrator's merge.
+
+References: BL-20261113-0834-correction-runner-storage-integrity-second-restamp; BL-20261113-0836-infra-resume-design; BL-20261113-0837-infra-resume-implemented; BL-20261113-0838-correction-infra-resume-ids; BL-20261113-0839-infra-resume-on-main; BL-20261113-0840-correction-infra-resume-on-main-stage-entries; BL-20261113-0758 and BL-20261113-0832 (pull request #87).

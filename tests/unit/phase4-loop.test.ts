@@ -27,13 +27,19 @@ function base(over: Partial<DriverInput> = {}): LoopInput["base"] {
 }
 const cloud = { model: "m", endpoint: "https://api.example.invalid/v1/responses", prices: { input: 2, output: 10, cached: 0.2 }, maxFeeUsd: 0.6 };
 /** Fakes standing in for the driver, the critique tool and the summariser; each stage leaves the marker file the real tool leaves. */
-function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?: string[]; critiqueFails?: string | Error; critiqueFinishReason?: string; onRun?: (run: DriverInput) => void; onWritten?: (run: DriverInput) => void; runtime?: string }) {
+function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?: string[]; critiqueFails?: string | Error; critiqueFinishReason?: string; onRun?: (run: DriverInput) => void; onWritten?: (run: DriverInput) => void; runtime?: string;
+  /** Part 3b: a stage's ledger rows, and the summary of a stage's rerun once its first run has moved aside. */
+  rows?: Record<string, Record<string, unknown>[]>; reruns?: Record<string, CandidateSummary> }) {
   const calls: { runs: DriverInput[]; critiques: Parameters<LoopDependencies["critique"]>[0][] } = { runs: [], critiques: [] };
   let tick = 0;
   const snapshot = (directory: string) => (input.transfers ?? []).includes(directory.split("/").pop()!) ? h("f") : null;
   const usage = { inputTokens: 500, outputTokens: 40, cacheReadTokens: 100 };
+  const nameOf = (directory: string) => directory.split("/").pop()!;
+  /** A stage's summary: its rerun's once the first run moved aside to `<stage>.infra-1`, else its own. */
+  const found = (directory: string) => { const name = nameOf(directory); return (existsSync(join(directory, "..", `${name}.infra-1`)) && input.reruns?.[name]) || input.summaries[name]; };
   const deps: LoopDependencies = {
-    async runSample(run) { calls.runs.push(run); input.onRun?.(run); mkdirSync(run.outputDirectory, { recursive: true }); writeFileSync(join(run.outputDirectory, "result.json"), "{}"); input.onWritten?.(run); },
+    async runSample(run) { calls.runs.push(run); input.onRun?.(run); mkdirSync(run.outputDirectory, { recursive: true }); writeFileSync(join(run.outputDirectory, "freeze.json"), JSON.stringify({ run: calls.runs.length }));
+      writeFileSync(join(run.outputDirectory, "result.json"), "{}"); input.onWritten?.(run); },
     async critique(request) {
       calls.critiques.push(request);
       if (input.critiqueFails) throw typeof input.critiqueFails === "string" ? new Error(input.critiqueFails) : input.critiqueFails;
@@ -44,33 +50,64 @@ function fakes(input: { summaries: Record<string, CandidateSummary>; transfers?:
       return { binding: { packetSha256: record.packetSha256, critiqueSha256: record.critiqueSha256, source: record.source! }, feeMicrousd: 0, finishReason: record.finishReason, usage };
     },
     readCritique(directory) { return JSON.parse(readFileSync(join(directory, "critique.json"), "utf8")) as CritiqueRecord; },
-    summarize(directory) { const name = directory.split("/").pop()!; const found = input.summaries[name]; if (!found) throw new Error(`no summary for ${name}`); return found; },
+    summarize(directory) { const summary = found(directory); if (!summary) throw new Error(`no summary for ${nameOf(directory)}`); return summary; },
     transferStatus: directory => { const sha256 = snapshot(directory); return { snapshotSha256: sha256, code: sha256 ? null : "research_seed_no_transfer" }; },
     deliverables: () => ["output/report.md", "output/claims.json"],
     now: () => `t${tick++}`,
     runtimeSha256: () => input.runtime ?? h("4"),
+    // Part 3b's readers, from each stage's summary: a stage the fakes ran has a readable freeze, a local arm capped at 0 and no ledger rows.
+    readRunEnd(directory) {
+      const summary = found(directory), rows = input.rows?.[nameOf(directory)] ?? [];
+      const last = (status: string) => [...rows].reverse().find(row => row.status === status && row.purpose !== "research plan assist" && row.purpose !== "research synthesis assist") ?? null;
+      return { status: summary?.status ?? "", reason: summary?.reason ?? "", stageDenied: summary?.stageDenied ?? null, failingCall: last("failed"), uncertainCall: last("unknown"), runtimeBrokerCode: null,
+        captureFailure: null, verificationFailure: null, tokenAdmissionCode: null, brokerDenialCode: null };
+    },
+    readLedger(directory) {
+      const summary = found(directory);
+      return { freeze: summary && existsSync(join(directory, "freeze.json")) ? { jobId: summary.jobId, sha256: summary.freezeSha256, runtimeSha256: summary.runtimeSha256, startedAt: summary.startedAt, feeCapMicrousd: 0, localArm: true } : null,
+        dispatches: input.rows?.[nameOf(directory)] ?? [], claims: [], counts: { modelCalls: summary?.modelCalls ?? 0, toolCalls: summary?.toolCalls ?? 0, inputTokens: summary?.inputTokens ?? 0, outputTokens: summary?.outputTokens ?? 0,
+          cachedTokens: summary?.cachedTokens ?? 0, cacheWriteTokens: summary?.cacheWriteTokens ?? 0, lengthStops: summary?.lengthStops ?? 0, feeMicrousd: summary?.feeMicrousd ?? 0,
+          unknownDispatches: summary?.unknownDispatches ?? 0, retriedDispatches: 0, failedDispatches: summary?.failedDispatches ?? 0, zeroFeeFailedDispatches: summary?.zeroFeeFailedDispatches ?? 0,
+          assistSkippedDispatches: summary?.assistSkippedDispatches ?? 0, assistFailedDispatches: summary?.assistFailedDispatches ?? 0 }, lastCommittedAt: null, finishedAt: null };
+    },
+    readCritiqueFailure(directory) {
+      const path = join(directory, "critique-failure.json");
+      return existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) as ReturnType<LoopDependencies["readCritiqueFailure"]> : null;
+    },
+    recoverLedger() { /* the fakes leave no journal */ },
+    recoverClaims: async () => "not_needed",
+    lock: () => ({ release() { /* one invocation at a time in these tests */ } }),
   };
   return { deps, calls };
 }
 function loopDir() { const dir = mkdtempSync(join(tmpdir(), "soar-loop-")); cleanups.push(() => rmSync(dir, { recursive: true, force: true })); return join(dir, "loop"); }
 const read = (dir: string) => JSON.parse(readFileSync(join(dir, "loop.json"), "utf8")) as LoopRecord;
+/**
+ * A stage entry as the loop records it, for asserting a record's stages whole: an interrupt mark (backlog item 11) must sit on the
+ * stage it names and on no other, since the next invocation refuses or resumes a marked stage and the registry row reads the mark.
+ */
+const stageEntry = (stage: string, reused: boolean, interrupted = false) => ({ stage, startedAt: expect.any(String), finishedAt: expect.any(String), reused, ...(interrupted ? { interrupted: true } : {}) });
 /** Real result-to-summary mapping: committed receipts must block just like UNKNOWN; an assist row carries its purpose. */
 function transportStoppedSummary(status: "unknown" | "committed" | "failed", purpose?: string): CandidateSummary {
   const directory = loopDir(); mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "freeze.json"), JSON.stringify({ jobId: "ja", startedAt: "t0", sourceFreezeSha256: h("4"),
     taskBinding: { jobSha256: h("1"), briefSha256: h("2") } }));
-  writeFileSync(join(directory, "result.json"), JSON.stringify({ status: "incomplete", reason: "runtime_failure_progress_preserved",
+  // A task end, so part 1's own stops are what decide: part 3b resumes an infrastructure end instead (tests/unit/phase4-loop-resume.test.ts).
+  writeFileSync(join(directory, "result.json"), JSON.stringify({ status: "incomplete", reason: "bounded_allowance_exhausted",
     finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [], dispatches: [{ status, feeMicrousd: 0, ...(purpose ? { purpose, reservedFeeMicrousd: 160_000 } : {}) }] }));
   const db = new Database(join(directory, "state.sqlite"));
   db.exec("CREATE TABLE private_agent_events (job_id TEXT, sequence INTEGER, value TEXT)"); db.close();
   return summarizeRun(directory, []);
 }
 
-/** The real summary of an incomplete run whose one dispatch row is `row`, under a freeze whose arm is `arm` (backlog item 11's zero-fee predicate). */
+/**
+ * The real summary of an incomplete run whose one dispatch row is `row`, under a freeze whose arm is `arm` (backlog item 11's zero-fee
+ * predicate). A task end, so part 1's own stops are what decide: part 3b resumes an infrastructure end instead (tests/unit/phase4-loop-resume.test.ts).
+ */
 function rowSummary(row: Record<string, unknown>, arm?: Record<string, unknown>): CandidateSummary {
   const directory = loopDir(); mkdirSync(directory, { recursive: true });
   writeFileSync(join(directory, "freeze.json"), JSON.stringify({ jobId: "ja", startedAt: "t0", sourceFreezeSha256: h("4"), taskBinding: { jobSha256: h("1"), briefSha256: h("2") }, ...(arm ? { arm } : {}) }));
-  writeFileSync(join(directory, "result.json"), JSON.stringify({ status: "incomplete", reason: "model_unavailable", finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [], dispatches: [row] }));
+  writeFileSync(join(directory, "result.json"), JSON.stringify({ status: "incomplete", reason: "bounded_allowance_exhausted", finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [], dispatches: [row] }));
   const db = new Database(join(directory, "state.sqlite"));
   db.exec("CREATE TABLE private_agent_events (job_id TEXT, sequence INTEGER, value TEXT)"); db.close();
   return summarizeRun(directory, []);
@@ -88,7 +125,7 @@ describe("H4 select-and-repair loop", () => {
     expect(calls.runs[2]).toMatchObject({ repairFrom: join(dir, "critique") });
     expect(calls.critiques).toEqual([{ runDirectory: join(dir, "a"), taskDirectory: "task", expectedJobSha256: h("1"), expectedBriefSha256: h("2"), imageId: `sha256:${h("5")}`, outputDirectory: join(dir, "critique"), critic: "local" }]);
     expect(record.selected).toEqual({ stage1: { candidate: "a", step: "tie", entailmentRates: [null, null] }, final: { candidate: "a", step: "tie", entailmentRates: [null, null] } });
-    expect(record.seeded).toEqual({ b: false, repair: false, snapshotSha256: null }); expect(record.failure).toBeNull(); expect(record.writeIdentityEqual).toBeNull();
+    expect(record.seeded).toEqual({ a: false, b: false, repair: false, snapshotSha256: null }); expect(record.failure).toBeNull(); expect(record.writeIdentityEqual).toBeNull();
     expect(record.critique).toEqual({ packetSha256: h("d"), critiqueSha256: h("e"), feeMicrousd: 0, finishReason: "stop", usage: { inputTokens: 500, outputTokens: 40, cacheReadTokens: 100 }, modelCalls: 1 });
     // The critique's one call and its usage join the totals beside the three runs.
     expect(record.totals).toMatchObject({ modelCalls: 28, toolCalls: 24, inputTokens: 3500, outputTokens: 340, cachedTokens: 1600, feeMicrousd: 0 });
@@ -132,11 +169,11 @@ describe("H4 select-and-repair loop", () => {
     await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, deps)).rejects.toThrow(code);
     expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a"]); expect(calls.critiques).toHaveLength(0);
     expect(existsSync(join(dir, "b"))).toBe(false);
-    expect(read(dir)).toMatchObject({ failure: code, candidates: { a: { unknownDispatches: a.unknownDispatches, failedDispatches: a.failedDispatches } },
+    expect(read(dir)).toMatchObject({ failure: code, stopped: { stage: "a", failure: code }, candidates: { a: { unknownDispatches: a.unknownDispatches, failedDispatches: a.failedDispatches } },
       totals: { unknownDispatches: a.unknownDispatches, failedDispatches: a.failedDispatches }, selected: { stage1: null, final: null }, finishedAt: expect.any(String) });
-    // A result marker alone cannot allow a reused stage to bypass the same stop.
+    // Part 3b: the stop is for good, so the loop is terminal and a rerun touches nothing.
     const reused = fakes({ summaries: candidates(true, { a }), transfers: ["a"] });
-    await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, reused.deps)).rejects.toThrow(code);
+    await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, reused.deps)).rejects.toThrow("loop_terminal");
     expect(reused.calls.runs).toHaveLength(0); expect(reused.calls.critiques).toHaveLength(0);
   });
   it("admits a sample whose failed rows are all resolved zero-fee failures (backlog item 11), and still stops on a priced, cloud, approved or unreserved failure", async () => {
@@ -197,12 +234,14 @@ describe("H4 select-and-repair loop", () => {
     expect(calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b", "repair"]);
     expect(calls.critiques).toHaveLength(1); expect(record.failure).toBeNull(); expect(record.selected.stage1).toMatchObject({ candidate: "b", step: "submitted" });
   });
-  it("does not accept a final repair whose dispatch remains unresolved", async () => {
+  it("does not accept a final repair whose dispatch remains unresolved: part 3b ends the loop with the draft (repair_failed)", async () => {
     const dir = loopDir();
     const { deps, calls } = fakes({ summaries: candidates(false, { repair: { unknownDispatches: 1 } }) });
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, deps)).rejects.toThrow("loop_stage_unresolved_dispatch");
+    const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, deps);
     expect(calls.runs).toHaveLength(3); expect(calls.critiques).toHaveLength(1);
-    expect(read(dir)).toMatchObject({ failure: "loop_stage_unresolved_dispatch", selected: { final: null }, totals: { unknownDispatches: 1 } });
+    expect(record.selected.final).toEqual({ candidate: "a", step: "repair_failed", cause: "submitted" }); expect(loopExitCode(record)).toBe(2);
+    expect(read(dir)).toMatchObject({ failure: "loop_stage_unresolved_dispatch", failedStage: "repair", stopped: null, totals: { unknownDispatches: 1 } });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: candidates(false) }).deps)).rejects.toThrow("loop_terminal");
   });
   it("seeds b and the repair from a's packet on a research task, stripping the stage and the cloud writer, compares the write identities, and ends the loop when a left no packet", async () => {
     const dir = loopDir();
@@ -211,7 +250,7 @@ describe("H4 select-and-repair loop", () => {
     expect(calls.runs[0]).toMatchObject({ pipeline: "research", cloudArm: cloud }); expect(calls.runs[0]!.researchFrom).toBeUndefined();
     expect(calls.runs[1]).toMatchObject({ researchFrom: join(dir, "a") }); expect(calls.runs[1]!.pipeline).toBeUndefined(); expect(calls.runs[1]!.cloudArm).toBeUndefined();
     expect(calls.runs[2]).toMatchObject({ researchFrom: join(dir, "a"), repairFrom: join(dir, "critique") }); expect(calls.runs[2]!.pipeline).toBeUndefined(); expect(calls.runs[2]!.cloudArm).toBeUndefined();
-    expect(record).toMatchObject({ arm: "cloud", pipeline: "research", seeded: { b: true, repair: true, snapshotSha256: h("f") }, writeIdentityEqual: true });
+    expect(record).toMatchObject({ arm: "cloud", pipeline: "research", seeded: { a: false, b: true, repair: true, snapshotSha256: h("f") }, writeIdentityEqual: true });
     // A write-phase drift between a and b is recorded, never hidden.
     const dir2 = loopDir();
     const drift = fakes({ summaries: candidates(true, { a: { writeIdentity: h("7") }, b: { writeIdentity: h("9") } }), transfers: ["a"] });
@@ -221,7 +260,7 @@ describe("H4 select-and-repair loop", () => {
     const third = fakes({ summaries: { a: summary({ status: "incomplete", reason: "research_plan_invalid", artifactsPresent: 0 }) } });
     const record3 = await runSelectionLoop({ base: base({ pipeline: "research", cloudArm: cloud }), loopDirectory: dir3 }, third.deps);
     expect(record3.selected).toEqual({ stage1: null, final: { candidate: "a", step: "stage_failed", seedRefusal: "research_seed_no_transfer" } }); expect(third.calls.runs).toHaveLength(1); expect(third.calls.critiques).toHaveLength(0);
-    expect(record3.seeded).toEqual({ b: false, repair: false, snapshotSha256: null }); expect(read(dir3)).toMatchObject({ selected: { final: { step: "stage_failed", seedRefusal: "research_seed_no_transfer" } }, failure: null });
+    expect(record3.seeded).toEqual({ a: false, b: false, repair: false, snapshotSha256: null }); expect(read(dir3)).toMatchObject({ selected: { final: { step: "stage_failed", seedRefusal: "research_seed_no_transfer" } }, failure: null });
     // Backlog item 4: the seed loader's refusal code is in the log too, and a loop that ended by rule wrote no error side file.
     expect(readFileSync(join(dir3, "log.txt"), "utf8")).toContain("stage failed in a (research_seed_no_transfer): loop ends"); expect(existsSync(join(dir3, "errors.txt"))).toBe(false);
     expect(loopExitCode(record3)).toBe(2);
@@ -236,7 +275,7 @@ describe("H4 select-and-repair loop", () => {
     const empty = Object.assign(new Error("repair_critique_empty"), { finishReason: "length", usage: { inputTokens: 15_000, outputTokens: 16_384 }, feeMicrousd: 0 });
     const failing = fakes({ summaries: candidates(false), critiqueFails: empty });
     const record2 = await runSelectionLoop({ base: base(), loopDirectory: dir2 }, failing.deps);
-    expect(record2.selected.final).toEqual({ candidate: "a", step: "critique_failed" }); expect(failing.calls.runs).toHaveLength(2);
+    expect(record2.selected.final).toEqual({ candidate: "a", step: "critique_failed", cause: "task" }); expect(failing.calls.runs).toHaveLength(2);
     expect(record2.critique).toEqual({ failure: "repair_critique_empty", feeMicrousd: 0, finishReason: "length", usage: { inputTokens: 15_000, outputTokens: 16_384 }, modelCalls: 1 });
     expect(record2.totals).toMatchObject({ modelCalls: 21, inputTokens: 17_000, outputTokens: 16_584, lengthStops: 1 });
     expect(read(dir2)).toMatchObject({ critique: { failure: "repair_critique_empty" }, failure: null });
@@ -272,20 +311,33 @@ describe("H4 select-and-repair loop", () => {
     expect(record.stages.map(stage => [stage.stage, stage.reused])).toEqual([["a", true], ["b", true], ["critique", true], ["repair", false]]);
     for (const name of ["a", "b", "critique"]) expect([record.stages.find(stage => stage.stage === name)!.startedAt, record.stages.find(stage => stage.stage === name)!.finishedAt]).toEqual(reusedTimes[name]);
     expect(record.startedAt).toBe("t0"); expect(record.critique).toMatchObject({ critiqueSha256: h("e"), finishReason: "length", modelCalls: 1 }); expect(record.totals).toMatchObject({ modelCalls: 31, lengthStops: 1 });
-    // A stage directory without its result is refused.
+    // Part 3b: a directory the record does not name is refused before any stage, and nothing is written; the operator never makes or moves one.
     const dir2 = loopDir();
     mkdirSync(join(dir2, "a"), { recursive: true });
     const third = fakes({ summaries: candidates(false) });
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, third.deps)).rejects.toThrow("loop_stage_incomplete");
-    expect(third.calls.runs).toHaveLength(0); expect(read(dir2)).toMatchObject({ failure: "loop_stage_incomplete" });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, third.deps)).rejects.toThrow("loop_resume_mismatch");
+    expect(third.calls.runs).toHaveLength(0); expect(existsSync(join(dir2, "loop.json"))).toBe(false);
+    // A stage whose driver threw after freezing its run is unfinished: the invocation that ran it defers it (part 3b, after its code
+    // review), and the next invocation moves it to a.infra-1 and runs it again, once. The driver's own message stays in errors.txt.
+    const dir3 = loopDir();
+    const dying = fakes({ summaries: candidates(false), onRun: run => { if (run.outputDirectory.endsWith("/a")) { mkdirSync(run.outputDirectory, { recursive: true }); writeFileSync(join(run.outputDirectory, "freeze.json"), "{}"); throw new Error("driver_died"); } } });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, dying.deps)).rejects.toThrow("loop_stage_infra");
+    expect(read(dir3)).toMatchObject({ failure: "loop_stage_infra", failedStage: "a", begun: [{ stage: "a" }], stopped: null });
+    expect(readFileSync(join(dir3, "errors.txt"), "utf8")).toContain("Error: driver_died");
+    const fourth = fakes({ summaries: candidates(false) });
+    expect((await runSelectionLoop({ base: base(), loopDirectory: dir3 }, fourth.deps)).selected.final).toMatchObject({ candidate: "a", step: "tie" });
+    expect(fourth.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b", "repair"]);
+    expect(read(dir3).resumes).toEqual([expect.objectContaining({ stage: "a", cause: "run_unfinished", as: "rerun", cleanup: "not_needed" })]);
+    expect(existsSync(join(dir3, "a.infra-1", "freeze.json"))).toBe(true);
   });
   it("refuses a reused stage that is not this loop's: another task, another runtime, another packet, or a critique of the other sample", async () => {
-    const dir = loopDir();
-    mkdirSync(join(dir, "a"), { recursive: true }); writeFileSync(join(dir, "a", "result.json"), "{}");
     for (const foreign of [{ taskJobSha256: h("9") }, { taskBriefSha256: h("9") }, { runtimeSha256: h("9") }, { researchFrom: { sourceJobId: "jx", snapshotSha256: h("f") } }]) {
+      // The loop ran a and stopped before b; the reused a then turns out to be another task's, runtime's or packet's: a stop for good (part 3b).
+      const dir = loopDir();
+      await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: candidates(false), onRun: run => { if (run.outputDirectory.endsWith("/b")) throw new Error("stop_here"); } }).deps)).rejects.toThrow("stop_here");
       const { deps, calls } = fakes({ summaries: candidates(false, { a: foreign }) });
       await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, deps)).rejects.toThrow("loop_stage_mismatch"); expect(calls.runs).toHaveLength(0);
-      rmSync(join(dir, "loop.json"), { force: true });
+      expect(read(dir)).toMatchObject({ stopped: { stage: "a", failure: "loop_stage_mismatch" } });
     }
     // On a research task, b must be seeded from a's own packet; a repair must start from the chosen draft and the loop's packet.
     const dir2 = loopDir();
@@ -312,42 +364,61 @@ describe("H4 select-and-repair loop", () => {
     // The interrupted loop is not terminal: a rerun reuses a and carries on.
     // Backlog item 11: the stage running when the interrupt fired is marked; a marked stage that still submitted is complete and reused.
     const marked = read(dir).stages;
-    expect(marked).toEqual([{ stage: "a", startedAt: expect.any(String), finishedAt: expect.any(String), reused: false, interrupted: true }]);
+    expect(marked).toEqual([stageEntry("a", false, true)]);
     const again = fakes({ summaries: candidates(false) });
     const resumed = await runSelectionLoop({ base: base(), loopDirectory: dir }, again.deps);
     expect(resumed.selected.final).toEqual({ candidate: "a", step: "tie", entailmentRates: [null, null] });
     expect(again.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["b", "repair"]);
-    expect(resumed.stages[0]).toEqual({ ...marked[0], reused: true }); expect(resumed.stages.slice(1).every(entry => entry.interrupted === undefined)).toBe(true);
+    // a reused with its first times and its mark; every later stage run afresh and unmarked.
+    expect(resumed.stages).toEqual([{ ...marked[0], reused: true }, stageEntry("b", false), stageEntry("critique", false), stageEntry("repair", false)]);
   });
-  it("never reuses a stage its own interrupt cut as a candidate (backlog item 11): the mark survives the refusal, and the stage counts again once it runs afresh", async () => {
-    const dir = loopDir();
-    const abort = new AbortController();
-    // The driver cancels the running stage on the same signal: its in-flight zero-fee request resolves failed and the run ends cancelled_or_deadline.
-    const cutA = rowSummary({ ...ZERO_FEE_FAILED, failure: { phase: "transport", code: "cancelled" } });
-    expect(cutA).toMatchObject({ status: "incomplete", failedDispatches: 1, zeroFeeFailedDispatches: 1 });
-    const first = fakes({ summaries: candidates(true, { a: cutA }), transfers: ["a"], onRun: run => { if (run.outputDirectory.endsWith("/a")) abort.abort(); } });
-    await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, first.deps, { signal: abort.signal })).rejects.toThrow("loop_interrupted");
-    // A rerun refuses the cut stage rather than evaluating it, or ending the loop at stage_failed for want of a packet; the record keeps the mark.
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const rerun = fakes({ summaries: candidates(true, { a: cutA }) });
-      await expect(runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, rerun.deps)).rejects.toThrow("loop_stage_interrupted");
-      expect(rerun.calls.runs).toHaveLength(0); expect(read(dir)).toMatchObject({ failure: "loop_stage_interrupted", selected: { stage1: null, final: null }, stages: [{ stage: "a", reused: true, interrupted: true }] });
-    }
-    // The operator moves the cut stage aside, as for an unfinished one: the stage runs afresh, loses its mark and the loop carries on.
-    rmSync(join(dir, "a"), { recursive: true, force: true });
-    const fresh = fakes({ summaries: candidates(true), transfers: ["a"] });
-    const record = await runSelectionLoop({ base: base({ pipeline: "research" }), loopDirectory: dir }, fresh.deps);
-    expect(fresh.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a", "b", "repair"]); expect(record.failure).toBeNull();
-    expect(record.stages.every(entry => entry.interrupted === undefined)).toBe(true);
-    // A stage cut without a request in flight holds no failed row and was reused as an ordinary candidate before this change; it is refused too.
-    const dir2 = loopDir(), abort2 = new AbortController();
+  it("resumes a stage its own interrupt cut, once (backlog item 11, part 3b): the mark leaves with the moved run, and a second cut stops the loop for good", async () => {
+    const dir = loopDir(), abort = new AbortController();
+    // The driver cancels the running stage on the same signal: the run ends cancelled_or_deadline, which part 3a gives to the operator when the loop marked it.
     const quiet = candidates(false, { b: { status: "incomplete", reason: "cancelled_or_deadline" } });
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, fakes({ summaries: quiet, onRun: run => { if (run.outputDirectory.endsWith("/b")) abort2.abort(); } }).deps, { signal: abort2.signal })).rejects.toThrow("loop_interrupted");
-    const rerun2 = fakes({ summaries: quiet });
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, rerun2.deps)).rejects.toThrow("loop_stage_interrupted"); expect(rerun2.calls.runs).toHaveLength(0);
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: quiet, onRun: run => { if (run.outputDirectory.endsWith("/b")) abort.abort(); } }).deps, { signal: abort.signal })).rejects.toThrow("loop_interrupted");
+    const cut = read(dir).stages;
+    expect(cut).toEqual([stageEntry("a", false), stageEntry("b", false, true)]);
+    // The rerun moves the cut b to b.infra-1 under a write-ahead entry and runs b again; the loop carries on, and the moved run's counts stay in the totals.
+    const rerun = fakes({ summaries: quiet, reruns: { b: summary({ jobId: "jb2", freezeSha256: h("d"), resultSha256: h("e") }) } });
+    const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, rerun.deps);
+    expect(rerun.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["b", "repair"]); expect(record.failure).toBeNull();
+    expect(record.resumes).toEqual([expect.objectContaining({ stage: "b", cause: "operator_stop", as: "rerun", cleanup: "not_needed" })]);
+    // The mark left with the moved run: a reused with its first times, b and the later stages run afresh, nothing marked.
+    expect(record.stages).toEqual([{ ...cut[0], reused: true }, stageEntry("b", false), stageEntry("critique", false), stageEntry("repair", false)]);
+    expect(existsSync(join(dir, "b.infra-1"))).toBe(true);
+    expect(record.totals.modelCalls).toBe(4 * 10 + 1); expect(read(dir).begun.map(entry => entry.stage).sort()).toEqual(["a", "b", "critique", "repair"]);
+    expect(readFileSync(join(dir, "log.txt"), "utf8")).toContain("b moved to b.infra-1 (operator_stop)");
+    // A second cut of a stage that used its resume stops the loop for good.
+    const dir2 = loopDir(), abort2 = new AbortController(), abort3 = new AbortController();
+    const cutB = (signal: AbortController) => fakes({ summaries: quiet, onRun: run => { if (run.outputDirectory.endsWith("/b")) signal.abort(); } }).deps;
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, cutB(abort2), { signal: abort2.signal })).rejects.toThrow("loop_interrupted");
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, cutB(abort3), { signal: abort3.signal })).rejects.toThrow("loop_interrupted");
+    const recut = read(dir2).stages;
+    expect(recut).toEqual([stageEntry("a", true), stageEntry("b", false, true)]);
+    const last = fakes({ summaries: quiet });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, last.deps)).rejects.toThrow("loop_stage_interrupted");
+    expect(last.calls.runs).toHaveLength(0); expect(last.calls.critiques).toHaveLength(0);
+    expect(read(dir2)).toMatchObject({ stopped: { stage: "b", failure: "loop_stage_interrupted" }, resumes: [{ stage: "b", cause: "operator_stop" }] });
+    // Both stages as last recorded, now reused, the mark on b alone: a mark leaked onto a would refuse a healthy a in a later loop state.
+    expect(read(dir2).stages).toEqual([recut[0], { ...recut[1], reused: true }]);
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, fakes({ summaries: quiet }).deps)).rejects.toThrow("loop_terminal");
     // A stage that ended on the session deadline, with no interrupt from the loop, is unmarked and stays an ordinary candidate.
     const deadline = fakes({ summaries: candidates(false, { b: { status: "incomplete", reason: "cancelled_or_deadline" } }) });
-    expect((await runSelectionLoop({ base: base(), loopDirectory: loopDir() }, deadline.deps)).selected).toMatchObject({ stage1: { candidate: "a", step: "submitted" }, final: { candidate: "a" } });
+    const unmarked = await runSelectionLoop({ base: base(), loopDirectory: loopDir() }, deadline.deps);
+    expect(unmarked.selected).toMatchObject({ stage1: { candidate: "a", step: "submitted" }, final: { candidate: "a" } });
+    expect(unmarked.stages).toEqual(["a", "b", "critique", "repair"].map(stage => stageEntry(stage, false)));
+    // Decision (1): a marked stage whose end is the task's (a fee cap the interrupt crossed) is an ordinary candidate, neither refused nor resumed.
+    const dir3 = loopDir(), abort4 = new AbortController();
+    const capped = candidates(false, { b: { status: "incomplete", reason: "fee_cap_reached" } });
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, fakes({ summaries: capped, onRun: run => { if (run.outputDirectory.endsWith("/b")) abort4.abort(); } }).deps, { signal: abort4.signal })).rejects.toThrow("loop_interrupted");
+    const crossed = read(dir3).stages;
+    expect(crossed).toEqual([stageEntry("a", false), stageEntry("b", false, true)]);
+    const kept = fakes({ summaries: capped });
+    expect((await runSelectionLoop({ base: base(), loopDirectory: dir3 }, kept.deps)).selected).toMatchObject({ stage1: { candidate: "a", step: "submitted" } });
+    expect(kept.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["repair"]); expect(read(dir3).resumes).toEqual([]);
+    // The reused b keeps its mark, and only b: the critique and the repair ran afresh after it.
+    expect(read(dir3).stages).toEqual([{ ...crossed[0], reused: true }, { ...crossed[1], reused: true }, stageEntry("critique", false), stageEntry("repair", false)]);
   });
   it("refuses, before any stage, a stale runtime hash and a prior record of another protocol, version, runtime, task, arm or pipeline, leaving that record as it was (backlog item 11)", async () => {
     // The live source freeze must be the one the operator names: a reused stage never calls the driver that checks it.
@@ -379,32 +450,33 @@ describe("H4 select-and-repair loop", () => {
     expect(productionDependencies({ base: base(), loopDirectory: dir }).runtimeSha256()).toBe(localScreenSourceFreeze().sha256);
   });
   it("keeps an interrupt mark across invocations that stop before reaching the marked stage, and marks a cut stage whose run then threw (backlog item 11)", async () => {
-    // Interrupted during b; the rerun refuses b; the operator re-samples a, and that run is interrupted too: b keeps its mark.
-    const dir = loopDir(), abort = new AbortController();
-    const quiet = candidates(false, { b: { status: "incomplete", reason: "cancelled_or_deadline" } });
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: quiet, onRun: run => { if (run.outputDirectory.endsWith("/b")) abort.abort(); } }).deps, { signal: abort.signal })).rejects.toThrow("loop_interrupted");
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: quiet }).deps)).rejects.toThrow("loop_stage_interrupted");
-    rmSync(join(dir, "a"), { recursive: true, force: true });
-    const abort2 = new AbortController();
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: quiet, onRun: run => { if (run.outputDirectory.endsWith("/a")) abort2.abort(); } }).deps, { signal: abort2.signal })).rejects.toThrow("loop_interrupted");
-    expect(read(dir).stages.map(entry => [entry.stage, entry.interrupted === true])).toEqual(expect.arrayContaining([["a", true], ["b", true]]));
-    rmSync(join(dir, "a"), { recursive: true, force: true });
-    const again = fakes({ summaries: candidates(false, { a: { checksPassed: 0 }, b: { status: "incomplete", reason: "cancelled_or_deadline" } }) });
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, again.deps)).rejects.toThrow("loop_stage_interrupted");
-    expect(again.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["a"]);
-    // A transient failure before the marked stage is reached keeps the mark: the cut repair is never selected later.
+    // A transient failure before the marked stage is reached keeps the mark: the cut repair is resumed later, never selected as it was.
     const dir2 = loopDir(), abort3 = new AbortController();
     const cutRepair = candidates(false, { repair: { status: "incomplete", reason: "cancelled_or_deadline", checksPassed: 3 } });
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, fakes({ summaries: cutRepair, onRun: run => { if (run.outputDirectory.endsWith("/repair")) abort3.abort(); } }).deps, { signal: abort3.signal })).rejects.toThrow("loop_interrupted");
+    const first = read(dir2).stages;
+    expect(first).toEqual([stageEntry("a", false), stageEntry("b", false), stageEntry("critique", false), stageEntry("repair", false, true)]);
     const flaky = fakes({ summaries: cutRepair }); flaky.deps.summarize = () => { throw new Error("EMFILE: too many open files"); };
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, flaky.deps)).rejects.toThrow("EMFILE");
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir2 }, fakes({ summaries: cutRepair }).deps)).rejects.toThrow("loop_stage_interrupted");
-    // The driver writes result.json and then throws (a cleanup failure) while the interrupt has fired: the stage is still marked.
+    // Only the marked entry is carried past the stop; a, reused before its summary failed, carries no mark.
+    expect(read(dir2).stages).toEqual([first[3], { ...first[0], reused: true }]);
+    const resumed = fakes({ summaries: cutRepair, reruns: { repair: summary({ jobId: "jr2", freezeSha256: h("5"), resultSha256: h("6"), repairSource: { resultSha256: h("c"), freezeSha256: h("b") } }) } });
+    const record = await runSelectionLoop({ base: base(), loopDirectory: dir2 }, resumed.deps);
+    expect(resumed.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["repair"]); expect(record.selected.final).toMatchObject({ candidate: "a", step: "tie" });
+    expect(record.resumes).toEqual([expect.objectContaining({ stage: "repair", cause: "operator_stop" })]);
+    expect(record.stages).toEqual([stageEntry("a", true), stageEntry("b", true), stageEntry("critique", true), stageEntry("repair", false)]);
+    // The driver writes result.json and then throws (a cleanup failure) while the interrupt has fired: the stage is still marked, the
+    // invocation stops on the interrupt (the driver's code goes to errors.txt), and the stage is resumed.
+    const quiet = candidates(false, { b: { status: "incomplete", reason: "cancelled_or_deadline" } });
     const dir3 = loopDir(), abort4 = new AbortController();
     const throwing = fakes({ summaries: quiet, onWritten: run => { if (run.outputDirectory.endsWith("/b")) { abort4.abort(); throw new Error("public_snapshot_cleanup_failed"); } } });
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, throwing.deps, { signal: abort4.signal })).rejects.toThrow("public_snapshot_cleanup_failed");
-    expect(read(dir3).stages.find(entry => entry.stage === "b")).toMatchObject({ reused: false, interrupted: true });
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, fakes({ summaries: quiet }).deps)).rejects.toThrow("loop_stage_interrupted");
+    await expect(runSelectionLoop({ base: base(), loopDirectory: dir3 }, throwing.deps, { signal: abort4.signal })).rejects.toThrow("loop_interrupted");
+    expect(read(dir3).stages).toEqual([stageEntry("a", false), stageEntry("b", false, true)]);
+    expect(readFileSync(join(dir3, "errors.txt"), "utf8")).toContain("loop_interrupted Error: public_snapshot_cleanup_failed");
+    const after = fakes({ summaries: quiet, reruns: { b: summary({ jobId: "jb2", freezeSha256: h("d"), resultSha256: h("e") }) } });
+    const afterRecord = await runSelectionLoop({ base: base(), loopDirectory: dir3 }, after.deps);
+    expect(afterRecord.resumes).toEqual([expect.objectContaining({ stage: "b", cause: "operator_stop" })]);
+    expect(afterRecord.stages).toEqual([stageEntry("a", true), stageEntry("b", false), stageEntry("critique", false), stageEntry("repair", false)]);
   });
   it("passes its interrupt to the critique, and a critique the interrupt cuts stops the loop resumably, never as a failed critique (backlog item 11, part 3a; E1's bug d)", async () => {
     const dir = loopDir(), abort = new AbortController();
@@ -423,19 +495,21 @@ describe("H4 select-and-repair loop", () => {
     expect(seen).toBe(abort.signal); expect(calls.critiques[0]).not.toHaveProperty("signal");
     const record = read(dir);
     expect(record).toMatchObject({ failure: "loop_interrupted", critique: null, selected: { final: null } });
-    expect(record.stages.find(entry => entry.stage === "critique")).toMatchObject({ reused: false, interrupted: true });
+    expect(record.stages).toEqual([stageEntry("a", false), stageEntry("b", false), stageEntry("critique", false, true)]);
     // The critique's own failure, whatever it names, reaches only the operator's side file; the record and the log keep the code.
     expect(readFileSync(join(dir, "errors.txt"), "utf8")).toMatch(/ loop_interrupted Error: ECONNRESET: socket hang up reading \/Users\/someone\/critique\/state\.sqlite\n/u);
     expect(readFileSync(join(dir, "loop.json"), "utf8")).not.toContain("/Users"); expect(readFileSync(join(dir, "log.txt"), "utf8")).not.toContain("/Users");
-    // The next invocation finds the critique directory without its record: an unfinished stage, refused until it is moved aside.
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, fakes({ summaries: candidates(false) }).deps)).rejects.toThrow("loop_stage_incomplete");
-    rmSync(join(dir, "critique"), { recursive: true, force: true });
+    // Part 3b: the next invocation finds the cut critique without its record and resumes it once: moved to critique.infra-1 and run again.
     const resumed = fakes({ summaries: candidates(false) });
     expect((await runSelectionLoop({ base: base(), loopDirectory: dir }, resumed.deps)).selected.final).toMatchObject({ candidate: "a", step: "tie" });
     expect(resumed.calls.critiques).toHaveLength(1); expect(resumed.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["repair"]);
+    expect(read(dir).resumes).toEqual([expect.objectContaining({ stage: "critique", cause: "operator_stop", as: "rerun" })]);
+    expect(read(dir).stages).toEqual([stageEntry("a", true), stageEntry("b", true), stageEntry("critique", false), stageEntry("repair", false)]);
+    expect(existsSync(join(dir, "critique.infra-1", "critique-failure.json"))).toBe(true);
     // A critique that fails on its own, with no interrupt, still ends the loop as before.
     const failing = fakes({ summaries: candidates(false), critiqueFails: "request_failed" });
-    expect((await runSelectionLoop({ base: base(), loopDirectory: loopDir() }, failing.deps)).selected.final).toEqual({ candidate: "a", step: "critique_failed" });
+    // The fake fails before creating the critique's directory, so there is nothing to resume: the loop ends with the failure's own cause.
+    expect((await runSelectionLoop({ base: base(), loopDirectory: loopDir() }, failing.deps)).selected.final).toEqual({ candidate: "a", step: "critique_failed", cause: "request_failed" });
   });
   it("refuses a summary that lacks a count the totals add, and still records the failure", async () => {
     const dir = loopDir();
@@ -495,11 +569,14 @@ describe("H4 select-and-repair loop", () => {
 });
 
 describe("E1 recoverability: the harness loop admits retried rows and stops on an interrupt in any later sample (S1, S2)", () => {
-  /** A sample whose result lists these dispatch rows, read through the real result-to-summary mapping (selection.ts). */
+  /**
+   * A sample whose result lists these dispatch rows, read through the real result-to-summary mapping (selection.ts). A task end, so the loop's
+   * admission rules are what decide: part 3b resumes an infrastructure end (runtime_failure_progress_preserved is one since part 3a) instead.
+   */
   function ledgerSummary(rows: { status: string; purpose?: string }[]): CandidateSummary {
     const directory = loopDir(); mkdirSync(directory, { recursive: true });
     writeFileSync(join(directory, "freeze.json"), JSON.stringify({ jobId: "ja", startedAt: "t0", sourceFreezeSha256: h("4"), taskBinding: { jobSha256: h("1"), briefSha256: h("2") } }));
-    writeFileSync(join(directory, "result.json"), JSON.stringify({ status: "incomplete", reason: "runtime_failure_progress_preserved", finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [],
+    writeFileSync(join(directory, "result.json"), JSON.stringify({ status: "incomplete", reason: "bounded_allowance_exhausted", finishedAt: "t1", snapshotSha256: h("7"), candidateFiles: [],
       dispatches: rows.map(row => ({ feeMicrousd: 0, ...row })) }));
     const db = new Database(join(directory, "state.sqlite"));
     db.exec("CREATE TABLE private_agent_events (job_id TEXT, sequence INTEGER, value TEXT)"); db.close();
@@ -534,17 +611,21 @@ describe("E1 recoverability: the harness loop admits retried rows and stops on a
       expect(record.stages.filter(stage => stage.reused).map(stage => stage.stage)).toEqual(name === "b" ? ["a", "b"] : ["a", "b", "critique", "repair"]);
     });
 
-  it("pins the limitation item 11's PR 11.1 flipped: a rerun refuses, with loop_stage_interrupted, a sample the loop's interrupt cut before it submitted", async () => {
-    // In production the driver's own interrupt handler cancels the sample's session, so the cut sample ends cancelled. Before 11.1 the rerun reused it
-    // and never ran it again; since 11.1 the rerun refuses such a stage with loop_stage_interrupted, runs nothing and keeps the stage's mark.
+  it("pins item 11's part 3b, which moved 11.1's refusal: a rerun resumes, once, a sample the loop's interrupt cut before it submitted, and the mark leaves with the moved run", async () => {
+    // In production the driver's own interrupt handler cancels the sample's session, so the cut sample ends cancelled. Before 11.1 the rerun reused it and
+    // never ran it again; 11.1 refused it with loop_stage_interrupted; since part 3b the rerun moves it to b.infra-1 and runs it again, once.
     const summaries = candidates(false, { b: { status: "incomplete", reason: "cancelled_or_deadline" } });
     const dir = loopDir(), abort = new AbortController();
     const { deps } = fakes({ summaries, onRun: run => { if (run.outputDirectory.endsWith("/b")) abort.abort(); } });
     await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, deps, { signal: abort.signal })).rejects.toThrow("loop_interrupted");
-    const again = fakes({ summaries });
-    await expect(runSelectionLoop({ base: base(), loopDirectory: dir }, again.deps)).rejects.toThrow("loop_stage_interrupted");
-    expect(again.calls.runs).toHaveLength(0);
-    expect(read(dir)).toMatchObject({ failure: "loop_stage_interrupted", selected: { stage1: null, final: null },
-      stages: [{ stage: "a", reused: true }, { stage: "b", reused: true, interrupted: true }] });
+    const cut = read(dir).stages;
+    expect(cut).toEqual([stageEntry("a", false), stageEntry("b", false, true)]);
+    const again = fakes({ summaries, reruns: { b: summary({ jobId: "jb2", freezeSha256: h("d"), resultSha256: h("e") }) } });
+    const record = await runSelectionLoop({ base: base(), loopDirectory: dir }, again.deps);
+    expect(again.calls.runs.map(run => run.outputDirectory.split("/").pop())).toEqual(["b", "repair"]); expect(again.calls.critiques).toHaveLength(1);
+    expect(record).toMatchObject({ failure: null, stopped: null, resumes: [{ stage: "b", cause: "operator_stop", as: "rerun" }] }); expect(record.selected.final).not.toBeNull();
+    expect(existsSync(join(dir, "b.infra-1"))).toBe(true);
+    // Exact entries: a reused with its first times; b run afresh, its cut run and the mark moved aside; nothing marked.
+    expect(record.stages).toEqual([{ ...cut[0], reused: true }, stageEntry("b", false), stageEntry("critique", false), stageEntry("repair", false)]);
   });
 });

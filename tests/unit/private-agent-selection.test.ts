@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { canonical, digest } from "../../src/main/private-agent/contracts";
-import { ENTAILMENT_MIN_JUDGED, SELECTION_PROTOCOL_VERSION, compareCandidates, entailmentRate, summarizeRun, type CandidateSummary } from "../../src/main/private-agent/selection";
+import { ENTAILMENT_MIN_JUDGED, SELECTION_PROTOCOL_VERSION, compareCandidates, entailmentRate, isZeroFeeDispatch, isZeroFeeFailedDispatch, summarizeRun, type CandidateSummary } from "../../src/main/private-agent/selection";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 
 const cleanups: (() => void)[] = [];
@@ -71,7 +71,7 @@ describe("H4 selection rule", () => {
     writeFileSync(join(dir, "result.json"), `${canonical(result)}\n`);
     const deliverables = ["output/report.md", "output/claims.json"];
     const summary = summarizeRun(dir, deliverables);
-    expect(summary).toMatchObject({ jobId, taskJobSha256: "1".repeat(64), taskBriefSha256: "2".repeat(64), runtimeSha256: "4".repeat(64), researchFrom: { sourceJobId: "job-a", snapshotSha256: "f".repeat(64) }, repairSource: { resultSha256: "c".repeat(64), freezeSha256: "b".repeat(64) },
+    expect(summary).toMatchObject({ jobId, taskJobSha256: "1".repeat(64), taskBriefSha256: "2".repeat(64), runtimeSha256: "4".repeat(64), researchFrom: { sourceJobId: "job-a", snapshotSha256: "f".repeat(64), sourceFreezeSha256: "3".repeat(64) }, repairSource: { resultSha256: "c".repeat(64), freezeSha256: "b".repeat(64) },
       status: "incomplete", reason: "bounded_allowance_exhausted", checksPassed: 1, checksTotal: 2, checksCurrent: true, artifactsPresent: 1, artifactsTotal: 2, entailment: null,
       writeIdentity: "5".repeat(64), modelCalls: 6, toolCalls: 1, inputTokens: 2600, outputTokens: 150, cachedTokens: 1800, cacheWriteTokens: 0, lengthStops: 1, feeMicrousd: 12_500, unknownDispatches: 2, retriedDispatches: 2, failedDispatches: 2, zeroFeeFailedDispatches: 1,
       assistSkippedDispatches: 1, assistFailedDispatches: 1,
@@ -101,5 +101,12 @@ describe("H4 selection rule", () => {
     const other = mkdtempSync(join(tmpdir(), "soar-selection-other-")); cleanups.push(() => rmSync(other, { recursive: true, force: true }));
     renameSync(join(dir, "state.sqlite"), join(other, "state.sqlite")); symlinkSync(join(other, "state.sqlite"), join(dir, "state.sqlite"));
     expect(() => summarizeRun(dir, deliverables)).toThrow("selection_run_directory_invalid");
+  });
+  it("applies part 1's zero-fee predicate apart from the status, for the loop's ledger rule (backlog item 11, part 3b)", () => {
+    const local = { destinationId: "owned_local_model", purpose: "agent reasoning and tool selection", reservedFeeMicrousd: 0 };
+    for (const status of ["committed", "failed", "unknown", "settled"]) expect(isZeroFeeDispatch({ ...local, status }), status).toBe(true);
+    expect(isZeroFeeFailedDispatch({ ...local, status: "committed" })).toBe(false); expect(isZeroFeeFailedDispatch({ ...local, status: "failed" })).toBe(true);
+    for (const priced of [{ ...local, destinationId: "cloud_coordinator" }, { ...local, reservedFeeMicrousd: 1 }, { ...local, feeMicrousd: 1 }, { ...local, approval: {} }, { ...local, purpose: "research plan assist" }])
+      expect(isZeroFeeDispatch({ ...priced, status: "committed" }), JSON.stringify(priced)).toBe(false);
   });
 });

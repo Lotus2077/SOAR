@@ -942,8 +942,10 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     expect(m.calls.filter(c => c.stage === "synthesise").map(c => c.input.repairReason === null)).toEqual([true, false]);
   });
 
-  it("keeps the hook contract byte-identical to item 10's copy (feat/10a-assist-core 67e3374): a change there is mirrored here and re-pinned", () => {
-    expect(digest(readFileSync(new URL("../../src/main/private-agent/research-assist-contract.ts", import.meta.url)))).toBe("bced24dfefe448eb9dd57abd9d84bc9e7b8fac7d8d3fb5637630dd76f5d967a0");
+  // Since #79 (10.a) merged before 7c, the contract is one file, 10.a's; this pin now guards its bytes, so a change to the hook's interface is a
+  // deliberate re-pin (BL-20261113-0935-correction-research-v5-fourth-stamp-assist-merge).
+  it("pins the hook contract's bytes (research-assist-contract.ts, 10.a's file): a change to the interface is a deliberate re-pin", () => {
+    expect(digest(readFileSync(new URL("../../src/main/private-agent/research-assist-contract.ts", import.meta.url)))).toBe("ddd19123b301ab4baff09afb43b9b02685451314d878161fd59c90bc38f29665");
   });
 
   it("builds the host fallbacks from host data alone: contiguous unit groups, larger first, and a skeleton naming only ids", () => {

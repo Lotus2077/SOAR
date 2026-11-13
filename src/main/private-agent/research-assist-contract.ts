@@ -1,6 +1,6 @@
 /**
  * The hook between the research pipeline and backlog item 10's assist wrapper (docs/PROJECT_REVIEW_2026-11-05.md §5.2,
- * touchpoints T1 and T2; BL-20261109-0417-assist-wrapper-design, decision 11). Types only: no runtime value lives here, so
+ * touchpoints T1 and T2; BL-20261113-0920-assist-wrapper-design, decision 11). Types only: no runtime value lives here, so
  * the pipeline (item 7(c)) and the wrapper (research-assist.ts) both import it without a runtime import cycle.
  *
  * A request is host data inside the process, real source ids, paths, texts and hashes included. Only the wrapper turns a

@@ -1,5 +1,5 @@
 /**
- * Research v5's host fallbacks (backlog item 7(c), BL-20261113-0817-research-v5-design; review section 5.2, principle 5):
+ * Research v5's host fallbacks (backlog item 7(c), BL-20261113-0910-research-v5-design; review section 5.2, principle 5):
  * the plan the host uses when no plan attempt is accepted, and the argument it uses when no synthesis attempt is accepted.
  * Both are built from host data alone (the brief's unit ids, the plan's question ids, the packet's evidence and conflict
  * ids), never from model, source or brief text, so the ready gate can recompute them byte for byte. Every template is bound

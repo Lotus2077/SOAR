@@ -1,5 +1,5 @@
 /** Versioned, model-independent contracts shared by the pipeline and writer presentation. */
-/** 5 since backlog item 7(c) (BL-20261110-0717-research-v5-design): slot schedules, host fallbacks, coverage v2. */
+/** 5 since backlog item 7(c) (BL-20261113-0817-research-v5-design): slot schedules, host fallbacks, coverage v2. */
 export const RESEARCH_PIPELINE_VERSION = 5;
 export const RESEARCH_CONTEXT_DIR = "context/research";
 export const RESEARCH_FILES = Object.freeze({ index: `${RESEARCH_CONTEXT_DIR}/index.json`, plan: `${RESEARCH_CONTEXT_DIR}/plan.json`,

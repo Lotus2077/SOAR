@@ -145,7 +145,7 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       "Executive summary (one page, no more than 200 words)", "Introduction: set the scene, at most 200 words.", "Conclusion: one paragraph, at most 150 words.",
       "Per source, at most 150 words.", "For each source, write up to 150 words.", "For every study, write at most 150 words.", "For each of the five papers, write no more than 200 words.",
       "Cover five papers; for each, at most 200 words.", "Each section (required, 300-400 words)", "Three sections; each, at most 300 words.",
-      // BL-20261110-1100: under a chain's heading opener the heading ends at the opener, however long the chain, and a line break before the opener is skipped.
+      // BL-20261110-1100-correction-research-train-1-review-pins: under a chain's heading opener the heading ends at the opener, however long the chain, and a line break before the opener is skipped.
       "Findings: short, plain, clear, direct, at most 2,000 words", "Background: two or three pages, at most 600 words", "Abstract\n(required, max 150 words)"])
       expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
   });
@@ -161,7 +161,7 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       "Compare the three vendors' pricing. Begin with an executive summary. It must not exceed 250 words. Then give a detailed analysis.",
       "Requirements:\n- Include an abstract. Maximum 200 words.\n- Cite every source.", "Abstract; at most 150 words", "Abstract (structured; max 150 words)",
       "Deliverable 1 \u2014 Evidence report. No word limit, but be concise.\nDeliverable 2 \u2014 Summary for the newsletter. No more than 300 words.",
-      // BL-20261110-1100: a referring word cut into the limit's word, each of the nine referring words, a referring word before a comma or a parenthesis, a part
+      // BL-20261110-1100-correction-research-train-1-review-pins: a referring word cut into the limit's word, each of the nine referring words, a referring word before a comma or a parenthesis, a part
       // after an exclusion word (rule B counts it), and a limit that opens its line after a wrapped heading or distributive.
       "Include an abstract. Keep it\u2014at most 150 words.", "Include an abstract. Its length is at most 150 words.", "Start with an executive summary. Its length must not exceed 200 words.",
       "Add two captions. Keep these under 150 words.", "Write section summaries. These must not exceed 150 words.", "Write the section headings. Keep those to at most 120 words.",
@@ -179,7 +179,7 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       ["Give each question a 2-3 word label; keep the report under 2,000 words.", 2000],
       // A comma chain's heading opener counts only on the limit's own line.
       ["Sections:\nbe concise, at most 2,000 words", 2000],
-      // BL-20261110-1100: rule A reads distributives only from the chain's opener, on the limit's line; rule B reads only the one sentence before, which a line
+      // BL-20261110-1100-correction-research-train-1-review-pins: rule A reads distributives only from the chain's opener, on the limit's line; rule B reads only the one sentence before, which a line
       // break bounds too; a cut word that is not a referring word does not open the sentence; and a headed chain's words are not heading words.
       ["Cover each vendor,\nthen be brief, at most 2,000 words", 2000], ["Cite every source,\nbe concise, at most 2,000 words", 2000], ["Cite every source. Report: concise, at most 2,000 words", 2000],
       ["Cite every source; be concise, at most 2,000 words.", 2000], ["Answer each question. Overall, at most 2,000 words", 2000], ["Include an abstract. Report\u2014max 2,000 words.", 2000],
@@ -192,13 +192,13 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       "Answer every question. Keep it under 900 words.", "Write the report. Do not include an abstract. Keep it under 800 words.", "I need a summary of the audit findings for the board. Max 500 words.",
       "Give each question a 2-3 word label, and keep the report under 2,000 words.", "Write the following sections: introduction, body, and a conclusion, at most 3,000 words in total.",
       "Include an abstract. This report must not exceed 2,000 words.", "Write the abstract first. (At most 2,000 words.)",
-      // BL-20261110-1100: an exclusion cancels nothing in the sentence before; list words and distributives are read in any sense, a title line among them; and a
+      // BL-20261110-1100-correction-research-train-1-review-pins: an exclusion cancels nothing in the sentence before; list words and distributives are read in any sense, a title line among them; and a
       // short heading-only noun opens a one-line comma chain. These are examples of what rules A and B miss, not the full set.
       "Write a report without an abstract. Max 2,000 words.", "Research report\nTitle: The economics of vertical farming.\nUnder 2,500 words.",
       "Background: the board meets on Friday, so I need a report on supplier risk, max 1,500 words.", "Read every source. Then write a report that is under 2,000 words."])
       expect([brief, briefWordLimit(brief)]).toEqual([brief, undefined]);
   });
-  it("still misreads these part limits after rules A and B (known misreads, stated in BL-20261110-0848 and BL-20261110-1100)", () => {
+  it("still misreads these part limits after rules A and B (known misreads, stated in BL-20261110-0848 and BL-20261110-1100-correction-research-train-1-review-pins)", () => {
     const cases: [string, number][] = [["Abstract, at most 150 words", 150], ["For the abstract, use at most 150 words.", 150], ["- Abstract, 150 words max", 150],
       ["Max 120 words. That is for the summary.", 120], ["Include an executive summary, and keep it under 200 words.", 200],
       // Heading-only nouns outside ":" or "(", nouns glued by "/" or an apostrophe, off-list nouns, and a part more than four words after the limit.
@@ -214,7 +214,7 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       ["Full report please, plus a press release of no more than 400 words.", 400],
       // Before #69: a digit on the next line makes a range read as its lower end (NUMBER's lookahead); noted for a later PR.
       ["Word limit: 600-900\n3 sources minimum", 600],
-      // BL-20261110-1100, the forms rules A and B leave. A distributive in a later clause of the chain, and the "word limit N" exemption after a part:
+      // BL-20261110-1100-correction-research-train-1-review-pins, the forms rules A and B leave. A distributive in a later clause of the chain, and the "word limit N" exemption after a part:
       ["At most 150 words, each.", 150], ["Notes: brief, at most 150 words, for each source.", 150],
       ["Include an abstract. Word limit: 150.", 150], ["Start with an executive summary. Its word limit is 200.", 200], ["Abstract (optional; word limit 150)", 150],
       // a wrapped line (rule A reads only the limit's line; rule B ends a sentence at a line break):
@@ -239,7 +239,7 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       ["Limit (excluding findings): at most 900 words", 900], ["The abstract should be written in at most 150 words", undefined],
       // Two rules only the protocol pin caught: the four-word bound on heading-only nouns, and "incl" cancelling only when it opens a parenthesis.
       ["Give the evidence an overview (at most 1,500 words)", 1500], ["Write a report incl an abstract: at most 150 words", undefined],
-      // BL-20261110-1100: both cut-word halves of rule B's trigger, and no look-back when no word precedes the limit's sentence (the look-back would throw).
+      // BL-20261110-1100-correction-research-train-1-review-pins: both cut-word halves of rule B's trigger, and no look-back when no word precedes the limit's sentence (the look-back would throw).
       ["Include an abstract. Total/max 2,000 words", 2000], ["Include an abstract. It/max 150 words", undefined], ["?\nMax 2,000 words", 2000], ["...Max 2,000 words", 2000],
       ["---\nKeep it under 2,000 words.", 2000]];
     for (const [brief, limit] of cases) expect([brief, briefWordLimit(brief)]).toEqual([brief, limit]);

@@ -92,8 +92,8 @@ const LIMIT_PATTERNS = Object.freeze([
  *   ("Abstract (required, max 150 words)", "Executive summary: one page, no more than 200 words") the heading is read as if the
  *   clause opened there; and a distributive in the chain before the limit's clause, on the same line ("For each source, write
  *   up to 150 words"), marks a part's limit. A distributive in a later clause of the chain is not read ("At most 150 words,
- *   each." reads 150; BL-20261110-1100). Part nouns in the chain are not read: "An abstract of up to 150 words, then a report
- *   of 1,200-1,800 words" keeps 1,800.
+ *   each." reads 150; BL-20261110-1100-correction-research-train-1-review-pins). Part nouns in the chain are not read: "An
+ *   abstract of up to 150 words, then a report of 1,200-1,800 words" keeps 1,800.
  * - B, `previousSentence`: when a limit opens its sentence, or a `referring` word stands before it in the sentence, the sentence
  *   before it is read (sentences end at ".", ";", "!", "?" or a line break), and a part noun or a distributive there marks a
  *   part's limit ("Include an abstract. Max 150 words.", "Start with an executive summary. Keep it under 200 words."). The

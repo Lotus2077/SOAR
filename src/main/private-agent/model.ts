@@ -122,7 +122,7 @@ export interface GeneralToolDefinition {
   type: "function";
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }
-/** Backlog item 10 (BL-20261113-0841-assist-wrapper-design, decision 1): the only cache mode an assist may carry. */
+/** Backlog item 10 (BL-20261113-0920-assist-wrapper-design, decision 1): the only cache mode an assist may carry. */
 export const ASSIST_CACHE_MODE = "assist_no_cache_write_v1" as const;
 /** Per-call narrowing of the configured model; nothing here widens a configured value. */
 export interface ModelCallOverrides {

@@ -34395,7 +34395,7 @@ Next gate: CI green on #82, then its merge under the owner's standing go-ahead f
 
 References: BL-20261113-0816-correction-host-flags-event-ids-and-replay; BL-20261113-0817-runner-storage-integrity-design; BL-20261113-0818-runner-storage-integrity-implemented; BL-20261113-0819-correction-runner-storage-integrity-ids; BL-20261113-0820-research-stage-pause-held-attempt-pins; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261113-0758 and BL-20261113-0832 (pull request #87).
 
-### BL-20261113-0841-assist-wrapper-design -- 2026-11-13 -- Backlog item 10's assist wrapper decided: slim T1 and T2 packets with opaque source ids, a no-write cache mode on both cloud shapes, per-touchpoint caps, the fallback, stop and skip codes, the attempt and stage records, the assist protocol block and the hook contract
+### BL-20261113-0920-assist-wrapper-design -- 2026-11-13 -- Backlog item 10's assist wrapper decided: slim T1 and T2 packets with opaque source ids, a no-write cache mode on both cloud shapes, per-touchpoint caps, the fallback, stop and skip codes, the attempt and stage records, the assist protocol block and the hook contract
 
 Status: `Proposed`
 
@@ -34624,11 +34624,11 @@ Next gate: 10.a's code with deterministic tests and its `Implemented` entry, aft
 
 References: docs/PROJECT_REVIEW_2026-11-05.md section 5.1 (rules 2, 5, 6, 8 and 9), section 5.2 (principles, the stage graph, the cloud touchpoints, the cap check, Escalation, Forced split, Caching, Privacy), section 5.6 (E3) and section 5.7 items 7, 8, 10, 11 and 13; docs/HANDOFF.md "Start here"; BL-20261107-0839-assist-purpose-exception-design; BL-20261107-0842-assist-purpose-exception-implemented; BL-20261107-0809-zero-fee-failures-resolve-design (the deadline guard); BL-20261107-0859-label-keyed-diagnostics-design (hash-only stage rows); BL-20261107-0650-owner-decisions-review-items-2-5 and BL-20261107-0718-correction-owner-decisions-record (correction 6); issue #49 and `docs/ASSIST_PROVIDER_RESEARCH.md` on branch `research/assist-provider`; owner decision 6 (#59).
 
-### BL-20261113-0843-assist-core-implemented -- 2026-11-13 -- Backlog item 10, part 10.a, implemented: the assist hook contract, the slim T1 and T2 packets with the scrubber and the audit, the no-write cache mode on both cloud shapes, the codes, slots, records and protocol block, with no production caller yet
+### BL-20261113-0921-assist-core-implemented -- 2026-11-13 -- Backlog item 10, part 10.a, implemented: the assist hook contract, the slim T1 and T2 packets with the scrubber and the audit, the no-write cache mode on both cloud shapes, the codes, slots, records and protocol block, with no production caller yet
 
 Status: `Implemented`
 
-Scope or hypothesis: This implements 10.a of BL-20261113-0841-assist-wrapper-design on `feat/10a-assist-core`, from `main` at 2982ca7. The commits are:
+Scope or hypothesis: This implements 10.a of BL-20261113-0920-assist-wrapper-design on `feat/10a-assist-core`, from `main` at 2982ca7. The commits are:
 - the design entry, 7c56625;
 - the code, aa2e1c9;
 - the fixes from the first three adversarial code reviews, d2ab888;
@@ -34883,19 +34883,19 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: CI green and a merge, before item 7(c), which imports the contract. Then 10.b, after 7(c) and 7(b)-2 merge.
 
-References: BL-20261113-0841-assist-wrapper-design; BL-20261107-0839-assist-purpose-exception-design; BL-20261107-0842-assist-purpose-exception-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.2 and section 5.7 item 10; issue #49.
+References: BL-20261113-0920-assist-wrapper-design; BL-20261107-0839-assist-purpose-exception-design; BL-20261107-0842-assist-purpose-exception-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.2 and section 5.7 item 10; issue #49.
 
-### BL-20261113-0844-correction-assist-core-review -- 2026-11-13 -- Correction: the assist core after the merge-train review of #79, with glued hosts and file names fixed, scrub policy version 4, the assist protocol hashes pinned, and the limits the Implemented entry left out
+### BL-20261113-0922-correction-assist-core-review -- 2026-11-13 -- Correction: the assist core after the merge-train review of #79, with glued hosts and file names fixed, scrub policy version 4, the assist protocol hashes pinned, and the limits the Implemented entry left out
 
 Status: `Implemented`
 
-Scope or hypothesis: This records the fixes for the independent merge-train review of pull request #79 at 67e3374, and it corrects BL-20261113-0843-assist-core-implemented without editing that entry. The fixes are in commit 8090f65 on `feat/10a-assist-core`. research-assist-contract.ts and research-plan.ts are unchanged.
+Scope or hypothesis: This records the fixes for the independent merge-train review of pull request #79 at 67e3374, and it corrects BL-20261113-0921-assist-core-implemented without editing that entry. The fixes are in commit 8090f65 on `feat/10a-assist-core`. research-assist-contract.ts and research-plan.ts are unchanged.
 
 Decisions:
 - F3:
   - Text glued before a source host, or before a scheme-less URL form of the source, now makes another host or a credential. That text is host labels, userinfo or a word.
   - The whole token, with any `//` and scheme before it, becomes `[url]` and is counted as a URL. A lone `www.` keeps the alias.
-  - A host match is no longer refused for what is glued on its left, which supersedes the left half of 0843's "a host is bounded".
+  - A host match is no longer refused for what is glued on its left, which supersedes the left half of 0921's "a host is bounded".
   - A scheme-less URL with `user:password@` before a dotted host is a credential, and becomes `[url]` with or without a path even when no source is involved.
 - F4: A file name glued to a source's file name through `-`, `_` or `.`, on either side, is another file. The whole run, with its folder prefix and any root slash, becomes `[file]`, never the source's alias with the rest left around it. Extension-less stems keep the old rule (see the limits).
 - F5:
@@ -34920,7 +34920,7 @@ Evidence: The runs are local, on Node 22.22.2 and pnpm 10.12.4, at 8090f65.
 - The tests:
   - The four test files this PR changes pass 181 of 181: 23 scrubber, 60 assist, 47 Anthropic and 51 Responses.
   - The unchanged plan-contract file passes 38 of 38.
-  - 0843's "204 of 204 in five files" counted that unchanged file. The right count then was 166 in four changed files, plus 38.
+  - 0921's "204 of 204 in five files" counted that unchanged file. The right count then was 166 in four changed files, plus 38.
 - What the new tests show:
   - Scrubber:
     - The review's host and file-name inputs become `[url]` or `[file]` in both scopes, survive a second scrub, and pass the audit.
@@ -34961,25 +34961,25 @@ Failures or blockers: The review used three lenses and 15 agents, with two skept
 - F4, major per the reviewer and minor per both skeptics: a file name ending in a source's file name kept its prefix and the source's label (`secret-merger-S2`, `merger/private-S2`). Fixed.
 - F2, major or minor: no test failed when the final audit's loops or its NFKC view were removed. Tests added.
 - F5, minor: three fields of a prior attempt reached the packet unchecked. Fixed.
-- F6, minor: 0843's limits omitted forms that are sent as written. They are listed below.
+- F6, minor: 0921's limits omitted forms that are sent as written. They are listed below.
 - Minors that had no skeptic:
   - These had no tests: the heading check, the `[source]` merge, three attempt-record rules, the empty-T2 rule and the unknown cache-write key rule. All are tested now.
   - The T2 retry's local refusal was unstated. It is now stated, as the default of owner question 1.
 - Nits:
   - The protocol hash was compared only with itself. It is pinned now.
   - `private_model_response_invalid`'s dispatch was untested. It is tested now.
-  - 0843's test count is corrected above.
+  - 0921's test count is corrected above.
   - A missing source text dropped the copy check for that source. T2 now refuses when coverage says the source was readable; otherwise this is a limit.
 
-Limitations and non-claims: These add to 0843's limits. Each form below is sent as written in every field unless the owner's answer to owner question 2 asks for rules; the default is to state them as limits now, for the public and synthetic arms only.
+Limitations and non-claims: These add to 0921's limits. Each form below is sent as written in every field unless the owner's answer to owner question 2 asks for rules; the default is to state them as limits now, for the public and synthetic arms only.
 - A scheme-less dotted host with no path, with or without a port (`wiki.acme-merger.internal`), unless a source names it.
-- A bare IPv4 address. 0843 listed IPv4 addresses as fixed at d2ab888, but f11ead2 narrowed the rule to an address with a port or a path, and 0843 did not say so.
+- A bare IPv4 address. 0921 listed IPv4 addresses as fixed at d2ab888, but f11ead2 narrowed the rule to an address with a port or a path, and 0921 did not say so.
 - An scp-style target, and any rooted path directly after a colon. With a password, `user:pw@10.2.3.4:/srv/data` sends `[url]:/srv/data`. Without one, `user@10.2.3.4:/srv/data` goes out whole.
 - A bare e-mail address with no password (`alice@acme-merger.example`), unless its domain is a source's host.
 - A rooted path of one or two segments with no extension (`/Users/alice`, `/home/bob`, `/etc/passwd`).
 - An extension-less stem glued to other text through `-`, `_` or `.` keeps that text in model-written text (`pre-S1`, `S1-v2`).
 - For a source with no readable text, plan text cannot be checked for copies of it, since there is no text.
-- `Socket.io/WebSocket` and `Q:/A:` still over-match, as 0843 says.
+- `Socket.io/WebSocket` and `Q:/A:` still over-match, as 0921 says.
 - No SOAR model request, endpoint, Docker container or paid call ran.
 - The two changed source files are under src/main/private-agent, so the harness source-freeze digest changes again. No owner loop or E-run may span #79's merge.
 
@@ -34989,13 +34989,13 @@ Next gate:
 - The orchestrator's delta review of #79 at its new head, then train 1 or train 2.
 - 10.b may wire the assist's dispatch only once no review finding is open. With these fixes, it waits only for 7(c) and 7(b)-2.
 
-References: BL-20261113-0843-assist-core-implemented; BL-20261113-0841-assist-wrapper-design (its fourth owner question); pull requests #79, #69 and #76.
+References: BL-20261113-0921-assist-core-implemented; BL-20261113-0920-assist-wrapper-design (its fourth owner question); pull requests #79, #69 and #76.
 
-### BL-20261113-0845-correction-assist-core-delta -- 2026-11-13 -- Correction: the assist core after the delta review of #79 at 4aeac37, with the R1 regression and four more fixes, scrub policy still version 4, and the remaining gaps stated with their bounds
+### BL-20261113-0923-correction-assist-core-delta -- 2026-11-13 -- Correction: the assist core after the delta review of #79 at 4aeac37, with the R1 regression and four more fixes, scrub policy still version 4, and the remaining gaps stated with their bounds
 
 Status: `Implemented`
 
-Scope or hypothesis: This records the fixes for the delta review of pull request #79 at 4aeac37 (67e3374..4aeac37). It corrects BL-20261113-0844-correction-assist-core-review and BL-20261113-0843-assist-core-implemented without editing either. The fixes are in commit 6d14ac4 on `feat/10a-assist-core`, and the following are unchanged:
+Scope or hypothesis: This records the fixes for the delta review of pull request #79 at 4aeac37 (67e3374..4aeac37). It corrects BL-20261113-0922-correction-assist-core-review and BL-20261113-0921-assist-core-implemented without editing either. The fixes are in commit 6d14ac4 on `feat/10a-assist-core`, and the following are unchanged:
 - the scrub policy, still at version 4;
 - both pinned assist protocol hashes: `forced_split` 127a56d3f9a29ec2f4b13c208b7d60217075a61dce60e61bd113807164028411, `local_first` fd294f1e6d97eb9d130f307dbc4ebee99d7484c90c81b7c3290d6059d4504b75;
 - research-assist-contract.ts, byte-identical (sha256 bced24dfefe448eb9dd57abd9d84bc9e7b8fac7d8d3fb5637630dd76f5d967a0), and research-plan.ts.
@@ -35013,9 +35013,9 @@ Decisions:
     - Such a run now keeps its whole span but takes the source's alias, so the URL rule takes the URL whole, as `[url]`.
 - G3 is fixed. A form that a URL source and a local copy share keeps the URL form's host lead. With both sources present, `alice:hunter2@example.org/report.html` is `[url]`, not `alice:hunter2@[source]`.
 - O2 is fixed. The run of a glued file name gives back a trailing `-`, `_` or `.`, so a sentence's full stop stays: `see alpha-field-notes.md-secret. Next` gives `see [file]. Next`. The policy's `glued` sentence stays accurate.
-- V1 is fixed. T2 now compares each coverage source's id with the request's source at the same position, not only the counts. 0844's "or its coverage lists other sources than the request" was false at 4aeac37 and is true now.
+- V1 is fixed. T2 now compares each coverage source's id with the request's source at the same position, not only the counts. 0922's "or its coverage lists other sources than the request" was false at 4aeac37 and is true now.
 - P1 is fixed.
-  - The relative-path rule was quadratic on Han text joined by `,`, `:` or `;`, full-width or ASCII, with no `。`, `、`, space or newline. "文件在这里，" repeated took 26, 100, 403 and 1,606 ms at 2,000, 4,000, 8,000 and 16,000 characters, about 9 s for one T2 packet at the bounds. So 0843's "Every scan is linear in its text" was false for that shape.
+  - The relative-path rule was quadratic on Han text joined by `,`, `:` or `;`, full-width or ASCII, with no `。`, `、`, space or newline. "文件在这里，" repeated took 26, 100, 403 and 1,606 ms at 2,000, 4,000, 8,000 and 16,000 characters, about 9 s for one T2 packet at the bounds. So 0921's "Every scan is linear in its text" was false for that shape.
   - The three scans of the relative run now use a walk instead of matchAll. When no run matches at a start, it looks for the next start after the path characters read from that one. The pattern source is unchanged, so the hashes stay.
 
 Changes:
@@ -35072,7 +35072,7 @@ Limitations and non-claims: Each item below has its bound.
   - `see input/corpus/alpha-field-notes.md-secret now` gives `see S1-secret now`.
   - With a source `https://github.com/acme/public-repo`, `see github.com/acme/public-repository now` gives `see S4sitory now`.
   - With a source `https://intranet.acme.example/doc`, `https://intranet.acme.example/docs/hr/layoff-plan-2025?employee=alice` gives `S1s/hr/layoff-plan-2025?employee=alice`.
-  - This also bounds 0844's F4 sentence "never the source's alias with the rest left around it": it holds for a source's file name, not for its whole path or URL forms.
+  - This also bounds 0922's F4 sentence "never the source's alias with the rest left around it": it holds for a source's file name, not for its whole path or URL forms.
 - L2. The generic credential rule covers only a scheme-less `user:password@host` written within these bounds:
   - a user of 1 to 64 ASCII userinfo characters (letters, digits and `._~%!$&*+,;=-`);
   - `:` and a password of 1 to 64 characters, with no white space, `/`, `@`, quote or angle bracket;
@@ -35088,8 +35088,8 @@ Limitations and non-claims: Each item below has its bound.
   - a `?x=1` or `#frag` left after `[url]` when the host has no path;
   - `alice:P@ss@10.2.3.4:8080`, which gives `alice:P@ss@[url]`.
 
-  Schemed forms all become `[url]`. 0844's "with or without a path even when no source is involved" holds only within these bounds. The rule also replaces clock times and ratios before an `@`: `ratio 3:2@home.example`, `Meeting 10:30@room.4` and `Contact:alice@example.com` give `[url]`.
-- L3. 0844's "F3 … Fixed" is too wide. A password holding a character outside the host-lead characters, before a source's host, still goes out with its user name, and the built T1 and T2 bodies hold it. This is better than 67e3374, but not closed.
+  Schemed forms all become `[url]`. 0922's "with or without a path even when no source is involved" holds only within these bounds. The rule also replaces clock times and ratios before an `@`: `ratio 3:2@home.example`, `Meeting 10:30@room.4` and `Contact:alice@example.com` give `[url]`.
+- L3. 0922's "F3 … Fixed" is too wide. A password holding a character outside the host-lead characters, before a source's host, still goes out with its user name, and the built T1 and T2 bodies hold it. This is better than 67e3374, but not closed.
   - `alice:pa(ss)@example.org` gives `alice:pa(ss)[url]`.
   - `alice:p#ss@example.org` gives `alice:p#[url]`.
   - `alice:秘密@example.org` gives `alice:秘密[url]`.
@@ -35109,8 +35109,8 @@ Limitations and non-claims: Each item below has its bound.
   - O2: with no space after the full stop, the run continues into the next word, so `See beta-ledger.md-v2.Next sentence` gives `See [file] sentence`.
   - R1, UNC: a UNC path keeps one backslash before the placeholder (`\\fileserver\share\old-alpha-field-notes.md` gives `\[file]`).
   - R1, shared forms: a form two sources share, or a host-appended file name, right after the `//` of a protocol-relative URL is `[source]` or `[file]`. The protocol-relative rule cannot start on either, so the URL's query or tail goes out, as at 67e3374. With `report.html` shared, `//cdn.other.test/x/report.html?token=abc` gives `//[source]?token=abc`.
-- 0844 quotes "a host is bounded" as 0843's words. That phrase is a code comment in research-assist-scrub.ts, not part of 0843.
-- 0844's timings for CJK text, read together with 0843's "Every scan is linear in its text", were false at 4aeac37 for the Han-comma shape. They are true after P1.
+- 0922 quotes "a host is bounded" as 0921's words. That phrase is a code comment in research-assist-scrub.ts, not part of 0921.
+- 0922's timings for CJK text, read together with 0921's "Every scan is linear in its text", were false at 4aeac37 for the Han-comma shape. They are true after P1.
 - No SOAR model request, endpoint, Docker container or paid call ran.
 - The two changed source files are under src/main/private-agent, so the harness source-freeze digest changes again. No owner loop or E-run may span #79's merge.
 
@@ -35127,9 +35127,9 @@ Next gate:
   - Under `local_first`, give each prior attempt a non-negative safe-integer `ordinal` and `omittedErrorCount` and a boolean `truncated`.
   - Pass a real `deadlineMs`. NaN stops as `assist_deadline_missing` with no request, and the pipeline passes NaN when there is no session deadline.
 
-References: BL-20261113-0844-correction-assist-core-review; BL-20261113-0843-assist-core-implemented; BL-20261113-0841-assist-wrapper-design (its fourth owner question); pull request #79.
+References: BL-20261113-0922-correction-assist-core-review; BL-20261113-0921-assist-core-implemented; BL-20261113-0920-assist-wrapper-design (its fourth owner question); pull request #79.
 
-### BL-20261113-0848-correction-assist-entries-restamp -- 2026-11-13 -- Correction: pull request #79's four entries are re-stamped after `main`'s tail at its merge of `main`; their original IDs, dates and authoring times
+### BL-20261113-0924-correction-assist-entries-restamp -- 2026-11-13 -- Correction: pull request #79's four entries are re-stamped after `main`'s tail at its merge of `main`; their original IDs, dates and authoring times
 
 Status: `Implemented`
 
@@ -35138,10 +35138,10 @@ Scope or hypothesis: Pull request #79 (backlog item 10.a) brings in `main` at 23
 - So the four entries are re-stamped after the tail in this merge, under the owner's rule. That rule is BL-20261113-0758, as clarified by BL-20261113-0832, on pull request #87. A re-stamp may move an entry's date with its minute.
 
 Each entry, with its original ID, date and authoring time:
-- **The design entry.** Authored at 04:17 UTC on 2026-11-09 as BL-20261109-0417. It is now BL-20261113-0841-assist-wrapper-design, with its heading dated 2026-11-13.
-- **The implemented entry.** Authored at 06:39 UTC on 2026-11-10 as BL-20261110-0639. It is now BL-20261113-0843-assist-core-implemented, with its heading dated 2026-11-13.
-- **The review correction.** Authored at 08:20 UTC on 2026-11-10 as BL-20261110-0820. It is now BL-20261113-0844-correction-assist-core-review, with its heading dated 2026-11-13.
-- **The delta correction.** Authored at 10:27 UTC on 2026-11-10 as BL-20261110-1027. It is now BL-20261113-0845-correction-assist-core-delta, with its heading dated 2026-11-13.
+- **The design entry.** Authored at 04:17 UTC on 2026-11-09 as BL-20261109-0417. It is now BL-20261113-0920-assist-wrapper-design, with its heading dated 2026-11-13.
+- **The implemented entry.** Authored at 06:39 UTC on 2026-11-10 as BL-20261110-0639. It is now BL-20261113-0921-assist-core-implemented, with its heading dated 2026-11-13.
+- **The review correction.** Authored at 08:20 UTC on 2026-11-10 as BL-20261110-0820. It is now BL-20261113-0922-correction-assist-core-review, with its heading dated 2026-11-13.
+- **The delta correction.** Authored at 10:27 UTC on 2026-11-10 as BL-20261110-1027. It is now BL-20261113-0923-correction-assist-core-delta, with its heading dated 2026-11-13.
 
 Decisions:
 - **Choice of minutes.** The new minutes follow the latest ID on `main` or on any open pull request's head, which is minute 08:40 on 2026-11-13.
@@ -35149,14 +35149,14 @@ Decisions:
   - If another pull request reaches `main` first with later IDs, #79 re-stamps again at its next merge of `main`, under the same rule.
 - **Only the IDs changed:**
   - each heading's ID and date;
-  - the full IDs and their short forms in the four entries. For example, `0639's "Every scan is linear in its text"` now reads `0843's …`;
+  - the full IDs and their short forms in the four entries. For example, `0639's "Every scan is linear in its text"` now reads `0921's …`;
   - the design entry's full ID in one comment each in src/main/private-agent/model.ts, research-assist-contract.ts, research-assist-scrub.ts, research-assist.ts and research-plan.ts, and in tests/helpers/research-assist-fixture.ts.
 - **Why the short forms changed too.** `main` holds other entries of minute 04:17 on 2026-11-09 and of minute 08:20 on 2026-11-13. So an unchanged `0417` or `0820` would name the wrong entry.
 - **Bodies.** Mapped back, each body is byte-identical to #79's at d364b46, where the reviews read it.
 - **A merge, not a rebase.**
   - Every commit SHA that the entries and the reviews cite stays in #79's history, and the push fast-forwards from d364b46.
   - `main`'s log is kept whole, as a byte prefix of this branch's.
-- research-assist-contract.ts changed in its first comment only. BL-20261113-0845-correction-assist-core-delta gives its sha256 as bced24dfefe448eb9dd57abd9d84bc9e7b8fac7d8d3fb5637630dd76f5d967a0; it is now f551f6b33b000394ec1d9bc784a799ff7c5e00bcb26fe45d44c0bda5607b3503.
+- research-assist-contract.ts changed in its first comment only. BL-20261113-0923-correction-assist-core-delta gives its sha256 as bced24dfefe448eb9dd57abd9d84bc9e7b8fac7d8d3fb5637630dd76f5d967a0; it is now f551f6b33b000394ec1d9bc784a799ff7c5e00bcb26fe45d44c0bda5607b3503.
 
 Changes:
 - docs/BUILD_LOG.md: the four headings, their references, and this entry.
@@ -35177,15 +35177,15 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: The orchestrator's review of #79 at its new head, which checks this re-stamp, then the owner's go-ahead for #79's merge.
 
-References: BL-20261113-0834-correction-runner-storage-integrity-second-restamp; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261113-0841-assist-wrapper-design; BL-20261113-0843-assist-core-implemented; BL-20261113-0844-correction-assist-core-review; BL-20261113-0845-correction-assist-core-delta; BL-20261113-0758 and BL-20261113-0832 (pull request #87); docs/HANDOFF.md "Start here" section 5.
+References: BL-20261113-0834-correction-runner-storage-integrity-second-restamp; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261113-0920-assist-wrapper-design; BL-20261113-0921-assist-core-implemented; BL-20261113-0922-correction-assist-core-review; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0758 and BL-20261113-0832 (pull request #87); docs/HANDOFF.md "Start here" section 5.
 
-### BL-20261113-0851-correction-assist-core-rereview -- 2026-11-13 -- Correction: the assist core after the full re-review of #79 at d364b46, with the G3 tail and the placeholders after `//` fixed under scrub policy 4 so that nothing d364b46 hid is sent, and the delta correction's contradicted statements and missing bounds corrected
+### BL-20261113-0925-correction-assist-core-rereview -- 2026-11-13 -- Correction: the assist core after the full re-review of #79 at d364b46, with the G3 tail and the placeholders after `//` fixed under scrub policy 4 so that nothing d364b46 hid is sent, and the delta correction's contradicted statements and missing bounds corrected
 
 Status: `Implemented`
 
 Scope or hypothesis: This records the fixes for the orchestrator's full re-review of pull request #79 at d364b46, which reviewed the delta 4aeac37..d364b46.
 - The review used four lenses (full, differential, walk and entry-and-evidence), with skeptics on each blocker and major finding. This entry names findings by lens and number.
-- It corrects three entries without editing them: BL-20261113-0845-correction-assist-core-delta, BL-20261113-0844-correction-assist-core-review and BL-20261113-0843-assist-core-implemented. They were authored as 1027, 0820 and 0639, and BL-20261113-0848-correction-assist-entries-restamp records their re-stamp at the merge of `main`. This entry calls them 0845, 0844 and 0843.
+- It corrects three entries without editing them: BL-20261113-0923-correction-assist-core-delta, BL-20261113-0922-correction-assist-core-review and BL-20261113-0921-assist-core-implemented. They were authored as 1027, 0820 and 0639, and BL-20261113-0924-correction-assist-entries-restamp records their re-stamp at the merge of `main`. This entry calls them 0923, 0922 and 0921.
 
 The work is in two commits on `feat/10a-assist-core`, before its merge of `main` (d1dae95):
 - b1fab07 holds test pins and comment rewording only, and changes no output.
@@ -35219,7 +35219,7 @@ Decisions:
     - `(https://alice:hunter2@example.org/report.html?x=1)` gives `([url])`.
   - The lenses' version took the tail at once. It sent `alice:pa(ss)` in `x alice:pa(ss)@example.org/report.html///acme.example report.html'bucket`, which d364b46 hid because a relative-path rule took the token whole. Here that input gives `x [file] [source]'bucket`, as at all three earlier heads.
   - The G3 merge stays, as both skeptics advised.
-- **The rule after `//` replaces 0845's alias rule.** This covers lens full F1 (blocker) and F2, differential F2 and F3, and entry-and-evidence F2.
+- **The rule after `//` replaces 0923's alias rule.** This covers lens full F1 (blocker) and F2, differential F2 and F3, and entry-and-evidence F2.
   - It acts on a match right after a `//` that would be a placeholder:
     - `[file]` for a glued file name or a host-appended file name;
     - `[url]` for a host-led form with a glued lead;
@@ -35362,7 +35362,7 @@ Failures or blockers: The full re-review ran four lenses, 29 agents in all with 
 - Lens full:
   - F1, blocker: a host-led `[url]` after a protocol-relative `//` sent the URL's tail, newly at d364b46. Fixed above.
   - F2, major: the alias rule fired where no URL rule could start, showed another file as the source, and swapped `[file]` for `[source]`. Fixed above.
-  - F3 and F4, minor: two false comparisons with 67e3374 in 0845. Corrected in C1 and C5.
+  - F3 and F4, minor: two false comparisons with 67e3374 in 0923. Corrected in C1 and C5.
   - F5, minor: G3 was pinned in one order, by absence checks only. Pinned.
   - F6, nit: the end-to-end test did not assert how many requests it checked. Pinned.
   - F7, nit: corrected in C9, the PR body and the comments.
@@ -35370,7 +35370,7 @@ Failures or blockers: The full re-review ran four lenses, 29 agents in all with 
   - F1, blocker: the G3 tail. Fixed.
   - F2 and F3, major: the placeholders after `//`, and the alias given to a glued file wherever `//` preceded it. Fixed.
   - F4, minor: the `///` residue. Stated under L6 below.
-  - F5, major: four statements of 0845 that execution contradicts. Corrected in C1 to C4.
+  - F5, major: four statements of 0923 that execution contradicts. Corrected in C1 to C4.
 - Lens walk:
   - F1, minor: two scans outside the walk are quadratic. Corrected in C8.
   - F2, nit: test gaps. Pinned in b1fab07.
@@ -35381,18 +35381,18 @@ Failures or blockers: The full re-review ran four lenses, 29 agents in all with 
   - F7, nit: two sentences overstated what goes out. Corrected in C7.
 
 Limitations and non-claims:
-- Corrections of 0845, which is not edited:
-  - C1 (differential F5 item 1; lens full F3). 0845's residue "R1, shared forms … as at 67e3374" held for the exact shared or host-appended name, and was false for a glued one.
+- Corrections of 0923, which is not edited:
+  - C1 (differential F5 item 1; lens full F3). 0923's residue "R1, shared forms … as at 67e3374" held for the exact shared or host-appended name, and was false for a glued one.
     - With `a/report.html` and `b/report.html`, `//cdn.other.test/x/old-report.html?token=abc` gave `[url]` at 67e3374, `/[file]?token=abc` at 4aeac37 and `//[source]?token=abc` at d364b46.
     - With the host-appended `claims.json`, `//cdn.other.test/x/old-claims.json?token=abc` gave `[url]`, `/[file]?token=abc` and `//[file]?token=abc`.
     - The glued case was a regression from 8090f65's F4, not a gap from 67e3374.
     - Both cases, and the exact names, are closed above where the protocol-relative rule could start at the `//`. After any other `//`, they fall under L7.
-  - C2 (differential F5 item 2). 0845's "G3 is fixed" held for its own example. The same change newly sent URL tails (differential F1), which neither L1 nor 0845's G3 residue covered. That regression is fixed above.
-  - C3 (differential F5 item 3). 0845's "Such a run now keeps its whole span but takes the source's alias, so the URL rule takes the URL whole, as `[url]`" held only where one source owns the glued name and the protocol-relative rule can start at the `//`.
-    - Its example `//cdn.other.test/x/q3-report.html?token=abc` needs a source whose own file name is `report.html`, and 0845 did not say so.
+  - C2 (differential F5 item 2). 0923's "G3 is fixed" held for its own example. The same change newly sent URL tails (differential F1), which neither L1 nor 0923's G3 residue covered. That regression is fixed above.
+  - C3 (differential F5 item 3). 0923's "Such a run now keeps its whole span but takes the source's alias, so the URL rule takes the URL whole, as `[url]`" held only where one source owns the glued name and the protocol-relative rule can start at the `//`.
+    - Its example `//cdn.other.test/x/q3-report.html?token=abc` needs a source whose own file name is `report.html`, and 0923 did not say so.
     - With the URL source `https://example.org/report.html` alone, the example gave `[url]` at 67e3374, `/[file]?token=abc` at 4aeac37 and `[url]` at d364b46.
     - With that source and its local copy, d364b46 gave `//[source]?token=abc`. 42d7669 gives `[url]` in both cases.
-  - C4 (differential F5 item 4). 0845's "109 of them send a word that 4aeac37 hid. Each of those 109 sends the same word at 67e3374." held only for 0845's own run. 0845 did not give that run's seed or measure. As a property it was false:
+  - C4 (differential F5 item 4). 0923's "109 of them send a word that 4aeac37 hid. Each of those 109 sends the same word at 67e3374." held only for 0923's own run. 0923 did not give that run's seed or measure. As a property it was false:
     - Reviewer B's 300,000 soups gave 81 outputs that send, against 4aeac37, a run of four or more characters that 4aeac37 hid. In 12 of them, 67e3374 hid it too.
     - For example, with sources `input/notes/meeting-notes-2024` and `https://github.com/acme/public-repo`, `//hr.acme-merger.testnotes/meeting-notes-2024github.com/acme/public-repogithub.comdraft/` gives `//[url]github.comdraft/` at d364b46, where 67e3374 gave `[url]` and 4aeac37 `[file]/`. 42d7669 gives `[url]`.
     - The classes that send such text are D2 and D3 below. Each differential here gives its seed and both measures.
@@ -35407,7 +35407,7 @@ Limitations and non-claims:
       - with a source `https://intranet.acme.example/doc`, `https://www.intranet.acme.example/docs/hr/layoff-plan-2025?employee=alice`: `S1s/hr/layoff-plan-2025?employee=alice`;
       - with the same source, `https://hr.intranet.acme.example/docs/hr/layoff-plan-2025?employee=alice`: `[url]s/hr/layoff-plan-2025?employee=alice`.
     - `see sub.example.org/reports/annual-2025.html-secret now` gave `see sub.S2-secret now` at 67e3374, and gives `see [url]-secret now` since.
-    - This also bounds 0844's F3 sentence "The whole token … becomes `[url]`": the token ends where the source's form ends.
+    - This also bounds 0922's F3 sentence "The whole token … becomes `[url]`": the token ends where the source's form ends.
   - C6 (entry-and-evidence F1). L2's "Schemed forms all become `[url]`" is false where the password holds a `"`, `<`, `>`, or a spaceless-script run glued between letters.
     - A schemed URL is `[url]` only up to the first white space, `"`, `<`, `>` or such a run.
     - After that cut, the rest of the password, the `@`, the host, the port and the path go out, and the audit passes them. No scheme-less rule starts after `@` (L6), and the rest has no `user:password@` shape.
@@ -35418,19 +35418,19 @@ Limitations and non-claims:
       - `see ftp://alice:p"ss@fileserver/share now` gives `see [url]"ss@fileserver/share now`.
     - A cut inside the user part is caught since 8090f65, because the credential rule takes the rest: `https://al"ice:pss@acme.example` gives `[url]"[url]`.
     - This bound is filed under L2 for 10.b's gate. A rule that would close it under policy 5 lets a schemed URL's userinfo run through those characters up to the last `@` before a host, bounded to 64 and 64 characters as the scheme-less rule is.
-  - C7 (entry-and-evidence F7). Two of 0845's sentences said more goes out than does.
+  - C7 (entry-and-evidence F7). Two of 0923's sentences said more goes out than does.
     - L6's "The scheme-less host rules do not start after `@`, `:`, `_`, `.`, `-` or `/`" holds for the dotted host with a path and for the credential rule.
       - The `www.`, IPv4 and localhost rules do start after those characters. With no sources: `see site:www.acme.example/reports now` gives `see site:[url] now`, `see alice@10.2.3.4:8080/x now` gives `see alice@[url] now`, `host_10.2.3.4:8080/x` gives `host_[url]`, `x-10.2.3.4/path` gives `x-[url]`, and `site:localhost:3000/x` gives `site:[url]`.
       - `-` is a label character, so `see -acme.example/reports now` gives `see [url] now`.
     - L2's "a credential directly after `:` or `@`" holds after `@`, and after a `:` with no ASCII userinfo run before it. So `:alice:hunter2@acme.example` and `账号：alice:hunter2@acme.example` go out whole.
       - After an ASCII word, the word is read as the user. Since 8090f65, `Login:alice:hunter2@acme.example` gives `[url]`, and `see x:alice:hunter2@acme.example now` gives `see [url] now`; 67e3374 sent both whole.
-  - C8 (walk F1). 0843's "Every scan is linear in its text" and 0845's "They are true after P1" hold for the three relative-run scans only. Two more patterns are quadratic, at 0843's head as now:
+  - C8 (walk F1). 0921's "Every scan is linear in its text" and 0923's "They are true after P1" hold for the three relative-run scans only. Two more patterns are quadratic, at 0921's head as now:
     - FILE_NAME_PATTERN, in model scope only. The shape is a Han letter, an apostrophe and an ASCII letter, repeated. At 16,000 characters the walk lens measured about 2.3 s of process CPU for the scrub, and 2.3 s again for the audit; at 32,000, about 9.4 s each. The cost is four times as much per doubling. Sent-text scope is linear.
     - PATH_PATTERNS[6], the rooted path with an extension under either slash, in both scopes. The shape is a comma, a backslash and a letter, repeated. It took about 0.3 s at 16,000 characters, 1.2 s at 32,000 and 4.7 s at 64,000, for the scrub, the audit and hostFileForms alike. Its comment's "so the rule stays linear" covers only the glued-prefix run.
     - Only the callers' caps bound model-written text today: a gist at 600 characters, and plan fields at 300, 120, 200 and 1,000. The scrubber and prepare() do not check them again.
     - Neither pattern gets a walk here. A 10.b obligation below caps the lengths instead.
-  - C9 (lens full F7). 0844's next-gate sentence that 10.b "waits only for 7(c) and 7(b)-2" was superseded by 0845's gate without being named. Both are superseded by the gate below. The PR body's two stale sentences change with this push.
-  - C10 (lens walk). 0845 says the linear-time test ran 90 s against the matchAll mutant. The reviewers measured 215 s and 223 s, 178.5 s of CPU. The test fails either way.
+  - C9 (lens full F7). 0922's next-gate sentence that 10.b "waits only for 7(c) and 7(b)-2" was superseded by 0923's gate without being named. Both are superseded by the gate below. The PR body's two stale sentences change with this push.
+  - C10 (lens walk). 0923 says the linear-time test ran 90 s against the matchAll mutant. The reviewers measured 215 s and 223 s, 178.5 s of CPU. The test fails either way.
 - **Residues after this push, each with its bound:**
   - L7, the protocol-relative rule's left bound, which no entry stated.
     - The rule starts only at the text's start, or after white space, `"`, `'`, `(`, `[`, `<`, `=`, `:`, `,`, `;` or a spaceless-script character.
@@ -35444,7 +35444,7 @@ Limitations and non-claims:
     - A run led by three or more slashes matches no generic rule, in either scope, at all four heads. The rooted-path rules need a segment after the first slash and refuse a slash before one, and the protocol-relative rule needs a letter or digit after `//`.
     - So `see ///etc/acme/merger-plan.docx now` goes out whole, and the audit passes it.
     - When a model-scope source name stands in such a run, the name and its folder prefix become the alias, and the slashes and the tail go out, as at 67e3374. With sources `input/notes/meeting-notes-2024` and `https://github.com/acme/public-repo`, model text `///x/y/public-repo?token=secret` gives `///S2?token=secret`. 4aeac37's `[url]` there came only from R1.
-    - 0845's note on what returned to 67e3374 also covers these URL and path tails.
+    - 0923's note on what returned to 67e3374 also covers these URL and path tails.
     - The `//`-led half of the finding is closed here: `//x/y/report.md/private/acme-merger`, with the host's `output/report.md`, gave `//[file]/private/acme-merger` at d364b46 and gives `[url]`.
     - A policy-5 rule would close the rest by letting both rooted-path patterns take leading empty segments. That changes the pinned protocol hashes, so it waits for policy 5.
   - L3 with the pair (differential F1, second skeptic). `see mailto:alice:pa(ss)@example.org/report.html now` gives `see mailto:alice:pa(ss)[url] now` at d364b46 and 42d7669, where 67e3374 and 4aeac37 gave `see [url] now`.
@@ -35515,7 +35515,7 @@ Next gate:
   - G2 to G9;
   - D2 and D3.
 
-  This supersedes 0844's and 0845's gate sentences. One candidate for policy 5 would close most of D2, D3, C5 and G2:
+  This supersedes 0922's and 0923's gate sentences. One candidate for policy 5 would close most of D2, D3, C5 and G2:
   - offer 67e3374's alias in place to the generic rules first;
   - fall back to 8090f65's span where none takes it;
   - give a host file name a stand-in alias.
@@ -35525,11 +35525,62 @@ Next gate:
   - Should a scrubber leak in an unwired core gate the merge as a blocker, or count as major, as R1 did? Default: major while nothing calls the core, as for R1. A leak a push introduces is still fixed or stated before that push merges, and every stated class gates 10.b.
   - Does the review's class (b) include a word glued directly after a whole source form, L1's shape (`-secret` after `///S2`)? Default: yes for a word with no URL or path shape of its own. A query, fragment or path tail is never in class (b).
   - Are the `///`-led runs acceptable as a stated residue under policy 4? Default: yes, under L6 until policy 5, which closes them before 10.b.
-  - 0845's three questions keep their defaults: L1 to L4 closed by rule, L5 a stated limit, and L6 stated now, with rules before any labelled arm. L7 joins L1 to L4.
+  - 0923's three questions keep their defaults: L1 to L4 closed by rule, L5 a stated limit, and L6 stated now, with rules before any labelled arm. L7 joins L1 to L4.
 - 10.b's obligations, restated with one added:
   - Pass request.sources in coverage.sources order, the sorted inventory. V1 refuses any other order. sourceTexts[i] belongs to request.sources[i], and is undefined only where coverage marks that source unreadable.
   - Under `local_first`, give each prior attempt a non-negative safe-integer `ordinal` and `omittedErrorCount`, and a boolean `truncated`.
   - Pass a real `deadlineMs`. A missing or NaN value stops as `assist_deadline_missing` with no request. Infinity is accepted, for a test without a session.
   - New, from C8: cap the length of each string the scrubber reads, within the callers' caps. That covers the model-written gists and plan fields, and the brief. The exception is if FILE_NAME_PATTERN and PATH_PATTERNS[6] first get a walk like the relative run's, shown to match identically by the same differential.
 
-References: BL-20261113-0845-correction-assist-core-delta; BL-20261113-0844-correction-assist-core-review; BL-20261113-0843-assist-core-implemented; BL-20261113-0841-assist-wrapper-design; BL-20261113-0848-correction-assist-entries-restamp; pull request #79.
+References: BL-20261113-0923-correction-assist-core-delta; BL-20261113-0922-correction-assist-core-review; BL-20261113-0921-assist-core-implemented; BL-20261113-0920-assist-wrapper-design; BL-20261113-0924-correction-assist-entries-restamp; pull request #79.
+
+### BL-20261113-0926-correction-assist-entries-second-restamp -- 2026-11-13 -- Correction: pull request #79's six entries move into its block for the next integration merge, 09:20 to 09:29 UTC on 2026-11-13; their original IDs, dates and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: The next lane pull requests reach `main` together in one integration merge.
+- So that their entries sort without interleaving, the orchestrator gave each pull request a block of minutes after `main`'s tail, BL-20261113-0834-correction-runner-storage-integrity-second-restamp.
+- Pull requests #89 and #93 and lane S-e1's four pull requests hold 08:36 to 09:19, and #79 holds 09:20 to 09:29.
+- #79's six entries sat at 08:41 to 08:51, inside the others' block. This commit moves them into #79's block, in their order, one minute each.
+- `main` has not moved since #79's merge of it (d1dae95), so no new merge is needed.
+
+Each entry, with its original ID, date and authoring time:
+- **The design entry.** Authored at 04:17 UTC on 2026-11-09 as BL-20261109-0417, and first re-stamped as BL-20261113-0841. It is now BL-20261113-0920-assist-wrapper-design.
+- **The implemented entry.** Authored at 06:39 UTC on 2026-11-10 as BL-20261110-0639, and first re-stamped as BL-20261113-0843. It is now BL-20261113-0921-assist-core-implemented.
+- **The review correction.** Authored at 08:20 UTC on 2026-11-10 as BL-20261110-0820, and first re-stamped as BL-20261113-0844. It is now BL-20261113-0922-correction-assist-core-review.
+- **The delta correction.** Authored at 10:27 UTC on 2026-11-10 as BL-20261110-1027, and first re-stamped as BL-20261113-0845. It is now BL-20261113-0923-correction-assist-core-delta.
+- **The first re-stamp correction.** Authored at 08:48 UTC on 2026-11-13 as BL-20261113-0848. It is now BL-20261113-0924-correction-assist-entries-restamp.
+- **The re-review correction.** Authored at 08:51 UTC on 2026-11-13 as BL-20261113-0851. It is now BL-20261113-0925-correction-assist-core-rereview.
+
+Decisions:
+- **Only the IDs changed:**
+  - the six headings' IDs;
+  - the full IDs and short forms that refer to them in the six entries;
+  - the design entry's full ID in the six comments that carry it.
+
+  The headings' dates stay 2026-11-13. Mapped back, the six entries are byte-identical to #79's at c734e48.
+- **The first re-stamp correction keeps its body.** So its account of the first re-stamp now names the current IDs. Its sentences on the choice of minutes (after 08:40, with 08:42 skipped) describe the first re-stamp. This entry records the whole history.
+- **The block's minutes run ahead of the clock.** This entry and the re-stamp were written at about 09:00 UTC, so the six IDs and this entry's own ID are later than their writing time. The validator checks only that each ID is a valid UTC minute and that IDs never decrease. Here an ID orders the integration merge, and the times above record when each entry was written.
+- research-assist-contract.ts changed in its first comment only, again. BL-20261113-0924-correction-assist-entries-restamp gives its sha256 from after the first re-stamp; it is now ddd19123b301ab4baff09afb43b9b02685451314d878161fd59c90bc38f29665.
+
+Changes:
+- docs/BUILD_LOG.md: the six headings, their references, and this entry.
+- The design entry's ID in one comment each in src/main/private-agent/model.ts, research-assist-contract.ts, research-assist-scrub.ts, research-assist.ts and research-plan.ts, and in tests/helpers/research-assist-fixture.ts.
+- No behaviour changes.
+
+Evidence:
+- At this commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0. The log is append-only against `main` at 23dfadc, with monotonic IDs and dates.
+- `pnpm typecheck` passes.
+- The four test files this PR changes pass 187 of 187, and the build-log validator's file 52 of 52.
+- `git grep` finds none of the first re-stamp's six IDs with their slugs.
+- A script that maps the IDs and short forms back gives the six entries byte for byte as at c734e48.
+
+Failures or blockers: None.
+
+Limitations and non-claims: This is a record correction only. Nothing is implemented, verified or released by it. Commit messages, the sections of #79's description for earlier rounds, and the reviews keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of #79 at its new head, with a skeptic on the privacy findings. #79 joins the integration merge if it is clean in time, and merges after it otherwise. If `main`'s tail moves past 09:29 before #79 merges, #79 re-stamps again under the same rule.
+
+References: BL-20261113-0834-correction-runner-storage-integrity-second-restamp; BL-20261113-0920-assist-wrapper-design; BL-20261113-0921-assist-core-implemented; BL-20261113-0922-correction-assist-core-review; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0924-correction-assist-entries-restamp; BL-20261113-0925-correction-assist-core-rereview; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261113-0758 and BL-20261113-0832 (pull request #87).

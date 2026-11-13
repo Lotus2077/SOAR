@@ -107,7 +107,7 @@ function boundedErrors(all: readonly SafePlanError[]): { errors: SafePlanError[]
  * `issues` is the complete code-and-path list before bounding (backlog item 4): it carries no model text and is returned to
  * the caller only, for a diagnostics sink; the persisted attempt record keeps its bounded `errors` unchanged.
  *
- * `sourceAliases` (backlog item 10, BL-20261113-0841-assist-wrapper-design decision 6) is a plan assist's map from the opaque
+ * `sourceAliases` (backlog item 10, BL-20261113-0920-assist-wrapper-design decision 6) is a plan assist's map from the opaque
  * source ids its packet used to the real ids. Binding then runs against the opaque ids, so a real id in the reply is unknown;
  * an accepted plan is translated to the real ids before its hash is taken, so `replyContentSha256` stays the raw reply's
  * hash and `acceptedPlanSha256` the hash of the plan that is kept. Absent, nothing changes.

@@ -1,5 +1,5 @@
 /**
- * Backlog item 10's assist fixtures (BL-20261113-0841-assist-wrapper-design): provider-faithful prompt-cache fakes for both
+ * Backlog item 10's assist fixtures (BL-20261113-0920-assist-wrapper-design): provider-faithful prompt-cache fakes for both
  * cloud shapes, a capturing broker, assist model configurations, and hook requests built from a real research-pipeline run
  * whose sources, local replies and goal carry planted names, URLs and hashes.
  *

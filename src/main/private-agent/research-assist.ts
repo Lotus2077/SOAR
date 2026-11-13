@@ -1,6 +1,6 @@
 /**
  * Backlog item 10: the assist wrapper for T1, the plan assist (S3c), and T2, the synthesis assist (S6c), of
- * docs/PROJECT_REVIEW_2026-11-05.md §5.2 (BL-20261113-0841-assist-wrapper-design). It turns a hook request (host data that
+ * docs/PROJECT_REVIEW_2026-11-05.md §5.2 (BL-20261113-0920-assist-wrapper-design). It turns a hook request (host data that
  * holds real source ids, paths, texts and hashes) into a sealed one-shot cloud packet that holds none of them, sends it
  * through the assist model under the no-write cache mode, and maps every failure to the hook's outcomes.
  *

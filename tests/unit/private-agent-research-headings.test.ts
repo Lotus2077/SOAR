@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { CLAIMS_SECTION_RULE_PY, claimsLedgerCheck } from "../../src/main/private-agent/claims";
 import { RESEARCH_TOLERANCE_POLICY } from "../../src/main/private-agent/research-contract";
 import { normalizeResearchHeadings } from "../../src/main/private-agent/research-pipeline";
 
@@ -12,15 +13,14 @@ const EXACT = "Finding [E1].\n\n## Conflicting evidence\nNone was extracted.\n\n
 const present = (text: string) => ["Conflicting evidence", "Unanswered questions"].map(title => new RegExp(`^## ${title}\\s*$`, "mu").test(text));
 /**
  * claims.ts's own rule, run under python3 -I on files: each case is written as UTF-8 and read back with the call claims.ts
- * uses (Path.read_text, universal newlines), then fenced code and HTML comments are removed and section_present runs per line.
+ * uses (Path.read_text, universal newlines), then fenced code and HTML comments are removed and section_present, run from the
+ * exported CLAIMS_SECTION_RULE_PY itself (E1-J2), runs per line.
  */
 function claimsPresent(cases: string[]): boolean[][] {
   const directory = mkdtempSync(join(tmpdir(), "soar-claims-rule-"));
   try {
     const paths = cases.map((text, i) => { const path = join(directory, `case-${i}.md`); writeFileSync(path, text, "utf8"); return path; });
-    const script = ["import json, re, sys", "from pathlib import Path",
-      "def section_present(lines, title):",
-      "    return any(re.sub(r'[*_:\\s]+$', '', re.sub(r'^[#*_\\s]+', '', line)).lower() == title.lower() for line in lines)",
+    const script = ["import json, re, sys", "from pathlib import Path", CLAIMS_SECTION_RULE_PY,
       "def present(path):",
       "    report = Path(path).read_text(encoding='utf-8', errors='replace')",
       "    body = re.sub(r'(?s)<!--.*?-->', '', re.sub(r'(?ms)^[ \\t]*```.*?^[ \\t]*```[ \\t]*$', '', report))",
@@ -101,7 +101,8 @@ describe("7a.1: section headings normalised by claims.ts's rule (finding D5)", (
   });
   it("still mirrors claims.ts's rule as written there", () => {
     const claims = readFileSync(resolve(ROOT, "src/main/private-agent/claims.ts"), "utf8");
-    expect(claims).toContain("return any(re.sub(r'[*_:\\\\s]+$','',re.sub(r'^[#*_\\\\s]+','',line)).lower()==title.lower() for line in lines)");
+    // The heading rule itself is the exported constant the check interpolates, and claimsPresent runs it (E1-J2).
+    expect(claimsLedgerCheck({ reportPath: "output/report.md", sources: [{ id: "a", path: "a" }] }).python).toContain(CLAIMS_SECTION_RULE_PY);
     expect(claims).toContain("body=re.sub(r'(?s)<!--.*?-->','',re.sub(r'(?ms)^[ \\\\t]*\\`\\`\\`.*?^[ \\\\t]*\\`\\`\\`[ \\\\t]*$','',report)); lines=body.split('\\\\n')");
     expect(claims).toContain("report_file.read_text(encoding='utf-8',errors='replace')");
   });

@@ -24,8 +24,8 @@
  *   (BL-20261110-0848): a part named there marks a part's limit too.
  * - 05f342b25f3483574cca4f1bad53468219e63e94578927c069a8c831289e93a8: 7(a), part 1, merged onto rules A and B (re-pinned in BL-20261110-0900): the same 7a.1 code on the
  *   parser of BL-20261110-0848.
- * - 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92: backlog item 7(c), research v5 (BL-20261113-0910-research-v5-design;
- *   BL-20261113-0911-research-v5-implemented recorded 35a622eecf83... on #76's bd876d9), the same value on #76's 2fe1ec8 and on main
+ * - 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92: backlog item 7(c), research v5 (BL-20261113-0927-research-v5-design;
+ *   BL-20261113-0928-research-v5-implemented recorded 35a622eecf83... on #76's bd876d9), the same value on #76's 2fe1ec8 and on main
  *   after merge train 1: assist slots, host fallbacks, coverage v2, the presentation check, and encodable index fields and plans.
  */
 export const RESEARCH_PROTOCOL_SHA256 = "505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92";

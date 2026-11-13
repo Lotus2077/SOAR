@@ -296,7 +296,7 @@ export async function runResearchPipeline(input: ResearchPipelineInput): Promise
   // The wrapper checks that order position by position (the index for T1 and T2, the coverage for T2) and stops a request that breaks
   // it (assist_request_invalid). The deadline is required: without a session deadline the request carries NaN, and the wrapper stops
   // (assist_deadline_missing) before sending anything. Either stop ends the stage denied at the first assist that fires
-  // (BL-20261113-0912-correction-research-v5-assist-order-deadline).
+  // (BL-20261113-0929-correction-research-v5-assist-order-deadline).
   const assistBase = () => ({ brief: input.brief, units: coverage!.units, sources: inventory.sourceManifest,
     sourceTexts: ordered.map(source => researchSourceText(source)), sourceIndex: indexDocument, deadlineMs: input.deadlineMs ?? Number.NaN });
   /**

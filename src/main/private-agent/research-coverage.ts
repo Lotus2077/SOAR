@@ -17,7 +17,7 @@ export const BriefUnitSchema = z.object({ id: uid, startByte: integer, endByte: 
 export type BriefUnit = z.infer<typeof BriefUnitSchema>;
 const questionOutcome = z.object({ questionId: qid, status: z.enum(["evidence_retained", "no_verified_evidence", "needs_followup"]), evidenceIds: z.array(eid).max(480) }).strict();
 const synthesisQuestion = z.object({ questionId: qid, disposition: z.enum(["findings", "conflict", "unresolved"]), evidenceIds: z.array(eid).max(480) }).strict();
-/** Version 2 since 7(c) (BL-20261113-0910-research-v5-design): `fallbacks` discloses a host plan or a host skeleton, and the synthesis status may be `skeleton`. */
+/** Version 2 since 7(c) (BL-20261113-0927-research-v5-design): `fallbacks` discloses a host plan or a host skeleton, and the synthesis status may be `skeleton`. */
 export const ResearchCoverageSchema = z.object({ version: z.literal(2), protocolSha256: sha256Schema, briefSha256: sha256Schema, briefBytes: integer,
   sourceManifestSha256: sha256Schema, units: z.array(BriefUnitSchema).min(1).max(128),
   sources: z.array(sourceIdentity.extend({ readable: z.boolean() }).strict()).min(1).max(4096),

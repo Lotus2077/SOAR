@@ -49,7 +49,7 @@ const DOCUMENTED_STAGE_KEYS = new Set(["stage", "calls", "invalidReplies", "deni
   "lengthCapWords", "briefWordLimit", "argumentWords",
   // 7a.1 (BL-20261109-0447): what a kept extraction reply lost or had corrected, and the accepted argument's rewritten headings; all counts.
   "conflictsDropped", "notesDropped", "questionsDowngraded", "questionsUpgraded", "headingsNormalised", "quotesMerged",
-  // 7(c) (BL-20261113-0910-research-v5-design): a stage's host fallback (a fixed code) and the synthesis attempts (schema-validated records).
+  // 7(c) (BL-20261113-0927-research-v5-design): a stage's host fallback (a fixed code) and the synthesis attempts (schema-validated records).
   "fallback", "synthesisAttempts"]);
 const hashOnlyStageRow = (stage: ResearchStageCounts) => {
   for (const [key, value] of Object.entries(stage)) {
@@ -527,7 +527,7 @@ describe("backlog item 7(a), part 1: per-quote tolerance and heading normalisati
     expect(result.summary.stages[2]).toMatchObject({ calls: 3, repairCalls: 1, invalidReplies: 1, questionsDowngraded: 0, quotesVerified: 2 });
     expect(parsed(result, RESEARCH_FILES.coverage).chunks[0].attempts.map((a: any) => a.status)).toEqual(["invalid", "complete"]);
   });
-  it("counts a dropped quote against the questions it names, and only those (BL-20261113-0914-correction-research-train-1-check-pins)", async () => {
+  it("counts a dropped quote against the questions it names, and only those (BL-20261113-0931-correction-research-train-1-check-pins)", async () => {
     const invented = "Invented evidence that never occurred in the supplied source.";
     // A located quote dropped for a repeated question id was the found question's only quote: the first attempt is held and repaired.
     const repeated = await run(models((stage, input, n, system) => stage === "extract" && n === 0
@@ -652,7 +652,7 @@ describe("backlog item 7(a), part 1: per-quote tolerance and heading normalisati
   });
 });
 
-describe("backlog item 7(c): research v5 slots, the assist hook and the host fallbacks (BL-20261113-0910-research-v5-design)", () => {
+describe("backlog item 7(c): research v5 slots, the assist hook and the host fallbacks (BL-20261113-0927-research-v5-design)", () => {
   const usage = { inputTokens: 10, outputTokens: 5, cacheReadTokens: 0, cacheWriteTokens: 0 };
   const aliases = Object.freeze({ S1: "input/corpus/alpha.md", S2: "input/corpus/beta.md" });
   type Kind = "accepted" | "rejected" | "skipped" | "failed" | "refused" | "stop";
@@ -865,7 +865,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     expect(parsed(result, RESEARCH_FILES.evidence).quotes.length).toBeGreaterThan(0);
   });
 
-  it("builds T1 and T2 in the inventory's order, not the caller's: sources, texts, index and coverage agree by position, as the wrapper's checks require (BL-20261113-0912-correction-research-v5-assist-order-deadline)", async () => {
+  it("builds T1 and T2 in the inventory's order, not the caller's: sources, texts, index and coverage agree by position, as the wrapper's checks require (BL-20261113-0929-correction-research-v5-assist-order-deadline)", async () => {
     // No other order may reach a request. The caller's differs from the inventory's (ids by UTF-16 code unit, sourceOrder
     // "id_utf16_ascending"), which differs from code-point order (U+1F600's high surrogate 0xD83D sorts before U+FF21 by code unit
     // only) and, where Node has ICU, from localeCompare ("Zeta" before "alpha"). A public source's id is its URL and its path a stored
@@ -904,7 +904,7 @@ describe("backlog item 7(c): research v5 slots, the assist hook and the host fal
     expect(unreadable.seen).toEqual({ plan: [], synthesis: [] }); expect(quiet.request).not.toHaveBeenCalled();
   });
 
-  it("stops at the first assist that fires when the run has no deadline, and passes a session deadline to both touchpoints unchanged (BL-20261113-0912-correction-research-v5-assist-order-deadline)", async () => {
+  it("stops at the first assist that fires when the run has no deadline, and passes a session deadline to both touchpoints unchanged (BL-20261113-0929-correction-research-v5-assist-order-deadline)", async () => {
     // A fake that applies the wrapper's deadline rule (10.a): a deadline that is not a number, or is NaN, is a stop with
     // assist_deadline_missing before anything is built or sent. Infinity passes that rule.
     const rule = <T extends { deadlineMs: number }>(answer: (request: T) => ResearchAssistOutcome) => (request: T): ResearchAssistOutcome =>
@@ -1143,7 +1143,7 @@ describe("E1 recoverability: the reading stage's recoveries and pinned limits at
     expect(parsed(result, RESEARCH_FILES.coverage).chunks.map((c: any) => [c.status, c.attempts.map((a: any) => a.status)])).toEqual([["invalid", ["invalid", "invalid"]], ["complete", ["complete"]]]);
     expect(result.files.some(f => f.path === RESEARCH_FILES.argument)).toBe(false);
   });
-  // Since 7c (BL-20261113-0917-correction-research-v5-train-2b-expectations): this pin's limitation is flipped. Two invalid replies no
+  // Since 7c (BL-20261113-0934-correction-research-v5-train-2b-expectations): this pin's limitation is flipped. Two invalid replies no
   // longer end the plan or synthesis stage: the stage takes its disclosed host fallback, and the run reaches a ready packet.
   it.each([["plan", "host_plan", ["index"], ["extract", "extract", "synthesise"]], ["synthesise", "skeleton", ["index", "plan", "extract", "extract"], []]] as const)(
     "invalid JSON twice at the %s: since 7c the stage takes its host fallback (%s), discloses it, and still reaches a ready packet", async (stage, fallback, before, after) => {

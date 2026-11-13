@@ -34971,3 +34971,146 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: CI green on #89, then the orchestrator's merge.
 
 References: BL-20261113-0834-correction-runner-storage-integrity-second-restamp; BL-20261113-0836-infra-resume-design; BL-20261113-0837-infra-resume-implemented; BL-20261113-0838-correction-infra-resume-ids; BL-20261113-0839-infra-resume-on-main; BL-20261113-0840-correction-infra-resume-on-main-stage-entries; BL-20261113-0758 and BL-20261113-0832 (pull request #87).
+
+### BL-20261113-0848-correction-e1-train-1-reviews -- 2026-11-13 -- Correction to the entries of E1-T1, E1-J and E1-L (BL-20261109-0351-e1-recoverability-card, BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented, BL-20261109-0411-judge-cancel-label-design, BL-20261109-0444-judge-cancel-label-implemented and BL-20261109-0513-capture-keeps-pinned-paths-implemented): the merge-train-1 review findings, two test comments and one assertion
+
+Status: `Implemented`
+
+Scope or hypothesis: Merge train 1 (BL-20261110-1506-merge-train-1-integration) merged E1-T1 (#66), E1-J (#70) and E1-L (#74) without the corrections their train reviews found. The train entry lists them under "Review corrections not on `main` after this train".
+- This entry applies those corrections and the two items that the integration check of 1ae3509 left to lane S-e1.
+- Each item names the entry it corrects. No entry on `main` is edited. Where an item supersedes a sentence, that sentence stands as the record of what was claimed at the time.
+
+Decisions:
+1. **E1-T1's full-suite evidence** (BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented, Evidence; #66's review, F1).
+   - The full-suite run that the entry cites is at cca6b5a, a commit that was never pushed: GitHub has no such commit, and it is not an ancestor of `main`.
+   - That cut differs from the merged tests in more than the entry says. Besides adding the loop pin, b1bebbe rewrote the loop's two interrupt cases: their samples' summaries changed from cancelled to submitted, and the tie assertions were removed.
+   - The full-suite evidence for the merged tests is instead:
+     - CI run 42562547747 on b1bebbe: workflow CI, whose check job runs `pnpm check` (the whole suite), with its electron-e2e job, both successful on 2026-11-09;
+     - on the merged tree, the train's whole-suite run at 7fd99df (BL-20261110-1506-merge-train-1-integration).
+   - The entry's sentence "CI has not run on this branch yet" is withdrawn.
+2. **The gate and E1-L's Docker-gated run** (BL-20261109-0351-e1-recoverability-card, decisions (2) and (3); #66's review, F2).
+   - The card's decision (2) makes the Docker-gated suites part of the gate when a fix changes the lister, while decision (3) passes the gate on CI alone. E1-L (BL-20261109-0513-capture-keeps-pinned-paths-implemented) does change LIST_FILES, so the two disagree.
+   - Added as an owner question with a proposed default, which the card applies until the owner records otherwise:
+     - Question: if a fix changes LIST_FILES, does the gate also need that fix's Docker-gated run on the owner's Mac, recorded `Verified`?
+     - Default: yes. E1-G records the CI clauses `Verified`, names the owner's command and keeps the gate held, with no E2 to E6 live run, until that run is recorded `Verified`.
+   - The owner's command is `SOAR_RUN_PRIVATE_AGENT_RUNTIME=true pnpm exec vitest run tests/integration/private-agent-sandbox.test.ts --maxWorkers=1 --testTimeout=120000`.
+3. **The card's stop rule and pins** (BL-20261109-0351-e1-recoverability-card, decisions (3) and (4); #66's review, F3).
+   - The card's stop rule is decision (3)'s hold clause: "A failure caused by a defect holds the gate until its fix merges."
+   - Decision (4)'s list of pinned limitations gains the two pins E1-T1 added:
+     - The loop pin named for item 11's PR 11.1. The train flipped it to 11.1's refusal (`loop_stage_interrupted`). BL-20261110-1506-merge-train-1-integration records that flip and supersedes the clause of BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented that describes the pin; this entry does not restate it.
+     - Bug (e), a cancel during flash_next_v1 token admission ending with the admission stop. It is pinned in tests/unit/private-agent-runner-budget.test.ts ("E1 recoverability: known limitations of the writer, pinned until their fix") until E0's adapter verdict.
+4. **E1-T1's tie wording, and one assertion** (BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented, Decisions and Limitations; the integration check's F2-3 and X3-1).
+   - That entry's Decisions say the loop's interrupt cases "assert no tie winner, since item 11's PR 11.1 changes the tie rule", and its Limitations repeat that they "assert no tie winner".
+   - With 11.1 merged, selection protocol 2 is the rule in force: every tie keeps the first candidate (BL-20261109-0417-loop-selection-protocol-2-implemented).
+   - The cases' comment now says so, and the cases now assert the winner: a at stage 1 (a over b) and a at the final choice (the draft over its repair), each with step `tie`.
+   - Their earlier assertions already depended on that rule. With ties given to the second candidate (a mutation in a scratch copy), `main`'s version of the two cases fails as well as this one, because the rerun then reuses other stages. The new assertion states the dependence outright; it adds no power against that mutation.
+5. **Two comments in E1-T1's broker test** (tests/integration/private-agent-broker.test.ts, "E1 recoverability: zero-fee bad bodies and eight zero-fee failure modes leave nothing unresolved (S3, gate clause 1)"; #66's review, F4, and the integration check's note (e) on the same block).
+   - The first comment said: "The other zero-fee diagnostics (connection_failed, transport_failed and the stream codes) are covered by the zero-risk and stream tests above."
+     - It now says that the stream codes have end-to-end cases, while a zero-fee `connection_failed` or `transport_failed` row is covered only at the predicate level, by "confirms every zero-risk failure but retries only the transient aborts".
+     - E1-G cites that test for those two codes, not an end-to-end case.
+   - The second comment said that "a bad body is never retried".
+     - It now says that this destination is not recoverable, so the request count shows only that nothing is retried there.
+     - That a settlement failure is never retried is that predicate test's `isRetryableAbort` case.
+6. **E1-J's references** (BL-20261109-0411-judge-cancel-label-design and BL-20261109-0444-judge-cancel-label-implemented; #70's review, F1).
+   - Both entries rest on the card's third owner question (label-only defects are fixed without holding the gate) but do not cite the card.
+   - Their References are to be read as including BL-20261109-0351-e1-recoverability-card.
+   - In train 1, #66 merged before #70, so `main` never held E1-J's entries without the card.
+7. **E1-L's Implemented entry** (BL-20261109-0513-capture-keeps-pinned-paths-implemented; #74's review, F1 to F3).
+   - **F1.** Its Changes bullet for tests/unit/private-agent-runner-budget.test.ts says the runner case pins "the exact kept set and the 78 named omissions". The case pins 78 omissions, the first 32 named: `captureOmitted` totals 78, all `cap`, and names at most 32 paths. #74's PR body was corrected on 2026-11-10.
+   - **F2.** Its Changes list leaves out:
+     - tests/unit/private-agent-public-research.test.ts, whose fixture records the pinned paths (`listedWith`), and to which the case "pins the retained source's workspace copy for every capture after the fetch, between the claims ledger and the host's files (E1-L)" was added;
+     - two cases in tests/unit/private-agent-runner-budget.test.ts: "reads the pinned files first, so the 128 MiB total reaches them last and names the files it omitted", and the `capturePinnedPaths` case "orders the pinned paths deliverables, claims ledger, retained sources, host files, each once, and leaves the sources out when reading them fails".
+   - **F3.** The review expected #74 to be rebased, which would have left the revisions its Evidence cites (b690273, 4d45d81 and b1bebbe) outside `main`'s history.
+     - It was not rebased: train 1 merged it at its own head 53f6ae8, so all three revisions are ancestors of `main` (9d10b9a), and the failure the review described did not occur.
+     - The deterministic evidence was taken at those revisions. The merged tree's runs are the train's.
+
+Changes:
+- docs/BUILD_LOG.md: this entry.
+- tests/unit/phase4-loop.test.ts, in "E1 recoverability: the harness loop admits retried rows and stops on an interrupt in any later sample (S1, S2)": the interrupt cases' comment (one line) and their selection assertion (one line).
+- tests/integration/private-agent-broker.test.ts: two comments in E1-T1's block, each now two lines.
+- No `src/` file changes.
+
+Evidence:
+On the owner's Mac, at this branch's head (`main` 9d10b9a plus this change), with a load average of about 9:
+- tests/unit/phase4-loop.test.ts and tests/integration/private-agent-broker.test.ts: 130 passed.
+- `pnpm exec vitest run -t "E1 recoverability"`: 8 files and 55 tests passed, 3,225 tests skipped. This counts E1's cases on `main` after train 1, with this change; E1-G counts again on its own head.
+- `pnpm exec vitest run`: 187 files (174 passed, 13 skipped) and 3,280 tests (3,194 passed, 86 skipped, 0 failed), in 49.7 s.
+- Decision 4's mutation, ties given to the second candidate in a scratch copy: both interrupt cases fail, both with this change and without it.
+- Read with `gh`:
+  - CI run 42562547747: workflow CI on b1bebbe; its check and electron-e2e jobs succeeded.
+  - commit cca6b5a: HTTP 422, "No commit found".
+- Ancestry, checked with `git merge-base --is-ancestor`: b690273, 4d45d81, b1bebbe and 53f6ae8 are ancestors of `main`; cca6b5a is not.
+- `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction plus one assertion; nothing is verified or released by it.
+- E1's gate is still open. E1-G's `Verified` entry is written after E1-T2, E1-T3 and E1-J2 merge with CI green.
+- Decision 2 adds an owner question with a proposed default; it does not answer the question for the owner.
+- The cited CI run and the train's whole-suite run are the evidence for the merged tests. This entry's own runs are those under Evidence.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- One review by the orchestrator, CI green on the pull request, and the owner's go-ahead.
+- If an entry with a later ID reaches `main` first, this entry is re-stamped after `main`'s tail at merge, under the owner's rule of 2026-11-13 (recorded on PR #87).
+
+References:
+- BL-20261110-1506-merge-train-1-integration
+- BL-20261109-0351-e1-recoverability-card
+- BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented
+- BL-20261109-0417-loop-selection-protocol-2-implemented
+- BL-20261109-0411-judge-cancel-label-design
+- BL-20261109-0444-judge-cancel-label-implemented
+- BL-20261109-0423-capture-keeps-pinned-paths-design
+- BL-20261109-0513-capture-keeps-pinned-paths-implemented
+- The merge-train-1 reviews of #66, #70 and #74, and the integration check of 1ae3509. These are review data and are not committed.
+
+### BL-20261113-0849-correction-e1-train-1-reviews-restamp -- 2026-11-13 -- Correction: the train-1 review correction for E1-T1, E1-J and E1-L carries ID BL-20261113-0848-correction-e1-train-1-reviews; it was authored at 08:05 UTC on 2026-11-13 as BL-20261113-0805, and its decision 1 misdescribes the assertions b1bebbe removed
+
+Status: `Implemented`
+
+Scope or hypothesis: After #88 was written, #92 and #82 merged into `main`. `main`'s last ID is now BL-20261113-0834-correction-runner-storage-integrity-second-restamp.
+- #88's one entry was authored at 08:05 UTC on 2026-11-13 as BL-20261113-0805, with the same slug.
+- It therefore moves after that tail, into the block of minutes the orchestrator gave lane S-e1 for this integration (0848 to 0909), under the owner's re-stamp rule (BL-20261113-0758, pull request #87).
+- This entry also corrects one sentence of that entry, which the orchestrator's review of #88 found.
+
+Decisions:
+1. **The re-stamp.**
+   - Only the heading's ID minute changes, from 0805 to 0848; its date stays 2026-11-13.
+   - The body is byte-identical to #88's at 58442e5, and nothing else in the repository cites the ID.
+   - `main` (23dfadc) is merged into #88, with `main`'s log kept whole as a byte prefix of this branch's.
+2. **A correction to decision 1 of BL-20261113-0848-correction-e1-train-1-reviews.**
+   - Decision 1 says that b1bebbe rewrote the loop's two interrupt cases so that "their samples' summaries changed from cancelled to submitted, and the tie assertions were removed". The removed assertions were not about ties.
+   - At cca6b5a each case asserted a choice won at step `submitted` over the cancelled sample: in the b case, stage 1 to a over the cancelled b; in the repair case, the final choice to the draft over its cancelled repair. b1bebbe removed both when it made the samples submitted.
+   - The wording came from #66's train review, F1. The rest of decision 1 stands.
+   - Decision 4 is unaffected: the cases now assert the tie winner under selection protocol 2, a at both stages.
+
+Changes:
+- docs/BUILD_LOG.md: the heading of BL-20261113-0848-correction-e1-train-1-reviews, and this entry.
+- The merge of `main` brings `main`'s files; #88 changes nothing else.
+
+Evidence:
+On the owner's Mac, at the merge of `main` 23dfadc into #88, with a load average of about 9:
+- `pnpm --silent validate:build-log -- --base-ref 23dfadc` exits 0: 561 entries, append-only against 23dfadc.
+- `pnpm typecheck` passes.
+- tests/unit/phase4-loop.test.ts and tests/integration/private-agent-broker.test.ts: 130 passed.
+- `pnpm exec vitest run -t "E1 recoverability"`: 8 files and 55 tests passed.
+- `pnpm exec vitest run`: 189 files (176 passed, 13 skipped) and 3,350 tests (3,264 passed, 86 skipped, 0 failed), in 54.6 s.
+- `git show cca6b5a:tests/unit/phase4-loop.test.ts` holds the two `step: "submitted"` assertions that decision 2 describes, and b1bebbe's diff removes them.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only. Nothing is implemented, verified or released by it. Commit messages and #88's earlier description keep the ID they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's integration merge with #89 and #93 on green CI, under the owner's standing go-ahead. If `main`'s tail moves again first, the lane re-stamps again.
+
+References:
+- BL-20261113-0848-correction-e1-train-1-reviews
+- BL-20261113-0834-correction-runner-storage-integrity-second-restamp
+- BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
+- BL-20261113-0758 (pull request #87)

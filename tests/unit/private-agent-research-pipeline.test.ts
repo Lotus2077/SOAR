@@ -677,7 +677,7 @@ describe("E1 recoverability: the reading stage's recoveries and pinned limits at
       const packet = validateReadyResearchPacket(result.files, { brief: RESEARCH_V4_TEST_BRIEF, sources, protocolSha256: researchProtocolSha256(), budget: RESEARCH_PIPELINE_BUDGET });
       expect(packet.evidence.quotes).toHaveLength(sources.length);
     });
-  it("pins D8's 40-chunk ceiling, which no PR in this program lifts: at about 515 KiB, 40 pages complete and 41 pages are refused before any request", async () => {
+  it("pins D8's 40-chunk ceiling, which no PR in this program lifts: 40 pages (about 511 KiB) complete and 41 pages (about 515 KiB) are refused before any request", async () => {
     // 7b.1 removed the batch refusal (25 or more sources over 20 KiB, above), so the extraction budget's 40 calls are the ceiling that remains.
     // The 7(b) mapping: card-derived ceilings (7b.3) only tighten admission, and raising this one needs item 12's own web request pool.
     const admitted = inventedCorpus("page", Array<number>(40).fill(12.75)), refused = inventedCorpus("page", Array<number>(41).fill(12.5));

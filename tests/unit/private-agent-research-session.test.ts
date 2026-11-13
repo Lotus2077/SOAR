@@ -7,7 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 import { PrivateAgentBroker, type BrokerDestination } from "../../src/main/private-agent/broker";
 import { PrivateAgentModel } from "../../src/main/private-agent/model";
-import { PrivateCheckpointStore } from "../../src/main/private-agent/checkpoints";
+import { PrivateCheckpointStore, type WorkspaceSnapshot } from "../../src/main/private-agent/checkpoints";
+import { CLAIMS_LEDGER_CHECK_ID } from "../../src/main/private-agent/claims";
 import { diagnosticRetention, digest, restrictedContext } from "../../src/main/private-agent/contracts";
 import { GeneralAgentSession, RESEARCH_TRANSFER_CHECK_ID, researchStageUnfinished, sessionPhaseIdentity, type GeneralSessionOptions, type SessionPhase } from "../../src/main/private-agent/session";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, type ResearchDiagnostic } from "../../src/main/private-agent/research-pipeline";
@@ -106,6 +107,26 @@ describe("H2b/H2c: the research stage inside a session", () => {
     expect(again.status).toBe("submitted");
     expect(f.store.dispatches("job-research")).toHaveLength(4);
     expect(f.store.events("job-research").filter(event => event.type === "research_transfer")).toHaveLength(1);
+  });
+
+  it("records the write phase's host flags with the transferred packet's coverage and misses, once across a resume (BL-20261110-1509)", async () => {
+    const f = await fixture(), runs: Run[] = [], written = phase();
+    const claimsPhase: SessionPhase = { ...written, checks: [...written.checks, { id: CLAIMS_LEDGER_CHECK_ID, python: "# fixed fixture" }],
+      contract: { ...written.contract, requiredChecks: [...written.contract.requiredChecks, CLAIMS_LEDGER_CHECK_ID] } };
+    const config = { ...options(f, "job-research-flags", runs), privatePhase: claimsPhase,
+      syntheticInputApproval: { privatePhaseSha256: sessionPhaseIdentity(claimsPhase), authoritySha256: digest("host-authored-fixture") } };
+    expect((await new GeneralAgentSession(config).run()).status).toBe("submitted");
+    const events = f.store.events("job-research-flags"), start = events.find(event => event.type === "session_started")!;
+    const transfer = events.find(event => event.type === "research_transfer")!.binding as { snapshot: WorkspaceSnapshot };
+    const coverage = new PrivateCheckpointStore(f.root, "job-research-flags").load(transfer.snapshot).find(file => file.path === RESEARCH_FILES.coverage)!;
+    const flags = events.filter(event => event.type === "host_flags");
+    expect(flags).toEqual([expect.objectContaining({ contextId: start.privateContextId, packet: { coverageSha256: digest(coverage.bytes) },
+      misses: { briefUnits: 1, questionsWithoutEvidence: 0, unresolvedQuestions: 0, noEvidenceOutcomes: 0, extractionRetries: 0, droppedQuotes: 0, fetchFailures: 0, fetchLimitRefusals: 0 },
+      report: expect.objectContaining({ scanned: true, hits: [] }), argument: expect.objectContaining({ scanned: true, hits: [] }) })]);
+    expect(flags[0]!.counts).toMatchObject({ briefSingleUnit: 1, reportAbsence: 0, argumentAbsence: 0 });
+    // The resume reloads the packet from the transfer and records nothing more.
+    expect((await new GeneralAgentSession(config).run()).status).toBe("submitted");
+    expect(f.store.events("job-research-flags").filter(event => event.type === "host_flags")).toEqual(flags);
   });
 
   it("passes the original shared deadline to the writer after research and a pause/resume", async () => {

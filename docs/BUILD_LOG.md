@@ -33709,3 +33709,403 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The owner's go-ahead to push the integration branch, retarget #74, #77, #78 and #83 to `main`, open the integration pull request and, after CI passes, merge it with a merge commit. Then an operator recomputes `--runtime-sha256` before any loop or E-run; S-e1's docs-only Correction pull request for #66, #70 and #74 follows the merge; and a handoff note replaces the stale "Start here" text and says whether docs/HANDOFF.md section 5's re-stamp rule still holds. Train 2 starts with #79 once the owner decides how entries whose IDs precede `main`'s tail are ordered.
 
 References: BL-20261109-0417-e1-recoverability-broker-writer-loop-implemented; BL-20261109-0417-loop-selection-protocol-2-implemented; BL-20261109-0331-loop-selection-protocol-2-design; BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0337-retry-wait-atomic-supersede-design; BL-20261109-0354-document-review-flags-design; BL-20261109-0422-registry-run-commit-design; BL-20261109-0447-research-tolerance-design; BL-20261109-0456-ordered-pool-implemented; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0501-research-stage-pause-design; BL-20261109-0515-infra-classification-design; BL-20261109-0552-research-tolerance-implemented; BL-20261110-0619-correction-ordered-pool-entry; BL-20261110-0712-correction-research-tolerance-repin; BL-20261110-0712-document-review-flags-implemented; BL-20261110-0723-correction-infra-classification-train-review; BL-20261110-0900-correction-research-tolerance-held-repair; BL-20261110-0933-document-review-flags-party-terms-bounded; BL-20261110-1100-document-review-flags-party-terms-pinned; BL-20261110-1100-correction-research-train-1-review-pins; pull requests #66, #67, #68, #69, #70, #71, #72, #73, #74, #76, #77, #78, #81 and #83; docs/HANDOFF.md section 5; docs/experiments/README.md; scripts/validate-build-log.ts; scripts/private-agent-local-screen.ts (`localScreenSourceFreeze`); tests/helpers/research-protocol-pin.ts; tests/unit/phase4-loop.test.ts.
+
+### BL-20261110-1509-host-flags-event-design -- 2026-11-10 -- Backlog item 7(d), part B decided: the `host_flags` event v1 after submission, with the absence-claim flag (rules v1), the run's recorded misses, the single-unit brief disclosure and the document-review summary; with a correction to BL-20261110-1100
+
+Status: `Proposed`
+
+Scope or hypothesis: This is the decision entry for the second of three pull requests for backlog item 7(d) (plan ID 7d.B, lane S-desk).
+
+docs/PROJECT_REVIEW_2026-11-05.md section 5.7 lists "an absence-claim phrase flag for owner attention, with misses recorded (`claims.ts`, `research-coverage.ts`)". This part reads both of those files by import and edits neither. An edit to claims.ts would change every URL-backed desktop phase identity, and an edit to research-coverage.ts would change the research protocol hash. The lane plan also assigns 7d.B the disclosure of D11 (section 4): a brief without numbered units, whose brief-unit coverage is then vacuous.
+
+It builds on three pull requests that ride merge train 1:
+- 6.2 (#77) for session.ts, whose merge order is 6.2 and then 7d.B;
+- 7d.A (#81) for the flags file's schema;
+- 11.2 (#73) for scripts/private-agent-local-screen.ts, whose merge order is SC, 11.2 and then 7d.B.
+
+It is built locally on a merge of those three heads and pushed against `main` only after #77, #81 and #73 merge, so none of them moves.
+
+It is recorded before its code because it adds a ledger event and changes session.ts, and with it the private-agent source freeze. It is zero-fee code with deterministic tests and no endpoint, so it needs no approval under PLAN.md section 4(c).
+
+Hypothesis: a deterministic, host-only pass after submission can point the owner at a report that asserts corpus absence ("none of the sources mention …"), which the research protocol never establishes. Beside each such flag it can set the misses the run itself recorded, and it can say when a brief had a single unit. Its output never decides anything:
+- not a check's `passed`;
+- not a run's status;
+- not H4 selection, the E3 or E4 rules, or acceptance.
+
+It makes no model call and writes no ledger row other than its own event.
+
+Decisions:
+
+(1) Placement and failure.
+- The new module src/main/private-agent/host-flags.ts exports:
+  - `recordHostFlags({ store, jobId, contextId, phase, checkpoints, finalSnapshot })`;
+  - `claimsReportPath(contract)`;
+  - `HostFlagsEventSchema`, a strict zod schema, for 7d.C and the registry.
+- Where it runs. session.ts calls it right after the `if` that appends `session_submitted`, not inside that `if`. The call gets the private context and the local post-transfer `privatePhase`, which carries the research packet. It runs before the entailment pass.
+  - So a crash between the two appends is recovered on the next run.
+  - So is a task that was paused in its entailment pass before this change. It records the event when it resumes.
+- Which phases it applies to: a completed private phase whose `requiredChecks` include `research_claims_ledger` (a research report) or `document_review_fidelity` (a document review). Any other phase gets no event. The check id `document_review_fidelity` is a constant in host-flags.ts, and a test keeps it equal to document-review.ts's. host-flags.ts never imports document-review.ts, which deflates the pinned applier when it loads.
+- Idempotent and atomic. The check that no `host_flags` event exists for the context comes before any work, and it is made again together with the append in one `store.atomic`. So concurrent hosts record it once.
+- Never throws.
+  - Each section (the report scan, the argument scan, the misses and the review summary) runs in its own try. A section that fails records its own code from a closed set: `report_failed`, `argument_failed`, `misses_failed` or `review_failed`. An error message is never recorded.
+  - If the append itself fails, nothing is recorded and the error is swallowed, so a later run retries.
+- No session option and no change to the session identity.
+- `claimsReportPath(contract)` is today's expression in `withClaimsLedger`, copied verbatim: the first required artifact ending `.md`, else the first required artifact. `withClaimsLedger` (scripts/private-agent-local-screen.ts) calls it.
+  - Artifacts are only ever appended, so the rule names the same path before and after the claims ledger is added, the path the claims check reads.
+  - For every desktop task it names the target, `output/<outputName>`.
+  - claims.ts is not edited, so the claims check, its instructions and every URL-backed desktop phase identity are unchanged.
+
+(2) The event `host_flags` version 1, the only new ledger event:
+
+    { type: "host_flags", contextId, version: 1, rules, packet?, report?, argument?, misses?, review?, counts, errors? }
+
+The event holds only the parts that ran. Absent and zero never look the same.
+- `rules` names only the rule sets that ran: `absence: 1` when a report or an argument was scanned, and `review: 1` for a document review.
+- `packet` is `{ coverageSha256 }`, the sha256 of the phase's coverage file. A seeded writer and a repair share their source run's packet, and this field shows it.
+- `report` and `argument` are scans:
+
+      { format, scanned, reason?, textCut, hits: [{ line, rule, class, cited }], truncated }
+
+  - `report` scans the claims report.
+  - `argument` scans the packet's `context/research/argument.md`.
+  - `hits` holds at most 40 entries, in line order. `truncated` says the list was cut, as in 7d.A. `textCut` says the text was cut at 1 MiB.
+- `counts` holds only the keys of the parts that ran, each counting every hit or flag before any cut:
+  - the report and argument scans give `reportAbsence`, `reportAbsenceUncited`, `reportBounded`, `argumentAbsence`, `argumentAbsenceUncited` and `argumentBounded`;
+  - a packet gives `briefSingleUnit`;
+  - a review gives the review counts of (6).
+- `errors` lists the failed sections' codes.
+
+The event carries rule ids, classes, line numbers, booleans, counts, positions and edit ids. It never carries model, report or document text, nor a document figure.
+
+(3) Absence rules v1: TypeScript regular expressions with the `i` flag (the rules are ASCII). Every step is linear in its input.
+
+Reading the file:
+- **Format.** `format` is one of `markdown`, `html`, `text`, `docx` or `pdf`.
+  - Content starting with `%PDF` is `pdf`; content starting with the ZIP signature is `docx`. Otherwise the extension decides, case-insensitively: `.md` or `.markdown` is `markdown`, `.html` or `.htm` is `html`, and anything else is `text`.
+  - A `docx` or `pdf` report gets `scanned: false` with reason `format_not_scanned`.
+  - A missing report gets `scanned: false` with reason `missing`.
+- **Size.** At most 1 MiB of bytes is scanned, cut at a UTF-8 boundary before decoding or normalizing. The rest sets `textCut`.
+
+Preparing the text:
+- **Line state machine.** Fenced code blocks and HTML comments are blanked line for line, found with `indexOf`.
+- **Tags.** HTML tags are stripped with `<[^<>]*>`, keeping newlines.
+- **Normalization.** Each line is NFKC-normalized, with curly quotes straightened and runs of spaces and tabs collapsed.
+
+Splitting into sentences:
+- A sentence ends after `.`, `!` or `?` followed by whitespace and an uppercase letter, a digit, a quote, a parenthesis or a bracket.
+- It also ends at a blank line, and before a line that starts with `#`, `-`, `*`, `+`, a list number (`1.` or `1)`), `|` or `>`. This departs from the backlog brief, which split only on punctuation. A bullet, a heading or a table row would otherwise merge with its neighbours and borrow their citations.
+- Within a sentence, the remaining newlines are folded into spaces, one for one, before matching. A wrapped claim is still read, and offsets are unchanged. This also departs from the brief, which collapsed all whitespace and so lost line numbers.
+
+Matching:
+- A sentence gets at most one hit: the first rule that matches.
+- A hit's `line` is the 1-based line of the match itself. Line numbers are computed for the 40 kept hits only, with a forward cursor.
+- SRC is `(sources?|documents?|corpus|corpora|files?|pages?|materials?|records?|reports|studies|study|literature|datasets?|texts?|articles?|filings?|references?)`.
+- The rules, in order:
+  - A1 `\b(none|neither|not one) of the SRC\b`;
+  - A2 `\b(the|these|this|those|any|all) (\w+ ){0,2}SRC (do|does|did|can|could)( not|n't) (mention|address|discuss|report|provide|specify|state|cover|quantify|describe|contain|include|document|give|list|identify)\b`;
+  - A3 `\b(the|these|this|those) (\w+ ){0,2}SRC (contains?|provides?|offers?|includes?|gives?|has|have|mentions?|reports?) no\b`;
+  - A4 `\b(the|these|this|those) (\w+ ){0,2}SRC (lacks?|omits?|(is|are) silent|fails? to (mention|address|report|provide|specify|discuss|state|cover|quantify))\b`;
+  - A5 `\bno (\w+ ){0,2}SRC (\w+ ){0,3}(mentions?|addresses?|discusses?|reports?|states?|specif(y|ies)|documents?|covers?|provides?|quantif(y|ies)|describes?|contains?|includes?)\b`;
+  - A6 `\bthere (is|are|was|were) no (\w+ ){0,2}(evidence|information|data|figures?|statistics|mention|records?|documentation|discussion|indication|estimates?)\b`;
+  - A7 `\bno (\w+ ){0,2}(evidence|information|data|figures?|statistics|mention|details?|records?|estimates?)\b( \w+){0,6} (is|are|was|were) (available|provided|given|found|reported|cited|included|present)\b`;
+  - A8 `\b(is|are|was|were) not (mentioned|addressed|discussed|reported|documented|specified|covered|stated|quantified|described|provided|included|available) (anywhere|(in|by|within|across) (any|the|these|those) (\w+ ){0,2}SRC)\b`;
+  - A9 `\b(nowhere|not anywhere) (in|within|across) (the|any|these) (\w+ ){0,2}SRC\b`;
+  - A10 `\b(absent|missing) (from|in) (the|all|any|these) (\w+ ){0,2}SRC\b`.
+- **Class.** A hit is `bounded` rather than `absence` when its sentence also matches `\b(extract(ed|ion)|evidence packet|packet|retained evidence|verified (evidence|quotes?)|(this|the) (review|run|extraction|search|retrieval) did not)\b`.
+- **`cited`.** It is matched case-sensitively: in a report, the claims check's citation `\[C[0-9]{1,3}\]`; in the argument, an evidence id `\bE[0-9]{1,4}\b`.
+- **Versioning.** Any later rule change bumps `rules.absence` and needs its own entry.
+
+(4) Misses: what the run itself failed to find, recorded per job beside the flags. They are not a measure of the flags. The pass sees only packets that `validateReadyResearchPacket` accepted, and only submitted runs. Unreadable sources, incomplete chunks, packet and conflict omissions, and unretained settled fetches never reach it today: the packet check or the runner ends such runs first. So the event records only counters that can be nonzero:
+- `briefUnits`, the number of brief units;
+- `questionsWithoutEvidence`, synthesis questions with no `evidence_retained` outcome in any chunk;
+- `unresolvedQuestions`, synthesis dispositions marked `unresolved`;
+- `noEvidenceOutcomes`, chunk question outcomes marked `no_verified_evidence`;
+- `extractionRetries`, chunk attempts after a chunk's first;
+- `droppedQuotes`, the evidence file's `droppedUnverifiedOrDuplicate`;
+- `fetchFailures`, `public source retrieval` rows that are `failed`;
+- `fetchLimitRefusals`, `tool_finished` outputs whose JSON error is `public_fetch_limit_reached`.
+
+The first six come from the packet (`coverage.json` and `evidence.json`, parsed with their schemas by import) and the last two from the job's ledger. If item 7(a) or 7(b) changes what a ready packet admits, these counters change meaning, and that pull request must say so. The host never establishes absence: the coverage schema's `corpusAbsenceEstablished` is literally false.
+
+(5) D11, the single-unit brief disclosure.
+- `deriveBriefUnits` and the brief segmentation (`exact_numbered_spans_or_whole`) stay unchanged.
+- `counts.briefSingleUnit` is 1 when the packet's coverage has exactly one brief unit, and 0 otherwise. One unit means an unnumbered brief, or a numbered one that `deriveBriefUnits` collapses to a single unit; for example, more than 127 numbered lines after an unnumbered first line.
+- It means the plan's coverage check (`validatePlanCoverage`) was vacuous for that run.
+- A segmentation or convention change waits for owner decision 12 (#55) and is out of scope.
+
+(6) The document-review summary. For a document-review phase, the pass reads `output/review-flags.json` from the final snapshot.
+- **Size check first.** It checks the entry's recorded size before loading: at most 512 KiB. The largest file the schema admits is about 260 KB, from 40 entries per list, at most 200 edit ids and 16 values per numeric flag, and one-space indentation.
+- **Validation.** It validates the file with 7d.A's `DocumentReviewFlagsSchema` from the zod-only leaf module.
+- **What it records.** `review` holds positions and ids, never values:
+  - `valid` and `errors`, the per-rule and step error names;
+  - `read`, the caps reached;
+  - up to 40 `numeric` flags as `{ table, row, paragraph, inSource, inClean, addressed }`;
+  - up to 40 `edits` as `{ id, codes }`;
+  - up to 40 `clauses` as `{ paragraphs, inSource, inClean, addressed }`.
+- **Counts.** The file's eight counts join the event's `counts`, so the registry's projection carries them.
+- **Failure.** A missing, oversized or invalid file records `review: { valid: false, reason }`, with reason `missing`, `too_large` or `invalid`.
+
+Correction to BL-20261110-1100, which stays as written. It says the review's 175 MB figure "includes its harness and is not the step's cost". The review's skeptic gave that as likely, not measured, so it should read: the 175 MB figure likely includes harness overhead.
+
+Carried from the orchestrator's mechanical check of #81 at fc905ff, which needed no push to #81: two assertions for the party-term step land with this pull request's tests. They check that a defined term later in the same paragraph is still read after an over-long term, and after a term that does not fit. They kill the two `continue`-to-`break` mutants that check found surviving.
+
+Changes: Planned in this pull request:
+- src/main/private-agent/host-flags.ts (new): the pass, the absence rules, the misses, the summary, `claimsReportPath` and `HostFlagsEventSchema`.
+- src/main/private-agent/session.ts: one call after the `session_submitted` `if`.
+- scripts/private-agent-local-screen.ts: `withClaimsLedger` calls `claimsReportPath`.
+- tests/unit/private-agent-host-flags.test.ts (new):
+  - each absence rule with two positives and two negatives, plus bounded and cited cases. They include the backlog's sentences:
+    - "None of the sources quantify the cost." (A1);
+    - "The corpus contains no evidence of historical additions." (A3);
+    - "No source provides efficiency figures." (A5);
+    - the negatives "The sources do not agree on the date.", "There is no conflict between the sources." and the fixture argument's "A lack of extracted evidence does not establish absence in the corpus.";
+    - the bounded "No verified evidence was found in the extracted packet.";
+  - wrapped, bulleted, heading, table-row and second-line claims, and line numbering across fenced code, comments and HTML;
+  - `.DOCX` and PDF content left unscanned, a missing report, and 41 hits;
+  - adversarial shapes at 1 MiB (unclosed tags, comment openers, NFKC expansion) within a generous time bound;
+  - misses from a real pipeline packet built with tests/helpers/research-v4-fixture.ts, whose unnumbered brief gives one unit, and from a custom extraction reply that leaves a question unevidenced. Also a numbered-brief negative, and synthetic ledger rows and events;
+  - the review summary from a valid file, an invalid file, a missing file, and a file over 512 KiB rejected without a load;
+  - `claimsReportPath` for the desktop target, for `withClaimsLedger` and for a contract that lists `output/claims.json` first;
+  - a serialized event with no report sentence, and section and append failures that never throw.
+- tests/unit/private-agent-session.test.ts:
+  - order after `session_submitted` and before `claims_entailment`;
+  - one event across a paused and resumed entailment pass, and after a failed append followed by a rerun;
+  - the right context;
+  - none for an incomplete run or for a phase with neither check;
+  - a document-review phase without `claims_verified`.
+- tests/unit/private-agent-public-snapshot.test.ts: `withClaimsLedger`'s report path and phase identities are unchanged.
+- tests/unit/document-review-flags.test.ts: the two carried assertions.
+
+Consequences:
+- The private-agent source freeze changes (session.ts, the new host-flags.ts and the local-screen script), so no loop or E3 card may span the merge. 6.2 also moves it in train 1.
+- The desktop timeline already lists every job event. It shows `host_flags` as "Task state updated." and raises the snapshot's revision by one, until 7d.C adds its summary and reported issues. The registry reads nothing new until 7d.C.
+- Unchanged:
+  - the session identity, and `researchProtocolSha256` (3453710315…);
+  - claims.ts;
+  - research-coverage.ts, research-contract.ts and research-pipeline.ts;
+  - runner.ts and repair.ts;
+  - `deriveBriefUnits`;
+  - the claims check and every URL-backed desktop phase identity;
+  - dispatch semantics.
+
+Evidence: None yet for the code; this entry decides. Three adversarial design reviews (ledger, replay safety and cost; consumers and tests; fidelity) reviewed the first draft before this commit. Their confirmed findings are applied above:
+- sentence handling that merged bullets and missed wrapped claims;
+- unbounded pre-processing around the rules (tag stripping, comment blanking and NFKC before the cut, a linear line lookup per hit), measured at up to 20 s on 256 KiB;
+- a "never throws" that a failing append broke;
+- idempotency across a crash and concurrent hosts;
+- packet miss counters that are always zero;
+- a report-path rule that differed from today's for a contract listing the claims ledger first;
+- absent parts that read as zero;
+- a summary without positions;
+- a module import that would load the applier;
+- the timeline claim;
+- quotes the review does not contain.
+
+The regular expressions themselves are linear: the worst single-sentence 1 MiB input takes at most 96 ms.
+
+Failures or blockers: None in recording. Open for the owner, each with the default this pull request implements; none blocks the code:
+- Decision 12 (#55), part 1: will briefs number their requirements, and in which convention? Proposed default: keep `deriveBriefUnits` and the segmentation unchanged, and flag single-unit briefs. A segmentation change is a separate protocol pull request after #55. It must land before E0's planner fixture runs and before E3's card is committed, because it changes `researchProtocolSha256`, existing packets and seeds, and the planner-fixture payloads.
+- Does "with misses recorded" mean the run's extraction and retrieval misses set beside each flag, or absence claims the flag itself missed, recorded by the owner with a verdict? Proposed default: the run's misses, as in (4). Recording the flag's own misses through the verdict needs a new verdict field and is left to a later entry.
+
+Limitations and non-claims:
+- This entry decides; nothing is implemented or verified by it.
+- The absence rules are heuristics with false positives and false negatives, for the owner's attention only. Their recall is not measured.
+- A `.docx` or `.pdf` report is not scanned; the event says so.
+- Flags are computed only for submitted runs. Misses are counted per job and per packet, not per sentence.
+- The pass runs synchronously, on the desktop's main process for a desktop task.
+- Tuning leakage: no implementer reads E6's planted-defect gold, the f1 to f3 or E4 gold, or the frozen briefs. Every fixture is synthetic.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The implementation in this pull request and its `Implemented` entry. These must be green:
+- `pnpm --silent validate:build-log -- --base-ref <the pull request's base>`, `pnpm typecheck` and `pnpm validate:readiness`;
+- the changed tests, with `researchProtocolSha256`, the claims tests and the coverage tests untouched;
+- the full `pnpm exec vitest run`.
+
+Then review, CI and a merge after #77, #81 and #73. 7d.C, the desktop's reported issues and the registry row, reads the event and follows. If another entry merges first, this entry's ID is re-stamped after main's tail with a correction entry.
+
+References: docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 7(d) and section 4 rows D4 and D11; BL-20261105-0357 (uncited corpus-wide absence assertions); BL-20261109-0354-document-review-flags-design; BL-20261110-0712-document-review-flags-implemented; BL-20261110-0933-document-review-flags-party-terms-bounded; BL-20261110-1100-document-review-flags-party-terms-pinned; BL-20261109-0501-research-stage-pause-design; GitHub issues #46 and #55; pull requests #73, #77 and #81.
+
+### BL-20261110-1516-host-flags-event-implemented -- 2026-11-10 -- Backlog item 7(d), part B implemented: the `host_flags` event v1 after submission, with the absence-claim flag, the run's recorded misses, the single-unit brief disclosure and the document-review summary; three code reviews' corrections, and two of the design entry's recovery claims corrected
+
+Status: `Implemented`
+
+Scope or hypothesis: Implement BL-20261110-1509-host-flags-event-design, with deterministic tests, on the local branch `feat/7d.B-host-flags-event` (plan ID 7d.B, lane S-desk).
+
+The branch is built on a local merge of three heads that ride merge train 1, so none of them moves: 6.2 (#77) at 224429b, 7d.A (#81) at fc905ff and 11.2 (#73) at a27652a, merged in c04d8a1 and b953dfd. Its commits:
+- 5d76a85, the design entry;
+- a0c005b, the implementation;
+- c983ec7, a comment in scripts/phase2-blind.py, from a note of the train-1 integration check of #81;
+- 2d9cae2, the code reviews' corrections;
+- ffaaf64 and 0089533, the mutation review's assertions and the empty-comment reading.
+
+Nothing is pushed. The branch is replayed onto `main` after #77, #81 and #73 merge.
+
+Decisions: Implemented as BL-20261110-1509 decides, with the corrections and precisions below. Three adversarial code reviews checked a0c005b: correctness and fidelity, ledger and consumer safety, and test strength by mutation. The design entry stays as written.
+
+(a) Correction: two of decision (1)'s recovery claims are wider than what production does.
+- "So is a task that was paused in its entailment pass before this change. It records the event when it resumes." No such task resumes:
+  - a desktop task is bound to the app build that started it (`generalTaskRuntimeIdentity` feeds its profile identity), so a new build refuses it with `general_task_configuration_changed`;
+  - the local screen refuses a changed source freeze.
+- "If the append itself fails, nothing is recorded ... so a later run retries." That holds only when the same session runs again:
+  - after a crash between the two appends (on the desktop, an interrupted task resumed on the same build);
+  - after a pause in the entailment pass;
+  - after a later resumable failure.
+
+  A session that still ends `submitted` is never run again, so its event is lost.
+- So 7d.C and the registry must read a missing event as "not recorded", never as "no flags". They must not rely on its order against `claims_entailment`.
+- A second call after the entailment pass would narrow the window but not close it, so it is not adopted.
+
+(b) Precisions to decision (3), reading and preparing the text.
+- **Combining marks.** A run of more than 30 combining marks is cut to 30 before NFKC (the stream-safe bound of UAX #15).
+  - NFKC's canonical reordering is quadratic in a run of non-starters. At a0c005b the review measured 0.56 s for a 64 KiB report, 8.2 s for 256 KiB and 282 s for 1 MiB, on the desktop's main process.
+  - Checked against Unicode 14.0.0 (CPython 3.11.16): every non-starter is a mark. Only U+FF9E and U+FF9F decompose to one from outside the marks, so the cut covers them too.
+  - The design entry's "Every step is linear in its input" was not true of NFKC. With the cut it is.
+- **Trimming.** Each prepared line is trimmed, so an indented continuation line, or a Markdown hard break's trailing spaces, still folds to one space. At a0c005b a claim wrapped onto an indented line was never read.
+- **Tags.** They are stripped across lines, keeping their newlines, as the entry's wording implies; a0c005b stripped them line by line.
+  - Only real tags are stripped: `<` followed by a name, a `/` and a name, `!` or `?`, closed within 4,096 characters. So "< 5%" stays prose.
+  - A block-level tag (`p`, `li`, `td`, `tr`, `th`, `h1` to `h6`, `div` and the other block elements) ends its sentence. Any other tag, `br` included, reads as a space.
+  - So HTML list items, paragraphs and table cells no longer merge or lend citations, which the entry's segmentation rationale rules out. Table cells no longer glue words together.
+- **Fences and comments.** A fence line inside an open HTML comment no longer opens or closes a fence. `<!-->` and `<!--->` are complete, empty comments, as in HTML and CommonMark 0.31.
+- **One-line blocks.** A line that starts with `#` or `|` is a block of its own: a heading is one line, and a table row one row. The entry ended a block only before such a line.
+- **Character cap.** The cap of 1,048,576 characters after normalizing also sets `textCut`. The entry named only the 1 MiB byte cut.
+
+(c) Precisions to decision (6), the review summary.
+- `review.errors` names the part that failed, `{ step?, numeric?, edits?, clauses? }`, each an exception's class name. It is present only when something failed; at a0c005b it was one unlabelled list.
+- A failed rule's list and counts are absent, and a failed step has no `read` either.
+  - The applier leaves them empty and zero, so at a0c005b a failed rule read exactly like one that found nothing, against decision (2).
+  - The counts belong to their rules as the applier computes them: numeric owns the four `numeric` counts, edits owns `inversionEdits`, and clauses owns `inversionIntroduced`, `inversionSource` and `inversionUnaddressed`.
+- A storage failure while loading the file fails the section (`review_failed`). Only a file that does not parse or validate is `invalid`.
+- The event's edit codes are 7d.A's closed set.
+
+(d) The misses section records all of its parts or none. A ledger read that fails after the packet was read no longer leaves `packet` and `briefSingleUnit` behind.
+
+Changes:
+- src/main/private-agent/host-flags.ts (new): `recordHostFlags`, `hostFlagsEvent`, `claimsReportPath`, `HostFlagsEventSchema`, the absence rules v1, the text preparation, the misses and the review summary.
+- src/main/private-agent/session.ts: one call after the `session_submitted` `if`, before the entailment pass.
+- scripts/private-agent-local-screen.ts: `withClaimsLedger` calls `claimsReportPath`.
+- scripts/phase2-blind.py: the comment on the document-review tuple says it leaves out the host flags file. Comment only.
+- tests/helpers/research-v4-packet.ts: an optional `reply` parameter varies the pipeline's invented replies; every existing caller is unchanged.
+- tests/unit/private-agent-host-flags.test.ts (new, 39 tests):
+  - each absence rule's positives and negatives, every word of its lists, each gap's bounds, the rule order and one hit per sentence;
+  - the backlog's sentences and negatives, each bounded phrase, and citation widths;
+  - blocks and sentences: headings, bullets, numbered items, table rows, quotes, and wrapped, indented and hard-broken claims, with line numbers past every fold;
+  - fences, comments across lines, `<!-->`, tags across lines, block-level tags, `<br>` and "< 5%"; NFKC and curly quotes;
+  - 40 hits and `truncated`; formats and a missing report; the byte cut and the character cap;
+  - 18 adversarial 1 MiB inputs in a child process under a 150 s timeout, each under 10 s;
+  - misses from the pipeline's own packet (a question no chunk evidences, a dropped quote, a retried extraction), from the plain packet, a numbered brief, ledger rows and events, and a section that fails part way;
+  - the review summary: a valid file and its copied fields, each failed rule, a failed step, a damaged blob, a missing, an invalid and an oversized file, exactly 512 KiB, and both checks;
+  - `claimsReportPath`; recording once per context, with no work once recorded, a failed append and its retry, another context, a concurrent recorder, and failing reads and transactions; each section's error code; the schema's strictness; no report text.
+- tests/unit/private-agent-session.test.ts (5 tests):
+  - the event is recorded for the private context after `session_submitted` and before `claims_entailment`, and nothing more on resume;
+  - one event across a paused and resumed entailment pass;
+  - a failed append still submits, and the next run records the event once;
+  - none for an incomplete run, a phase with neither check, or a two-phase run without them;
+  - a document-review phase is summarized with no claims pass.
+- tests/unit/private-agent-research-session.test.ts (1 test, beyond the plan): a research session's event carries the transferred packet's coverage digest and misses, and a resume that reloads the packet records nothing more.
+- tests/unit/private-agent-public-snapshot.test.ts (1 test): the path the claims check reads equals `claimsReportPath`, before and after the ledger is added, for four contracts and both retrieval modes.
+- tests/unit/document-review-flags.test.ts: the two assertions carried from the mechanical check of #81.
+
+Evidence: At commit 0089533:
+- `pnpm --silent validate:build-log -- --base-ref b953dfd` (the local base), `pnpm typecheck` (exit 0) and `pnpm validate:readiness` pass.
+- The changed tests: private-agent-host-flags 39 of 39; private-agent-session 31 of 31; private-agent-research-session 18 of 18; private-agent-public-snapshot 26 of 27 with 1 skipped, as before; document-review-flags 154 of 154; phase2-blind 4 of 4; document-review 9 of 9.
+- The full `pnpm exec vitest run`: 182 files, 169 passed and 13 skipped (the environment-gated suites, as before); 3,035 tests, 2,950 passed and 85 skipped, none failed.
+- Mutation testing:
+  - The mutation review ran 112 single mutants at a0c005b, each in a scratch copy against the changed tests. 33 were killed (one only by hanging). 7 are equivalent. 1 raised the `<!-->` question decided in (b). 69 were real gaps, each killed by a probe assertion it verified.
+  - Those assertions are now in the tests. Of the 59 mutants still surviving at 2d9cae2, a rerun at ffaaf64 killed 50; 1 no longer applies (the `<!-->` code changed); 8 survived. Those 8 are the 7 equivalents and `block-no-indent`, which the form-feed assertion at 0089533 kills.
+  - The 7 equivalents:
+    - no UTF-8 back-off: the partial character decodes to one U+FFFD at the very end, which every pattern reads like end of text;
+    - `>=` in the line cursor: no match starts on a joining space;
+    - four misses mutants that differ only for packets `validateReadyResearchPacket` refuses or the coverage schema rejects;
+    - the `typeof` guard on a `tool_finished` output, which is always a string.
+  - The two carried assertions: each `continue`-to-`break` mutant of the party-term step passes every test of the previous document-review-flags test file and fails only at its carried assertion.
+  - The adversarial harness: with the mark-run cut removed, its test fails after 150 s ("the shapes did not finish within 150 s") instead of hanging the suite.
+- Cost: the whole pass on 19 adversarial 1 MiB reports takes at most 0.84 s (one blank line per paragraph). The three combining-mark inputs take about 20 ms each. These were measured at 2d9cae2 on a development Mac with Node 22.22.2.
+- Phase identities: `sessionPhaseIdentity` of `withClaimsLedger`'s phase is identical at 5d76a85 and at the head for 12 cases (six contracts, both retrieval modes).
+- The ledger review traced every reader of job events. None lists the event types or depends on the last event. Checked:
+  - in the controller: the timeline, the revision, resume and reason logic, and `decideConsultation`;
+  - the run reasons and the storage-integrity scan;
+  - runner replay, observations, progress, public sources and consultation;
+  - selection, repair, the research seed, the Phase 2 repair, registry-row.py and the local-screen progress loop.
+
+  It also found that nested transactions (an immediate transaction and a savepoint) roll back cleanly, and that two stores on one database record one event.
+
+Failures or blockers: None open.
+- The correctness review found one blocker (the quadratic NFKC) and three should-fixes (indented wraps, HTML structure, the review summary's absent-against-zero). They are fixed in (b) and (c).
+- The ledger review's should-fix is the correction in (a).
+- The first full run, at a0c005b, had one load timeout (private-agent-observations at 5 s), which passed 22 of 22 alone. The final run had none.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified` or `Released`: deterministic tests on fixtures only. No endpoint, model, Docker container or paid call ran.
+- The absence rules are heuristics for the owner's attention; their recall and precision are not measured. Known v1 recall limits, with the rules exactly as decided:
+  - A2 reads "can not" but not "can't" or "cannot";
+  - emphasis or a link inside a phrase (`None of the *sources*`), and HTML entities (`&nbsp;`, `&rsquo;`), defeat a rule;
+  - every `>` line is its own block, so a claim wrapped across quote lines is missed;
+  - a GFM table without leading pipes merges its rows;
+  - "3.5 …" at a line start reads as a list item;
+  - the text of `<style>` and `<script>` elements is scanned;
+  - a tag of more than 4,096 characters is not stripped;
+  - a run of more than 30 combining marks is cut.
+- A report that starts with the ZIP signature is labelled `docx` whatever its extension. The desktop admits only md, markdown, txt, html, htm, docx and pdf research outputs, so an .xlsx or .pptx report can arise only from a local-screen task.
+- The event's schema alone admits any identifier of up to 64 characters in `review.errors`. In production only Python exception class names reach it, because the flags file must match the pinned applier's output byte for byte before the session submits. The pass trusts the check ids in `requiredChecks`, not the check bodies.
+- An event whose append fails is lost if the session still ends `submitted`, per (a).
+- Misses are counted per job and per packet, not per sentence.
+- The pass runs synchronously, on the main process for a desktop task, and reads the job's events up to three times.
+- The timings are from a development Mac, not the qualified image or a desktop build.
+- This change does not touch `researchProtocolSha256`, which is 3453710315… at the local base. After train 1, main holds 05f342b2… (BL-20261110-0900, pull request #76). The replay must show this change leaves that value unchanged too.
+- The design entry's limitations stand, and so does its correction of BL-20261110-1100: the 175 MB figure likely includes harness overhead.
+
+Owner questions: The two of BL-20261110-1509 stand, with the defaults this branch implements:
+- D11 (#55): keep the segmentation and flag single-unit briefs;
+- "misses" means the run's own misses.
+
+Decisions (b) to (d) change the v1 event's contract and the text preparation before any release. They are code-review corrections recorded here, not in a new `Proposed` entry. Whether such an amendment needs a `Proposed` entry before its code is the owner question already carried for 7d.A.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Push, and a pull request against `main` after #77, #81 and #73 merge, replaying 5d76a85 and the later commits onto `main`. On the replayed branch, rerun:
+- the build-log, typecheck, readiness and full-suite checks;
+- the protocol-hash check above.
+
+Then review and CI. 7d.C reads the event and follows; it must read a missing event as "not recorded", per (a). If another entry merges first, this entry's ID and the design entry's are re-stamped after main's tail with a correction entry.
+
+References: BL-20261110-1509-host-flags-event-design; BL-20261109-0354-document-review-flags-design; BL-20261110-1100-document-review-flags-party-terms-pinned; BL-20261110-0900 (pull request #76); UAX #15; CommonMark 0.31; pull requests #73, #77 and #81.
+
+### BL-20261113-0816-correction-host-flags-event-ids-and-replay -- 2026-11-13 -- Correction: 7d.B's design entry carries ID BL-20261110-1509 in the ledger; it was authored at 11:53 UTC on 2026-11-10 as BL-20261110-1153. The branch is replayed onto `main` after merge train 1, so the commits and checks that BL-20261110-1516 names are the local branch's before the replay
+
+Status: `Implemented`
+
+Scope or hypothesis: Record the re-stamp and the replay of plan 7d.B (lane S-desk) for its pull request against `main`.
+- **The re-stamp.** The design entry was committed at 11:53 UTC on 2026-11-10 as BL-20261110-1153. `main`'s last ID after train 1 is BL-20261110-1506-merge-train-1-integration, so under the owner's rule recorded in BL-20261113-0758 (pull request #87) the entry's ID minute moves after the tail, to BL-20261110-1509-host-flags-event-design. 1509 is the first minute after the tail that #82's re-stamped entries (1507 and 1508) do not use. BL-20261110-1516-host-flags-event-implemented already follows the tail and keeps its ID.
+- **The replay.** 7d.B was built on a local merge of #77, #81 and #73 (c04d8a1 and b953dfd) and was never pushed. After train 1 (#85, 9d10b9a) its commits are cherry-picked onto `main`:
+  - 5d76a85 is 5cf6f39, a0c005b is 8b14287, c983ec7 is 138eed8, 2d9cae2 is 6f01407, ffaaf64 is 8f242f6, 0089533 is f6b3cfa, and 30ff65d is 19c38fb;
+  - fc4d264 is new, below;
+  - then the commit of this entry.
+
+Decisions:
+- Only the design entry's ID minute and the references to it change: four in BL-20261110-1516's body, the header comment of src/main/private-agent/host-flags.ts, two comments in tests/unit/document-review-flags.test.ts, and test titles in the host-flags, session, research-session and public-snapshot tests. Both entries' bodies are otherwise byte-identical to the local branch's.
+- BL-20261110-1516's scope, commit list and evidence describe the local branch before the replay. This entry gives the replayed branch's.
+- **One test adaptation to `main` (fc4d264).**
+  - On `main`, 7a.1 (BL-20261110-0726-correction-research-tolerance-total-loss) keeps an extraction reply that drops one quote but keeps another. So the packet-misses fixture's extra unlocatable quote no longer forced a retry: the test saw `extractionRetries` 0, not 1.
+  - Its first extraction reply now carries only that quote, for the question it marks `evidence_found`. 7a.1 holds that attempt and repairs it, which gives the same one retry and one dropped quote through the merged pipeline.
+  - The pass's code is unchanged; its counters read the merged packet as BL-20261110-1509 defines them.
+
+Changes: docs/BUILD_LOG.md (one heading, four references and this entry); the comment and test titles named above; the fixture of fc4d264.
+
+Evidence: At the replayed head:
+- `researchProtocolSha256(RESEARCH_PIPELINE_BUDGET)` is 05f342b25f3483574cca4f1bad53468219e63e94578927c069a8c831289e93a8 with `RESEARCH_PIPELINE_VERSION` 4, equal to `main`'s pin in tests/helpers/research-protocol-pin.ts (BL-20261110-0900-correction-research-tolerance-held-repair). No research pipeline, contract, coverage or plan file differs from `main`. So this change leaves the protocol identity unchanged, as BL-20261110-1509 and BL-20261110-1516 stated for the local base's 3453710315….
+- `pnpm --silent validate:build-log -- --base-ref origin/main`, `pnpm typecheck` and `pnpm validate:readiness` pass.
+- The changed tests: private-agent-host-flags 39 of 39; private-agent-session 34 of 34; private-agent-research-session 18 of 18; private-agent-public-snapshot 26 of 27 with 1 skipped, as before; document-review-flags 154 of 154; phase2-blind 4 of 4; document-review 9 of 9.
+- The full `pnpm exec vitest run`: 188 files, 174 passed, 13 skipped (the environment-gated suites, as before) and 1 failed; 3,326 tests, 3,239 passed, 86 skipped and 1 failed. The failure was a 5 s load timeout in private-agent-sandbox-capture, a file this change does not touch, which passed alone (13 passed, 1 skipped).
+
+Failures or blockers: None open. The first resolution of the session test's conflict dropped the closing braces of `main`'s last describe block, which `main` had also appended. The file did not parse. The replay was rebuilt with the braces restored in the implementation commit before anything was pushed.
+
+Limitations and non-claims:
+- The limitations of BL-20261110-1509 and BL-20261110-1516 stand.
+- A minute change cannot place this branch's 2026-11-10 entries (1509 and 1516) after an entry of a later day. If #82 (whose correction and new entry are dated 2026-11-13), #87 or another such pull request merges first, this branch can follow only by also changing its headings' dates, which the owner's rule does not cover.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: Review of the pull request (one reviewer), CI, and a merge on the owner's go-ahead, re-stamping again at the merge if `main`'s tail has moved.
+
+References: BL-20261110-1509-host-flags-event-design; BL-20261110-1516-host-flags-event-implemented; BL-20261110-1506-merge-train-1-integration; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261110-0726-correction-research-tolerance-total-loss; BL-20261110-0900-correction-research-tolerance-held-repair; BL-20261113-0758 (pull request #87).

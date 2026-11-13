@@ -132,6 +132,18 @@ export function encodeRetainedClaimsSources(sources: RetainedClaimsSource[]): st
 }
 
 /**
+ * The rule that decides a required section heading is present, in Python, for the claims check: `section_present` strips each line's leading
+ * `#`, `*`, `_` and whitespace and its trailing `*`, `_`, `:` and whitespace, and compares what is left with the title, ignoring case.
+ * `strip_trailing` returns what `re.sub(r'[*_:\s]+$', '', text)` returned on every input, in linear time (E1-J2): that pattern retried a run
+ * of those characters from each of its positions when the run did not reach the end, so its time grew with the square of the run's length;
+ * the helper matches the same class once, at the start of the reversed text. Tests run this constant, not a copy of it.
+ */
+export const CLAIMS_SECTION_RULE_PY = String.raw`def strip_trailing(text):
+ return text[:len(text)-re.match(r'[*_:\s]*',text[::-1]).end()]
+def section_present(lines, title):
+ return any(strip_trailing(re.sub(r'^[#*_\s]+','',line)).lower()==title.lower() for line in lines)`;
+
+/**
  * Host-owned verifier: quotes verbatim in declared file sources or in retained public sources (named by URL,
  * resolved and digest-checked through CLAIMS_RETAINED_ENV), locators computed by the host, citations resolved.
  */
@@ -203,8 +215,7 @@ def locate(quote, items):
   joined=others[index][1]+' '+others[index+1][1]; pos=joined.find(quote)
   if pos>=0: return ('%s to %s' % (others[index][0],others[index+1][0]), window(joined,pos,len(quote)))
  return None
-def section_present(lines, title):
- return any(re.sub(r'[*_:\\s]+$','',re.sub(r'^[#*_\\s]+','',line)).lower()==title.lower() for line in lines)
+${CLAIMS_SECTION_RULE_PY}
 result={'passed':False,'claims':[],'report':{}}
 try:
  ledger_bytes=file(p['ledgerPath']).read_bytes(); need(len(ledger_bytes)<=262144,'ledger_size_limit')

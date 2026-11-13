@@ -3,7 +3,7 @@ import { digest } from "../private-agent/contracts";
 import { caughtRunReason } from "./run-reasons";
 
 /**
- * Backlog item 6, plan 6.3 (BL-20261110-0715-runner-storage-integrity-design): whether a blob that a private context's records reference is
+ * Backlog item 6, plan 6.3 (BL-20261110-1507-runner-storage-integrity-design): whether a blob that a private context's records reference is
  * missing or no longer matches. The runner's catch keeps only an error's class, and its observation and progress checks wrap every failure in
  * one code each, so a damaged blob would read as a resumable runtime failure. The controller verifies the blobs itself instead:
  * - each checkpoint's snapshot;

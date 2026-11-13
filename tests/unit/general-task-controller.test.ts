@@ -1312,7 +1312,7 @@ describe("desktop general-task host controller", () => {
     late.mockRestore();
   });
 
-  // Backlog item 6, plan 6.3 (BL-20261110-0715-runner-storage-integrity-design): a damaged blob of the task's storage ends task_integrity_failed.
+  // Backlog item 6, plan 6.3 (BL-20261110-1507-runner-storage-integrity-design): a damaged blob of the task's storage ends task_integrity_failed.
   const INTEGRITY = "The task's saved inputs, storage or records are missing or no longer match what it recorded, so it stopped. This task cannot resume.";
   type Step = { name: string; args: Record<string, unknown> } | "pause";
   /** The real runner on a stateful sandbox double; each run follows its script of tool calls, and "pause" pauses the task. */

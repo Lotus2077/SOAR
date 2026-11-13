@@ -34588,3 +34588,56 @@ Next gate: 7c stays local until the orchestrator opens its turn. That comes afte
 - the entry check in (2) (refusing `assists` without a deadline), if the orchestrator takes it.
 
 References: BL-20261113-0817-research-v5-design and BL-20261113-0818-research-v5-implemented (corrected); #79 (10.a), its delta review at d364b46, and the shared hook-contract note; backlog item 7(c).
+
+### BL-20261113-0820-correction-research-v5-restamp-ids -- 2026-11-13 -- Correction: 7c's three entries carry IDs BL-20261113-0817, BL-20261113-0818 and BL-20261113-0819 in the merged ledger; they were authored on 2026-11-10 at 07:17, 07:49 and 13:30 UTC as BL-20261110-0717, BL-20261110-0749 and BL-20261110-1330
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records why backlog item 7(c)'s three entries no longer carry their authoring minutes:
+- BL-20261113-0817-research-v5-design;
+- BL-20261113-0818-research-v5-implemented;
+- BL-20261113-0819-correction-research-v5-assist-order-deadline.
+
+7c's branch was never pushed before this pull request. Its entries sat between train 1's entries in ID order. When 7c was rebased onto `main` for its pull request, at bb6ef32, `main` held merge train 1 (#85) and then #92 (7d.B). The log's tail was BL-20261113-0816-correction-host-flags-event-ids-and-replay, and the validator refuses an ID earlier than the tail.
+
+The owner decided on 2026-11-13 that an unmerged branch re-stamps such entries after `main`'s tail and adds this kind of correction. The decision is BL-20261113-0758 (owner-decision-restamp-unmerged-entries), on the open pull request #87. The same rule is in docs/HANDOFF.md, and BL-20261108-0856-correction-stop-bricking-tasks-design-id, BL-20261108-0906-correction-owner-verdict-capture-ids and BL-20261108-0912-correction-probe-extensions-id applied it.
+
+Decisions:
+- **The map.**
+
+  | Original ID | Authored (UTC) | New ID |
+  | --- | --- | --- |
+  | BL-20261110-0717 | 2026-11-10 07:17 | BL-20261113-0817-research-v5-design |
+  | BL-20261110-0749 | 2026-11-10 07:49 | BL-20261113-0818-research-v5-implemented |
+  | BL-20261110-1330 | 2026-11-10 13:30 | BL-20261113-0819-correction-research-v5-assist-order-deadline |
+
+  The entries keep their order and are appended after the tail, in merge chronology as rule 1 requires; they are not interleaved. The new minutes are 08:17 to 08:19 UTC on 2026-11-13, the next free minutes after the tail. The heading's date moves with its ID, as BL-20261108-0912-correction-probe-extensions-id records.
+- **What changed.** Only the heading's ID and date, and the references to the three IDs. Those references are the full and short forms, and the bare minute in prose, such as "0717 says". Apart from these, each entry's body is byte-identical to the local branch before the rebase (4118ccc).
+- **Why these minutes.** They also come after BL-20261113-0758, the latest entry on #87, so they still hold if #87 merges first. If `main`'s tail passes them before 7c merges, they are re-stamped again under the same rule.
+
+Changes:
+- docs/BUILD_LOG.md: three headings, and the references in the three entries.
+- Commit ee74807:
+  - comments in research-contract.ts, research-coverage.ts, research-fallback.ts and research-pipeline.ts;
+  - the 505c385a line of tests/helpers/research-protocol-pin.ts;
+  - in tests/unit/private-agent-research-pipeline.test.ts, one comment, the 7(c) describe title and two test titles.
+
+  They now cite the new IDs in full. No behaviour changes.
+
+Evidence:
+- **The bodies are unchanged.** For each re-stamped entry, applying the map in reverse (new minute to old, and the heading's date back to 2026-11-10) gives exactly the text at 4118ccc. Only 1 of 261 lines changed in the design entry, 8 of 75 in the implemented entry, and 12 of 140 in the correction.
+- **No old ID is left.** `git grep -E "BL-20261110-(0717|0749|1330)"` finds the old IDs only here. Commit messages keep the old IDs.
+- **The log is valid.** `pnpm --silent validate:build-log -- --base-ref origin/main` passes: append-only against `main`, with monotonic IDs.
+- **The commits.** The rebased commits carrying the three entries are c450684, 9bab77c and 78cdd2f. Their pre-rebase originals are fdb31f0, dd1e8a2 and 094efea; their author dates are 07:18, 07:51 and 13:59 UTC on 2026-11-10.
+
+Failures or blockers: Two attempts failed before the push.
+- **The first re-stamp was overtaken.** It was made against train 1's tail, BL-20261110-1506-merge-train-1-integration, and gave 08:14 to 08:16. Before this branch was pushed, #92 merged with its own BL-20261113-0816 entry, so the three entries were re-stamped again. Neither the first minutes nor their commits were pushed.
+- **An interleaved entry.** A first `git rebase` applied the implemented entry's insertion inside `main`'s log, between train-1 entries, without a conflict. It was aborted. The commits were then replayed one by one, and each entry was appended after the tail.
+
+Limitations and non-claims: This is a record correction only. Nothing is implemented, verified or released by it. Commit messages keep the old IDs, as history should.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The review of 7c's pull request checks this re-stamp, as BL-20261113-0758 asks. If `main` moves past 08:19 UTC on 2026-11-13 before the merge, the three entries are re-stamped again.
+
+References: BL-20261113-0817-research-v5-design, BL-20261113-0818-research-v5-implemented and BL-20261113-0819-correction-research-v5-assist-order-deadline (re-stamped); BL-20261113-0816-correction-host-flags-event-ids-and-replay (the tail); BL-20261110-1506-merge-train-1-integration (train 1's tail); BL-20261108-0856-correction-stop-bricking-tasks-design-id and BL-20261108-0912-correction-probe-extensions-id (precedents); BL-20261113-0758 on pull request #87 (the owner's decision).

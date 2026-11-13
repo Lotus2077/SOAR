@@ -8,6 +8,7 @@ import { GeneralAgentRunner, GeneralJobContractSchema, type ArtifactCheck, type 
 import { readPublicSources } from "./public-sources";
 import type { GeneralConsultation } from "./consultation";
 import { readPublicSourceFiles } from "./public-sources";
+import { recordHostFlags } from "./host-flags";
 import { ClaimsVerifiedSchema, ENTAILMENT_MAX_MS, ENTAILMENT_PROMPT_VERSION, ENTAILMENT_SYSTEM_PROMPT, isEntailmentDispatch, judgeClaims, publicSourceWorkspacePath, type EntailmentOutcome } from "./claims";
 import { isBlockingDispatch, isResolvedDispatch } from "./store";
 import { RESEARCH_FILES, RESEARCH_PIPELINE_BUDGET, RESEARCH_PIPELINE_VERSION, researchBudgetTotal, researchProtocolSha256, researchWriteInstructions, runResearchPipeline, type ResearchBudget, type ResearchDiagnosticsSink, type ResearchModels } from "./research-pipeline";
@@ -116,9 +117,9 @@ export function sessionPhaseIdentity(phase: SessionPhase): string {
  * Backlog item 6, finding A7 (BL-20261109-0501-research-stage-pause-design): true when a research stage started and never transferred:
  * its `research_input` names the reader context, no `research_transfer` exists, and a dispatch row of that context or a `research_stage`
  * event of it does. A stage starts at its first call, since every call it stops records a stage event, even one stopped before its row
- * was committed. Such a stage cannot continue (there is no per-chunk continuation protocol before items 7 and 8, and a restart would
- * reset its role ceilings while keeping the spent calls), so the session refuses it and the desktop offers no Resume. A stage that only
- * recorded its input still runs whole on the next run.
+ * was committed. Such a stage cannot continue (there is no per-chunk continuation protocol yet; the parts of items 7 and 8 merged so far
+ * (7a.1, 7b.1, 7d.A, 8.2a) add none, and a restart would reset its role ceilings while keeping the spent calls), so the session refuses
+ * it and the desktop offers no Resume. A stage that only recorded its input still runs whole on the next run.
  */
 export function researchStageUnfinished(events: readonly Record<string, unknown>[], dispatches: readonly { contextId: string }[]): boolean {
   const input = events.find(event => event.type === "research_input");
@@ -437,6 +438,9 @@ export class GeneralAgentSession {
       if (privateResult.status !== "completed") return result(privateResult.status, privateResult.reason);
       if (store.dispatches(jobId).some(row => isBlockingDispatch(row, privateContextId) && !isEntailmentDispatch(row)) || signal.aborted) return result("incomplete", "session_unresolved_or_deadline");
       if (!this.events().some(event => event.type === "session_submitted")) store.append(jobId, { type: "session_submitted", snapshotSha256: checkpoints.fingerprint(finalSnapshot), independentAcceptanceRequired: true });
+      // Backlog item 7(d), part B: host flags for the owner's attention, once per context and outside the `if` above, so the run after a crash
+      // between the two appends records them; the pass never throws and never decides anything.
+      recordHostFlags({ store, jobId, contextId: privateContextId, phase: privatePhase, checkpoints, finalSnapshot });
       // Evidence after the fact: submission is durable, so the pass can only add verdicts; a pause leaves it for the next resume.
       if (await this.entailment(privateContextId, judgeModel ?? privateModel, signal) === "paused") return result("paused", "session_stopped");
       return result("submitted", "independent_acceptance_pending");

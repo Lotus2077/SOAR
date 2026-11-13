@@ -35877,3 +35877,1193 @@ References:
 - BL-20261113-0834-correction-runner-storage-integrity-second-restamp
 - BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
 - BL-20261113-0758 (pull request #87)
+
+### BL-20261113-0920-assist-wrapper-design -- 2026-11-13 -- Backlog item 10's assist wrapper decided: slim T1 and T2 packets with opaque source ids, a no-write cache mode on both cloud shapes, per-touchpoint caps, the fallback, stop and skip codes, the attempt and stage records, the assist protocol block and the hook contract
+
+Status: `Proposed`
+
+Scope or hypothesis: This is the decision entry for the rest of backlog item 10 (docs/PROJECT_REVIEW_2026-11-05.md section 5.7): the assist wrapper for T1, the plan assist (S3c), and T2, the synthesis assist (S6c), of section 5.2. Week 1's assist-purpose exception is merged (BL-20261107-0839, BL-20261107-0842); it left the stage record (its decision 7) and every code path that dispatches an assist to this entry. The entry comes before any code because the wrapper adds cloud egress (two new packet shapes), a persisted model-configuration value, a hook contract shared with item 7(c), and, in its later pull requests, dispatch semantics and stage records. Lane S-assist of the next-milestones plan delivers the item as three pull requests:
+- 10.a: this entry, the hook contract, `research-assist.ts`, the model's no-write cache mode and the alias-aware plan assessment. The pipeline's behaviour does not change.
+- 10.b: both firing policies through item 7(c)'s hook, the stage record, the protocol binding, the session and driver plumbing, the legacy split arm and the end-to-end tests. It starts after 7(c) and 7(b)-2 merge.
+- RA: the registry receipt fields, with item 11's run columns.
+
+Based on `main` at 2982ca7. This is zero-fee code with deterministic tests on fixtures: no cloud, paid or live call, so no approval is needed under PLAN.md section 4(c). Owner decision 6 (#59) picks only a value, because the wrapper is provider-agnostic.
+
+Decisions: (1) Cache mode. One new `promptCaching` value, `assist_no_cache_write_v1`, is admitted only on `openai_responses` and `anthropic_messages`. The model refuses it on `openai` chat, whose decoder hard-codes `cacheWriteTokens` 0 and so cannot prove zero writes, and on `vllm`.
+- On Responses it sends `prompt_cache_options: {mode: "explicit"}` and no `prompt_cache_breakpoint` anywhere.
+- On Anthropic it sends no `cache_control` anywhere.
+
+These are the two mechanisms found by the assist-provider research (issue #49; branch `research/assist-provider`, `docs/ASSIST_PROVIDER_RESEARCH.md` section 2): OpenAI caches by default and writes nothing only in explicit mode with no breakpoint; Anthropic caches only on `cache_control`. Two refusals come before any body exists:
+- A call whose purpose is an assist purpose is refused unless its configuration carries this mode (`private_model_assist_cache_mode_required`). So `promptCaching` is never undefined, or any other value, on an assist.
+- A call under this mode is refused unless its purpose is an assist purpose and it is a tool-less `[system, user]` one-shot without the trailing-turn option (`private_model_assist_request_invalid`).
+
+This keeps review section 5.2's rule that `promptCaching` is never left undefined on an assist, but supersedes its mechanism ("only the sub-1,024-token system block is marked"). No block is marked, so zero writes follow from the mode rather than from a size estimate; besides, 1,024 tokens is OpenAI's minimum and Claude's is 512 (#49). Existing modes and bodies stay byte-identical: the breakpoint switches now name the two breakpoint modes, which the constructor already makes equivalent to today's `promptCaching !== undefined` tests on those shapes. A zero write count proves nothing when the reply never reported one: both decoders already read a missing field as 0. So under this mode only, `complete()` also returns `cacheWriteReported`. It is true when the reply carried the provider's write count (`input_tokens_details.cache_write_tokens`; `cache_creation_input_tokens`) and its TTL parts, when given, add up to it.
+
+(2) Exact request bytes.
+- `PrivateAgentModel.requestBody(messages, tools, overrides)` returns the exact body `complete()` sends, and `complete()` builds its body through it.
+- `reservationMicrousd(promptBound, maxOutputTokens)` is the reservation formula `complete()` uses, factored out unchanged.
+- `complete()` takes an optional narrowing `maxRequestBytes`. A malformed value is refused (`private_model_request_bound_invalid`); a larger one never widens the configured cap; a body over it is refused as `ModelRequestBodyTooLarge`.
+- The wrapper measures and trims on these bytes and passes its bound, so the bound holds on the dispatched body. Every existing body is unchanged: the identity golden test pins them, and a table test checks `requestBody` against the dispatched body for every shape, mode, thinking setting and option.
+
+(3) Packets. `research-assist.ts` builds them from the hook request. A packet never carries model output of another packet, except a host-validated plan (review section 5.1, rule 6).
+- T1, the plan assist. The user message has exactly these keys:
+  - `authoritativeSchema` (RESEARCH_PLAN_JSON_SCHEMA);
+  - `brief`;
+  - `units`, as {id, text};
+  - `sources`, as {id, gist} with opaque ids;
+  - `budget` {mandatorySourceChunks, extractionCallBudget};
+  - under local-first only, `priorAttempts` [{ordinal, truncated, errors, omittedErrorCount}]: each error re-parsed by SafePlanErrorSchema, so only safe codes, schema paths and unit ids. Never a reply, its content or any hash.
+
+  Index titles, dates, figures and the literal cards are not sent: the touchpoint table names gists.
+- T2, the synthesis assist:
+  - `brief` and `units` (as {id, text});
+  - `plan`, the host-validated plan with its sourceIds replaced by opaque ids;
+  - `evidenceText`, from a new renderer: each verified quote as `- [E1] S2 (line 3; Q1, Q2): "quote"`, conflicts as question ids and opaque source ids only, no extractor note text, at most 65,536 bytes. `renderResearchEvidence` and the local packet are untouched;
+  - `coverage`, counts only: sources, chunks, quotes verified, in the packet and trimmed, conflicts noted and in the packet, and per question the chunks with retained evidence, the chunks without verified evidence, and its quotes in the packet;
+  - `repairReason`: null, or a fixed reason on the retry.
+- Previewable (rule 6): the builders return the exact user message and body bytes before any dispatch. 10.b decides what the driver shows; the desktop's per-task preview is item 13's (decision 12 of section 5.10 stays open).
+
+(4) The authored brief.
+- The wrapper is built with the authored brief: the prepared task's `brief.md` text for the headless driver, and the typed goal on the desktop later (item 13). In 10.b the driver binds it to the `brief.md` bytes whose digest is `task.binding.briefSha256`, never to `task.phase.contract.goal`, which already holds the evidence instructions.
+- The wrapper refuses to be built around a brief that is empty, is not exact text, or holds any host marker. The markers open the text the driver, the session and the pipeline append: "Claims ledger requirement:", "Additional evidence contract:", "A separately isolated public retrieval phase supplied" and "A host-run research stage supplied". A test ties each marker to its source.
+- Per call, the brief must be an exact prefix of the request's brief (the composed goal), or the call stops as `assist_brief_not_prefix`: a configuration error, never a fallback.
+- Both packets carry the authored brief, and the units cut at its byte length. Unit ids are unchanged; a unit that lies wholly after the brief carries "". So the claims-ledger and transfer instructions that the driver and the session append, which list file paths, never leave as such.
+- An authored brief over 8,192 bytes refuses T1 as a recorded fallback (`assist_brief_too_large`), never trimmed. T2 has no brief bound of its own: the touchpoint table names one for T1 only, and T2's body bound governs.
+
+(5) Opaque ids, substitution and the audit.
+- Source n of the inventory order is `S{n}` in both packets: the order of `coverage.sources` and of the chunk ids `S{n}C{k}`. A real source id or path matching `^S\d+$` (ignoring case) refuses the touchpoint (`assist_source_alias_collision`).
+- Before serialization, every text field is normalized to NFC and then substituted. The fields are the brief, the unit texts, the gists, the plan texts and the quotes.
+  - Source identities become their opaque id. They are each source's id and path; every path suffix of two or more segments; a URL with and without its scheme, trailing slash, query and fragment, percent-decoded and with a Unicode host; the host itself; the file name with its extension; and a stem of at least six code points that holds a digit, `_` or `-`.
+    - Matching ignores case.
+    - Names, stems and hosts match only at word boundaries.
+    - A URL form also takes a query or fragment written after it.
+    - A form that two sources share becomes `[source]`.
+  - File names and paths in the text appended after the authored brief become `[file]`.
+  - Every hexadecimal run of 64 or more characters, and every run of 8 or more that begins a digest the request holds or implies, becomes `[digest]`. Those digests include the source, chunk, unit, brief, reply and span hashes, and the `sources/<16 hex>.bin` stems.
+  - Outside quotes, any other URL becomes `[url]` and any other file path with an extension becomes `[file]`.
+  - Every replacement is counted in the record.
+- The finished packet is then audited, on the decoded strings normalized to NFKC. A finding refuses the touchpoint as a recorded fallback (`assist_packet_audit_failed`, with the finding's kind only, never the matched text). The packet must not hold:
+  - a source identity or digest by the same rules, anywhere;
+  - a URL or file path outside quotes;
+  - in a model-authored field (a T1 gist, T2 plan text):
+    - a window of 64 code points of a source's literal opening (T1) or of its whole text (T2), after quote normalization;
+    - a whole literal heading of at least 32 code points;
+    - a window of 32 code points of the appended host text.
+- The builders emit only allowlisted fields, so no reply content, hash, path or literal card is copied in by construction. The audit is the check, not the mechanism.
+
+(6) Replies.
+- T1's reply names sources by opaque id, and the reply outcome carries the alias map. `assessResearchPlanReply` gains an optional `sourceAliases`. Binding then runs against the opaque ids, so a real id or an unknown opaque id is `unknown_source_id`, and the whole plan is rejected, as a local plan is today (finding D1). An accepted plan is translated to the real ids before its hash is taken, so `replyContentSha256` stays the raw reply's hash and `acceptedPlanSha256` covers the plan kept. Absent the option, nothing changes.
+  - This supersedes 7(c)'s plan to validate a hook reply "exactly like a stage reply": against the real ids, every opaque hint fails. 7(c) must pass `sourceAliases`, and the fixture ships an opaque-id fake hook for its tests.
+  - 10.a's tests prove only the sole forced-split T1 attempt, at ordinal 1. Ordinals above 2, the attempt slot and mixed sequences need 7(c)'s widened attempt schema and are tested in 10.b.
+- T2's reply outcome carries `evidenceIds`, the E ids its packet held. The pipeline must refuse a citation of any other id, which trimming makes likely. Its prompt tells the model to cite only those ids and to name no source.
+- An opaque id written into free text (plan text, the argument) reaches plan.json or argument.md as written. There it names the source's chunk prefix `S{n}C{k}`, which the local stages see. The host rewrites no model text.
+
+(7) Bounds, caps, trimming and thinking.
+- The constants are separate from OUTPUT_TOKENS and from any serving-card value:
+  - T1: body at most 32,768 bytes, output 8,192 tokens;
+  - T2: body at most 98,304 bytes, evidence text at most 65,536 bytes, output 8,192 tokens;
+  - the T2 retry: evidence text at most 32,768 bytes and at most half the first T2 packet's, so the retry always trims (review section 5.2, S6c: "with trimmed evidence").
+- Each call reserves on its actual body bytes with the unchanged formula, so at most about USD 0.164 and 0.328 at the bounds at USD 2 input, 2.50 cache write and 10 output per million tokens: review section 5.2's 0.16 and 0.33.
+- The wrapper refuses to be built when T1 and T2, reserved at their body bounds at the configured prices, exceed the job's fee cap. At USD 3, 3.75 and 15 they reserve about 0.737, which no 0.60 cap holds, and E3 would otherwise measure fallbacks. A retry the cap cannot admit is refused as `budget_denied`, a recorded fallback (rule 8).
+- Trimming is deterministic and counted:
+  - T1 cuts every gist to one common maximum length in code points, the largest that fits the body bound (`gistsTrimmed`, `gistMaxChars`). Gists are scrubbed and audited whole before any cut.
+  - T2 orders quotes round-robin over the plan's questions in plan order, each question's quotes in E order and a shared quote taken once. It keeps the longest prefix of that order that fits both the evidence bound and the body bound, and renders it in E order (`quotesInPacket`, `quotesTrimmed`).
+  - A packet that cannot fit (T1 with empty gists, T2 with no quote) refuses the touchpoint (`assist_packet_size_exceeded`).
+- The assist model must be configured with at least 8,192 output tokens and 98,304 request bytes, or the wrapper is not built.
+- Thinking is the cloud model's own setting (`model`): adaptive effort medium on Anthropic, reasoning effort medium on Responses. Thinking tokens are recorded only where the provider's reply reports them (the Anthropic shape). Thinking-off assists are out of scope.
+
+(8) Prompts. PLAN_ASSIST_SYSTEM and SYNTHESIS_ASSIST_SYSTEM are the local PLAN_SYSTEM and SYNTHESIS_SYSTEM adapted to opaque ids, to gists that may be shortened, to `priorAttempts` without any earlier reply, to citations limited to the evidence shown, and to a retry that says its evidence was trimmed without carrying the first reply. They are literals in `research-assist.ts`, which never imports research-pipeline.ts at runtime (a test keeps it so). The local prompts are unchanged.
+
+(9) Codes. A failure's code is read by its type. A broker code comes from `BrokerError`; the size stop from `ModelRequestBodyTooLarge`; the ledger's assist backstop `private_agent_assist_after_unknown` and the model's own `private_model_*` refusals from a plain Error. Anything else is `assist_failure_unclassified`. An aborted signal wins over every code: a pause or the deadline mid-request stops the stage as `cancelled`, even when the row went `unknown`, and the record keeps the dispatch. Then:
+- Skip (`no_reply`, `skipped`): `transport_or_settlement_unknown`. The row stays `unknown` with its reservation pinned.
+- Fallback after a dispatch (`no_reply`, `failed`): a `BrokerError` `request_failed`, the broker's confirmed failure.
+- Fallback without a dispatch (`no_reply`, `refused`):
+  - from the review's list: `budget_denied` (review section 5.1, rule 8), `cloud_mode_denied`, `exact_grant_required`, `private_disclosure_requires_exact_grant`, `synthetic_destination_private_data_denied`, `packet_size_exceeded`, `request_body_size_exceeded`;
+  - proposed here: `offline_network_denied` (an offline policy refuses before the mode check), `deadline_before_request`, `packet_scan_incomplete_or_blocked`, `cloud_after_assist_unknown` and `private_agent_assist_after_unknown`;
+  - the wrapper's own: `assist_brief_too_large`, `assist_source_alias_collision`, `assist_packet_size_exceeded`, `assist_packet_audit_failed`, `assist_suppressed_after_unknown`.
+- Stop (`stop`):
+  - the cancels: `cancelled`, `job_cancelled`, `request_cancelled`, `retry_wait_cancelled`;
+  - `packet_scan_failed`, an unavailable scanner, which stops on the writer's path too, so a B or C run never degrades on an infrastructure fault;
+  - the configuration codes: `destination_missing`, `assist_destination_invalid`, `private_model_thinking_unsupported`, `private_model_assist_cache_mode_required`, `private_model_assist_request_invalid`, `private_model_request_bound_invalid`, `unresolved_dispatch`, `assist_brief_not_prefix`, `assist_request_invalid`, `assist_deadline_missing`, `assist_slot_exhausted` and `assist_failure_unclassified`;
+  - every other code. This is a deliberate fail-closed departure from section 5.2's principle 5 ("no single failure ends a task"): an unexpected failure ends the stage as today (`research_request_denied`) rather than letting an assisted arm run unassisted unnoticed.
+
+After any of `transport_or_settlement_unknown`, `cloud_after_assist_unknown` or `private_agent_assist_after_unknown`, the wrapper sends no further cloud call in the job: a later touchpoint answers `assist_suppressed_after_unknown` without a request. The broker's and the ledger's own refusals stay as backstops. An invalid settled reply (bad JSON, schema or binding; a truncation after T2's retry; a refusal reported as `content_filter`) is a `reply` outcome that the pipeline rejects, and the schedule then falls back. A golden test pins the table.
+
+(10) Slots and the deadline.
+- One wrapper serves one reading stage. It makes at most one T1 call and at most two T2 calls; the second T2 call needs `retryAfterTruncation` and a first T2 reply that settled truncated (review section 5.2, principle 3). Any other call stops as `assist_slot_exhausted` without a request. A refused or skipped touchpoint has used its slot.
+- Every request carries the session's deadline, and an assist without one stops (`assist_deadline_missing`). The deadline guard (`deadlineRefuses`, finding A8) runs immediately before the call, and a refusal there falls back as `deadline_before_request`.
+- The Anthropic shape's 429 and 529 retries start inside the broker after their wait without a new deadline check. A cut there leaves the row `unknown`, which is safe through the skip. 10.b may pass the deadline to the broker so such a retry resolves `failed`.
+
+(11) The hook contract, types only, in `src/main/private-agent/research-assist-contract.ts`, which item 7(c) imports. It refines the shapes in 7(c)'s brief, decision 11, which it supersedes.
+- `ResearchAssists {firing: "local_first" | "forced_split", plan?(request, signal), synthesis?(request, signal)}`. Each returns a `ResearchAssistOutcome`, one of:
+  - `{kind: "reply", content, usage, truncated, sourceAliases?, evidenceIds?, record?}`;
+  - `{kind: "no_reply", outcome: "skipped" | "failed" | "refused", code, record?}`;
+  - `{kind: "stop", code, record?}`.
+- Both requests carry the composed brief, the units, the inventory's sources, each source's whole text (`sourceTexts`, the audit's reference), the index document and the deadline (`deadlineMs`, required: a test without a session passes Infinity).
+- The plan request adds `mandatorySourceChunks`, `extractionCallBudget` and the prior plan attempts (codes and hashes only).
+- The synthesis request adds the validated plan, the evidence object, the coverage and `retryAfterTruncation`. It carries no `evidenceText`: the wrapper renders its own evidence text, so the request carries no packet text.
+- The request is host data inside the process. Only the wrapper turns it into egress.
+
+(12) The records.
+- Each outcome carries an attempt record: {version 1, touchpoint, ordinal, retryAfterTruncation, outcome (settled, skipped, failed, refused or stopped), code, dispatched, requestBytes, reservedFeeMicrousd, usage, finish (stop, length, content_filter or other), feeMicrousd, packet}.
+  - `usage` appears on a settled attempt only: input, output, cache read, cache write, thinking where reported, and `cacheWriteReported`.
+  - `feeMicrousd` is the settled row's integer fee, recovered exactly by rounding `costUsd` × 10^6.
+  - `packet` holds the brief bytes; the unit, source and prior-attempt counts; the trim counts; each field's serialized bytes, so unique disclosed bytes can be counted (rule 2); the substitution counts; and the audit finding's kind.
+  - One call may commit up to three ledger rows (the Anthropic retries). The record describes the call, and the ledger stays the authority on rows, reservations and fees.
+- 10.b builds the stage summary's `ResearchStageCounts.assist` per touchpoint: {version 1, touchpoint, policy, fired, trigger, attempts, outcome, accepted, code, usage}.
+  - `attempts` keeps every attempt record whole.
+  - `usage` sums the settled attempts only, and is null when none settled.
+  - `calls` still counts replies (BL-20261107-0839, decision 7).
+  - E3's zero-cache-write condition reads every settled assist attempt: `cacheWriteReported` true and `cacheWriteTokens` 0. A skipped assist has no usage and is read by its outcome, never as zero writes.
+- `research-assist.ts` holds strict schemas for both records.
+
+(13) The protocol block. `researchAssistProtocol(firing)` is the canonical block of the prompts, bounds, caps, cache mode, policy, the local-first triggers (two rejected local plans; two refused syntheses), the code lists, the packet fields, the alias, substitution, audit and trim rules, and the retry. 10.b binds it into the research protocol only when an assist is configured, with these rules:
+- `researchProtocolSha256` takes an options object, since 7(c) also adds a parameter.
+- Every site that recomputes the hash passes the block: the seed loader, the session identity and the driver's freeze.
+- The ready gate parses the stage record strictly, and the stage-row guard admits it.
+
+The protocol hash of a run without an assist is unchanged by item 10. 10.a leaves 3453710315d7… as it is; 10.b leaves the no-assist value wherever 7(b)-1, 7(a)-1, 7(c) and 7(b)-2 have moved it.
+
+(14) What 10.b decides within this entry, unless it records otherwise:
+- Forced split: T1 and T2 always, in place of S3 and S6. After a refused, failed or skipped assist, or an invalid reply (for T2, after its retry), S3 or S6 runs twice, then 7(c)'s host fallback. After a T1 skip, T2 is not sent.
+- Local-first: T1 after two settled local plans the host rejected, T2 after two such syntheses. A local denial is no signal.
+- Under either policy, S3 and S6 run on the zero-fee local model. The session refuses an assist configuration whose planner or synthesiser is not a zero-fee local model: the legacy split arm's cloud planner would otherwise send its old packet after a fallback, and be refused outright after a skip.
+- 7(c)'s pipeline checks the stage signal before either host fallback, so a cancel never completes as a fallback.
+- The session refuses, before any dispatch, an assist without `cloud_help` mode and a fee cap, or on another cache mode. Its request-pool check adds the assists' worst case of nine rows: three calls, each with up to three attempts.
+- Until item 13, the harness discloses fallbacks through the stage record, summary.json and RA's columns; `reportedIssues` exists only in the desktop controller.
+- The stage record and the protocol binding; the freeze's effective assist configuration and pipeline `assist` block; the seed loader's optional block; the legacy split arm.
+
+RA adds the registry columns: per touchpoint, plus the summed assistCalls, assistCacheWriteTokens and assistCapRefusals. Loop rows take them from sample a.
+
+(15) Non-goals:
+- cloud structured output (#49, section 3: neither provider accepts the current schemas);
+- thinking-off assists;
+- the desktop toggle, badge, preview and `reportedIssues` (item 13);
+- gate signals on every arm (item 11);
+- budgets and host fallbacks (item 7(c));
+- concurrency (item 8). Assists stay serialized and at most once.
+
+Owner questions, each `Proposed` with the default this design uses:
+- Decision 6 (#59), sub-question 3: may the wrapper hard-pin the chosen provider? Default: no; it is provider-agnostic. The endpoint path selects only the request shape and the key variable (`buildCloudArm`); the model, prices and fee cap come from the run's flags. The only shape-specific code is the no-write branch. Tests cover both shapes, and E3's card names the endpoint, model and prices.
+- May T2's evidence carry the extractor's unverified notes and conflict notes? Default: no. Each quote keeps its E id, opaque source id, locator and question ids; each conflict keeps its question ids and opaque source id. Revisit after E3 if criterion 5 (planted conflicts) suffers on arms B or C.
+- The legacy split arm (`--pipeline research --arm cloud`: a cloud planner and synthesiser under the plain stage purposes, whose packets name files and hashes): switch it to the forced split, or keep it byte-identical? Default: switch it in 10.b, as BL-20261107-0839 anticipates; earlier freezes and registry rows keep it as history.
+- May model-written text in a packet (T1's gists, T2's plan text) carry source text that the audit cannot detect: a paraphrase, a verbatim copy shorter than its windows, or a T1 gist's copy from beyond the 512-byte opening (the index model reads a 20 KiB preview)? Default: accept it for public and synthetic tasks on E3's and E4's approved arms only. BL-20261107-0718, correction 6, reads E3's and E4's approval as covering their T1 and T2 packets, and that is the record's reading, not the owner's statement. Decision 12 of section 5.10 stays open. Revisit before any labelled task reaches an assist (T4, P1).
+
+Changes: Planned in 10.a:
+- docs/BUILD_LOG.md: this entry, then the `Implemented` entry.
+- src/main/private-agent/research-assist-contract.ts (new, types only).
+- src/main/private-agent/research-assist.ts (new): the builders, aliases, substitution, audit, trimming, prompts, caps, codes, slots, the hook factory `createResearchAssists`, the record schemas and the protocol block.
+- src/main/private-agent/model.ts: the mode, `requestBody`, `reservationMicrousd`, the narrowing `maxRequestBytes`, the assist refusals, `cacheWriteReported`. src/main/private-agent/anthropic.ts: the decoder's `cacheWriteReported`.
+- src/main/private-agent/research-plan.ts: `assessResearchPlanReply`'s optional `sourceAliases`.
+- tests/helpers/research-assist-fixture.ts (new): provider-faithful caching fakes for both shapes that encode the documented minimums, a capturing broker, requests from a real pipeline run with planted names and hashes, and the opaque-id fake hook for 7(c).
+- tests/unit/private-agent-research-assist.test.ts (new); tests/unit/private-agent-model-responses.test.ts and tests/unit/private-agent-model-anthropic.test.ts: the mode's exact bodies and refusals, the request-body table, zero writes and the negative controls.
+
+10.a changes no pipeline, session, driver, store, broker, producer or registry code.
+
+Evidence: Four adversarial design reviews ran on the draft of this entry, through four lenses: ledger and replay safety; downstream consumers and tests; specification fidelity; and the privacy of the packet contents. Their confirmed findings are folded into the decisions above:
+- a cancel wins over the skip code (a pause mid-T2 would otherwise complete as a fallback);
+- codes are read by error type, with the ledger's backstop treated like the broker's;
+- the cap feasibility check at construction, and the reservation stated on actual body bytes;
+- the required deadline, checked inside the call;
+- the alias-aware assessment moved into research-plan.ts, so the pipeline never imports the wrapper, and the claim scoped to ordinal 1;
+- citations limited to the packet's evidence;
+- the exact fee;
+- `cacheWriteReported`, and usage null when nothing settled;
+- per-field bytes and the reservation in each attempt record;
+- the retry's half-evidence bound;
+- `offline_network_denied` moved to the fallbacks and `packet_scan_failed` to the stops;
+- the 8 KiB brief bound dropped from T2;
+- the host-appended file names and sentences, the wider name and URL variants, hosts, stems, short digests, and URLs and paths outside quotes;
+- T2 plan text audited against whole source texts, and whole headings;
+- the host-marker refusal for the authored brief;
+- the corrected statements about `buildCloudArm`, the no-assist hash and translation.
+
+Code anchors at 2982ca7:
+- model.ts: the breakpoint switches keyed on `promptCaching !== undefined`; the constructor's mode-per-shape rule; the reservation; the decoders' `?? 0` on write counts.
+- anthropic.ts: `breakpointIndexes`; `decodeAnthropicReply`.
+- research-pipeline.ts: `call()`'s code mapping; the plan and synthesis packets.
+- research-coverage.ts: `deriveBriefUnits`; `inventoryResearchSources` and its chunk ids.
+- research-plan.ts: `assessResearchPlanReply`; `validateResearchPlanAttempts`.
+- research-index.ts: the literal cards and the 20 KiB index preview.
+- broker.ts: the denial codes and where each arises.
+- store.ts: the week-1 commit rule.
+- session.ts: the composed goal and the transfer note.
+- scripts/private-agent-run.ts and scripts/private-agent-local-screen.ts: the goal's composition, `withClaimsLedger` and `buildCloudArm`.
+
+Failures or blockers: None in recording. 10.b needs item 7(c)'s hook and budgets (a hard dependency), and item 7(b)-2 merged first (an ordering one).
+
+Limitations and non-claims: This entry decides; nothing is implemented or verified by it.
+- A deterministic zero-write test proves only what its fakes encode, the documented provider rules. The real proof is E3's live receipts. A receipt that reports writes cannot be undone: the record keeps it, and E3's eligibility rule excludes the arm.
+- Substitution and the audit catch known names, host file names, digests, URLs and paths outside quotes, and long verbatim runs of literal or source text. They cannot prove that model-written text holds no paraphrased source text, no verbatim copy shorter than its windows, or (in a T1 gist) no copy from beyond the opening. That residue is the fourth owner question.
+- Verified quotes are source text by design. The cloud sees them in T2 with source identities and digests replaced, but with other URLs and file names they quote.
+- A bare file name with no extension that no source or host text names, and a directory name, are not treated as names.
+- The authored brief is the owner's text. Source names, host file names, digests, URLs and paths in it are replaced, and everything else is sent as written.
+- T1's measured support (three of three cloud plans valid at about 22 KB) came from packets with real ids, titles and literal cards. The slim packet is unmeasured until E3.
+- Until 10.b, the wrapper has no production caller.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: 10.a's code with deterministic tests and its `Implemented` entry, after an adversarial code review; then CI green and a merge; then 10.b, after items 7(c) and 7(b)-2 merge.
+
+References: docs/PROJECT_REVIEW_2026-11-05.md section 5.1 (rules 2, 5, 6, 8 and 9), section 5.2 (principles, the stage graph, the cloud touchpoints, the cap check, Escalation, Forced split, Caching, Privacy), section 5.6 (E3) and section 5.7 items 7, 8, 10, 11 and 13; docs/HANDOFF.md "Start here"; BL-20261107-0839-assist-purpose-exception-design; BL-20261107-0842-assist-purpose-exception-implemented; BL-20261107-0809-zero-fee-failures-resolve-design (the deadline guard); BL-20261107-0859-label-keyed-diagnostics-design (hash-only stage rows); BL-20261107-0650-owner-decisions-review-items-2-5 and BL-20261107-0718-correction-owner-decisions-record (correction 6); issue #49 and `docs/ASSIST_PROVIDER_RESEARCH.md` on branch `research/assist-provider`; owner decision 6 (#59).
+
+### BL-20261113-0921-assist-core-implemented -- 2026-11-13 -- Backlog item 10, part 10.a, implemented: the assist hook contract, the slim T1 and T2 packets with the scrubber and the audit, the no-write cache mode on both cloud shapes, the codes, slots, records and protocol block, with no production caller yet
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements 10.a of BL-20261113-0920-assist-wrapper-design on `feat/10a-assist-core`, from `main` at 2982ca7. The commits are:
+- the design entry, 7c56625;
+- the code, aa2e1c9;
+- the fixes from the first three adversarial code reviews, d2ab888;
+- the scrubber rewritten after the second privacy review, with the fixes from the third round's privacy and performance reviews, f11ead2;
+- this entry.
+
+No pipeline, session, driver, store, broker, producer or registry code changes, and nothing calls the wrapper until 10.b. The hypothesis has three parts:
+- The wrapper builds T1 and T2 packets that hold none of the names, paths, URLs, hashes or literal openings of their requests, nor the file names of the host's appended text.
+- The new cache mode writes nothing under both providers' documented caching rules.
+- Every existing request body, reservation and identity is unchanged.
+
+Decisions: None beyond the design entry, except where the code reviews refined it. These refinements supersede the matching parts of the design's decisions 5, 6, 9 and 12.
+- The scrubber is its own module, research-assist-scrub.ts. Each pass replaces, in this order:
+  - source forms;
+  - URLs;
+  - paths, and in model-written text also bare file names;
+  - digests.
+
+  Passes repeat until one changes nothing, at most three, so a scrubbed string survives a second scrub unchanged.
+- Text and views.
+  - Every text field is sent as NFC, with default-ignorable code points (zero-width characters, soft hyphens) removed and U+2010 and U+2011 mapped to "-". A run of more than 30 combining marks keeps its first 30.
+  - Every pattern reads a view that keeps each UTF-16 index: full-width ASCII forms read as ASCII, and source forms are compared case-folded. The fold joins the Turkish i letters and maps a final sigma to sigma.
+  - The audit reads source forms in NFKC and the rest in that same view.
+- Source forms are found by a scanner, not by one regex of every form. At each position it looks up only the lengths of the forms that share the text's next four characters, one rolling hash each. Its cost per position therefore does not grow with the number of sources or with how long a prefix they share.
+- Boundaries.
+  - A letter or decimal digit of a name's own script bounds it, and a digit glues to any letter. A superscript or circled number is no boundary, and nothing glues to a spaceless-script letter: Han, Hiragana, Katakana, Hangul, Thai, Lao, Khmer, Myanmar, and the CJK punctuation and full-width blocks.
+  - An escape (`\n`) or a percent-encoded byte (`%20`) before a name is a boundary.
+  - A name with an extension takes the decimal digits glued to it on either side. Verified quotes arrive in NFKC, where footnote marks and circled numbers are plain digits. Every match takes the digits glued after it, so an alias is never followed by a digit (`S1` then `1` would read `S11`).
+- The forms.
+  - Everywhere:
+    - each source's id and path, with their `%2F` and percent-decoded forms;
+    - a URL's forms with and without the scheme and the trailing slash, percent-decoded and with a Unicode host, but never its query or fragment;
+    - a dotted host, with and without `www.`;
+    - the last two and three path segments;
+    - the file name;
+    - a file named in a URL's query or fragment.
+  - In model-written text only (T1 gists, T2 plan text), also:
+    - a distinctive stem (at least six code points, holding a digit, `_` or `-`);
+    - a single-label host;
+    - an opaque segment of at least 16 mixed letters and digits;
+    - a distinctive query or fragment name of eight or more with a letter.
+  - The design's "every path suffix" and its query variants are dropped. Instead:
+    - A matched name takes up to four extensions after it, the longest that nothing glues to, and a folder prefix glued before it.
+    - A matched host, URL or path takes the path, query or fragment after it, through an apostrophe inside it.
+  - A form that two sources share becomes `[source]`. File names and paths in the text appended after the authored brief become `[file]`.
+- The generic rules apply in every field, verified quotes included. The design kept them outside quotes, but T2's never-sees list names file names without qualification.
+  - Spaceless-script letters belong to a URL, path or file name only where a connector (`/ \ ? # & = ; , : . + @ ~ % _ -`) touches them. Prose glued after a path stays (`/Acme里有` keeps `里有`), and a CJK list stays (`中国/日本/韩国`).
+  - URLs become `[url]`:
+    - any scheme with `//`;
+    - `mailto`, `tel`, `sms`, `callto`, `data`, `file`, `urn`, `doi`, `magnet`, `geo` and `skype` without slashes, each only in its own shape (`data:clean` stays);
+    - a protocol-relative `//host` after a space, quote, bracket, `=`, `:`, `,` or `;`;
+    - a `www.` host, its labels ASCII or spaceless-script letters;
+    - a scheme-less `host.tld/path` over a list of top-level domains, without the two-letter labels that are usually file extensions (`js`, `py` and others);
+    - `localhost`, a bracketed IPv6 address, or an IPv4 address, each with a port or a path; a bare network prefix (`10.0.0.0/8`) stays.
+  - Paths become `[file]`:
+    - a quoted path with spaces, but only one that starts like a path (`/`, `~`, a drive, `%VAR%`, `./`, `$VAR/`);
+    - a drive path with either slash;
+    - a UNC path, a `%VAR%` path and a home path;
+    - a rooted path of three or more segments, or one with an extension under either slash. Empty segments are allowed. Spaceless-script letters glued before it go with it when its first segment starts with an ASCII letter or digit (`资料/2024/report.pdf`).
+    - a relative path with a folder and an extension. Its run is taken from its start and cut after the longest extension, or taken whole when a separator follows that extension (`src/com.example.app/ui/main`).
+  - An extension is two to sixteen letters and digits with a letter, neither a capitalized word (`h.It`, `md.Then`) nor a decimal (`2.5kg`).
+  - In model-written text, a bare file name with an allowlisted extension, lowercase or in capitals, becomes `[file]`, whatever the script or brackets of its name (`Отчёт.docx`, `plan(1).docx`).
+  - Each replacement keeps the sentence punctuation and the unbalanced brackets around it.
+- Digests. A hexadecimal run becomes `[digest]` in these cases:
+  - It holds an 8-character piece of a digest the request holds or implies, in a run or in groups. Groups have two or more characters, start at a word's start, and are split by `-`, `:`, `.`, `_`, an en dash or white space.
+  - It is a contiguous run of 64 or more with a letter.
+  - It is groups of eight or more that total 64 with a letter.
+
+  So π, a list of years or a table of codes is never a digest.
+- Time. Every scan is linear in its text:
+  - Each generic pattern starts only where a run of its characters starts.
+  - A relative path's run is atomic and cut in one pass.
+  - The scanner's tails are bounded, and trailing brackets are counted once.
+  - Headings are indexed by their first 32 code points.
+
+  T1 checks its size with every gist empty before it scrubs or audits a gist. Its final audit does not repeat the gists' copy checks.
+- The audit.
+  - It reads every string of the finished packet except the fixed authoritative schema, and the model-written fields again with the model-text forms. A json-schema.org source no longer fails T1.
+  - Its copy check compares raw model-written text with the references in NFKC, case-folded, with only hexadecimal runs of 16 or more masked. The references are the literal openings for T1 and the whole source texts for T2. So a name, URL or masked run beside a copied passage cannot hide it.
+  - The design's 32-code-point window of the appended host text is dropped, and `auditFinding` loses `host_text`. The appended text is SOAR's own instructions. Once its file names and paths are replaced it holds nothing of the owner's, and the window refused plans that only restated the deliverable.
+- Requests.
+  - A real id or path that reads as an opaque id or holds a placeholder refuses the touchpoint (`assist_source_alias_collision`).
+  - A source text may be `undefined` for a source with no readable text, which is what researchSourceText answers for a PDF, a .docx or a binary file.
+  - T2 rebuilds the plan from its schema's own fields.
+  - Locators and E, Q and U ids are pattern-checked, and the request's counts must be safe integers. A request that fails is invalid and stops.
+  - A brief whose double cannot fit the T2 body is refused before any scan.
+- T1 gists are cut back to whitespace or to a spaceless-script character, so a cut never turns `S12` into `S1` or splits a placeholder.
+- Slots and the model.
+  - A cancel wins over a used slot.
+  - The wrapper refuses a model whose thinking is not medium.
+  - The assist one-shot refuses empty or null text and a thinking override (`private_model_assist_request_invalid`).
+- `cacheWriteReported` accepts given TTL parts only as a plain object of the provider's known keys, each an integer or null, summing to the count. The helper lives in anthropic.ts, so model.ts and anthropic.ts form no runtime import cycle.
+- `assessResearchPlanReply`'s `sourceAliases` keys must be opaque `S{n}` ids, and its values distinct known sources.
+- The stage record's schema enforces its own rules:
+  - only attempts of its own touchpoint, in order;
+  - at most one T1 attempt;
+  - a fired record has its trigger and last outcome;
+  - only a settled reply is accepted;
+  - `usage` is the settled attempts' sum, and null when none settled.
+- The protocol block also binds the scrub policy (version 3) with every pattern, the evidence template and the coverage keys.
+
+Changes:
+- src/main/private-agent/research-assist-contract.ts (new, types only);
+- src/main/private-agent/research-assist.ts (new);
+- src/main/private-agent/research-assist-scrub.ts (new): the scanner, the generic rules, digests, the audit's finder, the copy and heading checks, and the gist cut;
+- src/main/private-agent/model.ts: the mode, `requestBody`, `reservationMicrousd`, the narrowing body bound, the assist refusals, `cacheWriteReported`;
+- src/main/private-agent/anthropic.ts: `cacheWritePartsAgree` and the decoder's `cacheWriteReported`;
+- src/main/private-agent/research-plan.ts: `sourceAliases`;
+- tests/helpers/research-assist-fixture.ts (new): caching fakes, the capturing broker, planted requests from a real pipeline run, `frozen`, `fakeResearchAssists`;
+- tests/unit/private-agent-research-assist.test.ts and tests/unit/private-agent-research-assist-scrub.test.ts (new);
+- tests/unit/private-agent-model-responses.test.ts and tests/unit/private-agent-model-anthropic.test.ts.
+
+Evidence: All runs are local, on Node 22.22.2 and pnpm 10.12.4, with the code of f11ead2.
+- `pnpm typecheck` passes.
+- The changed tests pass: 204 of 204 in five files. The command is `pnpm exec vitest run tests/unit/private-agent-research-assist-scrub.test.ts tests/unit/private-agent-research-assist.test.ts tests/unit/private-agent-model-responses.test.ts tests/unit/private-agent-model-anthropic.test.ts tests/unit/private-agent-research-plan-contract.test.ts`.
+  - The responses tests still pin 15 configurations' request-body digests and fees as computed at 2982ca7.
+  - A test pins the default research protocol hash, 3453710315d7226ea4d6195ec7401d000f86c5b0d9afa9839a801d5c6d391262, unchanged.
+- `pnpm exec vitest run`, the whole suite:
+  - Files: 166 passed, 1 failed, 13 skipped (180).
+  - Tests: 2,783 passed, 1 failed, 84 skipped (2,868).
+  - The failure is a 5 s timeout under the suite's load in tests/unit/patch-routing-comparison.test.ts, which imports none of this code. Run alone, that file and the two others that timed out in an earlier loaded run pass: 147 tests in three files.
+- `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass with this entry.
+- Local probe scripts, which are not committed:
+  - The second privacy review's probes rerun: every confirmed case is replaced or refused. What survives is listed below as a limitation.
+  - The third round's ten privacy probes: 118 cases go out clean. Four do not:
+    - two survivals by design: a source's stem in the owner's brief, and its URL's fragment name inside a verified quote;
+    - two expected literal-text refusals;
+    - one refusal of a probe request whose units no longer matched its brief.
+  - The third round's performance probes:
+    - The reviewer's two fuzzers find 0 failures: every scrubbed string passes the audit, and a second scrub changes nothing.
+    - 1,000 sources under one folder scrub a 12 KB brief in 2 ms and a 48 KB brief in 5 ms. A quote holding a run of zeros, against 1,000 zero-padded source names, scrubs in 0.1 to 0.8 ms.
+    - 8,000 trailing brackets trim in 3 ms.
+    - `copiesText` takes 2 ms on 64,000 reordered combining marks, which one raw normalization takes 4.3 s to process.
+    - T1 at 1,000 sources is refused as too large in 204 ms, and at 250 sources builds in 405 ms.
+    - T2 builds in 1.9 s with 1,000 URL sources, 4 MB of source text, 480 quotes and 4,000 chunks.
+  - A benchmark of 32 crafted inputs, best of three: from 32,000 to 128,000 characters the time grows by a factor of 2.2 to 4.7, which is linear, and the slowest takes 260 ms at 128,000.
+
+Failures or blockers: The first round of code review confirmed these leaks and bugs at aa2e1c9, all fixed at d2ab888:
+- An absolute, home or Windows path survived outside quotes.
+- A URL lost its tail after a digest, a bracket or a quote had cut it short.
+- A scheme-less host path and an IPv4 address survived.
+- A name glued to other text, or given another extension, survived. So did a name with a dotted capital İ, because simple case folding cannot match it.
+- Copies that were uppercased, or that named a file, passed the literal audit.
+- Zero-width characters, soft hyphens and Unicode hyphens hid a name.
+- A known digest survived as a 0x form or as a later part.
+- File paths and URLs inside quotes survived.
+- An extra plan field rode along unaudited.
+- A root URL's host lost its word boundary.
+- A gist cut could turn `S12` into `S1`.
+- A json-schema.org source made every T1 fail.
+- A crafted brief made the URL scan quadratic: 28 s at 128 KiB.
+- The stage-record schema accepted records its own docs rule out.
+- A cancel on a used slot reported `assist_slot_exhausted`.
+- Thinking-off assist models were accepted.
+- `cacheWriteReported` accepted unknown or array TTL parts.
+- The assist one-shot accepted empty text and a thinking override.
+- An alias map could key a real id or name one source twice.
+
+A second privacy review of d2ab888 confirmed the following. Patching that matcher further would not converge, so it was rewritten as research-assist-scrub.ts:
+- High: names, hosts, URLs and paths glued to Chinese, Japanese or Korean text survived in every field, because the word boundary read those letters as word characters.
+- High: the copy audit masked URLs, so a copied passage glued to a replaced source URL passed.
+- Availability: one case-insensitive regex of every form ran synchronously on the main process. It took 30 s on 40 web sources with 8-segment URLs, and over 6 minutes with 60 segments and 1.5 KB queries.
+- Leftovers after a source was replaced: its path, `;` parameters and `,` tails (`S1/private/hr-plan-2025`, `S1;jsessionid=…`), and a folder prefix glued before a name.
+- These survived:
+  - `C:/` drive paths, `file:/`, `//` and `%VAR%\` paths;
+  - `mailto:`, `tel:` and `data:` URIs;
+  - quoted paths with spaces;
+  - `%2F`-encoded source paths;
+  - bare file names in model text;
+  - stems of host-appended files;
+  - digest pieces and digests split into groups;
+  - capital and dotless Turkish i variants;
+  - a name after a literal `\n` escape or a `%20` byte.
+- Some packet strings built from the request were not audited.
+- False positives:
+  - `Node.js/Deno`, `U.S./U.K.`, `e.g./i.e.`, IPA transcriptions and version numbers were replaced as paths or URLs;
+  - a scheme-less URL in CJK text swallowed the paragraph;
+  - short source path suffixes matched inside words (`Then/usually`);
+  - a single-label source host was replaced in the owner's brief;
+  - CJK gists were emptied whenever gists had to be cut;
+  - the host-text window refused ordinary restatements of the deliverable.
+
+In the third round, the second review's probes were rerun on the rewrite, a crafted-input benchmark was added, and the rewrite had two more adversarial reviews: one privacy review and one performance and correctness review. All of the following are fixed in f11ead2.
+- From the probes and the benchmark:
+  - An apostrophe inside a URL or fragment cut it short (`/hr/'layoff-plan-2025'`).
+  - These survived: `doi:`, `localhost:8080/path`, `[fd00::1]:8080/path`, a one-segment rooted path with an extension, and a digit-led extension (`.7z`).
+  - A name followed by "." and CJK text read that text as an extension.
+  - The relative-path, hex-group and bare-file-name patterns, and the name tail, were quadratic on crafted text: 2 to 9 s at 32,000 characters.
+- Privacy, high:
+  - Paths, URL paths, query values and internationalized hosts written in spaceless scripts were not matched at all (`C:\用户\张三\…\合并计划.docx`, `https://内网.acme.example/…`, `?employee=张三&…`).
+  - Bare file names with a non-ASCII letter, a bracket or a comma before the extension survived (`Отчёт.docx`, `merger-plan(1).docx`), as did relative paths whose last segment had no ASCII letter.
+- Privacy, medium:
+  - A source name glued to an NFKC footnote digit or circled number, or to a Hebrew or Arabic prefix letter, survived in quotes and the brief.
+  - These survived: root-relative Windows paths, paths with empty segments, and protocol-relative URLs after `=` or `:`.
+  - A long numeric tail after a name made the scanner skip it.
+  - Hosts without `www.`, and files named in a URL's query or fragment, were never forms.
+  - A known digest written as byte pairs or as dotted groups survived.
+- Privacy, low:
+  - An apostrophe-led fragment after a source URL survived.
+  - A Greek final sigma did not fold.
+  - A literal escape before a bare file name hid it.
+  - A source with no readable text made T2 stop as an invalid request.
+- Performance:
+  - The scanner cost bucket size times shared prefix length per position: 18 s per scrub for 1,000 sources under a 120-dash folder, 589 ms for 1,000 deep URLs on one host.
+  - `trimToken` was quadratic in trailing brackets: 15 s at 48,000.
+  - Normalizing reordered combining marks was quadratic: 10 s at 256 KB of source text.
+  - The curly-quote path rule overlapped its own attempts.
+  - T1 scrubbed and audited every gist before finding it could never fit: 6 s at 4,096 sources.
+  - `fold`, `holdsHeading` and `cutWhole` cost far more per character than they needed to.
+- Correctness:
+  - A replacement left a path remainder after itself (`[file]/c/d`) that the audit then refused: a self-inflicted refusal, and a scrub that a second scrub changed.
+  - A `/` after a non-ASCII letter started a rooted path (`Москва[file]`).
+  - The quoted-path rule replaced whole quotations.
+  - Decimals and capitalized words passed as extensions.
+  - Decimal tables, years and π were replaced as 64-character digests.
+  - Full-width separators got a Japanese brief refused instead of scrubbed.
+
+The CI result is not yet known at this entry.
+
+Limitations and non-claims: Deterministic tests and local probes on fixtures only. No SOAR model request, endpoint, Docker container or paid call ran.
+- The zero-write tests prove only the caching rules the fakes encode. E3's live receipts are the proof, and `cacheWriteReported` is what lets E3 tell a reported zero from a missing field.
+- The three new files under src/main/private-agent change the headless harness's source-freeze digest, because `localScreenSourceFreeze()` hashes every `.ts` file there. No owner loop or E-run may span this merge, and an operator recomputes `--runtime-sha256` after it.
+- Out of the audit's reach, and the subject of the design's fourth owner question:
+  - paraphrase, and near-copies, placeholders interleaved every few words included;
+  - verbatim copies shorter than the windows;
+  - a T1 gist's copy from beyond the 512-byte opening;
+  - homoglyphs and whitespace-split names;
+  - names under four code points;
+  - a bare extension-less name that is not distinctive (`README`), and a directory name;
+  - an extension-less relative path, or a single-label host with a path, that no source names (`intranet/hr/plan-2025`);
+  - a path or URL with spaces outside quotes, and a quoted one that does not start like a path;
+  - a scheme-less internationalized host without `www.`, and ideographic full stops used as host dots;
+  - length-changing case folds (`ß` and `SS`), and a decomposed dotted i;
+  - base64 or separated non-hexadecimal hashes, and a changed hash whose every 8-character piece is altered.
+- A hexadecimal hash the request does not hold or imply is content, not a host digest, and stays (a commit id quoted from a source).
+- A source's stem, or the fragment name of its URL, is a word in the owner's brief and in verified quotes, and stays there by design.
+- Over-matching:
+  - `Socket.io/WebSocket` becomes `[url]`, and `/r/AskReddit/` and `Q:/A:` become `[file]`.
+  - Spaceless-script words glued before a rooted path go with it (`文件在/Users/…`). So do those starting a relative path, or a bare file name in model text.
+  - A source named after a topic word (`covid-19.md`, `follow-up.md`), or with a single-label host (`intranet`), turns that word into its alias in model-written text.
+  - A URL glued after a word takes the word's ASCII tail with it (`véasehttps://…` becomes `vé[url]`).
+  - A footnote digit glued to a file name goes with it.
+- Fail-closed refusals, not leaks:
+  - A source name written with ligatures or other compatibility characters that only NFKC unfolds is found by the audit, not scrubbed, so the touchpoint falls back.
+  - So does a quote that ends in a bare drive root (`C:\ `), whose backslash the evidence text doubles.
+- `dispatched` is inferred from codes. After an Anthropic 429 or 529 retry whose second commit a policy change refuses, the record says `dispatched: false` although the first attempt was sent. The ledger is the authority on rows.
+- The Anthropic retry starts after its wait inside the broker without a deadline check. A cut there leaves the row `unknown` (a skip).
+- The pipeline's own `call()` still maps any non-broker error to `request_failed`; 10.b's wiring uses the wrapper's typed codes instead.
+- Nothing calls the wrapper until 10.b, so none of this runs in a session yet.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green and a merge, before item 7(c), which imports the contract. Then 10.b, after 7(c) and 7(b)-2 merge.
+
+References: BL-20261113-0920-assist-wrapper-design; BL-20261107-0839-assist-purpose-exception-design; BL-20261107-0842-assist-purpose-exception-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.2 and section 5.7 item 10; issue #49.
+
+### BL-20261113-0922-correction-assist-core-review -- 2026-11-13 -- Correction: the assist core after the merge-train review of #79, with glued hosts and file names fixed, scrub policy version 4, the assist protocol hashes pinned, and the limits the Implemented entry left out
+
+Status: `Implemented`
+
+Scope or hypothesis: This records the fixes for the independent merge-train review of pull request #79 at 67e3374, and it corrects BL-20261113-0921-assist-core-implemented without editing that entry. The fixes are in commit 8090f65 on `feat/10a-assist-core`. research-assist-contract.ts and research-plan.ts are unchanged.
+
+Decisions:
+- F3:
+  - Text glued before a source host, or before a scheme-less URL form of the source, now makes another host or a credential. That text is host labels, userinfo or a word.
+  - The whole token, with any `//` and scheme before it, becomes `[url]` and is counted as a URL. A lone `www.` keeps the alias.
+  - A host match is no longer refused for what is glued on its left, which supersedes the left half of 0921's "a host is bounded".
+  - A scheme-less URL with `user:password@` before a dotted host is a credential, and becomes `[url]` with or without a path even when no source is involved.
+- F4: A file name glued to a source's file name through `-`, `_` or `.`, on either side, is another file. The whole run, with its folder prefix and any root slash, becomes `[file]`, never the source's alias with the rest left around it. Extension-less stems keep the old rule (see the limits).
+- F5:
+  - T1 stops as `assist_request_invalid` unless a prior attempt's `ordinal` and `omittedErrorCount` are safe integers and `truncated` is a boolean.
+  - The ordinal is not pinned to the wrapper's two slots, because 7(c) may number more attempts.
+- T2 refuses a request as `assist_request_invalid` in two cases: its coverage marks a source readable but the source's text is missing, or its coverage lists other sources than the request.
+- The scrub policy is at version 4, with the new glue rules. The assist protocol block's hashes are now pinned by a test:
+  - `forced_split`: 127a56d3f9a29ec2f4b13c208b7d60217075a61dce60e61bd113807164028411;
+  - `local_first`: fd294f1e6d97eb9d130f307dbc4ebee99d7484c90c81b7c3290d6059d4504b75.
+- On the orchestrator's owner question 1, the default holds and a test now pins it: when the first packet's evidence cannot be halved, the T2 retry is refused locally as `assist_packet_size_exceeded` with no request.
+- F1, for cross-lane merges: the fixture now reads a local request of one or more canonical JSON lines. The assist test no longer pins the default research protocol hash, which other tests already pin.
+
+Changes:
+- src/main/private-agent/research-assist-scrub.ts;
+- src/main/private-agent/research-assist.ts;
+- tests/helpers/research-assist-fixture.ts;
+- tests/unit/private-agent-research-assist.test.ts, tests/unit/private-agent-research-assist-scrub.test.ts and tests/unit/private-agent-model-anthropic.test.ts;
+- docs/BUILD_LOG.md (this entry).
+
+Evidence: The runs are local, on Node 22.22.2 and pnpm 10.12.4, at 8090f65.
+- `pnpm typecheck` passes.
+- The tests:
+  - The four test files this PR changes pass 181 of 181: 23 scrubber, 60 assist, 47 Anthropic and 51 Responses.
+  - The unchanged plan-contract file passes 38 of 38.
+  - 0921's "204 of 204 in five files" counted that unchanged file. The right count then was 166 in four changed files, plus 38.
+- What the new tests show:
+  - Scrubber:
+    - The review's host and file-name inputs become `[url]` or `[file]` in both scopes, survive a second scrub, and pass the audit.
+    - The source's own forms keep their alias.
+    - A form two sources share is `[source]`.
+    - A ligature on either side is found only by the audit's NFKC view.
+  - Wrapper:
+    - A ligature in the authored brief refuses T1 and T2 as `source_identity`, and so does a ligature stem in a gist or in a plan question.
+    - A quote ending in `C:\` refuses T2 as `url_or_path`.
+    - An authored brief with a glued host and a credential goes out as `[url]` twice, and neither request body holds the labels or the credential.
+    - F5's malformed attempts, an empty T2, and a T2 coverage mismatch stop as invalid requests.
+    - A heading of 32 to 63 code points copied into plan text refuses T2 as `literal_text`.
+    - A one-quote T2's truncation retry is refused with no request.
+    - The attempt record's dispatch and ordinal rules hold.
+    - `private_model_response_invalid` stops with `dispatched` true.
+    - An unknown Anthropic cache-write key whose value sums to the count is not reported.
+  - A local mutation check (not committed) catches each of these 16 single-line mutants:
+    - the final audit's text loop or model loop removed;
+    - the audit reading NFC, or building its forms in NFC;
+    - no host lead, no name run, no credential rule;
+    - no prior-attempt checks, no readable-text check, no heading check, no empty-T2 rule;
+    - each of the three attempt-record rules removed;
+    - `private_model_response_invalid` not counted as dispatched;
+    - the unknown cache-write key rule removed.
+  - What they do not show: any live provider's behaviour, or that the generic rules cover every shape (see the limits).
+- Cross-lane: 8090f65 was merged, in a throwaway worktree, with #69 (7b.1) and separately with #76 (7a.1, which holds #69). Both times the two assist test files pass 83 of 83 and typecheck passes. The only conflict is docs/BUILD_LOG.md.
+- The whole suite (`pnpm exec vitest run`): 167 files passed and 13 skipped (180); 2,799 tests passed, 84 skipped and 0 failed (2,883).
+- Local probes:
+  - The third round's privacy probes send 118 cases clean, as before.
+  - Two fuzzers find 0 failures.
+  - 32 crafted inputs, best of three: from 32,000 to 128,000 characters the time grows by 2.5 to 9.2 times. The three highest ratios came from runs of 4 to 20 ms. Those three, and three others, double exactly from 128,000 to 512,000 characters; the slowest, CJK text, takes 519 ms at 512,000.
+  - The new credential rule first cost CJK text a 64-character backtrack at every position. Its user part is now ASCII only, and CJK text at 128,000 characters takes 129 ms.
+- `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass.
+
+Failures or blockers: The review used three lenses and 15 agents, with two skeptics on each major finding. It confirmed six findings at 67e3374:
+- F1, major, test-only: with #69 or #76 merged, 41 of the 50 assist tests failed, because the fixture parsed one JSON line and the test pinned the default protocol hash. Fixed.
+- F3, major: labels, userinfo or a word glued before a source's host were sent as written (`payroll-2025.intranet.S1`, `alice:hunter2@S1`, `evil-S1`), and the audit passed them. Fixed.
+- F4, major per the reviewer and minor per both skeptics: a file name ending in a source's file name kept its prefix and the source's label (`secret-merger-S2`, `merger/private-S2`). Fixed.
+- F2, major or minor: no test failed when the final audit's loops or its NFKC view were removed. Tests added.
+- F5, minor: three fields of a prior attempt reached the packet unchecked. Fixed.
+- F6, minor: 0921's limits omitted forms that are sent as written. They are listed below.
+- Minors that had no skeptic:
+  - These had no tests: the heading check, the `[source]` merge, three attempt-record rules, the empty-T2 rule and the unknown cache-write key rule. All are tested now.
+  - The T2 retry's local refusal was unstated. It is now stated, as the default of owner question 1.
+- Nits:
+  - The protocol hash was compared only with itself. It is pinned now.
+  - `private_model_response_invalid`'s dispatch was untested. It is tested now.
+  - 0921's test count is corrected above.
+  - A missing source text dropped the copy check for that source. T2 now refuses when coverage says the source was readable; otherwise this is a limit.
+
+Limitations and non-claims: These add to 0921's limits. Each form below is sent as written in every field unless the owner's answer to owner question 2 asks for rules; the default is to state them as limits now, for the public and synthetic arms only.
+- A scheme-less dotted host with no path, with or without a port (`wiki.acme-merger.internal`), unless a source names it.
+- A bare IPv4 address. 0921 listed IPv4 addresses as fixed at d2ab888, but f11ead2 narrowed the rule to an address with a port or a path, and 0921 did not say so.
+- An scp-style target, and any rooted path directly after a colon. With a password, `user:pw@10.2.3.4:/srv/data` sends `[url]:/srv/data`. Without one, `user@10.2.3.4:/srv/data` goes out whole.
+- A bare e-mail address with no password (`alice@acme-merger.example`), unless its domain is a source's host.
+- A rooted path of one or two segments with no extension (`/Users/alice`, `/home/bob`, `/etc/passwd`).
+- An extension-less stem glued to other text through `-`, `_` or `.` keeps that text in model-written text (`pre-S1`, `S1-v2`).
+- For a source with no readable text, plan text cannot be checked for copies of it, since there is no text.
+- `Socket.io/WebSocket` and `Q:/A:` still over-match, as 0921 says.
+- No SOAR model request, endpoint, Docker container or paid call ran.
+- The two changed source files are under src/main/private-agent, so the harness source-freeze digest changes again. No owner loop or E-run may span #79's merge.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The orchestrator's delta review of #79 at its new head, then train 1 or train 2.
+- 10.b may wire the assist's dispatch only once no review finding is open. With these fixes, it waits only for 7(c) and 7(b)-2.
+
+References: BL-20261113-0921-assist-core-implemented; BL-20261113-0920-assist-wrapper-design (its fourth owner question); pull requests #79, #69 and #76.
+
+### BL-20261113-0923-correction-assist-core-delta -- 2026-11-13 -- Correction: the assist core after the delta review of #79 at 4aeac37, with the R1 regression and four more fixes, scrub policy still version 4, and the remaining gaps stated with their bounds
+
+Status: `Implemented`
+
+Scope or hypothesis: This records the fixes for the delta review of pull request #79 at 4aeac37 (67e3374..4aeac37). It corrects BL-20261113-0922-correction-assist-core-review and BL-20261113-0921-assist-core-implemented without editing either. The fixes are in commit 6d14ac4 on `feat/10a-assist-core`, and the following are unchanged:
+- the scrub policy, still at version 4;
+- both pinned assist protocol hashes: `forced_split` 127a56d3f9a29ec2f4b13c208b7d60217075a61dce60e61bd113807164028411, `local_first` fd294f1e6d97eb9d130f307dbc4ebee99d7484c90c81b7c3290d6059d4504b75;
+- research-assist-contract.ts, byte-identical (sha256 bced24dfefe448eb9dd57abd9d84bc9e7b8fac7d8d3fb5637630dd76f5d967a0), and research-plan.ts.
+
+Decisions:
+- R1, a regression from 8090f65, is fixed.
+  - 8090f65 let a name match take the root slash of a rooted path, and that also took the second slash of `//`. A URL on another host that ends in a source's path or file name then lost a slash, and the URL rule no longer applied:
+    - `see https://other.test/reports/annual-2025.html now` went out as `see https:/S2 now`;
+    - `//cdn.other.test/…` went out as `/S2`, and `s3://bucket/corpus/alpha-field-notes.md` as `s3:/S1`.
+  - Whatever followed the name, query and fragment included, went out in clear text, and the audit passed it: `https:/S1?token=sk_live_abcdef`, `https:/S1#Layoff-List-Q3`, `https:/S1/private/acme-merger`. At 67e3374 each was `[url]`.
+  - Now the root slash is taken only when no `/` stands before it, so each of these is `[url]` again.
+  - The guard covers forward slashes only. The review's one-line guard also excluded a backslash, and that sent text 4aeac37 hid: after a leading `\\`, 4aeac37 left a single backslash, which made the rest a rooted path with an extension. A UNC path therefore keeps 4aeac37's rule: `\\fileserver\share\old-alpha-field-notes.md` gives `\[file]`, a residue.
+  - The same leak had a file-name variant, present since 8090f65, that the one-line guard does not close.
+    - A glued file name (F4) right after `//` became `[file]`. The protocol-relative URL rule needs a letter or digit after `//`, so `//cdn.other.test/x/q3-report.html?token=abc` went out as `/[file]?token=abc` at 4aeac37.
+    - Such a run now keeps its whole span but takes the source's alias, so the URL rule takes the URL whole, as `[url]`.
+- G3 is fixed. A form that a URL source and a local copy share keeps the URL form's host lead. With both sources present, `alice:hunter2@example.org/report.html` is `[url]`, not `alice:hunter2@[source]`.
+- O2 is fixed. The run of a glued file name gives back a trailing `-`, `_` or `.`, so a sentence's full stop stays: `see alpha-field-notes.md-secret. Next` gives `see [file]. Next`. The policy's `glued` sentence stays accurate.
+- V1 is fixed. T2 now compares each coverage source's id with the request's source at the same position, not only the counts. 0922's "or its coverage lists other sources than the request" was false at 4aeac37 and is true now.
+- P1 is fixed.
+  - The relative-path rule was quadratic on Han text joined by `,`, `:` or `;`, full-width or ASCII, with no `。`, `、`, space or newline. "文件在这里，" repeated took 26, 100, 403 and 1,606 ms at 2,000, 4,000, 8,000 and 16,000 characters, about 9 s for one T2 packet at the bounds. So 0921's "Every scan is linear in its text" was false for that shape.
+  - The three scans of the relative run now use a walk instead of matchAll. When no run matches at a start, it looks for the next start after the path characters read from that one. The pattern source is unchanged, so the hashes stay.
+
+Changes:
+- src/main/private-agent/research-assist-scrub.ts;
+- src/main/private-agent/research-assist.ts;
+- tests/unit/private-agent-research-assist-scrub.test.ts and tests/unit/private-agent-research-assist.test.ts;
+- docs/BUILD_LOG.md (this entry).
+
+Evidence: The runs are local, on Node 22.22.2 and pnpm 10.12.4, at 6d14ac4.
+- `pnpm typecheck` passes.
+- The tests:
+  - The four test files this PR changes pass 184 of 184: 25 scrubber, 61 assist, 47 Anthropic and 51 Responses.
+  - The unchanged plan-contract file passes 38 of 38.
+- What the new tests show:
+  - In both scopes and through a second scrub, each of these becomes `[url]` inside `see … now`:
+    - `https://other.test/reports/annual-2025.html` and `//cdn.other.test/reports/annual-2025.html`;
+    - `https://other.test/x/old-alpha-field-notes.md`;
+    - `https://hr.acme-merger.test/alpha-field-notes.md` followed by `?token=sk_live_abcdef`, `#Layoff-List-Q3` or `/private/acme-merger`;
+    - `s3://bucket/corpus/alpha-field-notes.md` and `//cdn.other.test/x/old-alpha-field-notes.md?token=abc`;
+    - `//cdn.other.test/alpha-field-notes.md-v2#Layoff-List-Q3` and `http://example.org/reports/annual-2025.html?x=1`.
+  - The first of those counts one URL.
+  - `/tmp/alpha-field-notes.md` still gives `S1`.
+  - End to end, a brief holding such a URL with a query sends `[url]`, and neither request body holds the query.
+  - The tests also pin G3's pair, O2's full stop, V1's same-length cases (one id replaced, the order reversed), and the Han-comma shapes in the linear-time test.
+  - New optional tests pin `-` before a name with no word before it, the host-lead walk's floor, and the numeric checks on a prior attempt's `ordinal` and `omittedErrorCount`.
+- A local mutation check catches each of these 10 single-line mutants:
+  - R1's guard removed;
+  - G3's merged host lead lost;
+  - O2's trim removed;
+  - V1's ids not compared;
+  - P1's walk replaced by matchAll (the linear-time test then ran 90 s and failed);
+  - nameRunStart without its word check;
+  - the host-lead walk ignoring its floor;
+  - a prior attempt's `ordinal` checked by `typeof` only;
+  - `omittedErrorCount` accepted as any non-negative number;
+  - the alias rule after `//` removed.
+- The P1 differential (local) compares matchAll(RELATIVE_RUN) with the walk on 600,000 random strings. Each string was compared raw and in the wide view, so 1,200,000 views in all, and 0 differ (by index and text):
+  - 300,000 strings use the review's alphabet: Han, ASCII letters, digits, `/ \ . , : ; - _`, the full-width `，：；。、`, space and newline. 284,547 of their views hold at least one run.
+  - 300,000 strings use a wider alphabet that adds quotes, brackets, `~ % $ @ # ? = & + !`, astral Han, kana, Hangul, Thai, full-width letters and escapes. 293,182 of their views hold at least one run.
+- The Han-comma shapes now take 15 ms at 16,000 characters and 50 to 62 ms at 64,000, for each of `，`, `,`, `：` and `;`.
+- An output differential against 4aeac37 (local) ran 200,000 token soups of source names, URL pieces, separators, words and CJK, in both scopes.
+  - 4,756 outputs differ, and 109 of them send a word that 4aeac37 hid.
+  - Each of those 109 sends the same word at 67e3374. 4aeac37 hid it only because R1's broken URL read as one relative path from the start of its run: `token，s3://mirror/reports/annual-2025.html…` sends `token，[url]`, as 67e3374 does.
+- Local probes: the third round's privacy probes send 118 cases clean, after a probe helper was made to rename a source in its coverage too, as V1 requires. Two fuzzers find 0 failures.
+- The whole suite (`pnpm exec vitest run`): Three runs while other sessions loaded the machine. The third gave files 166 passed, 1 failed and 13 skipped (180), and tests 2,801 passed, 84 skipped and 1 failed (2,886). Its failure is a 5 s timeout in tests/unit/patch-routing-comparison.test.ts. Two earlier runs, at load averages of 110 to 170, timed out 4 and 12 tests. Every failure in the three runs is a timeout, in seven files that import none of this code (patch-routing-comparison, hybrid-simulation-change-review, local-change-review, local-repository-investigator, inspect-git-changes, private-agent-observations and private-agent-sandbox-capture), and run alone those files pass: 137 passed and 1 skipped in five files, and 44 passed and 2 skipped in three. 8090f65, which this push changes only in the files above, passed the whole suite with 0 failures.
+- `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass.
+
+Failures or blockers:
+- The delta review used three lenses, with two skeptics on each major finding. It found R1, a major regression from 8090f65 that both skeptics confirmed, and G3, O2, V1 and P1. All five are fixed above.
+- It also found the gaps stated below.
+
+Limitations and non-claims: Each item below has its bound.
+- L1. Text glued directly after a source's whole path or URL form goes out beside the alias, because those forms have no right boundary. The same happened at 67e3374.
+  - `see input/corpus/alpha-field-notes.md-secret now` gives `see S1-secret now`.
+  - With a source `https://github.com/acme/public-repo`, `see github.com/acme/public-repository now` gives `see S4sitory now`.
+  - With a source `https://intranet.acme.example/doc`, `https://intranet.acme.example/docs/hr/layoff-plan-2025?employee=alice` gives `S1s/hr/layoff-plan-2025?employee=alice`.
+  - This also bounds 0922's F4 sentence "never the source's alias with the rest left around it": it holds for a source's file name, not for its whole path or URL forms.
+- L2. The generic credential rule covers only a scheme-less `user:password@host` written within these bounds:
+  - a user of 1 to 64 ASCII userinfo characters (letters, digits and `._~%!$&*+,;=-`);
+  - `:` and a password of 1 to 64 characters, with no white space, `/`, `@`, quote or angle bracket;
+  - `@` and a dotted host of ASCII letters, digits and `-`, with an optional port and path.
+
+  These go out whole, password included, and the audit passes them:
+  - a password holding a raw `@`, a quote or an angle bracket (`alice:p@ss@acme.example`);
+  - an empty user or password, or either over 64 characters;
+  - a host label holding `_` or a non-ASCII letter;
+  - a credential before `localhost`, a bracketed IPv6 address or any single-label host. The `@` also switches off the localhost and IPv6 rules, so the host, port and path go out too.
+  - a Go-style DSN `user:pw@tcp(host:3306)/db`;
+  - a credential directly after `:` or `@`, including after a full-width colon label (`账号：alice:hunter2@acme.example`);
+  - a `?x=1` or `#frag` left after `[url]` when the host has no path;
+  - `alice:P@ss@10.2.3.4:8080`, which gives `alice:P@ss@[url]`.
+
+  Schemed forms all become `[url]`. 0922's "with or without a path even when no source is involved" holds only within these bounds. The rule also replaces clock times and ratios before an `@`: `ratio 3:2@home.example`, `Meeting 10:30@room.4` and `Contact:alice@example.com` give `[url]`.
+- L3. 0922's "F3 … Fixed" is too wide. A password holding a character outside the host-lead characters, before a source's host, still goes out with its user name, and the built T1 and T2 bodies hold it. This is better than 67e3374, but not closed.
+  - `alice:pa(ss)@example.org` gives `alice:pa(ss)[url]`.
+  - `alice:p#ss@example.org` gives `alice:p#[url]`.
+  - `alice:秘密@example.org` gives `alice:秘密[url]`.
+- L4. A source's own host directly followed by a hyphenated word goes out unchanged in both scopes, because a host match is refused when the next character is `-`. Examples: `the example.org-hosted report`, `example.org-2025`, `EXAMPLE.ORG-hosted`, and the same with U+2010 or U+2011. The same happened at 67e3374.
+- L5, over-matching that only hides text. The host-lead walk runs back over `, ; = : ! $ & * + % ~` with no `@` needed:
+  - `2025,Q3,Acme Corp,example.org,42` gives `2025,Q3,Acme [url]`;
+  - `Set host=example.org and retry.` gives `Set [url] and retry.`;
+  - `site:example.org` gives `[url]`, and `**example.org**` gives `[url]**`;
+  - `S9,example.org` gives `[url]`, so another source's alias is lost;
+  - `来源：example.org` gives `来源[url]`.
+- L6. Bounds of the generic rules that no entry stated:
+  - The scheme-less host rules do not start after `@`, `:`, `_`, `.`, `-` or `/`, so `alice@files.acme.example/hr/x`, `site:acme.example/reports` and `my_host.corp-hq.internal/x` go out.
+  - An IPv6 address is replaced only when it is bracketed and followed by a port or a path.
+  - A query or fragment directly after a host with no path goes out with it.
+- Residues of this push's fixes:
+  - G3: with a single local-copy source and no URL source, `alice:hunter2@example.org/report.html` gives `alice:hunter2@S1`.
+  - O2: with no space after the full stop, the run continues into the next word, so `See beta-ledger.md-v2.Next sentence` gives `See [file] sentence`.
+  - R1, UNC: a UNC path keeps one backslash before the placeholder (`\\fileserver\share\old-alpha-field-notes.md` gives `\[file]`).
+  - R1, shared forms: a form two sources share, or a host-appended file name, right after the `//` of a protocol-relative URL is `[source]` or `[file]`. The protocol-relative rule cannot start on either, so the URL's query or tail goes out, as at 67e3374. With `report.html` shared, `//cdn.other.test/x/report.html?token=abc` gives `//[source]?token=abc`.
+- 0922 quotes "a host is bounded" as 0921's words. That phrase is a code comment in research-assist-scrub.ts, not part of 0921.
+- 0922's timings for CJK text, read together with 0921's "Every scan is linear in its text", were false at 4aeac37 for the Han-comma shape. They are true after P1.
+- No SOAR model request, endpoint, Docker container or paid call ran.
+- The two changed source files are under src/main/private-agent, so the harness source-freeze digest changes again. No owner loop or E-run may span #79's merge.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The orchestrator's re-review of #79 at its new head, then train 1 or train 2.
+- 10.b does not wire the assist's dispatch until each of L1, L2, L3, L4 and L6 is either closed by a reviewed rule change under scrub policy 5 or accepted by the owner in a recorded decision. The orchestrator carries three owner questions; an agent does not answer them, and these are only defaults.
+  - Should L1 to L4 be closed by rule under scrub policy 5 before 10.b, or accepted as limits? Default: closed by rule.
+  - Should L5 stay a stated over-matching limit, or should the lead be narrowed? Default: it stays a stated limit.
+  - Should L6 stay a stated limit, or get rules before a labelled arm? Default: stated limits for the public and synthetic arms now, and rules before any labelled arm runs an assist.
+- 10.b's obligations:
+  - Pass request.sources in coverage.sources order (the sorted inventory), and leave sourceTexts[i] undefined only where coverage marks the source unreadable.
+  - Under `local_first`, give each prior attempt a non-negative safe-integer `ordinal` and `omittedErrorCount` and a boolean `truncated`.
+  - Pass a real `deadlineMs`. NaN stops as `assist_deadline_missing` with no request, and the pipeline passes NaN when there is no session deadline.
+
+References: BL-20261113-0922-correction-assist-core-review; BL-20261113-0921-assist-core-implemented; BL-20261113-0920-assist-wrapper-design (its fourth owner question); pull request #79.
+
+### BL-20261113-0924-correction-assist-entries-restamp -- 2026-11-13 -- Correction: pull request #79's four entries are re-stamped after `main`'s tail at its merge of `main`; their original IDs, dates and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: Pull request #79 (backlog item 10.a) brings in `main` at 23dfadc with this merge commit.
+- `main`'s last ID is BL-20261113-0834-correction-runner-storage-integrity-second-restamp, which comes after all four of #79's entries. The validator refuses an appended ID earlier than the base's tail.
+- So the four entries are re-stamped after the tail in this merge, under the owner's rule. That rule is BL-20261113-0758, as clarified by BL-20261113-0832, on pull request #87. A re-stamp may move an entry's date with its minute.
+
+Each entry, with its original ID, date and authoring time:
+- **The design entry.** Authored at 04:17 UTC on 2026-11-09 as BL-20261109-0417. It is now BL-20261113-0920-assist-wrapper-design, with its heading dated 2026-11-13.
+- **The implemented entry.** Authored at 06:39 UTC on 2026-11-10 as BL-20261110-0639. It is now BL-20261113-0921-assist-core-implemented, with its heading dated 2026-11-13.
+- **The review correction.** Authored at 08:20 UTC on 2026-11-10 as BL-20261110-0820. It is now BL-20261113-0922-correction-assist-core-review, with its heading dated 2026-11-13.
+- **The delta correction.** Authored at 10:27 UTC on 2026-11-10 as BL-20261110-1027. It is now BL-20261113-0923-correction-assist-core-delta, with its heading dated 2026-11-13.
+
+Decisions:
+- **Choice of minutes.** The new minutes follow the latest ID on `main` or on any open pull request's head, which is minute 08:40 on 2026-11-13.
+  - 08:42 is skipped, because the four entries already cite BL-20261107-0842 in full. A short form `0842` would read both ways.
+  - If another pull request reaches `main` first with later IDs, #79 re-stamps again at its next merge of `main`, under the same rule.
+- **Only the IDs changed:**
+  - each heading's ID and date;
+  - the full IDs and their short forms in the four entries. For example, `0639's "Every scan is linear in its text"` now reads `0921's …`;
+  - the design entry's full ID in one comment each in src/main/private-agent/model.ts, research-assist-contract.ts, research-assist-scrub.ts, research-assist.ts and research-plan.ts, and in tests/helpers/research-assist-fixture.ts.
+- **Why the short forms changed too.** `main` holds other entries of minute 04:17 on 2026-11-09 and of minute 08:20 on 2026-11-13. So an unchanged `0417` or `0820` would name the wrong entry.
+- **Bodies.** Mapped back, each body is byte-identical to #79's at d364b46, where the reviews read it.
+- **A merge, not a rebase.**
+  - Every commit SHA that the entries and the reviews cite stays in #79's history, and the push fast-forwards from d364b46.
+  - `main`'s log is kept whole, as a byte prefix of this branch's.
+- research-assist-contract.ts changed in its first comment only. BL-20261113-0923-correction-assist-core-delta gives its sha256 as bced24dfefe448eb9dd57abd9d84bc9e7b8fac7d8d3fb5637630dd76f5d967a0; it is now f551f6b33b000394ec1d9bc784a799ff7c5e00bcb26fe45d44c0bda5607b3503.
+
+Changes:
+- docs/BUILD_LOG.md: the four headings, their references, and this entry.
+- The six comments named above.
+- No behaviour changes.
+
+Evidence:
+- At this merge commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0. The log is append-only against `main` at 23dfadc, with monotonic IDs and dates.
+- `pnpm typecheck` passes.
+- `git grep` finds none of the four original IDs with their slugs.
+- A script that maps the IDs, dates and short forms back gives #79's four entries byte for byte as at d364b46.
+
+Failures or blockers: A rebase onto `main` was prepared first, with the same kind of re-stamp at earlier minutes. It was dropped before it was pushed: replacing #79's remote history needs a force-push, and this session's permission check refused it as destructive. The merge needs no force-push.
+
+Limitations and non-claims: This is a record correction only. Nothing is implemented, verified or released by it. Commit messages and #79's earlier descriptions keep the IDs they had, and so do the reviews of #79, which are outside the repository.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of #79 at its new head, which checks this re-stamp, then the owner's go-ahead for #79's merge.
+
+References: BL-20261113-0834-correction-runner-storage-integrity-second-restamp; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261113-0920-assist-wrapper-design; BL-20261113-0921-assist-core-implemented; BL-20261113-0922-correction-assist-core-review; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0758 and BL-20261113-0832 (pull request #87); docs/HANDOFF.md "Start here" section 5.
+
+### BL-20261113-0925-correction-assist-core-rereview -- 2026-11-13 -- Correction: the assist core after the full re-review of #79 at d364b46, with the G3 tail and the placeholders after `//` fixed under scrub policy 4 so that nothing d364b46 hid is sent, and the delta correction's contradicted statements and missing bounds corrected
+
+Status: `Implemented`
+
+Scope or hypothesis: This records the fixes for the orchestrator's full re-review of pull request #79 at d364b46, which reviewed the delta 4aeac37..d364b46.
+- The review used four lenses (full, differential, walk and entry-and-evidence), with skeptics on each blocker and major finding. This entry names findings by lens and number.
+- It corrects three entries without editing them: BL-20261113-0923-correction-assist-core-delta, BL-20261113-0922-correction-assist-core-review and BL-20261113-0921-assist-core-implemented. They were authored as 1027, 0820 and 0639, and BL-20261113-0924-correction-assist-entries-restamp records their re-stamp at the merge of `main`. This entry calls them 0923, 0922 and 0921.
+
+The work is in two commits on `feat/10a-assist-core`, before its merge of `main` (d1dae95):
+- b1fab07 holds test pins and comment rewording only, and changes no output.
+- 42d7669 holds both code fixes.
+
+Neither commit changes the following:
+- the scrub policy object. It is still version 4, and its JSON is byte-identical to d364b46's (sha256 56b715600b0d877a0aa14105ad025861c26cba72d911c27a642d1e76803cbc7c);
+- either pinned assist protocol hash: `forced_split` 127a56d3f9a29ec2f4b13c208b7d60217075a61dce60e61bd113807164028411 and `local_first` fd294f1e6d97eb9d130f307dbc4ebee99d7484c90c81b7c3290d6059d4504b75;
+- research-assist-contract.ts or research-plan.ts. Only the re-stamp's comments touch them, in the merge.
+
+Decisions:
+- **One rule fixes both regressions.** Two kinds of placeholder match are provisional:
+  - a placeholder right after a `//`;
+  - a merged, name-kind, host-led `[url]` (G3).
+
+  How the rule works:
+  - Each such match keeps d364b46's text, and goes through all of d364b46's passes (at most three) as a mark. So every pass reads the text d364b46 read, and where a rule takes the match, the output is d364b46's.
+  - After the last pass, each match that no rule took is settled:
+    - A glued file name of one source gets `[file]` back in place of its alias.
+    - Any other placeholder after a `//` takes the `//`, itself and the URL's path, query and fragment as `[url]`. This happens only where the protocol-relative URL rule could start at that `//`.
+    - A G3 `[url]` takes its URL's path, query and fragment.
+  - If settling changed the text, the passes run once more on what it left. A pass only replaces, so this can only hide more.
+  - So each output is d364b46's with more spans replaced, and nothing d364b46 hid is sent. Both differentials below confirm it, by the substring measure.
+  - One placeholder differs in its name only. A glued name that two sources share, right after a `//`, reads `[file]` in the passes where d364b46 read `[source]`. No URL, path, file-name or digest rule reads the two differently.
+  - To move the marks, each URL, path, file-name and digest rule now returns which characters of its match it replaces. These are the same characters as before.
+- **Differential F1, the G3 tail leak (blocker), is fixed.** Both skeptics confirmed it.
+  - A URL source's form that a local copy shares merges as a name. Since 6d14ac4's G3 change, its host-led match ended at the file name. A lead made the match `[url]`, and the URL's tail went out where 67e3374 and 4aeac37 sent `[url]`.
+  - Now that match is provisional. With the pair `https://example.org/report.html` and `mirror/example.org/report.html`, in either order:
+    - `see https://alice:hunter2@example.org/report.html?token=sk_live_abcdef now` gives `see [url] now`, as at 67e3374 and 4aeac37. d364b46 sent `see [url]?token=sk_live_abcdef now`.
+    - So do the `#Layoff-List-Q3`, `/private/acme-merger`, `;jsessionid=abc123`, `mailto:alice@…?subject=layoffs` and `ftp://.example.org/report.html&k=v` forms, and `alice:hunter2@example.org/report.html?token=abc`.
+    - `(https://alice:hunter2@example.org/report.html?x=1)` gives `([url])`.
+  - The lenses' version took the tail at once. It sent `alice:pa(ss)` in `x alice:pa(ss)@example.org/report.html///acme.example report.html'bucket`, which d364b46 hid because a relative-path rule took the token whole. Here that input gives `x [file] [source]'bucket`, as at all three earlier heads.
+  - The G3 merge stays, as both skeptics advised.
+- **The rule after `//` replaces 0923's alias rule.** This covers lens full F1 (blocker) and F2, differential F2 and F3, and entry-and-evidence F2.
+  - It acts on a match right after a `//` that would be a placeholder:
+    - `[file]` for a glued file name or a host-appended file name;
+    - `[url]` for a host-led form with a glued lead;
+    - `[source]` for a form that two sources share.
+  - Where the protocol-relative rule could start at the `//`, the placeholder is provisional. That is at the text's start, or after white space, `"`, `'`, `(`, `[`, `<`, `=`, `:`, `,`, `;` or a spaceless-script character, and not inside an earlier match.
+  - Every protocol-relative row the lenses list now gives `[url]`. The outputs below are at 67e3374 | 4aeac37 | d364b46 | 42d7669:
+    - `see //proxy.other.test/fetch/sub.example.org/reports/annual-2025.html-secret/plan.md now` gives `see [url] now` | `see [file] now` | `see //[url]-secret/plan.md now` | `see [url] now`. Full F1's other six rows and its `https:` form give `see [url] now` too.
+    - `src=//proxy.other.test/fetch/sub.example.org/reports/annual-2025.html-secret now` gives `src=[url] now` | `src=/[url]-secret now` | `src=//[url]-secret now` | `src=[url] now`.
+    - With `report.html` shared by `a/report.html` and `b/report.html`:
+      - `//cdn.other.test/x/old-report.html/private/acme-merger` gives `[url]` | `[file]` | `//[source]/private/acme-merger` | `[url]`;
+      - `//cdn.other.test/x/old-report.html?token=abc` gives `[url]` | `/[file]?token=abc` | `//[source]?token=abc` | `[url]`;
+      - the plain `//cdn.other.test/x/report.html?token=abc` gives `//[source]?token=abc` | `/[source]?token=abc` | `//[source]?token=abc` | `[url]`.
+    - With the host-appended `claims.json`:
+      - `//cdn.other.test/x/old-claims.json/private/acme-merger` gives `[url]` | `[file]` | `//[file]/private/acme-merger` | `[url]`;
+      - `//cdn.other.test/x/claims.json?token=abc` gives `//[file]?token=abc` | `/[file]?token=abc` | `//[file]?token=abc` | `[url]`.
+    - `src="//cdn.other.test/x/final-report.md/private/acme-merger"` gives `src="[url]"` at 67e3374 and 42d7669, and `src="//[file]/private/acme-merger"` at d364b46.
+  - A glued file name of one source right after a `//` still stands as its alias in the passes, as at d364b46. So a rule that takes the alias takes the token whole, as before. Where none does, the match gets `[file]` back, so no other file is shown as the source.
+    - The skeptics' counterexamples stay hidden, as at d364b46. With the source `input/corpus/alpha-field-notes.md` alone:
+      - `地址://cdn.other.test/x/old-alpha-field-notes.md?token=sk_live_abcdef 见` gives `地址:[url] 见`;
+      - `-https://cdn.other.test/x/old-alpha-field-notes.md?token=abc now` gives `-https:[url] now`;
+      - `see ///old-alpha-field-notes.md:///etc/acme-merger/layoffs-2025 now` gives `see ///[url] now`;
+      - `see corpus//old-alpha-field-notes.md:///srv/hr/layoffs-2025 now` gives `see corpus//[url] now`;
+      - `see secret-folder//old-alpha-field-notes.md/x.bak now` gives `see [file] now`.
+    - With the test's seven sources:
+      - `see x//proxy.other.test/fetch/u/annual-2025.html-secret/plan.md now` gives `see [file] now`;
+      - `token=abc,//mirror/x_example.org/reports/annual-2025.html_/private/acme-merger.txt) now` gives `[file]) now`.
+    - These give `[file]` and never the alias. For example, `see a//old-alpha-field-notes.md now` gives `see a//[file] now`, where d364b46 gave `see a//S1 now` and 67e3374 `see a//old-S1 now`. The same holds after `/tmp//`, `input/corpus//` and `///`, for `bucket//example.org.annual-2025.html`, and for a backticked, `>`-led or `|`-led `//cdn.other.test/x/old-alpha-field-notes.md?token=abc`. The backticked form gives `` `//[file]?token=abc` ``.
+    - `see a//old-alpha-field-notes.md/private/acme-merger/x now` gives `see a//[file][file] now`, as at 4aeac37. Once the alias is settled, the second round's path rule takes the path after it; d364b46 sent `see a//S1/private/acme-merger/x now`.
+  - A glued name that two sources share keeps `[file]` after any `//`, not d364b46's `[source]`: `see a//old-report.html now` gives `see a//[file] now`. The plain shared name gives `see a//[source] now`.
+  - After a `//` where no URL rule starts, any other placeholder stays as at d364b46. This is L7 below.
+- **Why none of the lenses' candidate edits was taken as it stands.**
+  - Lens full F1's edit narrows d364b46's `[file]` swap with a test of the left context. Where only a relative path took the alias whole, that edit sends the word before the `//`: `see x//proxy.other.test/fetch/u/annual-2025.html-secret/plan.md now` gives `see x//[file][file] now`, where d364b46 and 67e3374 give `see [file] now`.
+  - Its second skeptic's `else if` leaves the F2 class open.
+  - Differential F2's fix2 takes the URL at once after `=`, `,`, `;`, `:` and a CJK letter, with or without F3's PROTOCOL_LEFT and SCHEME_AFTER. That sends the text before the `//` wherever d364b46's relative-path rule hid it.
+  - Variants that test only the left context fail the skeptics' counterexamples.
+- **Two earlier local designs, never pushed, were replaced.**
+  - The first made every placeholder after any `//` a provisional alias, and took the URL at once.
+    - Its differential of 1,200,000 outputs found 495 that send text d364b46 hid. That text was joined to the `//` by `=`, `,`, `;`, `:` or a CJK letter.
+    - For example, `token=abc,//mirror/…` gave `token=abc,[url])`.
+  - The second was this rule, with each pass settling its own marks.
+    - It sent a scheme name glued after a `host:port` URL, and in some outputs a file name too. d364b46's second pass took those whole, once its first pass had replaced the host and port.
+    - For example, `localhost:8080s3://example.org/report.html` gave `[url]s3:[url]` where d364b46 gave `[url][url]`. With the host-appended names of reviewer B's set A, `localhost:8080report.mdhttp://claims.json/file://notes/summary-v2.txtbucket` gave `[url]report.mdhttp:[url]`.
+    - It did so in 6 of 1,200,000 outputs of the local differential below, and in 41 of 1,637,808 outputs of reviewer B's corpus.
+    - Carrying the marks through every pass closes the class: those inputs now give d364b46's output.
+- **Tests only, in b1fab07:**
+  - G3 in both source orders, with the exact output (lens full F5; entry-and-evidence F3);
+  - O2 giving back `-` and `_` (entry-and-evidence F4);
+  - the two slashes the alias rule needed (entry-and-evidence F5);
+  - two requests asserted in both end-to-end brief tests (lens full F6);
+  - in the linear-time test, a scrubber built from a Han-comma suffix and the `;` shape (walk F2).
+- **Tests in 42d7669:**
+  - every row above, in both scopes, with its counts;
+  - the counterexamples that must stay hidden;
+  - the G3 tails in both source orders, with a second scrub and the audit;
+  - the carry:
+    - the `host:port` rows in both source orders;
+    - a name that a later pass finds before a provisional match: `see alpha-field-notes.mdoutput/report.md (//old-claims.json?token=abc) now` gives `see S1[file] ([url]) now` in sent text;
+    - the second round's `a//[file][file]`;
+  - `see a/'b/c.md now`, which fails at once if the walk resumes one unit after a match, and six astral inputs (entry-and-evidence F6);
+  - a bracket glued to a word: `see x(//cdn.other.test/x/claims.json?token=abc) now` gives `see x([url]) now` and counts one URL;
+  - two stated residues:
+    - `//sub.example.org/reports/annual-2025.html-secret` gives `[url]-secret` (L1);
+    - `mailto:alice:pa(ss)@example.org/report.html` with the pair (L3).
+- **Comments:**
+  - b1fab07 states the quadratic file-name scan in the header and at NAME_START (walk F1). It also drops the commit name from the UNC comment (lens full F7).
+  - 42d7669 replaces the alias rule's comment with the rule above. The comment's "lies inside a URL", false after `a//` (full F7), is gone.
+
+Changes:
+- src/main/private-agent/research-assist-scrub.ts;
+- tests/unit/private-agent-research-assist-scrub.test.ts and tests/unit/private-agent-research-assist.test.ts;
+- docs/BUILD_LOG.md (this entry).
+
+Evidence: The runs are local, on Node 22.22.2 and pnpm 10.12.4.
+- The differentials, the mutation check and the timings ran 42d7669's scrubber.
+- The tests ran on the tree after the merge of `main` (d1dae95). There, only that file's first comment differs, from the re-stamp.
+- `pnpm typecheck` passes.
+- The four test files this PR changes pass 187 of 187: 28 scrubber, 61 assist, 47 Anthropic and 51 Responses. The unchanged plan-contract file passes 38 of 38, and the build-log validator's file 52 of 52.
+- The whole suite (`pnpm exec vitest run`) ran on d1dae95, at load averages up to 19 from other sessions.
+  - Files: 175 passed, 3 failed and 13 skipped (191). Tests: 3,393 passed, 86 skipped and 3 failed (3,482).
+  - All three failures are timeouts, in files this PR does not change. In tests/unit/document-review-flags.test.ts, a spawned python3 timed out. In tests/unit/private-agent-sandbox-capture.test.ts and tests/unit/registry-row-git.test.ts, tests hit the 5 s timeout.
+  - Run alone, each of the three passes: 154 of 154, 13 with 1 skipped, and 9 of 9.
+- **A local mutation check** (not committed) ran 27 distinct single-change mutants of the scrubber in the scrubber and assist test files. The tests catch 25.
+  - Caught:
+    - G3: the flag dropped, the mark never set, or the mark set for any host lead;
+    - the rule after `//`: never used, used after any `//`, keeping the `//`, testing one slash, or letting the URL start anywhere;
+    - the provisional alias: never used, used for shared forms too, or kept when no rule took it;
+    - a settled match not taking its URL's rest;
+    - a mark not moved, kept after a rule took it, or kept inside a settled URL;
+    - three counting changes;
+    - a relative path cut from its match's start;
+    - the walk resuming one unit after a match;
+    - the carry: marks settled after every pass, one round only, marks dropped between passes, marks not moved by a later pass's name match, and marks after the last name match dropped.
+  - Two mutants survive:
+    - Keeping a mark that a later pass's name match covers. No later-pass name match covered a mark in the 2,837,808 outputs of the two differentials below, and rows built to reach one found none, because an earlier pass's path rule takes such a token first.
+    - Running the second round when settling changed nothing. It differs only where the first round reaches the three-pass cap with work left. A second scrub would then change the output, and none of the 2,837,808 outputs changes.
+  - b1fab07's pins catch each of their six mutants. Two walk mutants hang the run, killed at the timeout, instead of failing.
+- **Three-commit differential on reviewer B's corpus** (local, not committed). Seed 79061110: 818,904 texts, 518,904 systematic and 300,000 soups, over nine source sets. Each was scrubbed in both scopes, for 1,637,808 outputs.
+  - Reviewer B's outputs at d364b46, 4aeac37 and 67e3374 were compared, output by output, with 42d7669's.
+  - Two measures:
+    - Word measure: a word is a run of letters or digits, with aliases and placeholders removed. One output sends a word another hid when it holds that word more often.
+    - Substring measure: it counts only such words that occur nowhere in the other output's text. A word that is only split or joined differently, such as `文件见` against `token文件见`, does not count.
+  - No output throws, every output survives a second scrub unchanged, and the audit finds nothing in any output.
+  - Against d364b46:
+    - 42d7669 differs in 35,226 outputs. It sends a word d364b46 hid in 1,015 by the word measure and in 0 by the substring measure; each of the 1,015 holds only words that d364b46's text holds, split differently. It hides text d364b46 sent in 4,872 by the substring measure.
+    - 4aeac37 differs in 447,872 outputs. It sends text d364b46 hid in 316,573, and hides text d364b46 sent in 6,014.
+    - 67e3374 differs in 299,025 outputs. It sends text d364b46 hid in 160,880, and hides text d364b46 sent in 23,058.
+  - Against the earlier heads, by the substring measure, 42d7669 sends text 4aeac37 hid in 5,554 outputs and text 67e3374 hid in 21,855.
+  - Each newly sent word is credited to the commit that started sending it: 8090f65 when 4aeac37 sends it too, and 6d14ac4 when d364b46 does. By the word measure:
+    - against 67e3374: 32,328 outputs since 8090f65 and 37 since 6d14ac4;
+    - against 4aeac37: 78,137 since 6d14ac4;
+    - 754 and 1,014 outputs hold a word that neither commit sends more often. Each such word occurs in d364b46's text, so each is a split.
+- **The local differential** (seed 31): 600,000 generated inputs, 150,000 over each of four source sets, each scrubbed in both scopes, for 1,200,000 outputs.
+  - The four sets:
+    - the scrub test's seven sources, with the claims-ledger suffix;
+    - five sources with that suffix, among them a URL source and a local copy that share `example.org/report.html`;
+    - six sources with two shared names and no suffix;
+    - a local copy listed before its URL source.
+  - A third of the inputs are token soups. A third are shapes aimed at `//`: a left context, `//`, an outer host or folder, a lead, glue, a source form and a tail. A third are a source form inside a longer token, with no `//`.
+  - Every output survives a second scrub, and the audit finds nothing in any output.
+  - Outputs that differ: 52,804 from d364b46, 104,952 from 4aeac37 and 244,629 from 67e3374.
+  - Outputs with a newly sent word, by the word measure:
+    - 14 against d364b46, all splits, and 0 by the substring measure;
+    - 2,324 against 4aeac37: 2,310 since 6d14ac4, and the 14 splits;
+    - 50,322 against 67e3374: 49,824 since 8090f65, 484 since 6d14ac4, and the 14 splits.
+- **Time.** On inputs dense with provisional matches, 42d7669 and d364b46 both grow linearly with the input. The shapes:
+  - glued names after `a//`;
+  - full F1's URL;
+  - a URL before each mark;
+  - one token of marks;
+  - shared forms after `//`;
+  - placeholders after a joiner;
+  - G3 tails;
+  - the `host:port` carry rows;
+  - a later pass's name before a mark.
+
+  At 208,000 to 720,000 characters, 42d7669 takes 23 to 141 ms of CPU and d364b46 16 to 103 ms.
+- `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` pass with this entry.
+
+Failures or blockers: The full re-review ran four lenses, 29 agents in all with the skeptics. It found the following.
+- Lens full:
+  - F1, blocker: a host-led `[url]` after a protocol-relative `//` sent the URL's tail, newly at d364b46. Fixed above.
+  - F2, major: the alias rule fired where no URL rule could start, showed another file as the source, and swapped `[file]` for `[source]`. Fixed above.
+  - F3 and F4, minor: two false comparisons with 67e3374 in 0923. Corrected in C1 and C5.
+  - F5, minor: G3 was pinned in one order, by absence checks only. Pinned.
+  - F6, nit: the end-to-end test did not assert how many requests it checked. Pinned.
+  - F7, nit: corrected in C9, the PR body and the comments.
+- Lens differential:
+  - F1, blocker: the G3 tail. Fixed.
+  - F2 and F3, major: the placeholders after `//`, and the alias given to a glued file wherever `//` preceded it. Fixed.
+  - F4, minor: the `///` residue. Stated under L6 below.
+  - F5, major: four statements of 0923 that execution contradicts. Corrected in C1 to C4.
+- Lens walk:
+  - F1, minor: two scans outside the walk are quadratic. Corrected in C8.
+  - F2, nit: test gaps. Pinned in b1fab07.
+- Lens entry-and-evidence:
+  - F1, major: L2's "Schemed forms all become `[url]`". Corrected in C6.
+  - F2, major: as lens full F2. Fixed.
+  - F3 to F6, minor: four test gaps. Pinned.
+  - F7, nit: two sentences overstated what goes out. Corrected in C7.
+
+Limitations and non-claims:
+- Corrections of 0923, which is not edited:
+  - C1 (differential F5 item 1; lens full F3). 0923's residue "R1, shared forms … as at 67e3374" held for the exact shared or host-appended name, and was false for a glued one.
+    - With `a/report.html` and `b/report.html`, `//cdn.other.test/x/old-report.html?token=abc` gave `[url]` at 67e3374, `/[file]?token=abc` at 4aeac37 and `//[source]?token=abc` at d364b46.
+    - With the host-appended `claims.json`, `//cdn.other.test/x/old-claims.json?token=abc` gave `[url]`, `/[file]?token=abc` and `//[file]?token=abc`.
+    - The glued case was a regression from 8090f65's F4, not a gap from 67e3374.
+    - Both cases, and the exact names, are closed above where the protocol-relative rule could start at the `//`. After any other `//`, they fall under L7.
+  - C2 (differential F5 item 2). 0923's "G3 is fixed" held for its own example. The same change newly sent URL tails (differential F1), which neither L1 nor 0923's G3 residue covered. That regression is fixed above.
+  - C3 (differential F5 item 3). 0923's "Such a run now keeps its whole span but takes the source's alias, so the URL rule takes the URL whole, as `[url]`" held only where one source owns the glued name and the protocol-relative rule can start at the `//`.
+    - Its example `//cdn.other.test/x/q3-report.html?token=abc` needs a source whose own file name is `report.html`, and 0923 did not say so.
+    - With the URL source `https://example.org/report.html` alone, the example gave `[url]` at 67e3374, `/[file]?token=abc` at 4aeac37 and `[url]` at d364b46.
+    - With that source and its local copy, d364b46 gave `//[source]?token=abc`. 42d7669 gives `[url]` in both cases.
+  - C4 (differential F5 item 4). 0923's "109 of them send a word that 4aeac37 hid. Each of those 109 sends the same word at 67e3374." held only for 0923's own run. 0923 did not give that run's seed or measure. As a property it was false:
+    - Reviewer B's 300,000 soups gave 81 outputs that send, against 4aeac37, a run of four or more characters that 4aeac37 hid. In 12 of them, 67e3374 hid it too.
+    - For example, with sources `input/notes/meeting-notes-2024` and `https://github.com/acme/public-repo`, `//hr.acme-merger.testnotes/meeting-notes-2024github.com/acme/public-repogithub.comdraft/` gives `//[url]github.comdraft/` at d364b46, where 67e3374 gave `[url]` and 4aeac37 `[file]/`. 42d7669 gives `[url]`.
+    - The classes that send such text are D2 and D3 below. Each differential here gives its seed and both measures.
+  - C5 (lens full F4). L1's "The same happened at 67e3374" holds for a form written bare, as in L1's three examples, and for `see example.org/reports/annual-2025.html-secret now`, which gives `see S2-secret now` at all four heads.
+    - It is false where a lead, a scheme with `www.`, userinfo or an outer host precedes the form. There 67e3374's generic URL or path rule took the whole token, and since 8090f65 the match ends at the form and the tail goes out.
+    - 67e3374 gave `[url]` or `[file]` for each of these. 4aeac37, d364b46 and 42d7669 give:
+      - `see proxy.other.test/fetch/sub.example.org/reports/annual-2025.html-secret now`: `see [url]-secret now`;
+      - `https://alice:pw@example.org/reports/annual-2025.html-secret`: `[url]-secret`;
+      - `http://www.example.org/reports/annual-2025.html-secret`: `S2-secret`;
+      - `www.example.org/reports/annual-2025.html.secret`: `S2.secret`;
+      - `/srv/input/corpus/alpha-field-notes.md.secret`: `S1.secret`;
+      - with a source `https://intranet.acme.example/doc`, `https://www.intranet.acme.example/docs/hr/layoff-plan-2025?employee=alice`: `S1s/hr/layoff-plan-2025?employee=alice`;
+      - with the same source, `https://hr.intranet.acme.example/docs/hr/layoff-plan-2025?employee=alice`: `[url]s/hr/layoff-plan-2025?employee=alice`.
+    - `see sub.example.org/reports/annual-2025.html-secret now` gave `see sub.S2-secret now` at 67e3374, and gives `see [url]-secret now` since.
+    - This also bounds 0922's F3 sentence "The whole token … becomes `[url]`": the token ends where the source's form ends.
+  - C6 (entry-and-evidence F1). L2's "Schemed forms all become `[url]`" is false where the password holds a `"`, `<`, `>`, or a spaceless-script run glued between letters.
+    - A schemed URL is `[url]` only up to the first white space, `"`, `<`, `>` or such a run.
+    - After that cut, the rest of the password, the `@`, the host, the port and the path go out, and the audit passes them. No scheme-less rule starts after `@` (L6), and the rest has no `user:password@` shape.
+    - With no sources, in both scopes and at all four heads:
+      - `see https://alice:p"ss@acme.example/hr/layoffs now` gives `see [url]"ss@acme.example/hr/layoffs now`;
+      - the `<` form gives `see [url]<ss@acme.example/hr/layoffs now`, and the `>` form gives `see [url]>ss@acme.example now`;
+      - `see https://alice:p秘密ss@acme.example/hr/layoffs now` gives `see [url]秘密ss@acme.example/hr/layoffs now`;
+      - `see ftp://alice:p"ss@fileserver/share now` gives `see [url]"ss@fileserver/share now`.
+    - A cut inside the user part is caught since 8090f65, because the credential rule takes the rest: `https://al"ice:pss@acme.example` gives `[url]"[url]`.
+    - This bound is filed under L2 for 10.b's gate. A rule that would close it under policy 5 lets a schemed URL's userinfo run through those characters up to the last `@` before a host, bounded to 64 and 64 characters as the scheme-less rule is.
+  - C7 (entry-and-evidence F7). Two of 0923's sentences said more goes out than does.
+    - L6's "The scheme-less host rules do not start after `@`, `:`, `_`, `.`, `-` or `/`" holds for the dotted host with a path and for the credential rule.
+      - The `www.`, IPv4 and localhost rules do start after those characters. With no sources: `see site:www.acme.example/reports now` gives `see site:[url] now`, `see alice@10.2.3.4:8080/x now` gives `see alice@[url] now`, `host_10.2.3.4:8080/x` gives `host_[url]`, `x-10.2.3.4/path` gives `x-[url]`, and `site:localhost:3000/x` gives `site:[url]`.
+      - `-` is a label character, so `see -acme.example/reports now` gives `see [url] now`.
+    - L2's "a credential directly after `:` or `@`" holds after `@`, and after a `:` with no ASCII userinfo run before it. So `:alice:hunter2@acme.example` and `账号：alice:hunter2@acme.example` go out whole.
+      - After an ASCII word, the word is read as the user. Since 8090f65, `Login:alice:hunter2@acme.example` gives `[url]`, and `see x:alice:hunter2@acme.example now` gives `see [url] now`; 67e3374 sent both whole.
+  - C8 (walk F1). 0921's "Every scan is linear in its text" and 0923's "They are true after P1" hold for the three relative-run scans only. Two more patterns are quadratic, at 0921's head as now:
+    - FILE_NAME_PATTERN, in model scope only. The shape is a Han letter, an apostrophe and an ASCII letter, repeated. At 16,000 characters the walk lens measured about 2.3 s of process CPU for the scrub, and 2.3 s again for the audit; at 32,000, about 9.4 s each. The cost is four times as much per doubling. Sent-text scope is linear.
+    - PATH_PATTERNS[6], the rooted path with an extension under either slash, in both scopes. The shape is a comma, a backslash and a letter, repeated. It took about 0.3 s at 16,000 characters, 1.2 s at 32,000 and 4.7 s at 64,000, for the scrub, the audit and hostFileForms alike. Its comment's "so the rule stays linear" covers only the glued-prefix run.
+    - Only the callers' caps bound model-written text today: a gist at 600 characters, and plan fields at 300, 120, 200 and 1,000. The scrubber and prepare() do not check them again.
+    - Neither pattern gets a walk here. A 10.b obligation below caps the lengths instead.
+  - C9 (lens full F7). 0922's next-gate sentence that 10.b "waits only for 7(c) and 7(b)-2" was superseded by 0923's gate without being named. Both are superseded by the gate below. The PR body's two stale sentences change with this push.
+  - C10 (lens walk). 0923 says the linear-time test ran 90 s against the matchAll mutant. The reviewers measured 215 s and 223 s, 178.5 s of CPU. The test fails either way.
+- **Residues after this push, each with its bound:**
+  - L7, the protocol-relative rule's left bound, which no entry stated.
+    - The rule starts only at the text's start, or after white space, `"`, `'`, `(`, `[`, `<`, `=`, `:`, `,`, `;` or a spaceless-script character.
+    - After anything else, the URL is not read as a URL, and its query or tail goes out at all four heads. That includes a backtick, curly quotes, `{`, `>`, `->`, `|`, `**`, `)`, `.`, `_`, `#`, `-` and a word.
+      - With the seven sources, `` see `//cdn.other.test/x/q3.html?token=abc` now `` gives `` see [file]?token=abc` now ``;
+      - `see >//cdn.other.test/x/q3.html?token=abc now` goes out unchanged.
+    - A placeholder after such a `//` stays as at d364b46, beside the tail:
+      - `` `//cdn.other.test/x/old-alpha-field-notes.md?token=abc` `` gives `` `//[file]?token=abc` ``, where 67e3374 sent `[file]`;
+      - `see x//cdn.other.test/x/claims.json?token=abc now` gives `see x//[file]?token=abc now`, as at 67e3374 and d364b46.
+  - The `///` residue (differential F4), added to L6.
+    - A run led by three or more slashes matches no generic rule, in either scope, at all four heads. The rooted-path rules need a segment after the first slash and refuse a slash before one, and the protocol-relative rule needs a letter or digit after `//`.
+    - So `see ///etc/acme/merger-plan.docx now` goes out whole, and the audit passes it.
+    - When a model-scope source name stands in such a run, the name and its folder prefix become the alias, and the slashes and the tail go out, as at 67e3374. With sources `input/notes/meeting-notes-2024` and `https://github.com/acme/public-repo`, model text `///x/y/public-repo?token=secret` gives `///S2?token=secret`. 4aeac37's `[url]` there came only from R1.
+    - 0923's note on what returned to 67e3374 also covers these URL and path tails.
+    - The `//`-led half of the finding is closed here: `//x/y/report.md/private/acme-merger`, with the host's `output/report.md`, gave `//[file]/private/acme-merger` at d364b46 and gives `[url]`.
+    - A policy-5 rule would close the rest by letting both rooted-path patterns take leading empty segments. That changes the pinned protocol hashes, so it waits for policy 5.
+  - L3 with the pair (differential F1, second skeptic). `see mailto:alice:pa(ss)@example.org/report.html now` gives `see mailto:alice:pa(ss)[url] now` at d364b46 and 42d7669, where 67e3374 and 4aeac37 gave `see [url] now`.
+    - This is L3's class: a password holding a character outside the host-lead characters.
+    - The pair's shared form has reached it since 6d14ac4's G3 change, so it is part of D2.
+    - The rule above settles only the URL's rest after the match, and here what goes out stands before it: the lead walk stops at the `)` before the `@`.
+  - L1's form right after the `//`. A host-led form whose lead reaches the `//` keeps its own span, so `see //sub.example.org/reports/annual-2025.html-secret now` gives `see [url]-secret now` at 4aeac37, d364b46 and 42d7669. 67e3374 gave `see [url] now`. The rule above does not reach it, because its match includes the `//`.
+  - Gaps the re-review listed that no entry stated. Each output is at 67e3374 | 4aeac37 | d364b46 | 42d7669, with the seven sources unless named:
+    - G2, the F4 query gap since 8090f65.
+      - `see other.test/x/old-alpha-field-notes.md?token=sk_live_abcdef now` gives `see [url] now` | `see [file]?token=sk_live_abcdef now` | the same | the same.
+      - `see /srv/x/old-alpha-field-notes.md?token=abc now` gives `see [file] now` | `see [file]?token=abc now` | the same | the same.
+    - G3, text before a doubled slash before a glued name: `see a//cdn.other.test/x/old-alpha-field-notes.md?token=abc now` gives `see [file] now` | `see a/[file]?token=abc now` | `see a//S1?token=abc now` | `see a//[file]?token=abc now`.
+    - G4, a query or path after a source's file-name match, at all four heads:
+      - `see docs/x/alpha-field-notes.md?token=abc now` gives `see S1?token=abc now`;
+      - `see other.test/x/alpha-field-notes.md?token=sk_live_abcdef now` gives `see S1?token=sk_live_abcdef now`;
+      - `see x/alpha-field-notes.md/private/acme-merger now` gives `see S1/private/acme-merger now`.
+
+      This is L1 in kind; L1 names only whole path and URL forms.
+    - G5: sent text `see \\reports/annual-2025.htmlhr.acme-merger.test now` goes out unchanged at all four heads. In model text it is `see [file] now` since 8090f65; 67e3374 sent `see \\S2-merger.test now`.
+    - G6, more of G3's residue:
+      - With only the local copy `mirror/example.org/report.html`, `alice:hunter2@example.org/report.html?token=abc` gives `alice:hunter2@S1?token=abc` at all four heads.
+      - With the pair, `old-report.htmlmirror/example.org/report.html` gives `old-report.htmlS2`. Sent text `see old-report.htmlreport.html now` goes out unchanged at all four heads.
+    - G7, backslash-written URLs and UNC paths.
+      - `https:\\other.test\reports\annual-2025.html` gives `https:\S2` since 8090f65, where 67e3374 sent `https:\\S2`.
+      - `\\fileserver\share\alpha-field-notes.md?token=abc` gives `\S1?token=abc`. Its query goes out at all four heads.
+    - G8: `https:∕∕other.test∕reports∕annual-2025.html`, written with division slashes, gives `https:∕∕other.test∕reports∕S2` at all four heads.
+    - G9, mixed slashes: `/\cdn.other.test/x/old-alpha-field-notes.md?token=abc` gives `/\[url]` | `/[file]?token=abc` | `/\[file]?token=abc` | `/\[file]?token=abc`.
+    - G10, a label and a count only: `see //sub.example.org/reports/annual-2025.html-secret/plan.md now` gives `see [file] now` since 8090f65, where 67e3374 sent `see [url] now`.
+- **Remaining classes.** Both are present at d364b46. This push hides more of them and adds none.
+  - The counts below are from the local differential at 42d7669. Each is by the word measure, with the substring measure in brackets.
+  - The generators aim at these shapes, so the counts measure the generators, not real text.
+  - D2, 6d14ac4: 2,310 outputs (2,153) send text that 4aeac37 hid, and 484 (376) send text that both 4aeac37 and 67e3374 hid.
+    - For each output, one change of 6d14ac4 was reverted at a time in a copy of d364b46, to find the change whose revert hides the text again.
+    - Of the 2,310, by the word measure:
+      - R1's guard hides it in 1,922;
+      - R1's guard together with the alias rule in 88;
+      - G3 in 230;
+      - the alias rule in 70.
+
+      24 of them send the example password.
+    - Of the 376 by the substring measure, R1's guard hides it in 262 and G3 in 114.
+    - R1's guard keeps both slashes of `//`. After a `//` that no URL rule starts after (L7), the tail goes out, where 4aeac37's single slash let the rooted-path rule take it.
+      - `` `//hr.acme-merger.test/evil-www.q3_xx.yy-s/hr/x?employee=alice `` gives `` `//[file]/hr/x?employee=alice ``.
+      - d364b46 sent `` `//S4/hr/x?employee=alice ``, 4aeac37 `` `[file] `` and 67e3374 `[file]`.
+    - G3 puts a credential before the pair's shared form into `[url]`, so a relative-path rule no longer takes the whole token. The word glued before a `//` goes out:
+      - `x//other.test/alice:hunter2@old-example.org/report.html 文件` gives `x//[url] 文件`, where 4aeac37 and 67e3374 gave `[file] 文件`.
+      - The G3 tails that d364b46 sent, such as `https://alice@example.org/report.html-&token=abc`, are `[url]` again at 42d7669.
+  - D3, 8090f65: 49,824 outputs (38,794) send text that 67e3374 hid.
+    - Since 8090f65, a host lead, a glued name or a folder prefix puts a placeholder where 67e3374 had an alias. The URL or path rule that took the whole token at 67e3374 now takes part of it, or none, and what stood in the same token goes out.
+    - By the word measure, the text goes out before the placeholder in 33,205 outputs, after it in 18,847, and as a token of its own in 13. Some outputs hold text on both sides.
+    - C5's bounds, G2 and G3 fall in this class.
+    - 1,563 outputs (1,554) send the example password. For example, `:///alice:hunter2@reports/annual-2025.html-secret/plan.md”` gives `:///alice:hunter2@[file][file]”`, where 67e3374 sent `[file]”`.
+- The policy text does not name the provisional rule, as it named neither R1's guard nor the alias rule. Policy 5 should name them.
+- No SOAR model request, endpoint, Docker container or paid call ran.
+- The changed source file is under src/main/private-agent, so the harness source-freeze digest changes again with this push. No owner loop or E-run may span #79's merge, and the digest must be taken after this push.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+- The orchestrator's delta review of #79 at its new head, under the lighter review rule: one reviewer, plus a skeptic for a blocker, a major or a privacy finding. Then the owner's go-ahead for its merge. #79 leads merge train 2.
+- 10.b does not wire the assist's dispatch until each of the following is closed by a reviewed rule under scrub policy 5, or accepted by the owner in a recorded decision:
+  - L1, with C5's bounds and the form right after `//`;
+  - L2, with C6's and C7's bounds;
+  - L3, with the pair's form;
+  - L4;
+  - L6, with C7's correction and the `///` residue;
+  - L7;
+  - G2 to G9;
+  - D2 and D3.
+
+  This supersedes 0922's and 0923's gate sentences. One candidate for policy 5 would close most of D2, D3, C5 and G2:
+  - offer 67e3374's alias in place to the generic rules first;
+  - fall back to 8090f65's span where none takes it;
+  - give a host file name a stand-in alias.
+
+  It is not built or tested here.
+- The orchestrator carries these owner questions. An agent does not answer them; these are defaults only.
+  - Should a scrubber leak in an unwired core gate the merge as a blocker, or count as major, as R1 did? Default: major while nothing calls the core, as for R1. A leak a push introduces is still fixed or stated before that push merges, and every stated class gates 10.b.
+  - Does the review's class (b) include a word glued directly after a whole source form, L1's shape (`-secret` after `///S2`)? Default: yes for a word with no URL or path shape of its own. A query, fragment or path tail is never in class (b).
+  - Are the `///`-led runs acceptable as a stated residue under policy 4? Default: yes, under L6 until policy 5, which closes them before 10.b.
+  - 0923's three questions keep their defaults: L1 to L4 closed by rule, L5 a stated limit, and L6 stated now, with rules before any labelled arm. L7 joins L1 to L4.
+- 10.b's obligations, restated with one added:
+  - Pass request.sources in coverage.sources order, the sorted inventory. V1 refuses any other order. sourceTexts[i] belongs to request.sources[i], and is undefined only where coverage marks that source unreadable.
+  - Under `local_first`, give each prior attempt a non-negative safe-integer `ordinal` and `omittedErrorCount`, and a boolean `truncated`.
+  - Pass a real `deadlineMs`. A missing or NaN value stops as `assist_deadline_missing` with no request. Infinity is accepted, for a test without a session.
+  - New, from C8: cap the length of each string the scrubber reads, within the callers' caps. That covers the model-written gists and plan fields, and the brief. The exception is if FILE_NAME_PATTERN and PATH_PATTERNS[6] first get a walk like the relative run's, shown to match identically by the same differential.
+
+References: BL-20261113-0923-correction-assist-core-delta; BL-20261113-0922-correction-assist-core-review; BL-20261113-0921-assist-core-implemented; BL-20261113-0920-assist-wrapper-design; BL-20261113-0924-correction-assist-entries-restamp; pull request #79.
+
+### BL-20261113-0926-correction-assist-entries-second-restamp -- 2026-11-13 -- Correction: pull request #79's six entries move into its block for the next integration merge, 09:20 to 09:29 UTC on 2026-11-13; their original IDs, dates and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: The next lane pull requests reach `main` together in one integration merge.
+- So that their entries sort without interleaving, the orchestrator gave each pull request a block of minutes after `main`'s tail, BL-20261113-0834-correction-runner-storage-integrity-second-restamp.
+- Pull requests #89 and #93 and lane S-e1's four pull requests hold 08:36 to 09:19, and #79 holds 09:20 to 09:29.
+- #79's six entries sat at 08:41 to 08:51, inside the others' block. This commit moves them into #79's block, in their order, one minute each.
+- `main` has not moved since #79's merge of it (d1dae95), so no new merge is needed.
+
+Each entry, with its original ID, date and authoring time:
+- **The design entry.** Authored at 04:17 UTC on 2026-11-09 as BL-20261109-0417, and first re-stamped as BL-20261113-0841. It is now BL-20261113-0920-assist-wrapper-design.
+- **The implemented entry.** Authored at 06:39 UTC on 2026-11-10 as BL-20261110-0639, and first re-stamped as BL-20261113-0843. It is now BL-20261113-0921-assist-core-implemented.
+- **The review correction.** Authored at 08:20 UTC on 2026-11-10 as BL-20261110-0820, and first re-stamped as BL-20261113-0844. It is now BL-20261113-0922-correction-assist-core-review.
+- **The delta correction.** Authored at 10:27 UTC on 2026-11-10 as BL-20261110-1027, and first re-stamped as BL-20261113-0845. It is now BL-20261113-0923-correction-assist-core-delta.
+- **The first re-stamp correction.** Authored at 08:48 UTC on 2026-11-13 as BL-20261113-0848. It is now BL-20261113-0924-correction-assist-entries-restamp.
+- **The re-review correction.** Authored at 08:51 UTC on 2026-11-13 as BL-20261113-0851. It is now BL-20261113-0925-correction-assist-core-rereview.
+
+Decisions:
+- **Only the IDs changed:**
+  - the six headings' IDs;
+  - the full IDs and short forms that refer to them in the six entries;
+  - the design entry's full ID in the six comments that carry it.
+
+  The headings' dates stay 2026-11-13. Mapped back, the six entries are byte-identical to #79's at c734e48.
+- **The first re-stamp correction keeps its body.** So its account of the first re-stamp now names the current IDs. Its sentences on the choice of minutes (after 08:40, with 08:42 skipped) describe the first re-stamp. This entry records the whole history.
+- **The block's minutes run ahead of the clock.** This entry and the re-stamp were written at about 09:00 UTC, so the six IDs and this entry's own ID are later than their writing time. The validator checks only that each ID is a valid UTC minute and that IDs never decrease. Here an ID orders the integration merge, and the times above record when each entry was written.
+- research-assist-contract.ts changed in its first comment only, again. BL-20261113-0924-correction-assist-entries-restamp gives its sha256 from after the first re-stamp; it is now ddd19123b301ab4baff09afb43b9b02685451314d878161fd59c90bc38f29665.
+
+Changes:
+- docs/BUILD_LOG.md: the six headings, their references, and this entry.
+- The design entry's ID in one comment each in src/main/private-agent/model.ts, research-assist-contract.ts, research-assist-scrub.ts, research-assist.ts and research-plan.ts, and in tests/helpers/research-assist-fixture.ts.
+- No behaviour changes.
+
+Evidence:
+- At this commit, `pnpm --silent validate:build-log -- --base-ref origin/main` exits 0. The log is append-only against `main` at 23dfadc, with monotonic IDs and dates.
+- `pnpm typecheck` passes.
+- The four test files this PR changes pass 187 of 187, and the build-log validator's file 52 of 52.
+- `git grep` finds none of the first re-stamp's six IDs with their slugs.
+- A script that maps the IDs and short forms back gives the six entries byte for byte as at c734e48.
+
+Failures or blockers: None.
+
+Limitations and non-claims: This is a record correction only. Nothing is implemented, verified or released by it. Commit messages, the sections of #79's description for earlier rounds, and the reviews keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of #79 at its new head, with a skeptic on the privacy findings. #79 joins the integration merge if it is clean in time, and merges after it otherwise. If `main`'s tail moves past 09:29 before #79 merges, #79 re-stamps again under the same rule.
+
+References: BL-20261113-0834-correction-runner-storage-integrity-second-restamp; BL-20261113-0920-assist-wrapper-design; BL-20261113-0921-assist-core-implemented; BL-20261113-0922-correction-assist-core-review; BL-20261113-0923-correction-assist-core-delta; BL-20261113-0924-correction-assist-entries-restamp; BL-20261113-0925-correction-assist-core-rereview; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261113-0758 and BL-20261113-0832 (pull request #87).

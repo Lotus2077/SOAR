@@ -1,8 +1,9 @@
 import { z } from "zod";
 import type { ProviderResult } from "../providers/types";
-import { anthropicBody, decodeAnthropicReply } from "./anthropic";
+import { anthropicBody, cacheWritePartsAgree, decodeAnthropicReply } from "./anthropic";
 import { BROKER_MAX_BODY_BYTES, PrivateAgentBroker } from "./broker";
 import { canonical, digest, privateAgentId, sha256Schema } from "./contracts";
+import { isAssistDispatch } from "./dispatch-purposes";
 import type { FlashNextReplyEvidence } from "./flash-next-reply";
 import { LOCAL_TOKEN_ADMISSION_CODES, LOCAL_TOKEN_ADMISSION_STOP } from "./flash-next-admission";
 
@@ -121,6 +122,14 @@ export interface GeneralToolDefinition {
   type: "function";
   function: { name: string; description: string; parameters: Record<string, unknown> };
 }
+/** Backlog item 10 (BL-20261113-0920-assist-wrapper-design, decision 1): the only cache mode an assist may carry. */
+export const ASSIST_CACHE_MODE = "assist_no_cache_write_v1" as const;
+/** Per-call narrowing of the configured model; nothing here widens a configured value. */
+export interface ModelCallOverrides {
+  thinking?: "disabled"; maxOutputTokens?: number; purpose?: string; trailingTurnMessage?: boolean;
+  /** A lower request-body cap for this call (the assist bounds); the configured cap still applies when it is lower. */
+  maxRequestBytes?: number;
+}
 export interface PrivateModelConfig {
   destinationId: string;
   model: string;
@@ -155,8 +164,11 @@ export interface PrivateModelConfig {
    * job id, so prefix-cache blocks are shared only within one job and never across matters (H2a, design principle P6);
    * the box's prefix caching itself is a server setting and stays as it is (D11). `anthropic_explicit_5m_v1` (Anthropic
    * shape only): 5-minute `cache_control` breakpoints at the same positions as `responses_explicit_v1`.
+   * `assist_no_cache_write_v1` (Responses and Anthropic shapes only; backlog item 10): a sealed one-shot assist that writes
+   * nothing to a provider cache, by mechanism rather than by size: explicit mode with no breakpoint on Responses, no
+   * `cache_control` on Anthropic (issue #49). An assist purpose requires it and it serves nothing else (see `requestBody`).
    */
-  promptCaching?: "responses_explicit_v1" | "vllm_job_salt_v1" | "anthropic_explicit_5m_v1";
+  promptCaching?: "responses_explicit_v1" | "vllm_job_salt_v1" | "anthropic_explicit_5m_v1" | typeof ASSIST_CACHE_MODE;
   /** PR-B: stream the reply from the owned server (assembled by the transport); the cloud shape stays non-streaming in Phase 1. */
   streaming?: boolean;
   /** Explicit qualified local deployment contract; absent preserves every earlier body and model identity. */
@@ -202,7 +214,9 @@ const responsesSchema = z.object({
     input_tokens_details: z.object({ cached_tokens: nonnegativeInt.optional(), cache_write_tokens: nonnegativeInt.optional() }).passthrough().optional() }).passthrough(),
 });
 type DecodedReply = { model?: string; serviceTier?: string | null; content: string; toolCalls: { id: string; type: "function"; function: { name: string; arguments: string } }[];
-  finishReason: string | null; promptTokens: number; completionTokens: number; cachedTokens: number; cacheWriteTokens: number; thinkingTokens?: number };
+  finishReason: string | null; promptTokens: number; completionTokens: number; cachedTokens: number; cacheWriteTokens: number; thinkingTokens?: number;
+  /** Whether the reply reported its cache writes itself (backlog item 10): the chat shape never does; a missing field decodes as 0. */
+  cacheWriteReported: boolean };
 
 const PROMPT_CACHE_BREAKPOINT = Object.freeze({ mode: "explicit" });
 /**
@@ -241,7 +255,8 @@ function decodeReply(api: PrivateModelConfig["api"], bytes: Uint8Array, configur
   if (api !== "openai_responses") {
     const decoded = responseSchema.parse(json), choice = decoded.choices[0]!;
     return { model: decoded.model, serviceTier: decoded.service_tier, content: choice.message.content ?? "", toolCalls: choice.message.tool_calls ?? [], finishReason: choice.finish_reason,
-      promptTokens: decoded.usage.prompt_tokens, completionTokens: decoded.usage.completion_tokens, cachedTokens: decoded.usage.prompt_tokens_details?.cached_tokens ?? 0, cacheWriteTokens: 0 };
+      promptTokens: decoded.usage.prompt_tokens, completionTokens: decoded.usage.completion_tokens, cachedTokens: decoded.usage.prompt_tokens_details?.cached_tokens ?? 0, cacheWriteTokens: 0,
+      cacheWriteReported: false };
   }
   const decoded = responsesSchema.parse(json);
   let refused = false;
@@ -257,8 +272,11 @@ function decodeReply(api: PrivateModelConfig["api"], bytes: Uint8Array, configur
   const finishReason = decoded.status === "incomplete"
     ? (decoded.incomplete_details?.reason === "max_output_tokens" ? "length" : decoded.incomplete_details?.reason ?? "incomplete")
     : refused ? "content_filter" : toolCalls.length ? "tool_calls" : "stop";
+  // The write count proves zero writes only when the reply reports it, and its TTL parts (when given) add up to it.
+  const details = decoded.usage.input_tokens_details;
+  const cacheWriteReported = typeof details?.cache_write_tokens === "number" && cacheWritePartsAgree(details.cache_write_tokens_details, ["ttl_30m_tokens", "ttl_12h_tokens"], details.cache_write_tokens);
   return { model: decoded.model, serviceTier: decoded.service_tier, content, toolCalls, finishReason, promptTokens: decoded.usage.input_tokens, completionTokens: decoded.usage.output_tokens,
-    cachedTokens: decoded.usage.input_tokens_details?.cached_tokens ?? 0, cacheWriteTokens: decoded.usage.input_tokens_details?.cache_write_tokens ?? 0 };
+    cachedTokens: details?.cached_tokens ?? 0, cacheWriteTokens: details?.cache_write_tokens ?? 0, cacheWriteReported };
 }
 
 /**
@@ -300,7 +318,8 @@ export class PrivateAgentModel {
         (config.api !== undefined && config.api !== "vllm" && config.api !== "openai" && config.api !== "openai_responses" && config.api !== "anthropic_messages") ||
         (config.promptCaching !== undefined && !((config.promptCaching === "responses_explicit_v1" && config.api === "openai_responses") ||
           (config.promptCaching === "vllm_job_salt_v1" && (config.api === undefined || config.api === "vllm")) ||
-          (config.promptCaching === "anthropic_explicit_5m_v1" && config.api === "anthropic_messages"))) ||
+          (config.promptCaching === "anthropic_explicit_5m_v1" && config.api === "anthropic_messages") ||
+          (config.promptCaching === ASSIST_CACHE_MODE && (config.api === "openai_responses" || config.api === "anthropic_messages")))) ||
         // The Anthropic shape sends adaptive thinking only (the model refuses `disabled`) and no sampling fields.
         (config.api === "anthropic_messages" && (config.thinking !== "medium" || config.sampling !== undefined)) ||
         (config.localReplyContract !== undefined && (config.localReplyContract !== "flash_next_v1" ||
@@ -331,25 +350,58 @@ export class PrivateAgentModel {
       !this.broker.zeroRiskDispatch({ destinationId: this.config.destinationId, maxFeeMicrousd: zeroFee ? 0 : 1, method: "POST" });
   }
 
-  /** Host-side calls (the entailment judge) narrow the same destination to thinking off and a short reply; they never widen anything. */
-  async complete(messages: GeneralMessage[], tools: GeneralToolDefinition[], signal: AbortSignal,
-    overrides?: { thinking?: "disabled"; maxOutputTokens?: number; purpose?: string; trailingTurnMessage?: boolean }): Promise<ProviderResult & { localReplyEvidence?: FlashNextReplyEvidence }> {
+  /** The configured rates for a prompt of this many tokens: the long-context tier above its threshold, the base tier otherwise. */
+  private rates(promptTokens: number) {
+    const long = this.config.longContext;
+    return long && promptTokens > long.aboveTokens
+      ? { input: long.inputUsdPerMillion, output: long.outputUsdPerMillion, cached: long.cachedInputUsdPerMillion ?? long.inputUsdPerMillion, write: long.cacheWriteUsdPerMillion ?? long.inputUsdPerMillion }
+      : { input: this.config.inputUsdPerMillion, output: this.config.outputUsdPerMillion, cached: this.config.cachedInputUsdPerMillion ?? this.config.inputUsdPerMillion,
+        write: this.config.cacheWriteUsdPerMillion ?? this.config.inputUsdPerMillion };
+  }
+
+  /**
+   * The fee `complete()` reserves for a prompt bound (the body's bytes, or the Flash context envelope) and an output cap, in
+   * micro-USD (review §5.1 rule 8). It takes the tier the bound could reach and the dearer of its input and cache-write rates,
+   * so it covers either tier the reply settles at however the provider splits the prompt between reads, writes and input.
+   */
+  reservationMicrousd(promptBound: number, maxOutputTokens: number): number {
+    const reserveRates = this.rates(promptBound);
+    return Math.ceil(promptBound * Math.max(reserveRates.input, reserveRates.write) + maxOutputTokens * reserveRates.output);
+  }
+
+  /**
+   * The exact request body `complete()` sends for these arguments, built without any dispatch (backlog item 10: the assist
+   * wrapper measures and trims its packets on these bytes). Every refusal here comes before any body exists.
+   */
+  requestBody(messages: GeneralMessage[], tools: GeneralToolDefinition[], overrides?: ModelCallOverrides): { body: string; maxOutputTokens: number; thinking: "disabled" | "medium" } {
     const thinking = overrides?.thinking ?? this.config.thinking, maxOutputTokens = Math.min(this.config.maxOutputTokens, overrides?.maxOutputTokens ?? this.config.maxOutputTokens);
     const anthropic = this.config.api === "anthropic_messages";
     // Refused before any body exists, so never dispatched: the Anthropic model answers `disabled` thinking with HTTP 400.
     if (anthropic && thinking === "disabled") throw new Error("private_model_thinking_unsupported");
-    const openai = this.config.api === "openai", openaiShape = openai || this.config.api === "openai_responses";
+    // Backlog item 10: an assist carries the no-write cache mode and nothing else does, so `promptCaching` is never undefined (or
+    // a breakpoint mode) on an assist; and the mode serves only a sealed tool-less [system, user] one-shot (review §5.2, principle 3).
+    const assistMode = this.config.promptCaching === ASSIST_CACHE_MODE;
+    if (isAssistDispatch({ purpose: overrides?.purpose }) && !assistMode) throw new Error("private_model_assist_cache_mode_required");
+    // Two non-empty text messages, no tools, no trailing turn and the model's own thinking: a body that drops nothing silently.
+    if (assistMode && (!isAssistDispatch({ purpose: overrides?.purpose }) || tools.length || overrides?.trailingTurnMessage || overrides?.thinking !== undefined || messages.length !== 2 ||
+        messages[0]!.role !== "system" || messages[1]!.role !== "user" || messages.some(message => typeof message.content !== "string" || !message.content.length ||
+          message.tool_calls?.length || message.tool_call_id !== undefined))) {
+      throw new Error("private_model_assist_request_invalid");
+    }
+    const openai = this.config.api === "openai";
     // An OpenAI-compatible server rejects an empty `tools` array, so a tool-less call (the entailment judge) omits the tool fields.
     // The OpenAI shape uses max_completion_tokens and top-level reasoning_effort only; vLLM-only fields never leave for a cloud API.
     // The Responses shape sends non-strict function tools (its default is strict), an explicit effort and no stored state.
     // The owned vLLM shape salts the server's prefix cache per job when configured (`cache_salt`, 1 to 1,024 characters).
     // The Anthropic shape sends layout 2's trailing guidance as a system message (`trailingTurnMessage`); every other
     // shape ignores that option, so their bodies are unchanged.
+    // Breakpoints only under the two breakpoint modes, which the constructor admits on these shapes alone: the no-write assist
+    // mode marks nothing (explicit mode without a breakpoint on Responses, no `cache_control` on Anthropic).
     const body = anthropic
-      ? anthropicBody({ model: this.config.model, maxOutputTokens, messages, tools, breakpoints: this.config.promptCaching !== undefined,
+      ? anthropicBody({ model: this.config.model, maxOutputTokens, messages, tools, breakpoints: this.config.promptCaching === "anthropic_explicit_5m_v1",
         trailingTurnMessage: overrides?.trailingTurnMessage === true })
       : this.config.api === "openai_responses"
-      ? canonical({ model: this.config.model, input: responsesInput(messages, this.config.promptCaching !== undefined),
+      ? canonical({ model: this.config.model, input: responsesInput(messages, this.config.promptCaching === "responses_explicit_v1"),
         ...(this.config.promptCaching ? { prompt_cache_options: { mode: "explicit" } } : {}),
         ...(tools.length ? { tools: tools.map(tool => ({ type: "function", name: tool.function.name, description: tool.function.description,
           parameters: tool.function.parameters, strict: false })), tool_choice: "auto", parallel_tool_calls: false } : {}),
@@ -363,20 +415,24 @@ export class PrivateAgentModel {
         ...(this.config.localReplyContract ? { chat_template_kwargs: { enable_thinking: thinking !== "disabled", preserve_thinking: false } } : {}),
         ...(this.config.promptCaching === "vllm_job_salt_v1" ? { cache_salt: vllmCacheSalt(this.jobId) } : {}),
       });
-    const bodyBytes = Buffer.byteLength(body), limitBytes = this.config.maxRequestBytes ?? BROKER_MAX_BODY_BYTES;
+    return { body, maxOutputTokens, thinking };
+  }
+
+  /** Host-side calls (the entailment judge) narrow the same destination to thinking off and a short reply; they never widen anything. */
+  async complete(messages: GeneralMessage[], tools: GeneralToolDefinition[], signal: AbortSignal,
+    overrides?: ModelCallOverrides): Promise<ProviderResult & { localReplyEvidence?: FlashNextReplyEvidence; cacheWriteReported?: boolean }> {
+    if (overrides?.maxRequestBytes !== undefined && (!Number.isSafeInteger(overrides.maxRequestBytes) || overrides.maxRequestBytes < 1)) throw new Error("private_model_request_bound_invalid");
+    const { body, maxOutputTokens, thinking } = this.requestBody(messages, tools, overrides);
+    const openaiShape = this.config.api === "openai" || this.config.api === "openai_responses";
+    const configuredBytes = this.config.maxRequestBytes ?? BROKER_MAX_BODY_BYTES;
+    const bodyBytes = Buffer.byteLength(body), limitBytes = Math.min(configuredBytes, overrides?.maxRequestBytes ?? configuredBytes);
     if (bodyBytes > limitBytes) throw new ModelRequestBodyTooLarge(bodyBytes, limitBytes);
     // Flash's NFC tokenizer can expand raw input bytes, so its zero-fee settlement envelope is the pinned context capacity
     // minus this call's actual output reservation. The broker separately enforces the pinned exact-token proof before dispatch.
     // Legacy/provider price reservations keep their established byte envelope unchanged.
-    const promptBound = this.config.localReplyContract ? this.config.localContextTokens! - maxOutputTokens : bodyBytes, long = this.config.longContext;
-    const rates = (promptTokens: number) => long && promptTokens > long.aboveTokens
-      ? { input: long.inputUsdPerMillion, output: long.outputUsdPerMillion, cached: long.cachedInputUsdPerMillion ?? long.inputUsdPerMillion, write: long.cacheWriteUsdPerMillion ?? long.inputUsdPerMillion }
-      : { input: this.config.inputUsdPerMillion, output: this.config.outputUsdPerMillion, cached: this.config.cachedInputUsdPerMillion ?? this.config.inputUsdPerMillion,
-        write: this.config.cacheWriteUsdPerMillion ?? this.config.inputUsdPerMillion };
-    // The reservation takes the tier the byte bound could reach and the dearer of its input and cache-write rates, so it
-    // covers either tier the reply settles at however the provider splits the prompt between reads, writes and input.
-    const reserveRates = rates(promptBound);
-    const reservation = Math.ceil(promptBound * Math.max(reserveRates.input, reserveRates.write) + maxOutputTokens * reserveRates.output);
+    const promptBound = this.config.localReplyContract ? this.config.localContextTokens! - maxOutputTokens : bodyBytes;
+    const rates = (promptTokens: number) => this.rates(promptTokens);
+    const reservation = this.reservationMicrousd(promptBound, maxOutputTokens);
     let decoded: DecodedReply | undefined;
     const started = performance.now();
     const result = await this.broker.request({ jobId: this.jobId, contextId: this.contextId, destinationId: this.config.destinationId,
@@ -409,6 +465,8 @@ export class PrivateAgentModel {
         cacheReadTokens: decoded.cachedTokens, cacheWriteTokens: decoded.cacheWriteTokens,
         ...(decoded.thinkingTokens !== undefined ? { thinkingTokens: decoded.thinkingTokens } : {}) },
       costUsd: (result.receipt.feeMicrousd ?? 0) / 1000000, durationMs: performance.now() - started,
-      ...(result.localReplyEvidence ? { localReplyEvidence: result.localReplyEvidence } : {}) };
+      ...(result.localReplyEvidence ? { localReplyEvidence: result.localReplyEvidence } : {}),
+      // Backlog item 10: an assist's receipt says whether the provider reported its writes; every other call's result is unchanged.
+      ...(this.config.promptCaching === ASSIST_CACHE_MODE ? { cacheWriteReported: decoded.cacheWriteReported } : {}) };
   }
 }

@@ -106,8 +106,18 @@ function boundedErrors(all: readonly SafePlanError[]): { errors: SafePlanError[]
 /**
  * `issues` is the complete code-and-path list before bounding (backlog item 4): it carries no model text and is returned to
  * the caller only, for a diagnostics sink; the persisted attempt record keeps its bounded `errors` unchanged.
+ *
+ * `sourceAliases` (backlog item 10, BL-20261113-0920-assist-wrapper-design decision 6) is a plan assist's map from the opaque
+ * source ids its packet used to the real ids. Binding then runs against the opaque ids, so a real id in the reply is unknown;
+ * an accepted plan is translated to the real ids before its hash is taken, so `replyContentSha256` stays the raw reply's
+ * hash and `acceptedPlanSha256` the hash of the plan that is kept. Absent, nothing changes.
  */
-export function assessResearchPlanReply(input: { content: string; truncated: boolean; ordinal: number; units: readonly BindingInput[]; sources: readonly BindingInput[] }): { attempt: ResearchPlanAttempt; plan?: ResearchPlan; issues: SafePlanError[] } {
+export function assessResearchPlanReply(input: { content: string; truncated: boolean; ordinal: number; units: readonly BindingInput[]; sources: readonly BindingInput[];
+  sourceAliases?: Readonly<Record<string, string>> }): { attempt: ResearchPlanAttempt; plan?: ResearchPlan; issues: SafePlanError[] } {
+  const aliases = input.sourceAliases;
+  // An alias map names each source once, by an opaque S{n} key, and only sources the stage holds.
+  if (aliases && (Object.keys(aliases).some(key => !/^S[1-9][0-9]*$/u.test(key)) || new Set(Object.values(aliases)).size !== Object.keys(aliases).length ||
+      Object.values(aliases).some(id => !input.sources.some(source => source.id === id)))) throw Error("research_plan_alias_binding");
   const attempt: ResearchPlanAttempt = { version: 1, ordinal: input.ordinal, replyContentSha256: digest(input.content), replyBytes: Buffer.byteLength(input.content), truncated: input.truncated,
     accepted: false, bindingInspection: "not_run", errors: [], omittedErrorCount: 0, acceptedPlanSha256: null, repairContext: "not_used" };
   let plan: ResearchPlan | undefined, errors: SafePlanError[];
@@ -118,7 +128,10 @@ export function assessResearchPlanReply(input: { content: string; truncated: boo
     else {
       const parsed = ResearchPlanSchema.safeParse(decoded);
       if (!parsed.success) errors = parsed.error.issues.map(schemaError);
-      else { attempt.bindingInspection = "completed"; errors = bindingErrors(parsed.data, input.units, input.sources); if (!errors.length) plan = parsed.data; }
+      else {
+        attempt.bindingInspection = "completed"; errors = bindingErrors(parsed.data, input.units, aliases ? Object.keys(aliases).map(id => ({ id })) : input.sources);
+        if (!errors.length) plan = aliases ? { ...parsed.data, questions: parsed.data.questions.map(question => ({ ...question, sourceIds: question.sourceIds.map(id => aliases[id]!) })) } : parsed.data;
+      }
     }
   }
   Object.assign(attempt, boundedErrors(errors));

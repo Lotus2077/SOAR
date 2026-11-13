@@ -4,6 +4,8 @@ import { ANTHROPIC_API_VERSION, ANTHROPIC_MESSAGES_ENDPOINT, anthropicConversati
 import type { PrivateAgentBroker } from "../../src/main/private-agent/broker";
 import { ModelRequestBodyTooLarge, PrivateAgentModel, type GeneralMessage, type PrivateModelConfig } from "../../src/main/private-agent/model";
 import { COORDINATOR_PROFILES } from "../../src/main/private-agent/profiles";
+import { PLAN_ASSIST_PURPOSE, SYNTHESIS_ASSIST_PURPOSE } from "../../src/main/private-agent/dispatch-purposes";
+import { anthropicCachingReply, assistModelConfig, capturingBroker } from "../helpers/research-assist-fixture";
 
 const heavy = COORDINATOR_PROFILES.heavy;
 const config: PrivateModelConfig = { destinationId: "cloud", model: "claude-sonnet-5-5", api: "anthropic_messages", maxOutputTokens: 16_384,
@@ -252,5 +254,62 @@ describe("the driver's Claude cloud arm", () => {
     const openai = ["--arm", "cloud", "--cloud-model", "gpt-6-sol", "--cloud-endpoint", "https://api.openai.com/v1/responses", "--cloud-prices", "2,10,0.2,2.5", "--max-fee-usd", "2.5"];
     expect(() => parseLocalArtifactScreenArguments([...base, "--profile", "heavy", ...openai])).toThrow("local_screen_cli_invalid");
     expect(parseLocalArtifactScreenArguments([...base, "--profile", "heavy", ...openai, "--cloud-long-context", "272000,4,15,0.4,5"]).cloudArm?.longContext).toMatchObject({ aboveTokens: 272000 });
+  });
+});
+
+describe("the assist no-write cache mode on the Anthropic shape (backlog item 10)", () => {
+  const assist = assistModelConfig("anthropic_messages"), oneShot: GeneralMessage[] = [{ role: "system", content: "Plan." }, { role: "user", content: "Brief." }];
+
+  it("sends no cache_control anywhere, byte for byte, and requestBody returns exactly the dispatched body", async () => {
+    const f = fixture(() => reply([{ type: "text", text: "{}" }]), assist);
+    await f.model.complete(oneShot, [], new AbortController().signal, { maxOutputTokens: 8192, purpose: SYNTHESIS_ASSIST_PURPOSE });
+    expect(f.requests[0]!.body).toBe('{"inference_geo":"global","max_tokens":8192,"messages":[{"content":[{"text":"Brief.","type":"text"}],"role":"user"}],"model":"claude-sonnet-5-5",'
+      + '"output_config":{"effort":"medium"},"service_tier":"standard_only","system":[{"text":"Plan.","type":"text"}],"thinking":{"type":"adaptive"}}');
+    expect(f.model.requestBody(oneShot, [], { maxOutputTokens: 8192, purpose: SYNTHESIS_ASSIST_PURPOSE }).body).toBe(f.requests[0]!.body);
+  });
+
+  it("refuses an assist without the mode, undefined included, before any request", async () => {
+    for (const promptCaching of [undefined, "anthropic_explicit_5m_v1"] as const) {
+      const f = fixture(() => reply([{ type: "text", text: "{}" }]), { ...assist, promptCaching });
+      await expect(f.model.complete(oneShot, [], new AbortController().signal, { purpose: PLAN_ASSIST_PURPOSE })).rejects.toThrow("private_model_assist_cache_mode_required");
+      expect(f.requests).toHaveLength(0);
+    }
+    const f = fixture(() => reply([{ type: "text", text: "{}" }]), assist);
+    await expect(f.model.complete(oneShot, [], new AbortController().signal, { purpose: PLAN_ASSIST_PURPOSE, trailingTurnMessage: true })).rejects.toThrow("private_model_assist_request_invalid");
+    await expect(f.model.complete(layout2, [tool], new AbortController().signal, { purpose: PLAN_ASSIST_PURPOSE })).rejects.toThrow("private_model_assist_request_invalid");
+    expect(f.requests).toHaveLength(0);
+  });
+
+  it("writes nothing under the provider's documented caching rules, where today's 5-minute breakpoints write a system prompt of 512 tokens or more", async () => {
+    const system = `You plan research. ${"Plan carefully and cover every requirement. ".repeat(60)}`, messages: GeneralMessage[] = [{ role: "system", content: system }, { role: "user", content: "Brief." }];
+    const run = async (config: PrivateModelConfig, purpose: string) => {
+      const captured = capturingBroker(body => anthropicCachingReply(body, "{}"));
+      return new PrivateAgentModel(captured.broker, config, "job", "reader").complete(messages, [], new AbortController().signal, { maxOutputTokens: 8192, purpose });
+    };
+    expect((await run(assist, PLAN_ASSIST_PURPOSE)).usage?.cacheWriteTokens).toBe(0);
+    // Negative control: the same system block marked by today's mode is over Claude's 512-token minimum and is written.
+    expect((await run(assistModelConfig("anthropic_messages", "anthropic_explicit_5m_v1"), "research plan")).usage?.cacheWriteTokens).toBeGreaterThan(512);
+    // Undefined caching writes nothing on this shape (#49): the reason the assist still names its mode is the refusal above, not this body.
+    expect((await run(assistModelConfig("anthropic_messages", "none"), "research plan")).usage?.cacheWriteTokens).toBe(0);
+  });
+});
+
+describe("an assist's proof of zero writes on the Anthropic shape (backlog item 10)", () => {
+  const assist = assistModelConfig("anthropic_messages"), oneShot: GeneralMessage[] = [{ role: "system", content: "Plan." }, { role: "user", content: "Brief." }];
+  const answer = (fields: Record<string, unknown>) => () => reply([{ type: "text", text: "{}" }], { usage: { input_tokens: 80, output_tokens: 10, service_tier: "standard", inference_geo: "global", ...fields } });
+  it.each<[string, Record<string, unknown>, boolean]>([
+    ["no write count", {}, false], ["a null write count", { cache_creation_input_tokens: null }, false], ["a write count with no parts", { cache_creation_input_tokens: 0 }, true],
+    ["null parts", { cache_creation_input_tokens: 0, cache_creation: null }, true],
+    ["parts that agree", { cache_creation_input_tokens: 0, cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: 0 } }, true],
+    ["parts that disagree", { cache_creation_input_tokens: 0, cache_creation: { ephemeral_5m_input_tokens: 7 } }, false],
+    ["an unknown part", { cache_creation_input_tokens: 0, cache_creation: { ephemeral_30m_input_tokens: 7 } }, false],
+    ["an unknown part that sums to the count", { cache_creation_input_tokens: 0, cache_creation: { ephemeral_30m_input_tokens: 0 } }, false],
+  ])("reports %s as %s", async (_name, fields, reported) => {
+    const result = await fixture(answer(fields), assist).model.complete(oneShot, [], new AbortController().signal, { purpose: PLAN_ASSIST_PURPOSE });
+    expect(result.cacheWriteReported).toBe(reported);
+  });
+  it("adds nothing to any other call's result", async () => {
+    const result = await fixture(answer({ cache_creation_input_tokens: 0 })).model.complete(oneShot, [], new AbortController().signal, { purpose: "research plan" });
+    expect(result).not.toHaveProperty("cacheWriteReported");
   });
 });

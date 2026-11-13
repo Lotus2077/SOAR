@@ -33776,3 +33776,29 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 Next gate: The lanes rebase their next pull requests onto `main` and re-stamp at merge. docs/HANDOFF.md "Start here" is updated in a later handoff note.
 
 References: BL-20261110-1506-merge-train-1-integration; BL-20261108-0856-correction-stop-bricking-tasks-design-id; docs/HANDOFF.md "Start here" section 5; AGENTS.md.
+
+### BL-20261113-0832-correction-restamp-rule-dates -- 2026-11-13 -- Correction to BL-20261113-0758-owner-decision-restamp-unmerged-entries: a re-stamp may move an entry's date as well as its minute
+
+Status: `Implemented`
+
+Scope or hypothesis: Correct one sentence of BL-20261113-0758-owner-decision-restamp-unmerged-entries, which stays as written. Its Decisions bullet "What a re-stamp may change" says a re-stamp changes "only the heading's ID minute and the references to that ID". The owner's rule, as docs/HANDOFF.md section 5 states it, is to re-stamp after `main`'s tail. When the tail is on a later day than the entry, that means moving the entry's date as well. The validator requires an ID's date to match its heading's date, so the heading date moves with it.
+
+Decisions:
+- A re-stamp may change the ID's date and minute, the heading's date, and the references to that ID. Nothing else in the entry changes; its body stays byte-identical to what was reviewed.
+- The Correction entry that accompanies a re-stamp records each original ID, so its original date and authoring time stay traceable.
+- PR #89 already moved 11.3b's entries from 2026-11-10 to 2026-11-13 IDs. That is within the rule as corrected here.
+- An entry on `main` may cite an ID that is re-stamped before it reaches `main`. It keeps the original ID as written, and the re-stamping branch's Correction entry maps the original ID to its new one. For example, the correction entry that PR #92 put on `main` cites this branch's decision entry, which this branch re-stamps at its own merge.
+
+Changes: None in code. This entry corrects one sentence of the decision record.
+
+Evidence: In scripts/validate-build-log.ts, an ID's date must equal its heading's date ("ID date does not match entry date").
+
+Failures or blockers: A first version of this correction cited PR #92's correction entry by its full ID. That entry is not on this branch, so the validator refused the citation as "not an earlier entry". The first version was committed and pushed because a shell pipeline hid the validator's exit status. It was reverted before any review, and this version names the entry by pull request instead.
+
+Limitations and non-claims: This clarifies the decision's scope only. It approves no merge.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: This branch re-stamps its own entries after `main`'s tail when it merges.
+
+References: BL-20261113-0758-owner-decision-restamp-unmerged-entries; pull request #92; docs/HANDOFF.md "Start here" section 5; scripts/validate-build-log.ts.

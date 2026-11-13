@@ -166,6 +166,7 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       "Include an abstract. Keep it\u2014at most 150 words.", "Include an abstract. Its length is at most 150 words.", "Start with an executive summary. Its length must not exceed 200 words.",
       "Add two captions. Keep these under 150 words.", "Write section summaries. These must not exceed 150 words.", "Write the section headings. Keep those to at most 120 words.",
       "Add captions. Keep those under 150 words.", "Add captions. They must not exceed 150 words.", "Add captions. Keep them under 150 words.", "Include captions. Keep them under 150 words.",
+      "Include an abstract. Keep this under 150 words.", "Include an abstract. Keep that under 150 words.",
       "Open with an abstract. There, use at most 150 words.", "Include an abstract. There, use at most 150 words.", "Include an abstract. Keep it short, under 200 words",
       "Start with an executive summary. It is for the board (at most 200 words).", "Without delay write an abstract. Max 150 words.", "Per source,\nat most 150 words.",
       "Abstract (required,\nmax 150 words)"])
@@ -184,7 +185,9 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       ["Cover each vendor,\nthen be brief, at most 2,000 words", 2000], ["Cite every source,\nbe concise, at most 2,000 words", 2000], ["Cite every source. Report: concise, at most 2,000 words", 2000],
       ["Cite every source; be concise, at most 2,000 words.", 2000], ["Answer each question. Overall, at most 2,000 words", 2000], ["Include an abstract. Report\u2014max 2,000 words.", 2000],
       ["Include an abstract\nin the report. Max 2,000 words.", 2000], ["Include an abstract. Cite the sources. Max 2,000 words.", 2000], ["Include an abstract. Write a report. Max 2,000 words.", 2000],
-      ["Each source is a PDF\nWrite a report on them.\nMax 2,000 words.", 2000], ["Report: include an abstract, at most 2,000 words", 2000]];
+      ["Each source is a PDF\nWrite a report on them.\nMax 2,000 words.", 2000], ["Report: include an abstract, at most 2,000 words", 2000],
+      // A line break inside a run of white space (a trailing space, an indent) still ends the line.
+      ["Sections: Abstract, Results \nLength: at most 2,000 words", 2000], ["Sections: Abstract, Results\n Length: at most 2,000 words", 2000]];
     for (const [brief, limit] of cases) expect([brief, briefWordLimit(brief)]).toEqual([brief, limit]);
   });
   it("misses these report limits under rules A and B, as the parse prefers (new known misses)", () => {
@@ -192,7 +195,7 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       "Answer every question. Keep it under 900 words.", "Write the report. Do not include an abstract. Keep it under 800 words.", "I need a summary of the audit findings for the board. Max 500 words.",
       "Give each question a 2-3 word label, and keep the report under 2,000 words.", "Write the following sections: introduction, body, and a conclusion, at most 3,000 words in total.",
       "Include an abstract. This report must not exceed 2,000 words.", "Write the abstract first. (At most 2,000 words.)",
-      // BL-20261110-1100-correction-research-train-1-review-pins: an exclusion cancels nothing in the sentence before; list words and distributives are read in any sense, a title line among them; and a
+      // BL-20261110-1100-correction-research-train-1-review-pins: an exclusion cancels nothing in the sentence before; list words, distributives and referring words are read in any sense (a title line, a relative "that"); and a
       // short heading-only noun opens a one-line comma chain. These are examples of what rules A and B miss, not the full set.
       "Write a report without an abstract. Max 2,000 words.", "Research report\nTitle: The economics of vertical farming.\nUnder 2,500 words.",
       "Background: the board meets on Friday, so I need a report on supplier risk, max 1,500 words.", "Read every source. Then write a report that is under 2,000 words."])
@@ -219,14 +222,18 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       ["Include an abstract. Word limit: 150.", 150], ["Start with an executive summary. Its word limit is 200.", 200], ["Abstract (optional; word limit 150)", 150],
       // a wrapped line (rule A reads only the limit's line; rule B ends a sentence at a line break):
       ["For each source,\nwrite up to 150 words.", 150], ["Abstract:\nconcise, at most 150 words", 150], ["Start with an abstract. Keep it\nunder 150 words.", 150],
-      // a limit that neither opens its sentence nor follows a referring word: a lead-in word, a quote glued to the limit, or a list marker, which is a sentence of its own:
+      ["Notes,\nfor each vendor,\nbe brief, at most 2,000 words", 2000], ["Intro\nAbstract: x\nconcise, short, at most 2,000 words", 2000],
+      // a limit that neither opens its sentence nor follows a referring word: a lead-in word or a quote glued to the limit; and a list marker, which is a sentence of its own, so
+      // rule B reads the marker and not the item before:
       ["Include an abstract. Please stay under 150 words.", 150], ["Include an abstract. Aim for under 150 words.", 150], ["Include an abstract. Length: max 150 words.", 150],
       ["Include an abstract. \u2019Max 150 words\u2019", 150], ["1. Include an abstract.\n2. Max 150 words.", 150],
       // a part two or more sentences back:
       ["Include an abstract. Make it punchy. Max 150 words.", 150], ["Include an abstract. Please. Max 150 words.", 150], ["I'd like an executive summary as well. Nothing long; a maximum of 250 words.", 250],
       // an abbreviation's period or a parenthesis between the part and the limit, and a chain anchored at ")":
       ["Each source (approx. 1 page, 400 words max)", 400], ["Include an abstract (approx. half a page). Max 150 words.", 150], ["For each source (a paper), write up to 150 words.", 150],
-      ["Abstract (required), max 150 words", 150]];
+      ["Abstract (required), max 150 words", 150],
+      // a part or a distributive in the limit's own sentence before a referring word (rule B reads only the sentence before):
+      ["Write a report. For the abstract, keep it under 150 words.", 150], ["Write a report. Notes (per source) keep it under 150 words.", 150]];
     for (const [brief, limit] of cases) expect([brief, briefWordLimit(brief)]).toEqual([brief, limit]);
     // Report limits still missed on line-structured briefs, with an exclusion off the list, and in phrasings no pattern matches.
     for (const brief of ["Sections: three\nAt most 900 words", "Word limit (not including the abstract): at most 900 words", "Maximum length: 1,500 words.", "No longer than 1,000 words."])
@@ -241,7 +248,7 @@ describe("7b.1: the synthesis length cap from the brief (finding D13)", () => {
       ["Give the evidence an overview (at most 1,500 words)", 1500], ["Write a report incl an abstract: at most 150 words", undefined],
       // BL-20261110-1100-correction-research-train-1-review-pins: both cut-word halves of rule B's trigger, and no look-back when no word precedes the limit's sentence (the look-back would throw).
       ["Include an abstract. Total/max 2,000 words", 2000], ["Include an abstract. It/max 150 words", undefined], ["?\nMax 2,000 words", 2000], ["...Max 2,000 words", 2000],
-      ["---\nKeep it under 2,000 words.", 2000]];
+      ["---\nKeep it under 2,000 words.", 2000], ["?\nIt/max 2,000 words", 2000]];
     for (const [brief, limit] of cases) expect([brief, briefWordLimit(brief)]).toEqual([brief, limit]);
   });
   it("misses, rather than misreads, a report limit that sits beside a part noun", () => {

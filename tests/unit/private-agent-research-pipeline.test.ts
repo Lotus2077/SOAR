@@ -522,8 +522,25 @@ describe("backlog item 7(a), part 1: per-quote tolerance and heading normalisati
       ? extractReply(input, reply => { reply.quotes = [{ quote: "Invented evidence that never occurred in the supplied source.", questionIds: ["Q1"] }, { quote: good(input), questionIds: ["Q2"] }]; })
       : twoQuestions(stage, input, n, system));
     const result = await run(m);
-    expect(result.summary.stages[2]).toMatchObject({ calls: 3, repairCalls: 1, invalidReplies: 1, questionsDowngraded: 0 });
+    // The held attempt's verified quote is discarded with it: only the two quotes of the complete replies count (quotesVerified 2).
+    expect(result.summary.stages[2]).toMatchObject({ calls: 3, repairCalls: 1, invalidReplies: 1, questionsDowngraded: 0, quotesVerified: 2 });
     expect(parsed(result, RESEARCH_FILES.coverage).chunks[0].attempts.map((a: any) => a.status)).toEqual(["invalid", "complete"]);
+  });
+  it("counts a dropped quote against the questions it names, and only those (BL-20261113-0835-correction-research-train-1-check-pins)", async () => {
+    const invented = "Invented evidence that never occurred in the supplied source.";
+    // A located quote dropped for a repeated question id was the found question's only quote: the first attempt is held and repaired.
+    const repeated = await run(models((stage, input, n, system) => stage === "extract" && n === 0
+      ? extractReply(input, reply => { reply.quotes = [{ quote: good(input), questionIds: ["Q1", "Q1"] }]; }) : happy(stage, input, n, system)));
+    expect(repeated.summary.stages[2]).toMatchObject({ calls: 3, repairCalls: 1, invalidReplies: 1, questionsDowngraded: 0 });
+    expect(parsed(repeated, RESEARCH_FILES.coverage).chunks[0].attempts.map((a: any) => a.status)).toEqual(["invalid", "complete"]);
+    // A verified quote naming Q1 and Q2 keeps a quote for Q2 although Q2's invented quote was dropped: kept, nothing downgraded.
+    const second = await run(models((stage, input, n, system) => stage === "extract" && n === 0
+      ? extractReply(input, reply => { reply.quotes = [{ quote: good(input), questionIds: ["Q1", "Q2"] }, { quote: invented, questionIds: ["Q2"] }]; }) : twoQuestions(stage, input, n, system)));
+    expect(second.summary.stages[2]).toMatchObject({ calls: 2, repairCalls: 0, invalidReplies: 0, quotesDropped: 1, questionsDowngraded: 0 });
+    // A quote dropped for Q1 does not count against Q2, which no quote names: kept, with Q2 downgraded.
+    const other = await run(models((stage, input, n, system) => stage === "extract" && n === 0
+      ? extractReply(input, reply => { reply.quotes = [{ quote: good(input), questionIds: ["Q1"] }, { quote: invented, questionIds: ["Q1"] }]; }) : twoQuestions(stage, input, n, system)));
+    expect(other.summary.stages[2]).toMatchObject({ calls: 2, repairCalls: 0, invalidReplies: 0, quotesDropped: 1, questionsDowngraded: 1 });
   });
   it("still repairs a reply that is schema-invalid, names the wrong questions or needs follow-up", async () => {
     const faults: ((reply: any) => void)[] = [reply => { reply.quotes[0].quote = 42; }, reply => { reply.questions = [{ questionId: "Q7", status: "no_verified_evidence" }]; reply.quotes = []; },

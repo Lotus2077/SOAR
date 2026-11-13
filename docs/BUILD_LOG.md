@@ -37902,3 +37902,84 @@ References:
 - BL-20261113-0850-e1-recoverability-pipeline-seed-implemented;
 - BL-20261113-0853-e1-recoverability-session-implemented;
 - BL-20261113-0859-correction-claims-trailing-strip-linear-second-restamp (train 2b's tail).
+
+### BL-20261113-0935-correction-research-v5-fourth-stamp-assist-merge -- 2026-11-13 -- Correction to BL-20261113-0933 and BL-20261113-0934: 7c merges #79 (10.a) and its eight entries move after #79's BL-20261113-0926; the hook contract is now 10.a's single file
+
+Status: `Implemented`
+
+Scope or hypothesis: A Correction (log rule 2) of BL-20261113-0933-correction-research-v5-third-stamp and BL-20261113-0934-correction-research-v5-train-2b-expectations.
+
+The orchestrator now lands #79 (10.a, the assist core) right after train 2b and before #93. Train 2b is #94, merged as 83bf38c. #79's entries run from BL-20261113-0920-assist-wrapper-design to BL-20261113-0926-correction-assist-entries-second-restamp. The orchestrator asked for three things:
+- merge #79's head into #93;
+- re-stamp 7c's entries after 0926, keeping their original IDs in the correction;
+- keep the E1 adaptations, recording any changed expectation.
+
+Decisions:
+(1) **The merges.**
+- **`main` first (480621f).** `main` at 83bf38c (#94) is merged in. Its tree equals train 2b's at a6a1466, which #93 already held.
+- **#79 next (a328951).** #79's head is fcf64da: its af261fc with `main` 83bf38c merged in.
+- **research-assist-contract.ts.** This is #79's file. It differs from 7c's mirror only in its header's design-entry ID, which #79 re-stamped from BL-20261109-0417 to BL-20261113-0920-assist-wrapper-design.
+- **research-plan.ts.** This is 7c's version. It already holds #79's `sourceAliases` binding verbatim, plus the `slot` and the unencodable-plan check. Its header comment takes #79's re-stamped ID.
+- **docs/BUILD_LOG.md.** This is `main`'s log, then #79's seven entries exactly as at fcf64da, then 7c's entries.
+
+(2) **The fourth stamp.** 7c's eight entries move after 0926, in order, one minute each. The table gives the first three's original IDs. The other five were first written on 2026-11-13, at the minutes it gives.
+
+| Entry | First ID or minute (written, UTC) | Third stamp | Now |
+| --- | --- | --- | --- |
+| design | BL-20261110-0717 (2026-11-10 07:17) | 09:10 | BL-20261113-0927-research-v5-design |
+| implemented | BL-20261110-0749 (2026-11-10 07:49) | 09:11 | BL-20261113-0928-research-v5-implemented |
+| assist order and deadline | BL-20261110-1330 (2026-11-10 13:30) | 09:12 | BL-20261113-0929-correction-research-v5-assist-order-deadline |
+| re-stamp record | 08:20 on 2026-11-13 (written 08:15 to 08:38) | 09:13 | BL-20261113-0930-correction-research-v5-restamp-ids |
+| train-1 check pins | 08:35 on 2026-11-13 (written 08:15 to 08:38) | 09:14 | BL-20261113-0931-correction-research-train-1-check-pins |
+| 7c on main | 08:40 on 2026-11-13 (written by 08:40) | 09:15 | BL-20261113-0932-correction-research-v5-on-main |
+| third stamp | 09:16 on 2026-11-13 (written by 09:06) | 09:16 | BL-20261113-0933-correction-research-v5-third-stamp |
+| train 2b expectations | 09:17 on 2026-11-13 (written by 09:25) | 09:17 | BL-20261113-0934-correction-research-v5-train-2b-expectations |
+
+These minutes come after 0926, but no one assigned them as a block. If another branch lands first with later minutes, the entries are re-stamped again under the same rule.
+
+(3) **What changed in the eight bodies.** Only references changed:
+- **The eight entries' own IDs.** Each is now cited by its full new ID.
+- **#79's re-stamped entries.** #79's design entry (BL-20261109-0417, cited three times in full and twice in short form) is now cited as BL-20261113-0920-assist-wrapper-design. Its implemented entry (BL-20261110-0639, cited twice) is now BL-20261113-0921-assist-core-implemented.
+- **One bare range.** In BL-20261113-0934-correction-research-v5-train-2b-expectations, "7c's IDs, 0910 to 0916" now reads 0927 to 0933.
+
+Once references are normalised, each body equals its text at 480621f. The code comments, the pin file and the test titles follow, in 02547e1.
+
+(4) **One changed expectation: the contract pin.**
+- **The test.** In the pipeline test: "keeps the hook contract byte-identical to item 10's copy (feat/10a-assist-core 67e3374): a change there is mirrored here and re-pinned".
+- **The old outcome.** The file's SHA-256 was bced24dfefe448eb9dd57abd9d84bc9e7b8fac7d8d3fb5637630dd76f5d967a0, the digest of 7c's mirror of 10.a's copy.
+- **The new outcome.** The test is now "pins the hook contract's bytes (research-assist-contract.ts, 10.a's file)". It pins ddd19123b301ab4baff09afb43b9b02685451314d878161fd59c90bc38f29665, the digest of the merged file.
+- **Why.** With #79 landing first there is one file, 10.a's, so there is nothing left to mirror. Its bytes differ from the mirror only in the re-stamped ID in its header. The pin still guards the hook's interface: changing it takes a deliberate re-pin.
+
+(5) **No other changed expectation.**
+- #79's own tests pass on 7c's coverage v2 and v5 pipeline: the assist core, the scrub, and the model's responses and Anthropic paths.
+- E1-T2's and E1-T3's adaptations in BL-20261113-0934-correction-research-v5-train-2b-expectations stand.
+- The protocol hash stays 505c385abb05484ecb147c07b12c05893e08733f5a818b567c7b28659f3d4b92, because #79 changes no hashed value.
+
+Changes:
+- merge commits 480621f (`main`) and a328951 (#79);
+- commit 02547e1 (the references);
+- this entry.
+
+Evidence:
+- **The log.** `pnpm --silent validate:build-log -- --base-ref origin/main` passes with this entry: append-only against `main` at 83bf38c, with monotonic IDs.
+- **The bodies.** The normalised comparison in (3).
+- **The checks.** At 02547e1, whose code this entry's commit leaves unchanged:
+  - `pnpm typecheck` and `pnpm validate:readiness` pass.
+  - Research suites pass 23 files and 558 tests. They include #79's assist and scrub tests, the run-reasons and host-flags tests, and the model's responses and Anthropic tests.
+  - `pnpm exec vitest run` reports 182 files passed and 13 skipped, and 3,577 tests passed and 86 skipped. None failed.
+- **The hash.** The pin test passes, so `researchProtocolSha256()` is 505c385a….
+
+Failures or blockers: #79's branch moved between this session's fetch and the merge, from af261fc to fcf64da (#79's own merge of `main`). The merge took fcf64da. Its seven entries equal af261fc's byte for byte, and the merge commit's message was corrected to name fcf64da before the push.
+
+Limitations and non-claims: This is `Implemented`, not `Verified`. Nothing ran live.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: #79 lands on `main`. Then #93's CI must be green on that base, and the orchestrator merges #93.
+
+References:
+- BL-20261113-0933-correction-research-v5-third-stamp and BL-20261113-0934-correction-research-v5-train-2b-expectations (corrected);
+- BL-20261113-0930-correction-research-v5-restamp-ids;
+- BL-20261113-0920-assist-wrapper-design;
+- BL-20261113-0921-assist-core-implemented;
+- BL-20261113-0926-correction-assist-entries-second-restamp (#79's tail).

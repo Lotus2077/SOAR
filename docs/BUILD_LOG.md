@@ -35363,3 +35363,186 @@ References:
 - BL-20261113-0834-correction-runner-storage-integrity-second-restamp
 - BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
 - BL-20261113-0758 (pull request #87)
+
+### BL-20261113-0853-e1-recoverability-session-implemented -- 2026-11-13 -- E1-T3 implemented: the research session's stop matrix, retried stage calls, two pinned limitations and the emulated cloud assist, on the real broker; the pause column waits for 6.2
+
+Status: `Implemented`
+
+Scope or hypothesis: The session test PR under E1's card (the `Proposed` E1 card entry in lane S-e1's E1-T1 pull request, Lotus2077/SOAR#66, not yet on `main`), on branch `test/e1-t3-recoverability-session-matrix` based on `main` at 2982ca7. It adds the card's scenarios S1, S2 and S4 for the research stage that a session runs on the real broker against a loopback model: gate clause 4 (cancellation still stops the stage), clause 2 (a stage with a retried call still reaches the writer) and, emulated test-locally, clause 3 (local work continues after a cloud UNKNOWN). Hypothesis: each case passes on today's `main` without a source change.
+
+Decisions: None beyond the card. One adversarial review of the tests (do they prove what they claim; flakiness and cost; scope against the lane brief) found one blocker and seven should-fix items, all applied before this entry:
+- the blocker, no build-log entry: this entry;
+- the exhausted-retry cases are pinned as a known limitation, the item-7 gap of BL-20261107-0809-zero-fee-failures-resolve-design decision 6 (a denied call ends its stage), in their own block rather than under clause 2, and cut from four stages to one: the rule does not depend on the stage, and each case spends 4 s of real D4 backoff;
+- three cases were added: a cancel during the broker's D4 backoff inside a stage, the split arm's cloud planner left UNKNOWN (pinned for item 10's PR 10.b), and a stop on the second of two extraction calls;
+- the emulated assist's fee check is two-sided (a row reserving 501 is refused and one reserving 500 admitted), and its block is titled "until 10.b";
+- the extraction stage's own retry case was dropped from the new block, because the existing "D14: a stage whose extraction call was retried once still reaches the writer" test covers it; the session-deadline allowance is 0.4 s instead of 1.2 s;
+- the fixture's `/cloud` path answers through an optional `onCloud` hook, which the split arm's abort case uses;
+- the card's S1 wording is corrected below, and the coordination point with PR 6.2 is recorded under Next gate.
+
+Correction to the card's S1 (the card entry is not rewritten): "an external abort leaves it resumable" holds for the writer (E1-T1's external-abort case completes on rerun) but not at the research stage: on today's `main` the resume after an external abort mid-stage ends `research_stage_not_replayed` and sends nothing. Likewise "the run ends cancelled or at its deadline": a session deadline that cuts a stage's call ends the run `research_cancelled`, and only the resume reports `session_deadline`.
+
+Changes: Tests only; no `src/` file changes. tests/unit/private-agent-research-session.test.ts:
+- The fixture: `onRequest` may return "hold" (never answer); the broker gains a grant-free synthetic `cloud` destination (`cloud_model`, 200 ms timeout) whose `/cloud` path never answers unless a test's `onCloud` hook does. Only the new cases configure a job that uses it.
+- "E1 recoverability: a research stage stopped mid-call on the real broker (S1)":
+  - a cancel, an external abort of the run's signal and the session's own deadline, each while the index, plan, extraction or synthesis call is held open (12 cases): the call's row resolves `failed` with code `cancelled`, the earlier rows are settled and none is `unknown` or `committed`, the stage records `denied: "cancelled"`, the writer is not reached, the run ends `session_cancelled` (cancel) or `research_cancelled` (abort, deadline), the resume ends `session_cancelled`, `research_stage_not_replayed` or `session_deadline`, and nothing is sent again;
+  - a cancel or an external abort on the second of two extraction calls (the phase gets a second source; 2 cases): the first chunk's row stays settled and the stage records one call, with the same outcomes.
+- "E1 recoverability: a research stage whose call the broker retried still reaches the writer (S2, D14, gate clause 2)":
+  - one cut call at the index, plan or synthesis stage is retried (3 cases): the writer is reached, the producer binds every row and the one superseded row uncounted, and a resume reuses the packet with nothing sent;
+  - a cancel during the broker's first D4 backoff inside the plan stage, triggered by a `setTimeout` spy on the first 1,000 ms timer after the cut, so it runs inside the wait: the cut call resolves `failed` (`upstream_closed`, attempt 1), no second plan request is sent, the stage records `denied: "cancelled"`, and the run and its resume end `session_cancelled`.
+- "E1 recoverability: known limitations of the research stage, pinned until the item that changes them":
+  - the item-7 gap: three cut plan calls leave `superseded`, `superseded` and `failed` rows, the stage is denied `request_failed` with nothing unresolved, and the resume ends `research_stage_not_replayed`;
+  - for item 10's PR 10.b (2 cases): the split arm's cloud planner (the plain `research plan` purpose on the `cloud` destination) is left `unknown` by no answer (`request_timeout`; the stage denied `transport_or_settlement_unknown`; the run `research_request_denied`) or by an external abort mid-call (`cancelled`; the stage denied `cancelled`; the run `research_cancelled`), and the resume is refused `unresolved_dispatch_no_replay`.
+- "E1 recoverability: local work continues after a cloud assist stays UNKNOWN, emulated test-locally until 10.b (S4, gate clause 3)": the planner and the synthesiser are wrapped in the test to call a cloud one-shot with the assist purposes first. The plan assist times out and stays `unknown` with its 500 reservation pinned; the synthesis assist is refused `cloud_after_assist_unknown` before any row; every local row settles; the producer binds the assist uncounted to the plan stage with `role: "assist"`; the writer is reached and the session submits. Of the job's 1,000 fee cap, a row reserving 501 is then refused and one reserving 500 admitted.
+
+Evidence: On the owner's Mac, at the branch's final test file (load average about 9):
+- `pnpm exec vitest run tests/unit/private-agent-research-session.test.ts -t "E1 recoverability"`: 22 passed and 10 skipped (32).
+- The same file unfiltered, three runs in a row: 32 passed each time, about 11.4 s per run.
+- `pnpm exec vitest run` (the full suite): 178 files, 165 passed and 13 skipped; 2,779 tests, 2,695 passed, 84 skipped and 0 failed (41 s).
+- One mutation run: with the D4 branch's post-backoff abort check removed from broker.ts, the D4-backoff cancel case fails; broker.ts was restored before the commit.
+- `pnpm typecheck` passed with no error; `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+
+Failures or blockers: None open. The pause column is not written: it waits for PR 6.2. CI has not run on this branch yet.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. The tests prove their stated contracts on a loopback model, with the real broker, store, session, pipeline and producer and a stub writer (the runner factory records its inputs and returns a completed snapshot). No model, endpoint, Docker container or paid call ran.
+- The S1 matrix has no pause column. PR 6.2 changes what a pause during the research stage does (finding A7), and this PR then asserts 6.2's result. The existing pause tests, the :197 resume assertion among them, are unchanged.
+- Clause 3 is component-proven only. The "wrapper" here is test code that calls `broker.request` with an assist purpose before each wrapped stage call. Item 10's PR 10.b must still prove, end to end:
+  - the wrapper's own skip after an UNKNOWN;
+  - its handling of the stage's signal and deadline;
+  - the sealed packet and its cache mode;
+  - the stage summary's assist record (BL-20261107-0839-assist-purpose-exception-design decision 7);
+  - the protocol and identity binding;
+  - the refusal of an invalid configuration.
+- The emulation borrows `cloudArm` with a local writer, a combination no current driver configures. E3 must not rely on E1 alone.
+- The stop cases assume one in-flight dispatch per job. Once item 8 lands, they must be rerun with K > 1.
+- The D4-backoff trigger relies on the broker's first backoff being the only 1,000 ms `setTimeout` started after the cut. A change to `BROKER_RETRY_BACKOFF_MS` or to the fixture's 2,000 ms transport timeout needs the trigger revisited; the test asserts that the trigger fired.
+- Not covered here:
+  - the pipeline, seed and producer cases, a malformed body in a stage, the Anthropic 529 split-arm planner and the 500 KB corpus (E1-T2, after 7b.1);
+  - bug (b), a pause aborting a priced or cloud stage call, which 6.2 pins.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: S-desk's PR 6.2 merges first, since it rewrites this file's pause tests (merge order in the lane plan). This branch then rebases onto `main`, adds the pause column asserting 6.2's result, and leaves draft. For that rebase: lane S-desk's 6.2 brief says "session.cancel() mid-stage still gives research_cancelled", but on today's `main` a cancel mid-stage ends the session `session_cancelled`, which this PR pins; the rebase reconciles the two. After that: CI green and the owner's merge go-ahead. The orchestrator re-stamps this entry's ID after main's tail at merge.
+
+References: E1's card (the `Proposed` entry in Lotus2077/SOAR#66); docs/PROJECT_REVIEW_2026-11-05.md section 5.6 row E1; BL-20261107-0809-zero-fee-failures-resolve-design (decision 6 and finding D14); BL-20261107-0839-assist-purpose-exception-design; BL-20261025-1242-h2b-h2c-research-pipeline-design (the stage's pause and cancel results).
+
+### BL-20261113-0854-correction-e1-recoverability-session-restamp -- 2026-11-13 -- Correction: E1-T3's Implemented entry carries ID BL-20261113-0853-e1-recoverability-session-implemented; it was authored at 05:30 UTC on 2026-11-09 as BL-20261109-0530, and its branch, rebased onto `main` after 6.2, adds the pause column that entry left to 6.2
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the re-stamp of E1-T3's Implemented entry and the rebase of its pull request, #75, onto `main` after merge train 1.
+- The re-stamp follows the owner's rule of 2026-11-13: an entry on an unmerged branch is re-stamped after `main`'s tail when it merges, and a correction records its original ID and time. That decision is recorded on PR #87.
+- The rebase adds the pause column that the entry left to backlog item 6's PR 6.2 (#77), now on `main` (BL-20261109-0607-research-stage-pause-implemented).
+- History of the entry: it was committed at 0dddf60 on 2026-11-09, on #75 based on `main` at 2982ca7, and authored at 05:30 UTC as BL-20261109-0530, with the same slug. Merge train 1 (BL-20261110-1506-merge-train-1-integration) then put `main`'s tail after it.
+
+Decisions:
+1. **The re-stamp.** The heading's ID moved to BL-20261113-0853 and its date field to 2026-11-13, since the validator requires an ID's date to match the heading's date. No other text in the entry changed, and nothing else in the repository cited the old ID. The pull request description and the commit messages keep the old ID.
+2. **The rebase.** #75 is rebased onto `main` at 9d10b9a.
+   - The review-fix commit replayed unchanged (`git range-diff`).
+   - The first test commit conflicted only in the research-session fixture's destinations: 6.2 added `priced-planner` and E1-T3 added `cloud`, and both are kept.
+   - The entry commit only moved to `main`'s tail.
+3. **The pause column.** The S1 matrix ("E1 recoverability: a research stage stopped mid-call on the real broker (S1)") gains a pause mid-call. It runs at each of the four stages and on the second of two extraction calls, five cases. Each asserts 6.2's result:
+   - the zero-fee row resolves `failed` with code `cancelled`, and no row is left `unknown` or `committed`;
+   - the stage records `denied: "cancelled"`, and in the two-chunk case one call;
+   - the writer is not reached;
+   - the run ends incomplete `research_stage_not_replayed`, as does its resume, and nothing is sent again.
+
+   A pause inside a started stage ends the task: the stage has no per-chunk continuation.
+4. **What the rebase settles or makes stale in the entry's body**, which is not edited:
+   - Its Next gate's coordination point with 6.2 is settled.
+     - 6.2's brief said "session.cancel() mid-stage still gives research_cancelled". Its implementation keeps the cancel at `session_cancelled`, which E1-T3 pins.
+     - 6.2 rewrote the pause tests, including the resume assertion the entry calls ":197". E1-T3 still does not touch them.
+   - Its Limitations' "The S1 matrix has no pause column" no longer holds.
+   - "The orchestrator re-stamps this entry's ID" is superseded by decision 1: under the owner's rule, each lane re-stamps its own entries.
+   - Its Scope's "not yet on `main`" no longer holds. The card, BL-20261109-0351-e1-recoverability-card, has been on `main` since train 1.
+5. **The card's pinned limitation A7** ("a paused research stage cannot resume: item 6 (PR 6.2)", BL-20261109-0351-e1-recoverability-card decision (4)). 6.2 settled it by ending the task, not by resuming the stage, and these five cases pin that. A resume of a paused stage still needs a per-chunk continuation, which no merged part of items 7 and 8 adds.
+
+Changes:
+- tests/unit/private-agent-research-session.test.ts:
+  - the pause mode in the S1 matrix's `stoppedAt`, its outcomes and its two `it.each` lists;
+  - the fixture's merged destinations.
+- docs/BUILD_LOG.md: the entry's heading (ID and date) and this entry.
+- No `src/` file changes.
+
+Evidence: On the owner's Mac, at the rebased head with the pause column and the re-stamp (load average about 4 to 7):
+- `pnpm exec vitest run tests/unit/private-agent-research-session.test.ts`: 44 passed. Under `-t "E1 recoverability"`, 27 passed: the 22 reviewed and the five pause cases.
+- With the pause trigger removed in a scratch copy, the five pause cases fail and the other 22 pass.
+- `pnpm exec vitest run -t "E1 recoverability"`: 9 files and 82 tests passed: `main`'s 55 and this pull request's 27.
+- `pnpm exec vitest run`: 187 files (174 passed, 13 skipped) and 3,307 tests (3,221 passed, 86 skipped, 0 failed), in 79.3 s.
+- `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- The pause cases cover zero-fee local roles only.
+- The priced-planner pause (E1's bug (b), an `unknown` row) is 6.2's own test, pinned until 10.b.
+- The entry's other limitations stand. In particular, the stop cases assume one in-flight dispatch per job, and must be rerun with K > 1 once item 8 lands.
+- If an entry with a later ID reaches `main` before #75 merges, these two entries are re-stamped again.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of the rebased head, CI green, and the owner's go-ahead.
+
+References:
+- BL-20261113-0853-e1-recoverability-session-implemented
+- BL-20261109-0607-research-stage-pause-implemented
+- BL-20261109-0501-research-stage-pause-design
+- BL-20261110-1506-merge-train-1-integration
+- BL-20261109-0351-e1-recoverability-card
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
+
+### BL-20261113-0855-correction-e1-recoverability-session-second-restamp -- 2026-11-13 -- Correction: E1-T3's two entries are re-stamped a second time, after `main`'s new tail BL-20261113-0834-correction-runner-storage-integrity-second-restamp; their original IDs, dates and authoring times, and the fixture merged with 6.3's
+
+Status: `Implemented`
+
+Scope or hypothesis: After #75's first re-stamp, #92 and #82 merged into `main`, whose last ID is now BL-20261113-0834-correction-runner-storage-integrity-second-restamp.
+- At this merge of `main` (23dfadc) into #75, E1-T3's two entries move again, into the block of minutes the orchestrator gave lane S-e1 for this integration: 0848 to 0909, in the order #88, #84, #75, #80. The owner's re-stamp rule applies (BL-20261113-0758, pull request #87).
+- #82's held-attempt pins (BL-20261113-0820-research-stage-pause-held-attempt-pins) also changed the research-session test fixture, so the merge resolves that file too.
+
+Each entry, with its original ID, date and authoring time:
+- **The Implemented entry.** Authored at 05:30 UTC on 2026-11-09 as BL-20261109-0530, and first re-stamped as BL-20261113-0816 (with the same slug). It is now BL-20261113-0853-e1-recoverability-session-implemented.
+- **The first correction.** Authored at 08:17 UTC on 2026-11-13 as BL-20261113-0817, with the same slug. It is now BL-20261113-0854-correction-e1-recoverability-session-restamp.
+
+Decisions:
+1. **The second re-stamp.**
+   - Only the two headings' ID minutes change, together with the references to those IDs; the dates stay 2026-11-13.
+   - The references are in the first correction's title, its scope, decision 1 and its References.
+   - Each body is otherwise byte-identical to #75's at 1a0af07. Nothing outside the log cites these IDs.
+   - `main` is merged into #75, not rebased. `main`'s log is kept whole, as a byte prefix of this branch's.
+   - The first correction's account now names the current IDs. Its "rebased onto `main` at 9d10b9a" describes the first rebase only.
+2. **The fixture.** #82 gave the research-session fixture an `extractReply` option, which replaces the nth extraction reply. E1-T3 had given it a "hold" decision and an `onCloud` hook. The merge keeps both sides:
+   - the options type holds `recoverable` and `extractReply`;
+   - the hooks type holds "destroy", "hold" and `onCloud`;
+   - the handler destroys or holds before it computes a reply. A held or destroyed request therefore does not advance the extraction count, as a destroyed one did not before.
+   - The test titles and assertions of both sides are unchanged.
+3. **A correction to BL-20261113-0854-correction-e1-recoverability-session-restamp, decision 1.** It says that "The pull request description and the commit messages keep the old ID". Since #75's description was updated on 2026-11-13, the description has named the current ID and the original one; only the commit messages keep the old ID.
+
+Changes:
+- docs/BUILD_LOG.md: the two headings, the first correction's references to the re-stamped ID, and this entry.
+- tests/unit/private-agent-research-session.test.ts: the fixture, merged as decision 2 describes.
+
+Evidence:
+On the owner's Mac, at the merge of `main` 23dfadc into #75 (load average about 9 to 11):
+- `pnpm --silent validate:build-log -- --base-ref 23dfadc` exits 0: 562 entries, append-only against 23dfadc.
+- `pnpm typecheck` passes.
+- tests/unit/private-agent-research-session.test.ts: 48 passed. Of these, 27 are E1-T3's cases, and the rest are the file's own tests, including #82's held-attempt cases, all with the merged fixture.
+- `pnpm exec vitest run -t "E1 recoverability"`: 9 files and 82 tests passed (`main`'s 55 and E1-T3's 27).
+- `pnpm exec vitest run`: 189 files (176 passed, 13 skipped) and 3,377 tests (3,291 passed, 86 skipped, 0 failed), in 50.1 s.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction plus a merge resolution. Nothing new is implemented or verified by it.
+- The orchestrator's review noted a timing assumption, which stands: the session-deadline cases give the stages before the held call 400 ms. On a much slower runner the deadline could cut an earlier stage, and the case would fail on its row assertions. It has passed in every run so far, locally and in CI.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's integration merge with #88, #84, #80, #89 and #93 on green CI. If `main`'s tail moves again first, the lane re-stamps again.
+
+References:
+- BL-20261113-0853-e1-recoverability-session-implemented
+- BL-20261113-0854-correction-e1-recoverability-session-restamp
+- BL-20261113-0834-correction-runner-storage-integrity-second-restamp
+- BL-20261113-0820-research-stage-pause-held-attempt-pins (6.3's follow-up, which added `extractReply`)
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
+- BL-20261113-0758 (pull request #87)

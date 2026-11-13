@@ -2,23 +2,25 @@
  * E0 judge fixture (review section 5.6, E0: the local judge runs "on a fixed claim set labelled by a separate session" against
  * an agreement level the E0 card sets beforehand; criteria 3 and 8 become thresholds only if it reaches that level). It sends
  * today's entailment judgement (claims.ts: ENTAILMENT_SYSTEM_PROMPT through entailmentMessages, thinking off,
- * ENTAILMENT_OUTPUT_TOKENS) for every claim of a claim set that a committed hashes-only manifest pins, POSTs each request
- * directly to the owner's endpoint (outside the broker, by design: public or synthetic claims at zero fee, no dispatch rows),
- * parses each reply exactly as judgeClaims does, retains every raw reply under the ignored out directory with mode 0o600, and
- * scores the verdicts against the separate session's labels. The labels never reach a request. The endpoint comes from
- * loadConfig, so the app's endpoint policy applies, and the address is never printed.
+ * ENTAILMENT_OUTPUT_TOKENS) in model.ts's non-streaming form for every claim of a claim set that a committed hashes-only
+ * manifest pins, POSTs each request directly to the owner's endpoint (outside the broker, by design: public or synthetic
+ * claims at zero fee, no dispatch rows), parses each reply exactly as judgeClaims does, retains every raw reply under a new
+ * out directory with mode 0o600, and scores the verdicts against the separate session's labels. The labels never reach a
+ * request. The endpoint and its reply contract come from loadConfig, so the app's endpoint policy applies, the activation
+ * cell is the J1 condition of that contract, and the address is never printed.
  *
  *   pnpm fixture:judge -- harvest --runs <runDir>[,<runDir>...] --task <name> --out .soar/experiments/e0-judge/claims.json
  *   pnpm fixture:judge -- --claims <claims.json> --labels <labels.json> [--manifest docs/experiments/e0-judge-fixture-v1.json]
  *     [--out <dir>] [--cache-salt] [--dry-run]
  *
  * The labelling protocol is docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md. The conditions, repeats, per-class minimum and
- * agreement level come only from the manifest, which the E0 card pins before the fixture runs; the committed manifest is a
- * template, and the fixture refuses a template or any mismatch before any request.
+ * agreement level come only from the manifest, which the E0 card pins before the fixture runs. The code refuses a template, an
+ * unpinned or mismatched input and a design without the activation cell before any request, and records the manifest's
+ * digest, so that the manifest was committed before the run stays checkable; the commit itself is procedural.
  */
 import Database from "better-sqlite3";
-import { closeSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, writeSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { z } from "zod";
 import { loadConfig, loadEnvironmentFiles } from "../src/main/config";
@@ -38,9 +40,11 @@ export const REVERSAL_PROMPT_VERSION = 1;
 export const JUDGE_REQUEST_TIMEOUT_MS = COORDINATOR_PROFILES.standard.requestTimeoutMs;
 
 const claimId = z.string().regex(/^C[0-9]{1,3}$/u), count = z.number().int().nonnegative();
-/** A claim as the pass receives it (ClaimsVerifiedClaimSchema's bounds) with a non-empty context, plus where it was harvested from. */
-export const FixtureClaimSchema = z.object({ id: claimId, sentence: z.string(), quote: z.string(), context: z.string().min(1),
-  origin: z.object({ run: z.string().min(1).max(200), claimId: z.string().min(1).max(16) }).strict().optional() }).strict()
+/**
+ * A claim as the pass receives it (ClaimsVerifiedClaimSchema's bounds) with a non-empty context, and nothing else: no provenance,
+ * which the harvest writes to a sidecar the labeller does not receive, since a run's id leads to its own judge verdicts.
+ */
+export const FixtureClaimSchema = z.object({ id: claimId, sentence: z.string(), quote: z.string(), context: z.string().min(1) }).strict()
   .refine(claim => ClaimsVerifiedClaimSchema.safeParse({ id: claim.id, sentence: claim.sentence, quote: claim.quote, context: claim.context }).success,
     "outside the bounds the entailment pass accepts");
 export type FixtureClaim = z.infer<typeof FixtureClaimSchema>;
@@ -81,6 +85,7 @@ export function verifyJudgeFixtureInputs(inputs: JudgeFixtureInputs): VerifiedJu
   let claimsFile: z.infer<typeof ClaimsFileSchema>, labelsFile: LabelsFile;
   try { claimsFile = ClaimsFileSchema.parse(decode(inputs.claims)); } catch { throw new Error("judge_fixture_claims_invalid"); }
   try { labelsFile = LabelsFileSchema.parse(decode(inputs.labels)); } catch { throw new Error("judge_fixture_labels_invalid"); }
+  if (claimsFile.task !== manifest.task) throw new Error("judge_fixture_task_mismatch");
   const labels = new Map(labelsFile.labels.map(item => [item.id, { label: item.label, planted: item.planted }]));
   if (labels.size !== claimsFile.claims.length || claimsFile.claims.some(claim => !labels.has(claim.id))) throw new Error("judge_fixture_labels_incomplete");
   const labelCounts = { supported: 0, partial: 0, unsupported: 0, contradicted: 0 };
@@ -114,7 +119,11 @@ export function buildJudgeMessages(condition: JudgeCondition, claim: FixtureClai
   return condition.endsWith("-reversed") ? [{ role: "system", content: reversedSystemPrompt() }, messages[1]!] : messages;
 }
 
-/** The exact vLLM body of model.ts for the owned destination with the pass's overrides (thinking off, ENTAILMENT_OUTPUT_TOKENS, no tools). */
+/**
+ * The vLLM body model.ts sends for the owned destination with the pass's overrides (thinking off, ENTAILMENT_OUTPUT_TOKENS, no
+ * tools), in its non-streaming form. The driver's judge streams by default and salts per job; that changes the transport and
+ * the prefix-cache key, not the prompt. `cacheSalt` is the fixture's own salt (vllmCacheSalt of FIXTURE_JOB_ID).
+ */
 export function buildJudgeBody(condition: JudgeCondition, model: string, messages: readonly { role: string; content: string }[], options: { cacheSalt?: string } = {}): string {
   const flash = condition.startsWith("j1-flash");
   return canonical({ model, messages, stream: false, max_tokens: ENTAILMENT_OUTPUT_TOKENS,
@@ -138,7 +147,13 @@ const ORDINAL: Record<EntailmentVerdict, number> = { supported: 0, partial: 1, u
 export interface ScoredRow { label: EntailmentVerdict; planted: boolean; verdict: JudgeVerdict }
 export interface JudgeMetrics {
   claims: number; judged: number; exactAgreement: number | null; establishedAgreement: number | null; judgedExactAgreement: number | null; kappa: number | null;
-  establishedRecall: number | null; notEstablishedRecall: number | null; contradictedRecall: number | null; plantedNotEstablished: number | null;
+  /** The unrounded numerators behind the two agreements, so a level is compared exactly. */
+  exactCount: number; establishedCount: number;
+  establishedRecall: number | null; notEstablishedRecall: number | null; contradictedRecall: number | null;
+  /** Planted claims labelled not established that the judge also called not established; planted partials are not in it. */
+  plantedNotEstablished: number | null;
+  /** Exact agreement on every planted claim, planted partials included. */
+  plantedExactAgreement: number | null;
   aurocNotEstablished: number | null; verdictCounts: Record<JudgeVerdict, number>; confusion: Record<EntailmentVerdict, Record<JudgeVerdict, number>>;
 }
 /**
@@ -151,8 +166,9 @@ export function scoreVerdicts(rows: readonly ScoredRow[]): JudgeMetrics {
   const verdictCounts = { supported: 0, partial: 0, unsupported: 0, contradicted: 0, not_judged: 0 };
   const confusion = Object.fromEntries(ENTAILMENT_VERDICTS.map(label => [label, { supported: 0, partial: 0, unsupported: 0, contradicted: 0, not_judged: 0 }])) as JudgeMetrics["confusion"];
   for (const row of rows) { verdictCounts[row.verdict]++; confusion[row.label][row.verdict]++; }
-  const exact = judged.filter(row => row.verdict === row.label).length;
+  const exact = judged.filter(row => row.verdict === row.label).length, establishedCount = judged.filter(row => established(row.verdict) === established(row.label)).length;
   const negatives = rows.filter(row => !established(row.label)), positives = rows.filter(row => established(row.label)), planted = rows.filter(row => row.planted);
+  const plantedNegatives = planted.filter(row => !established(row.label));
   let kappa: number | null = null;
   if (judged.length) {
     const expected = ENTAILMENT_VERDICTS.reduce((sum, verdict) => sum + (judged.filter(row => row.label === verdict).length / judged.length) * (judged.filter(row => row.verdict === verdict).length / judged.length), 0);
@@ -166,12 +182,20 @@ export function scoreVerdicts(rows: readonly ScoredRow[]): JudgeMetrics {
     auroc = round(wins / (scoredPositives.length * scoredNegatives.length));
   }
   return { claims: rows.length, judged: judged.length, exactAgreement: ratio(exact, rows.length),
-    establishedAgreement: ratio(judged.filter(row => established(row.verdict) === established(row.label)).length, rows.length), judgedExactAgreement: ratio(exact, judged.length), kappa,
+    establishedAgreement: ratio(establishedCount, rows.length), judgedExactAgreement: ratio(exact, judged.length), kappa, exactCount: exact, establishedCount,
     establishedRecall: ratio(positives.filter(row => row.verdict !== "not_judged" && established(row.verdict)).length, positives.length),
     notEstablishedRecall: ratio(negatives.filter(row => row.verdict !== "not_judged" && !established(row.verdict)).length, negatives.length),
     contradictedRecall: ratio(rows.filter(row => row.label === "contradicted" && row.verdict === "contradicted").length, rows.filter(row => row.label === "contradicted").length),
-    plantedNotEstablished: ratio(planted.filter(row => row.verdict !== "not_judged" && !established(row.verdict)).length, planted.length),
+    plantedNotEstablished: ratio(plantedNegatives.filter(row => row.verdict !== "not_judged" && !established(row.verdict)).length, plantedNegatives.length),
+    plantedExactAgreement: ratio(planted.filter(row => row.verdict === row.label).length, planted.length),
     aurocNotEstablished: auroc, verdictCounts, confusion };
+}
+/**
+ * The card's activation test on the unrounded agreement: agreeing claims over all claims (a claim not judged disagrees), at or
+ * above the level. The reported ratios are rounded to four places; this comparison is not.
+ */
+export function meetsAgreementLevel(metrics: Pick<JudgeMetrics, "claims" | "exactCount" | "establishedCount">, agreement: { measure: "exact" | "established"; level: number }): boolean {
+  return metrics.claims > 0 && (agreement.measure === "exact" ? metrics.exactCount : metrics.establishedCount) / metrics.claims >= agreement.level;
 }
 /** Share of claims judged in both lists whose verdict (or established side) differs; the lists are in the same claim order. */
 export function flipRate(a: readonly JudgeVerdict[], b: readonly JudgeVerdict[]): { judgedInBoth: number; verdictFlips: number | null; establishedFlips: number | null } {
@@ -186,7 +210,10 @@ export interface JudgeCallRecord {
 }
 export interface JudgeFixtureSummary {
   version: 1; startedUtc: string; finishedUtc?: string; model: string; promptVersion: number; promptSha256: string; dryRun: boolean;
-  manifest: { name: string; task: string; exposure: string; claimsSha256: string; labelsSha256: string; claimCount: number; labelCounts: Record<EntailmentVerdict, number>;
+  /** The configured reply contract and the J1 condition that is therefore the activation cell. */
+  replyContract: "legacy" | "flash_next_v1"; activationCondition: "j1-legacy" | "j1-flash";
+  /** `sha256` is digest(canonical(manifest)): compare it with the committed manifest to show the run used the pinned design. */
+  manifest: { sha256: string; name: string; task: string; exposure: string; claimsSha256: string; labelsSha256: string; claimCount: number; labelCounts: Record<EntailmentVerdict, number>;
     plantedCount: number; minimumPerClass: number; agreement: { measure: "exact" | "established"; level: number } };
   conditions: JudgeCondition[]; repeats: number;
   requests: Record<string, { requestSetSha256: string; requests: number; maxTokens: number; systemPromptSha256: string }>;
@@ -194,11 +221,13 @@ export interface JudgeFixtureSummary {
   /** Per condition, per repeat ("r1", ...). `meetsLevel` applies the manifest's measure and level; the card names the activation cell. */
   metrics: Record<string, Record<string, JudgeMetrics & { meetsLevel: boolean }>>;
   flips: Record<string, Record<string, ReturnType<typeof flipRate>>>;
-  /** With more than one repeat: the share of claims whose verdict is the same in every repeat of the condition. */
-  consistency: Record<string, number | null>;
+  /** With more than one repeat: over the claims judged in every repeat, the share with the same verdict in all of them. */
+  consistency: Record<string, { judgedInEveryRepeat: number; agreement: number | null } | null>;
 }
 export interface JudgeEndpoint { baseUrl: string; apiKey?: string; model: string; timeoutMs?: number }
-export interface JudgeFixtureRunOptions { endpoint: JudgeEndpoint; inputs: JudgeFixtureInputs; out: string; cacheSalt?: boolean; dryRun?: boolean }
+export interface JudgeFixtureRunOptions { endpoint: JudgeEndpoint; inputs: JudgeFixtureInputs; out: string; cacheSalt?: boolean; dryRun?: boolean;
+  /** The configured reply contract (SOAR_VLLM_REPLY_CONTRACT); absent is the legacy shape. */
+  replyContract?: "flash_next_v1" }
 
 function writePrivate(path: string, data: Buffer | string, flag = "w"): void {
   const handle = openSync(path, flag, 0o600);
@@ -208,10 +237,15 @@ function writePrivate(path: string, data: Buffer | string, flag = "w"): void {
 export async function runJudgeFixture(options: JudgeFixtureRunOptions): Promise<JudgeFixtureSummary> {
   const fixture = verifyJudgeFixtureInputs(options.inputs), { manifest } = fixture;
   const conditions = [...new Set(manifest.conditions)], cacheSalt = options.cacheSalt ? vllmCacheSalt(FIXTURE_JOB_ID) : undefined;
+  // The activation cell is the body today's judge sends on this endpoint; a design without it could only measure another body.
+  const replyContract = options.replyContract ?? "legacy", activationCondition = replyContract === "flash_next_v1" ? "j1-flash" : "j1-legacy";
+  if (!conditions.includes(activationCondition)) throw new Error("judge_fixture_activation_condition_missing");
+  // A run never replaces an earlier result: the out directory must be new.
+  if (!options.dryRun && existsSync(options.out)) throw new Error("judge_fixture_out_exists");
   const bodies = new Map(conditions.map(condition => [condition, fixture.claims.map(claim => buildJudgeBody(condition, options.endpoint.model, buildJudgeMessages(condition, claim), { cacheSalt }))]));
   const summary: JudgeFixtureSummary = { version: 1, startedUtc: new Date().toISOString(), model: options.endpoint.model, promptVersion: ENTAILMENT_PROMPT_VERSION,
-    promptSha256: digest(ENTAILMENT_SYSTEM_PROMPT), dryRun: options.dryRun === true,
-    manifest: { name: manifest.name, task: manifest.task, exposure: manifest.exposure, claimsSha256: fixture.claimsSha256, labelsSha256: fixture.labelsSha256, claimCount: fixture.claims.length,
+    promptSha256: digest(ENTAILMENT_SYSTEM_PROMPT), dryRun: options.dryRun === true, replyContract, activationCondition,
+    manifest: { sha256: digest(canonical(options.inputs.manifest)), name: manifest.name, task: manifest.task, exposure: manifest.exposure, claimsSha256: fixture.claimsSha256, labelsSha256: fixture.labelsSha256, claimCount: fixture.claims.length,
       labelCounts: fixture.labelCounts, plantedCount: fixture.plantedCount, minimumPerClass: manifest.minimumPerClass, agreement: manifest.agreement! },
     conditions, repeats: manifest.repeats,
     requests: Object.fromEntries(conditions.map(condition => [condition, { requestSetSha256: digest(canonical(bodies.get(condition)!.map(body => digest(body)))),
@@ -233,7 +267,7 @@ export async function runJudgeFixture(options: JudgeFixtureRunOptions): Promise<
           const bytes = Buffer.from(await response.arrayBuffer());
           record.elapsedMs = Math.round(performance.now() - started); record.status = response.status;
           record.replyFile = `${condition}-r${repeat}-${claim.id}.json`; record.bodySha256 = digest(bytes); record.bodyBytes = bytes.length;
-          writePrivate(join(replies, record.replyFile), bytes);
+          writePrivate(join(replies, record.replyFile), bytes, "wx");
           if (response.status !== 200) record.failure = "request_rejected";
           else {
             let reply: { choices?: { message?: { content?: unknown; reasoning?: unknown; reasoning_content?: unknown }; finish_reason?: unknown }[]; usage?: unknown } | undefined;
@@ -254,35 +288,47 @@ export async function runJudgeFixture(options: JudgeFixtureRunOptions): Promise<
       }
     }
   }
-  const verdicts = (condition: JudgeCondition, repeat: number) => fixture.claims.map(claim => summary.calls.find(call => call.condition === condition && call.repeat === repeat && call.claimId === claim.id)!.verdict);
+  // One index over the calls, and each (condition, repeat) verdict list built once, in claim order.
+  const byCall = new Map(summary.calls.map(call => [`${call.condition}|${call.repeat}|${call.claimId}`, call.verdict]));
+  const lists = new Map<string, JudgeVerdict[]>();
+  const verdicts = (condition: JudgeCondition, repeat: number) => {
+    const key = `${condition}|${repeat}`;
+    if (!lists.has(key)) lists.set(key, fixture.claims.map(claim => byCall.get(`${key}|${claim.id}`) ?? "not_judged"));
+    return lists.get(key)!;
+  };
+  const { measure, level } = manifest.agreement!;
   for (const condition of conditions) {
     summary.metrics[condition] = {};
     for (let repeat = 1; repeat <= manifest.repeats; repeat++) {
-      const scored = scoreVerdicts(fixture.claims.map((claim, index) => ({ ...fixture.labels.get(claim.id)!, verdict: verdicts(condition, repeat)[index]! })));
-      const measured = manifest.agreement!.measure === "exact" ? scored.exactAgreement : scored.establishedAgreement;
-      summary.metrics[condition][`r${repeat}`] = { ...scored, meetsLevel: measured !== null && measured >= manifest.agreement!.level };
+      const list = verdicts(condition, repeat);
+      const scored = scoreVerdicts(fixture.claims.map((claim, index) => ({ ...fixture.labels.get(claim.id)!, verdict: list[index]! })));
+      summary.metrics[condition][`r${repeat}`] = { ...scored, meetsLevel: meetsAgreementLevel(scored, { measure, level }) };
     }
     const reversed = `${condition}-reversed` as JudgeCondition;
     if (conditions.includes(reversed)) {
       summary.flips[`${condition}|${reversed}`] = Object.fromEntries(Array.from({ length: manifest.repeats }, (_, i) => [`r${i + 1}`, flipRate(verdicts(condition, i + 1), verdicts(reversed, i + 1))]));
     }
-    summary.consistency[condition] = manifest.repeats < 2 ? null
-      : ratio(fixture.claims.filter((_, index) => new Set(Array.from({ length: manifest.repeats }, (__, i) => verdicts(condition, i + 1)[index])).size === 1).length, fixture.claims.length);
+    if (manifest.repeats < 2) { summary.consistency[condition] = null; continue; }
+    const perClaim = fixture.claims.map((_, index) => Array.from({ length: manifest.repeats }, (__, i) => verdicts(condition, i + 1)[index]!));
+    const judgedEverywhere = perClaim.filter(values => values.every(value => value !== "not_judged"));
+    summary.consistency[condition] = { judgedInEveryRepeat: judgedEverywhere.length,
+      agreement: ratio(judgedEverywhere.filter(values => new Set(values).size === 1).length, judgedEverywhere.length) };
   }
   summary.finishedUtc = new Date().toISOString();
-  writePrivate(join(options.out, "summary.json"), `${JSON.stringify(summary, null, 1)}\n`);
+  writePrivate(join(options.out, "summary.json"), `${JSON.stringify(summary, null, 1)}\n`, "wx");
   return summary;
 }
 
 /**
  * Reads each run directory's state.sqlite read-only and takes, per job and context, the last claims_verified event: the claims
- * the host's finish-time check verified with their source windows, exactly what the pass judged. Claims without a window are
- * skipped (the pass never judges them), as is a stored claim the schema no longer accepts, and repeated (sentence, quote, context) triples
- * are kept once. New ids C1, C2, ...;
- * `origin` keeps the run directory's basename and the original id. Nothing is sent anywhere.
+ * the host's finish-time check verified with their source windows, exactly what the pass judged (session.ts takes the same
+ * event). Claims without a window are skipped (the pass never judges them), as is a stored claim the schema no longer accepts,
+ * and repeated (sentence, quote, context) triples are kept once. New ids C1, C2, ...; `origins` maps each new id to the run
+ * directory's basename and the original id, for a sidecar the labeller does not receive. Nothing is sent anywhere.
  */
-export function harvestClaims(runDirectories: readonly string[], task: string): { file: z.infer<typeof ClaimsFileSchema>; skipped: number; duplicates: number; runsWithoutClaims: number } {
-  const claims: FixtureClaim[] = [], seen = new Set<string>();
+export interface ClaimOrigin { id: string; run: string; claimId: string }
+export function harvestClaims(runDirectories: readonly string[], task: string): { file: z.infer<typeof ClaimsFileSchema>; origins: ClaimOrigin[]; skipped: number; duplicates: number; runsWithoutClaims: number } {
+  const claims: FixtureClaim[] = [], origins: ClaimOrigin[] = [], seen = new Set<string>();
   let skipped = 0, duplicates = 0, runsWithoutClaims = 0;
   for (const directory of runDirectories) {
     let rows: { job_id: string; value: string }[];
@@ -304,13 +350,16 @@ export function harvestClaims(runDirectories: readonly string[], task: string): 
       const key = canonical([parsed.data.sentence, parsed.data.quote, parsed.data.context]);
       if (seen.has(key)) { duplicates++; continue; }
       seen.add(key);
-      claims.push({ id: `C${claims.length + 1}`, sentence: parsed.data.sentence, quote: parsed.data.quote, context: parsed.data.context,
-        origin: { run: basename(resolve(directory)).slice(0, 200), claimId: parsed.data.id } });
+      const id = `C${claims.length + 1}`;
+      claims.push({ id, sentence: parsed.data.sentence, quote: parsed.data.quote, context: parsed.data.context });
+      origins.push({ id, run: basename(resolve(directory)).slice(0, 200), claimId: parsed.data.id });
     }
   }
   if (claims.length > 999) throw new Error("judge_fixture_harvest_too_many_claims");
-  return { file: ClaimsFileSchema.parse({ version: 1, task, claims }), skipped, duplicates, runsWithoutClaims };
+  return { file: ClaimsFileSchema.parse({ version: 1, task, claims }), origins, skipped, duplicates, runsWithoutClaims };
 }
+/** The provenance sidecar beside a claim set: claims.json -> claims.origin.json. */
+export function originSidecarPath(claimsPath: string): string { return claimsPath.endsWith(".json") ? `${claimsPath.slice(0, -5)}.origin.json` : `${claimsPath}.origin.json`; }
 
 function argument(name: string): string | undefined { const index = process.argv.indexOf(name); return index >= 0 ? process.argv[index + 1] : undefined; }
 
@@ -318,9 +367,15 @@ async function main(): Promise<number> {
   if (process.argv[2] === "harvest") {
     const runs = argument("--runs"), task = argument("--task"), out = argument("--out");
     if (!runs || !task || !out) { process.stderr.write("usage: harvest --runs <runDir>[,<runDir>...] --task <name> --out <claims.json>\n"); return 2; }
-    const harvested = harvestClaims(runs.split(",").map(item => item.trim()).filter(Boolean), task);
-    // "wx": an existing claim set is never overwritten, so a labelled set cannot be replaced by a fresh harvest.
-    writePrivate(out, `${JSON.stringify(harvested.file, null, 1)}\n`, "wx");
+    const harvested = harvestClaims(runs.split(",").map(item => item.trim()).filter(Boolean), task), sidecar = originSidecarPath(out);
+    // "wx": an existing claim set or sidecar is never overwritten, so a labelled set cannot be replaced by a fresh harvest.
+    // Failures are fixed codes: the paths are the owner's local paths.
+    if (existsSync(out) || existsSync(sidecar)) throw new Error("judge_fixture_claims_exist");
+    try {
+      mkdirSync(dirname(resolve(out)), { recursive: true, mode: 0o700 });
+      writePrivate(out, `${JSON.stringify(harvested.file, null, 1)}\n`, "wx");
+      writePrivate(sidecar, `${JSON.stringify({ version: 1, task, origins: harvested.origins }, null, 1)}\n`, "wx");
+    } catch { throw new Error("judge_fixture_claims_unwritable"); }
     process.stdout.write(`${JSON.stringify({ claims: harvested.file.claims.length, skipped: harvested.skipped, duplicates: harvested.duplicates,
       runsWithoutClaims: harvested.runsWithoutClaims, sha256: digest(readFileSync(out)) })}\n`);
     return 0;
@@ -333,12 +388,14 @@ async function main(): Promise<number> {
   const out = argument("--out") ?? join(".soar", "experiments", `e0-judge-fixture-${new Date().toISOString().replace(/[:.]/gu, "")}`);
   const summary = await runJudgeFixture({ endpoint: { baseUrl: config.vllm.baseUrl, apiKey: config.vllm.apiKey, model: config.vllm.model },
     inputs: { claims: readFileSync(claims), labels: readFileSync(labels), manifest: JSON.parse(readFileSync(manifest, "utf8")) },
-    out, cacheSalt: process.argv.includes("--cache-salt"), dryRun: process.argv.includes("--dry-run") });
+    out, cacheSalt: process.argv.includes("--cache-salt"), dryRun: process.argv.includes("--dry-run"),
+    ...(config.vllm.localReplyContract ? { replyContract: config.vllm.localReplyContract } : {}) });
   // Aggregates only: no claim text, label or reply; the per-call records stay in the retained summary.json.
   const brief = Object.fromEntries(Object.entries(summary.metrics).map(([condition, repeats]) => [condition, Object.fromEntries(Object.entries(repeats).map(([repeat, m]) =>
     [repeat, { exactAgreement: m.exactAgreement, establishedAgreement: m.establishedAgreement, kappa: m.kappa, notEstablishedRecall: m.notEstablishedRecall,
       contradictedRecall: m.contradictedRecall, aurocNotEstablished: m.aurocNotEstablished, judged: m.judged, meetsLevel: m.meetsLevel }]))]));
-  process.stdout.write(`${JSON.stringify({ dryRun: summary.dryRun, conditions: summary.conditions, repeats: summary.repeats, claims: summary.manifest.claimCount,
+  process.stdout.write(`${JSON.stringify({ dryRun: summary.dryRun, manifestSha256: summary.manifest.sha256, replyContract: summary.replyContract,
+    activationCondition: summary.activationCondition, conditions: summary.conditions, repeats: summary.repeats, claims: summary.manifest.claimCount,
     agreement: summary.manifest.agreement, requests: summary.requests, metrics: brief, flips: summary.flips, consistency: summary.consistency,
     retained: summary.dryRun ? null : `${basename(out)}/replies` })}\n`);
   return 0;

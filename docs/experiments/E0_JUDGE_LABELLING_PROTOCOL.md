@@ -22,6 +22,8 @@ is only as good as its labels and its mix of claims. Real claims are mostly supp
 - **Harvester** (any session): collects the claims from exposed runs. Only public or
   synthetic runs qualify; never a run on labelled or private data.
 - **Labeller** (a separate session): labels every claim and plants negatives.
+  - It receives only `claims.json`, never the provenance sidecar: a run's id leads to
+    that run's own judge verdicts.
   - It must not see any judge verdict on these claims: no `claims_entailment` events
     and no fixture summary.
   - It must not see the runs' grades.
@@ -43,10 +45,14 @@ judges.
 
 - Claims without a window are skipped.
 - A claim repeated across runs (the same sentence, quote and window) is kept once.
-- Claims get new ids `C1`, `C2`, and so on. `origin` keeps the run directory's basename
-  and the original id.
-- The file is written with mode 0600, and an existing file is never overwritten.
-- The command prints counts and the file's sha256, never claim text.
+- Claims get new ids `C1`, `C2`, and so on.
+- Provenance goes to a sidecar beside the claim set, `claims.origin.json`, which maps
+  each new id to the run directory's basename and the original id. `claims.json`
+  carries none, and the fixture refuses a claim set that does.
+- The directory is created if needed. Both files are written with mode 0600, and an
+  existing claim set or sidecar is never overwritten.
+- The command prints counts and the file's sha256, never claim text. A failure prints
+  a fixed code, never a path.
 
 ## Step 2: label
 
@@ -91,8 +97,10 @@ Both files stay under `.soar/experiments/e0-judge/`, which git ignores. The labe
 evaluator gold: never commit them or send them to a cloud tool.
 
 - `claims.json`: `{"version": 1, "task": "...", "claims": [{"id", "sentence", "quote",
-  "context", "origin"?}]}`. Bounds follow `ClaimsVerifiedClaimSchema`, and every context
-  is non-empty.
+  "context"}]}`. Bounds follow `ClaimsVerifiedClaimSchema`, every context is non-empty,
+  and the task must equal the manifest's.
+- `claims.origin.json`: `{"version": 1, "task": "...", "origins": [{"id", "run",
+  "claimId"}]}`, kept for the owner and never given to the labeller.
 - `labels.json`: `{"version": 1, "protocol": "e0-judge-labelling-v1", "labeller": "...",
   "labels": [{"id", "label", "planted", "note"?}]}`, with exactly one label per claim.
 
@@ -108,18 +116,34 @@ evaluator gold: never commit them or send them to a cloud tool.
    `pnpm fixture:judge -- --claims <claims.json> --labels <labels.json> --dry-run`, then
    the same command without `--dry-run`.
 
-The fixture refuses a template, a hash or count mismatch, a missing label, a class below
-the minimum, or a prompt version other than the manifest's, all before any request.
+The fixture refuses all of these before any request:
+- a template;
+- a hash, count or task mismatch;
+- a missing label;
+- a class below the minimum;
+- a prompt version other than the manifest's;
+- a design without the activation cell;
+- an out directory that already exists.
+
+It records the manifest's canonical digest, so whether the run used the committed
+manifest can be checked afterwards. That the manifest was committed first is
+procedural.
 
 **Where the results go.** Raw replies are retained under
 `.soar/experiments/e0-judge-fixture-<time>/replies/` with mode 0600, next to a
 `summary.json` of per-call verdicts and metrics. The command prints aggregates only.
 
 **Which cell decides.** The activation cell is the J1 condition that matches the
-endpoint's reply contract: `j1-legacy`, or `j1-flash` under `flash_next_v1`. Its
-`meetsLevel` applies the card's measure and level. The `-reversed` conditions measure
-only how often a verdict flips when the four verdicts are listed in reverse order.
-Repeats measure consistency.
+endpoint's reply contract: `j1-legacy`, or `j1-flash` under `flash_next_v1`. The run
+reads the contract from the configuration and records it with the cell. Its
+`meetsLevel` applies the card's measure and level to the unrounded ratio.
+- The `-reversed` conditions measure only how often a verdict flips when the four
+  verdicts are listed in reverse order.
+- Repeats measure consistency over the claims judged in every repeat.
+- `plantedNotEstablished` counts only planted negatives. Planted partials count in
+  `plantedExactAgreement`.
+- The fixture sends the judge's non-streaming form. The app's judge streams and salts
+  its cache per job, which changes the transport, not the prompt.
 
 **After a run, the set is frozen.** If it needs relabelling, make a new set with new
 hashes and a new manifest version, and keep the first result.

@@ -33721,18 +33721,20 @@ Scope or hypothesis: This implements plan adjustment (b) of BL-20261113-0730-ray
 - **What this adds.** The script, a template manifest holding only hashes and counts, and the labelling protocol.
 - **What does not change.** No persisted contract, prompt, schema or dispatch rule. claims.ts is only imported, so the entailment prompt version, the research protocol hash and the harness source-freeze digest stay as they are.
 
-Decisions: (1) **The same judge, sending the same bytes.**
+Decisions: (1) **The same judge and the same prompt, in the non-streaming form.**
 - The messages come from `entailmentMessages`.
-- The body is model.ts's vLLM body for the local model config with the pass's overrides: thinking disabled, ENTAILMENT_OUTPUT_TOKENS (256) and no tools. A test captures PrivateAgentModel's request through a fake broker and requires byte equality, for both the legacy and the `flash_next_v1` shapes.
+- The body is model.ts's vLLM body for the driver's judge config (`buildLocalScreenModelConfig`) with the pass's overrides: thinking disabled, ENTAILMENT_OUTPUT_TOKENS (256) and no tools. A test captures PrivateAgentModel's request through a fake broker and requires byte equality, for both the legacy and the `flash_next_v1` shapes, unsalted and with the fixture's own salt (`--cache-salt`).
+- The driver's judge streams by default and salts per job; that changes the transport and the prefix-cache key, not the prompt or the reply the parse reads.
 - Replies are parsed by judgeClaims's own rule: the outermost braces, then the strict EntailmentReplySchema. A test checks this against the real pass on seven reply shapes.
 
 (2) **A direct POST outside the broker**, as the planner fixture does (BL-20261108-0911, decision 6): public or synthetic claims, zero fee, no dispatch rows.
 - The endpoint comes from loadConfig, so the app's endpoint policy applies.
 - Every raw reply is retained, with mode 0600, under `.soar/experiments/e0-judge-fixture-<time>/replies/`.
-- `summary.json` holds per-call codes, hashes, verdicts and labels, and the metrics; never claim text.
+- The out directory must be new; an existing one is refused before any request, and every file is opened exclusively, so a run never replaces an earlier result.
+- `summary.json` holds per-call codes, hashes and verdicts, the metrics, the manifest's canonical digest, the configured reply contract and its activation cell; never claim text or labels.
 - Standard output prints aggregates only.
 
-(3) **Pre-registration is enforced in code.** The manifest (`docs/experiments/e0-judge-fixture-v1.json`, committed as a template) pins:
+(3) **Pre-registration: refusal is in code, the commit is procedural.** The manifest (`docs/experiments/e0-judge-fixture-v1.json`, committed as a template) pins:
 - the claim set's and the labels' sha256;
 - the claim count, the count per label and the planted count;
 - the entailment prompt version;
@@ -33742,10 +33744,13 @@ Decisions: (1) **The same judge, sending the same bytes.**
 
 Before any request the fixture refuses:
 - a template;
-- a mismatched prompt version, hash or count;
+- a mismatched prompt version, hash, count or task;
 - a claim without a label;
 - a class below the minimum;
-- an invalid file.
+- an invalid file, including a claim set that carries provenance;
+- a design without the activation cell: the J1 condition of the configured reply contract.
+
+That the manifest was committed before the run cannot be checked in code. It stays checkable: the run records the manifest's canonical digest, to compare with the committed file.
 
 (4) **Four conditions.**
 - **`j1-legacy` and `j1-flash`** run today's judge in each reply shape. The activation cell is the one matching the endpoint's contract.
@@ -33758,22 +33763,23 @@ The reversed conditions only measure how often a verdict flips with option order
 - agreement on the established split, and exact agreement over judged claims only;
 - Cohen's kappa;
 - recall on each side of the established split and on contradicted claims;
-- how often planted claims are judged not established;
+- detection of planted negatives: planted claims labelled not established that the judge also called not established;
+- exact agreement on every planted claim, planted partials included;
 - AUROC for "not established" on the verdict order, with ties counted half;
 - the confusion matrix;
-- `meetsLevel`, from the manifest's measure and level.
+- `meetsLevel`, from the manifest's measure and level, compared on the unrounded ratio (the reported ratios are rounded to four places).
 
-Two measures compare across runs: the flip rate between a condition and its reversed twin, and consistency across repeats.
+Two measures compare across runs: the flip rate between a condition and its reversed twin, and consistency across repeats over the claims judged in every repeat.
 
 (6) **Harvest** (`pnpm fixture:judge -- harvest`).
 - It reads each run's `state.sqlite` read-only and takes the last `claims_verified` event per job and context.
 - It skips claims without a source window and keeps a repeated claim once.
-- It renumbers the claims C1, C2, ... and records each run's basename and the claim's original id.
-- It writes with mode 0600 and never overwrites a file.
-- A missing database is reported as a fixed code, never as a path.
+- It renumbers the claims C1, C2, ... and writes each claim's provenance (the run's basename and the original id) to a sidecar, `claims.origin.json`, which the labeller does not receive: a run's id leads to its own judge verdicts.
+- It creates the target directory, writes with mode 0600 and never overwrites a claim set or its sidecar.
+- A missing database, an existing claim set and an unwritable target are reported as fixed codes, never as paths.
 
 (7) **The labelling protocol** is docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md.
-- A separate labeller sees no verdict and no grade.
+- A separate labeller receives only `claims.json`, and sees no verdict, no grade and no provenance.
 - It labels with the judge's own four definitions and two tie rules.
 - It plants unsupported, contradicted and partial claims on real quotes and windows, each wrong for one stated reason.
 - The proposed minimum is 10 per class; the card decides.
@@ -33782,20 +33788,24 @@ Two measures compare across runs: the flip rate between a condition and its reve
 (8) **J2**, a single-token, probability-scored judge, is not built. It first needs the adapter probe's logprobs check and the owner's choice on the card (item (c) of BL-20261113-0730).
 
 Changes:
-- New: scripts/judge-fixture.ts; tests/unit/judge-fixture.test.ts (10 tests); docs/experiments/e0-judge-fixture-v1.json (a template); docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md.
+- New: scripts/judge-fixture.ts; tests/unit/judge-fixture.test.ts (13 tests); docs/experiments/e0-judge-fixture-v1.json (a template); docs/experiments/E0_JUDGE_LABELLING_PROTOCOL.md.
 - Edited: docs/experiments/README.md; README.md; package.json (`fixture:judge`).
 
 Evidence:
-- `pnpm exec vitest run tests/unit/judge-fixture.test.ts tests/unit/planner-fixture.test.ts tests/unit/serving-card-reader.test.ts` passes 89 tests in 3 files.
+- `pnpm exec vitest run tests/unit/judge-fixture.test.ts tests/unit/planner-fixture.test.ts tests/unit/serving-card-reader.test.ts tests/unit/private-agent-local-role-config.test.ts` passes 102 tests in 4 files.
+- One independent review on 2026-11-13 found no blocker or major. Its eleven minor findings are fixed here, and the review's corrected wording is used in this entry. Seven mutations, one per behavioural fix, now fail the suite: a rounded level test, counting planted partials as detection, a harvest keyed on the job alone, counting unjudged claims as consistent, and dropping the out-directory, activation-cell or task check.
 - The judge fixture's tests prove:
-  - the bodies are byte-equal to PrivateAgentModel's request in both shapes;
+  - the bodies are byte-equal to the driver judge's non-streaming request in both shapes, unsalted and salted;
   - the reversed prompt changes only the verdict order;
   - the reply parse matches judgeClaims's;
   - every input refusal happens before any request and writes no file;
   - the metrics on a known eight-claim case: exact agreement 0.625, established agreement 0.75, kappa 0.6111, AUROC 0.9583, and the flip and consistency rates;
+  - the level test on the unrounded ratio (205 of 247 is below 0.83), and planted detection that excludes planted partials;
   - a full run against a loopback fake. It uses 32 calls, retains replies with mode 0600, and sends no label, planted flag or labeller note in any request. Its summary contains no address, port, key, reasoning text or claim text.
-  - a rejected or unreachable endpoint leaves claims not judged without stopping the run;
-  - the harvest, and its refusal to overwrite;
+  - a rejected or unreachable endpoint leaves claims not judged without stopping the run, and unjudged claims are not counted as consistent;
+  - the `flash_next_v1` activation cell, and the refusals of a design without it;
+  - a second run into the same directory is refused and leaves the first result unchanged;
+  - the harvest per job and context with two of each, the provenance sidecar, the created directory and the refusal to overwrite;
   - a command-line dry run that prints no address.
 - `pnpm typecheck` passes.
 - `pnpm --silent validate:build-log -- --base-ref origin/main` and `pnpm validate:readiness` pass with this entry appended.

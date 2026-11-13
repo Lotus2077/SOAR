@@ -13,7 +13,7 @@
  * (--research-from), so the loop makes at most one stage's planner and synthesiser calls under sample a's own fee cap. When
  * a's stage leaves no packet the loop ends there: no second stage is ever paid for.
  *
- * Resume (LOOP_VERSION 2, backlog item 11, part 3b, BL-20261110-0637-infra-resume-design): an invocation holds the loop's
+ * Resume (LOOP_VERSION 2, backlog item 11, part 3b, BL-20261113-0805-infra-resume-design): an invocation holds the loop's
  * lock (`loop.lock`) for its whole run and saves `loop.json` atomically. A stage whose directory holds its result is reused
  * after its freeze is checked against the loop's task, runtime and lineage. A stage that ended on infrastructure is resumed
  * once, at zero fee: the invocation that ran it stops with `loop_stage_infra`, and the next one moves it aside to

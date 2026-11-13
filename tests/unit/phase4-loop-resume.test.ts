@@ -11,7 +11,7 @@ import { LOOP_VERSION, closeLoop, ledgerDependencies, loopExitCode, parseCloseAr
   type LoopInput, type LoopRecord } from "../../scripts/phase4-loop";
 
 /**
- * Backlog item 11, part 3b (BL-20261110-0637-infra-resume-design): the loop's zero-fee resume, its lock, its write-ahead moves and
+ * Backlog item 11, part 3b (BL-20261113-0805-infra-resume-design): the loop's zero-fee resume, its lock, its write-ahead moves and
  * their reconciliation, void starts, terminal stops and `--close`, on real directories with fakes standing in for the driver.
  */
 const cleanups: (() => void)[] = [];

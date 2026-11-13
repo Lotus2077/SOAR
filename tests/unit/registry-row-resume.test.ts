@@ -10,7 +10,7 @@ import { readRunLedger } from "../../src/main/private-agent/selection";
 import { PrivateAgentStore } from "../../src/main/private-agent/store";
 
 /**
- * Backlog item 11, part 3b (BL-20261110-0637-infra-resume-design, decisions (9) and (10)): a loop row of version 1 or 2 sums every
+ * Backlog item 11, part 3b (BL-20261113-0805-infra-resume-design, decisions (9) and (10)): a loop row of version 1 or 2 sums every
  * run the loop made, names its cloud stage through `stage_run`, and rows a loop that ended without a selection by its stop's class.
  */
 const cleanups: (() => void)[] = [];

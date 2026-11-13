@@ -33904,19 +33904,21 @@ References: BL-20261110-1507-runner-storage-integrity-design; BL-20261109-0459-d
 
 Status: `Implemented`
 
-Scope or hypothesis: Record why the two entries of plan 6.3 (pull request #82, lane S-desk) do not carry their authoring minutes. They were committed on 2026-11-10, stacked on #77, before merge train 1. Train 1 merged into `main` on 2026-11-13 (#85, 9d10b9a), and `main`'s last ID, BL-20261110-1506-merge-train-1-integration, is later than both. The validator refuses an ID earlier than the one before it. So at this rebase onto `main`, under the owner's rule recorded in BL-20261113-0758 (pull request #87), their ID minutes move to the first free minutes after the tail:
+Scope or hypothesis: Record why the two entries of plan 6.3 (pull request #82, lane S-desk) do not carry their authoring minutes. They were committed on 2026-11-10, stacked on #77, before merge train 1. Train 1 merged into `main` on 2026-11-13 (#85, 9d10b9a), and `main`'s last ID, BL-20261110-1506-merge-train-1-integration, is later than both. The validator refuses an ID earlier than the one before it. So at this merge of `main`, under the owner's rule recorded in BL-20261113-0758 (pull request #87), their ID minutes move to the first free minutes after the tail:
 - the design entry, authored at 07:15 UTC on 2026-11-10 as BL-20261110-0715, is now BL-20261110-1507-runner-storage-integrity-design;
 - the implemented entry, authored at 08:09 UTC on 2026-11-10 as BL-20261110-0809, is now BL-20261110-1508-runner-storage-integrity-implemented.
 
 Decisions:
 - Only the two headings' ID minutes and the references to those IDs change. The references are: two in the implemented entry's body, a comment in src/main/general-tasks/storage-integrity.ts, a comment in tests/unit/general-task-controller.test.ts and a describe title in tests/unit/general-task-storage-integrity.test.ts. Each entry's body is otherwise byte-identical to what #82 had at ab08382.
-- Both entries still describe the branch as stacked on #77 at 224429b, as written. #77 is now on `main` through train 1. The branch's four commits are rebased onto `main` at 9d10b9a; the rebase conflicted only at the ledger's tail, where the two entries were appended unchanged before this re-stamp.
+- Both entries still describe the branch as stacked on #77 at 224429b, as written. #77 is now on `main` through train 1. The branch merges `main` at 9d10b9a (merge commit 0ea88e4). The merge conflicted only at the ledger's tail, where `main`'s log was kept whole and the two entries were appended after it unchanged, before this re-stamp.
 
 Changes: docs/BUILD_LOG.md (two headings, two references and this entry); the two comments and the describe title named above. No behaviour changes.
 
 Evidence: After the change, `git grep BL-20261110-0715` and `git grep BL-20261110-0809` find only this entry. `pnpm --silent validate:build-log -- --base-ref origin/main` passes (append-only against `main`, monotonic IDs) and `pnpm typecheck` passes. The authoring times are preserved here and in #82's description, which names the original IDs.
 
-Failures or blockers: None for this pull request. A first attempt that moved the IDs to 2026-11-13 minutes was refused by the validator, which requires an ID's date to equal its heading's date; a re-stamp that changes only the minute keeps an entry on its own day.
+Failures or blockers: None for this pull request.
+- A first attempt that moved the IDs to 2026-11-13 minutes was refused by the validator, which requires an ID's date to equal its heading's date. A re-stamp that changes only the minute keeps an entry on its own day.
+- A rebase onto `main` was prepared first, but publishing it needed a force-push, which this session's permissions refused. So the branch merges `main` instead, and its final tree is byte-identical to the rebased one.
 
 Limitations and non-claims: A record correction only; nothing is implemented, verified or released by it. Commit messages keep their wording. A minute change cannot place a 2026-11-10 entry after an entry of a later day. If one reaches `main` before #82 merges, these entries cannot follow it without changing their headings' dates, which the owner's rule does not cover. Examples are BL-20261113-0758 on #87, or another branch's correction written today.
 
@@ -33930,7 +33932,7 @@ References: BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-202611
 
 Status: `Implemented`
 
-Scope or hypothesis: The integration check of merge train 1 (part f3 and finding X3-2) left two items to lane S-desk, for 6.3 or a later pull request. Pull request #82 carries them after its rebase onto `main`.
+Scope or hypothesis: The integration check of merge train 1 (part f3 and finding X3-2) left two items to lane S-desk, for 6.3 or a later pull request. Pull request #82 carries them after it merges `main`.
 - **Part f3.** No committed session-level test pinned a pause or a cancel around 7a.1's held extraction attempt. 7a.1 (BL-20261110-0726-correction-research-tolerance-total-loss, pull request #76) holds a first extraction attempt that lost every quote of a question it marked `evidence_found`, and repairs it after every other chunk. The check showed with a throwaway test that the merged behaviour is what BL-20261109-0501-research-stage-pause-design decided.
 - **Finding X3-2.** #77's test title and the comment on `researchStageUnfinished` said the stage limitation lasts "until backlog items 7 and 8". After train 1, 7a.1, 7b.1, 7d.A and 8.2a are merged and none adds a per-chunk continuation protocol, so the wording read as if they might have lifted it.
 

@@ -1,12 +1,12 @@
 # Rayline for SOAR: what it sells, how solid its evidence is, and what SOAR borrows
 
-Date checked: 2026-11-13. These are research findings, not a ticket. The decisions and
+Date checked: 2026-11-13, and calibrated the same day against the report itself (§8). These are research findings, not a ticket. The decisions and
 plan adjustments are in BL-20261113-0730-rayline-evaluation-plan-adjustments. Nothing
 here is approved, implemented or verified beyond that entry.
 
 How the research was done:
 - No Rayline account, API call, model download or paid request was made.
-- The ARC report PDF was read as extracted text.
+- The agents read the ARC report PDF as extracted text. The session then read the report directly from the copy the owner supplied: all 23 pages of text, and the figures as rendered images. §8 records what that changed.
 - Every docs.rayline.ai page has a line telling AI agents to fetch an `llms.txt` index
   first; it was not acted on.
 - Nine read-only agents did the research: three on Rayline, two on SOAR, two ideation
@@ -76,8 +76,9 @@ the pricing tables never loaded.
 
 ## 2. How ARC works
 
-**Model.** ARC uses a Qwen3.5-0.8B backbone with 615,054,751 parameters; the card says
-0.8B and the metadata 0.6B. Its prediction heads read a frozen 12-layer truncation. A
+**Model.** The report calls ARC a 0.8B decision model on a Qwen3.5-0.8B backbone; the
+Hugging Face metadata counts 615,054,751 parameters. Its specialized heads read the frozen
+layers 1-12, and only the question head uses layers 13-24, fine-tuned (report §3.1). A
 12-layer vision encoder handles images. The NOTICE also credits Nemotron-PII (CC-BY-4.0).
 
 **Inputs.** ARC reads the messages, tool calls and tool results that come before the
@@ -95,7 +96,8 @@ the session and price features.
 success. V is 0.1 for Swift and 4.5 for Sage; Dynamic accepts 0.1-30. The prefer-local
 policy keeps the local model when its predicted success reaches a threshold: 0.65 is
 the service default, and the evaluation used 0.85. The reasoning level is picked with
-its own cost weight.
+its own cost weight. The selector also subtracts a small relative-duration term (weight
+µ, 0.01 in the RouteBench rollouts; report Appendix A.2).
 
 **Training.** About 90% of the training weight comes from Workshop trajectories, with
 users who opted out excluded. The rest comes from tasks with checkable outcomes, where
@@ -111,15 +113,17 @@ request.
 **Long tasks and caching.** Model switches are allowed only at cache boundaries: task
 start, subagent start, compaction, or a user turn with a cold cache. A switch at a user
 turn is charged the cost of rebuilding the cached prefix. The evaluated configuration
-picked one model per task and held it. The provider's native effort setting is part of
+picked the model at task start and held it for the episode, while choosing the reasoning
+level on every routed call (report §2.3). The provider's native effort setting is part of
 its cache key, so reasoning is steered by privately appended text instead. Rayline
 maps thinking budgets of up to 2,000 tokens to low, up to 4,000 to medium, and more to
 high.
 
 **Local serving.** `vllm-arc` is a work in progress. It serves the encoder and the
 first-stage score only, with no second stage, policy, question head or signals. It
-needs a pinned vLLM fork and was tested on Linux with CUDA 13.0. No on-device decision
-service is published, and the model card recommends the hosted API. Raydock's hybrid
+needs a pinned vLLM fork and was tested on Linux with CUDA 13.0. The report says Raydock
+obtains decisions from an on-device service or the hosted API (Appendix B), but no
+on-device decision service is published, and the model card recommends the hosted API. Raydock's hybrid
 mode accepts only local models in its registry and defaults to Qwen3.8-27B.
 
 ## 3. How solid the evidence is
@@ -130,14 +134,17 @@ No independent replication was found. The only outside discussion is a June 2026
 OpenRouter's router-benchmark post does not list ARC; Rayline ran that benchmark itself.
 Adoption at the time of checking: 37 downloads, and 41 stars for Raydock.
 
-| Benchmark | Opus 5.5 | Sage | Sage cost vs Opus | Prefer-local | Prefer-local cost |
-|---|---|---|---|---|---|
-| DeepSWE | 69.9 | 68.7 | 7% | 72.3 | 1.1% |
-| Terminal-Bench 2.1 | 91.0 | 92.4 | 58% | 90.5 | 75.7% |
-| SWE-Atlas QA | 61.6 | 62.4 | 13% | 62.6 | 1.6% |
-| Tau3 Banking | 42.8 | 33.2 | 17% | 35.3 | 17.3% |
-| GPQA Diamond | 89.9 | 94.1 | 21% | 92.5 | 12.3% |
-| MMMU-Pro Vision | 82.2 | 82.9 | 39% | 82.7 | 40.9% |
+| Benchmark | Opus 5.5 | Sage | Sage cost vs Opus | Prefer-local | Prefer-local cost | Local picks |
+|---|---|---|---|---|---|---|
+| DeepSWE | 69.9 | 68.7 | 7% | 72.3 | 1.1% | 98.2% |
+| Terminal-Bench 2.1 | 91.0 | 92.4 | 58% | 90.5 | 75.7% | 10.8% |
+| SWE-Atlas QA | 61.6 | 62.4 | 13% | 62.6 | 1.6% | 91.9% |
+| Tau3 Banking | 42.8 | 33.2 | 17% | 35.3 | 17.3% | 53.1% |
+| GPQA Diamond | 89.9 | 94.1 | 21% | 92.5 | 12.3% | 51.4% |
+| MMMU-Pro Vision | 82.2 | 82.9 | 39% | 82.7 | 40.9% | 2.1% |
+
+Figures 8 and 9 of the report, read from the rendered figures. Opus's own scores in
+Figure 9's run differ slightly: 90.7 on Terminal-Bench and 89.5 on GPQA.
 
 - **The headline mixes two kinds of average.** The 97.4% quality figure is the mean of
   per-benchmark ratios. The 14.3% cost figure pools spend across all tasks, and DeepSWE
@@ -146,10 +153,12 @@ Adoption at the time of checking: 37 downloads, and 41 stars for Raydock.
   prefer-local.
 - **One benchmark is much worse.** Tau3 Banking keeps 78% of Opus's quality; without it
   the mean would be about 101%.
-- **The prefer-local quality figure doesn't reproduce.** Its rows average 98.5%, not the
-  stated 97.5%, so a value appears mislabelled. The 7.1% cost figure used DeepSeek V4.1
-  Flash (about 552B parameters) on several DGX Spark machines, and local compute
-  appears uncosted.
+- **The prefer-local quality headline doesn't follow from its figure.** The report never
+  says how its 97.5% is aggregated. Figure 9's own values, against its Opus run, give
+  98.5% as a mean of per-benchmark ratios, or 97.0% with each ratio capped at 100%. The
+  figure's labels are consistent, so the gap is in the headline, not a swapped bar. The
+  7.1% cost figure used DeepSeek V4.1 Flash (about 552B parameters) on several DGX
+  Spark machines, and the report does not state the price it assigned to local compute.
 - **The baselines are thin.** The only single-model baselines are Opus and Haiku. Sage
   sends 46.8% of its picks to GPT-6.1 Sol and 34.8% to DeepSeek Flash, but neither is
   run alone. RouterBench (2024) found that a single fixed model is hard for learned
@@ -160,12 +169,19 @@ Adoption at the time of checking: 37 downloads, and 41 stars for Raydock.
 - **The test sets may overlap the training data.** The provenance lists 198 GPQA groups
   and 89 Terminal-Bench groups, which equal the full benchmark sizes, and no held-out
   split is stated.
-- **The setup was narrow.** Only one model per task was evaluated; routing turn by turn
-  was not.
+- **The setup was narrow.** The model was chosen at task start and held for the
+  episode; only the reasoning level changed per call. Switching models mid-task was not
+  tested, and no ablation separates what model choice and reasoning control each
+  contributed.
 - **The decision models disagree across benchmarks.** On Rayline's own routing-question
   bench ARC beats Jev 1.14 (agreement 56.2% against 32.7%, calibration error 0.079
-  against 0.31). On the public Decision Index it loses (46.9 against 60.7), and it flips
-  its answer twice as often when the options are reordered (19.0% against 9.3%).
+  against 0.31). On the public Decision Index it loses (46.9 against 60.7), and it also
+  trails StartLux 0.8B, a model of its own size (53.8). It flips its answer twice as
+  often as Jev when the options are reordered (19.0% against 9.3%; report Figure 11).
+- **Against other routers** (report Table 2), the index weights quality 60%, speed 20%
+  and cost 20%, so it is not a quality comparison alone. ARC Sage has the best mean (9.3)
+  of the routers scored on all five benchmarks, but Pareto leads DeepSWE (9.9 against
+  9.6), and OpenRouter Auto and Auto Code lead Tau3 Banking (9.0 and 8.9 against 7.7).
 - **When the figures hold, and when not.** They plausibly hold for coding-agent work with
   a pool of strong, cheap models, measured against the most expensive frontier model.
   They likely fail on tool-and-policy tasks, unknown or small local models, frequent
@@ -299,6 +315,62 @@ Open about Rayline:
 - per-token rates, and whether per-turn decision fees cancel the savings of local turns;
 - when hosted routing will track conversations;
 - whether Workshop Arena votes train ARC.
+
+## 8. Calibration against the report itself (2026-11-13)
+
+The session read the report from the copy the owner supplied: all 23 pages of text, and
+Figures 1, 6, 8, 9, 11, 12 and 13 as rendered images. It checked them against this
+document and against BL-20261113-0730-rayline-evaluation-plan-adjustments.
+
+**Confirmed.**
+- The utility rule, the V presets, and prices applied at decision time without
+  retraining (§2.2, Appendix A).
+- About 90% of the training weight is Workshop traffic, with opted-out users excluded.
+  Corpus and training system stay proprietary (§4.1, Appendix C).
+- The per-benchmark results and costs in §3 above, priced at OpenRouter market rates.
+  The only single-model baselines are Opus 5.5 and Haiku 5.5. No intervals or run
+  counts are given, and no held-out split is stated.
+- Sage's 97.4% reproduces as the mean of Figure 8's per-benchmark ratios.
+- The selection shares (Figure 13) and the question head's results (Figures 11 and 12).
+- The switching charge and the fail-closed rule for unknown prefixes (Appendix A.2), and
+  steering reasoning by private appended text where a native setting would break the
+  cache (Appendix B).
+- The evaluated policy uses only the success and usage predictions; no routing by data
+  sensitivity was evaluated (§2.1).
+
+**Corrected.**
+1. The evaluation held one model per task but chose the reasoning level on every call
+   (§2.3). Only mid-task model switching was untested. The earlier "only one model per
+   task was evaluated" undersold what ran.
+2. The prefer-local 97.5% headline is an unexplained aggregate, not a mislabelled bar
+   (Figure 9's labels are consistent).
+3. ARC is a 0.8B decision model in the report's words, 615M parameters by the Hugging
+   Face metadata.
+4. The report describes an on-device decision service for Raydock (Appendix B) that has
+   not shipped.
+5. The outside-calibration notes (kept outside Git) put the local model at about 2% of
+   GPQA tasks. Figure 9 shows 51.4% on GPQA and 2.1% on MMMU-Pro Vision.
+
+**New, and relevant to SOAR.**
+- **Three separate events.** §2.3 separates refreshing a prediction, reconsidering a
+  choice and actually changing it. That is the shape of SOAR's model-judged signals,
+  which are recorded on every run and fire nothing until calibrated.
+- **Reasoning control is part of Rayline's evaluated setup.** That supports measuring
+  thinking levels at E0 (plan item (c)). The report isolates no effect for it.
+- **Missing evidence stays missing.** The usage head learns from calls that have no
+  outcome without inventing a quality label (§4.3.4), and labelling functions abstain
+  when their evidence is absent (§4.2). This is the same discipline as SOAR's
+  upper-bound labels.
+- **A Qwen model is represented, not evaluated.** Figure 6 places a Qwen3.8-27B vector
+  among the candidates. The report evaluates no local model other than DeepSeek V4.1
+  Flash, and Raydock's docs call its Qwen decisions uncalibrated.
+- **Swift saves little.** Swift saves only 10-15% against Haiku 5.5, at equal or lower
+  success (Figure 8).
+
+**Effect on SOAR's decisions: none.** "Adopt nothing" stands, as do the router bars and
+plan items (a) to (h). PR #86 (commit 2dd2de9) refines the entry's wording on the
+evaluated configuration, the on-device path, the model size and item (a)'s window
+floor.
 
 ## Sources
 

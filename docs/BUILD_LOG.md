@@ -35546,3 +35546,334 @@ References:
 - BL-20261113-0820-research-stage-pause-held-attempt-pins (6.3's follow-up, which added `extractReply`)
 - BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
 - BL-20261113-0758 (pull request #87)
+
+### BL-20261113-0856-claims-trailing-strip-linear-design -- 2026-11-13 -- E1-J2 decided: the claims check's heading strip becomes linear with the same output; the new check text adds no refusal but changes the hash of claims-checked tasks
+
+Status: `Proposed`
+
+Scope or hypothesis: Lane S-e1's item E1-J2, given by the orchestrator on 2026-11-09. Lane S-pipe's 7a.1 code review found the defect on `main` and left it unfixed.
+
+The branch is `fix/e1-j2-linear-trailing-strip`. Until merge train 1 lands it is a draft stacked on E1-J (Lotus2077/SOAR#70). It is then rebased onto `main`, where it also updates 7a.1's heading test (Lotus2077/SOAR#76; decision (5)).
+
+The request allows an `Implemented` entry alone if the change "changes no contract". It does change one: decision (3) shows the check's text is hashed into persisted identities. So this design entry comes first.
+
+The defect: the host-owned claims ledger check (`claimsLedgerCheck` in claims.ts) is the required check of every desktop public-research task, and of the local screen's `--claims-ledger true` runs, research runs included. Its `section_present` decides whether each required section heading (two today) is in the writer's report:
+- for each title it scans the report's lines in order, stopping at the first match;
+- it strips each line with `re.sub(r'[*_:\s]+$', '', ...)`.
+
+When a run of those characters inside a line does not reach the line's end, Python's backtracking engine retries the run from each of its positions. One call's time therefore grows with the square of the run's length.
+
+Measured with scratch scripts that are not committed, with Python 3.9.5 on the owner's Mac:
+
+| Run of spaces | Time of one call |
+|---|---|
+| 5,000 | 0.12 s |
+| 10,000 | 0.47 s |
+| 20,000 | 1.9 s |
+| 40,000 | 8.3 s |
+
+The container's Python 3.11.16 is somewhat faster.
+
+The final verifier runs each check with a 90 s limit (runner.ts), and the model's `check_claims` tool with 180 s. Extrapolated from these figures, a valid report fails its required check in two cases:
+- one line before both headings holds a run of roughly 130,000 such characters (3.11; about 93,000 on 3.9.5);
+- roughly 185,000, when only one title's scan reaches the line.
+
+A degenerate reply, a padded table or a fill-in line can produce such a run. No run on record is known to have failed this way.
+
+Hypothesis: a linear strip that returns the same string on every input removes the defect and changes no check result.
+
+Decisions:
+(1) **The strip.** A Python helper, `strip_trailing(text)`, returns `text[:len(text)-re.match(r'[*_:\s]*',text[::-1]).end()]`. That is the text without its longest suffix of class characters, which is exactly what `re.sub(r'[*_:\s]+$','',text)` returns:
+   - **What `re.sub` matches.** It takes the leftmost match, and no match starts before the suffix:
+     - a run that starts earlier stops at the character just before the suffix;
+     - that character is outside the class, so it is neither the end nor a final newline (a newline is in the class), and `$` fails there.
+
+     At the suffix's first character, the greedy run first tries the whole suffix to the end, where `$` holds. No second match follows, because the pattern needs at least one character.
+   - **What the helper computes.**
+     - `[*_:\s]*` always matches, perhaps empty, so `re.match` never returns None.
+     - It matches the longest prefix of the reversed text, which is the suffix.
+     - `len(text)-k` keeps the whole text when k is 0.
+     - The same pattern text and default flags decide class membership per code point, so reversal cannot change it.
+   - **Why it is linear.** The greedy class has no tail to backtrack into, and the reversal and the slice are linear. The leading strip `^[#*_\s]+` is kept and is linear too. It can match only at position 0, and every later attempt fails at its first step. Python 3.11 and later do not try those positions at all.
+(2) **The rule as one constant.** The two functions become an exported constant, `CLAIMS_SECTION_RULE_PY`:
+   - `strip_trailing`;
+   - `section_present`, which now calls it.
+
+   The constant is written with `String.raw`, like `DECK_CHECK_PY` (ooxml.ts) and `RENDER_PY` (repair.ts), and interpolated into the check. Tests run that constant rather than a typed copy, and a typed copy elsewhere can be replaced by it (decision (5)).
+(3) **What the new text changes.** Each phase that carries the check hashes its Python text (`sessionPhaseIdentity`), and from there the text reaches persisted values. Nothing refuses work because of it beyond what any build of this change already refuses.
+   - **Desktop.** Every unfinished desktop task, of any kind, is already refused at start or resume with `general_task_configuration_changed` after any main-process build. The configuration identity hashes the built app (general-task-runtime.ts; controller.ts `launch`), and E1-J's build does the same. The phase-identity check behind it (`general_task_input_changed`) is not reached for this cause.
+   - **Local screen.** It never resumes across processes: each run makes a new job and directory. As for any change under src/main/private-agent, E1-J's included:
+     - a run given the pre-merge `--runtime-sha256` is refused `local_screen_reviewed_source_changed` before its directory exists;
+     - a run under way when the checkout changes ends `source_changed_during_run`.
+   - **Harness loop.** No loop may span the merge:
+     - resumed with the old hash, a loop is refused at its next fresh stage;
+     - resumed with the new hash, its reused stages fail `loop_stage_mismatch`.
+   - **Values that bind the text but that nothing re-verifies:**
+     - a public-research task's attestation identity, and through it the `taskJobSha256` of its verdict receipt and registry row;
+     - the session's and the runner's start identities, and the loop's `writeIdentity`;
+     - freeze.json's `privatePhaseSha256` and `publicPhaseSha256`.
+
+     The visible effect: the same public-research task gets a different `taskJobSha256` before and after the merge, so rows from either side do not match by that hash. No existing owner registry row is claims-checked.
+   - **Unaffected:**
+     - the research pipeline's protocol hash, which covers no check;
+     - the H4 seed's binding and the repair's binding;
+     - the owner's authority hashes, which are only format-checked and are recomputed where used.
+   - **Practical note.** registry-row.py records the checkout's HEAD when a row is written. Rows for runs made before the merge should therefore be written before pulling it.
+(4) **The tests.**
+   - (a) **A time bound through the real check.** The check runs under the machine's python3 on a valid report. The report holds a 1,000,000-character run of spaces, underscores, asterisks and colons inside one line before both headings, so both scans reach it. The check must finish within 20 s.
+     - The old strip needs tens of minutes there, the new one well under a second. Each side is therefore at least 100 times from the bound.
+     - Python's engine has no step counter, so a time bound with these margins stands in for one.
+     - Reproduced before the fix: the check is stopped at the bound.
+   - (b) **A differential test inside Python.** It compares the shipped `strip_trailing` with the old pattern, and with a regex-free strip that drops the last character while it is `*`, `_`, `:` or `isspace()`. The inputs:
+     - every string of up to five characters over twelve characters: `s`, `#`, a backslash, `*`, `_`, `:`, space, tab, newline, vertical tab, U+00A0 and U+200B;
+     - 2,000 seeded strings of 6 to 300 characters.
+
+     It prints only a summary. Fixed expected outputs, asserted from TypeScript, catch an escaping error that would break both regex sides alike, for example `\s` read as `s`.
+   - (c) **The source.** The check's source contains the rule constant and no longer contains the old pattern, and the constant contains a literal `\s`.
+(5) **7a.1's heading test** (#76, landing in train 1) pins the old `section_present` line character for character and runs a typed copy of the rule. After the rebase onto `main`, this PR makes two changes there:
+   - the guard asserts that the check contains `CLAIMS_SECTION_RULE_PY`;
+   - `claimsPresent` runs the constant.
+
+   Its two other mirror lines, for the fence and comment strips and for `read_text`, stay as they are. claims.ts's merge order becomes E1-J (#70), then E1-J2, then 8.2b.
+(6) **Out of scope, listed as follow-ups.** The design reviews measured, on Python 3.12, other patterns of the same check that also take quadratic time on a hostile report or source:
+
+   | Pattern | Input | Time |
+   |---|---|---|
+   | The fence strip | 40,000 lines that each open a fence | 49.5 s |
+   | The comment strip | 50,000 unclosed HTML comment openers | 31.9 s |
+   | The HTML tag strip in `units` | 150 KB | 2.6 s |
+
+   Fixing them changes the check's text once more, and with it `taskJobSha256`.
+
+Owner question: fix (6)'s patterns in one follow-up PR, which changes the check's text once more, or in this one? Proposed default: one follow-up PR after E1-J2. The request scoped E1-J2 to the trailing strip, and each pattern needs its own equality proof. The cost is one more `taskJobSha256` split for the same public-research task, and no refusal.
+
+Changes: Planned in this pull request:
+- src/main/private-agent/claims.ts: `CLAIMS_SECTION_RULE_PY` and its use;
+- tests/unit/private-agent-claims.test.ts: an optional time bound on the `run` helper, and the describe "E1 recoverability: the claims check's heading strip, same result without quadratic time (E1-J2)";
+- after the rebase, tests/unit/private-agent-research-headings.test.ts (decision (5));
+- docs/BUILD_LOG.md.
+
+Evidence:
+- **The reproduction** ran at f7251dd, E1-J's head, whose check text equals `main`'s. Its command was `pnpm exec vitest run tests/unit/private-agent-claims.test.ts -t "E1-J2"`, with the first draft of test (a), which put a 200,000-character run between the headings. Result: 1 failed and 27 skipped. The failure was "claims check stopped by SIGTERM at the 20000 ms bound", after 20.0 s.
+- **Three adversarial design reviews** ran: ledger and replay; consumers and tests; specification fidelity. They found no counterexample to decision (1). An equality run gave zero mismatches on Python 3.9.5, 3.11.16 (the container's, runtime/private-agent/Dockerfile) and 3.12.13, over:
+  - all 1,114,112 code points in twelve contexts;
+  - every string of up to four characters over a 24-character alphabet;
+  - every string of up to eight characters over a 6-character structural alphabet;
+  - 1,000,000 seeded strings.
+
+  CI's ubuntu runner uses its system python3.
+- **Their confirmed findings are folded in above:**
+  - the mechanism of (3): the first draft named `general_task_input_changed` and `session_contract_drift`, and this change causes neither;
+  - the list of bound values;
+  - the equality argument's wording;
+  - the threshold figures;
+  - the size and place of test (a)'s run;
+  - test (b)'s escaping guards;
+  - #76's pin;
+  - (6)'s other patterns.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- `Proposed` only.
+- The timings come from the reviewers' and the owner's machines, and the thresholds are extrapolations.
+- The time-bound test asserts a bound, not a speed.
+- Nothing measures how often real reports contain such runs.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. The implementation and its `Implemented` entry.
+2. After train 1 lands, the rebase onto `main` with decision (5).
+3. CI green.
+4. The owner's answer to the question.
+
+The orchestrator re-stamps this entry's ID if another entry merges first.
+
+References: BL-20261006-1058-pr-j-claims-ledger-design; BL-20261006-1150-pr-j1-claims-ledger-implemented; E1-J's entries (the judge-cancel label, #70); 7a.1's research-tolerance entries (#76); lane S-pipe's 7a.1 notes.
+
+### BL-20261113-0857-claims-trailing-strip-linear-implemented -- 2026-11-13 -- E1-J2 implemented: the claims check's heading rule strips in linear time with the same result, exported as one constant; the update of #76's test waits for the rebase
+
+Status: `Implemented`
+
+Scope or hypothesis: This implements decisions (1), (2) and (4) of BL-20261113-0856-claims-trailing-strip-linear-design as decided. The branch is `fix/e1-j2-linear-trailing-strip`, a draft stacked on E1-J (`fix/e1-j-judge-cancel-label`, Lotus2077/SOAR#70, at f7251dd).
+
+Decision (5), the update of 7a.1's heading test (#76), is checked but is not on this branch, because #76 is not in its base. It lands with the rebase onto `main` after merge train 1.
+
+Hypothesis: the check's result is unchanged on every input, and a report line with a long run of the strip's characters no longer makes the check slow.
+
+Decisions: None beyond the design. One adversarial code review checked the check's escaping and byte identity, whether each test proves its title, and the conventions. It found no blocker and four should-fix or nit items, all applied before this entry:
+- **Hidden characters.** The fixed cases, their expected values and the differential alphabet held literal U+00A0 and U+200B characters. They are escapes now: an editor that normalised them would have dropped that coverage silently.
+- **The `run` helper's signal branch.** It reported any signal as the time bound, including a full output buffer or a kill. It now reports only `ETIMEDOUT` that way and rethrows anything else.
+- **The differential test's limit.** It had vitest's default 5 s limit and timed out once in a full-suite run at a load average of 141. Its limit is now 30 s.
+- **The source test.** It now asserts that each of the two definitions appears once, so no later definition can shadow the rule. The import is now in alphabetical order.
+
+The review also confirmed three things:
+- the check's Python differs from E1-J's only by the two functions; with that block masked, the rest is byte-identical;
+- the constant holds exactly the design's expression, with two backslashes;
+- nine deliberately broken helpers each fail the differential test, with 50,768 to 212,379 mismatches.
+
+Changes:
+- src/main/private-agent/claims.ts: `CLAIMS_SECTION_RULE_PY`, a `String.raw` constant holding `strip_trailing` and `section_present`, which calls it. The check interpolates the constant in place of the former `section_present`.
+- tests/unit/private-agent-claims.test.ts: the `run` helper's optional `timeoutMs`, and the describe "E1 recoverability: the claims check's heading strip, same result without quadratic time (E1-J2)". It holds four tests:
+  - **The time bound.** The check runs under the machine's python3 on a valid report with a 1,000,000-character run of spaces, underscores, asterisks and colons inside a line before both headings, and must finish within 20 s.
+  - **The differential test.** It compares `strip_trailing` with the former pattern and with a regex-free strip on 273,453 strings: every string of up to five characters over twelve, and 2,000 seeded strings of 6 to 300 characters. The comparison runs in Python.
+  - **Fixed results**, read from TypeScript, and `section_present` on two lines.
+  - **The check's source.** It contains the constant, defines each function once, and no longer contains the former pattern.
+
+Evidence: On the owner's Mac, with Python 3.9.5 as the system python3:
+- `pnpm exec vitest run tests/unit/private-agent-claims.test.ts`: 30 passed and 1 skipped (31). The four E1-J2 tests add under a second.
+- `pnpm exec vitest run` (the full suite) at 5bf4928, at a load average of about 26:
+  - 178 files: 164 passed, 1 failed and 13 skipped;
+  - 2,768 tests: 2,683 passed, 1 failed and 84 skipped.
+
+  The failure is tests/unit/with-claude-key.test.ts, which reached its 5 s limit and does not import claims.ts. Run alone, it passed (3 of 3).
+- An earlier full-suite run at e3a57ce, at a load average of 141 from other sessions' suites: 13 tests in 7 files timed out. One was this PR's differential test, fixed above. The other 12 are in six files that do not import claims.ts: hybrid-simulation-change-review, local-change-review, local-repository-investigator, inspect-git-changes, patch-routing-comparison and private-agent-observations. Run alone at a load average of about 18, those six files passed: 159 tests passed and 1 was skipped.
+- Two mutation runs on this branch's tests, with claims.ts restored after each:
+  - with the former pattern back inside the helper, the time-bound test is stopped at the 20 s bound (20.0 s), and the fixed-results and source tests fail;
+  - with `\s` read as `s` in the constant, three tests fail: the time-bound test (a heading's trailing `s` is stripped), the differential test and the fixed-results test.
+- The code review measured the final test input:
+  - the old check is stopped at 20.02 s on Python 3.9.5 and at 20.01 s on 3.12.13;
+  - the new check takes 0.07 s, 0.08 s and 0.16 s on 3.9.5, 3.11.16 and 3.12.13, and about 80 ms inside vitest at a load average of about 40.
+- Decision (5) was checked in a temporary detached checkout of #76's head (18655e5), with this PR's claims.ts change applied. Nothing was pushed to #76's branch.
+  - #76's guard "still mirrors claims.ts's rule as written there" fails as the design predicted: 1 failed and 10 passed.
+  - With the planned update (the guard asserts that the check contains `CLAIMS_SECTION_RULE_PY`, and `claimsPresent` runs the constant), the file passes 11 of 11, and the node typecheck reports no error.
+  - The patch is kept for the rebase.
+- `pnpm typecheck` passed with no error. `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/fix/e1-j-judge-cancel-label` passed.
+
+Failures or blockers: None open. CI has not run on this branch yet.
+
+Limitations and non-claims:
+- `Implemented`, not `Verified`. No live run took place, and nothing here measures how often real reports contain such runs.
+- The time bound is wall-clock, with the margins the design gives; it is not a step count.
+- The differential test proves equality on its own inputs. Equality on every input rests on the design's argument and on the design reviews' wider runs, on Python 3.9.5, 3.11.16 and 3.12.13.
+- Decision (5) is not on this branch until the rebase. Until then, merging this branch with #76 fails #76's guard.
+- The check's other quadratic patterns (the design's decision (6)) are unchanged, and the owner question stands.
+- As the design records:
+  - the check's new text changes the `taskJobSha256` of public-research tasks across the merge;
+  - claims.ts's change moves the local screen's source freeze, so no harness loop may span the merge.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate:
+1. After merge train 1 lands, the rebase onto `main`, with decision (5)'s test update.
+2. CI green.
+3. The owner's answer to the design's question, and the merge go-ahead.
+
+The orchestrator re-stamps the entry IDs at merge.
+
+References: BL-20261113-0856-claims-trailing-strip-linear-design; E1-J's entries (#70); 7a.1's research-tolerance entries (#76).
+
+### BL-20261113-0858-correction-claims-trailing-strip-linear-restamp -- 2026-11-13 -- Correction: E1-J2's entries carry IDs BL-20261113-0856-claims-trailing-strip-linear-design and BL-20261113-0857-claims-trailing-strip-linear-implemented; they were authored at 06:23 and 06:42 UTC on 2026-11-10 as BL-20261110-0623 and BL-20261110-0642, and the rebase onto `main` applies the design's decision (5)
+
+Status: `Implemented`
+
+Scope or hypothesis: This entry records the re-stamp of E1-J2's two entries, under the owner's rule of 2026-11-13 recorded on PR #87: an entry on an unmerged branch is re-stamped after `main`'s tail when it merges, and a correction records its original ID and time. It also records the rebase of their pull request, #80, onto `main` after merge train 1, which carries out the design's decision (5).
+- The design entry was committed at a3f652c and authored at 06:23 UTC on 2026-11-10 as BL-20261110-0623. The Implemented entry was committed at 5d6a5a1 and authored at 06:42 UTC the same day as BL-20261110-0642. Both kept their slugs.
+- At that time #80 was a draft stacked on E1-J (#70) at f7251dd.
+- Merge train 1 (BL-20261110-1506-merge-train-1-integration) then merged #70 and put `main`'s tail after both entries.
+
+Decisions:
+1. **The re-stamp.** The two headings' IDs moved to BL-20261113-0856 and BL-20261113-0857, and their date fields to 2026-11-13: the validator requires an ID's date to match the heading's date.
+   - The Implemented entry's two citations of the design's ID, in its Scope and in its References, follow it.
+   - No other text in either entry changed, and nothing else in the repository cited either ID.
+   - The pull request description and the commit messages keep the old IDs.
+2. **The rebase.** #80 is rebased from f7251dd onto `main` at 9d10b9a, and its base is `main`.
+   - The fix, the review fixes and the Implemented entry's commit replayed unchanged (`git range-diff`). The design entry's commit only moved to `main`'s tail.
+   - claims.ts's merge order (E1-J, then E1-J2, then 8.2b) holds: E1-J is on `main`, and 8.2b is not.
+3. **Decision (5) carried out.** The design's decision (5) planned two changes to 7a.1's headings test, tests/unit/private-agent-research-headings.test.ts, at this rebase. Commit a5090f7 makes them:
+   - `claimsPresent` runs `CLAIMS_SECTION_RULE_PY` instead of a typed copy of `section_present`;
+   - the guard "still mirrors claims.ts's rule as written there" asserts that the claims check interpolates that constant, in place of the old `section_present` line.
+
+   The guard's other two mirror lines, the fence and comment strips and `read_text`, are unchanged. The patch is the one checked against #76's heads 18655e5, bd876d9 and 2fe1ec8 before the train.
+4. **What the rebase makes stale in the entries' bodies**, which are not edited:
+   - Both entries' Next gates name "the rebase onto `main` with decision (5)"; that step is now done.
+   - The Implemented entry's "The orchestrator re-stamps the entry IDs at merge" is superseded by decision 1: under the owner's rule, each lane re-stamps its own entries.
+   - The design's owner question still stands: should the check's fence, comment and HTML-tag strips be fixed in one follow-up PR? The proposed default is yes.
+
+Changes:
+- tests/unit/private-agent-research-headings.test.ts, decision (5): one import, `claimsPresent`'s script, and the guard's first assertion.
+- docs/BUILD_LOG.md: the two headings (ID and date), the Implemented entry's two citations of the design, and this entry.
+- No `src/` file changes beyond the rebased fix.
+
+Evidence: On the owner's Mac, at the rebased head with decision (5) and the re-stamp:
+- tests/unit/private-agent-research-headings.test.ts and tests/unit/private-agent-claims.test.ts: 41 passed and 1 skipped. The skip is in `main`'s claims tests. Under `-t "E1-J2"`, the claims file gives 4 passed.
+- Without decision (5)'s change, at the rebased head before a5090f7, run from a scratch copy: the headings file gives 1 failed and 10 passed. The failure is the guard, which still pinned the old `section_present` line.
+- `pnpm exec vitest run -t "E1 recoverability"`: 8 files, 59 tests passed: `main`'s 55 and E1-J2's 4.
+- `pnpm exec vitest run` (the full suite), at a load average of about 18: 3,284 tests, with 3,197 passed, 86 skipped and 1 failed.
+  - The failure is tests/unit/private-agent-sandbox-capture.test.ts, "keeps the first 1,024 regular files in sorted order, counts the rest as cap, and stops at the entry cap with an incomplete report". It reached vitest's 5 s timeout while it ran the lister under python3 over 4,106 files.
+  - This branch changes neither that test nor sandbox.ts. Run alone twice, the file gave 13 passed and 1 skipped each time.
+  - A second full run right after it gave 3,284 tests, with 3,198 passed, 86 skipped and 0 failed (187 files: 174 passed, 13 skipped), in 55.5 s.
+- `pnpm typecheck`, `pnpm validate:readiness` and `pnpm --silent validate:build-log -- --base-ref origin/main` passed.
+
+Failures or blockers: None caused by this branch. The load-dependent lister timeout is recorded under Evidence.
+
+Limitations and non-claims:
+- A record correction plus the test update that the design's decision (5) planned; nothing is verified or released by it.
+- The design's limitations stand. In particular, the check's fence, comment and HTML-tag strips still scale badly on a hostile report.
+- If an entry with a later ID reaches `main` before #80 merges, these three entries are re-stamped again.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's review of the rebased head, CI green, the owner's answer to the design's question, and the merge go-ahead.
+
+References:
+- BL-20261113-0856-claims-trailing-strip-linear-design
+- BL-20261113-0857-claims-trailing-strip-linear-implemented
+- BL-20261110-1506-merge-train-1-integration
+- BL-20261109-0411-judge-cancel-label-design
+- BL-20261109-0444-judge-cancel-label-implemented
+- BL-20261109-0447-research-tolerance-design
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
+
+### BL-20261113-0859-correction-claims-trailing-strip-linear-second-restamp -- 2026-11-13 -- Correction: E1-J2's three entries are re-stamped a second time, after `main`'s new tail BL-20261113-0834-correction-runner-storage-integrity-second-restamp; their original IDs, dates and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: After #80's first re-stamp, #92 and #82 merged into `main`, whose last ID is now BL-20261113-0834-correction-runner-storage-integrity-second-restamp.
+- At this merge of `main` (23dfadc) into #80, E1-J2's three entries move again.
+- They go into the block of minutes the orchestrator gave lane S-e1 for this integration, 0848 to 0909, in the order #88, #84, #75, #80, under the owner's re-stamp rule (BL-20261113-0758, pull request #87).
+- #80's entries are the last of the block.
+
+Each entry, with its original ID, date and authoring time:
+- **The design entry.** Authored at 06:23 UTC on 2026-11-10 as BL-20261110-0623, then first re-stamped as BL-20261113-0821 (with the same slug). It is now BL-20261113-0856-claims-trailing-strip-linear-design.
+- **The Implemented entry.** Authored at 06:42 UTC on 2026-11-10 as BL-20261110-0642, then first re-stamped as BL-20261113-0822 (with the same slug). It is now BL-20261113-0857-claims-trailing-strip-linear-implemented.
+- **The first correction.** Authored at 08:23 UTC on 2026-11-13 as BL-20261113-0823, with the same slug. It is now BL-20261113-0858-correction-claims-trailing-strip-linear-restamp.
+
+Decisions:
+- **What changes.** Only the three headings' ID minutes change, together with the references to those IDs; the dates stay 2026-11-13.
+- **Where the references are:**
+  - in the Implemented entry, its Scope and References citations of the design;
+  - in the first correction, its title, its scope, decision 1 and its References.
+- **Each body is otherwise byte-identical** to #80's at d60aa1f. Nothing outside the log cites these IDs.
+- **How `main` comes in.** `main` is merged into #80, not rebased. `main`'s log is kept whole as a byte prefix of this branch's. The merge conflicted in docs/BUILD_LOG.md only.
+- **The first correction's account** now names the current IDs. Its "rebased from f7251dd onto `main` at 9d10b9a" describes the first rebase only.
+
+Changes: docs/BUILD_LOG.md only: the three headings, their references, and this entry.
+
+Evidence:
+On the owner's Mac, at the merge of `main` 23dfadc into #80, with a load average of about 8 to 11:
+- `pnpm --silent validate:build-log -- --base-ref 23dfadc` exits 0, reporting "SOAR build log valid: 563 entries; append-only against 23dfadc".
+- `pnpm typecheck` passes.
+- tests/unit/private-agent-research-headings.test.ts and tests/unit/private-agent-claims.test.ts: 41 passed, 1 skipped (`main`'s skip).
+- `pnpm exec vitest run -t "E1 recoverability"`: 8 files and 59 tests passed (`main`'s 55 and E1-J2's 4).
+- `pnpm exec vitest run`: 189 files (176 passed, 13 skipped) and 3,354 tests (3,268 passed, 86 skipped, 0 failed), in 48.5 s.
+
+Failures or blockers: None.
+
+Limitations and non-claims:
+- A record correction only. Nothing is implemented, verified or released by it.
+- The design's owner question stands: whether to fix the check's fence, comment and HTML-tag strips in one follow-up PR. So do its practical notes on the identity split.
+- Commit messages and #80's earlier descriptions keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: The orchestrator's integration merge with #88, #84, #75, #89 and #93 on green CI. If `main`'s tail moves again first, the lane re-stamps again.
+
+References:
+- BL-20261113-0856-claims-trailing-strip-linear-design
+- BL-20261113-0857-claims-trailing-strip-linear-implemented
+- BL-20261113-0858-correction-claims-trailing-strip-linear-restamp
+- BL-20261113-0834-correction-runner-storage-integrity-second-restamp
+- BL-20261108-0856-correction-stop-bricking-tasks-design-id (the precedent)
+- BL-20261113-0758 (pull request #87)

@@ -34110,7 +34110,7 @@ Next gate: Review of the pull request (one reviewer), CI, and a merge on the own
 
 References: BL-20261110-1509-host-flags-event-design; BL-20261110-1516-host-flags-event-implemented; BL-20261110-1506-merge-train-1-integration; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261110-0726-correction-research-tolerance-total-loss; BL-20261110-0900-correction-research-tolerance-held-repair; BL-20261113-0758 (pull request #87).
 
-### BL-20261110-1507-runner-storage-integrity-design -- 2026-11-10 -- Backlog item 6 follow-up decided: after a runtime failure the desktop verifies the blobs its records reference, and a missing or mismatched one ends `task_integrity_failed`; a damaged public-source blob no longer breaks the task snapshot; corrections to the 6.1 and 6.2 entries
+### BL-20261113-0817-runner-storage-integrity-design -- 2026-11-13 -- Backlog item 6 follow-up decided: after a runtime failure the desktop verifies the blobs its records reference, and a missing or mismatched one ends `task_integrity_failed`; a damaged public-source blob no longer breaks the task snapshot; corrections to the 6.1 and 6.2 entries
 
 Status: `Proposed`
 
@@ -34218,11 +34218,11 @@ Then review, CI and a merge after #77. If another entry merges first, this entry
 References: BL-20261109-0336-desktop-resume-reasons-design; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0501-research-stage-pause-design; BL-20261109-0607-research-stage-pause-implemented; docs/PROJECT_REVIEW_2026-11-05.md section 5.7 item 6; pull requests #72 and #77.
 
 
-### BL-20261110-1508-runner-storage-integrity-implemented -- 2026-11-10 -- Backlog item 6 follow-up implemented: after a runtime failure the desktop verifies the blobs its records reference and a damaged one ends `task_integrity_failed`; get() fails closed on a damaged public-source blob
+### BL-20261113-0818-runner-storage-integrity-implemented -- 2026-11-13 -- Backlog item 6 follow-up implemented: after a runtime failure the desktop verifies the blobs its records reference and a damaged one ends `task_integrity_failed`; get() fails closed on a damaged public-source blob
 
 Status: `Implemented`
 
-Scope or hypothesis: Implement BL-20261110-1507-runner-storage-integrity-design, with deterministic tests, in branch `fix/6.3-runner-storage-integrity`. The branch is stacked on `fix/6.2-research-stage-pause` at 224429b (pull request #77). Plan ID 6.3, lane S-desk:
+Scope or hypothesis: Implement BL-20261113-0817-runner-storage-integrity-design, with deterministic tests, in branch `fix/6.3-runner-storage-integrity`. The branch is stacked on `fix/6.2-research-stage-pause` at 224429b (pull request #77). Plan ID 6.3, lane S-desk:
 - the design commit 0b36653;
 - the implementation commit cabce26;
 - the code-review corrections f345852.
@@ -34298,15 +34298,15 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: Review and CI on the pull request, merged after #77; the controller.ts merge order is 6.1, 6.2, 6.3, then 7d.C. If another entry merges first, this entry's ID and the design entry's are re-stamped after main's tail with a correction entry.
 
-References: BL-20261110-1507-runner-storage-integrity-design; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0607-research-stage-pause-implemented; pull requests #72 and #77.
+References: BL-20261113-0817-runner-storage-integrity-design; BL-20261109-0459-desktop-resume-reasons-implemented; BL-20261109-0607-research-stage-pause-implemented; pull requests #72 and #77.
 
-### BL-20261113-0804-correction-runner-storage-integrity-ids -- 2026-11-13 -- Correction: plan 6.3's two entries carry IDs BL-20261110-1507 and BL-20261110-1508 in the ledger; they were authored at 07:15 and 08:09 UTC on 2026-11-10 as BL-20261110-0715 and BL-20261110-0809
+### BL-20261113-0819-correction-runner-storage-integrity-ids -- 2026-11-13 -- Correction: plan 6.3's two entries carry IDs BL-20261113-0817 and BL-20261113-0818 in the ledger; they were authored at 07:15 and 08:09 UTC on 2026-11-10 as BL-20261110-0715 and BL-20261110-0809
 
 Status: `Implemented`
 
 Scope or hypothesis: Record why the two entries of plan 6.3 (pull request #82, lane S-desk) do not carry their authoring minutes. They were committed on 2026-11-10, stacked on #77, before merge train 1. Train 1 merged into `main` on 2026-11-13 (#85, 9d10b9a), and `main`'s last ID, BL-20261110-1506-merge-train-1-integration, is later than both. The validator refuses an ID earlier than the one before it. So at this merge of `main`, under the owner's rule recorded in BL-20261113-0758 (pull request #87), their ID minutes move to the first free minutes after the tail:
-- the design entry, authored at 07:15 UTC on 2026-11-10 as BL-20261110-0715, is now BL-20261110-1507-runner-storage-integrity-design;
-- the implemented entry, authored at 08:09 UTC on 2026-11-10 as BL-20261110-0809, is now BL-20261110-1508-runner-storage-integrity-implemented.
+- the design entry, authored at 07:15 UTC on 2026-11-10 as BL-20261110-0715, is now BL-20261113-0817-runner-storage-integrity-design;
+- the implemented entry, authored at 08:09 UTC on 2026-11-10 as BL-20261110-0809, is now BL-20261113-0818-runner-storage-integrity-implemented.
 
 Decisions:
 - Only the two headings' ID minutes and the references to those IDs change. The references are: two in the implemented entry's body, a comment in src/main/general-tasks/storage-integrity.ts, a comment in tests/unit/general-task-controller.test.ts and a describe title in tests/unit/general-task-storage-integrity.test.ts. Each entry's body is otherwise byte-identical to what #82 had at ab08382.
@@ -34326,9 +34326,9 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: The review of #82 checks this re-stamp and its correction, as the owner's rule requires. If another entry with a later ID merges into `main` first, these entries are re-stamped again at #82's merge, with a further correction.
 
-References: BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261110-1506-merge-train-1-integration; BL-20261110-1507-runner-storage-integrity-design; BL-20261110-1508-runner-storage-integrity-implemented; BL-20261113-0758 (pull request #87).
+References: BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261110-1506-merge-train-1-integration; BL-20261113-0817-runner-storage-integrity-design; BL-20261113-0818-runner-storage-integrity-implemented; BL-20261113-0758 (pull request #87).
 
-### BL-20261113-0807-research-stage-pause-held-attempt-pins -- 2026-11-13 -- Backlog item 6 follow-up: the train-1 integration check's items carried by plan 6.3; three session-level pins of a pause or a cancel around 7a.1's held extraction attempt, and wording that no longer reads as if items 7 and 8 lifted the stage limitation
+### BL-20261113-0820-research-stage-pause-held-attempt-pins -- 2026-11-13 -- Backlog item 6 follow-up: the train-1 integration check's items carried by plan 6.3; three session-level pins of a pause or a cancel around 7a.1's held extraction attempt, and wording that no longer reads as if items 7 and 8 lifted the stage limitation
 
 Status: `Implemented`
 
@@ -34361,4 +34361,36 @@ Paid exposure: None. Zero SOAR model requests and zero envelope spend.
 
 Next gate: Review of pull request #82, with its re-stamp.
 
-References: BL-20261109-0501-research-stage-pause-design; BL-20261109-0607-research-stage-pause-implemented; BL-20261110-1507-runner-storage-integrity-design; BL-20261110-0726-correction-research-tolerance-total-loss; BL-20261110-1506-merge-train-1-integration; the train-1 integration check, part f3 and finding X3-2.
+References: BL-20261109-0501-research-stage-pause-design; BL-20261109-0607-research-stage-pause-implemented; BL-20261113-0817-runner-storage-integrity-design; BL-20261110-0726-correction-research-tolerance-total-loss; BL-20261110-1506-merge-train-1-integration; the train-1 integration check, part f3 and finding X3-2.
+
+### BL-20261113-0834-correction-runner-storage-integrity-second-restamp -- 2026-11-13 -- Correction: plan 6.3's four entries are re-stamped a second time, after `main`'s new tail BL-20261113-0816; their original IDs, dates and authoring times
+
+Status: `Implemented`
+
+Scope or hypothesis: #92 (7d.B) merged into `main` first (bb6ef32), and `main`'s last ID is now BL-20261113-0816-correction-host-flags-event-ids-and-replay, dated 2026-11-13. #82's entries followed `main`'s earlier tail, BL-20261110-1506, after their first re-stamp (BL-20261113-0819-correction-runner-storage-integrity-ids). So at this merge of `main` (merge commit ab339aa) they move again, after the new tail. Two of them are dated 2026-11-10, and the validator requires an ID's date to equal its heading's date, so those headings' dates move with the minute. This is the owner's rule as clarified in BL-20261113-0832 (pull request #87): when the tail is on a later day, the date moves with the minute.
+
+Each entry, with its original ID, date and authoring time:
+- **The design entry.** Authored at 07:15 UTC on 2026-11-10 as BL-20261110-0715, and re-stamped on 2026-11-13 as BL-20261110-1507. It is now BL-20261113-0817-runner-storage-integrity-design, with its heading dated 2026-11-13.
+- **The implemented entry.** Authored at 08:09 UTC on 2026-11-10 as BL-20261110-0809, and re-stamped on 2026-11-13 as BL-20261110-1508. It is now BL-20261113-0818-runner-storage-integrity-implemented, with its heading dated 2026-11-13.
+- **The first correction.** Authored at 08:04 UTC on 2026-11-13 as BL-20261113-0804. It is now BL-20261113-0819-correction-runner-storage-integrity-ids.
+- **The carried items' entry.** Authored at 08:07 UTC on 2026-11-13 as BL-20261113-0807. It is now BL-20261113-0820-research-stage-pause-held-attempt-pins.
+
+Decisions:
+- Only the four headings' IDs change (the minute, and for the first two also the date), together with the references to those IDs. Each body is otherwise byte-identical to #82's at 6ffd7aa.
+- The references are in the four entries' bodies, a comment in src/main/general-tasks/storage-integrity.ts, a comment in tests/unit/general-task-controller.test.ts and a describe title in tests/unit/general-task-storage-integrity.test.ts.
+- The first correction keeps its body, so its account of the first re-stamp now names the current IDs. Its statement that `git grep` finds the original IDs only in it held at its own commit; they now also appear here. This entry records the whole history.
+- `main`'s log is kept whole, as a byte prefix of this branch's.
+
+Changes: docs/BUILD_LOG.md (four headings, their references and this entry); the comment and the describe title named above. No behaviour changes.
+
+Evidence: `pnpm --silent validate:build-log -- --base-ref origin/main` passes: append-only against `main` at bb6ef32, with monotonic IDs and dates. `pnpm typecheck` passes. `git grep` finds BL-20261110-1507, BL-20261110-1508, BL-20261113-0804 and BL-20261113-0807 only in this entry.
+
+Failures or blockers: None.
+
+Limitations and non-claims: A record correction only; nothing is implemented, verified or released by it. Commit messages and #82's earlier descriptions keep the IDs they had.
+
+Paid exposure: None. Zero SOAR model requests and zero envelope spend.
+
+Next gate: CI green on #82, then its merge under the owner's standing go-ahead for a log-only re-stamp. #89 re-stamps after it.
+
+References: BL-20261113-0816-correction-host-flags-event-ids-and-replay; BL-20261113-0817-runner-storage-integrity-design; BL-20261113-0818-runner-storage-integrity-implemented; BL-20261113-0819-correction-runner-storage-integrity-ids; BL-20261113-0820-research-stage-pause-held-attempt-pins; BL-20261108-0856-correction-stop-bricking-tasks-design-id; BL-20261113-0758 and BL-20261113-0832 (pull request #87).

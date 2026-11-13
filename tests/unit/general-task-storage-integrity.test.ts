@@ -28,7 +28,7 @@ function storage() {
     failed: (records = events) => storageIntegrityFailed(records, "private", checkpoints, root) };
 }
 
-describe("backlog item 6, plan 6.3: the blobs a private context's records reference (BL-20261110-1507)", () => {
+describe("backlog item 6, plan 6.3: the blobs a private context's records reference (BL-20261113-0817)", () => {
   it("passes intact storage and reads each distinct blob once, writing nothing", () => {
     const s = storage(), before = readdirSync(join(s.root, "checkpoints", "job-1")).sort(), load = vi.spyOn(s.checkpoints, "load");
     // A second checkpoint naming the same blobs adds no read.
